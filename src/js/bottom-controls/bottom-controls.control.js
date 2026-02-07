@@ -17,7 +17,6 @@ import {
     cleanup,
     removeElement
 } from '../utilities/event-cleanup.js';
-import { isCurrentMapLockedSync } from '../store/index.js';
 
 /**
  * Main bottom controls controller.

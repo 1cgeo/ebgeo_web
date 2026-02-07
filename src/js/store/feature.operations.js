@@ -11,6 +11,7 @@ import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
 import { isCurrentMapLockedSync } from './map.operations.js';
 import { logFeatureOperation, OperationType } from './sync/index.js';
+import { runTransaction } from './store-transaction.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -113,30 +114,39 @@ export const addFeature = async (type, feature, mapName = null) => {
         return;
     }
 
-    // Add creation timestamp
     addCreatedTimestamp(cleanedFeature);
 
-    const currentMapData = await getMapData(targetMap);
-    currentMapData.features[type].push(cleanedFeature);
-    await updateMapData(targetMap, currentMapData);
+    await runTransaction(async (tx) => {
+        const currentMapData = await getMapData(targetMap);
+        currentMapData.features[type].push(cleanedFeature);
 
-    // Track ALL colors from the feature
-    const colors = mapManager.getFeatureColors(cleanedFeature);
-    for (const color of colors) {
-        mapManager.updateColorUsage(null, color, targetMap);
-    }
-
-    if (!mapName || mapName === mapManager.getCurrentMapName()) {
-        mapManager.recordAction({
-            type: 'add',
-            featureType: type,
-            feature: JSON.parse(JSON.stringify(cleanedFeature))
+        // Defer color tracking until persistence succeeds
+        const colors = mapManager.getFeatureColors(cleanedFeature);
+        tx.deferSync(() => {
+            for (const color of colors) {
+                mapManager.updateColorUsage(null, color, targetMap);
+            }
         });
-    }
 
-    // Log operation for sync
-    const mapId = mapManager.getCurrentMapId();
-    logFeatureOperation(OperationType.CREATE, cleanedFeature.properties.id, mapId, cleanedFeature);
+        // Defer undo recording
+        if (!mapName || mapName === mapManager.getCurrentMapName()) {
+            tx.deferSync(() => {
+                mapManager.recordAction({
+                    type: 'add',
+                    featureType: type,
+                    feature: JSON.parse(JSON.stringify(cleanedFeature))
+                });
+            });
+        }
+
+        // Defer sync logging
+        tx.deferAsync(() => {
+            const mapId = mapManager.getCurrentMapId();
+            return logFeatureOperation(OperationType.CREATE, cleanedFeature.properties.id, mapId, cleanedFeature);
+        });
+
+        return () => updateMapData(targetMap, currentMapData);
+    });
 };
 
 /**
@@ -163,16 +173,13 @@ export const updateFeature = async (type, feature, mapName = null) => {
 
     if (index !== -1) {
         const oldFeature = currentMapData.features[type][index];
+
+        // Compute color diff before mutation but defer the actual update
         const oldColor = mapManager.getFeatureColor(oldFeature);
-        const newColor = mapManager.getFeatureColor(cleanedFeature);
-        if (oldColor !== newColor) {
-            mapManager.updateColorUsage(oldColor, newColor, targetMap);
-        }
 
         // Preserve user data (images, attributes, descricao) from the stored feature
         // These are managed separately by userDataManager and should not be overwritten
         // by updates from the MapLibre source (which doesn't have these properties)
-        // Check for actual content: oldFeature has data AND newFeature is empty/missing
         const oldImages = oldFeature.properties.images;
         const newImages = cleanedFeature.properties.images;
         if (Array.isArray(oldImages) && oldImages.length > 0 &&
@@ -198,29 +205,43 @@ export const updateFeature = async (type, feature, mapName = null) => {
         if (oldFeature.properties.createdAt) {
             cleanedFeature.properties.createdAt = oldFeature.properties.createdAt;
         }
-        // Preserve current version before incrementing
         if (oldFeature.properties.version !== undefined) {
             cleanedFeature.properties.version = oldFeature.properties.version;
         }
         touchUpdatedTimestamp(cleanedFeature);
 
-        if (JSON.stringify(oldFeature) !== JSON.stringify(cleanedFeature)) {
-            currentMapData.features[type][index] = cleanedFeature;
-            await updateMapData(targetMap, currentMapData);
+        // No actual change — skip persistence and side effects
+        if (JSON.stringify(oldFeature) === JSON.stringify(cleanedFeature)) return;
 
+        await runTransaction(async (tx) => {
+            currentMapData.features[type][index] = cleanedFeature;
+
+            // Defer color tracking until persistence succeeds
+            const newColor = mapManager.getFeatureColor(cleanedFeature);
+            if (oldColor !== newColor) {
+                tx.deferSync(() => mapManager.updateColorUsage(oldColor, newColor, targetMap));
+            }
+
+            // Defer undo recording
             if (!mapName || mapName === mapManager.getCurrentMapName()) {
-                mapManager.recordAction({
-                    type: 'update',
-                    featureType: type,
-                    oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-                    newFeature: JSON.parse(JSON.stringify(cleanedFeature))
+                tx.deferSync(() => {
+                    mapManager.recordAction({
+                        type: 'update',
+                        featureType: type,
+                        oldFeature: JSON.parse(JSON.stringify(oldFeature)),
+                        newFeature: JSON.parse(JSON.stringify(cleanedFeature))
+                    });
                 });
             }
 
-            // Log operation for sync
-            const mapId = mapManager.getCurrentMapId();
-            logFeatureOperation(OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature);
-        }
+            // Defer sync logging
+            tx.deferAsync(() => {
+                const mapId = mapManager.getCurrentMapId();
+                return logFeatureOperation(OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature);
+            });
+
+            return () => updateMapData(targetMap, currentMapData);
+        });
     }
 };
 
@@ -242,14 +263,8 @@ export const removeFeature = async (type, id, mapName = null) => {
 
     if (featureIndex === -1) return;
 
+    // Prepare data mutations before transaction
     const mainFeature = currentMapData.features[type].splice(featureIndex, 1)[0];
-    const color = mapManager.getFeatureColor(mainFeature);
-    if (color) {
-        mapManager.updateColorUsage(color, null, targetMap);
-    }
-
-    deps.groupManager.removeFeatureFromAllGroups(mainFeature.properties.source, id, targetMap);
-
     const processedFeatures = findRelatedProcessedFeatures(type, id, currentMapData);
     const processedType = type === 'los' ? 'processed_los' :
         type === 'visibility' ? 'processed_visibility' : null;
@@ -258,41 +273,41 @@ export const removeFeature = async (type, id, mapName = null) => {
         removeProcessedFeaturesFromData(processedType, processedFeatures, currentMapData);
     }
 
-    await updateMapData(targetMap, currentMapData);
-
-    if (!mapName || mapName === mapManager.getCurrentMapName()) {
-        mapManager.recordAction({
-            type: 'removeWithProcessed',
-            mainFeatureType: type,
-            mainFeature: JSON.parse(JSON.stringify(mainFeature)),
-            processedFeatures: processedFeatures.length > 0 ? {
-                type: processedType,
-                features: JSON.parse(JSON.stringify(processedFeatures))
-            } : null
-        });
-    }
-
-    // Log operation for sync
-    const mapId = mapManager.getCurrentMapId();
-    logFeatureOperation(OperationType.DELETE, id, mapId, null, mainFeature);
-
-    // Robust deletion verification
-    setTimeout(async () => {
-        try {
-            const verifyMapData = await getMapData(targetMap);
-            const stillExists = verifyMapData.features[type].some(f => f.properties.id === id);
-            if (stillExists) {
-                const retryMapData = await getMapData(targetMap);
-                const retryIndex = retryMapData.features[type].findIndex(f => f.properties.id === id);
-                if (retryIndex !== -1) {
-                    retryMapData.features[type].splice(retryIndex, 1);
-                    await updateMapData(targetMap, retryMapData);
-                }
-            }
-        } catch (error) {
-            console.error(`Robust deletion verification failed for ${type} ${id}:`, error);
+    await runTransaction(async (tx) => {
+        // Defer color cleanup
+        const color = mapManager.getFeatureColor(mainFeature);
+        if (color) {
+            tx.deferSync(() => mapManager.updateColorUsage(color, null, targetMap));
         }
-    }, 500);
+
+        // Defer group cleanup (runs after persistence — if persistence fails, groups stay intact)
+        tx.deferSync(() => {
+            deps.groupManager.removeFeatureFromAllGroups(mainFeature.properties.source, id, targetMap);
+        });
+
+        // Defer undo recording
+        if (!mapName || mapName === mapManager.getCurrentMapName()) {
+            tx.deferSync(() => {
+                mapManager.recordAction({
+                    type: 'removeWithProcessed',
+                    mainFeatureType: type,
+                    mainFeature: JSON.parse(JSON.stringify(mainFeature)),
+                    processedFeatures: processedFeatures.length > 0 ? {
+                        type: processedType,
+                        features: JSON.parse(JSON.stringify(processedFeatures))
+                    } : null
+                });
+            });
+        }
+
+        // Defer sync logging
+        tx.deferAsync(() => {
+            const mapId = mapManager.getCurrentMapId();
+            return logFeatureOperation(OperationType.DELETE, id, mapId, null, mainFeature);
+        });
+
+        return () => updateMapData(targetMap, currentMapData);
+    });
 };
 
 /**
@@ -317,14 +332,8 @@ export const removeFeatureFromMap = async (type, id, mapName) => {
     const featureIndex = mapData.features[type].findIndex(f => f.properties.id === id);
     if (featureIndex === -1) return null;
 
+    // Prepare data mutations before transaction
     const mainFeature = mapData.features[type].splice(featureIndex, 1)[0];
-    const color = mapManager.getFeatureColor(mainFeature);
-    if (color) {
-        mapManager.updateColorUsage(color, null, mapName);
-    }
-
-    deps.groupManager.removeFeatureFromAllGroups(mainFeature.properties.source, id, mapName);
-
     const processedFeatures = findRelatedProcessedFeatures(type, id, mapData);
     const processedType = type === 'los' ? 'processed_los' :
         type === 'visibility' ? 'processed_visibility' : null;
@@ -333,15 +342,28 @@ export const removeFeatureFromMap = async (type, id, mapName) => {
         removeProcessedFeaturesFromData(processedType, processedFeatures, mapData);
     }
 
-    await updateMapData(mapName, mapData);
-
-    return {
+    const result = {
         mainFeature,
         processedFeatures: processedFeatures.length > 0 ? {
             type: processedType,
             features: processedFeatures
         } : null
     };
+
+    await runTransaction(async (tx) => {
+        const color = mapManager.getFeatureColor(mainFeature);
+        if (color) {
+            tx.deferSync(() => mapManager.updateColorUsage(color, null, mapName));
+        }
+
+        tx.deferSync(() => {
+            deps.groupManager.removeFeatureFromAllGroups(mainFeature.properties.source, id, mapName);
+        });
+
+        return () => updateMapData(mapName, mapData);
+    });
+
+    return result;
 };
 
 /**
@@ -390,34 +412,48 @@ export const addFeatures = async (featuresMap, mapName = null) => {
         console.warn('Map is locked. Cannot add features.');
         return;
     }
+
     const currentMapData = await getMapData(targetMap);
     const action = { type: 'addMultiple', features: {} };
+
+    // Collect all cleaned features per type for deferred color tracking
+    const colorDeferrals = [];
 
     Object.keys(featuresMap).forEach(type => {
         const features = featuresMap[type] || [];
         if (features.length > 0) {
             const cleanedFeatures = features.map(cleanFeature).filter(Boolean);
-
-            // Add creation timestamps to all features
             cleanedFeatures.forEach(addCreatedTimestamp);
-
             currentMapData.features[type].push(...cleanedFeatures);
             action.features[type] = JSON.parse(JSON.stringify(cleanedFeatures));
 
+            // Collect color updates for deferral
             cleanedFeatures.forEach(feature => {
                 const color = mapManager.getFeatureColor(feature);
                 if (color) {
-                    mapManager.updateColorUsage(null, color, targetMap);
+                    colorDeferrals.push(color);
                 }
             });
         }
     });
 
-    await updateMapData(targetMap, currentMapData);
+    await runTransaction(async (tx) => {
+        // Defer color tracking until persistence succeeds
+        if (colorDeferrals.length > 0) {
+            tx.deferSync(() => {
+                for (const color of colorDeferrals) {
+                    mapManager.updateColorUsage(null, color, targetMap);
+                }
+            });
+        }
 
-    if (Object.keys(action.features).length > 0 && (!mapName || mapName === mapManager.getCurrentMapName())) {
-        mapManager.recordAction(action);
-    }
+        // Defer undo recording
+        if (Object.keys(action.features).length > 0 && (!mapName || mapName === mapManager.getCurrentMapName())) {
+            tx.deferSync(() => mapManager.recordAction(action));
+        }
+
+        return () => updateMapData(targetMap, currentMapData);
+    });
 };
 
 // ===== READ OPERATIONS =====
@@ -473,26 +509,33 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
     // Capture old state for logging
     const oldFeature = JSON.parse(JSON.stringify(feature));
 
+    // Compute color diff before mutation but defer the actual update
     const isColorProperty = ['color', 'fillColor', 'lineColor', 'outlinecolor', 'backgroundColor'].includes(property);
+    let oldColor = null;
     if (isColorProperty) {
-        const oldColor = mapManager.getFeatureColor(feature);
-        feature.properties[property] = value;
-        const newColor = mapManager.getFeatureColor(feature);
-        if (oldColor !== newColor) {
-            mapManager.updateColorUsage(oldColor, newColor, targetMap);
-        }
-    } else {
-        feature.properties[property] = value;
+        oldColor = mapManager.getFeatureColor(feature);
     }
 
-    // Update timestamp
+    feature.properties[property] = value;
     touchUpdatedTimestamp(feature);
 
-    await updateMapData(targetMap, currentMapData);
+    await runTransaction(async (tx) => {
+        // Defer color tracking until persistence succeeds
+        if (isColorProperty) {
+            const newColor = mapManager.getFeatureColor(feature);
+            if (oldColor !== newColor) {
+                tx.deferSync(() => mapManager.updateColorUsage(oldColor, newColor, targetMap));
+            }
+        }
 
-    // Log operation for sync
-    const mapId = mapManager.getCurrentMapId();
-    logFeatureOperation(OperationType.UPDATE, featureId, mapId, feature, oldFeature);
+        // Defer sync logging
+        tx.deferAsync(() => {
+            const mapId = mapManager.getCurrentMapId();
+            return logFeatureOperation(OperationType.UPDATE, featureId, mapId, feature, oldFeature);
+        });
+
+        return () => updateMapData(targetMap, currentMapData);
+    });
 
     return true;
 };
@@ -685,28 +728,34 @@ export const batchUpdateLOSFeatures = async (losFeature, processedFeatures, mapN
     const currentMapData = await getMapData(targetMap);
 
     const losIndex = currentMapData.features.los.findIndex(f => f.properties.id === losFeature.properties.id);
-    if (losIndex !== -1) {
-        const oldFeature = currentMapData.features.los[losIndex];
-        currentMapData.features.los[losIndex] = cleanFeature(losFeature);
+    if (losIndex === -1) return;
 
-        currentMapData.features.processed_los = currentMapData.features.processed_los.filter(f =>
-            f.properties.id !== losFeature.properties.id + '-visible' &&
-            f.properties.id !== losFeature.properties.id + '-obstructed'
-        );
+    const oldFeature = currentMapData.features.los[losIndex];
+    const cleanedLos = cleanFeature(losFeature);
+    currentMapData.features.los[losIndex] = cleanedLos;
 
-        const cleanedProcessed = processedFeatures.map(cleanFeature).filter(Boolean);
-        currentMapData.features.processed_los.push(...cleanedProcessed);
-        await updateMapData(targetMap, currentMapData);
+    currentMapData.features.processed_los = currentMapData.features.processed_los.filter(f =>
+        f.properties.id !== losFeature.properties.id + '-visible' &&
+        f.properties.id !== losFeature.properties.id + '-obstructed'
+    );
 
+    const cleanedProcessed = processedFeatures.map(cleanFeature).filter(Boolean);
+    currentMapData.features.processed_los.push(...cleanedProcessed);
+
+    await runTransaction(async (tx) => {
         if (!mapName || mapName === mapManager.getCurrentMapName()) {
-            mapManager.recordAction({
-                type: 'update',
-                featureType: 'los',
-                oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-                newFeature: JSON.parse(JSON.stringify(cleanFeature(losFeature)))
+            tx.deferSync(() => {
+                mapManager.recordAction({
+                    type: 'update',
+                    featureType: 'los',
+                    oldFeature: JSON.parse(JSON.stringify(oldFeature)),
+                    newFeature: JSON.parse(JSON.stringify(cleanedLos))
+                });
             });
         }
-    }
+
+        return () => updateMapData(targetMap, currentMapData);
+    });
 };
 
 /**
@@ -725,27 +774,33 @@ export const batchUpdateVisibilityFeatures = async (visibilityFeature, processed
     const currentMapData = await getMapData(targetMap);
 
     const visIndex = currentMapData.features.visibility.findIndex(f => f.properties.id === visibilityFeature.properties.id);
-    if (visIndex !== -1) {
-        const oldFeature = currentMapData.features.visibility[visIndex];
-        currentMapData.features.visibility[visIndex] = cleanFeature(visibilityFeature);
+    if (visIndex === -1) return;
 
-        currentMapData.features.processed_visibility = currentMapData.features.processed_visibility.filter(f =>
-            !f.properties.id.startsWith(visibilityFeature.properties.id + '-')
-        );
+    const oldFeature = currentMapData.features.visibility[visIndex];
+    const cleanedVis = cleanFeature(visibilityFeature);
+    currentMapData.features.visibility[visIndex] = cleanedVis;
 
-        const cleanedProcessed = processedFeatures.map(cleanFeature).filter(Boolean);
-        currentMapData.features.processed_visibility.push(...cleanedProcessed);
-        await updateMapData(targetMap, currentMapData);
+    currentMapData.features.processed_visibility = currentMapData.features.processed_visibility.filter(f =>
+        !f.properties.id.startsWith(visibilityFeature.properties.id + '-')
+    );
 
+    const cleanedProcessed = processedFeatures.map(cleanFeature).filter(Boolean);
+    currentMapData.features.processed_visibility.push(...cleanedProcessed);
+
+    await runTransaction(async (tx) => {
         if (!mapName || mapName === mapManager.getCurrentMapName()) {
-            mapManager.recordAction({
-                type: 'update',
-                featureType: 'visibility',
-                oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-                newFeature: JSON.parse(JSON.stringify(cleanFeature(visibilityFeature)))
+            tx.deferSync(() => {
+                mapManager.recordAction({
+                    type: 'update',
+                    featureType: 'visibility',
+                    oldFeature: JSON.parse(JSON.stringify(oldFeature)),
+                    newFeature: JSON.parse(JSON.stringify(cleanedVis))
+                });
             });
         }
-    }
+
+        return () => updateMapData(targetMap, currentMapData);
+    });
 };
 
 // ===== LAYER-FEATURE OPERATIONS =====
@@ -761,6 +816,9 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
     const currentMapData = await getMapData(targetMap);
     let modified = false;
 
+    // Collect group cleanup operations for deferral
+    const groupCleanups = [];
+
     for (const storageType of getAllStorageTypes()) {
         const typeFeatures = currentMapData.features[storageType] || [];
         const initialLength = typeFeatures.length;
@@ -770,7 +828,7 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
             if (featureLayerId === layerId) {
                 const featureId = feature.properties?.id;
                 if (featureId) {
-                    deps.groupManager.removeFeatureFromAllGroups(storageType, featureId, targetMap);
+                    groupCleanups.push({ storageType, featureId });
                 }
                 return false;
             }
@@ -783,7 +841,18 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
     }
 
     if (modified) {
-        await updateMapData(targetMap, currentMapData);
+        await runTransaction(async (tx) => {
+            // Defer group cleanup until persistence succeeds
+            if (groupCleanups.length > 0) {
+                tx.deferSync(() => {
+                    for (const { storageType, featureId } of groupCleanups) {
+                        deps.groupManager.removeFeatureFromAllGroups(storageType, featureId, targetMap);
+                    }
+                });
+            }
+
+            return () => updateMapData(targetMap, currentMapData);
+        });
     }
     return modified;
 };

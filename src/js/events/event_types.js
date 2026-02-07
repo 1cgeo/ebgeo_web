@@ -476,6 +476,31 @@ export const EventTypes = Object.freeze({
      */
     ALL_DATA_CLEARED: 'store:allDataCleared',
 
+    // ===== STORE ERRORS =====
+    /**
+     * Emitted on IndexedDB persistence failure.
+     * Payload: { operation: string, error: string, timestamp: number }
+     * Subscribers: store-error-listener.js (toast)
+     * Emitters: store-transaction.js (runTransaction catch)
+     */
+    STORE_PERSIST_ERROR: 'store:persistError',
+
+    /**
+     * Emitted on sync queue write failure.
+     * Payload: { operation: string, entityId: string, error: string, consecutiveFailures: number }
+     * Subscribers: store-error-listener.js (toast after 3 consecutive failures)
+     * Emitters: operation-dispatcher.js (logOperation, logBatchOperations)
+     */
+    STORE_SYNC_ERROR: 'store:syncError',
+
+    /**
+     * Emitted when an operation is blocked by a locked map.
+     * Payload: { operation: string, mapName: string }
+     * Subscribers: store-error-listener.js (debounced toast)
+     * Emitters: store operations (future: locked-map guards)
+     */
+    STORE_OPERATION_BLOCKED: 'store:operationBlocked',
+
     // ===== BRIEFING EVENTS =====
 
     /**

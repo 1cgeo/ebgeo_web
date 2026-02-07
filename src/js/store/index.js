@@ -41,6 +41,9 @@ export {
     setCesium3dCompat as setCesium3dData
 } from './repositories/index.js';
 
+// Store error conventions and emit helper
+export { StoreErrorEvents, emitStoreError } from './store-errors.js';
+
 // Briefing operations
 export {
     DEFAULT_BRIEFING_SETTINGS,

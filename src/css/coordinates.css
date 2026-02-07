@@ -1,36 +1,7 @@
 /* Path: css/coordinates.css */
 
 /* ===== BASE PANEL STRUCTURE ===== */
-.coordinates-control {
-    position: fixed !important;
-    bottom: 10px !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    z-index: 1000 !important;
-    margin: 0 !important;
-
-    /* Visual styles */
-    background: rgba(255, 255, 255, 0.95) !important;
-    backdrop-filter: blur(8px) !important;
-    border: 1px solid rgba(0, 0, 0, 0.1) !important;
-    border-radius: 6px !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
-    padding: 8px 12px !important;
-
-    /* Typography */
-    font-family: 'Courier New', monospace !important;
-    font-size: 12px !important;
-    color: #333 !important;
-    font-weight: 500 !important;
-    white-space: nowrap !important;
-    user-select: none !important;
-    pointer-events: auto !important;
-
-    /* Layout */
-    display: flex !important;
-    align-items: center !important;
-}
-
+.coordinates-control,
 .coordinates-control-3d {
     position: fixed !important;
     bottom: 10px !important;
@@ -55,10 +26,18 @@
     white-space: nowrap !important;
     user-select: none !important;
     pointer-events: auto !important;
-
-    /* Layout */
     display: flex !important;
     align-items: center !important;
+
+    /* Reset inherited styles from MapLibre control containers */
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    text-align: left !important;
+    line-height: normal !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;
+    text-decoration: none !important;
+    opacity: 1 !important;
+    visibility: visible !important;
 }
 
 /* ===== INTERNAL ELEMENTS ===== */
@@ -124,7 +103,7 @@
 }
 
 .coordinates-elevation-button.active {
-    background-color: var(--primary-color, #508D4E) !important;
+    background-color: var(--primary) !important;
     border-radius: 4px !important;
     opacity: 1 !important;
 }
@@ -222,7 +201,7 @@
 .frame-format-option.active,
 .coordinates-format-option.active {
     background-color: rgba(80, 141, 78, 0.1) !important;
-    color: var(--primary-color, #508D4E) !important;
+    color: var(--primary) !important;
     font-weight: 600 !important;
 }
 
@@ -234,7 +213,7 @@
 }
 
 .toggle-fill-option {
-    color: var(--primary-color, #508D4E);
+    color: var(--primary);
     background-color: #fafafa !important;
     border-top: 1px rgba(0,0,0,0.2) !important;
 }
@@ -361,7 +340,7 @@
 }
 
 .coordinates-modal-button.primary {
-    background-color: var(--primary-color);
+    background-color: var(--primary);
     color: white;
 }
 
@@ -389,19 +368,6 @@
     0% { transform: scale(1); }
     50% { transform: scale(1.1); }
     100% { transform: scale(1); }
-}
-
-.coordinates-control,
-.coordinates-control-3d {
-    /* Transition and inheritance reset */
-    transition: opacity 0.3s ease, transform 0.3s ease;
-    text-align: left !important;
-    line-height: normal !important;
-    letter-spacing: normal !important;
-    text-transform: none !important;
-    text-decoration: none !important;
-    opacity: 1 !important;
-    visibility: visible !important;
 }
 
 @keyframes slideUp {

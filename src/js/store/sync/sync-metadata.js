@@ -13,7 +13,48 @@
  *
  * IMPORTANT: In local-only mode (current), ownerId will be null and dirty
  * will always be true. These fields are prepared for future backend integration.
+ *
+ * SERVER TIME COMPENSATION:
+ * Timestamps use Date.now() locally but support a server time offset
+ * for future synchronization. When a backend is available, call
+ * setServerTimeOffset() with the delta (serverTime - localTime) to
+ * compensate for clock skew between clients.
  */
+
+// ============================================================================
+// SERVER TIME OFFSET
+// ============================================================================
+
+/**
+ * Delta in ms between server time and local time (serverTime - localTime).
+ * Set via setServerTimeOffset() when backend provides its timestamp.
+ * Default 0 means local clock is used as-is.
+ * @type {number}
+ */
+let _serverTimeOffset = 0;
+
+/**
+ * Sets the server time offset for timestamp compensation.
+ * Call this when the backend responds with its current time:
+ *   setServerTimeOffset(serverTimestamp - Date.now())
+ * @param {number} offset - Delta in ms (serverTime - localTime)
+ */
+export function setServerTimeOffset(offset) {
+    _serverTimeOffset = offset;
+}
+
+/**
+ * Returns a timestamp adjusted for server time offset.
+ * While offline (offset = 0), behaves identically to Date.now().
+ * @returns {number} Adjusted timestamp in ms
+ */
+export function getAdjustedTimestamp() {
+    return Date.now() + _serverTimeOffset;
+}
+
+// ============================================================================
+// SYNC METADATA
+// ============================================================================
 
 /**
  * @typedef {Object} SyncMetadata
@@ -23,6 +64,7 @@
  * @property {string|null} ownerId - UUID of owner user (null for local-only)
  * @property {boolean} dirty - True if entity has unsynced changes
  * @property {boolean} deleted - True if entity is soft-deleted
+ * @property {number|null} deletedAt - Unix timestamp (ms) of soft deletion (null if not deleted)
  */
 
 /**
@@ -31,7 +73,7 @@
  * @returns {SyncMetadata} Fresh sync metadata
  */
 export function createSyncMetadata(ownerId = null) {
-    const now = Date.now();
+    const now = getAdjustedTimestamp();
     return {
         createdAt: now,
         updatedAt: now,
@@ -39,6 +81,7 @@ export function createSyncMetadata(ownerId = null) {
         ownerId,
         dirty: true,
         deleted: false,
+        deletedAt: null,
     };
 }
 
@@ -54,7 +97,7 @@ export function touchSyncMetadata(sync) {
     }
     return {
         ...sync,
-        updatedAt: Date.now(),
+        updatedAt: getAdjustedTimestamp(),
         version: sync.version + 1,
         dirty: true,
     };
@@ -82,16 +125,18 @@ export function markSynced(sync) {
  * @returns {SyncMetadata} Updated sync metadata (new object)
  */
 export function markDeleted(sync) {
+    const now = getAdjustedTimestamp();
     if (!sync) {
         const freshSync = createSyncMetadata(null);
-        return { ...freshSync, deleted: true };
+        return { ...freshSync, deleted: true, deletedAt: now };
     }
     return {
         ...sync,
-        updatedAt: Date.now(),
+        updatedAt: now,
         version: sync.version + 1,
         dirty: true,
         deleted: true,
+        deletedAt: now,
     };
 }
 
@@ -106,10 +151,11 @@ export function markRestored(sync) {
     }
     return {
         ...sync,
-        updatedAt: Date.now(),
+        updatedAt: getAdjustedTimestamp(),
         version: sync.version + 1,
         dirty: true,
         deleted: false,
+        deletedAt: null,
     };
 }
 
@@ -145,7 +191,9 @@ export function isValidSyncMetadata(obj) {
         typeof obj.version === 'number' &&
         (obj.ownerId === null || typeof obj.ownerId === 'string') &&
         typeof obj.dirty === 'boolean' &&
-        typeof obj.deleted === 'boolean'
+        typeof obj.deleted === 'boolean' &&
+        // deletedAt is optional for backward compat with existing data
+        (obj.deletedAt === undefined || obj.deletedAt === null || typeof obj.deletedAt === 'number')
     );
 }
 

@@ -572,28 +572,4 @@ export function createGroupManager(eventBus) {
  */
 export const groupManagerHolder = { instance: null };
 
-/**
- * Proxy for backward compatibility with default import.
- * Delegates all property access/calls to the initialized instance.
- * @type {GroupManager}
- */
-const groupManagerProxy = new Proxy({}, {
-    get(target, prop) {
-        if (!groupManagerHolder.instance) {
-            throw new Error('GroupManager not initialized. Ensure initServices() is called first.');
-        }
-        const value = groupManagerHolder.instance[prop];
-        // Bind methods to the instance
-        return typeof value === 'function' ? value.bind(groupManagerHolder.instance) : value;
-    },
-    set(target, prop, value) {
-        if (!groupManagerHolder.instance) {
-            throw new Error('GroupManager not initialized. Ensure initServices() is called first.');
-        }
-        groupManagerHolder.instance[prop] = value;
-        return true;
-    }
-});
-
-export default groupManagerProxy;
 export { GroupManager };

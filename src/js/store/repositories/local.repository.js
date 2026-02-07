@@ -16,6 +16,8 @@
 import localforage from 'localforage';
 import { touchSyncMetadata, createSyncMetadata } from '../sync/sync-metadata.js';
 import { createAtlas, isValidAtlas } from '../atlas/atlas.entity.js';
+import { mapResolver } from '../services/map-resolver.service.js';
+import { isValidUUID } from '../../utilities/uuid.js';
 
 // ===== LOCALFORAGE INSTANCES =====
 
@@ -207,51 +209,74 @@ export class LocalRepository {
     // ===== KEY RESOLUTION =====
 
     /**
-     * Resolves a map key by trying direct lookup first, then searching by name.
+     * Resolves a map key by trying cache first, then direct lookup, then scanning.
+     * O(1) when resolver cache is populated; falls back to O(N) scan on miss.
      * @private
      * @param {string} mapIdOrName - Map ID or name
      * @returns {Promise<string>} Resolved map key
      */
     async _resolveMapKey(mapIdOrName) {
-        // Try direct lookup in maps
+        // Fast path: UUID goes straight to IndexedDB (most common in v2.0+)
+        if (isValidUUID(mapIdOrName)) {
+            return mapIdOrName;
+        }
+
+        // Fast path: use resolver cache for name → ID
+        if (mapResolver.isInitialized) {
+            const resolvedId = mapResolver.resolveToId(mapIdOrName);
+            if (resolvedId !== mapIdOrName) {
+                return resolvedId;
+            }
+        }
+
+        // Direct lookup (handles legacy name-as-key data)
         const directMap = await mapStore.getItem(mapIdOrName);
         if (directMap) return mapIdOrName;
 
-        // Search for a map with matching name
+        // Slow path: full scan (populates resolver on hit for future O(1) lookups)
         const keys = await mapStore.keys();
         for (const key of keys) {
             const mapData = await mapStore.getItem(key);
             if (mapData && mapData.name === mapIdOrName) {
-                return key; // Return the actual key (ID)
+                mapResolver.registerMap(mapIdOrName, key);
+                return key;
             }
         }
 
-        // Return original as fallback
         return mapIdOrName;
     }
 
     // ===== MAP OPERATIONS =====
 
     /**
-     * Gets a map by ID or name (with fallback).
-     * Tries the provided key first, then falls back to searching all maps.
+     * Gets a map by ID or name.
+     * Uses resolver cache for O(1) name resolution; falls back to scan on miss.
      * @param {string} mapIdOrName - Map ID or name
      * @returns {Promise<Object|null>}
      */
     async getMap(mapIdOrName) {
-        // Try direct lookup first
+        // Direct lookup (works for UUID keys and legacy name keys)
         const directResult = await mapStore.getItem(mapIdOrName);
         if (directResult) return directResult;
 
-        // Fallback: search all maps for matching ID or name
+        // Fast path: resolve name → ID via cache
+        if (mapResolver.isInitialized) {
+            const resolvedId = mapResolver.resolveToId(mapIdOrName);
+            if (resolvedId !== mapIdOrName) {
+                const cachedResult = await mapStore.getItem(resolvedId);
+                if (cachedResult) return cachedResult;
+            }
+        }
+
+        // Slow path: full scan (populates resolver on hit)
         const keys = await mapStore.keys();
         for (const key of keys) {
             const mapData = await mapStore.getItem(key);
-            if (mapData) {
-                // Check if the stored map's name or id matches what we're looking for
-                if (mapData.name === mapIdOrName || mapData.id === mapIdOrName) {
-                    return mapData;
+            if (mapData && (mapData.name === mapIdOrName || mapData.id === mapIdOrName)) {
+                if (mapData.name) {
+                    mapResolver.registerMap(mapData.name, key);
                 }
+                return mapData;
             }
         }
 

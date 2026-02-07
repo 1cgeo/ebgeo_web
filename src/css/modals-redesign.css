@@ -677,8 +677,6 @@
     border-color: var(--primary-600, #166534);
 }
 
-/* Mobile prompt modal styles removed - to be redesigned */
-
 /* =========================================================================
    CONFIRM MODAL
    ========================================================================= */
@@ -752,14 +750,14 @@
 
 /* Destructive variant (for delete actions) */
 .confirm-modal-btn-destructive {
-    background: var(--danger, #dc2626);
-    border: 1px solid var(--danger, #dc2626);
+    background: var(--color-error, #dc2626);
+    border: 1px solid var(--color-error, #dc2626);
     color: white;
 }
 
 .confirm-modal-btn-destructive:hover {
-    background: var(--danger-600, #b91c1c);
-    border-color: var(--danger-600, #b91c1c);
+    background: #b91c1c;
+    border-color: #b91c1c;
 }
 
 /* Focus states for accessibility */
@@ -769,7 +767,7 @@
 }
 
 .confirm-modal-btn-destructive:focus {
-    outline-color: var(--danger, #dc2626);
+    outline-color: var(--color-error, #dc2626);
 }
 
 /* Responsive adjustments */

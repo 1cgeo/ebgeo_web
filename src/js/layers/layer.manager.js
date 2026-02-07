@@ -6,9 +6,12 @@ import {
     getLayersRepo,
     setActiveLayerIdRepo,
     getActiveLayerIdRepo,
-    getDefaultLayer
+    getDefaultLayer,
+    StoreErrorEvents,
+    emitStoreError
 } from '../store';
 import { IDUtils } from '../utilities';
+import { DebouncedPersist } from '../utilities/debounced-persist.js';
 import { EventTypes } from '../events';
 import { logLayerOperation, OperationType } from '../store/sync/index.js';
 
@@ -26,6 +29,28 @@ class LayerManager {
     constructor(eventBus) {
         this.memoryStore = memoryStore;
         this._eventBus = eventBus;
+
+        /** @type {DebouncedPersist} Debounced persistence for layers array */
+        this._layersPersist = new DebouncedPersist({
+            delay: 300,
+            maxRetries: 3,
+            onError: (key, error) => emitStoreError(StoreErrorEvents.STORE_PERSIST_ERROR, {
+                operation: `persist layers [${key}]`,
+                error: error.message || String(error),
+                timestamp: Date.now()
+            })
+        });
+
+        /** @type {DebouncedPersist} Debounced persistence for active layer ID */
+        this._activeLayerPersist = new DebouncedPersist({
+            delay: 300,
+            maxRetries: 3,
+            onError: (key, error) => emitStoreError(StoreErrorEvents.STORE_PERSIST_ERROR, {
+                operation: `persist active layer [${key}]`,
+                error: error.message || String(error),
+                timestamp: Date.now()
+            })
+        });
     }
 
     // ===== SYNCHRONOUS READ OPERATIONS =====
@@ -436,6 +461,10 @@ class LayerManager {
      */
     async loadLayersToMemory(mapName) {
         try {
+            // Flush any pending debounced writes before reading from IndexedDB
+            await this._layersPersist.flush(mapName);
+            await this._activeLayerPersist.flush(mapName);
+
             const layersArray = await getLayersRepo(mapName);
             const activeId = await getActiveLayerIdRepo(mapName);
 
@@ -515,6 +544,10 @@ class LayerManager {
      * @param {string} mapName - Map name
      */
     async clearMapLayers(mapName) {
+        // Cancel pending debounced writes (would re-write deleted layers)
+        this._layersPersist.cancel(mapName);
+        this._activeLayerPersist.cancel(mapName);
+
         try {
             await setLayersRepo(mapName, []);
 
@@ -530,6 +563,10 @@ class LayerManager {
      * Clear the in-memory cache for layers
      */
     clearLayersCache() {
+        // Cancel all pending debounced writes — clean slate
+        this._layersPersist.cancelAll();
+        this._activeLayerPersist.cancelAll();
+
         this.memoryStore.layers = {};
         this.memoryStore.activeLayerId = 'default';
     }
@@ -575,33 +612,27 @@ class LayerManager {
     }
 
     /**
-     * Persist layers to IndexedDB in background
+     * Persist layers to IndexedDB via debounced write with retry.
+     * Multiple rapid calls for the same map coalesce into a single IndexedDB write.
      * @private
      */
     _persistLayersAsync(mapName) {
-        setTimeout(async () => {
-            try {
-                const layersMap = this.memoryStore.layers[mapName];
-                const layersArray = Array.from(layersMap.values());
-                await setLayersRepo(mapName, layersArray);
-            } catch (error) {
-                console.error(`Error persisting layers for map ${mapName}:`, error);
-            }
-        }, 0);
+        this._layersPersist.schedule(mapName, async () => {
+            const layersMap = this.memoryStore.layers[mapName];
+            if (!layersMap) return;
+            const layersArray = Array.from(layersMap.values());
+            await setLayersRepo(mapName, layersArray);
+        });
     }
 
     /**
-     * Persist active layer ID to IndexedDB in background
+     * Persist active layer ID to IndexedDB via debounced write with retry.
      * @private
      */
     _persistActiveLayerAsync(mapName) {
-        setTimeout(async () => {
-            try {
-                await setActiveLayerIdRepo(mapName, this.memoryStore.activeLayerId);
-            } catch (error) {
-                console.error(`Error persisting active layer:`, error);
-            }
-        }, 0);
+        this._activeLayerPersist.schedule(mapName, async () => {
+            await setActiveLayerIdRepo(mapName, this.memoryStore.activeLayerId);
+        });
     }
 }
 
@@ -621,28 +652,4 @@ export function createLayerManager(eventBus) {
  */
 export const layerManagerHolder = { instance: null };
 
-/**
- * Proxy for backward compatibility with default import.
- * Delegates all property access/calls to the initialized instance.
- * @type {LayerManager}
- */
-const layerManagerProxy = new Proxy({}, {
-    get(target, prop) {
-        if (!layerManagerHolder.instance) {
-            throw new Error('LayerManager not initialized. Ensure initServices() is called first.');
-        }
-        const value = layerManagerHolder.instance[prop];
-        // Bind methods to the instance
-        return typeof value === 'function' ? value.bind(layerManagerHolder.instance) : value;
-    },
-    set(target, prop, value) {
-        if (!layerManagerHolder.instance) {
-            throw new Error('LayerManager not initialized. Ensure initServices() is called first.');
-        }
-        layerManagerHolder.instance[prop] = value;
-        return true;
-    }
-});
-
-export default layerManagerProxy;
 export { LayerManager };

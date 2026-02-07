@@ -24,4 +24,5 @@ function initializeAppConfig() {
     }
 }
 
-initializeAppConfig();
+// Exported for explicit initialization in index.js
+export { initializeAppConfig };

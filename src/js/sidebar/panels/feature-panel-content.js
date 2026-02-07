@@ -13,7 +13,7 @@ import { createPhotoGallery } from '../components/feature-photo-gallery.js';
 import { createFeatureTabs } from '../components/feature-tabs.js';
 import { createLocationSection } from '../components/feature-location-section.js';
 import { createGroupTypeSelector } from '../components/group-type-selector.js';
-import { isCurrentMapLockedSync } from '../../store';
+import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo } from '../../store';
 
 // ============================================================================
 // CONSTANTS
@@ -84,7 +84,7 @@ function createDeleteSection({ isSingleSelection, featureCount, selectionManager
     deleteButton.onclick = async () => {
         const confirmed = await showConfirm(confirmTitle, { destructive: true });
         if (confirmed) {
-            selectionManager?.deleteSelectedFeatures();
+            await selectionManager?.deleteSelectedFeatures();
         }
     };
 
@@ -102,11 +102,20 @@ function createDeleteSection({ isSingleSelection, featureCount, selectionManager
  */
 function createGlobalButtons({ editedTypesState, selectionManager }) {
     const saveAllEditedTypes = async () => {
-        for (const [_type, state] of editedTypesState) {
-            const { control, features, initialPropertiesMap } = state;
-            if (control && typeof control.saveFeatures === 'function') {
-                await control.saveFeatures(features, initialPropertiesMap);
+        // Batch all saves so they produce a single undo entry
+        const needsBatch = editedTypesState.size > 1;
+        if (needsBatch) startBatchUndo();
+        try {
+            for (const [_type, state] of editedTypesState) {
+                const { control, features, initialPropertiesMap } = state;
+                if (control && typeof control.saveFeatures === 'function') {
+                    await control.saveFeatures(features, initialPropertiesMap);
+                }
             }
+            if (needsBatch) commitBatchUndo();
+        } catch (error) {
+            if (needsBatch) discardBatchUndo();
+            console.error('Error during batch save:', error);
         }
     };
 
@@ -131,7 +140,8 @@ function createGlobalButtons({ editedTypesState, selectionManager }) {
     globalSaveButton.type = 'button';
     globalSaveButton.addEventListener('click', async () => {
         await saveAllEditedTypes();
-        selectionManager?.deselectAllFeatures();
+        // skipSave: saveAllEditedTypes() already persisted — avoid double undo entry
+        selectionManager?.deselectAllFeatures({ skipSave: true });
     });
     globalButtonsRow.appendChild(globalSaveButton);
 
@@ -141,7 +151,8 @@ function createGlobalButtons({ editedTypesState, selectionManager }) {
     globalDiscardButton.type = 'button';
     globalDiscardButton.addEventListener('click', async () => {
         await discardAllEditedTypes();
-        selectionManager?.deselectAllFeatures();
+        // skipSave: discard reverted changes — nothing to save
+        selectionManager?.deselectAllFeatures({ skipSave: true });
     });
     globalButtonsRow.appendChild(globalDiscardButton);
 

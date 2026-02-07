@@ -12,22 +12,24 @@
 .chips-container {
     position: fixed;
     top: calc(var(--space-3) + var(--search-bar-height) + var(--space-1));
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
     z-index: var(--z-search);
     display: flex;
     gap: var(--space-2);
     width: var(--search-bar-width);
-    transition: left var(--transition-panel);
+    transition: transform var(--transition-panel);
+    will-change: transform;
 }
 
 /* Position when sidebar collapsed (default) */
 .chips-container[data-sidebar-state="collapsed"],
 .chips-container:not([data-sidebar-state]) {
-    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
+    transform: translateX(0);
 }
 
 /* Position when sidebar expanded */
 .chips-container[data-sidebar-state="expanded"] {
-    left: calc(var(--sidebar-collapsed-width) + var(--sidebar-panel-width) + var(--space-5));
+    transform: translateX(calc(var(--sidebar-panel-width) + var(--space-1)));
 }
 
 /* =========================================================================
@@ -111,7 +113,7 @@
 
     /* Adjust position for tablet sidebar */
     .chips-container[data-sidebar-state="expanded"] {
-        left: calc(var(--sidebar-collapsed-width) + var(--sidebar-panel-width-tablet, 340px) + var(--space-4));
+        transform: translateX(var(--sidebar-panel-width-tablet, 340px));
     }
 
     /* Icon-only chips when search bar narrows */
@@ -135,19 +137,14 @@
 
 /* Small tablet breakpoint */
 @media (width <= 768px) {
-    /* Smaller gap */
+    /* Smaller gap + position closer to sidebar */
     .chips-container {
         gap: var(--space-1);
-    }
-
-    /* Position closer to sidebar */
-    .chips-container[data-sidebar-state="collapsed"],
-    .chips-container:not([data-sidebar-state]) {
         left: calc(var(--sidebar-collapsed-width) + var(--space-3));
     }
 
     .chips-container[data-sidebar-state="expanded"] {
-        left: calc(var(--sidebar-collapsed-width) + min(100vw - var(--sidebar-collapsed-width), 400px) + var(--space-3));
+        transform: translateX(min(100vw - var(--sidebar-collapsed-width), 400px));
     }
 }
 

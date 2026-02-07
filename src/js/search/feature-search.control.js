@@ -1,6 +1,6 @@
 // Path: js/search/feature-search.control.js
 import config from '../config.js';
-import { showError } from '../utilities';
+import { showError, escapeHtml } from '../utilities';
 import { getControl } from '../store';
 
 // Maximum number of 3D model results to display
@@ -260,10 +260,10 @@ class FeatureSearchControl {
             <path d="M2 17l10 5 10-5"/>
             <path d="M2 12l10 5 10-5"/>
           </svg>
-          <span><strong>Modelo 3D:</strong> ${suggestion.nome}</span>
+          <span><strong>Modelo 3D:</strong> ${escapeHtml(suggestion.nome)}</span>
         `;
       } else {
-        li.innerHTML = `<strong>${suggestion.tipo}:</strong> ${suggestion.nome} (${suggestion.municipio}, ${suggestion.estado})`;
+        li.innerHTML = `<strong>${escapeHtml(suggestion.tipo)}:</strong> ${escapeHtml(suggestion.nome)} (${escapeHtml(suggestion.municipio)}, ${escapeHtml(suggestion.estado)})`;
       }
 
       li.addEventListener('pointerdown', (e) => {

@@ -12,7 +12,7 @@
     overflow: visible;
 }
 
-/* ===== LAYER STYLES - Design flat como modelos 3D ===== */
+/* ===== LAYER STYLES ===== */
 
 .new-layer-btn {
     width: 100%;
@@ -28,12 +28,11 @@
 }
 
 .new-layer-btn:hover {
-    border-color: var(--primary-color);
-    color: var(--primary-color);
+    border-color: var(--primary);
+    color: var(--primary);
     background-color: rgba(80, 141, 78, 0.05);
 }
 
-/* Container de cada layer - design flat sem bordas */
 .layer-container {
     background: white;
     border-radius: 6px;
@@ -48,7 +47,6 @@
     background-color: #fffbf0;
 }
 
-/* Layer header - estilo flat similar ao models3d */
 .layer-header {
     display: flex;
     align-items: center;
@@ -65,7 +63,7 @@
 }
 
 .layer-header.active {
-    border-left: 3px solid var(--primary-color);
+    border-left: 3px solid var(--primary);
     padding-left: 9px;
     background: transparent;
 }
@@ -116,7 +114,7 @@
 }
 
 .layer-active-indicator {
-    color: var(--primary-color);
+    color: var(--primary);
     font-size: 12px;
 }
 
@@ -151,7 +149,7 @@
 }
 
 .layer-controls button:hover {
-    color: var(--primary-color);
+    color: var(--primary);
     background: #f0f0f0;
 }
 
@@ -169,7 +167,6 @@
     color: #dc3545 !important;
 }
 
-/* Layer content - design flat */
 .layer-content {
     display: flex;
     flex-direction: column;
@@ -185,7 +182,7 @@
 }
 
 .layer-name-input {
-    border: 1px solid var(--primary-color);
+    border: 1px solid var(--primary);
     border-radius: 3px;
     padding: 2px 6px;
     font-size: 14px;
@@ -194,9 +191,7 @@
     max-width: 150px;
 }
 
-/* ===== GROUP STYLES - Design flat ===== */
-
-/* Group container - design flat sem bordas */
+/* ===== GROUP STYLES ===== */
 .group-container {
     background: transparent;
     overflow: hidden;
@@ -206,7 +201,6 @@
     margin: 0;
 }
 
-/* Group header - estilo flat */
 .group-header {
     display: flex;
     align-items: center;
@@ -308,7 +302,7 @@
 
 .group-controls button:hover {
     background: #f0f0f0;
-    color: var(--primary-color);
+    color: var(--primary);
 }
 
 .group-controls .lock-toggle svg {
@@ -328,7 +322,6 @@
     max-height: 1000px;
 }
 
-/* Group feature item - design flat com linha cinza como models3d */
 .group-feature-item {
     display: flex;
     align-items: center;
@@ -342,7 +335,7 @@
 
 .group-feature-item:hover {
     background: #f8f9fa;
-    border-left-color: var(--primary-color);
+    border-left-color: var(--primary);
 }
 
 .group-feature-item.feature-hidden {
@@ -361,7 +354,7 @@
     width: 14px;
     height: 14px;
     margin-right: 8px;
-    color: var(--primary-color);
+    color: var(--primary);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -376,9 +369,7 @@
     text-overflow: ellipsis;
 }
 
-/* ===== FEATURE ITEM STYLES - Design flat ===== */
-
-/* Feature item - design flat com linha cinza como models3d */
+/* ===== FEATURE ITEM STYLES ===== */
 .feature-item {
     display: flex;
     align-items: center;
@@ -392,7 +383,7 @@
 
 .feature-item:hover {
     background: #f8f9fa;
-    border-left-color: var(--primary-color);
+    border-left-color: var(--primary);
 }
 
 .feature-main {
@@ -407,7 +398,7 @@
     width: 14px;
     height: 14px;
     margin-right: 8px;
-    color: var(--primary-color);
+    color: var(--primary);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -451,7 +442,7 @@
 .lock-toggle:hover,
 .table-toggle:hover {
     background: #f0f0f0;
-    color: var(--primary-color);
+    color: var(--primary);
 }
 
 .visibility-toggle svg,
@@ -467,10 +458,9 @@
 .visibility-toggle:hover svg,
 .lock-toggle:hover svg,
 .table-toggle:hover svg {
-    color: var(--primary-color);
+    color: var(--primary);
 }
 
-/* ----- Feature States ----- */
 .feature-item.feature-hidden {
     opacity: 0.5;
 }
@@ -500,17 +490,16 @@
     color: #c82333;
 }
 
-/* ----- Accessibility ----- */
 .visibility-toggle:focus,
 .lock-toggle:focus,
 .feature-name:focus {
-    outline: 2px solid var(--primary-color);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
 .visibility-toggle:focus svg,
 .lock-toggle:focus svg {
-    color: var(--primary-color);
+    color: var(--primary);
 }
 
 /* ===== SCALE SELECTOR ===== */
@@ -551,14 +540,14 @@
 }
 
 .scale-select:hover {
-    border-color: var(--primary-color);
+    border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.1);
     background-color: #f8f9fa;
 }
 
 .scale-select:focus {
     outline: none;
-    border-color: var(--primary-color);
+    border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.15);
     background-color: white;
 }
@@ -576,7 +565,7 @@
 }
 
 .scale-select:focus-visible {
-    outline: 2px solid var(--primary-color);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
@@ -590,7 +579,7 @@
 .legend-panel {
     margin-left: 24px;
     padding: 8px 12px;
-    border-left: 2px solid var(--primary-color);
+    border-left: 2px solid var(--primary);
     background: #fafafa;
 }
 
@@ -631,9 +620,9 @@
 }
 
 .catalog-layer-legend:hover {
-    color: var(--primary-color);
+    color: var(--primary);
 }
 
 .catalog-layer-item.legend-expanded .catalog-layer-legend {
-    color: var(--primary-color);
+    color: var(--primary);
 }

@@ -10,7 +10,7 @@ import {
     getFeatureById,
     getFeatureIconFromStorage,
 } from '../store';
-import { FeatureNavigationUtils } from '../utilities';
+import { FeatureNavigationUtils, escapeHtml } from '../utilities';
 
 /**
  * @typedef {Object} FeatureItemCallbacks
@@ -47,7 +47,7 @@ export function createFeatureItem(feature, callbacks) {
     item.innerHTML = `
         <div class="feature-main">
             <img class="feature-type-icon" src="${typeIconPath}" alt="${typeIconAlt}" />
-            <div class="feature-name">${feature.name}</div>
+            <div class="feature-name">${escapeHtml(feature.name)}</div>
         </div>
         <div class="feature-controls">
             <button class="visibility-toggle" title="${visibilityTitle}">

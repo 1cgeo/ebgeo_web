@@ -514,15 +514,6 @@ class MapControl {
             this.showMapNotes(mapData.name);
         });
 
-        const moreInfo = document.createElement('button');
-        moreInfo.className = 'more-info-icon';
-        moreInfo.innerHTML = `<img src="./images/icon_more_info.svg" alt="Mais opções" />`;
-        moreInfo.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            this.mapManager.toggleDropdown(moreInfo, mapData.name);
-        });
-
         const dragHandle = document.createElement('div');
         dragHandle.className = 'map-drag-handle';
         dragHandle.innerHTML = '☰';
@@ -531,7 +522,6 @@ class MapControl {
         listItem.appendChild(dragHandle);
         listItem.appendChild(itemContent);
         listItem.appendChild(notesButton);
-        listItem.appendChild(moreInfo);
 
         return listItem;
     }
@@ -626,8 +616,6 @@ class MapControl {
 
     onRemove() {
         this.destroy();
-
-        this.mapManager.closeAllDropdowns(false);
 
         if (this.reopenButton && this.reopenButton.parentNode) {
             this.reopenButton.parentNode.removeChild(this.reopenButton);

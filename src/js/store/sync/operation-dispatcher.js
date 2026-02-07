@@ -9,6 +9,7 @@
 import { createOperation, createBatchOperations } from './operation-factory.js';
 import { operationQueue } from './operation-queue.js';
 import { EntityType, OperationType } from './operation-types.js';
+import { StoreErrorEvents, emitStoreError } from '../store-errors.js';
 
 /**
  * Whether operation logging is enabled.
@@ -16,6 +17,17 @@ import { EntityType, OperationType } from './operation-types.js';
  * @type {boolean}
  */
 let enabled = false;
+
+// ===== RETRY / CIRCUIT BREAKER STATE =====
+
+/** Consecutive sync failures (reset on success) */
+let consecutiveFailures = 0;
+
+/** Stop retrying after this many consecutive failures */
+const MAX_CONSECUTIVE_FAILURES = 5;
+
+/** Delay before retry attempt (ms) */
+const RETRY_DELAY_MS = 2000;
 
 /**
  * Enables operation logging.
@@ -56,8 +68,30 @@ export async function logOperation(entityType, operationType, entityId, mapId, d
     try {
         const operation = createOperation(entityType, operationType, entityId, mapId, data, previousData);
         await operationQueue.enqueue(operation);
+        consecutiveFailures = 0;
     } catch (error) {
+        consecutiveFailures++;
         console.warn('Failed to log operation:', error);
+
+        emitStoreError(StoreErrorEvents.STORE_SYNC_ERROR, {
+            operation: `${operationType} ${entityType}`,
+            entityId,
+            error: error.message || String(error),
+            consecutiveFailures
+        });
+
+        // Non-blocking retry once (unless circuit breaker tripped)
+        if (consecutiveFailures <= MAX_CONSECUTIVE_FAILURES) {
+            setTimeout(async () => {
+                try {
+                    const retryOp = createOperation(entityType, operationType, entityId, mapId, data, previousData);
+                    await operationQueue.enqueue(retryOp);
+                    consecutiveFailures = 0;
+                } catch (retryError) {
+                    console.error('Sync retry also failed:', retryError);
+                }
+            }, RETRY_DELAY_MS);
+        }
     }
 }
 
@@ -73,8 +107,30 @@ export async function logBatchOperations(operations) {
     try {
         const created = createBatchOperations(operations);
         await operationQueue.enqueueAll(created);
+        consecutiveFailures = 0;
     } catch (error) {
+        consecutiveFailures++;
         console.warn('Failed to log batch operations:', error);
+
+        emitStoreError(StoreErrorEvents.STORE_SYNC_ERROR, {
+            operation: `batch (${operations.length} ops)`,
+            entityId: null,
+            error: error.message || String(error),
+            consecutiveFailures
+        });
+
+        // Non-blocking retry once
+        if (consecutiveFailures <= MAX_CONSECUTIVE_FAILURES) {
+            setTimeout(async () => {
+                try {
+                    const retryCreated = createBatchOperations(operations);
+                    await operationQueue.enqueueAll(retryCreated);
+                    consecutiveFailures = 0;
+                } catch (retryError) {
+                    console.error('Sync batch retry also failed:', retryError);
+                }
+            }, RETRY_DELAY_MS);
+        }
     }
 }
 

@@ -50,14 +50,14 @@
 
 .orientation-selector label:hover {
     background: rgba(80, 141, 78, 0.1);
-    color: var(--primary-color);
+    color: var(--primary);
 }
 
 .orientation-selector input[type="radio"] {
     width: 16px;
     height: 16px;
     margin: 0;
-    accent-color: var(--primary-color);
+    accent-color: var(--primary);
     cursor: pointer;
 }
 
@@ -81,7 +81,7 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    background-color: var(--primary-color);
+    background-color: var(--primary);
     color: white;
 }
 
@@ -126,11 +126,6 @@
     flex-shrink: 0;
 }
 
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
 /* ===== STATES AND ANIMATIONS ===== */
 .pdf-export-container.loading {
     pointer-events: none;
@@ -150,12 +145,12 @@
 /* ===== ACCESSIBILITY ===== */
 .orientation-selector label:focus-within,
 .export-pdf-btn:focus {
-    outline: 2px solid var(--primary-color);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
 .orientation-selector input[type="radio"]:focus {
-    outline: 2px solid var(--primary-color);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 

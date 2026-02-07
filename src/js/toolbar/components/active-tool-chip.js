@@ -162,11 +162,7 @@ export class ActiveToolChip {
         if (!this._unsubscribers) this._unsubscribers = [];
         this._unsubscribers.push(unsubscribe);
 
-        // Subscribe to sidebar state for positioning
-        subscribe(this, this._eventBus, EventTypes.SIDEBAR_EXPANDED, () => this._updatePosition());
-        subscribe(this, this._eventBus, EventTypes.SIDEBAR_COLLAPSED, () => this._updatePosition());
-        subscribe(this, this._eventBus, EventTypes.FEATURE_PANEL_OPENED, () => this._updatePosition());
-        subscribe(this, this._eventBus, EventTypes.FEATURE_PANEL_CLOSED, () => this._updatePosition());
+        // UI_LAYOUT_CHANGED covers all sidebar/panel state changes
         subscribe(this, this._eventBus, EventTypes.UI_LAYOUT_CHANGED, () => this._updatePosition());
     }
 
@@ -258,8 +254,8 @@ export class ActiveToolChip {
     _updatePosition() {
         if (!this._container) return;
 
-        const sidebarExpanded = this._stateManager?.get('sidebar.expanded') || false;
-        const featurePanelOpen = this._stateManager?.get('ui.featurePanelOpen') || false;
+        const sidebarExpanded = this._stateManager?.getUnsafe('sidebar.expanded') || false;
+        const featurePanelOpen = this._stateManager?.getUnsafe('ui.featurePanelOpen') || false;
 
         this._container.dataset.sidebarState =
             (sidebarExpanded || featurePanelOpen) ? 'expanded' : 'collapsed';

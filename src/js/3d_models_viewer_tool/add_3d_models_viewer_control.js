@@ -116,6 +116,9 @@ class Add3DModelsViewerControl {
         this.handlePopupClose = this.handlePopupClose.bind(this);
         this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
         this._handleFeaturesChanged = this._handleFeaturesChanged.bind(this);
+
+        // EventBus unsubscribe functions
+        this._eventUnsubscribers = [];
     }
 
     /**
@@ -130,12 +133,16 @@ class Add3DModelsViewerControl {
         this.container.style.display = 'none';
 
         // Listen for base layer changes to reload layers if active
-        getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
+        this._eventUnsubscribers.push(
+            getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged)
+        );
 
         // Listen for 3D feature changes to update badges
-        getEventBus().on(EventTypes.MARKERS_3D_CHANGED, this._handleFeaturesChanged);
-        getEventBus().on(EventTypes.MEASUREMENTS_3D_CHANGED, this._handleFeaturesChanged);
-        getEventBus().on(EventTypes.VIEWSHEDS_3D_CHANGED, this._handleFeaturesChanged);
+        this._eventUnsubscribers.push(
+            getEventBus().on(EventTypes.MARKERS_3D_CHANGED, this._handleFeaturesChanged),
+            getEventBus().on(EventTypes.MEASUREMENTS_3D_CHANGED, this._handleFeaturesChanged),
+            getEventBus().on(EventTypes.VIEWSHEDS_3D_CHANGED, this._handleFeaturesChanged)
+        );
 
         return this.container;
     }
@@ -208,6 +215,9 @@ class Add3DModelsViewerControl {
      * Called when control is removed from the map
      */
     onRemove() {
+        this._eventUnsubscribers.forEach(unsub => unsub());
+        this._eventUnsubscribers = [];
+
         if (this.container?.parentNode) {
             this.container.parentNode.removeChild(this.container);
         }

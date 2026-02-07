@@ -17,6 +17,7 @@
 
 import { localRepository, LocalRepository, getEmptyMapData } from './local.repository.js';
 import { RepositoryMethods, validateRepository, getMissingMethods } from './repository.interface.js';
+import { mapResolver } from '../services/map-resolver.service.js';
 
 // ===== SINGLETON MANAGEMENT =====
 
@@ -343,6 +344,19 @@ export async function hasImageCompat(imageId) {
 // These store color counts per map for the frequent colors feature
 
 /**
+ * Resolves a map identifier to a canonical key for settings storage.
+ * @private
+ * @param {string} mapNameOrId - Map name or ID
+ * @returns {string} Canonical ID (or original if resolver not ready)
+ */
+function _resolveSettingsKey(mapNameOrId) {
+    if (mapResolver.isInitialized) {
+        return mapResolver.resolveToId(mapNameOrId);
+    }
+    return mapNameOrId;
+}
+
+/**
  * Gets color usage data for a map.
  * Compatible with legacy getColorUsage(mapName) signature.
  * @param {string} mapNameOrId - Map name or ID
@@ -350,8 +364,22 @@ export async function hasImageCompat(imageId) {
  */
 export async function getColorUsageCompat(mapNameOrId) {
     const repo = getRepository();
-    const key = `color_usage_${mapNameOrId}`;
-    return await repo.getSetting(key) || {};
+    const resolvedId = _resolveSettingsKey(mapNameOrId);
+    const key = `color_usage_${resolvedId}`;
+    const result = await repo.getSetting(key);
+    if (result) return result;
+
+    // Fallback: try legacy key if resolution changed the identifier
+    if (resolvedId !== mapNameOrId) {
+        const legacyResult = await repo.getSetting(`color_usage_${mapNameOrId}`);
+        if (legacyResult) {
+            // Migrate to canonical key
+            await repo.saveSetting(key, legacyResult);
+            await repo.deleteSetting(`color_usage_${mapNameOrId}`);
+            return legacyResult;
+        }
+    }
+    return {};
 }
 
 /**
@@ -363,7 +391,7 @@ export async function getColorUsageCompat(mapNameOrId) {
  */
 export async function setColorUsageCompat(mapNameOrId, colorUsageData) {
     const repo = getRepository();
-    const key = `color_usage_${mapNameOrId}`;
+    const key = `color_usage_${_resolveSettingsKey(mapNameOrId)}`;
     await repo.saveSetting(key, colorUsageData);
 }
 
@@ -375,8 +403,13 @@ export async function setColorUsageCompat(mapNameOrId, colorUsageData) {
  */
 export async function removeColorUsageCompat(mapNameOrId) {
     const repo = getRepository();
-    const key = `color_usage_${mapNameOrId}`;
+    const resolvedId = _resolveSettingsKey(mapNameOrId);
+    const key = `color_usage_${resolvedId}`;
     await repo.deleteSetting(key);
+    // Also clean up legacy key if different
+    if (resolvedId !== mapNameOrId) {
+        await repo.deleteSetting(`color_usage_${mapNameOrId}`);
+    }
 }
 
 // ===== MAP NOTES OPERATIONS =====

@@ -7,6 +7,8 @@
  * @module sidebar/panels/vector-info-panel
  */
 
+import { escapeHtml } from '../../utilities/html-escape.js';
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -121,7 +123,7 @@ export function createVectorInfoPanelContent({ feature, title }) {
             border-bottom: 1px solid var(--border-color);
             font-size: var(--font-size-sm);
         `;
-        listItem.innerHTML = `<strong style="color: var(--gray-600);">${displayKey}:</strong> <span style="color: var(--gray-800);">${displayValue}</span>`;
+        listItem.innerHTML = `<strong style="color: var(--gray-600);">${escapeHtml(displayKey)}:</strong> <span style="color: var(--gray-800);">${escapeHtml(String(displayValue))}</span>`;
         propertiesList.appendChild(listItem);
     }
 

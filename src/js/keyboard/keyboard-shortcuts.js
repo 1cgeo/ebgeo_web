@@ -11,6 +11,8 @@
 
 import { undoLastAction, redoLastAction, getStateManager, isCurrentMapLockedSync } from '../store';
 import { showConfirm } from '../modals/index.js';
+import { showInChannel } from '../utilities/toast_service.js';
+import { describeUndoRedoAction } from '../store/undo-redo-messages.js';
 
 /**
  * Keyboard shortcuts manager for the SIG map
@@ -31,6 +33,9 @@ class KeyboardShortcuts {
         this.handleKeyDown = this.handleKeyDown.bind(this);
 
         this.enabled = false;
+
+        /** @type {boolean} Lock to prevent concurrent undo/redo when key is held */
+        this._isProcessingUndoRedo = false;
     }
 
     /**
@@ -160,8 +165,23 @@ class KeyboardShortcuts {
             case 'z':
                 if (hasCtrl && !hasShift) {
                     e.preventDefault();
-                    if (!isCurrentMapLockedSync() && undoLastAction()) {
-                        this.baseLayerControl.switchMap(false);
+                    if (!isCurrentMapLockedSync() && !this._isProcessingUndoRedo) {
+                        this._isProcessingUndoRedo = true;
+                        try {
+                            // skipSave: undo should revert state, not save pending edits first
+                            // (saving would create a phantom undo entry before the actual undo)
+                            this.selectionManager.deselectAllFeatures({ skipSave: true });
+                            const action = await undoLastAction();
+                            if (action) {
+                                const message = describeUndoRedoAction(action, 'undo');
+                                showInChannel('undo-redo', message, 'info', { duration: 1500 });
+                                await this.baseLayerControl.switchMap(false);
+                            } else {
+                                showInChannel('undo-redo', 'Nada para desfazer', 'info', { duration: 1500 });
+                            }
+                        } finally {
+                            this._isProcessingUndoRedo = false;
+                        }
                     }
                     return true;
                 }
@@ -170,8 +190,22 @@ class KeyboardShortcuts {
             case 'y':
                 if (hasCtrl && !hasShift) {
                     e.preventDefault();
-                    if (!isCurrentMapLockedSync() && redoLastAction()) {
-                        this.baseLayerControl.switchMap(false);
+                    if (!isCurrentMapLockedSync() && !this._isProcessingUndoRedo) {
+                        this._isProcessingUndoRedo = true;
+                        try {
+                            // skipSave: redo should restore state, not save pending edits first
+                            this.selectionManager.deselectAllFeatures({ skipSave: true });
+                            const action = await redoLastAction();
+                            if (action) {
+                                const message = describeUndoRedoAction(action, 'redo');
+                                showInChannel('undo-redo', message, 'info', { duration: 1500 });
+                                await this.baseLayerControl.switchMap(false);
+                            } else {
+                                showInChannel('undo-redo', 'Nada para refazer', 'info', { duration: 1500 });
+                            }
+                        } finally {
+                            this._isProcessingUndoRedo = false;
+                        }
                     }
                     return true;
                 }
@@ -295,7 +329,7 @@ class KeyboardShortcuts {
 
         const confirmed = await showConfirm(confirmTitle, { destructive: true });
         if (confirmed) {
-            this.selectionManager.deleteSelectedFeatures();
+            await this.selectionManager.deleteSelectedFeatures();
         }
     }
 

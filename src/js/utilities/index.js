@@ -35,7 +35,8 @@ export {
     showToast,
     showSuccess,
     showError,
-    showWarning
+    showWarning,
+    showInChannel
 } from './toast_service.js';
 
 // Event cleanup utilities
@@ -82,6 +83,12 @@ export {
     deepEqual,
     shallowClone
 } from './deep-utils.js';
+
+// HTML escape utility
+export { escapeHtml } from './html-escape.js';
+
+// Debounced persistence utility
+export { DebouncedPersist } from './debounced-persist.js';
 
 // Quill.js helpers
 export {

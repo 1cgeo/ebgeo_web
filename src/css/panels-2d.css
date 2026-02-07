@@ -21,14 +21,13 @@
     flex-direction: column;
 }
 
-/* ----- Profile Panel Header ----- */
 .profile-panel-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 10px;
     padding-bottom: 8px;
-    border-bottom: 2px solid var(--primary-color);
+    border-bottom: 2px solid var(--primary);
 }
 
 .profile-panel-header h3 {
@@ -44,7 +43,6 @@
     align-items: center;
 }
 
-/* ----- Profile Panel Slope Info ----- */
 .profile-slope-info {
     display: flex;
     align-items: center;
@@ -94,7 +92,6 @@
     font-weight: 500;
 }
 
-/* ----- Profile Panel Slope Toggle ----- */
 .profile-slope-toggle {
     margin-bottom: 8px;
 }
@@ -114,14 +111,13 @@
     height: 14px;
     margin: 0;
     cursor: pointer;
-    accent-color: var(--primary-color);
+    accent-color: var(--primary);
 }
 
 .profile-toggle-text {
     font-weight: 500;
 }
 
-/* ----- Profile Chart Container ----- */
 .profile-chart-container {
     flex: 1;
     min-height: 0;
@@ -133,7 +129,6 @@
     height: 100% !important;
 }
 
-/* ----- Profile Panel Empty Message ----- */
 .profile-empty-message {
     display: flex;
     flex-direction: column;
@@ -164,7 +159,6 @@
     line-height: 1.4;
 }
 
-/* ----- Profile Panel Buttons ----- */
 .profile-panel .close-button,
 .profile-panel .profile-save-button {
     background: none;
@@ -206,8 +200,6 @@
     transform: scale(0.9);
 }
 
-/* Mobile/tablet styles removed - to be redesigned */
-
 /* ===== FEATURE SEARCH PANEL ===== */
 .feature-search-panel {
     position: absolute;
@@ -235,7 +227,7 @@
     color: #333;
     font-size: 16px;
     font-weight: 600;
-    border-bottom: 2px solid var(--primary-color);
+    border-bottom: 2px solid var(--primary);
     padding-bottom: 5px;
     
     /* Ensure no overflow */
@@ -278,7 +270,7 @@
 }
 
 .feature-search-panel strong {
-    color: var(--primary-color);
+    color: var(--primary);
     font-weight: 600;
     
     /* Allow word wrap in strong elements */
@@ -288,9 +280,8 @@
     max-width: 100%;
 }
 
-/* ----- Feature Search Button ----- */
 .feature-search-panel button {
-    background-color: var(--primary-color);
+    background-color: var(--primary);
     color: white;
     border: none;
     padding: 8px 16px;
@@ -340,7 +331,7 @@
     color: #333;
     font-size: 16px;
     font-weight: 600;
-    border-bottom: 2px solid var(--primary-color);
+    border-bottom: 2px solid var(--primary);
     padding-bottom: 5px;
     position: sticky;
     top: 0;
@@ -369,14 +360,14 @@
 }
 
 .vector-tile-info-panel strong {
-    color: var(--primary-color);
+    color: var(--primary);
     font-weight: 600;
     display: inline-block;
     min-width: 120px;
 }
 
 .vector-tile-info-panel button {
-    background-color: var(--primary-color);
+    background-color: var(--primary);
     color: white;
 }
 
@@ -444,7 +435,7 @@
 .profile-panel::-webkit-scrollbar-thumb,
 .vector-tile-info-panel::-webkit-scrollbar-thumb,
 .feature-search-panel::-webkit-scrollbar-thumb {
-    background-color: var(--primary-color);
+    background-color: var(--primary);
     border-radius: 3px;
 }
 
@@ -466,20 +457,15 @@
     height: 20px;
     margin: -10px 0 0 -10px;
     border: 2px solid var(--primary-light);
-    border-top: 2px solid var(--primary-color);
+    border-top: 2px solid var(--primary);
     border-radius: 50%;
     animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
 }
 
 /* ===== ACCESSIBILITY ===== */
 .profile-panel .close-button:focus,
 .feature-search-panel button:focus {
-    outline: 2px solid var(--primary-color);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 

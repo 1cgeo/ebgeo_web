@@ -66,14 +66,16 @@ export function getByPath(obj, path) {
  */
 export function setByPath(obj, path, value) {
     const keys = path.split('.');
-    const result = deepClone(obj);
+    const result = { ...obj };
     let current = result;
 
     for (let i = 0; i < keys.length - 1; i++) {
         const key = keys[i];
-        if (current[key] === undefined) {
-            current[key] = {};
-        }
+        const node = current[key];
+        // Shallow-copy only the nodes along the path (structural sharing)
+        current[key] = (node !== undefined && node !== null && typeof node === 'object')
+            ? (Array.isArray(node) ? [...node] : { ...node })
+            : {};
         current = current[key];
     }
 

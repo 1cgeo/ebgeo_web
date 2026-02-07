@@ -1210,9 +1210,7 @@ class AddMilitarySymbolControl extends BaseControl {
       feature.properties.nome !== initialProperties.nome ||
       feature.properties.descricao !== initialProperties.descricao ||
       feature.properties.visivel !== initialProperties.visivel ||
-      feature.properties.bloqueado !== initialProperties.bloqueado ||
-      JSON.stringify(feature.geometry.coordinates) !==
-      JSON.stringify(initialProperties.coordinates)
+      feature.properties.bloqueado !== initialProperties.bloqueado
     );
   };
 

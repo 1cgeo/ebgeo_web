@@ -321,7 +321,7 @@ class StateManager {
 
         this._subscribers.forEach((callbacks, subscribedPath) => {
             if (this._pathMatches(changedPath, subscribedPath)) {
-                const value = this.get(subscribedPath);
+                const value = this.getShallow(subscribedPath);
                 callbacks.forEach(cb => {
                     try {
                         cb(value);
@@ -347,7 +347,7 @@ class StateManager {
             this._subscribers.forEach((callbacks, subscribedPath) => {
                 if (this._pathMatches(path, subscribedPath) && !notifiedPaths.has(subscribedPath)) {
                     notifiedPaths.add(subscribedPath);
-                    const value = this.get(subscribedPath);
+                    const value = this.getShallow(subscribedPath);
                     callbacks.forEach(cb => {
                         try {
                             cb(value);
@@ -414,7 +414,7 @@ class StateManager {
      * @param {Object} feature - GeoJSON feature
      */
     addToSelection(type, id, feature) {
-        const current = this.get('selection.features') || [];
+        const current = this.getShallow('selection.features') || [];
         const exists = current.some(f => f.type === type && f.id === id);
         if (!exists) {
             this.set('selection.features', [...current, { type, id, feature }]);
@@ -427,7 +427,7 @@ class StateManager {
      * @param {string} id - Feature ID
      */
     removeFromSelection(type, id) {
-        const current = this.get('selection.features') || [];
+        const current = this.getShallow('selection.features') || [];
         this.set('selection.features', current.filter(f => !(f.type === type && f.id === id)));
     }
 
@@ -445,7 +445,7 @@ class StateManager {
      * @returns {boolean} True if selected
      */
     isFeatureSelected(type, id) {
-        const features = this.get('selection.features') || [];
+        const features = this.getUnsafe('selection.features') || [];
         return features.some(f => f.type === type && f.id === id);
     }
 
@@ -456,7 +456,7 @@ class StateManager {
      * @returns {Object|null} GeoJSON feature or null
      */
     getSelectedFeature(type, id) {
-        const features = this.get('selection.features') || [];
+        const features = this.getUnsafe('selection.features') || [];
         const found = features.find(f => f.type === type && f.id === id);
         return found ? found.feature : null;
     }
@@ -466,7 +466,7 @@ class StateManager {
      * @returns {Array<{type: string, id: string, feature: Object}>}
      */
     getSelectedFeatures() {
-        return this.get('selection.features') || [];
+        return this.getShallow('selection.features') || [];
     }
 
     /**
@@ -474,7 +474,7 @@ class StateManager {
      * @returns {number}
      */
     getSelectionCount() {
-        const features = this.get('selection.features') || [];
+        const features = this.getUnsafe('selection.features') || [];
         return features.length;
     }
 
@@ -486,7 +486,7 @@ class StateManager {
      * @param {Object} updatedFeature - Updated GeoJSON feature
      */
     updateSelectedFeature(type, id, updatedFeature) {
-        const current = this.get('selection.features') || [];
+        const current = this.getShallow('selection.features') || [];
         const updated = current.map(f => {
             if (f.type === type && f.id === id) {
                 return { type, id, feature: updatedFeature };
@@ -659,7 +659,7 @@ class StateManager {
      * @returns {boolean}
      */
     isDragging() {
-        return this.get('ui.isDragging') || false;
+        return this.getUnsafe('ui.isDragging') || false;
     }
 
     // ========================================================================
@@ -746,23 +746,23 @@ class StateManager {
      * @param {string} tab - Tab to activate: 'mapas' | 'camadas' | 'importar' | 'exportar'
      */
     expandSidebar(tab) {
-        // Close feature panel first (mutual exclusivity)
-        if (this.get('ui.featurePanelOpen')) {
-            this.set('ui.featurePanelOpen', false);
-            this._emitEvent(EventTypes.FEATURE_PANEL_CLOSED, {});
-        }
+        const previousTab = this.getUnsafe('sidebar.activeTab');
 
-        // Close toolbar popups
-        if (this.get('ui.activeToolbarGroup')) {
-            const group = this.get('ui.activeToolbarGroup');
-            this.set('ui.activeToolbarGroup', null);
-            this._emitEvent(EventTypes.TOOLBAR_GROUP_CLOSED, { group });
-        }
+        this.batchUpdate(() => {
+            // Close feature panel first (mutual exclusivity)
+            if (this.getUnsafe('ui.featurePanelOpen')) {
+                this.set('ui.featurePanelOpen', false);
+            }
 
-        // Expand sidebar
-        const previousTab = this.get('sidebar.activeTab');
-        this.set('sidebar.expanded', true);
-        this.set('sidebar.activeTab', tab);
+            // Close toolbar popups
+            if (this.getUnsafe('ui.activeToolbarGroup')) {
+                this.set('ui.activeToolbarGroup', null);
+            }
+
+            // Expand sidebar
+            this.set('sidebar.expanded', true);
+            this.set('sidebar.activeTab', tab);
+        });
 
         this._emitEvent(EventTypes.SIDEBAR_EXPANDED, { tab });
         this._emitEvent(EventTypes.SIDEBAR_TAB_CHANGED, {
@@ -776,9 +776,12 @@ class StateManager {
      * Collapse sidebar.
      */
     collapseSidebar() {
-        const previousTab = this.get('sidebar.activeTab');
-        this.set('sidebar.expanded', false);
-        this.set('sidebar.activeTab', null);
+        const previousTab = this.getUnsafe('sidebar.activeTab');
+
+        this.batchUpdate(() => {
+            this.set('sidebar.expanded', false);
+            this.set('sidebar.activeTab', null);
+        });
 
         this._emitEvent(EventTypes.SIDEBAR_COLLAPSED, {});
         if (previousTab) {
@@ -795,8 +798,8 @@ class StateManager {
      * @param {string} tab - Tab to toggle
      */
     toggleSidebarTab(tab) {
-        const isExpanded = this.get('sidebar.expanded');
-        const activeTab = this.get('sidebar.activeTab');
+        const isExpanded = this.getUnsafe('sidebar.expanded');
+        const activeTab = this.getUnsafe('sidebar.activeTab');
 
         if (isExpanded && activeTab === tab) {
             this.collapseSidebar();
@@ -811,29 +814,42 @@ class StateManager {
      * @param {string} featureType - Type of the feature
      */
     openFeaturePanel(featureId, featureType) {
-        // Save the current active tab before collapsing
-        const activeTab = this.get('sidebar.activeTab');
-        if (this.get('sidebar.expanded') && activeTab) {
-            this.set('sidebar.previousTab', activeTab);
-        }
+        // If the panel is already open, just update the feature reference
+        // and emit the content-change event. Skip layout events since nothing moved.
+        const alreadyOpen = this.getUnsafe('ui.featurePanelOpen');
 
-        // Collapse sidebar first (mutual exclusivity)
-        if (this.get('sidebar.expanded')) {
-            this.collapseSidebar();
-        }
+        this.batchUpdate(() => {
+            // Save the current active tab before collapsing
+            const activeTab = this.getUnsafe('sidebar.activeTab');
+            if (this.getUnsafe('sidebar.expanded') && activeTab) {
+                this.set('sidebar.previousTab', activeTab);
+            }
 
-        // Close toolbar popups
-        if (this.get('ui.activeToolbarGroup')) {
-            const group = this.get('ui.activeToolbarGroup');
-            this.set('ui.activeToolbarGroup', null);
-            this._emitEvent(EventTypes.TOOLBAR_GROUP_CLOSED, { group });
-        }
+            // Collapse sidebar first (mutual exclusivity) - inline to avoid redundant events
+            if (this.getUnsafe('sidebar.expanded')) {
+                this.set('sidebar.expanded', false);
+                this.set('sidebar.activeTab', null);
+            }
 
-        // Open feature panel
-        this.set('ui.featurePanelOpen', true);
-        this.set('ui.currentFeatureType', featureType);
+            // Close toolbar popups
+            const group = this.getUnsafe('ui.activeToolbarGroup');
+            if (group) {
+                this.set('ui.activeToolbarGroup', null);
+            }
+
+            // Open feature panel
+            this.set('ui.featurePanelOpen', true);
+            this.set('ui.currentFeatureType', featureType);
+        });
+
+        // Events emitted AFTER batch flush so subscribers see consistent state
         this._emitEvent(EventTypes.FEATURE_PANEL_OPENED, { featureId, featureType });
-        this._emitLayoutChanged();
+
+        // Only emit layout change when the panel wasn't already open.
+        // Switching features while panel is open doesn't change layout position.
+        if (!alreadyOpen) {
+            this._emitLayoutChanged();
+        }
     }
 
     /**
@@ -841,19 +857,25 @@ class StateManager {
      * Restores the previously active sidebar tab if one existed.
      */
     closeFeaturePanel() {
-        if (this.get('ui.featurePanelOpen')) {
+        if (!this.getUnsafe('ui.featurePanelOpen')) return;
+
+        const previousTab = this.getUnsafe('sidebar.previousTab');
+
+        this.batchUpdate(() => {
             this.set('ui.featurePanelOpen', false);
             this.set('ui.currentFeatureType', null);
-            this._emitEvent(EventTypes.FEATURE_PANEL_CLOSED, {});
-
-            // Restore previous sidebar tab if one was saved
-            const previousTab = this.get('sidebar.previousTab');
             if (previousTab) {
                 this.set('sidebar.previousTab', null);
-                this.expandSidebar(previousTab);
-            } else {
-                this._emitLayoutChanged();
             }
+        });
+
+        this._emitEvent(EventTypes.FEATURE_PANEL_CLOSED, {});
+
+        // Restore previous sidebar tab if one was saved
+        if (previousTab) {
+            this.expandSidebar(previousTab);
+        } else {
+            this._emitLayoutChanged();
         }
     }
 
@@ -862,7 +884,7 @@ class StateManager {
      * @param {string} group - Group name: 'draw' | 'military' | 'analysis'
      */
     openToolbarGroup(group) {
-        const previousGroup = this.get('ui.activeToolbarGroup');
+        const previousGroup = this.getUnsafe('ui.activeToolbarGroup');
 
         if (previousGroup && previousGroup !== group) {
             this._emitEvent(EventTypes.TOOLBAR_GROUP_CLOSED, { group: previousGroup });
@@ -876,7 +898,7 @@ class StateManager {
      * Close toolbar group popup.
      */
     closeToolbarGroup() {
-        const group = this.get('ui.activeToolbarGroup');
+        const group = this.getUnsafe('ui.activeToolbarGroup');
         if (group) {
             this.set('ui.activeToolbarGroup', null);
             this._emitEvent(EventTypes.TOOLBAR_GROUP_CLOSED, { group });
@@ -888,7 +910,7 @@ class StateManager {
      * @param {string} group - Group name
      */
     toggleToolbarGroup(group) {
-        const activeGroup = this.get('ui.activeToolbarGroup');
+        const activeGroup = this.getUnsafe('ui.activeToolbarGroup');
         if (activeGroup === group) {
             this.closeToolbarGroup();
         } else {

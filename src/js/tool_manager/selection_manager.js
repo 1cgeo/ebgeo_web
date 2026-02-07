@@ -10,7 +10,10 @@ import {
     getFeatureGroup,
     getVisibleLayerIds,
     isFeatureEffectivelyLocked,
-    getStateManager
+    getStateManager,
+    startBatchUndo,
+    commitBatchUndo,
+    discardBatchUndo
 } from '../store';
 import { createTwoFingerTapHandler } from '../utilities/pointer-utils';
 
@@ -37,6 +40,9 @@ class SelectionManager {
 
         /** @type {boolean} Flag to prevent re-entrancy in deselectAllFeatures */
         this._isDeselecting = false;
+
+        /** @type {number} Version counter to cancel stale selectFeature calls */
+        this._selectVersion = 0;
 
         /** @type {Function|null} Cleanup for two-finger tap handler */
         this._cleanupTwoFingerTap = null;
@@ -199,16 +205,56 @@ class SelectionManager {
      * @param {Object} [feature=null] - GeoJSON feature
      */
     async selectFeature(type, featureId, feature = null) {
-        this.deselectAllFeatures();
-        await this.toggleFeatureSelection(type, featureId, feature, false);
+        // Increment version so any in-flight selectFeature call is invalidated
+        const version = ++this._selectVersion;
+
+        // Notify controls of global deselect
+        this.controls.forEach((control) => {
+            if (control.onGlobalDeselect) {
+                control.onGlobalDeselect();
+            }
+        });
+
+        let stateManager;
+        try {
+            stateManager = getStateManager();
+        } catch (_e) {
+            // StateManager not available
+        }
+
+        // Fetch complete feature (async - may yield to another selectFeature call)
+        const completeFeature = await this.getCompleteFeatureFromSource(type, featureId);
+
+        // Discard if a newer selectFeature call started while awaiting
+        if (version !== this._selectVersion) return;
+
+        const featureToStore = completeFeature || feature;
+        const featureIdStr = String(featureId);
+
+        // Batch clear + add so selection.features subscribers fire only ONCE
+        // (avoids double updateSelectionHighlight: once for empty, once for new)
+        if (stateManager) {
+            stateManager.batchUpdate(() => {
+                stateManager.clearSelection();
+                stateManager.addToSelection(type, featureIdStr, featureToStore);
+            });
+        }
+
+        const control = this.controls.get(type);
+        if (control?.onFeatureSelected) {
+            control.onFeatureSelected(featureToStore);
+        }
+
         this.updateUI();
     }
 
     /**
      * Deselect all features.
      * Saves any pending changes before deselecting.
+     * @param {Object} [options]
+     * @param {boolean} [options.skipSave=false] - Skip saving when caller already saved
      */
-    deselectAllFeatures() {
+    deselectAllFeatures({ skipSave = false } = {}) {
         // Prevent re-entrancy (saveChangesAndClosePanel may trigger this again)
         if (this._isDeselecting) {
             return;
@@ -216,9 +262,13 @@ class SelectionManager {
         this._isDeselecting = true;
 
         try {
-            // Save any pending changes before deselecting
-            // This triggers the save button click if present in the feature panel
-            this.uiManager?.saveChangesAndClosePanel();
+            if (!skipSave) {
+                // Save any pending changes before deselecting
+                this.uiManager?.saveChangesAndClosePanel();
+            } else {
+                // Caller already saved — just close panel UI without saving again
+                this.uiManager?.closePanelWithoutSave();
+            }
 
             // Notify controls of global deselect
             this.controls.forEach((control) => {
@@ -420,7 +470,8 @@ class SelectionManager {
             if (!e.originalEvent.shiftKey && this.hasSelectedFeatures()) {
                 this.uiManager?.saveChangesAndClosePanel();
                 if (this.hasSelectedFeatures()) {
-                    this.deselectAllFeatures();
+                    // skipSave: saveChangesAndClosePanel already saved above
+                    this.deselectAllFeatures({ skipSave: true });
                 }
             }
         }
@@ -528,15 +579,18 @@ class SelectionManager {
         if (isSelected && e.originalEvent.shiftKey) {
             // Shift+click on selected = deselect
             await this.toggleFeatureSelection(type, featureId, clickedFeature, true);
+            this.updateUI();
         } else if (!isSelected) {
-            // Click on unselected
             if (!e.originalEvent.shiftKey) {
-                this.deselectAllFeatures();
+                // Single click on unselected: use selectFeature() which saves
+                // inline and avoids close→reopen panel bounce
+                await this.selectFeature(type, featureId, clickedFeature);
+            } else {
+                // Shift+click: add to multi-selection
+                await this.toggleFeatureSelection(type, featureId, clickedFeature, false);
+                this.updateUI();
             }
-            await this.toggleFeatureSelection(type, featureId, clickedFeature, false);
         }
-
-        this.updateUI();
     }
 
     /**
@@ -861,7 +915,8 @@ class SelectionManager {
      * Update UI after selection changes.
      */
     updateUI() {
-        this.uiManager?.updateSelectionHighlight();
+        // Selection highlight is updated via StateManager subscription
+        // in UIManager._initSubscriptions() when selection.features changes.
         this.uiManager?.updatePanels();
     }
 
@@ -889,8 +944,9 @@ class SelectionManager {
 
     /**
      * Delete all selected features.
+     * Uses batch undo so all deletions can be undone with a single Ctrl+Z.
      */
-    deleteSelectedFeatures() {
+    async deleteSelectedFeatures() {
         const featuresByType = new Map();
         const selectedFeatures = this.getAllSelectedFeatures();
 
@@ -902,16 +958,28 @@ class SelectionManager {
             featuresByType.get(type).push(feature);
         }
 
-        featuresByType.forEach((features, type) => {
-            const control = this.controls.get(type);
-            control?.deleteFeatures?.(features);
-        });
+        // Batch all deletions so they produce a single undo entry
+        const needsBatch = featuresByType.size > 1 ||
+            [...featuresByType.values()].some(features => features.length > 1);
+
+        if (needsBatch) startBatchUndo();
+        try {
+            for (const [type, features] of featuresByType) {
+                const control = this.controls.get(type);
+                await control?.deleteFeatures?.(features);
+            }
+            if (needsBatch) commitBatchUndo();
+        } catch (error) {
+            if (needsBatch) discardBatchUndo();
+            console.error('Error during batch delete:', error);
+        }
 
         this.deselectAllFeatures();
     }
 
     /**
      * Update all selected features (after batch property change).
+     * Uses batch undo so all updates can be undone with a single Ctrl+Z.
      */
     async updateSelectedFeatures() {
         const selectedFeatures = this.getAllSelectedFeatures();
@@ -932,9 +1000,20 @@ class SelectionManager {
 
         this.notifyMultipleGeometryChanges(allFeatureIds);
 
-        for (const [type, features] of featuresByType) {
-            const control = this.controls.get(type);
-            await control?.updateFeatures?.(features, true);
+        // Batch all updates so they produce a single undo entry
+        const totalFeatures = [...featuresByType.values()].reduce((sum, f) => sum + f.length, 0);
+        const needsBatch = totalFeatures > 1;
+
+        if (needsBatch) startBatchUndo();
+        try {
+            for (const [type, features] of featuresByType) {
+                const control = this.controls.get(type);
+                await control?.updateFeatures?.(features, true);
+            }
+            if (needsBatch) commitBatchUndo();
+        } catch (error) {
+            if (needsBatch) discardBatchUndo();
+            console.error('Error during batch update:', error);
         }
     }
 

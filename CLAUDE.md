@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-EBGeo (Sistema de Informacao Geografica do Exercito Brasileiro) is a web-based Geographic Information System built for the Brazilian Army. It provides 2D/3D map visualization, military symbology, drawing tools, and terrain analysis capabilities.
+EBGeo (Sistema de Informacao Geografica do Exercito Brasileiro) is a web-based Geographic Information System built for the Brazilian Army. It provides 2D/3D map visualization, military symbology, drawing tools, terrain analysis, and azimuth/distance navigation capabilities.
 
 **Current Version**: 2.0 (with automatic migration from v1.x)
 
@@ -12,6 +12,7 @@ EBGeo (Sistema de Informacao Geografica do Exercito Brasileiro) is a web-based G
 - **Map Libraries**: MapLibre GL JS (2D), Cesium (3D)
 - **Military Symbols**: milsymbol library with Brazilian extensions
 - **Geometry**: Turf.js for geospatial operations
+- **Geomagnetic**: geomagnetism library for magnetic declination
 - **UI**: Vanilla JS with Quill (rich text), Chart.js, SortableJS
 - **Storage**: LocalForage (IndexedDB wrapper) with Repository abstraction
 - **Server**: Restify (production server)
@@ -45,9 +46,15 @@ src/js/
 │   ├── store.constants.js   # Store configuration constants
 │   ├── store.types.js       # JSDoc type definitions
 │   ├── repository.js        # IndexedDB persistence layer
+│   ├── repository.utils.js  # Repository utility functions (schema version, data validation)
+│   ├── memory-store.js      # In-memory runtime state (separate from IndexedDB)
 │   ├── control.registry.js  # Control registry pattern
-│   ├── store-state-manager.js  # Map state, undo/redo
-│   ├── feature.operations.js   # CRUD for features
+│   ├── store-state-manager.js  # Map state, undo/redo, color tracking
+│   ├── store-transaction.js    # Persistence-first transaction coordination
+│   ├── store-errors.js         # Error conventions, StoreErrorEvents, emitStoreError
+│   ├── store-error-listener.js # Toast notifications for store errors
+│   ├── undo-redo-messages.js   # User-facing undo/redo descriptions (pt-BR)
+│   ├── feature.operations.js   # CRUD for features (uses runTransaction)
 │   ├── layer.operations.js     # Layer management
 │   ├── group.operations.js     # Feature grouping
 │   ├── map.operations.js       # Map management
@@ -66,7 +73,7 @@ src/js/
 │   │   └── index.js                 # Repository factory and compat wrappers
 │   │
 │   ├── services/            # Store services
-│   │   ├── map-resolver.service.js  # Map name/ID resolution
+│   │   ├── map-resolver.service.js  # Map name/ID resolution (with LRU cache)
 │   │   └── index.js                 # Service exports
 │   │
 │   ├── migration/           # Schema migration system
@@ -74,10 +81,10 @@ src/js/
 │   │   └── v1-to-v2.migration.js    # v1.x to v2.0 migration
 │   │
 │   └── sync/                # Sync metadata and operation logging
-│       ├── sync-metadata.js         # Sync utilities for backend integration
+│       ├── sync-metadata.js         # Sync utilities, deletedAt, serverTimeOffset
 │       ├── operation-types.js       # Entity and operation type constants
-│       ├── operation-factory.js     # Operation creation helpers
-│       ├── operation-queue.js       # IndexedDB-backed operation queue
+│       ├── operation-factory.js     # Lamport clock + operation creation
+│       ├── operation-queue.js       # IndexedDB-backed queue with compaction
 │       ├── operation-dispatcher.js  # Operation logging coordinator
 │       └── index.js                 # Sync module exports
 │
@@ -101,7 +108,11 @@ src/js/
 │   ├── tabbed_attribute_panel.js  # Tabbed panel for attributes
 │   ├── hatch_config_modal.js      # Hatch pattern configuration
 │   ├── hatch_pattern_generator.js # Hatch pattern generation
-│   └── helpers/             # UI component helpers
+│   ├── helpers/             # UI component helpers
+│   └── managers/            # Manager classes
+│       ├── profile-panel.manager.js      # Line profile panel manager
+│       ├── selection-highlight.manager.js # Selection highlight manager
+│       └── index.js
 │
 ├── sidebar/                 # Collapsible sidebar UI
 │   ├── sidebar.control.js   # Main sidebar component
@@ -116,6 +127,14 @@ src/js/
 │   │   ├── group-type-selector.js      # Group type selector
 │   │   ├── sidebar-collapsed.js    # Collapsed state UI
 │   │   └── sidebar-panel.js        # Panel base component
+│   ├── handlers/            # Event handlers for sidebar interactions
+│   │   ├── feature-3d-handlers.js  # 3D feature click handlers (markers, measurements, viewsheds)
+│   │   └── index.js
+│   ├── panels/              # Panel content components
+│   │   ├── feature-panel-content.js  # Feature panel content renderer
+│   │   ├── notes-panel.js           # Map notes panel
+│   │   ├── vector-info-panel.js     # Vector tile info panel
+│   │   └── index.js
 │   └── tabs/                # Sidebar tab implementations
 │       ├── maps.tab.js      # Maps management tab
 │       ├── layers.tab.js    # Layers management tab
@@ -150,8 +169,11 @@ src/js/
 │   └── export.modal.js      # Export options modal
 │
 ├── search/                  # Search functionality
-│   ├── search-bar.component.js    # Global search bar
-│   └── feature-search.control.js  # Feature search control
+│   ├── search-bar.component.js        # Global search bar
+│   ├── search-bar.icons.js            # Icon definitions for search bar
+│   ├── search-bar.search-providers.js # Search provider implementations
+│   ├── search-bar.sidepanel-content.js # Side panel content renderer
+│   └── feature-search.control.js      # Feature search control
 │
 ├── context-menu/            # Right-click context menus
 │   └── context-menu.control.js
@@ -159,23 +181,37 @@ src/js/
 ├── catalog/                 # External layer catalog
 │   ├── catalog.modal.js     # Catalog browser modal
 │   ├── catalog.service.js   # Catalog data service
+│   ├── catalog.constants.js # Catalog configuration
 │   └── components/          # Catalog UI components
+│       ├── catalog-card.js       # Individual catalog item card
+│       ├── catalog-filters.js    # Filter controls
+│       ├── catalog-grid.js       # Grid layout
+│       ├── catalog-header.js     # Header with search
+│       └── index.js
 │
 ├── attribute_table/         # Attribute table UI
 │   ├── attribute-table.control.js  # Main control
 │   ├── attribute-table.constants.js # Configuration
-│   ├── components/          # Table components
-│   │   ├── panel/           # Table panel UI
-│   │   ├── renderer/        # Table renderer
-│   │   ├── filters/         # Column filtering
-│   │   └── context-menu/    # Column context menu
+│   ├── components/          # Table components (flat structure)
+│   │   ├── table-panel.js          # Table panel UI
+│   │   ├── table-renderer.js       # Table renderer
+│   │   ├── table-filters.js        # Column filtering
+│   │   ├── column-context-menu.js  # Column context menu
+│   │   └── index.js
 │   └── services/            # Table services
 │       ├── table-data.service.js   # Data service
 │       └── table-config.service.js # Config service
 │
 ├── draw_tools/              # Drawing tools
+│   ├── drawing-touch-helpers.js  # Touch input helpers for drawing
 │   ├── point_tool/
 │   ├── line_tool/
+│   │   ├── add_line_control.js
+│   │   ├── add_line_geometry.js
+│   │   ├── line_attributes_panel.js
+│   │   ├── line_measurement.js     # Line measurement functionality
+│   │   ├── line_profile.js         # Terrain profile for lines
+│   │   └── index.js
 │   ├── polygon_tool/
 │   ├── circle_tool/
 │   ├── ellipse_tool/
@@ -183,6 +219,25 @@ src/js/
 │   ├── text_tool/
 │   ├── image_tool/
 │   └── brush_tool/
+│
+├── azimuth_distance_tool/   # Azimuth & distance navigation tool
+│   ├── add_azimuth_distance_control.js   # Main control
+│   ├── azimuth_distance_geometry.js      # Geometry calculation logic
+│   ├── azimuth_distance_attributes_panel.js # Attributes panel
+│   ├── azimuth_distance_panel.js         # Main panel UI
+│   ├── azimuth_distance_constants.js     # Angular/distance units, north reference types
+│   ├── index.js
+│   └── components/          # UI components
+│       ├── compass-rose.component.js     # Visual compass rose
+│       ├── geometry-preview.component.js # Geometry preview
+│       ├── leg-row.component.js          # Individual leg editor
+│       ├── reference-point.component.js  # Reference point selector
+│       └── index.js
+│
+├── snapping/                # Geometry snapping system
+│   ├── snapping.service.js  # Main snapping service (vertex, edge, endpoint)
+│   ├── snapping.constants.js # Snap types, tolerance, indicator styles
+│   └── index.js
 │
 ├── military_tools/          # Military symbology
 │   ├── military_symbol_tool/  # MIL-STD-2525D symbols
@@ -204,10 +259,12 @@ src/js/
 ├── 3d_models_viewer_tool/   # Cesium 3D integration
 │   ├── map_3d.js            # Cesium viewer setup
 │   ├── tools/               # 3D-specific tools
-│   └── components/          # 3D UI components
-│       ├── marker-panel-3d.js      # 3D marker configuration
-│       ├── measurement-panel-3d.js # 3D measurement display
-│       └── viewshed-panel-3d.js    # 3D viewshed visualization
+│   ├── components/          # 3D UI components
+│   │   ├── marker-panel-3d.js      # 3D marker configuration
+│   │   ├── measurement-panel-3d.js # 3D measurement display
+│   │   └── viewshed-panel-3d.js    # 3D viewshed visualization
+│   └── services/
+│       └── keyboard-service-3d.js  # 3D keyboard shortcuts
 │
 ├── street_view_tool/        # Street view integration (360)
 │   ├── navigation/          # Navigation system
@@ -217,14 +274,18 @@ src/js/
 │   │   ├── navigator.js
 │   │   ├── projector.js
 │   │   └── renderer.js
-│   └── services/            # Street view services
-│       └── keyboard_service_360.js
+│   ├── components/          # Street view UI components
+│   │   ├── marker-panel-360.js     # 360 marker configuration
+│   │   └── streetview-sidebar.js   # Sidebar integration
+│   ├── services/
+│   │   └── keyboard_service_360.js
+│   └── tools/
+│       ├── marker_tool_360.js
+│       └── screenshot_tool_360.js
 │
 ├── briefing/                # Briefing (Story Map) system
 │   ├── index.js             # Public exports
 │   ├── components/          # UI components
-│   │   ├── slide-list.component.js      # Slide list with drag-drop
-│   │   ├── slide-editor.component.js    # Slide editing form
 │   │   ├── presentation-text-panel.js   # Floating text panel
 │   │   └── presentation-controls.js     # Navigation controls
 │   ├── editor/              # Editor mode
@@ -242,16 +303,58 @@ src/js/
 │
 ├── baselayers/              # Base map configurations
 ├── layers/                  # Layer styles and management
+│   ├── layer.manager.js     # Layer management logic
+│   ├── layer.constants.js   # Layer constants
+│   ├── layer_setup.js       # Layer initialization
+│   ├── visibility-filter.js # Layer visibility filtering
+│   └── styles/              # MapLibre style definitions
+│       ├── point.layers.js
+│       ├── line.layers.js
+│       ├── polygon.layers.js
+│       ├── shape.layers.js
+│       ├── symbol.layers.js
+│       ├── tactical.layers.js
+│       ├── content.layers.js
+│       └── auxiliary.layers.js
 ├── features_tab/            # Layer/feature list components
-├── map/                     # Map controls and notes
+│   ├── features_tab.js      # Main features tab
+│   ├── features_tab.constants.js
+│   ├── features_tab.icons.js
+│   ├── features_tab.styles.js
+│   ├── layer-list.component.js
+│   ├── layer-container.builder.js
+│   ├── feature-item.component.js
+│   ├── group-item.component.js
+│   ├── analysis-layers.component.js
+│   ├── catalog-layers.component.js
+│   ├── models3d-section.component.js
+│   ├── streetview360-section.component.js
+│   ├── collapse-state.manager.js     # Collapse state management
+│   ├── feature-organizer.service.js  # Feature organization service
+│   └── sortable.handler.js
+├── map/                     # Map controls and management
+│   ├── map.control.js       # Map control
+│   ├── map.manager.js       # Map management
+│   ├── animation.service.js # Map animation service
+│   └── drag-rotate.handler.js # Drag-to-rotate handler
 ├── terrain/                 # Terrain/hillshade
+│   ├── terrain.control.js
+│   ├── analysis-layers.manager.js
+│   └── data-layers.manager.js  # Data layer manager for terrain
 ├── import_export/           # File I/O (GeoJSON, KML, .ebgeo, etc.)
+│   ├── export-import.service.js
+│   ├── import.control.js
+│   ├── screenshot.control.js
+│   ├── pdf-export.tab.js
+│   └── drag-drop.handler.js    # Drag and drop file handler
 ├── coordinates/             # Coordinate display/conversion
 ├── grid/                    # UTM grid overlay
-├── frame/                   # Map frame/border
 ├── keyboard/                # Keyboard shortcuts
 ├── user_data/               # Feature attributes/images
 ├── ui/                      # Shared UI utilities
+│   ├── ui-visibility.controller.js  # UI element visibility profiles per mode
+│   ├── loading-screen.js           # Loading screen fade-out
+│   └── index.js
 └── utilities/               # Helpers
     ├── coordinate_converter.js  # Coordinate conversions
     ├── uuid.js              # UUID v4 generation
@@ -260,8 +363,17 @@ src/js/
     ├── feature_navigation_utils.js  # Feature navigation
     ├── pointer-utils.js     # Pointer event utilities
     ├── image_utils.js       # Image validation/processing
+    ├── html-escape.js       # XSS prevention for innerHTML interpolation
+    ├── debounced-persist.js # Debounced IndexedDB writes with retry
     ├── streetview360-state.js   # Street view state check
-    └── viewer3d-state.js    # 3D viewer state check
+    ├── viewer3d-state.js    # 3D viewer state check
+    ├── deep-utils.js        # Deep object utilities (clone, equality, path get/set)
+    ├── geometry-utils.js    # Geometry calculations (distance, bearing, bbox)
+    ├── lru-cache.js         # LRU cache implementation
+    ├── quill-helpers.js     # Quill.js rich text editor helpers
+    └── geomagnetic/         # Geomagnetic calculations
+        ├── wmm_calculator.js    # World Magnetic Model calculator
+        └── index.js
 ```
 
 ## Architecture Patterns
@@ -297,11 +409,52 @@ Mode changes trigger UI visibility profiles that show/hide relevant UI elements.
 
 ### Store Pattern
 Central state management with:
-- Memory store for runtime data
+- Memory store (`memory-store.js`) for runtime data
 - IndexedDB persistence via LocalForage with Repository abstraction
 - Event-driven updates via EventBus
-- Undo/redo support via action history
+- Undo/redo support via action history with user-facing descriptions (pt-BR)
 - Automatic v1-to-v2 schema migration
+
+### Store Transaction Pattern
+Feature operations use a persistence-first coordination pattern via `store-transaction.js`:
+```javascript
+import { runTransaction } from './store-transaction.js';
+
+await runTransaction(async (tx) => {
+    // 1. Prepare data, defer side effects
+    tx.deferSync(() => updateColorTracking(feature));
+    tx.deferAsync(() => logFeatureOperation(...));
+
+    // 2. Return the persistence function
+    return async () => {
+        await repo.set(key, data);
+    };
+});
+// Side effects only run AFTER persistence succeeds
+// On failure: rollback discards all deferred effects + emits STORE_PERSIST_ERROR
+```
+
+### Store Error Handling
+Structured error conventions in `store-errors.js`:
+- **Invalid argument** (developer bug): `throw new Error(msg)`
+- **Expected failure** (locked map): return existing type + emit `STORE_OPERATION_BLOCKED`
+- **Background non-critical**: `console.warn`
+- **Possible data loss** (IndexedDB): throw + emit `STORE_PERSIST_ERROR`
+- **Sync queue failure**: emit `STORE_SYNC_ERROR` + retry
+
+User-facing toast notifications via `store-error-listener.js` with debounce to prevent stacking.
+
+### Debounced Persistence
+`DebouncedPersist` class (`utilities/debounced-persist.js`) coalesces rapid writes:
+- Per-key debounce timers (typically mapName)
+- Retry with exponential backoff (1s, 2s, 4s)
+- `flush(key)` for immediate execution, `cancel(key)` for discarding
+
+### Snapping System
+Geometry snapping service for drawing tools:
+- Vertex, edge, and endpoint snapping with configurable tolerance
+- Visual feedback indicators during drawing
+- Integrated with draw tools via `snapping.service.js`
 
 ### Atlas/Project Structure (v2.0)
 - **Atlas**: Top-level container for projects
@@ -350,16 +503,39 @@ UI events for coordination:
 - `FEATURE_PANEL_OPENED`, `FEATURE_PANEL_CLOSED`
 - `TOOLBAR_GROUP_OPENED`, `TOOLBAR_GROUP_CLOSED`
 - `UI_LAYOUT_CHANGED`, `UI_CLOSE_ALL_POPUPS`
+- `BASE_LAYER_CHANGED`, `BASE_LAYER_SELECTOR_OPENED`, `BASE_LAYER_SELECTOR_CLOSED`
+- `MAP_NOTES_REQUESTED`, `SEARCH_RESULT_PANEL_REQUESTED`
+- `VECTOR_INFO_PANEL_OPENED`
 
 Entity lifecycle events (for sync triggers):
 - `FEATURE_CREATED`, `FEATURE_MODIFIED`, `FEATURE_DELETED`
 - `LAYER_CREATED`, `LAYER_MODIFIED`, `LAYER_DELETED`
 - `GROUP_CREATED`, `GROUP_MODIFIED`, `GROUP_DELETED`
 - `MAP_CREATED`, `MAP_MODIFIED`, `MAP_DELETED`
+- `MAP_LOCK_CHANGED` - Map read-only state toggle
+- `ALL_DATA_CLEARED` - Storage wipe
 - `BRIEFING_CREATED`, `BRIEFING_UPDATED`, `BRIEFING_DELETED`
 - `BRIEFING_EDIT_STARTED`, `BRIEFING_EDIT_ENDED`
 - `BRIEFING_PRESENT_STARTED`, `BRIEFING_PRESENT_ENDED`
 - `BRIEFING_SLIDE_CHANGED`
+
+3D viewer events:
+- `VIEWER_3D_OPENED`, `VIEWER_3D_CLOSED`
+- `MARKER_3D_CLICKED`, `MARKER_3D_DESELECTED`, `MARKERS_3D_CHANGED`
+- `MEASUREMENT_3D_CLICKED`, `MEASUREMENT_3D_DESELECTED`, `MEASUREMENTS_3D_CHANGED`
+- `VIEWSHED_3D_CLICKED`, `VIEWSHED_3D_DESELECTED`, `VIEWSHEDS_3D_CHANGED`
+- `CAMERA_3D_SAVED`
+
+Street View 360 events:
+- `STREETVIEW_360_OPENED`, `STREETVIEW_360_CLOSED`, `STREETVIEW_360_PHOTO_CHANGED`
+- `ORIENTATION_360_SAVED`, `ORIENTATION_360_CLEARED`
+- `MARKER_360_CLICKED`, `MARKER_360_DESELECTED`, `MARKERS_360_CHANGED`
+- `MARKER_360_POSITION_CLICKED`
+
+Store error events:
+- `STORE_PERSIST_ERROR` - IndexedDB write failure
+- `STORE_SYNC_ERROR` - Sync queue write failure
+- `STORE_OPERATION_BLOCKED` - Operation blocked by locked map
 
 ### Control Registry Pattern
 Centralized access to tool controls:
@@ -384,7 +560,7 @@ initServices(); // Must be called before any component
 ## Key Conventions
 
 ### Imports
-- Use path aliases: `@js/`, `@store/`, `@utils/`, `@tools/`
+- Use path aliases: `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`
 - Each module folder has an `index.js` barrel file for public exports
 
 ### Feature Types
@@ -395,6 +571,7 @@ Features are identified by type strings: `'point'`, `'line'`, `'polygon'`, `'cir
 - Layers have visibility and locked states
 - Active layer receives new features
 - Layer operations emit `LAYERS_CHANGED` events
+- Visibility filtering via `layers/visibility-filter.js`
 
 ### ID Generation
 Use UUID v4 for all new identifiers:
@@ -438,13 +615,22 @@ await logFeatureOperation(OperationType.CREATE, featureId, mapId, featureData);
 Entity types: `ATLAS`, `MAP`, `FEATURE`, `LAYER`, `GROUP`, `MARKER_3D`, `MEASUREMENT_3D`, `VIEWSHED_3D`, `ORIENTATION_360`, `MARKER_360`, `BRIEFING`
 
 ### Map Resolver Service
-Handles bidirectional name ↔ UUID resolution for backward compatibility:
+Handles bidirectional name <-> UUID resolution for backward compatibility:
 ```javascript
 import { getMapResolver } from './store/services.js';
 
 const resolver = getMapResolver();
 const mapId = resolver.resolveToId('Mapa 1');     // Returns UUID
 const mapName = resolver.resolveToName(mapId);    // Returns display name
+```
+
+### Geomagnetic Declination
+Automatic magnetic declination calculation for azimuth tools:
+```javascript
+import { calculateDeclination } from 'utilities/geomagnetic';
+
+// Returns magnetic declination in degrees for a given position
+const declination = calculateDeclination(lat, lng);
 ```
 
 ## Code Style
@@ -563,15 +749,16 @@ function setupEventHandlers() { /* ... */ }
 ## Build Configuration
 
 Vite splits code into chunks:
-- `core` - Store, state, events, layers, terrain, toolbar, modals, catalog, UI utilities, briefing, mode
-- `ui-components` - Sidebar, features_tab, attribute_table
-- `draw-tools` - All drawing tools
+- `core` - Store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog, tool_manager, mode, briefing, UI, grid, coordinates
+- `ui-components` - Sidebar, features_tab, user_data, attribute_table, search, bottom-controls, base-layer-selector, context-menu, vector_info
+- `draw-tools` - All drawing tools + azimuth_distance_tool
 - `military-tools` - Military symbology
 - `analysis-tools` - LOS and visibility
-- `selection-tools` - Rectangle selection, vector info
+- `selection-tools` - Rectangle selection
 - `cesium-integration` - 3D viewer (lazy loaded)
 - `import-export` - File handling (lazy loaded)
 - `street-view` - Three.js street view (lazy loaded)
+- Unmapped modules (snapping, keyboard, map) go to the main entry bundle
 
 External dependencies loaded via script tags:
 - MapLibre GL JS

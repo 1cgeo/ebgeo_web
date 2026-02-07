@@ -51,6 +51,13 @@ export const memoryStore = {
     isRedoing: false,
 
     /**
+     * Batch collector for grouping multiple undo entries into one.
+     * null = not collecting, [] = collecting actions for batch.
+     * @type {Array|null}
+     */
+    batchCollector: null,
+
+    /**
      * Groups cache per map.
      * @type {Object.<string, Object>}
      */
@@ -119,6 +126,7 @@ export function resetMemoryStore() {
     memoryStore.currentMap = 'Principal';
     memoryStore.isUndoing = false;
     memoryStore.isRedoing = false;
+    memoryStore.batchCollector = null;
     memoryStore.groups = {};
     memoryStore.layers = {};
     memoryStore.activeLayerId = 'default';

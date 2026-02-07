@@ -10,176 +10,22 @@
     margin: 0 !important;
 }
 
-/* ===== RIGHT COLUMN CONTROLS POSITIONING ===== */
-.controls-column-right {
-    position: fixed !important;
-    top: 60px !important;
-    right: 5px !important;
-    z-index: 999 !important;
-    pointer-events: auto !important;
-    margin: 0 !important;
-}
+/* ===== DISABLED CONTROL STATES ===== */
 
-/* ===== BOTTOM LEFT CONTROLS POSITIONING ===== */
-.controls-bottom-left {
-    position: fixed !important;
-    bottom: 10px !important;
-    left: 10px !important;
-    z-index: 999 !important;
-    pointer-events: auto !important;
-    margin: 0 !important;
-}
-
-/* ----- Bottom Left Side by Side Positioning -----
-   Note: These controls are now hidden (UI redesign) but positioning kept for reference */
-.models3d-view-control.controls-bottom-left {
-    left: 10px !important;
-    display: none !important;
-}
-
-.street-view-control.controls-bottom-left {
-    left: 54px !important;
-    display: none !important;
-}
-
-/* ----- Bottom Left Larger Size ----- */
-.controls-bottom-left .mapboxgl-ctrl-group {
-    transform: none !important;
-}
-
-.controls-bottom-left .icon-sig-tool {
-    width: 32px !important;
-    height: 32px !important;
-}
-
-.controls-bottom-left button {
-    width: 40px !important;
-    height: 40px !important;
-}
-
-.los-control.disabled {
-    cursor: not-allowed !important;
-}
-
-.los-control.disabled button {
-    cursor: not-allowed !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
-}
-
-.visibility-control.disabled {
-    cursor: not-allowed !important;
-}
-
-.visibility-control.disabled button {
-    cursor: not-allowed !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
-}
-
-/* ----- Left Column Vertical Positioning ----- */
-.feature-search-control.controls-column-left {
-    top: 60px !important;
-}
-
-/* Note: These controls are hidden (UI redesign) but positioning kept for reference */
-.import-control.controls-column-left {
-    top: 94px !important;
-    display: none !important;
-}
-
-.screenshot-control.controls-column-left {
-    top: 128px !important;
-    display: none !important;
-}
-
-.vector-info-control.controls-column-left {
-    top: 162px !important;
-    display: none !important;
-}
-
-.rectangle-selection-control.controls-column-left {
-    top: 196px !important;
-    display: none !important;
-}
-
-/* ----- Terrain Controls Group -----
-   Note: Hidden (UI redesign) but positioning kept for reference */
-.terrain-control.controls-column-left {
-    top: 230px !important;
-    display: none !important;
-}
-
-.los-control.controls-column-left {
-    top: 264px !important;
-}
-
-.visibility-control.controls-column-left {
-    top: 298px !important;
-}
-
-.terrain-control button:disabled {
-    cursor: not-allowed !important;
-}
-
-.street-view-control.disabled {
-    cursor: not-allowed !important;
-}
-
-.street-view-control.disabled button {
-    cursor: not-allowed !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
-    border-color: #e0e0e0 !important;
-    background-color: #f5f5f5 !important;
-}
-
-.street-view-control.disabled button:hover {
-    background-color: #f5f5f5 !important;
-    border-color: #e0e0e0 !important;
-}
-
-/* ----- 3D Models Viewer Control Disabled ----- */
-.models3d-view-control.disabled {
-    cursor: not-allowed !important;
-}
-
-.models3d-view-control.disabled button {
-    cursor: not-allowed !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
-    border-color: #e0e0e0 !important;
-    background-color: #f5f5f5 !important;
-}
-
-.models3d-view-control.disabled button:hover {
-    background-color: #f5f5f5 !important;
-    border-color: #e0e0e0 !important;
-}
-
-/* ----- Vector Info Control Disabled ----- */
-.vector-info-control.disabled {
-    cursor: not-allowed !important;
-}
-
-.vector-info-control.disabled button {
-    cursor: not-allowed !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
-    border-color: #e0e0e0 !important;
-    background-color: #f5f5f5 !important;
-}
-
-.vector-info-control.disabled button:hover {
-    background-color: #f5f5f5 !important;
-    border-color: #e0e0e0 !important;
-}
-
-/* ----- Feature Search Control Disabled ----- */
+.los-control.disabled,
+.visibility-control.disabled,
+.street-view-control.disabled,
+.models3d-view-control.disabled,
+.vector-info-control.disabled,
 .feature-search-control.disabled {
     cursor: not-allowed !important;
 }
 
+.los-control.disabled button,
+.visibility-control.disabled button,
+.street-view-control.disabled button,
+.models3d-view-control.disabled button,
+.vector-info-control.disabled button,
 .feature-search-control.disabled button {
     cursor: not-allowed !important;
     opacity: 1 !important;
@@ -188,6 +34,9 @@
     background-color: #f5f5f5 !important;
 }
 
+.street-view-control.disabled button:hover,
+.models3d-view-control.disabled button:hover,
+.vector-info-control.disabled button:hover,
 .feature-search-control.disabled button:hover {
     background-color: #f5f5f5 !important;
     border-color: #e0e0e0 !important;
@@ -197,6 +46,14 @@
     stroke: #999 !important;
 }
 
+.terrain-control button:disabled {
+    cursor: not-allowed !important;
+}
+
+.feature-search-control.controls-column-left {
+    top: 60px !important;
+}
+
 /* ===== FEATURE SEARCH CONTROL STYLES ===== */
 .feature-search-control {
     display: flex !important;
@@ -204,7 +61,6 @@
     align-items: stretch !important;
 }
 
-/* ----- Search Button ----- */
 .feature-search-control .mapbox-gl-draw_ctrl-draw-btn {
     background-image: none !important;
     background-color: transparent !important;
@@ -234,7 +90,6 @@
     background-color: transparent !important;
 }
 
-/* ----- Search Icon ----- */
 .feature-search-control .icon-sig-tool {
     width: 20px !important;
     height: 20px !important;
@@ -242,9 +97,6 @@
     transition: all 0.2s ease;
 }
 
-
-
-/* ----- Search Input ----- */
 .feature-search-control .feature-search-input {
     position: fixed !important;
     top: 0 !important;
@@ -260,17 +112,13 @@
     color: #333 !important;
     box-sizing: border-box !important;
     flex-shrink: 0 !important;
-
-    /* Transitions */
     transition: all 0.2s ease !important;
-
-    /* Typography */
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
     font-weight: 400 !important;
 }
 
 .feature-search-control .feature-search-input:focus {
-    border-color: var(--primary-color) !important;
+    border-color: var(--primary) !important;
     box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.2) !important;
 }
 
@@ -279,7 +127,6 @@
     font-size: 11px !important;
 }
 
-/* ----- Suggestions List ----- */
 .feature-search-control .feature-search-suggestions {
     position: fixed !important;
     top: 35px !important;
@@ -321,7 +168,7 @@
 }
 
 .feature-search-control .feature-search-suggestion strong {
-    color: var(--primary-color) !important;
+    color: var(--primary) !important;
     font-weight: 600 !important;
 }
 
@@ -334,7 +181,6 @@
     background: rgba(220, 53, 69, 0.05) !important;
 }
 
-/* ----- 3D Model Suggestions ----- */
 .feature-search-control .feature-search-suggestion.suggestion-3d-model {
     display: flex !important;
     align-items: center !important;
@@ -345,14 +191,13 @@
     width: 16px !important;
     height: 16px !important;
     flex-shrink: 0 !important;
-    color: var(--primary-color) !important;
+    color: var(--primary) !important;
 }
 
 .feature-search-control .suggestion-3d-model span {
     flex: 1 !important;
 }
 
-/* ----- Loading State ----- */
 .feature-search-control.searching .feature-search-input {
     opacity: 0.7 !important;
 }
@@ -365,76 +210,19 @@
     width: 12px !important;
     height: 12px !important;
     border: 2px solid #e0e0e0 !important;
-    border-top: 2px solid var(--primary-color) !important;
+    border-top: 2px solid var(--primary) !important;
     border-radius: 50% !important;
     animation: spin 1s linear infinite !important;
     z-index: 10 !important;
 }
 
 .feature-search-control.expanded .mapbox-gl-draw_ctrl-draw-btn {
-    background-color: var(--primary-color) !important;
-    border-color: var(--primary-color) !important;
+    background-color: var(--primary) !important;
+    border-color: var(--primary) !important;
 }
 
 .feature-search-control.expanded .mapbox-gl-draw_ctrl-draw-btn svg {
     stroke: white !important;
-}
-
-/* ----- Right Column Vertical Positioning ----- */
-.point-control.controls-column-right {
-    top: 60px !important;
-}
-
-.line-control.controls-column-right {
-    top: 94px !important;
-}
-
-.polygon-control.controls-column-right {
-    top: 128px !important;
-}
-
-.text-control.controls-column-right {
-    top: 162px !important;
-}
-
-.image-control.controls-column-right {
-    top: 196px !important;
-}
-
-.rectangle-control.controls-column-right {
-    top: 230px !important;
-}
-
-.circle-control.controls-column-right {
-    top: 264px !important;
-}
-
-.ellipse-control.controls-column-right {
-    top: 298px !important;
-}
-
-.brush-control.controls-column-right {
-    top: 332px !important;
-}
-
-.arrow-control.controls-column-right {
-    top: 366px !important;
-}
-
-.boundary-control.controls-column-right {
-    top: 400px !important;
-}
-
-.occupied-front-control.controls-column-right {
-    top: 434px !important;
-}
-
-.military-symbol-control.controls-column-right {
-    top: 468px !important;
-}
-
-.coordination-measure-control.controls-column-right {
-    top: 502px !important;
 }
 
 /* ===== BASE CONTROL STYLES ===== */
@@ -483,58 +271,42 @@
 }
 
 /* ===== COLUMN CONTROLS SIZE REDUCTION ===== */
-.controls-column-left .icon-sig-tool,
-.controls-column-right .icon-sig-tool {
+.controls-column-left .icon-sig-tool {
     width: 26px !important;
     height: 26px !important;
 }
 
-/* ----- Mapbox Draw Button Icons ----- */
-.controls-column-left .mapbox-gl-draw_ctrl-draw-btn img,
-.controls-column-right .mapbox-gl-draw_ctrl-draw-btn img {
+.controls-column-left .mapbox-gl-draw_ctrl-draw-btn img {
     width: 25px !important;
     height: 25px !important;
 }
 
-/* ----- Mapbox Draw SVG Icons ----- */
 .controls-column-left .mapbox-gl-draw_polygon svg,
 .controls-column-left .mapbox-gl-draw_line svg,
 .controls-column-left .mapbox-gl-draw_point svg,
-.controls-column-left .mapbox-gl-draw_trash svg,
-.controls-column-right .mapbox-gl-draw_polygon svg,
-.controls-column-right .mapbox-gl-draw_line svg,
-.controls-column-right .mapbox-gl-draw_point svg,
-.controls-column-right .mapbox-gl-draw_trash svg {
+.controls-column-left .mapbox-gl-draw_trash svg {
     width: 20px !important;
     height: 20px !important;
     transform: scale(0.8);
 }
 
-/* ----- Map Action Buttons ----- */
-.controls-column-left .map-action-button,
-.controls-column-right .map-action-button {
+.controls-column-left .map-action-button {
     width: 32px !important;
     height: 32px !important;
     padding: 6px !important;
 }
 
-/* ----- Action Button Icons ----- */
-.controls-column-left .map-action-button img,
-.controls-column-right .map-action-button img {
+.controls-column-left .map-action-button img {
     width: 16px !important;
     height: 16px !important;
 }
 
-/* ----- Mapbox Control Groups ----- */
-.controls-column-left .mapboxgl-ctrl-group,
-.controls-column-right .mapboxgl-ctrl-group {
+.controls-column-left .mapboxgl-ctrl-group {
     transform: scale(0.8);
     transform-origin: top right;
 }
 
-/* ----- Layer Switches ----- */
-.controls-column-left .layer-switch,
-.controls-column-right .layer-switch {
+.controls-column-left .layer-switch {
     padding: 6px 10px !important;
     font-size: 12px !important;
     min-width: 65px !important;
@@ -559,7 +331,7 @@
 }
 
 .layer-switch.active {
-    background-color: var(--primary-color) !important;
+    background-color: var(--primary) !important;
     color: white !important;
 }
 
@@ -590,7 +362,7 @@
     height: 20px;
     margin: -10px 0 0 -10px;
     border: 2px solid var(--primary-light);
-    border-top: 2px solid var(--primary-color);
+    border-top: 2px solid var(--primary);
     border-radius: 50%;
     animation: spin 1s linear infinite;
 }
@@ -609,7 +381,7 @@
 .mapbox-gl-draw_ctrl-draw-btn:focus,
 #screenshot-tool:focus,
 #feature-search-tool:focus {
-    outline: 2px solid var(--primary-color);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
@@ -719,7 +491,7 @@
 .model-preview-button {
     width: 100%;
     padding: 8px 10px;
-    background: #508D4E;
+    background: var(--primary);
     border: none;
     border-radius: 6px;
     color: #fff;
@@ -730,14 +502,13 @@
 }
 
 .model-preview-button:hover {
-    background: #427842;
+    background: var(--primary-700);
 }
 
 .model-preview-button:active {
-    background: #3a6a3a;
+    background: var(--primary-800);
 }
 
-/* ----- Popup without video ----- */
 .model-preview-content.no-video {
     padding-bottom: 12px;
 }
@@ -859,7 +630,6 @@
     background: #0a58ca;
 }
 
-/* ----- Popup without thumbnail ----- */
 .streetview-preview-content.no-thumbnail {
     padding-bottom: 12px;
 }
@@ -876,8 +646,6 @@
     text-align: center;
 }
 
-/* Mobile styles removed - to be redesigned */
-
 /* =========================================================================
    HIDE OLD STANDALONE CONTROLS (UI REDESIGN)
    These controls are now managed by the new UI components.
@@ -888,45 +656,11 @@
 /* ----- Controls managed by BottomControlsControl -----
    Note: display:none rules merged into positioning rules above */
 
-/* ----- Drawing tools managed by ToolbarControl ----- */
-
-/* Hide old drawing tool buttons (now in toolbar popup) */
-.point-control.controls-column-right,
-.line-control.controls-column-right,
-.polygon-control.controls-column-right,
-.text-control.controls-column-right,
-.image-control.controls-column-right,
-.rectangle-control.controls-column-right,
-.circle-control.controls-column-right,
-.ellipse-control.controls-column-right,
-.brush-control.controls-column-right {
-    display: none !important;
-}
-
-/* ----- Military tools managed by ToolbarControl ----- */
-
-/* Hide old military tool buttons (now in toolbar popup) */
-.arrow-control.controls-column-right,
-.boundary-control.controls-column-right,
-.occupied-front-control.controls-column-right,
-.military-symbol-control.controls-column-right,
-.coordination-measure-control.controls-column-right {
-    display: none !important;
-}
-
 /* ----- Analysis tools managed by ToolbarControl ----- */
-
-/* Hide old analysis tool buttons (now in toolbar popup) */
 .los-control.controls-column-left,
 .visibility-control.controls-column-left {
     display: none !important;
 }
-
-/* ----- Import/Export managed by Sidebar -----
-   Note: display:none rules merged into positioning rules above */
-
-/* ----- Other controls managed by ToolbarControl -----
-   Note: display:none rules merged into positioning rules above */
 
 /* =========================================================================
    PHASE 2: LEGACY MAP PANEL HIDING
@@ -934,7 +668,7 @@
    These rules hide the legacy elements without breaking internal functionality.
    ========================================================================= */
 
-/* === LEGACY MAP PANEL === */
+/* === LEGACY MAP PANEL (hidden - replaced by SidebarControl) === */
 .list-map-container,
 #map-list {
     display: none !important;
@@ -942,38 +676,8 @@
     pointer-events: none !important;
 }
 
-/* Reopen panel button (old collapsed state toggle) */
 .reopen-panel-btn,
 .reopen-button {
-    display: none !important;
-}
-
-/* Header of the old panel */
-#header-map-list {
-    display: none !important;
-}
-
-/* Old tab selector (Mapas/Camadas/Exportar) */
-.list-map-container .tab-selector,
-#map-list .tab-selector {
-    display: none !important;
-}
-
-/* Old tab content area */
-.list-map-container .tab-content-area,
-#map-list .tab-content-area {
-    display: none !important;
-}
-
-/* Old collapse button */
-.collapse-button,
-#collapse-panel-btn {
-    display: none !important;
-}
-
-/* Old maps actions container */
-.maps-actions-container,
-#maps-actions-container {
     display: none !important;
 }
 

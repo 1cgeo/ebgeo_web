@@ -7,6 +7,7 @@
 
 import { ModalBase } from './modal.base.js';
 import { addDomListener } from '../utilities/event-cleanup.js';
+import { escapeHtml } from '../utilities/html-escape.js';
 
 /**
  * Icons used in the modal.
@@ -77,7 +78,7 @@ export class CombineMapsModal extends ModalBase {
         return `
             <div class="combine-maps-modal-content">
                 <div class="combine-maps-description">
-                    Selecione os mapas que deseja puxar para <strong>"${this._escapeHtml(this._targetMapName)}"</strong>.
+                    Selecione os mapas que deseja puxar para <strong>"${escapeHtml(this._targetMapName)}"</strong>.
                     As feições serão copiadas para o mapa de destino.
                 </div>
 
@@ -127,12 +128,12 @@ export class CombineMapsModal extends ModalBase {
         return this._availableMaps.map(mapName => {
             const initial = mapName.charAt(0).toUpperCase();
             return `
-                <div class="combine-map-item" data-map="${this._escapeHtml(mapName)}" role="option" tabindex="0">
+                <div class="combine-map-item" data-map="${escapeHtml(mapName)}" role="option" tabindex="0">
                     <span class="combine-map-checkbox-custom">
                         ${ICONS.check}
                     </span>
                     <span class="combine-map-badge">${initial}</span>
-                    <span class="combine-map-name">${this._escapeHtml(mapName)}</span>
+                    <span class="combine-map-name">${escapeHtml(mapName)}</span>
                 </div>
             `;
         }).join('');
@@ -281,17 +282,6 @@ export class CombineMapsModal extends ModalBase {
         return Array.from(this._selectedMaps);
     }
 
-    /**
-     * Escapes HTML special characters.
-     * @private
-     * @param {string} str - String to escape
-     * @returns {string}
-     */
-    _escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-    }
 }
 
 /**

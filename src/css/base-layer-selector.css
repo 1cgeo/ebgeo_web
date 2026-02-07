@@ -12,18 +12,20 @@
 .base-layer-selector {
     position: fixed;
     bottom: var(--space-6);
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
     z-index: var(--z-controls);
-    transition: left var(--transition-panel);
+    transition: transform var(--transition-panel);
+    will-change: transform;
 }
 
 /* Position when sidebar collapsed */
 .base-layer-selector[data-sidebar-state="collapsed"] {
-    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
+    transform: translateX(0);
 }
 
 /* Position when sidebar expanded */
 .base-layer-selector[data-sidebar-state="expanded"] {
-    left: calc(var(--sidebar-collapsed-width) + var(--sidebar-panel-width) + var(--space-5));
+    transform: translateX(calc(var(--sidebar-panel-width) + var(--space-1)));
 }
 
 /* =========================================================================
@@ -116,11 +118,6 @@
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: var(--space-2);
-}
-
-/* Single column for 2 or fewer items */
-.base-layer-grid:has(.base-layer-option:nth-child(2):last-child) {
-    grid-template-columns: repeat(2, 1fr);
 }
 
 /* =========================================================================
@@ -242,7 +239,7 @@
 @media (width <= 1024px) {
     /* Adjust position for tablet sidebar */
     .base-layer-selector[data-sidebar-state="expanded"] {
-        left: calc(var(--sidebar-collapsed-width) + var(--sidebar-panel-width-tablet, 340px) + var(--space-4));
+        transform: translateX(var(--sidebar-panel-width-tablet, 340px));
     }
 
     /* Slightly larger expanded panel */
@@ -258,18 +255,14 @@
 
 /* Small tablet breakpoint */
 @media (width <= 768px) {
-    /* Position closer to sidebar */
-    .base-layer-selector[data-sidebar-state="collapsed"] {
+    /* Position closer to sidebar + respect safe area at bottom */
+    .base-layer-selector {
         left: calc(var(--sidebar-collapsed-width) + var(--space-3));
+        bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
     }
 
     .base-layer-selector[data-sidebar-state="expanded"] {
-        left: calc(var(--sidebar-collapsed-width) + min(100vw - var(--sidebar-collapsed-width), 400px) + var(--space-3));
-    }
-
-    /* Respect safe area at bottom */
-    .base-layer-selector {
-        bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
+        transform: translateX(min(100vw - var(--sidebar-collapsed-width), 400px));
     }
 }
 

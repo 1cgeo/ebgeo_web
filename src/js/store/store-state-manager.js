@@ -10,9 +10,10 @@ import {
     getAllMapKeysCompat,
     getMapDataCompat
 } from './repositories/index.js';
-import { groupManager } from '../tool_manager';
+import { getGroupManager } from './services.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import { logOperation, EntityType, OperationType } from './sync/index.js';
+import { LRUCache } from '../utilities/lru-cache.js';
 
 // Alias for backward compatibility during migration
 const setAppSetting = setSettingCompat;
@@ -29,7 +30,7 @@ const getMapData = getMapDataCompat;
 class MapManager {
     constructor() {
         this.memoryStore = memoryStore;
-        this.projectColorCache = new Map();
+        this.projectColorCache = new LRUCache(200);
     }
 
     // ===== MEMORY STORE MANAGEMENT =====
@@ -82,12 +83,14 @@ class MapManager {
 
         if (previousMap && previousMap !== mapName) {
             await this.saveColorUsageToDB(previousMap);
+            // Free undo/redo memory for inactive map
+            this.clearHistory(previousMap);
         }
 
         this.setCurrentMapName(mapName);
 
         await this.loadColorUsageFromDB(mapName);
-        await groupManager.loadGroupsToMemory(mapName);
+        await getGroupManager().loadGroupsToMemory(mapName);
         await setAppSetting('lastActiveMap', mapName);
 
         // Load lock state into memory cache
@@ -175,6 +178,15 @@ class MapManager {
         } else {
             mapColorCounts = await this.calculateMapColors(mapData);
         }
+
+        // Remove old colors before adding new ones to prevent inflated counts on reload
+        try {
+            const oldColorData = await getColorUsage(mapName);
+            if (oldColorData && Object.keys(oldColorData).length > 0) {
+                const oldColors = new Map(Object.entries(oldColorData));
+                this.updateProjectColorCache(oldColors, 'remove');
+            }
+        } catch (_) { /* first time — no old data */ }
 
         await setColorUsage(mapName, Object.fromEntries(mapColorCounts));
         this.updateProjectColorCache(mapColorCounts, 'add');
@@ -397,15 +409,52 @@ class MapManager {
 
     // ===== UNDO/REDO SYSTEM =====
 
+    /** @type {number} Maximum number of actions kept in undo history per map */
+    static MAX_UNDO_HISTORY = 20;
+
     recordAction(action) {
         const currentMap = this.memoryStore.maps[this.memoryStore.currentMap];
         if (!this.memoryStore.isUndoing && !this.memoryStore.isRedoing) {
-            currentMap.undoStack.push(action);
-            if (currentMap.undoStack.length > 20) {
-                currentMap.undoStack.shift();
+            if (this.memoryStore.batchCollector !== null) {
+                // Batch mode: collect instead of pushing directly
+                this.memoryStore.batchCollector.push(action);
+            } else {
+                currentMap.undoStack.push(action);
+                const excess = currentMap.undoStack.length - MapManager.MAX_UNDO_HISTORY;
+                if (excess > 0) {
+                    currentMap.undoStack.splice(0, excess);
+                }
+                currentMap.redoStack = [];
             }
-            currentMap.redoStack = [];
         }
+    }
+
+    /**
+     * Starts collecting undo actions into a batch.
+     * While collecting, recordAction() accumulates actions instead of pushing to undoStack.
+     * Call commitBatchCollection() to finalize as a single batch undo entry.
+     */
+    startBatchCollection() {
+        this.memoryStore.batchCollector = [];
+    }
+
+    /**
+     * Commits collected actions as a single batch undo entry.
+     * If only one action was collected, records it directly (no batch wrapper).
+     */
+    commitBatchCollection() {
+        const collected = this.memoryStore.batchCollector;
+        this.memoryStore.batchCollector = null;
+        if (collected && collected.length > 0) {
+            this.recordBatchOperation(collected);
+        }
+    }
+
+    /**
+     * Discards any collected batch actions without recording.
+     */
+    discardBatchCollection() {
+        this.memoryStore.batchCollector = null;
     }
 
     async undoLastAction(executeFunction) {
@@ -414,15 +463,19 @@ class MapManager {
         if (!lastAction) return false;
 
         this.memoryStore.isUndoing = true;
-        currentMap.redoStack.push(lastAction);
-
         try {
             await this._executeUndoAction(lastAction, executeFunction);
+            // Only move to redoStack after successful execution
+            currentMap.redoStack.push(lastAction);
+        } catch (error) {
+            // Restore to undoStack so the user can retry
+            currentMap.undoStack.push(lastAction);
+            throw error;
         } finally {
             this.memoryStore.isUndoing = false;
         }
 
-        return true;
+        return lastAction;
     }
 
     async redoLastAction(executeFunction) {
@@ -431,15 +484,19 @@ class MapManager {
         if (!lastUndoneAction) return false;
 
         this.memoryStore.isRedoing = true;
-        currentMap.undoStack.push(lastUndoneAction);
-
         try {
             await this._executeRedoAction(lastUndoneAction, executeFunction);
+            // Only move to undoStack after successful execution
+            currentMap.undoStack.push(lastUndoneAction);
+        } catch (error) {
+            // Restore to redoStack so the user can retry
+            currentMap.redoStack.push(lastUndoneAction);
+            throw error;
         } finally {
             this.memoryStore.isRedoing = false;
         }
 
-        return true;
+        return lastUndoneAction;
     }
 
     async _executeUndoAction(action, executeFunction) {
@@ -482,6 +539,12 @@ class MapManager {
                     }
                 }
                 break;
+            case 'batch':
+                // Undo batch: execute each operation in reverse order
+                for (let i = action.operations.length - 1; i >= 0; i--) {
+                    await this._executeUndoAction(action.operations[i], executeFunction);
+                }
+                break;
         }
     }
 
@@ -518,6 +581,12 @@ class MapManager {
                             }
                         }
                     }
+                }
+                break;
+            case 'batch':
+                // Redo batch: execute each operation in original order
+                for (const op of action.operations) {
+                    await this._executeRedoAction(op, executeFunction);
                 }
                 break;
         }
@@ -562,6 +631,9 @@ class MapManager {
 
     async removeMapFromMemory(mapName) {
         delete this.memoryStore.maps[mapName];
+        delete this.memoryStore.layers[mapName];
+        delete this.memoryStore.groups[mapName];
+        this.memoryStore.lockedMaps.delete(mapName);
 
         try {
             const mapColors = await getColorUsage(mapName);
@@ -575,7 +647,7 @@ class MapManager {
         }
 
         try {
-            await groupManager.clearMapGroups(mapName);
+            await getGroupManager().clearMapGroups(mapName);
         } catch (error) {
             console.warn(`Error removing groups for map ${mapName}:`, error);
         }
@@ -594,6 +666,16 @@ class MapManager {
         if (this.memoryStore.groups[oldName]) {
             this.memoryStore.groups[newName] = this.memoryStore.groups[oldName];
             delete this.memoryStore.groups[oldName];
+        }
+
+        if (this.memoryStore.layers[oldName]) {
+            this.memoryStore.layers[newName] = this.memoryStore.layers[oldName];
+            delete this.memoryStore.layers[oldName];
+        }
+
+        if (this.memoryStore.lockedMaps.has(oldName)) {
+            this.memoryStore.lockedMaps.delete(oldName);
+            this.memoryStore.lockedMaps.add(newName);
         }
     }
 

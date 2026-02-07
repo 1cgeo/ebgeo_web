@@ -7,6 +7,7 @@
 
 import { ModalBase } from './modal.base.js';
 import { addDomListener } from '../utilities/event-cleanup.js';
+import { escapeHtml } from '../utilities/html-escape.js';
 import { getAllMapNamesStore, getCurrentMapName } from '../store';
 
 /**
@@ -172,16 +173,16 @@ export class ExportModal extends ModalBase {
         listContainer.innerHTML = this._maps.map((mapName) => {
             const isCurrent = mapName === this._currentMapName;
             return `
-                <label class="export-map-item ${isCurrent ? 'current-map' : ''}" data-map="${mapName}">
+                <label class="export-map-item ${isCurrent ? 'current-map' : ''}" data-map="${escapeHtml(mapName)}">
                     <input type="checkbox"
-                           value="${mapName}"
+                           value="${escapeHtml(mapName)}"
                            class="export-map-checkbox"
-                           aria-label="Selecionar ${mapName}">
+                           aria-label="Selecionar ${escapeHtml(mapName)}">
                     <span class="export-map-checkbox-custom">
                         ${ICONS.check}
                     </span>
                     <span class="export-map-icon">${ICONS.map}</span>
-                    <span class="export-map-name">${mapName}</span>
+                    <span class="export-map-name">${escapeHtml(mapName)}</span>
                     ${isCurrent ? '<span class="export-map-badge">Atual</span>' : ''}
                 </label>
             `;

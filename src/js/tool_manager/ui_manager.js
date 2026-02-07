@@ -323,7 +323,7 @@ class UIManager {
         const deleteButton = document.createElement('button');
         deleteButton.classList.add('delete-button', 'pure-material-button-contained');
         deleteButton.textContent = 'Deletar';
-        deleteButton.onclick = () => this.selectionManager.deleteSelectedFeatures();
+        deleteButton.onclick = async () => this.selectionManager.deleteSelectedFeatures();
         panel.appendChild(deleteButton);
     }
 
@@ -345,13 +345,36 @@ class UIManager {
             cleanupFeatureDropdownListeners();
         }
 
-        // Handle sidebar feature panel - save before closing
+        // Handle sidebar feature panel - save before closing.
+        // Use _saveOnly to avoid triggering deselectAllFeatures() from the button handler
+        // (we're already deselecting from the caller).
         const sidebarSaveButton = document.querySelector('.feature-panel .attr-modern-btn-save');
-        if (sidebarSaveButton) {
+        if (sidebarSaveButton?._saveOnly) {
+            sidebarSaveButton._saveOnly();
+        } else if (sidebarSaveButton) {
             sidebarSaveButton.click();
         }
 
         // Always notify StateManager to close feature panel in sidebar
+        this._notifyFeaturePanelClosed();
+    }
+
+    /**
+     * Close all panels without saving.
+     * Used when caller already saved and just needs UI cleanup.
+     */
+    closePanelWithoutSave = () => {
+        this.hideFeatureSearchPanel();
+        this.hideProfilePanel();
+
+        // Remove legacy floating panel without saving
+        const panel = document.querySelector('.unified-attributes-panel');
+        if (panel) {
+            panel.remove();
+            cleanupFeatureDropdownListeners();
+        }
+
+        // Close feature panel in sidebar without saving
         this._notifyFeaturePanelClosed();
     }
 

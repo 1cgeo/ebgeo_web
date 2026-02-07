@@ -96,7 +96,7 @@ body.streetview-active .modal-overlay {
 
 .button-tool-360.active,
 .button-tool-360.active-button {
-    background: var(--primary-color, #508D4E);
+    background: var(--primary);
     color: white;
 }
 
@@ -139,7 +139,7 @@ body.streetview-active .modal-overlay {
 
 /* ===== ACCESSIBILITY ===== */
 .button-tool-360:focus {
-    outline: 2px solid var(--primary-color, #508D4E);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
@@ -153,7 +153,7 @@ body.streetview-active .modal-overlay {
 
 /* ===== ORIENTATION BUTTONS ===== */
 #salvar-orientacao.has-saved {
-    border: 3px solid var(--primary-color, #508D4E);
+    border: 3px solid var(--primary);
     box-shadow: 0 0 0 1px rgba(80, 141, 78, 0.3);
 }
 
@@ -178,7 +178,7 @@ body.streetview-active .modal-overlay {
     align-items: center;
     gap: 6px;
     padding: 8px 16px;
-    background: var(--primary-color, #508D4E);
+    background: var(--primary);
     border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: 8px;
     box-shadow: 0 4px 16px rgba(80, 141, 78, 0.3);
@@ -231,7 +231,7 @@ body.streetview-active .modal-overlay {
     display: flex;
     align-items: center;
     gap: 8px;
-    background: var(--primary-color, #508D4E);
+    background: var(--primary);
     color: white;
     padding: 8px 16px;
     border-radius: 9999px;
@@ -315,7 +315,6 @@ body.streetview-active .modal-overlay {
     display: block !important;
 }
 
-/* ----- Tabs ----- */
 .nav-help-tabs-360 {
     display: flex;
     border-radius: 12px 12px 0 0;
@@ -340,7 +339,7 @@ body.streetview-active .modal-overlay {
 }
 
 .nav-help-tab-360.active {
-    background: var(--primary-color, #508D4E);
+    background: var(--primary);
     color: white;
 }
 
@@ -351,7 +350,6 @@ body.streetview-active .modal-overlay {
     height: 18px;
 }
 
-/* ----- Content ----- */
 .nav-help-content-360 {
     padding: 8px 0;
 }
@@ -364,7 +362,6 @@ body.streetview-active .modal-overlay {
     display: block;
 }
 
-/* ----- Items ----- */
 .nav-help-item-360 {
     display: flex;
     align-items: center;
@@ -384,7 +381,7 @@ body.streetview-active .modal-overlay {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--primary-color, #508D4E);
+    background: var(--primary);
     border-radius: 8px;
     color: white;
 }

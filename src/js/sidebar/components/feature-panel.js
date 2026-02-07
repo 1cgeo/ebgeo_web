@@ -13,6 +13,7 @@
  */
 
 import { SIDEBAR_ICONS } from '../sidebar.constants.js';
+import { escapeHtml } from '../../utilities/html-escape.js';
 import {
     setupCleanup,
     addDomListener,
@@ -36,6 +37,7 @@ export class FeaturePanel {
         this._contentContainer = null;
         this._currentContent = null;
         this._cleanupFunctions = [];
+        this._hideTimeoutId = null;
 
         setupCleanup(this);
     }
@@ -108,6 +110,12 @@ export class FeaturePanel {
      * @param {string} [title] - Optional title to display in the header
      */
     show(contentElement, title) {
+        // Cancel any pending hide timeout to prevent race conditions
+        if (this._hideTimeoutId) {
+            clearTimeout(this._hideTimeoutId);
+            this._hideTimeoutId = null;
+        }
+
         // Clear previous content
         this._clearContent();
 
@@ -116,7 +124,7 @@ export class FeaturePanel {
             const featureIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
             this._headerTitle.innerHTML = `
                 ${featureIcon}
-                <span>${title}</span>
+                <span>${escapeHtml(title)}</span>
             `;
         }
 
@@ -174,8 +182,14 @@ export class FeaturePanel {
 
         this._container.dataset.expanded = 'false';
 
+        // Cancel any previous pending clear
+        if (this._hideTimeoutId) {
+            clearTimeout(this._hideTimeoutId);
+        }
+
         // Clear content after animation
-        setTimeout(() => {
+        this._hideTimeoutId = setTimeout(() => {
+            this._hideTimeoutId = null;
             if (this._container.dataset.expanded === 'false') {
                 this._clearContent();
             }
@@ -183,16 +197,20 @@ export class FeaturePanel {
     }
 
     /**
-     * Triggers the save button click if present in the panel content.
-     * @private
+     * Triggers save on the current panel content.
+     * Always uses _saveOnly to persist without triggering the click handler's
+     * deselectAllFeatures() side-effect (callers manage deselection themselves).
      */
     _triggerSave() {
         if (!this._contentContainer) return;
 
-        // Find and click the save button
         const saveButton = this._contentContainer.querySelector('.attr-modern-btn-save');
-        if (saveButton) {
-            saveButton.click();
+        if (!saveButton) return;
+
+        // Always use _saveOnly to avoid the click handler's deselectAllFeatures()
+        // which would cause duplicate saves and undo entries
+        if (saveButton._saveOnly) {
+            saveButton._saveOnly();
         }
     }
 
@@ -239,6 +257,10 @@ export class FeaturePanel {
      * Destroys the component.
      */
     destroy() {
+        if (this._hideTimeoutId) {
+            clearTimeout(this._hideTimeoutId);
+            this._hideTimeoutId = null;
+        }
         this._clearContent();
         cleanup(this);
         removeElement(this._container);

@@ -37,6 +37,7 @@ class TerrainControl {
         this._button = null;
         this._name = 'TerrainControl';
         this._terrainPitch = 60; // Pitch angle when terrain is active (like Google Maps 3D)
+        this._unsubBaseLayerChanged = null;
     }
 
     onAdd(map) {
@@ -46,7 +47,7 @@ class TerrainControl {
         this._container.style.display = 'none';
 
         // Listen for base layer changes to restore terrain if it was active
-        getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
+        this._unsubBaseLayerChanged = getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
 
         return this._container;
     }
@@ -65,6 +66,10 @@ class TerrainControl {
     }
 
     onRemove() {
+        if (this._unsubBaseLayerChanged) {
+            this._unsubBaseLayerChanged();
+            this._unsubBaseLayerChanged = null;
+        }
         if (this._container?.parentNode) {
             this._container.parentNode.removeChild(this._container);
         }

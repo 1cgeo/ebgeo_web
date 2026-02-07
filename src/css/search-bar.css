@@ -11,18 +11,20 @@
 .search-bar-container {
     position: fixed;
     top: var(--space-4);
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
     z-index: var(--z-search);
-    transition: left var(--transition-panel);
+    transition: transform var(--transition-panel);
+    will-change: transform;
 }
 
 /* Position based on sidebar state */
 .search-bar-container[data-sidebar-state="collapsed"],
 .search-bar-container:not([data-sidebar-state]) {
-    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
+    transform: translateX(0);
 }
 
 .search-bar-container[data-sidebar-state="expanded"] {
-    left: calc(var(--sidebar-collapsed-width) + var(--sidebar-panel-width) + var(--space-4));
+    transform: translateX(var(--sidebar-panel-width));
 }
 
 /* =========================================================================
@@ -663,7 +665,7 @@
 
     /* Adjust position for tablet sidebar */
     .search-bar-container[data-sidebar-state="expanded"] {
-        left: calc(var(--sidebar-collapsed-width) + var(--sidebar-panel-width-tablet, 340px) + var(--space-4));
+        transform: translateX(var(--sidebar-panel-width-tablet, 340px));
     }
 
     /* Results dropdown slightly shorter */
@@ -675,13 +677,12 @@
 /* Small tablet breakpoint */
 @media (width <= 768px) {
     /* Position closer to sidebar */
-    .search-bar-container[data-sidebar-state="collapsed"],
-    .search-bar-container:not([data-sidebar-state]) {
+    .search-bar-container {
         left: calc(var(--sidebar-collapsed-width) + var(--space-3));
     }
 
     .search-bar-container[data-sidebar-state="expanded"] {
-        left: calc(var(--sidebar-collapsed-width) + min(100vw - var(--sidebar-collapsed-width), 400px) + var(--space-3));
+        transform: translateX(min(100vw - var(--sidebar-collapsed-width), 400px));
     }
 
     /* Constrain width more on small tablets */

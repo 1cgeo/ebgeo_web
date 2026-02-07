@@ -22,8 +22,7 @@ export {
 } from './visibility-filter.js';
 
 export {
-    default as LayerManager,
-    LayerManager as LayerManagerClass,
+    LayerManager,
     createLayerManager,
     layerManagerHolder
 } from './layer.manager.js';

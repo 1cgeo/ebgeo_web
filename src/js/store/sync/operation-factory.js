@@ -45,6 +45,35 @@ export function resetClientId() {
     localStorage.removeItem('ebgeo_client_id');
 }
 
+// ============================================================================
+// LAMPORT CLOCK
+// ============================================================================
+
+/**
+ * Logical clock for causal ordering of operations across clients.
+ * Incremented on every local operation. When receiving remote operations,
+ * call advanceLamportClock(remoteTimestamp) to synchronize.
+ * @type {number}
+ */
+let _lamportClock = 0;
+
+/**
+ * Gets the current Lamport clock value (without incrementing).
+ * @returns {number} Current clock value
+ */
+export function getLamportClock() {
+    return _lamportClock;
+}
+
+/**
+ * Advances the Lamport clock after receiving a remote operation.
+ * Sets clock to max(local, remote) + 1 to maintain causal ordering.
+ * @param {number} remoteTimestamp - Lamport timestamp from the remote operation
+ */
+export function advanceLamportClock(remoteTimestamp) {
+    _lamportClock = Math.max(_lamportClock, remoteTimestamp) + 1;
+}
+
 /**
  * @typedef {Object} Operation
  * @property {string} id - Unique operation ID
@@ -54,7 +83,8 @@ export function resetClientId() {
  * @property {string|null} mapId - ID of the map context (null for atlas-level)
  * @property {Object|null} data - New/updated data (null for deletes)
  * @property {Object|null} previousData - Previous data (for undo support)
- * @property {number} timestamp - Unix timestamp in milliseconds
+ * @property {number} timestamp - Wall clock timestamp in milliseconds (Date.now())
+ * @property {number} lamportTimestamp - Logical clock for causal ordering across clients
  * @property {string} clientId - ID of the client that created this operation
  */
 
@@ -90,6 +120,7 @@ export function createOperation(entityType, operationType, entityId, mapId, data
         data,
         previousData,
         timestamp: Date.now(),
+        lamportTimestamp: ++_lamportClock,
         clientId: getClientId()
     };
 }
@@ -114,6 +145,7 @@ export function createBatchOperations(operations) {
         data: op.data || null,
         previousData: op.previousData || null,
         timestamp,
+        lamportTimestamp: ++_lamportClock,
         clientId: client,
         batchId,
         batchIndex: index

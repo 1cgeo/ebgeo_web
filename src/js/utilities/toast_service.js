@@ -20,6 +20,7 @@ class ToastService {
     };
 
     static activeToasts = new Set();
+    static channelToasts = new Map();
 
     /**
      * Displays a toast with custom configuration
@@ -284,11 +285,35 @@ class ToastService {
     static getActiveToastCount() {
         return ToastService.activeToasts.size;
     }
+
+    /**
+     * Shows a toast in a named channel, replacing any existing toast in that channel
+     * immediately (no fade-out delay). Prevents stacking on rapid repeated calls.
+     *
+     * @param {string} channel - Channel name (e.g., 'undo-redo')
+     * @param {string} message - Message to display
+     * @param {string} type - Toast type
+     * @param {Object} options - Additional options
+     * @returns {HTMLElement} Toast element
+     */
+    static showInChannel(channel, message, type = ToastService.TYPES.INFO, options = {}) {
+        const existing = ToastService.channelToasts.get(channel);
+        if (existing && existing.parentNode) {
+            existing.parentNode.removeChild(existing);
+            ToastService.activeToasts.delete(existing);
+            ToastService.repositionActiveToasts();
+        }
+
+        const toast = ToastService.showToast(message, type, options);
+        ToastService.channelToasts.set(channel, toast);
+        return toast;
+    }
 }
 
 export const showToast = ToastService.showToast.bind(ToastService);
 export const showSuccess = ToastService.showSuccess.bind(ToastService);
 export const showError = ToastService.showError.bind(ToastService);
 export const showWarning = ToastService.showWarning.bind(ToastService);
+export const showInChannel = ToastService.showInChannel.bind(ToastService);
 
 export default ToastService;

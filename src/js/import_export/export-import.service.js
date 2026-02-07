@@ -35,6 +35,7 @@ import {
     // Briefing imports
     getBriefingsForExport,
     importBriefings,
+    getGroupManager,
 } from '../store';
 
 import { IDUtils, showToast, showSuccess, generateUUID } from '../utilities';
@@ -42,7 +43,6 @@ import { createSyncMetadata } from '../store/sync/sync-metadata.js';
 import { ATLAS_SCHEMA_VERSION } from '../store/atlas/atlas.entity.js';
 import JSZip from 'jszip';
 import config from '../config.js';
-import { groupManager } from '../tool_manager';
 import { showExportModal } from '../modals/export.modal.js';
 import { EventTypes } from '../events/event_types.js';
 
@@ -767,7 +767,7 @@ export class ExportImportService {
         try {
             for (const [mapName, mapGroups] of Object.entries(groupsData)) {
                 if (mapGroups && Object.keys(mapGroups).length > 0) {
-                    await groupManager.clearMapGroups(mapName);
+                    await getGroupManager().clearMapGroups(mapName);
 
                     const currentMapName = await getCurrentMapName();
                     if (mapName === currentMapName) {
@@ -775,10 +775,10 @@ export class ExportImportService {
                         Object.entries(mapGroups).forEach(([groupId, groupData]) => {
                             groupsMap.set(groupId, groupData);
                         });
-                        groupManager.memoryStore.groups[mapName] = groupsMap;
+                        getGroupManager().memoryStore.groups[mapName] = groupsMap;
                     }
 
-                    await groupManager._saveGroupsToDBAsync(mapName);
+                    await getGroupManager()._saveGroupsToDBAsync(mapName);
                 }
             }
 
@@ -810,17 +810,17 @@ export class ExportImportService {
 
                 const currentMapName = await getCurrentMapName();
                 if (finalMapName === currentMapName) {
-                    if (!groupManager.memoryStore.groups[finalMapName]) {
-                        groupManager.memoryStore.groups[finalMapName] = new Map();
+                    if (!getGroupManager().memoryStore.groups[finalMapName]) {
+                        getGroupManager().memoryStore.groups[finalMapName] = new Map();
                     }
 
-                    const groupsCache = groupManager.memoryStore.groups[finalMapName];
+                    const groupsCache = getGroupManager().memoryStore.groups[finalMapName];
                     Object.entries(processedGroups).forEach(([groupId, groupData]) => {
                         groupsCache.set(groupId, groupData);
                     });
                 }
 
-                await groupManager._saveGroupsToDBAsync(finalMapName);
+                await getGroupManager()._saveGroupsToDBAsync(finalMapName);
             }
 
         } catch (error) {

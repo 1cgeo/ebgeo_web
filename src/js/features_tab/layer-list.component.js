@@ -329,6 +329,7 @@ export async function handleAddLayer(createLayer, callbacks) {
 
     try {
         const newLayer = await createLayer(name.trim());
+        if (!newLayer) return; // Guard: createLayer returns null on locked map
         await setActiveLayer(newLayer.id);
         callbacks.onRefresh();
         callbacks.onLayersChanged();

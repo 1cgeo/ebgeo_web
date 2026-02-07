@@ -49,6 +49,7 @@ class AddStreetViewControl {
 
         // Bind event handlers
         this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
+        this._unsubBaseLayerChanged = null;
 
         // Layer definitions for PMTiles
         if (config.features.imagens_panoramicas) {
@@ -107,7 +108,7 @@ class AddStreetViewControl {
         }
 
         // Listen for base layer changes to reload layers if active
-        getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
+        this._unsubBaseLayerChanged = getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
 
         return this.container;
     }
@@ -231,6 +232,11 @@ class AddStreetViewControl {
     }
 
     onRemove() {
+        if (this._unsubBaseLayerChanged) {
+            this._unsubBaseLayerChanged();
+            this._unsubBaseLayerChanged = null;
+        }
+
         // Cleanup streetview viewer if open
         if (this.isOpen) {
             this.closeStreetView();

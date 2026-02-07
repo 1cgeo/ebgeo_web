@@ -12,6 +12,7 @@ import {
     cleanup,
     removeElement
 } from '../../utilities/event-cleanup.js';
+import { escapeHtml } from '../../utilities/html-escape.js';
 import {
     getAllBriefings,
     deleteBriefing,
@@ -219,14 +220,14 @@ export class BriefingsTab {
         card.innerHTML = `
             <div class="briefing-card-badge">${initial}</div>
             <div class="briefing-card-info">
-                <div class="briefing-card-name">${this._escapeHtml(briefing.name)}</div>
+                <div class="briefing-card-name">${escapeHtml(briefing.name)}</div>
                 <div class="briefing-card-meta">
                     ${BRIEFINGS_ICONS.slides}
                     <span>${slideCount} ${slideCount === 1 ? 'slide' : 'slides'}</span>
                     <span class="briefing-card-separator">•</span>
                     <span>${updatedAt}</span>
                 </div>
-                ${briefing.description ? `<div class="briefing-card-description">${this._escapeHtml(this._truncateText(briefing.description, 60))}</div>` : ''}
+                ${briefing.description ? `<div class="briefing-card-description">${escapeHtml(this._truncateText(briefing.description, 60))}</div>` : ''}
             </div>
             <div class="briefing-card-actions">
                 <button class="briefing-action-btn edit-btn" title="Editar" data-action="edit">
@@ -384,19 +385,6 @@ export class BriefingsTab {
     _truncateText(text, maxLength) {
         if (!text || text.length <= maxLength) return text;
         return text.substring(0, maxLength - 1) + '…';
-    }
-
-    /**
-     * Escapes HTML special characters.
-     * @private
-     * @param {string} str - String to escape
-     * @returns {string} Escaped string
-     */
-    _escapeHtml(str) {
-        if (!str) return '';
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
     }
 
     /**

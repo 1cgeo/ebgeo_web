@@ -14,6 +14,7 @@ import {
     cleanup,
     removeElement
 } from '../../utilities/event-cleanup.js';
+import { escapeHtml } from '../../utilities/html-escape.js';
 import {
     getAllMapNamesStore,
     getCurrentMapName,
@@ -283,7 +284,7 @@ export class MapsTab {
             this._updateCurrentMapCard();
 
             // Render maps list
-            this._renderMapsList(allMapNames);
+            await this._renderMapsList(allMapNames);
 
         } catch (_error) {
             console.error('Error loading maps:', _error);
@@ -447,7 +448,7 @@ export class MapsTab {
             </div>
             <div class="map-list-info">
                 <div class="map-list-name">
-                    ${this._escapeHtml(mapName)}
+                    ${escapeHtml(mapName)}
                     ${lockIndicator}
                     ${positionIndicator}
                     ${notesIndicator}
@@ -794,9 +795,8 @@ export class MapsTab {
                 await this._baseLayerControl.switchMap();
             }
 
-            this._loadMaps();
-
             // Emit event to update sidebar recent maps display
+            // (this also triggers _loadMaps via the LAYERS_CHANGED listener)
             this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
         } catch (_error) {
             showError('Erro ao selecionar mapa');
@@ -941,18 +941,6 @@ export class MapsTab {
         } else {
             showWarning('Funcao de combinar mapas nao disponivel');
         }
-    }
-
-    /**
-     * Escapes HTML special characters.
-     * @private
-     * @param {string} str - String to escape
-     * @returns {string}
-     */
-    _escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
     }
 
     /**

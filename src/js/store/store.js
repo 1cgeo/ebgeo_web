@@ -16,6 +16,8 @@ import {
     compareVersions
 } from './repository.utils.js';
 import { resetMemoryStore, memoryStore } from './memory-store.js';
+import { setStoreErrorEventBus } from './store-errors.js';
+import { registerStoreErrorListeners } from './store-error-listener.js';
 import {
     initializeRepository,
     clearAllMapData,
@@ -31,6 +33,7 @@ import {
 } from './repository.js';
 
 import mapManager from './store-state-manager.js';
+import { mapResolver, awaitMapResolverReady } from './services/map-resolver.service.js';
 import { EventTypes } from '../events';
 
 // Import specialized operation modules
@@ -93,6 +96,10 @@ export function initStoreEvents(eventBus, groupManager, layerManager) {
     setGroupDependencies(dependencies);
     setCesium3dDependencies({ eventBus });
     setStreetview360Dependencies({ eventBus });
+
+    // Initialize error handling infrastructure
+    setStoreErrorEventBus(eventBus);
+    registerStoreErrorListeners(eventBus);
 }
 
 // ===== INITIALIZATION =====
@@ -104,6 +111,7 @@ export function initStoreEvents(eventBus, groupManager, layerManager) {
  */
 export const initializeWithLastActiveMap = async () => {
     const lastActiveMap = await initializeRepository();
+    await awaitMapResolverReady();
     await mapManager.setCurrentMap(lastActiveMap);
     await mapManager.initializeProjectColorCache();
     await deps.groupManager.loadGroupsToMemory(lastActiveMap);
@@ -128,6 +136,7 @@ export const initializeWithLastActiveMap = async () => {
  */
 export const clearAllDataStore = async () => {
     resetMemoryStore();
+    mapResolver.clear();
     await clearAllMapData();
     await clearAllImageData();
     await clearAllAppSettings();
@@ -182,7 +191,7 @@ export const deleteLayer = async (layerId, mapName = null) => {
 /**
  * Undoes the last action.
  *
- * @returns {Promise<Object>} Undo result
+ * @returns {Promise<Object|false>} The undone action object, or false if nothing to undo
  */
 export const undoLastAction = async () => {
     if (isCurrentMapLockedSync()) return false;
@@ -195,13 +204,18 @@ export const undoLastAction = async () => {
         removeFeatureFromMap
     };
 
-    return await mapManager.undoLastAction(executeFunction);
+    try {
+        return await mapManager.undoLastAction(executeFunction);
+    } catch (error) {
+        console.error('Undo failed:', error);
+        return false;
+    }
 };
 
 /**
  * Redoes the last undone action.
  *
- * @returns {Promise<Object>} Redo result
+ * @returns {Promise<Object|false>} The redone action object, or false if nothing to redo
  */
 export const redoLastAction = async () => {
     if (isCurrentMapLockedSync()) return false;
@@ -214,8 +228,31 @@ export const redoLastAction = async () => {
         removeFeatureFromMap
     };
 
-    return await mapManager.redoLastAction(executeFunction);
+    try {
+        return await mapManager.redoLastAction(executeFunction);
+    } catch (error) {
+        console.error('Redo failed:', error);
+        return false;
+    }
 };
+
+// ===== BATCH UNDO/REDO =====
+
+/**
+ * Starts collecting undo actions into a single batch entry.
+ * All recordAction() calls between start and commit are grouped.
+ */
+export const startBatchUndo = () => mapManager.startBatchCollection();
+
+/**
+ * Commits collected actions as a single batch undo entry.
+ */
+export const commitBatchUndo = () => mapManager.commitBatchCollection();
+
+/**
+ * Discards collected batch actions without recording.
+ */
+export const discardBatchUndo = () => mapManager.discardBatchCollection();
 
 // ===== MOVE FEATURES TO LAYER (with event emission) =====
 

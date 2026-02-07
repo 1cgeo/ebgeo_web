@@ -21,7 +21,7 @@ import { mapResolver } from './services/map-resolver.service.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
 import { logMapOperation, logMapPositionOperation, logBaseLayerOperation, OperationType } from './sync/index.js';
-import { generateUUID } from '../utilities/uuid.js';
+import { generateUUID, isValidUUID } from '../utilities/uuid.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 
 // Alias for backward compatibility during migration
@@ -120,6 +120,13 @@ export const setMapOrder = async (orderArray) => {
  */
 export const addMap = async (mapName, mapData = null, colorUsageData = null, notesData = null) => {
     const newMapData = await createMapData(mapName, mapData);
+
+    // Register in resolver cache for O(1) name→ID lookups
+    const mapId = newMapData.id || mapName;
+    if (mapId !== mapName) {
+        mapResolver.registerMap(mapName, mapId);
+    }
+
     mapManager.addMapToMemory(mapName);
     await mapManager.processMapColors(mapName, newMapData, colorUsageData);
 
@@ -127,8 +134,6 @@ export const addMap = async (mapName, mapData = null, colorUsageData = null, not
         await setMapNotesRepo(mapName, notesData);
     }
 
-    // Log operation for sync (use map ID from resolver if available)
-    const mapId = mapResolver.resolveToId(mapName) || mapName;
     logMapOperation(OperationType.CREATE, mapId, newMapData);
 
     return newMapData;
@@ -156,6 +161,12 @@ export const removeMap = async (mapName) => {
     const remainingMaps = allMaps.filter(name => name !== mapName);
 
     await deleteMapData(mapName);
+
+    // Remove from resolver cache
+    if (isValidUUID(mapId)) {
+        mapResolver.unregisterMapById(mapId);
+    }
+
     await mapManager.removeMapFromMemory(mapName);
     await deps.groupManager.clearMapGroups(mapName);
 

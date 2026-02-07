@@ -192,7 +192,7 @@ export class SelectionHighlightManager {
      */
     _isDragging() {
         try {
-            return getStateManager().get('ui.isDragging') || false;
+            return getStateManager().getUnsafe('ui.isDragging') || false;
         } catch (_e) {
             return false;
         }
@@ -208,7 +208,7 @@ export class SelectionHighlightManager {
         const featuresByType = new Map();
 
         try {
-            const selectedFeatures = getStateManager().getSelectedFeatures();
+            const selectedFeatures = getStateManager().getUnsafe('selection.features') || [];
 
             for (const item of selectedFeatures) {
                 if (!featuresByType.has(item.type)) {

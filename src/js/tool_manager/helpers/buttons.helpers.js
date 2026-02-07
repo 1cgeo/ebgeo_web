@@ -4,6 +4,8 @@
  * @fileoverview Button components for attribute panels.
  */
 
+import { startBatchUndo, commitBatchUndo, discardBatchUndo } from '../../store';
+
 /**
  * @typedef {Object} StandardButtonsConfig
  * @property {Array} selectedFeatures - Selected features
@@ -50,9 +52,30 @@ export function createModernButtons(config) {
     saveButton.textContent = 'Salvar';
     saveButton.className = 'attr-modern-btn-save';
     saveButton.type = 'submit';
-    saveButton.addEventListener('click', () => {
-        control.saveFeatures(selectedFeatures, initialPropertiesMap);
-        selectionManager.deselectAllFeatures();
+
+    /**
+     * Save features logic (reusable without deselect).
+     * Exposed as saveButton._saveOnly for programmatic save-without-deselect.
+     */
+    const doSave = async () => {
+        const needsBatch = selectedFeatures.length > 1;
+        if (needsBatch) startBatchUndo();
+        try {
+            await control.saveFeatures(selectedFeatures, initialPropertiesMap);
+            if (needsBatch) commitBatchUndo();
+        } catch (error) {
+            if (needsBatch) discardBatchUndo();
+            console.error('Error during batch save:', error);
+        }
+    };
+
+    // Expose save-only function for programmatic use (feature switching)
+    saveButton._saveOnly = doSave;
+
+    saveButton.addEventListener('click', async () => {
+        await doSave();
+        // skipSave: doSave() already persisted — avoid double undo entry
+        selectionManager.deselectAllFeatures({ skipSave: true });
     });
     row.appendChild(saveButton);
 
@@ -62,7 +85,8 @@ export function createModernButtons(config) {
     discardButton.type = 'button';
     discardButton.addEventListener('click', () => {
         control.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
-        selectionManager.deselectAllFeatures();
+        // skipSave: discard reverted changes — nothing to save
+        selectionManager.deselectAllFeatures({ skipSave: true });
     });
     row.appendChild(discardButton);
 
@@ -76,7 +100,8 @@ export function createModernButtons(config) {
         defaultButton.type = 'button';
         defaultButton.addEventListener('click', () => {
             onSetDefault();
-            selectionManager.deselectAllFeatures();
+            // skipSave: setting defaults doesn't need to save pending changes
+            selectionManager.deselectAllFeatures({ skipSave: true });
         });
         container.appendChild(defaultButton);
     }

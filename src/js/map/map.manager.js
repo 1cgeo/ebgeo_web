@@ -17,12 +17,11 @@ import {
     getMapNotes,
     setMapOrder,
     getLayerManager,
-    getLayersRepo
+    getLayersRepo,
+    getGroupManager
 } from '../store';
 
-import { IDUtils, showError as _showError, showWarning } from '../utilities';
-import { groupManager } from '../tool_manager';
-import { showPrompt, showConfirm } from '../modals/index.js';
+import { IDUtils } from '../utilities';
 
 class MapManager {
     constructor(baseLayerControl, selectionManager) {
@@ -30,8 +29,6 @@ class MapManager {
         this.selectionManager = selectionManager;
         this.mapControl = null;
         this.map = null;
-
-        this.setupDropdownPositionListeners();
     }
 
     setMapControl(mapControl) {
@@ -149,7 +146,7 @@ class MapManager {
             await addMap(newMapName.trim(), newMapData, originalColorUsage, originalNotes);
 
             // Duplicate groups from original map with feature ID mapping
-            await groupManager.duplicateMapGroups(mapName, newMapName.trim(), idMapping);
+            await getGroupManager().duplicateMapGroups(mapName, newMapName.trim(), idMapping);
 
             setCurrentMap(newMapName.trim());
 
@@ -247,7 +244,7 @@ class MapManager {
 
             // Pass ID mappings to combineMapGroups
             try {
-                await groupManager.combineMapGroups(selectedMapNames, targetMapName, idMappings);
+                await getGroupManager().combineMapGroups(selectedMapNames, targetMapName, idMappings);
             } catch (groupError) {
                 console.warn('Error combining groups:', groupError);
                 // Continue even if there's an error with groups
@@ -367,7 +364,7 @@ class MapManager {
         const groupedFeatures = [];
 
         features.forEach(feature => {
-            const group = groupManager.getFeatureGroup(
+            const group = getGroupManager().getFeatureGroup(
                 feature.properties.source,
                 feature.properties.id
             );
@@ -440,351 +437,6 @@ class MapManager {
         return true;
     }
 
-    async canCreateNewMap() {
-        const allMapNames = await getAllMapNamesStore();
-        if (allMapNames.length >= 100) {
-            alert('Limite de 100 mapas atingido. Delete mapas existentes antes de criar novos.');
-            return false;
-        }
-        return true;
-    }
-
-    // ===== DROPDOWN MANAGEMENT =====
-    toggleDropdown(button, mapName) {
-        const isOpen = button.dataset.dropdownOpen === 'true';
-
-        if (isOpen) {
-            this.closeAllDropdowns(true);
-            return;
-        }
-
-        this.closeAllDropdowns(false);
-
-        const dropdown = document.createElement('div');
-        dropdown.className = 'dropdown-content';
-        dropdown.dataset.buttonId = button.dataset.buttonId || Date.now().toString();
-
-        this.populateDropdown(dropdown, mapName);
-
-        document.body.appendChild(dropdown);
-        this.positionDropdown(dropdown, button);
-
-        button.classList.add('dropdown-active');
-        button.dataset.dropdownOpen = 'true';
-
-        if (!button.dataset.buttonId) {
-            button.dataset.buttonId = Date.now().toString();
-        }
-    }
-
-    positionDropdown(dropdown, button) {
-        requestAnimationFrame(() => {
-            const rect = button.getBoundingClientRect();
-            const dropdownRect = dropdown.getBoundingClientRect();
-            const dropdownWidth = dropdownRect.width || 180;
-            const dropdownHeight = dropdownRect.height || 200;
-
-            let top = rect.bottom + 4;
-            let left = rect.right - dropdownWidth;
-
-            const viewport = {
-                width: window.innerWidth,
-                height: window.innerHeight
-            };
-
-            const padding = 10;
-
-            // Adjust horizontally
-            if (left < padding) {
-                left = rect.left;
-            }
-            if (left + dropdownWidth > viewport.width - padding) {
-                left = Math.max(padding, viewport.width - dropdownWidth - padding);
-            }
-
-            // Adjust vertically
-            if (top + dropdownHeight > viewport.height - padding) {
-                const topAbove = rect.top - dropdownHeight - 4;
-                if (topAbove >= padding) {
-                    top = topAbove;
-                } else {
-                    top = Math.max(padding, Math.min(
-                        viewport.height - dropdownHeight - padding,
-                        rect.top - (dropdownHeight / 2)
-                    ));
-                }
-            }
-
-            dropdown.style.position = 'fixed';
-            dropdown.style.top = `${Math.round(top)}px`;
-            dropdown.style.left = `${Math.round(left)}px`;
-            dropdown.style.zIndex = '9999';
-            dropdown.style.maxHeight = `${Math.min(320, viewport.height - top - padding)}px`;
-            dropdown.style.overflowY = 'auto';
-        });
-    }
-
-    async populateDropdown(dropdownContent, mapName) {
-        dropdownContent.innerHTML = '';
-        const currentMapName = await getCurrentMapName();
-        const hasSavedPosition = await hasMapSavedPosition(mapName);
-
-        // Save position button
-        const savePositionBtn = document.createElement('button');
-        savePositionBtn.className = 'menu-button';
-        savePositionBtn.innerHTML = hasSavedPosition ? '📍 Atualizar posição salva' : '📍 Salvar posição';
-        savePositionBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-
-            const result = await this.saveMapPosition(mapName);
-            this.closeAllDropdowns();
-
-            if (this.mapControl) {
-                this.mapControl.showToast(result.message, result.success ? 'success' : 'error');
-                if (result.success) {
-                    await this.mapControl.updateMapList();
-                }
-            }
-        });
-        dropdownContent.appendChild(savePositionBtn);
-
-        // Clear position button (if exists)
-        if (hasSavedPosition) {
-            const clearPositionBtn = document.createElement('button');
-            clearPositionBtn.className = 'menu-button clear-position';
-            clearPositionBtn.innerHTML = '🗑️ Limpar posição salva';
-            clearPositionBtn.addEventListener('click', async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-
-                const confirmed = await showConfirm(`Limpar a posição salva do mapa "${mapName}"?`, { destructive: true });
-                if (confirmed) {
-                    const result = await this.clearMapPosition(mapName);
-                    this.closeAllDropdowns();
-
-                    if (this.mapControl) {
-                        this.mapControl.showToast(result.message, result.success ? 'success' : 'error');
-                        if (result.success) {
-                            await this.mapControl.updateMapList();
-                        }
-                    }
-                }
-            });
-            dropdownContent.appendChild(clearPositionBtn);
-        }
-
-        // Duplicate button
-        const copyBtn = document.createElement('button');
-        copyBtn.className = 'menu-button';
-        copyBtn.innerHTML = '📋 Duplicar';
-        copyBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-
-            if (await this.canCreateNewMap()) {
-                const existingMaps = await getAllMapNamesStore();
-                const defaultName = IDUtils.generateUniqueMapName(existingMaps, `${mapName} (cópia)`);
-                const newMapName = await showPrompt("Nome para o novo mapa:", defaultName);
-                if (newMapName && newMapName.trim()) {
-                    const result = await this.copyMap(mapName, newMapName.trim());
-                    this.closeAllDropdowns();
-
-                    if (this.mapControl) {
-                        this.mapControl.showToast(result.message, result.success ? 'success' : 'error');
-                        if (result.success) {
-                            await this.mapControl.updateMapList();
-                        }
-                    }
-                }
-            }
-        });
-        dropdownContent.appendChild(copyBtn);
-
-        // Rename button
-        const renameBtn = document.createElement('button');
-        renameBtn.className = 'menu-button';
-        renameBtn.innerHTML = '✏️ Renomear';
-        renameBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-
-            const newMapName = await showPrompt("Novo nome do mapa:");
-            if (newMapName && newMapName.trim()) {
-                const result = await this.renameMap(mapName, newMapName.trim());
-                this.closeAllDropdowns();
-
-                if (this.mapControl) {
-                    this.mapControl.showToast(result.message, result.success ? 'success' : 'error');
-                    if (result.success) {
-                        await this.mapControl.updateMapList();
-                    }
-                }
-            }
-        });
-        dropdownContent.appendChild(renameBtn);
-
-        // Combine maps button
-        const combineBtn = document.createElement('button');
-        combineBtn.className = 'menu-button';
-        combineBtn.innerHTML = '🔄 Puxar outros mapas';
-        combineBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            this.closeAllDropdowns();
-
-            if (this.mapControl) {
-                await this.mapControl.showCombineMapsModal(mapName);
-            }
-        });
-        dropdownContent.appendChild(combineBtn);
-
-        // Move features button (if not current map)
-        if (mapName !== currentMapName && this.selectionManager) {
-            const selectedFeatures = this.selectionManager.getAllSelectedFeatures();
-            const selectedCount = selectedFeatures.length;
-
-            let buttonText = '↗️ Mover feições (nenhuma selecionada)';
-            let buttonDisabled = selectedCount === 0;
-
-            if (selectedCount > 0) {
-                // Check if there are grouped features
-                const groupedFeatures = this.getGroupedFeatures(selectedFeatures);
-
-                if (groupedFeatures.length > 0) {
-                    buttonText = `↗️ Não é possível mover feições agrupadas`;
-                    buttonDisabled = true;
-                } else {
-                    buttonText = `↗️ Mover ${selectedCount} ${selectedCount > 1 ? 'feições' : 'feição'} selecionada${selectedCount > 1 ? 's' : ''}`;
-                }
-            }
-
-            const moveBtn = document.createElement('button');
-            moveBtn.className = 'menu-button';
-            moveBtn.innerHTML = buttonText;
-            if (buttonDisabled) {
-                moveBtn.style.color = '#999';
-                moveBtn.style.cursor = 'not-allowed';
-            }
-
-            moveBtn.addEventListener('click', async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-
-                if (buttonDisabled) {
-                    if (selectedCount === 0) {
-                        showWarning('Selecione pelo menos uma feição para mover primeiro.');
-                    } else {
-                        showWarning('Não é possível mover feições agrupadas individualmente. Desfaça os grupos primeiro.');
-                    }
-                    return;
-                }
-
-                const result = await this.moveFeaturesToMap(selectedFeatures, mapName);
-                this.closeAllDropdowns();
-
-                if (this.mapControl) {
-                    this.mapControl.showToast(result.message, result.success ? 'success' : 'error');
-                    if (result.success) {
-                        await this.mapControl.updateMapList();
-                    }
-                }
-            });
-            dropdownContent.appendChild(moveBtn);
-        }
-
-        // Delete button
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'menu-button menu-button-danger';
-        deleteBtn.innerHTML = '🗑️ Deletar mapa';
-        deleteBtn.style.borderTop = '1px solid #eee';
-        deleteBtn.style.marginTop = '4px';
-        deleteBtn.style.paddingTop = '12px';
-        deleteBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-
-            const isCurrentMap = mapName === currentMapName;
-            const title = isCurrentMap
-                ? `Deletar o mapa atual "${mapName}"?`
-                : `Deletar o mapa "${mapName}"?`;
-            const message = isCurrentMap
-                ? 'Você será redirecionado para outro mapa.'
-                : undefined;
-
-            const confirmed = await showConfirm(title, { message, destructive: true });
-            if (confirmed) {
-                const result = await this.deleteMap(mapName);
-                this.closeAllDropdowns();
-
-                if (this.mapControl) {
-                    this.mapControl.showToast(result.message, result.success ? 'success' : 'info');
-                    if (result.success) {
-                        await this.mapControl.updateMapList();
-                    }
-                }
-            }
-        });
-        dropdownContent.appendChild(deleteBtn);
-    }
-
-    closeAllDropdowns(animated = false) {
-        const dropdowns = document.querySelectorAll('.dropdown-content');
-
-        if (animated && dropdowns.length > 0) {
-            dropdowns.forEach(dropdown => {
-                if (dropdown.parentElement === document.body) {
-                    dropdown.classList.add('closing');
-                    setTimeout(() => {
-                        if (dropdown.parentNode) {
-                            dropdown.remove();
-                        }
-                    }, 150);
-                }
-            });
-        } else {
-            dropdowns.forEach(dropdown => {
-                if (dropdown.parentElement === document.body) {
-                    dropdown.remove();
-                }
-            });
-        }
-
-        // Clear active button states
-        if (this.mapControl && this.mapControl.container) {
-            const activeButtons = this.mapControl.container.querySelectorAll('.more-info-icon.dropdown-active');
-            activeButtons.forEach(button => {
-                button.classList.remove('dropdown-active');
-                delete button.dataset.dropdownOpen;
-            });
-        }
-    }
-
-    setupDropdownPositionListeners() {
-        // Close dropdown on click outside
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('.dropdown-content') && !e.target.closest('.more-info-icon')) {
-                this.closeAllDropdowns(false);
-            }
-        });
-
-        // Close dropdown on scroll
-        document.addEventListener('scroll', () => {
-            this.closeAllDropdowns(false);
-        }, true);
-
-        // Close dropdown on window resize
-        window.addEventListener('resize', () => {
-            this.closeAllDropdowns(false);
-        });
-    }
-
-    // Helper method
-    deactivateActiveTools() {
-        if (this.selectionManager && this.selectionManager.uiManager && this.selectionManager.uiManager.toolManager) {
-            this.selectionManager.uiManager.toolManager.deactivateCurrentTool();
-        }
-    }
 }
 
 export default MapManager;

@@ -817,8 +817,7 @@ class AddTextControl extends BaseControl {
             feature.properties.backgroundFillOpacity !== initialProperties.backgroundFillOpacity ||
             feature.properties.backgroundBorderColor !== initialProperties.backgroundBorderColor ||
             feature.properties.backgroundBorderOpacity !== initialProperties.backgroundBorderOpacity ||
-            feature.properties.backgroundBorderWidth !== initialProperties.backgroundBorderWidth ||
-            JSON.stringify(feature.geometry.coordinates) !== JSON.stringify(initialProperties.coordinates)
+            feature.properties.backgroundBorderWidth !== initialProperties.backgroundBorderWidth
         );
     }
 

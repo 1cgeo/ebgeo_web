@@ -142,12 +142,17 @@ export function createTerrainProvider() {
 
 // ===== ATTACH TO CONFIG (for backward compatibility) =====
 
-// Attach functions to config object for backward compatibility
-config.hasTilesets = hasTilesets;
-config.hasStreetViewMarkers = hasStreetViewMarkers;
-config.validateBasemapsConfig = validateBasemapsConfig;
-config.getEnabledBasemaps = getEnabledBasemaps;
-config.getBasemapLayoutClass = getBasemapLayoutClass;
-config.getValidBasemapFallback = getValidBasemapFallback;
-config.createImageryProvider = createImageryProvider;
-config.createTerrainProvider = createTerrainProvider;
+/**
+ * Attach helper functions to config object for backward compatibility.
+ * Must be called explicitly during initialization.
+ */
+export function initConfigHelpers() {
+    config.hasTilesets = hasTilesets;
+    config.hasStreetViewMarkers = hasStreetViewMarkers;
+    config.validateBasemapsConfig = validateBasemapsConfig;
+    config.getEnabledBasemaps = getEnabledBasemaps;
+    config.getBasemapLayoutClass = getBasemapLayoutClass;
+    config.getValidBasemapFallback = getValidBasemapFallback;
+    config.createImageryProvider = createImageryProvider;
+    config.createTerrainProvider = createTerrainProvider;
+}

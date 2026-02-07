@@ -25,7 +25,17 @@
  * - Entity type and operation type
  * - Entity ID and map context
  * - Current data and previous data (for undo/conflict resolution)
- * - Timestamp and client ID
+ * - Timestamp (wall clock + Lamport logical clock) and client ID
+ *
+ * CONFLICT RESOLUTION STRATEGY (LWW):
+ * The system uses Last-Writer-Wins with Lamport timestamps for ordering.
+ * Each operation carries both a wall clock timestamp and a logical Lamport
+ * timestamp. When a backend is available, conflicts are resolved by:
+ * - Simple properties (name, color, style): LWW by lamportTimestamp + version
+ * - Geometry (coordinates): LWW per feature (full replace, not vertex merge)
+ * - Layers and maps: LWW per field (field-level granularity)
+ * Server time offset can be set via setServerTimeOffset() to compensate
+ * for clock skew between clients.
  *
  * FUTURE BACKEND INTEGRATION:
  * See repository.interface.js for RemoteRepository implementation guide.
@@ -41,7 +51,9 @@ export {
     isActive,
     isDirty,
     isValidSyncMetadata,
-    addSyncMetadataToEntity
+    addSyncMetadataToEntity,
+    setServerTimeOffset,
+    getAdjustedTimestamp
 } from './sync-metadata.js';
 
 // Operation types
@@ -57,7 +69,9 @@ export {
     createOperation,
     createBatchOperations,
     getClientId,
-    resetClientId
+    resetClientId,
+    getLamportClock,
+    advanceLamportClock
 } from './operation-factory.js';
 
 // Operation queue

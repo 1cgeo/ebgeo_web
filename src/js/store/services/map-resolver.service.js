@@ -247,6 +247,27 @@ class MapResolverService {
  */
 export const mapResolver = new MapResolverService();
 
+/** @type {Promise<void>|null} */
+let _initPromise = null;
+
+/**
+ * Stores the initialization promise so it can be awaited later.
+ * Called by services.js during startup.
+ * @param {Promise<void>} promise - The initialization promise
+ */
+export function setResolverInitPromise(promise) {
+    _initPromise = promise;
+}
+
+/**
+ * Awaits map resolver initialization.
+ * Call this before any operation that depends on name↔ID resolution being ready.
+ * @returns {Promise<void>}
+ */
+export function awaitMapResolverReady() {
+    return _initPromise || Promise.resolve();
+}
+
 /**
  * Factory function to create a new MapResolverService instance.
  * Useful for testing.

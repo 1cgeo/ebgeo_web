@@ -97,7 +97,7 @@ body.cesium-active .modal-overlay {
 
 .button-tool-3d.active,
 .button-tool-3d.active-button {
-    background: var(--primary-color, #508D4E);
+    background: var(--primary);
     color: white;
 }
 
@@ -138,7 +138,7 @@ body.cesium-active .modal-overlay {
 
 /* ===== ACCESSIBILITY ===== */
 .button-tool-3d:focus {
-    outline: 2px solid var(--primary-color, #508D4E);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
@@ -154,7 +154,7 @@ body.cesium-active .modal-overlay {
 
 /* ===== CAMERA BUTTONS ===== */
 #salvar-camera.has-saved {
-    border: 3px solid var(--primary-color, #508D4E);
+    border: 3px solid var(--primary);
     box-shadow: 0 0 0 1px rgba(80, 141, 78, 0.3);
 }
 
@@ -202,7 +202,6 @@ body.cesium-active .modal-overlay {
     display: block !important;
 }
 
-/* ----- Tabs ----- */
 .nav-help-tabs {
     display: flex;
     border-radius: 12px 12px 0 0;
@@ -227,7 +226,7 @@ body.cesium-active .modal-overlay {
 }
 
 .nav-help-tab.active {
-    background: var(--primary-color, #508D4E);
+    background: var(--primary);
     color: white;
 }
 
@@ -243,7 +242,6 @@ body.cesium-active .modal-overlay {
     object-fit: contain;
 }
 
-/* ----- Content ----- */
 .nav-help-content {
     padding: 8px 0;
 }
@@ -256,7 +254,6 @@ body.cesium-active .modal-overlay {
     display: block;
 }
 
-/* ----- Items ----- */
 .nav-help-item {
     display: flex;
     align-items: center;
@@ -276,7 +273,7 @@ body.cesium-active .modal-overlay {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--primary-color, #508D4E);
+    background: var(--primary);
     border-radius: 8px;
     color: white;
 }
@@ -321,7 +318,7 @@ body.cesium-active .modal-overlay {
     align-items: center;
     gap: 6px;
     padding: 8px 16px;
-    background: var(--primary-color, #508D4E);
+    background: var(--primary);
     border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: 8px;
     box-shadow: 0 4px 16px rgba(80, 141, 78, 0.3);
@@ -374,7 +371,7 @@ body.cesium-active .modal-overlay {
     display: flex;
     align-items: center;
     gap: 8px;
-    background: var(--primary-color, #508D4E);
+    background: var(--primary);
     color: white;
     padding: 8px 16px;
     border-radius: 9999px;

@@ -14,6 +14,9 @@
 /** Default timeout for waitFor() to prevent memory leaks from unresolved promises */
 const DEFAULT_WAIT_TIMEOUT_MS = 30000;
 
+/** Default threshold for listener count warning per event */
+const DEFAULT_WARNING_THRESHOLD = 50;
+
 /**
  * Base EventEmitter class.
  * Provides pub/sub functionality with automatic cleanup.
@@ -29,19 +32,18 @@ export class EventEmitter {
         this._listeners = new Map();
 
         /**
-         * Debug mode flag for verbose logging.
-         * @type {boolean}
+         * Threshold for listener count warning per event.
+         * @type {number}
          * @private
          */
-        this._debugMode = false;
-    }
+        this._warningThreshold = DEFAULT_WARNING_THRESHOLD;
 
-    /**
-     * Enable or disable debug logging.
-     * @param {boolean} enabled - Whether to enable debug mode
-     */
-    setDebugMode(enabled) {
-        this._debugMode = enabled;
+        /**
+         * Events that have already triggered a warning (to avoid spam).
+         * @type {Set<string>}
+         * @private
+         */
+        this._warnedEvents = new Set();
     }
 
     /**
@@ -73,10 +75,15 @@ export class EventEmitter {
         }
 
         const listener = { callback, once };
-        this._listeners.get(event).push(listener);
+        const listeners = this._listeners.get(event);
+        listeners.push(listener);
 
-        if (this._debugMode) {
-            console.log(`[EventEmitter] Registered listener for "${event}"`);
+        // Warn on possible listener leak (once per event, resets when count drops)
+        if (listeners.length > this._warningThreshold && !this._warnedEvents.has(event)) {
+            this._warnedEvents.add(event);
+            console.warn(
+                `[EventEmitter] Possible listener leak: "${event}" has ${listeners.length} listeners (threshold: ${this._warningThreshold})`
+            );
         }
 
         // Return unsubscribe function for cleanup
@@ -108,14 +115,16 @@ export class EventEmitter {
         if (index !== -1) {
             listeners.splice(index, 1);
 
+            // Reset warned state if count dropped below threshold
+            if (this._warnedEvents.has(event) && listeners.length <= this._warningThreshold) {
+                this._warnedEvents.delete(event);
+            }
+
             // Cleanup empty arrays to prevent unbounded Map growth
             if (listeners.length === 0) {
                 this._listeners.delete(event);
             }
 
-            if (this._debugMode) {
-                console.log(`[EventEmitter] Removed listener for "${event}"`);
-            }
             return true;
         }
         return false;
@@ -142,10 +151,6 @@ export class EventEmitter {
      * @returns {boolean} True if event had listeners
      */
     emit(event, payload) {
-        if (this._debugMode) {
-            console.log(`[EventEmitter] Emitting "${event}"`, payload);
-        }
-
         const listeners = this._listeners.get(event);
         if (!listeners || listeners.length === 0) return false;
 
@@ -247,5 +252,26 @@ export class EventEmitter {
             total += listeners.length;
         }
         return total;
+    }
+
+    /**
+     * Get listener counts for all registered events.
+     * Useful for diagnostics and leak detection.
+     * @returns {Object<string, number>} Map of event name to listener count
+     */
+    allListenerCounts() {
+        const counts = {};
+        for (const [event, listeners] of this._listeners) {
+            counts[event] = listeners.length;
+        }
+        return counts;
+    }
+
+    /**
+     * Set the warning threshold for listener count per event.
+     * @param {number} threshold - New threshold value
+     */
+    setWarningThreshold(threshold) {
+        this._warningThreshold = threshold;
     }
 }

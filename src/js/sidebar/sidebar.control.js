@@ -105,6 +105,9 @@ export class SidebarControl {
         // Current feature panel content cleanup
         this._currentFeaturePanelCleanup = null;
 
+        // Version counter to cancel stale async panel renders
+        this._featureContentVersion = 0;
+
         setupCleanup(this);
     }
 
@@ -334,8 +337,9 @@ export class SidebarControl {
         }
 
         // Only clear selection if we're not showing notes, 3D features, or tool panels
+        // skipSave: hide() already saved via _triggerSave above
         if (!isNotes && !is3dFeature && !isToolPanel && this._selectionManager) {
-            this._selectionManager.deselectAllFeatures();
+            this._selectionManager.deselectAllFeatures({ skipSave: true });
         }
 
         this._stateManager.closeFeaturePanel();
@@ -684,6 +688,12 @@ export class SidebarControl {
      * @param {string} featureType - Feature type (source)
      */
     async _showFeatureContent(featureId, featureType) {
+        // Increment version to invalidate any in-flight async render
+        const version = ++this._featureContentVersion;
+
+        // Save pending changes from previous feature before replacing content
+        this._featurePanel._triggerSave();
+
         // Cleanup previous content
         this._cleanupFeaturePanelContent();
 
@@ -703,6 +713,12 @@ export class SidebarControl {
                     uiManager: this._uiManager,
                     map: this._mapManager?.map
                 });
+
+                // Discard if a newer selection happened while awaiting
+                if (version !== this._featureContentVersion) {
+                    if (result?.cleanup) result.cleanup();
+                    return;
+                }
 
                 if (result) {
                     contentWrapper.appendChild(result.element);

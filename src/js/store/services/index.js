@@ -7,5 +7,7 @@
 export {
     mapResolver,
     createMapResolver,
-    MapResolverService
+    MapResolverService,
+    setResolverInitPromise,
+    awaitMapResolverReady
 } from './map-resolver.service.js';

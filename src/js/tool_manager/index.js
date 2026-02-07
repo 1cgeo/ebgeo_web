@@ -16,9 +16,8 @@ export { default as UIManager } from './ui_manager.js';
 export { default as ClipboardManager } from './clipboard_manager.js';
 export { default as MoveHandler } from './move_handler.js';
 
-// Group manager exports (includes factory, holder, class and default proxy)
+// Group manager exports (factory, holder, class)
 export {
-    default as groupManager,
     GroupManager,
     createGroupManager,
     groupManagerHolder

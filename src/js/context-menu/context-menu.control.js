@@ -1,5 +1,5 @@
 // Path: js/context-menu/context-menu.control.js
-import { formatCoordinates, showSuccess, showWarning } from '../utilities';
+import { formatCoordinates, showSuccess, showWarning, escapeHtml } from '../utilities';
 import { createLongPressHandler } from '../utilities/pointer-utils';
 import {
     getFeatureGroup,
@@ -423,7 +423,7 @@ class ContextMenuControl {
                     font-weight: 600;
                     margin-right: 8px;
                 ">${initial}</span>
-                <span>${mapName}</span>
+                <span>${escapeHtml(mapName)}</span>
             `;
             mapItem.style.cssText = `
                 padding: 8px 16px;
