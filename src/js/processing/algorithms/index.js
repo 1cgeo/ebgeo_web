@@ -7,3 +7,4 @@
 
 // Cada import abaixo executa registerAlgorithm() como side-effect
 import './buffer.algorithm.js';
+import './voronoi.algorithm.js';
