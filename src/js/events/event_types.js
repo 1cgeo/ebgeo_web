@@ -566,6 +566,32 @@ export const EventTypes = Object.freeze({
      * Emitters: BriefingPresenter
      */
     BRIEFING_SLIDE_CHANGED: 'briefing:slideChanged',
+
+    // ===== PROCESSING EVENTS =====
+
+    /**
+     * Emitted when a processing operation starts.
+     * Payload: { algorithmId: string, sourceLayerId: string }
+     * Subscribers: ProcessingTab (status)
+     * Emitters: processing-runner.js
+     */
+    PROCESSING_STARTED: 'processing:started',
+
+    /**
+     * Emitted when a processing operation completes successfully.
+     * Payload: { algorithmId: string, layerId: string, featureCount: number }
+     * Subscribers: ProcessingTab (resultado), Sync system
+     * Emitters: processing-runner.js
+     */
+    PROCESSING_COMPLETED: 'processing:completed',
+
+    /**
+     * Emitted when a processing operation fails.
+     * Payload: { algorithmId: string, error: string }
+     * Subscribers: ProcessingTab (erro)
+     * Emitters: processing-runner.js
+     */
+    PROCESSING_ERROR: 'processing:error',
 });
 
 /**

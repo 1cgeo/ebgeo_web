@@ -20,42 +20,45 @@
    EXISTING CSS IMPORTS
    ========================================================================= */
 
-/* ===== 1. SHARED BASE ===== */
+/* ===== SHARED BASE ===== */
 @import url('./base.css');
 
-/* ===== 2. COORDINATES SYSTEM ===== */
+/* ===== COORDINATES SYSTEM ===== */
 @import url('./coordinates.css');
 
-/* ===== 3. MAP CONTROLS ===== */
+/* ===== MAP CONTROLS ===== */
 @import url('./map-controls.css');
 
-/* ===== 6. 2D MODE PANELS ===== */
+/* ===== 2D MODE PANELS ===== */
 @import url('./panels-2d.css');
 
-/* ===== 7. 3D MODE PANELS ===== */
+/* ===== 3D MODE PANELS ===== */
 @import url('./panels-3d.css');
 
-/* ===== 7B. 360 MODE PANELS ===== */
+/* ===== 360 MODE PANELS ===== */
 @import url('./panels-360.css');
 
-/* ===== 8. ATTRIBUTES SYSTEM ===== */
+/* ===== ATTRIBUTES SYSTEM ===== */
 @import url('./attributes-panel.css');
 
-/* ===== 9. PDF EXPORT ===== */
+/* ===== PDF EXPORT ===== */
 @import url('./pdf-export.css');
 
-/* ===== 10. FEATURES TAB ===== */
+/* ===== FEATURES TAB ===== */
 @import url('./features-tab.css');
 
-/* ===== 11. FEATURE USER DATA (Attributes & Images) ===== */
+/* ===== FEATURE USER DATA (Attributes & Images) ===== */
 @import url('./feature-user-data.css');
 
-/* ===== 13. ATTRIBUTE TABLE ===== */
+/* ===== ATTRIBUTE TABLE ===== */
 @import url('./attribute-table.css');
 
-/* ===== 14. BRIEFING ===== */
+/* ===== BRIEFING ===== */
 @import url('./briefing/briefing-editor.css');
 @import url('./briefing/briefing-presentation.css');
 
-/* ===== 15. AZIMUTH DISTANCE ===== */
+/* ===== AZIMUTH DISTANCE ===== */
 @import url('./azimuth-distance.css');
+
+/* ===== PROCESSING ===== */
+@import url('./processing.css');

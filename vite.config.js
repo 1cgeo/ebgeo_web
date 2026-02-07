@@ -97,8 +97,9 @@ export default defineConfig({
               id.includes('src/js/attribute_table/')) {
             return 'ui-components';
           }
-          // UI components (sidebar, etc. - NÃO inclui toolbar que está em core)
+          // UI components (sidebar, processing, etc. - NÃO inclui toolbar que está em core)
           if (id.includes('src/js/sidebar/') ||
+              id.includes('src/js/processing/') ||
               id.includes('src/js/bottom-controls/') ||
               id.includes('src/js/base-layer-selector/') ||
               id.includes('src/js/context-menu/')) {

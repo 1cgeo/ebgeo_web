@@ -310,7 +310,8 @@ export {
     batchUpdateLOSFeatures,
     batchUpdateVisibilityFeatures,
     deleteLayerFeatures,
-    isFeatureEffectivelyLocked
+    isFeatureEffectivelyLocked,
+    getLayerFeatures
 } from './feature.operations.js';
 
 // ===== RE-EXPORTS FROM MAP OPERATIONS =====

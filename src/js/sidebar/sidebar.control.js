@@ -15,6 +15,7 @@ import { LayersTab } from './tabs/layers.tab.js';
 import { BriefingsTab } from './tabs/briefings.tab.js';
 import { ImportTab } from './tabs/import.tab.js';
 import { ExportTab } from './tabs/export.tab.js';
+import { ProcessingTab, createProcessingPanel, getAlgorithm } from '../processing/index.js';
 import { EventTypes } from '../events/event_types.js';
 import {
     setupCleanup,
@@ -95,6 +96,7 @@ export class SidebarControl {
             [SIDEBAR_TABS.MAPAS]: null,
             [SIDEBAR_TABS.CAMADAS]: null,
             [SIDEBAR_TABS.BRIEFINGS]: null,
+            [SIDEBAR_TABS.PROCESSAMENTO]: null,
             [SIDEBAR_TABS.IMPORTAR]: null,
             [SIDEBAR_TABS.EXPORTAR]: null,
         };
@@ -873,6 +875,14 @@ export class SidebarControl {
                 });
                 break;
 
+            case SIDEBAR_TABS.PROCESSAMENTO:
+                component = new ProcessingTab({
+                    eventBus: this._eventBus,
+                    stateManager: this._stateManager,
+                    onOpenAlgorithm: (algorithmId) => this._handleOpenProcessingAlgorithm(algorithmId),
+                });
+                break;
+
             case SIDEBAR_TABS.IMPORTAR:
                 component = new ImportTab({
                     importControl: this._importControl,
@@ -991,6 +1001,29 @@ export class SidebarControl {
         } catch (error) {
             console.warn('Failed to update recent maps:', error);
         }
+    }
+
+    /**
+     * Handles opening a processing algorithm panel.
+     * @private
+     * @param {string} algorithmId - Algorithm ID to open
+     */
+    _handleOpenProcessingAlgorithm(algorithmId) {
+        const algorithm = getAlgorithm(algorithmId);
+        if (!algorithm) return;
+
+        const panelResult = createProcessingPanel({
+            algorithm,
+            stateManager: this._stateManager,
+            eventBus: this._eventBus,
+        });
+
+        this.showToolPanel(
+            panelResult.element,
+            algorithm.name,
+            panelResult.cleanup,
+            () => panelResult.cleanup()
+        );
     }
 
     /**

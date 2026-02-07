@@ -93,6 +93,7 @@ export class SidebarCollapsed {
             { id: SIDEBAR_TABS.MAPAS, icon: SIDEBAR_ICONS.map },
             { id: SIDEBAR_TABS.CAMADAS, icon: SIDEBAR_ICONS.layers },
             { id: SIDEBAR_TABS.BRIEFINGS, icon: SIDEBAR_ICONS.presentation },
+            { id: SIDEBAR_TABS.PROCESSAMENTO, icon: SIDEBAR_ICONS.processing },
             { id: SIDEBAR_TABS.IMPORTAR, icon: SIDEBAR_ICONS.upload },
             { id: SIDEBAR_TABS.EXPORTAR, icon: SIDEBAR_ICONS.download },
         ];
