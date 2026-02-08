@@ -275,6 +275,139 @@ export function setupRectangleLayers(features, mapInstance) {
 }
 
 /**
+ * Sets up sector layers on the map.
+ * @param {Object} features - Feature collection with sectors
+ * @param {Object} mapInstance - MapLibre map instance
+ */
+export function setupSectorLayers(features, mapInstance) {
+    if (!mapInstance.getSource('setores')) {
+        mapInstance.addSource('setores', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.setores
+            }
+        });
+    } else {
+        mapInstance.getSource('setores').setData({
+            type: 'FeatureCollection',
+            features: features.setores
+        });
+    }
+
+    if (!mapInstance.getSource('sector-feedback')) {
+        mapInstance.addSource('sector-feedback', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    if (!mapInstance.getSource('sector-edit-handles')) {
+        mapInstance.addSource('sector-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    const hatchGeneratorSector = new HatchPatternGenerator();
+    hatchGeneratorSector.loadPatternsToMap(mapInstance, features.setores || []);
+
+    if (!mapInstance.getLayer('sector-feedback-layer')) {
+        mapInstance.addLayer({
+            id: 'sector-feedback-layer',
+            type: 'line',
+            source: 'sector-feedback',
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 3,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.8
+            }
+        });
+    }
+
+    if (!mapInstance.getLayer('sector-fill-layer')) {
+        mapInstance.addLayer({
+            id: 'sector-fill-layer',
+            type: 'fill',
+            source: 'setores',
+            paint: {
+                'fill-color': ['get', 'fillColor'],
+                'fill-opacity': ['get', 'opacity']
+            },
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['!=', ['get', 'hatchEnabled'], true]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('sector-fill-pattern-layer')) {
+        mapInstance.addLayer({
+            id: 'sector-fill-pattern-layer',
+            type: 'fill',
+            source: 'setores',
+            paint: {
+                'fill-opacity': ['get', 'opacity'],
+                'fill-pattern': ['get', 'hatchPatternId']
+            },
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'hatchEnabled'], true],
+                ['has', 'hatchPatternId']
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('sectors-layer')) {
+        mapInstance.addLayer({
+            id: 'sectors-layer',
+            type: 'line',
+            source: 'setores',
+            paint: {
+                'line-color': ['get', 'lineColor'],
+                'line-width': ['get', 'lineWidth'],
+                'line-opacity': 1,
+                'line-dasharray': [
+                    'match',
+                    ['get', 'lineStyle'],
+                    'dashed', ['literal', [8, 4]],
+                    'dotted', ['literal', [2, 3]],
+                    'dash-dot', ['literal', [8, 4, 2, 4]],
+                    'long-dash', ['literal', [16, 6]],
+                    'short-dash', ['literal', [4, 4]],
+                    'dot-dot-dash', ['literal', [2, 2, 2, 2, 8, 2]],
+                    ['literal', [1, 0]]
+                ]
+            },
+            filter: ['!=', ['get', 'visivel'], false]
+        });
+    }
+
+    if (!mapInstance.getLayer('sector-edit-handles-layer')) {
+        mapInstance.addLayer({
+            id: 'sector-edit-handles-layer',
+            type: 'circle',
+            source: 'sector-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',
+                    '#ffffff'
+                ],
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2
+            },
+            filter: ['==', '$type', 'Point']
+        });
+    }
+}
+
+/**
  * Sets up ellipse layers on the map.
  * @param {Object} features - Feature collection with ellipses
  * @param {Object} mapInstance - MapLibre map instance

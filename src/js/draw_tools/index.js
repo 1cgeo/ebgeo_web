@@ -44,3 +44,8 @@ export { addImageAttributesToPanel } from './image_tool/image_attributes_panel.j
 export { default as AddBrushControl } from './brush_tool/add_brush_control.js';
 export { default as AddBrushGeometry } from './brush_tool/add_brush_geometry.js';
 export { addBrushAttributesToPanel } from './brush_tool/brush_attributes_panel.js';
+
+// Sector tool
+export { default as AddSectorControl } from './sector_tool/add_sector_control.js';
+export { default as AddSectorGeometry } from './sector_tool/add_sector_geometry.js';
+export { addSectorAttributesToPanel } from './sector_tool/sector_attributes_panel.js';

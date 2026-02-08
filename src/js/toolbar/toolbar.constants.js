@@ -95,6 +95,9 @@ export const TOOLBAR_ICONS = {
     // Marker 3D (map pin with cube)
     marker3d: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`,
 
+    // Sector - pie slice icon
+    sector: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 20 20"><path d="M10 10 L10 2 A8 8 0 0 1 16.93 6 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
+
     // Snapping magnet icon
     snapping: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15a6 6 0 0 0 12 0V9h-4v6a2 2 0 1 1-4 0V9H6v6z"/><line x1="6" y1="9" x2="6" y2="5"/><line x1="10" y1="9" x2="10" y2="5"/><line x1="14" y1="9" x2="14" y2="5"/><line x1="18" y1="9" x2="18" y2="5"/></svg>`,
 };
@@ -118,6 +121,7 @@ export const TOOL_GROUPS = {
             { id: 'text', label: 'Texto', icon: TOOLBAR_ICONS.text, shortcut: 'T', controlKey: 'textControl' },
             { id: 'image', label: 'Imagem', icon: TOOLBAR_ICONS.image, shortcut: 'I', controlKey: 'imageControl' },
             { id: 'brush', label: 'Pincel', icon: TOOLBAR_ICONS.brush, shortcut: 'B', controlKey: 'brushControl' },
+            { id: 'sector', label: 'Setor', icon: TOOLBAR_ICONS.sector, shortcut: 'U', controlKey: 'sectorControl' },
             { id: 'azimuthDistance', label: 'Azimute e Distância', icon: TOOLBAR_ICONS.azimuthDistance, shortcut: 'Z', controlKey: 'azimuthDistanceControl' },
         ],
     },

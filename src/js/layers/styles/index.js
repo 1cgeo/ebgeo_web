@@ -7,7 +7,7 @@
 export { setupPointLayers } from './point.layers.js';
 export { setupLineLayers, setupBrushLayers } from './line.layers.js';
 export { setupPolygonLayers } from './polygon.layers.js';
-export { setupCircleLayers, setupRectangleLayers, setupEllipseLayers } from './shape.layers.js';
+export { setupCircleLayers, setupRectangleLayers, setupEllipseLayers, setupSectorLayers } from './shape.layers.js';
 export { setupTextLayers, setupImageLayers, setupArrowLayers } from './content.layers.js';
 export { setupMilitarySymbolsLayers, setupCoordinationMeasureLayers } from './symbol.layers.js';
 export { setupBoundaryLayers, setupOccupiedFrontLayers, setupLOSLayers, setupVisibilityLayers } from './tactical.layers.js';

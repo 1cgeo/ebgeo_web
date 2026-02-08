@@ -50,6 +50,7 @@ const SHORTCUTS_DATA = {
             { key: 'T', icon: TOOLBAR_ICONS.text, description: 'Texto' },
             { key: 'I', icon: TOOLBAR_ICONS.image, description: 'Imagem' },
             { key: 'B', icon: TOOLBAR_ICONS.brush, description: 'Pincel' },
+            { key: 'U', icon: TOOLBAR_ICONS.sector, description: 'Setor' },
             { key: 'Z', icon: TOOLBAR_ICONS.azimuthDistance, description: 'Azimute e distância' },
         ],
     },

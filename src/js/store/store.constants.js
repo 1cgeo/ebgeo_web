@@ -24,7 +24,8 @@ export const FEATURE_TYPE_ICONS = {
     'military_symbol': './images/icon_military_black.svg',
     'coordination_measure': './images/icon_coordination_black.svg',
     'los': './images/icon_los_black.svg',
-    'visibility': './images/icon_visibility_black.svg'
+    'visibility': './images/icon_visibility_black.svg',
+    'sector': './images/icon_sector_black.svg'
 };
 
 /**
@@ -47,7 +48,8 @@ export const FEATURE_TYPE_LAYERS = {
     'military_symbol': 'military-symbols-layer',
     'coordination_measure': 'coordination-measures-layer',
     'los': 'los-layer',
-    'visibility': 'visibility-layer'
+    'visibility': 'visibility-layer',
+    'sector': 'sectors-layer'
 };
 
 /**
@@ -70,7 +72,8 @@ export const FEATURE_TYPE_MAPPINGS = {
     'military_symbol': 'military_symbols',
     'coordination_measure': 'coordination_measures',
     'los': 'los',
-    'visibility': 'visibility'
+    'visibility': 'visibility',
+    'sector': 'setores'
 };
 
 /**
@@ -93,7 +96,8 @@ export const FEATURE_DISPLAY_NAMES = {
     'military_symbol': 'Símbolo Militar',
     'coordination_measure': 'Medida de Coordenação',
     'los': 'Linha de Visada',
-    'visibility': 'Visibilidade'
+    'visibility': 'Visibilidade',
+    'sector': 'Setor'
 };
 
 /**

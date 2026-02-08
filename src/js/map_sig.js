@@ -54,7 +54,8 @@ import {
     AddEllipseControl,
     AddTextControl,
     AddImageControl,
-    AddBrushControl
+    AddBrushControl,
+    AddSectorControl
 } from './draw_tools/index.js';
 
 // Azimuth Distance tool (drawing tool - polar construction)
@@ -208,6 +209,7 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
     const brushControl = new AddBrushControl(toolManager);
     const coordinationMeasureControl = new AddCoordinationMeasureControl(toolManager);
     const azimuthDistanceControl = new AddAzimuthDistanceControl(toolManager);
+    const sectorControl = new AddSectorControl(toolManager);
 
     // ===== SELECTION MANAGER REGISTRATIONS (declarative) =====
 
@@ -229,6 +231,7 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
         ['brush', brushControl],
         ['coordination_measure', coordinationMeasureControl],
         ['azimuth_distance', azimuthDistanceControl],
+        ['sector', sectorControl],
     ];
 
     for (const [type, ctrl] of SELECTION_CONTROLS) {
@@ -322,7 +325,8 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
             rectangleSelectionControl,
             vectorTileInfoControl,
             coordinationMeasureControl,
-            azimuthDistanceControl
+            azimuthDistanceControl,
+            sectorControl
         }
     });
 
@@ -399,6 +403,7 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
         militarySymbolControl,
         coordinationMeasureControl,
         azimuthDistanceControl,
+        sectorControl,
         losControl,
         visibilityControl,
         vectorTileInfoControl,
@@ -455,6 +460,7 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
             boundaryControl,
             occupiedFrontControl,
             azimuthDistanceControl,
+            sectorControl,
             losControl,
             visibilityControl,
             vectorTileInfoControl,
@@ -529,6 +535,7 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
         ['AddEllipseControl', ellipseControl],
         ['AddBrushControl', brushControl],
         ['AddAzimuthDistanceControl', azimuthDistanceControl],
+        ['AddSectorControl', sectorControl],
         // Military tools
         ['AddMilitarySymbolControl', militarySymbolControl],
         ['AddCoordinationMeasureControl', coordinationMeasureControl],

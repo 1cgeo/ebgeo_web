@@ -19,6 +19,7 @@ import {
     setupCircleLayers,
     setupRectangleLayers,
     setupEllipseLayers,
+    setupSectorLayers,
     setupTextLayers,
     setupImageLayers,
     setupArrowLayers,
@@ -475,6 +476,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         setupEllipseLayers(features, mapInstance);
         setupCircleLayers(features, mapInstance);
         setupRectangleLayers(features, mapInstance);
+        setupSectorLayers(features, mapInstance);
         setupArrowLayers(features, mapInstance);
         setupVisibilityLayers(features, mapInstance);
         setupOccupiedFrontLayers(features, mapInstance);
