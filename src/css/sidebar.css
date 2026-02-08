@@ -4041,6 +4041,13 @@ body:has(.sidebar-container) .unified-attributes-panel {
     height: 18px;
 }
 
+.briefings-create-description {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500, #6b7280);
+    line-height: 1.4;
+}
+
 /* Briefings List */
 .briefings-list {
     display: flex;

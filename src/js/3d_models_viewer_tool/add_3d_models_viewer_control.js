@@ -793,10 +793,12 @@ class Add3DModelsViewerControl {
     }
 
     /**
-     * Open the 3D viewer for a specific tileset
+     * Open the 3D viewer for a specific tileset.
      * @param {string} tilesetId - ID of the tileset to view
+     * @param {Object} [options] - Options
+     * @param {boolean} [options.skipCameraAnimation=false] - Skip flyTo, position camera instantly
      */
-    async openViewer(tilesetId) {
+    async openViewer(tilesetId, options = {}) {
         try {
             this.removePreviewPopup();
             this.setFullMap(false);
@@ -809,7 +811,7 @@ class Add3DModelsViewerControl {
             }
 
             const map3dModule = await import('./map_3d.js');
-            await map3dModule.openViewerWithTileset(tilesetId);
+            await map3dModule.openViewerWithTileset(tilesetId, options);
 
             // Update URL for deep linking / sharing
             URLRouter.setModel(tilesetId);

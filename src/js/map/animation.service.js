@@ -24,8 +24,8 @@ export const ANIMATION_DURATION = Object.freeze({
     NORMAL: 1000,
     /** Slow transition (2000ms) */
     SLOW: 2000,
-    /** Briefing slide transition (2000ms) */
-    BRIEFING_TRANSITION: 2000
+    /** Briefing slide transition (3000ms) */
+    BRIEFING_TRANSITION: 3000
 });
 
 /**
@@ -94,6 +94,8 @@ export function capturePositionExtended(map, altitude = null) {
  * @param {number} [options.bearing=0] - Target bearing (rotation)
  * @param {number} [options.pitch=0] - Target pitch (tilt)
  * @param {number} [options.duration=1000] - Animation duration in ms
+ * @param {number} [options.curve] - Zoom curve factor (default 1.42). Lower = shallower arc.
+ * @param {number} [options.minZoom] - Minimum zoom during animation (prevents extreme zoom-out)
  * @returns {Promise<void>} Resolves when animation completes
  */
 export function flyTo(map, options) {
@@ -107,7 +109,9 @@ export function flyTo(map, options) {
         zoom,
         bearing = 0,
         pitch = 0,
-        duration = DEFAULT_OPTIONS.duration
+        duration = DEFAULT_OPTIONS.duration,
+        curve,
+        minZoom
     } = options;
 
     // Validate required parameters
@@ -127,6 +131,16 @@ export function flyTo(map, options) {
     // Only add zoom if provided
     if (typeof zoom === 'number') {
         flyToOptions.zoom = zoom;
+    }
+
+    // Curve controls how much the map zooms out during the arc (lower = shallower)
+    if (typeof curve === 'number') {
+        flyToOptions.curve = curve;
+    }
+
+    // Prevent zooming out below this level during animation
+    if (typeof minZoom === 'number') {
+        flyToOptions.minZoom = minZoom;
     }
 
     // Instant transition (no animation)

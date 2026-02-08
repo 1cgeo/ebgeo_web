@@ -133,6 +133,11 @@ export class BriefingsTab {
         addDomListener(this, button, 'click', () => this._handleCreateBriefing());
         wrapper.appendChild(button);
 
+        const description = document.createElement('p');
+        description.className = 'briefings-create-description';
+        description.textContent = 'Briefings s\u00E3o apresenta\u00E7\u00F5es interativas que combinam slides narrativos com navega\u00E7\u00E3o no mapa 2D, visualizador 3D e fotos 360\u00B0.';
+        wrapper.appendChild(description);
+
         return wrapper;
     }
 

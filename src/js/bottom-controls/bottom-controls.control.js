@@ -17,6 +17,7 @@ import {
     cleanup,
     removeElement
 } from '../utilities/event-cleanup.js';
+import { registerControl } from '../store/control.registry.js';
 
 /**
  * Main bottom controls controller.
@@ -103,6 +104,9 @@ export class BottomControlsControl {
 
         // Apply initial lock state
         this._applyMapLockState();
+
+        // Register for external access (e.g., briefing transitions calling syncStates)
+        registerControl('bottomControls', this);
     }
 
     /**

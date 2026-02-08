@@ -243,7 +243,7 @@ async function loadTilesets(viewer) {
     }
 }
 
-async function createOptimizedTileset(viewer, tilesetConfig) {
+async function createOptimizedTileset(viewer, tilesetConfig, options = {}) {
     const tileset = new Cesium.Cesium3DTileset({
         url: tilesetConfig.url,
         maximumScreenSpaceError: 16,
@@ -278,9 +278,13 @@ async function createOptimizedTileset(viewer, tilesetConfig) {
 
     if (tilesetConfig.default) {
         const { lat, lon, height } = tilesetConfig.locate;
-        viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(lon, lat, height)
-        });
+        const destination = Cesium.Cartesian3.fromDegrees(lon, lat, height);
+
+        if (options.skipCameraAnimation) {
+            viewer.camera.setView({ destination });
+        } else {
+            viewer.camera.flyTo({ destination });
+        }
     }
 
     return tileset;
@@ -754,13 +758,15 @@ export async function saveCurrentCameraPosition() {
 /**
  * Restores saved camera position for a tileset.
  * @param {string} tilesetId - Tileset ID
+ * @param {Object} [options] - Options
+ * @param {boolean} [options.skipCameraAnimation=false] - Skip flyTo, use setView for instant positioning
  * @returns {Promise<boolean>} True if position was restored
  */
-async function restoreCameraPosition(tilesetId) {
+async function restoreCameraPosition(tilesetId, options = {}) {
     const savedPosition = await getCameraPosition(tilesetId);
 
     if (savedPosition && cesiumState.viewer) {
-        cesiumState.viewer.camera.flyTo({
+        const cameraParams = {
             destination: Cesium.Cartesian3.fromDegrees(
                 savedPosition.position.longitude,
                 savedPosition.position.latitude,
@@ -770,9 +776,14 @@ async function restoreCameraPosition(tilesetId) {
                 heading: savedPosition.orientation.heading,
                 pitch: savedPosition.orientation.pitch,
                 roll: savedPosition.orientation.roll
-            },
-            duration: 2.0
-        });
+            }
+        };
+
+        if (options.skipCameraAnimation) {
+            cesiumState.viewer.camera.setView(cameraParams);
+        } else {
+            cesiumState.viewer.camera.flyTo({ ...cameraParams, duration: 2.0 });
+        }
         return true;
     }
     return false;
@@ -829,12 +840,14 @@ function updateCameraButtonState(hasSavedPosition) {
 }
 
 /**
- * Loads a single tileset and flies to its location
+ * Loads a single tileset and flies to its location.
  * @param {Cesium.Viewer} viewer - The Cesium viewer instance
  * @param {string} tilesetId - ID of the tileset to load
+ * @param {Object} [options] - Options
+ * @param {boolean} [options.skipCameraAnimation=false] - Skip flyTo, use setView for instant positioning
  * @returns {Promise<Cesium.Cesium3DTileset>} The loaded tileset
  */
-async function loadSingleTileset(viewer, tilesetId) {
+async function loadSingleTileset(viewer, tilesetId, options = {}) {
     if (!viewer || viewer.isDestroyed()) {
         throw new Error('Invalid or destroyed viewer');
     }
@@ -853,23 +866,26 @@ async function loadSingleTileset(viewer, tilesetId) {
         throw new Error(`Tileset ${tilesetId} not found in config.tilesets`);
     }
 
-    currentTileset = await createOptimizedTileset(viewer, tilesetConfig);
+    currentTileset = await createOptimizedTileset(viewer, tilesetConfig, options);
     _currentTilesetId = tilesetId;
     cesiumState.currentTilesetId = tilesetId;
 
     // Check for saved camera position
-    const hasSavedPosition = await restoreCameraPosition(tilesetId);
+    const hasSavedPosition = await restoreCameraPosition(tilesetId, options);
 
     if (!hasSavedPosition) {
         // Use default location from config
-        viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(
-                tilesetConfig.locate.lon,
-                tilesetConfig.locate.lat,
-                tilesetConfig.locate.height
-            ),
-            duration: 2.0
-        });
+        const defaultDestination = Cesium.Cartesian3.fromDegrees(
+            tilesetConfig.locate.lon,
+            tilesetConfig.locate.lat,
+            tilesetConfig.locate.height
+        );
+
+        if (options.skipCameraAnimation) {
+            viewer.camera.setView({ destination: defaultDestination });
+        } else {
+            viewer.camera.flyTo({ destination: defaultDestination, duration: 2.0 });
+        }
     }
 
     // Update button state
@@ -894,11 +910,13 @@ async function loadSingleTileset(viewer, tilesetId) {
 }
 
 /**
- * Initializes Cesium with a specific tileset using lazy loading
+ * Initializes Cesium with a specific tileset using lazy loading.
  * @param {string} tilesetId - ID of the tileset to load
+ * @param {Object} [options] - Options
+ * @param {boolean} [options.skipCameraAnimation=false] - Skip flyTo, use setView for instant positioning
  * @returns {Promise<Cesium.Viewer>} The Cesium viewer instance
  */
-async function loadCesiumAndInitWithTileset(tilesetId) {
+async function loadCesiumAndInitWithTileset(tilesetId, options = {}) {
     if (!cesiumState.viewer) {
         await loadCesiumAndInit();
 
@@ -914,7 +932,7 @@ async function loadCesiumAndInitWithTileset(tilesetId) {
         }
     }
 
-    await loadSingleTileset(cesiumState.viewer, tilesetId);
+    await loadSingleTileset(cesiumState.viewer, tilesetId, options);
 
     return cesiumState.viewer;
 }
@@ -1132,10 +1150,12 @@ function closeNavHelp() {
 }
 
 /**
- * Opens the 3D viewer with a specific tileset
+ * Opens the 3D viewer with a specific tileset.
  * @param {string} tilesetId - ID of the tileset to display
+ * @param {Object} [options] - Options
+ * @param {boolean} [options.skipCameraAnimation=false] - Skip flyTo, use setView for instant positioning
  */
-export async function openViewerWithTileset(tilesetId) {
+export async function openViewerWithTileset(tilesetId, options = {}) {
     // Clear 2D map selection and close feature panel before opening 3D viewer
     try {
         const { getStateManagerInstance } = await import('../state/state_manager.js');
@@ -1149,10 +1169,10 @@ export async function openViewerWithTileset(tilesetId) {
     const viewerExists = cesiumState.viewer && !cesiumState.viewer.isDestroyed();
 
     if (viewerExists) {
-        await switchTileset(tilesetId);
+        await switchTileset(tilesetId, options);
         resumeRendering();
     } else {
-        await loadCesiumAndInitWithTileset(tilesetId);
+        await loadCesiumAndInitWithTileset(tilesetId, options);
         init3DFeatures();
         resumeRendering();
     }
@@ -1279,11 +1299,11 @@ function cleanupActiveTools() {
  * Switches to a different tileset when viewer is already open
  * @param {string} newTilesetId - ID of the new tileset to load
  */
-async function switchTileset(newTilesetId) {
+async function switchTileset(newTilesetId, options = {}) {
     if (!cesiumState.viewer || cesiumState.viewer.isDestroyed()) return;
 
     cleanupActiveTools();
-    await loadSingleTileset(cesiumState.viewer, newTilesetId);
+    await loadSingleTileset(cesiumState.viewer, newTilesetId, options);
     init3DFeatures();
 }
 

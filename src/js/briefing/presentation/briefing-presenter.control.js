@@ -25,6 +25,7 @@ import {
     SlideMode,
     setBriefingLockOverride
 } from '../../store/index.js';
+import { getControl } from '../../store/control.registry.js';
 import { EventTypes } from '../../events/event_types.js';
 import { getEventBus } from '../../store/services.js';
 import { showError, showWarning } from '../../utilities/index.js';
@@ -45,6 +46,7 @@ import {
 } from '../services/keyboard-service-briefing.js';
 import { createTransitionService } from './transition.service.js';
 import { createPresentationTextPanel } from '../components/presentation-text-panel.js';
+import { createTilePreloader } from './tile-preloader.js';
 
 // ============================================================================
 // BRIEFING PRESENTER CONTROL
@@ -69,9 +71,14 @@ export class BriefingPresenterControl {
         this._currentSlideIndex = -1;
         this._isPresenting = false;
         this._isFullscreen = false;
+        this._isTransitioning = false;
+
+        // Pre-presentation state snapshot (restored on exit)
+        this._savedViewerStates = null;
 
         // Services
         this._transitionService = null;
+        this._tilePreloader = null;
 
         // Components
         this._textPanel = null;
@@ -101,6 +108,9 @@ export class BriefingPresenterControl {
         }
 
         try {
+            // Snapshot current viewer states so we can restore on exit
+            this._saveViewerStates();
+
             // Close 3D and 360 viewers if open before starting
             await this._closeActiveViewers();
 
@@ -162,6 +172,9 @@ export class BriefingPresenterControl {
             this._isPresenting = true;
             this._currentSlideIndex = -1;
 
+            // Preload tiles for all slide positions (improves flyTo transitions)
+            await this._preloadSlideTiles();
+
             // Go to first slide
             await this._goToSlide(0);
 
@@ -194,11 +207,21 @@ export class BriefingPresenterControl {
         // Deactivate keyboard shortcuts
         deactivateKeyboardServiceBriefing();
 
-        // Reset transition service to 2D
+        // Reset transition service to 2D (closes any open 3D/360 viewers)
         if (this._transitionService) {
             await this._transitionService.resetTo2D();
             this._transitionService.destroy();
             this._transitionService = null;
+        }
+
+        // Restore viewer control states to pre-presentation snapshot
+        // (deactivates markers that were activated during presentation)
+        await this._restoreViewerStates();
+
+        // Destroy tile preloader (restores original flyTo)
+        if (this._tilePreloader) {
+            this._tilePreloader.destroy();
+            this._tilePreloader = null;
         }
 
         // Destroy text panel (includes integrated controls)
@@ -238,6 +261,8 @@ export class BriefingPresenterControl {
         this._briefing = null;
         this._currentSlideIndex = -1;
         this._isPresenting = false;
+        this._isTransitioning = false;
+        this._savedViewerStates = null;
 
         // Call exit callback
         if (this._onExit) {
@@ -247,9 +272,11 @@ export class BriefingPresenterControl {
 
     /**
      * Navigates to the next slide.
+     * If a transition is in progress, finishes it instead of advancing.
      */
     async nextSlide() {
         if (!this._isPresenting || !this._briefing) return;
+        if (this._isTransitioning) { this._finishCurrentTransition(); return; }
 
         const nextIndex = this._currentSlideIndex + 1;
         if (nextIndex < this._briefing.slides.length) {
@@ -259,9 +286,11 @@ export class BriefingPresenterControl {
 
     /**
      * Navigates to the previous slide.
+     * If a transition is in progress, finishes it instead of going back.
      */
     async previousSlide() {
         if (!this._isPresenting || !this._briefing) return;
+        if (this._isTransitioning) { this._finishCurrentTransition(); return; }
 
         const prevIndex = this._currentSlideIndex - 1;
         if (prevIndex >= 0) {
@@ -271,30 +300,36 @@ export class BriefingPresenterControl {
 
     /**
      * Navigates to the first slide.
+     * If a transition is in progress, finishes it instead of jumping.
      */
     async firstSlide() {
         if (!this._isPresenting || !this._briefing) return;
-        await this._goToSlide(0);
+        if (this._isTransitioning) { this._finishCurrentTransition(); return; }
+        await this._goToSlide(0, { forceInstant: true });
     }
 
     /**
      * Navigates to the last slide.
+     * If a transition is in progress, finishes it instead of jumping.
      */
     async lastSlide() {
         if (!this._isPresenting || !this._briefing) return;
+        if (this._isTransitioning) { this._finishCurrentTransition(); return; }
 
         const lastIndex = this._briefing.slides.length - 1;
         if (lastIndex >= 0) {
-            await this._goToSlide(lastIndex);
+            await this._goToSlide(lastIndex, { forceInstant: true });
         }
     }
 
     /**
      * Navigates to a specific slide.
+     * If a transition is in progress, finishes it instead of jumping.
      * @param {number} index - Slide index (0-based)
      */
     async goToSlide(index) {
         if (!this._isPresenting || !this._briefing) return;
+        if (this._isTransitioning) { this._finishCurrentTransition(); return; }
 
         if (index >= 0 && index < this._briefing.slides.length) {
             await this._goToSlide(index);
@@ -349,6 +384,51 @@ export class BriefingPresenterControl {
     // =========================================================================
 
     /**
+     * Saves the current viewer/control state before starting the presentation.
+     * Stored so we can restore exactly the same state on exit.
+     * @private
+     */
+    _saveViewerStates() {
+        const modelsViewer = getControl('modelsViewer');
+        const streetView = getControl('streetView');
+
+        this._savedViewerStates = {
+            models3dActive: modelsViewer?.isActive || false,
+            panoramaActive: streetView?.isActive || false
+        };
+    }
+
+    /**
+     * Restores the viewer/control state that existed before presentation started.
+     * Deactivates controls that were not originally active (removes markers from map).
+     * @private
+     */
+    async _restoreViewerStates() {
+        if (!this._savedViewerStates) return;
+
+        const modelsViewer = getControl('modelsViewer');
+        const streetView = getControl('streetView');
+
+        // Deactivate 3D markers if they weren't active before presentation
+        if (!this._savedViewerStates.models3dActive && modelsViewer?.isActive) {
+            modelsViewer.deactivate();
+        }
+
+        // Deactivate 360 markers if they weren't active before presentation
+        if (!this._savedViewerStates.panoramaActive && streetView?.isActive) {
+            streetView.deactivate();
+        }
+
+        // Sync bottom-controls toggles to reflect restored state
+        const bottomControls = getControl('bottomControls');
+        if (bottomControls) {
+            bottomControls.syncStates();
+        }
+
+        this._savedViewerStates = null;
+    }
+
+    /**
      * Closes any active 3D or 360 viewers before starting presentation.
      * @private
      */
@@ -386,7 +466,6 @@ export class BriefingPresenterControl {
                 onFirst: () => this.firstSlide(),
                 onLast: () => this.lastSlide(),
                 onFullscreen: () => this.toggleFullscreen(),
-                onToggleText: () => this.toggleTextPanel(),
                 onExit: () => this.exit()
             }
         );
@@ -404,8 +483,7 @@ export class BriefingPresenterControl {
             firstSlide: () => this.firstSlide(),
             lastSlide: () => this.lastSlide(),
             exitPresentation: () => this.exit(),
-            toggleFullscreen: () => this.toggleFullscreen(),
-            toggleTextPanel: () => this.toggleTextPanel()
+            toggleFullscreen: () => this.toggleFullscreen()
         });
 
         activateKeyboardServiceBriefing();
@@ -427,36 +505,56 @@ export class BriefingPresenterControl {
     }
 
     /**
+     * Finishes the current transition instantly.
+     * Calls map.stop() which jumps to the animation's final position
+     * and fires moveend, resolving the pending flyTo Promise.
+     * @private
+     */
+    _finishCurrentTransition() {
+        if (this._map) {
+            this._map.stop();
+        }
+    }
+
+    /**
      * Navigates to a specific slide (internal).
      * Forward navigation = animated transitions. Backward = instant.
      * @private
      * @param {number} index - Slide index
+     * @param {Object} [options] - Navigation options
+     * @param {boolean} [options.forceInstant=false] - Force instant transition (skip animation)
      */
-    async _goToSlide(index) {
+    async _goToSlide(index, options = {}) {
+        if (!this._isPresenting || !this._briefing) return;
+
         const slide = this._briefing.slides[index];
         if (!slide) return;
-
-        // Check if transition is already in progress
-        if (this._transitionService?.isTransitioning()) {
-            return;
-        }
 
         // Determine direction: forward = animated, backward = instant
         const isForward = index > this._currentSlideIndex;
         const isFirstLoad = this._currentSlideIndex === -1;
-        const instant = !isForward && !isFirstLoad;
+        const instant = options.forceInstant || (!isForward && !isFirstLoad);
+
+        // Update text panel IMMEDIATELY (before flyTo animation)
+        this._currentSlideIndex = index;
+        if (this._textPanel) {
+            this._textPanel.setSlide(slide, index, this._briefing.slides.length);
+        }
 
         // Perform transition with direction-based animation
+        this._isTransitioning = !instant;
+        if (this._isTransitioning && this._textPanel) {
+            this._textPanel.setTransitioning(true);
+        }
+
         const success = await this._transitionService.transitionToSlide(slide, { instant });
 
-        if (success) {
-            this._currentSlideIndex = index;
+        this._isTransitioning = false;
+        if (this._textPanel) {
+            this._textPanel.setTransitioning(false);
+        }
 
-            // Update text panel (includes controls and counter)
-            if (this._textPanel) {
-                this._textPanel.setSlide(slide, index, this._briefing.slides.length);
-            }
-
+        if (success && this._briefing) {
             // Update visibility profile based on slide mode
             this._updateVisibilityProfile(slide.mode);
 
@@ -490,6 +588,121 @@ export class BriefingPresenterControl {
                 visibilityController.applyProfile(VisibilityProfile.BRIEFING_PRESENT_2D);
                 break;
         }
+    }
+
+    /**
+     * Preloads map tiles for all slide positions.
+     * Shows a fullscreen loading overlay during preload (same pattern as site loading screen).
+     * @private
+     */
+    async _preloadSlideTiles() {
+        if (!this._briefing?.slides || !this._map) return;
+
+        // Collect 2D positions from all slides that have valid coordinates
+        const positions = this._briefing.slides
+            .filter(s => s.position?.longitude != null && s.position?.latitude != null)
+            .map(s => ({
+                center: [s.position.longitude, s.position.latitude],
+                zoom: s.position.zoom ?? this._map.getZoom(),
+                bearing: s.orientation?.bearing || 0,
+                pitch: s.orientation?.pitch || 0
+            }));
+
+        if (positions.length === 0) return;
+
+        // Create tile preloader and patch flyTo for ongoing transitions
+        this._tilePreloader = createTilePreloader(this._map);
+        this._tilePreloader.patchFlyTo();
+
+        // Show fullscreen loading overlay with fake timed progress (5s max)
+        const { overlay, progressBar } = this._createLoadingOverlay();
+        document.body.appendChild(overlay);
+
+        // Animate progress bar over LOADING_DURATION_MS; if preload finishes
+        // earlier, jump to 100% and fade out immediately
+        const LOADING_DURATION_MS = 5000;
+        const TICK_MS = 50;
+        let elapsed = 0;
+        let preloadDone = false;
+
+        const progressInterval = setInterval(() => {
+            elapsed += TICK_MS;
+            if (!preloadDone && progressBar) {
+                // Ease-out curve: fast start, slows near 90%
+                const t = Math.min(elapsed / LOADING_DURATION_MS, 1);
+                const pct = Math.round(90 * (1 - Math.pow(1 - t, 2)));
+                progressBar.style.width = `${pct}%`;
+            }
+        }, TICK_MS);
+
+        try {
+            await this._tilePreloader.preloadPositions(positions);
+        } catch (error) {
+            console.warn('Tile preload failed (non-critical):', error);
+        }
+
+        // Preload finished — jump to 100% and stop timer
+        preloadDone = true;
+        clearInterval(progressInterval);
+        if (progressBar) {
+            progressBar.style.width = '100%';
+        }
+
+        // Brief pause to show 100% before fade out
+        await new Promise(r => setTimeout(r, 300));
+
+        // Fade out and remove overlay
+        this._removeLoadingOverlay(overlay);
+    }
+
+    /**
+     * Creates the fullscreen loading overlay DOM elements.
+     * Matches the site's loading screen pattern (green background, progress bar).
+     * @private
+     * @returns {{ overlay: HTMLElement, progressBar: HTMLElement }}
+     */
+    _createLoadingOverlay() {
+        const overlay = document.createElement('div');
+        overlay.className = 'briefing-loading-overlay';
+
+        const content = document.createElement('div');
+        content.className = 'briefing-loading-overlay__content';
+
+        // Logo (same as site loading screen)
+        const logo = document.createElement('img');
+        logo.className = 'briefing-loading-overlay__logo';
+        logo.src = '/images/logo_ebgeo.webp';
+        logo.alt = 'EBGeo';
+        content.appendChild(logo);
+
+        const text = document.createElement('p');
+        text.className = 'briefing-loading-overlay__text';
+        text.textContent = 'Carregando apresentação...';
+        content.appendChild(text);
+
+        const track = document.createElement('div');
+        track.className = 'briefing-loading-overlay__track';
+
+        const progressBar = document.createElement('div');
+        progressBar.className = 'briefing-loading-overlay__bar';
+        track.appendChild(progressBar);
+
+        content.appendChild(track);
+        overlay.appendChild(content);
+
+        return { overlay, progressBar };
+    }
+
+    /**
+     * Fades out and removes the loading overlay.
+     * @private
+     * @param {HTMLElement} overlay - Overlay element to remove
+     */
+    _removeLoadingOverlay(overlay) {
+        if (!overlay) return;
+
+        overlay.classList.add('briefing-loading-overlay--hidden');
+        setTimeout(() => overlay.remove(), 500);
     }
 
     /**

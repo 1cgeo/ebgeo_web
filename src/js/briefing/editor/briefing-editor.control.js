@@ -53,6 +53,7 @@ import { getApplicationModeManager, ApplicationMode } from '../../mode/applicati
 import { getUIVisibilityController, VisibilityProfile } from '../../ui/ui-visibility.controller.js';
 import { isViewer3DOpen } from '../../utilities/viewer3d-state.js';
 import { isStreetView360Open } from '../../utilities/streetview360-state.js';
+import { createTransitionService } from '../presentation/transition.service.js';
 
 // ============================================================================
 // CONSTANTS
@@ -67,7 +68,7 @@ const EDITOR_CONFIG = {
 const EDITOR_ICONS = {
     back: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`,
 
-    save: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1-2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
+    save: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
 
     plus: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
 
@@ -170,9 +171,6 @@ export class BriefingEditorControl {
         }
 
         try {
-            // Close any active 3D and 360 viewers
-            await this._closeActiveViewers();
-
             // Load briefing data
             this._briefing = await getBriefingById(briefingId);
             if (!this._briefing) {
@@ -202,10 +200,8 @@ export class BriefingEditorControl {
             // Create the right-side panel UI
             this._createUI();
 
-            // Select first slide if exists
-            if (this._briefing.slides?.length > 0) {
-                this._selectSlide(this._briefing.slides[0].id);
-            }
+            // Create transition service for slide preview navigation
+            this._transitionService = createTransitionService(this._map);
 
             this._isOpen = true;
 
@@ -218,6 +214,11 @@ export class BriefingEditorControl {
             this._eventBus.emit(EventTypes.BRIEFING_EDIT_STARTED, {
                 briefingId: this._briefing.id
             });
+
+            // Select first slide (triggers preview navigation after map resize)
+            if (this._briefing.slides?.length > 0) {
+                await this._selectSlide(this._briefing.slides[0].id);
+            }
 
         } catch (error) {
             console.error('Error opening briefing editor:', error);
@@ -247,8 +248,14 @@ export class BriefingEditorControl {
             this._autosaveTimer = null;
         }
 
-        // Close any open 3D/360 viewers
-        await this._closeActiveViewers();
+        // Close any open 3D/360 viewers via transition service
+        if (this._transitionService) {
+            await this._transitionService.resetTo2D();
+            this._transitionService.destroy();
+            this._transitionService = null;
+        } else {
+            await this._closeActiveViewers();
+        }
 
         // Restore lock state (maps become editable again based on their persisted state)
         setBriefingLockOverride(false);
@@ -527,7 +534,7 @@ export class BriefingEditorControl {
         card.appendChild(deleteBtn);
 
         // Click to select
-        addDomListener(this, card, 'click', () => this._selectSlide(slide.id));
+        addDomListener(this, card, 'click', async () => this._selectSlide(slide.id));
 
         return card;
     }
@@ -801,10 +808,12 @@ export class BriefingEditorControl {
 
     /**
      * Selects a slide for editing.
+     * Uses instant transitions (no flyTo): opens/closes viewers as needed,
+     * jumps to 2D position, and switches map if the slide references a different map.
      * @private
      * @param {string} slideId - Slide ID
      */
-    _selectSlide(slideId) {
+    async _selectSlide(slideId) {
         this._selectedSlideId = slideId;
 
         // Update visual selection in list
@@ -815,6 +824,26 @@ export class BriefingEditorControl {
 
         // Render the slide editor form
         this._renderSlideEditor();
+
+        // Navigate to slide: instant transition (no flyTo)
+        const slide = this._getSelectedSlide();
+        if (slide && this._transitionService) {
+            await this._transitionService.transitionToSlideInstant(slide);
+
+            // Update visibility profile based on the viewer mode
+            const visController = getUIVisibilityController();
+            switch (slide.mode) {
+                case SlideMode.VIEWER_3D:
+                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_3D);
+                    break;
+                case SlideMode.VIEWER_360:
+                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_360);
+                    break;
+                default:
+                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_2D);
+                    break;
+            }
+        }
     }
 
     /**
@@ -842,6 +871,12 @@ export class BriefingEditorControl {
         const slide = this._getSelectedSlide();
         if (!slide) {
             showWarning('Selecione um slide primeiro');
+            return;
+        }
+
+        // Require a map to be selected before capturing position
+        if (!slide.mapId) {
+            showWarning('Selecione um mapa para o slide antes de salvar a posição');
             return;
         }
 
@@ -991,7 +1026,7 @@ export class BriefingEditorControl {
             this._renderSlideList();
 
             if (newSlide) {
-                this._selectSlide(newSlide.id);
+                await this._selectSlide(newSlide.id);
             }
 
             showSuccess('Slide adicionado');
@@ -1023,7 +1058,7 @@ export class BriefingEditorControl {
             if (this._selectedSlideId === slideId) {
                 this._selectedSlideId = null;
                 if (this._briefing.slides.length > 0) {
-                    this._selectSlide(this._briefing.slides[0].id);
+                    await this._selectSlide(this._briefing.slides[0].id);
                 } else {
                     this._renderSlideEditor();
                 }

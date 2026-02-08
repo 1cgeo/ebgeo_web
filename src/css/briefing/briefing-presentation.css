@@ -50,6 +50,7 @@
     font-weight: var(--font-weight-semibold, 600);
     color: var(--gray-900, #111827);
     line-height: 1.3;
+    text-align: center;
 }
 
 /* =========================================================================
@@ -142,8 +143,9 @@
 
 .briefing-text-panel__controls {
     display: flex;
-    flex-direction: column;
-    gap: var(--space-2, 8px);
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
     padding: var(--space-3, 12px) var(--space-4, 16px);
     border-top: 1px solid var(--border-color, #e5e7eb);
     background: var(--gray-50, #f9fafb);
@@ -230,6 +232,65 @@
 .briefing-text-panel__btn--exit:hover:not(:disabled) {
     background: #fee2e2;
     color: #b91c1c;
+}
+
+/* =========================================================================
+   FULLSCREEN LOADING OVERLAY (same pattern as site loading screen)
+   ========================================================================= */
+
+.briefing-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #508d4e;
+    transition: opacity 0.5s ease;
+}
+
+.briefing-loading-overlay--hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.briefing-loading-overlay__content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+}
+
+.briefing-loading-overlay__logo {
+    width: 300px;
+    height: auto;
+}
+
+.briefing-loading-overlay__text {
+    color: #fff;
+    font-size: 1.125rem;
+    font-weight: 500;
+    letter-spacing: 0.025em;
+}
+
+.briefing-loading-overlay__track {
+    width: 200px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.briefing-loading-overlay__bar {
+    width: 0;
+    height: 100%;
+    background: #b4e380;
+    border-radius: 2px;
+    transition: width 0.3s ease;
 }
 
 /* =========================================================================

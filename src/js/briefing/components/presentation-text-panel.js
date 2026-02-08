@@ -48,7 +48,8 @@ const CONTROL_ICONS = {
 
     exit: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
 
-    toggleText: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>`
+    // "Skip forward" icon shown during animation (bar + triangle = skip to end)
+    skipForward: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>`,
 };
 
 const DEFAULT_CONFIG = {
@@ -99,7 +100,6 @@ export class PresentationTextPanel {
         this._firstBtn = null;
         this._lastBtn = null;
         this._fullscreenBtn = null;
-        this._toggleTextBtn = null;
 
         setupCleanup(this);
     }
@@ -171,6 +171,23 @@ export class PresentationTextPanel {
                 ? CONTROL_ICONS.exitFullscreen
                 : CONTROL_ICONS.fullscreen;
             this._fullscreenBtn.title = isFullscreen ? 'Sair da Tela Cheia' : 'Tela Cheia';
+        }
+    }
+
+    /**
+     * Updates the next button appearance to indicate animation state.
+     * When transitioning, shows a "skip forward" icon so the user knows
+     * pressing it will complete the current animation.
+     * @param {boolean} isTransitioning - Whether a slide transition is in progress
+     */
+    setTransitioning(isTransitioning) {
+        if (this._nextBtn) {
+            this._nextBtn.innerHTML = isTransitioning
+                ? CONTROL_ICONS.skipForward
+                : CONTROL_ICONS.next;
+            this._nextBtn.title = isTransitioning
+                ? 'Pular Animação'
+                : 'Próximo Slide';
         }
     }
 
@@ -300,12 +317,6 @@ export class PresentationTextPanel {
         // Actions row
         const actionsRow = document.createElement('div');
         actionsRow.className = 'briefing-text-panel__actions';
-
-        this._toggleTextBtn = this._createButton(CONTROL_ICONS.toggleText, 'Mostrar/Ocultar Texto', () => {
-            this._callbacks.onToggleText?.();
-        });
-        this._toggleTextBtn.classList.add('briefing-text-panel__btn--active');
-        actionsRow.appendChild(this._toggleTextBtn);
 
         this._fullscreenBtn = this._createButton(CONTROL_ICONS.fullscreen, 'Tela Cheia', () => {
             this._callbacks.onFullscreen?.();

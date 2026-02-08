@@ -25,8 +25,7 @@ let callbacks = {
     firstSlide: null,
     lastSlide: null,
     exitPresentation: null,
-    toggleFullscreen: null,
-    toggleTextPanel: null
+    toggleFullscreen: null
 };
 
 // =========================================================================
@@ -53,7 +52,6 @@ export function initKeyboardServiceBriefing(keyboardShortcutsInstance) {
  * @param {Function} [newCallbacks.lastSlide] - Navigate to last slide
  * @param {Function} [newCallbacks.exitPresentation] - Exit presentation mode
  * @param {Function} [newCallbacks.toggleFullscreen] - Toggle fullscreen mode
- * @param {Function} [newCallbacks.toggleTextPanel] - Toggle text/content panel
  */
 export function setKeyboardCallbacksBriefing(newCallbacks) {
     callbacks = { ...callbacks, ...newCallbacks };
@@ -163,12 +161,6 @@ function handleKeyDown(e) {
             callbacks.toggleFullscreen?.();
             break;
 
-        // Toggle text panel
-        case 't':
-        case 'T':
-            e.preventDefault();
-            callbacks.toggleTextPanel?.();
-            break;
     }
 }
 

@@ -533,6 +533,33 @@
 }
 
 /* =========================================================================
+   SLIDE MODE BADGE (icon + label on each slide card)
+   ========================================================================= */
+
+.briefing-editor-slide-mode-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px var(--space-2);
+    background: var(--primary-50, #f0fdf4);
+    border: 1px solid var(--primary-200, #bbf7d0);
+    border-radius: var(--radius-sm);
+    color: var(--primary-700, #15803d);
+    flex-shrink: 0;
+}
+
+.briefing-editor-slide-mode-badge svg {
+    width: 12px;
+    height: 12px;
+}
+
+.briefing-editor-slide-mode-badge__label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+}
+
+/* =========================================================================
    BODY LAYOUT OFFSET (shared by editor & presenter)
    When a briefing panel is active:
    - Hide the sidebar collapsed bar and chips (but keep feature-panel reachable)
@@ -611,6 +638,40 @@ body.briefing-panel-active #map-3d-container {
 body.briefing-panel-active #street-view-container {
     left: 0 !important;
     right: 520px !important;
+}
+
+/* 3D viewer controls: shift into the map area */
+body.briefing-panel-active #close-3d-viewer-button,
+body.briefing-panel-active #toolbar-3d {
+    right: calc(520px + 16px);
+}
+
+body.briefing-panel-active .nav-help-popup {
+    right: calc(520px + 72px);
+}
+
+body.briefing-panel-active .active-tool-chip-3d {
+    left: calc((100% - 520px) / 2);
+}
+
+/* 360 viewer controls: shift into the map area */
+body.briefing-panel-active #close-street-view-button,
+body.briefing-panel-active #toolbar-360 {
+    right: calc(520px + 16px);
+}
+
+body.briefing-panel-active .active-tool-chip-360 {
+    left: calc((100% - 520px) / 2);
+}
+
+/* 360 minimap: sidebar collapsed bar is hidden, move to left edge */
+body.briefing-panel-active #mini-map-street-view {
+    left: 16px;
+}
+
+/* Profile panel (line profile + LOS): shift into the map area */
+body.briefing-panel-active .profile-panel {
+    right: calc(520px + 20px);
 }
 
 /* =========================================================================

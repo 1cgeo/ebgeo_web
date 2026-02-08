@@ -139,7 +139,7 @@ src/js/
 │       ├── maps.tab.js      # Maps management tab
 │       ├── layers.tab.js    # Layers management tab
 │       ├── briefings.tab.js # Briefings management tab
-│       ├── import.tab.js    # Import options tab
+│       ├── import.tab.js    # Import options tab (GeoJSON, SHP, KML, GPX, CSV)
 │       └── export.tab.js    # Export options tab
 │
 ├── toolbar/                 # Grouped toolbar UI
@@ -339,12 +339,18 @@ src/js/
 │   ├── terrain.control.js
 │   ├── analysis-layers.manager.js
 │   └── data-layers.manager.js  # Data layer manager for terrain
-├── import_export/           # File I/O (GeoJSON, KML, .ebgeo, etc.)
+├── import_export/           # File I/O (GeoJSON, KML, CSV, .ebgeo, etc.)
 │   ├── export-import.service.js
 │   ├── import.control.js
 │   ├── screenshot.control.js
 │   ├── pdf-export.tab.js
-│   └── drag-drop.handler.js    # Drag and drop file handler
+│   ├── drag-drop.handler.js    # Drag and drop file handler
+│   └── csv/                 # CSV import with coordinate mapping
+│       ├── csv-parser.js            # Lightweight CSV parser (no deps)
+│       ├── csv-coordinate-converter.js  # DD, DMS, MGRS, UTM conversion
+│       ├── csv-to-geojson.js        # CSV rows to GeoJSON FeatureCollection
+│       ├── csv-config-panel.js      # Configuration UI panel
+│       └── index.js                 # Barrel file
 ├── processing/              # Geospatial processing algorithms
 │   ├── index.js             # Public exports
 │   ├── processing.tab.js    # Processing sidebar tab
