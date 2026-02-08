@@ -5,7 +5,6 @@
  */
 
 import { FEATURES_TAB_ICONS } from './features_tab.icons.js';
-import { injectAllFeaturesTabStyles } from './features_tab.styles.js';
 import { FEATURE_SOURCES, REFRESH_DEBOUNCE_MS } from './features_tab.constants.js';
 import {
     createCatalogLayersContainer,
@@ -67,6 +66,7 @@ import {
 import { EventTypes } from '../events';
 import { showConfirm } from '../modals/index.js';
 import { isViewer3DOpen } from '../utilities/viewer3d-state.js';
+import { showError } from '../utilities/toast_service.js';
 import { isStreetView360Open } from '../utilities/streetview360-state.js';
 
 /**
@@ -116,7 +116,6 @@ export class FeaturesTab {
         // Attribute table control reference (set by external code)
         this._attributeTableControl = null;
 
-        injectAllFeaturesTabStyles();
     }
 
     /**
@@ -424,7 +423,7 @@ export class FeaturesTab {
         } catch (error) {
             this._suppressLayersChangedRefresh = false;
             console.error('Error deleting layer:', error);
-            alert('Erro ao excluir camada: ' + error.message);
+            showError('Erro ao excluir camada: ' + error.message);
         }
     }
 

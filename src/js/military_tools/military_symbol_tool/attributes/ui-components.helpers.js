@@ -430,11 +430,13 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
 
     searchInput.onkeydown = handleKeyDown;
 
-    document.addEventListener('click', (e) => {
+    // Named handler so it can be removed in _cleanup
+    const handleDocumentClick = (e) => {
         if (!container.contains(e.target) && !dropdown.contains(e.target)) {
             closeDropdown();
         }
-    });
+    };
+    document.addEventListener('click', handleDocumentClick);
 
     selectContainer.appendChild(selectDisplay);
     container.appendChild(labelElement);
@@ -443,6 +445,7 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
     document.body.appendChild(dropdown);
 
     container._cleanup = () => {
+        document.removeEventListener('click', handleDocumentClick);
         if (dropdown.parentNode) {
             dropdown.parentNode.removeChild(dropdown);
         }

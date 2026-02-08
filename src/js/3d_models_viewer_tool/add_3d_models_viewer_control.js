@@ -1,12 +1,19 @@
 // Path: js/3d_models_viewer_tool/add_3d_models_viewer_control.js
 
+/**
+ * @fileoverview Control for viewing 3D tilesets on the 2D map.
+ * Displays clustered markers with video preview popups and opens the Cesium 3D viewer.
+ * @dependencies config, url_router, store, event_types
+ */
+
 import config from '../config.js';
 import { URLRouter } from '../url_router.js';
 import { getEventBus, getAllMarkers, getAllMeasurements, getAllViewsheds } from '../store';
 import { EventTypes } from '../events/event_types.js';
+import { setupCleanup, subscribe, addDomListener, trackTimer, cleanup } from '../utilities/event-cleanup.js';
 
-// Initialize click consumed flag if not already set
-// This flag prevents click propagation between overlapping marker layers
+// Global flag to prevent click propagation between overlapping marker layers
+// (3D models, street view, saved photos)
 if (typeof window._markerClickConsumed === 'undefined') {
     window._markerClickConsumed = false;
 }
@@ -26,10 +33,6 @@ const CLUSTER_SIZE_STEPS = {
 
 // Application primary color
 const PRIMARY_COLOR = '#508D4E';
-
-// Video popup dimensions (16:9 aspect ratio)
-const _VIDEO_POPUP_WIDTH = 320;
-const _VIDEO_POPUP_HEIGHT = 180;
 
 // Marker pin vertical offset for popup positioning
 const MARKER_POPUP_OFFSET = 55;
@@ -117,8 +120,7 @@ class Add3DModelsViewerControl {
         this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
         this._handleFeaturesChanged = this._handleFeaturesChanged.bind(this);
 
-        // EventBus unsubscribe functions
-        this._eventUnsubscribers = [];
+        setupCleanup(this);
     }
 
     /**
@@ -133,16 +135,12 @@ class Add3DModelsViewerControl {
         this.container.style.display = 'none';
 
         // Listen for base layer changes to reload layers if active
-        this._eventUnsubscribers.push(
-            getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged)
-        );
+        subscribe(this, getEventBus(), EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
 
         // Listen for 3D feature changes to update badges
-        this._eventUnsubscribers.push(
-            getEventBus().on(EventTypes.MARKERS_3D_CHANGED, this._handleFeaturesChanged),
-            getEventBus().on(EventTypes.MEASUREMENTS_3D_CHANGED, this._handleFeaturesChanged),
-            getEventBus().on(EventTypes.VIEWSHEDS_3D_CHANGED, this._handleFeaturesChanged)
-        );
+        subscribe(this, getEventBus(), EventTypes.MARKERS_3D_CHANGED, this._handleFeaturesChanged);
+        subscribe(this, getEventBus(), EventTypes.MEASUREMENTS_3D_CHANGED, this._handleFeaturesChanged);
+        subscribe(this, getEventBus(), EventTypes.VIEWSHEDS_3D_CHANGED, this._handleFeaturesChanged);
 
         return this.container;
     }
@@ -215,8 +213,7 @@ class Add3DModelsViewerControl {
      * Called when control is removed from the map
      */
     onRemove() {
-        this._eventUnsubscribers.forEach(unsub => unsub());
-        this._eventUnsubscribers = [];
+        cleanup(this);
 
         if (this.container?.parentNode) {
             this.container.parentNode.removeChild(this.container);
@@ -543,9 +540,9 @@ class Add3DModelsViewerControl {
         window._markerClickConsumed = true;
 
         // Reset flag after current event loop to allow future clicks
-        setTimeout(() => {
+        trackTimer(this, setTimeout(() => {
             window._markerClickConsumed = false;
-        }, 0);
+        }, 0), 'timeout');
 
         // Prevent event from propagating to other map handlers
         e.originalEvent.stopPropagation();
@@ -586,9 +583,9 @@ class Add3DModelsViewerControl {
         window._markerClickConsumed = true;
 
         // Reset flag after current event loop to allow future clicks
-        setTimeout(() => {
+        trackTimer(this, setTimeout(() => {
             window._markerClickConsumed = false;
-        }, 0);
+        }, 0), 'timeout');
 
         // Prevent event from propagating to other map handlers
         e.originalEvent.stopPropagation();
@@ -834,7 +831,7 @@ class Add3DModelsViewerControl {
         const closeBtn = document.getElementById('close-3d-viewer-button');
         if (!closeBtn || this._closeListenerAttached) return;
 
-        closeBtn.addEventListener('click', this._handleCloseButtonClick.bind(this));
+        addDomListener(this, closeBtn, 'click', this._handleCloseButtonClick.bind(this));
         this._closeListenerAttached = true;
     }
 

@@ -24,24 +24,6 @@ export function createMeasurementLabel(measurement, featureId) {
     label.innerText = measurement;
     label.dataset.featureId = featureId;
 
-    label.style.cssText = `
-        background-color: rgba(255, 255, 255, 0.9);
-        border: 2px solid #508D4E;
-        border-radius: 6px;
-        padding: 6px 10px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        font-size: 12px;
-        font-weight: bold;
-        color: #333;
-        text-align: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        white-space: nowrap;
-        pointer-events: none;
-        user-select: none;
-        transform: translate(-50%, -50%);
-        z-index: 10;
-    `;
-
     return label;
 }
 

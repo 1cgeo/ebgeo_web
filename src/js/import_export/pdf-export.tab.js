@@ -1,6 +1,7 @@
 // Path: js/import_export/pdf-export.tab.js
 /* global initGdalJs */
 import config from '../config.js'
+import { showError } from '../utilities/toast_service.js'
 
 export default class PDFExportTab {
     constructor(map) {
@@ -732,7 +733,7 @@ export default class PDFExportTab {
 
         } catch (error) {
             console.error('Error exporting PDF:', error);
-            alert('Não foi possível exportar o PDF: ' + error.message);
+            showError('Não foi possível exportar o PDF: ' + error.message);
             if (modal && modal.parentNode) {
                 document.body.removeChild(modal);
             }

@@ -584,15 +584,14 @@ export class MapsTab {
         document.body.appendChild(menu);
         this._positionContextMenu(menu, anchorEl);
 
-        // Close on click outside
-        const closeHandler = (e) => {
+        // Close on click outside - store reference so _closeContextMenu() can remove it
+        this._contextMenuCloseHandler = (e) => {
             if (!menu.contains(e.target) && !anchorEl.contains(e.target)) {
                 this._closeContextMenu();
-                document.removeEventListener('click', closeHandler);
             }
         };
         setTimeout(() => {
-            document.addEventListener('click', closeHandler);
+            document.addEventListener('click', this._contextMenuCloseHandler);
         }, 0);
     }
 
@@ -631,6 +630,10 @@ export class MapsTab {
      * @private
      */
     _closeContextMenu() {
+        if (this._contextMenuCloseHandler) {
+            document.removeEventListener('click', this._contextMenuCloseHandler);
+            this._contextMenuCloseHandler = null;
+        }
         if (this._contextMenu) {
             this._contextMenu.remove();
             this._contextMenu = null;

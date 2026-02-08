@@ -463,6 +463,9 @@
 .feature-name-wrapper {
     flex: 1;
     min-width: 0;
+    font-size: 14px;
+    color: #666;
+    padding: 6px;
 }
 
 .feature-header-with-options .feature-name-container {

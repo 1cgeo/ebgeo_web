@@ -18,6 +18,7 @@ import {
     logMarker360Operation,
     OperationType
 } from './sync/index.js';
+import { deepClone } from '../utilities/deep-utils.js';
 
 // Alias for backward compatibility during migration
 const getStreetview360Data = getStreetview360Compat;
@@ -352,7 +353,7 @@ export async function updateMarker360(markerId, updates, mapName = null) {
     }
 
     // Capture previous state for operation logging
-    const previousData = JSON.parse(JSON.stringify(marker));
+    const previousData = deepClone(marker);
 
     // Merge updates
     if (updates.properties) {
@@ -408,7 +409,7 @@ export async function removeMarker360(markerId, mapName = null) {
     }
 
     // Capture previous state for operation logging
-    const previousData = JSON.parse(JSON.stringify(marker));
+    const previousData = deepClone(marker);
 
     // Soft delete: mark as deleted instead of removing
     marker.sync = markDeleted(marker.sync);

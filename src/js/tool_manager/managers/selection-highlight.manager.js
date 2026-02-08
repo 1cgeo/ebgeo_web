@@ -10,6 +10,7 @@
 
 import { getStateManager } from '../../store';
 import { pixelsToDegrees } from '../../utilities/geometry-utils.js';
+import { deepClone } from '../../utilities/deep-utils.js';
 
 // ============================================================================
 // SELECTION HIGHLIGHT MANAGER
@@ -346,7 +347,7 @@ export class SelectionHighlightManager {
      * @returns {Object} Translated feature (deep cloned)
      */
     _translateFeature(feature, dx, dy) {
-        const translatedFeature = JSON.parse(JSON.stringify(feature));
+        const translatedFeature = deepClone(feature);
 
         const translateCoords = (coords) => {
             if (typeof coords[0] === 'number') {

@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import * as toGeoJSON from '@tmcw/togeojson';
 import shp from 'shpjs';
 import { addFeatures, createLayerForImport, getLayers, getCurrentMapNameSync, getEventBus } from '../store';
-import { IDUtils, showSuccess } from '../utilities';
+import { IDUtils, showSuccess, showError } from '../utilities';
 import { getTerrainElevation } from '../terrain';
 import { EventTypes } from '../events';
 import { userDataManager } from '../user_data';
@@ -107,7 +107,7 @@ class AddImportControl {
             }
         } catch (error) {
             console.error('Error importing file:', error);
-            alert(`Erro ao importar arquivo: ${error.message}`);
+            showError(`Erro ao importar arquivo: ${error.message}`);
         }
 
         // Only reset file input if it exists (not when called via processFileDirectly)

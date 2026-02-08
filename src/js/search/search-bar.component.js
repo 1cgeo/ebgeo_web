@@ -20,6 +20,8 @@ import {
 import { addFeature, getActiveLayerIdSync } from '../store/store.js';
 import { FeatureNavigationUtils } from '../utilities/feature_navigation_utils.js';
 import { IDUtils } from '../utilities/id_utils.js';
+import { showError } from '../utilities';
+import { escapeHtml } from '../utilities/html-escape.js';
 import { getEventBus } from '../store/services.js';
 import { getControl } from '../store/control.registry.js';
 
@@ -356,8 +358,8 @@ export class SearchBarComponent {
             item.innerHTML = `
                 <div class="search-result-icon">${icon}</div>
                 <div class="search-result-content">
-                    <div class="search-result-name">${this._escapeHtml(result.name)}</div>
-                    ${subtitle ? `<div class="search-result-subtitle">${this._escapeHtml(subtitle)}</div>` : ''}
+                    <div class="search-result-name">${escapeHtml(result.name)}</div>
+                    ${subtitle ? `<div class="search-result-subtitle">${escapeHtml(subtitle)}</div>` : ''}
                 </div>
             `;
 
@@ -738,7 +740,7 @@ export class SearchBarComponent {
 
         } catch (error) {
             console.error('[SearchBar] Error saving API result as feature:', error);
-            alert('Erro ao salvar feição. Tente novamente.');
+            showError('Erro ao salvar feição. Tente novamente.');
         }
     }
 
@@ -836,18 +838,6 @@ export class SearchBarComponent {
             default:
                 return SEARCH_ICONS.feature;
         }
-    }
-
-    /**
-     * Escapes HTML special characters.
-     * @private
-     * @param {string} str - String to escape
-     * @returns {string} Escaped string
-     */
-    _escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
     }
 
     /**

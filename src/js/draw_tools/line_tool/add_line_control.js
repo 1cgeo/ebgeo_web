@@ -8,7 +8,7 @@
  */
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils } from '../../utilities';
+import { IDUtils, showWarning } from '../../utilities';
 import { isTouchDevice } from '../../utilities/pointer-utils';
 import { DrawingFinishButton, setupVertexRemoveLongPress } from '../drawing-touch-helpers';
 import { addLineAttributesToPanel } from './line_attributes_panel.js';
@@ -559,7 +559,7 @@ class AddLineControl extends BaseControl {
 
     createFeature = async () => {
         if (!this.geometry.validate(this.drawPoints)) {
-            alert('Linha deve ter pelo menos 2 pontos válidos');
+            showWarning('Linha deve ter pelo menos 2 pontos válidos');
             this.drawPoints = [];
             return;
         }

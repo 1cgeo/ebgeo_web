@@ -436,3 +436,391 @@ body.cesium-active .modal-overlay {
 #toolbar-3d.map-locked .toolbar-3d-separator {
     display: none;
 }
+
+/* ===== MARKER PANEL 3D STYLES =====
+   Extracted from marker-panel-3d.js injectMarkerPanelStyles() */
+
+.marker-3d-panel-content {
+    padding: 0;
+}
+
+/* Coordinate Edit Modal */
+.coordinate-edit-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.coordinate-edit-modal {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    width: 90%;
+    max-width: 400px;
+    overflow: hidden;
+}
+
+.coordinate-edit-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.coordinate-edit-modal-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--gray-900, #111827);
+}
+
+.coordinate-edit-modal-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--gray-500, #6b7280);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.coordinate-edit-modal-close:hover {
+    background: var(--gray-100, #f3f4f6);
+    color: var(--gray-700, #374151);
+}
+
+.coordinate-edit-modal-content {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.coordinate-edit-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.coordinate-edit-field label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--gray-700, #374151);
+}
+
+.coordinate-edit-field input {
+    padding: 10px 12px;
+    border: 1px solid var(--gray-300, #d1d5db);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: "SF Mono", Consolas, monospace;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.coordinate-edit-field input:focus {
+    outline: none;
+    border-color: var(--primary, #16a34a);
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+}
+
+.coordinate-edit-modal-actions {
+    display: flex;
+    gap: 8px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+    background: var(--gray-50, #f9fafb);
+}
+
+.coordinate-edit-cancel {
+    flex: 1;
+    padding: 10px 16px;
+    background: white;
+    border: 1px solid var(--gray-300, #d1d5db);
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--gray-700, #374151);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.coordinate-edit-cancel:hover {
+    background: var(--gray-100, #f3f4f6);
+}
+
+.coordinate-edit-confirm {
+    flex: 1;
+    padding: 10px 16px;
+    background: var(--primary, #16a34a);
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: white;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.coordinate-edit-confirm:hover {
+    background: var(--primary-dark, #15803d);
+}
+
+/* ===== MEASUREMENT PANEL 3D STYLES =====
+   Extracted from measurement-panel-3d.js injectMeasurementPanelStyles() */
+
+.measurement-3d-panel-content {
+    padding: 0;
+}
+
+/* Measurement Result Section */
+.measurement-result-section {
+    padding: 12px 16px;
+    background: var(--gray-50, #f9fafb);
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.measurement-result-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gray-500, #6b7280);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+}
+
+.measurement-result-header svg {
+    width: 14px;
+    height: 14px;
+}
+
+.measurement-result-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--primary, #16a34a);
+    font-family: "SF Mono", Consolas, monospace;
+}
+
+/* Navigate Section */
+.measurement-navigate-section {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+/* ============================================================================
+ * VIEWSHED PANEL 3D (extracted from viewshed-panel-3d.js)
+ * ============================================================================ */
+
+.viewshed-3d-panel-content {
+    padding: 0;
+}
+
+/* Parameters Section */
+.viewshed-parameters-section {
+    padding: 12px 16px;
+    background: var(--gray-50, #f9fafb);
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.viewshed-parameters-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gray-500, #6b7280);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+}
+
+.viewshed-parameters-header svg {
+    width: 14px;
+    height: 14px;
+}
+
+.viewshed-parameters-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.viewshed-parameter-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.viewshed-parameter-label {
+    font-size: 11px;
+    color: var(--gray-500, #6b7280);
+}
+
+.viewshed-parameter-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--primary, #16a34a);
+    font-family: "SF Mono", Consolas, monospace;
+}
+
+/* Navigate Section */
+.viewshed-navigate-section {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+/* Observer Height Section */
+.viewshed-observer-height-section {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.viewshed-observer-height-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gray-700, #374151);
+    margin-bottom: 6px;
+}
+
+.viewshed-observer-height-input-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.viewshed-observer-height-input {
+    width: 100px;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: "SF Mono", Consolas, monospace;
+    color: var(--primary, #16a34a);
+    background: white;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 6px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.viewshed-observer-height-input:focus {
+    outline: none;
+    border-color: var(--primary, #16a34a);
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
+}
+
+.viewshed-observer-height-input::-webkit-inner-spin-button,
+.viewshed-observer-height-input::-webkit-outer-spin-button {
+    opacity: 1;
+}
+
+.viewshed-observer-height-unit {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--gray-500, #6b7280);
+}
+
+.viewshed-observer-height-hint {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--gray-400, #9ca3af);
+    line-height: 1.4;
+}
+
+/* ============================================================================
+ * MOUSE COORDINATES 3D (extracted from mouse_coordinates_3d.js)
+ * ============================================================================ */
+
+.coordinates-control-3d {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    min-width: 280px;
+    width: auto;
+    padding: 6px 10px;
+    font-family: monospace;
+    font-size: 12px;
+    white-space: nowrap;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+}
+
+.coordinates-control-3d__text {
+    flex-grow: 1;
+    display: flex;
+    gap: 10px;
+    min-width: 160px;
+}
+
+.coordinates-control-3d__controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 8px;
+}
+
+.coordinates-control-3d__btn {
+    opacity: 0.7;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+}
+
+.coordinates-control-3d__btn:hover {
+    opacity: 1;
+}
+
+.coordinates-control-3d__btn--copy {
+    font-size: 14px;
+}
+
+.coordinates-control-3d__dropdown {
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    padding: 5px 0;
+    display: none;
+    z-index: 1001;
+}
+
+.coordinates-control-3d__option {
+    padding: 5px 15px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.coordinates-control-3d__option:hover {
+    background-color: #f0f0f0;
+}
+
+.coordinates-control-3d__option--active {
+    background-color: #f0f0f0;
+    font-weight: bold;
+}

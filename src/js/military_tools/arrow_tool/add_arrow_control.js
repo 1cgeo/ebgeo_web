@@ -1,7 +1,7 @@
 // Path: js/military_tools/arrow_tool/add_arrow_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils } from '../../utilities';
+import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addArrowAttributesToPanel } from './arrow_attributes_panel.js';
 import AddArrowGeometry from './add_arrow_geometry.js';
@@ -414,13 +414,13 @@ class AddArrowControl extends BaseControl {
 
     createFeature = async () => {
         if (this.drawPoints.length < 2) {
-            alert('Seta deve ter pelo menos 2 pontos');
+            showWarning('Seta deve ter pelo menos 2 pontos');
             this.drawPoints = [];
             return;
         }
 
         if (!this.geometry.validate(this.drawPoints, AddArrowControl.DEFAULT_PROPERTIES)) {
-            alert('Pontos muito próximos. Distância mínima: 10 metros');
+            showWarning('Pontos muito próximos. Distância mínima: 10 metros');
             this.drawPoints = [];
             return;
         }

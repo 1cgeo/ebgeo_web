@@ -15,7 +15,7 @@ import {
     renameLayer,
 } from '../store';
 import { showPrompt, showConfirm } from '../modals/index.js';
-import { IDUtils } from '../utilities';
+import { IDUtils, showError } from '../utilities';
 
 /**
  * @typedef {Object} LayerListCallbacks
@@ -311,7 +311,7 @@ async function handleDeleteLayer(layerId, callbacks) {
         callbacks.onLayersChanged();
     } catch (error) {
         console.error('Error deleting layer:', error);
-        alert('Erro ao excluir camada: ' + error.message);
+        showError('Erro ao excluir camada: ' + error.message);
     }
 }
 
@@ -335,7 +335,7 @@ export async function handleAddLayer(createLayer, callbacks) {
         callbacks.onLayersChanged();
     } catch (error) {
         console.error('Error creating layer:', error);
-        alert('Erro ao criar camada: ' + error.message);
+        showError('Erro ao criar camada: ' + error.message);
     }
 }
 

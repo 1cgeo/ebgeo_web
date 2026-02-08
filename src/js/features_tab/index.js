@@ -18,9 +18,6 @@ export {
     getFeatureDisplayName,
 } from './features_tab.constants.js';
 
-// Styles
-export { injectAllFeaturesTabStyles } from './features_tab.styles.js';
-
 // Services and managers
 export {
     CollapseStateManager,

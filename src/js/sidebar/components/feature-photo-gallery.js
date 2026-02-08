@@ -9,6 +9,7 @@ import userDataManager from '../../user_data/user_data_manager.js';
 import { getEventBus, isCurrentMapLockedSync } from '../../store/index.js';
 import { EventTypes, FeatureUpdateProperty } from '../../events/index.js';
 import { showConfirm } from '../../modals/index.js';
+import { showWarning } from '../../utilities';
 
 /**
  * Creates the photo gallery section for the feature panel.
@@ -101,7 +102,7 @@ export async function createPhotoGallery(options) {
             for (const file of Array.from(e.target.files)) {
                 if (!file.type.startsWith('image/')) continue;
                 if (file.size > 10 * 1024 * 1024) {
-                    alert(`${file.name} excede 10MB`);
+                    showWarning(`${file.name} excede 10MB`);
                     continue;
                 }
                 await userDataManager.addImage(featureId, featureType, file);
@@ -225,20 +226,23 @@ function openImageViewer(imageData) {
     closeBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
     closeBtn.title = 'Fechar';
 
-    const closeViewer = () => overlay.remove();
+    // Escape key to close - declared before closeViewer so it can be removed in all close paths
+    const handleKeydown = (e) => {
+        if (e.key === 'Escape') {
+            closeViewer();
+        }
+    };
+
+    const closeViewer = () => {
+        document.removeEventListener('keydown', handleKeydown);
+        overlay.remove();
+    };
 
     closeBtn.addEventListener('click', closeViewer);
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay) closeViewer();
     });
 
-    // Escape key to close
-    const handleKeydown = (e) => {
-        if (e.key === 'Escape') {
-            closeViewer();
-            document.removeEventListener('keydown', handleKeydown);
-        }
-    };
     document.addEventListener('keydown', handleKeydown);
 
     viewer.appendChild(img);

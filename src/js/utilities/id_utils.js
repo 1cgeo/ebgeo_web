@@ -1,6 +1,7 @@
 // Path: js/utilities/id_utils.js
 import { getFeatureDisplayName, getStorageTypeFromSource, hasImageResource as storeHasImageResource, getImage, storeImage } from '../store';
 import { generateUUID } from './uuid.js';
+import { deepClone } from './deep-utils.js';
 
 /**
  * Utilities for generating unique IDs and feature names
@@ -159,7 +160,7 @@ export class IDUtils {
      */
     static async regenerateMapIds(mapData, mapName, layerIdMapping = null) {
         const idMapping = new Map();
-        const newMapData = JSON.parse(JSON.stringify(mapData));
+        const newMapData = deepClone(mapData);
 
         // PHASE 1: Collect resource operations WITHOUT changing feature IDs
         const resourceOperations = [];

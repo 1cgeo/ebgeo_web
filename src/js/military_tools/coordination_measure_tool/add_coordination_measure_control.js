@@ -9,7 +9,7 @@ import {
   getActiveLayerIdSync
 } from "../../store";
 import { CoordinationMeasureGenerator } from './coordination_measure_generator.js';
-import { IDUtils } from "../../utilities";
+import { IDUtils, showWarning as showWarningToast } from "../../utilities";
 import { addCoordinationMeasureAttributesToPanel } from "./attributes/index.js";
 import AddCoordinationMeasureGeometry from './add_coordination_measure_geometry.js';
 import { BaseControl } from "../../tool_manager";
@@ -1280,7 +1280,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     if (this.toolManager.uiManager && this.toolManager.uiManager.showNotification) {
       this.toolManager.uiManager.showNotification(message, 'error');
     } else {
-      alert(message);
+      showWarningToast(message);
     }
   }
 
@@ -1292,7 +1292,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     if (this.toolManager.uiManager && this.toolManager.uiManager.showNotification) {
       this.toolManager.uiManager.showNotification(message, 'warning');
     } else {
-      alert(message);
+      showWarningToast(message);
     }
   }
 }

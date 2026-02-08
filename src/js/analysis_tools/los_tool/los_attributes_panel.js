@@ -204,35 +204,47 @@ export function createLOSInfoSection(feature) {
 
     // Total length
     const totalRow = document.createElement('div');
-    totalRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
-    totalRow.innerHTML = `
-        <span style="font-size: 12px; color: #666;">Comprimento Total</span>
-        <span style="font-size: 13px; font-weight: 600; color: #333;">${formatDistance(totalLength)}</span>
-    `;
+    totalRow.className = 'los-info__row';
+    const totalLabel = document.createElement('span');
+    totalLabel.className = 'los-info__label';
+    totalLabel.textContent = 'Comprimento Total';
+    const totalValue = document.createElement('span');
+    totalValue.className = 'los-info__value';
+    totalValue.textContent = formatDistance(totalLength);
+    totalRow.appendChild(totalLabel);
+    totalRow.appendChild(totalValue);
     container.appendChild(totalRow);
 
     // Visible length (green)
     const visibleRow = document.createElement('div');
-    visibleRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
-    visibleRow.innerHTML = `
-        <span style="font-size: 12px; color: #666; display: flex; align-items: center; gap: 6px;">
-            <span style="width: 10px; height: 10px; background: #00FF00; border-radius: 2px;"></span>
-            Visível
-        </span>
-        <span style="font-size: 13px; font-weight: 600; color: #00AA00;">${formatDistance(visibleLength)}</span>
-    `;
+    visibleRow.className = 'los-info__row';
+    const visibleLabel = document.createElement('span');
+    visibleLabel.className = 'los-info__label';
+    const visibleIndicator = document.createElement('span');
+    visibleIndicator.className = 'los-info__color-indicator los-info__color-indicator--visible';
+    visibleLabel.appendChild(visibleIndicator);
+    visibleLabel.appendChild(document.createTextNode('Visível'));
+    const visibleValue = document.createElement('span');
+    visibleValue.className = 'los-info__value los-info__value--visible';
+    visibleValue.textContent = formatDistance(visibleLength);
+    visibleRow.appendChild(visibleLabel);
+    visibleRow.appendChild(visibleValue);
     container.appendChild(visibleRow);
 
     // Obstructed length (red)
     const obstructedRow = document.createElement('div');
-    obstructedRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
-    obstructedRow.innerHTML = `
-        <span style="font-size: 12px; color: #666; display: flex; align-items: center; gap: 6px;">
-            <span style="width: 10px; height: 10px; background: #FF0000; border-radius: 2px;"></span>
-            Obstruído
-        </span>
-        <span style="font-size: 13px; font-weight: 600; color: #CC0000;">${formatDistance(obstructedLength)}</span>
-    `;
+    obstructedRow.className = 'los-info__row';
+    const obstructedLabel = document.createElement('span');
+    obstructedLabel.className = 'los-info__label';
+    const obstructedIndicator = document.createElement('span');
+    obstructedIndicator.className = 'los-info__color-indicator los-info__color-indicator--obstructed';
+    obstructedLabel.appendChild(obstructedIndicator);
+    obstructedLabel.appendChild(document.createTextNode('Obstruído'));
+    const obstructedValue = document.createElement('span');
+    obstructedValue.className = 'los-info__value los-info__value--obstructed';
+    obstructedValue.textContent = formatDistance(obstructedLength);
+    obstructedRow.appendChild(obstructedLabel);
+    obstructedRow.appendChild(obstructedValue);
     container.appendChild(obstructedRow);
 
     section.appendChild(container);
@@ -329,7 +341,7 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
 
             const infoText = document.createElement('div');
             infoText.className = 'feature-name-wrapper';
-            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+
             infoText.textContent = `${selectedFeatures.length} linhas de visada selecionadas`;
 
             const optionsButton = createFeatureOptionsButton(

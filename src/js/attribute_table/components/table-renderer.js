@@ -430,20 +430,15 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
             td.innerHTML = '';
             td.appendChild(valueSpan);
 
-            // Re-attach double-click handler
-            td.addEventListener('dblclick', (e) => {
-                e.stopPropagation();
-                // Update feature reference for new value
-                if (columnKey === 'nome') {
-                    feature.properties.nome = newValue;
-                } else {
-                    if (!feature.properties.attributes) {
-                        feature.properties.attributes = {};
-                    }
-                    feature.properties.attributes[columnKey] = newValue;
+            // Update feature reference with new value
+            if (columnKey === 'nome') {
+                feature.properties.nome = newValue;
+            } else {
+                if (!feature.properties.attributes) {
+                    feature.properties.attributes = {};
                 }
-                startCellEditing(td, feature, columnKey, isAttribute, callbacks);
-            });
+                feature.properties.attributes[columnKey] = newValue;
+            }
 
             // Notify callback
             if (callbacks.onCellEdit) {
@@ -457,12 +452,6 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
         } else {
             // Restore original
             td.innerHTML = originalHTML;
-
-            // Re-attach double-click handler
-            td.addEventListener('dblclick', (e) => {
-                e.stopPropagation();
-                startCellEditing(td, feature, columnKey, isAttribute, callbacks);
-            });
         }
     };
 

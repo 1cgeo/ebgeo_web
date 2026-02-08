@@ -21,6 +21,7 @@ async function getMarkerTool() {
 }
 import { DEFAULT_MARKER_STYLE, addMarkerImage, getMarkerImages, removeMarkerImage } from '../../store/index.js';
 import { showSuccess, showToast } from '../../utilities/index.js';
+import { deepClone } from '../../utilities/deep-utils.js';
 import { showConfirm } from '../../modals/index.js';
 import { formatCoordinates } from '../../utilities/coordinate_converter.js';
 import {
@@ -59,9 +60,9 @@ export function createMarkerPanelContent(marker, tilesetId, onClose) {
     container.className = 'marker-3d-panel-content';
 
     // Store initial properties for discard functionality
-    const initialProperties = JSON.parse(JSON.stringify(marker.properties || {}));
-    const initialStyle = JSON.parse(JSON.stringify(marker.style || DEFAULT_MARKER_STYLE));
-    const initialPosition = JSON.parse(JSON.stringify(marker.position || {}));
+    const initialProperties = deepClone(marker.properties || {});
+    const initialStyle = deepClone(marker.style || DEFAULT_MARKER_STYLE);
+    const initialPosition = deepClone(marker.position || {});
 
     // Current marker state with style defaults
     const currentMarker = {
@@ -351,7 +352,7 @@ function createDescriptionSection2D(marker, onUpdate) {
  * Builds the photo gallery section for 3D markers.
  * Uses marker-specific image storage (not userDataManager).
  */
-async function buildPhotoGallerySection(placeholder, markerId, cleanupFunctions) {
+async function buildPhotoGallerySection(placeholder, markerId, _cleanupFunctions) {
     const container = document.createElement('div');
     container.className = 'feature-photo-gallery';
 
@@ -431,7 +432,7 @@ async function buildPhotoGallerySection(placeholder, markerId, cleanupFunctions)
             for (const file of Array.from(e.target.files)) {
                 if (!file.type.startsWith('image/')) continue;
                 if (file.size > 10 * 1024 * 1024) {
-                    alert(`${file.name} excede 10MB`);
+                    showToast(`${file.name} excede 10MB`, 'error');
                     continue;
                 }
                 await addMarkerImage(markerId, file);
@@ -453,8 +454,6 @@ async function buildPhotoGallerySection(placeholder, markerId, cleanupFunctions)
     placeholder.innerHTML = '';
     placeholder.appendChild(container);
 
-    // No cleanup needed for this implementation
-    cleanupFunctions.push(() => {});
 }
 
 /**
@@ -978,17 +977,17 @@ function showCoordinateEditModal3D(marker, onPositionUpdate, sectionContainer) {
         const newAlt = parseFloat(modal.querySelector('#edit-alt').value);
 
         if (isNaN(newLat) || isNaN(newLng) || isNaN(newAlt)) {
-            alert('Por favor, insira valores válidos para todas as coordenadas.');
+            showToast('Por favor, insira valores válidos para todas as coordenadas.', 'error');
             return;
         }
 
         // Validate ranges
         if (newLat < -90 || newLat > 90) {
-            alert('Latitude deve estar entre -90 e 90.');
+            showToast('Latitude deve estar entre -90 e 90.', 'error');
             return;
         }
         if (newLng < -180 || newLng > 180) {
-            alert('Longitude deve estar entre -180 e 180.');
+            showToast('Longitude deve estar entre -180 e 180.', 'error');
             return;
         }
 
@@ -1075,7 +1074,6 @@ function buildActionButtons(container, marker, initialProperties, initialStyle, 
     defaultButton.className = 'attr-modern-btn-default';
     defaultButton.type = 'button';
     defaultButton.addEventListener('click', () => {
-        // Save current marker style as default for new markers
         const styleToSave = { ...marker.style };
         localStorage.setItem('marker3d_default_style', JSON.stringify(styleToSave));
         showSuccess('Estilo definido como padrão!');
@@ -1128,6 +1126,7 @@ async function copyToClipboard(text) {
     try {
         await navigator.clipboard.writeText(text);
     } catch {
+        // Fallback for older browsers that don't support Clipboard API
         const textArea = document.createElement('textarea');
         textArea.value = text;
         textArea.style.position = 'fixed';
@@ -1155,152 +1154,9 @@ function showCopyFeedback(element) {
 
 /**
  * Injects styles for the marker panel.
+ * Styles have been extracted to css/panels-3d.css.
+ * This function is kept as a no-op for backward compatibility.
  */
 export function injectMarkerPanelStyles() {
-    const styleId = 'marker-panel-3d-styles';
-    if (document.getElementById(styleId)) return;
-
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = `
-        /* Marker Panel 3D Styles - Following 2D Pattern */
-        .marker-3d-panel-content {
-            padding: 0;
-        }
-
-        /* Coordinate Edit Modal */
-        .coordinate-edit-modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10000;
-        }
-
-        .coordinate-edit-modal {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            width: 90%;
-            max-width: 400px;
-            overflow: hidden;
-        }
-
-        .coordinate-edit-modal-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border-color, #e5e7eb);
-        }
-
-        .coordinate-edit-modal-header h3 {
-            margin: 0;
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--gray-900, #111827);
-        }
-
-        .coordinate-edit-modal-close {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 32px;
-            height: 32px;
-            background: transparent;
-            border: none;
-            border-radius: 6px;
-            color: var(--gray-500, #6b7280);
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-
-        .coordinate-edit-modal-close:hover {
-            background: var(--gray-100, #f3f4f6);
-            color: var(--gray-700, #374151);
-        }
-
-        .coordinate-edit-modal-content {
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .coordinate-edit-field {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .coordinate-edit-field label {
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--gray-700, #374151);
-        }
-
-        .coordinate-edit-field input {
-            padding: 10px 12px;
-            border: 1px solid var(--gray-300, #d1d5db);
-            border-radius: 8px;
-            font-size: 14px;
-            font-family: 'SF Mono', 'Consolas', monospace;
-            transition: border-color 0.15s ease, box-shadow 0.15s ease;
-        }
-
-        .coordinate-edit-field input:focus {
-            outline: none;
-            border-color: var(--primary, #16a34a);
-            box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
-        }
-
-        .coordinate-edit-modal-actions {
-            display: flex;
-            gap: 8px;
-            padding: 16px 20px;
-            border-top: 1px solid var(--border-color, #e5e7eb);
-            background: var(--gray-50, #f9fafb);
-        }
-
-        .coordinate-edit-cancel {
-            flex: 1;
-            padding: 10px 16px;
-            background: white;
-            border: 1px solid var(--gray-300, #d1d5db);
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--gray-700, #374151);
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-
-        .coordinate-edit-cancel:hover {
-            background: var(--gray-100, #f3f4f6);
-        }
-
-        .coordinate-edit-confirm {
-            flex: 1;
-            padding: 10px 16px;
-            background: var(--primary, #16a34a);
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 500;
-            color: white;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-
-        .coordinate-edit-confirm:hover {
-            background: var(--primary-dark, #15803d);
-        }
-    `;
-
-    document.head.appendChild(style);
+    // No-op: styles are now in css/panels-3d.css
 }

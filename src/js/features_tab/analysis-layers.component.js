@@ -15,11 +15,6 @@ import { FEATURES_TAB_ICONS } from './features_tab.icons.js';
 export function createAnalysisLayersContainer() {
     const container = document.createElement('div');
     container.className = 'analysis-layers-control';
-    container.style.cssText = `
-        border-bottom: 1px solid #e0e0e0;
-        background-color: #f8f9fa;
-        display: none;
-    `;
     return container;
 }
 

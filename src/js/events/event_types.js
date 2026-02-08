@@ -250,7 +250,6 @@ export const EventTypes = Object.freeze({
      * Payload: { type: string, item: CatalogItem }
      * Subscribers: catalog-layers.component.js
      * Emitters: CatalogModal
-     * NOTE: Uses hardcoded string 'CATALOG_ADD_LAYER' in code, not this constant.
      */
     CATALOG_ADD_LAYER: 'CATALOG_ADD_LAYER',
 

@@ -23,6 +23,7 @@ async function getMeasurementTool() {
 import { addMeasurementImage, getMeasurementImages, removeMeasurementImage } from '../../store/index.js';
 import { showSuccess, showToast } from '../../utilities/index.js';
 import { showConfirm } from '../../modals/index.js';
+import { deepClone } from '../../utilities/deep-utils.js';
 import config from '../../config.js';
 
 /**
@@ -49,7 +50,7 @@ export function createMeasurementPanelContent(measurement, tilesetId, onClose) {
     container.className = 'measurement-3d-panel-content';
 
     // Store initial properties for discard functionality
-    const initialProperties = JSON.parse(JSON.stringify(measurement.properties || {}));
+    const initialProperties = deepClone(measurement.properties || {});
 
     // Current measurement state
     const currentMeasurement = { ...measurement };
@@ -224,6 +225,7 @@ function buildIdentificationSection(container, measurement, tilesetId, onUpdate)
  * Creates description section following the 2D pattern.
  * Shows a button to add description when empty, or the description text when filled.
  */
+
 function createDescriptionSection2D(measurement, onUpdate) {
     let currentDescription = measurement.properties?.descricao || '';
 
@@ -356,7 +358,8 @@ function buildResultSection(container, measurement) {
 /**
  * Builds the photo gallery section for 3D measurements.
  */
-async function buildPhotoGallerySection(placeholder, measurementId, cleanupFunctions) {
+
+async function buildPhotoGallerySection(placeholder, measurementId, _cleanupFunctions) {
     const container = document.createElement('div');
     container.className = 'feature-photo-gallery';
 
@@ -436,7 +439,7 @@ async function buildPhotoGallerySection(placeholder, measurementId, cleanupFunct
             for (const file of Array.from(e.target.files)) {
                 if (!file.type.startsWith('image/')) continue;
                 if (file.size > 10 * 1024 * 1024) {
-                    alert(`${file.name} excede 10MB`);
+                    showToast(`${file.name} excede 10MB`, 'error');
                     continue;
                 }
                 await addMeasurementImage(measurementId, file);
@@ -458,7 +461,6 @@ async function buildPhotoGallerySection(placeholder, measurementId, cleanupFunct
     placeholder.innerHTML = '';
     placeholder.appendChild(container);
 
-    cleanupFunctions.push(() => {});
 }
 
 /**
@@ -502,6 +504,7 @@ function createImageCard(imageData, measurementId, onUpdate) {
 /**
  * Creates the add button card.
  */
+
 function createAddImageCard(fileInput) {
     const card = document.createElement('div');
     card.className = 'feature-photo-gallery-card feature-photo-gallery-add-card';
@@ -518,6 +521,7 @@ function createAddImageCard(fileInput) {
 /**
  * Opens full-screen image viewer.
  */
+
 function openImageViewer(imageData) {
     const overlay = document.createElement('div');
     overlay.className = 'feature-photo-viewer-overlay';
@@ -651,56 +655,8 @@ function buildDeleteButton(container, measurement, _onClose) {
 
 /**
  * Injects styles for the measurement panel.
+ * No-op: styles moved to panels-3d.css. Kept for backward compatibility.
  */
 export function injectMeasurementPanelStyles() {
-    const styleId = 'measurement-panel-3d-styles';
-    if (document.getElementById(styleId)) return;
-
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = `
-        /* Measurement Panel 3D Styles */
-        .measurement-3d-panel-content {
-            padding: 0;
-        }
-
-        /* Measurement Result Section */
-        .measurement-result-section {
-            padding: 12px 16px;
-            background: var(--gray-50, #f9fafb);
-            border-bottom: 1px solid var(--border-color, #e5e7eb);
-        }
-
-        .measurement-result-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            font-weight: 500;
-            color: var(--gray-500, #6b7280);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 8px;
-        }
-
-        .measurement-result-header svg {
-            width: 14px;
-            height: 14px;
-        }
-
-        .measurement-result-value {
-            font-size: 24px;
-            font-weight: 700;
-            color: var(--primary, #16a34a);
-            font-family: 'SF Mono', 'Consolas', monospace;
-        }
-
-        /* Navigate Section */
-        .measurement-navigate-section {
-            padding: 12px 16px;
-            border-bottom: 1px solid var(--border-color, #e5e7eb);
-        }
-    `;
-
-    document.head.appendChild(style);
+    // Styles now live in src/css/panels-3d.css
 }

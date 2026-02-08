@@ -12,6 +12,7 @@ import { EventTypes } from '../events/index.js';
 import config from '../config.js';
 import { showConfirm } from '../modals/confirm.modal.js';
 import { showSuccess, showError } from '../utilities/toast_service.js';
+import { escapeHtml } from '../utilities/html-escape.js';
 
 /**
  * Icons used in the component.
@@ -209,19 +210,20 @@ function createTilesetItem(tilesetId, tilesetName, features, eventBus) {
 
     // Build features list HTML
     const featuresHtml = features.map(feature => `
-        <div class="models3d-feature-item" data-feature-type="${feature.featureType}" data-feature-id="${feature.id}" data-tileset-id="${tilesetId}">
+        <div class="models3d-feature-item" data-feature-type="${escapeHtml(feature.featureType)}" data-feature-id="${escapeHtml(feature.id)}" data-tileset-id="${escapeHtml(tilesetId)}">
             <span class="models3d-feature-icon">${getFeatureIcon(feature)}</span>
-            <span class="models3d-feature-name" title="${getFeatureName(feature)}">${getFeatureName(feature)}</span>
+            <span class="models3d-feature-name" title="${escapeHtml(getFeatureName(feature))}">${escapeHtml(getFeatureName(feature))}</span>
         </div>
     `).join('');
 
+    const safeTilesetName = escapeHtml(tilesetName);
     item.innerHTML = `
         <div class="models3d-tileset-header">
             <button class="models3d-tileset-toggle" aria-expanded="${!isCollapsed}">
                 ${isCollapsed ? ICONS.CHEVRON_RIGHT : ICONS.CHEVRON_DOWN}
             </button>
             <span class="models3d-tileset-icon">${ICONS.MODEL_3D}</span>
-            <span class="models3d-tileset-name" title="${tilesetName}">${tilesetName}</span>
+            <span class="models3d-tileset-name" title="${safeTilesetName}">${safeTilesetName}</span>
             <span class="models3d-marker-count">${features.length}</span>
             <button class="models3d-delete-all" title="Deletar todas as feições">
                 ${ICONS.TRASH}

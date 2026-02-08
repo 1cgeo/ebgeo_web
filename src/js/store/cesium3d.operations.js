@@ -570,7 +570,7 @@ export const addMarkerImage = async (markerId, file, mapName = null) => {
 
         // Process image using shared utility
         const processedImage = await processImageFile(file);
-        const imageId = Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+        const imageId = generateUUID();
 
         const imageData = {
             id: imageId,
@@ -881,7 +881,7 @@ export const addMeasurementImage = async (measurementId, file, mapName = null) =
         }
 
         const processedImage = await processImageFile(file);
-        const imageId = Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+        const imageId = generateUUID();
 
         const imageData = {
             id: imageId,
@@ -1195,7 +1195,7 @@ export const addViewshedImage = async (viewshedId, file, mapName = null) => {
         }
 
         const processedImage = await processImageFile(file);
-        const imageId = Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+        const imageId = generateUUID();
 
         const imageData = {
             id: imageId,

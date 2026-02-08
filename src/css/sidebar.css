@@ -1195,6 +1195,9 @@
 .layers-tab .hillshade-control,
 .layers-tab .analysis-layers-control {
     flex-shrink: 0;
+    border-bottom: 1px solid #e0e0e0;
+    background-color: #f8f9fa;
+    display: none;
 }
 
 /* New layer button */

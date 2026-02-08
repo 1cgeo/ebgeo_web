@@ -1,5 +1,11 @@
 // Path: js/url_router.js
 
+/**
+ * @fileoverview URL deep linking router.
+ * Parses URL query parameters to open 3D models or 360 photos on startup.
+ * Used by map_sig.js after map load.
+ */
+
 import config from './config.js';
 
 // URL parameter name for 3D model deep linking
@@ -178,7 +184,7 @@ const URLRouter = {
             // Check if 3D map feature is enabled
             const isMap3dEnabled = config.features?.map_3d ?? true;
             if (!isMap3dEnabled) {
-                console.info(`URLRouter: 3D map disabled, ignoring model param "${modelId}"`);
+                console.debug(`URLRouter: 3D map disabled, ignoring model param "${modelId}"`);
                 this.clearModel();
             } else if (!this.validateModel(modelId)) {
                 console.warn(`URLRouter: Model "${modelId}" not found in config.tilesets`);
@@ -186,7 +192,7 @@ const URLRouter = {
             } else {
                 // Execute deep link: open 3D viewer with the specified model
                 try {
-                    console.info(`URLRouter: Opening 3D viewer with model "${modelId}"`);
+                    console.debug(`URLRouter: Opening 3D viewer with model "${modelId}"`);
                     await modelsControl.openViewer(modelId);
                     return true;
                 } catch (error) {
@@ -202,7 +208,7 @@ const URLRouter = {
             // Check if Street View feature is enabled
             const isStreetViewEnabled = config.features?.imagens_panoramicas ?? true;
             if (!isStreetViewEnabled) {
-                console.info(`URLRouter: Street View disabled, ignoring photo param "${photoId}"`);
+                console.debug(`URLRouter: Street View disabled, ignoring photo param "${photoId}"`);
                 this.clearPhoto360();
                 return false;
             }
@@ -217,7 +223,7 @@ const URLRouter = {
 
             // Execute deep link: open 360 viewer with the specified photo
             try {
-                console.info(`URLRouter: Opening 360 viewer with photo "${photoId}"`);
+                console.debug(`URLRouter: Opening 360 viewer with photo "${photoId}"`);
 
                 // Open the viewer directly without activating the street view tool
                 // (we don't want to show the 2D map markers, just open the 360 viewer)

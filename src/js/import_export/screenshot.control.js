@@ -5,6 +5,8 @@
  * Provides multiple fallback methods for different browser security contexts.
  */
 
+import { showError } from '../utilities/toast_service.js';
+
 class ScreenshotControl {
     constructor() {
         this.map = null;
@@ -54,7 +56,7 @@ class ScreenshotControl {
 
             if (!this.map) {
                 console.error('Map not available for screenshot');
-                alert('Mapa não disponível para captura');
+                showError('Mapa não disponível para captura');
                 return;
             }
 
@@ -74,7 +76,7 @@ class ScreenshotControl {
 
         } catch (error) {
             console.error('Error capturing screenshot:', error);
-            alert('Não foi possível capturar o screenshot');
+            showError('Não foi possível capturar o screenshot');
             const button = this.container?.querySelector('button');
             if (button) {
                 button.disabled = false;
@@ -184,7 +186,7 @@ class ScreenshotControl {
                             document.body.removeChild(tempContainer);
                         } catch (error) {
                             console.error('Error in alternative method:', error);
-                            alert('Não foi possível capturar o screenshot');
+                            showError('Não foi possível capturar o screenshot');
                             tempMap.remove();
                             document.body.removeChild(tempContainer);
                         }
@@ -194,7 +196,7 @@ class ScreenshotControl {
 
         } catch (error) {
             console.error('Error creating temporary map:', error);
-            alert('Não foi possível capturar o screenshot. Tente novamente.');
+            showError('Não foi possível capturar o screenshot. Tente novamente.');
         }
     }
 
@@ -239,7 +241,7 @@ class ScreenshotControl {
             };
             reader.onerror = () => {
                 console.error('Error reading blob');
-                alert('Não foi possível processar a imagem');
+                showError('Não foi possível processar a imagem');
             };
             reader.readAsDataURL(blob);
         }

@@ -1,7 +1,7 @@
 // Path: js/draw_tools/rectangle_tool/add_rectangle_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils } from '../../utilities';
+import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addRectangleAttributesToPanel } from './rectangle_attributes_panel.js';
 import AddRectangleGeometry from './add_rectangle_geometry.js';
@@ -478,7 +478,7 @@ class AddRectangleControl extends BaseControl {
         const { center, width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
 
         if (width < 10 || height < 10) {
-            alert('Dimensões mínimas: 10 metros');
+            showWarning('Dimensões mínimas: 10 metros');
             this.drawPoints = [];
             return;
         }

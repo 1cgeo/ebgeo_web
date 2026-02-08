@@ -1,4 +1,11 @@
 // Path: js/3d_models_viewer_tool/tools/mouse_coordinates_3d.js
+
+/**
+ * @fileoverview Mouse coordinate display for the Cesium 3D viewer.
+ * Shows lat/lon under the cursor with format switching and copy support.
+ * Styles in src/css/panels-3d.css (.coordinates-control-3d*).
+ */
+
 import {
     COORDINATE_FORMATS,
     formatCoordinates,
@@ -24,113 +31,41 @@ function initMouseCoordinates3D(viewer) {
     // Create coordinates container
     coordinatesContainer = document.createElement('div');
     coordinatesContainer.className = 'coordinates-control-3d';
-    coordinatesContainer.style.cssText = `
-        position: absolute;
-        bottom: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 1000;
-        min-width: 280px;
-        width: auto;
-        padding: 6px 10px;
-        font-family: monospace;
-        font-size: 12px;
-        white-space: nowrap;
-        background: rgba(255, 255, 255, 0.9);
-        border-radius: 4px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        display: flex;
-        align-items: center;
-    `;
 
     // Create coordinates text display
     coordinatesText = document.createElement('div');
-    coordinatesText.style.cssText = `
-        flex-grow: 1;
-        display: flex;
-        gap: 10px;
-        min-width: 160px;
-    `;
+    coordinatesText.className = 'coordinates-control-3d__text';
 
     // Create controls container
     const controlsContainer = document.createElement('div');
-    controlsContainer.style.cssText = `
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-left: 8px;
-    `;
+    controlsContainer.className = 'coordinates-control-3d__controls';
 
     // Copy button
     const copyButton = document.createElement('div');
-    copyButton.className = 'coordinates-copy-button';
-    copyButton.innerHTML = '📋';
+    copyButton.className = 'coordinates-control-3d__btn coordinates-control-3d__btn--copy coordinates-copy-button';
+    copyButton.textContent = '\u{1F4CB}';
     copyButton.title = 'Copiar coordenadas';
-    copyButton.style.cssText = `
-        opacity: 0.7;
-        cursor: pointer;
-        font-size: 14px;
-        transition: opacity 0.2s;
-        width: 16px;
-        height: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    `;
     copyButton.addEventListener('click', copyCoordinates);
-    copyButton.addEventListener('mouseenter', () => { copyButton.style.opacity = '1'; });
-    copyButton.addEventListener('mouseleave', () => { copyButton.style.opacity = '0.7'; });
 
     // Format button
     const formatButton = document.createElement('div');
-    formatButton.innerHTML = `<img src="./images/gear_icon.svg" alt="Settings" width="16" height="16" />`;
+    formatButton.className = 'coordinates-control-3d__btn';
+    formatButton.innerHTML = '<img src="./images/gear_icon.svg" alt="Settings" width="16" height="16" />';
     formatButton.title = 'Mudar formato de coordenadas';
-    formatButton.style.cssText = `
-        opacity: 0.7;
-        cursor: pointer;
-        transition: opacity 0.2s;
-        display: flex;
-        align-items: center;
-        width: 16px;
-        height: 16px;
-    `;
     formatButton.addEventListener('click', toggleFormatSelector);
-    formatButton.addEventListener('mouseenter', () => { formatButton.style.opacity = '1'; });
-    formatButton.addEventListener('mouseleave', () => { formatButton.style.opacity = '0.7'; });
 
     // Create format selector dropdown
     formatSelector = document.createElement('div');
-    formatSelector.style.cssText = `
-        position: absolute;
-        bottom: 100%;
-        right: 0;
-        background-color: white;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-        padding: 5px 0;
-        display: none;
-        z-index: 1001;
-    `;
+    formatSelector.className = 'coordinates-control-3d__dropdown';
 
     // Add format options
     COORDINATE_FORMATS.forEach(format => {
         const option = document.createElement('div');
         option.textContent = format.label;
         option.dataset.format = format.id;
-        option.style.cssText = `
-            padding: 5px 15px;
-            cursor: pointer;
-            white-space: nowrap;
-            ${format.id === currentFormat ? 'background-color: #f0f0f0; font-weight: bold;' : ''}
-        `;
+        option.className = 'coordinates-control-3d__option' +
+            (format.id === currentFormat ? ' coordinates-control-3d__option--active' : '');
         option.addEventListener('click', () => setFormat(format.id));
-        option.addEventListener('mouseenter', () => {
-            if (format.id !== currentFormat) option.style.backgroundColor = '#f0f0f0';
-        });
-        option.addEventListener('mouseleave', () => {
-            if (format.id !== currentFormat) option.style.backgroundColor = '';
-        });
         formatSelector.appendChild(option);
     });
 
@@ -208,9 +143,9 @@ async function updateCoordinates(lat, lng) {
         console.error('Error converting coordinates:', error);
         // Fallback
         const latSpan = document.createElement('span');
-        latSpan.textContent = `Lat: ${lat.toFixed(5)}°`;
+        latSpan.textContent = `Lat: ${lat.toFixed(5)}\u00B0`;
         const lngSpan = document.createElement('span');
-        lngSpan.textContent = `Lon: ${lng.toFixed(5)}°`;
+        lngSpan.textContent = `Lon: ${lng.toFixed(5)}\u00B0`;
         coordinatesText.appendChild(latSpan);
         coordinatesText.appendChild(lngSpan);
     }
@@ -254,15 +189,13 @@ function fallbackCopyTextToClipboard(text) {
 }
 
 function showCopyFeedback() {
-    const copyButton = coordinatesContainer.querySelector('.coordinates-copy-button');
+    const copyButton = coordinatesContainer?.querySelector('.coordinates-copy-button');
     if (copyButton) {
-        const originalContent = copyButton.innerHTML;
-        copyButton.innerHTML = '✅';
-        copyButton.style.color = '#28a745';
+        const originalContent = copyButton.textContent;
+        copyButton.textContent = '\u2705';
 
         setTimeout(() => {
-            copyButton.innerHTML = originalContent;
-            copyButton.style.color = '';
+            copyButton.textContent = originalContent;
         }, 1000);
     }
 }
@@ -285,15 +218,9 @@ function setFormat(formatId) {
     currentFormat = formatId;
 
     // Update dropdown options
-    const options = formatSelector.querySelectorAll('div');
+    const options = formatSelector.querySelectorAll('.coordinates-control-3d__option');
     options.forEach(option => {
-        if (option.dataset.format === formatId) {
-            option.style.backgroundColor = '#f0f0f0';
-            option.style.fontWeight = 'bold';
-        } else {
-            option.style.backgroundColor = '';
-            option.style.fontWeight = '';
-        }
+        option.classList.toggle('coordinates-control-3d__option--active', option.dataset.format === formatId);
     });
 
     formatSelector.style.display = 'none';

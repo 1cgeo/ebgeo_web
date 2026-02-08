@@ -626,3 +626,252 @@
 .catalog-layer-item.legend-expanded .catalog-layer-legend {
     color: var(--primary);
 }
+
+/* ===== ANALYSIS LAYERS ===== */
+
+.analysis-layers-header {
+    padding: 8px 12px 4px;
+    font-weight: 500;
+    font-size: 12px;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.analysis-layer-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px 4px 24px;
+    gap: 8px;
+}
+
+.analysis-layer-label {
+    display: flex;
+    align-items: center;
+    font-size: 12px;
+    cursor: pointer;
+    flex: 1;
+}
+
+.analysis-layer-label input {
+    margin-right: 6px;
+}
+
+.analysis-layer-zoom {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    color: #666;
+    transition: color 0.2s ease;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+}
+
+.analysis-layer-zoom:hover {
+    color: #007bff;
+    background-color: #f8f9fa;
+}
+
+.analysis-layer-zoom:active {
+    transform: scale(0.95);
+}
+
+/* ===== LOADING SPINNER ===== */
+
+.features-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    background-color: #fff;
+}
+
+.spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 12px;
+}
+
+.loading-text {
+    color: #666;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* ===== 3D VIEWER MODE ===== */
+
+.disabled-3d-mode {
+    pointer-events: none;
+    opacity: 0.4;
+    filter: grayscale(30%);
+    position: relative;
+}
+
+.disabled-3d-mode::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.1);
+    cursor: not-allowed;
+}
+
+.active-3d-mode {
+    background: #f0f9f0;
+    border-left: 3px solid #28a745;
+    margin-left: -3px;
+    padding-left: 3px;
+}
+
+.active-3d-mode .sidebar-section-header {
+    color: #28a745;
+    font-weight: 600;
+}
+
+.active-360-mode {
+    background: #f0f4ff;
+    border-left: 3px solid #0d6efd;
+    margin-left: -3px;
+    padding-left: 3px;
+}
+
+.active-360-mode .sidebar-section-header {
+    color: #0d6efd;
+    font-weight: 600;
+}
+
+.disabled-3d-mode .sidebar-section-header::after {
+    content: 'Desabilitado no modo 3D';
+    position: absolute;
+    bottom: -18px;
+    left: 12px;
+    font-size: 10px;
+    color: #999;
+    font-weight: normal;
+    white-space: nowrap;
+}
+
+.features-list.disabled-3d-mode .layer-container,
+.features-list.disabled-3d-mode .feature-item,
+.features-list.disabled-3d-mode .group-container {
+    opacity: 0.6;
+}
+
+.sidebar-section-header-with-action.disabled-3d-mode {
+    position: relative;
+}
+
+.sidebar-section-header-with-action.disabled-3d-mode button {
+    pointer-events: none;
+    opacity: 0.3;
+}
+
+/* ===== MAP LOCKED MODE ===== */
+
+.features-tab-content.map-locked > .sidebar-section-header-with-action .sidebar-section-header-btn {
+    display: none;
+}
+
+.features-tab-content.map-locked .layer-delete-btn {
+    display: none;
+}
+
+.features-tab-content.map-locked .table-toggle {
+    display: none;
+}
+
+.features-tab-content.map-locked .layer-name {
+    pointer-events: none;
+}
+
+.features-tab-content.map-locked .layer-drag-handle {
+    display: none;
+}
+
+.features-tab-content.map-locked .layer-controls .visibility-toggle,
+.features-tab-content.map-locked .layer-controls .lock-toggle {
+    display: none;
+}
+
+.features-tab-content.map-locked .feature-controls .visibility-toggle,
+.features-tab-content.map-locked .feature-controls .lock-toggle {
+    display: none;
+}
+
+.features-tab-content.map-locked .group-controls .visibility-toggle,
+.features-tab-content.map-locked .group-controls .lock-toggle {
+    display: none;
+}
+
+.features-tab-content.map-locked .models3d-delete-all {
+    display: none;
+}
+
+.features-tab-content.map-locked .streetview360-delete-all {
+    display: none;
+}
+
+/* ===== DRAG HANDLE & SORTABLE ===== */
+
+.layer-drag-handle {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    color: #999;
+    user-select: none;
+    flex-shrink: 0;
+    transition: color 0.15s ease;
+}
+
+.layer-drag-handle:hover {
+    color: #28a745;
+}
+
+.layer-drag-handle:active {
+    cursor: grabbing;
+}
+
+.layer-sortable-ghost {
+    opacity: 0.4;
+    background-color: rgba(0, 123, 255, 0.1) !important;
+}
+
+.layer-sortable-chosen {
+    background-color: rgba(0, 123, 255, 0.15) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+.layer-sortable-drag {
+    opacity: 1 !important;
+    background-color: white !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+}
+
+.layer-empty-message {
+    padding: 8px 12px;
+    text-align: center;
+    color: #999;
+    font-size: 13px;
+    font-style: italic;
+}

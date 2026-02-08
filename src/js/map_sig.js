@@ -244,7 +244,7 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
     const featureSearchControl = new FeatureSearchControl(uiManager);
     uiManager.setFeatureSearchControl(featureSearchControl);
 
-    new MoveHandler(map, selectionManager, uiManager);
+    const moveHandler = new MoveHandler(map, selectionManager, uiManager);
 
     const vectorTileInfoControl = new VectorTileInfoControl(toolManager, uiManager);
 
@@ -291,7 +291,7 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
 
     // ===== SNAPPING SERVICE =====
 
-    const _snappingService = new SnappingService({ stateManager: getStateManager() });
+    const snappingService = new SnappingService({ stateManager: getStateManager() });
 
     // ===== KEYBOARD SHORTCUTS =====
 
@@ -567,7 +567,7 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
         addStreetViewControl,
         destroyables: {
             keyboardShortcuts,
-            _snappingService,
+            snappingService,
             chipsComponent,
             sidebarControl,
             toolbarControl,
@@ -576,6 +576,10 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
             bottomControlsControl,
             baseLayerSelectorControl,
             attributeTableControl,
+            moveHandler,
+            featuresTab,
+            dragDropHandler,
+            dragRotateHandler,
         }
     };
 }
@@ -645,7 +649,7 @@ export function setupCleanupHandlers(destroyables) {
 
     window.addEventListener('beforeunload', () => {
         destroyables.keyboardShortcuts.destroy();
-        destroyables._snappingService.destroy();
+        destroyables.snappingService.destroy();
         destroyables.chipsComponent.destroy();
         destroyables.sidebarControl.destroy();
         destroyables.toolbarControl.destroy();
@@ -654,5 +658,9 @@ export function setupCleanupHandlers(destroyables) {
         destroyables.bottomControlsControl.destroy();
         destroyables.baseLayerSelectorControl.destroy();
         destroyables.attributeTableControl.destroy();
+        destroyables.moveHandler.destroy();
+        destroyables.featuresTab.destroy();
+        destroyables.dragDropHandler.disable();
+        destroyables.dragRotateHandler.disable();
     });
 }

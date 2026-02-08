@@ -7,7 +7,7 @@ import {
   storeImage,
   getActiveLayerIdSync
 } from "../../store";
-import { IDUtils } from "../../utilities";
+import { IDUtils, showError } from "../../utilities";
 import { addImageAttributesToPanel } from "./image_attributes_panel.js";
 import AddImageGeometry from "./add_image_geometry.js";
 import { BaseControl } from "../../tool_manager";
@@ -353,7 +353,7 @@ class AddImageControl extends BaseControl {
         this.selectionManager.updateUI();
       } catch (error) {
         console.error("Error adding image feature:", error);
-        alert("Erro ao adicionar imagem");
+        showError("Erro ao adicionar imagem");
       }
     });
   };
@@ -708,7 +708,6 @@ class AddImageControl extends BaseControl {
 
   saveFeatures = async (features, initialPropertiesMap) => {
     const currentData = await this.map.getSource("images").getData();
-    let _hasChanges = false;
 
     for (const selectedFeature of features) {
       if (
@@ -723,7 +722,6 @@ class AddImageControl extends BaseControl {
 
         if (currentFeature) {
           await updateFeature("images", currentFeature);
-          _hasChanges = true;
         }
       }
     }

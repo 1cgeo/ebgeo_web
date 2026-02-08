@@ -7,6 +7,8 @@
 import userDataManager from './user_data_manager.js';
 import { showConfirm } from '../modals/index.js';
 import { isCurrentMapLockedSync } from '../store/index.js';
+import { showWarning } from '../utilities';
+import { escapeHtml } from '../utilities/html-escape.js';
 
 /**
  * Renderiza o conteúdo da tab de Imagens.
@@ -66,7 +68,7 @@ function createDropzone(featureId, featureType) {
         for (const file of files) {
             if (!file.type.startsWith('image/')) continue;
             if (file.size > 10 * 1024 * 1024) {
-                alert(`${file.name} excede 10MB`);
+                showWarning(`${file.name} excede 10MB`);
                 continue;
             }
             await userDataManager.addImage(featureId, featureType, file);
@@ -195,15 +197,3 @@ function renderEmptyState(container, text, icon) {
     container.appendChild(empty);
 }
 
-/**
- * Escapa HTML para prevenir XSS.
- * @private
- * @param {string} str - String a escapar
- * @returns {string} String escapada
- */
-function escapeHtml(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}

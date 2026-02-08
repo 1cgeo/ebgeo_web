@@ -64,7 +64,11 @@
       "Bash(npm ls:*)",
       "Bash(npm run dev:*)",
       "Bash(timeout:*)",
-      "Bash(viewshed \")"
+      "Bash(viewshed \")",
+      "Bash(for:*)",
+      "Bash(if [ -f \"$f\" ])",
+      "Bash(then tail -5 \"$f\")",
+      "Bash(else echo \"NOT FOUND\")"
     ],
     "deny": [],
     "ask": []

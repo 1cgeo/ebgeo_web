@@ -38,7 +38,7 @@ import {
     getGroupManager,
 } from '../store';
 
-import { IDUtils, showToast, showSuccess, generateUUID } from '../utilities';
+import { IDUtils, showToast, showSuccess, showError, showWarning, generateUUID } from '../utilities';
 import { createSyncMetadata } from '../store/sync/sync-metadata.js';
 import { ATLAS_SCHEMA_VERSION } from '../store/atlas/atlas.entity.js';
 import JSZip from 'jszip';
@@ -342,7 +342,7 @@ export class ExportImportService {
             const mapsToExport = selectedMaps || allMaps;
 
             if (mapsToExport.length === 0) {
-                alert('Nenhum mapa para exportar');
+                showWarning('Nenhum mapa para exportar');
                 return;
             }
 
@@ -544,7 +544,7 @@ export class ExportImportService {
 
         } catch (error) {
             console.error('Erro ao exportar dados:', error);
-            alert('Erro ao exportar arquivo .ebgeo');
+            showError('Erro ao exportar arquivo .ebgeo');
         }
     }
 
@@ -748,7 +748,7 @@ export class ExportImportService {
 
         } catch (error) {
             console.error('Erro ao importar arquivo:', error);
-            alert('Erro ao carregar arquivo .ebgeo: ' + error.message);
+            showError('Erro ao carregar arquivo .ebgeo: ' + error.message);
         }
 
         event.target.value = '';

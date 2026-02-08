@@ -13,6 +13,7 @@ import {
     expandBboxWithPadding,
     normalizeCoordinates
 } from '../utilities/geometry-utils.js';
+import { deepClone } from '../utilities/deep-utils.js';
 
 /**
  * Base Control class with expanded tool-centric interface.
@@ -262,7 +263,7 @@ class BaseControl {
      * @returns {Object} Cleaned feature
      */
     prepareForCopy(feature) {
-        const cleaned = JSON.parse(JSON.stringify(feature));
+        const cleaned = deepClone(feature);
 
         delete cleaned.properties.isSelected;
         delete cleaned.properties.isPreview;

@@ -125,7 +125,7 @@ export function createPanelHeader({
 
         const infoText = document.createElement('div');
         infoText.className = 'feature-name-wrapper';
-        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+
 
         // Get display name for feature type
         const typeNames = FEATURE_TYPE_NAMES[featureType] || { plural: 'itens' };

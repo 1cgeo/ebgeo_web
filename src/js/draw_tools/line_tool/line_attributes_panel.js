@@ -49,7 +49,7 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
 
             const infoText = document.createElement('div');
             infoText.className = 'feature-name-wrapper';
-            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+
             infoText.textContent = `${selectedFeatures.length} linhas selecionadas`;
 
             const optionsButton = createFeatureOptionsButton(

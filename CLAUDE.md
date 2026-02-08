@@ -320,7 +320,6 @@ src/js/
 │   ├── features_tab.js      # Main features tab
 │   ├── features_tab.constants.js
 │   ├── features_tab.icons.js
-│   ├── features_tab.styles.js
 │   ├── layer-list.component.js
 │   ├── layer-container.builder.js
 │   ├── feature-item.component.js
@@ -346,6 +345,17 @@ src/js/
 │   ├── screenshot.control.js
 │   ├── pdf-export.tab.js
 │   └── drag-drop.handler.js    # Drag and drop file handler
+├── processing/              # Geospatial processing algorithms
+│   ├── index.js             # Public exports
+│   ├── processing.tab.js    # Processing sidebar tab
+│   ├── processing-panel.js  # Algorithm parameter panel
+│   ├── processing-runner.js # Algorithm execution runner
+│   ├── processing.constants.js # Processing configuration
+│   └── algorithms/          # Algorithm implementations
+│       ├── algorithm.interface.js  # Algorithm contract
+│       ├── buffer.algorithm.js     # Buffer algorithm
+│       ├── voronoi.algorithm.js    # Voronoi diagram algorithm
+│       └── index.js                # Algorithm registry
 ├── coordinates/             # Coordinate display/conversion
 ├── grid/                    # UTM grid overlay
 ├── keyboard/                # Keyboard shortcuts
@@ -363,6 +373,7 @@ src/js/
     ├── pointer-utils.js     # Pointer event utilities
     ├── image_utils.js       # Image validation/processing
     ├── html-escape.js       # XSS prevention for innerHTML interpolation
+    ├── toast_service.js     # Toast notifications (showToast, showWarning, showError)
     ├── debounced-persist.js # Debounced IndexedDB writes with retry
     ├── streetview360-state.js   # Street view state check
     ├── viewer3d-state.js    # 3D viewer state check
@@ -640,6 +651,52 @@ const declination = calculateDeclination(lat, lng);
 - Event-driven communication between modules
 - No framework dependencies (vanilla JS)
 
+## Code Quality Rules
+
+These rules are enforced across the codebase. Follow them when writing new code or modifying existing files.
+
+### Language
+- **UI strings** (labels, tooltips, messages, placeholders) MUST be in **Portuguese (pt-BR)** with correct accents
+- **Code comments** MUST be in **English** (exception: `config.js` may use Portuguese)
+- **JSDoc** MUST be in English
+
+### CSS: No Inline Styles in JavaScript
+- Do NOT use `style.cssText`, `style.xxx = '...'`, or inline style objects in JS
+- Extract styles to CSS files using BEM class naming (e.g., `.measurement-label`, `.visibility-progress-modal__bar`)
+- Use `className` and `classList.toggle/add/remove` instead of inline styles
+- CSS files: `base.css` (shared), `panels-2d.css` (2D tools), `panels-3d.css` (3D tools), `panels-360.css` (street view), `sidebar.css`, `features-tab.css`, `attributes-panel.css`, and component-specific CSS files in `src/css/`
+- **Exception**: Dynamic styles that depend on JS runtime values (e.g., colors from JS constants, computed positions) may use inline styles
+
+### innerHTML and XSS Prevention
+- Do NOT use `innerHTML` with user-provided data or dynamic strings
+- Use `textContent` for text content, `document.createElement` for DOM structure
+- Static SVG icons from constants are acceptable via `innerHTML` (not user data)
+- Import `escapeHtml` from `utilities/html-escape.js` when interpolating user data into HTML
+
+### Event Listener Cleanup
+- Use `setupCleanup/subscribe/addDomListener/trackTimer/cleanup` from `utilities/event-cleanup.js` for components with EventBus subscriptions and DOM listeners
+- MapLibre `map.on()` listeners must have matching `map.off()` in `removeAllEventListeners()` or `onRemove()`
+- Cesium `ScreenSpaceEventHandler` must call `.destroy()` in cleanup
+- Document-level listeners (`document.addEventListener`) must store handler references and remove them on cleanup
+- Context menu / dropdown listeners must be cleaned up in the hide/close function, not just in the event callback
+- Debounce/throttle timers (`setTimeout`) must be cleared in cleanup functions
+
+### Utility Usage
+- Use `deepClone()` from `utilities/deep-utils.js` instead of `JSON.parse(JSON.stringify(...))`
+- Use `showToast(message, type)` from `utilities/index.js` instead of `alert()`
+- Use `generateUUID()` from `utilities/uuid.js` for all new IDs
+- Use `EventTypes.XXX` constants instead of hardcoded event name strings
+
+### Schema Consistency
+- Briefing slides use `modelId` (not `tilesetId`) for 3D model references
+- Feature properties use Portuguese field names: `nome`, `descricao`, `visivel`, `bloqueado`
+- Sync metadata fields: `createdAt`, `updatedAt`, `version`, `ownerId`, `dirty`, `deleted`
+
+### Dead Code
+- Remove unused imports (no `_` prefix aliasing for unused imports)
+- Remove commented-out code blocks without explanation
+- Remove no-op functions (e.g., `cleanupFunctions.push(() => {})`)
+
 ## AI-Assisted Development Guidelines
 
 This codebase is optimized for AI-assisted development. Follow these principles:
@@ -749,7 +806,7 @@ function setupEventHandlers() { /* ... */ }
 
 Vite splits code into chunks:
 - `core` - Store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog, tool_manager, mode, briefing, UI, grid, coordinates
-- `ui-components` - Sidebar, features_tab, user_data, attribute_table, search, bottom-controls, base-layer-selector, context-menu, vector_info
+- `ui-components` - Sidebar, features_tab, user_data, attribute_table, search, bottom-controls, base-layer-selector, context-menu, vector_info, processing
 - `draw-tools` - All drawing tools + azimuth_distance_tool
 - `military-tools` - Military symbology
 - `analysis-tools` - LOS and visibility

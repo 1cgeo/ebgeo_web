@@ -10,7 +10,7 @@ import {
   getActiveLayerIdSync
 } from '../../store';
 import { MilitarySymbolGenerator } from "./military_symbol_generator.js";
-import { IDUtils } from "../../utilities";
+import { IDUtils, showError } from "../../utilities";
 import { addMilitarySymbolAttributesToPanel } from "./attributes/index.js";
 import AddMilitarySymbolGeometry from "./add_military_symbol_geometry.js";
 import { BaseControl } from "../../tool_manager";
@@ -516,7 +516,7 @@ class AddMilitarySymbolControl extends BaseControl {
       this.selectionManager.updateUI();
     } catch (error) {
       console.error("Error creating military symbol feature:", error);
-      alert("Erro ao criar símbolo militar");
+      showError("Erro ao criar símbolo militar");
     }
   };
 

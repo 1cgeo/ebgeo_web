@@ -13,6 +13,8 @@ import { showConfirm } from '../../modals/index.js';
  */
 
 let activeMenu = null;
+let activeClickHandler = null;
+let activeEscapeHandler = null;
 
 /**
  * Shows the column context menu.
@@ -68,32 +70,38 @@ export function showColumnContextMenu(columnKey, event, callbacks) {
     }
 
     // Close on click outside
-    const handleClickOutside = (e) => {
+    activeClickHandler = (e) => {
         if (!menu.contains(e.target)) {
             hideColumnContextMenu();
-            document.removeEventListener('click', handleClickOutside);
         }
     };
 
     // Delay to prevent immediate close
     setTimeout(() => {
-        document.addEventListener('click', handleClickOutside);
+        document.addEventListener('click', activeClickHandler);
     }, 10);
 
     // Close on escape
-    const handleEscape = (e) => {
+    activeEscapeHandler = (e) => {
         if (e.key === 'Escape') {
             hideColumnContextMenu();
-            document.removeEventListener('keydown', handleEscape);
         }
     };
-    document.addEventListener('keydown', handleEscape);
+    document.addEventListener('keydown', activeEscapeHandler);
 }
 
 /**
  * Hides the column context menu.
  */
 export function hideColumnContextMenu() {
+    if (activeClickHandler) {
+        document.removeEventListener('click', activeClickHandler);
+        activeClickHandler = null;
+    }
+    if (activeEscapeHandler) {
+        document.removeEventListener('keydown', activeEscapeHandler);
+        activeEscapeHandler = null;
+    }
     if (activeMenu) {
         activeMenu.remove();
         activeMenu = null;

@@ -22,6 +22,7 @@ async function getViewshedTool() {
 }
 import { addViewshedImage, getViewshedImages, removeViewshedImage } from '../../store/index.js';
 import { showSuccess, showToast } from '../../utilities/index.js';
+import { deepClone } from '../../utilities/deep-utils.js';
 import { showConfirm } from '../../modals/index.js';
 import config from '../../config.js';
 
@@ -48,7 +49,7 @@ export function createViewshedPanelContent(viewshed, tilesetId, onClose) {
     container.className = 'viewshed-3d-panel-content';
 
     // Store initial properties for discard functionality
-    const initialProperties = JSON.parse(JSON.stringify(viewshed.properties || {}));
+    const initialProperties = deepClone(viewshed.properties || {});
 
     // Current viewshed state
     const currentViewshed = { ...viewshed };
@@ -70,7 +71,7 @@ export function createViewshedPanelContent(viewshed, tilesetId, onClose) {
         currentViewshed.observerHeight = newHeight;
         const { updateViewshedObserverHeight } = await getViewshedTool();
         await updateViewshedObserverHeight(currentViewshed.id, newHeight);
-    });
+    }, cleanupFunctions);
 
     // 3. Photo gallery section
     const photoGalleryPlaceholder = document.createElement('div');
@@ -324,7 +325,7 @@ function createDescriptionSection2D(viewshed, onUpdate) {
  * @param {Object} viewshed - Viewshed data
  * @param {Function} onHeightChange - Callback when observer height changes
  */
-function buildParametersSection(container, viewshed, onHeightChange) {
+function buildParametersSection(container, viewshed, onHeightChange, cleanupFunctions) {
     const section = document.createElement('div');
     section.className = 'viewshed-parameters-section';
 
@@ -431,6 +432,11 @@ function buildParametersSection(container, viewshed, onHeightChange) {
         }
     });
 
+    // Clear debounce timer on panel destroy to prevent leaks
+    if (cleanupFunctions) {
+        cleanupFunctions.push(() => clearTimeout(heightDebounceTimer));
+    }
+
     section.appendChild(heightSection);
     container.appendChild(section);
 }
@@ -459,7 +465,7 @@ function createParameterItem(label, value) {
 /**
  * Builds the photo gallery section for 3D viewsheds.
  */
-async function buildPhotoGallerySection(placeholder, viewshedId, cleanupFunctions) {
+async function buildPhotoGallerySection(placeholder, viewshedId, _cleanupFunctions) {
     const container = document.createElement('div');
     container.className = 'feature-photo-gallery';
 
@@ -539,7 +545,7 @@ async function buildPhotoGallerySection(placeholder, viewshedId, cleanupFunction
             for (const file of Array.from(e.target.files)) {
                 if (!file.type.startsWith('image/')) continue;
                 if (file.size > 10 * 1024 * 1024) {
-                    alert(`${file.name} excede 10MB`);
+                    showToast(`${file.name} excede 10MB`, 'error');
                     continue;
                 }
                 await addViewshedImage(viewshedId, file);
@@ -560,8 +566,6 @@ async function buildPhotoGallerySection(placeholder, viewshedId, cleanupFunction
     // Replace placeholder with container
     placeholder.innerHTML = '';
     placeholder.appendChild(container);
-
-    cleanupFunctions.push(() => {});
 }
 
 /**
@@ -754,132 +758,6 @@ function buildDeleteButton(container, viewshed, onClose) {
 }
 
 /**
- * Injects styles for the viewshed panel.
+ * Styles now in src/css/panels-3d.css — kept as no-op for backward compatibility.
  */
-export function injectViewshedPanelStyles() {
-    const styleId = 'viewshed-panel-3d-styles';
-    if (document.getElementById(styleId)) return;
-
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = `
-        /* Viewshed Panel 3D Styles */
-        .viewshed-3d-panel-content {
-            padding: 0;
-        }
-
-        /* Parameters Section */
-        .viewshed-parameters-section {
-            padding: 12px 16px;
-            background: var(--gray-50, #f9fafb);
-            border-bottom: 1px solid var(--border-color, #e5e7eb);
-        }
-
-        .viewshed-parameters-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            font-weight: 500;
-            color: var(--gray-500, #6b7280);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 12px;
-        }
-
-        .viewshed-parameters-header svg {
-            width: 14px;
-            height: 14px;
-        }
-
-        .viewshed-parameters-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-        }
-
-        .viewshed-parameter-item {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .viewshed-parameter-label {
-            font-size: 11px;
-            color: var(--gray-500, #6b7280);
-        }
-
-        .viewshed-parameter-value {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--primary, #16a34a);
-            font-family: 'SF Mono', 'Consolas', monospace;
-        }
-
-        /* Navigate Section */
-        .viewshed-navigate-section {
-            padding: 12px 16px;
-            border-bottom: 1px solid var(--border-color, #e5e7eb);
-        }
-
-        /* Observer Height Section */
-        .viewshed-observer-height-section {
-            margin-top: 16px;
-            padding-top: 12px;
-            border-top: 1px solid var(--border-color, #e5e7eb);
-        }
-
-        .viewshed-observer-height-label {
-            display: block;
-            font-size: 12px;
-            font-weight: 500;
-            color: var(--gray-700, #374151);
-            margin-bottom: 6px;
-        }
-
-        .viewshed-observer-height-input-container {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .viewshed-observer-height-input {
-            width: 100px;
-            padding: 8px 12px;
-            font-size: 14px;
-            font-weight: 600;
-            font-family: 'SF Mono', 'Consolas', monospace;
-            color: var(--primary, #16a34a);
-            background: white;
-            border: 1px solid var(--border-color, #e5e7eb);
-            border-radius: 6px;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .viewshed-observer-height-input:focus {
-            outline: none;
-            border-color: var(--primary, #16a34a);
-            box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
-        }
-
-        .viewshed-observer-height-input::-webkit-inner-spin-button,
-        .viewshed-observer-height-input::-webkit-outer-spin-button {
-            opacity: 1;
-        }
-
-        .viewshed-observer-height-unit {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--gray-500, #6b7280);
-        }
-
-        .viewshed-observer-height-hint {
-            margin-top: 6px;
-            font-size: 11px;
-            color: var(--gray-400, #9ca3af);
-            line-height: 1.4;
-        }
-    `;
-
-    document.head.appendChild(style);
-}
+export function injectViewshedPanelStyles() {}

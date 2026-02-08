@@ -12,6 +12,7 @@ import { memoryStore } from './memory-store.js';
 import { isCurrentMapLockedSync } from './map.operations.js';
 import { logFeatureOperation, OperationType } from './sync/index.js';
 import { runTransaction } from './store-transaction.js';
+import { deepClone } from '../utilities/deep-utils.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -134,7 +135,7 @@ export const addFeature = async (type, feature, mapName = null) => {
                 mapManager.recordAction({
                     type: 'add',
                     featureType: type,
-                    feature: JSON.parse(JSON.stringify(cleanedFeature))
+                    feature: deepClone(cleanedFeature)
                 });
             });
         }
@@ -228,8 +229,8 @@ export const updateFeature = async (type, feature, mapName = null) => {
                     mapManager.recordAction({
                         type: 'update',
                         featureType: type,
-                        oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-                        newFeature: JSON.parse(JSON.stringify(cleanedFeature))
+                        oldFeature: deepClone(oldFeature),
+                        newFeature: deepClone(cleanedFeature)
                     });
                 });
             }
@@ -291,10 +292,10 @@ export const removeFeature = async (type, id, mapName = null) => {
                 mapManager.recordAction({
                     type: 'removeWithProcessed',
                     mainFeatureType: type,
-                    mainFeature: JSON.parse(JSON.stringify(mainFeature)),
+                    mainFeature: deepClone(mainFeature),
                     processedFeatures: processedFeatures.length > 0 ? {
                         type: processedType,
-                        features: JSON.parse(JSON.stringify(processedFeatures))
+                        features: deepClone(processedFeatures)
                     } : null
                 });
             });
@@ -425,7 +426,7 @@ export const addFeatures = async (featuresMap, mapName = null) => {
             const cleanedFeatures = features.map(cleanFeature).filter(Boolean);
             cleanedFeatures.forEach(addCreatedTimestamp);
             currentMapData.features[type].push(...cleanedFeatures);
-            action.features[type] = JSON.parse(JSON.stringify(cleanedFeatures));
+            action.features[type] = deepClone(cleanedFeatures);
 
             // Collect color updates for deferral
             cleanedFeatures.forEach(feature => {
@@ -466,7 +467,7 @@ export const addFeatures = async (featuresMap, mapName = null) => {
 export const getCurrentMapFeatures = async (mapName = null) => {
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
-    return JSON.parse(JSON.stringify(currentMapData.features));
+    return deepClone(currentMapData.features);
 };
 
 /**
@@ -507,7 +508,7 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
     }
 
     // Capture old state for logging
-    const oldFeature = JSON.parse(JSON.stringify(feature));
+    const oldFeature = deepClone(feature);
 
     // Compute color diff before mutation but defer the actual update
     const isColorProperty = ['color', 'fillColor', 'lineColor', 'outlinecolor', 'backgroundColor'].includes(property);
@@ -605,11 +606,11 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
                     const addedFeature = await addFeatureToMap(type, feature, targetMapName);
                     if (addedFeature) {
                         typeOperations.mainFeatures.push({
-                            feature: JSON.parse(JSON.stringify(addedFeature)),
+                            feature: deepClone(addedFeature),
                             removedData: {
-                                mainFeature: JSON.parse(JSON.stringify(removedData.mainFeature)),
+                                mainFeature: deepClone(removedData.mainFeature),
                                 processedFeatures: removedData.processedFeatures ?
-                                    JSON.parse(JSON.stringify(removedData.processedFeatures)) : null
+                                    deepClone(removedData.processedFeatures) : null
                             }
                         });
 
@@ -748,8 +749,8 @@ export const batchUpdateLOSFeatures = async (losFeature, processedFeatures, mapN
                 mapManager.recordAction({
                     type: 'update',
                     featureType: 'los',
-                    oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-                    newFeature: JSON.parse(JSON.stringify(cleanedLos))
+                    oldFeature: deepClone(oldFeature),
+                    newFeature: deepClone(cleanedLos)
                 });
             });
         }
@@ -793,8 +794,8 @@ export const batchUpdateVisibilityFeatures = async (visibilityFeature, processed
                 mapManager.recordAction({
                     type: 'update',
                     featureType: 'visibility',
-                    oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-                    newFeature: JSON.parse(JSON.stringify(cleanedVis))
+                    oldFeature: deepClone(oldFeature),
+                    newFeature: deepClone(cleanedVis)
                 });
             });
         }

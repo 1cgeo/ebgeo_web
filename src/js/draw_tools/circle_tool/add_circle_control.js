@@ -1,6 +1,6 @@
 // Path: js/draw_tools/circle_tool/add_circle_control.js
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils } from '../../utilities';
+import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addCircleAttributesToPanel } from './circle_attributes_panel.js';
 import AddCircleGeometry from './add_circle_geometry.js';
@@ -312,7 +312,7 @@ class AddCircleControl extends BaseControl {
         const endPoint = this.drawPoints[1];
         const radius = this.geometry.calculateDistance(center, endPoint);
         if (!this.geometry.validate(center, radius)) {
-            alert('Raio mínimo: 10 metros');
+            showWarning('Raio mínimo: 10 metros');
             this.drawPoints = [];
             return;
         }

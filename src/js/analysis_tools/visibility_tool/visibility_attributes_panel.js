@@ -2,7 +2,6 @@
 
 import {
     createModernSlider,
-    createModernButtons as _createModernButtons,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
 } from '../../tool_manager/helpers/index.js';
@@ -46,7 +45,7 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
 
             const infoText = document.createElement('div');
             infoText.className = 'feature-name-wrapper';
-            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+
             infoText.textContent = `${selectedFeatures.length} áreas de visibilidade selecionadas`;
 
             const optionsButton = createFeatureOptionsButton(

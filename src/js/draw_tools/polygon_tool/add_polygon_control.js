@@ -1,7 +1,7 @@
 // Path: js/draw_tools/polygon_tool/add_polygon_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils } from '../../utilities';
+import { IDUtils, showWarning } from '../../utilities';
 import { isTouchDevice } from '../../utilities/pointer-utils';
 import { DrawingFinishButton, setupVertexRemoveLongPress } from '../drawing-touch-helpers';
 import { addPolygonAttributesToPanel } from './polygon_attributes_panel.js';
@@ -336,7 +336,7 @@ class AddPolygonControl extends BaseControl {
             await this.createFeature();
             this.toolManager.deactivateCurrentTool();
         } else {
-            alert('Polígono deve ter pelo menos 3 pontos');
+            showWarning('Polígono deve ter pelo menos 3 pontos');
             this.drawPoints = [];
             this.clearPreview();
         }
@@ -479,7 +479,7 @@ class AddPolygonControl extends BaseControl {
 
     createFeature = async () => {
         if (!this.geometry.validate(this.drawPoints)) {
-            alert('Polígono deve ter pelo menos 3 pontos válidos');
+            showWarning('Polígono deve ter pelo menos 3 pontos válidos');
             this.drawPoints = [];
             return;
         }
@@ -983,24 +983,6 @@ class AddPolygonControl extends BaseControl {
         label.className = 'measurement-label';
         label.innerText = measurement;
         label.dataset.featureId = featureId;
-
-        label.style.cssText = `
-            background-color: rgba(255, 255, 255, 0.9);
-            border: 2px solid #508D4E;
-            border-radius: 6px;
-            padding: 6px 10px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 12px;
-            font-weight: bold;
-            color: #333;
-            text-align: center;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-            white-space: nowrap;
-            pointer-events: none;
-            user-select: none;
-            transform: translate(-50%, -50%);
-            z-index: 10;
-        `;
 
         return label;
     }

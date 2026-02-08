@@ -23,6 +23,7 @@ import { getLayers, getCurrentMapNameSync, isCurrentMapLockedSync } from '../sto
 import { FEATURE_TYPE_MAPPINGS } from '../store/store.constants.js';
 import { showPrompt } from '../modals/prompt.modal.js';
 import userDataManager from '../user_data/user_data_manager.js';
+import { showWarning, showError } from '../utilities';
 
 // turf is loaded as a global via script tag in index.html
 
@@ -730,13 +731,13 @@ export class AttributeTableControl {
         // Validate key
         const validation = userDataManager.validateAttributeKey(key);
         if (!validation.valid) {
-            alert(validation.reason);
+            showWarning(validation.reason);
             return;
         }
 
         // Check if already exists
         if (this._attributeColumns.includes(key)) {
-            alert(`O atributo "${key}" já existe.`);
+            showWarning(`O atributo "${key}" já existe.`);
             return;
         }
 
@@ -782,7 +783,7 @@ export class AttributeTableControl {
             await this.refresh();
         } catch (error) {
             console.error('Error removing column:', error);
-            alert('Erro ao remover atributo: ' + error.message);
+            showError('Erro ao remover atributo: ' + error.message);
         }
     }
 

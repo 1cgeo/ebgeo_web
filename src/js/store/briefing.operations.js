@@ -13,6 +13,7 @@ import { localRepository } from './repositories/local.repository.js';
 import { generateUUID } from '../utilities/uuid.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 import { logBriefingOperation, logOperation, EntityType, OperationType } from './sync/index.js';
+import { deepClone } from '../utilities/deep-utils.js';
 
 // ============================================================================
 // CONSTANTS
@@ -159,7 +160,7 @@ export async function updateBriefing(briefingId, data) {
     }
 
     // Capture previous state for logging
-    const previousData = JSON.parse(JSON.stringify(existing));
+    const previousData = deepClone(existing);
 
     // Deep merge settings to avoid losing nested fields
     const mergedSettings = data.settings

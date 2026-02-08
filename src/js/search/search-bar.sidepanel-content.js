@@ -8,22 +8,12 @@
 
 import { SEARCH_ICONS } from './search-bar.icons.js';
 import { formatCoordinates, COORDINATE_FORMATS } from '../utilities/coordinate_converter.js';
+import { escapeHtml } from '../utilities/html-escape.js';
 import { isCurrentMapLockedSync } from '../store/store.js';
 
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
-
-/**
- * Escapes HTML special characters.
- * @param {string} str - String to escape
- * @returns {string} Escaped string
- */
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
 
 /**
  * Copies text to clipboard and shows feedback.

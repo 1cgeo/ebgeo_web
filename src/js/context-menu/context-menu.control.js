@@ -1,5 +1,5 @@
 // Path: js/context-menu/context-menu.control.js
-import { formatCoordinates, showSuccess, showWarning, escapeHtml } from '../utilities';
+import { formatCoordinates, showSuccess, showWarning, showError, escapeHtml } from '../utilities';
 import { createLongPressHandler } from '../utilities/pointer-utils';
 import {
     getFeatureGroup,
@@ -339,7 +339,7 @@ class ContextMenuControl {
             });
         } catch (error) {
             console.error('Error moving features:', error);
-            alert('Erro ao mover feições: ' + error.message);
+            showError('Erro ao mover feições: ' + error.message);
         }
     }
 
@@ -497,7 +497,7 @@ class ContextMenuControl {
             }
         } catch (error) {
             console.error('Error moving features to map:', error);
-            alert('Erro ao mover feições: ' + error.message);
+            showError('Erro ao mover feições: ' + error.message);
         }
     }
 
@@ -536,7 +536,7 @@ class ContextMenuControl {
                 this._hideMenu();
             } catch (error) {
                 console.error('Error in menu operation:', error);
-                alert('Erro: ' + error.message);
+                showError('Erro: ' + error.message);
             }
         });
 

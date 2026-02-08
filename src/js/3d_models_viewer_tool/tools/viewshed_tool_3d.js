@@ -409,20 +409,21 @@ async function handleViewshedComplete(cesiumViewshed) {
  * @param {string} viewshedId - Viewshed ID
  */
 function selectViewshed(viewshedId) {
-    // Deselect previous
-    if (selectedViewshedId && viewshedObjects.has(selectedViewshedId)) {
-        getViewshedById(selectedViewshedId).then(v => {
-            if (v) updateViewshedVisuals(selectedViewshedId, v);
-        });
-    }
-
+    const previousId = selectedViewshedId;
     selectedViewshedId = viewshedId;
+
+    // Deselect previous
+    if (previousId && previousId !== viewshedId && viewshedObjects.has(previousId)) {
+        getViewshedById(previousId).then(v => {
+            if (v) updateViewshedVisuals(previousId, v);
+        }).catch(() => {});
+    }
 
     // Highlight selected
     if (viewshedId && viewshedObjects.has(viewshedId)) {
         getViewshedById(viewshedId).then(v => {
             if (v) updateViewshedVisuals(viewshedId, v);
-        });
+        }).catch(() => {});
     }
 }
 
@@ -743,7 +744,7 @@ export function deselectCurrentViewshed() {
 
         getViewshedById(prevId).then(v => {
             if (v) updateViewshedVisuals(prevId, v);
-        });
+        }).catch(() => {});
 
         emitViewshedDeselected();
     }

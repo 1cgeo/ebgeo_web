@@ -400,14 +400,14 @@ async function setupGridLayers(mapInstance) {
         const mouseCoordinatesControl = getControl('MouseCoordinatesControl');
 
         if (!mouseCoordinatesControl) {
-            console.log('Nenhum controle de mouse encontrado');
+            console.warn('MouseCoordinatesControl not found');
             return;
         }
 
         const gridControl = mouseCoordinatesControl.gridControl;
 
         if (!gridControl) {
-            console.log('Nenhum controle de grid encontrado');
+            console.warn('Grid control not found');
             return;
         }
         const mapName = getCurrentMapNameSync();

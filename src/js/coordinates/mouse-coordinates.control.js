@@ -243,16 +243,7 @@ class MouseCoordinatesControl {
         this._container = document.createElement('div');
         this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group coordinates-control';
 
-        this._container.style.cssText = `
-        position: fixed !important;
-        bottom: 10px !important;
-        left: 50% !important;
-            transform: translateX(-50%) !important;
-            z-index: 1000 !important;
-            margin: 0 !important;
-            `;
-
-            this._innerContainer = document.createElement('div');
+        this._innerContainer = document.createElement('div');
             this._innerContainer.className = 'coordinates-display';
 
         this._coordinatesText = document.createElement('div');
@@ -271,7 +262,6 @@ class MouseCoordinatesControl {
         this._elevationButton.className = 'coordinates-button coordinates-elevation-button';
         this._elevationButton.title = "Mostrar elevação (terreno necessário)";
         this._elevationButton.innerHTML = `<img src="./images/elevation_icon.svg" alt="Elevation" width="16" height="16" />`;
-        this._elevationButton.style.fontSize = '14px';
         this._elevationButton.addEventListener('click', this._toggleElevation.bind(this));
 
         const gearButton = document.createElement('div');

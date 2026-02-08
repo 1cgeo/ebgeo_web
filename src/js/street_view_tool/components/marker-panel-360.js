@@ -20,7 +20,7 @@ import {
     getMarker360Images,
     removeMarker360Image
 } from '../../store/index.js';
-import { showSuccess, showToast } from '../../utilities/index.js';
+import { showSuccess, showToast, showWarning } from '../../utilities/index.js';
 import { showConfirm } from '../../modals/index.js';
 import {
     createModernSlider,
@@ -392,7 +392,7 @@ async function buildPhotoGallerySection(placeholder, markerId, cleanupFunctions)
             for (const file of Array.from(e.target.files)) {
                 if (!file.type.startsWith('image/')) continue;
                 if (file.size > 10 * 1024 * 1024) {
-                    alert(`${file.name} excede 10MB`);
+                    showWarning(`${file.name} excede 10MB`);
                     continue;
                 }
                 await addMarker360Image(markerId, file);

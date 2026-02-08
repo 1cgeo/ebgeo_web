@@ -703,14 +703,8 @@ function initCesiumEventHandlers() {
         }
 
         const handler = new Cesium.ScreenSpaceEventHandler(cesiumState.viewer.canvas);
-        handler.setInputAction(function (event) {
-            const _scratchRectangle = new Cesium.Rectangle();
-            const pickedPosition = cesiumState.viewer.scene.pickPosition(event.position);
-            if (Cesium.defined(pickedPosition)) {
-                const carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(pickedPosition);
-                const _lon = Cesium.Math.toDegrees(carto.longitude);
-                const _lat = Cesium.Math.toDegrees(carto.latitude);
-            }
+        handler.setInputAction(function () {
+            // Placeholder for future click handling on 3D scene
         }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
         // Store handler for later cleanup

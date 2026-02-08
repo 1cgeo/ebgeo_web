@@ -28,7 +28,8 @@ export function hasStreetViewMarkers() {
 // ===== BASEMAPS =====
 
 /**
- * Validate basemaps configuration - ensures at least one basemap is enabled
+ * Validate basemaps configuration - ensures at least one basemap is enabled.
+ * Falls back to 'carta-topografica' if all basemaps are disabled.
  */
 export function validateBasemapsConfig() {
     const enabled = Object.values(config.basemaps).filter(b => b.enabled);

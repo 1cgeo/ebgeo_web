@@ -4,16 +4,16 @@ import legacy from '@vitejs/plugin-legacy';
 import { resolve } from 'path';
 
 export default defineConfig({
-  // ===== ROOT E ESTRUTURA =====
+  // ===== ROOT AND STRUCTURE =====
   root: '.',
   publicDir: 'public',
 
-  // ===== CONFIGURAÇÃO DE BUILD =====
+  // ===== BUILD CONFIGURATION =====
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
 
-    // Minificação
+    // Minification
     minify: 'terser',
     terserOptions: {
       compress: {
@@ -35,9 +35,9 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html')
       },
       output: {
-        // Chunks por funcionalidade (baseado em path matching)
-        // IMPORTANTE: A ordem importa! Regras mais específicas devem vir primeiro.
-        // Chunks são organizados para evitar dependências circulares:
+        // Chunks by functionality (path-based matching)
+        // IMPORTANT: Order matters! More specific rules must come first.
+        // Chunks are organized to avoid circular dependencies:
         //   core (store, state, events, layers, terrain, baselayers, catalog, modals)
         //   -> ui-components (sidebar, toolbar, features_tab, user_data)
         //   -> tools (draw, military, analysis, selection)
@@ -45,12 +45,12 @@ export default defineConfig({
         manualChunks(id) {
           // ===== LAZY LOADED CHUNKS (independentes) =====
 
-          // Separar código do 3D (lazy load via dynamic import)
-          // NOTA: Apenas map_3d.js, tools/* e services/* são lazy-loaded.
-          // add_3d_models_viewer_control.js é importado estaticamente,
-          // então não vai para este chunk (fica no main).
-          // Os painéis (marker-panel-3d, measurement-panel-3d, viewshed-panel-3d)
-          // usam dynamic imports para evitar conflitos.
+          // 3D code split (lazy load via dynamic import)
+          // NOTE: Only map_3d.js, tools/* and services/* are lazy-loaded.
+          // add_3d_models_viewer_control.js is statically imported,
+          // so it stays in main bundle.
+          // Panels (marker-panel-3d, measurement-panel-3d, viewshed-panel-3d)
+          // use dynamic imports to avoid conflicts.
           if (id.includes('3d_models_viewer_tool/map_3d') ||
               id.includes('3d_models_viewer_tool/tools/') ||
               id.includes('3d_models_viewer_tool/services/')) {
@@ -60,26 +60,26 @@ export default defineConfig({
           if (id.includes('street_view_tool')) {
             return 'street-view';
           }
-          // Ferramentas de import/export
+          // Import/export tools
           if (id.includes('import_export')) {
             return 'import-export';
           }
 
           // ===== TOOL CHUNKS =====
 
-          // Separar ferramentas militares (grandes)
+          // Military tools (large bundle)
           if (id.includes('military_tools')) {
             return 'military-tools';
           }
-          // Ferramentas de análise (LOS e visibilidade)
+          // Analysis tools (LOS and visibility)
           if (id.includes('analysis_tools')) {
             return 'analysis-tools';
           }
-          // Ferramentas de desenho
+          // Drawing tools
           if (id.includes('draw_tools')) {
             return 'draw-tools';
           }
-          // Ferramentas de seleção
+          // Selection tools
           if (id.includes('selection_tools')) {
             return 'selection-tools';
           }
@@ -88,8 +88,8 @@ export default defineConfig({
             return 'draw-tools';
           }
 
-          // ===== UI COMPONENTS (depende de core) =====
-          // Inclui: sidebar, features_tab, user_data, attribute_table, search, bottom-controls, base-layer-selector, context-menu
+          // ===== UI COMPONENTS (depends on core) =====
+          // Includes: sidebar, features_tab, user_data, attribute_table, search, bottom-controls, base-layer-selector, context-menu
 
           // Features tab, user data and attribute table
           if (id.includes('src/js/features_tab/') ||
@@ -97,7 +97,7 @@ export default defineConfig({
               id.includes('src/js/attribute_table/')) {
             return 'ui-components';
           }
-          // UI components (sidebar, processing, etc. - NÃO inclui toolbar que está em core)
+          // UI components (sidebar, processing, etc. - toolbar is in core, NOT here)
           if (id.includes('src/js/sidebar/') ||
               id.includes('src/js/processing/') ||
               id.includes('src/js/bottom-controls/') ||
@@ -105,36 +105,36 @@ export default defineConfig({
               id.includes('src/js/context-menu/')) {
             return 'ui-components';
           }
-          // Busca e informações de vetores
+          // Search and vector info
           if (id.includes('src/js/search/') || id.includes('src/js/vector_info/')) {
             return 'ui-components';
           }
 
-          // ===== CORE CHUNK (base de tudo) =====
-          // Inclui: store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog, tool_manager, mode, briefing
-          // utilities está aqui porque é usado por toolbar, modals e também por cesium-integration
-          // toolbar/modals/catalog estão aqui porque:
-          //   - store/settings.operations importa de catalog/catalog.constants
-          //   - modals/shortcuts.modal importa de toolbar/toolbar.constants
-          //   - catalog/catalog.modal importa de modals/modal.base
-          // tool_manager está aqui porque:
-          //   - Contém managers compartilhados (selection, ui, clipboard, etc.)
-          //   - É base para todas as ferramentas de desenho
-          // mode está aqui porque:
-          //   - ApplicationModeManager é usado em toda a aplicação
-          // briefing está aqui porque:
-          //   - Keyboard service é carregado junto com outros serviços
+          // ===== CORE CHUNK (foundation for everything) =====
+          // Includes: store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog, tool_manager, mode, briefing
+          // utilities is here because toolbar, modals, and cesium-integration depend on it
+          // toolbar/modals/catalog are here because:
+          //   - store/settings.operations imports from catalog/catalog.constants
+          //   - modals/shortcuts.modal imports from toolbar/toolbar.constants
+          //   - catalog/catalog.modal imports from modals/modal.base
+          // tool_manager is here because:
+          //   - Contains shared managers (selection, ui, clipboard, etc.)
+          //   - Base for all drawing tools
+          // mode is here because:
+          //   - ApplicationModeManager is used across the entire application
+          // briefing is here because:
+          //   - Keyboard service is loaded alongside other services
 
-          // Utilities (base para toolbar, modals, e também usado por cesium-integration)
-          // DEVE vir antes de qualquer outro chunk que dependa dele
+          // Utilities (base for toolbar, modals, and also used by cesium-integration)
+          // MUST come before any other chunk that depends on it
           if (id.includes('src/js/utilities/')) {
             return 'core';
           }
-          // Tool manager (base para todas as ferramentas)
+          // Tool manager (base for all tools)
           if (id.includes('src/js/tool_manager/')) {
             return 'core';
           }
-          // Store e state management
+          // Store and state management
           if (id.includes('src/js/store/') || id.includes('src/js/state/')) {
             return 'core';
           }
@@ -150,23 +150,23 @@ export default defineConfig({
           if (id.includes('src/js/briefing/')) {
             return 'core';
           }
-          // Layers e baselayers (dependem de store)
+          // Layers and baselayers (depend on store)
           if (id.includes('src/js/layers/') || id.includes('src/js/baselayers/')) {
             return 'core';
           }
-          // Terreno (depende de store e layers)
+          // Terrain (depends on store and layers)
           if (id.includes('src/js/terrain/')) {
             return 'core';
           }
-          // Toolbar (dependido por modals/shortcuts.modal)
+          // Toolbar (depended on by modals/shortcuts.modal)
           if (id.includes('src/js/toolbar/')) {
             return 'core';
           }
-          // Modals (depende de toolbar, dependido por catalog)
+          // Modals (depends on toolbar, depended on by catalog)
           if (id.includes('src/js/modals/')) {
             return 'core';
           }
-          // Catálogo (depende de modals, dependido por store/settings.operations)
+          // Catalog (depends on modals, depended on by store/settings.operations)
           if (id.includes('src/js/catalog/')) {
             return 'core';
           }
@@ -174,46 +174,46 @@ export default defineConfig({
           if (id.includes('src/js/ui/')) {
             return 'core';
           }
-          // Utilitários de mapa (grid, coordinates)
+          // Map utilities (grid, coordinates)
           if (id.includes('src/js/grid/') ||
               id.includes('src/js/coordinates/')) {
             return 'core';
           }
         },
-        // Nomes dos arquivos
+        // Output file names
         entryFileNames: 'assets/[name]-[hash].js',
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]'
       },
-      // Vendors externos (não bundlear)
-      // CORREÇÃO: Regex específica para excluir apenas o vendor Cesium,
-      // não arquivos do projeto como cesium3d.operations.js
+      // External vendors (not bundled)
+      // Specific regex to exclude only the Cesium vendor,
+      // not project files like cesium3d.operations.js
       external: [
-        // Match exato do módulo 'cesium' (import 'cesium')
+        // Exact match of 'cesium' module (import 'cesium')
         /^cesium$/i,
-        // Match subpaths do módulo cesium (import 'cesium/Source/...')
+        // Match cesium subpaths (import 'cesium/Source/...')
         /^cesium\//i,
-        // Match paths de vendors locais do Cesium
+        // Match local Cesium vendor paths
         /vendors\/cesium/i,
-        // Match paths em node_modules (caso use npm install cesium)
+        // Match node_modules paths (if cesium installed via npm)
         /node_modules\/cesium/i
       ]
     },
 
-    // Source maps: 'hidden' gera mapas sem expor ao público
+    // Source maps: 'hidden' generates maps without exposing them publicly
     sourcemap: 'hidden',
 
-    // Tamanho máximo de chunk antes de warning
+    // Maximum chunk size before warning
     chunkSizeWarningLimit: 1000
   },
 
-  // ===== SERVIDOR DE DESENVOLVIMENTO =====
+  // ===== DEVELOPMENT SERVER =====
   server: {
     port: 3000,
     open: true,
     cors: true,
 
-    // Proxy para APIs (se necessário)
+    // API proxy (if needed)
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
@@ -226,13 +226,13 @@ export default defineConfig({
     }
   },
 
-  // ===== PREVIEW (produção local) =====
+  // ===== PREVIEW (local production) =====
   preview: {
     port: 4173,
     strictPort: false
   },
 
-  // ===== RESOLUÇÃO DE MÓDULOS =====
+  // ===== MODULE RESOLUTION =====
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -257,9 +257,9 @@ export default defineConfig({
     devSourcemap: true
   },
 
-  // ===== OTIMIZAÇÕES =====
+  // ===== OPTIMIZATIONS =====
   optimizeDeps: {
-    // Excluir vendors globais (carregados via script tags)
+    // Exclude global vendors (loaded via script tags)
     exclude: [
       'maplibre-gl',
       '@turf/turf',
@@ -270,26 +270,26 @@ export default defineConfig({
 
   // ===== PLUGINS =====
   plugins: [
-    // Suporte a browsers antigos
+    // Legacy browser support
     legacy({
       targets: ['defaults', 'not IE 11'],
       additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
-      // Não incluir polyfills no bundle moderno
+      // Do not include polyfills in modern bundle
       modernPolyfills: false
     })
   ],
 
-  // ===== DEFINIÇÕES GLOBAIS =====
+  // ===== GLOBAL DEFINITIONS =====
   define: {
     __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '1.0.0'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
 
-    // ===== ESBUILD OPTIONS =====
-    esbuild: {
-        // Mantém nomes de classes/funções para debug
-        keepNames: true,
-        // Legaliza comentários de licença
-        legalComments: 'none'
-    }
+  // ===== ESBUILD OPTIONS =====
+  esbuild: {
+    // Keep class/function names for debugging
+    keepNames: true,
+    // Strip license comments from output
+    legalComments: 'none'
+  }
 });

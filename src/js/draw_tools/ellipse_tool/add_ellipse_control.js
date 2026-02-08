@@ -1,7 +1,7 @@
 // Path: js/draw_tools/ellipse_tool/add_ellipse_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils } from '../../utilities';
+import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addEllipseAttributesToPanel } from './ellipse_attributes_panel.js';
 import AddEllipseGeometry from './add_ellipse_geometry.js';
@@ -395,7 +395,7 @@ class AddEllipseControl extends BaseControl {
         const { majorRadius, bearing, minorRadius } = this.geometry.calculateInitialDimensions(center, endPoint);
 
         if (!this.geometry.validate(center, majorRadius, minorRadius, bearing)) {
-            alert('Raio mínimo: 10 metros');
+            showWarning('Raio mínimo: 10 metros');
             this.drawPoints = [];
             return;
         }

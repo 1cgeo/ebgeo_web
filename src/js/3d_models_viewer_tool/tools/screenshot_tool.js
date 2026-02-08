@@ -1,4 +1,7 @@
 // Path: js/3d_models_viewer_tool/tools/screenshot_tool.js
+
+import { showToast } from '../../utilities/index.js';
+
 let viewerInstance = null;
 
 /**
@@ -26,7 +29,7 @@ async function takeScreenshot(viewer) {
 
     } catch (error) {
         console.error('Error capturing 3D screenshot:', error);
-        alert('Could not capture 3D screenshot');
+        showToast('Erro ao capturar screenshot 3D', 'error');
         return false;
     }
 }
@@ -234,7 +237,7 @@ async function isCanvasEmpty(canvas) {
     try {
         // Create temporary canvas for testing
         const testCanvas = document.createElement('canvas');
-        testCanvas.width = Math.min(canvas.width, 100); // Amostra pequena para performance
+        testCanvas.width = Math.min(canvas.width, 100); // Small sample for performance
         testCanvas.height = Math.min(canvas.height, 100);
 
         const ctx = testCanvas.getContext('2d');
@@ -342,7 +345,7 @@ async function captureLastResort() {
 
         if (dataURL === 'data:,' || dataURL.length < 100) {
             console.error('Canvas remains empty even after last resort');
-            alert('Screenshot não pôde ser capturado. Tente aguardar o carregamento completo da cena.');
+            showToast('Screenshot não pôde ser capturado. Tente aguardar o carregamento completo da cena.', 'error');
             return false;
         }
 

@@ -11,6 +11,7 @@ import { getStateManager, getEventBus } from '../store/services.js';
 import { EventTypes } from '../events/index.js';
 import { showConfirm } from '../modals/confirm.modal.js';
 import { showSuccess, showError } from '../utilities/toast_service.js';
+import { escapeHtml } from '../utilities/html-escape.js';
 
 /**
  * Icons used in the component.
@@ -164,10 +165,11 @@ function createPhotoItem(photoName, features, eventBus) {
     item.dataset.photoName = photoName;
 
     // Build features list HTML
+    const safePhotoName = escapeHtml(photoName);
     const featuresHtml = features.map(feature => `
-        <div class="streetview360-feature-item" data-type="${feature.type}" data-id="${feature.type === 'marker' ? feature.data.id : ''}" data-photo="${photoName}">
+        <div class="streetview360-feature-item" data-type="${escapeHtml(feature.type)}" data-id="${feature.type === 'marker' ? escapeHtml(feature.data.id) : ''}" data-photo="${safePhotoName}">
             <span class="streetview360-feature-icon">${getFeatureIcon(feature)}</span>
-            <span class="streetview360-feature-name" title="${getFeatureName(feature)}">${getFeatureName(feature)}</span>
+            <span class="streetview360-feature-name" title="${escapeHtml(getFeatureName(feature))}">${escapeHtml(getFeatureName(feature))}</span>
         </div>
     `).join('');
 
@@ -177,7 +179,7 @@ function createPhotoItem(photoName, features, eventBus) {
                 ${isCollapsed ? ICONS.CHEVRON_RIGHT : ICONS.CHEVRON_DOWN}
             </button>
             <span class="streetview360-photo-icon">${ICONS.CAMERA_360}</span>
-            <span class="streetview360-photo-name" title="${photoName}">${photoName}</span>
+            <span class="streetview360-photo-name" title="${safePhotoName}">${safePhotoName}</span>
             <span class="streetview360-feature-count">${features.length}</span>
             <button class="streetview360-delete-all" title="Deletar todas as feições">
                 ${ICONS.TRASH}

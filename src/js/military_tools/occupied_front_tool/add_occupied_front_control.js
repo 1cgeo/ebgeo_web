@@ -1,7 +1,7 @@
 // Path: js/military_tools/occupied_front_tool/add_occupied_front_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils } from '../../utilities';
+import { IDUtils, showWarning } from '../../utilities';
 import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addOccupiedFrontAttributesToPanel } from './occupied_front_attributes_panel.js';
 import AddOccupiedFrontGeometry from './add_occupied_front_geometry.js';
@@ -346,7 +346,7 @@ class AddOccupiedFrontControl extends BaseControl {
         const p3 = this.geometry.destination(p1, distance, bearing + 50);
 
         if (distance < 10) {
-            alert('Distância mínima: 10 metros');
+            showWarning('Distância mínima: 10 metros');
             this.drawPoints = [];
             return;
         }

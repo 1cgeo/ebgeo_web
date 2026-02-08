@@ -17,6 +17,7 @@ import { createCatalogHeader } from './components/catalog-header.js';
 import { createCatalogFilters } from './components/catalog-filters.js';
 import { createCatalogGrid } from './components/catalog-grid.js';
 import { getControl, isCurrentMapLockedSync } from '../store';
+import { EventTypes } from '../events/event_types.js';
 // Note: Using literal 'camadas' to avoid circular dependency with sidebar/sidebar.constants.js
 // SIDEBAR_TABS.CAMADAS === 'camadas'
 
@@ -281,7 +282,7 @@ export class CatalogModal extends ModalBase {
      */
     async _addHillshade(item) {
         // Emit event to add hillshade
-        this._eventBus.emit('CATALOG_ADD_LAYER', {
+        this._eventBus.emit(EventTypes.CATALOG_ADD_LAYER, {
             type: CATALOG_ITEM_TYPES.HILLSHADE,
             item: item
         });
@@ -299,7 +300,7 @@ export class CatalogModal extends ModalBase {
      */
     async _addAnalysisLayer(item) {
         // Emit event to add analysis layer
-        this._eventBus.emit('CATALOG_ADD_LAYER', {
+        this._eventBus.emit(EventTypes.CATALOG_ADD_LAYER, {
             type: CATALOG_ITEM_TYPES.ANALYSIS_LAYER,
             item: item
         });
@@ -326,7 +327,7 @@ export class CatalogModal extends ModalBase {
      */
     async _addDataLayer(item) {
         // Emit event to add data layer
-        this._eventBus.emit('CATALOG_ADD_LAYER', {
+        this._eventBus.emit(EventTypes.CATALOG_ADD_LAYER, {
             type: CATALOG_ITEM_TYPES.DATA_LAYER,
             item: item
         });

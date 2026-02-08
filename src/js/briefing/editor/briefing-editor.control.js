@@ -865,7 +865,7 @@ export class BriefingEditorControl {
         defaultOption.value = '';
         defaultOption.textContent = 'Selecione um modelo 3D...';
         defaultOption.disabled = true;
-        if (!slide.tilesetId) defaultOption.selected = true;
+        if (!slide.modelId) defaultOption.selected = true;
         select.appendChild(defaultOption);
 
         if (!slide.mapId) return;
@@ -891,7 +891,7 @@ export class BriefingEditorControl {
                     const option = document.createElement('option');
                     option.value = tileset.id;
                     option.textContent = tileset.name || tileset.id;
-                    if (slide.tilesetId === tileset.id) option.selected = true;
+                    if (slide.modelId === tileset.id) option.selected = true;
                     select.appendChild(option);
                 }
             }
@@ -959,9 +959,9 @@ export class BriefingEditorControl {
         } else {
             modelGroup.appendChild(modelSelect);
             addDomListener(this, modelSelect, 'change', async () => {
-                slide.tilesetId = modelSelect.value || null;
-                if (slide.tilesetId) {
-                    await this._switchPreviewMode(SlideMode.VIEWER_3D, { tilesetId: slide.tilesetId });
+                slide.modelId = modelSelect.value || null;
+                if (slide.modelId) {
+                    await this._switchPreviewMode(SlideMode.VIEWER_3D, { tilesetId: slide.modelId });
                 }
                 this._scheduleAutosave();
             });
@@ -1263,7 +1263,7 @@ export class BriefingEditorControl {
         this._populateMapSelect(mapSelect, slide);
         addDomListener(this, mapSelect, 'change', async () => {
             slide.mapId = mapSelect.value || null;
-            slide.tilesetId = null;
+            slide.modelId = null;
             slide.photoId = null;
 
             await this._handleMapChange(slide.mapId);
@@ -1459,10 +1459,10 @@ export class BriefingEditorControl {
 
         case SlideMode.VIEWER_3D:
             await this._switchPreviewMode(SlideMode.VIEWER_3D, {
-                tilesetId: slide.tilesetId
+                tilesetId: slide.modelId
             });
             // Navigate Cesium camera if position saved
-            if (slide.tilesetId && slide.position?.longitude !== null) {
+            if (slide.modelId && slide.position?.longitude !== null) {
                 this._flyCesiumToSlidePosition(slide);
             }
             break;

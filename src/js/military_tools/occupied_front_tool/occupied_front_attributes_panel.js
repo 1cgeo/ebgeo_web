@@ -47,7 +47,7 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
 
             const infoText = document.createElement('div');
             infoText.className = 'feature-name-wrapper';
-            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+
             infoText.textContent = `${selectedFeatures.length} frentes ocupadas selecionadas`;
 
             const optionsButton = createFeatureOptionsButton(
