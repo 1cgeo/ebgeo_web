@@ -828,6 +828,12 @@
     opacity: 0.6;
 }
 
+/* Allow view-only toggles (measure, profile) to remain interactive when locked */
+.feature-panel--locked .attr-toggle--view-only .attr-modern-toggle-switch {
+    pointer-events: auto;
+    opacity: 1;
+}
+
 /* Disable slider controls when locked */
 .feature-panel--locked .attr-modern-slider {
     pointer-events: none;

@@ -146,9 +146,10 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
     });
     panel.appendChild(hatchControl);
 
-    // Measure toggle
+    // Measure toggle (view-only: allowed in locked mode, not persisted)
     panel.appendChild(createModernToggle({
         label: 'Mostrar medição',
+        className: 'attr-toggle--view-only',
         checked: feature.properties.measure === true,
         onChange: (checked) => {
             polygonControl.updateFeaturesProperty(selectedFeatures, 'measure', checked);

@@ -369,7 +369,7 @@ function executeBuffer(features, params) {
 registerAlgorithm({
     id: 'buffer',
     name: 'Zona de Influência',
-    description: 'Cria uma área de contorno ao redor das feições',
+    description: 'Cria uma área ao redor de um ponto, linha ou polígono a uma distância determinada, representando uma faixa de abrangência em torno da feição original.',
     icon: BUFFER_ICON,
     category: 'geometry',
     supportedGeometryTypes: SUPPORTED_TYPES,

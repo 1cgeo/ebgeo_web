@@ -10,6 +10,7 @@ import {
     getFeatureGroup,
     getVisibleLayerIds,
     isFeatureEffectivelyLocked,
+    isCurrentMapLockedSync,
     getStateManager,
     startBatchUndo,
     commitBatchUndo,
@@ -242,7 +243,13 @@ class SelectionManager {
 
         const control = this.controls.get(type);
         if (control?.onFeatureSelected) {
+            // Signal locked state so controls skip edit handle creation
+            const locked = isCurrentMapLockedSync();
+            if (locked) control._mapLocked = true;
+
             control.onFeatureSelected(featureToStore);
+
+            if (locked) control._mapLocked = false;
         }
 
         this.updateUI();

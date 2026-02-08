@@ -374,7 +374,7 @@ function createVoronoiPanel(deps) {
 
     const _getDefaultOutputName = () => {
         const layer = layers.find(l => l.id === selectedLayerId);
-        return `Voronoi - ${layer ? layer.name : 'Camada'}`;
+        return `Proximidade - ${layer ? layer.name : 'Camada'}`;
     };
     outputNameInput.value = _getDefaultOutputName();
 
@@ -586,7 +586,7 @@ function executeVoronoi(features, params) {
             // Nome baseado no ponto de origem
             const sourceName = pointSources[i]?.properties?.nome;
             const cellName = sourceName
-                ? `Voronoi - ${sourceName}`
+                ? `Proximidade - ${sourceName}`
                 : `Célula ${i + 1}`;
 
             const props = {
@@ -635,8 +635,8 @@ function executeVoronoi(features, params) {
 
 registerAlgorithm({
     id: 'voronoi',
-    name: 'Diagrama de Voronoi',
-    description: 'Gera células de Voronoi a partir de pontos dentro de uma área',
+    name: 'Diagrama de Proximidade',
+    description: 'Divide uma região em áreas onde cada ponto do terreno é associado ao ponto de referência mais próximo, formando um mosaico de zonas de proximidade.',
     icon: VORONOI_ICON,
     category: 'geometry',
     supportedGeometryTypes: SUPPORTED_TYPES,

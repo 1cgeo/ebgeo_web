@@ -888,6 +888,10 @@ export class SidebarControl {
                     importControl: this._importControl,
                     exportImportService: this._exportImportService,
                     eventBus: this._eventBus,
+                    onShowToolPanel: (element, title, cleanupFn, onCloseFn) =>
+                        this.showToolPanel(element, title, cleanupFn, onCloseFn),
+                    onHideToolPanel: () =>
+                        this.hideToolPanel(false, false),
                 });
                 break;
 
@@ -1036,6 +1040,11 @@ export class SidebarControl {
      */
     showToolPanel(contentElement, title, cleanupFn, onCloseFn) {
         if (!contentElement || !this._featurePanel) return;
+
+        // Save current tab so closeFeaturePanel() can restore it
+        if (this._activeTab) {
+            this._stateManager.set('sidebar.previousTab', this._activeTab);
+        }
 
         // Collapse sidebar panel first
         this._collapsePanel();

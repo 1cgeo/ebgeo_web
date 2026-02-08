@@ -2,6 +2,7 @@
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
+import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addTextAttributesToPanel } from './text_attributes_panel.js';
 import AddTextGeometry from './add_text_geometry.js';
 import { BaseControl } from '../../tool_manager';
@@ -16,6 +17,16 @@ class AddTextControl extends BaseControl {
         this.pendingZoomUpdate = false;
         this.zoomCorrectionEnabled = true;
         this._name = 'AddTextControl';
+
+        // Pointer event state for edit handles
+        this.isDraggingHandle = false;
+        this.activeHandleType = null;
+        this._activePointerId = null;
+
+        // Bind pointer event handlers
+        this._onEditPointerDown = this._onEditPointerDown.bind(this);
+        this._onEditPointerMove = this._onEditPointerMove.bind(this);
+        this._onEditPointerUp = this._onEditPointerUp.bind(this);
     }
 
     static DEFAULT_PROPERTIES = {
@@ -108,7 +119,7 @@ class AddTextControl extends BaseControl {
     }
 
     getEditHandleSources() {
-        return [];
+        return ['text-edit-handles'];
     }
 
     createSelectionBox(feature) {
@@ -149,7 +160,7 @@ class AddTextControl extends BaseControl {
     }
 
     getEditHandleSource() {
-        return null;
+        return 'text-edit-handles';
     }
 
     canCopy(_feature) {
@@ -265,13 +276,28 @@ class AddTextControl extends BaseControl {
         return false;
     }
 
-    hasEditHandle = (_featureId) => {
-        return false;
+    hasEditHandle = (featureId) => {
+        const selectedFeature = this.getSelectedFeature();
+        return selectedFeature && selectedFeature.properties.id === featureId;
     }
 
     syncEditHandlesAfterDrag = (movedFeatures) => {
         this.updateSelectionBoxesForFeatures(movedFeatures);
         this.updateTextBackgroundsSource();
+
+        // Refresh rotation handle position after drag
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature && !this.isDraggingHandle) {
+            const movedFeature = movedFeatures.find(f =>
+                f.properties.source === 'text' &&
+                f.properties.id === selectedFeature.properties.id
+            );
+
+            if (movedFeature) {
+                this.updateSelectionManagerFeature(movedFeature);
+                this.createEditHandles(movedFeature);
+            }
+        }
     }
 
     /**
@@ -329,12 +355,23 @@ class AddTextControl extends BaseControl {
         }
     }
 
-    selectFeature = (_feature) => {
+    selectFeature = (feature) => {
         this.setupHoverListeners();
+
+        // Skip edit handles and edit listeners when map is locked (read-only)
+        if (this._mapLocked) return;
+
+        this.createEditHandles(feature);
+        this.setupEditEventListeners();
     }
 
     deselectFeature = () => {
+        this.isDraggingHandle = false;
+        this.activeHandleType = null;
+        this.clearEditHandles();
+        this.removeEditEventListeners();
         this.removeHoverListeners();
+        this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
     }
 
@@ -530,9 +567,23 @@ class AddTextControl extends BaseControl {
         if (!selectedFeature) return;
 
         const features = this.map.queryRenderedFeatures(e.point);
+        const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
-        this.map.getCanvas().style.cursor = hasFeature ? 'move' : '';
+        if (hasHandle) {
+            this.map.getCanvas().style.cursor = 'grab';
+        } else if (hasFeature) {
+            this.map.getCanvas().style.cursor = 'move';
+        } else {
+            this.map.getCanvas().style.cursor = '';
+        }
+    }
+
+    hasHandleAtPoint = (features) => {
+        return features.some(f =>
+            f.source === 'text-edit-handles' &&
+            f.properties.user_isEditingHandle
+        );
     }
 
     hasSelectedFeatureAtPoint = (features) => {
@@ -694,6 +745,12 @@ class AddTextControl extends BaseControl {
                     this.selectionManager.uiManager.updateSelectionHighlight();
                 }
             });
+        }
+
+        // Refresh rotation handle when properties change (not during handle drag)
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature && !this.isDraggingHandle) {
+            this.createEditHandles(selectedFeature);
         }
     }
 
@@ -882,12 +939,198 @@ class AddTextControl extends BaseControl {
         });
     }
 
+    // ===== EDIT HANDLES SYSTEM =====
+
+    /**
+     * Create rotation handle for the selected text feature
+     * @param {Object} feature - Text feature
+     */
+    createEditHandles = (feature) => {
+        const mapZoom = this.map.getZoom();
+        const handles = this.geometry.createHandles(feature, mapZoom);
+        if (!handles || handles.length === 0) return;
+
+        this.map.getSource('text-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: handles
+        });
+    }
+
+    /**
+     * Clear all text edit handles from the map
+     */
+    clearEditHandles = () => {
+        if (this.map.getSource('text-edit-handles')) {
+            this.map.getSource('text-edit-handles').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
+        }
+    }
+
+    /**
+     * Register pointerdown listener on the canvas for handle interaction
+     */
+    setupEditEventListeners = () => {
+        const canvas = this.map.getCanvasContainer();
+        canvas.addEventListener('pointerdown', this._onEditPointerDown);
+    }
+
+    /**
+     * Remove all edit pointer listeners and release pointer capture
+     */
+    removeEditEventListeners = () => {
+        const canvas = this.map.getCanvasContainer();
+        canvas.removeEventListener('pointerdown', this._onEditPointerDown);
+        canvas.removeEventListener('pointermove', this._onEditPointerMove);
+        canvas.removeEventListener('pointerup', this._onEditPointerUp);
+        canvas.removeEventListener('pointercancel', this._onEditPointerUp);
+
+        // Release any captured pointer
+        if (this._activePointerId !== null) {
+            try {
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (_err) {
+                // Pointer may have already been released
+            }
+            this._activePointerId = null;
+        }
+    }
+
+    /**
+     * Handle pointer down on canvas — start handle drag if hit
+     * @param {PointerEvent} e
+     */
+    _onEditPointerDown(e) {
+        if (!e.isPrimary) return;
+
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
+
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+
+        const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
+            layers: ['text-edit-handles-layer']
+        });
+
+        if (handleFeatures.length > 0) {
+            const handle = handleFeatures[0];
+            this.isDraggingHandle = true;
+            this.activeHandleType = handle.properties.handleId;
+            this.map.dragPan.disable();
+            this.map.getCanvas().style.cursor = 'grabbing';
+
+            // Capture pointer for reliable tracking
+            this._activePointerId = e.pointerId;
+            canvas.setPointerCapture(e.pointerId);
+
+            // Add move/up listeners only when dragging starts
+            canvas.addEventListener('pointermove', this._onEditPointerMove);
+            canvas.addEventListener('pointerup', this._onEditPointerUp);
+            canvas.addEventListener('pointercancel', this._onEditPointerUp);
+
+            e.preventDefault();
+        }
+    }
+
+    /**
+     * Handle pointer move during handle drag — update rotation in real time
+     * @param {PointerEvent} e
+     */
+    _onEditPointerMove(e) {
+        if (!e.isPrimary) return;
+
+        const selectedFeature = this.getSelectedFeature();
+        if (!this.isDraggingHandle || !selectedFeature) return;
+
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+        const lngLat = this.map.unproject([point.x, point.y]);
+        const newPosition = [lngLat.lng, lngLat.lat];
+
+        const result = this.geometry.updateFromHandle(this.activeHandleType, newPosition, selectedFeature);
+        if (result === null) return;
+
+        // Update rotation on all selected features in real time
+        const selectedFeatures = this.getSelectedFeatures();
+        this.updateFeaturesProperty(selectedFeatures, 'rotation', result.rotation);
+
+        // Refresh handle position during drag (updateFeaturesProperty skips this when isDraggingHandle)
+        const freshFeature = this.getSelectedFeature();
+        if (freshFeature) {
+            this.createEditHandles(freshFeature);
+        }
+    }
+
+    /**
+     * Handle pointer up — finalize rotation drag
+     * @param {PointerEvent} _e
+     */
+    _onEditPointerUp(_e) {
+        const canvas = this.map.getCanvasContainer();
+
+        // Remove move/up listeners
+        canvas.removeEventListener('pointermove', this._onEditPointerMove);
+        canvas.removeEventListener('pointerup', this._onEditPointerUp);
+        canvas.removeEventListener('pointercancel', this._onEditPointerUp);
+
+        // Release pointer capture
+        if (this._activePointerId !== null) {
+            try {
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (_err) {
+                // Pointer may have already been released
+            }
+            this._activePointerId = null;
+        }
+
+        const selectedFeature = this.getSelectedFeature();
+        if (this.isDraggingHandle && selectedFeature) {
+            // Recreate handles at final position
+            this.createEditHandles(selectedFeature);
+
+            // Rebuild attribute panel to sync slider with final rotation value
+            this.updateUIAfterEdit();
+
+            // Persist changes
+            this.saveFeatureChanges(selectedFeature);
+        }
+
+        this.isDraggingHandle = false;
+        this.activeHandleType = null;
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    /**
+     * Refresh UI (selection highlight + attribute panel) after handle edit
+     */
+    updateUIAfterEdit = () => {
+        this.selectionManager.uiManager.updateSelectionHighlight();
+        this.selectionManager.uiManager.updatePanels();
+        this.selectionManager.updateUI();
+    }
+
+    /**
+     * Persist a feature's current state to the store
+     * @param {Object} feature - Feature to persist
+     */
+    saveFeatureChanges = async (feature) => {
+        try {
+            await updateFeature('texts', feature);
+        } catch (error) {
+            console.error('Error saving text changes:', error);
+        }
+    }
+
     // ===== UTILITY METHODS =====
 
     setupBaseEventListeners = () => {
     }
 
     removeAllEventListeners = () => {
+        this.removeEditEventListeners();
         this.removeHoverListeners();
 
         if (this.zoomRafId) {

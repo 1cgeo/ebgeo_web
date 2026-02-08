@@ -1,6 +1,7 @@
 // Path: js/draw_tools/text_tool/add_text_geometry.js
 
 import { BaseGeometry } from '../../tool_manager';
+import { pixelsToDegrees } from '../../utilities/geometry-utils.js';
 
 /**
  * Text Geometry Operations
@@ -74,23 +75,109 @@ class AddTextGeometry extends BaseGeometry {
     }
 
     /**
-     * Text features don't have edit handles - they're edited through attribute panel
+     * Create a single rotation handle positioned above the text center.
      * @param {Object} feature - Text feature
-     * @returns {Array} Empty array (no handles)
+     * @param {number} mapZoom - Current map zoom level
+     * @returns {Array} Array with one rotation handle feature
      */
-    createHandles(_feature) {
-        return [];
+    createHandles(feature, mapZoom) {
+        const coordinates = feature.geometry.coordinates;
+        if (!this.isValidPosition(coordinates)) return [];
+
+        const handlePosition = this.calculateRotationHandlePosition(feature, mapZoom);
+        if (!handlePosition) return [];
+
+        return [{
+            type: 'Feature',
+            id: `text-handle-${feature.properties.id}-rotation`,
+            geometry: {
+                type: 'Point',
+                coordinates: handlePosition
+            },
+            properties: {
+                role: 'handle',
+                handleType: 'eccentricity',
+                handleId: 'rotation',
+                featureId: feature.properties.id,
+                mode: 'text_editing',
+                meta: 'vertex',
+                user_isEditingHandle: true
+            }
+        }];
     }
 
     /**
-     * Text features don't support handle-based editing
-     * @param {string} handleType - Type of handle
-     * @param {Array} newPosition - New position
-     * @param {Object} feature - Feature being edited
-     * @returns {null} Always null (not supported)
+     * Calculate rotation handle position to the left of the text center.
+     * Offset is half the text width + padding, placed at the selection box edge.
+     * @param {Object} feature - Text feature
+     * @param {number} mapZoom - Current map zoom level (for non-zoom-corrected text)
+     * @returns {Array|null} Handle position [lng, lat] or null
      */
-    updateFromHandle(_handleType, _newPosition, _feature) {
-        return null;
+    calculateRotationHandlePosition(feature, mapZoom) {
+        const coordinates = feature.geometry.coordinates;
+        const rotation = feature.properties.rotation || 0;
+
+        const { width } = this.measureTextSize(
+            feature.properties.text,
+            feature.properties.size,
+            'Arial'
+        );
+
+        // Handle sits to the left of text: half width + small padding
+        const HANDLE_PADDING_PX = 12;
+        const offsetPixels = (width / 2) + HANDLE_PADDING_PX;
+
+        // Use createdAtZoom for zoom-corrected text, current zoom otherwise
+        const zoom = feature.properties.zoomCorrectionEnabled !== false
+            ? feature.properties.createdAtZoom
+            : (mapZoom || feature.properties.createdAtZoom);
+
+        const latitude = coordinates[1];
+        const offsetDegrees = pixelsToDegrees(offsetPixels, latitude, zoom);
+
+        // Base bearing for "left" in text frame = 270° (west).
+        // When text rotates CW by R, handle bearing = 270 + R.
+        const baseBearing = 270;
+        const bearingRad = ((baseBearing + rotation) * Math.PI) / 180;
+        const dx = offsetDegrees * Math.sin(bearingRad);
+        const dy = offsetDegrees * Math.cos(bearingRad);
+
+        return [coordinates[0] + dx, coordinates[1] + dy];
+    }
+
+    /**
+     * Calculate text rotation from the drag position of the rotation handle.
+     * Inverse of calculateRotationHandlePosition.
+     * @param {Array} center - Text center coordinates [lng, lat]
+     * @param {Array} handlePosition - Handle position [lng, lat]
+     * @returns {number} Rotation in degrees (0-360)
+     */
+    calculateRotationFromHandle(center, handlePosition) {
+        // Handle bearing from center: turf.bearing returns -180 to 180
+        const bearing = turf.bearing(center, handlePosition);
+
+        // Handle is at bearing = 270 + rotation, so rotation = bearing - 270
+        let rotation = bearing - 270;
+        if (rotation < 0) rotation += 360;
+        if (rotation >= 360) rotation -= 360;
+
+        return Math.round(rotation);
+    }
+
+    /**
+     * Update text properties based on rotation handle movement.
+     * @param {string} handleType - Handle type ('rotation')
+     * @param {Array} newPosition - New handle position [lng, lat]
+     * @param {Object} feature - Text feature being edited
+     * @returns {Object|null} Updated rotation value or null
+     */
+    updateFromHandle(handleType, newPosition, feature) {
+        if (handleType !== 'rotation') return null;
+
+        const center = feature.geometry.coordinates;
+        const rotation = this.calculateRotationFromHandle(center, newPosition);
+
+        return { rotation };
     }
 
     /**

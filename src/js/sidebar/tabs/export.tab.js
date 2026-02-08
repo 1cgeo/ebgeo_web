@@ -30,7 +30,7 @@ const EXPORT_OPTIONS = {
     image: {
         id: 'image',
         name: 'Exportar Imagem',
-        description: 'Capturar screenshot do mapa atual',
+        description: 'Capturar imagem do mapa atual',
         icon: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
     },
 };
@@ -167,11 +167,11 @@ export class ExportTab {
             const descElement = this._imageOptionButton.querySelector('.export-option-desc');
             if (descElement) {
                 if (this._is3DViewerOpen) {
-                    descElement.textContent = 'Capturar screenshot do modelo 3D';
+                    descElement.textContent = 'Capturar imagem do modelo 3D';
                 } else if (this._is360ViewerOpen) {
-                    descElement.textContent = 'Capturar screenshot da imagem 360';
+                    descElement.textContent = 'Capturar imagem da visualização 360';
                 } else {
-                    descElement.textContent = 'Capturar screenshot do mapa atual';
+                    descElement.textContent = 'Capturar imagem do mapa atual';
                 }
             }
         }

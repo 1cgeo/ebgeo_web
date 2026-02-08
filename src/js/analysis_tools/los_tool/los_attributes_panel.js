@@ -385,20 +385,22 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
     // Options section
     panel.appendChild(createSectionDivider('Opções'));
 
-    // Show measure toggle
+    // Show measure toggle (view-only: allowed in locked mode, not persisted)
     panel.appendChild(createModernToggle({
         label: 'Mostrar Medição',
+        className: 'attr-toggle--view-only',
         checked: feature.properties.measure || false,
         onChange: (checked) => {
             losControl.updateFeaturesProperty(selectedFeatures, 'measure', checked);
         }
     }));
 
-    // Show profile toggle (single selection only)
+    // Show profile toggle (view-only: allowed in locked mode, not persisted)
     if (selectedFeatures.length === 1) {
         panel.appendChild(createModernToggle({
             id: 'profile-toggle',
             label: 'Mostrar Perfil',
+            className: 'attr-toggle--view-only',
             checked: feature.properties.profile || false,
             onChange: async (checked) => {
                 await losControl.updateFeaturesProperty(selectedFeatures, 'profile', checked);

@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview Import tab component for sidebar.
- * Provides file import functionality for GeoJSON, Shapefile, KML/KMZ, and GPX.
+ * Provides file import functionality for GeoJSON, Shapefile, KML/KMZ, GPX, and CSV.
  */
 
 import {
@@ -53,6 +53,14 @@ const IMPORT_FORMATS = {
         color: '#8b5cf6', // purple
         icon: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
     },
+    csv: {
+        id: 'csv',
+        name: 'CSV',
+        description: 'Tabela com coordenadas em colunas',
+        accept: '.csv,.txt,.tsv',
+        color: '#0ea5e9', // sky blue
+        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>`,
+    },
 };
 
 /**
@@ -64,11 +72,15 @@ export class ImportTab {
      * @param {Object} dependencies.importControl - AddImportControl instance
      * @param {Object} dependencies.exportImportService - ExportImportService instance
      * @param {Object} dependencies.eventBus - EventBus instance
+     * @param {Function} [dependencies.onShowToolPanel] - Callback(element, title, cleanup, onClose) to show a tool panel
+     * @param {Function} [dependencies.onHideToolPanel] - Callback() to hide the tool panel
      */
     constructor(dependencies) {
         this._importControl = dependencies.importControl;
         this._exportImportService = dependencies.exportImportService;
         this._eventBus = dependencies.eventBus;
+        this._onShowToolPanel = dependencies.onShowToolPanel || null;
+        this._onHideToolPanel = dependencies.onHideToolPanel || null;
 
         this._container = null;
         this._dropZone = null;
@@ -76,6 +88,7 @@ export class ImportTab {
         this._currentFormat = null;
         this._optionsContainer = null;
         this._is3DViewerOpen = false;
+        this._pendingCSVImport = false;
 
         setupCleanup(this);
     }
@@ -296,6 +309,10 @@ export class ImportTab {
 
         this._currentFormat = format;
         this._fileInput.accept = format.accept;
+
+        // CSV needs a config panel after file selection
+        this._pendingCSVImport = format.id === 'csv';
+
         this._fileInput.click();
     }
 
@@ -308,7 +325,12 @@ export class ImportTab {
         const file = e.target.files[0];
         if (!file) return;
 
-        await this._processFile(file);
+        if (this._pendingCSVImport) {
+            this._pendingCSVImport = false;
+            await this._processCSVFile(file);
+        } else {
+            await this._processFile(file);
+        }
 
         // Reset input
         this._fileInput.value = '';
@@ -370,6 +392,52 @@ export class ImportTab {
         } catch (error) {
             console.error('Import error:', error);
             showError(`Erro ao importar: ${error.message}`);
+        }
+    }
+
+    /**
+     * Processes a CSV file by showing the configuration panel.
+     * @private
+     * @param {File} file - CSV file to process
+     */
+    async _processCSVFile(file) {
+        if (!this._onShowToolPanel) {
+            showError('Painel de configuração não disponível');
+            return;
+        }
+
+        try {
+            const csvText = await file.text();
+
+            if (!csvText.trim()) {
+                showError('Arquivo CSV vazio');
+                return;
+            }
+
+            const { createCSVConfigPanel } = await import('../../import_export/csv/index.js');
+
+            const panelResult = createCSVConfigPanel({
+                csvText,
+                fileName: file.name.replace(/\.[^/.]+$/, ''),
+                onImport: async (geoJSON, layerName) => {
+                    const count = await this._importControl.importGeoJSON(geoJSON, layerName);
+                    const word = count === 1 ? 'ponto importado' : 'pontos importados';
+                    showSuccess(`${count} ${word} com sucesso`);
+                    if (this._onHideToolPanel) {
+                        this._onHideToolPanel();
+                    }
+                },
+            });
+
+            this._onShowToolPanel(
+                panelResult.element,
+                'Importar CSV',
+                panelResult.cleanup,
+                () => panelResult.cleanup()
+            );
+        } catch (error) {
+            console.error('CSV import error:', error);
+            showError(`Erro ao processar CSV: ${error.message}`);
         }
     }
 

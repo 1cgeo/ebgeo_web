@@ -516,9 +516,13 @@ class AddBoundaryControl extends BaseControl {
     // ===== EDIT HANDLES SYSTEM =====
 
     selectFeature = (feature) => {
+        this.setupHoverListeners();
+
+        // Skip edit handles and edit listeners when map is locked (read-only)
+        if (this._mapLocked) return;
+
         this.createEditHandles(feature);
         this.setupEditEventListeners();
-        this.setupHoverListeners();
         this.setupEditRightClickListener();
     }
 

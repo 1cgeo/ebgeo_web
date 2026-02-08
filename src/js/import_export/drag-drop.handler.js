@@ -5,7 +5,7 @@ import { isCurrentMapLockedSync } from '../store';
 class DragDropHandler {
     static FILE_TYPES = {
         EBGEO: ['.ebgeo'],
-        GEO_IMPORT: ['.geojson', '.json', '.zip', '.kml', '.kmz', '.gpx'],
+        GEO_IMPORT: ['.geojson', '.json', '.zip', '.kml', '.kmz', '.gpx', '.csv', '.tsv'],
         IMAGE: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
     };
 
@@ -175,9 +175,15 @@ class DragDropHandler {
                 break;
             }
 
-            case 'GEO_IMPORT':
+            case 'GEO_IMPORT': {
+                const ext = this.getFileExtension(file.name);
+                if (ext === '.csv' || ext === '.tsv') {
+                    showWarning('Para importar CSV, use a aba Importar na barra lateral');
+                    return;
+                }
                 await this.importControl.processFileDirectly(file);
                 break;
+            }
 
             case 'IMAGE':
                 await this.processImageFile(file, dropCoordinates);

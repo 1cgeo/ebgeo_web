@@ -430,11 +430,11 @@ body.cesium-active .modal-overlay {
 
 /* ===== MAP LOCK: HIDE WRITE-ACTION BUTTONS ===== */
 #toolbar-3d.map-locked .button-tool-3d:not(#help-3d, #voar-camera) {
-    display: none;
+    display: none !important;
 }
 
 #toolbar-3d.map-locked .toolbar-3d-separator {
-    display: none;
+    display: none !important;
 }
 
 /* ===== MARKER PANEL 3D STYLES =====

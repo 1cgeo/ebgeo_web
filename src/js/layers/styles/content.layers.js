@@ -116,6 +116,29 @@ export function setupTextLayers(features, mapInstance) {
         });
     }
 
+    // Edit handle source + layer for text rotation handle
+    if (!mapInstance.getSource('text-edit-handles')) {
+        mapInstance.addSource('text-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    if (!mapInstance.getLayer('text-edit-handles-layer')) {
+        mapInstance.addLayer({
+            id: 'text-edit-handles-layer',
+            type: 'circle',
+            source: 'text-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': '#0066ff',
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2
+            },
+            filter: ['==', '$type', 'Point']
+        });
+    }
+
     const updateBackgroundFeatures = async () => {
         const currentTexts = await mapInstance.getSource('texts').getData();
         const updatedBackgroundFeatures = currentTexts.features

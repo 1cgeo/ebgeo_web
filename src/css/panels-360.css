@@ -506,9 +506,9 @@ body.streetview-active .modal-overlay {
 
 /* ===== MAP LOCK: HIDE WRITE-ACTION BUTTONS ===== */
 #toolbar-360.map-locked .button-tool-360:not(#help-360) {
-    display: none;
+    display: none !important;
 }
 
 #toolbar-360.map-locked .toolbar-360-separator {
-    display: none;
+    display: none !important;
 }

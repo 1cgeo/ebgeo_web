@@ -110,20 +110,22 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
     // Options section
     panel.appendChild(createSectionDivider('Opções'));
 
-    // Measure toggle
+    // Measure toggle (view-only: allowed in locked mode, not persisted)
     panel.appendChild(createModernToggle({
         label: 'Mostrar medição',
+        className: 'attr-toggle--view-only',
         checked: feature.properties.measure === true,
         onChange: (checked) => {
             lineControl.updateFeaturesProperty(selectedFeatures, 'measure', checked);
         }
     }));
 
-    // Profile toggle (single selection only)
+    // Profile toggle (view-only: allowed in locked mode, not persisted)
     if (selectedFeatures.length === 1) {
         panel.appendChild(createModernToggle({
             id: 'profile-toggle',
             label: 'Perfil do terreno',
+            className: 'attr-toggle--view-only',
             checked: feature.properties.profile === true,
             onChange: async (checked) => {
                 await lineControl.updateFeaturesProperty(selectedFeatures, 'profile', checked);
