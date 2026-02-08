@@ -1,0 +1,249 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// Mock operation-factory.js (dependency of session-context.js)
+vi.mock('../../src/js/store/sync/operation-factory.js', () => ({
+    getClientId: vi.fn(() => 'mock-client-id-123')
+}));
+
+import {
+    SessionContext,
+    SessionMode,
+    UserRole,
+    PermissionAction
+} from '../../src/js/store/sync/session-context.js';
+
+let ctx;
+
+beforeEach(() => {
+    ctx = new SessionContext();
+});
+
+// ============================================================================
+// Initial state
+// ============================================================================
+
+describe('SessionContext initial state', () => {
+    it('starts in offline mode', () => {
+        expect(ctx.mode).toBe(SessionMode.OFFLINE);
+    });
+
+    it('userId is null when offline', () => {
+        expect(ctx.userId).toBeNull();
+    });
+
+    it('role is null when offline', () => {
+        expect(ctx.role).toBeNull();
+    });
+
+    it('is not authenticated when offline', () => {
+        expect(ctx.isAuthenticated()).toBe(false);
+    });
+
+    it('isOffline returns true', () => {
+        expect(ctx.isOffline()).toBe(true);
+    });
+
+    it('clientId returns value from operation-factory', () => {
+        expect(ctx.clientId).toBe('mock-client-id-123');
+    });
+});
+
+// ============================================================================
+// getUserId
+// ============================================================================
+
+describe('getUserId', () => {
+    it('returns clientId when offline', () => {
+        expect(ctx.getUserId()).toBe('mock-client-id-123');
+    });
+
+    it('returns userId when online', () => {
+        ctx.setSession({ userId: 'user-abc', role: UserRole.EDITOR });
+        expect(ctx.getUserId()).toBe('user-abc');
+    });
+});
+
+// ============================================================================
+// Permissions
+// ============================================================================
+
+describe('Permissions', () => {
+    it('offline user can perform any action', () => {
+        expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(true);
+        expect(ctx.canPerformAction(PermissionAction.DELETE)).toBe(true);
+        expect(ctx.canPerformAction(PermissionAction.MANAGE_USERS)).toBe(true);
+        expect(ctx.canPerformAction(PermissionAction.LOCK_MAPS)).toBe(true);
+    });
+
+    it('viewer cannot edit or delete', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.VIEWER });
+        expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(false);
+        expect(ctx.canPerformAction(PermissionAction.DELETE)).toBe(false);
+    });
+
+    it('editor can edit and delete but not manage users', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.EDITOR });
+        expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(true);
+        expect(ctx.canPerformAction(PermissionAction.DELETE)).toBe(true);
+        expect(ctx.canPerformAction(PermissionAction.MANAGE_USERS)).toBe(false);
+        expect(ctx.canPerformAction(PermissionAction.LOCK_MAPS)).toBe(false);
+    });
+
+    it('admin can do everything', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.ADMIN });
+        expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(true);
+        expect(ctx.canPerformAction(PermissionAction.DELETE)).toBe(true);
+        expect(ctx.canPerformAction(PermissionAction.MANAGE_USERS)).toBe(true);
+        expect(ctx.canPerformAction(PermissionAction.LOCK_MAPS)).toBe(true);
+    });
+
+    it('owner can do everything', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.OWNER });
+        expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(true);
+        expect(ctx.canPerformAction(PermissionAction.MANAGE_USERS)).toBe(true);
+    });
+
+    it('custom permissions override role defaults', () => {
+        ctx.setSession({
+            userId: 'u1',
+            role: UserRole.VIEWER,
+            permissions: { canEdit: true }
+        });
+        expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(true);
+        expect(ctx.canPerformAction(PermissionAction.DELETE)).toBe(false);
+    });
+});
+
+// ============================================================================
+// setSession / clearSession
+// ============================================================================
+
+describe('setSession', () => {
+    it('transitions to online mode', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.EDITOR });
+        expect(ctx.mode).toBe(SessionMode.ONLINE);
+        expect(ctx.userId).toBe('u1');
+        expect(ctx.role).toBe(UserRole.EDITOR);
+        expect(ctx.isAuthenticated()).toBe(true);
+    });
+
+    it('throws if userId is missing', () => {
+        expect(() => ctx.setSession({})).toThrow('userId is required');
+        expect(() => ctx.setSession(null)).toThrow();
+    });
+
+    it('defaults to viewer if role not provided', () => {
+        ctx.setSession({ userId: 'u1' });
+        expect(ctx.role).toBe(UserRole.VIEWER);
+    });
+});
+
+describe('clearSession', () => {
+    it('returns to offline mode', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.ADMIN });
+        ctx.clearSession();
+        expect(ctx.mode).toBe(SessionMode.OFFLINE);
+        expect(ctx.userId).toBeNull();
+        expect(ctx.role).toBeNull();
+        expect(ctx.isAuthenticated()).toBe(false);
+    });
+
+    it('restores full permissions', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.VIEWER });
+        expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(false);
+
+        ctx.clearSession();
+        expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(true);
+    });
+});
+
+// ============================================================================
+// Observer
+// ============================================================================
+
+describe('onSessionChanged', () => {
+    it('notifies on setSession', () => {
+        const listener = vi.fn();
+        ctx.onSessionChanged(listener);
+        ctx.setSession({ userId: 'u1', role: UserRole.EDITOR });
+
+        expect(listener).toHaveBeenCalledOnce();
+        expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+            mode: SessionMode.ONLINE,
+            userId: 'u1',
+            role: UserRole.EDITOR
+        }));
+    });
+
+    it('notifies on clearSession', () => {
+        const listener = vi.fn();
+        ctx.setSession({ userId: 'u1', role: UserRole.EDITOR });
+        ctx.onSessionChanged(listener);
+        ctx.clearSession();
+
+        expect(listener).toHaveBeenCalledOnce();
+        expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+            mode: SessionMode.OFFLINE,
+            userId: null
+        }));
+    });
+
+    it('returns unsubscribe function', () => {
+        const listener = vi.fn();
+        const unsub = ctx.onSessionChanged(listener);
+        unsub();
+        ctx.setSession({ userId: 'u1', role: UserRole.EDITOR });
+        expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('throws if callback is not a function', () => {
+        expect(() => ctx.onSessionChanged('not a function')).toThrow();
+    });
+
+    it('does not crash if listener throws', () => {
+        ctx.onSessionChanged(() => { throw new Error('boom'); });
+        expect(() => ctx.setSession({ userId: 'u1', role: UserRole.EDITOR })).not.toThrow();
+    });
+});
+
+// ============================================================================
+// getSnapshot
+// ============================================================================
+
+describe('getSnapshot', () => {
+    it('returns current state as plain object', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.ADMIN });
+        const snap = ctx.getSnapshot();
+        expect(snap.mode).toBe(SessionMode.ONLINE);
+        expect(snap.userId).toBe('u1');
+        expect(snap.clientId).toBe('mock-client-id-123');
+        expect(snap.role).toBe(UserRole.ADMIN);
+        expect(snap.permissions.canEdit).toBe(true);
+    });
+
+    it('snapshot permissions are a copy (not a reference)', () => {
+        const snap = ctx.getSnapshot();
+        snap.permissions.canEdit = false;
+        expect(ctx.permissions.canEdit).toBe(true);
+    });
+});
+
+// ============================================================================
+// _reset
+// ============================================================================
+
+describe('_reset', () => {
+    it('returns to initial state and clears listeners', () => {
+        const listener = vi.fn();
+        ctx.onSessionChanged(listener);
+        ctx.setSession({ userId: 'u1', role: UserRole.ADMIN });
+        ctx._reset();
+
+        expect(ctx.mode).toBe(SessionMode.OFFLINE);
+        expect(ctx.userId).toBeNull();
+
+        // Listener should have been cleared
+        ctx.setSession({ userId: 'u2', role: UserRole.EDITOR });
+        expect(listener).toHaveBeenCalledTimes(1); // Only the first call
+    });
+});

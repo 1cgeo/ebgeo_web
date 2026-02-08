@@ -591,6 +591,58 @@ export const EventTypes = Object.freeze({
      * Emitters: processing-runner.js
      */
     PROCESSING_ERROR: 'processing:error',
+
+    // ===== SESSION & CONNECTION =====
+
+    /**
+     * Emitted when user session changes (login/logout).
+     * Payload: { mode: string, userId: string|null, role: string|null }
+     * Subscribers: UI components, permission guards
+     * Emitters: session-context.js
+     */
+    SESSION_CHANGED: 'session:changed',
+
+    /**
+     * Emitted when connection state transitions.
+     * Payload: { previousState: string, currentState: string }
+     * Subscribers: UI status indicators, sync gateway
+     * Emitters: connection-state.js
+     */
+    CONNECTION_STATE_CHANGED: 'connection:stateChanged',
+
+    // ===== SYNC =====
+
+    /**
+     * Emitted when sync starts sending pending operations.
+     * Payload: { operationCount: number }
+     * Subscribers: UI sync indicator
+     * Emitters: sync-gateway.js
+     */
+    SYNC_STARTED: 'sync:started',
+
+    /**
+     * Emitted when sync finishes sending operations.
+     * Payload: { sent: number, failed: number }
+     * Subscribers: UI sync indicator
+     * Emitters: sync-gateway.js
+     */
+    SYNC_COMPLETED: 'sync:completed',
+
+    /**
+     * Emitted when a remote operation is applied locally.
+     * Payload: { operation: Object }
+     * Subscribers: UI refresh, features tab
+     * Emitters: sync-gateway.js
+     */
+    REMOTE_OPERATION_APPLIED: 'sync:remoteOperationApplied',
+
+    /**
+     * Emitted when an action is blocked by insufficient permissions.
+     * Payload: { action: string, reason: string }
+     * Subscribers: Toast notifications
+     * Emitters: permission-guard.js
+     */
+    PERMISSION_DENIED: 'permission:denied',
 });
 
 /**

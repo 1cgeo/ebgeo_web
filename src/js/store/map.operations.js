@@ -21,6 +21,8 @@ import { mapResolver } from './services/map-resolver.service.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
 import { logMapOperation, logMapPositionOperation, logBaseLayerOperation, OperationType } from './sync/index.js';
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { generateUUID, isValidUUID } from '../utilities/uuid.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 
@@ -143,6 +145,12 @@ export const setMapOrder = async (orderArray) => {
  * @returns {Promise<Object>} Created map data
  */
 export const addMap = async (mapName, mapData = null, colorUsageData = null, notesData = null) => {
+    const perm = checkPermission(GuardAction.CREATE_MAP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'addMap', reason: perm.reason });
+        return null;
+    }
+
     const newMapData = await createMapData(mapName, mapData);
 
     // Register in resolver cache for O(1) name→ID lookups
@@ -170,6 +178,12 @@ export const addMap = async (mapName, mapData = null, colorUsageData = null, not
  * @returns {Promise<import('./store.types.js').RemoveResult>} Removal result
  */
 export const removeMap = async (mapName) => {
+    const perm = checkPermission(GuardAction.DELETE_MAP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'removeMap', reason: perm.reason });
+        return { success: false, reason: 'PERMISSION_DENIED' };
+    }
+
     const mapData = await getMapData(mapName);
     if (!mapData || Object.keys(mapData).length === 0) {
         console.warn(`Tentativa de remover mapa inexistente: ${mapName}`);
@@ -230,6 +244,12 @@ export const removeMap = async (mapName) => {
  * @returns {Promise<void>}
  */
 export const renameMap = async (oldName, newName) => {
+    const perm = checkPermission(GuardAction.UPDATE_MAP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameMap', reason: perm.reason });
+        return;
+    }
+
     if (memoryStore.lockedMaps.has(oldName)) {
         console.warn('Map is locked. Cannot rename.');
         return;
@@ -747,6 +767,12 @@ export const isCurrentMapLockedSync = () => {
  * @returns {Promise<boolean>} New lock state
  */
 export const toggleMapLock = async (mapName = null) => {
+    const perm = checkPermission(GuardAction.LOCK_MAP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'toggleMapLock', reason: perm.reason });
+        return null;
+    }
+
     const target = mapName || mapManager.getCurrentMapName();
     const current = await isMapLocked(target);
     const newState = !current;

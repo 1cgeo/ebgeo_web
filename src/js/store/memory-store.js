@@ -22,13 +22,15 @@
  */
 export const memoryStore = {
     /**
-     * Maps state (undo/redo stacks per map).
-     * @type {Object.<string, {undoStack: Array, redoStack: Array}>}
+     * Maps state (undo/redo stacks per map, per user).
+     * Each map has undoStacks and redoStacks keyed by userId.
+     * In offline mode, the single userId is the clientId.
+     * @type {Object.<string, {undoStacks: Object.<string, Array>, redoStacks: Object.<string, Array>}>}
      */
     maps: {
         'Principal': {
-            undoStack: [],
-            redoStack: []
+            undoStacks: {},
+            redoStacks: {}
         }
     },
 
@@ -119,8 +121,8 @@ export const memoryStore = {
 export function resetMemoryStore() {
     memoryStore.maps = {
         'Principal': {
-            undoStack: [],
-            redoStack: []
+            undoStacks: {},
+            redoStacks: {}
         }
     };
     memoryStore.currentMap = 'Principal';

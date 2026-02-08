@@ -69,7 +69,9 @@
       "Bash(if [ -f \"$f\" ])",
       "Bash(then tail -5 \"$f\")",
       "Bash(else echo \"NOT FOUND\")",
-      "Bash(npx vitest run:*)"
+      "Bash(npx vitest run:*)",
+      "Bash(vitest)",
+      "Bash(spec \")"
     ],
     "deny": [],
     "ask": []

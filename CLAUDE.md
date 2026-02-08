@@ -286,13 +286,14 @@ src/js/
 ├── briefing/                # Briefing (Story Map) system
 │   ├── index.js             # Public exports
 │   ├── components/          # UI components
-│   │   ├── presentation-text-panel.js   # Floating text panel
+│   │   ├── presentation-text-panel.js   # Right-side panel with content and navigation
 │   │   └── presentation-controls.js     # Navigation controls
 │   ├── editor/              # Editor mode
 │   │   └── briefing-editor.control.js   # Full-screen editor
 │   ├── presentation/        # Presentation mode
-│   │   ├── briefing-presenter.control.js # Main presenter
-│   │   └── transition.service.js        # Slide transitions
+│   │   ├── briefing-presenter.control.js # Main presenter (lifecycle, preload, state save/restore)
+│   │   ├── transition.service.js        # Slide transitions (9-cell matrix, dynamic duration)
+│   │   └── tile-preloader.js            # MapLibre tile preloader for smooth transitions
 │   ├── services/            # Briefing services
 │   │   └── keyboard-service-briefing.js # Keyboard shortcuts
 │   └── validation/          # Validation
@@ -670,7 +671,7 @@ These rules are enforced across the codebase. Follow them when writing new code 
 - Do NOT use `style.cssText`, `style.xxx = '...'`, or inline style objects in JS
 - Extract styles to CSS files using BEM class naming (e.g., `.measurement-label`, `.visibility-progress-modal__bar`)
 - Use `className` and `classList.toggle/add/remove` instead of inline styles
-- CSS files: `base.css` (shared), `panels-2d.css` (2D tools), `panels-3d.css` (3D tools), `panels-360.css` (street view), `sidebar.css`, `features-tab.css`, `attributes-panel.css`, and component-specific CSS files in `src/css/`
+- CSS files: `base.css` (shared), `panels-2d.css` (2D tools), `panels-3d.css` (3D tools), `panels-360.css` (street view), `sidebar.css`, `features-tab.css`, `attributes-panel.css`, `briefing-editor.css`, `briefing-presentation.css`, and component-specific CSS files in `src/css/`
 - **Exception**: Dynamic styles that depend on JS runtime values (e.g., colors from JS constants, computed positions) may use inline styles
 
 ### innerHTML and XSS Prevention

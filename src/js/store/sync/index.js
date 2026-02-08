@@ -104,3 +104,49 @@ export {
     logCatalogLayerOperation,
     logGridStyleOperation
 } from './operation-dispatcher.js';
+
+// Session context
+export {
+    sessionContext,
+    SessionContext,
+    SessionMode,
+    UserRole,
+    PermissionAction
+} from './session-context.js';
+
+// Connection state
+export {
+    connectionState,
+    ConnectionState,
+    ConnectionStates
+} from './connection-state.js';
+
+// Permission guard
+export {
+    checkPermission,
+    assertPermission,
+    GuardAction
+} from './permission-guard.js';
+
+// Sync gateway
+export {
+    syncGateway,
+    SyncGateway
+} from './sync-gateway.js';
+
+// Remote operation handler
+export {
+    applyRemoteOperation,
+    setRemoteHandlerEventBus
+} from './remote-operation-handler.js';
+
+// Sync scheduler
+export {
+    initSyncScheduler
+} from './sync-scheduler.js';
+
+// Event bridges
+export {
+    initSessionEventBridge,
+    initConnectionEventBridge
+} from './event-bridges.js';

@@ -35,7 +35,6 @@ const SHORTCUTS_DATA = {
             { key: 'Ctrl+Y', description: 'Refazer última ação' },
             { key: 'Ctrl+C', description: 'Copiar feições selecionados' },
             { key: 'Ctrl+V', description: 'Colar feições' },
-            { key: 'Ctrl+S', description: 'Salvar notas do mapa' },
         ],
     },
     drawing: {

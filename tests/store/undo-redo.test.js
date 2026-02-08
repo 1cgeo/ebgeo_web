@@ -22,20 +22,36 @@ vi.mock('../../src/js/store/services.js', () => ({
 vi.mock('../../src/js/store/sync/index.js', () => ({
     logOperation: vi.fn(),
     EntityType: { SETTING: 'setting' },
-    OperationType: { UPDATE: 'update' }
+    OperationType: { UPDATE: 'update' },
+    sessionContext: {
+        getUserId: vi.fn(() => 'test-user-id'),
+        _reset: vi.fn()
+    }
 }));
 
 // Import after mocks
 const { default: mapManager } = await import('../../src/js/store/store-state-manager.js');
+const { sessionContext } = await import('../../src/js/store/sync/index.js');
+
+// Helper to get the undo/redo stacks for the test user
+const TEST_USER = 'test-user-id';
+function getUndoStack(mapName = 'Principal') {
+    return memoryStore.maps[mapName]?.undoStacks?.[TEST_USER] || [];
+}
+function getRedoStack(mapName = 'Principal') {
+    return memoryStore.maps[mapName]?.redoStacks?.[TEST_USER] || [];
+}
 
 beforeEach(() => {
     resetMemoryStore();
     // Ensure current map has stacks
-    memoryStore.maps['Principal'] = { undoStack: [], redoStack: [] };
+    memoryStore.maps['Principal'] = { undoStacks: {}, redoStacks: {} };
     memoryStore.currentMap = 'Principal';
     memoryStore.isUndoing = false;
     memoryStore.isRedoing = false;
     memoryStore.batchCollector = null;
+    // Reset sessionContext mock
+    sessionContext.getUserId.mockReturnValue(TEST_USER);
 });
 
 // ============================================================================
@@ -65,38 +81,39 @@ function mockFeature(id, name = 'Test') {
 // ============================================================================
 
 describe('recordAction', () => {
-    it('pushes action to undoStack', () => {
+    it('pushes action to undoStack for current user', () => {
         const action = { type: 'add', featureType: 'points', feature: mockFeature('f1') };
         mapManager.recordAction(action);
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(1);
-        expect(memoryStore.maps['Principal'].undoStack[0]).toBe(action);
+        expect(getUndoStack()).toHaveLength(1);
+        expect(getUndoStack()[0]).toBe(action);
     });
 
     it('clears redoStack on new action', () => {
-        memoryStore.maps['Principal'].redoStack.push({ type: 'add' });
+        // Manually add to redo
+        memoryStore.maps['Principal'].redoStacks[TEST_USER] = [{ type: 'add' }];
         mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('f1') });
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(0);
+        expect(getRedoStack()).toHaveLength(0);
     });
 
     it('does NOT record during undo', () => {
         memoryStore.isUndoing = true;
         mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('f1') });
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(0);
+        expect(getUndoStack()).toHaveLength(0);
     });
 
     it('does NOT record during redo', () => {
         memoryStore.isRedoing = true;
         mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('f1') });
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(0);
+        expect(getUndoStack()).toHaveLength(0);
     });
 
     it('enforces MAX_UNDO_HISTORY (20 actions)', () => {
         for (let i = 0; i < 25; i++) {
             mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature(`f${i}`) });
         }
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(20);
+        expect(getUndoStack()).toHaveLength(20);
         // First 5 should have been evicted, oldest remaining should be f5
-        expect(memoryStore.maps['Principal'].undoStack[0].feature.properties.id).toBe('f5');
+        expect(getUndoStack()[0].feature.properties.id).toBe('f5');
     });
 
     it('collects into batchCollector when active', () => {
@@ -104,7 +121,7 @@ describe('recordAction', () => {
         const action = { type: 'add', featureType: 'points', feature: mockFeature('f1') };
         mapManager.recordAction(action);
         // Not in undoStack
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(0);
+        expect(getUndoStack()).toHaveLength(0);
         // In batchCollector
         expect(memoryStore.batchCollector).toHaveLength(1);
     });
@@ -156,8 +173,8 @@ describe('undoLastAction', () => {
 
         await mapManager.undoLastAction(executeFn);
 
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(0);
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(1);
+        expect(getUndoStack()).toHaveLength(0);
+        expect(getRedoStack()).toHaveLength(1);
     });
 
     it('returns false when undoStack is empty', async () => {
@@ -174,8 +191,8 @@ describe('undoLastAction', () => {
         await expect(mapManager.undoLastAction(executeFn)).rejects.toThrow('DB failure');
 
         // Action should be back on undoStack
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(1);
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(0);
+        expect(getUndoStack()).toHaveLength(1);
+        expect(getRedoStack()).toHaveLength(0);
     });
 
     it('sets isUndoing during execution and resets after', async () => {
@@ -215,6 +232,7 @@ describe('redoLastAction', () => {
         await mapManager.undoLastAction(executeFn);
 
         vi.clearAllMocks();
+        sessionContext.getUserId.mockReturnValue(TEST_USER);
         await mapManager.redoLastAction(executeFn);
 
         expect(executeFn.addFeature).toHaveBeenCalledWith('points', feature);
@@ -227,6 +245,7 @@ describe('redoLastAction', () => {
         await mapManager.undoLastAction(executeFn);
 
         vi.clearAllMocks();
+        sessionContext.getUserId.mockReturnValue(TEST_USER);
         await mapManager.redoLastAction(executeFn);
 
         expect(executeFn.removeFeature).toHaveBeenCalledWith('points', 'f1');
@@ -243,6 +262,7 @@ describe('redoLastAction', () => {
         await mapManager.undoLastAction(executeFn);
 
         vi.clearAllMocks();
+        sessionContext.getUserId.mockReturnValue(TEST_USER);
         await mapManager.redoLastAction(executeFn);
 
         expect(executeFn.updateFeature).toHaveBeenCalledWith('points', newFeature);
@@ -255,8 +275,8 @@ describe('redoLastAction', () => {
 
         await mapManager.redoLastAction(executeFn);
 
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(1);
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(0);
+        expect(getUndoStack()).toHaveLength(1);
+        expect(getRedoStack()).toHaveLength(0);
     });
 
     it('returns false when redoStack is empty', async () => {
@@ -274,8 +294,8 @@ describe('redoLastAction', () => {
         await expect(mapManager.redoLastAction(executeFn)).rejects.toThrow('DB failure');
 
         // Action should be back on redoStack
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(1);
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(0);
+        expect(getRedoStack()).toHaveLength(1);
+        expect(getUndoStack()).toHaveLength(0);
     });
 });
 
@@ -289,16 +309,16 @@ describe('Undo/Redo cycle integrity', () => {
         mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('f1') });
 
         await mapManager.undoLastAction(executeFn);
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(0);
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(1);
+        expect(getUndoStack()).toHaveLength(0);
+        expect(getRedoStack()).toHaveLength(1);
 
         await mapManager.redoLastAction(executeFn);
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(1);
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(0);
+        expect(getUndoStack()).toHaveLength(1);
+        expect(getRedoStack()).toHaveLength(0);
 
         await mapManager.undoLastAction(executeFn);
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(0);
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(1);
+        expect(getUndoStack()).toHaveLength(0);
+        expect(getRedoStack()).toHaveLength(1);
     });
 
     it('new action after undo clears redo stack (fork)', async () => {
@@ -308,12 +328,12 @@ describe('Undo/Redo cycle integrity', () => {
 
         // Undo last
         await mapManager.undoLastAction(executeFn);
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(1);
+        expect(getRedoStack()).toHaveLength(1);
 
         // New action — should fork
         mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('f3') });
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(0);
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(2);
+        expect(getRedoStack()).toHaveLength(0);
+        expect(getUndoStack()).toHaveLength(2);
     });
 
     it('multiple undo then multiple redo', async () => {
@@ -326,15 +346,15 @@ describe('Undo/Redo cycle integrity', () => {
         await mapManager.undoLastAction(executeFn);
         await mapManager.undoLastAction(executeFn);
         await mapManager.undoLastAction(executeFn);
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(0);
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(3);
+        expect(getUndoStack()).toHaveLength(0);
+        expect(getRedoStack()).toHaveLength(3);
 
         // Redo all 3
         await mapManager.redoLastAction(executeFn);
         await mapManager.redoLastAction(executeFn);
         await mapManager.redoLastAction(executeFn);
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(3);
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(0);
+        expect(getUndoStack()).toHaveLength(3);
+        expect(getRedoStack()).toHaveLength(0);
     });
 });
 
@@ -351,9 +371,9 @@ describe('Batch undo/redo', () => {
         mapManager.commitBatchCollection();
 
         // Should be 1 batch entry, not 3
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(1);
-        expect(memoryStore.maps['Principal'].undoStack[0].type).toBe('batch');
-        expect(memoryStore.maps['Principal'].undoStack[0].operations).toHaveLength(3);
+        expect(getUndoStack()).toHaveLength(1);
+        expect(getUndoStack()[0].type).toBe('batch');
+        expect(getUndoStack()[0].operations).toHaveLength(3);
     });
 
     it('single action batch commits directly (no wrapper)', () => {
@@ -361,8 +381,8 @@ describe('Batch undo/redo', () => {
         mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('f1') });
         mapManager.commitBatchCollection();
 
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(1);
-        expect(memoryStore.maps['Principal'].undoStack[0].type).toBe('add'); // No batch wrapper
+        expect(getUndoStack()).toHaveLength(1);
+        expect(getUndoStack()[0].type).toBe('add'); // No batch wrapper
     });
 
     it('discardBatchCollection drops collected actions', () => {
@@ -371,7 +391,7 @@ describe('Batch undo/redo', () => {
         mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('f2') });
         mapManager.discardBatchCollection();
 
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(0);
+        expect(getUndoStack()).toHaveLength(0);
         expect(memoryStore.batchCollector).toBeNull();
     });
 
@@ -446,17 +466,17 @@ describe('canUndo / canRedo', () => {
 // ============================================================================
 
 describe('clearHistory', () => {
-    it('clears both stacks for current map', () => {
+    it('clears all user stacks for current map', () => {
         mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('f1') });
         mapManager.clearHistory();
-        expect(memoryStore.maps['Principal'].undoStack).toHaveLength(0);
-        expect(memoryStore.maps['Principal'].redoStack).toHaveLength(0);
+        expect(getUndoStack()).toHaveLength(0);
+        expect(getRedoStack()).toHaveLength(0);
     });
 
     it('clears stacks for specific map', () => {
-        memoryStore.maps['MapB'] = { undoStack: [{ type: 'add' }], redoStack: [] };
+        memoryStore.maps['MapB'] = { undoStacks: { [TEST_USER]: [{ type: 'add' }] }, redoStacks: {} };
         mapManager.clearHistory('MapB');
-        expect(memoryStore.maps['MapB'].undoStack).toHaveLength(0);
+        expect(memoryStore.maps['MapB'].undoStacks).toEqual({});
     });
 });
 
@@ -468,8 +488,8 @@ describe('Map memory management', () => {
     it('addMapToMemory creates undo/redo stacks', () => {
         mapManager.addMapToMemory('NewMap');
         expect(memoryStore.maps['NewMap']).toEqual({
-            undoStack: [],
-            redoStack: []
+            undoStacks: {},
+            redoStacks: {}
         });
     });
 
@@ -477,7 +497,7 @@ describe('Map memory management', () => {
         mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('f1') });
         mapManager.renameMapInMemory('Principal', 'Renamed');
 
-        expect(memoryStore.maps['Renamed'].undoStack).toHaveLength(1);
+        expect(getUndoStack('Renamed')).toHaveLength(1);
         expect(memoryStore.maps['Principal']).toBeUndefined();
         expect(memoryStore.currentMap).toBe('Renamed');
     });
@@ -617,6 +637,7 @@ describe('removeWithProcessed undo/redo', () => {
 
         await mapManager.undoLastAction(executeFn);
         vi.clearAllMocks();
+        sessionContext.getUserId.mockReturnValue(TEST_USER);
         await mapManager.redoLastAction(executeFn);
 
         expect(executeFn.removeFeature).toHaveBeenCalledWith('los', 'los-1');
@@ -656,6 +677,7 @@ describe('addMultiple undo/redo', () => {
 
         await mapManager.undoLastAction(executeFn);
         vi.clearAllMocks();
+        sessionContext.getUserId.mockReturnValue(TEST_USER);
         await mapManager.redoLastAction(executeFn);
 
         expect(executeFn.addFeature).toHaveBeenCalledTimes(2);
@@ -678,7 +700,65 @@ describe('Per-map undo isolation', () => {
         mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('b1') });
         mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('b2') });
 
-        expect(memoryStore.maps['MapA'].undoStack).toHaveLength(1);
-        expect(memoryStore.maps['MapB'].undoStack).toHaveLength(2);
+        expect(getUndoStack('MapA')).toHaveLength(1);
+        expect(getUndoStack('MapB')).toHaveLength(2);
+    });
+});
+
+// ============================================================================
+// Per-user isolation
+// ============================================================================
+
+describe('Per-user undo isolation', () => {
+    it('different users have independent undo stacks on the same map', () => {
+        // User A records actions
+        sessionContext.getUserId.mockReturnValue('user-a');
+        mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('a1') });
+        mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('a2') });
+
+        // User B records actions
+        sessionContext.getUserId.mockReturnValue('user-b');
+        mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('b1') });
+
+        // Verify isolation
+        expect(memoryStore.maps['Principal'].undoStacks['user-a']).toHaveLength(2);
+        expect(memoryStore.maps['Principal'].undoStacks['user-b']).toHaveLength(1);
+    });
+
+    it('undo only affects current user stack', async () => {
+        const executeFn = createMockExecuteFn();
+
+        // User A records 2 actions
+        sessionContext.getUserId.mockReturnValue('user-a');
+        mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('a1') });
+        mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('a2') });
+
+        // User B records 1 action
+        sessionContext.getUserId.mockReturnValue('user-b');
+        mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('b1') });
+
+        // User A undoes
+        sessionContext.getUserId.mockReturnValue('user-a');
+        await mapManager.undoLastAction(executeFn);
+
+        // User A has 1 left in undo, 1 in redo
+        expect(memoryStore.maps['Principal'].undoStacks['user-a']).toHaveLength(1);
+        expect(memoryStore.maps['Principal'].redoStacks['user-a']).toHaveLength(1);
+
+        // User B's stack is untouched
+        expect(memoryStore.maps['Principal'].undoStacks['user-b']).toHaveLength(1);
+    });
+
+    it('canUndo / canRedo are user-specific', () => {
+        // User A records an action
+        sessionContext.getUserId.mockReturnValue('user-a');
+        mapManager.recordAction({ type: 'add', featureType: 'points', feature: mockFeature('a1') });
+
+        // User A can undo
+        expect(mapManager.canUndo()).toBe(true);
+
+        // User B cannot undo (empty stack)
+        sessionContext.getUserId.mockReturnValue('user-b');
+        expect(mapManager.canUndo()).toBe(false);
     });
 });

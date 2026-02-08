@@ -6,6 +6,8 @@
  */
 
 import { isCurrentMapLockedSync } from './map.operations.js';
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 
 // ===== DEPENDENCY INJECTION =====
 
@@ -38,6 +40,12 @@ export function setGroupDependencies(dependencies) {
  * @returns {import('./store.types.js').Group} Created group
  */
 export const createGroup = (features, mapName = null) => {
+    const perm = checkPermission(GuardAction.CREATE_GROUP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createGroup', reason: perm.reason });
+        return null;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot create group.');
         return null;
@@ -54,6 +62,12 @@ export const createGroup = (features, mapName = null) => {
  * @returns {import('./store.types.js').Group} Combined group
  */
 export const combineGroups = (groupIds, selectedFeatures = [], mapName = null) => {
+    const perm = checkPermission(GuardAction.UPDATE_GROUP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'combineGroups', reason: perm.reason });
+        return null;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot combine groups.');
         return null;
@@ -131,6 +145,12 @@ export const isFeatureGrouped = (type, featureId, mapName = null) => {
  * @returns {boolean} Whether update was successful
  */
 export const updateGroupProperty = (groupId, property, value, mapName = null) => {
+    const perm = checkPermission(GuardAction.UPDATE_GROUP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateGroupProperty', reason: perm.reason });
+        return false;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot update group property.');
         return false;
@@ -148,6 +168,12 @@ export const updateGroupProperty = (groupId, property, value, mapName = null) =>
  * @returns {boolean} Whether ungroup was successful
  */
 export const ungroupFeatures = (groupId, mapName = null) => {
+    const perm = checkPermission(GuardAction.DELETE_GROUP);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'ungroupFeatures', reason: perm.reason });
+        return false;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot ungroup features.');
         return false;

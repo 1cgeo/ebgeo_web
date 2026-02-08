@@ -165,6 +165,14 @@ class OperationQueue {
     }
 
     /**
+     * Alias for count().
+     * @returns {Promise<number>} Number of pending operations
+     */
+    async size() {
+        return this.count();
+    }
+
+    /**
      * Clears all operations from the queue.
      * Use with caution - typically for testing or reset.
      * @returns {Promise<void>}
@@ -308,6 +316,64 @@ class OperationQueue {
             await this._ensureIndex();
         } finally {
             this._compacting = false;
+        }
+    }
+
+    // ===== AUTO-PURGE =====
+
+    /**
+     * Purges operations older than maxAgeMs from the queue.
+     * Prevents unbounded queue growth when no backend is consuming operations.
+     * @param {number} [maxAgeMs=604800000] - Max age in milliseconds (default: 7 days)
+     * @returns {Promise<number>} Number of operations purged
+     */
+    async purgeOldOperations(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+        await this._ensureIndex();
+        const cutoff = Date.now() - maxAgeMs;
+        const allOps = await this.getAll();
+        const toPurge = [];
+
+        for (const op of allOps) {
+            if (op.timestamp < cutoff) {
+                toPurge.push(op.id);
+            }
+        }
+
+        if (toPurge.length > 0) {
+            await this.dequeue(toPurge);
+        }
+
+        return toPurge.length;
+    }
+
+    /**
+     * Starts periodic auto-purge of old operations.
+     * Runs every 6 hours. Safe to call multiple times (idempotent).
+     */
+    startAutoPurge() {
+        if (this._purgeInterval) return;
+
+        // Run purge every 6 hours
+        const SIX_HOURS = 6 * 60 * 60 * 1000;
+        this._purgeInterval = setInterval(async () => {
+            try {
+                const purged = await this.purgeOldOperations();
+                if (purged > 0) {
+                    console.info(`Operation queue: purged ${purged} old operations`);
+                }
+            } catch (error) {
+                console.warn('Operation queue purge error:', error);
+            }
+        }, SIX_HOURS);
+    }
+
+    /**
+     * Stops the auto-purge interval (for testing/cleanup).
+     */
+    stopAutoPurge() {
+        if (this._purgeInterval) {
+            clearInterval(this._purgeInterval);
+            this._purgeInterval = null;
         }
     }
 

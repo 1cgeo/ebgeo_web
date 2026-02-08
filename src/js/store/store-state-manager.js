@@ -12,7 +12,7 @@ import {
 } from './repositories/index.js';
 import { getGroupManager } from './services.js';
 import { mapResolver } from './services/map-resolver.service.js';
-import { logOperation, EntityType, OperationType } from './sync/index.js';
+import { logOperation, EntityType, OperationType, sessionContext } from './sync/index.js';
 import { LRUCache } from '../utilities/lru-cache.js';
 
 // Alias for backward compatibility during migration
@@ -72,8 +72,8 @@ class MapManager {
 
         if (!this.memoryStore.maps[mapName]) {
             this.memoryStore.maps[mapName] = {
-                undoStack: [],
-                redoStack: []
+                undoStacks: {},
+                redoStacks: {}
             };
         }
     }
@@ -412,19 +412,54 @@ class MapManager {
     /** @type {number} Maximum number of actions kept in undo history per map */
     static MAX_UNDO_HISTORY = 20;
 
+    /**
+     * Gets the undo stack for the current user on the current map.
+     * Creates the stack if it doesn't exist.
+     * @private
+     * @returns {Array}
+     */
+    _getUndoStack() {
+        const mapState = this.memoryStore.maps[this.memoryStore.currentMap];
+        if (!mapState) return [];
+        const userId = sessionContext.getUserId();
+        if (!mapState.undoStacks[userId]) {
+            mapState.undoStacks[userId] = [];
+        }
+        return mapState.undoStacks[userId];
+    }
+
+    /**
+     * Gets the redo stack for the current user on the current map.
+     * Creates the stack if it doesn't exist.
+     * @private
+     * @returns {Array}
+     */
+    _getRedoStack() {
+        const mapState = this.memoryStore.maps[this.memoryStore.currentMap];
+        if (!mapState) return [];
+        const userId = sessionContext.getUserId();
+        if (!mapState.redoStacks[userId]) {
+            mapState.redoStacks[userId] = [];
+        }
+        return mapState.redoStacks[userId];
+    }
+
     recordAction(action) {
-        const currentMap = this.memoryStore.maps[this.memoryStore.currentMap];
         if (!this.memoryStore.isUndoing && !this.memoryStore.isRedoing) {
             if (this.memoryStore.batchCollector !== null) {
                 // Batch mode: collect instead of pushing directly
                 this.memoryStore.batchCollector.push(action);
             } else {
-                currentMap.undoStack.push(action);
-                const excess = currentMap.undoStack.length - MapManager.MAX_UNDO_HISTORY;
+                const undoStack = this._getUndoStack();
+                undoStack.push(action);
+                const excess = undoStack.length - MapManager.MAX_UNDO_HISTORY;
                 if (excess > 0) {
-                    currentMap.undoStack.splice(0, excess);
+                    undoStack.splice(0, excess);
                 }
-                currentMap.redoStack = [];
+                // Clear redo on new action (fork)
+                const mapState = this.memoryStore.maps[this.memoryStore.currentMap];
+                const userId = sessionContext.getUserId();
+                mapState.redoStacks[userId] = [];
             }
         }
     }
@@ -458,18 +493,19 @@ class MapManager {
     }
 
     async undoLastAction(executeFunction) {
-        const currentMap = this.memoryStore.maps[this.memoryStore.currentMap];
-        const lastAction = currentMap.undoStack.pop();
+        const undoStack = this._getUndoStack();
+        const lastAction = undoStack.pop();
         if (!lastAction) return false;
 
         this.memoryStore.isUndoing = true;
         try {
             await this._executeUndoAction(lastAction, executeFunction);
             // Only move to redoStack after successful execution
-            currentMap.redoStack.push(lastAction);
+            const redoStack = this._getRedoStack();
+            redoStack.push(lastAction);
         } catch (error) {
             // Restore to undoStack so the user can retry
-            currentMap.undoStack.push(lastAction);
+            undoStack.push(lastAction);
             throw error;
         } finally {
             this.memoryStore.isUndoing = false;
@@ -479,18 +515,19 @@ class MapManager {
     }
 
     async redoLastAction(executeFunction) {
-        const currentMap = this.memoryStore.maps[this.memoryStore.currentMap];
-        const lastUndoneAction = currentMap.redoStack.pop();
+        const redoStack = this._getRedoStack();
+        const lastUndoneAction = redoStack.pop();
         if (!lastUndoneAction) return false;
 
         this.memoryStore.isRedoing = true;
         try {
             await this._executeRedoAction(lastUndoneAction, executeFunction);
             // Only move to undoStack after successful execution
-            currentMap.undoStack.push(lastUndoneAction);
+            const undoStack = this._getUndoStack();
+            undoStack.push(lastUndoneAction);
         } catch (error) {
             // Restore to redoStack so the user can retry
-            currentMap.redoStack.push(lastUndoneAction);
+            redoStack.push(lastUndoneAction);
             throw error;
         } finally {
             this.memoryStore.isRedoing = false;
@@ -603,20 +640,20 @@ class MapManager {
     }
 
     canUndo() {
-        const currentMap = this.memoryStore.maps[this.memoryStore.currentMap];
-        return currentMap?.undoStack.length > 0;
+        const undoStack = this._getUndoStack();
+        return undoStack.length > 0;
     }
 
     canRedo() {
-        const currentMap = this.memoryStore.maps[this.memoryStore.currentMap];
-        return currentMap?.redoStack.length > 0;
+        const redoStack = this._getRedoStack();
+        return redoStack.length > 0;
     }
 
     clearHistory(mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
         if (this.memoryStore.maps[targetMap]) {
-            this.memoryStore.maps[targetMap].undoStack = [];
-            this.memoryStore.maps[targetMap].redoStack = [];
+            this.memoryStore.maps[targetMap].undoStacks = {};
+            this.memoryStore.maps[targetMap].redoStacks = {};
         }
     }
 
@@ -624,8 +661,8 @@ class MapManager {
 
     addMapToMemory(mapName) {
         this.memoryStore.maps[mapName] = {
-            undoStack: [],
-            redoStack: []
+            undoStacks: {},
+            redoStacks: {}
         };
     }
 

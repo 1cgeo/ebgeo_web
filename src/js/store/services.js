@@ -26,6 +26,14 @@ import { initStoreEvents } from './store.js';
 import { createStateManager } from '../state';
 import { mapResolver, setResolverInitPromise } from './services/map-resolver.service.js';
 import { getRepository } from './repositories/index.js';
+import { sessionContext } from './sync/session-context.js';
+import { connectionState } from './sync/connection-state.js';
+import { syncGateway } from './sync/sync-gateway.js';
+import { enableOperationLogging } from './sync/operation-dispatcher.js';
+import { operationQueue } from './sync/operation-queue.js';
+import { initSessionEventBridge, initConnectionEventBridge } from './sync/event-bridges.js';
+import { applyRemoteOperation, setRemoteHandlerEventBus } from './sync/remote-operation-handler.js';
+import { initSyncScheduler } from './sync/sync-scheduler.js';
 
 /**
  * @typedef {Object} Services
@@ -34,6 +42,9 @@ import { getRepository } from './repositories/index.js';
  * @property {import('../tool_manager/group_manager.js').GroupManager} groupManager - Group manager
  * @property {import('../layers/layer.manager.js').LayerManager} layerManager - Layer manager
  * @property {import('./services/map-resolver.service.js').MapResolverService} mapResolver - Map name/ID resolver
+ * @property {import('./sync/session-context.js').SessionContext} sessionContext - User session context
+ * @property {import('./sync/connection-state.js').ConnectionState} connectionState - Connection state machine
+ * @property {import('./sync/sync-gateway.js').SyncGateway} syncGateway - Sync gateway
  */
 
 /** @type {Services|null} */
@@ -80,6 +91,23 @@ export function initServices() {
     });
     setResolverInitPromise(initPromise);
 
+    // Enable operation logging for sync queue
+    enableOperationLogging();
+
+    // Schedule periodic purge of old operations (no backend to consume them yet)
+    operationQueue.startAutoPurge();
+
+    // Wire event bridges (SessionContext/ConnectionState → EventBus)
+    initSessionEventBridge(eventBus);
+    initConnectionEventBridge(eventBus);
+
+    // Wire remote operation handler to SyncGateway
+    setRemoteHandlerEventBus(eventBus);
+    syncGateway.setRemoteOperationHandler(applyRemoteOperation);
+
+    // Initialize sync scheduler (listens to entity events, triggers sync when online)
+    initSyncScheduler(eventBus);
+
     // Freeze services object to prevent modification
     services = Object.freeze({
         eventBus,
@@ -87,6 +115,9 @@ export function initServices() {
         groupManager,
         layerManager,
         mapResolver,
+        sessionContext,
+        connectionState,
+        syncGateway,
     });
 
     // Expose services globally for debugging in browser console
@@ -158,4 +189,34 @@ export function getGroupManager() {
  */
 export function getMapResolver() {
     return getServices().mapResolver;
+}
+
+/**
+ * Get SessionContext instance.
+ * Convenience function for user identity.
+ * @throws {Error} If services not initialized
+ * @returns {import('./sync/session-context.js').SessionContext}
+ */
+export function getSessionContext() {
+    return getServices().sessionContext;
+}
+
+/**
+ * Get ConnectionState instance.
+ * Convenience function for connection state.
+ * @throws {Error} If services not initialized
+ * @returns {import('./sync/connection-state.js').ConnectionState}
+ */
+export function getConnectionState() {
+    return getServices().connectionState;
+}
+
+/**
+ * Get SyncGateway instance.
+ * Convenience function for sync operations.
+ * @throws {Error} If services not initialized
+ * @returns {import('./sync/sync-gateway.js').SyncGateway}
+ */
+export function getSyncGateway() {
+    return getServices().syncGateway;
 }

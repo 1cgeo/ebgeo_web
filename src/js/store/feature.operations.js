@@ -11,6 +11,8 @@ import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
 import { isCurrentMapLockedSync } from './map.operations.js';
 import { logFeatureOperation, OperationType } from './sync/index.js';
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
 import { deepClone, deepEqual } from '../utilities/deep-utils.js';
 
@@ -123,6 +125,12 @@ const removeProcessedFeaturesFromData = (processedType, processedFeatures, mapDa
  * @param {string} [mapName=null] - Target map name
  */
 export const addFeature = async (type, feature, mapName = null) => {
+    const perm = checkPermission(GuardAction.CREATE_FEATURE);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'addFeature', reason: perm.reason });
+        return;
+    }
+
     const targetMap = mapName || mapManager.getCurrentMapName();
     if (memoryStore.lockedMaps.has(targetMap)) {
         console.warn('Map is locked. Cannot add feature.');
@@ -177,6 +185,12 @@ export const addFeature = async (type, feature, mapName = null) => {
  * @param {string} [mapName=null] - Target map name
  */
 export const updateFeature = async (type, feature, mapName = null) => {
+    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateFeature', reason: perm.reason });
+        return;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot update feature.');
         return;
@@ -273,6 +287,12 @@ export const updateFeature = async (type, feature, mapName = null) => {
  * @param {string} [mapName=null] - Target map name
  */
 export const removeFeature = async (type, id, mapName = null) => {
+    const perm = checkPermission(GuardAction.DELETE_FEATURE);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'removeFeature', reason: perm.reason });
+        return;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot remove feature.');
         return;
@@ -428,6 +448,12 @@ export const removeFeatureSilent = async (type, id, mapName = null) => {
  * @param {string} [mapName=null] - Target map name
  */
 export const addFeatures = async (featuresMap, mapName = null) => {
+    const perm = checkPermission(GuardAction.CREATE_FEATURE);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'addFeatures', reason: perm.reason });
+        return;
+    }
+
     const targetMap = mapName || mapManager.getCurrentMapName();
     if (memoryStore.lockedMaps.has(targetMap)) {
         console.warn('Map is locked. Cannot add features.');
@@ -513,6 +539,12 @@ export const getFeatureById = async (featureType, featureId, mapName = null) => 
  * @returns {Promise<boolean>} Whether update was successful
  */
 export const updateFeatureProperty = async (featureType, featureId, property, value, mapName = null) => {
+    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateFeatureProperty', reason: perm.reason });
+        return false;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot update feature property.');
         return false;
@@ -570,6 +602,12 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
  */
 export const moveFeaturesToMap = async (features, targetMapName) => {
     if (!features || features.length === 0) return;
+
+    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'moveFeaturesToMap', reason: perm.reason });
+        return;
+    }
 
     // Guard: cannot move out of or into a locked map
     if (isCurrentMapLockedSync()) {
@@ -740,6 +778,12 @@ async function buildLayerMappingForMove(features, sourceMapName, targetMapName) 
  * @param {string} [mapName=null] - Target map name
  */
 export const batchUpdateLOSFeatures = async (losFeature, processedFeatures, mapName = null) => {
+    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'batchUpdateLOSFeatures', reason: perm.reason });
+        return;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot update LOS features.');
         return;
@@ -786,6 +830,12 @@ export const batchUpdateLOSFeatures = async (losFeature, processedFeatures, mapN
  * @param {string} [mapName=null] - Target map name
  */
 export const batchUpdateVisibilityFeatures = async (visibilityFeature, processedFeatures, mapName = null) => {
+    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'batchUpdateVisibilityFeatures', reason: perm.reason });
+        return;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot update visibility features.');
         return;
@@ -833,6 +883,12 @@ export const batchUpdateVisibilityFeatures = async (visibilityFeature, processed
  * @returns {Promise<boolean>} Whether any features were deleted
  */
 export const deleteLayerFeatures = async (layerId, mapName = null) => {
+    const perm = checkPermission(GuardAction.DELETE_FEATURE);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'deleteLayerFeatures', reason: perm.reason });
+        return false;
+    }
+
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
     let modified = false;
@@ -908,6 +964,12 @@ export const getLayerFeatures = async (layerId, mapName = null) => {
  * @returns {Promise<boolean>} Whether any features were moved
  */
 export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = null) => {
+    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'moveFeaturesToLayer', reason: perm.reason });
+        return false;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot move features to layer.');
         return false;

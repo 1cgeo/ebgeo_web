@@ -9,6 +9,8 @@ import { setLayersCompat, setActiveLayerIdCompat } from './repositories/index.js
 import mapManager from './store-state-manager.js';
 import { isCurrentMapLockedSync } from './map.operations.js';
 import { EventTypes } from '../events';
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 
 // Alias for backward compatibility during migration
 const setLayersRepo = setLayersCompat;
@@ -97,6 +99,12 @@ export const getVisibleLayerIds = (mapName = null) => {
  * @returns {import('./store.types.js').Layer} Created layer
  */
 export const createLayer = (name = 'Nova Camada', mapName = null) => {
+    const perm = checkPermission(GuardAction.CREATE_LAYER);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createLayer', reason: perm.reason });
+        return null;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot create layer.');
         return null;
@@ -148,6 +156,12 @@ export const setActiveLayerId = async (mapName, layerId) => {
  * @returns {import('./store.types.js').Layer} Renamed layer
  */
 export const renameLayer = (layerId, newName, mapName = null) => {
+    const perm = checkPermission(GuardAction.UPDATE_LAYER);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameLayer', reason: perm.reason });
+        return null;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot rename layer.');
         return null;
@@ -186,6 +200,12 @@ export const setLayerLocked = (layerId, locked, mapName = null) => {
  * @param {string} [mapName=null] - Map name
  */
 export const reorderLayers = (orderedLayerIds, mapName = null) => {
+    const perm = checkPermission(GuardAction.UPDATE_LAYER);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'reorderLayers', reason: perm.reason });
+        return;
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot reorder layers.');
         return;
@@ -205,6 +225,12 @@ export const reorderLayers = (orderedLayerIds, mapName = null) => {
  * @returns {Object} Deletion result
  */
 export const deleteLayerOnly = (layerId, mapName = null) => {
+    const perm = checkPermission(GuardAction.DELETE_LAYER);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'deleteLayerOnly', reason: perm.reason });
+        return { success: false, reason: 'PERMISSION_DENIED' };
+    }
+
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot delete layer.');
         return { success: false, reason: 'MAP_LOCKED' };

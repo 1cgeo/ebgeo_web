@@ -13,6 +13,8 @@ import { localRepository } from './repositories/local.repository.js';
 import { generateUUID } from '../utilities/uuid.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 import { logBriefingOperation, logOperation, EntityType, OperationType } from './sync/index.js';
+import { checkPermission, GuardAction } from './sync/permission-guard.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { deepClone } from '../utilities/deep-utils.js';
 
 // ============================================================================
@@ -131,6 +133,12 @@ export async function getBriefingById(briefingId) {
  * @returns {Promise<Object>} Created briefing
  */
 export async function createBriefing(data) {
+    const perm = checkPermission(GuardAction.CREATE_BRIEFING);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createBriefing', reason: perm.reason });
+        return null;
+    }
+
     const briefing = createEmptyBriefing(data.name, data.description || '');
 
     if (data.slides && Array.isArray(data.slides)) {
@@ -157,6 +165,12 @@ export async function createBriefing(data) {
  * @returns {Promise<Object|null>} Updated briefing or null if not found
  */
 export async function updateBriefing(briefingId, data) {
+    const perm = checkPermission(GuardAction.UPDATE_BRIEFING);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateBriefing', reason: perm.reason });
+        return null;
+    }
+
     const existing = await localRepository.getBriefing(briefingId);
     if (!existing) {
         return null;
@@ -195,6 +209,12 @@ export async function updateBriefing(briefingId, data) {
  * @returns {Promise<boolean>} True if deleted
  */
 export async function deleteBriefing(briefingId) {
+    const perm = checkPermission(GuardAction.DELETE_BRIEFING);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'deleteBriefing', reason: perm.reason });
+        return false;
+    }
+
     const existing = await localRepository.getBriefing(briefingId);
     if (!existing) {
         return false;
