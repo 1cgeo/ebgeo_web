@@ -12,7 +12,7 @@ import { memoryStore } from './memory-store.js';
 import { isCurrentMapLockedSync } from './map.operations.js';
 import { logFeatureOperation, OperationType } from './sync/index.js';
 import { runTransaction } from './store-transaction.js';
-import { deepClone } from '../utilities/deep-utils.js';
+import { deepClone, deepEqual } from '../utilities/deep-utils.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -48,6 +48,26 @@ const touchUpdatedTimestamp = (feature) => {
     feature.properties.version = (feature.properties.version || 0) + 1;
     return feature;
 };
+
+/**
+ * Compares two features ignoring auto-managed metadata (updatedAt, version).
+ * Used to detect no-op updates before touching timestamps.
+ * @param {Object} a - First feature (stored)
+ * @param {Object} b - Second feature (incoming, after cleanFeature + preserve)
+ * @returns {boolean} True if features are equivalent
+ */
+function isFeatureEqual(a, b) {
+    if (!deepEqual(a.geometry, b.geometry)) return false;
+
+    const propsA = { ...a.properties };
+    const propsB = { ...b.properties };
+    delete propsA.updatedAt;
+    delete propsB.updatedAt;
+    delete propsA.version;
+    delete propsB.version;
+
+    return deepEqual(propsA, propsB);
+}
 
 // Alias for backward compatibility during migration
 const getMapData = getMapDataCompat;
@@ -209,10 +229,10 @@ export const updateFeature = async (type, feature, mapName = null) => {
         if (oldFeature.properties.version !== undefined) {
             cleanedFeature.properties.version = oldFeature.properties.version;
         }
-        touchUpdatedTimestamp(cleanedFeature);
+        // Skip no-op updates (compare before touching timestamps)
+        if (isFeatureEqual(oldFeature, cleanedFeature)) return;
 
-        // No actual change — skip persistence and side effects
-        if (JSON.stringify(oldFeature) === JSON.stringify(cleanedFeature)) return;
+        touchUpdatedTimestamp(cleanedFeature);
 
         await runTransaction(async (tx) => {
             currentMapData.features[type][index] = cleanedFeature;

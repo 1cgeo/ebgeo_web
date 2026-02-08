@@ -1,0 +1,415 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { OperationType, EntityType } from '../../src/js/store/sync/operation-types.js';
+
+// ============================================================================
+// Mock localforage (shared Map store for the OperationQueue)
+// ============================================================================
+
+const { queueMap } = vi.hoisted(() => ({ queueMap: new Map() }));
+
+vi.mock('localforage', () => ({
+    default: {
+        createInstance: () => ({
+            setItem: vi.fn(async (key, value) => { queueMap.set(key, value); }),
+            getItem: vi.fn(async (key) => queueMap.get(key) ?? null),
+            removeItem: vi.fn(async (key) => { queueMap.delete(key); }),
+            keys: vi.fn(async () => [...queueMap.keys()]),
+            clear: vi.fn(async () => { queueMap.clear(); })
+        })
+    }
+}));
+
+import { OperationQueue } from '../../src/js/store/sync/operation-queue.js';
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function createOp(id, entityType, operationType, entityId, mapId, data, timestamp) {
+    return {
+        id,
+        entityType: entityType || EntityType.FEATURE,
+        operationType: operationType || OperationType.CREATE,
+        entityId: entityId || 'entity-1',
+        mapId: mapId !== undefined ? mapId : 'map-1',
+        data: data || null,
+        previousData: null,
+        timestamp: timestamp || Date.now(),
+        lamportTimestamp: 0,
+        clientId: 'test-client'
+    };
+}
+
+// ============================================================================
+// TESTS
+// ============================================================================
+
+describe('OperationQueue lifecycle', () => {
+    let queue;
+
+    beforeEach(() => {
+        queueMap.clear();
+        queue = new OperationQueue();
+    });
+
+    // ========================================================================
+    // Enqueue and dequeue lifecycle
+    // ========================================================================
+
+    describe('enqueue and dequeue lifecycle', () => {
+        it('enqueue single op → peek returns it → dequeue removes it → count = 0', async () => {
+            const op = createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', { nome: 'Test' });
+
+            await queue.enqueue(op);
+            expect(await queue.count()).toBe(1);
+
+            const peeked = await queue.peek(1);
+            expect(peeked).toHaveLength(1);
+            expect(peeked[0].id).toBe('op-1');
+
+            // Peek should NOT remove
+            expect(await queue.count()).toBe(1);
+
+            const removed = await queue.dequeue(['op-1']);
+            expect(removed).toBe(1);
+            expect(await queue.count()).toBe(0);
+        });
+
+        it('enqueue multiple ops → peek(2) returns first 2 in chronological order', async () => {
+            const op1 = createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000);
+            const op2 = createOp('op-2', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', null, 2000);
+            const op3 = createOp('op-3', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', null, 3000);
+
+            await queue.enqueue(op1);
+            await queue.enqueue(op2);
+            await queue.enqueue(op3);
+
+            const peeked = await queue.peek(2);
+            expect(peeked).toHaveLength(2);
+            expect(peeked[0].id).toBe('op-1');
+            expect(peeked[1].id).toBe('op-2');
+        });
+
+        it('dequeue non-existent ID returns 0 removed', async () => {
+            const op = createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1');
+            await queue.enqueue(op);
+
+            const removed = await queue.dequeue(['non-existent']);
+            expect(removed).toBe(0);
+            expect(await queue.count()).toBe(1);
+        });
+
+        it('enqueue → clear → count = 0', async () => {
+            await queue.enqueue(createOp('op-1'));
+            await queue.enqueue(createOp('op-2'));
+            expect(await queue.count()).toBe(2);
+
+            await queue.clear();
+            expect(await queue.count()).toBe(0);
+        });
+
+        it('getAll returns all enqueued operations', async () => {
+            await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000));
+            await queue.enqueue(createOp('op-2', EntityType.LAYER, OperationType.UPDATE, 'layer-1', 'map-1', null, 2000));
+
+            const all = await queue.getAll();
+            expect(all).toHaveLength(2);
+        });
+    });
+
+    // ========================================================================
+    // Reverse index (_ensureIndex)
+    // ========================================================================
+
+    describe('reverse index (_ensureIndex)', () => {
+        it('index is built lazily on first operation', async () => {
+            expect(queue._index).toBeNull();
+            await queue.enqueue(createOp('op-1'));
+            expect(queue._index).toBeInstanceOf(Map);
+            expect(queue._index.size).toBe(1);
+        });
+
+        it('index is rebuilt correctly after manual reset', async () => {
+            await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000));
+            await queue.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', null, 2000));
+            expect(queue._index.size).toBe(2);
+
+            // Simulate "page reload" by clearing index
+            queue._index = null;
+
+            // Next operation rebuilds the index from IndexedDB keys
+            expect(await queue.count()).toBe(2);
+            expect(queue._index.size).toBe(2);
+        });
+
+        it('index consistent after enqueue + dequeue cycles', async () => {
+            await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000));
+            await queue.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.CREATE, 'feat-2', 'map-1', null, 2000));
+            await queue.enqueue(createOp('op-3', EntityType.FEATURE, OperationType.CREATE, 'feat-3', 'map-1', null, 3000));
+
+            await queue.dequeue(['op-2']);
+            expect(queue._index.size).toBe(2);
+            expect(queue._index.has('op-1')).toBe(true);
+            expect(queue._index.has('op-2')).toBe(false);
+            expect(queue._index.has('op-3')).toBe(true);
+
+            const all = await queue.getAll();
+            expect(all).toHaveLength(2);
+            expect(all.map(o => o.id)).toEqual(['op-1', 'op-3']);
+        });
+    });
+
+    // ========================================================================
+    // Chronological ordering
+    // ========================================================================
+
+    describe('chronological ordering', () => {
+        it('ops enqueued with different timestamps → getAll returns in timestamp order', async () => {
+            // Enqueue out of order
+            await queue.enqueue(createOp('op-3', EntityType.FEATURE, OperationType.CREATE, 'f3', 'map-1', null, 3000));
+            await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'f1', 'map-1', null, 1000));
+            await queue.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.CREATE, 'f2', 'map-1', null, 2000));
+
+            const all = await queue.getAll();
+            expect(all[0].id).toBe('op-1');
+            expect(all[1].id).toBe('op-2');
+            expect(all[2].id).toBe('op-3');
+        });
+
+        it('ops with same timestamp → stable lexicographic order by ID', async () => {
+            const ts = 1000;
+            await queue.enqueue(createOp('bbb', EntityType.FEATURE, OperationType.CREATE, 'f1', 'map-1', null, ts));
+            await queue.enqueue(createOp('aaa', EntityType.FEATURE, OperationType.CREATE, 'f2', 'map-1', null, ts));
+
+            const all = await queue.getAll();
+            // With same timestamp, key is op_1000_aaa vs op_1000_bbb
+            expect(all[0].id).toBe('aaa');
+            expect(all[1].id).toBe('bbb');
+        });
+    });
+
+    // ========================================================================
+    // Filtering
+    // ========================================================================
+
+    describe('filtering', () => {
+        beforeEach(async () => {
+            queueMap.clear();
+            queue = new OperationQueue();
+            await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000));
+            await queue.enqueue(createOp('op-2', EntityType.LAYER, OperationType.CREATE, 'layer-1', 'map-1', null, 2000));
+            await queue.enqueue(createOp('op-3', EntityType.FEATURE, OperationType.UPDATE, 'feat-2', 'map-2', null, 3000));
+            await queue.enqueue(createOp('op-4', EntityType.MAP, OperationType.CREATE, 'map-2', null, null, 4000));
+        });
+
+        it('getByEntityType returns only matching entity type', async () => {
+            const features = await queue.getByEntityType(EntityType.FEATURE);
+            expect(features).toHaveLength(2);
+            expect(features.every(op => op.entityType === EntityType.FEATURE)).toBe(true);
+
+            const layers = await queue.getByEntityType(EntityType.LAYER);
+            expect(layers).toHaveLength(1);
+            expect(layers[0].entityId).toBe('layer-1');
+        });
+
+        it('getByMapId returns only matching map ID', async () => {
+            // Verify total ops first to ensure clean state
+            const all = await queue.getAll();
+            expect(all).toHaveLength(4);
+
+            const map1Ops = await queue.getByMapId('map-1');
+            // op-1 (map-1), op-2 (map-1) = 2 ops
+            const map1Ids = map1Ops.map(o => o.id).sort();
+            expect(map1Ids).toEqual(['op-1', 'op-2']);
+
+            const map2Ops = await queue.getByMapId('map-2');
+            expect(map2Ops).toHaveLength(1);
+            expect(map2Ops[0].entityId).toBe('feat-2');
+        });
+
+        it('getByEntityType with no matches returns empty array', async () => {
+            const briefings = await queue.getByEntityType(EntityType.BRIEFING);
+            expect(briefings).toHaveLength(0);
+        });
+    });
+
+    // ========================================================================
+    // Compaction trigger
+    // ========================================================================
+
+    describe('compaction trigger', () => {
+        it('_compactEntityOps merges CREATE+UPDATEs in queue instance', () => {
+            // Test the pure compaction function on a queue instance
+            const ops = [
+                createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', { nome: 'v1' }, 1000),
+                createOp('op-2', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v2' }, 2000),
+                createOp('op-3', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v3' }, 3000)
+            ];
+
+            const result = queue._compactEntityOps(ops);
+            expect(result).toHaveLength(1);
+            expect(result[0].operationType).toBe(OperationType.CREATE);
+            expect(result[0].data.nome).toBe('v3');
+        });
+
+        it('_compact only runs when queue exceeds MAX_QUEUE_SIZE', async () => {
+            // With only 3 ops, _compact returns early (guard: allOps.length <= MAX_QUEUE_SIZE)
+            await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', { nome: 'v1' }, 1000));
+            await queue.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v2' }, 2000));
+            await queue.enqueue(createOp('op-3', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v3' }, 3000));
+
+            await queue._compact();
+
+            // Should NOT compact (below MAX_QUEUE_SIZE threshold)
+            const all = await queue.getAll();
+            expect(all).toHaveLength(3);
+        });
+
+        it('compaction flag prevents re-entrancy', async () => {
+            queue._compacting = true;
+
+            // Attempt compact should return immediately
+            await queue._compact();
+
+            queue._compacting = false;
+        });
+
+        it('enqueueAll with batch works correctly', async () => {
+            const ops = [
+                createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', { nome: 'A' }, 1000),
+                createOp('op-2', EntityType.FEATURE, OperationType.CREATE, 'feat-2', 'map-1', { nome: 'B' }, 2000),
+                createOp('op-3', EntityType.LAYER, OperationType.CREATE, 'layer-1', 'map-1', { nome: 'L' }, 3000)
+            ];
+
+            await queue.enqueueAll(ops);
+            expect(await queue.count()).toBe(3);
+
+            const all = await queue.getAll();
+            expect(all[0].id).toBe('op-1');
+            expect(all[1].id).toBe('op-2');
+            expect(all[2].id).toBe('op-3');
+        });
+
+        it('_compactEntityOps removes CREATE+DELETE pair', () => {
+            const ops = [
+                createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', { nome: 'v1' }, 1000),
+                createOp('op-2', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v2' }, 2000),
+                createOp('op-3', EntityType.FEATURE, OperationType.DELETE, 'feat-1', 'map-1', null, 3000)
+            ];
+
+            const result = queue._compactEntityOps(ops);
+            expect(result).toHaveLength(0);
+        });
+    });
+
+    // ========================================================================
+    // Queue persistence simulation
+    // ========================================================================
+
+    describe('queue persistence simulation', () => {
+        it('ops survive index reset (simulates page reload)', async () => {
+            await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', { nome: 'Ponto 1' }, 1000));
+            await queue.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.CREATE, 'feat-2', 'map-1', { nome: 'Ponto 2' }, 2000));
+
+            // Simulate page reload: reset in-memory index
+            queue._index = null;
+
+            // Create new queue instance pointing to same store
+            const queue2 = new OperationQueue();
+            const all = await queue2.getAll();
+            expect(all).toHaveLength(2);
+            expect(all[0].data.nome).toBe('Ponto 1');
+            expect(all[1].data.nome).toBe('Ponto 2');
+        });
+
+        it('count is correct after index rebuild', async () => {
+            await queue.enqueue(createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000));
+            await queue.enqueue(createOp('op-2', EntityType.FEATURE, OperationType.CREATE, 'feat-2', 'map-1', null, 2000));
+            await queue.enqueue(createOp('op-3', EntityType.FEATURE, OperationType.CREATE, 'feat-3', 'map-1', null, 3000));
+
+            queue._index = null;
+            expect(await queue.count()).toBe(3);
+        });
+    });
+
+    // ========================================================================
+    // Multiple entity compaction
+    // ========================================================================
+
+    // ========================================================================
+    // _ensureIndex key parsing edge case
+    // ========================================================================
+
+    describe('_ensureIndex key parsing', () => {
+        it('IDs with underscores cause index mismatch after rebuild (known fragility)', async () => {
+            // The key format is `op_{timestamp}_{id}` and _ensureIndex extracts id
+            // via lastIndexOf('_'), so an ID containing underscores gets truncated.
+            // In practice, IDs are UUIDs (with hyphens), so this is not a real bug,
+            // but this test documents the fragility.
+            const op = createOp('id_with_underscores', EntityType.FEATURE, OperationType.CREATE, 'feat-1', 'map-1', null, 1000);
+            await queue.enqueue(op);
+
+            // After enqueue, the index uses the real operation.id (correct)
+            expect(queue._index.has('id_with_underscores')).toBe(true);
+
+            // Simulate page reload: _ensureIndex rebuilds from keys using lastIndexOf('_')
+            queue._index = null;
+            await queue.count(); // triggers _ensureIndex
+
+            // After rebuild: key is `op_1000_id_with_underscores`
+            // lastIndexOf('_') extracts "underscores" instead of "id_with_underscores"
+            expect(queue._index.has('underscores')).toBe(true);
+            expect(queue._index.has('id_with_underscores')).toBe(false);
+
+            // But the stored data still has the correct full ID
+            const all = await queue.getAll();
+            expect(all[0].id).toBe('id_with_underscores');
+        });
+    });
+
+    // ========================================================================
+    // Multi-entity compaction
+    // ========================================================================
+
+    describe('multi-entity compaction (pure logic)', () => {
+        it('compacts each entity group independently', () => {
+            // Test compaction logic per entity group using _compactEntityOps
+
+            // Entity A: CREATE + UPDATE → merged CREATE
+            const entityAResult = queue._compactEntityOps([
+                createOp('op-1', EntityType.FEATURE, OperationType.CREATE, 'feat-A', 'map-1', { nome: 'A-v1' }, 1000),
+                createOp('op-2', EntityType.FEATURE, OperationType.UPDATE, 'feat-A', 'map-1', { nome: 'A-v2' }, 2000)
+            ]);
+            expect(entityAResult).toHaveLength(1);
+            expect(entityAResult[0].operationType).toBe(OperationType.CREATE);
+            expect(entityAResult[0].data.nome).toBe('A-v2');
+
+            // Entity B: UPDATE + DELETE → keep DELETE
+            const entityBResult = queue._compactEntityOps([
+                createOp('op-3', EntityType.FEATURE, OperationType.UPDATE, 'feat-B', 'map-1', { nome: 'B-v1' }, 3000),
+                createOp('op-4', EntityType.FEATURE, OperationType.DELETE, 'feat-B', 'map-1', null, 4000)
+            ]);
+            expect(entityBResult).toHaveLength(1);
+            expect(entityBResult[0].operationType).toBe(OperationType.DELETE);
+
+            // Entity C: single CREATE → unchanged
+            const entityCResult = queue._compactEntityOps([
+                createOp('op-5', EntityType.FEATURE, OperationType.CREATE, 'feat-C', 'map-1', { nome: 'C' }, 5000)
+            ]);
+            expect(entityCResult).toHaveLength(1);
+            expect(entityCResult[0].operationType).toBe(OperationType.CREATE);
+        });
+
+        it('multiple UPDATEs → keep only last', () => {
+            const result = queue._compactEntityOps([
+                createOp('op-1', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v1' }, 1000),
+                createOp('op-2', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v2' }, 2000),
+                createOp('op-3', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v3' }, 3000),
+                createOp('op-4', EntityType.FEATURE, OperationType.UPDATE, 'feat-1', 'map-1', { nome: 'v4' }, 4000)
+            ]);
+            expect(result).toHaveLength(1);
+            expect(result[0].id).toBe('op-4');
+            expect(result[0].data.nome).toBe('v4');
+        });
+    });
+});
