@@ -338,18 +338,20 @@ function getFeatureTypeName(featureType) {
     const names = {
         'point': 'Pontos',
         'line': 'Linhas',
-        'polygon': 'Poligonos',
+        'polygon': 'Polígonos',
         'text': 'Textos',
         'image': 'Imagens',
-        'circle': 'Circulos',
-        'rectangle': 'Retangulos',
+        'circle': 'Círculos',
+        'rectangle': 'Retângulos',
         'ellipse': 'Elipses',
-        'brush': 'Pinceis',
+        'brush': 'Pincéis',
         'arrow': 'Setas',
         'boundary': 'Limites',
         'occupied_front': 'Frentes Ocupadas',
-        'military_symbol': 'Simbolos Militares',
-        'coordination_measure': 'Medidas de Coordenacao'
+        'military_symbol': 'Símbolos Militares',
+        'coordination_measure': 'Medidas de Coordenação',
+        'los': 'Linhas de Visada',
+        'visibility': 'Visibilidade'
     };
     return names[featureType] || featureType;
 }

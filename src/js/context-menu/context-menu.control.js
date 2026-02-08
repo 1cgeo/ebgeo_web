@@ -505,8 +505,17 @@ class ContextMenuControl {
         const copyItem = this._createMenuItem('Copiar Coordenadas', this._onCopyCoordinates);
         this._contextMenu.appendChild(copyItem);
 
-        const resetNorthItem = this._createMenuItem('Orientar para Norte', this._onResetNorth.bind(this));
-        this._contextMenu.appendChild(resetNorthItem);
+        const bearing = this._map.getBearing();
+        const pitch = this._map.getPitch();
+        const isAlreadyNorth = Math.abs(bearing) < 0.5 && Math.abs(pitch) < 0.5;
+
+        if (isAlreadyNorth) {
+            const disabledItem = this._createDisabledMenuItem('Orientar para Norte', 'Mapa já está orientado para norte');
+            this._contextMenu.appendChild(disabledItem);
+        } else {
+            const resetNorthItem = this._createMenuItem('Orientar para Norte', this._onResetNorth.bind(this));
+            this._contextMenu.appendChild(resetNorthItem);
+        }
     }
 
     _createMenuItem(text, clickHandler) {

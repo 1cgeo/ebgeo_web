@@ -87,9 +87,31 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
         descDisplay.innerHTML = '<p class="map-notes-sidebar-placeholder">Clique em editar para adicionar uma descrição...</p>';
     }
 
+    // Download button (shown in view mode)
+    const downloadBtn = document.createElement('button');
+    downloadBtn.className = 'map-notes-sidebar-download-btn';
+    downloadBtn.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Baixar
+    `;
+    downloadBtn.onclick = () => {
+        _downloadNotes(notesData, mapName);
+    };
+
+    // Button row
+    const viewBtnRow = document.createElement('div');
+    viewBtnRow.className = 'map-notes-sidebar-view-actions';
+
     if (!readOnly) {
-        viewContainer.appendChild(editBtn);
+        viewBtnRow.appendChild(editBtn);
     }
+    viewBtnRow.appendChild(downloadBtn);
+
+    viewContainer.appendChild(viewBtnRow);
     viewContainer.appendChild(titleDisplay);
     viewContainer.appendChild(descDisplay);
 
@@ -280,4 +302,45 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
         cleanup,
         title: `Notas: ${mapName}`
     };
+}
+
+// ============================================================================
+// PRIVATE HELPERS
+// ============================================================================
+
+/**
+ * Downloads notes as an HTML file.
+ * @param {Object} notesData - Notes data with title and description
+ * @param {string} mapName - Map name for filename
+ */
+function _downloadNotes(notesData, mapName) {
+    const title = notesData.title || 'Sem título';
+    const description = notesData.description || '';
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>${title}</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #333; }
+h1 { border-bottom: 2px solid #e5e7eb; padding-bottom: 12px; }
+img { max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<h1>${title}</h1>
+${description}
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${mapName}_notas.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 }

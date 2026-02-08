@@ -16,6 +16,7 @@ import { ATTRIBUTE_TABLE, ATTRIBUTE_TABLE_ICONS } from '../attribute-table.const
  * @param {Function} options.onClose - Close callback
  * @param {Function} options.onMinimize - Minimize callback
  * @param {Function} options.onAddColumn - Add column callback
+ * @param {Function} [options.onCsvExport] - CSV export callback
  * @param {Function} options.onResize - Resize callback (height)
  * @returns {HTMLElement} Panel element
  */
@@ -28,6 +29,7 @@ export function createTablePanel(options) {
         onClose,
         onMinimize,
         onAddColumn,
+        onCsvExport,
         onResize,
     } = options;
 
@@ -51,6 +53,7 @@ export function createTablePanel(options) {
         onClose,
         onMinimize,
         onAddColumn,
+        onCsvExport,
     });
     panel.appendChild(toolbar);
 
@@ -138,7 +141,7 @@ function createResizeHandle(panel, onResize) {
  * @returns {HTMLElement} Toolbar element
  */
 function createToolbar(options) {
-    const { layerName, featureCount, filteredCount, onClose, onMinimize, onAddColumn } = options;
+    const { layerName, featureCount, filteredCount, onClose, onMinimize, onAddColumn, onCsvExport } = options;
 
     const toolbar = document.createElement('div');
     toolbar.className = ATTRIBUTE_TABLE.CSS_CLASSES.TOOLBAR;
@@ -162,6 +165,16 @@ function createToolbar(options) {
     // Actions section
     const actions = document.createElement('div');
     actions.className = 'attribute-table-actions';
+
+    // CSV export button
+    const csvExportBtn = document.createElement('button');
+    csvExportBtn.className = 'attribute-table-csv-export-btn';
+    csvExportBtn.innerHTML = ATTRIBUTE_TABLE_ICONS.CSV_EXPORT;
+    csvExportBtn.title = 'Exportar CSV';
+    csvExportBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (onCsvExport) onCsvExport();
+    };
 
     // Add column button
     const addColumnBtn = document.createElement('button');
@@ -193,6 +206,7 @@ function createToolbar(options) {
         if (onClose) onClose();
     };
 
+    actions.appendChild(csvExportBtn);
     actions.appendChild(addColumnBtn);
     actions.appendChild(minimizeBtn);
     actions.appendChild(closeBtn);

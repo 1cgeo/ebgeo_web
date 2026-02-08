@@ -59,8 +59,8 @@ export function createFeatureItem(feature, callbacks) {
         </div>
     `;
 
-    const nameDiv = item.querySelector('.feature-name');
-    nameDiv.addEventListener('click', () => callbacks.onFeatureClick(feature));
+    const mainDiv = item.querySelector('.feature-main');
+    mainDiv.addEventListener('click', () => callbacks.onFeatureClick(feature));
 
     const visibilityBtn = item.querySelector('.visibility-toggle');
     visibilityBtn.addEventListener('click', (e) => {

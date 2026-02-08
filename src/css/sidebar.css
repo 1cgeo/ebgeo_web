@@ -1843,12 +1843,19 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 /* Edit button */
-.map-notes-sidebar-edit-btn {
+.map-notes-sidebar-view-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-shrink: 0;
+}
+
+.map-notes-sidebar-edit-btn,
+.map-notes-sidebar-download-btn {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: var(--space-2);
-    width: 100%;
+    flex: 1;
     padding: var(--space-2) var(--space-3);
     background: var(--gray-100);
     color: var(--gray-700);
@@ -1861,12 +1868,14 @@ body:has(.sidebar-container) .unified-attributes-panel {
     flex-shrink: 0;
 }
 
-.map-notes-sidebar-edit-btn:hover {
+.map-notes-sidebar-edit-btn:hover,
+.map-notes-sidebar-download-btn:hover {
     background: var(--gray-200);
     border-color: var(--gray-400);
 }
 
-.map-notes-sidebar-edit-btn svg {
+.map-notes-sidebar-edit-btn svg,
+.map-notes-sidebar-download-btn svg {
     flex-shrink: 0;
 }
 
@@ -2601,10 +2610,16 @@ body:has(.sidebar-container) .unified-attributes-panel {
     border-radius: var(--radius-md);
 }
 
-.feature-photo-viewer-close {
+.feature-photo-viewer-actions {
     position: absolute;
     top: -48px;
     right: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+}
+
+.feature-photo-viewer-action-btn {
     width: 40px;
     height: 40px;
     padding: 0;
@@ -2619,8 +2634,49 @@ body:has(.sidebar-container) .unified-attributes-panel {
     transition: opacity var(--transition-fast);
 }
 
-.feature-photo-viewer-close:hover {
+.feature-photo-viewer-action-btn:hover {
     opacity: 1;
+}
+
+.feature-photo-viewer-counter {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: var(--font-size-sm, 0.875rem);
+    user-select: none;
+}
+
+.feature-photo-viewer-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.4);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+    transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.feature-photo-viewer-nav:hover {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.feature-photo-viewer-nav--prev {
+    left: -56px;
+}
+
+.feature-photo-viewer-nav--next {
+    right: -56px;
 }
 
 /* =========================================================================

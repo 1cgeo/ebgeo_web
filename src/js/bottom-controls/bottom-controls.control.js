@@ -177,7 +177,7 @@ export class BottomControlsControl {
         this._rightContainer.appendChild(zoomGroup);
 
         // Other navigation buttons
-        ['fullscreen', 'location', 'compass'].forEach(key => {
+        ['fullscreen', 'compass'].forEach(key => {
             const btnConfig = NAV_BUTTONS[key];
             const btn = new NavButton(btnConfig, (cfg) => this._handleNavAction(cfg));
             this._rightContainer.appendChild(btn.render());

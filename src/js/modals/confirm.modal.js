@@ -153,11 +153,7 @@ export class ConfirmModal {
             if (e.key === 'Escape') {
                 this._cancel();
             } else if (e.key === 'Enter') {
-                // Only confirm on Enter if focus is on confirm button
-                const activeElement = document.activeElement;
-                if (activeElement?.classList.contains('confirm-modal-btn-confirm')) {
-                    this._confirm();
-                }
+                this._confirm();
             }
         });
     }

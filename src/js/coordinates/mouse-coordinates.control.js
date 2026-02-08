@@ -29,7 +29,6 @@ class MouseCoordinatesControl {
 
         // Note: _elevationEnabled and _currentElevation now delegated to StateManager
         this._terrainAvailable = false;
-        this._elevationButton = null;
         this._debounceTimer = null;
         this._elevationAbortController = null;
 
@@ -183,8 +182,10 @@ class MouseCoordinatesControl {
 
             // React to elevation toggle from other UI components
             this._unsubscribers.push(
-                stateManager.subscribe('mouse.elevationEnabled', (enabled) => {
-                    this._updateElevationButtonUI(enabled);
+                stateManager.subscribe('mouse.elevationEnabled', () => {
+                    if (this._map) {
+                        this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
+                    }
                 })
             );
         } catch (_e) {
@@ -218,26 +219,6 @@ class MouseCoordinatesControl {
         }
     }
 
-    /**
-     * Update elevation button UI to reflect enabled state.
-     * @private
-     * @param {boolean} enabled
-     */
-    _updateElevationButtonUI(enabled) {
-        if (!this._elevationButton) return;
-
-        if (enabled && this._terrainAvailable) {
-            this._elevationButton.classList.add('active');
-        } else {
-            this._elevationButton.classList.remove('active');
-        }
-
-        // Update display if enabled state changed
-        if (this._map) {
-            this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
-        }
-    }
-
     onAdd(map) {
         this._map = map;
         this._container = document.createElement('div');
@@ -257,12 +238,6 @@ class MouseCoordinatesControl {
 
         const gridContainer = document.createElement('div');
         gridContainer.className = 'coordinates-controls';
-
-        this._elevationButton = document.createElement('div');
-        this._elevationButton.className = 'coordinates-button coordinates-elevation-button';
-        this._elevationButton.title = "Mostrar elevação (terreno necessário)";
-        this._elevationButton.innerHTML = `<img src="./images/elevation_icon.svg" alt="Elevation" width="16" height="16" />`;
-        this._elevationButton.addEventListener('click', this._toggleElevation.bind(this));
 
         const gearButton = document.createElement('div');
         gearButton.className = 'coordinates-button coordinates-gear-button';
@@ -312,7 +287,6 @@ class MouseCoordinatesControl {
             this._formatSelector.appendChild(option);
         });
 
-        controlsContainer.appendChild(this._elevationButton);
         controlsContainer.appendChild(gearButton)
         if (config.features.grid) {
             this._innerContainer.appendChild(gridContainer);
@@ -347,45 +321,11 @@ class MouseCoordinatesControl {
         this._terrainAvailable = terrainEnabled;
 
         if (terrainEnabled) {
-            this._elevationButton.innerHTML = `<img src="./images/elevation_icon.svg" alt="Elevation" width="16" height="16" />`;
-            this._elevationButton.title = "Mostrar/ocultar elevação";
-            this._elevationButton.disabled = false;
-            // Sync button state with current elevation enabled state
-            this._updateElevationButtonUI(this._elevationEnabled);
+            this._elevationEnabled = true;
         } else {
-            this._elevationButton.innerHTML = `<img src="./images/elevation_icon.svg" alt="Elevation" width="16" height="16" style="opacity: 0.3;" />`;
-            this._elevationButton.title = "Elevação indisponível (terreno não carregado)";
-            this._elevationButton.disabled = true;
-
-            // Disable elevation if terrain becomes unavailable
-            if (this._elevationEnabled) {
-                this._elevationEnabled = false;
-                this._currentElevation = null;
-                this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
-            }
-        }
-    }
-
-    async _toggleElevation() {
-        if (!this._terrainAvailable) {
-            return;
-        }
-
-        // Toggle via property (triggers StateManager update)
-        const newEnabled = !this._elevationEnabled;
-        this._elevationEnabled = newEnabled;
-
-        // Clear elevation value when disabling, or fetch immediately when enabling
-        if (!newEnabled) {
+            this._elevationEnabled = false;
             this._currentElevation = null;
-        } else {
-            // Fetch elevation immediately when enabling
-            const { lat, lng } = this._currentCoordinates;
-            this._currentElevation = await this._getElevationDebounced(lat, lng);
         }
-
-        // Immediate UI update for responsive feel
-        this._updateElevationButtonUI(newEnabled);
 
         this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
     }

@@ -60,6 +60,6 @@ export const MAX_RESULTS = {
     features: 5,
     models3d: 3,
     streetview: 3,
-    places: 3,
+    places: 5,
     coordinates: 1,
 };

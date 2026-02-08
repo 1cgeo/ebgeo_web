@@ -2,13 +2,12 @@
 
 /**
  * @fileoverview Mouse coordinate display for the Cesium 3D viewer.
- * Shows lat/lon under the cursor with format switching and copy support.
+ * Shows lat/lon under the cursor with format switching.
  * Styles in src/css/panels-3d.css (.coordinates-control-3d*).
  */
 
 import {
     COORDINATE_FORMATS,
-    formatCoordinates,
     getDisplayFormat
 } from '../../utilities';
 
@@ -18,7 +17,6 @@ let coordinatesContainer = null;
 let coordinatesText = null;
 let formatSelector = null;
 let currentFormat = 'latlong';
-let currentCoordinates = { lat: 0, lng: 0 };
 let mouseMoveHandler = null;
 
 function initMouseCoordinates3D(viewer) {
@@ -39,13 +37,6 @@ function initMouseCoordinates3D(viewer) {
     // Create controls container
     const controlsContainer = document.createElement('div');
     controlsContainer.className = 'coordinates-control-3d__controls';
-
-    // Copy button
-    const copyButton = document.createElement('div');
-    copyButton.className = 'coordinates-control-3d__btn coordinates-control-3d__btn--copy coordinates-copy-button';
-    copyButton.textContent = '\u{1F4CB}';
-    copyButton.title = 'Copiar coordenadas';
-    copyButton.addEventListener('click', copyCoordinates);
 
     // Format button
     const formatButton = document.createElement('div');
@@ -70,7 +61,6 @@ function initMouseCoordinates3D(viewer) {
     });
 
     // Assemble components
-    controlsContainer.appendChild(copyButton);
     controlsContainer.appendChild(formatButton);
     coordinatesContainer.appendChild(coordinatesText);
     coordinatesContainer.appendChild(controlsContainer);
@@ -114,19 +104,29 @@ function onMouseMove(e) {
         e.clientY - rect.top
     );
 
-    const cartesian = viewerInstance.camera.pickEllipsoid(position, viewerInstance.scene.globe.ellipsoid);
+    const cartesian = viewerInstance.scene.pickPosition(position);
 
     if (cartesian) {
         const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
         const longitude = Cesium.Math.toDegrees(cartographic.longitude);
         const latitude = Cesium.Math.toDegrees(cartographic.latitude);
+        const height = cartographic.height;
 
-        currentCoordinates = { lat: latitude, lng: longitude };
-        updateCoordinates(latitude, longitude);
+        updateCoordinates(latitude, longitude, height);
+    } else {
+        // Fallback to ellipsoid pick (no depth buffer)
+        const ellipsoidCartesian = viewerInstance.camera.pickEllipsoid(position, viewerInstance.scene.globe.ellipsoid);
+        if (ellipsoidCartesian) {
+            const cartographic = Cesium.Cartographic.fromCartesian(ellipsoidCartesian);
+            const longitude = Cesium.Math.toDegrees(cartographic.longitude);
+            const latitude = Cesium.Math.toDegrees(cartographic.latitude);
+
+            updateCoordinates(latitude, longitude, null);
+        }
     }
 }
 
-async function updateCoordinates(lat, lng) {
+async function updateCoordinates(lat, lng, height = null) {
     if (!coordinatesText) return;
 
     coordinatesText.innerHTML = '';
@@ -139,6 +139,13 @@ async function updateCoordinates(lat, lng) {
             span.textContent = `${part.label}: ${part.value}`;
             coordinatesText.appendChild(span);
         });
+
+        // Show elevation
+        if (height != null && isFinite(height)) {
+            const elevSpan = document.createElement('span');
+            elevSpan.textContent = `Elev: ${Math.round(height)}m`;
+            coordinatesText.appendChild(elevSpan);
+        }
     } catch (error) {
         console.error('Error converting coordinates:', error);
         // Fallback
@@ -148,55 +155,6 @@ async function updateCoordinates(lat, lng) {
         lngSpan.textContent = `Lon: ${lng.toFixed(5)}\u00B0`;
         coordinatesText.appendChild(latSpan);
         coordinatesText.appendChild(lngSpan);
-    }
-}
-
-async function copyCoordinates() {
-    const { lat, lng } = currentCoordinates;
-    const textToCopy = await formatCoordinates(lat, lng, currentFormat);
-
-    if (!textToCopy || textToCopy.trim() === '') return;
-
-    if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(textToCopy).then(() => {
-            showCopyFeedback();
-        }).catch(() => {
-            fallbackCopyTextToClipboard(textToCopy);
-        });
-    } else {
-        fallbackCopyTextToClipboard(textToCopy);
-    }
-}
-
-function fallbackCopyTextToClipboard(text) {
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.style.position = "fixed";
-    textArea.style.left = "-9999px";
-
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-
-    try {
-        document.execCommand('copy');
-        showCopyFeedback();
-    } catch (err) {
-        console.error('Error copying text:', err);
-    }
-
-    document.body.removeChild(textArea);
-}
-
-function showCopyFeedback() {
-    const copyButton = coordinatesContainer?.querySelector('.coordinates-copy-button');
-    if (copyButton) {
-        const originalContent = copyButton.textContent;
-        copyButton.textContent = '\u2705';
-
-        setTimeout(() => {
-            copyButton.textContent = originalContent;
-        }, 1000);
     }
 }
 
@@ -224,7 +182,7 @@ function setFormat(formatId) {
     });
 
     formatSelector.style.display = 'none';
-    updateCoordinates(currentCoordinates.lat, currentCoordinates.lng);
+    updateCoordinates(0, 0);
 }
 
 export { initMouseCoordinates3D, cleanupMouseCoordinates3D };

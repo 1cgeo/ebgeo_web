@@ -812,6 +812,7 @@ export async function currentTilesetHasSavedPosition() {
 function updateCameraButtonState(hasSavedPosition) {
     const saveBtn = document.getElementById('salvar-camera');
     const clearBtn = document.getElementById('limpar-camera');
+    const flyBtn = document.getElementById('voar-camera');
 
     if (saveBtn) {
         saveBtn.classList.toggle('has-saved', hasSavedPosition);
@@ -819,6 +820,11 @@ function updateCameraButtonState(hasSavedPosition) {
 
     if (clearBtn) {
         clearBtn.style.display = hasSavedPosition ? 'flex' : 'none';
+    }
+
+    // Fly button is always visible when a tileset is loaded
+    if (flyBtn) {
+        flyBtn.style.display = _currentTilesetId ? 'flex' : 'none';
     }
 }
 
@@ -983,6 +989,35 @@ function initCameraButtons() {
             const success = await clearCurrentCameraPosition();
             if (success) {
                 showSuccess('Posição da câmera removida');
+            }
+        });
+    }
+
+    const flyBtn = document.getElementById('voar-camera');
+    if (flyBtn) {
+        // Remove existing listeners
+        flyBtn.replaceWith(flyBtn.cloneNode(true));
+        const newFlyBtn = document.getElementById('voar-camera');
+
+        // Fly again works even in locked mode
+        newFlyBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!_currentTilesetId || !cesiumState.viewer) return;
+
+            // Try saved position first, fall back to default tileset location
+            const restored = await restoreCameraPosition(_currentTilesetId);
+            if (!restored) {
+                const tilesetConfig = config.tilesets.find(t => t.id === _currentTilesetId);
+                if (tilesetConfig?.locate) {
+                    cesiumState.viewer.camera.flyTo({
+                        destination: Cesium.Cartesian3.fromDegrees(
+                            tilesetConfig.locate.lon,
+                            tilesetConfig.locate.lat,
+                            tilesetConfig.locate.height
+                        ),
+                        duration: 2.0
+                    });
+                }
             }
         });
     }

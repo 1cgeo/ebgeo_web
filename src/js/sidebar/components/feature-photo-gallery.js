@@ -11,6 +11,9 @@ import { EventTypes, FeatureUpdateProperty } from '../../events/index.js';
 import { showConfirm } from '../../modals/index.js';
 import { showWarning } from '../../utilities';
 
+/** @type {Array<Object>|null} Current gallery images for viewer navigation */
+let _viewerImages = null;
+
 /**
  * Creates the photo gallery section for the feature panel.
  * @param {Object} options - Configuration options
@@ -75,7 +78,7 @@ export async function createPhotoGallery(options) {
         const visibleImages = images.slice(0, maxVisible);
 
         visibleImages.forEach(img => {
-            const card = createImageCard(img, featureId, featureType, renderImages);
+            const card = createImageCard(img, featureId, featureType, renderImages, images);
             grid.appendChild(card);
         });
 
@@ -150,9 +153,10 @@ export async function createPhotoGallery(options) {
  * @param {string} featureId - Feature ID
  * @param {string} featureType - Feature type
  * @param {Function} onDelete - Callback after delete
+ * @param {Array<Object>} allImages - All images for navigation
  * @returns {HTMLElement} Image card element
  */
-function createImageCard(imageData, featureId, featureType, onDelete) {
+function createImageCard(imageData, featureId, featureType, onDelete, allImages) {
     const card = document.createElement('div');
     card.className = 'feature-photo-gallery-card';
 
@@ -163,7 +167,7 @@ function createImageCard(imageData, featureId, featureType, onDelete) {
 
     // Click to view full size
     img.addEventListener('click', () => {
-        openImageViewer(imageData);
+        openImageViewer(imageData, allImages);
     });
 
     // Delete button (shown on hover)
@@ -207,10 +211,16 @@ function createAddCard(fileInput) {
 }
 
 /**
- * Opens full-screen image viewer.
+ * Opens full-screen image viewer with navigation and download.
  * @param {Object} imageData - Image data object
+ * @param {Array<Object>} [allImages=[]] - All images for navigation
  */
-function openImageViewer(imageData) {
+function openImageViewer(imageData, allImages = []) {
+    _viewerImages = allImages.length > 1 ? allImages : null;
+    let currentIndex = _viewerImages
+        ? _viewerImages.findIndex(i => i.id === imageData.id)
+        : 0;
+
     const overlay = document.createElement('div');
     overlay.className = 'feature-photo-viewer-overlay';
 
@@ -221,24 +231,92 @@ function openImageViewer(imageData) {
     img.src = imageData.data;
     img.alt = imageData.name || 'Imagem';
 
+    // Top-right actions (download + close)
+    const actionsBar = document.createElement('div');
+    actionsBar.className = 'feature-photo-viewer-actions';
+
+    const downloadBtn = document.createElement('button');
+    downloadBtn.className = 'feature-photo-viewer-action-btn';
+    downloadBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+    downloadBtn.title = 'Baixar imagem';
+
     const closeBtn = document.createElement('button');
-    closeBtn.className = 'feature-photo-viewer-close';
-    closeBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+    closeBtn.className = 'feature-photo-viewer-action-btn';
+    closeBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
     closeBtn.title = 'Fechar';
 
-    // Escape key to close - declared before closeViewer so it can be removed in all close paths
+    actionsBar.appendChild(downloadBtn);
+    actionsBar.appendChild(closeBtn);
+
+    // Counter label
+    const counterLabel = document.createElement('div');
+    counterLabel.className = 'feature-photo-viewer-counter';
+
+    function updateCounter() {
+        if (_viewerImages) {
+            counterLabel.textContent = `${currentIndex + 1} / ${_viewerImages.length}`;
+            counterLabel.style.display = '';
+        } else {
+            counterLabel.style.display = 'none';
+        }
+    }
+
+    // Navigation arrows
+    let prevBtn = null;
+    let nextBtn = null;
+
+    if (_viewerImages) {
+        prevBtn = document.createElement('button');
+        prevBtn.className = 'feature-photo-viewer-nav feature-photo-viewer-nav--prev';
+        prevBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`;
+        prevBtn.title = 'Anterior';
+
+        nextBtn = document.createElement('button');
+        nextBtn.className = 'feature-photo-viewer-nav feature-photo-viewer-nav--next';
+        nextBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`;
+        nextBtn.title = 'Próxima';
+
+        prevBtn.addEventListener('click', (e) => { e.stopPropagation(); navigate(-1); });
+        nextBtn.addEventListener('click', (e) => { e.stopPropagation(); navigate(1); });
+    }
+
+    function navigate(direction) {
+        if (!_viewerImages) return;
+        currentIndex = (currentIndex + direction + _viewerImages.length) % _viewerImages.length;
+        const current = _viewerImages[currentIndex];
+        img.src = current.data;
+        img.alt = current.name || 'Imagem';
+        updateCounter();
+    }
+
+    function getCurrentImage() {
+        return _viewerImages ? _viewerImages[currentIndex] : imageData;
+    }
+
+    downloadBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        userDataManager.downloadImage(getCurrentImage());
+    });
+
     const handleKeydown = (e) => {
         if (e.key === 'Escape') {
             closeViewer();
+        } else if (_viewerImages && (e.key === 'ArrowLeft' || e.key === 'ArrowUp')) {
+            e.preventDefault();
+            navigate(-1);
+        } else if (_viewerImages && (e.key === 'ArrowRight' || e.key === 'ArrowDown')) {
+            e.preventDefault();
+            navigate(1);
         }
     };
 
     const closeViewer = () => {
         document.removeEventListener('keydown', handleKeydown);
+        _viewerImages = null;
         overlay.remove();
     };
 
-    closeBtn.addEventListener('click', closeViewer);
+    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); closeViewer(); });
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay) closeViewer();
     });
@@ -246,7 +324,12 @@ function openImageViewer(imageData) {
     document.addEventListener('keydown', handleKeydown);
 
     viewer.appendChild(img);
-    viewer.appendChild(closeBtn);
+    viewer.appendChild(actionsBar);
+    viewer.appendChild(counterLabel);
+    if (prevBtn) viewer.appendChild(prevBtn);
+    if (nextBtn) viewer.appendChild(nextBtn);
     overlay.appendChild(viewer);
     document.body.appendChild(overlay);
+
+    updateCounter();
 }

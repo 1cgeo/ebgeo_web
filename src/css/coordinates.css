@@ -97,21 +97,6 @@
     opacity: 0.5 ;
 }
 
-.coordinates-elevation-button:disabled {
-    pointer-events: none !important;
-    cursor: not-allowed !important;
-}
-
-.coordinates-elevation-button.active {
-    background-color: var(--primary) !important;
-    border-radius: 4px !important;
-    opacity: 1 !important;
-}
-
-.coordinates-elevation-button.active img {
-    filter: brightness(0) invert(1) !important;
-}
-
 .coordinates-button:hover,
 .coordinates-copy-button:hover,
 .coordinates-flyto-button:hover,

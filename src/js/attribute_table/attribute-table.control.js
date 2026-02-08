@@ -20,10 +20,10 @@ import { renderTable, updateRowSelections } from './components/table-renderer.js
 import { showColumnContextMenu } from './components/column-context-menu.js';
 import { EventTypes } from '../events/event_types.js';
 import { getLayers, getCurrentMapNameSync, isCurrentMapLockedSync } from '../store';
-import { FEATURE_TYPE_MAPPINGS } from '../store/store.constants.js';
+import { FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES } from '../store/store.constants.js';
 import { showPrompt } from '../modals/prompt.modal.js';
 import userDataManager from '../user_data/user_data_manager.js';
-import { showWarning, showError } from '../utilities';
+import { showWarning, showError, showSuccess } from '../utilities';
 
 // turf is loaded as a global via script tag in index.html
 
@@ -232,6 +232,7 @@ export class AttributeTableControl {
             onClose: () => this.close(),
             onMinimize: () => this._toggleMinimize(),
             onAddColumn: () => this._handleAddColumn(),
+            onCsvExport: () => this._handleCsvExport(),
             onResize: (newHeight) => this._handleResize(newHeight),
         });
 
@@ -785,6 +786,52 @@ export class AttributeTableControl {
             console.error('Error removing column:', error);
             showError('Erro ao remover atributo: ' + error.message);
         }
+    }
+
+    // =========================================================================
+    // PRIVATE - CSV EXPORT
+    // =========================================================================
+
+    /**
+     * Exports the current (filtered/sorted) table data as CSV.
+     */
+    _handleCsvExport() {
+        if (this._filteredFeatures.length === 0) {
+            showWarning('Nenhuma feição para exportar.');
+            return;
+        }
+
+        const headers = ['Tipo', 'Nome', ...this._attributeColumns];
+        const rows = [headers.map(h => `"${h}"`).join(',')];
+
+        for (const feature of this._filteredFeatures) {
+            const rawType = feature.properties?.source || '';
+            const type = FEATURE_DISPLAY_NAMES[rawType] || rawType;
+            const name = feature.properties?.nome || '';
+            const attrValues = this._attributeColumns.map(col => {
+                const val = feature.properties?.attributes?.[col];
+                return val != null ? String(val) : '';
+            });
+
+            const row = [type, name, ...attrValues];
+            rows.push(row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','));
+        }
+
+        // UTF-8 BOM for Excel compatibility
+        const bom = '\uFEFF';
+        const csv = bom + rows.join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${this._currentLayerName}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        showSuccess('CSV exportado com sucesso!');
     }
 
     // =========================================================================

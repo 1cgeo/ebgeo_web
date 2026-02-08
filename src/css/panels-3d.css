@@ -429,7 +429,7 @@ body.cesium-active .modal-overlay {
 }
 
 /* ===== MAP LOCK: HIDE WRITE-ACTION BUTTONS ===== */
-#toolbar-3d.map-locked .button-tool-3d:not(#help-3d) {
+#toolbar-3d.map-locked .button-tool-3d:not(#help-3d, #voar-camera) {
     display: none;
 }
 
@@ -791,10 +791,6 @@ body.cesium-active .modal-overlay {
 
 .coordinates-control-3d__btn:hover {
     opacity: 1;
-}
-
-.coordinates-control-3d__btn--copy {
-    font-size: 14px;
 }
 
 .coordinates-control-3d__dropdown {
