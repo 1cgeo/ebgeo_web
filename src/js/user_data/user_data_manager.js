@@ -26,9 +26,21 @@ import { sanitizeHtml } from '../sidebar/panels/notes-panel.js';
  * This list must be comprehensive to avoid polluting user attributes with internal data.
  * @constant {Set<string>}
  */
+/**
+ * Property keys that map to the feature description field (descricao).
+ * Checked case-insensitively during import.
+ * @constant {Set<string>}
+ */
+const DESCRIPTION_PROPERTY_KEYS = new Set([
+    'descricao', 'descrição', 'description', 'desc',
+]);
+
 const SYSTEM_PROPERTIES = new Set([
     // Core identifiers
     'id', 'nome', 'name', 'source', 'layerId', 'groupId',
+
+    // Description variants (extracted separately during import)
+    'descricao', 'descrição', 'description', 'desc',
 
     // Visual properties - common
     'color', 'outlinecolor', 'outlineColor', 'opacity', 'size', 'lineStyle',
@@ -408,17 +420,28 @@ const userDataManager = {
     /**
      * Extracts custom attributes from imported GeoJSON properties.
      * Filters out system properties, converts values to strings, and sanitizes HTML.
+     * Description-like properties (descricao, description, desc) are extracted
+     * separately and returned in the result for mapping to feature.properties.descricao.
      * @param {Object} importedProperties - Properties from imported GeoJSON feature
-     * @returns {Object} Extracted user attributes (sanitized)
+     * @returns {{ attributes: Object, descricao: string }} Extracted user attributes and description
      */
     extractAttributesFromImport(importedProperties) {
         if (!importedProperties || typeof importedProperties !== 'object') {
-            return {};
+            return { attributes: {}, descricao: '' };
         }
 
         const extracted = {};
+        let descricao = '';
 
         for (const [key, value] of Object.entries(importedProperties)) {
+            // Extract description-like properties into descricao
+            if (DESCRIPTION_PROPERTY_KEYS.has(key.toLowerCase())) {
+                if (value != null && value !== '' && !descricao) {
+                    descricao = sanitizeHtml(String(value));
+                }
+                continue;
+            }
+
             // Skip system properties
             if (SYSTEM_PROPERTIES.has(key)) {
                 continue;
@@ -450,7 +473,7 @@ const userDataManager = {
             extracted[key] = sanitizeHtml(String(value));
         }
 
-        return extracted;
+        return { attributes: extracted, descricao };
     },
 
     // ===== VALIDATION =====

@@ -113,6 +113,12 @@ export class TableDataService {
                     return true;
                 }
 
+                // Search in description
+                const desc = f.properties?.descricao || '';
+                if (desc.toLowerCase().includes(query)) {
+                    return true;
+                }
+
                 // Search in all attribute values
                 const attrs = f.properties?.attributes || {};
                 for (const value of Object.values(attrs)) {
@@ -149,6 +155,9 @@ export class TableDataService {
             if (column === 'nome') {
                 valueA = a.properties?.nome || '';
                 valueB = b.properties?.nome || '';
+            } else if (column === 'descricao') {
+                valueA = a.properties?.descricao || '';
+                valueB = b.properties?.descricao || '';
             } else if (column === 'type') {
                 valueA = a.properties?.source || '';
                 valueB = b.properties?.source || '';
@@ -187,6 +196,10 @@ export class TableDataService {
     getCellValue(feature, columnKey) {
         if (columnKey === 'nome') {
             return feature.properties?.nome || EMPTY_CELL_PLACEHOLDER;
+        }
+
+        if (columnKey === 'descricao') {
+            return feature.properties?.descricao || EMPTY_CELL_PLACEHOLDER;
         }
 
         if (columnKey === 'type') {

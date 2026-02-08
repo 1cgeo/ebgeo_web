@@ -572,8 +572,8 @@ class AddImportControl {
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = this.generateImportName(targetType, typeCounters);
 
-        // Extract custom attributes from imported properties (non-system properties)
-        const extractedAttributes = userDataManager.extractAttributesFromImport(
+        // Extract custom attributes and description from imported properties
+        const { attributes: extractedAttributes, descricao } = userDataManager.extractAttributesFromImport(
             feature.properties
         );
 
@@ -586,6 +586,7 @@ class AddImportControl {
             // imported data with system properties. Custom data goes to 'attributes'.
             id: featureId,
             nome: featureName,
+            descricao: descricao,
             source: targetType.slice(0, -1),
             layerId: layerId,
             // User data fields - custom attributes extracted from import, empty images

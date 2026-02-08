@@ -140,6 +140,12 @@ function createTableHeader(options) {
     nameTh.style.width = `${columnWidths.nome || ATTRIBUTE_TABLE.COLUMN_WIDTHS.name}px`;
     row.appendChild(nameTh);
 
+    // Description column (fixed, after name)
+    const descTh = createSortableHeader('descricao', 'Descrição', sortState, columnWidths, callbacks);
+    descTh.classList.add('attribute-table-col-desc');
+    descTh.style.width = `${columnWidths.descricao || ATTRIBUTE_TABLE.COLUMN_WIDTHS.name}px`;
+    row.appendChild(descTh);
+
     // Attribute columns
     attributeColumns.forEach((key) => {
         const th = createSortableHeader(key, key, sortState, columnWidths, callbacks, true);
@@ -301,6 +307,17 @@ function createTableRow(options) {
     nameTd.style.width = `${columnWidths.nome || ATTRIBUTE_TABLE.COLUMN_WIDTHS.name}px`;
     tr.appendChild(nameTd);
 
+    // Description cell (editable)
+    const descTd = createEditableCell({
+        feature,
+        columnKey: 'descricao',
+        value: tableDataService.getCellValue(feature, 'descricao'),
+        callbacks,
+    });
+    descTd.classList.add('attribute-table-cell-desc');
+    descTd.style.width = `${columnWidths.descricao || ATTRIBUTE_TABLE.COLUMN_WIDTHS.name}px`;
+    tr.appendChild(descTd);
+
     // Attribute cells (editable)
     attributeColumns.forEach((key) => {
         const value = tableDataService.getCellValue(feature, key);
@@ -390,7 +407,9 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
     const currentValue =
         columnKey === 'nome'
             ? feature.properties?.nome || ''
-            : feature.properties?.attributes?.[columnKey] || '';
+            : columnKey === 'descricao'
+                ? feature.properties?.descricao || ''
+                : feature.properties?.attributes?.[columnKey] || '';
 
     const originalHTML = td.innerHTML;
 
@@ -433,6 +452,8 @@ function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
             // Update feature reference with new value
             if (columnKey === 'nome') {
                 feature.properties.nome = newValue;
+            } else if (columnKey === 'descricao') {
+                feature.properties.descricao = newValue;
             } else {
                 if (!feature.properties.attributes) {
                     feature.properties.attributes = {};
@@ -486,7 +507,7 @@ function moveToNextEditableCell(currentTd, reverse = false) {
     if (!row || !table) return;
 
     const editableCells = Array.from(
-        table.querySelectorAll('td.attribute-table-cell-name, td.attribute-table-cell-attr')
+        table.querySelectorAll('td.attribute-table-cell-name, td.attribute-table-cell-desc, td.attribute-table-cell-attr')
     );
 
     const currentIndex = editableCells.indexOf(currentTd);
@@ -510,8 +531,8 @@ function createEmptyRow(columnCount) {
     tr.className = 'attribute-table-empty-row';
 
     const td = document.createElement('td');
-    // Total columns: checkbox + type + name + attributes + actions
-    td.colSpan = 4 + columnCount;
+    // Total columns: checkbox + type + name + description + attributes + actions
+    td.colSpan = 5 + columnCount;
     td.className = 'attribute-table-empty-message';
     td.textContent = 'Nenhuma feição encontrada';
 

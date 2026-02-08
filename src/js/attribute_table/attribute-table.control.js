@@ -634,19 +634,19 @@ export class AttributeTableControl {
         if (isCurrentMapLockedSync()) return;
 
         try {
-            if (columnKey === 'nome') {
+            if (columnKey === 'nome' || columnKey === 'descricao') {
                 // Convert singular type to plural storage type (e.g., 'polygon' -> 'polygons')
                 const storageType = FEATURE_TYPE_MAPPINGS[featureType] || featureType;
 
                 // Update in persistence (IndexedDB)
                 const { updateFeatureProperty } = await import('../store/feature.operations.js');
-                await updateFeatureProperty(storageType, featureId, 'nome', newValue);
+                await updateFeatureProperty(storageType, featureId, columnKey, newValue);
 
                 // Update in MapLibre source
-                await this._updateMapLibreSource(storageType, featureId, 'nome', newValue);
+                await this._updateMapLibreSource(storageType, featureId, columnKey, newValue);
 
                 // Update SelectionManager if this feature is selected
-                this._updateSelectionManagerFeature(featureId, featureType, 'nome', newValue);
+                this._updateSelectionManagerFeature(featureId, featureType, columnKey, newValue);
 
                 // Emit LAYERS_CHANGED to update UI (features tab, etc.)
                 this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
