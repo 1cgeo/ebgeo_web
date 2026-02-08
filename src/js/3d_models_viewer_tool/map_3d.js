@@ -1303,3 +1303,11 @@ export function isViewer3DOpen() {
 export function getCesiumViewer() {
     return cesiumState.viewer;
 }
+
+/**
+ * Returns the current active tileset ID.
+ * @returns {string|null} The tileset ID or null
+ */
+export function getCurrentTilesetId() {
+    return _currentTilesetId;
+}

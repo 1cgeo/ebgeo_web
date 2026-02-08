@@ -222,6 +222,22 @@ export class ReferenceValidator {
                 ValidationErrorType.NO_POSITION,
                 ErrorSeverity.WARNING
             ));
+        } else if (slide.mode === SlideMode.VIEWER_360) {
+            // For 360 slides, position should contain geographic coordinates (not camera rotation).
+            // Legacy briefings may have camera rotation values in position - detect and warn.
+            const { longitude, latitude } = slide.position;
+            const looksLikeCameraRotation = longitude != null && latitude != null
+                && Math.abs(latitude) > 90;
+            if (looksLikeCameraRotation) {
+                result.addError(new ValidationError(
+                    index,
+                    slide.id,
+                    slide.title,
+                    ValidationErrorType.NO_POSITION,
+                    ErrorSeverity.WARNING,
+                    'Posição contém valores de rotação de câmera (briefing legado)'
+                ));
+            }
         }
 
         // Check mode-specific references

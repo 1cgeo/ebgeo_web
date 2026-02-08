@@ -1153,5 +1153,46 @@ export function cleanupStreetViewFeatures() {
     document.body.classList.remove('streetview-active');
 }
 
+/**
+ * Gets the geographic coordinates of the current photo from metadata.
+ * Used by briefing system to store the flyTo target for 360 slides.
+ * @returns {Promise<{longitude: number, latitude: number}|null>}
+ */
+export async function getCurrentPhotoGeoPosition() {
+    const name = streetViewState.currentPhotoName;
+    if (!name) return null;
+
+    try {
+        const metadata = await loadMetadataWithCache(name);
+        if (metadata?.camera?.lon != null && metadata?.camera?.lat != null) {
+            return { longitude: metadata.camera.lon, latitude: metadata.camera.lat };
+        }
+    } catch (error) {
+        console.warn('Failed to get photo geo position:', error);
+    }
+    return null;
+}
+
+/**
+ * Sets the camera rotation (lon/lat in degrees).
+ * The render loop will apply this on the next frame.
+ * @param {number} newLon - Horizontal rotation in degrees
+ * @param {number} newLat - Vertical rotation in degrees
+ */
+export function setCameraRotation(newLon, newLat) {
+    lon = newLon;
+    lat = THREE.MathUtils.clamp(newLat, -85, 85);
+}
+
+/**
+ * Sets the camera FOV (field of view).
+ * @param {number} fov - FOV in degrees (clamped 10-75)
+ */
+export function setCameraFOV(fov) {
+    if (!streetViewState.camera) return;
+    streetViewState.camera.fov = THREE.MathUtils.clamp(fov, 10, 75);
+    streetViewState.camera.updateProjectionMatrix();
+}
+
 // Export for external access
 export { streetViewState };

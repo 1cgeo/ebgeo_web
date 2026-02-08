@@ -2,28 +2,31 @@
 
 /**
  * @fileoverview Briefing editor styles.
- * Full-screen editor for creating and editing briefings.
+ * Right-side panel overlay for editing briefings.
+ * The map remains in its normal DOM position behind the panel.
  */
 
 /* =========================================================================
-   EDITOR CONTAINER
+   EDITOR CONTAINER (right-side panel)
    ========================================================================= */
 
 .briefing-editor {
     position: fixed;
     top: 0;
-    left: 0;
     right: 0;
     bottom: 0;
-    background: var(--gray-100);
+    width: 520px;
+    background: white;
     z-index: var(--z-modal, 1000);
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    border-left: 1px solid var(--border-color);
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
 }
 
 /* =========================================================================
-   PANEL HEADER (inside left panel)
+   PANEL HEADER
    ========================================================================= */
 
 .briefing-editor-panel-header {
@@ -103,42 +106,9 @@
 }
 
 /* =========================================================================
-   CONTENT AREA
+   SCROLLABLE CONTENT
    ========================================================================= */
 
-.briefing-editor-content {
-    flex: 1;
-    display: flex;
-    overflow: hidden;
-}
-
-/* =========================================================================
-   PREVIEW PANEL (left, takes remaining space)
-   ========================================================================= */
-
-.briefing-editor-preview-panel {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    position: relative;
-}
-
-/* =========================================================================
-   EDITING PANEL (right, fixed width)
-   ========================================================================= */
-
-.briefing-editor-editing-panel {
-    width: 520px;
-    min-width: 520px;
-    background: white;
-    border-left: 1px solid var(--border-color);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-/* Scrollable content area */
 .briefing-editor-scrollable {
     flex: 1;
     overflow-y: auto;
@@ -164,7 +134,10 @@
     background-color: var(--primary-700, #15803d);
 }
 
-/* Slides Section */
+/* =========================================================================
+   SLIDES SECTION
+   ========================================================================= */
+
 .briefing-editor-slides-section {
     display: flex;
     flex-direction: column;
@@ -210,7 +183,10 @@
     height: 16px;
 }
 
-/* Slide List */
+/* =========================================================================
+   SLIDE LIST
+   ========================================================================= */
+
 .briefing-editor-slide-list {
     padding: var(--space-2);
 }
@@ -343,7 +319,10 @@
     opacity: 0.4;
 }
 
-/* Slide Editor */
+/* =========================================================================
+   SLIDE EDITOR
+   ========================================================================= */
+
 .briefing-editor-slide-editor {
     padding: var(--space-4);
     border-top: 1px solid var(--border-color);
@@ -427,48 +406,6 @@
     color: var(--gray-600);
 }
 
-/* Mode Selector */
-.briefing-editor-mode-selector {
-    display: flex;
-    gap: var(--space-2);
-}
-
-.briefing-editor-mode-btn {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-1);
-    padding: var(--space-3);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    background: white;
-    color: var(--gray-600);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-}
-
-.briefing-editor-mode-btn:hover {
-    border-color: var(--primary-300, #86efac);
-    background: var(--gray-50);
-}
-
-.briefing-editor-mode-btn[data-selected="true"] {
-    border-color: var(--primary);
-    background: var(--primary-50, #f0fdf4);
-    color: var(--primary);
-}
-
-.briefing-editor-mode-btn svg {
-    width: 20px;
-    height: 20px;
-}
-
-.briefing-editor-mode-btn span {
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
-}
-
 /* Position Display */
 .briefing-editor-position-wrapper {
     display: flex;
@@ -501,7 +438,7 @@
     flex-shrink: 0;
 }
 
-/* Capture button (inline) */
+/* Capture/Save position button (inline) */
 .briefing-editor-position-wrapper .briefing-editor-capture-btn {
     display: flex;
     align-items: center;
@@ -590,147 +527,112 @@
     font-size: var(--font-size-sm);
 }
 
-/* =========================================================================
-   PREVIEW AREA (inside preview panel)
-   ========================================================================= */
-
-.briefing-editor-preview {
-    flex: 1;
-    background: var(--gray-200);
-    display: flex;
-    align-items: stretch;
-    justify-content: stretch;
-    overflow: hidden;
-    position: relative;
-}
-
-/* Map container when embedded in preview */
-.briefing-editor-preview #map-sig {
-    width: 100% !important;
-    height: 100% !important;
-    position: relative !important;
-}
-
-/* 3D container when embedded in preview */
-#map-3d-container.briefing-editor-embedded {
-    position: relative !important;
-    top: auto !important;
-    left: auto !important;
-    right: auto !important;
-    bottom: auto !important;
-    width: 100% !important;
-    height: 100% !important;
-    z-index: auto !important;
-}
-
-/* 360 container when embedded in preview */
-#street-view-container.briefing-editor-embedded {
-    position: relative !important;
-    top: auto !important;
-    left: auto !important;
-    right: auto !important;
-    bottom: auto !important;
-    width: 100% !important;
-    height: 100% !important;
-    z-index: auto !important;
-}
-
-.briefing-editor-preview-placeholder {
-    text-align: center;
-    color: var(--gray-500);
-}
-
-.briefing-editor-preview-placeholder p {
-    margin: var(--space-2) 0;
-}
-
-.briefing-editor-preview-mode {
-    font-size: var(--font-size-sm);
-    color: var(--gray-400);
-}
-
-/* Resource Warning (red alert for missing 3D/360 data) */
-.briefing-editor-resource-warning {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    border-radius: var(--radius-md);
-    color: #dc2626;
-    font-size: var(--font-size-sm);
-}
-
-.briefing-editor-resource-warning svg {
-    flex-shrink: 0;
-    width: 16px;
-    height: 16px;
-}
-
 /* Slide card error warning (red instead of yellow) */
 .briefing-editor-slide-warning--error {
     color: #dc2626;
 }
 
-/* Capture Section */
-.briefing-editor-capture-section {
-    padding: var(--space-3) var(--space-4);
-    background: white;
-    border-top: 1px solid var(--border-color);
-    display: flex;
-    justify-content: center;
+/* =========================================================================
+   BODY LAYOUT OFFSET (shared by editor & presenter)
+   When a briefing panel is active:
+   - Hide the sidebar collapsed bar and chips (but keep feature-panel reachable)
+   - Shrink map/3D/360 containers so the panel sits beside them
+   - Reposition search bar to left edge (sidebar collapsed bar is gone)
+   ========================================================================= */
+
+/* Hide sidebar elements and chips during briefing (editor/presenter) */
+body.briefing-panel-active .sidebar-collapsed,
+body.briefing-panel-active .sidebar-panel:not(.feature-panel),
+body.briefing-panel-active .chips-container {
+    display: none !important;
 }
 
-.briefing-editor-capture-btn {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-4);
-    background: var(--gray-800);
-    color: white;
-    border: none;
-    border-radius: var(--radius-md);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    cursor: pointer;
-    transition: background var(--transition-fast);
+/* Shift right-side controls left so they stay within the map area
+   (520px = briefing panel width) */
+body.briefing-panel-active .toolbar-container {
+    right: calc(520px + var(--space-4));
 }
 
-.briefing-editor-capture-btn:hover {
-    background: var(--gray-900);
+body.briefing-panel-active .bottom-controls-right {
+    right: calc(520px + var(--space-4));
 }
 
-.briefing-editor-capture-btn svg {
-    width: 18px;
-    height: 18px;
+body.briefing-panel-active .bottom-controls-left {
+    right: calc(520px + var(--control-button-size) + var(--space-4) + var(--space-3));
+}
+
+/* Feature panel repositions to left edge (sidebar collapsed bar is gone).
+   Override contain:layout from design-tokens so the panel is not clipped. */
+body.briefing-panel-active .sidebar-panels-wrapper {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    z-index: var(--z-sidebar);
+    contain: none;
+}
+
+/* Search bar repositions to left edge (sidebar collapsed bar is gone) */
+body.briefing-panel-active .search-bar-container {
+    left: var(--space-4);
+}
+
+/* When feature panel is open in briefing mode, shift search bar right */
+body.briefing-panel-active .search-bar-container[data-sidebar-state="expanded"] {
+    transform: translateX(var(--sidebar-panel-width));
+}
+
+/* Center coordinates on the visible map area instead of the full viewport */
+body.briefing-panel-active .coordinates-control,
+body.briefing-panel-active .coordinates-control-3d {
+    left: calc((100% - 520px) / 2) !important;
+}
+
+/* Map: absolute positioning within body to respect right:520px */
+body.briefing-panel-active {
+    position: relative;
+}
+
+body.briefing-panel-active #map-sig {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 520px !important;
+    bottom: 0 !important;
+    width: auto !important;
+    height: auto !important;
+}
+
+body.briefing-panel-active #map-3d-container {
+    left: 0 !important;
+    right: 520px !important;
+}
+
+body.briefing-panel-active #street-view-container {
+    left: 0 !important;
+    right: 520px !important;
 }
 
 /* =========================================================================
    RESPONSIVE
    ========================================================================= */
 
-@media (width <= 1024px) {
-    .briefing-editor-editing-panel {
-        width: 480px;
-        min-width: 480px;
-    }
-}
-
 @media (width <= 768px) {
-    .briefing-editor-content {
-        flex-direction: column-reverse;
-    }
-
-    .briefing-editor-editing-panel {
+    .briefing-editor {
         width: 100%;
-        min-width: 100%;
-        max-height: 50%;
-        border-left: none;
-        border-bottom: 1px solid var(--border-color);
     }
 
-    .briefing-editor-slides-section {
-        max-height: none;
+    body.briefing-panel-active #map-sig {
+        right: 0 !important;
+    }
+
+    body.briefing-panel-active #map-3d-container {
+        left: 0 !important;
+        right: 0 !important;
+    }
+
+    body.briefing-panel-active #street-view-container {
+        left: 0 !important;
+        right: 0 !important;
     }
 }

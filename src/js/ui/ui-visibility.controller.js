@@ -68,7 +68,13 @@ export const VisibilityProfile = Object.freeze({
     /** Briefing presentation mode - 3D viewer */
     BRIEFING_PRESENT_3D: 'briefing:present:3d',
     /** Briefing presentation mode - 360 viewer */
-    BRIEFING_PRESENT_360: 'briefing:present:360'
+    BRIEFING_PRESENT_360: 'briefing:present:360',
+    /** Briefing locked mode - 2D map (editor/presenter with sidebar available) */
+    BRIEFING_LOCKED_2D: 'briefing:locked:2d',
+    /** Briefing locked mode - 3D viewer */
+    BRIEFING_LOCKED_3D: 'briefing:locked:3d',
+    /** Briefing locked mode - 360 viewer */
+    BRIEFING_LOCKED_360: 'briefing:locked:360'
 });
 
 // ============================================================================
@@ -122,7 +128,6 @@ const PROFILES = {
         [UIElement.TOOLBAR_MILITARY]: false,
         [UIElement.TOOLBAR_ANALYSIS]: false,
         [UIElement.TOOLBAR_MAIN]: false,
-        [UIElement.SEARCH_BAR]: false,
         [UIElement.SEARCH_CHIPS]: false,
         [UIElement.SIDEBAR]: false,
         [UIElement.SIDEBAR_COLLAPSED]: false,
@@ -133,7 +138,8 @@ const PROFILES = {
         [UIElement.VIEWER_360_BUTTON]: false,
         [UIElement.ATTRIBUTE_TABLE]: false,
         [UIElement.CONTEXT_MENU]: false,
-        // Keep visible
+        // Keep visible: search bar (for feature selection) and coordinates
+        [UIElement.SEARCH_BAR]: true,
         [UIElement.COORDINATES_PANEL]: true,
         [UIElement.TERRAIN_BUTTON]: true
     },
@@ -144,7 +150,6 @@ const PROFILES = {
         [UIElement.TOOLBAR_MILITARY]: false,
         [UIElement.TOOLBAR_ANALYSIS]: false,
         [UIElement.TOOLBAR_MAIN]: false,
-        [UIElement.SEARCH_BAR]: false,
         [UIElement.SEARCH_CHIPS]: false,
         [UIElement.SIDEBAR]: false,
         [UIElement.SIDEBAR_COLLAPSED]: false,
@@ -155,6 +160,7 @@ const PROFILES = {
         [UIElement.VIEWER_360_BUTTON]: false,
         [UIElement.ATTRIBUTE_TABLE]: false,
         [UIElement.CONTEXT_MENU]: false,
+        [UIElement.SEARCH_BAR]: true,
         [UIElement.COORDINATES_PANEL]: true,
         [UIElement.TERRAIN_BUTTON]: false
     },
@@ -165,7 +171,6 @@ const PROFILES = {
         [UIElement.TOOLBAR_MILITARY]: false,
         [UIElement.TOOLBAR_ANALYSIS]: false,
         [UIElement.TOOLBAR_MAIN]: false,
-        [UIElement.SEARCH_BAR]: false,
         [UIElement.SEARCH_CHIPS]: false,
         [UIElement.SIDEBAR]: false,
         [UIElement.SIDEBAR_COLLAPSED]: false,
@@ -176,6 +181,68 @@ const PROFILES = {
         [UIElement.VIEWER_360_BUTTON]: false,
         [UIElement.ATTRIBUTE_TABLE]: false,
         [UIElement.CONTEXT_MENU]: false,
+        [UIElement.SEARCH_BAR]: true,
+        [UIElement.COORDINATES_PANEL]: false,
+        [UIElement.TERRAIN_BUTTON]: false
+    },
+
+    [VisibilityProfile.BRIEFING_LOCKED_2D]: {
+        // Briefing locked mode: sidebar hidden, toolbars hidden, search bar visible
+        [UIElement.TOOLBAR_DRAW]: false,
+        [UIElement.TOOLBAR_MILITARY]: false,
+        [UIElement.TOOLBAR_ANALYSIS]: false,
+        [UIElement.TOOLBAR_MAIN]: false,
+        [UIElement.SEARCH_CHIPS]: false,
+        [UIElement.SIDEBAR]: false,
+        [UIElement.SIDEBAR_COLLAPSED]: false,
+        [UIElement.BASE_LAYER_SELECTOR]: false,
+        [UIElement.GRID_BUTTON]: false,
+        [UIElement.BOTTOM_CONTROLS]: false,
+        [UIElement.VIEWER_3D_BUTTON]: false,
+        [UIElement.VIEWER_360_BUTTON]: false,
+        [UIElement.ATTRIBUTE_TABLE]: false,
+        [UIElement.CONTEXT_MENU]: false,
+        [UIElement.SEARCH_BAR]: true,
+        [UIElement.COORDINATES_PANEL]: true,
+        [UIElement.TERRAIN_BUTTON]: true
+    },
+
+    [VisibilityProfile.BRIEFING_LOCKED_3D]: {
+        [UIElement.TOOLBAR_DRAW]: false,
+        [UIElement.TOOLBAR_MILITARY]: false,
+        [UIElement.TOOLBAR_ANALYSIS]: false,
+        [UIElement.TOOLBAR_MAIN]: false,
+        [UIElement.SEARCH_CHIPS]: false,
+        [UIElement.SIDEBAR]: false,
+        [UIElement.SIDEBAR_COLLAPSED]: false,
+        [UIElement.BASE_LAYER_SELECTOR]: false,
+        [UIElement.GRID_BUTTON]: false,
+        [UIElement.BOTTOM_CONTROLS]: false,
+        [UIElement.VIEWER_3D_BUTTON]: false,
+        [UIElement.VIEWER_360_BUTTON]: false,
+        [UIElement.ATTRIBUTE_TABLE]: false,
+        [UIElement.CONTEXT_MENU]: false,
+        [UIElement.SEARCH_BAR]: true,
+        [UIElement.COORDINATES_PANEL]: true,
+        [UIElement.TERRAIN_BUTTON]: false
+    },
+
+    [VisibilityProfile.BRIEFING_LOCKED_360]: {
+        [UIElement.TOOLBAR_DRAW]: false,
+        [UIElement.TOOLBAR_MILITARY]: false,
+        [UIElement.TOOLBAR_ANALYSIS]: false,
+        [UIElement.TOOLBAR_MAIN]: false,
+        [UIElement.SEARCH_CHIPS]: false,
+        [UIElement.SIDEBAR]: false,
+        [UIElement.SIDEBAR_COLLAPSED]: false,
+        [UIElement.BASE_LAYER_SELECTOR]: false,
+        [UIElement.GRID_BUTTON]: false,
+        [UIElement.BOTTOM_CONTROLS]: false,
+        [UIElement.VIEWER_3D_BUTTON]: false,
+        [UIElement.VIEWER_360_BUTTON]: false,
+        [UIElement.ATTRIBUTE_TABLE]: false,
+        [UIElement.CONTEXT_MENU]: false,
+        [UIElement.SEARCH_BAR]: true,
         [UIElement.COORDINATES_PANEL]: false,
         [UIElement.TERRAIN_BUTTON]: false
     }

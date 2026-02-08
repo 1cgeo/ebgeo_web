@@ -66,7 +66,10 @@ export function createEmptySlide(order = 0) {
         orientation: {
             bearing: 0,
             pitch: 0,
-            heading: null
+            heading: null,
+            lon: null,
+            lat: null,
+            fov: null
         },
         modelId: null,
         photoId: null

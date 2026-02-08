@@ -341,7 +341,8 @@ export {
     getAllMapBadgeColors,
     isMapLocked,
     isCurrentMapLockedSync,
-    toggleMapLock
+    toggleMapLock,
+    setBriefingLockOverride
 } from './map.operations.js';
 
 // ===== RE-EXPORTS FROM LAYER OPERATIONS =====

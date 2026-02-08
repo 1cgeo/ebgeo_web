@@ -2,15 +2,15 @@
 
 /**
  * @fileoverview Main briefing presenter control.
- * Orchestrates the fullscreen presentation mode for briefings.
+ * Orchestrates the presentation mode for briefings.
  *
  * Features:
  * - Full presentation lifecycle management
- * - Slide transitions with animation
- * - Text panel with slide content
- * - Navigation controls
+ * - Slide transitions with animation (forward) / instant (backward)
+ * - Right-side panel with integrated slide content and navigation
  * - Keyboard shortcuts
  * - Fullscreen support
+ * - Temporary map locking (non-persisted)
  *
  * @module briefing/presentation/briefing-presenter.control
  */
@@ -20,7 +20,11 @@ import {
     addDomListener,
     cleanup
 } from '../../utilities/event-cleanup.js';
-import { getBriefingById, SlideMode } from '../../store/index.js';
+import {
+    getBriefingById,
+    SlideMode,
+    setBriefingLockOverride
+} from '../../store/index.js';
 import { EventTypes } from '../../events/event_types.js';
 import { getEventBus } from '../../store/services.js';
 import { showError, showWarning } from '../../utilities/index.js';
@@ -41,7 +45,6 @@ import {
 } from '../services/keyboard-service-briefing.js';
 import { createTransitionService } from './transition.service.js';
 import { createPresentationTextPanel } from '../components/presentation-text-panel.js';
-import { createPresentationControls } from '../components/presentation-controls.js';
 
 // ============================================================================
 // BRIEFING PRESENTER CONTROL
@@ -49,7 +52,7 @@ import { createPresentationControls } from '../components/presentation-controls.
 
 /**
  * Briefing presenter control class.
- * Manages the fullscreen presentation mode for briefings.
+ * Manages the presentation mode for briefings with right-side panel.
  */
 export class BriefingPresenterControl {
     /**
@@ -63,7 +66,7 @@ export class BriefingPresenterControl {
 
         // State
         this._briefing = null;
-        this._currentSlideIndex = 0;
+        this._currentSlideIndex = -1;
         this._isPresenting = false;
         this._isFullscreen = false;
 
@@ -72,7 +75,6 @@ export class BriefingPresenterControl {
 
         // Components
         this._textPanel = null;
-        this._controls = null;
 
         // Callbacks
         this._onExit = null;
@@ -123,20 +125,26 @@ export class BriefingPresenterControl {
                 showWarning(`${slidesWithoutPosition.length} slide(s) sem posição definida`);
             }
 
+            // Activate temporary lock on all maps (non-persisted)
+            setBriefingLockOverride(true);
+
             // Enter presentation mode
             const modeManager = getApplicationModeManager();
             modeManager.enterMode(ApplicationMode.BRIEFING_PRESENT, {
                 briefingId: this._briefing.id
             });
 
-            // Apply visibility profile
+            // Apply visibility profile (sidebar hidden in present mode)
             const visibilityController = getUIVisibilityController();
             visibilityController.applyProfile(VisibilityProfile.BRIEFING_PRESENT_2D);
+
+            // Offset map/3D/360 containers so the panel doesn't overlap them
+            document.body.classList.add('briefing-panel-active');
 
             // Create transition service
             this._transitionService = createTransitionService(this._map);
 
-            // Create UI components
+            // Create UI components (panel with integrated controls)
             this._createComponents();
 
             // Setup keyboard shortcuts
@@ -145,9 +153,14 @@ export class BriefingPresenterControl {
             // Setup fullscreen listeners
             this._setupFullscreenListeners();
 
+            // MapLibre needs a resize to fill the new available space
+            if (this._map) {
+                setTimeout(() => this._map.resize(), 50);
+            }
+
             // Mark as presenting
             this._isPresenting = true;
-            this._currentSlideIndex = 0;
+            this._currentSlideIndex = -1;
 
             // Go to first slide
             await this._goToSlide(0);
@@ -188,15 +201,18 @@ export class BriefingPresenterControl {
             this._transitionService = null;
         }
 
-        // Destroy components
+        // Destroy text panel (includes integrated controls)
         if (this._textPanel) {
             this._textPanel.destroy();
             this._textPanel = null;
         }
 
-        if (this._controls) {
-            this._controls.destroy();
-            this._controls = null;
+        // Remove layout offset from map/3D/360 containers
+        document.body.classList.remove('briefing-panel-active');
+
+        // MapLibre needs a resize to fill the restored space
+        if (this._map) {
+            setTimeout(() => this._map.resize(), 50);
         }
 
         // Restore visibility profile
@@ -206,6 +222,9 @@ export class BriefingPresenterControl {
         // Exit application mode
         const modeManager = getApplicationModeManager();
         modeManager.exitMode();
+
+        // Release temporary lock
+        setBriefingLockOverride(false);
 
         // Emit event
         if (this._briefing) {
@@ -217,7 +236,7 @@ export class BriefingPresenterControl {
         // Cleanup
         cleanup(this);
         this._briefing = null;
-        this._currentSlideIndex = 0;
+        this._currentSlideIndex = -1;
         this._isPresenting = false;
 
         // Call exit callback
@@ -295,12 +314,16 @@ export class BriefingPresenterControl {
 
     /**
      * Toggles text panel visibility.
+     * Also toggles the body layout offset so the map expands when panel is hidden.
      */
     toggleTextPanel() {
         if (this._textPanel) {
-            const isVisible = this._textPanel.toggle();
-            if (this._controls) {
-                this._controls.setTextPanelVisible(isVisible);
+            this._textPanel.toggle();
+            // Sync body class with panel visibility
+            document.body.classList.toggle('briefing-panel-active', this._textPanel.isVisible());
+            // MapLibre needs a resize to fill the new available space
+            if (this._map) {
+                setTimeout(() => this._map.resize(), 50);
             }
         }
     }
@@ -331,13 +354,11 @@ export class BriefingPresenterControl {
      */
     async _closeActiveViewers() {
         try {
-            // Close 3D viewer if open
             if (isViewer3DOpen()) {
                 const { closeViewer } = await import('../../3d_models_viewer_tool/map_3d.js');
                 await closeViewer();
             }
 
-            // Close 360 viewer if open
             if (isStreetView360Open()) {
                 const { closeViewer360 } = await import('../../street_view_tool/street_view_viewer.js');
                 await closeViewer360();
@@ -348,30 +369,28 @@ export class BriefingPresenterControl {
     }
 
     /**
-     * Creates the UI components.
+     * Creates the UI components (integrated text panel with controls).
      * @private
      */
     _createComponents() {
-        // Create text panel with briefing settings
         const settings = this._briefing.settings || {};
-        this._textPanel = createPresentationTextPanel({
-            position: settings.panelPosition || 'left',
-            width: settings.panelWidth || 350,
-            backgroundColor: settings.panelBackgroundColor || 'rgba(255, 255, 255, 0.95)'
-        });
-        this._textPanel.mount();
 
-        // Create controls
-        this._controls = createPresentationControls({
-            onPrevious: () => this.previousSlide(),
-            onNext: () => this.nextSlide(),
-            onFirst: () => this.firstSlide(),
-            onLast: () => this.lastSlide(),
-            onFullscreen: () => this.toggleFullscreen(),
-            onToggleTextPanel: () => this.toggleTextPanel(),
-            onExit: () => this.exit()
-        });
-        this._controls.mount();
+        this._textPanel = createPresentationTextPanel(
+            {
+                width: 520,
+                backgroundColor: settings.panelBackgroundColor || 'rgba(255, 255, 255, 0.95)'
+            },
+            {
+                onPrevious: () => this.previousSlide(),
+                onNext: () => this.nextSlide(),
+                onFirst: () => this.firstSlide(),
+                onLast: () => this.lastSlide(),
+                onFullscreen: () => this.toggleFullscreen(),
+                onToggleText: () => this.toggleTextPanel(),
+                onExit: () => this.exit()
+            }
+        );
+        this._textPanel.mount();
     }
 
     /**
@@ -399,8 +418,8 @@ export class BriefingPresenterControl {
     _setupFullscreenListeners() {
         const handleFullscreenChange = () => {
             this._isFullscreen = !!document.fullscreenElement;
-            if (this._controls) {
-                this._controls.setFullscreen(this._isFullscreen);
+            if (this._textPanel) {
+                this._textPanel.setFullscreen(this._isFullscreen);
             }
         };
 
@@ -409,6 +428,7 @@ export class BriefingPresenterControl {
 
     /**
      * Navigates to a specific slide (internal).
+     * Forward navigation = animated transitions. Backward = instant.
      * @private
      * @param {number} index - Slide index
      */
@@ -421,24 +441,24 @@ export class BriefingPresenterControl {
             return;
         }
 
-        // Update visibility profile based on slide mode
-        this._updateVisibilityProfile(slide.mode);
+        // Determine direction: forward = animated, backward = instant
+        const isForward = index > this._currentSlideIndex;
+        const isFirstLoad = this._currentSlideIndex === -1;
+        const instant = !isForward && !isFirstLoad;
 
-        // Perform transition
-        const success = await this._transitionService.transitionToSlide(slide);
+        // Perform transition with direction-based animation
+        const success = await this._transitionService.transitionToSlide(slide, { instant });
 
         if (success) {
             this._currentSlideIndex = index;
 
-            // Update text panel
+            // Update text panel (includes controls and counter)
             if (this._textPanel) {
                 this._textPanel.setSlide(slide, index, this._briefing.slides.length);
             }
 
-            // Update controls
-            if (this._controls) {
-                this._controls.updateCounter(index, this._briefing.slides.length);
-            }
+            // Update visibility profile based on slide mode
+            this._updateVisibilityProfile(slide.mode);
 
             // Emit slide changed event
             this._eventBus.emit(EventTypes.BRIEFING_SLIDE_CHANGED, {
@@ -451,6 +471,7 @@ export class BriefingPresenterControl {
 
     /**
      * Updates visibility profile based on slide mode.
+     * Uses PRESENT profiles (sidebar hidden by default).
      * @private
      * @param {string} mode - Slide mode
      */

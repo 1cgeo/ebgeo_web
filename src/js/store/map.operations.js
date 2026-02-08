@@ -58,6 +58,30 @@ export function setMapDependencies(dependencies) {
     Object.assign(deps, dependencies);
 }
 
+// ===== BRIEFING LOCK OVERRIDE =====
+
+/**
+ * When true, isCurrentMapLockedSync() always returns true.
+ * Used during briefing edit/present modes to enforce read-only without persisting.
+ */
+let briefingLockOverride = false;
+
+/**
+ * Enables or disables the briefing lock override.
+ * When active, all maps appear locked (read-only) without persisting the lock state.
+ *
+ * @param {boolean} active - True to force all maps locked
+ */
+export function setBriefingLockOverride(active) {
+    briefingLockOverride = active;
+    if (deps.eventBus) {
+        deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, {
+            mapName: memoryStore.currentMap,
+            locked: active || memoryStore.lockedMaps.has(memoryStore.currentMap)
+        });
+    }
+}
+
 // ===== MAP CRUD OPERATIONS =====
 
 /**
@@ -711,6 +735,7 @@ export const isMapLocked = async (mapName = null) => {
  * @returns {boolean} True if current map is locked
  */
 export const isCurrentMapLockedSync = () => {
+    if (briefingLockOverride) return true;
     return memoryStore.lockedMaps.has(memoryStore.currentMap);
 };
 
