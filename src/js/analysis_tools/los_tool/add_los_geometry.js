@@ -2,7 +2,6 @@
 
 import { BaseGeometry } from '../../tool_manager';
 import { getTerrainElevation } from '../../terrain';
-import { IDUtils } from '../../utilities/id_utils.js';
 
 /**
  * Line of Sight Geometry Operations
@@ -98,26 +97,39 @@ class AddLOSGeometry extends BaseGeometry {
         const steps = Math.max(2, samplePoints);
         const stepLength = totalLength / steps;
 
-        const startElevation = await getTerrainElevation(map, startCoordinates) + observerHeight;
-        const endElevation = await getTerrainElevation(map, endCoordinates) + targetHeight;
+        // Get terrain elevations at start and end points
+        const startTerrainElevation = await getTerrainElevation(map, startCoordinates);
+        const endTerrainElevation = await getTerrainElevation(map, endCoordinates);
+
+        // Calculate observer and target absolute elevations (terrain + height above ground)
+        const observerElevation = startTerrainElevation + observerHeight;
+        const targetElevation = endTerrainElevation + targetHeight;
 
         let firstObstructedPoint = null;
         let obstructionDistance = 0;
 
-        for (let i = 1; i <= steps; i++) {
-            const segment = turf.along(line, i * stepLength, { units: 'meters' });
+        // Check intermediate points for obstruction (exclude start and end points)
+        for (let i = 1; i < steps; i++) {
+            const distance = i * stepLength;
+            const segment = turf.along(line, distance, { units: 'meters' });
             const segmentCoordinates = segment.geometry.coordinates;
 
-            const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
-            const actualElevation = await getTerrainElevation(map, segmentCoordinates);
+            // Calculate expected LOS elevation at this point (linear interpolation)
+            const progress = i / steps;
+            const expectedLOSElevation = observerElevation + (targetElevation - observerElevation) * progress;
 
-            if (actualElevation > expectedElevation) {
+            // Get actual terrain elevation at this point
+            const terrainElevation = await getTerrainElevation(map, segmentCoordinates);
+
+            // Obstruction occurs when terrain is above the line of sight
+            if (terrainElevation > expectedLOSElevation) {
                 firstObstructedPoint = segmentCoordinates;
-                obstructionDistance = i * stepLength;
+                obstructionDistance = distance;
                 break;
             }
         }
 
+        // Create visible and obstructed line segments
         const visibleLine = firstObstructedPoint
             ? turf.lineString([startCoordinates, firstObstructedPoint])
             : turf.lineString([startCoordinates, endCoordinates]);
@@ -140,28 +152,51 @@ class AddLOSGeometry extends BaseGeometry {
 
     /**
      * Calculate elevation profile along coordinates with slope percentage
+     * Includes both terrain elevation and line-of-sight elevation for comparison
      * @param {Array} coordinates - [startPoint, endPoint]
      * @param {Object} map - MapLibre map instance for terrain queries
-     * @returns {Array} Array of {distance, elevation, slope} objects
+     * @param {Object} options - Profile options
+     * @param {number} options.observerHeight - Height of observer above ground (default 1.5m)
+     * @param {number} options.targetHeight - Height of target above ground (default 0m)
+     * @param {number} options.samplePoints - Number of sample points (default uses PROFILE_STEPS)
+     * @returns {Array} Array of {distance, elevation, losElevation, slope} objects
      */
-    async calculateProfile(coordinates, map) {
+    async calculateProfile(coordinates, map, options = {}) {
         if (!this.validate(coordinates)) {
             throw new Error('Invalid coordinates for profile calculation');
         }
 
+        const observerHeight = options.observerHeight ?? this.DEFAULT_OBSERVER_HEIGHT;
+        const targetHeight = options.targetHeight ?? this.DEFAULT_TARGET_HEIGHT;
+        // Use samplePoints from options if provided, otherwise use PROFILE_STEPS for graph display
+        const profileSteps = options.samplePoints ?? this.PROFILE_STEPS;
+
         const line = turf.lineString(coordinates);
         const length = turf.length(line, { units: 'meters' });
-        const stepLength = length / this.PROFILE_STEPS;
+        const stepLength = length / profileSteps;
+
+        // Get start and end terrain elevations
+        const startTerrainElevation = await getTerrainElevation(map, coordinates[0]);
+        const endTerrainElevation = await getTerrainElevation(map, coordinates[1]);
+
+        // Calculate observer and target absolute elevations (terrain + height)
+        const observerElevation = startTerrainElevation + observerHeight;
+        const targetElevation = endTerrainElevation + targetHeight;
 
         const profileData = [];
 
-        for (let i = 0; i <= this.PROFILE_STEPS; i++) {
+        for (let i = 0; i <= profileSteps; i++) {
             const point = turf.along(line, i * stepLength, { units: 'meters' });
-            const elevation = await getTerrainElevation(map, point.geometry.coordinates);
+            const terrainElevation = await getTerrainElevation(map, point.geometry.coordinates);
+
+            // Calculate LOS elevation at this point (linear interpolation between observer and target)
+            const progress = i / profileSteps;
+            const losElevation = observerElevation + (targetElevation - observerElevation) * progress;
 
             profileData.push({
                 distance: i * stepLength,
-                elevation: elevation,
+                elevation: terrainElevation,
+                losElevation: losElevation,
                 slope: 0 // Will be calculated after all elevations are collected
             });
         }
@@ -269,7 +304,7 @@ class AddLOSGeometry extends BaseGeometry {
                 };
             }
 
-            const profileData = await this.calculateProfile(newCoordinates, map);
+            const profileData = await this.calculateProfile(newCoordinates, map, options);
 
             return {
                 geometry: newGeometry,
@@ -303,7 +338,7 @@ class AddLOSGeometry extends BaseGeometry {
         };
 
         const losResult = await this.calculateLOS(coordinates, map, options);
-        const profileData = await this.calculateProfile(coordinates, map);
+        const profileData = await this.calculateProfile(coordinates, map, options);
 
         let geometry;
         if (losResult.obstructed) {
@@ -323,7 +358,7 @@ class AddLOSGeometry extends BaseGeometry {
 
         return {
             type: 'Feature',
-            id: IDUtils.generateGeoJSONId(),
+            id: Date.now().toString(),
             properties: {
                 ...properties,
                 observerHeight: options.observerHeight,

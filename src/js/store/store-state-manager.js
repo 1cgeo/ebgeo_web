@@ -555,6 +555,21 @@ class MapManager {
                     }
                 }
                 break;
+            case 'updateWithProcessed':
+                // Restore old main feature
+                await executeFunction.updateFeature(action.mainFeatureType, action.oldFeature);
+                // Replace new processed features with old ones
+                if (action.newProcessedFeatures) {
+                    for (const pf of action.newProcessedFeatures.features) {
+                        await executeFunction.removeFeature(action.newProcessedFeatures.type, pf.properties.id);
+                    }
+                }
+                if (action.oldProcessedFeatures) {
+                    for (const pf of action.oldProcessedFeatures.features) {
+                        await executeFunction.addFeature(action.oldProcessedFeatures.type, pf);
+                    }
+                }
+                break;
             case 'addMultiple':
                 for (const [type, features] of Object.entries(action.features)) {
                     for (const feature of features) {
@@ -598,6 +613,21 @@ class MapManager {
                 break;
             case 'removeWithProcessed':
                 await executeFunction.removeFeature(action.mainFeatureType, action.mainFeature.properties.id);
+                break;
+            case 'updateWithProcessed':
+                // Apply new main feature
+                await executeFunction.updateFeature(action.mainFeatureType, action.newFeature);
+                // Replace old processed features with new ones
+                if (action.oldProcessedFeatures) {
+                    for (const pf of action.oldProcessedFeatures.features) {
+                        await executeFunction.removeFeature(action.oldProcessedFeatures.type, pf.properties.id);
+                    }
+                }
+                if (action.newProcessedFeatures) {
+                    for (const pf of action.newProcessedFeatures.features) {
+                        await executeFunction.addFeature(action.newProcessedFeatures.type, pf);
+                    }
+                }
                 break;
             case 'addMultiple':
                 for (const [type, features] of Object.entries(action.features)) {

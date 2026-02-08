@@ -19,6 +19,8 @@ import { DEFAULT_SLIDER_CONFIG } from './common-config.helpers.js';
  * @param {string} [config.unit=''] - Unit suffix (e.g., 'px', '%', '°', 'm')
  * @param {boolean} [config.showInput=true] - Whether to show numeric input
  * @param {number} [config.debounceMs] - Debounce delay in ms
+ * @param {boolean} [config.disabled=false] - Whether the slider is disabled
+ * @param {string} [config.disabledMessage] - Tooltip message when disabled
  * @returns {HTMLElement} Slider container element
  */
 export function createModernSlider(config) {
@@ -31,7 +33,9 @@ export function createModernSlider(config) {
         onChange,
         unit = '',
         showInput = true,
-        debounceMs
+        debounceMs,
+        disabled = false,
+        disabledMessage
     } = config;
 
     const container = document.createElement('div');
@@ -84,6 +88,18 @@ export function createModernSlider(config) {
     slider.value = value;
 
     container.appendChild(slider);
+
+    // Apply disabled state
+    if (disabled) {
+        container.classList.add('attr-modern-slider-disabled');
+        slider.disabled = true;
+        if (numericInput) {
+            numericInput.disabled = true;
+        }
+        if (disabledMessage) {
+            container.title = disabledMessage;
+        }
+    }
 
     // Helper functions
     const getDecimalPlaces = (num) => {
@@ -141,6 +157,25 @@ export function createModernSlider(config) {
             onChange(val);
         });
     }
+
+    /**
+     * Programmatically toggle the disabled state of this slider.
+     * @param {boolean} isDisabled - Whether the slider should be disabled
+     * @param {string} [message] - Optional tooltip message when disabled
+     */
+    container.setDisabled = (isDisabled, message) => {
+        if (isDisabled) {
+            container.classList.add('attr-modern-slider-disabled');
+            slider.disabled = true;
+            if (numericInput) numericInput.disabled = true;
+            if (message) container.title = message;
+        } else {
+            container.classList.remove('attr-modern-slider-disabled');
+            slider.disabled = false;
+            if (numericInput) numericInput.disabled = false;
+            container.title = '';
+        }
+    };
 
     return container;
 }

@@ -13,16 +13,22 @@ import { EventTypes } from '../events/event_types.js';
  * @returns {Promise<number>} Elevation in meters
  */
 export async function getTerrainElevation(map, coordinates, options = { exaggerated: false }) {
-    const fixedPoint = [0, 0];
-    const fixedPointElevation = await map.queryTerrainElevation(fixedPoint, options) || 0;
-
-    const sceneElevation = await map.queryTerrainElevation(coordinates, options) || 0;
-    const altitude = sceneElevation - fixedPointElevation;
-
     const terrain = map.getTerrain();
-    const exaggeration = terrain?.exaggeration || 1.5;
 
-    return altitude / exaggeration;
+    if (terrain) {
+        const fixedPoint = [0, 0];
+        const fixedPointElevation = await map.queryTerrainElevation(fixedPoint, options) || 0;
+
+        const sceneElevation = await map.queryTerrainElevation(coordinates, options) || 0;
+        const altitude = sceneElevation - fixedPointElevation;
+
+        const exaggeration = terrain.exaggeration || 1.5;
+
+        return altitude / exaggeration;
+    }
+
+    // No terrain - return 0
+    return 0;
 }
 
 class TerrainControl {

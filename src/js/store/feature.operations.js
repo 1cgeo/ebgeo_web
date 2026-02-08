@@ -799,6 +799,12 @@ export const batchUpdateLOSFeatures = async (losFeature, processedFeatures, mapN
     const cleanedLos = cleanFeature(losFeature);
     currentMapData.features.los[losIndex] = cleanedLos;
 
+    // Capture old processed features before replacing (needed for undo)
+    const oldProcessedFeatures = currentMapData.features.processed_los.filter(f =>
+        f.properties.id === losFeature.properties.id + '-visible' ||
+        f.properties.id === losFeature.properties.id + '-obstructed'
+    );
+
     currentMapData.features.processed_los = currentMapData.features.processed_los.filter(f =>
         f.properties.id !== losFeature.properties.id + '-visible' &&
         f.properties.id !== losFeature.properties.id + '-obstructed'
@@ -811,10 +817,18 @@ export const batchUpdateLOSFeatures = async (losFeature, processedFeatures, mapN
         if (!mapName || mapName === mapManager.getCurrentMapName()) {
             tx.deferSync(() => {
                 mapManager.recordAction({
-                    type: 'update',
-                    featureType: 'los',
+                    type: 'updateWithProcessed',
+                    mainFeatureType: 'los',
                     oldFeature: deepClone(oldFeature),
-                    newFeature: deepClone(cleanedLos)
+                    newFeature: deepClone(cleanedLos),
+                    oldProcessedFeatures: {
+                        type: 'processed_los',
+                        features: deepClone(oldProcessedFeatures)
+                    },
+                    newProcessedFeatures: {
+                        type: 'processed_los',
+                        features: deepClone(cleanedProcessed)
+                    }
                 });
             });
         }
@@ -851,6 +865,11 @@ export const batchUpdateVisibilityFeatures = async (visibilityFeature, processed
     const cleanedVis = cleanFeature(visibilityFeature);
     currentMapData.features.visibility[visIndex] = cleanedVis;
 
+    // Capture old processed features before replacing (needed for undo)
+    const oldProcessedFeatures = currentMapData.features.processed_visibility.filter(f =>
+        f.properties.id.startsWith(visibilityFeature.properties.id + '-')
+    );
+
     currentMapData.features.processed_visibility = currentMapData.features.processed_visibility.filter(f =>
         !f.properties.id.startsWith(visibilityFeature.properties.id + '-')
     );
@@ -862,10 +881,18 @@ export const batchUpdateVisibilityFeatures = async (visibilityFeature, processed
         if (!mapName || mapName === mapManager.getCurrentMapName()) {
             tx.deferSync(() => {
                 mapManager.recordAction({
-                    type: 'update',
-                    featureType: 'visibility',
+                    type: 'updateWithProcessed',
+                    mainFeatureType: 'visibility',
                     oldFeature: deepClone(oldFeature),
-                    newFeature: deepClone(cleanedVis)
+                    newFeature: deepClone(cleanedVis),
+                    oldProcessedFeatures: {
+                        type: 'processed_visibility',
+                        features: deepClone(oldProcessedFeatures)
+                    },
+                    newProcessedFeatures: {
+                        type: 'processed_visibility',
+                        features: deepClone(cleanedProcessed)
+                    }
                 });
             });
         }

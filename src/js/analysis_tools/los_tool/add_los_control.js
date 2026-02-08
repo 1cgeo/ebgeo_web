@@ -108,6 +108,21 @@ class AddLOSControl extends BaseControl {
      * @param {Object} _selectionManager - Selection manager instance (unused)
      * @param {Object} _uiManager - UI manager instance (unused)
      */
+    /**
+     * Updates the info section in the sidebar without rebuilding the entire panel.
+     * Called after recalculation to refresh lengths and coordinates.
+     * @param {Object} feature - Updated LOS feature
+     */
+    updateInfoSection(feature) {
+        if (!feature || !feature.properties) return;
+
+        const existingSection = document.querySelector('.los-info-section');
+        if (!existingSection) return;
+
+        const newSection = createLOSInfoSection(feature);
+        existingSection.replaceWith(newSection);
+    }
+
     createParametersPanel(container, features, _selectionManager, _uiManager) {
         try {
             addLOSParametersToPanel(container, features, this);
@@ -485,7 +500,7 @@ class AddLOSControl extends BaseControl {
 
         try {
             const coordinates = [this.startPoint, this.endPoint];
-            const { id: featureId } = IDUtils.generateFeatureIds();
+            const featureId = IDUtils.generateUniqueId();
             const featureName = await IDUtils.generateFeatureName('los', this.map);
 
             const properties = {
@@ -655,19 +670,29 @@ class AddLOSControl extends BaseControl {
                         feature.properties.obstructedLength = result.obstructedLength;
                         feature.properties.totalLength = result.totalLength;
 
-                        // Remove old processed features
+                        // Remove old processed features from memory
                         processedData.features = processedData.features.filter(f =>
                             f.properties.id !== feature.properties.id + '-visible' &&
                             f.properties.id !== feature.properties.id + '-obstructed'
                         );
 
-                        // Add new processed features
+                        // Add new processed features to memory
                         const newProcessedFeatures = this.geometry.generateProcessedFeatures(sourceFeature);
                         processedData.features.push(...newProcessedFeatures);
 
                         // Update measurement if enabled
                         if (sourceFeature.properties.measure) {
                             this.updateFeatureMeasurement(sourceFeature);
+                        }
+
+                        // Persist changes to IndexedDB using batch update
+                        if (typeof batchUpdateLOSFeatures === 'function') {
+                            await batchUpdateLOSFeatures(sourceFeature, newProcessedFeatures);
+                        } else {
+                            await updateFeature('los', sourceFeature);
+                            for (const processedFeature of newProcessedFeatures) {
+                                await updateFeature('processed_los', processedFeature);
+                            }
                         }
                     }
                 }
@@ -682,7 +707,14 @@ class AddLOSControl extends BaseControl {
             });
 
             this.updateSelectionManagerFeatures(freshFeatures);
-            this.selectionManager.updateUI();
+
+            // Update only the info section and profile without rebuilding the entire panel.
+            // A full updateUI() would destroy and recreate the panel, resetting
+            // the active tab back to "Estilo" — bad UX when editing parameters.
+            if (freshFeatures.length > 0) {
+                this.updateInfoSection(freshFeatures[0]);
+            }
+            this.selectionManager.updateProfile();
 
             // Clear pending recalculation data
             this._pendingRecalculation?.clear();

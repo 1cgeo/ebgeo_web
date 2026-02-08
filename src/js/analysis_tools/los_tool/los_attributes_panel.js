@@ -90,13 +90,18 @@ function createCoordinateRow(label, coords, color) {
         border-radius: 3px;
         cursor: pointer;
         transition: all 0.2s ease;
+        user-select: text;
     `;
     valueSpan.textContent = 'Carregando...';
     valueSpan.title = 'Clique para copiar';
 
+    // Store formatted coordinate for reliable copying
+    let formattedCoordinate = null;
+
     // Format and display coordinates
     const [lng, lat] = coords;
     formatCoordinates(lat, lng, 'latlong').then(formatted => {
+        formattedCoordinate = formatted;
         valueSpan.textContent = formatted;
     });
 
@@ -111,21 +116,56 @@ function createCoordinateRow(label, coords, color) {
     });
 
     // Copy on click
-    valueSpan.addEventListener('click', async () => {
-        const text = valueSpan.textContent;
-        try {
-            await navigator.clipboard.writeText(text);
-            const original = valueSpan.textContent;
-            valueSpan.textContent = 'Copiado!';
-            valueSpan.style.backgroundColor = '#00c853';
-            valueSpan.style.color = 'white';
+    valueSpan.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Use stored coordinate or current text content
+        const text = formattedCoordinate || valueSpan.textContent;
+
+        // Don't copy if still loading
+        if (text === 'Carregando...') {
+            return;
+        }
+
+        const showFeedback = (message, bgColor, textColor, duration = 1500) => {
+            const original = formattedCoordinate || valueSpan.textContent;
+            valueSpan.textContent = message;
+            valueSpan.style.backgroundColor = bgColor;
+            valueSpan.style.color = textColor;
             setTimeout(() => {
                 valueSpan.textContent = original;
                 valueSpan.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
                 valueSpan.style.color = '#333';
-            }, 1500);
-        } catch (e) {
-            console.warn('Failed to copy coordinates:', e);
+            }, duration);
+        };
+
+        try {
+            // Try modern Clipboard API first
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+                showFeedback('Copiado!', '#00c853', 'white');
+            } else {
+                // Fallback for older browsers or insecure contexts
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.cssText = 'position: fixed; left: -9999px; top: -9999px;';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+
+                const successful = document.execCommand('copy');
+                document.body.removeChild(textArea);
+
+                if (successful) {
+                    showFeedback('Copiado!', '#00c853', 'white');
+                } else {
+                    showFeedback('Erro ao copiar', '#ff5252', 'white', 2000);
+                }
+            }
+        } catch (err) {
+            console.warn('Failed to copy coordinates:', err);
+            showFeedback('Erro ao copiar', '#ff5252', 'white', 2000);
         }
     });
 
@@ -204,47 +244,35 @@ export function createLOSInfoSection(feature) {
 
     // Total length
     const totalRow = document.createElement('div');
-    totalRow.className = 'los-info__row';
-    const totalLabel = document.createElement('span');
-    totalLabel.className = 'los-info__label';
-    totalLabel.textContent = 'Comprimento Total';
-    const totalValue = document.createElement('span');
-    totalValue.className = 'los-info__value';
-    totalValue.textContent = formatDistance(totalLength);
-    totalRow.appendChild(totalLabel);
-    totalRow.appendChild(totalValue);
+    totalRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+    totalRow.innerHTML = `
+        <span style="font-size: 12px; color: #666;">Comprimento Total</span>
+        <span style="font-size: 13px; font-weight: 600; color: #333;">${formatDistance(totalLength)}</span>
+    `;
     container.appendChild(totalRow);
 
     // Visible length (green)
     const visibleRow = document.createElement('div');
-    visibleRow.className = 'los-info__row';
-    const visibleLabel = document.createElement('span');
-    visibleLabel.className = 'los-info__label';
-    const visibleIndicator = document.createElement('span');
-    visibleIndicator.className = 'los-info__color-indicator los-info__color-indicator--visible';
-    visibleLabel.appendChild(visibleIndicator);
-    visibleLabel.appendChild(document.createTextNode('Visível'));
-    const visibleValue = document.createElement('span');
-    visibleValue.className = 'los-info__value los-info__value--visible';
-    visibleValue.textContent = formatDistance(visibleLength);
-    visibleRow.appendChild(visibleLabel);
-    visibleRow.appendChild(visibleValue);
+    visibleRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+    visibleRow.innerHTML = `
+        <span style="font-size: 12px; color: #666; display: flex; align-items: center; gap: 6px;">
+            <span style="width: 10px; height: 10px; background: #00FF00; border-radius: 2px;"></span>
+            Visível
+        </span>
+        <span style="font-size: 13px; font-weight: 600; color: #00AA00;">${formatDistance(visibleLength)}</span>
+    `;
     container.appendChild(visibleRow);
 
     // Obstructed length (red)
     const obstructedRow = document.createElement('div');
-    obstructedRow.className = 'los-info__row';
-    const obstructedLabel = document.createElement('span');
-    obstructedLabel.className = 'los-info__label';
-    const obstructedIndicator = document.createElement('span');
-    obstructedIndicator.className = 'los-info__color-indicator los-info__color-indicator--obstructed';
-    obstructedLabel.appendChild(obstructedIndicator);
-    obstructedLabel.appendChild(document.createTextNode('Obstruído'));
-    const obstructedValue = document.createElement('span');
-    obstructedValue.className = 'los-info__value los-info__value--obstructed';
-    obstructedValue.textContent = formatDistance(obstructedLength);
-    obstructedRow.appendChild(obstructedLabel);
-    obstructedRow.appendChild(obstructedValue);
+    obstructedRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+    obstructedRow.innerHTML = `
+        <span style="font-size: 12px; color: #666; display: flex; align-items: center; gap: 6px;">
+            <span style="width: 10px; height: 10px; background: #FF0000; border-radius: 2px;"></span>
+            Obstruído
+        </span>
+        <span style="font-size: 13px; font-weight: 600; color: #CC0000;">${formatDistance(obstructedLength)}</span>
+    `;
     container.appendChild(obstructedRow);
 
     section.appendChild(container);
@@ -261,45 +289,81 @@ export function addLOSParametersToPanel(container, selectedFeatures, losControl)
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
+    const isTerrainAvailable = losControl.geometry.isTerrainAvailable(losControl.map);
+    const disabledMessage = 'Ative o terreno para modificar este parâmetro';
+
+    // Collect sliders for reactive terrain toggle
+    const terrainDependentSliders = [];
 
     // Observer height slider
-    container.appendChild(createModernSlider({
+    const observerSlider = createModernSlider({
         label: 'Altura do Observador',
         min: 0,
         max: 50,
         step: 0.1,
         value: feature.properties.observerHeight ?? 1.5,
         unit: 'm',
+        disabled: !isTerrainAvailable,
+        disabledMessage,
         onChange: (value) => {
             losControl.updateFeaturesProperty(selectedFeatures, 'observerHeight', value);
         }
-    }));
+    });
+    terrainDependentSliders.push(observerSlider);
+    container.appendChild(observerSlider);
 
     // Target height slider
-    container.appendChild(createModernSlider({
+    const targetSlider = createModernSlider({
         label: 'Altura do Alvo',
         min: 0,
         max: 50,
         step: 0.1,
         value: feature.properties.targetHeight ?? 0,
         unit: 'm',
+        disabled: !isTerrainAvailable,
+        disabledMessage,
         onChange: (value) => {
             losControl.updateFeaturesProperty(selectedFeatures, 'targetHeight', value);
         }
-    }));
+    });
+    terrainDependentSliders.push(targetSlider);
+    container.appendChild(targetSlider);
 
     // Sample points slider
-    container.appendChild(createModernSlider({
+    const sampleSlider = createModernSlider({
         label: 'Pontos de Amostragem',
         min: 10,
         max: 500,
         step: 10,
         value: feature.properties.samplePoints ?? 100,
         unit: '',
+        disabled: !isTerrainAvailable,
+        disabledMessage,
         onChange: (value) => {
             losControl.updateFeaturesProperty(selectedFeatures, 'samplePoints', value);
         }
-    }));
+    });
+    terrainDependentSliders.push(sampleSlider);
+    container.appendChild(sampleSlider);
+
+    // Reactively update slider disabled state when terrain is toggled
+    const onTerrainChange = () => {
+        const terrainActive = losControl.geometry.isTerrainAvailable(losControl.map);
+        for (const slider of terrainDependentSliders) {
+            if (slider.setDisabled) {
+                slider.setDisabled(!terrainActive, disabledMessage);
+            }
+        }
+    };
+
+    losControl.map.on('terrain', onTerrainChange);
+
+    // Store cleanup on the container so it can be called when the panel is destroyed
+    const previousCleanup = container._parametersCleanup;
+    container._parametersCleanup = () => {
+        losControl.map.off('terrain', onTerrainChange);
+        if (previousCleanup) previousCleanup();
+    };
 }
 
 /**
@@ -341,7 +405,7 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
 
             const infoText = document.createElement('div');
             infoText.className = 'feature-name-wrapper';
-
+            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
             infoText.textContent = `${selectedFeatures.length} linhas de visada selecionadas`;
 
             const optionsButton = createFeatureOptionsButton(
@@ -385,22 +449,20 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
     // Options section
     panel.appendChild(createSectionDivider('Opções'));
 
-    // Show measure toggle (view-only: allowed in locked mode, not persisted)
+    // Show measure toggle
     panel.appendChild(createModernToggle({
         label: 'Mostrar Medição',
-        className: 'attr-toggle--view-only',
         checked: feature.properties.measure || false,
         onChange: (checked) => {
             losControl.updateFeaturesProperty(selectedFeatures, 'measure', checked);
         }
     }));
 
-    // Show profile toggle (view-only: allowed in locked mode, not persisted)
+    // Show profile toggle (single selection only)
     if (selectedFeatures.length === 1) {
         panel.appendChild(createModernToggle({
             id: 'profile-toggle',
             label: 'Mostrar Perfil',
-            className: 'attr-toggle--view-only',
             checked: feature.properties.profile || false,
             onChange: async (checked) => {
                 await losControl.updateFeaturesProperty(selectedFeatures, 'profile', checked);

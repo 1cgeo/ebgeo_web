@@ -7,7 +7,54 @@ import {
 } from '../../tool_manager/helpers/index.js';
 
 /**
- * Create visibility attributes panel for selected visibility features
+ * Create visibility parameters panel content (for Parameters tab)
+ * @param {HTMLElement} container - Container to add parameters to
+ * @param {Array} selectedFeatures - Selected visibility features
+ * @param {Object} visibilityControl - Visibility control instance
+ */
+export function addVisibilityParametersToPanel(container, selectedFeatures, visibilityControl) {
+    if (selectedFeatures.length === 0) return;
+
+    const feature = selectedFeatures[0];
+    const isTerrainAvailable = visibilityControl.geometry.isTerrainAvailable(visibilityControl.map);
+    const disabledMessage = 'Ative o terreno para modificar este parâmetro';
+
+    // Observer height slider
+    const observerSlider = createModernSlider({
+        label: 'Altura do Observador',
+        min: 1,
+        max: 20,
+        step: 0.5,
+        value: feature.properties.observerHeight || 2,
+        unit: 'm',
+        disabled: !isTerrainAvailable,
+        disabledMessage,
+        onChange: (value) => {
+            visibilityControl.updateFeaturesProperty(selectedFeatures, 'observerHeight', value);
+        }
+    });
+    container.appendChild(observerSlider);
+
+    // Reactively update slider disabled state when terrain is toggled
+    const onTerrainChange = () => {
+        const terrainActive = visibilityControl.geometry.isTerrainAvailable(visibilityControl.map);
+        if (observerSlider.setDisabled) {
+            observerSlider.setDisabled(!terrainActive, disabledMessage);
+        }
+    };
+
+    visibilityControl.map.on('terrain', onTerrainChange);
+
+    // Store cleanup on the container so it can be called when the panel is destroyed
+    const previousCleanup = container._parametersCleanup;
+    container._parametersCleanup = () => {
+        visibilityControl.map.off('terrain', onTerrainChange);
+        if (previousCleanup) previousCleanup();
+    };
+}
+
+/**
+ * Create visibility attributes panel for selected visibility features (Style tab)
  * @param {HTMLElement} panel - Container element for attributes
  * @param {Array} selectedFeatures - Array of selected visibility features
  * @param {Object} visibilityControl - Visibility control instance
@@ -45,7 +92,7 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
 
             const infoText = document.createElement('div');
             infoText.className = 'feature-name-wrapper';
-
+            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
             infoText.textContent = `${selectedFeatures.length} áreas de visibilidade selecionadas`;
 
             const optionsButton = createFeatureOptionsButton(
@@ -59,30 +106,6 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
             panel.appendChild(multiSelectHeader);
         }
     }
-
-    // Debounce timer for recalculation
-    let observerHeightDebounceTimer = null;
-
-    const debouncedRecalculate = () => {
-        clearTimeout(observerHeightDebounceTimer);
-        observerHeightDebounceTimer = setTimeout(() => {
-            visibilityControl.updateFeatures(selectedFeatures, false, false, true);
-        }, 500);
-    };
-
-    // Observer height slider
-    panel.appendChild(createModernSlider({
-        label: 'Altura do Observador',
-        min: 1,
-        max: 20,
-        step: 0.5,
-        value: feature.properties.observerHeight || 2,
-        unit: 'm',
-        onChange: (value) => {
-            visibilityControl.updateFeaturesProperty(selectedFeatures, 'observerHeight', value);
-            debouncedRecalculate();
-        }
-    }));
 
     // Opacity slider
     panel.appendChild(createModernSlider({
@@ -110,7 +133,6 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
         saveButton.className = 'attr-modern-btn attr-modern-btn-save';
         saveButton.textContent = 'Salvar';
         saveButton.onclick = () => {
-            clearTimeout(observerHeightDebounceTimer);
             visibilityControl.saveFeatures(selectedFeatures, initialPropertiesMap);
             selectionManager.deselectAllFeatures();
         };
@@ -119,7 +141,6 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
         discardButton.className = 'attr-modern-btn attr-modern-btn-discard';
         discardButton.textContent = 'Descartar';
         discardButton.onclick = () => {
-            clearTimeout(observerHeightDebounceTimer);
             visibilityControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
             selectionManager.deselectAllFeatures();
         };

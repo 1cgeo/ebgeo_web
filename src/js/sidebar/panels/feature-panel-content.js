@@ -300,6 +300,10 @@ export async function createFeaturePanelContent({
                     selectionManager,
                     uiManager
                 );
+                // Register cleanup for terrain listener attached by parameters panel
+                if (featureTabs.parametersTab._parametersCleanup) {
+                    cleanupFunctions.push(featureTabs.parametersTab._parametersCleanup);
+                }
             } catch (error) {
                 console.error(`Error creating parameters panel for ${featureType}:`, error);
             }

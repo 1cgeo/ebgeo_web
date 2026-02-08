@@ -2,7 +2,7 @@
 
 import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
-import { addVisibilityAttributesToPanel } from './visibility_attributes_panel.js';
+import { addVisibilityAttributesToPanel, addVisibilityParametersToPanel } from './visibility_attributes_panel.js';
 import AddVisibilityGeometry from './add_visibility_geometry.js';
 import { BaseControl } from '../../tool_manager';
 
@@ -95,6 +95,21 @@ class AddVisibilityControl extends BaseControl {
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating visibility attribute panel:', error);
+        }
+    }
+
+    /**
+     * Creates the parameters panel content (for Parameters tab)
+     * @param {HTMLElement} container - Container to add parameters to
+     * @param {Array} features - Selected visibility features
+     * @param {Object} _selectionManager - Selection manager instance (unused)
+     * @param {Object} _uiManager - UI manager instance (unused)
+     */
+    createParametersPanel(container, features, _selectionManager, _uiManager) {
+        try {
+            addVisibilityParametersToPanel(container, features, this);
+        } catch (error) {
+            console.error('Error creating visibility parameters panel:', error);
         }
     }
 
@@ -414,7 +429,7 @@ class AddVisibilityControl extends BaseControl {
         try {
             this.showProgressModal();
 
-            const { id: featureId } = IDUtils.generateFeatureIds();
+            const featureId = IDUtils.generateUniqueId();
             const featureName = await IDUtils.generateFeatureName('visibility', this.map);
 
             const properties = {
@@ -766,28 +781,74 @@ class AddVisibilityControl extends BaseControl {
 
     createProgressModal = () => {
         this.progressModal = document.createElement('div');
-        this.progressModal.className = 'visibility-progress-modal';
+        this.progressModal.style.cssText = `
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        `;
 
         const modalContent = document.createElement('div');
-        modalContent.className = 'visibility-progress-modal__content';
+        modalContent.style.cssText = `
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            min-width: 300px;
+        `;
 
         const title = document.createElement('h3');
-        title.className = 'visibility-progress-modal__title';
         title.textContent = 'Calculando Visibilidade';
+        title.style.cssText = `
+            margin: 0 0 20px 0;
+            color: #333;
+            font-size: 18px;
+            font-weight: 500;
+        `;
 
         this.progressText = document.createElement('p');
-        this.progressText.className = 'visibility-progress-modal__text';
         this.progressText.textContent = 'Analisando terreno...';
+        this.progressText.style.cssText = `
+            margin: 0 0 20px 0;
+            color: #666;
+            font-size: 14px;
+        `;
 
         const progressContainer = document.createElement('div');
-        progressContainer.className = 'visibility-progress-modal__bar-container';
+        progressContainer.style.cssText = `
+            width: 100%;
+            height: 8px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        `;
 
         this.progressBar = document.createElement('div');
-        this.progressBar.className = 'visibility-progress-modal__bar';
+        this.progressBar.style.cssText = `
+            width: 0%;
+            height: 100%;
+            background-color: #508D4E;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        `;
 
         const progressPercentage = document.createElement('div');
-        progressPercentage.className = 'visibility-progress-modal__percentage';
+        progressPercentage.id = 'progress-percentage';
         progressPercentage.textContent = '0%';
+        progressPercentage.style.cssText = `
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        `;
 
         progressContainer.appendChild(this.progressBar);
         modalContent.appendChild(title);
@@ -799,13 +860,13 @@ class AddVisibilityControl extends BaseControl {
     }
 
     showProgressModal = () => {
-        this.progressModal.classList.add('visibility-progress-modal--visible');
+        this.progressModal.style.display = 'flex';
         this.updateProgress(0, 'Iniciando análise...');
     }
 
     updateProgress = (percentage, text = null) => {
         this.progressBar.style.width = `${percentage}%`;
-        const percentageElement = this.progressModal.querySelector('.visibility-progress-modal__percentage');
+        const percentageElement = document.getElementById('progress-percentage');
         if (percentageElement) {
             percentageElement.textContent = `${Math.round(percentage)}%`;
         }
@@ -816,7 +877,7 @@ class AddVisibilityControl extends BaseControl {
     }
 
     hideProgressModal = () => {
-        this.progressModal.classList.remove('visibility-progress-modal--visible');
+        this.progressModal.style.display = 'none';
         this.updateProgress(0, 'Analisando terreno...');
     }
 

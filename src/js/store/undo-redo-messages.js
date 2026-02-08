@@ -45,6 +45,13 @@ export function describeUndoRedoAction(action, direction) {
             return `Exclusão de ${label} ${suffix}`;
         }
 
+        case 'updateWithProcessed': {
+            const typeName = getFeatureDisplayNameFromStorage(action.mainFeatureType);
+            const feature = direction === 'undo' ? action.newFeature : action.oldFeature;
+            const label = _labelWithName(typeName, feature);
+            return `Edição de ${label} ${suffix}`;
+        }
+
         case 'addMultiple': {
             const totalCount = Object.values(action.features)
                 .reduce((sum, arr) => sum + arr.length, 0);
