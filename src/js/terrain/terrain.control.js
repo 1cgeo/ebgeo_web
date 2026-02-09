@@ -37,6 +37,7 @@ class TerrainControl {
         this.hillshadeSourceConfig = config.hillshadeSource;
         this.terrainConfig = config.terrain;
         this.hillshadeConfig = config.hillshade;
+        this._globeProjection = config.globe_projection || false;
         this._wasTerrainActive = false;
         this._map = null;
         this._container = null;
@@ -65,7 +66,8 @@ class TerrainControl {
      */
     _handleBaseLayerChanged = async () => {
         if (this._wasTerrainActive) {
-            // Re-add terrain source and restore terrain
+            // Globe + terrain is incompatible — ensure mercator before re-enabling terrain
+            this._disableGlobeForTerrain();
             await this._setupTerrainSources();
             this._map.setTerrain(this.terrainConfig);
         }
@@ -80,6 +82,20 @@ class TerrainControl {
             this._container.parentNode.removeChild(this._container);
         }
         this._map = undefined;
+    }
+
+    // Globe projection + terrain is a known MapLibre bug — switch to mercator while terrain is active
+    _disableGlobeForTerrain() {
+        if (this._globeProjection) {
+            this._map.setProjection({ type: 'mercator' });
+        }
+    }
+
+    _restoreGlobeProjection() {
+        if (this._globeProjection) {
+            this._map.setProjection({ type: 'globe' });
+            this._map.setSky(undefined);
+        }
     }
 
     _setupTerrainSources = async () => {
@@ -107,11 +123,14 @@ class TerrainControl {
             // Deactivating terrain - reset pitch to 0
             this._wasTerrainActive = false;
             this._map.setTerrain(null);
+            this._restoreGlobeProjection();
             this._map.easeTo({
                 pitch: 0,
                 duration: 500
             });
         } else {
+            // Globe + terrain is a known MapLibre bug (#4792, #4927) — disable globe while terrain is active
+            this._disableGlobeForTerrain();
             // Activating terrain - apply 3D pitch
             this._wasTerrainActive = true;
             this._map.setTerrain(this.terrainConfig);

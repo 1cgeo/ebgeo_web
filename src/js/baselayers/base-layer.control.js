@@ -13,7 +13,8 @@ import {
     getMapPosition,
     getCatalogLayers,
     getEventBus,
-    getStateManager
+    getStateManager,
+    getControl
 } from '../store';
 import { EventTypes } from '../events/event_types.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
@@ -229,7 +230,10 @@ class BaseLayerControl {
             this.currentLayer = layer;
 
             // Reapply globe projection after style change (setStyle resets projection)
-            if (config.map2d.globe_projection) {
+            // Skip if terrain is active — globe + terrain is incompatible (MapLibre #4792)
+            const terrainControl = getControl('TerrainControl');
+            const terrainActive = terrainControl?._wasTerrainActive;
+            if (config.map2d.globe_projection && !terrainActive) {
                 this.map.setProjection({ type: 'globe' });
             }
 
