@@ -16,6 +16,10 @@ import {
     deactivateKeyboardService3D,
     confirmAndDelete3DFeature
 } from './services/keyboard-service-3d.js';
+import {
+    applyCesiumPreLoadPatches,
+    applyCesiumPostLoadPatches
+} from './services/cesium-compat.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
@@ -79,18 +83,6 @@ async function loadCesiumAndInit() {
                 }
             }
 
-            if (Cesium.createWorldTerrain) {
-                Cesium.createWorldTerrain = function () {
-                    return new Cesium.EllipsoidTerrainProvider();
-                };
-            }
-
-            if (Cesium.createWorldImagery) {
-                Cesium.createWorldImagery = function () {
-                    return false;
-                };
-            }
-
             if (Cesium.RequestScheduler) {
                 const originalRequest = Cesium.RequestScheduler.request;
                 Cesium.RequestScheduler.request = function (...args) {
@@ -103,10 +95,15 @@ async function loadCesiumAndInit() {
                 };
             }
 
+            // Compatibility patches for cesium-viewshed/cesium-measure (built for ~1.100)
+            applyCesiumPreLoadPatches(Cesium);
+
             await Promise.all([
                 loadScript('./vendors/cesium/cesium-measure.js'),
                 loadScript('./vendors/cesium/cesium-viewshed.js')
             ]);
+
+            applyCesiumPostLoadPatches(Cesium);
 
             await initCesiumMap();
 
@@ -151,15 +148,18 @@ async function initCesiumMap() {
     const terrainProviderConfig = config.createTerrainProvider();
     const imageryProviderConfig = config.createImageryProvider();
 
+    // Cesium 1.107+ uses async fromUrl() for terrain providers
     let terrainProvider;
     try {
         if (terrainProviderConfig.provider === 'CesiumTerrainProvider') {
-            terrainProvider = new Cesium.CesiumTerrainProvider({
-                url: terrainProviderConfig.url,
-                requestVertexNormals: terrainProviderConfig.requestVertexNormals || false,
-                requestWaterMask: false,
-                requestMetadata: false
-            });
+            terrainProvider = await Cesium.CesiumTerrainProvider.fromUrl(
+                terrainProviderConfig.url,
+                {
+                    requestVertexNormals: terrainProviderConfig.requestVertexNormals || false,
+                    requestWaterMask: false,
+                    requestMetadata: false
+                }
+            );
         } else {
             terrainProvider = new Cesium.EllipsoidTerrainProvider();
         }
@@ -168,9 +168,11 @@ async function initCesiumMap() {
         terrainProvider = new Cesium.EllipsoidTerrainProvider();
     }
 
-    let imageryProvider = false;
+    // Cesium 1.107+ uses baseLayer instead of imageryProvider
+    let baseLayer = false;
     if (imageryProviderConfig) {
         try {
+            let imageryProvider;
             switch (imageryProviderConfig.provider) {
                 case 'UrlTemplateImageryProvider':
                     imageryProvider = new Cesium.UrlTemplateImageryProvider({
@@ -193,16 +195,19 @@ async function initCesiumMap() {
                     });
                     break;
             }
+            if (imageryProvider) {
+                baseLayer = new Cesium.ImageryLayer(imageryProvider);
+            }
         } catch (error) {
             console.warn('Error creating imagery provider:', error);
-            imageryProvider = false;
+            baseLayer = false;
         }
     }
 
     const viewer = new Cesium.Viewer("map-3d", {
         ...config.map3d.viewer,
         terrainProvider: terrainProvider,
-        imageryProvider: imageryProvider,
+        baseLayer: baseLayer,
         contextOptions: {
             webgl: {
                 preserveDrawingBuffer: true,
@@ -211,7 +216,7 @@ async function initCesiumMap() {
         },
     });
 
-    if (!imageryProvider) {
+    if (!baseLayer) {
         viewer.imageryLayers.removeAll();
     }
 
@@ -244,10 +249,9 @@ async function loadTilesets(viewer) {
 }
 
 async function createOptimizedTileset(viewer, tilesetConfig, options = {}) {
-    const tileset = new Cesium.Cesium3DTileset({
-        url: tilesetConfig.url,
+    // Cesium 1.107+ uses fromUrl() instead of constructor + readyPromise
+    const tileset = await Cesium.Cesium3DTileset.fromUrl(tilesetConfig.url, {
         maximumScreenSpaceError: 16,
-        maximumMemoryUsage: 512,
         preferLeaves: false,
         skipLevelOfDetail: true,
         baseScreenSpaceError: 1024,
@@ -265,8 +269,6 @@ async function createOptimizedTileset(viewer, tilesetConfig, options = {}) {
     });
 
     viewer.scene.primitives.add(tileset);
-
-    await tileset.readyPromise;
 
     const heightOffset = tilesetConfig.heightOffset;
     const boundingSphere = tileset.boundingSphere;

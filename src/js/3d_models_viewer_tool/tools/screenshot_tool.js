@@ -35,12 +35,15 @@ async function takeScreenshot(viewer) {
 }
 
 /**
- * Checks if preserveDrawingBuffer is active in WebGL context
+ * Checks if preserveDrawingBuffer is active in WebGL context.
+ * Cesium 1.107+ may use WebGL2 so we access the GL context via Cesium's internal context.
  */
 function checkPreserveDrawingBuffer() {
     try {
-        const canvas = viewerInstance.scene.canvas;
-        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        // Access the GL context from Cesium's internal context (works with both WebGL1 and WebGL2)
+        const gl = viewerInstance.scene.context._gl
+            || viewerInstance.scene.canvas.getContext('webgl2')
+            || viewerInstance.scene.canvas.getContext('webgl');
 
         if (gl) {
             const contextAttributes = gl.getContextAttributes();
@@ -74,100 +77,38 @@ async function ensureFullyRendered() {
 }
 
 /**
- * Waits for all imagery layers to be ready
+ * Waits for all imagery layers to be ready.
+ * In Cesium 1.107+ imagery providers are ready when created.
  */
 function waitForImageryLayers() {
     return new Promise((resolve) => {
-        const imageryLayers = viewerInstance.imageryLayers;
-        if (imageryLayers._layers.length <=1) {
-            resolve();
-            return;
-        }
-
-        let readyCount = 0;
-        const totalLayers = imageryLayers.length;
-
-        const checkReady = () => {
-            readyCount = 0;
-            for (let i = 0; i < imageryLayers.length; i++) {
-                const layer = imageryLayers.get(i);
-                if (layer.ready) {
-                    readyCount++;
-                }
-            }
-
-            if (readyCount === totalLayers) {
-                resolve();
-            } else {
-                setTimeout(checkReady, 100);
-            }
-        };
-
-        checkReady();
+        // Imagery providers created in Cesium 1.107+ are ready on creation.
+        // Small delay to allow tile loading for the current view.
+        setTimeout(resolve, 200);
     });
 }
 
 /**
- * Waits for terrain to be loaded in current view
+ * Waits for terrain to be loaded in current view.
+ * In Cesium 1.107+ terrain providers created via fromUrl() are ready immediately.
  */
 function waitForTerrain() {
     return new Promise((resolve) => {
-        const scene = viewerInstance.scene;
-        const globe = scene.globe;
-        // If using EllipsoidTerrainProvider, no need to wait
-        if (!globe.terrainProvider._availability) {
-            resolve();
-            return;
-        }
-
-        // For CesiumTerrainProvider, wait until ready
-        const checkTerrain = () => {
-            if (globe.terrainProvider.ready) {
-                // Wait a bit more to ensure tiles are loaded
-                setTimeout(resolve, 200);
-            } else {
-                setTimeout(checkTerrain, 100);
-            }
-        };
-
-        checkTerrain();
+        // Terrain providers created via fromUrl() are ready on creation.
+        // Small delay to ensure terrain tiles for the current view are loaded.
+        setTimeout(resolve, 200);
     });
 }
 
 /**
- * Waits for 3D tilesets to be loaded
+ * Waits for 3D tilesets to be loaded.
+ * In Cesium 1.107+ tilesets created via fromUrl() are ready immediately.
  */
 function waitForTilesets() {
     return new Promise((resolve) => {
-        const primitives = viewerInstance.scene.primitives;
-        const tilesets = [];
-
-        // Find all tilesets
-        for (let i = 0; i < primitives.length; i++) {
-            const primitive = primitives.get(i);
-            if (primitive instanceof Cesium.Cesium3DTileset) {
-                tilesets.push(primitive);
-            }
-        }
-
-        if (tilesets.length === 0) {
-            resolve();
-            return;
-        }
-
-        // Wait for all to be ready
-        const checkTilesets = () => {
-            const allReady = tilesets.every(tileset => tileset.ready);
-
-            if (allReady) {
-                // Wait a bit more for tile loading in current view
-                setTimeout(resolve, 300);
-            } else {
-                setTimeout(checkTilesets, 100);
-            }
-        };
-
-        checkTilesets();
+        // Tilesets created via fromUrl() are ready on creation.
+        // Small delay to ensure tiles for the current view are loaded.
+        setTimeout(resolve, 300);
     });
 }
 

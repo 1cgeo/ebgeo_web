@@ -298,9 +298,13 @@ export function activateViewshedTool(viewer, tilesetId) {
 export function deactivateViewshedTool() {
     isToolActive = false;
 
-    // Don't destroy pending viewshed if it was completed and saved
-    if (pendingViewshed && !pendingViewshed._wasSaved) {
-        pendingViewshed.destroy();
+    // Destroy pending viewshed if tool was deactivated before completion
+    if (pendingViewshed) {
+        try {
+            pendingViewshed.destroy();
+        } catch (_e) {
+            // Already destroyed in handleViewshedComplete
+        }
     }
     pendingViewshed = null;
 
@@ -311,6 +315,9 @@ export function deactivateViewshedTool() {
 
 /**
  * Handles viewshed completion from cesium-viewshed.
+ * The interactive click handler places the observer at ground level (height += 0).
+ * After capturing positions, the initial viewshed is destroyed and recreated
+ * with a 1.5m observer height offset to simulate eye-level observation.
  * @param {Cesium.ViewShed3D} cesiumViewshed - The created viewshed
  */
 async function handleViewshedComplete(cesiumViewshed) {
@@ -377,15 +384,25 @@ async function handleViewshedComplete(cesiumViewshed) {
 
     const viewshed = await addViewshed(currentTilesetId, viewshedData);
 
-    // Mark as saved so it won't be destroyed when tool deactivates
-    cesiumViewshed._wasSaved = true;
+    // Destroy the interactive viewshed (placed at ground level) and recreate
+    // with the 1.5m observer height offset applied for eye-level observation
+    cesiumViewshed._wasSaved = false;
+    try {
+        cesiumViewshed.destroy();
+    } catch (e) {
+        console.warn('Error destroying interactive viewshed:', e);
+    }
+    pendingViewshed = null;
+
+    // Recreate with proper observer height offset (same path as reload)
+    const recreatedViewshed = createCesiumViewshed(viewshed);
 
     // Create origin entity
     const originEntity = createViewshedOriginEntity(viewshed);
 
     // Store the objects
     viewshedObjects.set(viewshed.id, {
-        cesiumViewshed: cesiumViewshed,
+        cesiumViewshed: recreatedViewshed,
         originEntity: originEntity
     });
 
