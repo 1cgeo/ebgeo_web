@@ -162,6 +162,7 @@ export class ProfilePanelManager {
         const labels = profileDataParsed.map(d => d.distance.toFixed(0));
         const elevation = profileDataParsed.map(d => d.elevation);
         const slopes = profileDataParsed.map(d => d.slope ?? 0);
+        const losElevation = profileDataParsed.map(d => d.losElevation);
 
         // Build slope info and toggle
         const maxSlope = Math.max(...slopes.map(s => Math.abs(s)));
@@ -169,7 +170,7 @@ export class ProfilePanelManager {
         this._buildSlopeToggle(panel);
 
         // Build chart
-        this._buildChart(panel, labels, elevation, slopes, linkFirstLast);
+        this._buildChart(panel, labels, elevation, slopes, linkFirstLast, losElevation);
     }
 
     // ========================================================================
@@ -272,7 +273,7 @@ export class ProfilePanelManager {
      * Build Chart.js chart.
      * @private
      */
-    _buildChart(panel, labels, elevation, slopes, linkFirstLast) {
+    _buildChart(panel, labels, elevation, slopes, linkFirstLast, losElevation = []) {
         const chartContainer = document.createElement('div');
         chartContainer.className = 'profile-chart-container';
         panel.appendChild(chartContainer);
@@ -298,7 +299,7 @@ export class ProfilePanelManager {
 
         // Add line of sight if needed
         if (linkFirstLast) {
-            const losDataset = this._buildLineOfSightDataset(labels, elevation);
+            const losDataset = this._buildLineOfSightDataset(labels, elevation, losElevation);
             datasets.push(losDataset);
         }
 
@@ -317,27 +318,44 @@ export class ProfilePanelManager {
 
     /**
      * Build line of sight dataset.
+     * Uses pre-calculated losElevation (includes observerHeight/targetHeight) when available,
+     * otherwise falls back to linear interpolation between terrain endpoints.
      * @private
      */
-    _buildLineOfSightDataset(labels, elevation) {
-        const firstElevation = elevation[0];
-        const lastElevation = elevation[elevation.length - 1];
-        const firstDistance = parseFloat(labels[0]);
-        const lastDistance = parseFloat(labels[labels.length - 1]);
+    _buildLineOfSightDataset(labels, elevation, losElevation = []) {
+        const hasLosElevation = losElevation.length === labels.length &&
+            losElevation.some(v => v != null && !isNaN(v));
 
-        const slopeLine = (lastElevation - firstElevation) / (lastDistance - firstDistance);
+        let lineElevations;
         let intersectionIndex = -1;
 
-        const lineElevations = labels.map((distance, i) => {
-            const dist = parseFloat(distance);
-            const lineElevation = slopeLine * (dist - firstDistance) + firstElevation;
-
-            if (i !== 0 && i !== labels.length - 1 && intersectionIndex === -1 && elevation[i] >= lineElevation) {
-                intersectionIndex = i;
+        if (hasLosElevation) {
+            // Use pre-calculated LOS elevations (accounts for observerHeight & targetHeight)
+            lineElevations = losElevation;
+            for (let i = 1; i < lineElevations.length - 1; i++) {
+                if (intersectionIndex === -1 && elevation[i] >= lineElevations[i]) {
+                    intersectionIndex = i;
+                }
             }
+        } else {
+            // Fallback: linear interpolation between terrain endpoints (for line profiles)
+            const firstElevation = elevation[0];
+            const lastElevation = elevation[elevation.length - 1];
+            const firstDistance = parseFloat(labels[0]);
+            const lastDistance = parseFloat(labels[labels.length - 1]);
+            const slopeLine = (lastElevation - firstElevation) / (lastDistance - firstDistance);
 
-            return lineElevation;
-        });
+            lineElevations = labels.map((distance, i) => {
+                const dist = parseFloat(distance);
+                const lineElevation = slopeLine * (dist - firstDistance) + firstElevation;
+
+                if (i !== 0 && i !== labels.length - 1 && intersectionIndex === -1 && elevation[i] >= lineElevation) {
+                    intersectionIndex = i;
+                }
+
+                return lineElevation;
+            });
+        }
 
         return {
             label: 'Linha de visada',

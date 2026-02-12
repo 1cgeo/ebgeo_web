@@ -19,10 +19,11 @@ import {
     deactivateKeyboardService360,
     setKeyboardCallbacks
 } from './services/keyboard_service_360.js';
+import config from '../config.js';
 
 // ===== CONFIGURATION =====
-const IMAGES_LOCATION = './street_view/IMG';
-const METADATA_LOCATION = './street_view/METADATA';
+const IMAGES_LOCATION = config.streetView360.imagesLocation;
+const METADATA_LOCATION = config.streetView360.metadataLocation;
 
 // Cache limits
 const TEXTURE_CACHE_MAX_SIZE = 30;  // Max textures to keep in memory (~30-50MB depending on resolution)
