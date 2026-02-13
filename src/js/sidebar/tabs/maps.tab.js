@@ -421,9 +421,9 @@ export class MapsTab {
         item.dataset.mapName = mapName;
         item.dataset.selected = isSelected.toString();
 
-        // Build position indicator
+        // Build position indicator (clickable — restores saved position)
         const positionIndicator = hasSavedPosition
-            ? `<span class="map-position-indicator" title="Posição salva">${MAPS_ICONS.mapPin}</span>`
+            ? `<span class="map-position-indicator" title="Ir para posição salva">${MAPS_ICONS.mapPin}</span>`
             : '';
 
         // Build notes indicator
@@ -465,9 +465,20 @@ export class MapsTab {
             </div>
         `;
 
+        // Position indicator click — restore saved position
+        if (hasSavedPosition) {
+            const posIndicator = item.querySelector('.map-position-indicator');
+            if (posIndicator) {
+                addDomListener(this, posIndicator, 'click', (e) => {
+                    e.stopPropagation();
+                    this._handleRestorePosition(mapName);
+                });
+            }
+        }
+
         // Click to select
         addDomListener(this, item, 'click', (e) => {
-            if (!e.target.closest('.map-list-action-btn') && !e.target.closest('.map-list-drag-handle')) {
+            if (!e.target.closest('.map-list-action-btn') && !e.target.closest('.map-list-drag-handle') && !e.target.closest('.map-position-indicator')) {
                 this._handleSelectMap(mapName);
             }
         });
@@ -816,6 +827,28 @@ export class MapsTab {
             this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
         } catch (_error) {
             showError('Erro ao selecionar mapa');
+        }
+    }
+
+    /**
+     * Handles restoring the saved position for a map.
+     * If it's the current map, jumps directly. Otherwise switches first.
+     * @private
+     * @param {string} mapName - Map name
+     */
+    async _handleRestorePosition(mapName) {
+        if (!this._baseLayerControl) return;
+
+        try {
+            if (mapName === this._currentMapName) {
+                await this._baseLayerControl.applyMapSavedPosition(mapName);
+            } else {
+                await setCurrentMap(mapName);
+                await this._baseLayerControl.switchMap();
+                this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
+            }
+        } catch (_error) {
+            showError('Erro ao restaurar posição');
         }
     }
 

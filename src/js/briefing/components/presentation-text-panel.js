@@ -50,6 +50,9 @@ const CONTROL_ICONS = {
 
     // "Skip forward" icon shown during animation (bar + triangle = skip to end)
     skipForward: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>`,
+
+    // Crosshair icon for restoring saved slide position
+    restorePosition: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>`,
 };
 
 const DEFAULT_CONFIG = {
@@ -75,6 +78,7 @@ export class PresentationTextPanel {
      * @param {Function} [callbacks.onNext] - Next slide
      * @param {Function} [callbacks.onFirst] - First slide
      * @param {Function} [callbacks.onLast] - Last slide
+     * @param {Function} [callbacks.onRestorePosition] - Restore saved slide position
      * @param {Function} [callbacks.onFullscreen] - Toggle fullscreen
      * @param {Function} [callbacks.onToggleText] - Toggle text visibility
      * @param {Function} [callbacks.onExit] - Exit presentation
@@ -99,6 +103,7 @@ export class PresentationTextPanel {
         this._nextBtn = null;
         this._firstBtn = null;
         this._lastBtn = null;
+        this._restorePositionBtn = null;
         this._fullscreenBtn = null;
 
         setupCleanup(this);
@@ -311,6 +316,14 @@ export class PresentationTextPanel {
             this._callbacks.onLast?.();
         });
         navRow.appendChild(this._lastBtn);
+
+        this._restorePositionBtn = this._createButton(
+            CONTROL_ICONS.restorePosition,
+            'Voltar à Posição Salva',
+            () => { this._callbacks.onRestorePosition?.(); }
+        );
+        this._restorePositionBtn.classList.add('briefing-text-panel__btn--restore');
+        navRow.appendChild(this._restorePositionBtn);
 
         controlsSection.appendChild(navRow);
 

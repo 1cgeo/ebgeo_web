@@ -18,6 +18,8 @@
 import localforage from 'localforage';
 import { detectMigrationNeeded, safelyMigrate } from './migration/migration.service.js';
 import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
+import config from '../config.js';
+import { createSyncMetadata } from './sync/sync-metadata.js';
 
 // Re-export from repository.utils.js for backward compatibility
 export {
@@ -302,7 +304,23 @@ export const initializeRepository = async () => {
 
         const allMapNames = await mapStore.keys();
         if (allMapNames.length === 0) {
-            await mapStore.setItem('Principal', getEmptyMapData());
+            const newMapData = getEmptyMapData();
+
+            // Add hillshade to catalog if available in config
+            if (config.map2d?.hillshade?.enabled === true) {
+                newMapData.catalogLayers = [{
+                    id: 'hillshade',
+                    type: 'hillshade',
+                    name: config.map2d.hillshade.name || 'Sombreamento do Relevo',
+                    visible: true,
+                    opacity: 1,
+                    status: 'active',
+                    config: config.map2d.hillshade,
+                    sync: createSyncMetadata(null)
+                }];
+            }
+
+            await mapStore.setItem('Principal', newMapData);
             memoryStore.currentMap = 'Principal';
             return 'Principal';
         }

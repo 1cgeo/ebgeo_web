@@ -224,6 +224,11 @@
     background: var(--primary-100, #dcfce7);
 }
 
+/* Restore position button (separated from nav group) */
+.briefing-text-panel__btn--restore {
+    margin-left: var(--space-2, 8px);
+}
+
 /* Exit button (red) */
 .briefing-text-panel__btn--exit {
     color: #dc2626;

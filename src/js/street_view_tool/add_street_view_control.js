@@ -160,7 +160,9 @@ class AddStreetViewControl {
                     'source': this.streetViewPointsLayer['source'],
                     'source-layer': config.map2d.streetViewPointsSourceLayer,
                     'layout': {
-                        'icon-image': 'point'
+                        'icon-image': 'point',
+                        'icon-allow-overlap': true,
+                        'icon-ignore-placement': true
                     }
                 });
 

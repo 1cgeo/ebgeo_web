@@ -674,12 +674,20 @@
     color: var(--color-error);
 }
 
-/* Position Indicator */
+/* Position Indicator (clickable — restores saved position) */
 .map-position-indicator {
     display: inline-flex;
     align-items: center;
     margin-left: var(--space-1);
     color: var(--primary);
+    cursor: pointer;
+    border-radius: var(--radius-sm, 4px);
+    padding: 2px;
+    transition: background var(--transition-fast, 0.15s);
+}
+
+.map-position-indicator:hover {
+    background: var(--primary-50, #f0fdf4);
 }
 
 .map-position-indicator svg {

@@ -91,16 +91,21 @@ async function loadMetadataWithCache(name) {
     }
 
     const response = await fetch(`${METADATA_LOCATION}/${name}.json`);
+    if (!response.ok) {
+        throw new Error(`Metadata not found for ${name} (HTTP ${response.status})`);
+    }
     const data = await response.json();
     streetViewState.metadataCache.set(name, data);
     return data;
 }
 
 /**
- * Gets mesh rotation Y from metadata
+ * Gets mesh rotation Y from metadata.
+ * Default 180° aligns equirectangular center (U=0.5) with camera +X direction.
+ * The heading is NOT subtracted — the image center already points at the heading.
  */
 function getMeshRotationY(data) {
-    return data.camera?.mesh_rotation_y ? data.camera.mesh_rotation_y : 270;
+    return data.camera?.mesh_rotation_y ?? 180;
 }
 
 // ===== THREE.JS INITIALIZATION =====
@@ -190,8 +195,10 @@ async function initNavigator(container) {
 
 /**
  * Loads a photo and its metadata
+ * @param {string} photoName - Photo identifier
+ * @param {number|null} [prevWorldHeading=null] - Previous world heading in degrees to preserve viewing direction
  */
-async function loadPhoto(photoName) {
+async function loadPhoto(photoName, prevWorldHeading = null) {
     const data = await loadMetadataWithCache(photoName);
     streetViewState.currentInfo = data;
     streetViewState.currentPhotoName = photoName;
@@ -206,15 +213,24 @@ async function loadPhoto(photoName) {
     };
 
     // Process targets with defaults
+    // JSON uses "ele" for elevation; normalize to "elevation" for the navigator
     const targets = (data.targets || []).map(t => ({
         ...t,
-        elevation: t.elevation ?? cameraConfig.ele,
+        elevation: t.elevation ?? t.ele ?? cameraConfig.ele,
         ground_offset: t.ground_offset ?? 0
     }));
 
-    // Load texture
+    // Load texture (may throw AbortError if superseded by a newer navigation)
     const imagePath = `${IMAGES_LOCATION}/${data.camera.img}.jpg`;
-    await loadTexture(imagePath, data);
+    try {
+        await loadTexture(imagePath, data);
+    } catch (error) {
+        if (error.name === 'AbortError') return;
+        throw error;
+    }
+
+    // If another loadPhoto call started while we were loading, bail out
+    if (streetViewState.currentPhotoName !== photoName) return;
 
     // Update minimap
     updateMiniMap(data.camera);
@@ -226,7 +242,7 @@ async function loadPhoto(photoName) {
 
     // Check for saved orientation and apply it
     const savedOrientation = await getOrientation(photoName);
-    setCameraOrientation(data, savedOrientation);
+    setCameraOrientation(data, savedOrientation, prevWorldHeading);
 
     // Update orientation button state
     updateOrientationButtonState(savedOrientation !== null);
@@ -242,28 +258,64 @@ async function loadPhoto(photoName) {
 }
 
 /**
- * Loads a texture for the panorama sphere
+ * Active AbortController for the current texture fetch.
+ * Aborted when a new photo starts loading before the previous one finishes.
+ */
+let activeTextureAbort = null;
+
+/**
+ * Loads a texture for the panorama sphere.
+ * Cancels any in-flight fetch when a new load is requested.
  */
 async function loadTexture(imagePath, data) {
-    return new Promise((resolve) => {
-        if (streetViewState.textureCache.has(imagePath)) {
-            const texture = streetViewState.textureCache.get(imagePath);
-            applyTexture(texture, data);
-            resolve();
-        } else {
-            const loader = new THREE.TextureLoader();
-            loader.load(imagePath, (loadedTexture) => {
-                loadedTexture.colorSpace = THREE.SRGBColorSpace;
-                streetViewState.textureCache.set(imagePath, loadedTexture);
-                applyTexture(loadedTexture, data);
-                resolve();
-            });
-        }
+    // Cancel previous in-flight download
+    if (activeTextureAbort) {
+        activeTextureAbort.abort();
+        activeTextureAbort = null;
+    }
+
+    // Cache hit — no network needed
+    if (streetViewState.textureCache.has(imagePath)) {
+        const texture = streetViewState.textureCache.get(imagePath);
+        applyTexture(texture, data);
+        return;
+    }
+
+    // Fetch with AbortController so we can cancel if user navigates away
+    const controller = new AbortController();
+    activeTextureAbort = controller;
+
+    const response = await fetch(imagePath, { signal: controller.signal });
+    const blob = await response.blob();
+
+    // If this load was superseded by a newer one, discard the result
+    if (activeTextureAbort !== controller) return;
+    activeTextureAbort = null;
+
+    // Create Three.js texture from the fetched blob
+    const objectURL = URL.createObjectURL(blob);
+    const loadedTexture = await new Promise((resolve) => {
+        const loader = new THREE.TextureLoader();
+        loader.load(objectURL, (tex) => {
+            URL.revokeObjectURL(objectURL);
+            resolve(tex);
+        });
     });
+
+    loadedTexture.colorSpace = THREE.SRGBColorSpace;
+    streetViewState.textureCache.set(imagePath, loadedTexture);
+    applyTexture(loadedTexture, data);
 }
 
 /**
- * Applies a texture to the panorama sphere
+ * Applies a texture to the panorama sphere.
+ *
+ * The equirectangular image center (U=0.5) already points at the camera heading.
+ * After SphereGeometry.scale(-1,1,1), U=0.5 maps to -X in world space.
+ * The camera looks at +X when lon=0.
+ * A fixed 180° Y-rotation aligns U=0.5 from -X to +X.
+ *
+ * mesh_rotation_y from metadata can override this for non-standard stitching.
  */
 function applyTexture(texture, data) {
     if (streetViewState.mesh) {
@@ -282,18 +334,29 @@ function applyTexture(texture, data) {
     }
 
     // Apply mesh rotation
-    const offsetRad = THREE.MathUtils.degToRad(
-        getMeshRotationY(data) - data.camera.heading
-    );
+    // Default: 180° aligns equirectangular center (heading direction) with camera +X
+    // mesh_rotation_y in metadata can override for non-standard stitching pipelines
+    const offsetRad = THREE.MathUtils.degToRad(getMeshRotationY(data));
     streetViewState.mesh.rotation.y = offsetRad;
+
+    // Force GPU texture upload now (outside the rAF loop).
+    // Without this, the first render() inside the animation loop triggers a
+    // synchronous VRAM upload of the high-res equirectangular image, causing
+    // a long-frame violation in the requestAnimationFrame handler.
+    const { renderer, scene, camera } = streetViewState;
+    if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+    }
 }
 
 /**
- * Sets camera orientation based on metadata or saved orientation
- * @param {Object} _data - Photo metadata (unused, kept for signature compatibility)
+ * Sets camera orientation based on saved orientation or previous world heading.
+ * Priority: savedOrientation > prevWorldHeading > default (lon=0, lat=0).
+ * @param {Object} data - Photo metadata
  * @param {Object|null} savedOrientation - Optional saved orientation to apply
+ * @param {number|null} prevWorldHeading - Previous world heading in degrees (for navigation continuity)
  */
-function setCameraOrientation(_data, savedOrientation = null) {
+function setCameraOrientation(data, savedOrientation = null, prevWorldHeading = null) {
     if (savedOrientation) {
         // Apply saved orientation
         lon = savedOrientation.lon;
@@ -302,16 +365,55 @@ function setCameraOrientation(_data, savedOrientation = null) {
             streetViewState.camera.fov = savedOrientation.fov;
             streetViewState.camera.updateProjectionMatrix();
         }
+    } else if (prevWorldHeading !== null) {
+        // Preserve the viewing direction from the previous photo.
+        // worldHeading = imageHeading + lon → lon = worldHeading - imageHeading
+        const newImageHeading = data.camera?.heading ?? 0;
+        lon = prevWorldHeading - newImageHeading;
+        // Keep pitch level when navigating between photos
+        lat = 0;
     } else {
-        // Start with lon=0 which means looking at the original photo heading direction
-        // The mesh is already rotated to align with the heading
-        // User can then rotate from this starting point
+        // First open: look at the original photo heading direction
         lon = 0;
-        lat = 0;  // Start level (looking at horizon)
+        lat = 0;
     }
 }
 
 // ===== MINIMAP =====
+
+/**
+ * Ensures the 'selected' layer exists on the minimap.
+ * When opening via URL deep link, showPhotos() is never called
+ * so the layer doesn't exist yet.
+ */
+function ensureSelectedLayer() {
+    const miniMap = streetViewState.miniMap;
+    if (!miniMap || miniMap.getLayer('selected')) return;
+
+    // Need the source to be ready; it's added in setupMiniMapWithPMTiles
+    const control = streetViewState.controlInstance;
+    const sourceId = control?.streetViewPointsLayer?.['source'];
+    if (!sourceId || !miniMap.getSource(sourceId)) return;
+
+    // Need the icon image
+    if (!miniMap.hasImage('point-selected')) return;
+
+    const sourceLayer = control?.streetViewPointsLayer?.['source-layer']
+        || config.map2d?.streetViewPointsSourceLayer
+        || 'fotos';
+
+    miniMap.addLayer({
+        'id': 'selected',
+        'type': 'symbol',
+        'source': sourceId,
+        'source-layer': sourceLayer,
+        'filter': ['==', 'nome_img', ''],
+        'layout': {
+            'icon-image': 'point-selected',
+            'icon-allow-overlap': true
+        }
+    });
+}
 
 /**
  * Updates minimap position and icon
@@ -325,6 +427,9 @@ function updateMiniMap(camera) {
         zoom: 17,
         duration: 500
     });
+
+    // Ensure the 'selected' layer exists (deep link scenario)
+    ensureSelectedLayer();
 
     // Update selected photo filter
     if (streetViewState.miniMap.getLayer('selected')) {
@@ -418,10 +523,12 @@ function onPointerMoveGlobal(_event) {
     updateCurrentHeading();
 }
 
-const miniMapHovered = false;
-
 function onDocumentMouseWheel(event) {
-    if (miniMapHovered || !streetViewState.isVisible) return;
+    if (!streetViewState.isVisible) return;
+
+    // Don't change 360 FOV when scrolling over the minimap
+    const miniMapEl = document.getElementById('mini-map-street-view');
+    if (miniMapEl && miniMapEl.contains(event.target)) return;
 
     const fov = streetViewState.camera.fov + event.deltaY * 0.05;
     streetViewState.camera.fov = THREE.MathUtils.clamp(fov, 10, 75);
@@ -806,11 +913,20 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
     document.body.classList.add('streetview-active');
     showToolbar360();
 
+    // Trigger minimap resize after container becomes visible
+    // MapLibre can't calculate dimensions correctly when container is hidden
+    if (streetViewState.miniMap) {
+        streetViewState.miniMap.resize();
+    }
+
     // Initialize or resume viewer (after container is visible)
     if (streetViewState.scene && streetViewState.isPaused) {
         // Resume existing viewer
         await loadPhoto(photoName);
         resumeRendering();
+        // Sync renderer/navigator canvas with current container size
+        // (container may be narrower due to briefing panel)
+        onWindowResize();
     } else if (!streetViewState.scene) {
         // Initialize new viewer
         await initThreeJS();
@@ -880,6 +996,27 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
     // Load markers for the photo
     await loadMarkersForCurrentPhoto();
 
+    // If minimap 'selected' layer wasn't ready during loadPhoto (deep link scenario),
+    // retry once the minimap finishes loading its sources/images
+    if (streetViewState.miniMap && !streetViewState.miniMap.getLayer('selected')) {
+        const retryOnLoad = () => {
+            ensureSelectedLayer();
+            if (streetViewState.currentInfo?.camera) {
+                updateMiniMap(streetViewState.currentInfo.camera);
+            }
+        };
+        // sourcedata fires when vector tiles arrive; retry until layer is created
+        const onSourceData = () => {
+            retryOnLoad();
+            if (streetViewState.miniMap.getLayer('selected')) {
+                streetViewState.miniMap.off('sourcedata', onSourceData);
+            }
+        };
+        streetViewState.miniMap.on('sourcedata', onSourceData);
+        // Also try on idle (when map is fully done)
+        streetViewState.miniMap.once('idle', retryOnLoad);
+    }
+
     // Update URL with photo name
     URLRouter.setPhoto360(photoName);
 
@@ -948,8 +1085,14 @@ export async function navigateToTarget(targetName, callback = () => {}) {
         streetViewState.navigator.deselectPOI();
     }
 
+    // Capture current viewing direction before loading new photo.
+    // The user's world heading = imageHeading + lon.
+    // After loading, we compute the new lon so the world heading is preserved.
+    const prevImageHeading = streetViewState.currentInfo?.camera?.heading ?? 0;
+    const prevWorldHeading = prevImageHeading + lon;
+
     // Load the new photo directly
-    await loadPhoto(targetName);
+    await loadPhoto(targetName, prevWorldHeading);
 
     // Load markers for the new photo
     await loadMarkersForCurrentPhoto();

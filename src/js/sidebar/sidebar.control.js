@@ -256,17 +256,24 @@ export class SidebarControl {
 
     /**
      * Called when base layer changes (usually during map switch).
-     * Closes any open 3D feature panels to prevent stale data.
+     * Closes any open feature panels (3D, vector info, etc.) to prevent stale data.
      * @private
      */
     _onBaseLayerChanged() {
-        closeAny3dPanel({
+        const closed3d = closeAny3dPanel({
             stateManager: this._stateManager,
             hidePanel: (save) => this._featurePanel.hide(save),
             cleanupContent: () => this._cleanupFeaturePanelContent(),
             eventBus: this._eventBus,
             EventTypes
         });
+
+        // If no 3D panel was closed, check for other panels (e.g. vector info)
+        if (!closed3d && this._stateManager.get('ui.featurePanelOpen')) {
+            this._featurePanel.hide(false);
+            this._cleanupFeaturePanelContent();
+            this._stateManager.closeFeaturePanel();
+        }
     }
 
     /**

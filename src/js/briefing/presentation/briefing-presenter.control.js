@@ -127,12 +127,13 @@ export class BriefingPresenterControl {
                 return false;
             }
 
-            // Validate slides have positions
+            // Block presentation if any slide lacks a saved position
             const slidesWithoutPosition = this._briefing.slides.filter(
                 s => !s.position || s.position.longitude === null
             );
             if (slidesWithoutPosition.length > 0) {
-                showWarning(`${slidesWithoutPosition.length} slide(s) sem posição definida`);
+                showWarning(`${slidesWithoutPosition.length} slide(s) sem posição definida. Salve a posição de todos os slides antes de apresentar.`);
+                return false;
             }
 
             // Activate temporary lock on all maps (non-persisted)
@@ -337,6 +338,31 @@ export class BriefingPresenterControl {
     }
 
     /**
+     * Restores the saved position of the current slide.
+     * Useful when the user pans/zooms away and wants to return.
+     */
+    async restoreSlidePosition() {
+        if (!this._isPresenting || !this._briefing) return;
+        if (this._isTransitioning) { this._finishCurrentTransition(); return; }
+
+        const slide = this._briefing.slides[this._currentSlideIndex];
+        if (!slide) return;
+
+        // Replay the transition to the current slide (animated)
+        this._isTransitioning = true;
+        if (this._textPanel) {
+            this._textPanel.setTransitioning(true);
+        }
+
+        await this._transitionService.transitionToSlide(slide, { instant: false });
+
+        this._isTransitioning = false;
+        if (this._textPanel) {
+            this._textPanel.setTransitioning(false);
+        }
+    }
+
+    /**
      * Toggles fullscreen mode.
      */
     async toggleFullscreen() {
@@ -430,21 +456,28 @@ export class BriefingPresenterControl {
 
     /**
      * Closes any active 3D or 360 viewers before starting presentation.
+     * Uses registered controls so container visibility is properly restored.
      * @private
      */
     async _closeActiveViewers() {
         try {
             if (isViewer3DOpen()) {
-                const { closeViewer } = await import('../../3d_models_viewer_tool/map_3d.js');
-                await closeViewer();
+                const modelsViewer = getControl('modelsViewer');
+                if (modelsViewer) {
+                    await modelsViewer.closeViewer();
+                }
             }
+        } catch (error) {
+            console.warn('Error closing 3D viewer:', error);
+        }
 
+        try {
             if (isStreetView360Open()) {
                 const { closeViewer360 } = await import('../../street_view_tool/street_view_viewer.js');
                 await closeViewer360();
             }
         } catch (error) {
-            console.warn('Error closing viewers:', error);
+            console.warn('Error closing 360 viewer:', error);
         }
     }
 
@@ -465,6 +498,7 @@ export class BriefingPresenterControl {
                 onNext: () => this.nextSlide(),
                 onFirst: () => this.firstSlide(),
                 onLast: () => this.lastSlide(),
+                onRestorePosition: () => this.restoreSlidePosition(),
                 onFullscreen: () => this.toggleFullscreen(),
                 onExit: () => this.exit()
             }

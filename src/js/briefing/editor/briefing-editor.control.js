@@ -253,9 +253,10 @@ export class BriefingEditorControl {
             await this._transitionService.resetTo2D();
             this._transitionService.destroy();
             this._transitionService = null;
-        } else {
-            await this._closeActiveViewers();
         }
+
+        // Safety net: close viewers that may have been opened outside the transition service
+        await this._closeActiveViewers();
 
         // Restore lock state (maps become editable again based on their persisted state)
         setBriefingLockOverride(false);
@@ -308,13 +309,24 @@ export class BriefingEditorControl {
 
     /**
      * Closes any active 3D or 360 viewers.
+     * Uses registered controls (not raw module imports) so that
+     * container visibility (setFullMap) and close-button cleanup
+     * are handled properly.
      * @private
      */
     async _closeActiveViewers() {
         try {
             if (isViewer3DOpen()) {
-                const { closeViewer } = await import('../../3d_models_viewer_tool/map_3d.js');
-                await closeViewer();
+                const modelsViewer = getControl('modelsViewer');
+                if (modelsViewer) {
+                    await modelsViewer.closeViewer();
+                } else {
+                    // Fallback: hide container directly
+                    const container = document.getElementById('map-3d-container');
+                    if (container) container.style.display = 'none';
+                    const mapSig = document.getElementById('map-sig');
+                    if (mapSig) mapSig.style.display = 'block';
+                }
             }
         } catch (error) {
             console.warn('Error closing 3D viewer:', error);
@@ -650,8 +662,16 @@ export class BriefingEditorControl {
         const captureBtnLabel = document.createElement('span');
         captureBtnLabel.textContent = 'Salvar Posi\u00E7\u00E3o';
         captureBtn.appendChild(captureBtnLabel);
-        captureBtn.title = 'Salva a posi\u00E7\u00E3o atual do visualizador ativo';
-        addDomListener(this, captureBtn, 'click', () => this._handleCapturePosition());
+
+        // Disable when no map is selected for this slide
+        if (!slide.mapId) {
+            captureBtn.disabled = true;
+            captureBtn.title = 'Selecione um mapa antes de salvar a posição';
+        } else {
+            captureBtn.title = 'Salva a posição atual do visualizador ativo';
+            addDomListener(this, captureBtn, 'click', () => this._handleCapturePosition());
+        }
+
         positionWrapper.appendChild(captureBtn);
 
         positionGroup.appendChild(positionWrapper);

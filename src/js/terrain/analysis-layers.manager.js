@@ -104,6 +104,17 @@ class AnalysisLayersManager {
      */
     async toggleLayer(layerId, enabled) {
         try {
+            // Initialize layer if not already on the map (fallback for lazy init)
+            const layerMapId = `analysis-${layerId}-layer`;
+            if (!this.map.getLayer(layerMapId)) {
+                const layerConfig = this.getLayerConfig(layerId);
+                if (!layerConfig) {
+                    console.warn(`Analysis layer config not found for: ${layerId}`);
+                    return;
+                }
+                this.addAnalysisLayer(layerConfig);
+            }
+
             // State is managed via catalogLayers (toggleCatalogLayerVisibility)
             // This method only applies the visual change to the map
             this.applyLayerState(layerId, enabled);

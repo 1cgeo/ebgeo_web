@@ -152,9 +152,8 @@ const URLRouter = {
         if (!photoName) return false;
 
         try {
-            const mockMode = config.features?.street_view_mock ?? false;
-            const metadataPath = mockMode ? './360/METADATA' : './street_view/METADATA';
-            const response = await fetch(`${metadataPath}/${photoName}.json`, { method: 'HEAD' });
+            const metadataLocation = config.streetView360.metadataLocation;
+            const response = await fetch(`${metadataLocation}/${photoName}.json`, { method: 'HEAD' });
             return response.ok;
         } catch {
             return false;

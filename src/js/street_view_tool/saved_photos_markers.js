@@ -123,10 +123,9 @@ class SavedPhotosMarkers {
         }
 
         try {
-            const MOCK_MODE = config.features?.street_view_mock ?? false;
-            const METADATA_LOCATION = MOCK_MODE ? './360/METADATA' : './street_view/METADATA';
+            const metadataLocation = config.streetView360.metadataLocation;
 
-            const response = await fetch(`${METADATA_LOCATION}/${photoName}.json`);
+            const response = await fetch(`${metadataLocation}/${photoName}.json`);
             if (!response.ok) {
                 return null;
             }
@@ -238,6 +237,7 @@ class SavedPhotosMarkers {
                 id: this.markersLayer,
                 type: 'symbol',
                 source: this.sourceId,
+                minzoom: 7,
                 layout: {
                     'icon-image': 'saved-photo-marker',
                     'icon-size': 1.4,
@@ -256,6 +256,7 @@ class SavedPhotosMarkers {
                 id: this.badgeLayer,
                 type: 'circle',
                 source: this.sourceId,
+                minzoom: 7,
                 filter: ['>', ['get', 'markerCount'], 0],
                 layout: {
                     'visibility': 'none'
@@ -274,6 +275,7 @@ class SavedPhotosMarkers {
                 id: this.badgeTextLayer,
                 type: 'symbol',
                 source: this.sourceId,
+                minzoom: 7,
                 filter: ['>', ['get', 'markerCount'], 0],
                 layout: {
                     'text-field': ['to-string', ['get', 'markerCount']],

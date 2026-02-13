@@ -5,9 +5,12 @@
  * Preloads map tiles at specific positions so flyTo transitions
  * render smoothly without visible tile loading.
  *
- * Adapted from maplibre-preload (MIT License, AbelVM/maplibre-preload).
- * Uses MapLibre's internal Tile and OverscaledTileID classes to load
- * tiles through the source cache, which ensures proper caching.
+ * Strategy: fetches tile image URLs directly to warm the browser's
+ * HTTP cache. When MapLibre later requests these tiles during flyTo,
+ * the browser serves them from cache instantly.
+ *
+ * This approach is reliable across MapLibre versions because it uses
+ * only public APIs (getSource, transform) and standard fetch().
  *
  * @module briefing/presentation/tile-preloader
  */
@@ -16,19 +19,16 @@
 // CONSTANTS
 // ============================================================================
 
-/** Maximum concurrent tile load requests */
-const BURST_LIMIT = 200;
-
-/** Timeout for waiting on tile class capture (ms) */
-const TILE_CLASS_TIMEOUT = 5000;
+/** Maximum concurrent fetch requests to avoid saturating the network */
+const MAX_CONCURRENT = 30;
 
 // ============================================================================
 // TILE PRELOADER
 // ============================================================================
 
 /**
- * Preloads map tiles at specific viewport positions.
- * Uses MapLibre's internal tile loading mechanism for cache-compatible preloading.
+ * Preloads map tiles at specific viewport positions by warming the
+ * browser HTTP cache with direct fetch() requests.
  */
 class TilePreloader {
     /**
@@ -36,221 +36,50 @@ class TilePreloader {
      */
     constructor(map) {
         this._map = map;
-        this._TileClass = null;
-        this._OverscaledTileIDClass = null;
         this._originalFlyTo = null;
         this._destroyed = false;
-
-        this._captureTileClasses();
-    }
-
-    /**
-     * Captures MapLibre's internal Tile and OverscaledTileID constructors
-     * from a sourcedata event. These are needed to create tile objects
-     * that the source cache can load.
-     * @private
-     */
-    _captureTileClasses() {
-        // Check if already captured from a previous instance
-        if (this._map._preloadTileClass && this._map._preloadOverscaledTileIDClass) {
-            this._TileClass = this._map._preloadTileClass;
-            this._OverscaledTileIDClass = this._map._preloadOverscaledTileIDClass;
-            return;
-        }
-
-        const handler = (e) => {
-            if (e.tile && e.tile.tileID) {
-                this._TileClass = e.tile.constructor;
-                this._OverscaledTileIDClass = e.tile.tileID.constructor;
-                // Cache on map instance for reuse
-                this._map._preloadTileClass = this._TileClass;
-                this._map._preloadOverscaledTileIDClass = this._OverscaledTileIDClass;
-                this._map.off('sourcedata', handler);
-            }
-        };
-
-        this._map.on('sourcedata', handler);
-
-        // Cleanup handler after timeout if classes were never captured
-        setTimeout(() => {
-            this._map.off('sourcedata', handler);
-        }, TILE_CLASS_TIMEOUT);
-    }
-
-    /**
-     * Waits until tile classes are available (max timeout).
-     * @private
-     * @returns {Promise<boolean>} True if classes are available
-     */
-    async _ensureTileClasses() {
-        if (this._TileClass && this._OverscaledTileIDClass) return true;
-
-        // Wait with polling
-        const start = Date.now();
-        while (Date.now() - start < TILE_CLASS_TIMEOUT) {
-            if (this._TileClass && this._OverscaledTileIDClass) return true;
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-        console.warn('TilePreloader: Could not capture tile classes');
-        return false;
     }
 
     /**
      * Preloads tiles for a list of map viewport positions.
-     * Visits each position, calculates visible tiles, and loads them
-     * through MapLibre's source cache.
+     * Calculates which tiles are visible at each position and fetches
+     * them via HTTP to populate the browser cache.
      *
-     * @param {Array<Object>} positions - Array of positions
+     * @param {Array<Object>} positions - Array of viewport positions
      * @param {Array<number>} positions[].center - [lng, lat]
      * @param {number} positions[].zoom - Zoom level
      * @param {number} [positions[].bearing=0] - Bearing in degrees
      * @param {number} [positions[].pitch=0] - Pitch in degrees
-     * @param {Object} [options] - Options
-     * @param {Function} [options.onProgress] - Progress callback (loaded, total)
      * @returns {Promise<void>}
      */
-    async preloadPositions(positions, options = {}) {
+    async preloadPositions(positions) {
         if (this._destroyed || !positions?.length) return;
 
-        const hasClasses = await this._ensureTileClasses();
-        if (!hasClasses) {
-            // Fallback: use jumpTo + idle wait approach
-            await this._preloadViaJumpTo(positions, options);
-            return;
-        }
+        // Collect unique tile URLs across all positions and sources
+        const urlSet = new Set();
 
-        // Collect all unique tiles across all positions
-        const allTiles = {};
         for (const pos of positions) {
-            const perSource = this._getVisibleTilesPerSource(pos);
-            for (const [sourceId, tiles] of Object.entries(perSource)) {
-                if (!allTiles[sourceId]) allTiles[sourceId] = new Set();
-                tiles.forEach(t => allTiles[sourceId].add(t));
-            }
+            this._collectTileURLs(pos, urlSet);
         }
 
-        // Count total tiles
-        let total = 0;
-        for (const tileSet of Object.values(allTiles)) {
-            total += tileSet.size;
-        }
+        if (urlSet.size === 0) return;
 
-        if (total === 0) return;
-
-        // Load all tiles
-        let loaded = 0;
-        const loadPromises = [];
-
-        for (const [sourceId, tileSet] of Object.entries(allTiles)) {
-            const source = this._map.getSource(sourceId);
-            if (!source) continue;
-
-            const tileSize = source.tileSize || 512;
-
-            for (const tileKey of tileSet) {
-                const [z, x, y] = tileKey.split('|').map(Number);
-
-                try {
-                    const tileID = new this._OverscaledTileIDClass(z, 0, z, x, y);
-                    const tile = new this._TileClass(tileID, tileSize);
-                    const loadPromise = source.loadTile(tile)
-                        .then(() => {
-                            loaded++;
-                            if (options.onProgress) {
-                                options.onProgress(loaded, total);
-                            }
-                        })
-                        .catch(() => {
-                            loaded++;
-                            if (options.onProgress) {
-                                options.onProgress(loaded, total);
-                            }
-                        });
-                    loadPromises.push(loadPromise);
-                } catch {
-                    // Skip tiles that fail to construct
-                    loaded++;
-                }
-
-                // Respect burst limit
-                if (loadPromises.length >= BURST_LIMIT) {
-                    await Promise.allSettled(loadPromises.splice(0, BURST_LIMIT));
-                }
-            }
-        }
-
-        // Wait for remaining tiles
-        if (loadPromises.length > 0) {
-            await Promise.allSettled(loadPromises);
-        }
+        // Fetch all URLs with concurrency limit
+        const urls = Array.from(urlSet);
+        await this._fetchWithConcurrency(urls, MAX_CONCURRENT);
     }
 
     /**
-     * Fallback preload approach: jumpTo each position and wait for idle.
-     * Used when tile classes cannot be captured.
+     * Collects tile URLs that would be visible at a given viewport position.
      * @private
-     * @param {Array<Object>} positions - Positions to preload
-     * @param {Object} options - Options with onProgress callback
+     * @param {Object} position - Viewport position {center, zoom, bearing, pitch}
+     * @param {Set<string>} urlSet - Set to add URLs to (deduplication)
      */
-    async _preloadViaJumpTo(positions, options = {}) {
-        if (!this._map || positions.length === 0) return;
+    _collectTileURLs(position, urlSet) {
+        const z = Math.floor(position.zoom);
+        const tileCoords = this._getVisibleTileCoords(position, z);
 
-        const total = positions.length;
-        let loaded = 0;
-
-        // Save current position
-        const savedCenter = this._map.getCenter();
-        const savedZoom = this._map.getZoom();
-        const savedBearing = this._map.getBearing();
-        const savedPitch = this._map.getPitch();
-
-        for (const pos of positions) {
-            if (this._destroyed) break;
-
-            this._map.jumpTo({
-                center: pos.center,
-                zoom: pos.zoom,
-                bearing: pos.bearing || 0,
-                pitch: pos.pitch || 0
-            });
-
-            // Wait for tiles to load at this position
-            if (!this._map.areTilesLoaded()) {
-                await new Promise(resolve => {
-                    const timeout = setTimeout(resolve, 5000);
-                    this._map.once('idle', () => {
-                        clearTimeout(timeout);
-                        resolve();
-                    });
-                });
-            }
-
-            loaded++;
-            if (options.onProgress) {
-                options.onProgress(loaded, total);
-            }
-        }
-
-        // Restore original position
-        this._map.jumpTo({
-            center: savedCenter,
-            zoom: savedZoom,
-            bearing: savedBearing,
-            pitch: savedPitch
-        });
-    }
-
-    /**
-     * Calculates visible tiles per source for a given viewport position.
-     * @private
-     * @param {Object} position - Viewport position
-     * @param {number} [factor=0] - Viewport shrink factor (0 = full viewport)
-     * @returns {Object} Map of sourceId to Set of tile keys ("z|x|y")
-     */
-    _getVisibleTilesPerSource(position, factor = 0) {
-        const perSource = {};
-
+        // Iterate over active sources with tile URL templates
         for (const sourceId in this._map.style.sourceCaches) {
             const sourceCache = this._map.style.sourceCaches[sourceId];
             if (!sourceCache.used) continue;
@@ -258,79 +87,104 @@ class TilePreloader {
             const source = this._map.getSource(sourceId);
             if (!source) continue;
 
-            const tiles = this._getVisibleTileRange(source, position, factor);
-            perSource[sourceId] = tiles.map(t => `${t[0]}|${t[1]}|${t[2]}`);
-        }
+            // Get tile URL template (raster/vector tile sources expose .tiles)
+            const templates = source.tiles;
+            if (!templates || templates.length === 0) continue;
 
-        return perSource;
+            const template = templates[0];
+
+            for (const [tx, ty] of tileCoords) {
+                const tileY = source.scheme === 'tms'
+                    ? Math.pow(2, z) - ty - 1
+                    : ty;
+
+                const url = template
+                    .replace('{z}', z)
+                    .replace('{x}', tx)
+                    .replace('{y}', tileY);
+
+                urlSet.add(url);
+            }
+        }
     }
 
     /**
-     * Calculates tile coordinates visible in a viewport.
-     * Uses the map's transform to convert screen corners to tile coordinates.
+     * Calculates which tile coordinates are visible at a given viewport position.
+     * Uses pure math (no map.jumpTo) to avoid firing moveend events that would
+     * prematurely resolve the flyTo Promise in animation.service.js.
      * @private
-     * @param {Object} source - MapLibre source
-     * @param {Object} position - Viewport position {center, zoom, bearing, pitch}
-     * @param {number} factor - Viewport shrink factor
-     * @returns {Array<Array<number>>} Array of [z, x, y] tile coordinates
+     * @param {Object} position - {center, zoom, bearing, pitch}
+     * @param {number} z - Integer zoom level
+     * @returns {Array<[number, number]>} Array of [x, y] tile coordinates
      */
-    _getVisibleTileRange(source, position, factor) {
+    _getVisibleTileCoords(position, z) {
         const tr = this._map.transform;
         const width = tr.width;
         const height = tr.height;
-        const pitch = position.pitch || 0;
+
+        const [lng, lat] = position.center;
         const zoom = position.zoom;
-        const pitchLimit = pitch / 150;
+        const bearing = (position.bearing || 0) * Math.PI / 180;
 
-        // Screen corner points (with optional shrink factor)
-        const cornerPoints = [
-            [width * factor, height * (factor + pitchLimit)],
-            [width * (1 - factor), height * (factor + pitchLimit)],
-            [width * (1 - factor), height * (1 - factor)],
-            [width * factor, height * (1 - factor)]
-        ];
+        // Meters per pixel at this zoom level (at the equator, adjusted for lat)
+        // MapLibre uses 512px tiles; world width in pixels = 512 * 2^zoom
+        const worldPx = 512 * Math.pow(2, zoom);
+        const metersPerPxEquator = (2 * Math.PI * 6378137) / worldPx;
+        const metersPerPx = metersPerPxEquator * Math.cos(lat * Math.PI / 180);
 
-        // Temporarily move the map to the target position to use transform
-        const savedCenter = this._map.getCenter();
-        const savedZoom = this._map.getZoom();
-        const savedBearing = this._map.getBearing();
-        const savedPitch = this._map.getPitch();
+        // For pitched views, the far edge of the viewport sees further away.
+        // Multiply effective height to cover tiles near the horizon.
+        const pitchDeg = position.pitch || 0;
+        const pitchFactor = 1 + Math.tan(Math.min(pitchDeg, 70) * Math.PI / 180);
 
-        this._map.jumpTo({
-            center: position.center,
-            zoom: position.zoom,
-            bearing: position.bearing || 0,
-            pitch: position.pitch || 0
-        });
+        // Half-extents of the viewport in meters
+        const halfW = (width / 2) * metersPerPx;
+        const halfH = (height / 2) * metersPerPx * pitchFactor;
 
-        // Convert screen points to lng/lat
-        const cornerLngLat = cornerPoints.map(p =>
-            this._map.transform.screenPointToLocation({ x: p[0], y: p[1] })
-        );
+        // Screen corners in local meters (x=east, y=north) relative to center,
+        // rotated by bearing so we cover the rotated viewport
+        const cos = Math.cos(bearing);
+        const sin = Math.sin(bearing);
 
-        // Restore position
-        this._map.jumpTo({
-            center: savedCenter,
-            zoom: savedZoom,
-            bearing: savedBearing,
-            pitch: savedPitch
-        });
+        const corners = [
+            { dx: -halfW, dy:  halfH },   // top-left
+            { dx:  halfW, dy:  halfH },   // top-right
+            { dx:  halfW, dy: -halfH },   // bottom-right
+            { dx: -halfW, dy: -halfH }    // bottom-left
+        ].map(({ dx, dy }) => ({
+            // Rotate by bearing: when bearing > 0 the viewport is rotated clockwise
+            east: dx * cos - dy * sin,
+            north: dx * sin + dy * cos
+        }));
 
-        // Convert lng/lat to tile coordinates
-        const z = Math.floor(zoom);
-        const tileCoords = cornerLngLat.map(c => this._lngLatToTile(c.lng, c.lat, z));
-        const xs = tileCoords.map(([x]) => x);
-        const ys = tileCoords.map(([, y]) => y);
+        // Convert meter offsets to lng/lat offsets
+        const metersPerDegLat = 111320;
+        const metersPerDegLng = 111320 * Math.cos(lat * Math.PI / 180);
+
+        const cornerCoords = corners.map(({ east, north }) => ({
+            lng: lng + east / Math.max(metersPerDegLng, 1),
+            lat: lat + north / Math.max(metersPerDegLat, 1)
+        }));
+
+        // Convert to tile coordinates and find bounding box
+        const tileCoords = cornerCoords.map(c => this._lngLatToTile(c.lng, c.lat, z));
+        const xs = tileCoords.map(t => t[0]);
+        const ys = tileCoords.map(t => t[1]);
+
         const minX = Math.floor(Math.min(...xs));
         const maxX = Math.ceil(Math.max(...xs));
         const minY = Math.floor(Math.min(...ys));
         const maxY = Math.ceil(Math.max(...ys));
 
+        // Clamp to valid tile range and collect
+        const maxTile = Math.pow(2, z);
         const tiles = [];
         for (let x = minX; x < maxX; x++) {
             for (let y = minY; y < maxY; y++) {
-                const ty = source.scheme !== 'xyz' ? Math.pow(2, z) - y - 1 : y;
-                tiles.push([z, x, ty]);
+                if (y >= 0 && y < maxTile) {
+                    // Wrap x for antimeridian crossing
+                    tiles.push([((x % maxTile) + maxTile) % maxTile, y]);
+                }
             }
         }
 
@@ -338,23 +192,54 @@ class TilePreloader {
     }
 
     /**
-     * Converts lng/lat to tile coordinates at a given zoom.
+     * Converts lng/lat to fractional tile coordinates at a given zoom.
      * @private
-     * @param {number} lng - Longitude
-     * @param {number} lat - Latitude
-     * @param {number} zoom - Zoom level
-     * @returns {Array<number>} [x, y] tile coordinates (fractional)
+     * @param {number} lng - Longitude in degrees
+     * @param {number} lat - Latitude in degrees
+     * @param {number} z - Zoom level
+     * @returns {[number, number]} [x, y] fractional tile coordinates
      */
-    _lngLatToTile(lng, lat, zoom) {
-        const z2 = Math.pow(2, zoom);
+    _lngLatToTile(lng, lat, z) {
+        const z2 = Math.pow(2, z);
         const x = z2 * ((lng + 180) / 360);
-        const y = z2 * (1 - (Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) / Math.PI)) / 2;
+        const latRad = lat * Math.PI / 180;
+        const y = z2 * (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2;
         return [x, y];
     }
 
     /**
-     * Patches the map's flyTo method to preload tiles before animation.
-     * The original flyTo is preserved and restored on destroy().
+     * Fetches an array of URLs with a concurrency limit.
+     * Errors are silently ignored (tile preloading is best-effort).
+     * @private
+     * @param {string[]} urls - URLs to fetch
+     * @param {number} concurrency - Max concurrent requests
+     */
+    async _fetchWithConcurrency(urls, concurrency) {
+        let index = 0;
+
+        const next = async () => {
+            while (index < urls.length) {
+                if (this._destroyed) return;
+                const url = urls[index++];
+                try {
+                    await fetch(url, { mode: 'cors', credentials: 'same-origin' });
+                } catch {
+                    // Tile fetch failures are non-critical
+                }
+            }
+        };
+
+        const workers = [];
+        for (let i = 0; i < Math.min(concurrency, urls.length); i++) {
+            workers.push(next());
+        }
+        await Promise.all(workers);
+    }
+
+    /**
+     * Patches the map's flyTo method to preload destination tiles
+     * before starting the animation. This ensures tiles at the end
+     * position are already in the browser cache when the map arrives.
      */
     patchFlyTo() {
         if (this._originalFlyTo || this._destroyed) return;
@@ -362,61 +247,29 @@ class TilePreloader {
         this._originalFlyTo = this._map.flyTo.bind(this._map);
 
         this._map.flyTo = async (options) => {
-            // Preload end-position tiles before animation starts
-            const endPos = {
-                center: options.center || this._map.getCenter(),
-                zoom: options.zoom !== undefined ? options.zoom : this._map.getZoom(),
-                bearing: options.bearing !== undefined ? options.bearing : this._map.getBearing(),
-                pitch: options.pitch !== undefined ? options.pitch : this._map.getPitch()
-            };
-
-            // Normalize center format (LngLat object to array)
-            if (!Array.isArray(endPos.center) && endPos.center?.lng !== undefined) {
-                endPos.center = [endPos.center.lng, endPos.center.lat];
-            }
-
-            // Only preload if animation is not disabled
+            // Only preload if animation is enabled
             if (!(Object.hasOwn(options, 'animate') && !options.animate) && options.duration !== 0) {
-                const hasClasses = this._TileClass && this._OverscaledTileIDClass;
-                if (hasClasses) {
-                    const tiles = this._getVisibleTilesPerSource(endPos);
-                    await this._loadTiles(tiles);
+                const endPos = {
+                    center: options.center || this._map.getCenter(),
+                    zoom: options.zoom !== undefined ? options.zoom : this._map.getZoom(),
+                    bearing: options.bearing !== undefined ? options.bearing : this._map.getBearing(),
+                    pitch: options.pitch !== undefined ? options.pitch : this._map.getPitch()
+                };
+
+                // Normalize center format
+                if (!Array.isArray(endPos.center) && endPos.center?.lng !== undefined) {
+                    endPos.center = [endPos.center.lng, endPos.center.lat];
+                }
+
+                const urlSet = new Set();
+                this._collectTileURLs(endPos, urlSet);
+                if (urlSet.size > 0) {
+                    await this._fetchWithConcurrency(Array.from(urlSet), MAX_CONCURRENT);
                 }
             }
 
             return this._originalFlyTo(options);
         };
-    }
-
-    /**
-     * Loads tiles from a per-source tile map.
-     * @private
-     * @param {Object} tileRequests - Map of sourceId to array of "z|x|y" strings
-     */
-    async _loadTiles(tileRequests) {
-        const loadPromises = [];
-
-        for (const [sourceId, tileKeys] of Object.entries(tileRequests)) {
-            const source = this._map.getSource(sourceId);
-            if (!source) continue;
-
-            const tileSize = source.tileSize || 512;
-
-            for (const tileKey of tileKeys) {
-                const [z, x, y] = tileKey.split('|').map(Number);
-                try {
-                    const tileID = new this._OverscaledTileIDClass(z, 0, z, x, y);
-                    const tile = new this._TileClass(tileID, tileSize);
-                    loadPromises.push(source.loadTile(tile).catch(() => {}));
-                } catch {
-                    // Skip tiles that fail
-                }
-            }
-        }
-
-        if (loadPromises.length > 0) {
-            await Promise.allSettled(loadPromises);
-        }
     }
 
     /**
@@ -432,8 +285,6 @@ class TilePreloader {
         }
 
         this._map = null;
-        this._TileClass = null;
-        this._OverscaledTileIDClass = null;
     }
 }
 

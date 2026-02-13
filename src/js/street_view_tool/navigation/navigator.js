@@ -421,14 +421,17 @@ export class StreetViewNavigator {
 
         const y = (targetElevation + targetOffset) - (cameraElevation + cameraHeight + cameraOffset);
 
+        // Horizontal distance (for flatten ratio — ground-plane perspective)
+        const horizontalDistance = Math.sqrt(x * x + z * z);
+
         // Project to screen
         const projected = this.projector.metersToScreen(x, y, z, yaw, pitch, fov);
 
         if (!projected.visible) return null;
 
-        // Calculate marker size and flatten ratio
+        // Calculate marker size (uses 3D distance) and flatten ratio (uses horizontal distance)
         const radius = this.projector.calculateMarkerSize(NAV_CONSTANTS.MARKER_BASE_SIZE, projected.distance);
-        const flattenY = this.projector.calculateFlattenRatio(projected.distance, pitch);
+        const flattenY = this.projector.calculateFlattenRatio(horizontalDistance, pitch);
 
         return {
             id: target.id,
@@ -460,6 +463,8 @@ export class StreetViewNavigator {
         const y = Math.sin(poiPitch) * distance;
         const z = -Math.cos(headingRad) * Math.cos(poiPitch) * distance;
 
+        const horizontalDistance = Math.sqrt(x * x + z * z);
+
         // Project to screen
         const projected = this.projector.metersToScreen(x, y, z, yaw, pitch, fov);
 
@@ -468,7 +473,7 @@ export class StreetViewNavigator {
         // Use marker size directly (user-controlled, not distance-scaled)
         // Default to 12px if not set (matching DEFAULT_MARKER_360_STYLE.markerSize)
         const radius = poi.style?.markerSize || 12;
-        const flattenY = this.projector.calculateFlattenRatio(projected.distance, pitch);
+        const flattenY = this.projector.calculateFlattenRatio(horizontalDistance, pitch);
 
         return {
             id: poi.id,
@@ -545,6 +550,8 @@ export class StreetViewNavigator {
      */
     handlePointerDown(event) {
         if (event.isPrimary === false) return;
+        // Only track left-click for navigation; right-click is for camera drag only
+        if (event.button !== 0) return;
 
         this.pointerDownPos = {
             x: event.clientX,
@@ -580,6 +587,8 @@ export class StreetViewNavigator {
      */
     handlePointerUp(event) {
         if (event.isPrimary === false) return;
+        // Only handle left-click for navigation; right-click is for camera drag only
+        if (event.button !== 0) return;
 
         // If it was a drag, don't handle as click
         if (this.isDragging) {
@@ -607,13 +616,14 @@ export class StreetViewNavigator {
     handleNavigationClick(x, y) {
         // Check for marker tool mode
         if (this.markerToolActive) {
-            const camera = this.getCamera();
-            if (camera) {
+            // Use currentYaw/currentPitch from render() which include imageHeading,
+            // matching the coordinate system used for projecting POIs back to screen
+            if (this.currentYaw !== undefined) {
                 const spherical = this.projector.screenToSpherical(
                     x, y,
-                    camera.rotation.y,
-                    camera.rotation.x,
-                    camera.fov
+                    this.currentYaw,
+                    this.currentPitch,
+                    this.currentFov
                 );
                 // Emit event for marker creation
                 getEventBus().emit(EventTypes.MARKER_360_POSITION_CLICKED, {

@@ -254,17 +254,22 @@ export class StreetViewProjector {
      * @param {number} _pitch - Camera pitch in radians (unused, kept for API compatibility)
      * @returns {number} Flatten ratio (0-1), where lower values are flatter
      */
-    calculateFlattenRatio(distance, _pitch) {
+    calculateFlattenRatio(horizontalDistance, pitch) {
         const cameraHeight = this.cameraConfig?.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT;
 
-        // Perspective-correct flattening:
-        // A circle on the ground viewed from height h at distance d
-        // appears flattened by factor = h / sqrt(h² + d²)
+        // Base flattening: a circle on the ground viewed from height h at
+        // horizontal distance d appears compressed by h / sqrt(h² + d²).
         const h = cameraHeight;
-        const d = Math.max(0.1, distance); // Avoid division by zero
-        const flattenRatio = h / Math.sqrt(h * h + d * d);
+        const d = Math.max(0.1, horizontalDistance);
+        const baseFlatten = h / Math.sqrt(h * h + d * d);
 
-        // Clamp to reasonable range
+        // Pitch correction: looking straight down (pitch = -90°) → markers
+        // appear circular (flatten → 1). Looking horizontally (pitch = 0°) →
+        // maximum flattening. Use cos(pitch) as interpolation factor since
+        // pitch=0 → cos=1 (full flatten) and pitch=±90° → cos=0 (circle).
+        const pitchFactor = Math.abs(Math.cos(pitch));
+        const flattenRatio = 1 - pitchFactor * (1 - baseFlatten);
+
         return Math.max(0.15, Math.min(0.9, flattenRatio));
     }
 

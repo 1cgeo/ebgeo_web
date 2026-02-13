@@ -455,8 +455,13 @@
     white-space: nowrap;
 }
 
-.briefing-editor-position-wrapper .briefing-editor-capture-btn:hover {
+.briefing-editor-position-wrapper .briefing-editor-capture-btn:hover:not(:disabled) {
     background: var(--gray-800);
+}
+
+.briefing-editor-position-wrapper .briefing-editor-capture-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .briefing-editor-position-wrapper .briefing-editor-capture-btn svg {

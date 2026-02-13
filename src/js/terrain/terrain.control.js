@@ -2,8 +2,8 @@
 
 import { getEventBus } from '../store';
 import { EventTypes } from '../events/event_types.js';
-
-// Hillshade is managed via catalog - no automatic state needed
+import { getCatalogLayers, toggleCatalogLayerVisibility } from '../store/catalog.operations.js';
+import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 
 /**
  * Gets terrain elevation at given coordinates
@@ -138,9 +138,33 @@ class TerrainControl {
                 pitch: this._terrainPitch,
                 duration: 500
             });
+
+            // Enable hillshade when terrain is activated (if available)
+            this._ensureHillshadeEnabled();
         }
     }
 
+
+    /**
+     * Enables hillshade when terrain is activated, if it exists in catalog but is hidden.
+     * Does not add hillshade — that only happens on atlas creation.
+     * @private
+     */
+    _ensureHillshadeEnabled = async () => {
+        if (!this.hillshadeConfig?.enabled) return;
+
+        try {
+            const catalogLayers = await getCatalogLayers();
+            const hillshadeLayer = catalogLayers?.find(l => l.type === CATALOG_ITEM_TYPES.HILLSHADE);
+
+            if (hillshadeLayer && !hillshadeLayer.visible) {
+                await toggleCatalogLayerVisibility(hillshadeLayer.id, true);
+                this.setHillshadeVisibility(true);
+            }
+        } catch (error) {
+            console.warn('Error enabling hillshade with terrain:', error);
+        }
+    }
 
     // ===== HILLSHADE VISIBILITY CONTROL =====
 
