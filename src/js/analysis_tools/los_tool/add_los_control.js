@@ -255,7 +255,12 @@ class AddLOSControl extends BaseControl {
     async recalculateLOSAfterMove(movedFeatures) {
         for (const feature of movedFeatures) {
             const coordinates = this.geometry.extractCoordinatesFromGeometry(feature.geometry);
-            const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map);
+            const options = {
+                observerHeight: feature.properties.observerHeight ?? 1.5,
+                targetHeight: feature.properties.targetHeight ?? 0,
+                samplePoints: feature.properties.samplePoints ?? 100
+            };
+            const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map, options);
 
             // Update main source with correct LOS geometry + profile
             this.updateMainSourceAfterRecalculation(feature, result);

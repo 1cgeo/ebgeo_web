@@ -2,12 +2,15 @@
 
 import {
     createModernSlider,
+    createModernButtons,
+    createSectionDivider,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
 } from '../../tool_manager/helpers/index.js';
 
 /**
- * Create visibility parameters panel content (for Parameters tab)
+ * Create visibility parameters panel content (for Parameters tab).
+ * All sliders are terrain-dependent and trigger recalculation via control.updateFeaturesProperty().
  * @param {HTMLElement} container - Container to add parameters to
  * @param {Array} selectedFeatures - Selected visibility features
  * @param {Object} visibilityControl - Visibility control instance
@@ -16,16 +19,60 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
+    const props = visibilityControl.geometry.normalizeFeatureProperties(feature.properties);
     const isTerrainAvailable = visibilityControl.geometry.isTerrainAvailable(visibilityControl.map);
     const disabledMessage = 'Ative o terreno para modificar este parâmetro';
+
+    // Collect sliders for reactive terrain toggle
+    const terrainDependentSliders = [];
+
+    // --- Geometry section ---
+    container.appendChild(createSectionDivider('Geometria'));
+
+    // Radius slider
+    const radiusSlider = createModernSlider({
+        label: 'Raio',
+        min: 100,
+        max: 100000,
+        step: 100,
+        value: props.radius || 5000,
+        unit: 'm',
+        disabled: !isTerrainAvailable,
+        disabledMessage,
+        onChange: (value) => {
+            visibilityControl.updateFeaturesProperty(selectedFeatures, 'radius', value);
+        }
+    });
+    terrainDependentSliders.push(radiusSlider);
+    container.appendChild(radiusSlider);
+
+    // Aperture slider
+    const apertureSlider = createModernSlider({
+        label: 'Abertura',
+        min: 1,
+        max: 359,
+        step: 1,
+        value: props.aperture || 60,
+        unit: '\u00B0',
+        disabled: !isTerrainAvailable,
+        disabledMessage,
+        onChange: (value) => {
+            visibilityControl.updateFeaturesProperty(selectedFeatures, 'aperture', value);
+        }
+    });
+    terrainDependentSliders.push(apertureSlider);
+    container.appendChild(apertureSlider);
+
+    // --- Heights section ---
+    container.appendChild(createSectionDivider('Alturas'));
 
     // Observer height slider
     const observerSlider = createModernSlider({
         label: 'Altura do Observador',
-        min: 1,
-        max: 20,
-        step: 0.5,
-        value: feature.properties.observerHeight || 2,
+        min: 0,
+        max: 50,
+        step: 0.1,
+        value: props.observerHeight ?? 2,
         unit: 'm',
         disabled: !isTerrainAvailable,
         disabledMessage,
@@ -33,13 +80,33 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
             visibilityControl.updateFeaturesProperty(selectedFeatures, 'observerHeight', value);
         }
     });
+    terrainDependentSliders.push(observerSlider);
     container.appendChild(observerSlider);
+
+    // Target height slider
+    const targetSlider = createModernSlider({
+        label: 'Altura do Alvo',
+        min: 0,
+        max: 50,
+        step: 0.1,
+        value: props.targetHeight ?? 0,
+        unit: 'm',
+        disabled: !isTerrainAvailable,
+        disabledMessage,
+        onChange: (value) => {
+            visibilityControl.updateFeaturesProperty(selectedFeatures, 'targetHeight', value);
+        }
+    });
+    terrainDependentSliders.push(targetSlider);
+    container.appendChild(targetSlider);
 
     // Reactively update slider disabled state when terrain is toggled
     const onTerrainChange = () => {
         const terrainActive = visibilityControl.geometry.isTerrainAvailable(visibilityControl.map);
-        if (observerSlider.setDisabled) {
-            observerSlider.setDisabled(!terrainActive, disabledMessage);
+        for (const slider of terrainDependentSliders) {
+            if (slider.setDisabled) {
+                slider.setDisabled(!terrainActive, disabledMessage);
+            }
         }
     };
 
@@ -54,7 +121,7 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
 }
 
 /**
- * Create visibility attributes panel for selected visibility features (Style tab)
+ * Create visibility attributes panel for selected visibility features (Style tab).
  * @param {HTMLElement} panel - Container element for attributes
  * @param {Array} selectedFeatures - Array of selected visibility features
  * @param {Object} visibilityControl - Visibility control instance
@@ -62,6 +129,7 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
  * @param {Object} uiManager - UI manager instance
  * @param {Object} [options={}] - Additional options
  * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
+ * @param {boolean} [options.hideButtons=false] - Whether to hide save/discard buttons
  */
 export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibilityControl, selectionManager, uiManager, options = {}) {
     if (selectedFeatures.length === 0) {
@@ -120,34 +188,14 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
         }
     }));
 
-    // Custom buttons for visibility (with special save/discard behavior)
-    // Skip if hidden (for group type editing)
-    if (!options.hideButtons) {
-        const buttonContainer = document.createElement('div');
-        buttonContainer.className = 'attr-modern-buttons';
-
-        const buttonRow = document.createElement('div');
-        buttonRow.className = 'attr-modern-buttons-row';
-
-        const saveButton = document.createElement('button');
-        saveButton.className = 'attr-modern-btn attr-modern-btn-save';
-        saveButton.textContent = 'Salvar';
-        saveButton.onclick = () => {
-            visibilityControl.saveFeatures(selectedFeatures, initialPropertiesMap);
-            selectionManager.deselectAllFeatures();
-        };
-
-        const discardButton = document.createElement('button');
-        discardButton.className = 'attr-modern-btn attr-modern-btn-discard';
-        discardButton.textContent = 'Descartar';
-        discardButton.onclick = () => {
-            visibilityControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
-            selectionManager.deselectAllFeatures();
-        };
-
-        buttonRow.appendChild(saveButton);
-        buttonRow.appendChild(discardButton);
-        buttonContainer.appendChild(buttonRow);
-        panel.appendChild(buttonContainer);
-    }
+    // Action buttons
+    panel.appendChild(createModernButtons({
+        selectedFeatures,
+        control: visibilityControl,
+        selectionManager,
+        initialPropertiesMap,
+        hasSetDefault: false,
+        onSetDefault: null,
+        hidden: options.hideButtons
+    }));
 }

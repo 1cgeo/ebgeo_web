@@ -448,4 +448,46 @@ export function setupVisibilityLayers(features, mapInstance) {
             }
         });
     }
+
+    if (!mapInstance.getLayer('visibility-feedback-outline-layer')) {
+        mapInstance.addLayer({
+            id: 'visibility-feedback-outline-layer',
+            type: 'line',
+            source: 'visibility-feedback',
+            paint: {
+                'line-color': '#3f4fb5',
+                'line-width': 2,
+                'line-dasharray': [4, 2],
+                'line-opacity': 0.8
+            }
+        });
+    }
+
+    if (!mapInstance.getSource('visibility-edit-handles')) {
+        mapInstance.addSource('visibility-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    if (!mapInstance.getLayer('visibility-edit-handles-layer')) {
+        mapInstance.addLayer({
+            id: 'visibility-edit-handles-layer',
+            type: 'circle',
+            source: 'visibility-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',
+                    ['==', ['get', 'handleType'], 'center'], '#00ff00',
+                    '#ffffff'
+                ],
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2
+            },
+            filter: ['==', '$type', 'Point']
+        });
+    }
 }

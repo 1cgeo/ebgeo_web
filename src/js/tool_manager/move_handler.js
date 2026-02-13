@@ -240,7 +240,7 @@ class MoveHandler {
      * @private
      */
     _onMouseMove(e) {
-        if (!this.isDragging) return;
+        if (!this.isDragging || !this.initialCoordinates) return;
 
         this.cachedPosition.lng = e.lngLat.lng;
         this.cachedPosition.lat = e.lngLat.lat;
@@ -310,7 +310,7 @@ class MoveHandler {
      * @private
      */
     _onTouchMove(e) {
-        if (!this.isDragging || e.touches.length !== 1) return;
+        if (!this.isDragging || !this.initialCoordinates || e.touches.length !== 1) return;
 
         const touch = e.touches[0];
 
@@ -484,6 +484,9 @@ class MoveHandler {
      * @private
      */
     async _endDrag(finalPosition) {
+        // Guard against duplicate calls (race between mouse/touch events)
+        if (!this.selectedFeatures) return;
+
         if (this.rafId) {
             cancelAnimationFrame(this.rafId);
             this.rafId = null;

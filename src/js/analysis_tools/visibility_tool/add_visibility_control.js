@@ -2,10 +2,18 @@
 
 import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
+import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addVisibilityAttributesToPanel, addVisibilityParametersToPanel } from './visibility_attributes_panel.js';
 import AddVisibilityGeometry from './add_visibility_geometry.js';
 import { BaseControl } from '../../tool_manager';
 
+/**
+ * Visibility (Viewshed) analysis tool control.
+ *
+ * Sector-style construction: first click sets observer, second defines radius/bearing.
+ * Edit handles: radius (red) + aperture (blue) like sector tool.
+ * After handle edit, full viewshed recalculation runs with progress modal.
+ */
 class AddVisibilityControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
@@ -13,20 +21,33 @@ class AddVisibilityControl extends BaseControl {
         this.startPoint = null;
         this.geometry = new AddVisibilityGeometry();
 
+        // Drawing preview state
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
 
+        // Edit handle state
+        this.isDraggingHandle = false;
+        this.activeHandleId = null;
+        this._activePointerId = null;
+
+        // Recalculation queue and debounce
         this.recalculateQueue = Promise.resolve();
+        this.parameterDebounceTimer = null;
+        this.PARAMETER_DEBOUNCE_DELAY = 1000;
 
-        this.observerHeightDebounceTimer = null;
-        this.OBSERVER_HEIGHT_DEBOUNCE_DELAY = 1000;
-
+        // Progress modal elements
         this.progressModal = null;
         this.progressBar = null;
         this.progressText = null;
+        this.progressPercentage = null;
+
+        // Bind pointer event handlers
+        this._onEditPointerDown = this._onEditPointerDown.bind(this);
+        this._onEditPointerMove = this._onEditPointerMove.bind(this);
+        this._onEditPointerUp = this._onEditPointerUp.bind(this);
 
         this.toolManager.visibilityControl = this;
     }
@@ -35,6 +56,8 @@ class AddVisibilityControl extends BaseControl {
         opacity: 0.5,
         source: 'visibility',
         observerHeight: 2,
+        targetHeight: 0,
+        aperture: 60,
         nome: '',
         descricao: '',
         visivel: true,
@@ -43,19 +66,11 @@ class AddVisibilityControl extends BaseControl {
 
     // ===== SINGLE SOURCE OF TRUTH =====
 
-    /**
-     * Get currently selected visibility feature from SelectionManager
-     * @returns {Object|null} Selected visibility feature or null
-     */
     getSelectedFeature() {
         const selectedItems = this.selectionManager.getSelectedFeaturesByType('visibility');
         return selectedItems.length > 0 ? selectedItems[0].feature : null;
     }
 
-    /**
-     * Get all selected visibility features from SelectionManager
-     * @returns {Array} Array of selected visibility features
-     */
     getSelectedFeatures() {
         return this.selectionManager.getSelectedFeaturesByType('visibility')
             .map(item => item.feature);
@@ -89,7 +104,6 @@ class AddVisibilityControl extends BaseControl {
     createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'visibility-attributes-section';
-
         try {
             addVisibilityAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
@@ -98,13 +112,6 @@ class AddVisibilityControl extends BaseControl {
         }
     }
 
-    /**
-     * Creates the parameters panel content (for Parameters tab)
-     * @param {HTMLElement} container - Container to add parameters to
-     * @param {Array} features - Selected visibility features
-     * @param {Object} _selectionManager - Selection manager instance (unused)
-     * @param {Object} _uiManager - UI manager instance (unused)
-     */
     createParametersPanel(container, features, _selectionManager, _uiManager) {
         try {
             addVisibilityParametersToPanel(container, features, this);
@@ -118,13 +125,13 @@ class AddVisibilityControl extends BaseControl {
     }
 
     getEditHandleSources() {
-        return [];
+        return ['visibility-edit-handles'];
     }
 
     createSelectionBox(feature) {
         try {
             const bbox = turf.bbox(feature);
-            const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding(),this.map);
+            const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding(), this.map);
             return turf.bboxPolygon(expandedBbox);
         } catch (error) {
             console.warn('Error creating visibility selection box:', error);
@@ -149,7 +156,7 @@ class AddVisibilityControl extends BaseControl {
     }
 
     getEditHandleSource() {
-        return null;
+        return 'visibility-edit-handles';
     }
 
     canCopy(_feature) {
@@ -168,7 +175,6 @@ class AddVisibilityControl extends BaseControl {
 
         try {
             const result = await this.geometry.recalculateFromCoordinates(newCenter, feature, this.map);
-
             return {
                 ...feature,
                 properties: {
@@ -186,29 +192,16 @@ class AddVisibilityControl extends BaseControl {
 
     calculateMoveOffset(feature, referencePoint) {
         const center = this.geometry.normalizeCenter(feature.properties.center);
-        if (!center) {
-            return [0, 0];
-        }
-
+        if (!center) return [0, 0];
         return [
             center[0] - referencePoint.lng,
             center[1] - referencePoint.lat
         ];
     }
 
-    /**
-     * Update feature for immediate move with translated geometry
-     * @param {Object} feature - Original feature
-     * @param {number} dx - Longitude delta
-     * @param {number} dy - Latitude delta
-     * @param {Object} newCoords - New coordinates object
-     * @returns {Object} Updated feature with translated geometry
-     */
     updateFeatureForMove(feature, dx, dy, newCoords) {
         const newCenter = [newCoords.lng, newCoords.lat];
-
         const translatedGeometry = this.geometry.translateGeometry(feature.geometry, dx, dy);
-
         return {
             ...feature,
             properties: {
@@ -243,114 +236,302 @@ class AddVisibilityControl extends BaseControl {
 
     // ===== SELECTION SYSTEM INTEGRATION =====
 
-    onFeatureSelected = (_feature) => {
+    onFeatureSelected = (feature) => {
+        this.selectFeature(feature);
     }
 
-    onFeatureDeselected = (_feature) => {
+    onFeatureDeselected = (feature) => {
+        const selectedFeature = this.getSelectedFeature();
+        const featureId = feature.properties.id;
+        if (selectedFeature && selectedFeature.properties.id === featureId) {
+            this.deselectFeature();
+        }
     }
 
     onGlobalDeselect = () => {
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature) {
+            this.deselectFeature();
+        }
     }
 
     isEditingMode = () => {
         return false;
     }
 
-    hasEditHandle = (_featureId) => {
-        return false;
+    hasEditHandle = (featureId) => {
+        const selectedFeature = this.getSelectedFeature();
+        return selectedFeature && selectedFeature.properties.id === featureId;
     }
 
-    /**
-     * Sync edit handles after drag using queued async operations
-     * @param {Array} movedFeatures - Array of moved features
-     */
     syncEditHandlesAfterDrag = async (movedFeatures) => {
         this.recalculateQueue = this.recalculateQueue.then(async () => {
             await this.recalculateMovedVisibilityFeatures(movedFeatures);
         });
     }
 
-    /**
-     * Recalculate visibility features after movement
-     * @param {Array} movedFeatures - Array of moved features
-     */
-    async recalculateMovedVisibilityFeatures(movedFeatures) {
-        for (const movedFeature of movedFeatures) {
-            if (movedFeature.properties.source === 'visibility') {
-                try {
-                    const _featureId = movedFeature.properties.id;
+    // ===== EDIT HANDLES SYSTEM =====
 
-                    this.showProgressModal();
-                    this.updateProgress(5, 'Detectando nova posição...');
-                    await this.geometry.delay(100);
+    selectFeature = (feature) => {
+        this.setupHoverListeners();
 
-                    const newCenter = this.geometry.normalizeCenter(movedFeature.properties.center);
+        if (this._mapLocked) return;
 
-                    if (newCenter) {
-                        this.updateProgress(10, 'Preparando recálculo...');
-                        await this.geometry.delay(100);
+        // Only show edit handles when terrain is available
+        if (!this.geometry.isTerrainAvailable(this.map)) return;
 
-                        const result = await this.geometry.recalculateFromCoordinates(
-                            newCenter,
-                            movedFeature,
-                            this.map,
-                            (progress, text) => this.updateProgress(progress, text)
-                        );
+        this.createEditHandles(feature);
+        this.setupEditEventListeners();
+    }
 
-                        this.updateProgress(80, 'Atualizando geometria...');
-                        await this.geometry.delay(100);
+    deselectFeature = () => {
+        this.isDraggingHandle = false;
+        this.activeHandleId = null;
+        this.clearEditHandles();
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.cancelPendingUpdates();
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+    }
 
-                        movedFeature.geometry = result.geometry;
-                        movedFeature.properties.center = result.center;
-                        movedFeature.properties.cellData = result.cellData;
+    createEditHandles = (feature) => {
+        const props = this.geometry.normalizeFeatureProperties(feature.properties);
+        const normalizedFeature = { ...feature, properties: { ...feature.properties, ...props } };
 
-                        this.updateProgress(85, 'Preparando features processadas...');
-                        await this.geometry.delay(100);
+        const handles = this.geometry.createHandles(normalizedFeature);
+        if (!handles) return;
 
-                        const newProcessedFeatures = this.geometry.generateProcessedFeatures(movedFeature);
+        this.map.getSource('visibility-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: handles
+        });
+    }
 
-                        this.updateProgress(90, 'Salvando no banco de dados...');
-                        await this.geometry.delay(100);
-
-                        await batchUpdateVisibilityFeatures(movedFeature, newProcessedFeatures);
-
-                        this.updateProgress(95, 'Atualizando fontes do mapa...');
-                        await this.geometry.delay(100);
-
-                        await this.updateProcessedFeaturesAfterMove(movedFeature, newProcessedFeatures);
-
-                        this.updateProgress(100, 'Recálculo concluído!');
-                        await this.geometry.delay(300);
-                    }
-
-                } catch (error) {
-                    console.error('Error during visibility recalculation:', error);
-                } finally {
-                    this.hideProgressModal();
-                }
-            }
+    clearEditHandles = () => {
+        if (this.map.getSource('visibility-edit-handles')) {
+            this.map.getSource('visibility-edit-handles').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
+        }
+        if (this.map.getSource('visibility-feedback')) {
+            this.map.getSource('visibility-feedback').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
         }
     }
 
-    /**
-     * Update processed features after main feature movement
-     * @param {Object} mainFeature - Updated main visibility feature
-     * @param {Array} newProcessedFeatures - New processed features array
-     */
-    async updateProcessedFeaturesAfterMove(mainFeature, newProcessedFeatures = null) {
-        const processedData = await this.map.getSource('processed-visibility').getData();
+    setupEditEventListeners = () => {
+        const canvas = this.map.getCanvasContainer();
+        canvas.addEventListener('pointerdown', this._onEditPointerDown);
+    }
 
-        processedData.features = processedData.features.filter(f =>
-            !f.properties.id.startsWith(mainFeature.properties.id + '-')
-        );
+    removeEditEventListeners = () => {
+        const canvas = this.map.getCanvasContainer();
+        canvas.removeEventListener('pointerdown', this._onEditPointerDown);
+        canvas.removeEventListener('pointermove', this._onEditPointerMove);
+        canvas.removeEventListener('pointerup', this._onEditPointerUp);
+        canvas.removeEventListener('pointercancel', this._onEditPointerUp);
 
-        const processedFeatures = newProcessedFeatures || this.geometry.generateProcessedFeatures(mainFeature);
+        if (this._activePointerId !== null) {
+            try {
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (_err) {
+                // Pointer may have already been released
+            }
+            this._activePointerId = null;
+        }
+    }
 
-        processedFeatures.forEach(processedFeature => {
-            processedData.features.push(processedFeature);
+    _onEditPointerDown(e) {
+        if (!e.isPrimary) return;
+
+        // Block handle editing when terrain is off
+        if (!this.geometry.isTerrainAvailable(this.map)) return;
+
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
+
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+
+        const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
+            layers: ['visibility-edit-handles-layer']
         });
 
-        this.map.getSource('processed-visibility').setData(processedData);
+        if (handleFeatures.length > 0) {
+            this.isDraggingHandle = true;
+            this.activeHandleId = handleFeatures[0].properties.handleId;
+            this.map.dragPan.disable();
+            this.map.getCanvas().style.cursor = 'grabbing';
+
+            this._activePointerId = e.pointerId;
+            canvas.setPointerCapture(e.pointerId);
+
+            canvas.addEventListener('pointermove', this._onEditPointerMove);
+            canvas.addEventListener('pointerup', this._onEditPointerUp);
+            canvas.addEventListener('pointercancel', this._onEditPointerUp);
+
+            e.preventDefault();
+        }
+    }
+
+    _onEditPointerMove(e) {
+        if (!e.isPrimary) return;
+
+        const selectedFeature = this.getSelectedFeature();
+        if (!this.isDraggingHandle || !selectedFeature) return;
+
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+        const lngLat = this.map.unproject([point.x, point.y]);
+
+        this.lastPreviewPosition = [lngLat.lng, lngLat.lat];
+
+        if (!this.pendingPreviewUpdate) {
+            this.pendingPreviewUpdate = true;
+            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
+        }
+    }
+
+    _onEditPointerUp(_e) {
+        const canvas = this.map.getCanvasContainer();
+
+        canvas.removeEventListener('pointermove', this._onEditPointerMove);
+        canvas.removeEventListener('pointerup', this._onEditPointerUp);
+        canvas.removeEventListener('pointercancel', this._onEditPointerUp);
+
+        if (this._activePointerId !== null) {
+            try {
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (_err) {
+                // Pointer may have already been released
+            }
+            this._activePointerId = null;
+        }
+
+        const selectedFeature = this.getSelectedFeature();
+        if (this.isDraggingHandle && selectedFeature && this.lastPreviewPosition) {
+            const normalizedFeature = {
+                ...selectedFeature,
+                properties: this.geometry.normalizeFeatureProperties(selectedFeature.properties)
+            };
+
+            const result = this.geometry.updateFromHandle(this.activeHandleId, this.lastPreviewPosition, normalizedFeature);
+            if (result) {
+                const center = this.geometry.normalizeCenter(selectedFeature.properties.center);
+
+                // Persist all three geometry params to the map source before recalculation
+                selectedFeature.properties.radius = result.radius;
+                selectedFeature.properties.bearing = result.bearing;
+                selectedFeature.properties.aperture = result.aperture;
+
+                this.updateHandlePropertiesToSource(selectedFeature, result);
+
+                // Trigger full viewshed recalculation
+                this.recalculateQueue = this.recalculateQueue.then(async () => {
+                    await this.recalculateAfterParameterChange([selectedFeature], center);
+                });
+            }
+        }
+
+        this.isDraggingHandle = false;
+        this.activeHandleId = null;
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    updateHandlePreview = (newPosition) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature || !this.activeHandleId) return;
+
+        const normalizedFeature = {
+            ...selectedFeature,
+            properties: this.geometry.normalizeFeatureProperties(selectedFeature.properties)
+        };
+
+        const preview = this.geometry.calculatePreview(this.activeHandleId, newPosition, normalizedFeature);
+        if (!preview) return;
+
+        // Update directly — already inside RAF via performPreviewUpdate
+        this.map.getSource('visibility-feedback').setData({
+            type: 'FeatureCollection',
+            features: [{
+                type: 'Feature',
+                geometry: preview.geometry,
+                properties: { isSelected: true }
+            }]
+        });
+
+        const [radiusPoint, aperturePoint, centerPoint] = preview.handles;
+        this.map.getSource('visibility-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: [
+                {
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: radiusPoint },
+                    properties: {
+                        role: 'handle',
+                        handleType: 'vertex',
+                        handleId: 'radius',
+                        user_isEditingHandle: true
+                    }
+                },
+                {
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: aperturePoint },
+                    properties: {
+                        role: 'handle',
+                        handleType: 'eccentricity',
+                        handleId: 'aperture',
+                        user_isEditingHandle: true
+                    }
+                },
+                {
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: centerPoint },
+                    properties: {
+                        role: 'handle',
+                        handleType: 'center',
+                        handleId: 'center',
+                        user_isEditingHandle: false
+                    }
+                }
+            ]
+        });
+    }
+
+    // ===== HOVER SYSTEM =====
+
+    setupHoverListeners = () => {
+        this.map.on('mousemove', this.onHoverMove);
+    }
+
+    removeHoverListeners = () => {
+        this.map.off('mousemove', this.onHoverMove);
+    }
+
+    onHoverMove = (e) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
+        const features = this.map.queryRenderedFeatures(e.point);
+        const hasHandle = features.some(f =>
+            f.source === 'visibility-edit-handles' && f.properties.user_isEditingHandle
+        );
+        const hasFeature = features.some(f =>
+            (f.source === 'processed-visibility' || f.source === 'visibility') &&
+            (f.properties.id === selectedFeature.properties.id ||
+             f.properties.id?.startsWith(selectedFeature.properties.id + '-'))
+        );
+        if (hasHandle) {
+            this.map.getCanvas().style.cursor = 'crosshair';
+        } else if (hasFeature) {
+            this.map.getCanvas().style.cursor = 'move';
+        } else {
+            this.map.getCanvas().style.cursor = '';
+        }
     }
 
     // ===== DRAWING SYSTEM =====
@@ -380,21 +561,27 @@ class AddVisibilityControl extends BaseControl {
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
+            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
         }
     }
 
     performPreviewUpdate = () => {
-        if (!this.lastPreviewCenter || !this.lastPreviewPosition) {
+        if (!this.lastPreviewPosition) {
             this.pendingPreviewUpdate = false;
             return;
         }
 
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const previewCoordinates = this.geometry.calculateSectorCoordinates(this.lastPreviewCenter, this.lastPreviewPosition);
+        const selectedFeature = this.getSelectedFeature();
+        if (this.isDraggingHandle && selectedFeature) {
+            this.updateHandlePreview(this.lastPreviewPosition);
+        } else if (this.startPoint && this.lastPreviewCenter) {
+            // Update directly — already inside RAF
+            const aperture = AddVisibilityControl.DEFAULT_PROPERTIES.aperture;
+            const previewCoordinates = this.geometry.calculateSectorPreview(
+                this.lastPreviewCenter, this.lastPreviewPosition, aperture
+            );
             this.showPreview(previewCoordinates);
-        }, 8);
+        }
 
         this.pendingPreviewUpdate = false;
     }
@@ -408,9 +595,7 @@ class AddVisibilityControl extends BaseControl {
                     type: 'Polygon',
                     coordinates: [coordinates]
                 },
-                properties: {
-                    isPreview: true
-                }
+                properties: { isPreview: true }
             }]
         });
     }
@@ -447,31 +632,26 @@ class AddVisibilityControl extends BaseControl {
                 (progress, text) => this.updateProgress(progress, text)
             );
 
-            this.updateProgress(80, 'Preparando features processadas...');
-            await this.geometry.delay(100);
+            this.updateProgress(85, 'Preparando features processadas...');
+            await this.geometry.delay(50);
 
             const processedFeatures = this.geometry.generateProcessedFeatures(visibilityFeature);
 
-            this.updateProgress(85, 'Salvando no banco de dados...');
-            await this.geometry.delay(100);
+            this.updateProgress(88, 'Salvando no banco de dados...');
+            await this.geometry.delay(50);
 
             await addFeature('visibility', visibilityFeature);
             await batchUpdateVisibilityFeatures(visibilityFeature, processedFeatures);
 
-            this.updateProgress(90, 'Atualizando mapa...');
+            this.updateProgress(92, 'Atualizando mapa...');
             await this.geometry.delay(50);
 
             const data = await this.map.getSource('visibility').getData();
             data.features.push(visibilityFeature);
             this.map.getSource('visibility').setData(data);
 
-            this.updateProgress(95, 'Atualizando células processadas...');
-            await this.geometry.delay(100);
-
             const processedData = await this.map.getSource('processed-visibility').getData();
-            processedFeatures.forEach(processedFeature => {
-                processedData.features.push(processedFeature);
-            });
+            processedFeatures.forEach(pf => processedData.features.push(pf));
             this.map.getSource('processed-visibility').setData(processedData);
 
             this.updateProgress(100, 'Concluído!');
@@ -481,7 +661,6 @@ class AddVisibilityControl extends BaseControl {
             this.selectionManager.updateUI();
 
             this.hideProgressModal();
-
         } catch (error) {
             console.error('Error creating visibility feature:', error);
             this.hideProgressModal();
@@ -493,16 +672,24 @@ class AddVisibilityControl extends BaseControl {
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = (features, property, value) => {
-        if (property === 'observerHeight') {
-            if (this.observerHeightDebounceTimer) {
-                clearTimeout(this.observerHeightDebounceTimer);
-            }
+        const recalcProperties = ['observerHeight', 'targetHeight', 'radius', 'aperture'];
 
+        if (recalcProperties.includes(property)) {
+            // Update UI immediately
             this.updatePropertyImmediately(features, property, value);
 
-            this.observerHeightDebounceTimer = setTimeout(() => {
-                this.recalculateForObserverHeight(features, value);
-            }, this.OBSERVER_HEIGHT_DEBOUNCE_DELAY);
+            // For geometry properties, also update sector outline + handles
+            if (property === 'radius' || property === 'aperture') {
+                this.updateSectorOutlineFromProperty(features, property, value);
+            }
+
+            // Debounce full recalculation
+            if (this.parameterDebounceTimer) {
+                clearTimeout(this.parameterDebounceTimer);
+            }
+            this.parameterDebounceTimer = setTimeout(() => {
+                this.recalculateAfterParameterChange(features);
+            }, this.PARAMETER_DEBOUNCE_DELAY);
 
             return;
         }
@@ -511,11 +698,56 @@ class AddVisibilityControl extends BaseControl {
     }
 
     /**
-     * Update property immediately without recalculation (for UI responsiveness)
-     * @param {Array} features - Features to update
-     * @param {string} property - Property name
-     * @param {*} value - New value
+     * Update sector outline and edit handles when radius or aperture change via slider.
      */
+    updateSectorOutlineFromProperty = (features, property, value) => {
+        const feature = features[0];
+        if (!feature) return;
+
+        const props = this.geometry.normalizeFeatureProperties(feature.properties);
+        if (property === 'radius') props.radius = value;
+        if (property === 'aperture') props.aperture = value;
+
+        const center = this.geometry.normalizeCenter(props.center);
+        if (!center) return;
+
+        const sectorGeometry = this.geometry.generateSectorGeometry(center, props.radius, props.bearing, props.aperture);
+        this.map.getSource('visibility-feedback').setData({
+            type: 'FeatureCollection',
+            features: [{
+                type: 'Feature',
+                geometry: sectorGeometry,
+                properties: { isSelected: true }
+            }]
+        });
+
+        // Update handle positions
+        const normalizedFeature = { ...feature, properties: props };
+        const handles = this.geometry.createHandles(normalizedFeature);
+        if (handles) {
+            this.map.getSource('visibility-edit-handles').setData({
+                type: 'FeatureCollection',
+                features: handles
+            });
+        }
+    }
+
+    /**
+     * Persist radius, bearing and aperture from a handle edit into the map source.
+     * Must be called synchronously after handle drag so recalculation reads fresh values.
+     */
+    updateHandlePropertiesToSource = async (feature, result) => {
+        const data = await this.map.getSource('visibility').getData();
+        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
+        if (sourceFeature) {
+            sourceFeature.properties.radius = result.radius;
+            sourceFeature.properties.bearing = result.bearing;
+            sourceFeature.properties.aperture = result.aperture;
+        }
+        this.map.getSource('visibility').setData(data);
+        this.updateSelectionManagerFeature(feature);
+    }
+
     updatePropertyImmediately = async (features, property, value) => {
         const data = await this.map.getSource('visibility').getData();
         const processedData = await this.map.getSource('processed-visibility').getData();
@@ -529,9 +761,9 @@ class AddVisibilityControl extends BaseControl {
                 const processedFeatures = processedData.features.filter(f =>
                     f.properties.id.startsWith(feature.properties.id + '-')
                 );
-                processedFeatures.forEach(processedFeature => {
+                processedFeatures.forEach(pf => {
                     if (property !== 'color') {
-                        processedFeature.properties[property] = value;
+                        pf.properties[property] = value;
                     }
                 });
             }
@@ -544,96 +776,176 @@ class AddVisibilityControl extends BaseControl {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
-
         this.updateSelectionManagerFeatures(freshFeatures);
     }
 
+    // ===== RECALCULATION =====
+
     /**
-     * Perform debounced recalculation for observer height changes
-     * @param {Array} features - Features to recalculate
-     * @param {number} newObserverHeight - New observer height value
+     * Recalculate viewshed after parameter change (height, divisions, radius, aperture).
      */
-    recalculateForObserverHeight = async (features, newObserverHeight) => {
+    recalculateAfterParameterChange = async (features, overrideCenter = null) => {
         try {
             this.showProgressModal();
-            this.updateProgress(5, 'Detectando mudança de altura...');
-            await this.geometry.delay(100);
+            this.updateProgress(5, 'Preparando recálculo...');
+            await this.geometry.delay(50);
 
             const data = await this.map.getSource('visibility').getData();
             const processedData = await this.map.getSource('processed-visibility').getData();
 
             for (const feature of features) {
                 const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
-                if (sourceFeature) {
-                    try {
-                        this.updateProgress(15, `Recalculando visibilidade (altura: ${newObserverHeight}m)...`);
-                        await this.geometry.delay(100);
+                if (!sourceFeature) continue;
 
-                        const result = await this.geometry.recalculateFromCoordinates(
-                            sourceFeature.properties.center,
-                            sourceFeature,
-                            this.map,
-                            (progress, text) => this.updateProgress(progress, text)
-                        );
+                try {
+                    const center = overrideCenter || this.geometry.normalizeCenter(sourceFeature.properties.center);
+                    if (!center) continue;
 
-                        this.updateProgress(75, 'Atualizando geometria...');
-                        await this.geometry.delay(100);
+                    const result = await this.geometry.recalculateFromCoordinates(
+                        center,
+                        sourceFeature,
+                        this.map,
+                        (progress, text) => this.updateProgress(progress, text)
+                    );
 
-                        sourceFeature.geometry = result.geometry;
-                        sourceFeature.properties.cellData = result.cellData;
-                        feature.geometry = result.geometry;
-                        feature.properties.cellData = result.cellData;
+                    this.updateProgress(85, 'Atualizando geometria...');
+                    await this.geometry.delay(50);
 
-                        this.updateProgress(80, 'Preparando células processadas...');
-                        await this.geometry.delay(100);
+                    sourceFeature.geometry = result.geometry;
+                    sourceFeature.properties.cellData = result.cellData;
+                    sourceFeature.properties.center = result.center;
+                    feature.geometry = result.geometry;
+                    feature.properties.cellData = result.cellData;
+                    feature.properties.center = result.center;
 
-                        const newProcessedFeatures = this.geometry.generateProcessedFeatures(sourceFeature);
+                    const newProcessedFeatures = this.geometry.generateProcessedFeatures(sourceFeature);
 
-                        this.updateProgress(85, 'Salvando no banco de dados...');
-                        await this.geometry.delay(100);
+                    this.updateProgress(88, 'Salvando no banco de dados...');
+                    await this.geometry.delay(50);
 
-                        await batchUpdateVisibilityFeatures(sourceFeature, newProcessedFeatures);
+                    await batchUpdateVisibilityFeatures(sourceFeature, newProcessedFeatures);
 
-                        this.updateProgress(90, 'Atualizando células processadas...');
-                        await this.geometry.delay(100);
+                    // Update processed source
+                    processedData.features = processedData.features.filter(f =>
+                        !f.properties.id.startsWith(feature.properties.id + '-')
+                    );
+                    newProcessedFeatures.forEach(pf => processedData.features.push(pf));
 
-                        processedData.features = processedData.features.filter(f =>
-                            !f.properties.id.startsWith(feature.properties.id + '-')
-                        );
-
-                        newProcessedFeatures.forEach(processedFeature => {
-                            processedData.features.push(processedFeature);
-                        });
-
-                    } catch (error) {
-                        console.error('Error recalculating visibility for observer height:', error);
-                    }
+                } catch (error) {
+                    console.error('Error recalculating visibility:', error);
                 }
             }
 
             this.updateProgress(95, 'Atualizando mapa...');
-            await this.geometry.delay(100);
+            await this.geometry.delay(50);
 
             this.map.getSource('visibility').setData(data);
             this.map.getSource('processed-visibility').setData(processedData);
+
+            // Clear temporary sector outline from slider interaction
+            this.map.getSource('visibility-feedback').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
 
             const freshFeatures = features.map(feature => {
                 const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
                 return sourceFeature || feature;
             });
-
             this.updateSelectionManagerFeatures(freshFeatures);
+
+            // Refresh edit handles
+            const selectedFeature = this.getSelectedFeature();
+            if (selectedFeature) {
+                this.createEditHandles(selectedFeature);
+            }
 
             this.updateProgress(100, 'Recálculo concluído!');
             await this.geometry.delay(300);
 
         } catch (error) {
-            console.error('Error in debounced observer height recalculation:', error);
+            console.error('Error in parameter change recalculation:', error);
         } finally {
             this.hideProgressModal();
-            this.observerHeightDebounceTimer = null;
+            this.parameterDebounceTimer = null;
         }
     }
+
+    /**
+     * Recalculate visibility features after movement.
+     */
+    async recalculateMovedVisibilityFeatures(movedFeatures) {
+        for (const movedFeature of movedFeatures) {
+            if (movedFeature.properties.source === 'visibility') {
+                try {
+                    this.showProgressModal();
+                    this.updateProgress(5, 'Detectando nova posição...');
+                    await this.geometry.delay(50);
+
+                    const newCenter = this.geometry.normalizeCenter(movedFeature.properties.center);
+                    if (!newCenter) continue;
+
+                    this.updateProgress(10, 'Preparando recálculo...');
+                    await this.geometry.delay(50);
+
+                    const result = await this.geometry.recalculateFromCoordinates(
+                        newCenter,
+                        movedFeature,
+                        this.map,
+                        (progress, text) => this.updateProgress(progress, text)
+                    );
+
+                    this.updateProgress(85, 'Atualizando geometria...');
+                    await this.geometry.delay(50);
+
+                    movedFeature.geometry = result.geometry;
+                    movedFeature.properties.center = result.center;
+                    movedFeature.properties.cellData = result.cellData;
+
+                    const newProcessedFeatures = this.geometry.generateProcessedFeatures(movedFeature);
+
+                    this.updateProgress(90, 'Salvando no banco de dados...');
+                    await this.geometry.delay(50);
+
+                    await batchUpdateVisibilityFeatures(movedFeature, newProcessedFeatures);
+
+                    this.updateProgress(95, 'Atualizando fontes do mapa...');
+                    await this.geometry.delay(50);
+
+                    await this.updateProcessedFeaturesAfterMove(movedFeature, newProcessedFeatures);
+
+                    // Refresh edit handles
+                    const selectedFeature = this.getSelectedFeature();
+                    if (selectedFeature && selectedFeature.properties.id === movedFeature.properties.id) {
+                        this.createEditHandles(movedFeature);
+                    }
+
+                    this.updateProgress(100, 'Recálculo concluído!');
+                    await this.geometry.delay(300);
+
+                } catch (error) {
+                    console.error('Error during visibility recalculation:', error);
+                } finally {
+                    this.hideProgressModal();
+                }
+            }
+        }
+    }
+
+    async updateProcessedFeaturesAfterMove(mainFeature, newProcessedFeatures = null) {
+        const processedData = await this.map.getSource('processed-visibility').getData();
+
+        processedData.features = processedData.features.filter(f =>
+            !f.properties.id.startsWith(mainFeature.properties.id + '-')
+        );
+
+        const processedFeatures = newProcessedFeatures || this.geometry.generateProcessedFeatures(mainFeature);
+        processedFeatures.forEach(pf => processedData.features.push(pf));
+
+        this.map.getSource('processed-visibility').setData(processedData);
+    }
+
+    // ===== SAVE / DISCARD / DELETE =====
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('visibility').getData();
@@ -654,9 +966,7 @@ class AddVisibilityControl extends BaseControl {
 
                     const processedFeatures = processedData.features.filter(pf =>
                         pf.properties.id.startsWith(selectedFeature.properties.id + '-')
-                    );
-
-                    const updatedProcessedFeatures = processedFeatures.map(pf => ({
+                    ).map(pf => ({
                         ...pf,
                         properties: {
                             ...pf.properties,
@@ -667,9 +977,9 @@ class AddVisibilityControl extends BaseControl {
                     }));
 
                     try {
-                        await batchUpdateVisibilityFeatures(featureToSave, updatedProcessedFeatures);
+                        await batchUpdateVisibilityFeatures(featureToSave, processedFeatures);
                     } catch (error) {
-                        console.error('Error saving visibility features with batch operation:', error);
+                        console.error('Error saving visibility features:', error);
                         throw error;
                     }
                 }
@@ -689,8 +999,7 @@ class AddVisibilityControl extends BaseControl {
 
         for (const feature of features) {
             try {
-                const featureId = feature.properties.id;
-                await removeFeature('visibility', featureId);
+                await removeFeature('visibility', feature.properties.id);
             } catch (error) {
                 console.error(`Error removing visibility feature ${feature.properties.id}:`, error);
             }
@@ -711,24 +1020,21 @@ class AddVisibilityControl extends BaseControl {
 
     setDefaultProperties = (properties) => {
         const {
-            id: _id,
-            nome: _nome,
-            cellData: _cellData,
-            center: _center,
-            radius: _radius,
-            angle: _angle,
+            id: _id, nome: _nome, cellData: _cellData,
+            center: _center, radius: _radius, bearing: _bearing,
             ...styleProperties
         } = properties;
-
         Object.assign(AddVisibilityControl.DEFAULT_PROPERTIES, styleProperties);
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
         if (!initialProperties) return true;
-
         return (
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.observerHeight !== initialProperties.observerHeight ||
+            feature.properties.targetHeight !== initialProperties.targetHeight ||
+            feature.properties.radius !== initialProperties.radius ||
+            feature.properties.aperture !== initialProperties.aperture ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
@@ -751,10 +1057,10 @@ class AddVisibilityControl extends BaseControl {
                     const processedFeatures = processedData.features.filter(f =>
                         f.properties.id.startsWith(feature.properties.id + '-')
                     );
-                    processedFeatures.forEach(processedFeature => {
+                    processedFeatures.forEach(pf => {
                         Object.keys(feature.properties).forEach(key => {
                             if (key !== 'color') {
-                                processedFeature.properties[key] = feature.properties[key];
+                                pf.properties[key] = feature.properties[key];
                             }
                         });
                     });
@@ -766,7 +1072,6 @@ class AddVisibilityControl extends BaseControl {
                     const processedFeatures = processedData.features.filter(f =>
                         f.properties.id.startsWith(feature.properties.id + '-')
                     );
-
                     await batchUpdateVisibilityFeatures(data.features[featureIndex], processedFeatures);
                 }
             }
@@ -781,95 +1086,46 @@ class AddVisibilityControl extends BaseControl {
 
     createProgressModal = () => {
         this.progressModal = document.createElement('div');
-        this.progressModal.style.cssText = `
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: rgba(0, 0, 0, 0.7);
-            z-index: 10000;
-            justify-content: center;
-            align-items: center;
-            font-family: Arial, sans-serif;
-        `;
+        this.progressModal.className = 'visibility-progress-modal';
 
         const modalContent = document.createElement('div');
-        modalContent.style.cssText = `
-            background: white;
-            padding: 30px;
-            border-radius: 8px;
-            text-align: center;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            min-width: 300px;
-        `;
+        modalContent.className = 'visibility-progress-modal__content';
 
         const title = document.createElement('h3');
+        title.className = 'visibility-progress-modal__title';
         title.textContent = 'Calculando Visibilidade';
-        title.style.cssText = `
-            margin: 0 0 20px 0;
-            color: #333;
-            font-size: 18px;
-            font-weight: 500;
-        `;
 
         this.progressText = document.createElement('p');
+        this.progressText.className = 'visibility-progress-modal__text';
         this.progressText.textContent = 'Analisando terreno...';
-        this.progressText.style.cssText = `
-            margin: 0 0 20px 0;
-            color: #666;
-            font-size: 14px;
-        `;
 
         const progressContainer = document.createElement('div');
-        progressContainer.style.cssText = `
-            width: 100%;
-            height: 8px;
-            background-color: #f0f0f0;
-            border-radius: 4px;
-            overflow: hidden;
-            margin-bottom: 10px;
-        `;
+        progressContainer.className = 'visibility-progress-modal__bar-container';
 
         this.progressBar = document.createElement('div');
-        this.progressBar.style.cssText = `
-            width: 0%;
-            height: 100%;
-            background-color: #508D4E;
-            border-radius: 4px;
-            transition: width 0.3s ease;
-        `;
+        this.progressBar.className = 'visibility-progress-modal__bar';
 
-        const progressPercentage = document.createElement('div');
-        progressPercentage.id = 'progress-percentage';
-        progressPercentage.textContent = '0%';
-        progressPercentage.style.cssText = `
-            font-size: 12px;
-            color: #666;
-            font-weight: 500;
-        `;
+        this.progressPercentage = document.createElement('div');
+        this.progressPercentage.className = 'visibility-progress-modal__percentage';
+        this.progressPercentage.textContent = '0%';
 
         progressContainer.appendChild(this.progressBar);
         modalContent.appendChild(title);
         modalContent.appendChild(this.progressText);
         modalContent.appendChild(progressContainer);
-        modalContent.appendChild(progressPercentage);
+        modalContent.appendChild(this.progressPercentage);
         this.progressModal.appendChild(modalContent);
         document.body.appendChild(this.progressModal);
     }
 
     showProgressModal = () => {
-        this.progressModal.style.display = 'flex';
+        this.progressModal.classList.add('visibility-progress-modal--visible');
         this.updateProgress(0, 'Iniciando análise...');
     }
 
     updateProgress = (percentage, text = null) => {
         this.progressBar.style.width = `${percentage}%`;
-        const percentageElement = document.getElementById('progress-percentage');
-        if (percentageElement) {
-            percentageElement.textContent = `${Math.round(percentage)}%`;
-        }
+        this.progressPercentage.textContent = `${Math.round(percentage)}%`;
 
         if (text) {
             this.progressText.textContent = text;
@@ -877,7 +1133,7 @@ class AddVisibilityControl extends BaseControl {
     }
 
     hideProgressModal = () => {
-        this.progressModal.style.display = 'none';
+        this.progressModal.classList.remove('visibility-progress-modal--visible');
         this.updateProgress(0, 'Analisando terreno...');
     }
 
@@ -889,25 +1145,32 @@ class AddVisibilityControl extends BaseControl {
     }
 
     _onTerrainChange = () => {
-        if (this.isActive && !this.geometry.isTerrainAvailable(this.map)) {
+        const terrainAvailable = this.geometry.isTerrainAvailable(this.map);
+
+        // If tool is active and terrain is off, deactivate tool
+        if (this.isActive && !terrainAvailable) {
             this.toolManager.deactivateCurrentTool();
+        }
+
+        // Reactively show/hide handles based on terrain state
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature) {
+            if (terrainAvailable) {
+                this.createEditHandles(selectedFeature);
+                this.setupEditEventListeners();
+            } else {
+                this.clearEditHandles();
+                this.removeEditEventListeners();
+            }
         }
     }
 
     // ===== SELECTION MANAGER INTEGRATION =====
 
-    /**
-     * Update SelectionManager with current feature data
-     * @param {Object} feature - Feature to update in SelectionManager
-     */
     updateSelectionManagerFeature(feature) {
         this.selectionManager.updateSelectedFeature('visibility', feature.properties.id, feature);
     }
 
-    /**
-     * Update SelectionManager with multiple features
-     * @param {Array} features - Features to update in SelectionManager
-     */
     updateSelectionManagerFeatures(features) {
         features.forEach(feature => {
             if (feature.properties.source === 'visibility') {
@@ -932,15 +1195,17 @@ class AddVisibilityControl extends BaseControl {
             this.geometryDebounceTimer = null;
         }
 
-        if (this.observerHeightDebounceTimer) {
-            clearTimeout(this.observerHeightDebounceTimer);
-            this.observerHeightDebounceTimer = null;
+        if (this.parameterDebounceTimer) {
+            clearTimeout(this.parameterDebounceTimer);
+            this.parameterDebounceTimer = null;
         }
     }
 
     removeAllEventListeners = () => {
         this.map.off('mousemove', this.handleMouseMove);
         this.map.off('terrain', this._onTerrainChange);
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
         this.cancelPendingUpdates();
     }
 }
