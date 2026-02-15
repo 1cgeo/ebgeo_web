@@ -9,17 +9,15 @@ export const NAV_CONSTANTS = Object.freeze({
     /** Default camera height in meters */
     DEFAULT_CAMERA_HEIGHT: 2.5,
 
-    // ===== MARKER APPEARANCE =====
-    /** Base size of navigation markers in pixels (Google Street View style - large) */
-    MARKER_BASE_SIZE: 80,
-    /** Minimum marker size in pixels */
-    MARKER_MIN_SIZE: 40,
-    /** Maximum marker size in pixels */
-    MARKER_MAX_SIZE: 150,
-    /** Reference distance for marker scaling in meters */
-    REFERENCE_DISTANCE: 12,
+    // ===== MARKER APPEARANCE (physically-based) =====
+    /** Physical radius of a navigation marker on the ground plane (meters) */
+    MARKER_WORLD_RADIUS: 1.8,
+    /** Minimum marker radius in pixels (prevents disappearing at long range) */
+    MARKER_MIN_SIZE: 8,
+    /** Maximum marker radius in pixels (prevents oversized at close range) */
+    MARKER_MAX_SIZE: 120,
     /** Scale factor when hovering over marker */
-    HOVER_SCALE: 1.15,
+    HOVER_SCALE: 1,
 
     // ===== MARKER COLORS =====
     /** Fill color for navigation markers */
@@ -32,18 +30,16 @@ export const NAV_CONSTANTS = Object.freeze({
     // ===== CURSOR =====
     /** Color for the ground cursor indicator */
     CURSOR_COLOR: 'rgba(255, 255, 255, 0.8)',
-    /** Base size of the ground cursor in pixels (large like Google Street View) */
-    CURSOR_SIZE: 120,
-    /** Reference distance for cursor scaling (meters) */
-    CURSOR_REFERENCE_DISTANCE: 10,
+    /** Physical radius of the ground cursor (meters) */
+    CURSOR_WORLD_RADIUS: 2.5,
     /** Minimum cursor size in pixels */
-    CURSOR_MIN_SIZE: 70,
+    CURSOR_MIN_SIZE: 12,
     /** Maximum cursor size in pixels */
     CURSOR_MAX_SIZE: 180,
 
     // ===== HIT TESTING =====
-    /** Multiplier for clickable area (larger = easier to click) */
-    HIT_RADIUS_MULTIPLIER: 1.5,
+    /** Multiplier for clickable area (1.0 = exact visual size) */
+    HIT_RADIUS_MULTIPLIER: 1.0,
 
     // ===== FOV SETTINGS =====
     /** Margin from FOV edge for showing markers (degrees) */

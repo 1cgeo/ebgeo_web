@@ -135,8 +135,8 @@ export class CatalogModal extends ModalBase {
      * Loads catalog items.
      * @private
      */
-    _loadItems() {
-        this._allItems = CatalogService.getAllItems();
+    async _loadItems() {
+        this._allItems = await CatalogService.getAllItems();
         this._applyFilters();
     }
 
@@ -260,18 +260,38 @@ export class CatalogModal extends ModalBase {
     }
 
     /**
-     * Opens a 360 panoramic image.
-     * Uses the navigateToStreetViewMarker method which:
-     * 1. Activates the street view tool if not active
-     * 2. Flies to the location
-     * 3. Opens the preview popup
+     * Opens a 360 panoramic image directly with the project's entry photo.
+     * Opens the viewer without requiring the street view tool to be active
+     * (the tool toggle controls 2D map overlays, not the 360 viewer).
      * @private
      * @param {CatalogItem} item
      */
     async _openPanoramic360(item) {
-        const streetViewControl = getControl('streetView');
-        if (streetViewControl?.navigateToStreetViewMarker) {
-            await streetViewControl.navigateToStreetViewMarker(item.originalData.id);
+        const project = item.originalData;
+        const photoId = project.entryPhotoId;
+        if (!photoId) {
+            console.warn('Project has no entry photo:', project.id);
+            return;
+        }
+
+        this.hide();
+
+        try {
+            const { openViewer360WithPhoto } = await import(
+                '../street_view_tool/street_view_viewer.js'
+            );
+            const streetViewControl = getControl('streetView');
+
+            await openViewer360WithPhoto(photoId, {
+                miniMap: streetViewControl?.miniMap,
+                controlInstance: streetViewControl
+            });
+
+            if (streetViewControl) {
+                streetViewControl.isOpen = true;
+            }
+        } catch (error) {
+            console.error('Error opening 360 viewer from catalog:', error);
         }
     }
 

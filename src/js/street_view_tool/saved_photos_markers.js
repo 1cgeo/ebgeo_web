@@ -9,7 +9,6 @@
 import { getAllOrientations, getAllMarkers360 } from '../store/streetview360.operations.js';
 import { getEventBus } from '../store/services.js';
 import { EventTypes } from '../events/event_types.js';
-import config from '../config.js';
 
 // Primary color for saved photo markers (blue to differentiate from orange streetview markers)
 const SAVED_PHOTO_MARKER_COLOR = '#3b82f6';
@@ -64,11 +63,14 @@ class SavedPhotosMarkers {
     }
 
     /**
-     * Handle data changes to update markers
+     * Handle data changes to update markers.
+     * Reloads data and ensures visibility when the tool is active.
      */
     async handleDataChanged() {
         if (this.isActive) {
             await this.loadMarkers();
+            // Ensure newly created layers are visible (loadMarkers creates them with visibility: 'none')
+            this.show();
         }
     }
 
@@ -113,8 +115,8 @@ class SavedPhotosMarkers {
     }
 
     /**
-     * Fetches metadata for a photo
-     * @param {string} photoName - Photo name
+     * Fetches metadata for a photo via the API service
+     * @param {string} photoName - Photo UUID
      * @returns {Promise<Object|null>} Metadata or null
      */
     async fetchMetadata(photoName) {
@@ -123,14 +125,8 @@ class SavedPhotosMarkers {
         }
 
         try {
-            const metadataLocation = config.streetView360.metadataLocation;
-
-            const response = await fetch(`${metadataLocation}/${photoName}.json`);
-            if (!response.ok) {
-                return null;
-            }
-
-            const data = await response.json();
+            const { fetchPhotoMetadata } = await import('./streetview-api.service.js');
+            const data = await fetchPhotoMetadata(photoName);
             this.metadataCache.set(photoName, data);
             return data;
         } catch (error) {

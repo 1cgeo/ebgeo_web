@@ -298,18 +298,6 @@ const config = {
       },
     },
 
-    // ----- Street View Sources -----
-    streetViewPointsSource: {
-      type: 'vector',
-      url: 'http://IP:PORT/fotos'
-    },
-    streetViewPointsSourceLayer: 'fotos',
-
-    streetViewLinesSource: {
-      type: 'vector',
-      url: 'http://IP:PORT/fotos_linha'
-    },
-    streetViewLinesSourceLayer: 'fotos_linha',
   },
 
   // ===== 3D MAP CONFIGURATION (CESIUM) =====
@@ -381,21 +369,23 @@ const config = {
     }
   ],
 
-  // ===== STREETVIEW MARKERS =====
-  // Markers for specific panoramic photo locations
-  // These markers appear on the map when the streetview tool is activated
-  // Formato:
-  // {
-  //   id: "unique-id",
-  //   name: "Nome do Ponto",
-  //   description: "Descrição do ponto",
-  //   data_captura: "DD/MM/YYYY",
-  //   local: "Cidade, Estado",
-  //   locate: { lon: -00.0000, lat: -00.0000 },
-  //   previewThumbnail: "./street_view/IMG/NOME_FOTO.jpg",
-  //   photoName: "NOME_FOTO"
-  // }
-  streetViewMarkers: []
+  // ===== STREETVIEW 360 SETTINGS =====
+  streetView360: {
+    // API service URL for UUID-based access + progressive loading
+    serviceUrl: 'http://localhost:8081/api/v1',
+
+    // PMTiles sources for photo-level navigation (minimap + main map line click)
+    pointsSource: {
+      type: 'vector',
+      url: 'http://localhost:3000/fotos'
+    },
+    pointsSourceLayer: 'fotos',
+    linesSource: {
+      type: 'vector',
+      url: 'http://localhost:3000/fotos_linha'
+    },
+    linesSourceLayer: 'fotos_linha',
+  }
 };
 
 export default config;

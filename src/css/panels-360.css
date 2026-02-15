@@ -38,23 +38,34 @@ body.streetview-active .modal-overlay {
     z-index: 400 !important;
 }
 
-/* ===== MINI MAP ===== */
-#mini-map-street-view {
+/* ===== MINIMAP WRAPPER (card with info + map) ===== */
+#streetview-minimap-wrapper {
     display: none;
     position: fixed;
     bottom: 16px;
     left: 72px;
     width: 320px;
-    height: 240px;
     border-radius: 8px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
+    background: rgba(0, 0, 0, 0.55);
+    border: 2px solid rgba(255, 255, 255, 0.25);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
     z-index: 250;
     overflow: hidden;
 }
 
-#mini-map-street-view .maplibregl-canvas {
-    border-radius: 6px;
+/* ===== PHOTO INFO (header inside wrapper) ===== */
+#streetview-photo-info {
+    display: none;
+    padding: 6px 10px;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+}
+
+/* ===== MINI MAP ===== */
+#mini-map-street-view {
+    width: 100%;
+    height: 240px;
 }
 
 /* ===== 360 TOOLBAR - VERTICAL SIDEBAR ===== */
@@ -449,9 +460,12 @@ body.streetview-active .modal-overlay {
         left: 0 !important;
     }
 
-    #mini-map-street-view {
+    #streetview-minimap-wrapper {
         left: 16px;
         width: 200px;
+    }
+
+    #mini-map-street-view {
         height: 150px;
     }
 

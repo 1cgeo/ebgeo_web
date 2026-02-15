@@ -193,27 +193,33 @@ export function search3DModels(query) {
 // ============================================================================
 
 /**
- * Searches streetview markers from config.
+ * Searches streetview projects from the API service cache.
  * @param {string} query - Search query
- * @returns {Array} Search results
+ * @returns {Promise<Array>} Search results
  */
-export function searchStreetViewMarkers(query) {
-    if (!config.streetViewMarkers || config.streetViewMarkers.length === 0) {
+export async function searchStreetViewMarkers(query) {
+    try {
+        const { getCachedProjects, fetchProjects } = await import('../street_view_tool/streetview-api.service.js');
+
+        // Use cache first, fetch if empty
+        const projects = getCachedProjects() || await fetchProjects();
+        if (!projects || projects.length === 0) return [];
+
+        const normalizedQuery = query.toLowerCase();
+
+        return projects
+            .filter(p => p.name?.toLowerCase().includes(normalizedQuery))
+            .slice(0, MAX_RESULTS.streetview)
+            .map(p => ({
+                type: 'streetview-marker',
+                name: p.name,
+                markerId: p.id,
+                coordinates: p.center ? [p.center.lon, p.center.lat] : null,
+                dataCaptura: p.captureDate || null,
+            }));
+    } catch {
         return [];
     }
-
-    const normalizedQuery = query.toLowerCase();
-
-    return config.streetViewMarkers
-        .filter(marker => marker.name?.toLowerCase().includes(normalizedQuery))
-        .slice(0, MAX_RESULTS.streetview)
-        .map(marker => ({
-            type: 'streetview-marker',
-            name: marker.name,
-            markerId: marker.id,
-            coordinates: marker.locate ? [marker.locate.lon, marker.locate.lat] : null,
-            dataCaptura: marker.data_captura,
-        }));
 }
 
 // ============================================================================

@@ -3827,6 +3827,69 @@ body:has(.sidebar-container) .unified-attributes-panel {
     text-overflow: ellipsis;
 }
 
+/* Unavailable tileset state */
+.models3d-tileset-unavailable {
+    background: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 4px,
+        rgba(220, 53, 69, 0.06) 4px,
+        rgba(220, 53, 69, 0.06) 8px
+    );
+    border-left: 3px solid var(--color-error);
+}
+
+.models3d-tileset-unavailable .models3d-tileset-name {
+    color: var(--color-error);
+}
+
+.models3d-tileset-unavailable .models3d-tileset-icon {
+    color: var(--color-error);
+}
+
+.models3d-tileset-details,
+.streetview360-photo-details {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.models3d-status-text,
+.streetview360-status-text {
+    display: block;
+    font-size: var(--font-size-xs);
+    color: var(--gray-400);
+}
+
+.models3d-info-btn,
+.streetview360-info-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--gray-400);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.models3d-info-btn:hover,
+.streetview360-info-btn:hover {
+    color: var(--gray-700);
+    background: var(--gray-100);
+}
+
+.models3d-feature-disabled,
+.streetview360-feature-disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 /* =========================================================================
    STREET VIEW 360 SECTION
    ========================================================================= */
@@ -3999,6 +4062,26 @@ body:has(.sidebar-container) .unified-attributes-panel {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* Unavailable photo state */
+.streetview360-photo-unavailable {
+    background: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 4px,
+        rgba(220, 53, 69, 0.06) 4px,
+        rgba(220, 53, 69, 0.06) 8px
+    );
+    border-left: 3px solid var(--color-error);
+}
+
+.streetview360-photo-unavailable .streetview360-photo-name {
+    color: var(--color-error);
+}
+
+.streetview360-photo-unavailable .streetview360-photo-icon {
+    color: var(--color-error);
 }
 
 /* =========================================================================

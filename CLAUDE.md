@@ -9,7 +9,8 @@ EBGeo (Sistema de Informacao Geografica do Exercito Brasileiro) is a web-based G
 ## Tech Stack
 
 - **Build Tool**: Vite 5.x with legacy browser support
-- **Map Libraries**: MapLibre GL JS (2D), Cesium (3D)
+- **Map Libraries**: MapLibre GL JS 5.x (2D), Cesium 1.138+ (3D)
+- **360 Viewer**: Three.js with API-based panoramic service
 - **Military Symbols**: milsymbol library with Brazilian extensions
 - **Geometry**: Turf.js for geospatial operations
 - **Geomagnetic**: geomagnetism library for magnetic declination
@@ -17,6 +18,7 @@ EBGeo (Sistema de Informacao Geografica do Exercito Brasileiro) is a web-based G
 - **Storage**: LocalForage (IndexedDB wrapper) with Repository abstraction
 - **Server**: Restify (production server)
 - **Import/Export**: JSZip, MGRS, Proj4, ShpJS
+- **Testing**: Vitest
 
 ## Commands
 
@@ -28,6 +30,8 @@ npm start          # Start production server
 npm run lint       # Run ESLint + Stylelint
 npm run lint:fix   # Auto-fix lint issues
 npm run knip       # Dead code detection
+npm test           # Run tests (Vitest)
+npm run test:watch # Run tests in watch mode
 ```
 
 ## Project Structure
@@ -39,7 +43,6 @@ src/js/
 ├── config.js                # App configuration
 ├── config.helpers.js        # Config helper functions (basemaps, tilesets)
 ├── config-loader.js         # Dynamic config loading
-├── url_router.js            # Deep linking support
 │
 ├── store/                   # State management (central data store)
 │   ├── store.js             # Main facade with re-exports
@@ -257,6 +260,7 @@ src/js/
 │   └── vector-info.control.js
 │
 ├── 3d_models_viewer_tool/   # Cesium 3D integration
+│   ├── add_3d_models_viewer_control.js # MapLibre control for 3D toggle
 │   ├── map_3d.js            # Cesium viewer setup
 │   ├── tools/               # 3D-specific tools
 │   ├── components/          # 3D UI components
@@ -266,11 +270,18 @@ src/js/
 │   └── services/
 │       └── keyboard-service-3d.js  # 3D keyboard shortcuts
 │
-├── street_view_tool/        # Street view integration (360)
-│   ├── navigation/          # Navigation system
+├── street_view_tool/        # Street view 360 integration (API-based)
+│   ├── index.js                      # Public API with lazy loading exports
+│   ├── add_street_view_control.js    # MapLibre control for 2D map integration
+│   ├── street_view_viewer.js         # Core Three.js 360 panoramic viewer
+│   ├── streetview_markers.js         # Clustered markers on 2D map (PMTiles)
+│   ├── saved_photos_markers.js       # Markers for saved photo orientations
+│   ├── streetview-api.service.js     # Centralized API client (UUID-based, REST)
+│   ├── navigation/          # Navigation system (Google Street View-like)
+│   │   ├── index.js
 │   │   ├── constants.js
 │   │   ├── hit-tester.js
-│   │   ├── minimap-sync.js
+│   │   ├── minimap-sync.js         # Syncs viewer state with MapLibre minimap
 │   │   ├── navigator.js
 │   │   ├── projector.js
 │   │   └── renderer.js
@@ -832,7 +843,11 @@ External dependencies loaded via script tags:
 
 ## Testing
 
-No automated test framework currently configured. Manual testing via dev server.
+Vitest is configured for unit testing:
+```bash
+npm test           # Run tests once
+npm run test:watch # Run tests in watch mode
+```
 
 ## Common Tasks
 

@@ -9,6 +9,7 @@
 import { getAllMarkers360, getAllOrientations, getControl, removeMarkers360ByPhoto, clearOrientation } from '../store';
 import { getStateManager, getEventBus } from '../store/services.js';
 import { EventTypes } from '../events/index.js';
+import config from '../config.js';
 import { showConfirm } from '../modals/confirm.modal.js';
 import { showSuccess, showError } from '../utilities/toast_service.js';
 import { escapeHtml } from '../utilities/html-escape.js';
@@ -18,6 +19,9 @@ import { escapeHtml } from '../utilities/html-escape.js';
  */
 const ICONS = {
     CAMERA_360: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg>`,
+    WARNING: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+    INFO: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+    CLOSE: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
     MARKER: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
     ORIENTATION: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4"/><path d="M12 18v4"/><path d="m4.93 4.93 2.83 2.83"/><path d="m16.24 16.24 2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="m4.93 19.07 2.83-2.83"/><path d="m16.24 7.76 2.83-2.83"/></svg>`,
     CHEVRON_DOWN: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
@@ -68,6 +72,30 @@ export async function renderStreetview360Section(container, eventBus) {
     // Group all features by photoName
     const featuresByPhoto = groupFeaturesByPhoto(markers || [], orientations || {});
 
+    // Check if streetview service is available
+    const isStreetviewAvailable = config.features.imagens_panoramicas === true;
+
+    // Resolve photo UUIDs to display names
+    const photoDisplayNames = {};
+    if (isStreetviewAvailable) {
+        try {
+            const { getPhotoDisplayName } = await import(
+                '../street_view_tool/streetview-api.service.js'
+            );
+            const entries = await Promise.all(
+                Object.keys(featuresByPhoto).map(async (photoId) => [
+                    photoId,
+                    await getPhotoDisplayName(photoId)
+                ])
+            );
+            for (const [id, name] of entries) {
+                photoDisplayNames[id] = name;
+            }
+        } catch {
+            // Fallback: raw IDs will be used
+        }
+    }
+
     container.style.display = 'block';
     container.innerHTML = `
         <div class="sidebar-section-header">
@@ -78,9 +106,12 @@ export async function renderStreetview360Section(container, eventBus) {
 
     const list = container.querySelector('.streetview360-list');
 
-    // Create photo items
+    // Create photo items (available or unavailable)
     for (const [photoName, features] of Object.entries(featuresByPhoto)) {
-        const photoItem = createPhotoItem(photoName, features, eventBus);
+        const displayName = photoDisplayNames[photoName] || photoName;
+        const photoItem = isStreetviewAvailable
+            ? createPhotoItem(photoName, displayName, features, eventBus)
+            : createUnavailablePhotoItem(photoName, displayName, features, eventBus);
         list.appendChild(photoItem);
     }
 }
@@ -152,12 +183,13 @@ function getFeatureName(feature) {
 
 /**
  * Creates a photo item with its features.
- * @param {string} photoName - Photo name
+ * @param {string} photoName - Photo UUID (used for operations)
+ * @param {string} displayName - Human-readable display name
  * @param {Array} features - All features for this photo
  * @param {Object} eventBus - EventBus instance
  * @returns {HTMLElement}
  */
-function createPhotoItem(photoName, features, eventBus) {
+function createPhotoItem(photoName, displayName, features, eventBus) {
     const isCollapsed = collapsedPhotos.has(photoName);
 
     const item = document.createElement('div');
@@ -166,6 +198,7 @@ function createPhotoItem(photoName, features, eventBus) {
 
     // Build features list HTML
     const safePhotoName = escapeHtml(photoName);
+    const safeDisplayName = escapeHtml(displayName);
     const featuresHtml = features.map(feature => `
         <div class="streetview360-feature-item" data-type="${escapeHtml(feature.type)}" data-id="${feature.type === 'marker' ? escapeHtml(feature.data.id) : ''}" data-photo="${safePhotoName}">
             <span class="streetview360-feature-icon">${getFeatureIcon(feature)}</span>
@@ -179,7 +212,7 @@ function createPhotoItem(photoName, features, eventBus) {
                 ${isCollapsed ? ICONS.CHEVRON_RIGHT : ICONS.CHEVRON_DOWN}
             </button>
             <span class="streetview360-photo-icon">${ICONS.CAMERA_360}</span>
-            <span class="streetview360-photo-name" title="${safePhotoName}">${safePhotoName}</span>
+            <span class="streetview360-photo-name" title="${safeDisplayName}">${safeDisplayName}</span>
             <span class="streetview360-feature-count">${features.length}</span>
             <button class="streetview360-delete-all" title="Deletar todas as feições">
                 ${ICONS.TRASH}
@@ -194,19 +227,166 @@ function createPhotoItem(photoName, features, eventBus) {
     `;
 
     // Attach events
-    attachPhotoItemEvents(item, photoName, features, eventBus);
+    attachPhotoItemEvents(item, photoName, displayName, features, eventBus);
 
     return item;
 }
 
 /**
+ * Creates an unavailable photo item (streetview service offline).
+ * Shows warning visual, allows deletion but not viewer opening.
+ * @param {string} photoName - Photo UUID (used for operations)
+ * @param {string} displayName - Human-readable display name
+ * @param {Array} features - All features for this photo
+ * @param {Object} _eventBus - EventBus instance
+ * @returns {HTMLElement}
+ */
+function createUnavailablePhotoItem(photoName, displayName, features, _eventBus) {
+    const isCollapsed = collapsedPhotos.has(photoName);
+
+    const item = document.createElement('div');
+    item.className = 'streetview360-photo-item streetview360-photo-unavailable';
+    item.dataset.photoName = photoName;
+
+    // Build features list HTML (read-only, no click handlers)
+    const safePhotoName = escapeHtml(photoName);
+    const safeDisplayName = escapeHtml(displayName);
+    const featuresHtml = features.map(feature => `
+        <div class="streetview360-feature-item streetview360-feature-disabled" data-type="${escapeHtml(feature.type)}" data-photo="${safePhotoName}">
+            <span class="streetview360-feature-icon">${getFeatureIcon(feature)}</span>
+            <span class="streetview360-feature-name" title="${escapeHtml(getFeatureName(feature))}">${escapeHtml(getFeatureName(feature))}</span>
+        </div>
+    `).join('');
+
+    item.innerHTML = `
+        <div class="streetview360-photo-header">
+            <button class="streetview360-photo-toggle" aria-expanded="${!isCollapsed}">
+                ${isCollapsed ? ICONS.CHEVRON_RIGHT : ICONS.CHEVRON_DOWN}
+            </button>
+            <span class="streetview360-photo-icon">${ICONS.WARNING}</span>
+            <div class="streetview360-photo-details">
+                <span class="streetview360-photo-name" title="${safeDisplayName}">${safeDisplayName}</span>
+                <span class="streetview360-status-text">Indisponível</span>
+            </div>
+            <span class="streetview360-feature-count">${features.length}</span>
+            <button class="streetview360-delete-all" title="Deletar todas as feições">
+                ${ICONS.TRASH}
+            </button>
+            <button class="streetview360-info-btn" title="Ver detalhes">
+                ${ICONS.INFO}
+            </button>
+        </div>
+        <div class="streetview360-features-list ${isCollapsed ? 'collapsed' : ''}">
+            ${featuresHtml}
+        </div>
+    `;
+
+    // Toggle expansion
+    const toggleBtn = item.querySelector('.streetview360-photo-toggle');
+    const featuresList = item.querySelector('.streetview360-features-list');
+
+    toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isCurrentlyCollapsed = featuresList.classList.contains('collapsed');
+
+        if (isCurrentlyCollapsed) {
+            featuresList.classList.remove('collapsed');
+            toggleBtn.innerHTML = ICONS.CHEVRON_DOWN;
+            toggleBtn.setAttribute('aria-expanded', 'true');
+            collapsedPhotos.delete(photoName);
+        } else {
+            featuresList.classList.add('collapsed');
+            toggleBtn.innerHTML = ICONS.CHEVRON_RIGHT;
+            toggleBtn.setAttribute('aria-expanded', 'false');
+            collapsedPhotos.add(photoName);
+        }
+    });
+
+    // Delete all features button (still functional for cleanup)
+    const deleteAllBtn = item.querySelector('.streetview360-delete-all');
+    deleteAllBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const hasOrientation = features.some(f => f.type === 'orientation');
+        await handleDeleteAllFeatures(photoName, displayName, features.length, hasOrientation);
+    });
+
+    // Info button — shows popover with details
+    const infoBtn = item.querySelector('.streetview360-info-btn');
+    infoBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showUnavailablePopover(displayName, infoBtn);
+    });
+
+    return item;
+}
+
+/**
+ * Shows a popover with details about an unavailable 360 photo.
+ * Reuses the catalog-layer-popover CSS.
+ * @param {string} photoName - Photo name
+ * @param {HTMLElement} anchorElement - Element to anchor the popover to
+ */
+function showUnavailablePopover(photoName, anchorElement) {
+    // Remove any existing popover
+    const existing = document.querySelector('.catalog-layer-popover');
+    if (existing) existing.remove();
+
+    const popover = document.createElement('div');
+    popover.className = 'catalog-layer-popover';
+    popover.innerHTML = `
+        <div class="popover-header">
+            <span>Foto 360 Indisponível</span>
+            <button class="popover-close" title="Fechar">${ICONS.CLOSE}</button>
+        </div>
+        <div class="popover-body">
+            <p>O serviço de imagens 360 está indisponível. Dados salvos para esta foto não podem ser visualizados.</p>
+            <dl>
+                <dt>Foto:</dt>
+                <dd><code>${escapeHtml(photoName)}</code></dd>
+            </dl>
+            <p class="popover-hint">
+                Verifique a conexão com o servidor de imagens 360.
+            </p>
+        </div>
+    `;
+
+    document.body.appendChild(popover);
+
+    // Position popover near anchor
+    const anchorRect = anchorElement.getBoundingClientRect();
+    const popoverRect = popover.getBoundingClientRect();
+    let left = anchorRect.left - popoverRect.width - 8;
+    let top = anchorRect.top;
+    if (left < 8) left = anchorRect.right + 8;
+    if (top + popoverRect.height > window.innerHeight - 8) top = window.innerHeight - popoverRect.height - 8;
+    if (top < 8) top = 8;
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+
+    // Close button
+    popover.querySelector('.popover-close').addEventListener('click', () => popover.remove());
+
+    // Close on click outside
+    setTimeout(() => {
+        const closeOnClickOutside = (e) => {
+            if (!popover.contains(e.target) && !anchorElement.contains(e.target)) {
+                popover.remove();
+                document.removeEventListener('click', closeOnClickOutside);
+            }
+        };
+        document.addEventListener('click', closeOnClickOutside);
+    }, 0);
+}
+
+/**
  * Attaches events to a photo item.
  * @param {HTMLElement} item - Photo item element
- * @param {string} photoName - Photo name
+ * @param {string} photoName - Photo UUID (used for operations)
+ * @param {string} displayName - Human-readable name for dialogs
  * @param {Array} features - Features for this photo
  * @param {Object} _eventBus - EventBus instance
  */
-function attachPhotoItemEvents(item, photoName, features, _eventBus) {
+function attachPhotoItemEvents(item, photoName, displayName, features, _eventBus) {
     // Toggle photo expansion
     const toggleBtn = item.querySelector('.streetview360-photo-toggle');
     const featuresList = item.querySelector('.streetview360-features-list');
@@ -240,7 +420,7 @@ function attachPhotoItemEvents(item, photoName, features, _eventBus) {
     deleteAllBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const hasOrientation = features.some(f => f.type === 'orientation');
-        await handleDeleteAllFeatures(photoName, features.length, hasOrientation);
+        await handleDeleteAllFeatures(photoName, displayName, features.length, hasOrientation);
     });
 
     // Feature clicks
@@ -265,14 +445,15 @@ function attachPhotoItemEvents(item, photoName, features, _eventBus) {
 /**
  * Handles the deletion of all features for a photo.
  * Shows a confirmation modal before deleting.
- * @param {string} photoName - Photo name
+ * @param {string} photoName - Photo UUID (used for deletion)
+ * @param {string} displayName - Human-readable name for the dialog
  * @param {number} featureCount - Number of features to delete
  * @param {boolean} hasOrientation - Whether the photo has a saved orientation
  */
-async function handleDeleteAllFeatures(photoName, featureCount, hasOrientation = false) {
+async function handleDeleteAllFeatures(photoName, displayName, featureCount, hasOrientation = false) {
     const orientationText = hasOrientation ? ' (incluindo orientação salva)' : '';
     const confirmed = await showConfirm(
-        `Deletar todas as feições de "${photoName}"?`,
+        `Deletar todas as feições de "${displayName}"?`,
         {
             message: `${featureCount} feição(ões) serão permanentemente excluídas${orientationText}.\nEsta ação não pode ser desfeita.`,
             confirmText: 'Deletar',

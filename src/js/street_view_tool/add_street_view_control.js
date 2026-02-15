@@ -12,6 +12,9 @@
 
 import config from '../config.js';
 import StreetviewMarkers from './streetview_markers.js';
+
+// Property name used in PMTiles to identify photos
+const PHOTO_PROPERTY = 'photo_uuid';
 import SavedPhotosMarkers from './saved_photos_markers.js';
 import { getEventBus, registerControl } from '../store';
 import { EventTypes } from '../events/event_types.js';
@@ -24,16 +27,8 @@ class AddStreetViewControl {
         this.isActive = false;
         this.isOpen = false;
 
-        // Mini-map for street view navigation
-        this.miniMap = new maplibregl.Map({
-            container: 'mini-map-street-view',
-            style: './street_view/street-view-mini-map-style.json',
-            attributionControl: false,
-            zoom: 12.5,
-            minZoom: 11,
-            maxZoom: 17.9,
-            validateStyle: false
-        });
+        // Mini-map for street view navigation (lazy — created in setupMiniMapWithPMTiles)
+        this.miniMap = null;
 
         this.photosSourceId = 'pmtiles-photos';
 
@@ -57,7 +52,7 @@ class AddStreetViewControl {
                 'id': 'street-view',
                 'type': 'circle',
                 'source': 'streetViewPointsSource',
-                'source-layer': config.map2d.streetViewPointsSourceLayer,
+                'source-layer': config.streetView360.pointsSourceLayer,
                 'visibility': 'none',
                 'paint': {
                     'circle-radius': 0,
@@ -70,11 +65,23 @@ class AddStreetViewControl {
             this.streetViewLinesLayer = {
                 'id': 'street-view-lines',
                 'type': 'line',
-                'source': config.map2d.streetViewLinesSourceLayer,
-                'source-layer': config.map2d.streetViewLinesSourceLayer,
+                'source': config.streetView360.linesSourceLayer,
+                'source-layer': config.streetView360.linesSourceLayer,
                 'paint': {
                     'line-color': '#0d6efd',
                     'line-width': 3
+                }
+            };
+
+            // Invisible wider layer for easier click/hover hit testing
+            this.streetViewLinesHitLayer = {
+                'id': 'street-view-lines-hit',
+                'type': 'line',
+                'source': config.streetView360.linesSourceLayer,
+                'source-layer': config.streetView360.linesSourceLayer,
+                'paint': {
+                    'line-color': 'transparent',
+                    'line-width': 10
                 }
             };
         }
@@ -138,6 +145,19 @@ class AddStreetViewControl {
     }
 
     setupMiniMapWithPMTiles = async () => {
+        // Lazy-create miniMap only when street view feature is actually enabled
+        if (!this.miniMap) {
+            this.miniMap = new maplibregl.Map({
+                container: 'mini-map-street-view',
+                style: './street_view/street-view-mini-map-style.json',
+                attributionControl: false,
+                zoom: 12.5,
+                minZoom: 11,
+                maxZoom: 17.9,
+                validateStyle: false
+            });
+        }
+
         this.miniMap.on('load', async () => {
             try {
                 // Register PMTiles protocol
@@ -146,7 +166,7 @@ class AddStreetViewControl {
                     maplibregl.addProtocol("pmtiles", protocol.tile);
                 }
 
-                this.miniMap.addSource(this.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
+                this.miniMap.addSource(this.streetViewPointsLayer['source'], config.streetView360.pointsSource);
 
                 const pointImage = await this.miniMap.loadImage('./street_view/point.png');
                 await this.miniMap.addImage('point', pointImage.data);
@@ -158,7 +178,7 @@ class AddStreetViewControl {
                     'id': 'points',
                     'type': 'symbol',
                     'source': this.streetViewPointsLayer['source'],
-                    'source-layer': config.map2d.streetViewPointsSourceLayer,
+                    'source-layer': config.streetView360.pointsSourceLayer,
                     'layout': {
                         'icon-image': 'point',
                         'icon-allow-overlap': true,
@@ -170,7 +190,7 @@ class AddStreetViewControl {
                 this.miniMap.on('click', 'points', async (e) => {
                     const properties = e.features[0].properties;
                     const { navigateToTarget } = await import('./street_view_viewer.js');
-                    await navigateToTarget(properties.nome_img);
+                    await navigateToTarget(properties[PHOTO_PROPERTY]);
                 });
 
                 this.miniMap.on('mouseenter', 'points', () => {
@@ -190,7 +210,7 @@ class AddStreetViewControl {
     loadData = async () => {
         try {
             if (!this.map.getSource(this.streetViewPointsLayer['source'])) {
-                this.map.addSource(this.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
+                this.map.addSource(this.streetViewPointsLayer['source'], config.streetView360.pointsSource);
                 const onPhotosSourceData = (e) => {
                     if (e.sourceId === this.streetViewPointsLayer['source'] && this.map.isSourceLoaded(this.streetViewPointsLayer['source'])) {
                         if (!this.map.getLayer(this.streetViewPointsLayer['id'])) {
@@ -206,12 +226,15 @@ class AddStreetViewControl {
             }
 
             if (!this.map.getSource(this.streetViewLinesLayer['source'])) {
-                this.map.addSource(this.streetViewLinesLayer['source'], config.map2d.streetViewLinesSource);
+                this.map.addSource(this.streetViewLinesLayer['source'], config.streetView360.linesSource);
 
                 const onLinesSourceData = (e) => {
                     if (e.sourceId === this.streetViewLinesLayer['source'] && this.map.isSourceLoaded(this.streetViewLinesLayer['source'])) {
                         if (!this.map.getLayer(this.streetViewLinesLayer['id'])) {
                             this.map.addLayer(this.streetViewLinesLayer);
+                        }
+                        if (!this.map.getLayer(this.streetViewLinesHitLayer['id'])) {
+                            this.map.addLayer(this.streetViewLinesHitLayer);
                         }
                         this.showLayers();
                         this.map.off('sourcedata', onLinesSourceData);
@@ -283,9 +306,11 @@ class AddStreetViewControl {
     }
 
     showPhotos = async () => {
-        this.map.on('click', this.streetViewLinesLayer['id'], this.loadPoint);
-        this.map.on('mouseenter', this.streetViewLinesLayer['id'], this.showHoverCursor);
-        this.map.on('mouseleave', this.streetViewLinesLayer['id'], this.hideHoverCursor);
+        // Bind click/hover to the wider invisible hit layer for easier interaction
+        const hitLayerId = this.streetViewLinesHitLayer['id'];
+        this.map.on('click', hitLayerId, this.loadPoint);
+        this.map.on('mouseenter', hitLayerId, this.showHoverCursor);
+        this.map.on('mouseleave', hitLayerId, this.hideHoverCursor);
 
         if (this.miniMap.getLayer('selected')) {
             this.miniMap.removeLayer('selected');
@@ -295,15 +320,22 @@ class AddStreetViewControl {
             'id': 'selected',
             'type': 'symbol',
             'source': this.streetViewPointsLayer['source'],
-            'source-layer': config.map2d.streetViewPointsSourceLayer,
-            "filter": ["==", "nome_img", ""],
+            'source-layer': config.streetView360.pointsSourceLayer,
+            "filter": ["==", PHOTO_PROPERTY, ""],
             'layout': {
                 'icon-image': 'point-selected'
             }
         });
     }
 
-    getNeighborFromPMTiles = async (point) => {
+    /**
+     * Finds the nearest photo point to a given coordinate.
+     * Uses querySourceFeatures (vector tile data) since the points layer
+     * has circle-radius: 0 and queryRenderedFeatures would return nothing.
+     * @param {Object} point - {lng, lat} coordinate
+     * @returns {Promise<Object|null>} Nearest feature or null
+     */
+    getNearestPhoto = async (point) => {
         try {
             const cacheKey = `${Math.round(point.lng * 1000)}_${Math.round(point.lat * 1000)}`;
 
@@ -311,20 +343,37 @@ class AddStreetViewControl {
                 return this.nearbyFeaturesCache.get(cacheKey);
             }
 
-            const pixelPoint = this.map.project([point.lng, point.lat]);
-
-            const radius = 50;
+            // ~33m buffer — tight enough to avoid adjacent tracks
+            const bufferDistance = 0.0003;
             const bbox = [
-                [pixelPoint.x - radius, pixelPoint.y - radius],
-                [pixelPoint.x + radius, pixelPoint.y + radius]
+                point.lng - bufferDistance,
+                point.lat - bufferDistance,
+                point.lng + bufferDistance,
+                point.lat + bufferDistance
             ];
 
-            const features = this.map.queryRenderedFeatures(bbox, {
-                layers: [this.streetViewPointsLayer['id']]
+            let features = this.map.querySourceFeatures(this.streetViewPointsLayer['source'], {
+                bbox,
+                sourceLayer: config.streetView360.pointsSourceLayer
             });
 
+            // Widen search if nothing found nearby
             if (features.length === 0) {
-                return await this.getNeighborWithBboxQuery(point);
+                const widerBuffer = 0.001;
+                const widerBbox = [
+                    point.lng - widerBuffer,
+                    point.lat - widerBuffer,
+                    point.lng + widerBuffer,
+                    point.lat + widerBuffer
+                ];
+                features = this.map.querySourceFeatures(this.streetViewPointsLayer['source'], {
+                    bbox: widerBbox,
+                    sourceLayer: config.streetView360.pointsSourceLayer
+                });
+            }
+
+            if (features.length === 0) {
+                return null;
             }
 
             const from = turf.point([point.lng, point.lat]);
@@ -349,51 +398,7 @@ class AddStreetViewControl {
             return target;
 
         } catch (error) {
-            console.error('Error finding nearest neighbor:', error);
-            return null;
-        }
-    }
-
-    getNeighborWithBboxQuery = async (point) => {
-        try {
-            const bufferDistance = 0.001;
-            const bbox = [
-                point.lng - bufferDistance,
-                point.lat - bufferDistance,
-                point.lng + bufferDistance,
-                point.lat + bufferDistance
-            ];
-
-            const queryOptions = {
-                bbox: bbox,
-                sourceLayer: config.map2d.streetViewPointsSourceLayer
-            };
-
-            const features = this.map.querySourceFeatures(this.streetViewPointsLayer['source'], queryOptions);
-
-            if (features.length === 0) {
-                return null;
-            }
-
-            const from = turf.point([point.lng, point.lat]);
-            let minDistance = Infinity;
-            let target = null;
-
-            for (const feature of features) {
-                const coords = feature.geometry.coordinates;
-                const to = turf.point(coords);
-                const distance = turf.distance(from, to);
-
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    target = feature;
-                }
-            }
-
-            return target;
-
-        } catch (error) {
-            console.error('Error in bbox search:', error);
+            console.error('Error finding nearest photo:', error);
             return null;
         }
     }
@@ -418,13 +423,9 @@ class AddStreetViewControl {
         }
 
         try {
-            let feature = await this.getNeighborFromPMTiles(e.lngLat);
+            const feature = await this.getNearestPhoto(e.lngLat);
 
-            if (!feature) {
-                feature = await this.getNeighborWithBboxQuery(e.lngLat);
-            }
-
-            if (feature && feature.properties && feature.properties.nome_img) {
+            if (feature && feature.properties && feature.properties[PHOTO_PROPERTY]) {
                 this.isOpen = true;
 
                 // Import and open viewer dynamically
@@ -433,9 +434,9 @@ class AddStreetViewControl {
                 // If already open, just navigate to new photo
                 if (isStreetView360Open()) {
                     const { navigateToTarget } = await import('./street_view_viewer.js');
-                    await navigateToTarget(feature.properties.nome_img);
+                    await navigateToTarget(feature.properties[PHOTO_PROPERTY]);
                 } else {
-                    await openViewer360WithPhoto(feature.properties.nome_img, {
+                    await openViewer360WithPhoto(feature.properties[PHOTO_PROPERTY], {
                         miniMap: this.miniMap,
                         controlInstance: this
                     });
@@ -511,15 +512,19 @@ class AddStreetViewControl {
     }
 
     hidePhotos = () => {
-        this.map.off('click', this.streetViewLinesLayer['id'], this.loadPoint);
-        this.map.off('mouseenter', this.streetViewLinesLayer['id'], this.showHoverCursor);
-        this.map.off('mouseleave', this.streetViewLinesLayer['id'], this.hideHoverCursor);
+        const hitLayerId = this.streetViewLinesHitLayer['id'];
+        this.map.off('click', hitLayerId, this.loadPoint);
+        this.map.off('mouseenter', hitLayerId, this.showHoverCursor);
+        this.map.off('mouseleave', hitLayerId, this.hideHoverCursor);
 
         if (this.map.getLayer(this.streetViewPointsLayer['id'])) {
             this.map.setLayoutProperty(this.streetViewPointsLayer['id'], 'visibility', 'none');
         }
         if (this.map.getLayer(this.streetViewLinesLayer['id'])) {
             this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'none');
+        }
+        if (this.map.getLayer(hitLayerId)) {
+            this.map.setLayoutProperty(hitLayerId, 'visibility', 'none');
         }
     }
 
@@ -533,6 +538,15 @@ class AddStreetViewControl {
         } else {
             this.map.addLayer(this.streetViewLinesLayer);
             this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'visible');
+        }
+
+        // Hit layer (invisible wider line for click/hover)
+        const hitLayerId = this.streetViewLinesHitLayer['id'];
+        if (this.map.getLayer(hitLayerId)) {
+            this.map.setLayoutProperty(hitLayerId, 'visibility', 'visible');
+        } else if (this.map.getSource(this.streetViewLinesHitLayer['source'])) {
+            this.map.addLayer(this.streetViewLinesHitLayer);
+            this.map.setLayoutProperty(hitLayerId, 'visibility', 'visible');
         }
 
         // Add separator layer for marker z-ordering (markers are added before this separator)

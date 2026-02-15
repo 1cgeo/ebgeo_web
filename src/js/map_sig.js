@@ -40,7 +40,6 @@ import { KeyboardShortcuts } from './keyboard';
 import { initKeyboardService360 } from './street_view_tool/services/keyboard_service_360.js';
 import { initKeyboardService3D } from './3d_models_viewer_tool/services/keyboard-service-3d.js';
 import { initKeyboardServiceBriefing, BriefingEditorControl, BriefingPresenterControl } from './briefing/index.js';
-import { URLRouter } from './url_router.js';
 import { ToolbarControl, ActiveToolChip } from './toolbar';
 import { AttributeTableControl } from './attribute_table';
 
@@ -173,7 +172,7 @@ export function createMap() {
  * @param {DataLayersManager} dataLayersManager
  * @returns {Object} Controls object with baseLayerControl, viewer controls, and destroyables
  */
-export function createControls(map, analysisLayersManager, dataLayersManager) {
+export async function createControls(map, analysisLayersManager, dataLayersManager) {
 
     // ===== TOOL CONTROLS =====
 
@@ -494,6 +493,24 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
     });
     searchBarComponent.init(document.body);
 
+    // ===== STREET VIEW 360 PREFLIGHT =====
+    // Must run BEFORE map.addControl(addStreetViewControl) so onAdd() sees the correct flag
+    // and avoids loading PMTiles sources for a service that is unreachable.
+    if (config.features.imagens_panoramicas) {
+        if (!config.streetView360?.serviceUrl) {
+            config.features.imagens_panoramicas = false;
+        } else {
+            try {
+                const { preflightCheck } = await import('./street_view_tool/streetview-api.service.js');
+                if (!(await preflightCheck())) {
+                    config.features.imagens_panoramicas = false;
+                }
+            } catch {
+                config.features.imagens_panoramicas = false;
+            }
+        }
+    }
+
     // Standalone controls managed by BottomControlsControl
     // Still need to be added to the map for their functionality (sources, layers, etc.)
     // but their buttons are hidden via CSS since BottomControlsControl provides the toggle UI
@@ -597,25 +614,25 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
 
 /**
  * Starts IndexedDB state loading and sets up the map load event handler.
- * Replaces the previous manual storeInitializedPromise pattern.
+ * Must be called synchronously after createMap() — before the map 'load' event fires.
  *
  * @param {maplibregl.Map} map - Map instance
- * @param {Object} controls - Controls from createControls()
+ * @param {Promise<Object>} controlsPromise - Promise that resolves to controls from createControls()
  */
-export function initializeApp(map, controls) {
-    const { baseLayerControl, add3DModelsViewerControl, addStreetViewControl } = controls;
-
+export function initializeApp(map, controlsPromise) {
     // Start loading state from IndexedDB (fast, ~10-50ms).
     const statePromise = initializeWithLastActiveMap();
 
-    // Map load handler — fires when MapLibre finishes rendering tiles
+    // Map load handler — fires when MapLibre finishes rendering tiles.
+    // Must be registered synchronously to avoid race with async createControls().
     map.on('load', async () => {
         map.doubleClickZoom.disable();
         map.boxZoom.disable();
         map.dragRotate.disable();
 
-        // Wait for IndexedDB state to be ready (usually already resolved by now)
-        await statePromise;
+        // Wait for both IndexedDB state and controls to be ready
+        const [, controls] = await Promise.all([statePromise, controlsPromise]);
+        const { baseLayerControl, add3DModelsViewerControl, addStreetViewControl } = controls;
 
         await baseLayerControl.switchMap(true);
 
@@ -627,13 +644,6 @@ export function initializeApp(map, controls) {
         map.setSky(undefined);
 
         hideLoadingScreen();
-
-        // Execute URL deep linking after map is ready
-        URLRouter.execute({
-            modelsControl: add3DModelsViewerControl,
-            streetViewControl: addStreetViewControl,
-            map: map
-        });
     });
 }
 

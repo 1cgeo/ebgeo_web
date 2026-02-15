@@ -19,6 +19,9 @@ import { escapeHtml } from '../utilities/html-escape.js';
  */
 const ICONS = {
     MODEL_3D: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`,
+    WARNING: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+    INFO: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+    CLOSE: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
     MARKER: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
     DISTANCE: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg>`,
     AREA: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>`,
@@ -86,12 +89,15 @@ export async function renderModels3dSection(container, eventBus) {
 
     const list = container.querySelector('.models3d-list');
 
-    // Create tileset items
+    // Create tileset items (available or unavailable)
     for (const [tilesetId, features] of Object.entries(featuresByTileset)) {
         const tilesetConfig = tilesetConfigs.find(t => t.id === tilesetId);
         const tilesetName = tilesetConfig?.name || tilesetId;
+        const isAvailable = !!tilesetConfig;
 
-        const tilesetItem = createTilesetItem(tilesetId, tilesetName, features, eventBus);
+        const tilesetItem = isAvailable
+            ? createTilesetItem(tilesetId, tilesetName, features, eventBus)
+            : createUnavailableTilesetItem(tilesetId, tilesetName, features, eventBus);
         list.appendChild(tilesetItem);
     }
 }
@@ -241,6 +247,154 @@ function createTilesetItem(tilesetId, tilesetName, features, eventBus) {
     attachTilesetEvents(item, tilesetId, features, eventBus);
 
     return item;
+}
+
+/**
+ * Creates an unavailable tileset item (tileset not in config).
+ * Shows warning visual, allows deletion but not viewer opening.
+ * @param {string} tilesetId - Tileset ID
+ * @param {string} tilesetName - Tileset display name (fallback to ID)
+ * @param {Array} features - All features for this tileset
+ * @param {Object} eventBus - EventBus instance
+ * @returns {HTMLElement}
+ */
+function createUnavailableTilesetItem(tilesetId, tilesetName, features, _eventBus) {
+    const isCollapsed = collapsedTilesets.has(tilesetId);
+
+    const item = document.createElement('div');
+    item.className = 'models3d-tileset-item models3d-tileset-unavailable';
+    item.dataset.tilesetId = tilesetId;
+
+    // Build features list HTML (read-only, no click handlers)
+    const featuresHtml = features.map(feature => `
+        <div class="models3d-feature-item models3d-feature-disabled" data-feature-type="${escapeHtml(feature.featureType)}" data-feature-id="${escapeHtml(feature.id)}">
+            <span class="models3d-feature-icon">${getFeatureIcon(feature)}</span>
+            <span class="models3d-feature-name" title="${escapeHtml(getFeatureName(feature))}">${escapeHtml(getFeatureName(feature))}</span>
+        </div>
+    `).join('');
+
+    const safeTilesetName = escapeHtml(tilesetName);
+    item.innerHTML = `
+        <div class="models3d-tileset-header">
+            <button class="models3d-tileset-toggle" aria-expanded="${!isCollapsed}">
+                ${isCollapsed ? ICONS.CHEVRON_RIGHT : ICONS.CHEVRON_DOWN}
+            </button>
+            <span class="models3d-tileset-icon">${ICONS.WARNING}</span>
+            <div class="models3d-tileset-details">
+                <span class="models3d-tileset-name" title="${safeTilesetName}">${safeTilesetName}</span>
+                <span class="models3d-status-text">Indisponível</span>
+            </div>
+            <span class="models3d-marker-count">${features.length}</span>
+            <button class="models3d-delete-all" title="Deletar todas as feições">
+                ${ICONS.TRASH}
+            </button>
+            <button class="models3d-info-btn" title="Ver detalhes">
+                ${ICONS.INFO}
+            </button>
+        </div>
+        <div class="models3d-features-list ${isCollapsed ? 'collapsed' : ''}">
+            ${featuresHtml}
+        </div>
+    `;
+
+    // Toggle expansion
+    const toggleBtn = item.querySelector('.models3d-tileset-toggle');
+    const featuresList = item.querySelector('.models3d-features-list');
+
+    toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isCurrentlyCollapsed = featuresList.classList.contains('collapsed');
+
+        if (isCurrentlyCollapsed) {
+            featuresList.classList.remove('collapsed');
+            toggleBtn.innerHTML = ICONS.CHEVRON_DOWN;
+            toggleBtn.setAttribute('aria-expanded', 'true');
+            collapsedTilesets.delete(tilesetId);
+        } else {
+            featuresList.classList.add('collapsed');
+            toggleBtn.innerHTML = ICONS.CHEVRON_RIGHT;
+            toggleBtn.setAttribute('aria-expanded', 'false');
+            collapsedTilesets.add(tilesetId);
+        }
+    });
+
+    // Delete all features button (still functional for cleanup)
+    const deleteAllBtn = item.querySelector('.models3d-delete-all');
+    deleteAllBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const hasOrientation = features.some(f => f.featureType === 'orientation');
+        await handleDeleteAllFeatures(tilesetId, features.length, hasOrientation);
+    });
+
+    // Info button — shows popover with details
+    const infoBtn = item.querySelector('.models3d-info-btn');
+    infoBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showUnavailablePopover(tilesetId, infoBtn, 'Modelo 3D');
+    });
+
+    return item;
+}
+
+/**
+ * Shows a popover with details about an unavailable resource.
+ * Reuses the catalog-layer-popover CSS.
+ * @param {string} resourceId - Resource identifier
+ * @param {HTMLElement} anchorElement - Element to anchor the popover to
+ * @param {string} resourceType - Resource type label (e.g. "Modelo 3D")
+ */
+function showUnavailablePopover(resourceId, anchorElement, resourceType) {
+    // Remove any existing popover
+    const existing = document.querySelector('.catalog-layer-popover');
+    if (existing) existing.remove();
+
+    const popover = document.createElement('div');
+    popover.className = 'catalog-layer-popover';
+    popover.innerHTML = `
+        <div class="popover-header">
+            <span>${escapeHtml(resourceType)} Indisponível</span>
+            <button class="popover-close" title="Fechar">${ICONS.CLOSE}</button>
+        </div>
+        <div class="popover-body">
+            <p>Este recurso foi salvo no projeto mas não está configurado nesta instância do EBGeo.</p>
+            <dl>
+                <dt>Tipo:</dt>
+                <dd>${escapeHtml(resourceType)}</dd>
+                <dt>ID Original:</dt>
+                <dd><code>${escapeHtml(resourceId)}</code></dd>
+            </dl>
+            <p class="popover-hint">
+                Para utilizar este recurso, verifique se o config.js inclui a configuração necessária.
+            </p>
+        </div>
+    `;
+
+    document.body.appendChild(popover);
+
+    // Position popover near anchor
+    const anchorRect = anchorElement.getBoundingClientRect();
+    const popoverRect = popover.getBoundingClientRect();
+    let left = anchorRect.left - popoverRect.width - 8;
+    let top = anchorRect.top;
+    if (left < 8) left = anchorRect.right + 8;
+    if (top + popoverRect.height > window.innerHeight - 8) top = window.innerHeight - popoverRect.height - 8;
+    if (top < 8) top = 8;
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+
+    // Close button
+    popover.querySelector('.popover-close').addEventListener('click', () => popover.remove());
+
+    // Close on click outside
+    setTimeout(() => {
+        const closeOnClickOutside = (e) => {
+            if (!popover.contains(e.target) && !anchorElement.contains(e.target)) {
+                popover.remove();
+                document.removeEventListener('click', closeOnClickOutside);
+            }
+        };
+        document.addEventListener('click', closeOnClickOutside);
+    }, 0);
 }
 
 /**

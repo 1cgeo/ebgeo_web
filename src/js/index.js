@@ -14,7 +14,6 @@
 
 import { initializeAppConfig } from './config-loader.js';
 import { initConfigHelpers } from './config.helpers.js';
-import { URLRouter } from './url_router.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
 import { initServices } from './store';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
@@ -38,11 +37,16 @@ async function initApp() {
     // Phase 3: Map (MapLibre GL instance + tile error handling)
     const { map, analysisLayersManager, dataLayersManager } = createMap();
 
-    // Phase 4: Controls (all tools, UI components, registrations)
-    const controls = createControls(map, analysisLayersManager, dataLayersManager);
+    // Phase 4: Controls (async — includes streetview preflight check)
+    // Start creation but register map.on('load') BEFORE awaiting, to avoid
+    // race condition where map fires 'load' during the preflight fetch timeout.
+    const controlsPromise = createControls(map, analysisLayersManager, dataLayersManager);
 
-    // Phase 5+6: State loading (IndexedDB) + Map load handler (features, deep linking)
-    initializeApp(map, controls);
+    // Phase 5+6: Register map.on('load') handler synchronously — BEFORE 'load' can fire
+    initializeApp(map, controlsPromise);
+
+    // Wait for controls to finish (preflight + UI setup)
+    const controls = await controlsPromise;
 
     // Cleanup handlers (global error handlers + beforeunload)
     setupCleanupHandlers(controls.destroyables);
@@ -61,9 +65,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.performance?.mark) {
         window.performance.mark('app-init');
     }
-
-    // Parse URL parameters early for deep linking
-    URLRouter.parse();
 });
 
 // ============================================================================
@@ -82,6 +83,6 @@ window.addEventListener('beforeunload', () => {
 // STREET VIEW SETUP
 // ============================================================================
 
-const miniMapStreetView = document.getElementById('mini-map-street-view');
-if (miniMapStreetView) miniMapStreetView.style.display = 'none';
+const minimapWrapper = document.getElementById('streetview-minimap-wrapper');
+if (minimapWrapper) minimapWrapper.style.display = 'none';
 

@@ -12,7 +12,6 @@ import { EventTypes } from '../events/event_types.js';
 import { NAV_CONSTANTS } from './navigation/constants.js';
 import { getOrientation, saveOrientation, clearOrientation, getMarkers360 } from '../store';
 import { showSuccess } from '../utilities/toast_service.js';
-import { URLRouter } from '../url_router.js';
 import { LRUCache } from '../utilities/lru-cache.js';
 import {
     activateKeyboardService360,
@@ -22,8 +21,9 @@ import {
 import config from '../config.js';
 
 // ===== CONFIGURATION =====
-const IMAGES_LOCATION = config.streetView360.imagesLocation;
-const METADATA_LOCATION = config.streetView360.metadataLocation;
+
+// Property name used in PMTiles to identify photos
+const PHOTO_PROPERTY = 'photo_uuid';
 
 // Cache limits
 const TEXTURE_CACHE_MAX_SIZE = 30;  // Max textures to keep in memory (~30-50MB depending on resolution)
@@ -83,18 +83,16 @@ function removeAllDocumentListeners() {
 }
 
 /**
- * Loads metadata for a photo with caching
+ * Loads metadata for a photo with caching via the API service.
  */
 async function loadMetadataWithCache(name) {
     if (streetViewState.metadataCache.has(name)) {
         return streetViewState.metadataCache.get(name);
     }
 
-    const response = await fetch(`${METADATA_LOCATION}/${name}.json`);
-    if (!response.ok) {
-        throw new Error(`Metadata not found for ${name} (HTTP ${response.status})`);
-    }
-    const data = await response.json();
+    const { fetchPhotoMetadata } = await import('./streetview-api.service.js');
+    const data = await fetchPhotoMetadata(name);
+
     streetViewState.metadataCache.set(name, data);
     return data;
 }
@@ -106,6 +104,14 @@ async function loadMetadataWithCache(name) {
  */
 function getMeshRotationY(data) {
     return data.camera?.mesh_rotation_y ?? 180;
+}
+
+function getMeshRotationX(data) {
+    return data.camera?.mesh_rotation_x ?? 0;
+}
+
+function getMeshRotationZ(data) {
+    return data.camera?.mesh_rotation_z ?? 0;
 }
 
 // ===== THREE.JS INITIALIZATION =====
@@ -207,23 +213,13 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
     const cameraConfig = {
         ...data.camera,
         height: data.camera.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT,
-        north_correction: data.camera.north_correction ?? 0,
-        ground_offset: data.camera.ground_offset ?? 0,
-        distance_scale: data.camera.distance_scale ?? 1.0
     };
 
-    // Process targets with defaults
-    // JSON uses "ele" for elevation; normalize to "elevation" for the navigator
-    const targets = (data.targets || []).map(t => ({
-        ...t,
-        elevation: t.elevation ?? t.ele ?? cameraConfig.ele,
-        ground_offset: t.ground_offset ?? 0
-    }));
+    const targets = data.targets || [];
 
     // Load texture (may throw AbortError if superseded by a newer navigation)
-    const imagePath = `${IMAGES_LOCATION}/${data.camera.img}.jpg`;
     try {
-        await loadTexture(imagePath, data);
+        await loadTexture(data);
     } catch (error) {
         if (error.name === 'AbortError') return;
         throw error;
@@ -234,6 +230,9 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
 
     // Update minimap
     updateMiniMap(data.camera);
+
+    // Update photo info overlay (capture date above minimap)
+    updatePhotoInfo(data);
 
     // Update navigator
     if (streetViewState.navigator) {
@@ -246,9 +245,6 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
 
     // Update orientation button state
     updateOrientationButtonState(savedOrientation !== null);
-
-    // Update URL with new photo name
-    URLRouter.setPhoto360(photoName);
 
     // Emit photo changed event
     getEventBus().emit(EventTypes.STREETVIEW_360_PHOTO_CHANGED, {
@@ -264,47 +260,127 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
 let activeTextureAbort = null;
 
 /**
- * Loads a texture for the panorama sphere.
- * Cancels any in-flight fetch when a new load is requested.
+ * Creates a Three.js texture from a fetched Blob.
  */
-async function loadTexture(imagePath, data) {
-    // Cancel previous in-flight download
-    if (activeTextureAbort) {
-        activeTextureAbort.abort();
-        activeTextureAbort = null;
-    }
-
-    // Cache hit — no network needed
-    if (streetViewState.textureCache.has(imagePath)) {
-        const texture = streetViewState.textureCache.get(imagePath);
-        applyTexture(texture, data);
-        return;
-    }
-
-    // Fetch with AbortController so we can cancel if user navigates away
-    const controller = new AbortController();
-    activeTextureAbort = controller;
-
-    const response = await fetch(imagePath, { signal: controller.signal });
-    const blob = await response.blob();
-
-    // If this load was superseded by a newer one, discard the result
-    if (activeTextureAbort !== controller) return;
-    activeTextureAbort = null;
-
-    // Create Three.js texture from the fetched blob
+async function blobToTexture(blob) {
     const objectURL = URL.createObjectURL(blob);
-    const loadedTexture = await new Promise((resolve) => {
+    const texture = await new Promise((resolve) => {
         const loader = new THREE.TextureLoader();
         loader.load(objectURL, (tex) => {
             URL.revokeObjectURL(objectURL);
             resolve(tex);
         });
     });
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+}
 
-    loadedTexture.colorSpace = THREE.SRGBColorSpace;
-    streetViewState.textureCache.set(imagePath, loadedTexture);
-    applyTexture(loadedTexture, data);
+/**
+ * Loads a texture for the panorama sphere with progressive loading.
+ * When the API service is available, loads a low-res preview first
+ * for instant feedback, then replaces it with the full-res image.
+ * Cancels any in-flight fetch when a new load is requested.
+ */
+async function loadTexture(data) {
+    // Cancel previous in-flight download
+    if (activeTextureAbort) {
+        activeTextureAbort.abort();
+        activeTextureAbort = null;
+    }
+
+    const photoId = data.camera?.id || data.camera?.img;
+
+    // Build cache keys
+    const fullCacheKey = `full:${photoId}`;
+    const previewCacheKey = `preview:${photoId}`;
+
+    // Full-res cache hit — no network needed
+    if (streetViewState.textureCache.has(fullCacheKey)) {
+        const texture = streetViewState.textureCache.get(fullCacheKey);
+        applyTexture(texture, data);
+        return;
+    }
+
+    const controller = new AbortController();
+    activeTextureAbort = controller;
+
+    // Phase 1: Load preview for instant feedback
+    try {
+        if (streetViewState.textureCache.has(previewCacheKey)) {
+            applyTexture(streetViewState.textureCache.get(previewCacheKey), data);
+        } else {
+            const { getPhotoImageUrl } = await import('./streetview-api.service.js');
+            const previewUrl = getPhotoImageUrl(photoId, 'preview');
+            const previewResponse = await fetch(previewUrl, { signal: controller.signal });
+            if (activeTextureAbort !== controller) return;
+
+            const previewBlob = await previewResponse.blob();
+            if (activeTextureAbort !== controller) return;
+
+            const previewTexture = await blobToTexture(previewBlob);
+            streetViewState.textureCache.set(previewCacheKey, previewTexture);
+
+            if (activeTextureAbort === controller) {
+                applyTexture(previewTexture, data);
+            }
+        }
+    } catch (error) {
+        // Preview is best-effort; continue to full-res load
+        if (error.name === 'AbortError') return;
+    }
+
+    // Phase 2: Load full-resolution image
+    try {
+        const { getPhotoImageUrl } = await import('./streetview-api.service.js');
+        const fullUrl = getPhotoImageUrl(photoId, 'full');
+
+        const response = await fetch(fullUrl, { signal: controller.signal });
+        const blob = await response.blob();
+
+        if (activeTextureAbort !== controller) return;
+        activeTextureAbort = null;
+
+        const fullTexture = await blobToTexture(blob);
+        streetViewState.textureCache.set(fullCacheKey, fullTexture);
+        applyTexture(fullTexture, data);
+
+        // Prefetch previews for navigation targets
+        if (data.targets) {
+            prefetchTargetPreviews(data.targets);
+        }
+    } catch (error) {
+        if (error.name === 'AbortError') return;
+        if (activeTextureAbort === controller) activeTextureAbort = null;
+        throw error;
+    }
+}
+
+/**
+ * Prefetches preview textures for navigation targets in the background.
+ * Uses low-priority fetch to avoid competing with the current photo load.
+ */
+async function prefetchTargetPreviews(targets) {
+    const { getPhotoImageUrl } = await import('./streetview-api.service.js');
+
+    for (const target of targets) {
+        const targetId = target.id || target.img;
+        if (!targetId) continue;
+
+        const cacheKey = `preview:${targetId}`;
+        if (streetViewState.textureCache.has(cacheKey)) continue;
+
+        // Low-priority background fetch
+        fetch(getPhotoImageUrl(targetId, 'preview'), { priority: 'low' })
+            .then(r => r.blob())
+            .then(blob => blobToTexture(blob))
+            .then(tex => {
+                // Only cache if not already cached (another navigation may have loaded it)
+                if (!streetViewState.textureCache.has(cacheKey)) {
+                    streetViewState.textureCache.set(cacheKey, tex);
+                }
+            })
+            .catch(() => {}); // Silently ignore prefetch failures
+    }
 }
 
 /**
@@ -330,6 +406,7 @@ function applyTexture(texture, data) {
             streetViewState.material
         );
         streetViewState.mesh.name = 'IMAGE_360';
+        streetViewState.mesh.rotation.order = 'ZXY';
         streetViewState.scene.add(streetViewState.mesh);
     }
 
@@ -338,6 +415,8 @@ function applyTexture(texture, data) {
     // mesh_rotation_y in metadata can override for non-standard stitching pipelines
     const offsetRad = THREE.MathUtils.degToRad(getMeshRotationY(data));
     streetViewState.mesh.rotation.y = offsetRad;
+    streetViewState.mesh.rotation.x = THREE.MathUtils.degToRad(getMeshRotationX(data));
+    streetViewState.mesh.rotation.z = THREE.MathUtils.degToRad(getMeshRotationZ(data));
 
     // Force GPU texture upload now (outside the rAF loop).
     // Without this, the first render() inside the animation loop triggers a
@@ -379,6 +458,48 @@ function setCameraOrientation(data, savedOrientation = null, prevWorldHeading = 
     }
 }
 
+// ===== PHOTO INFO OVERLAY =====
+
+/**
+ * Formats an ISO date string (YYYY-MM-DD) to Brazilian format (DD/MM/AAAA).
+ * Returns the original string if parsing fails.
+ * @param {string} isoDate - Date in ISO format
+ * @returns {string} Formatted date
+ */
+function formatDateBR(isoDate) {
+    const parts = isoDate.split('-');
+    if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return isoDate;
+}
+
+/**
+ * Updates the photo info overlay above the minimap with capture date.
+ * @param {Object} data - Photo metadata from API
+ */
+function updatePhotoInfo(data) {
+    const el = document.getElementById('streetview-photo-info');
+    if (!el) return;
+
+    const captureDate = data.captureDate;
+    if (!captureDate) {
+        el.style.display = 'none';
+        return;
+    }
+
+    el.textContent = `Captura: ${formatDateBR(captureDate)}`;
+    el.style.display = 'block';
+}
+
+/**
+ * Hides the photo info overlay.
+ */
+function hidePhotoInfo() {
+    const el = document.getElementById('streetview-photo-info');
+    if (el) el.style.display = 'none';
+}
+
 // ===== MINIMAP =====
 
 /**
@@ -399,7 +520,7 @@ function ensureSelectedLayer() {
     if (!miniMap.hasImage('point-selected')) return;
 
     const sourceLayer = control?.streetViewPointsLayer?.['source-layer']
-        || config.map2d?.streetViewPointsSourceLayer
+        || config.streetView360?.pointsSourceLayer
         || 'fotos';
 
     miniMap.addLayer({
@@ -407,7 +528,7 @@ function ensureSelectedLayer() {
         'type': 'symbol',
         'source': sourceId,
         'source-layer': sourceLayer,
-        'filter': ['==', 'nome_img', ''],
+        'filter': ['==', PHOTO_PROPERTY, ''],
         'layout': {
             'icon-image': 'point-selected',
             'icon-allow-overlap': true
@@ -433,7 +554,7 @@ function updateMiniMap(camera) {
 
     // Update selected photo filter
     if (streetViewState.miniMap.getLayer('selected')) {
-        streetViewState.miniMap.setFilter('selected', ['==', 'nome_img', streetViewState.currentPhotoName]);
+        streetViewState.miniMap.setFilter('selected', ['==', PHOTO_PROPERTY, streetViewState.currentPhotoName]);
     }
 
     // Update icon direction
@@ -637,12 +758,12 @@ function resumeRendering() {
  */
 function setFullMap(full) {
     const mapSig = document.getElementById('map-sig');
-    const miniMap = document.getElementById('mini-map-street-view');
+    const minimapWrapper = document.getElementById('streetview-minimap-wrapper');
     const streetViewContainer = document.getElementById('street-view-container');
     const closeBtn = document.getElementById('close-street-view-button');
 
     if (mapSig) mapSig.style.display = full ? 'block' : 'none';
-    if (miniMap) miniMap.style.display = full ? 'none' : 'block';
+    if (minimapWrapper) minimapWrapper.style.display = full ? 'none' : 'block';
     if (streetViewContainer) streetViewContainer.style.display = full ? 'none' : 'block';
     if (closeBtn) closeBtn.style.display = full ? 'none' : 'flex';
 }
@@ -1017,9 +1138,6 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
         streetViewState.miniMap.once('idle', retryOnLoad);
     }
 
-    // Update URL with photo name
-    URLRouter.setPhoto360(photoName);
-
     // Emit event
     eventBus.emit(EventTypes.STREETVIEW_360_OPENED, { photoName });
 
@@ -1053,6 +1171,7 @@ export async function closeViewer360() {
     setFullMap(true);
     document.body.classList.remove('streetview-active');
     hideToolbar360();
+    hidePhotoInfo();
 
     // Deactivate keyboard service
     try {
@@ -1066,9 +1185,6 @@ export async function closeViewer360() {
     eventBus.off(EventTypes.MARKER_360_POSITION_CLICKED, handleMarkerPositionClicked);
     eventBus.off(EventTypes.MARKERS_360_CHANGED, loadMarkersForCurrentPhoto);
     eventBus.off(EventTypes.LAYERS_CHANGED, handleLayersChanged);
-
-    // Clear URL parameter
-    URLRouter.clearPhoto360();
 
     // Emit event
     eventBus.emit(EventTypes.STREETVIEW_360_CLOSED, {});

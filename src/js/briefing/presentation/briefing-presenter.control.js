@@ -47,6 +47,7 @@ import {
 import { createTransitionService } from './transition.service.js';
 import { createPresentationTextPanel } from '../components/presentation-text-panel.js';
 import { createTilePreloader } from './tile-preloader.js';
+import { validateBriefing } from '../validation/reference-validator.js';
 
 // ============================================================================
 // BRIEFING PRESENTER CONTROL
@@ -125,6 +126,20 @@ export class BriefingPresenterControl {
             if (!this._briefing.slides || this._briefing.slides.length === 0) {
                 showWarning('Briefing não possui slides');
                 return false;
+            }
+
+            // Validate resource references (3D models, 360 photos)
+            const validation = await validateBriefing(this._briefing);
+            if (!validation.canPresent()) {
+                const errorLines = validation.errors.map(e =>
+                    `\u2022 Slide ${e.slideIndex + 1} "${e.slideTitle}": ${e.message}`
+                );
+                showError(`Não é possível apresentar:\n${errorLines.join('\n')}`);
+                return false;
+            }
+
+            if (validation.warnings.length > 0) {
+                showWarning(`${validation.warnings.length} aviso(s) encontrado(s). A apresentação pode ter problemas.`);
             }
 
             // Block presentation if any slide lacks a saved position
@@ -586,6 +601,10 @@ export class BriefingPresenterControl {
         this._isTransitioning = false;
         if (this._textPanel) {
             this._textPanel.setTransitioning(false);
+        }
+
+        if (!success) {
+            showWarning(`Erro ao navegar para slide ${index + 1}. O recurso pode estar indisponível.`);
         }
 
         if (success && this._briefing) {

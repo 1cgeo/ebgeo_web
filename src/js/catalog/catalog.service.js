@@ -29,12 +29,14 @@ export class CatalogService {
     /**
      * Returns all catalog items normalized and sorted by date (descending).
      * Items without dates are placed at the end.
-     * @returns {CatalogItem[]}
+     * @returns {Promise<CatalogItem[]>}
      */
-    static getAllItems() {
+    static async getAllItems() {
+        const panoramic360 = await this._getPanoramic360();
+
         const items = [
             ...this._getModels3D(),
-            ...this._getPanoramic360(),
+            ...panoramic360,
             ...this._getHillshade(),
             ...this._getAnalysisLayers(),
             ...this._getDataLayers()
@@ -63,10 +65,11 @@ export class CatalogService {
     /**
      * Returns items filtered by types.
      * @param {string[]} types - Array of types to filter
-     * @returns {CatalogItem[]}
+     * @returns {Promise<CatalogItem[]>}
      */
-    static getItemsByTypes(types) {
-        return this.getAllItems().filter(item => types.includes(item.type));
+    static async getItemsByTypes(types) {
+        const items = await this.getAllItems();
+        return items.filter(item => types.includes(item.type));
     }
 
     /**
@@ -93,18 +96,19 @@ export class CatalogService {
 
     /**
      * Checks if there are any catalog items available.
-     * @returns {boolean}
+     * @returns {Promise<boolean>}
      */
-    static hasItems() {
-        return this.getAllItems().length > 0;
+    static async hasItems() {
+        const items = await this.getAllItems();
+        return items.length > 0;
     }
 
     /**
      * Gets counts by type.
-     * @returns {Object<string, number>}
+     * @returns {Promise<Object<string, number>>}
      */
-    static getCountsByType() {
-        const items = this.getAllItems();
+    static async getCountsByType() {
+        const items = await this.getAllItems();
         const counts = {};
 
         Object.values(CATALOG_ITEM_TYPES).forEach(type => {
@@ -151,24 +155,35 @@ export class CatalogService {
     }
 
     /**
-     * Gets panoramic 360 images from config.
+     * Gets panoramic 360 projects from the cached data.
+     * Never makes a network request — uses only the cache populated by preflight.
      * @private
-     * @returns {CatalogItem[]}
+     * @returns {Promise<CatalogItem[]>}
      */
-    static _getPanoramic360() {
-        if (!config.hasStreetViewMarkers()) return [];
+    static async _getPanoramic360() {
+        // If streetview feature is disabled (preflight failed), skip entirely
+        if (!config.features.imagens_panoramicas) return [];
 
-        return config.streetViewMarkers.map(marker => ({
-            id: `360-${marker.id}`,
-            type: CATALOG_ITEM_TYPES.PANORAMIC_360,
-            name: marker.name,
-            description: marker.description || null,
-            thumbnail: marker.previewThumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.PANORAMIC_360],
-            date: marker.data_captura || null,
-            local: marker.local || null,
-            location: marker.locate,
-            originalData: marker
-        }));
+        try {
+            const { getCachedProjects } = await import('../street_view_tool/streetview-api.service.js');
+
+            const projects = getCachedProjects();
+            if (!projects || projects.length === 0) return [];
+
+            return projects.map(p => ({
+                id: `360-${p.id}`,
+                type: CATALOG_ITEM_TYPES.PANORAMIC_360,
+                name: p.name,
+                description: p.description || null,
+                thumbnail: p.previewThumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.PANORAMIC_360],
+                date: p.captureDate || null,
+                local: p.local || null,
+                location: p.center ? { lon: p.center.lon, lat: p.center.lat } : null,
+                originalData: p
+            }));
+        } catch {
+            return [];
+        }
     }
 
     /**

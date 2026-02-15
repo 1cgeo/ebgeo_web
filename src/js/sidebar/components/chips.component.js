@@ -73,7 +73,7 @@ export class ChipsComponent {
      * Creates the chips UI and attaches to DOM.
      * @param {HTMLElement} parentElement - Parent to attach to
      */
-    init(parentElement) {
+    async init(parentElement) {
         this._container = document.createElement('div');
         this._container.className = 'chips-container';
         this._container.id = 'chips-container';
@@ -81,10 +81,13 @@ export class ChipsComponent {
         // Set initial position state
         this._updatePosition();
 
+        // Pre-load catalog availability (async)
+        const hasCatalogItems = await CatalogService.hasItems();
+
         // Create chip buttons (filter out catalog if no items available)
         Object.entries(CHIP_CONFIG).forEach(([key, chipConfig]) => {
             // Only show catalog chip if there are catalog items
-            if (key === 'catalog' && !CatalogService.hasItems()) {
+            if (key === 'catalog' && !hasCatalogItems) {
                 return;
             }
             const chip = this._createChip(chipConfig);
@@ -94,7 +97,7 @@ export class ChipsComponent {
         parentElement.appendChild(this._container);
 
         // Initialize new modals
-        this._initModals();
+        await this._initModals(hasCatalogItems);
 
         // Setup event listeners
         this._setupEventListeners();
@@ -103,8 +106,9 @@ export class ChipsComponent {
     /**
      * Initializes the modal instances.
      * @private
+     * @param {boolean} hasCatalogItems - Whether catalog items are available
      */
-    _initModals() {
+    _initModals(hasCatalogItems) {
         // Create shortcuts modal
         this._shortcutsModal = new ShortcutsModal();
         document.body.appendChild(this._shortcutsModal.render());
@@ -114,7 +118,7 @@ export class ChipsComponent {
         document.body.appendChild(this._infoModal.render());
 
         // Create catalog modal if there are catalog items
-        if (CatalogService.hasItems()) {
+        if (hasCatalogItems) {
             this._catalogModal = new CatalogModal({
                 toolManager: this._toolManager,
                 map: this._map,

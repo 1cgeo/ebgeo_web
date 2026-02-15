@@ -3,11 +3,10 @@
 /**
  * @fileoverview Control for viewing 3D tilesets on the 2D map.
  * Displays clustered markers with video preview popups and opens the Cesium 3D viewer.
- * @dependencies config, url_router, store, event_types
+ * @dependencies config, store, event_types
  */
 
 import config from '../config.js';
-import { URLRouter } from '../url_router.js';
 import { getEventBus, getAllMarkers, getAllMeasurements, getAllViewsheds } from '../store';
 import { EventTypes } from '../events/event_types.js';
 import { setupCleanup, subscribe, addDomListener, trackTimer, cleanup } from '../utilities/event-cleanup.js';
@@ -813,9 +812,6 @@ class Add3DModelsViewerControl {
             const map3dModule = await import('./map_3d.js');
             await map3dModule.openViewerWithTileset(tilesetId, options);
 
-            // Update URL for deep linking / sharing
-            URLRouter.setModel(tilesetId);
-
         } catch (error) {
             console.error('Error opening 3D viewer:', error);
             this.setFullMap(true);
@@ -859,9 +855,6 @@ class Add3DModelsViewerControl {
             this.setFullMap(true);
             const closeBtn = document.getElementById('close-3d-viewer-button');
             if (closeBtn) closeBtn.style.display = 'none';
-
-            // Clear URL param when closing viewer
-            URLRouter.clearModel();
 
         } catch (error) {
             console.error('Error closing 3D viewer:', error);

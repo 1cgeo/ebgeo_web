@@ -251,9 +251,9 @@ export class SearchBarComponent {
             console.warn('[SearchBar] Coordinate search failed:', error);
         }
 
-        // Search 3D models and Streetview markers immediately (synchronous)
+        // Search 3D models (synchronous) and Streetview projects (async, from cache)
         const model3dResults = search3DModels(query);
-        const streetviewResults = searchStreetViewMarkers(query);
+        const streetviewResults = await searchStreetViewMarkers(query);
 
         // Search local features from store (async but fast)
         let featureResults = [];

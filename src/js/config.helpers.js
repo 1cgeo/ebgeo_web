@@ -17,14 +17,6 @@ export function hasTilesets() {
     return config.tilesets && config.tilesets.length > 0;
 }
 
-/**
- * Check if any streetview markers are configured
- * @returns {boolean} True if streetview markers exist
- */
-export function hasStreetViewMarkers() {
-    return config.streetViewMarkers && config.streetViewMarkers.length > 0;
-}
-
 // ===== BASEMAPS =====
 
 /**
@@ -149,7 +141,6 @@ export function createTerrainProvider() {
  */
 export function initConfigHelpers() {
     config.hasTilesets = hasTilesets;
-    config.hasStreetViewMarkers = hasStreetViewMarkers;
     config.validateBasemapsConfig = validateBasemapsConfig;
     config.getEnabledBasemaps = getEnabledBasemaps;
     config.getBasemapLayoutClass = getBasemapLayoutClass;

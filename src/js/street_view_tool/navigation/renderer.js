@@ -247,18 +247,18 @@ export class StreetViewRenderer {
      * Styled like Google Street View navigation cursor
      */
     renderGroundCursor() {
-        const { screenX, screenY, flattenY, arrowAngle, distance } = this.groundCursor;
+        const { screenX, screenY, flattenY, arrowAngle, distance, fov } = this.groundCursor;
         const ctx = this.ctx;
 
         ctx.save();
         ctx.translate(screenX, screenY);
 
-        // Calculate cursor size based on distance (closer = larger)
-        const baseSize = NAV_CONSTANTS.CURSOR_SIZE;
-        const refDist = NAV_CONSTANTS.CURSOR_REFERENCE_DISTANCE || 10;
-        const distanceScale = Math.max(0.5, Math.min(2, refDist / Math.max(1, distance || refDist)));
-        let cursorSize = baseSize * distanceScale;
-        cursorSize = Math.max(NAV_CONSTANTS.CURSOR_MIN_SIZE || 50, Math.min(NAV_CONSTANTS.CURSOR_MAX_SIZE || 140, cursorSize));
+        // Physically-based cursor sizing: worldRadius * focalLength / distance
+        const d = Math.max(0.5, distance || 1);
+        const fovRad = ((fov || 75) * Math.PI) / 180;
+        const focalLength = (this.canvas.height / 2) / Math.tan(fovRad / 2);
+        let cursorSize = NAV_CONSTANTS.CURSOR_WORLD_RADIUS * focalLength / d;
+        cursorSize = Math.max(NAV_CONSTANTS.CURSOR_MIN_SIZE, Math.min(NAV_CONSTANTS.CURSOR_MAX_SIZE, cursorSize));
 
         // Draw cursor circle (ellipse with perspective) - Google Street View style
         ctx.save();

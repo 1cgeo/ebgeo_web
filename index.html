@@ -325,7 +325,10 @@
     </button>
 
     <!-- LAZY LOADED CONTAINERS -->
-    <div id="mini-map-street-view" style="display: none;" role="application" aria-label="Mini mapa street view"></div>
+    <div id="streetview-minimap-wrapper" style="display: none;">
+        <div id="streetview-photo-info"></div>
+        <div id="mini-map-street-view" role="application" aria-label="Mini mapa street view"></div>
+    </div>
     <div id="street-view-container" style="display: none;" role="application" aria-label="Street view">
         <!-- Canvas overlay for navigation markers - managed by navigator.js -->
         <canvas id="nav-canvas-360" style="display: none;"></canvas>

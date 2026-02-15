@@ -28,7 +28,7 @@ export async function takeScreenshot360() {
         const elementsToHide = [
             document.getElementById('toolbar-360'),
             document.getElementById('active-tool-chip-360'),
-            document.getElementById('mini-map-street-view'),
+            document.getElementById('streetview-minimap-wrapper'),
             document.getElementById('close-street-view-button')
         ];
 

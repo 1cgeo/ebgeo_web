@@ -310,13 +310,14 @@ export class StreetViewNavigator {
             }
         }
 
-        // Set ground cursor data
+        // Set ground cursor data (fov needed for physically-based sizing)
         this.renderer.setGroundCursor({
             screenX: this.mousePosition.x,
             screenY: this.mousePosition.y,
             flattenY,
             arrowAngle,
-            distance: cursorDistance
+            distance: cursorDistance,
+            fov
         });
     }
 
@@ -386,40 +387,32 @@ export class StreetViewNavigator {
     projectTarget(target, yaw, pitch, fov) {
         if (!this.cameraConfig) return null;
 
-        // Apply distance scale from calibration
-        const distanceScale = this.cameraConfig.distance_scale ?? 1.0;
+        // If target has a manual override, project from bearing + ground distance
+        if (target.override_bearing != null) {
+            return this.projectFromOverride(
+                target.override_bearing,
+                target.override_distance ?? 5,
+                target, yaw, pitch, fov
+            );
+        }
 
-        // Convert lon/lat to meters
+        // Convert lon/lat to meters, then apply distance_scale
         let { x, z } = this.projector.lonLatToMeters(
             target.lon,
             target.lat,
             this.cameraConfig.lon,
             this.cameraConfig.lat
         );
-
-        // Apply distance scale
+        const distanceScale = this.cameraConfig.distance_scale ?? 1.0;
         x *= distanceScale;
         z *= distanceScale;
 
-        // Apply north correction
-        if (this.cameraConfig.north_correction) {
-            const correctionRad = (this.cameraConfig.north_correction * Math.PI) / 180;
-            const cos = Math.cos(correctionRad);
-            const sin = Math.sin(correctionRad);
-            const newX = x * cos - z * sin;
-            const newZ = x * sin + z * cos;
-            x = newX;
-            z = newZ;
-        }
-
-        // Calculate Y (elevation difference)
+        // Place marker on the ground plane (same as the mouse cursor).
+        // Using real elevation differences causes markers to "float" when
+        // terrain height varies between camera and target, while the mouse
+        // cursor always stays on the ground and looks correct.
         const cameraHeight = this.cameraConfig.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT;
-        const targetElevation = target.elevation ?? 0;
-        const cameraElevation = this.cameraConfig.ele ?? 0;
-        const targetOffset = target.ground_offset ?? 0;
-        const cameraOffset = this.cameraConfig.ground_offset ?? 0;
-
-        const y = (targetElevation + targetOffset) - (cameraElevation + cameraHeight + cameraOffset);
+        const y = -cameraHeight;
 
         // Horizontal distance (for flatten ratio — ground-plane perspective)
         const horizontalDistance = Math.sqrt(x * x + z * z);
@@ -429,8 +422,55 @@ export class StreetViewNavigator {
 
         if (!projected.visible) return null;
 
-        // Calculate marker size (uses 3D distance) and flatten ratio (uses horizontal distance)
-        const radius = this.projector.calculateMarkerSize(NAV_CONSTANTS.MARKER_BASE_SIZE, projected.distance);
+        // Size based on horizontal distance (same metric the cursor uses),
+        // so markers and cursor scale identically at the same ground distance.
+        const radius = this.projector.calculateMarkerSize(
+            NAV_CONSTANTS.MARKER_WORLD_RADIUS, horizontalDistance, fov
+        );
+        const flattenY = this.projector.calculateFlattenRatio(horizontalDistance, pitch);
+
+        return {
+            id: target.id,
+            screenX: projected.screenX,
+            screenY: projected.screenY,
+            distance: projected.distance,
+            radius,
+            flattenY
+        };
+    }
+
+    /**
+     * Projects a target from bearing + ground distance override.
+     * Used when a target has been manually positioned on the ground plane
+     * via the calibration interface, independent of GPS position.
+     * @param {number} bearingDeg - Bearing in degrees (0=North, 90=East)
+     * @param {number} groundDistance - Ground distance in meters
+     * @param {Object} target - Target object (for id and distance metadata)
+     * @param {number} yaw - Camera yaw
+     * @param {number} pitch - Camera pitch
+     * @param {number} fov - Camera FOV
+     * @returns {Object|null} Projected marker data or null if behind camera
+     */
+    projectFromOverride(bearingDeg, groundDistance, target, yaw, pitch, fov) {
+        const bearingRad = (bearingDeg * Math.PI) / 180;
+
+        // Convert bearing + distance to ground-plane (x, z) in meters
+        const x = Math.sin(bearingRad) * groundDistance;
+        const z = -Math.cos(bearingRad) * groundDistance;
+
+        // Place on the ground plane (same as geographic markers)
+        const cameraHeight = this.cameraConfig.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT;
+        const y = -cameraHeight;
+
+        const horizontalDistance = groundDistance;
+
+        const projected = this.projector.metersToScreen(x, y, z, yaw, pitch, fov);
+
+        if (!projected.visible) return null;
+
+        const radius = this.projector.calculateMarkerSize(
+            NAV_CONSTANTS.MARKER_WORLD_RADIUS, horizontalDistance, fov
+        );
         const flattenY = this.projector.calculateFlattenRatio(horizontalDistance, pitch);
 
         return {
@@ -652,11 +692,17 @@ export class StreetViewNavigator {
                 return { type: 'poi', poi: hit.data };
             }
         } else {
-            // Clicked on empty space - navigate to nearest target based on cursor position
+            // Clicked on empty space
             if (this.selectedPOIId) {
                 this.deselectPOI();
-            } else if (this.cursorNearestTargetId && this.targets.length > 0) {
-                // Find and navigate to the target nearest to cursor position
+            } else if (
+                this.cursorNearestTargetId &&
+                this.targets.length > 0 &&
+                this.renderer.groundCursor?.arrowAngle != null
+            ) {
+                // Only navigate when the ground cursor is visible and has an
+                // arrow pointing to a target (cursor is on the ground plane).
+                // If the cursor is above the horizon, groundCursor is null.
                 const nearestTarget = this.targets.find(t => t.id === this.cursorNearestTargetId);
                 if (nearestTarget) {
                     this.navigateToTarget(nearestTarget);

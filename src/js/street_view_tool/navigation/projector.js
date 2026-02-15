@@ -290,14 +290,40 @@ export class StreetViewProjector {
     }
 
     /**
-     * Calculates marker size based on distance
-     * @param {number} baseSize - Base marker size in pixels
-     * @param {number} distance - Distance from camera in meters
-     * @returns {number} Adjusted marker size in pixels
+     * Calculates the focal length (in pixels) for the current canvas and FOV.
+     * focal = (canvasHeight / 2) / tan(fov / 2)
+     *
+     * @param {number} fov - Vertical field of view in degrees
+     * @returns {number} Focal length in pixels
      */
-    calculateMarkerSize(baseSize, distance) {
-        const scale = NAV_CONSTANTS.REFERENCE_DISTANCE / Math.max(1, distance);
-        const size = baseSize * Math.min(2, Math.max(0.5, scale));
+    focalLength(fov) {
+        const fovRad = (fov * Math.PI) / 180;
+        return (this.canvasHeight / 2) / Math.tan(fovRad / 2);
+    }
+
+    /**
+     * Physically-based marker size: a disk of `worldRadius` meters at
+     * `horizontalDistance` meters away projects to
+     * `worldRadius * focalLength / horizontalDistance` pixels.
+     *
+     * Uses horizontal distance (not camera-space depth) so that markers
+     * at the same real-world distance have the same size regardless of
+     * viewing direction.  This matches the cursor behavior, which is
+     * sized the same way via screenToGround distance.
+     *
+     * @param {number} worldRadius - Physical radius on the ground (meters)
+     * @param {number} horizontalDistance - Horizontal distance from camera (meters)
+     * @param {number} fov - Vertical FOV in degrees
+     * @returns {number} Marker radius in pixels
+     */
+    calculateMarkerSize(worldRadius, horizontalDistance, fov) {
+        const cameraHeight = this.cameraConfig?.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT;
+        const markerScale = this.cameraConfig?.marker_scale ?? 1.0;
+        const slant = Math.sqrt(horizontalDistance * horizontalDistance + cameraHeight * cameraHeight);
+        const d = Math.max(0.5, slant);
+        const f = this.focalLength(fov);
+        const size = (worldRadius * markerScale) * f / d;
+
         return Math.max(NAV_CONSTANTS.MARKER_MIN_SIZE, Math.min(NAV_CONSTANTS.MARKER_MAX_SIZE, size));
     }
 }

@@ -53,6 +53,7 @@ import { getApplicationModeManager, ApplicationMode } from '../../mode/applicati
 import { getUIVisibilityController, VisibilityProfile } from '../../ui/ui-visibility.controller.js';
 import { isViewer3DOpen } from '../../utilities/viewer3d-state.js';
 import { isStreetView360Open } from '../../utilities/streetview360-state.js';
+import config from '../../config.js';
 import { createTransitionService } from '../presentation/transition.service.js';
 
 // ============================================================================
@@ -525,13 +526,36 @@ export class BriefingEditorControl {
         modeBadge.appendChild(badgeLabel);
         card.appendChild(modeBadge);
 
-        // Warning icon
+        // Warning icon — position
         if (hasPositionWarning) {
             const warning = document.createElement('span');
             warning.className = 'briefing-editor-slide-warning';
             warning.innerHTML = EDITOR_ICONS.warning;
             warning.title = 'Posi\u00E7\u00E3o n\u00E3o definida';
             card.appendChild(warning);
+        }
+
+        // Warning icon — unavailable 3D model
+        if (slide.mode === SlideMode.VIEWER_3D && slide.modelId) {
+            const tilesetExists = config.tilesets?.some(t => t.id === slide.modelId);
+            if (!tilesetExists) {
+                const warning = document.createElement('span');
+                warning.className = 'briefing-editor-slide-warning';
+                warning.innerHTML = EDITOR_ICONS.warning;
+                warning.title = `Modelo 3D indispon\u00EDvel (${slide.modelId})`;
+                card.appendChild(warning);
+            }
+        }
+
+        // Warning icon — unavailable 360 photo
+        if (slide.mode === SlideMode.VIEWER_360 && slide.photoId) {
+            if (!config.features.imagens_panoramicas) {
+                const warning = document.createElement('span');
+                warning.className = 'briefing-editor-slide-warning';
+                warning.innerHTML = EDITOR_ICONS.warning;
+                warning.title = 'Servi\u00E7o de imagens 360 indispon\u00EDvel';
+                card.appendChild(warning);
+            }
         }
 
         // Delete button
@@ -675,6 +699,30 @@ export class BriefingEditorControl {
         positionWrapper.appendChild(captureBtn);
 
         positionGroup.appendChild(positionWrapper);
+
+        // Resource availability warnings
+        if (slide.mode === SlideMode.VIEWER_3D && slide.modelId) {
+            const tilesetExists = config.tilesets?.some(t => t.id === slide.modelId);
+            if (!tilesetExists) {
+                const warn = document.createElement('div');
+                warn.className = 'briefing-editor-resource-warning';
+                const warnText = document.createTextNode(
+                    `\u26A0 Modelo 3D "${slide.modelId}" n\u00E3o est\u00E1 dispon\u00EDvel nesta inst\u00E2ncia.`
+                );
+                warn.appendChild(warnText);
+                positionGroup.appendChild(warn);
+            }
+        }
+        if (slide.mode === SlideMode.VIEWER_360 && !config.features.imagens_panoramicas) {
+            const warn = document.createElement('div');
+            warn.className = 'briefing-editor-resource-warning';
+            const warnText = document.createTextNode(
+                '\u26A0 Servi\u00E7o de imagens 360 indispon\u00EDvel.'
+            );
+            warn.appendChild(warnText);
+            positionGroup.appendChild(warn);
+        }
+
         this._slideEditorEl.appendChild(positionGroup);
 
         // Content editor with Quill
@@ -848,11 +896,17 @@ export class BriefingEditorControl {
         // Navigate to slide: instant transition (no flyTo)
         const slide = this._getSelectedSlide();
         if (slide && this._transitionService) {
-            await this._transitionService.transitionToSlideInstant(slide);
+            // Check resource availability — fall back to 2D if resource is missing
+            const effectiveMode = this._getEffectiveSlideMode(slide);
+            const transitionSlide = effectiveMode !== slide.mode
+                ? { ...slide, mode: effectiveMode }
+                : slide;
 
-            // Update visibility profile based on the viewer mode
+            await this._transitionService.transitionToSlideInstant(transitionSlide);
+
+            // Update visibility profile based on the effective viewer mode
             const visController = getUIVisibilityController();
-            switch (slide.mode) {
+            switch (effectiveMode) {
                 case SlideMode.VIEWER_3D:
                     visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_3D);
                     break;
@@ -876,6 +930,25 @@ export class BriefingEditorControl {
             return null;
         }
         return this._briefing.slides.find(s => s.id === this._selectedSlideId);
+    }
+
+    /**
+     * Returns the effective viewer mode for a slide, falling back to MAP_2D
+     * when the required resource (3D tileset or 360 service) is unavailable.
+     * This prevents the editor from attempting to open viewers that will fail.
+     * @private
+     * @param {Object} slide - Slide object
+     * @returns {string} Effective SlideMode
+     */
+    _getEffectiveSlideMode(slide) {
+        if (slide.mode === SlideMode.VIEWER_3D && slide.modelId) {
+            const tilesetExists = config.tilesets?.some(t => t.id === slide.modelId);
+            if (!tilesetExists) return SlideMode.MAP_2D;
+        }
+        if (slide.mode === SlideMode.VIEWER_360) {
+            if (!config.features.imagens_panoramicas) return SlideMode.MAP_2D;
+        }
+        return slide.mode || SlideMode.MAP_2D;
     }
 
     // =========================================================================

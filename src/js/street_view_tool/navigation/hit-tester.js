@@ -63,24 +63,28 @@ export class StreetViewHitTester {
     }
 
     /**
-     * Checks if a point is inside a marker's hit area
+     * Checks if a point is inside a marker's visual ellipse.
+     * Navigation markers are rendered as ellipses via ctx.scale(1, flattenY),
+     * so hit testing must account for the Y-axis compression.
      * @param {number} screenX - Screen X coordinate
      * @param {number} screenY - Screen Y coordinate
      * @param {Object} marker - Marker object
      * @returns {boolean} True if point is inside
      */
     isPointInMarker(screenX, screenY, marker) {
-        const { screenX: mx, screenY: my, radius } = marker;
+        const { screenX: mx, screenY: my, radius, flattenY } = marker;
 
-        // Calculate hit area with multiplier (circular hit testing)
         const hitRadius = radius * NAV_CONSTANTS.HIT_RADIUS_MULTIPLIER;
-
-        // Test circular hit (simple distance check)
         const dx = screenX - mx;
         const dy = screenY - my;
-        const distanceSquared = dx * dx + dy * dy;
 
-        return distanceSquared <= hitRadius * hitRadius;
+        // Elliptical hit test: (dx/rx)^2 + (dy/ry)^2 <= 1
+        // rx = hitRadius, ry = hitRadius * flattenY
+        const fy = flattenY || 1;
+        const normX = dx / hitRadius;
+        const normY = dy / (hitRadius * fy);
+
+        return (normX * normX + normY * normY) <= 1;
     }
 
     /**

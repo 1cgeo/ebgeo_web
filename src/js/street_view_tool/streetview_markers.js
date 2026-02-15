@@ -1,7 +1,5 @@
 // Path: js/street_view_tool/streetview_markers.js
 
-import config from '../config.js';
-
 // Flag to prevent click propagation to line layer when marker is clicked
 // Shared between streetview markers and 3D viewer markers via window object
 window._markerClickConsumed = false;
@@ -108,27 +106,35 @@ class StreetviewMarkers {
     }
 
     /**
-     * Load markers from config and create map layers with clustering
+     * Load markers from API service and create map layers with clustering.
+     * Fetches projects from the Street View 360 API service.
      */
     async loadMarkers() {
-        if (!config.hasStreetViewMarkers()) {
+        let features;
+
+        try {
+            const { fetchProjects } = await import('./streetview-api.service.js');
+            const projects = await fetchProjects();
+            if (!projects || projects.length === 0) return;
+
+            features = projects.map(p => ({
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: [p.center.lon, p.center.lat]
+                },
+                properties: {
+                    markerId: p.id,
+                    name: p.name,
+                    dataCaptura: p.captureDate || null,
+                    previewThumbnail: null,
+                    photoName: p.entryPhotoId
+                }
+            }));
+        } catch (error) {
+            console.error('Failed to load streetview markers from API:', error);
             return;
         }
-
-        const features = config.streetViewMarkers.map(marker => ({
-            type: 'Feature',
-            geometry: {
-                type: 'Point',
-                coordinates: [marker.locate.lon, marker.locate.lat]
-            },
-            properties: {
-                markerId: marker.id,
-                name: marker.name,
-                dataCaptura: marker.data_captura || null,
-                previewThumbnail: marker.previewThumbnail || null,
-                photoName: marker.photoName
-            }
-        }));
 
         const geojson = {
             type: 'FeatureCollection',
@@ -555,8 +561,20 @@ class StreetviewMarkers {
      * @returns {Promise<boolean>} True if navigation successful
      */
     async navigateToMarker(markerId) {
-        const marker = config.streetViewMarkers?.find(m => m.id === markerId);
-        if (!marker) {
+        let markerData = null;
+        const source = this.map.getSource(this.sourceId);
+        if (source) {
+            const features = source._data?.features || [];
+            const feature = features.find(f => f.properties.markerId === markerId);
+            if (feature) {
+                markerData = {
+                    coordinates: feature.geometry.coordinates,
+                    ...feature.properties
+                };
+            }
+        }
+
+        if (!markerData) {
             console.warn(`Streetview marker not found: ${markerId}`);
             return false;
         }
@@ -566,11 +584,9 @@ class StreetviewMarkers {
             this.streetViewControl.toolManager.toggleViewer(this.streetViewControl);
         }
 
-        const coordinates = [marker.locate.lon, marker.locate.lat];
-
         // Fly to location
         this.map.flyTo({
-            center: coordinates,
+            center: markerData.coordinates,
             zoom: 14,
             essential: true
         });
@@ -578,12 +594,12 @@ class StreetviewMarkers {
         // Open popup after animation completes
         this.map.once('moveend', () => {
             this.createPreviewPopup(
-                coordinates,
-                marker.id,
-                marker.name,
-                marker.data_captura || null,
-                marker.previewThumbnail || null,
-                marker.photoName
+                markerData.coordinates,
+                markerData.markerId,
+                markerData.name,
+                markerData.dataCaptura,
+                markerData.previewThumbnail,
+                markerData.photoName
             );
         });
 

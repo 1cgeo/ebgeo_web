@@ -291,14 +291,32 @@ export class ReferenceValidator {
                         'Nenhuma foto especificada'
                     ));
                 } else if (!availablePhotos.has(slide.photoId)) {
-                    result.addError(new ValidationError(
-                        index,
-                        slide.id,
-                        slide.title,
-                        ValidationErrorType.PHOTO_NOT_FOUND,
-                        ErrorSeverity.ERROR,
-                        `ID: ${slide.photoId}`
-                    ));
+                    // Not in local project cache — validate via API (covers non-entry photos)
+                    try {
+                        const { validatePhoto } = await import(
+                            '../../street_view_tool/streetview-api.service.js'
+                        );
+                        const exists = await validatePhoto(slide.photoId);
+                        if (!exists) {
+                            result.addError(new ValidationError(
+                                index,
+                                slide.id,
+                                slide.title,
+                                ValidationErrorType.PHOTO_NOT_FOUND,
+                                ErrorSeverity.ERROR,
+                                `ID: ${slide.photoId}`
+                            ));
+                        }
+                    } catch {
+                        result.addError(new ValidationError(
+                            index,
+                            slide.id,
+                            slide.title,
+                            ValidationErrorType.PHOTO_NOT_FOUND,
+                            ErrorSeverity.WARNING,
+                            `Não foi possível verificar: ${slide.photoId}`
+                        ));
+                    }
                 }
                 break;
 
@@ -362,17 +380,38 @@ export class ReferenceValidator {
     }
 
     /**
-     * Gets available 360 photos.
-     * For now, returns an empty set since photos are loaded dynamically.
-     * In a full implementation, this would check the metadata directory.
+     * Gets available 360 photos from the cached project list.
+     * Uses getCachedProjects() to avoid extra network requests.
+     * When streetview feature is disabled, returns empty set — all 360 slides fail validation.
      * @private
      * @returns {Promise<Set<string>>}
      */
     async _getAvailablePhotos() {
-        // Photos are validated at runtime when opening the viewer
-        // For now, return a set that accepts any photo ID
-        // A full implementation would scan the metadata directory
-        return new Set(); // Empty set means no validation on photo IDs
+        const photoSet = new Set();
+
+        // If streetview feature is disabled, no photos are available
+        if (!config.features.imagens_panoramicas) {
+            return photoSet;
+        }
+
+        try {
+            const { getCachedProjects } = await import(
+                '../../street_view_tool/streetview-api.service.js'
+            );
+            const projects = getCachedProjects();
+            if (projects && Array.isArray(projects)) {
+                for (const project of projects) {
+                    if (project.id) photoSet.add(project.id);
+                    if (project.name) photoSet.add(project.name);
+                    // Entry photo UUID — slides store photo UUIDs via getCurrentPhotoName()
+                    if (project.entryPhotoId) photoSet.add(project.entryPhotoId);
+                }
+            }
+        } catch (error) {
+            console.warn('Error getting available photos:', error);
+        }
+
+        return photoSet;
     }
 }
 

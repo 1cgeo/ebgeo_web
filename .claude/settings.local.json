@@ -71,7 +71,8 @@
       "Bash(else echo \"NOT FOUND\")",
       "Bash(npx vitest run:*)",
       "Bash(vitest)",
-      "Bash(spec \")"
+      "Bash(spec \")",
+      "Bash(npm test:*)"
     ],
     "deny": [],
     "ask": []
