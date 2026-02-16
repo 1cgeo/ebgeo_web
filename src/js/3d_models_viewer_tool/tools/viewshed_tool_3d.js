@@ -21,7 +21,7 @@ import { EventTypes } from '../../events/event_types.js';
 let isToolActive = false;
 let currentViewer = null;
 let currentTilesetId = null;
-const viewshedObjects = new Map(); // viewshedId -> { cesiumViewshed: Cesium.ViewShed3D, originEntity: Cesium.Entity }
+const viewshedObjects = new Map(); // viewshedId -> { cesiumViewsheds: Cesium.ViewShed3D[], originEntity: Cesium.Entity }
 let selectedViewshedId = null;
 let selectionHandler = null;
 let pendingViewshed = null; // Temporary storage for viewshed being created
@@ -33,7 +33,78 @@ const DEFAULT_VIEWSHED_PARAMS = {
     distance: 500
 };
 
+// Maximum horizontal FOV supported by a single Cesium.ViewShed3D instance
+const MAX_SINGLE_VIEWSHED_ANGLE = 150;
+
 // ===== UTILITY FUNCTIONS =====
+
+/**
+ * Determines how many sub-viewshed objects are needed to cover the requested angle.
+ * @param {number} horizontalAngle - Total horizontal angle in degrees (1-360)
+ * @returns {number} Number of sub-viewsheds (1, 2, or 3)
+ */
+function computeSubViewshedCount(horizontalAngle) {
+    if (horizontalAngle <= MAX_SINGLE_VIEWSHED_ANGLE) return 1;
+    if (horizontalAngle <= MAX_SINGLE_VIEWSHED_ANGLE * 2) return 2;
+    return 3;
+}
+
+/**
+ * Rotates viewPosition around cameraPosition by the given angle in the local
+ * East-North-Up horizontal plane (around the Up axis).
+ * This changes the heading of the viewshed cone without altering distance or pitch.
+ * @param {Cesium.Cartesian3} cameraPosition - Observer position (rotation center)
+ * @param {Cesium.Cartesian3} viewPosition - Target position to rotate
+ * @param {number} angleDegrees - Rotation angle in degrees (positive = clockwise from above)
+ * @returns {Cesium.Cartesian3} New rotated viewPosition
+ */
+function rotateViewPositionAroundObserver(cameraPosition, viewPosition, angleDegrees) {
+    if (Math.abs(angleDegrees) < 1e-6) {
+        return Cesium.Cartesian3.clone(viewPosition, new Cesium.Cartesian3());
+    }
+
+    // Get ENU transform at observer position
+    const enuTransform = Cesium.Transforms.eastNorthUpToFixedFrame(cameraPosition);
+    const enuInverse = Cesium.Matrix4.inverse(enuTransform, new Cesium.Matrix4());
+
+    // Convert viewPosition to local ENU coordinates relative to observer
+    const viewWorld = Cesium.Cartesian3.subtract(viewPosition, cameraPosition, new Cesium.Cartesian3());
+    const localView = Cesium.Matrix4.multiplyByPointAsVector(enuInverse, viewWorld, new Cesium.Cartesian3());
+
+    // Rotate around the Up axis (Z in ENU)
+    // Positive angleDegrees = clockwise from above = standard navigation convention
+    const angleRad = Cesium.Math.toRadians(angleDegrees);
+    const cosA = Math.cos(angleRad);
+    const sinA = Math.sin(angleRad);
+
+    // ENU: X=East, Y=North, Z=Up. Clockwise from above (North toward East) rotation:
+    const rotatedLocal = new Cesium.Cartesian3(
+        cosA * localView.x + sinA * localView.y,
+        -sinA * localView.x + cosA * localView.y,
+        localView.z
+    );
+
+    // Convert back to world coordinates
+    const rotatedWorld = Cesium.Matrix4.multiplyByPointAsVector(enuTransform, rotatedLocal, new Cesium.Cartesian3());
+    return Cesium.Cartesian3.add(cameraPosition, rotatedWorld, new Cesium.Cartesian3());
+}
+
+/**
+ * Destroys an array of Cesium.ViewShed3D objects safely.
+ * @param {Cesium.ViewShed3D[]} cesiumViewsheds - Array of viewsheds to destroy
+ */
+function destroyCesiumViewsheds(cesiumViewsheds) {
+    if (!cesiumViewsheds) return;
+    for (const vs of cesiumViewsheds) {
+        if (vs && vs.destroy) {
+            try {
+                vs.destroy();
+            } catch (e) {
+                console.warn('Error destroying ViewShed3D:', e);
+            }
+        }
+    }
+}
 
 /**
  * Creates an origin marker entity for a viewshed.
@@ -101,19 +172,21 @@ function createViewshedIcon(color = '#FF8C00', size = 24) {
 }
 
 /**
- * Creates a Cesium.ViewShed3D object from stored data (non-interactive).
- * @param {Object} viewshed - Viewshed data
- * @returns {Cesium.ViewShed3D|null} ViewShed3D object
+ * Creates one or more Cesium.ViewShed3D objects from stored viewshed data.
+ * For horizontalAngle <= 150°, creates a single ViewShed3D (original behavior).
+ * For horizontalAngle > 150°, splits into 2 or 3 sub-viewsheds rotated to cover
+ * the total sector symmetrically around the original heading direction.
+ * @param {Object} viewshed - Viewshed data from the store
+ * @returns {Cesium.ViewShed3D[]} Array of ViewShed3D objects (1, 2, or 3 elements)
  */
-function createCesiumViewshed(viewshed) {
+function createCesiumViewsheds(viewshed) {
     if (!currentViewer || !window.Cesium || !Cesium.ViewShed3D) {
-        return null;
+        return [];
     }
 
-    // Validate that position data exists
     if (!viewshed.position || viewshed.position.longitude === undefined || viewshed.position.latitude === undefined) {
         console.warn('Invalid viewshed position data:', viewshed);
-        return null;
+        return [];
     }
 
     try {
@@ -121,29 +194,25 @@ function createCesiumViewshed(viewshed) {
         let observerFullHeight;
 
         if (viewshed.terrainBaseHeight !== undefined && viewshed.terrainBaseHeight !== null) {
-            // New format: terrain base height + observer height above terrain
             observerFullHeight = viewshed.terrainBaseHeight + (viewshed.observerHeight ?? 1.5);
         } else {
-            // Legacy format: use stored position height directly
             observerFullHeight = viewshed.position.height || 0;
         }
 
-        // Create observer position (cameraPosition - first click)
         const cameraPosition = Cesium.Cartesian3.fromDegrees(
             viewshed.position.longitude,
             viewshed.position.latitude,
             observerFullHeight
         );
 
-        // Calculate viewPosition from the stored direction at the configured distance.
-        // The plugin's _createShadowMap computes distance from the geometric distance
-        // between cameraPosition and viewPosition, so we must place viewPosition at
-        // exactly the configured distance to make the parameter effective.
         const distance = viewshed.parameters?.distance || DEFAULT_VIEWSHED_PARAMS.distance;
-        let viewPosition;
+        const totalHorizontalAngle = viewshed.parameters?.horizontalAngle || DEFAULT_VIEWSHED_PARAMS.horizontalAngle;
+        const verticalAngle = viewshed.parameters?.verticalAngle || DEFAULT_VIEWSHED_PARAMS.verticalAngle;
+
+        // Compute the base viewPosition (center direction of the sector)
+        let baseViewPosition;
 
         if (viewshed.targetPosition && viewshed.targetPosition.longitude !== undefined) {
-            // Recompute viewPosition along the original direction but at the configured distance
             const storedTarget = Cesium.Cartesian3.fromDegrees(
                 viewshed.targetPosition.longitude,
                 viewshed.targetPosition.latitude,
@@ -151,13 +220,13 @@ function createCesiumViewshed(viewshed) {
             );
             const direction = Cesium.Cartesian3.subtract(storedTarget, cameraPosition, new Cesium.Cartesian3());
             Cesium.Cartesian3.normalize(direction, direction);
-            viewPosition = Cesium.Cartesian3.add(
+            baseViewPosition = Cesium.Cartesian3.add(
                 cameraPosition,
                 Cesium.Cartesian3.multiplyByScalar(direction, distance, new Cesium.Cartesian3()),
                 new Cesium.Cartesian3()
             );
         } else {
-            // Fallback: calculate target position based on direction and distance (legacy data)
+            // Fallback: calculate from heading/pitch (legacy data)
             const transform = Cesium.Transforms.eastNorthUpToFixedFrame(cameraPosition);
             const heading = Cesium.Math.toRadians(viewshed.direction?.heading || 0);
             const pitch = Cesium.Math.toRadians(viewshed.direction?.pitch || 0);
@@ -173,26 +242,53 @@ function createCesiumViewshed(viewshed) {
             const worldDirection = Cesium.Matrix3.multiplyByVector(rotationMatrix, localDirection, new Cesium.Cartesian3());
             Cesium.Cartesian3.normalize(worldDirection, worldDirection);
 
-            viewPosition = Cesium.Cartesian3.add(
+            baseViewPosition = Cesium.Cartesian3.add(
                 cameraPosition,
                 Cesium.Cartesian3.multiplyByScalar(worldDirection, distance, new Cesium.Cartesian3()),
                 new Cesium.Cartesian3()
             );
         }
 
-        // Create ViewShed3D with both cameraPosition and viewPosition to skip interactive mode
-        const viewShed3D = new Cesium.ViewShed3D(currentViewer, {
-            cameraPosition: cameraPosition,
-            viewPosition: viewPosition,
-            horizontalAngle: viewshed.parameters?.horizontalAngle || DEFAULT_VIEWSHED_PARAMS.horizontalAngle,
-            verticalAngle: viewshed.parameters?.verticalAngle || DEFAULT_VIEWSHED_PARAMS.verticalAngle,
-            distance: viewshed.parameters?.distance || DEFAULT_VIEWSHED_PARAMS.distance
-        });
+        // Split into sub-viewsheds if angle exceeds the per-instance limit
+        const count = computeSubViewshedCount(totalHorizontalAngle);
+        const subAngle = totalHorizontalAngle / count;
 
-        return viewShed3D;
+        // Heading offsets so sub-viewsheds tile symmetrically around the center direction
+        // count=1: [0], count=2: [-subAngle/2, +subAngle/2], count=3: [-subAngle, 0, +subAngle]
+        const offsets = [];
+        if (count === 1) {
+            offsets.push(0);
+        } else if (count === 2) {
+            offsets.push(-subAngle / 2, subAngle / 2);
+        } else {
+            offsets.push(-subAngle, 0, subAngle);
+        }
+
+        // Each sub-viewshed's FOV is slightly reduced to prevent double-tinting at seams.
+        // The cesium-viewshed shader uses strict greater-than (degJJ > spzj/2.0), so
+        // pixels at the exact boundary pass both sub-viewsheds' checks. Both post-process
+        // stages then apply mix() sequentially, causing visible color saturation at seams.
+        // A 0.1° reduction per sub-viewshed creates imperceptible gaps that eliminate this.
+        const renderAngle = count > 1 ? subAngle - 1.5 : subAngle;
+
+        const result = [];
+        for (const offset of offsets) {
+            const rotatedViewPosition = rotateViewPositionAroundObserver(cameraPosition, baseViewPosition, offset);
+
+            const vs = new Cesium.ViewShed3D(currentViewer, {
+                cameraPosition: cameraPosition,
+                viewPosition: rotatedViewPosition,
+                horizontalAngle: renderAngle,
+                verticalAngle: verticalAngle,
+                distance: distance
+            });
+            result.push(vs);
+        }
+
+        return result;
     } catch (error) {
         console.warn('Failed to create ViewShed3D:', error);
-        return null;
+        return [];
     }
 }
 
@@ -203,12 +299,8 @@ function createCesiumViewshed(viewshed) {
 function removeViewshedObjects(viewshedId) {
     const data = viewshedObjects.get(viewshedId);
     if (data && currentViewer) {
-        // Destroy Cesium ViewShed3D
-        if (data.cesiumViewshed && data.cesiumViewshed.destroy) {
-            data.cesiumViewshed.destroy();
-        }
+        destroyCesiumViewsheds(data.cesiumViewsheds);
 
-        // Remove origin entity
         if (data.originEntity) {
             currentViewer.entities.remove(data.originEntity);
         }
@@ -224,9 +316,7 @@ function clearAllViewshedObjects() {
     if (!currentViewer) return;
 
     for (const data of viewshedObjects.values()) {
-        if (data.cesiumViewshed && data.cesiumViewshed.destroy) {
-            data.cesiumViewshed.destroy();
-        }
+        destroyCesiumViewsheds(data.cesiumViewsheds);
         if (data.originEntity) {
             currentViewer.entities.remove(data.originEntity);
         }
@@ -397,14 +487,14 @@ async function handleViewshedComplete(cesiumViewshed) {
     pendingViewshed = null;
 
     // Recreate with proper observer height offset (same path as reload)
-    const recreatedViewshed = createCesiumViewshed(viewshed);
+    const recreatedViewsheds = createCesiumViewsheds(viewshed);
 
     // Create origin entity
     const originEntity = createViewshedOriginEntity(viewshed);
 
     // Store the objects
     viewshedObjects.set(viewshed.id, {
-        cesiumViewshed: recreatedViewshed,
+        cesiumViewsheds: recreatedViewsheds,
         originEntity: originEntity
     });
 
@@ -498,12 +588,12 @@ export async function renderViewshedsForTileset(viewer, tilesetId) {
     // Load and render
     const viewsheds = await getViewsheds(tilesetId);
     for (const viewshed of viewsheds) {
-        const cesiumViewshed = createCesiumViewshed(viewshed);
+        const cesiumViewsheds = createCesiumViewsheds(viewshed);
         const originEntity = createViewshedOriginEntity(viewshed);
 
         if (originEntity) {
             viewshedObjects.set(viewshed.id, {
-                cesiumViewshed: cesiumViewshed,
+                cesiumViewsheds: cesiumViewsheds,
                 originEntity: originEntity
             });
         }
@@ -593,16 +683,8 @@ export async function updateViewshedDistance(viewshedId, newDistance) {
     const data = viewshedObjects.get(viewshedId);
     if (!data) return updatedViewshed;
 
-    if (data.cesiumViewshed && data.cesiumViewshed.destroy) {
-        try {
-            data.cesiumViewshed.destroy();
-        } catch (e) {
-            console.warn('Error destroying old viewshed:', e);
-        }
-    }
-
-    const newCesiumViewshed = createCesiumViewshed(updatedViewshed);
-    data.cesiumViewshed = newCesiumViewshed;
+    destroyCesiumViewsheds(data.cesiumViewsheds);
+    data.cesiumViewsheds = createCesiumViewsheds(updatedViewshed);
 
     return updatedViewshed;
 }
@@ -610,7 +692,7 @@ export async function updateViewshedDistance(viewshedId, newDistance) {
 /**
  * Updates the horizontal angle for a viewshed and recreates the visualization.
  * @param {string} viewshedId - Viewshed ID
- * @param {number} newAngle - New horizontal angle in degrees (1-150)
+ * @param {number} newAngle - New horizontal angle in degrees (1-360)
  * @returns {Promise<Object|null>} Updated viewshed
  */
 export async function updateViewshedHorizontalAngle(viewshedId, newAngle) {
@@ -619,27 +701,15 @@ export async function updateViewshedHorizontalAngle(viewshedId, newAngle) {
     const viewshed = await getViewshedById(viewshedId);
     if (!viewshed) return null;
 
-    // Update parameters in the store
     const updatedParams = { ...(viewshed.parameters || {}), horizontalAngle: newAngle };
     const updatedViewshed = await updateViewshed(viewshedId, { parameters: updatedParams });
     if (!updatedViewshed) return null;
 
-    // Get the viewshed objects and recreate the Cesium visualization
     const data = viewshedObjects.get(viewshedId);
     if (!data) return updatedViewshed;
 
-    // Destroy the old Cesium ViewShed3D
-    if (data.cesiumViewshed && data.cesiumViewshed.destroy) {
-        try {
-            data.cesiumViewshed.destroy();
-        } catch (e) {
-            console.warn('Error destroying old viewshed:', e);
-        }
-    }
-
-    // Recreate with updated parameters
-    const newCesiumViewshed = createCesiumViewshed(updatedViewshed);
-    data.cesiumViewshed = newCesiumViewshed;
+    destroyCesiumViewsheds(data.cesiumViewsheds);
+    data.cesiumViewsheds = createCesiumViewsheds(updatedViewshed);
 
     return updatedViewshed;
 }
@@ -671,29 +741,19 @@ export async function updateViewshedObserverHeight(viewshedId, newHeight) {
     const updatedViewshed = await updateViewshed(viewshedId, { observerHeight: newHeight });
     if (!updatedViewshed) return null;
 
-    // Get the viewshed objects
     const data = viewshedObjects.get(viewshedId);
     if (!data) return updatedViewshed;
 
-    // Destroy the old Cesium ViewShed3D
-    if (data.cesiumViewshed && data.cesiumViewshed.destroy) {
-        try {
-            data.cesiumViewshed.destroy();
-        } catch (e) {
-            console.warn('Error destroying old viewshed:', e);
-        }
-    }
+    destroyCesiumViewsheds(data.cesiumViewsheds);
 
-    // Create viewshed data with proper terrainBaseHeight and new observerHeight
-    // This uses the same path as createCesiumViewshed on reload
+    // Recreate with proper terrainBaseHeight and new observerHeight
     const viewshedForRecreation = {
         ...updatedViewshed,
         terrainBaseHeight: terrainBaseHeight,
         observerHeight: newHeight
     };
 
-    const newCesiumViewshed = createCesiumViewshed(viewshedForRecreation);
-    data.cesiumViewshed = newCesiumViewshed;
+    data.cesiumViewsheds = createCesiumViewsheds(viewshedForRecreation);
 
     // Update the origin entity position
     if (data.originEntity) {
@@ -797,12 +857,12 @@ export async function refreshViewshedsForCurrentTileset() {
 
     const viewsheds = await getViewsheds(currentTilesetId);
     for (const viewshed of viewsheds) {
-        const cesiumViewshed = createCesiumViewshed(viewshed);
+        const cesiumViewsheds = createCesiumViewsheds(viewshed);
         const originEntity = createViewshedOriginEntity(viewshed);
 
         if (originEntity) {
             viewshedObjects.set(viewshed.id, {
-                cesiumViewshed: cesiumViewshed,
+                cesiumViewsheds: cesiumViewsheds,
                 originEntity: originEntity
             });
         }
@@ -854,13 +914,7 @@ export function getSelectedViewshedId() {
 export function clearAllViewField() {
     // Just clear visualizations, don't delete data
     for (const data of viewshedObjects.values()) {
-        if (data.cesiumViewshed && data.cesiumViewshed.destroy) {
-            data.cesiumViewshed.destroy();
-        }
-    }
-
-    // Keep origin entities but destroy ViewShed3D objects
-    for (const data of viewshedObjects.values()) {
-        data.cesiumViewshed = null;
+        destroyCesiumViewsheds(data.cesiumViewsheds);
+        data.cesiumViewsheds = [];
     }
 }

@@ -360,9 +360,9 @@ function buildParametersSection(container, viewshed, callbacks, cleanupFunctions
     buildEditableParam(section, {
         label: 'Campo Horizontal',
         value: params.horizontalAngle ?? 120,
-        min: 1, max: 150, step: 1,
+        min: 1, max: 360, step: 1,
         unit: '°',
-        hint: 'Abertura horizontal do campo de visão (1° a 150°)',
+        hint: 'Abertura horizontal do campo de visão (1° a 360°)',
         parseValue: v => parseInt(v, 10),
         onChange: onHorizontalAngleChange
     }, cleanupFunctions);

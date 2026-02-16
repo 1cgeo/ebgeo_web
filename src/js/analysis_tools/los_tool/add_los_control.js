@@ -5,6 +5,7 @@ import { IDUtils } from '../../utilities';
 import { addLOSAttributesToPanel, createLOSInfoSection, addLOSParametersToPanel } from './los_attributes_panel.js';
 import AddLOSGeometry from './add_los_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import { getSnappingService } from '../../snapping';
 
 class AddLOSControl extends BaseControl {
     constructor(toolManager) {
@@ -284,6 +285,7 @@ class AddLOSControl extends BaseControl {
         this.startPoint = null;
         this.endPoint = null;
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.map.on('mousemove', this._onPreClickMouseMove);
     }
 
     deactivate = () => {
@@ -291,6 +293,8 @@ class AddLOSControl extends BaseControl {
         this.startPoint = null;
         this.endPoint = null;
         this.map.getCanvas().style.cursor = '';
+        this.map.off('mousemove', this._onPreClickMouseMove);
+        getSnappingService()?.hideIndicator(this.map);
         this.clearPreview();
     }
 
@@ -438,17 +442,32 @@ class AddLOSControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
+    // Show snap indicator before the first click so the user knows snap is active
+    _onPreClickMouseMove = (e) => {
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
+    }
+
     handleMapClick = async (e) => {
         if (!this.isActive || !this.geometry.isTerrainAvailable(this.map)) return;
 
-        const { lng, lat } = e.lngLat;
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
 
         if (!this.startPoint) {
-            this.startPoint = [lng, lat];
+            this.startPoint = [snap.lng, snap.lat];
             this.lastPreviewCenter = this.startPoint;
+            snapping?.hideIndicator(this.map);
+            this.map.off('mousemove', this._onPreClickMouseMove);
             this.map.on('mousemove', this.handleMouseMove);
         } else {
-            this.endPoint = [lng, lat];
+            this.endPoint = [snap.lng, snap.lat];
+            snapping?.hideIndicator(this.map);
             this.map.off('mousemove', this.handleMouseMove);
             await this.createFeature();
             this.toolManager.deactivateCurrentTool();
@@ -458,8 +477,17 @@ class AddLOSControl extends BaseControl {
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
 
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
+
         this.lastPreviewCenter = this.startPoint;
-        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+        this.lastPreviewPosition = [snap.lng, snap.lat];
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;
@@ -995,6 +1023,7 @@ class AddLOSControl extends BaseControl {
     }
 
     removeAllEventListeners = () => {
+        this.map.off('mousemove', this._onPreClickMouseMove);
         this.map.off('mousemove', this.handleMouseMove);
         this.map.off('terrain', this._onTerrainChange);
         this.cancelPendingUpdates();

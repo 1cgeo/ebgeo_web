@@ -220,6 +220,7 @@ class AddLineControl extends BaseControl {
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
         this.setupRightClickListener();
+        this.map.on('mousemove', this._onPreClickMouseMove);
 
         // Show finish button on touch devices
         if (isTouchDevice()) {
@@ -236,6 +237,8 @@ class AddLineControl extends BaseControl {
         this.isActive = false;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = '';
+        this.map.off('mousemove', this._onPreClickMouseMove);
+        getSnappingService()?.hideIndicator(this.map);
         this.clearPreview();
         this.removeRightClickListener();
         this.deselectFeature();
@@ -385,6 +388,16 @@ class AddLineControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
+    _onPreClickMouseMove = (e) => {
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
+    }
+
     handleMapClick = (e) => {
         if (!this.isActive) return;
 
@@ -409,6 +422,7 @@ class AddLineControl extends BaseControl {
         }
 
         if (this.drawPoints.length === 1) {
+            this.map.off('mousemove', this._onPreClickMouseMove);
             this.map.on('mousemove', this.handlePreviewMouseMove);
         } else if (this.drawPoints.length >= 2) {
             this.updateDrawingPreview();
@@ -1341,6 +1355,7 @@ class AddLineControl extends BaseControl {
     }
 
     removeAllEventListeners = () => {
+        this.map.off('mousemove', this._onPreClickMouseMove);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         this.removeHoverListeners();

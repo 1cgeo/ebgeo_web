@@ -177,11 +177,14 @@ class AddPointControl extends BaseControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.map.on('mousemove', this._onPreClickMouseMove);
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
+        this.map.off('mousemove', this._onPreClickMouseMove);
+        getSnappingService()?.hideIndicator(this.map);
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====
@@ -207,6 +210,16 @@ class AddPointControl extends BaseControl {
     }
 
     // ===== DRAWING SYSTEM =====
+
+    _onPreClickMouseMove = (e) => {
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
+    }
 
     handleMapClick = async (e) => {
         if (!this.isActive) return;
@@ -400,6 +413,7 @@ class AddPointControl extends BaseControl {
     }
 
     removeAllEventListeners = () => {
+        this.map.off('mousemove', this._onPreClickMouseMove);
     }
 }
 

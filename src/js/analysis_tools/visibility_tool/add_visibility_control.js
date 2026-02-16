@@ -6,6 +6,7 @@ import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addVisibilityAttributesToPanel, addVisibilityParametersToPanel } from './visibility_attributes_panel.js';
 import AddVisibilityGeometry from './add_visibility_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import { getSnappingService } from '../../snapping';
 
 /**
  * Visibility (Viewshed) analysis tool control.
@@ -225,12 +226,15 @@ class AddVisibilityControl extends BaseControl {
         this.isActive = true;
         this.startPoint = null;
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.map.on('mousemove', this._onPreClickMouseMove);
     }
 
     deactivate = () => {
         this.isActive = false;
         this.startPoint = null;
         this.map.getCanvas().style.cursor = '';
+        this.map.off('mousemove', this._onPreClickMouseMove);
+        getSnappingService()?.hideIndicator(this.map);
         this.clearPreview();
     }
 
@@ -388,7 +392,17 @@ class AddVisibilityControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        this.lastPreviewPosition = [lngLat.lng, lngLat.lat];
+        const snapping = getSnappingService();
+        const excludeId = selectedFeature.properties?.id;
+        const snap = snapping?.resolve(this.map, { x: point.x, y: point.y }, lngLat, excludeId) ?? lngLat;
+
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
+
+        this.lastPreviewPosition = [snap.lng, snap.lat];
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;
@@ -397,6 +411,9 @@ class AddVisibilityControl extends BaseControl {
     }
 
     _onEditPointerUp(_e) {
+        const snapping = getSnappingService();
+        snapping?.hideIndicator(this.map);
+
         const canvas = this.map.getCanvasContainer();
 
         canvas.removeEventListener('pointermove', this._onEditPointerMove);
@@ -536,17 +553,32 @@ class AddVisibilityControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
+    // Show snap indicator before the first click so the user knows snap is active
+    _onPreClickMouseMove = (e) => {
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
+    }
+
     handleMapClick = async (e) => {
         if (!this.isActive || !this.geometry.isTerrainAvailable(this.map)) return;
 
-        const { lng, lat } = e.lngLat;
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
 
         if (!this.startPoint) {
-            this.startPoint = [lng, lat];
+            this.startPoint = [snap.lng, snap.lat];
             this.lastPreviewCenter = this.startPoint;
+            snapping?.hideIndicator(this.map);
+            this.map.off('mousemove', this._onPreClickMouseMove);
             this.map.on('mousemove', this.handleMouseMove);
         } else {
-            const endPoint = [lng, lat];
+            const endPoint = [snap.lng, snap.lat];
+            snapping?.hideIndicator(this.map);
             this.map.off('mousemove', this.handleMouseMove);
             await this.createFeature(this.startPoint, endPoint);
             this.toolManager.deactivateCurrentTool();
@@ -556,8 +588,17 @@ class AddVisibilityControl extends BaseControl {
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
 
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
+
         this.lastPreviewCenter = this.startPoint;
-        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+        this.lastPreviewPosition = [snap.lng, snap.lat];
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;
@@ -1202,6 +1243,7 @@ class AddVisibilityControl extends BaseControl {
     }
 
     removeAllEventListeners = () => {
+        this.map.off('mousemove', this._onPreClickMouseMove);
         this.map.off('mousemove', this.handleMouseMove);
         this.map.off('terrain', this._onTerrainChange);
         this.removeEditEventListeners();
