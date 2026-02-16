@@ -66,11 +66,25 @@ export function createViewshedPanelContent(viewshed, tilesetId, onClose) {
         }
     });
 
-    // 2. Parameters section (with editable observer height)
-    buildParametersSection(container, currentViewshed, async (newHeight) => {
-        currentViewshed.observerHeight = newHeight;
-        const { updateViewshedObserverHeight } = await getViewshedTool();
-        await updateViewshedObserverHeight(currentViewshed.id, newHeight);
+    // 2. Parameters section (with editable observer height, horizontal angle, and distance)
+    buildParametersSection(container, currentViewshed, {
+        onHeightChange: async (newHeight) => {
+            currentViewshed.observerHeight = newHeight;
+            const { updateViewshedObserverHeight } = await getViewshedTool();
+            await updateViewshedObserverHeight(currentViewshed.id, newHeight);
+        },
+        onHorizontalAngleChange: async (newAngle) => {
+            if (!currentViewshed.parameters) currentViewshed.parameters = {};
+            currentViewshed.parameters.horizontalAngle = newAngle;
+            const { updateViewshedHorizontalAngle } = await getViewshedTool();
+            await updateViewshedHorizontalAngle(currentViewshed.id, newAngle);
+        },
+        onDistanceChange: async (newDistance) => {
+            if (!currentViewshed.parameters) currentViewshed.parameters = {};
+            currentViewshed.parameters.distance = newDistance;
+            const { updateViewshedDistance } = await getViewshedTool();
+            await updateViewshedDistance(currentViewshed.id, newDistance);
+        }
     }, cleanupFunctions);
 
     // 3. Photo gallery section
@@ -320,12 +334,17 @@ function createDescriptionSection2D(viewshed, onUpdate) {
 }
 
 /**
- * Builds the parameters section with editable observer height.
+ * Builds the parameters section with editable observer height, horizontal angle, and distance.
  * @param {HTMLElement} container - Container element
  * @param {Object} viewshed - Viewshed data
- * @param {Function} onHeightChange - Callback when observer height changes
+ * @param {Object} callbacks - Callback functions
+ * @param {Function} callbacks.onHeightChange - Callback when observer height changes
+ * @param {Function} callbacks.onHorizontalAngleChange - Callback when horizontal angle changes
+ * @param {Function} callbacks.onDistanceChange - Callback when distance changes
+ * @param {Array} cleanupFunctions - Array to push cleanup functions into
  */
-function buildParametersSection(container, viewshed, onHeightChange, cleanupFunctions) {
+function buildParametersSection(container, viewshed, callbacks, cleanupFunctions) {
+    const { onHeightChange, onHorizontalAngleChange, onDistanceChange } = callbacks;
     const section = document.createElement('div');
     section.className = 'viewshed-parameters-section';
 
@@ -333,112 +352,134 @@ function buildParametersSection(container, viewshed, onHeightChange, cleanupFunc
     header.className = 'viewshed-parameters-header';
     header.innerHTML = `${ICONS.SETTINGS}<span>Parâmetros</span>`;
 
-    const parametersGrid = document.createElement('div');
-    parametersGrid.className = 'viewshed-parameters-grid';
-
     const params = viewshed.parameters || {};
 
-    // Horizontal angle
-    const hAngleItem = createParameterItem('Campo Horizontal', `${params.horizontalAngle || 90}°`);
-    parametersGrid.appendChild(hAngleItem);
-
-    // Vertical angle
-    const vAngleItem = createParameterItem('Campo Vertical', `${params.verticalAngle || 60}°`);
-    parametersGrid.appendChild(vAngleItem);
-
-    // Distance
-    const distanceItem = createParameterItem('Distância', `${params.distance || 200} m`);
-    parametersGrid.appendChild(distanceItem);
-
     section.appendChild(header);
-    section.appendChild(parametersGrid);
 
-    // Observer height (editable) - separate row
-    const heightSection = document.createElement('div');
-    heightSection.className = 'viewshed-observer-height-section';
+    // Horizontal angle (editable)
+    buildEditableParam(section, {
+        label: 'Campo Horizontal',
+        value: params.horizontalAngle ?? 120,
+        min: 1, max: 150, step: 1,
+        unit: '°',
+        hint: 'Abertura horizontal do campo de visão (1° a 150°)',
+        parseValue: v => parseInt(v, 10),
+        onChange: onHorizontalAngleChange
+    }, cleanupFunctions);
 
-    const heightLabel = document.createElement('label');
-    heightLabel.className = 'viewshed-observer-height-label';
-    heightLabel.textContent = 'Altura do Observador';
+    // Distance (editable)
+    buildEditableParam(section, {
+        label: 'Distância',
+        value: params.distance ?? 500,
+        min: 10, max: 5000, step: 5,
+        unit: 'm',
+        hint: 'Alcance máximo da análise (10 a 5000 m)',
+        parseValue: v => parseInt(v, 10),
+        onChange: onDistanceChange
+    }, cleanupFunctions);
 
-    const heightInputContainer = document.createElement('div');
-    heightInputContainer.className = 'viewshed-observer-height-input-container';
+    // Observer height (editable)
+    buildEditableParam(section, {
+        label: 'Altura do Observador',
+        value: viewshed.observerHeight ?? 1.5,
+        min: 0, max: 1000, step: 0.1,
+        unit: 'm',
+        hint: 'Altura acima do ponto clicado (ex: 1.5m para pessoa, 3m para veículo)',
+        parseValue: v => parseFloat(v),
+        epsilon: 0.001,
+        onChange: onHeightChange
+    }, cleanupFunctions);
 
-    const heightInput = document.createElement('input');
-    heightInput.type = 'number';
-    heightInput.className = 'viewshed-observer-height-input';
-    heightInput.value = viewshed.observerHeight ?? 1.5;
-    heightInput.min = 0;
-    heightInput.max = 1000;
-    heightInput.step = 0.5;
+    container.appendChild(section);
+}
 
-    const heightUnit = document.createElement('span');
-    heightUnit.className = 'viewshed-observer-height-unit';
-    heightUnit.textContent = 'm';
+/**
+ * Builds a single editable parameter row with debounce logic.
+ * @param {HTMLElement} parent - Parent element to append to
+ * @param {Object} config - Parameter configuration
+ * @param {Array} cleanupFunctions - Array to push cleanup functions into
+ */
+function buildEditableParam(parent, config, cleanupFunctions) {
+    const { label, value, min, max, step, unit, hint, parseValue, epsilon, onChange } = config;
 
-    heightInputContainer.appendChild(heightInput);
-    heightInputContainer.appendChild(heightUnit);
+    const row = document.createElement('div');
+    row.className = 'viewshed-observer-height-section';
 
-    const heightHint = document.createElement('div');
-    heightHint.className = 'viewshed-observer-height-hint';
-    heightHint.textContent = 'Altura acima do ponto clicado (ex: 1.5m para pessoa, 3m para veículo)';
+    const labelEl = document.createElement('label');
+    labelEl.className = 'viewshed-observer-height-label';
+    labelEl.textContent = label;
 
-    heightSection.appendChild(heightLabel);
-    heightSection.appendChild(heightInputContainer);
-    heightSection.appendChild(heightHint);
+    const inputContainer = document.createElement('div');
+    inputContainer.className = 'viewshed-observer-height-input-container';
 
-    // Track state to avoid duplicate/concurrent updates
-    let lastAppliedHeight = viewshed.observerHeight ?? 1.5;
-    let heightDebounceTimer = null;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'viewshed-observer-height-input';
+    input.value = value;
+    input.min = min;
+    input.max = max;
+    input.step = step;
+
+    const unitEl = document.createElement('span');
+    unitEl.className = 'viewshed-observer-height-unit';
+    unitEl.textContent = unit;
+
+    inputContainer.appendChild(input);
+    inputContainer.appendChild(unitEl);
+
+    const hintEl = document.createElement('div');
+    hintEl.className = 'viewshed-observer-height-hint';
+    hintEl.textContent = hint;
+
+    row.appendChild(labelEl);
+    row.appendChild(inputContainer);
+    row.appendChild(hintEl);
+
+    // Debounce logic
+    let lastApplied = value;
+    let debounceTimer = null;
     let isUpdating = false;
 
-    const applyHeightChange = async (newHeight) => {
-        // Avoid concurrent updates
+    const applyChange = async (newVal) => {
         if (isUpdating) return;
-
-        // Skip if value hasn't changed (use small epsilon for float comparison)
-        if (Math.abs(newHeight - lastAppliedHeight) < 0.001) return;
+        // Compare with epsilon for floats, strict for integers
+        if (epsilon ? Math.abs(newVal - lastApplied) < epsilon : newVal === lastApplied) return;
 
         isUpdating = true;
-
         try {
-            if (onHeightChange) {
-                await onHeightChange(newHeight);
-                lastAppliedHeight = newHeight;
+            if (onChange) {
+                await onChange(newVal);
+                lastApplied = newVal;
             }
         } catch (error) {
-            console.error('Error updating observer height:', error);
+            console.error(`Error updating ${label}:`, error);
         } finally {
             isUpdating = false;
         }
     };
 
-    heightInput.addEventListener('input', () => {
-        clearTimeout(heightDebounceTimer);
-        heightDebounceTimer = setTimeout(() => {
-            const newHeight = parseFloat(heightInput.value);
-            if (!isNaN(newHeight) && newHeight >= 0) {
-                applyHeightChange(newHeight);
-            }
-        }, 500);
-    });
-
-    // Handle blur for immediate save
-    heightInput.addEventListener('blur', () => {
-        clearTimeout(heightDebounceTimer);
-        const newHeight = parseFloat(heightInput.value);
-        if (!isNaN(newHeight) && newHeight >= 0) {
-            applyHeightChange(newHeight);
+    const validate = () => {
+        const parsed = parseValue(input.value);
+        if (!isNaN(parsed) && parsed >= min && parsed <= max) {
+            applyChange(parsed);
         }
+    };
+
+    input.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(validate, 500);
     });
 
-    // Clear debounce timer on panel destroy to prevent leaks
+    input.addEventListener('blur', () => {
+        clearTimeout(debounceTimer);
+        validate();
+    });
+
     if (cleanupFunctions) {
-        cleanupFunctions.push(() => clearTimeout(heightDebounceTimer));
+        cleanupFunctions.push(() => clearTimeout(debounceTimer));
     }
 
-    section.appendChild(heightSection);
-    container.appendChild(section);
+    parent.appendChild(row);
 }
 
 /**

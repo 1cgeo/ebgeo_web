@@ -24,6 +24,9 @@ export const FEATURE_LAYER_IDS = [
     'ellipse-fill-layer',
     'ellipse-fill-pattern-layer',
     'ellipse-layer',
+    'sector-fill-layer',
+    'sector-fill-pattern-layer',
+    'sectors-layer',
     'arrow-fill-layer',
     'arrow-layer',
     'text-layer',
@@ -55,7 +58,9 @@ export const HATCH_PATTERN_LAYERS = {
     'circle-fill-layer': false,
     'circle-fill-pattern-layer': true,
     'ellipse-fill-layer': false,
-    'ellipse-fill-pattern-layer': true
+    'ellipse-fill-pattern-layer': true,
+    'sector-fill-layer': false,
+    'sector-fill-pattern-layer': true
 };
 
 /**
@@ -78,5 +83,6 @@ export const FEATURE_SOURCES = {
     BOUNDARIES: 'boundarys',
     OCCUPIED_FRONTS: 'occupied_fronts',
     LOS: 'los',
-    VISIBILITY: 'visibility'
+    VISIBILITY: 'visibility',
+    SECTORS: 'setores'
 };

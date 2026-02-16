@@ -28,7 +28,7 @@ let pendingViewshed = null; // Temporary storage for viewshed being created
 
 // Default viewshed parameters
 const DEFAULT_VIEWSHED_PARAMS = {
-    horizontalAngle: 150,
+    horizontalAngle: 120,
     verticalAngle: 120,
     distance: 500
 };
@@ -135,42 +135,44 @@ function createCesiumViewshed(viewshed) {
             observerFullHeight
         );
 
+        // Calculate viewPosition from the stored direction at the configured distance.
+        // The plugin's _createShadowMap computes distance from the geometric distance
+        // between cameraPosition and viewPosition, so we must place viewPosition at
+        // exactly the configured distance to make the parameter effective.
+        const distance = viewshed.parameters?.distance || DEFAULT_VIEWSHED_PARAMS.distance;
         let viewPosition;
 
-        // Use stored targetPosition if available (new format)
         if (viewshed.targetPosition && viewshed.targetPosition.longitude !== undefined) {
-            viewPosition = Cesium.Cartesian3.fromDegrees(
+            // Recompute viewPosition along the original direction but at the configured distance
+            const storedTarget = Cesium.Cartesian3.fromDegrees(
                 viewshed.targetPosition.longitude,
                 viewshed.targetPosition.latitude,
                 viewshed.targetPosition.height || 0
             );
+            const direction = Cesium.Cartesian3.subtract(storedTarget, cameraPosition, new Cesium.Cartesian3());
+            Cesium.Cartesian3.normalize(direction, direction);
+            viewPosition = Cesium.Cartesian3.add(
+                cameraPosition,
+                Cesium.Cartesian3.multiplyByScalar(direction, distance, new Cesium.Cartesian3()),
+                new Cesium.Cartesian3()
+            );
         } else {
             // Fallback: calculate target position based on direction and distance (legacy data)
-            // This uses a simple forward projection from the camera position
-            const distance = viewshed.parameters?.distance || DEFAULT_VIEWSHED_PARAMS.distance;
-
-            // Create a local east-north-up frame
             const transform = Cesium.Transforms.eastNorthUpToFixedFrame(cameraPosition);
-
-            // Get heading and pitch from stored direction
             const heading = Cesium.Math.toRadians(viewshed.direction?.heading || 0);
             const pitch = Cesium.Math.toRadians(viewshed.direction?.pitch || 0);
 
-            // Calculate direction vector in local ENU frame
-            // heading: 0 = north, pitch: 0 = horizontal, negative = looking down
             const cosP = Math.cos(pitch);
             const localDirection = new Cesium.Cartesian3(
-                cosP * Math.sin(heading),  // East component
-                cosP * Math.cos(heading),  // North component
-                Math.sin(pitch)             // Up component
+                cosP * Math.sin(heading),
+                cosP * Math.cos(heading),
+                Math.sin(pitch)
             );
 
-            // Transform local direction to world coordinates
             const rotationMatrix = Cesium.Matrix4.getMatrix3(transform, new Cesium.Matrix3());
             const worldDirection = Cesium.Matrix3.multiplyByVector(rotationMatrix, localDirection, new Cesium.Cartesian3());
             Cesium.Cartesian3.normalize(worldDirection, worldDirection);
 
-            // Calculate view position
             viewPosition = Cesium.Cartesian3.add(
                 cameraPosition,
                 Cesium.Cartesian3.multiplyByScalar(worldDirection, distance, new Cesium.Cartesian3()),
@@ -568,6 +570,76 @@ export async function updateViewshedProperties(viewshedId, updates) {
     if (updatedViewshed) {
         updateViewshedVisuals(viewshedId, updatedViewshed);
     }
+
+    return updatedViewshed;
+}
+
+/**
+ * Updates the distance for a viewshed and recreates the visualization.
+ * @param {string} viewshedId - Viewshed ID
+ * @param {number} newDistance - New distance in meters (1-5000)
+ * @returns {Promise<Object|null>} Updated viewshed
+ */
+export async function updateViewshedDistance(viewshedId, newDistance) {
+    if (!currentViewer || !window.Cesium) return null;
+
+    const viewshed = await getViewshedById(viewshedId);
+    if (!viewshed) return null;
+
+    const updatedParams = { ...(viewshed.parameters || {}), distance: newDistance };
+    const updatedViewshed = await updateViewshed(viewshedId, { parameters: updatedParams });
+    if (!updatedViewshed) return null;
+
+    const data = viewshedObjects.get(viewshedId);
+    if (!data) return updatedViewshed;
+
+    if (data.cesiumViewshed && data.cesiumViewshed.destroy) {
+        try {
+            data.cesiumViewshed.destroy();
+        } catch (e) {
+            console.warn('Error destroying old viewshed:', e);
+        }
+    }
+
+    const newCesiumViewshed = createCesiumViewshed(updatedViewshed);
+    data.cesiumViewshed = newCesiumViewshed;
+
+    return updatedViewshed;
+}
+
+/**
+ * Updates the horizontal angle for a viewshed and recreates the visualization.
+ * @param {string} viewshedId - Viewshed ID
+ * @param {number} newAngle - New horizontal angle in degrees (1-150)
+ * @returns {Promise<Object|null>} Updated viewshed
+ */
+export async function updateViewshedHorizontalAngle(viewshedId, newAngle) {
+    if (!currentViewer || !window.Cesium) return null;
+
+    const viewshed = await getViewshedById(viewshedId);
+    if (!viewshed) return null;
+
+    // Update parameters in the store
+    const updatedParams = { ...(viewshed.parameters || {}), horizontalAngle: newAngle };
+    const updatedViewshed = await updateViewshed(viewshedId, { parameters: updatedParams });
+    if (!updatedViewshed) return null;
+
+    // Get the viewshed objects and recreate the Cesium visualization
+    const data = viewshedObjects.get(viewshedId);
+    if (!data) return updatedViewshed;
+
+    // Destroy the old Cesium ViewShed3D
+    if (data.cesiumViewshed && data.cesiumViewshed.destroy) {
+        try {
+            data.cesiumViewshed.destroy();
+        } catch (e) {
+            console.warn('Error destroying old viewshed:', e);
+        }
+    }
+
+    // Recreate with updated parameters
+    const newCesiumViewshed = createCesiumViewshed(updatedViewshed);
+    data.cesiumViewshed = newCesiumViewshed;
 
     return updatedViewshed;
 }

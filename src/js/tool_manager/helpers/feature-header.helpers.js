@@ -351,7 +351,8 @@ function getFeatureTypeName(featureType) {
         'military_symbol': 'Símbolos Militares',
         'coordination_measure': 'Medidas de Coordenação',
         'los': 'Linhas de Visada',
-        'visibility': 'Visibilidade'
+        'visibility': 'Visibilidade',
+        'sector': 'Setores'
     };
     return names[featureType] || featureType;
 }

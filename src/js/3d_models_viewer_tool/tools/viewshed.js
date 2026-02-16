@@ -2,7 +2,7 @@
 
 // ===== MODULE STATE =====
 let arrViewField = [];
-const viewModel = { verticalAngle: 120, horizontalAngle: 150, distance: 10 };
+const viewModel = { verticalAngle: 120, horizontalAngle: 120, distance: 10 };
 
 // ===== PUBLIC API =====
 

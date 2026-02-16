@@ -652,6 +652,27 @@ export const removeMarkerImage = async (markerId, imageId, mapName = null) => {
 // ===== MEASUREMENT OPERATIONS =====
 
 /**
+ * Default measurement style configuration.
+ * Separate defaults for distance (line) and area (polygon) measurements.
+ */
+export const DEFAULT_MEASUREMENT_STYLE = {
+    // Line / polygon outline
+    lineColor: '#FFFF00',
+    lineWidth: 3,
+    lineOpacity: 1,
+    // Polygon fill (area only)
+    fillColor: '#FFFF00',
+    fillOpacity: 0.2,
+    // Label style
+    labelColor: '#ffffff',
+    labelSize: 14,
+    labelOutlineColor: '#000000',
+    labelOutlineWidth: 2,
+    labelBackgroundColor: '#FFFF00',
+    labelBackgroundOpacity: 0.8
+};
+
+/**
  * Generates unique measurement ID using UUID.
  * @returns {string} Unique UUID
  */
@@ -707,6 +728,17 @@ export const addMeasurement = async (tilesetId, measurementData, mapName = null)
     const prefix = type === 'distance' ? 'Distância' : 'Área';
     const defaultName = `${prefix} #${nextNumber}`;
 
+    // Get user-defined default style from localStorage if available
+    let userDefaultStyle = {};
+    try {
+        const savedStyle = localStorage.getItem('measurement3d_default_style');
+        if (savedStyle) {
+            userDefaultStyle = JSON.parse(savedStyle);
+        }
+    } catch (e) {
+        console.warn('Failed to parse saved measurement style:', e);
+    }
+
     const measurement = {
         id: generateMeasurementId(),
         tilesetId,
@@ -716,6 +748,11 @@ export const addMeasurement = async (tilesetId, measurementData, mapName = null)
         properties: {
             nome: measurementData.properties?.nome || defaultName,
             descricao: measurementData.properties?.descricao || ''
+        },
+        style: {
+            ...DEFAULT_MEASUREMENT_STYLE,
+            ...userDefaultStyle,
+            ...(measurementData.style || {})
         },
         images: [],
         sync: createSyncMetadata(null)
@@ -800,6 +837,10 @@ export const updateMeasurement = async (measurementId, updates, mapName = null) 
     // Update properties
     if (updates.properties) {
         measurement.properties = { ...measurement.properties, ...updates.properties };
+    }
+    // Update style
+    if (updates.style) {
+        measurement.style = { ...(measurement.style || DEFAULT_MEASUREMENT_STYLE), ...updates.style };
     }
     // Update sync metadata
     measurement.sync = touchSyncMetadata(measurement.sync);

@@ -25,6 +25,7 @@ export const FEATURE_SOURCES = [
     'coordination_measures',
     'los',
     'visibility',
+    'setores',
 ];
 
 /**
@@ -54,6 +55,7 @@ export const FEATURE_DISPLAY_NAMES = {
     coordination_measures: 'Medida de Coordenação',
     los: 'Linha de Visada',
     visibility: 'Visibilidade',
+    setores: 'Setor',
 };
 
 /**

@@ -10,7 +10,8 @@ import {
     addMeasurement,
     getMeasurements,
     updateMeasurement,
-    removeMeasurement
+    removeMeasurement,
+    DEFAULT_MEASUREMENT_STYLE
 } from '../../store/index.js';
 import { getEventBus } from '../../store/services.js';
 import { EventTypes } from '../../events/event_types.js';
@@ -57,6 +58,30 @@ function initColors() {
 }
 
 // ===== UTILITY FUNCTIONS =====
+
+/**
+ * Converts hex color to Cesium.Color.
+ * @param {string} hex - Hex color string (e.g., '#ff0000')
+ * @param {number} [alpha=1] - Alpha value
+ * @returns {Cesium.Color} Cesium color
+ */
+function hexToCesiumColor(hex, alpha = 1) {
+    if (!hex) return Cesium.Color.WHITE.withAlpha(alpha);
+    hex = hex.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16) / 255;
+    const g = parseInt(hex.substring(2, 4), 16) / 255;
+    const b = parseInt(hex.substring(4, 6), 16) / 255;
+    return new Cesium.Color(r, g, b, alpha);
+}
+
+/**
+ * Resolves measurement style with defaults.
+ * @param {Object} [measurementStyle] - Style from measurement data
+ * @returns {Object} Resolved style with all fields
+ */
+function resolveStyle(measurementStyle) {
+    return { ...DEFAULT_MEASUREMENT_STYLE, ...(measurementStyle || {}) };
+}
 
 /**
  * Formats distance value.
@@ -333,9 +358,9 @@ function updateTempVisualization() {
 function createMeasurementEntities(measurement) {
     if (!currentViewer || !window.Cesium) return null;
 
-    // Ensure colors are initialized
+    // Ensure colors are initialized (for selection highlighting)
     initColors();
-    if (!COLORS.SELECTED_LINE || !COLORS.DEFAULT_LINE) return null;
+    if (!COLORS.SELECTED_LINE) return null;
 
     const entities = [];
     const positions = measurement.positions.map(pos =>
@@ -345,8 +370,18 @@ function createMeasurementEntities(measurement) {
     if (positions.length < 2) return null;
 
     const isSelected = selectedMeasurementId === measurement.id;
-    const lineColor = isSelected ? COLORS.SELECTED_LINE : COLORS.DEFAULT_LINE;
-    const fillColor = isSelected ? COLORS.SELECTED_FILL : COLORS.DEFAULT_FILL;
+    const style = resolveStyle(measurement.style);
+
+    // Always use custom style colors so user sees live preview while editing.
+    // Selection is indicated by wider line and larger points only.
+    const lineColor = hexToCesiumColor(style.lineColor, style.lineOpacity);
+    const fillColor = hexToCesiumColor(style.fillColor, style.fillOpacity);
+    const lineWidth = isSelected ? style.lineWidth + 1 : style.lineWidth;
+    const pointColor = hexToCesiumColor(style.lineColor, style.lineOpacity);
+
+    const labelFillColor = hexToCesiumColor(style.labelColor);
+    const labelOutlineColor = hexToCesiumColor(style.labelOutlineColor);
+    const labelBgColor = hexToCesiumColor(style.labelBackgroundColor, style.labelBackgroundOpacity);
 
     if (measurement.type === 'distance') {
         // Create line entity
@@ -354,7 +389,7 @@ function createMeasurementEntities(measurement) {
             id: `measurement-3d-line-${measurement.id}`,
             polyline: {
                 positions: positions,
-                width: isSelected ? 4 : 2,
+                width: lineWidth,
                 material: lineColor,
                 clampToGround: false,
                 disableDepthTestDistance: Number.POSITIVE_INFINITY
@@ -373,7 +408,7 @@ function createMeasurementEntities(measurement) {
                 position: pos,
                 point: {
                     pixelSize: isSelected ? 10 : 8,
-                    color: lineColor,
+                    color: pointColor,
                     outlineColor: Cesium.Color.WHITE,
                     outlineWidth: 2,
                     disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -395,17 +430,17 @@ function createMeasurementEntities(measurement) {
             position: labelPosition,
             label: {
                 text: measurement.result?.formatted || formatDistance(measurement.result?.value || 0),
-                font: '14px Inter, sans-serif',
+                font: `${style.labelSize}px Inter, sans-serif`,
                 style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-                outlineWidth: 2,
-                outlineColor: Cesium.Color.BLACK,
-                fillColor: Cesium.Color.WHITE,
+                outlineWidth: style.labelOutlineWidth,
+                outlineColor: labelOutlineColor,
+                fillColor: labelFillColor,
                 verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
                 horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
                 pixelOffset: new Cesium.Cartesian2(0, -15),
                 disableDepthTestDistance: Number.POSITIVE_INFINITY,
                 showBackground: true,
-                backgroundColor: lineColor.withAlpha(0.8)
+                backgroundColor: labelBgColor
             },
             properties: {
                 measurementId: measurement.id,
@@ -441,7 +476,7 @@ function createMeasurementEntities(measurement) {
                 id: `measurement-3d-line-${measurement.id}`,
                 polyline: {
                     positions: [...polygonPositions, polygonPositions[0]], // Close the loop
-                    width: isSelected ? 4 : 2,
+                    width: lineWidth,
                     material: lineColor,
                     clampToGround: false,
                     disableDepthTestDistance: Number.POSITIVE_INFINITY
@@ -461,7 +496,7 @@ function createMeasurementEntities(measurement) {
                 position: pos,
                 point: {
                     pixelSize: isSelected ? 10 : 8,
-                    color: lineColor,
+                    color: pointColor,
                     outlineColor: Cesium.Color.WHITE,
                     outlineWidth: 2,
                     disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -483,16 +518,16 @@ function createMeasurementEntities(measurement) {
                 position: centroid,
                 label: {
                     text: measurement.result?.formatted || formatArea(measurement.result?.value || 0),
-                    font: '14px Inter, sans-serif',
+                    font: `${style.labelSize}px Inter, sans-serif`,
                     style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-                    outlineWidth: 2,
-                    outlineColor: Cesium.Color.BLACK,
-                    fillColor: Cesium.Color.WHITE,
+                    outlineWidth: style.labelOutlineWidth,
+                    outlineColor: labelOutlineColor,
+                    fillColor: labelFillColor,
                     verticalOrigin: Cesium.VerticalOrigin.CENTER,
                     horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
                     disableDepthTestDistance: Number.POSITIVE_INFINITY,
                     showBackground: true,
-                    backgroundColor: lineColor.withAlpha(0.8)
+                    backgroundColor: labelBgColor
                 },
                 properties: {
                     measurementId: measurement.id,
@@ -558,45 +593,11 @@ function clearAllMeasurementEntities() {
  * @param {Object} measurement - Measurement data
  */
 function updateMeasurementEntityVisuals(measurementId, measurement) {
-    const data = measurementEntities.get(measurementId);
-    if (!data || !data.entities || !currentViewer) return;
-
-    // Ensure colors are initialized
-    initColors();
-    if (!COLORS.SELECTED_LINE || !COLORS.DEFAULT_LINE) return;
-
-    const isSelected = selectedMeasurementId === measurementId;
-    const lineColor = isSelected ? COLORS.SELECTED_LINE : COLORS.DEFAULT_LINE;
-    const fillColor = isSelected ? COLORS.SELECTED_FILL : COLORS.DEFAULT_FILL;
-
-    for (const entity of data.entities) {
-        // Update polyline
-        if (entity.polyline) {
-            entity.polyline.material = lineColor;
-            entity.polyline.width = isSelected ? 4 : 2;
-        }
-
-        // Update polygon
-        if (entity.polygon) {
-            entity.polygon.material = fillColor;
-            entity.polygon.outlineColor = lineColor;
-        }
-
-        // Update point
-        if (entity.point) {
-            entity.point.color = lineColor;
-            entity.point.pixelSize = isSelected ? 10 : 8;
-        }
-
-        // Update label background
-        if (entity.label) {
-            entity.label.backgroundColor = lineColor.withAlpha(0.8);
-        }
-
-        // Update stored measurement data
-        if (entity.properties && entity.properties.measurementData) {
-            entity.properties.measurementData = measurement;
-        }
+    // Rebuild entities to apply new styles accurately
+    removeMeasurementEntities(measurementId);
+    const entityData = createMeasurementEntities(measurement);
+    if (entityData) {
+        measurementEntities.set(measurementId, entityData);
     }
 }
 
@@ -870,25 +871,25 @@ function updateMeasurementEntityVisualsToSelected(measurementId) {
     const data = measurementEntities.get(measurementId);
     if (!data || !data.entities || !currentViewer || currentViewer.isDestroyed()) return;
 
-    initColors();
-    if (!COLORS.SELECTED_LINE) return;
+    // Get measurement style for line width
+    let storedMeasurement = null;
+    for (const entity of data.entities) {
+        if (entity.properties && entity.properties.measurementData) {
+            let md = entity.properties.measurementData;
+            if (md && typeof md.getValue === 'function') md = md.getValue();
+            if (md) { storedMeasurement = md; break; }
+        }
+    }
+    const style = resolveStyle(storedMeasurement?.style);
 
+    // Keep user colors for live preview; only increase width/size for selection feedback
     for (const entity of data.entities) {
         try {
             if (entity.polyline) {
-                entity.polyline.material = COLORS.SELECTED_LINE;
-                entity.polyline.width = 4;
-            }
-            if (entity.polygon) {
-                entity.polygon.material = COLORS.SELECTED_FILL;
-                entity.polygon.outlineColor = COLORS.SELECTED_LINE;
+                entity.polyline.width = style.lineWidth + 1;
             }
             if (entity.point) {
-                entity.point.color = COLORS.SELECTED_LINE;
                 entity.point.pixelSize = 10;
-            }
-            if (entity.label) {
-                entity.label.backgroundColor = COLORS.SELECTED_LINE.withAlpha(0.8);
             }
         } catch (e) {
             console.warn('Error updating entity visuals:', e);
@@ -1165,25 +1166,40 @@ function updateMeasurementEntityVisualsToDefault(measurementId) {
     const data = measurementEntities.get(measurementId);
     if (!data || !data.entities || !currentViewer || currentViewer.isDestroyed()) return;
 
-    initColors();
-    if (!COLORS.DEFAULT_LINE) return;
+    // Get measurement style from entity properties
+    let storedMeasurement = null;
+    for (const entity of data.entities) {
+        if (entity.properties && entity.properties.measurementData) {
+            let md = entity.properties.measurementData;
+            if (md && typeof md.getValue === 'function') md = md.getValue();
+            if (md) { storedMeasurement = md; break; }
+        }
+    }
+    const style = resolveStyle(storedMeasurement?.style);
+
+    const lineColor = hexToCesiumColor(style.lineColor, style.lineOpacity);
+    const fillColor = hexToCesiumColor(style.fillColor, style.fillOpacity);
 
     for (const entity of data.entities) {
         try {
             if (entity.polyline) {
-                entity.polyline.material = COLORS.DEFAULT_LINE;
-                entity.polyline.width = 2;
+                entity.polyline.material = lineColor;
+                entity.polyline.width = style.lineWidth;
             }
             if (entity.polygon) {
-                entity.polygon.material = COLORS.DEFAULT_FILL;
-                entity.polygon.outlineColor = COLORS.DEFAULT_LINE;
+                entity.polygon.material = fillColor;
+                entity.polygon.outlineColor = lineColor;
             }
             if (entity.point) {
-                entity.point.color = COLORS.DEFAULT_LINE;
+                entity.point.color = lineColor;
                 entity.point.pixelSize = 8;
             }
             if (entity.label) {
-                entity.label.backgroundColor = COLORS.DEFAULT_LINE.withAlpha(0.8);
+                entity.label.backgroundColor = hexToCesiumColor(style.labelBackgroundColor, style.labelBackgroundOpacity);
+                entity.label.fillColor = hexToCesiumColor(style.labelColor);
+                entity.label.outlineColor = hexToCesiumColor(style.labelOutlineColor);
+                entity.label.outlineWidth = style.labelOutlineWidth;
+                entity.label.font = `${style.labelSize}px Inter, sans-serif`;
             }
         } catch (e) {
             console.warn('Error updating entity visuals:', e);

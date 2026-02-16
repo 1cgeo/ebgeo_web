@@ -420,6 +420,7 @@ export {
     setCesium3dDataForImport,
     getCesium3dDataForExport,
     DEFAULT_MARKER_STYLE,
+    DEFAULT_MEASUREMENT_STYLE,
     addMarkerImage,
     getMarkerImages,
     removeMarkerImage,

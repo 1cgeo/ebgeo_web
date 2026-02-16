@@ -17,6 +17,7 @@ import {
     isMapLocked
 } from '../store';
 import { EventTypes } from '../events';
+import { fitBounds, ANIMATION_DURATION } from '../map/animation.service.js';
 
 class ContextMenuControl {
     constructor(mouseCoordinatesControl, toolManager, selectionManager) {
@@ -502,6 +503,28 @@ class ContextMenuControl {
     }
 
     _addDefaultOptions() {
+        const hasSelected = this._selectionManager?.getAllSelectedFeatures().length > 0;
+        const locked = isCurrentMapLockedSync();
+
+        if (hasSelected) {
+            const zoomItem = this._createMenuItem(
+                'Zoom para Seleção',
+                () => this._handleZoomToSelection()
+            );
+            this._contextMenu.appendChild(zoomItem);
+
+            if (!locked) {
+                const duplicateItem = this._createMenuItem(
+                    'Duplicar Seleção',
+                    () => this._handleDuplicateSelected()
+                );
+                this._contextMenu.appendChild(duplicateItem);
+            }
+
+            const separator = this._createSeparator();
+            this._contextMenu.appendChild(separator);
+        }
+
         const copyItem = this._createMenuItem('Copiar Coordenadas', this._onCopyCoordinates);
         this._contextMenu.appendChild(copyItem);
 
@@ -679,6 +702,70 @@ class ContextMenuControl {
                 this._selectionManager.toggleFeatureSelection(featureRef.type, featureRef.id, completeFeature, false);
             }
         });
+    }
+
+    async _handleDuplicateSelected() {
+        try {
+            const clipboardManager = getControl('ClipboardManager');
+            if (!clipboardManager) {
+                showWarning('Clipboard não disponível');
+                return;
+            }
+
+            clipboardManager.copy();
+            await clipboardManager.paste();
+        } catch (error) {
+            console.error('Error duplicating features:', error);
+            showError('Erro ao duplicar feições');
+        }
+    }
+
+    _handleZoomToSelection() {
+        const selectedFeatures = this._selectionManager.getAllSelectedFeatures();
+        if (selectedFeatures.length === 0) return;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+        for (const feature of selectedFeatures) {
+            const coords = this._extractCoordinates(feature.geometry);
+            for (const [x, y] of coords) {
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        }
+
+        if (!isFinite(minX)) return;
+
+        fitBounds(this._map, [[minX, minY], [maxX, maxY]], {
+            duration: ANIMATION_DURATION.FAST,
+            padding: 80
+        });
+    }
+
+    /**
+     * Extracts flat array of [lng, lat] pairs from any GeoJSON geometry.
+     * @param {Object} geometry - GeoJSON geometry
+     * @returns {Array<[number, number]>} Coordinate pairs
+     */
+    _extractCoordinates(geometry) {
+        if (!geometry || !geometry.coordinates) return [];
+
+        const type = geometry.type;
+        if (type === 'Point') {
+            return [geometry.coordinates];
+        } else if (type === 'MultiPoint' || type === 'LineString') {
+            return geometry.coordinates;
+        } else if (type === 'MultiLineString' || type === 'Polygon') {
+            return geometry.coordinates.flat();
+        } else if (type === 'MultiPolygon') {
+            return geometry.coordinates.flat(2);
+        } else if (type === 'GeometryCollection') {
+            return geometry.geometries.flatMap(g => this._extractCoordinates(g));
+        }
+
+        return [];
     }
 
     async _onRightClick(e) {

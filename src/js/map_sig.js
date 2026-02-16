@@ -578,6 +578,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         // Aliases (for catalog, search, etc.)
         ['streetView', addStreetViewControl],
         ['modelsViewer', add3DModelsViewerControl],
+        ['ClipboardManager', clipboardManager],
     ];
 
     for (const [name, ctrl] of CONTROL_REGISTRY) {
