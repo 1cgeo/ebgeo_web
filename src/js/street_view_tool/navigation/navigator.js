@@ -377,6 +377,19 @@ export class StreetViewNavigator {
     }
 
     /**
+     * Computes the elevation difference between a target and the camera.
+     * Returns 0 when either elevation is missing, preserving flat-ground behavior.
+     * Clamped to ±2m to avoid GPS elevation outliers distorting marker placement.
+     * @param {Object} target - Target with optional `ele` property
+     * @returns {number} Elevation delta in meters (positive = target above camera)
+     */
+    getElevationDelta(target) {
+        if (target.ele == null || this.cameraConfig?.ele == null) return 0;
+        const delta = target.ele - this.cameraConfig.ele;
+        return Math.max(-2, Math.min(2, delta));
+    }
+
+    /**
      * Projects a navigation target to screen coordinates
      * @param {Object} target - Target object with lon/lat
      * @param {number} yaw - Camera yaw
@@ -387,12 +400,18 @@ export class StreetViewNavigator {
     projectTarget(target, yaw, pitch, fov) {
         if (!this.cameraConfig) return null;
 
-        // If target has a manual override, project from bearing + ground distance
+        // Elevation delta: positive when target is above camera
+        const elevationDelta = this.getElevationDelta(target);
+
+        // If target has a manual override, project from bearing + ground distance.
+        // Override uses its own height offset instead of GPS elevation delta —
+        // the user manually placed the marker, height is controlled via slider.
         if (target.override_bearing != null) {
             return this.projectFromOverride(
                 target.override_bearing,
                 target.override_distance ?? 5,
-                target, yaw, pitch, fov
+                target, yaw, pitch, fov,
+                target.override_height ?? 0
             );
         }
 
@@ -407,12 +426,13 @@ export class StreetViewNavigator {
         x *= distanceScale;
         z *= distanceScale;
 
-        // Place marker on the ground plane (same as the mouse cursor).
-        // Using real elevation differences causes markers to "float" when
-        // terrain height varies between camera and target, while the mouse
-        // cursor always stays on the ground and looks correct.
+        // Place marker accounting for elevation difference.
+        // y = -cameraHeight + elevationDelta:
+        //   elevationDelta > 0 → target above camera → marker rises from ground plane
+        //   elevationDelta = 0 → flat ground (original behavior)
+        //   elevationDelta < 0 → target below camera → marker sinks below ground plane
         const cameraHeight = this.cameraConfig.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT;
-        const y = -cameraHeight;
+        const y = -cameraHeight + elevationDelta;
 
         // Horizontal distance (for flatten ratio — ground-plane perspective)
         const horizontalDistance = Math.sqrt(x * x + z * z);
@@ -422,12 +442,11 @@ export class StreetViewNavigator {
 
         if (!projected.visible) return null;
 
-        // Size based on horizontal distance (same metric the cursor uses),
-        // so markers and cursor scale identically at the same ground distance.
+        // Size and flatten use elevation-corrected vertical drop
         const radius = this.projector.calculateMarkerSize(
-            NAV_CONSTANTS.MARKER_WORLD_RADIUS, horizontalDistance, fov
+            NAV_CONSTANTS.MARKER_WORLD_RADIUS, horizontalDistance, fov, elevationDelta
         );
-        const flattenY = this.projector.calculateFlattenRatio(horizontalDistance, pitch);
+        const flattenY = this.projector.calculateFlattenRatio(horizontalDistance, pitch, elevationDelta);
 
         return {
             id: target.id,
@@ -440,27 +459,28 @@ export class StreetViewNavigator {
     }
 
     /**
-     * Projects a target from bearing + ground distance override.
-     * Used when a target has been manually positioned on the ground plane
-     * via the calibration interface, independent of GPS position.
+     * Projects a target from bearing + ground distance + height offset.
+     * Used when a target has been manually positioned via the calibration interface.
+     * The height offset raises/lowers the marker from the ground plane.
      * @param {number} bearingDeg - Bearing in degrees (0=North, 90=East)
      * @param {number} groundDistance - Ground distance in meters
      * @param {Object} target - Target object (for id and distance metadata)
      * @param {number} yaw - Camera yaw
      * @param {number} pitch - Camera pitch
      * @param {number} fov - Camera FOV
+     * @param {number} [overrideHeight=0] - Manual height offset in meters (positive = above ground)
      * @returns {Object|null} Projected marker data or null if behind camera
      */
-    projectFromOverride(bearingDeg, groundDistance, target, yaw, pitch, fov) {
+    projectFromOverride(bearingDeg, groundDistance, target, yaw, pitch, fov, overrideHeight = 0) {
         const bearingRad = (bearingDeg * Math.PI) / 180;
 
         // Convert bearing + distance to ground-plane (x, z) in meters
         const x = Math.sin(bearingRad) * groundDistance;
         const z = -Math.cos(bearingRad) * groundDistance;
 
-        // Place on the ground plane (same as geographic markers)
+        // Place on the ground plane with manual height offset
         const cameraHeight = this.cameraConfig.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT;
-        const y = -cameraHeight;
+        const y = -cameraHeight + overrideHeight;
 
         const horizontalDistance = groundDistance;
 
@@ -469,9 +489,9 @@ export class StreetViewNavigator {
         if (!projected.visible) return null;
 
         const radius = this.projector.calculateMarkerSize(
-            NAV_CONSTANTS.MARKER_WORLD_RADIUS, horizontalDistance, fov
+            NAV_CONSTANTS.MARKER_WORLD_RADIUS, horizontalDistance, fov, overrideHeight
         );
-        const flattenY = this.projector.calculateFlattenRatio(horizontalDistance, pitch);
+        const flattenY = this.projector.calculateFlattenRatio(horizontalDistance, pitch, overrideHeight);
 
         return {
             id: target.id,

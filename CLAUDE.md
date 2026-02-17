@@ -276,14 +276,14 @@ src/js/
 │   ├── street_view_viewer.js         # Core Three.js 360 panoramic viewer
 │   ├── streetview_markers.js         # Clustered markers on 2D map (PMTiles)
 │   ├── saved_photos_markers.js       # Markers for saved photo orientations
-│   ├── streetview-api.service.js     # Centralized API client (UUID-based, REST)
+│   ├── streetview-api.service.js     # Centralized API client (UUID-based, REST, consumes override_height)
 │   ├── navigation/          # Navigation system (Google Street View-like)
 │   │   ├── index.js
 │   │   ├── constants.js
 │   │   ├── hit-tester.js
 │   │   ├── minimap-sync.js         # Syncs viewer state with MapLibre minimap
-│   │   ├── navigator.js
-│   │   ├── projector.js
+│   │   ├── navigator.js            # Target projection with elevation delta + override height
+│   │   ├── projector.js            # Coordinate math (flatten ratio, marker size with elevationDelta)
 │   │   └── renderer.js
 │   ├── components/          # Street view UI components
 │   │   ├── marker-panel-360.js     # 360 marker configuration
@@ -564,6 +564,29 @@ Store error events:
 - `STORE_PERSIST_ERROR` - IndexedDB write failure
 - `STORE_SYNC_ERROR` - Sync queue write failure
 - `STORE_OPERATION_BLOCKED` - Operation blocked by locked map
+
+### Street View 360 Navigation Projection
+
+The navigation system (`street_view_tool/navigation/`) projects target markers onto the 360 viewer canvas:
+
+**Elevation Delta** (`navigator.js → getElevationDelta()`):
+- Computes `target.ele - camera.ele` for non-override targets
+- Returns 0 when either elevation is null (preserves flat-ground behavior)
+- Clamped to ±2m (`MAX_ELEVATION_DELTA`) to prevent GPS elevation outliers from distorting markers
+- Applied to Y position: `y = -cameraHeight + elevationDelta`
+- Also passed to `calculateMarkerSize()` and `calculateFlattenRatio()` for correct perspective
+
+**Override Height** (`navigator.js → projectFromOverride()`):
+- Override targets (manual bearing/distance) use `override_height` from the API instead of GPS elevation delta
+- `target.override_height ?? 0` is passed as `overrideHeight` parameter
+- Applied identically: `y = -cameraHeight + overrideHeight`
+- This separation ensures manually-placed markers appear exactly where the user clicked in the calibration tool
+
+**Projector** (`projector.js`):
+- `calculateFlattenRatio(horizontalDistance, pitch, elevationDelta)` — elliptical marker flattening with `h = cameraHeight - elevationDelta` for perspective-correct vertical drop
+- `calculateMarkerSize(worldRadius, horizontalDistance, fov, elevationDelta)` — physically-based marker sizing using slant distance with `verticalDrop = cameraHeight - elevationDelta`
+
+Both must stay in sync with the calibration counterparts in `ebgeo_360/public/calibration/js/`.
 
 ### Control Registry Pattern
 Centralized access to tool controls:

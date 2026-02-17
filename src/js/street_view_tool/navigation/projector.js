@@ -247,21 +247,23 @@ export class StreetViewProjector {
 
     /**
      * Calculates the flattening ratio for elliptical markers based on camera height and distance.
-     * Uses perspective-correct formula: flattenRatio = h / sqrt(h² + d²)
-     * where h = camera height and d = horizontal distance to marker.
+     * Uses perspective-correct formula: flattenRatio = verticalDrop / sqrt(verticalDrop² + d²)
+     * where verticalDrop = cameraHeight - elevationDelta accounts for target elevation.
      *
-     * @param {number} distance - Distance from camera in meters
-     * @param {number} _pitch - Camera pitch in radians (unused, kept for API compatibility)
+     * @param {number} horizontalDistance - Distance from camera in meters
+     * @param {number} pitch - Camera pitch in radians
+     * @param {number} [elevationDelta=0] - Elevation difference (target ele - camera ele) in meters
      * @returns {number} Flatten ratio (0-1), where lower values are flatter
      */
-    calculateFlattenRatio(horizontalDistance, pitch) {
+    calculateFlattenRatio(horizontalDistance, pitch, elevationDelta = 0) {
         const cameraHeight = this.cameraConfig?.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT;
 
         // Base flattening: a circle on the ground viewed from height h at
         // horizontal distance d appears compressed by h / sqrt(h² + d²).
-        const h = cameraHeight;
+        // With elevation, the effective vertical drop changes.
+        const h = cameraHeight - elevationDelta;
         const d = Math.max(0.1, horizontalDistance);
-        const baseFlatten = h / Math.sqrt(h * h + d * d);
+        const baseFlatten = Math.abs(h) / Math.sqrt(h * h + d * d);
 
         // Pitch correction: looking straight down (pitch = -90°) → markers
         // appear circular (flatten → 1). Looking horizontally (pitch = 0°) →
@@ -304,22 +306,22 @@ export class StreetViewProjector {
     /**
      * Physically-based marker size: a disk of `worldRadius` meters at
      * `horizontalDistance` meters away projects to
-     * `worldRadius * focalLength / horizontalDistance` pixels.
+     * `worldRadius * focalLength / slantDistance` pixels.
      *
-     * Uses horizontal distance (not camera-space depth) so that markers
-     * at the same real-world distance have the same size regardless of
-     * viewing direction.  This matches the cursor behavior, which is
-     * sized the same way via screenToGround distance.
+     * Uses slant distance (horizontal + vertical drop) so that markers
+     * at the same real-world distance have correct perspective sizing.
      *
      * @param {number} worldRadius - Physical radius on the ground (meters)
      * @param {number} horizontalDistance - Horizontal distance from camera (meters)
      * @param {number} fov - Vertical FOV in degrees
+     * @param {number} [elevationDelta=0] - Elevation difference (target ele - camera ele) in meters
      * @returns {number} Marker radius in pixels
      */
-    calculateMarkerSize(worldRadius, horizontalDistance, fov) {
+    calculateMarkerSize(worldRadius, horizontalDistance, fov, elevationDelta = 0) {
         const cameraHeight = this.cameraConfig?.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT;
         const markerScale = this.cameraConfig?.marker_scale ?? 1.0;
-        const slant = Math.sqrt(horizontalDistance * horizontalDistance + cameraHeight * cameraHeight);
+        const verticalDrop = cameraHeight - elevationDelta;
+        const slant = Math.sqrt(horizontalDistance * horizontalDistance + verticalDrop * verticalDrop);
         const d = Math.max(0.5, slant);
         const f = this.focalLength(fov);
         const size = (worldRadius * markerScale) * f / d;
