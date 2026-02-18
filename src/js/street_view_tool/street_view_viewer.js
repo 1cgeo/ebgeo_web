@@ -264,12 +264,21 @@ let activeTextureAbort = null;
  */
 async function blobToTexture(blob) {
     const objectURL = URL.createObjectURL(blob);
-    const texture = await new Promise((resolve) => {
+    const texture = await new Promise((resolve, reject) => {
         const loader = new THREE.TextureLoader();
-        loader.load(objectURL, (tex) => {
-            URL.revokeObjectURL(objectURL);
-            resolve(tex);
-        });
+        loader.load(
+            objectURL,
+            (tex) => {
+                URL.revokeObjectURL(objectURL);
+                resolve(tex);
+            },
+            undefined,
+            (error) => {
+                URL.revokeObjectURL(objectURL);
+                console.error('[street-view-viewer] TextureLoader failed:', error);
+                reject(error instanceof Error ? error : new Error('TextureLoader failed to load image'));
+            }
+        );
     });
     texture.colorSpace = THREE.SRGBColorSpace;
     return texture;
@@ -314,19 +323,24 @@ async function loadTexture(data) {
             const previewResponse = await fetch(previewUrl, { signal: controller.signal });
             if (activeTextureAbort !== controller) return;
 
-            const previewBlob = await previewResponse.blob();
-            if (activeTextureAbort !== controller) return;
+            if (!previewResponse.ok) {
+                console.warn(`[street-view-viewer] Preview fetch failed: HTTP ${previewResponse.status} for ${photoId}`);
+            } else {
+                const previewBlob = await previewResponse.blob();
+                if (activeTextureAbort !== controller) return;
 
-            const previewTexture = await blobToTexture(previewBlob);
-            streetViewState.textureCache.set(previewCacheKey, previewTexture);
+                const previewTexture = await blobToTexture(previewBlob);
+                streetViewState.textureCache.set(previewCacheKey, previewTexture);
 
-            if (activeTextureAbort === controller) {
-                applyTexture(previewTexture, data);
+                if (activeTextureAbort === controller) {
+                    applyTexture(previewTexture, data);
+                }
             }
         }
     } catch (error) {
         // Preview is best-effort; continue to full-res load
         if (error.name === 'AbortError') return;
+        console.warn('[street-view-viewer] Preview load failed (continuing to full-res):', error);
     }
 
     // Phase 2: Load full-resolution image
@@ -335,6 +349,11 @@ async function loadTexture(data) {
         const fullUrl = getPhotoImageUrl(photoId, 'full');
 
         const response = await fetch(fullUrl, { signal: controller.signal });
+
+        if (!response.ok) {
+            throw new Error(`Full-res fetch failed: HTTP ${response.status} for ${photoId}`);
+        }
+
         const blob = await response.blob();
 
         if (activeTextureAbort !== controller) return;
@@ -351,6 +370,7 @@ async function loadTexture(data) {
     } catch (error) {
         if (error.name === 'AbortError') return;
         if (activeTextureAbort === controller) activeTextureAbort = null;
+        console.error('[street-view-viewer] Full-res texture load failed:', error);
         throw error;
     }
 }
@@ -379,7 +399,9 @@ async function prefetchTargetPreviews(targets) {
                     streetViewState.textureCache.set(cacheKey, tex);
                 }
             })
-            .catch(() => {}); // Silently ignore prefetch failures
+            .catch((error) => {
+                console.warn(`[street-view-viewer] Prefetch failed for target ${targetId}:`, error);
+            });
     }
 }
 
@@ -1000,6 +1022,7 @@ export async function deactivateCurrentTool360() {
         }
     } catch (_error) {
         // Tool module not loaded, ignore
+        console.warn('[street-view-viewer] Tool module not loaded during deactivation:', _error);
     }
 }
 
@@ -1040,25 +1063,8 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
         streetViewState.miniMap.resize();
     }
 
-    // Initialize or resume viewer (after container is visible)
-    if (streetViewState.scene && streetViewState.isPaused) {
-        // Resume existing viewer
-        await loadPhoto(photoName);
-        resumeRendering();
-        // Sync renderer/navigator canvas with current container size
-        // (container may be narrower due to briefing panel)
-        onWindowResize();
-    } else if (!streetViewState.scene) {
-        // Initialize new viewer
-        await initThreeJS();
-        await loadPhoto(photoName);
-        resumeRendering();
-    } else {
-        // Viewer exists and is active, just load new photo
-        await loadPhoto(photoName);
-    }
-
-    // Add close button listener
+    // === CRITICAL SETUP: must run regardless of photo load success ===
+    // Add close button listener BEFORE awaiting anything that can fail
     const closeBtn = document.getElementById('close-street-view-button');
     if (closeBtn) {
         // Remove any existing listener first to avoid duplicates
@@ -1068,7 +1074,6 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
 
     // Activate keyboard service
     try {
-        // Set callbacks for keyboard actions
         setKeyboardCallbacks({
             rotateCamera: rotateCamera,
             zoomCamera: zoomCamera,
@@ -1088,7 +1093,6 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
                 return false;
             },
             isToolActive: () => {
-                // Check if any tool is active
                 const chip = document.getElementById('active-tool-chip-360');
                 return chip && chip.style.display !== 'none';
             }
@@ -1102,17 +1106,59 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
     // Register event listeners for 360 features
     const eventBus = getEventBus();
 
-    // Remove existing listener to avoid duplicates
     eventBus.off(EventTypes.MARKER_360_POSITION_CLICKED, handleMarkerPositionClicked);
     eventBus.on(EventTypes.MARKER_360_POSITION_CLICKED, handleMarkerPositionClicked);
 
-    // Listen for marker changes to reload POIs
     eventBus.off(EventTypes.MARKERS_360_CHANGED, loadMarkersForCurrentPhoto);
     eventBus.on(EventTypes.MARKERS_360_CHANGED, loadMarkersForCurrentPhoto);
 
-    // Listen for map/layer changes to reload 360 data when user switches maps
     eventBus.off(EventTypes.LAYERS_CHANGED, handleLayersChanged);
     eventBus.on(EventTypes.LAYERS_CHANGED, handleLayersChanged);
+
+    // Mark as visible BEFORE init/load so closeViewer360 can always work.
+    // resumeRendering() also sets this, but we need it as early as possible
+    // to guarantee the close button is functional even if loading fails.
+    streetViewState.isVisible = true;
+
+    // === END CRITICAL SETUP ===
+
+    // Initialize or resume viewer (after container is visible)
+    // Wrapped in try-catch so that failures don't prevent the viewer from
+    // being closeable or the UI from being functional
+    try {
+        if (streetViewState.scene && streetViewState.isPaused) {
+            // Resume existing viewer
+            await loadPhoto(photoName);
+            resumeRendering();
+            // Sync renderer/navigator canvas with current container size
+            // (container may be narrower due to briefing panel)
+            onWindowResize();
+        } else if (!streetViewState.scene) {
+            // Wait one frame so the browser can reflow after setFullMap(false).
+            // Without this, container.clientWidth/clientHeight may still be 0
+            // because style changes haven't been laid out yet (microtasks from
+            // await import() don't trigger reflow). This causes the renderer
+            // and navigator canvas to initialize at 0×0 → black screen.
+            await new Promise(resolve => requestAnimationFrame(resolve));
+
+            // Initialize new viewer (now container has correct dimensions)
+            await initThreeJS();
+            await loadPhoto(photoName);
+            resumeRendering();
+            // Safety net: re-sync dimensions after everything is initialized
+            onWindowResize();
+        } else {
+            // Viewer exists and is active, just load new photo
+            await loadPhoto(photoName);
+        }
+    } catch (error) {
+        console.error('[street-view-viewer] Failed to initialize/load photo:', error);
+        // Even if photo loading fails, ensure the animation loop is running
+        // so the viewer isn't stuck in an unrecoverable black screen state
+        if (streetViewState.scene && !streetViewState.animationId) {
+            resumeRendering();
+        }
+    }
 
     // Load markers for the photo
     await loadMarkersForCurrentPhoto();
@@ -1140,8 +1186,6 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
 
     // Emit event
     eventBus.emit(EventTypes.STREETVIEW_360_OPENED, { photoName });
-
-    streetViewState.isVisible = true;
 }
 
 /**

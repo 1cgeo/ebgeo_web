@@ -3,10 +3,11 @@ import { defineConfig } from 'vite';
 import legacy from '@vitejs/plugin-legacy';
 import { resolve } from 'path';
 
-export default defineConfig({
-  // ===== ROOT AND STRUCTURE =====
+export default defineConfig(({ mode }) => ({
+  // ===== ROOT E ESTRUTURA =====
   root: '.',
   publicDir: 'public',
+  //base: mode === 'production' ? '/cms/' : '/',
 
   // ===== BUILD CONFIGURATION =====
   build: {
@@ -38,7 +39,7 @@ export default defineConfig({
         // Chunks by functionality (path-based matching)
         // IMPORTANT: Order matters! More specific rules must come first.
         // Chunks are organized to avoid circular dependencies:
-        //   core (store, state, events, layers, terrain, baselayers, catalog, modals)
+        //   core (store, state, events, layers, terrain, baselayers, catalog, modals, config, snapping, map/animation)
         //   -> ui-components (sidebar, toolbar, features_tab, user_data)
         //   -> tools (draw, military, analysis, selection)
         //   -> lazy (3d, street-view, import-export)
@@ -73,7 +74,7 @@ export default defineConfig({
           }
           // Analysis tools (LOS and visibility)
           if (id.includes('analysis_tools')) {
-            return 'analysis-tools';
+             return 'analysis-tools';
           }
           // Drawing tools
           if (id.includes('draw_tools')) {
@@ -111,7 +112,10 @@ export default defineConfig({
           }
 
           // ===== CORE CHUNK (foundation for everything) =====
-          // Includes: store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog, tool_manager, mode, briefing
+          // Includes: store, state, events, utilities, layers, terrain, baselayers,
+          //           toolbar, modals, catalog, tool_manager, mode, briefing,
+          //           config, snapping, map/animation.service
+          //
           // utilities is here because toolbar, modals, and cesium-integration depend on it
           // toolbar/modals/catalog are here because:
           //   - store/settings.operations imports from catalog/catalog.constants
@@ -124,6 +128,34 @@ export default defineConfig({
           //   - ApplicationModeManager is used across the entire application
           // briefing is here because:
           //   - Keyboard service is loaded alongside other services
+
+          // Application config (leaf module with zero imports).
+          // Consumed by core (store, baselayers, layers, terrain, catalog,
+          // coordinates, briefing) AND ui-components (search, sidebar,
+          // features_tab, bottom-controls, base-layer-selector, vector_info).
+          // Must live in core; otherwise it lands in the main entry chunk and
+          // creates main <-> core / main <-> ui-components circular deps.
+          // endsWith avoids false matches on unrelated *config* filenames.
+          if (id.endsWith('src/js/config.js') ||
+              id.endsWith('src/js/config-loader.js') ||
+              id.endsWith('src/js/config.helpers.js')) {
+            return 'core';
+          }
+
+          // Map animation service (leaf module with zero imports).
+          // Consumed by core (briefing/transition_service) and ui-components
+          // (context-menu). Same rationale as config.js above.
+          if (id.includes('src/js/map/animation')) {
+            return 'core';
+          }
+
+          // Snapping service (leaf module with zero imports).
+          // Consumed by draw-tools and analysis-tools. Without this rule,
+          // it lands in main and creates main <-> draw-tools / main <->
+          // analysis-tools circular deps.
+          if (id.includes('src/js/snapping/')) {
+            return 'core';
+          }
 
           // Utilities (base for toolbar, modals, and also used by cesium-integration)
           // MUST come before any other chunk that depends on it
@@ -285,11 +317,11 @@ export default defineConfig({
     __BUILD_TIME__: JSON.stringify(new Date().toISOString())
   },
 
-  // ===== ESBUILD OPTIONS =====
-  esbuild: {
-    // Keep class/function names for debugging
-    keepNames: true,
-    // Strip license comments from output
-    legalComments: 'none'
-  }
-});
+    // ===== ESBUILD OPTIONS =====
+    esbuild: {
+        // Mantém nomes de classes/funções para debug
+        keepNames: true,
+        // Legaliza comentários de licença
+        legalComments: 'none'
+    }
+}));

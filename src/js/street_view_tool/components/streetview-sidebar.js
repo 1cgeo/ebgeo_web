@@ -85,7 +85,9 @@ export function initToolbar360() {
                 elements.toolbar.classList.toggle('map-locked', isCurrentMapLockedSync());
             }
         });
-    } catch { /* EventBus not available */ }
+    } catch (error) {
+        console.warn('[streetview-sidebar] EventBus not available:', error);
+    }
 
     isInitialized = true;
 }

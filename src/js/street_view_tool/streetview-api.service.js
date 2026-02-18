@@ -1,3 +1,4 @@
+// Path: js/street_view_tool/streetview-api.service.js
 /**
  * @module street_view_tool/streetview-api.service
  * @description Centralized API client for the Street View 360 service.
@@ -55,7 +56,8 @@ export async function validatePhoto(photoId) {
   try {
     const response = await fetch(`${getServiceUrl()}/photos/${photoId}`, { method: 'HEAD' });
     return response.ok;
-  } catch {
+  } catch (error) {
+    console.error(`[streetview-api] validatePhoto failed for "${photoId}":`, error);
     return false;
   }
 }
@@ -90,7 +92,8 @@ export async function resolveOriginalName(originalName) {
     if (!response.ok) return null;
     const data = await response.json();
     return data.id;
-  } catch {
+  } catch (error) {
+    console.error(`[streetview-api] resolveOriginalName failed for "${originalName}":`, error);
     return null;
   }
 }
@@ -129,7 +132,8 @@ export async function getPhotoDisplayName(photoId) {
     const name = data.camera?.display_name || photoId;
     _displayNameCache.set(photoId, name);
     return name;
-  } catch {
+  } catch (error) {
+    console.error(`[streetview-api] getPhotoDisplayName failed for "${photoId}":`, error);
     return photoId;
   }
 }
@@ -177,7 +181,8 @@ export async function preflightCheck() {
   try {
     const projects = await fetchProjects(true);
     return Array.isArray(projects) && projects.length > 0;
-  } catch {
+  } catch (error) {
+    console.error('[streetview-api] preflightCheck failed:', error);
     return false;
   }
 }

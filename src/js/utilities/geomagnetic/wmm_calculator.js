@@ -1,3 +1,4 @@
+// Path: js/utilities/geomagnetic/wmm_calculator.js
 /**
  * @fileoverview Magnetic declination calculator using the geomagnetism npm package.
  * Wraps the WMM (World Magnetic Model) implementation for use in EBGeo.

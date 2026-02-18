@@ -1,3 +1,4 @@
+// Path: js/3d_models_viewer_tool/services/cesium-compat.js
 /**
  * @module 3d_models_viewer_tool/services/cesium-compat
  * @description Compatibility patches for running third-party Cesium plugins

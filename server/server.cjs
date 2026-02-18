@@ -1,6 +1,5 @@
 const cluster = require('cluster');
 const os = require('os');
-const restify = require('restify');
 const path = require('path');
 const fs = require('fs');
 
@@ -31,41 +30,49 @@ if (cluster.isMaster) {
     // cluster.fork();
   });
 } else {
-  const server = restify.createServer({
-    name: 'EBGEO',
-    version: '1.0.0'
-  });
+  const fastify = require('fastify')({ logger: false });
 
-  // Compressão gzip usando plugin nativo do restify
-  // Comprime automaticamente quando o cliente envia accept-encoding: gzip
-  server.use(restify.plugins.gzipResponse());
+  // Compressão gzip/brotli automática
+  fastify.register(require('@fastify/compress'));
 
   // Cache headers para produção
-  server.use((req, res, next) => {
+  fastify.addHook('onSend', (request, reply, payload, done) => {
+    const url = request.url;
+
     // Cache longo para assets com hash (imutáveis)
-    if (req.url.includes('/assets/') && req.url.match(/-[a-f0-9]{8}\./)) {
-      res.header('Cache-Control', 'public, max-age=31536000, immutable'); // 1 ano
+    if (url.includes('/assets/') && url.match(/-[a-f0-9]{8}\./)) {
+      reply.header('Cache-Control', 'public, max-age=31536000, immutable'); // 1 ano
     }
     // Cache médio para vendors (mudam raramente)
-    else if (req.url.includes('/vendors/')) {
-      res.header('Cache-Control', 'public, max-age=604800'); // 1 semana
+    else if (url.includes('/vendors/')) {
+      reply.header('Cache-Control', 'public, max-age=604800'); // 1 semana
     }
     // Cache curto para outros arquivos
     else {
-      res.header('Cache-Control', 'public, max-age=3600'); // 1 hora
+      reply.header('Cache-Control', 'public, max-age=3600'); // 1 hora
     }
-    return next();
+
+    done();
   });
 
   // Servir arquivos estáticos do dist/
-  server.get('/*', restify.plugins.serveStatic({
-    directory: distPath,
-    default: 'index.html'
-  }));
+  fastify.register(require('@fastify/static'), {
+    root: distPath,
+    prefix: '/',
+  });
+
+  // SPA fallback: qualquer rota não encontrada retorna index.html
+  fastify.setNotFoundHandler((request, reply) => {
+    reply.sendFile('index.html');
+  });
 
   const port = process.env.PORT || 8082;
-  server.listen(port, () => {
-    console.log('%s listening at %s', server.name, server.url);
+  fastify.listen({ port, host: '0.0.0.0' }, (err, address) => {
+    if (err) {
+      console.error(err);
+      process.exit(1);
+    }
+    console.log(`EBGEO listening at ${address}`);
   });
 
   console.log(`Worker ${process.pid} started`);
