@@ -18,7 +18,7 @@ const PHOTO_PROPERTY = 'photo_uuid';
 import SavedPhotosMarkers from './saved_photos_markers.js';
 import { getEventBus, registerControl } from '../store';
 import { EventTypes } from '../events/event_types.js';
-import { STYLE_MINI_MAPA } from '../../../public/street_view/street-view-mini-map-style.js'
+import { STYLE_MINI_MAPA } from './street-view-mini-map-style.js'
 
 class AddStreetViewControl {
 
