@@ -34,6 +34,7 @@ class AddMilitarySymbolControl extends BaseControl {
     // Zoom handling for zoom-invariant behavior
     this.zoomRafId = null;
     this.pendingZoomUpdate = false;
+    this._name = 'AddMilitarySymbolControl';
   }
 
   static DEFAULT_PROPERTIES = {

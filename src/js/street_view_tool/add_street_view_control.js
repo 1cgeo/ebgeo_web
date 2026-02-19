@@ -18,6 +18,7 @@ const PHOTO_PROPERTY = 'photo_uuid';
 import SavedPhotosMarkers from './saved_photos_markers.js';
 import { getEventBus, registerControl } from '../store';
 import { EventTypes } from '../events/event_types.js';
+import { STYLE_MINI_MAPA } from '../../../public/street_view/street-view-mini-map-style.js'
 
 class AddStreetViewControl {
 
@@ -149,7 +150,7 @@ class AddStreetViewControl {
         if (!this.miniMap) {
             this.miniMap = new maplibregl.Map({
                 container: 'mini-map-street-view',
-                style: './street_view/street-view-mini-map-style.json',
+                style: STYLE_MINI_MAPA,
                 attributionControl: false,
                 zoom: 12.5,
                 minZoom: 11,

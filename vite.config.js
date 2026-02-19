@@ -48,10 +48,22 @@ export default defineConfig(({ mode: _mode }) => ({
         //   -> lazy (cesium-integration, street-view, import-export)
         // Unmapped (falls to main entry bundle): keyboard, map/map.manager, map/drag-rotate
         manualChunks(id) {
+          // ===== STATICALLY-IMPORTED SERVICES (must resolve before lazy chunks) =====
+
+          // keyboard-service-3d is statically imported by sig.js (entry point)
+          // and depends on modals + store (both in core). Despite living under
+          // 3d_models_viewer_tool/services/, it is NOT lazy-loaded.
+          // Assigning it to cesium-integration creates a core <-> cesium-integration
+          // circular chunk on Linux where Rollup strictly respects manualChunks.
+          // Placing it in core follows the same pattern as keyboard-service-briefing.
+          if (id.includes('3d_models_viewer_tool/services/keyboard-service-3d')) {
+            return 'core';
+          }
+
           // ===== LAZY LOADED CHUNKS (independentes) =====
 
           // 3D code split (lazy load via dynamic import)
-          // NOTE: Only map_3d.js, tools/* and services/* are lazy-loaded.
+          // NOTE: Only map_3d.js, tools/* and services/cesium-compat.js are lazy-loaded.
           // add_3d_models_viewer_control.js is statically imported,
           // so it stays in main bundle.
           // Panels (marker-panel-3d, measurement-panel-3d, viewshed-panel-3d)

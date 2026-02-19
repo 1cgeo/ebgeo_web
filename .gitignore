@@ -1,63 +1,70 @@
-src_total
-
-# Vite build output
-dist/
-
-# Node.js
+# ==============================================================================
+# Node.js / npm
+# ==============================================================================
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.npm
+.node_repl_history
+package-lock.json
 
+# ==============================================================================
+# Build
+# ==============================================================================
+dist/
+src_total
+
+# ==============================================================================
+# Deploy (artefatos do servidor)
+# ==============================================================================
+deploy/releases/
+deploy/current
+
+# ==============================================================================
+# Ambiente e configuração
+# ==============================================================================
+.env
+
+# ==============================================================================
 # Logs
-logs
+# ==============================================================================
+logs/
 *.log
-pids
+pids/
 *.pid
 *.seed
 *.pid.lock
 
-# Coverage
+# ==============================================================================
+# Testes e qualidade
+# ==============================================================================
 coverage/
-
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
 .eslintcache
 
-# Optional REPL history
-.node_repl_history
+# ==============================================================================
+# Assets pesados (3D, Street View, catálogo)
+# ==============================================================================
+public/3d/
+public/street_view/IMG/*.webp
+public/street_view/IMG/*.jpg
+public/street_view/METADATA/*.json
+public/images/catalogo/*
+public/js/controls_sig/vector_multiescala.js
+public/js/controls_sig/orto_multiescala.js
+360/
 
-# dotenv environment variables file
-.env
-
-# macOS
-.DS_Store
-
-# Editor directories and files
+# ==============================================================================
+# Editores e SO
+# ==============================================================================
 .vscode/
 .idea/
 *.sublime-project
 *.sublime-workspace
+.DS_Store
 
-public/3d/AMAN/
-public/3d/ESA/
-public/3d/PCL/
-public/3d/PCL/
-public/3d/estatua.glb
-
-public/street_view/IMG/*.webp
-public/street_view/IMG/*.jpg
-public/street_view/METADATA/*.json
-
-# Estilos
-public/js/controls_sig/vector_multiescala.js
-public/js/controls_sig/orto_multiescala.js
-
-package-lock.json
-
+# ==============================================================================
+# Misc
+# ==============================================================================
 preview.webm
 nul
-
-360/

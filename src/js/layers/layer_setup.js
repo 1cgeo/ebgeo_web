@@ -426,7 +426,6 @@ async function setupGridLayers(mapInstance) {
         gridControl.syncState(format, visible);
         gridControl._getGrid(format, visible, false);
         gridControl._updateButtonState(visible);
-        console.info(`Grid restaurado: format = ${format}, visível=${visible}`);
 
     } catch (error) {
         console.warn('Error restoring grid:', error);
