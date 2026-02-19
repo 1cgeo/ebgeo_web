@@ -13,6 +13,7 @@ import { createPhotoGallery } from '../components/feature-photo-gallery.js';
 import { createFeatureTabs } from '../components/feature-tabs.js';
 import { createLocationSection } from '../components/feature-location-section.js';
 import { createGroupTypeSelector } from '../components/group-type-selector.js';
+import { createMultiSelectionActions } from '../components/multi-selection-actions.js';
 import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo } from '../../store';
 
 // ============================================================================
@@ -241,6 +242,16 @@ export async function createFeaturePanelContent({
         });
     }
     container.appendChild(identificationSection);
+
+    // 1b. Multi-selection action buttons (lock/hide) — only for multi-selection when map not locked
+    if (!isSingleSelection && !mapLocked) {
+        const actionsSection = createMultiSelectionActions({
+            selectedFeatures,
+            selectionManager,
+            uiManager
+        });
+        container.appendChild(actionsSection);
+    }
 
     // 2. Photo gallery (only for single selection)
     if (isSingleSelection) {

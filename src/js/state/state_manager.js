@@ -128,6 +128,9 @@ class StateManager {
 
         /** @private @type {import('../events/event_bus.js').EventBus|null} */
         this._eventBus = null;
+
+        /** @private Tracks whether feature panel was open before sidebar expanded */
+        this._hadFeaturePanelBeforeSidebar = false;
     }
 
     /**
@@ -750,8 +753,10 @@ class StateManager {
 
         this.batchUpdate(() => {
             // Close feature panel first (mutual exclusivity)
+            // Track that we came from the feature panel so collapseSidebar can restore it
             if (this.getUnsafe('ui.featurePanelOpen')) {
                 this.set('ui.featurePanelOpen', false);
+                this._hadFeaturePanelBeforeSidebar = true;
             }
 
             // Close toolbar popups
@@ -777,6 +782,20 @@ class StateManager {
      */
     collapseSidebar() {
         const previousTab = this.getUnsafe('sidebar.activeTab');
+        const hadFeaturePanel = this._hadFeaturePanelBeforeSidebar;
+        const hasSelection = (this.getUnsafe('selection.features') || []).length > 0;
+
+        // If we came from a feature panel and features are still selected,
+        // restore the feature panel instead of just collapsing
+        if (hadFeaturePanel && hasSelection) {
+            this._hadFeaturePanelBeforeSidebar = false;
+            const selected = this.getUnsafe('selection.features');
+            const first = selected[0];
+            this.openFeaturePanel(first.id, first.type);
+            return;
+        }
+
+        this._hadFeaturePanelBeforeSidebar = false;
 
         this.batchUpdate(() => {
             this.set('sidebar.expanded', false);

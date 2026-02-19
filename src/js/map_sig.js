@@ -633,7 +633,7 @@ export function initializeApp(map, controlsPromise) {
 
         // Wait for both IndexedDB state and controls to be ready
         const [, controls] = await Promise.all([statePromise, controlsPromise]);
-        const { baseLayerControl, add3DModelsViewerControl, addStreetViewControl } = controls;
+        const { baseLayerControl } = controls;
 
         await baseLayerControl.switchMap(true);
 

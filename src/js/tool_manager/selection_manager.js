@@ -14,7 +14,8 @@ import {
     getStateManager,
     startBatchUndo,
     commitBatchUndo,
-    discardBatchUndo
+    discardBatchUndo,
+    getFeatureIcon
 } from '../store';
 import { createTwoFingerTapHandler } from '../utilities/pointer-utils';
 
@@ -732,7 +733,21 @@ class SelectionManager {
         features.forEach((feature, index) => {
             const item = document.createElement('div');
             const featureName = this._getFeatureName(feature);
-            item.textContent = featureName;
+
+            const iconPath = getFeatureIcon(feature.toolType);
+            if (iconPath) {
+                const icon = document.createElement('img');
+                icon.src = iconPath;
+                icon.alt = '';
+                icon.style.cssText = 'width: 16px; height: 16px; margin-right: 8px; vertical-align: middle; flex-shrink: 0;';
+                item.appendChild(icon);
+            }
+
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = featureName;
+            nameSpan.style.cssText = 'vertical-align: middle;';
+            item.appendChild(nameSpan);
+
             item.style.cssText = `
                 padding: 10px 12px !important;
                 cursor: pointer !important;
@@ -742,6 +757,8 @@ class SelectionManager {
                 color: black !important;
                 font-size: 14px !important;
                 margin: 0 !important;
+                display: flex !important;
+                align-items: center !important;
             `;
 
             item.addEventListener('mouseenter', () => {

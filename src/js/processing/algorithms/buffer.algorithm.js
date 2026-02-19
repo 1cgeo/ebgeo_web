@@ -87,6 +87,7 @@ function createBufferPanel(deps) {
         options: layerOptions,
         onChange: (value) => {
             selectedLayerId = value;
+            _updateSelectionHint();
             _updateOutputName();
             _validateForm();
         },
@@ -94,8 +95,6 @@ function createBufferPanel(deps) {
     container.appendChild(layerSelect);
 
     // -- Toggle feições selecionadas --
-    const selectedFeatures = stateManager ? stateManager.getSelectedFeatures() : [];
-    const selectedCount = selectedFeatures.length;
     let useSelectedOnly = false;
 
     const toggleContainer = document.createElement('div');
@@ -113,15 +112,37 @@ function createBufferPanel(deps) {
 
     const selectionHint = document.createElement('div');
     selectionHint.className = 'processing-panel__hint';
-    selectionHint.textContent = selectedCount > 0
-        ? `${selectedCount} ${selectedCount === 1 ? 'feição selecionada' : 'feições selecionadas'}`
-        : 'Nenhuma feição selecionada';
     toggleContainer.appendChild(selectionHint);
 
-    if (selectedCount === 0) {
-        toggle.style.opacity = '0.5';
-        toggle.style.pointerEvents = 'none';
+    // Count selected features filtered by the current source layer
+    function _getSelectedCountForLayer(layerId) {
+        const allSelected = stateManager ? stateManager.getSelectedFeatures() : [];
+        return allSelected.filter(item => {
+            const fLayerId = item.feature?.properties?.layerId || 'default';
+            return fLayerId === layerId;
+        }).length;
     }
+
+    function _updateSelectionHint() {
+        const count = _getSelectedCountForLayer(selectedLayerId);
+        selectionHint.textContent = count > 0
+            ? `${count} ${count === 1 ? 'feição selecionada' : 'feições selecionadas'} na camada`
+            : 'Nenhuma feição selecionada na camada';
+
+        if (count === 0) {
+            toggle.classList.add('processing-panel__toggle--disabled');
+            if (useSelectedOnly) {
+                useSelectedOnly = false;
+                // Reset toggle visual state
+                const switchEl = toggle.querySelector('.attr-modern-toggle-switch');
+                if (switchEl) switchEl.classList.remove('active');
+            }
+        } else {
+            toggle.classList.remove('processing-panel__toggle--disabled');
+        }
+    }
+
+    _updateSelectionHint();
 
     container.appendChild(toggleContainer);
 
@@ -224,8 +245,8 @@ function createBufferPanel(deps) {
         if (distance <= 0) {
             return { valid: false, message: 'Distância deve ser maior que zero' };
         }
-        if (useSelectedOnly && selectedCount === 0) {
-            return { valid: false, message: 'Nenhuma feição selecionada' };
+        if (useSelectedOnly && _getSelectedCountForLayer(selectedLayerId) === 0) {
+            return { valid: false, message: 'Nenhuma feição selecionada na camada' };
         }
         return { valid: true };
     }

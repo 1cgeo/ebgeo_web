@@ -62,6 +62,7 @@ import {
     renameLayer,
     getCurrentMapNameSync,
     isCurrentMapLockedSync,
+    getSourceTypeFromStorage,
 } from '../store';
 import { EventTypes } from '../events';
 import { showConfirm } from '../modals/index.js';
@@ -652,6 +653,9 @@ export class FeaturesTab {
         // Initialize sortable for layer reordering
         destroySortable(this._sortableInstance);
         this._sortableInstance = initLayerSortable(featuresList);
+
+        // Highlight currently selected features
+        this._highlightSelectedFeatures();
     }
 
     /**
@@ -833,6 +837,28 @@ export class FeaturesTab {
     }
 
     // =========================================================================
+    // PRIVATE - SELECTION HIGHLIGHTING
+    // =========================================================================
+
+    /**
+     * Applies highlight CSS class to feature items that are currently selected.
+     */
+    _highlightSelectedFeatures() {
+        if (!this.container || !this.selectionManager) return;
+
+        const allItems = this.container.querySelectorAll('.feature-item[data-feature-id]');
+        for (const item of allItems) {
+            const featureId = item.dataset.featureId;
+            const storageType = item.dataset.featureType;
+            if (!featureId || !storageType) continue;
+
+            const sourceType = getSourceTypeFromStorage(storageType);
+            const isSelected = this.selectionManager.isFeatureSelected(sourceType, featureId);
+            item.classList.toggle('feature-item--selected', isSelected);
+        }
+    }
+
+    // =========================================================================
     // PRIVATE - EVENT LISTENERS
     // =========================================================================
 
@@ -894,6 +920,15 @@ export class FeaturesTab {
         };
         this._unsubscribers.push(
             this._eventBus.on(EventTypes.STREETVIEW_360_CLOSED, this._viewer360ClosedHandler)
+        );
+
+        // Listen for selection changes to highlight features in the layers panel
+        this._selectionHighlightHandler = () => this._highlightSelectedFeatures();
+        this._unsubscribers.push(
+            this._eventBus.on(EventTypes.FEATURE_PANEL_OPENED, this._selectionHighlightHandler)
+        );
+        this._unsubscribers.push(
+            this._eventBus.on(EventTypes.FEATURE_PANEL_CLOSED, this._selectionHighlightHandler)
         );
     }
 

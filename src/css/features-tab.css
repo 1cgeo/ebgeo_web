@@ -461,6 +461,15 @@
     color: var(--primary);
 }
 
+.feature-item--selected {
+    background: var(--primary-50, #e8f0fe);
+    border-left-color: var(--primary);
+}
+
+.feature-item--selected:hover {
+    background: #d0e0fc;
+}
+
 .feature-item.feature-hidden {
     opacity: 0.5;
 }

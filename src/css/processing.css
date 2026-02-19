@@ -153,6 +153,11 @@
     gap: var(--space-1);
 }
 
+.processing-panel__toggle--disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
 .processing-panel__hint {
     font-size: var(--font-size-xs);
     color: var(--gray-400, #9ca3af);

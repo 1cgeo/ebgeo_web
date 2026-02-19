@@ -483,27 +483,6 @@ function buildEditableParam(parent, config, cleanupFunctions) {
 }
 
 /**
- * Creates a parameter item for the grid.
- */
-function createParameterItem(label, value) {
-    const item = document.createElement('div');
-    item.className = 'viewshed-parameter-item';
-
-    const labelEl = document.createElement('span');
-    labelEl.className = 'viewshed-parameter-label';
-    labelEl.textContent = label;
-
-    const valueEl = document.createElement('span');
-    valueEl.className = 'viewshed-parameter-value';
-    valueEl.textContent = value;
-
-    item.appendChild(labelEl);
-    item.appendChild(valueEl);
-
-    return item;
-}
-
-/**
  * Builds the photo gallery section for 3D viewsheds.
  */
 async function buildPhotoGallerySection(placeholder, viewshedId, _cleanupFunctions) {

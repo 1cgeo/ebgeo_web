@@ -3,11 +3,11 @@ import { defineConfig } from 'vite';
 import legacy from '@vitejs/plugin-legacy';
 import { resolve } from 'path';
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode: _mode }) => ({
   // ===== ROOT E ESTRUTURA =====
   root: '.',
   publicDir: 'public',
-  //base: mode === 'production' ? '/cms/' : '/',
+  // base: _mode === 'production' ? '/cms/' : '/',
 
   // ===== BUILD CONFIGURATION =====
   build: {
