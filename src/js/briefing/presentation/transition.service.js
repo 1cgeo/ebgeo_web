@@ -31,8 +31,9 @@
  * @module briefing/presentation/transition.service
  */
 
-import { SlideMode, getCurrentMapNameSync, setCurrentMap } from '../../store/index.js';
-import { flyTo, ANIMATION_DURATION } from '../../map/animation.service.js';
+import { SlideMode, getCurrentMapNameSync, setCurrentMap, getEventBus } from '../../store/index.js';
+import { EventTypes } from '../../events/event_types.js';
+import { flyTo } from '../../map/animation.service.js';
 import { getControl } from '../../store/control.registry.js';
 
 // ============================================================================
@@ -44,16 +45,10 @@ import { getControl } from '../../store/control.registry.js';
  * @type {Object}
  */
 const TRANSITION_CONFIG = {
-    /** Maximum map flyTo duration in milliseconds */
-    MAP_FLY_DURATION: ANIMATION_DURATION.BRIEFING_TRANSITION,
-    /** Minimum flyTo duration in milliseconds (for very short distances) */
-    MAP_FLY_DURATION_MIN: 600,
-    /** Distance threshold for minimum duration (meters) */
-    DISTANCE_SHORT: 500,
-    /** Distance threshold for maximum duration (meters) */
-    DISTANCE_LONG: 50000,
+    /** Fixed map flyTo duration in milliseconds */
+    MAP_FLY_DURATION: 5000,
     /** Delay before opening viewer after map animation */
-    VIEWER_OPEN_DELAY: 300,
+    VIEWER_OPEN_DELAY: 800,
     /** Cesium camera transition duration in seconds */
     CESIUM_FLY_DURATION: 2.0,
     /** 360 camera rotation duration */
@@ -71,63 +66,6 @@ const TRANSITION_CONFIG = {
  */
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Calculates the Haversine distance between two points in meters.
- * @param {number} lng1 - Longitude of point 1 (degrees)
- * @param {number} lat1 - Latitude of point 1 (degrees)
- * @param {number} lng2 - Longitude of point 2 (degrees)
- * @param {number} lat2 - Latitude of point 2 (degrees)
- * @returns {number} Distance in meters
- */
-function haversineDistance(lng1, lat1, lng2, lat2) {
-    const R = 6371000; // Earth radius in meters
-    const toRad = (deg) => deg * Math.PI / 180;
-
-    const dLat = toRad(lat2 - lat1);
-    const dLng = toRad(lng2 - lng1);
-    const a = Math.sin(dLat / 2) ** 2 +
-              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-/**
- * Calculates a dynamic flyTo duration based on the distance between
- * the current map center and the target position.
- * Short distances get shorter animations; long distances get the full duration.
- *
- * @param {Object} map - MapLibre map instance
- * @param {number} targetLng - Target longitude
- * @param {number} targetLat - Target latitude
- * @param {number} baseDuration - Maximum duration in milliseconds
- * @returns {number} Scaled duration in milliseconds
- */
-function calculateDynamicDuration(map, targetLng, targetLat, baseDuration) {
-    if (!map) return baseDuration;
-
-    const center = map.getCenter();
-    const dist = haversineDistance(center.lng, center.lat, targetLng, targetLat);
-
-    // Below SHORT threshold → minimum duration (quick pan)
-    if (dist <= TRANSITION_CONFIG.DISTANCE_SHORT) {
-        return TRANSITION_CONFIG.MAP_FLY_DURATION_MIN;
-    }
-
-    // Above LONG threshold → full duration
-    if (dist >= TRANSITION_CONFIG.DISTANCE_LONG) {
-        return baseDuration;
-    }
-
-    // Proportional scaling with sqrt for perceptual smoothness
-    // sqrt makes medium distances feel proportionally faster
-    const t = (dist - TRANSITION_CONFIG.DISTANCE_SHORT) /
-              (TRANSITION_CONFIG.DISTANCE_LONG - TRANSITION_CONFIG.DISTANCE_SHORT);
-    const scaled = TRANSITION_CONFIG.MAP_FLY_DURATION_MIN +
-                   Math.sqrt(t) * (baseDuration - TRANSITION_CONFIG.MAP_FLY_DURATION_MIN);
-
-    return Math.round(scaled);
 }
 
 /**
@@ -302,10 +240,13 @@ class TransitionService {
 
     /**
      * Switches the active map if the slide's mapId differs from the current map.
+     * Sets _mapChangedDuringTransition flag for downstream handlers.
      * @private
      * @param {Object} slide - Target slide
      */
     async _switchMapIfNeeded(slide) {
+        this._mapChangedDuringTransition = false;
+
         if (!slide.mapId) return;
 
         const currentMap = getCurrentMapNameSync();
@@ -319,7 +260,11 @@ class TransitionService {
             await baseLayerControl.switchMap(false);
         }
 
+        // Notify listeners (e.g. 360 viewer reloads markers for new map)
+        getEventBus().emit(EventTypes.LAYERS_CHANGED, { mapName: slide.mapId });
+
         this._currentMapId = slide.mapId;
+        this._mapChangedDuringTransition = true;
     }
 
     /**
@@ -357,34 +302,50 @@ class TransitionService {
      * @param {Object} options - Transition options
      * @param {number} [durationMultiplier=1] - Duration multiplier (0.5 for half-speed)
      */
-    async _flyTo2D(slide, options, durationMultiplier = 1) {
+    async _flyTo2D(slide, options) {
         if (!slide.position || slide.position.longitude === null) return;
-
-        const targetZoom = slide.position.zoom ?? this._map.getZoom();
-        const baseDuration = TRANSITION_CONFIG.MAP_FLY_DURATION * durationMultiplier;
-
-        // Scale duration proportionally to the distance
-        const duration = options.instant
-            ? 0
-            : calculateDynamicDuration(
-                this._map,
-                slide.position.longitude,
-                slide.position.latitude,
-                baseDuration
-            );
 
         await flyTo(this._map, {
             lng: slide.position.longitude,
             lat: slide.position.latitude,
-            zoom: targetZoom,
+            zoom: slide.position.zoom ?? this._map.getZoom(),
             bearing: slide.orientation?.bearing || 0,
             pitch: slide.orientation?.pitch || 0,
-            duration,
-            // Shallow arc: almost lateral movement, minimal zoom-out
-            curve: 0.5,
-            // Never zoom out more than 1 level below the target during animation
-            minZoom: Math.max(targetZoom - 1, 0)
+            duration: options.instant ? 0 : TRANSITION_CONFIG.MAP_FLY_DURATION
         });
+    }
+
+    /**
+     * Applies the 3D camera position saved in a slide to the Cesium viewer.
+     * Called after open3DViewer to override the per-tileset default position
+     * with the slide-specific camera orientation.
+     * @private
+     * @param {Object} slide - Target slide (with position and orientation)
+     */
+    async _apply3DCameraFromSlide(slide) {
+        const Cesium = window.Cesium;
+        if (!Cesium || !slide.position?.longitude) return;
+
+        try {
+            const viewer3d = await get3DViewerModule();
+            const cesiumViewer = viewer3d.getCesiumViewer?.();
+            if (!cesiumViewer) return;
+
+            cesiumViewer.camera.setView({
+                destination: Cesium.Cartesian3.fromDegrees(
+                    slide.position.longitude,
+                    slide.position.latitude,
+                    slide.position.altitude || 1000
+                ),
+                orientation: {
+                    heading: Cesium.Math.toRadians(slide.orientation?.heading || 0),
+                    pitch: Cesium.Math.toRadians(slide.orientation?.pitch || -30),
+                    roll: 0
+                }
+            });
+        } catch (error) {
+            console.warn('Failed to apply 3D camera from slide:', error);
+        }
     }
 
     /**
@@ -405,6 +366,28 @@ class TransitionService {
             }
         } catch (error) {
             console.warn('Failed to restore 360 camera orientation:', error);
+        }
+    }
+
+    /**
+     * Reloads 3D features (markers, measurements, viewsheds) for a tileset.
+     * Called when the map changes while the 3D viewer stays open on the same model,
+     * because 3D features are stored per-map.
+     * @private
+     * @param {Object} viewer3dModule - Imported map_3d module
+     * @param {string} tilesetId - Current tileset ID
+     */
+    async _reload3DFeatures(viewer3dModule, tilesetId) {
+        try {
+            const cesiumViewer = viewer3dModule.getCesiumViewer?.();
+            if (!cesiumViewer) return;
+
+            // Re-render features using the new current map's data
+            if (viewer3dModule.reloadFeaturesForTileset) {
+                await viewer3dModule.reloadFeaturesForTileset(cesiumViewer, tilesetId);
+            }
+        } catch (error) {
+            console.warn('Failed to reload 3D features after map change:', error);
         }
     }
 
@@ -453,11 +436,12 @@ class TransitionService {
     /**
      * Transitions from 2D to 3D (flyTo then open viewer).
      * Cesium opens directly at the target location without camera animation.
+     * After opening, applies the slide's saved camera position.
      * @private
      */
     async _transition2Dto3D(slide, options) {
         await this._ensureViewerMarkersActive(SlideMode.VIEWER_3D);
-        await this._flyTo2D(slide, options, 0.5);
+        await this._flyTo2D(slide, options);
 
         if (!options.instant) {
             await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
@@ -465,6 +449,7 @@ class TransitionService {
 
         if (slide.modelId) {
             await open3DViewer(slide.modelId, { skipCameraAnimation: true });
+            await this._apply3DCameraFromSlide(slide);
         }
     }
 
@@ -474,7 +459,7 @@ class TransitionService {
      */
     async _transition2Dto360(slide, options) {
         await this._ensureViewerMarkersActive(SlideMode.VIEWER_360);
-        await this._flyTo2D(slide, options, 0.5);
+        await this._flyTo2D(slide, options);
 
         if (!options.instant) {
             await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
@@ -506,7 +491,8 @@ class TransitionService {
 
     /**
      * Transitions from 3D to 3D.
-     * Same model: instant camera setView. Different model: close and reopen.
+     * Same model: instant camera setView + reload features if map changed.
+     * Different model: close and reopen (features load automatically).
      * During briefing presentations, Cesium camera always jumps instantly.
      * @private
      */
@@ -531,18 +517,25 @@ class TransitionService {
                         }
                     });
                 }
+
+                // Reload 3D features if map changed (markers/measurements/viewsheds are map-specific)
+                if (this._mapChangedDuringTransition) {
+                    await this._reload3DFeatures(viewer3d, slide.modelId);
+                }
             } catch (error) {
                 // Fallback: close and reopen
                 console.warn('Cesium setView failed, falling back to reload:', error);
                 await close3DViewer();
                 await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
                 await open3DViewer(slide.modelId, { skipCameraAnimation: true });
+                await this._apply3DCameraFromSlide(slide);
             }
         } else if (slide.modelId) {
-            // Different model: close and reopen
+            // Different model: close and reopen (features load via loadSingleTileset)
             await close3DViewer();
             await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
             await open3DViewer(slide.modelId, { skipCameraAnimation: true });
+            await this._apply3DCameraFromSlide(slide);
         }
     }
 
@@ -558,7 +551,7 @@ class TransitionService {
             await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
 
-        await this._flyTo2D(slide, options, 0.5);
+        await this._flyTo2D(slide, options);
 
         if (!options.instant) {
             await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
@@ -591,6 +584,7 @@ class TransitionService {
     /**
      * Transitions from 360 to 3D (close 360, fly, open 3D).
      * Cesium opens directly at the target location without camera animation.
+     * After opening, applies the slide's saved camera position.
      * @private
      */
     async _transition360to3D(slide, options) {
@@ -601,7 +595,7 @@ class TransitionService {
             await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
 
-        await this._flyTo2D(slide, options, 0.5);
+        await this._flyTo2D(slide, options);
 
         if (!options.instant) {
             await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
@@ -609,6 +603,7 @@ class TransitionService {
 
         if (slide.modelId) {
             await open3DViewer(slide.modelId, { skipCameraAnimation: true });
+            await this._apply3DCameraFromSlide(slide);
         }
     }
 
@@ -643,7 +638,7 @@ class TransitionService {
                     await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
                 }
 
-                await this._flyTo2D(slide, options, 0.5);
+                await this._flyTo2D(slide, options);
 
                 if (!options.instant) {
                     await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
@@ -704,6 +699,11 @@ class TransitionService {
                 // Open target viewer if mode changed or it was closed above
                 if (needsClose || fromMode !== toMode) {
                     await this._openTargetViewer(toMode, slide);
+                } else if (fromMode === SlideMode.VIEWER_3D && toMode === SlideMode.VIEWER_3D
+                           && this._mapChangedDuringTransition) {
+                    // Same model, same mode, but map changed — reload 3D features
+                    const viewer3d = await get3DViewerModule();
+                    await this._reload3DFeatures(viewer3d, slide.modelId);
                 }
             }
 
@@ -807,6 +807,7 @@ class TransitionService {
      * Opens the target viewer for the slide.
      * Uses registered controls for proper container management.
      * Camera animation is skipped for instant positioning.
+     * After opening 3D, applies the slide's saved camera position.
      * @private
      * @param {string} toMode - Target viewer mode
      * @param {Object} slide - Target slide
@@ -814,6 +815,7 @@ class TransitionService {
     async _openTargetViewer(toMode, slide) {
         if (toMode === SlideMode.VIEWER_3D && slide.modelId) {
             await open3DViewer(slide.modelId, { skipCameraAnimation: true });
+            await this._apply3DCameraFromSlide(slide);
         } else if (toMode === SlideMode.VIEWER_360 && slide.photoId) {
             await open360Viewer(slide.photoId);
             await this._restore360CameraOrientation(slide);

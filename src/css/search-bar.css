@@ -42,6 +42,11 @@
     overflow: hidden;
 }
 
+/* Elevate above chips when results are visible */
+.search-bar-container.has-results {
+    z-index: var(--z-floating);
+}
+
 /* Flatten bottom corners when results are visible */
 .search-bar-container.has-results .search-bar-wrapper {
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;

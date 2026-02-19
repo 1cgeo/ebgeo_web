@@ -15,7 +15,8 @@ import {
     ANGULAR_UNIT,
     DISTANCE_UNIT,
     NORTH_REFERENCE,
-    OUTPUT_MODE
+    OUTPUT_MODE,
+    VALIDATION
 } from './azimuth_distance_constants.js';
 
 // ============================================================================
@@ -634,9 +635,9 @@ export function canCreateFeature(referencePoint, legs, outputMode) {
         return { canCreate: false, reason: 'Adicione pelo menos uma perna completa' };
     }
 
-    // Area mode needs at least 3 legs
-    if (outputMode === OUTPUT_MODE.AREA && completLegs.length < 3) {
-        return { canCreate: false, reason: 'Área requer pelo menos 3 pernas' };
+    // Area mode needs at least 2 legs (2 legs + closing to origin = 3 points = triangle)
+    if (outputMode === OUTPUT_MODE.AREA && completLegs.length < VALIDATION.MIN_LEGS_FOR_AREA) {
+        return { canCreate: false, reason: 'Área requer pelo menos 2 pernas' };
     }
 
     return { canCreate: true, reason: null };

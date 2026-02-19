@@ -561,17 +561,17 @@ class StreetviewMarkers {
      * @returns {Promise<boolean>} True if navigation successful
      */
     async navigateToMarker(markerId) {
-        let markerData = null;
-        const source = this.map.getSource(this.sourceId);
-        if (source) {
-            const features = source._data?.features || [];
-            const feature = features.find(f => f.properties.markerId === markerId);
-            if (feature) {
-                markerData = {
-                    coordinates: feature.geometry.coordinates,
-                    ...feature.properties
-                };
-            }
+        let markerData = this._findMarkerInSource(markerId);
+
+        // Markers may not be loaded yet (e.g. search before activating street view)
+        if (!markerData) {
+            await this.loadMarkers();
+            markerData = this._findMarkerInSource(markerId);
+        }
+
+        // Fallback: build from API cache if source lookup still fails
+        if (!markerData) {
+            markerData = await this._resolveMarkerFromAPI(markerId);
         }
 
         if (!markerData) {
@@ -604,6 +604,55 @@ class StreetviewMarkers {
         });
 
         return true;
+    }
+
+    /**
+     * Looks up a marker in the GeoJSON source by ID.
+     * @private
+     * @param {string} markerId
+     * @returns {Object|null} Marker data or null
+     */
+    _findMarkerInSource(markerId) {
+        const source = this.map.getSource(this.sourceId);
+        if (!source) return null;
+
+        const features = source._data?.features || [];
+        const feature = features.find(f => f.properties.markerId === markerId);
+        if (!feature) return null;
+
+        return {
+            coordinates: feature.geometry.coordinates,
+            ...feature.properties
+        };
+    }
+
+    /**
+     * Resolves marker data from the API projects cache.
+     * Used as fallback when the GeoJSON source is unavailable.
+     * @private
+     * @param {string} markerId
+     * @returns {Promise<Object|null>}
+     */
+    async _resolveMarkerFromAPI(markerId) {
+        try {
+            const { getCachedProjects } = await import('./streetview-api.service.js');
+            const projects = getCachedProjects();
+            if (!projects) return null;
+
+            const project = projects.find(p => p.id === markerId);
+            if (!project?.center) return null;
+
+            return {
+                coordinates: [project.center.lon, project.center.lat],
+                markerId: project.id,
+                name: project.name,
+                dataCaptura: project.captureDate || null,
+                previewThumbnail: null,
+                photoName: project.entryPhotoId
+            };
+        } catch {
+            return null;
+        }
     }
 }
 

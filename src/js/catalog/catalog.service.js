@@ -170,14 +170,18 @@ export class CatalogService {
             const projects = getCachedProjects();
             if (!projects || projects.length === 0) return [];
 
+            const serviceUrl = config.streetView360.serviceUrl;
+
             return projects.map(p => ({
                 id: `360-${p.id}`,
                 type: CATALOG_ITEM_TYPES.PANORAMIC_360,
                 name: p.name,
                 description: p.description || null,
-                thumbnail: p.previewThumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.PANORAMIC_360],
+                thumbnail: p.previewThumbnail
+                    ? `${serviceUrl}${p.previewThumbnail}`
+                    : DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.PANORAMIC_360],
                 date: p.captureDate || null,
-                local: p.local || null,
+                local: p.location || null,
                 location: p.center ? { lon: p.center.lon, lat: p.center.lat } : null,
                 originalData: p
             }));

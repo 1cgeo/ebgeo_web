@@ -186,6 +186,7 @@ export class PresentationTextPanel {
      * @param {boolean} isTransitioning - Whether a slide transition is in progress
      */
     setTransitioning(isTransitioning) {
+        this._isTransitioning = isTransitioning;
         if (this._nextBtn) {
             this._nextBtn.innerHTML = isTransitioning
                 ? CONTROL_ICONS.skipForward
@@ -193,6 +194,12 @@ export class PresentationTextPanel {
             this._nextBtn.title = isTransitioning
                 ? 'Pular Animação'
                 : 'Próximo Slide';
+            // Enable next button during transitions so the user can skip the animation
+            if (isTransitioning) {
+                this._nextBtn.disabled = false;
+            } else {
+                this._updateButtonStates();
+            }
         }
     }
 

@@ -14,7 +14,8 @@ import {
     getCatalogLayers,
     getEventBus,
     getStateManager,
-    getControl
+    getControl,
+    isCurrentMapLockedSync
 } from '../store';
 import { EventTypes } from '../events/event_types.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
@@ -197,8 +198,10 @@ class BaseLayerControl {
         }
     }
 
-    async switchLayer(layer) {
-        setBaseLayer(layer);
+    async switchLayer(layer, { skipPersist = false } = {}) {
+        if (!skipPersist) {
+            setBaseLayer(layer);
+        }
 
         if (this.uiManager && this.uiManager.saveChangesAndClosePanel) {
             this.uiManager.saveChangesAndClosePanel();
@@ -261,6 +264,7 @@ class BaseLayerControl {
 
     async switchMap(applyPosition = true) {
         const currentMapName = await getCurrentMapName();
+        const skipPersist = isCurrentMapLockedSync();
 
         let baseLayer = await getCurrentBaseLayer();
 
@@ -269,13 +273,15 @@ class BaseLayerControl {
         if (baseLayer !== validFallback) {
             console.warn(`Base layer "${baseLayer}" not available. Using "${validFallback}".`);
             baseLayer = validFallback;
-            await setBaseLayer(baseLayer);
+            if (!skipPersist) {
+                await setBaseLayer(baseLayer);
+            }
         }
 
         this._toolManager.deactivateCurrentTool();
         this._selectionManager.deselectAllFeatures();
 
-        await this.switchLayer(baseLayer);
+        await this.switchLayer(baseLayer, { skipPersist });
 
         await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
 

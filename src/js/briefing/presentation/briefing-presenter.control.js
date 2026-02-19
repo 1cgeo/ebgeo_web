@@ -170,6 +170,9 @@ export class BriefingPresenterControl {
             // Create transition service
             this._transitionService = createTransitionService(this._map);
 
+            // Patch map movement methods to preload tiles during flyTo animations
+            this._tilePreloader = createTilePreloader(this._map);
+
             // Create UI components (panel with integrated controls)
             this._createComponents();
 
@@ -179,17 +182,17 @@ export class BriefingPresenterControl {
             // Setup fullscreen listeners
             this._setupFullscreenListeners();
 
-            // MapLibre needs a resize to fill the new available space
-            if (this._map) {
-                setTimeout(() => this._map.resize(), 50);
-            }
-
             // Mark as presenting
             this._isPresenting = true;
             this._currentSlideIndex = -1;
 
-            // Preload tiles for all slide positions (improves flyTo transitions)
-            await this._preloadSlideTiles();
+            // Force browser reflow so the new CSS layout (briefing-panel-active)
+            // is applied before MapLibre reads container dimensions
+            if (this._map) {
+                // Reading offsetHeight forces a synchronous reflow
+                const _reflow = this._map.getContainer().offsetHeight;
+                this._map.resize();
+            }
 
             // Go to first slide
             await this._goToSlide(0);
@@ -234,7 +237,7 @@ export class BriefingPresenterControl {
         // (deactivates markers that were activated during presentation)
         await this._restoreViewerStates();
 
-        // Destroy tile preloader (restores original flyTo)
+        // Destroy tile preloader
         if (this._tilePreloader) {
             this._tilePreloader.destroy();
             this._tilePreloader = null;
@@ -582,7 +585,7 @@ export class BriefingPresenterControl {
         // Determine direction: forward = animated, backward = instant
         const isForward = index > this._currentSlideIndex;
         const isFirstLoad = this._currentSlideIndex === -1;
-        const instant = options.forceInstant || (!isForward && !isFirstLoad);
+        const instant = options.forceInstant || isFirstLoad || (!isForward && !isFirstLoad);
 
         // Update text panel IMMEDIATELY (before flyTo animation)
         this._currentSlideIndex = index;
@@ -641,121 +644,6 @@ export class BriefingPresenterControl {
                 visibilityController.applyProfile(VisibilityProfile.BRIEFING_PRESENT_2D);
                 break;
         }
-    }
-
-    /**
-     * Preloads map tiles for all slide positions.
-     * Shows a fullscreen loading overlay during preload (same pattern as site loading screen).
-     * @private
-     */
-    async _preloadSlideTiles() {
-        if (!this._briefing?.slides || !this._map) return;
-
-        // Collect 2D positions from all slides that have valid coordinates
-        const positions = this._briefing.slides
-            .filter(s => s.position?.longitude != null && s.position?.latitude != null)
-            .map(s => ({
-                center: [s.position.longitude, s.position.latitude],
-                zoom: s.position.zoom ?? this._map.getZoom(),
-                bearing: s.orientation?.bearing || 0,
-                pitch: s.orientation?.pitch || 0
-            }));
-
-        if (positions.length === 0) return;
-
-        // Create tile preloader and patch flyTo for ongoing transitions
-        this._tilePreloader = createTilePreloader(this._map);
-        this._tilePreloader.patchFlyTo();
-
-        // Show fullscreen loading overlay with fake timed progress (5s max)
-        const { overlay, progressBar } = this._createLoadingOverlay();
-        document.body.appendChild(overlay);
-
-        // Animate progress bar over LOADING_DURATION_MS; if preload finishes
-        // earlier, jump to 100% and fade out immediately
-        const LOADING_DURATION_MS = 5000;
-        const TICK_MS = 50;
-        let elapsed = 0;
-        let preloadDone = false;
-
-        const progressInterval = setInterval(() => {
-            elapsed += TICK_MS;
-            if (!preloadDone && progressBar) {
-                // Ease-out curve: fast start, slows near 90%
-                const t = Math.min(elapsed / LOADING_DURATION_MS, 1);
-                const pct = Math.round(90 * (1 - Math.pow(1 - t, 2)));
-                progressBar.style.width = `${pct}%`;
-            }
-        }, TICK_MS);
-
-        try {
-            await this._tilePreloader.preloadPositions(positions);
-        } catch (error) {
-            console.warn('Tile preload failed (non-critical):', error);
-        }
-
-        // Preload finished — jump to 100% and stop timer
-        preloadDone = true;
-        clearInterval(progressInterval);
-        if (progressBar) {
-            progressBar.style.width = '100%';
-        }
-
-        // Brief pause to show 100% before fade out
-        await new Promise(r => setTimeout(r, 300));
-
-        // Fade out and remove overlay
-        this._removeLoadingOverlay(overlay);
-    }
-
-    /**
-     * Creates the fullscreen loading overlay DOM elements.
-     * Matches the site's loading screen pattern (green background, progress bar).
-     * @private
-     * @returns {{ overlay: HTMLElement, progressBar: HTMLElement }}
-     */
-    _createLoadingOverlay() {
-        const overlay = document.createElement('div');
-        overlay.className = 'briefing-loading-overlay';
-
-        const content = document.createElement('div');
-        content.className = 'briefing-loading-overlay__content';
-
-        // Logo (same as site loading screen)
-        const logo = document.createElement('img');
-        logo.className = 'briefing-loading-overlay__logo';
-        logo.src = '/images/logo_ebgeo.webp';
-        logo.alt = 'EBGeo';
-        content.appendChild(logo);
-
-        const text = document.createElement('p');
-        text.className = 'briefing-loading-overlay__text';
-        text.textContent = 'Carregando apresentação...';
-        content.appendChild(text);
-
-        const track = document.createElement('div');
-        track.className = 'briefing-loading-overlay__track';
-
-        const progressBar = document.createElement('div');
-        progressBar.className = 'briefing-loading-overlay__bar';
-        track.appendChild(progressBar);
-
-        content.appendChild(track);
-        overlay.appendChild(content);
-
-        return { overlay, progressBar };
-    }
-
-    /**
-     * Fades out and removes the loading overlay.
-     * @private
-     * @param {HTMLElement} overlay - Overlay element to remove
-     */
-    _removeLoadingOverlay(overlay) {
-        if (!overlay) return;
-
-        overlay.classList.add('briefing-loading-overlay--hidden');
-        setTimeout(() => overlay.remove(), 500);
     }
 
     /**

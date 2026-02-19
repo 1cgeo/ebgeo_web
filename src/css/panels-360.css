@@ -25,9 +25,9 @@ body.streetview-active .sidebar-container {
     z-index: 300 !important;
 }
 
-/* Hide sidebar when briefing editor is open (even if streetview-active) */
-body.streetview-active .briefing-editor ~ .sidebar-container,
-body.streetview-active:has(.briefing-editor) .sidebar-container {
+/* Hide sidebar elements (but not feature-panel) when briefing editor is open */
+body.streetview-active.briefing-panel-active .sidebar-collapsed,
+body.streetview-active.briefing-panel-active .sidebar-panel:not(.feature-panel) {
     display: none !important;
 }
 

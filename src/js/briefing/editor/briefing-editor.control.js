@@ -687,14 +687,8 @@ export class BriefingEditorControl {
         captureBtnLabel.textContent = 'Salvar Posi\u00E7\u00E3o';
         captureBtn.appendChild(captureBtnLabel);
 
-        // Disable when no map is selected for this slide
-        if (!slide.mapId) {
-            captureBtn.disabled = true;
-            captureBtn.title = 'Selecione um mapa antes de salvar a posição';
-        } else {
-            captureBtn.title = 'Salva a posição atual do visualizador ativo';
-            addDomListener(this, captureBtn, 'click', () => this._handleCapturePosition());
-        }
+        captureBtn.title = 'Salva a posição atual do visualizador ativo';
+        addDomListener(this, captureBtn, 'click', () => this._handleCapturePosition());
 
         positionWrapper.appendChild(captureBtn);
 
@@ -755,13 +749,6 @@ export class BriefingEditorControl {
      * @private
      */
     async _populateMapSelect(select, slide) {
-        const defaultOption = document.createElement('option');
-        defaultOption.value = '';
-        defaultOption.textContent = 'Selecione um mapa...';
-        defaultOption.disabled = true;
-        if (!slide.mapId) defaultOption.selected = true;
-        select.appendChild(defaultOption);
-
         try {
             const mapNames = await getAllMapNamesStore();
             mapNames.forEach(name => {
@@ -771,6 +758,13 @@ export class BriefingEditorControl {
                 if (slide.mapId === name) option.selected = true;
                 select.appendChild(option);
             });
+
+            // If slide has no map, auto-select the first available map
+            if (!slide.mapId && mapNames.length > 0) {
+                slide.mapId = mapNames[0];
+                select.value = mapNames[0];
+                this._scheduleAutosave();
+            }
         } catch (error) {
             console.warn('Error loading map names:', error);
         }
@@ -787,10 +781,28 @@ export class BriefingEditorControl {
         try {
             await setCurrentMap(mapId);
 
-            // switchMap() renders features on the map (setupMapFeatures)
+            // switchMap() renders 2D features on the map (setupMapFeatures)
             const baseLayerControl = getControl('BaseLayerControl');
             if (baseLayerControl) {
                 await baseLayerControl.switchMap(false);
+            }
+
+            // Notify listeners (360 viewer reloads markers, saved photos update)
+            this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: mapId });
+
+            // Reload 3D features if the Cesium viewer is currently open
+            // (3D markers/measurements/viewsheds are stored per-map)
+            if (isViewer3DOpen()) {
+                try {
+                    const viewer3d = await import('../../3d_models_viewer_tool/map_3d.js');
+                    const cesiumViewer = viewer3d.getCesiumViewer?.();
+                    const tilesetId = viewer3d.getCurrentTilesetId?.();
+                    if (cesiumViewer && tilesetId) {
+                        await viewer3d.reloadFeaturesForTileset(cesiumViewer, tilesetId);
+                    }
+                } catch (err) {
+                    console.warn('Error reloading 3D features after map change:', err);
+                }
             }
 
             if (this._map) {
@@ -857,6 +869,8 @@ export class BriefingEditorControl {
                 handle: '.briefing-editor-slide-handle',
                 ghostClass: 'sortable-ghost',
                 onEnd: async () => {
+                    await this._flushAutosave();
+
                     const newOrder = Array.from(this._slideListEl.children)
                         .map(el => el.dataset.slideId)
                         .filter(Boolean);
@@ -964,12 +978,6 @@ export class BriefingEditorControl {
         const slide = this._getSelectedSlide();
         if (!slide) {
             showWarning('Selecione um slide primeiro');
-            return;
-        }
-
-        // Require a map to be selected before capturing position
-        if (!slide.mapId) {
-            showWarning('Selecione um mapa para o slide antes de salvar a posição');
             return;
         }
 
@@ -1113,7 +1121,14 @@ export class BriefingEditorControl {
      */
     async _handleAddSlide() {
         try {
-            const newSlide = await addSlide(this._briefing.id, createEmptySlide());
+            // Flush pending autosave so addSlide() reads up-to-date data from IndexedDB
+            // (prevents losing position changes on the current slide)
+            await this._flushAutosave();
+
+            const emptySlide = createEmptySlide();
+            // Pre-select the current map so the slide is ready for position capture
+            emptySlide.mapId = getCurrentMapNameSync();
+            const newSlide = await addSlide(this._briefing.id, emptySlide);
 
             this._briefing = await getBriefingById(this._briefing.id);
             this._renderSlideList();
@@ -1143,6 +1158,7 @@ export class BriefingEditorControl {
         if (!confirmed) return;
 
         try {
+            await this._flushAutosave();
             await removeSlide(this._briefing.id, slideId);
 
             this._briefing = await getBriefingById(this._briefing.id);
@@ -1193,6 +1209,20 @@ export class BriefingEditorControl {
         }, EDITOR_CONFIG.AUTOSAVE_DELAY);
 
         trackTimer(this, this._autosaveTimer);
+    }
+
+    /**
+     * Flushes any pending autosave immediately.
+     * Must be called before store operations that read from IndexedDB
+     * to avoid overwriting in-memory changes (e.g. captured positions).
+     * @private
+     */
+    async _flushAutosave() {
+        if (this._autosaveTimer) {
+            clearTimeout(this._autosaveTimer);
+            this._autosaveTimer = null;
+            await this._save();
+        }
     }
 
     /**

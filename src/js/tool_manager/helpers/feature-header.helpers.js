@@ -200,6 +200,20 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
 
     dropdown.appendChild(selectAllButton);
 
+    const selectAllStyleButton = document.createElement('button');
+    selectAllStyleButton.className = 'feature-menu-button';
+    selectAllStyleButton.textContent = 'Selecionar todos com mesmo estilo';
+
+    selectAllStyleButton.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        await selectAllFeaturesOfSameStyle(selectedFeatures, selectionManager, uiManager);
+        closeAllFeatureDropdowns(true);
+    });
+
+    dropdown.appendChild(selectAllStyleButton);
+
     const currentFeature = selectedFeatures[0];
     const currentLayerId = currentFeature?.properties?.layerId || 'default';
     const layers = await getLayers();
@@ -651,6 +665,47 @@ function closeAllFeatureDropdowns(animated = false) {
 }
 
 /**
+ * Style property keys per feature type.
+ * Only visual appearance properties - excludes metadata, content, geometry, and state.
+ */
+const STYLE_KEYS_BY_TYPE = {
+    point:               ['fillColor', 'size', 'opacity'],
+    line:                ['lineColor', 'lineWidth', 'opacity', 'lineStyle'],
+    polygon:             ['fillColor', 'lineColor', 'lineWidth', 'opacity', 'lineStyle', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
+    circle:              ['fillColor', 'lineColor', 'lineWidth', 'lineStyle', 'opacity', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
+    ellipse:             ['fillColor', 'lineColor', 'lineWidth', 'lineStyle', 'opacity', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
+    rectangle:           ['fillColor', 'lineColor', 'lineWidth', 'lineStyle', 'opacity', 'borderRadius', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
+    text:                ['size', 'color', 'textHaloWidth', 'justify', 'showBackground', 'backgroundFillColor', 'backgroundFillOpacity', 'backgroundBorderColor', 'backgroundBorderOpacity', 'backgroundBorderWidth'],
+    brush:               ['lineColor', 'lineWidth'],
+    image:               ['size', 'opacity'],
+    arrow:               ['width', 'fillColor', 'lineColor', 'lineWidth', 'fillOpacity', 'lineOpacity', 'headLengthRatio', 'showArrowHead'],
+    boundary:            ['color', 'lineWidth', 'opacity', 'echelon', 'symbol_size', 'text_size'],
+    occupied_front:      ['color', 'lineWidth', 'opacity'],
+    los:                 ['opacity', 'width'],
+    visibility:          ['opacity'],
+    military_symbol:     ['size', 'opacity', 'fillColor'],
+    coordination_measure: ['size', 'opacity']
+};
+
+/**
+ * Extracts a style fingerprint from a feature for comparison.
+ *
+ * @param {Object} feature - GeoJSON feature
+ * @returns {string} JSON string of style values (for equality comparison)
+ */
+function getStyleFingerprint(feature) {
+    const type = feature.properties?.source;
+    const keys = STYLE_KEYS_BY_TYPE[type];
+    if (!keys) return '{}';
+
+    const style = {};
+    for (const key of keys) {
+        style[key] = feature.properties[key] ?? null;
+    }
+    return JSON.stringify(style);
+}
+
+/**
  * Selects all features of same type as current selection.
  * Respects groups: heterogeneous groups are not selected, homogeneous groups are selected entirely.
  *
@@ -729,6 +784,99 @@ async function selectAllFeaturesOfSameType(selectedFeatures, selectionManager, u
         }
 
         // Feature is either ungrouped or in a homogeneous group - select it
+        featuresToSelect.push(feature);
+    }
+
+    selectionManager.deselectAllFeatures();
+
+    for (const feature of featuresToSelect) {
+        const featureId = feature.properties.id;
+        if (!selectionManager.isFeatureSelected(targetType, featureId)) {
+            await selectionManager.toggleFeatureSelection(targetType, featureId, feature, false);
+        }
+    }
+
+    uiManager.updateSelectionHighlight();
+    uiManager.updatePanels();
+}
+
+/**
+ * Selects all features that share the same type AND style as the current selection.
+ * Respects groups: heterogeneous groups are skipped.
+ *
+ * @param {Array} selectedFeatures - Currently selected features
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
+ */
+async function selectAllFeaturesOfSameStyle(selectedFeatures, selectionManager, uiManager) {
+    if (selectedFeatures.length === 0) return;
+
+    const firstFeature = selectedFeatures[0];
+    const targetType = firstFeature.properties.source;
+    const targetFingerprint = getStyleFingerprint(firstFeature);
+
+    const control = selectionManager.controls.get(targetType);
+    if (!control) {
+        console.warn(`Control not found for type: ${targetType}`);
+        return;
+    }
+
+    const sourceNames = control.getSourceNames();
+    if (!sourceNames || sourceNames.length === 0) {
+        console.warn(`Source names not found for type: ${targetType}`);
+        return;
+    }
+
+    const allFeaturesOfType = [];
+
+    for (const sourceName of sourceNames) {
+        const source = selectionManager.map.getSource(sourceName);
+        if (source) {
+            const data = await source.getData();
+            if (data && data.features) {
+                allFeaturesOfType.push(...data.features);
+            }
+        }
+    }
+
+    if (allFeaturesOfType.length === 0) return;
+
+    // Filter by matching style fingerprint
+    const matchingFeatures = allFeaturesOfType.filter(
+        f => getStyleFingerprint(f) === targetFingerprint
+    );
+
+    if (matchingFeatures.length === 0) return;
+
+    // Filter respecting groups (same logic as selectAllFeaturesOfSameType)
+    const groupManager = getGroupManager();
+    const skippedGroups = new Set();
+    const featuresToSelect = [];
+
+    for (const feature of matchingFeatures) {
+        const featureId = feature.properties?.id;
+        if (!featureId) continue;
+
+        const group = groupManager.getFeatureGroup(targetType, featureId);
+
+        if (group && !skippedGroups.has(group.id)) {
+            const allSameType = group.features.every(f => f.type === targetType);
+            if (!allSameType) {
+                skippedGroups.add(group.id);
+            }
+        }
+    }
+
+    for (const feature of matchingFeatures) {
+        const featureId = feature.properties?.id;
+        if (!featureId) continue;
+
+        const group = groupManager.getFeatureGroup(targetType, featureId);
+
+        if (group && skippedGroups.has(group.id)) {
+            continue;
+        }
+
         featuresToSelect.push(feature);
     }
 

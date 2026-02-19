@@ -912,6 +912,29 @@ async function loadSingleTileset(viewer, tilesetId, options = {}) {
 }
 
 /**
+ * Reloads 3D features (markers, measurements, viewsheds) for a tileset
+ * without reloading the tileset itself. Used when the active map changes
+ * while the 3D viewer stays open on the same model.
+ * @param {Cesium.Viewer} viewer - The Cesium viewer instance
+ * @param {string} tilesetId - Tileset ID
+ */
+export async function reloadFeaturesForTileset(viewer, tilesetId) {
+    if (!viewer || viewer.isDestroyed()) return;
+
+    if (cesiumState.modules.markers) {
+        await cesiumState.modules.markers.renderMarkersForTileset(viewer, tilesetId);
+    }
+
+    if (cesiumState.modules.measurements) {
+        await cesiumState.modules.measurements.renderMeasurementsForTileset(viewer, tilesetId);
+    }
+
+    if (cesiumState.modules.viewshedTool) {
+        await cesiumState.modules.viewshedTool.renderViewshedsForTileset(viewer, tilesetId);
+    }
+}
+
+/**
  * Initializes Cesium with a specific tileset using lazy loading.
  * @param {string} tilesetId - ID of the tileset to load
  * @param {Object} [options] - Options
