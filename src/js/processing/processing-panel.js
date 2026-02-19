@@ -80,7 +80,7 @@ async function _executeAlgorithm(algorithm, params, ui, stateManager, eventBus) 
 
     // Estado: executando
     executeBtn.disabled = true;
-    executeBtn.textContent = 'Processando...';
+    executeBtn.textContent = 'Analisando...';
     if (resultContainer) resultContainer.style.display = 'none';
 
     if (progressContainer) {
@@ -97,7 +97,7 @@ async function _executeAlgorithm(algorithm, params, ui, stateManager, eventBus) 
             eventBus,
             onProgress: (current, total) => {
                 if (progressText) {
-                    progressText.textContent = `Processando... ${current} de ${total}`;
+                    progressText.textContent = `Analisando... ${current} de ${total}`;
                 }
                 if (progressFill) {
                     progressFill.style.width = `${Math.round((current / total) * 100)}%`;
@@ -115,7 +115,7 @@ async function _executeAlgorithm(algorithm, params, ui, stateManager, eventBus) 
     } catch (error) {
         // Erro
         if (progressContainer) progressContainer.style.display = 'none';
-        _showResult(ui, error.message || 'Erro ao processar', false);
+        _showResult(ui, error.message || 'Erro na análise', false);
         executeBtn.textContent = 'EXECUTAR';
         executeBtn.disabled = false;
     }

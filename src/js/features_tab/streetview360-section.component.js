@@ -496,8 +496,9 @@ function collapseSidebar() {
 /**
  * Opens the 360 viewer with a specific photo.
  * @param {string} photoName - Photo name to open
+ * @param {Object} [targetOrientation] - Optional orientation override (e.g., to face a marker)
  */
-async function openPhotoInViewer(photoName) {
+async function openPhotoInViewer(photoName, targetOrientation = null) {
     try {
         // Collapse sidebar before opening 360 viewer
         collapseSidebar();
@@ -507,13 +508,14 @@ async function openPhotoInViewer(photoName) {
 
         if (isStreetView360Open()) {
             // If already open, navigate to the photo
-            await navigateToTarget(photoName);
+            await navigateToTarget(photoName, targetOrientation ? { targetOrientation } : undefined);
         } else {
             // Open viewer with the photo
             const streetViewControl = getControl('streetView');
             await openViewer360WithPhoto(photoName, {
                 miniMap: streetViewControl?.miniMap,
-                controlInstance: streetViewControl
+                controlInstance: streetViewControl,
+                targetOrientation
             });
         }
     } catch (error) {
@@ -523,12 +525,19 @@ async function openPhotoInViewer(photoName) {
 
 /**
  * Navigates to a marker in the 360 viewer.
+ * Opens the photo oriented toward the marker's position.
  * @param {Object} marker - Marker data
  */
 async function navigateToMarker(marker) {
     try {
-        // First, open the photo in viewer
-        await openPhotoInViewer(marker.photoName);
+        // Build orientation to face the marker
+        const markerPosition = marker.position;
+        const targetOrientation = markerPosition
+            ? { worldHeading: markerPosition.heading, pitch: markerPosition.pitch ?? 0 }
+            : null;
+
+        // Open the photo in viewer oriented toward the marker
+        await openPhotoInViewer(marker.photoName, targetOrientation);
 
         // Wait for viewer to be ready, then emit marker clicked event
         setTimeout(async () => {

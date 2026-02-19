@@ -79,6 +79,7 @@ export class PresentationTextPanel {
      * @param {Function} [callbacks.onFirst] - First slide
      * @param {Function} [callbacks.onLast] - Last slide
      * @param {Function} [callbacks.onRestorePosition] - Restore saved slide position
+     * @param {Function} [callbacks.onGoToSlide] - Navigate to specific slide (0-based index)
      * @param {Function} [callbacks.onFullscreen] - Toggle fullscreen
      * @param {Function} [callbacks.onToggleText] - Toggle text visibility
      * @param {Function} [callbacks.onExit] - Exit presentation
@@ -90,9 +91,11 @@ export class PresentationTextPanel {
         // State
         this._isVisible = false;
         this._isFullscreen = false;
+        this._isDropdownOpen = false;
         this._currentSlide = null;
         this._currentIndex = 0;
         this._totalSlides = 0;
+        this._slides = [];
 
         // DOM elements
         this._container = null;
@@ -105,6 +108,7 @@ export class PresentationTextPanel {
         this._lastBtn = null;
         this._restorePositionBtn = null;
         this._fullscreenBtn = null;
+        this._slideDropdown = null;
 
         setupCleanup(this);
     }
@@ -127,6 +131,7 @@ export class PresentationTextPanel {
      * Unmounts the panel from the DOM.
      */
     unmount() {
+        this._closeSlideDropdown();
         cleanup(this);
         removeElement(this._container);
         this._container = null;
@@ -149,6 +154,14 @@ export class PresentationTextPanel {
     }
 
     /**
+     * Sets the full slides array for the go-to-slide dropdown.
+     * @param {Array<Object>} slides - All slides in the briefing
+     */
+    setSlides(slides) {
+        this._slides = slides || [];
+    }
+
+    /**
      * Updates the slide counter and button states.
      * @param {number} index - Current slide index (0-based)
      * @param {number} total - Total number of slides
@@ -157,7 +170,7 @@ export class PresentationTextPanel {
         this._currentIndex = index;
         this._totalSlides = total;
 
-        if (this._counterEl) {
+        if (this._counterEl && !this._isDropdownOpen) {
             this._counterEl.textContent = `${index + 1} de ${total}`;
         }
 
@@ -312,6 +325,8 @@ export class PresentationTextPanel {
         this._counterEl = document.createElement('span');
         this._counterEl.className = 'briefing-text-panel__counter';
         this._counterEl.textContent = '1 de 1';
+        this._counterEl.title = 'Clique para ir a um slide específico';
+        addDomListener(this, this._counterEl, 'click', () => this._openSlideDropdown());
         navRow.appendChild(this._counterEl);
 
         this._nextBtn = this._createButton(CONTROL_ICONS.next, 'Próximo Slide', () => {
@@ -400,10 +415,93 @@ export class PresentationTextPanel {
         }
 
         // Counter
-        if (this._counterEl) {
+        if (this._counterEl && !this._isDropdownOpen) {
             this._counterEl.textContent = this._totalSlides > 0
                 ? `${this._currentIndex + 1} de ${this._totalSlides}`
                 : '';
+        }
+    }
+
+    /**
+     * Opens a dropdown list of slides above the counter for quick navigation.
+     * @private
+     */
+    _openSlideDropdown() {
+        if (this._isDropdownOpen || this._totalSlides <= 1) return;
+        this._isDropdownOpen = true;
+
+        this._slideDropdown = document.createElement('div');
+        this._slideDropdown.className = 'briefing-text-panel__slide-dropdown';
+
+        this._slides.forEach((slide, index) => {
+            const item = document.createElement('button');
+            item.className = 'briefing-text-panel__slide-dropdown-item';
+            if (index === this._currentIndex) {
+                item.classList.add('briefing-text-panel__slide-dropdown-item--active');
+            }
+
+            const number = document.createElement('span');
+            number.className = 'briefing-text-panel__slide-dropdown-number';
+            number.textContent = `${index + 1}`;
+            item.appendChild(number);
+
+            const title = document.createElement('span');
+            title.className = 'briefing-text-panel__slide-dropdown-title';
+            title.textContent = slide.title || `Slide ${index + 1}`;
+            item.appendChild(title);
+
+            addDomListener(this, item, 'click', (e) => {
+                e.stopPropagation();
+                this._closeSlideDropdown();
+                if (index !== this._currentIndex) {
+                    this._callbacks.onGoToSlide?.(index);
+                }
+            });
+
+            this._slideDropdown.appendChild(item);
+        });
+
+        // Anchor dropdown to the nav row
+        const navRow = this._counterEl.closest('.briefing-text-panel__nav');
+        if (navRow) {
+            navRow.appendChild(this._slideDropdown);
+        }
+
+        // Scroll active item into view
+        const activeItem = this._slideDropdown.querySelector(
+            '.briefing-text-panel__slide-dropdown-item--active'
+        );
+        if (activeItem) {
+            activeItem.scrollIntoView({ block: 'center' });
+        }
+
+        // Close on outside click (next tick to avoid the opening click)
+        requestAnimationFrame(() => {
+            this._dropdownOutsideHandler = (e) => {
+                if (this._slideDropdown && !this._slideDropdown.contains(e.target)) {
+                    this._closeSlideDropdown();
+                }
+            };
+            document.addEventListener('click', this._dropdownOutsideHandler, true);
+        });
+    }
+
+    /**
+     * Closes the slide dropdown list.
+     * @private
+     */
+    _closeSlideDropdown() {
+        if (!this._isDropdownOpen) return;
+        this._isDropdownOpen = false;
+
+        if (this._dropdownOutsideHandler) {
+            document.removeEventListener('click', this._dropdownOutsideHandler, true);
+            this._dropdownOutsideHandler = null;
+        }
+
+        if (this._slideDropdown) {
+            removeElement(this._slideDropdown);
+            this._slideDropdown = null;
         }
     }
 

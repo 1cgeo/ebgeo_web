@@ -13,8 +13,6 @@ import { EventTypes } from '../events/event_types.js';
 // Primary color for saved photo markers (blue to differentiate from orange streetview markers)
 const SAVED_PHOTO_MARKER_COLOR = '#3b82f6';
 
-// Separator layer ID - markers are added before this layer to ensure correct z-order
-const STREETVIEW_MARKERS_SEPARATOR = 'streetview-markers-separator';
 
 /**
  * Manages markers for 360 photos with saved data on the main map.
@@ -220,13 +218,11 @@ class SavedPhotosMarkers {
                 data: geojson
             });
 
-            // Get separator layer for z-ordering
-            const beforeId = this.map.getLayer(STREETVIEW_MARKERS_SEPARATOR)
-                ? STREETVIEW_MARKERS_SEPARATOR
-                : undefined;
-
             // Load marker icon
             await this.loadMarkerImage();
+
+            // Marker layers are added at the top of the stack (no beforeId)
+            // so they always render above PMTiles line layers
 
             // Layer 1: Marker pins
             this.map.addLayer({
@@ -245,7 +241,7 @@ class SavedPhotosMarkers {
                 paint: {
                     'icon-opacity': 1.0
                 }
-            }, beforeId);
+            });
 
             // Layer 2: Badge background (only for markers with count > 0)
             this.map.addLayer({
@@ -264,7 +260,7 @@ class SavedPhotosMarkers {
                     'circle-stroke-color': '#ffffff',
                     'circle-translate': [12, -42] // Position at top-right of marker
                 }
-            }, beforeId);
+            });
 
             // Layer 3: Badge text (marker count)
             this.map.addLayer({
@@ -286,7 +282,7 @@ class SavedPhotosMarkers {
                 paint: {
                     'text-color': '#ffffff'
                 }
-            }, beforeId);
+            });
 
         } else {
             // Update existing source data

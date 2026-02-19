@@ -54,8 +54,8 @@ export const TAB_CONFIG = {
     },
     [SIDEBAR_TABS.PROCESSAMENTO]: {
         id: SIDEBAR_TABS.PROCESSAMENTO,
-        label: 'Processar',
-        title: 'EBGeo - Processamento',
+        label: 'Análise',
+        title: 'EBGeo - Análise',
     },
 };
 

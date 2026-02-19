@@ -479,6 +479,44 @@
     height: 14px;
 }
 
+/* Content label row (label + import notes button) */
+.briefing-editor-content-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-2);
+}
+
+.briefing-editor-content-label-row label {
+    margin-bottom: 0;
+}
+
+/* Import notes button */
+.briefing-editor-import-notes-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--gray-500);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.briefing-editor-import-notes-btn:hover {
+    color: var(--primary);
+    background: var(--primary-50, #f0fdf4);
+}
+
+.briefing-editor-import-notes-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
 /* Content Group */
 .briefing-editor-content-group {
     flex: 1;

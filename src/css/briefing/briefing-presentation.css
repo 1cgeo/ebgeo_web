@@ -154,6 +154,7 @@
 
 /* Navigation row: [<<] [<] 1 de 5 [>] [>>] */
 .briefing-text-panel__nav {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -168,15 +169,106 @@
     gap: var(--space-2, 8px);
 }
 
-/* Slide counter */
+/* Slide counter (clickable — opens go-to-slide input) */
 .briefing-text-panel__counter {
     min-width: 60px;
     text-align: center;
     font-size: var(--font-size-sm, 0.875rem);
     font-weight: var(--font-weight-medium, 500);
     color: var(--gray-600, #4b5563);
-    padding: 0 var(--space-2, 8px);
+    padding: 2px var(--space-2, 8px);
     font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    border-radius: var(--radius-sm, 4px);
+    transition: background var(--transition-fast, 0.15s);
+}
+
+.briefing-text-panel__counter:hover {
+    background: var(--gray-200, #e5e7eb);
+}
+
+/* Slide dropdown (go-to-slide list) */
+.briefing-text-panel__slide-dropdown {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: var(--space-2, 8px);
+    background: white;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+    max-height: 240px;
+    min-width: 200px;
+    max-width: 280px;
+    overflow-y: auto;
+    z-index: 10;
+    scrollbar-width: thin;
+    scrollbar-color: var(--gray-300, #d1d5db) transparent;
+}
+
+.briefing-text-panel__slide-dropdown::-webkit-scrollbar {
+    width: 4px;
+}
+
+.briefing-text-panel__slide-dropdown::-webkit-scrollbar-thumb {
+    background-color: var(--gray-300, #d1d5db);
+    border-radius: 2px;
+}
+
+.briefing-text-panel__slide-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    width: 100%;
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    font-size: var(--font-size-sm, 0.875rem);
+    color: var(--gray-700, #374151);
+    transition: background var(--transition-fast, 0.15s);
+}
+
+.briefing-text-panel__slide-dropdown-item:hover {
+    background: var(--gray-100, #f3f4f6);
+}
+
+.briefing-text-panel__slide-dropdown-item--active {
+    background: var(--primary-50, #f0fdf4);
+    color: var(--primary-700, #15803d);
+    font-weight: var(--font-weight-medium, 500);
+}
+
+.briefing-text-panel__slide-dropdown-item--active:hover {
+    background: var(--primary-100, #dcfce7);
+}
+
+.briefing-text-panel__slide-dropdown-number {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--gray-200, #e5e7eb);
+    border-radius: var(--radius-sm, 4px);
+    font-size: var(--font-size-xs, 0.75rem);
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--gray-600, #4b5563);
+    flex-shrink: 0;
+}
+
+.briefing-text-panel__slide-dropdown-item--active .briefing-text-panel__slide-dropdown-number {
+    background: var(--primary, #22c55e);
+    color: white;
+}
+
+.briefing-text-panel__slide-dropdown-title {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* =========================================================================

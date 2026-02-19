@@ -2,7 +2,9 @@
 
 /**
  * @fileoverview Synchronizes Street View 360 state with the MapLibre minimap.
- * Updates camera position, cursor, and target markers on the minimap.
+ * Updates camera position icon on the minimap.
+ * Navigation targets and cursor overlays have been removed to avoid
+ * duplicating the vector tile point layer already visible on the minimap.
  */
 
 /**
@@ -16,98 +18,22 @@ export class StreetViewMinimapSync {
         this.minimap = minimap;
         this.initialized = false;
 
-        // Source and layer IDs
-        this.cursorSourceId = 'streetview-cursor-source';
-        this.cursorLayerId = 'streetview-cursor-layer';
-        this.targetsSourceId = 'streetview-targets-source';
-        this.targetsLayerId = 'streetview-targets-layer';
-
         // Current state
         this.cameraPosition = null;
-        this.cursorPosition = null;
-        this.targets = [];
-        this.highlightedTargetId = null;
     }
 
     /**
-     * Initializes minimap layers and sources
+     * Initializes minimap sync (no extra layers needed)
      */
     async initialize() {
         if (this.initialized || !this.minimap) return;
 
-        try {
-            // Wait for map to be loaded
-            if (!this.minimap.loaded()) {
-                await new Promise(resolve => this.minimap.on('load', resolve));
-            }
-
-            // Add cursor source and layer
-            if (!this.minimap.getSource(this.cursorSourceId)) {
-                this.minimap.addSource(this.cursorSourceId, {
-                    type: 'geojson',
-                    data: this.createEmptyFeatureCollection()
-                });
-
-                this.minimap.addLayer({
-                    id: this.cursorLayerId,
-                    type: 'circle',
-                    source: this.cursorSourceId,
-                    paint: {
-                        'circle-radius': 6,
-                        'circle-color': '#ffffff',
-                        'circle-stroke-color': '#0d6efd',
-                        'circle-stroke-width': 2,
-                        'circle-opacity': 0.8
-                    }
-                });
-            }
-
-            // Add targets source and layer
-            if (!this.minimap.getSource(this.targetsSourceId)) {
-                this.minimap.addSource(this.targetsSourceId, {
-                    type: 'geojson',
-                    data: this.createEmptyFeatureCollection()
-                });
-
-                this.minimap.addLayer({
-                    id: this.targetsLayerId,
-                    type: 'circle',
-                    source: this.targetsSourceId,
-                    paint: {
-                        'circle-radius': [
-                            'case',
-                            ['get', 'highlighted'],
-                            8,
-                            5
-                        ],
-                        'circle-color': [
-                            'case',
-                            ['get', 'highlighted'],
-                            '#ffc107',
-                            '#6c757d'
-                        ],
-                        'circle-stroke-color': '#ffffff',
-                        'circle-stroke-width': 1,
-                        'circle-opacity': 0.9
-                    }
-                });
-            }
-
-            this.initialized = true;
-        } catch (error) {
-            console.warn('Failed to initialize minimap sync:', error);
+        // Wait for map to be loaded
+        if (!this.minimap.loaded()) {
+            await new Promise(resolve => this.minimap.on('load', resolve));
         }
-    }
 
-    /**
-     * Creates an empty GeoJSON FeatureCollection
-     * @returns {Object} Empty FeatureCollection
-     */
-    createEmptyFeatureCollection() {
-        return {
-            type: 'FeatureCollection',
-            features: []
-        };
+        this.initialized = true;
     }
 
     /**
@@ -128,139 +54,36 @@ export class StreetViewMinimapSync {
     }
 
     /**
-     * Updates the cursor position on the minimap
-     * @param {number} lon - Longitude
-     * @param {number} lat - Latitude
+     * No-op: cursor overlay removed to avoid duplicating vector tile points
      */
-    setCursorPosition(lon, lat) {
-        if (lon === null || lat === null) {
-            this.cursorPosition = null;
-            this.updateCursorSource();
-            return;
-        }
-
-        this.cursorPosition = { lon, lat };
-        this.updateCursorSource();
-    }
+    setCursorPosition() {}
 
     /**
-     * Updates the cursor source data
+     * No-op: target overlay removed to avoid duplicating vector tile points
      */
-    updateCursorSource() {
-        if (!this.minimap || !this.initialized) return;
-
-        const source = this.minimap.getSource(this.cursorSourceId);
-        if (!source) return;
-
-        if (!this.cursorPosition) {
-            source.setData(this.createEmptyFeatureCollection());
-            return;
-        }
-
-        source.setData({
-            type: 'FeatureCollection',
-            features: [{
-                type: 'Feature',
-                geometry: {
-                    type: 'Point',
-                    coordinates: [this.cursorPosition.lon, this.cursorPosition.lat]
-                },
-                properties: {}
-            }]
-        });
-    }
+    setTargets() {}
 
     /**
-     * Sets the navigation targets to display on the minimap
-     * @param {Array} targets - Array of target objects with lon/lat
+     * No-op: highlighting removed with target overlay
      */
-    setTargets(targets) {
-        this.targets = targets || [];
-        this.updateTargetsSource();
-    }
+    highlightTarget() {}
 
     /**
-     * Updates the targets source data
+     * No-op: highlighting removed with target overlay
      */
-    updateTargetsSource() {
-        if (!this.minimap || !this.initialized) return;
-
-        const source = this.minimap.getSource(this.targetsSourceId);
-        if (!source) return;
-
-        const features = this.targets.map(target => ({
-            type: 'Feature',
-            geometry: {
-                type: 'Point',
-                coordinates: [target.lon, target.lat]
-            },
-            properties: {
-                id: target.id,
-                highlighted: target.id === this.highlightedTargetId
-            }
-        }));
-
-        source.setData({
-            type: 'FeatureCollection',
-            features
-        });
-    }
-
-    /**
-     * Highlights a specific target on the minimap
-     * @param {string} targetId - Target ID to highlight
-     */
-    highlightTarget(targetId) {
-        this.highlightedTargetId = targetId;
-        this.updateTargetsSource();
-    }
-
-    /**
-     * Clears the target highlight
-     */
-    clearHighlight() {
-        this.highlightedTargetId = null;
-        this.updateTargetsSource();
-    }
+    clearHighlight() {}
 
     /**
      * Clears all minimap overlays
      */
     clear() {
-        this.cursorPosition = null;
-        this.targets = [];
-        this.highlightedTargetId = null;
-
-        this.updateCursorSource();
-        this.updateTargetsSource();
+        this.cameraPosition = null;
     }
 
     /**
      * Disposes of the minimap sync
      */
     dispose() {
-        if (!this.minimap || !this.initialized) return;
-
-        try {
-            // Remove layers
-            if (this.minimap.getLayer(this.cursorLayerId)) {
-                this.minimap.removeLayer(this.cursorLayerId);
-            }
-            if (this.minimap.getLayer(this.targetsLayerId)) {
-                this.minimap.removeLayer(this.targetsLayerId);
-            }
-
-            // Remove sources
-            if (this.minimap.getSource(this.cursorSourceId)) {
-                this.minimap.removeSource(this.cursorSourceId);
-            }
-            if (this.minimap.getSource(this.targetsSourceId)) {
-                this.minimap.removeSource(this.targetsSourceId);
-            }
-        } catch (error) {
-            console.warn('Error disposing minimap sync:', error);
-        }
-
         this.initialized = false;
     }
 }

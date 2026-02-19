@@ -226,6 +226,26 @@ async function initCesiumMap() {
     scene.globe.baseColor = Cesium.Color.BLACK;
     viewer.bottomContainer.style.display = "none";
 
+    // Custom camera controls matching navigation help:
+    // Left drag = orbit/pan, Right drag = rotate/tilt, Wheel = zoom, Middle drag = tilt
+    // In 3D mode: rotateEventTypes = orbit around globe ("mover visão")
+    // tiltEventTypes = change camera pitch ("inclinar/rotacionar visão")
+    const controller = scene.screenSpaceCameraController;
+    controller.rotateEventTypes = Cesium.CameraEventType.LEFT_DRAG;
+    controller.tiltEventTypes = [
+        Cesium.CameraEventType.RIGHT_DRAG,
+        Cesium.CameraEventType.MIDDLE_DRAG,
+        Cesium.CameraEventType.PINCH,
+    ];
+    controller.zoomEventTypes = [
+        Cesium.CameraEventType.WHEEL,
+        Cesium.CameraEventType.PINCH,
+    ];
+    controller.lookEventTypes = {
+        eventType: Cesium.CameraEventType.LEFT_DRAG,
+        modifier: Cesium.KeyboardEventModifier.SHIFT,
+    };
+
     cesiumState.viewer = viewer;
 
     await loadTilesets(viewer);

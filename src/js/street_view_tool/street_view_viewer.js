@@ -480,6 +480,34 @@ function setCameraOrientation(data, savedOrientation = null, prevWorldHeading = 
     }
 }
 
+/**
+ * Applies a target orientation to the camera.
+ * Supports two modes:
+ * - Direct: { lon, lat, fov } — values applied directly
+ * - World heading: { worldHeading, pitch } — converted using current photo's image heading
+ * @param {Object} orientation - Target orientation
+ */
+function applyTargetOrientation(orientation) {
+    if (orientation.worldHeading !== undefined) {
+        // Convert world heading to camera-relative lon
+        const imageHeading = streetViewState.currentInfo?.camera?.heading ?? 0;
+        lon = orientation.worldHeading - imageHeading;
+    } else if (orientation.lon !== undefined) {
+        lon = orientation.lon;
+    }
+
+    if (orientation.pitch !== undefined) {
+        lat = orientation.pitch;
+    } else if (orientation.lat !== undefined) {
+        lat = orientation.lat;
+    }
+
+    if (orientation.fov && streetViewState.camera) {
+        streetViewState.camera.fov = orientation.fov;
+        streetViewState.camera.updateProjectionMatrix();
+    }
+}
+
 // ===== PHOTO INFO OVERLAY =====
 
 /**
@@ -1031,7 +1059,8 @@ export async function deactivateCurrentTool360() {
 /**
  * Opens the 360 viewer with a specific photo
  * @param {string} photoName - Name of the photo to display
- * @param {Object} options - Options including miniMap reference and controlInstance
+ * @param {Object} options - Options including miniMap reference, controlInstance, and targetOrientation
+ * @param {Object} [options.targetOrientation] - Optional orientation to apply after loading (e.g., {lon, lat, fov})
  */
 export async function openViewer360WithPhoto(photoName, options = {}) {
     // Store external references
@@ -1160,6 +1189,11 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
         }
     }
 
+    // Apply target orientation override (e.g., when opening from layer tab to face a marker)
+    if (options.targetOrientation) {
+        applyTargetOrientation(options.targetOrientation);
+    }
+
     // Load markers for the photo
     await loadMarkersForCurrentPhoto();
 
@@ -1237,9 +1271,20 @@ export async function closeViewer360() {
 /**
  * Navigates to a target photo
  * @param {string} targetName - Name of the target photo
- * @param {Function} callback - Optional callback after navigation
+ * @param {Function|Object} callbackOrOptions - Optional callback after navigation, or options object
+ * @param {Object} [callbackOrOptions.targetOrientation] - Orientation to apply after loading
  */
-export async function navigateToTarget(targetName, callback = () => {}) {
+export async function navigateToTarget(targetName, callbackOrOptions = () => {}) {
+    // Support both callback and options signatures
+    let callback = () => {};
+    let targetOrientation = null;
+    if (typeof callbackOrOptions === 'function') {
+        callback = callbackOrOptions;
+    } else if (callbackOrOptions && typeof callbackOrOptions === 'object') {
+        callback = callbackOrOptions.callback || (() => {});
+        targetOrientation = callbackOrOptions.targetOrientation || null;
+    }
+
     // Deselect current POI
     if (streetViewState.navigator) {
         streetViewState.navigator.deselectPOI();
@@ -1253,6 +1298,11 @@ export async function navigateToTarget(targetName, callback = () => {}) {
 
     // Load the new photo directly
     await loadPhoto(targetName, prevWorldHeading);
+
+    // Apply target orientation override (takes priority over preserved heading)
+    if (targetOrientation) {
+        applyTargetOrientation(targetOrientation);
+    }
 
     // Load markers for the new photo
     await loadMarkersForCurrentPhoto();

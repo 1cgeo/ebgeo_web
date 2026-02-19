@@ -142,6 +142,10 @@ class AddStreetViewControl {
                 await this.savedPhotosMarkers.loadMarkers();
                 this.savedPhotosMarkers.show();
             }
+
+            // Fix z-order after async layer recreation — line layers may have
+            // been added before marker layers due to sourcedata event timing
+            this._ensureLayerOrder();
         }
     }
 
@@ -529,41 +533,76 @@ class AddStreetViewControl {
         }
     }
 
+    /**
+     * Finds the first streetview marker layer to use as beforeId for line layers.
+     * Lines must render below markers, so they are inserted before the first marker layer.
+     * @returns {string|undefined} Layer ID or undefined if no marker layers exist
+     * @private
+     */
+    _getFirstMarkerLayerId() {
+        // Check streetview project markers first, then saved photo markers
+        const candidateIds = [
+            this.streetviewMarkers?.clustersLayer,
+            this.streetviewMarkers?.markersLayer,
+            this.savedPhotosMarkers?.markersLayer
+        ];
+        for (const id of candidateIds) {
+            if (id && this.map.getLayer(id)) return id;
+        }
+        return undefined;
+    }
+
+    /**
+     * Ensures line layers are always below marker layers.
+     * Moves line layers if they ended up above markers due to async loading race conditions
+     * (e.g., after base layer change when all layers are recreated).
+     * @private
+     */
+    _ensureLayerOrder() {
+        const firstMarkerId = this._getFirstMarkerLayerId();
+        if (!firstMarkerId) return;
+
+        // Move line layers below the first marker layer
+        const lineLayers = [
+            this.streetViewLinesLayer?.['id'],
+            this.streetViewLinesHitLayer?.['id'],
+            this.streetViewPointsLayer?.['id']
+        ];
+
+        for (const layerId of lineLayers) {
+            if (layerId && this.map.getLayer(layerId)) {
+                this.map.moveLayer(layerId, firstMarkerId);
+            }
+        }
+    }
+
     showLayers = () => {
+        // Find first marker layer so lines are inserted below markers
+        const beforeId = this._getFirstMarkerLayerId();
+
         if (this.map.getLayer(this.streetViewPointsLayer['id'])) {
             this.map.setLayoutProperty(this.streetViewPointsLayer['id'], 'visibility', 'visible');
         }
 
+        // Add line layers before marker layers so markers render above them
         if (this.map.getLayer(this.streetViewLinesLayer['id'])) {
             this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'visible');
         } else {
-            this.map.addLayer(this.streetViewLinesLayer);
+            this.map.addLayer(this.streetViewLinesLayer, beforeId);
             this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'visible');
         }
 
-        // Hit layer (invisible wider line for click/hover)
+        // Hit layer (invisible wider line for click/hover) — also before markers
         const hitLayerId = this.streetViewLinesHitLayer['id'];
         if (this.map.getLayer(hitLayerId)) {
             this.map.setLayoutProperty(hitLayerId, 'visibility', 'visible');
         } else if (this.map.getSource(this.streetViewLinesHitLayer['source'])) {
-            this.map.addLayer(this.streetViewLinesHitLayer);
+            this.map.addLayer(this.streetViewLinesHitLayer, beforeId);
             this.map.setLayoutProperty(hitLayerId, 'visibility', 'visible');
         }
 
-        // Add separator layer for marker z-ordering (markers are added before this separator)
-        if (!this.map.getSource('streetview-markers-separator-source')) {
-            this.map.addSource('streetview-markers-separator-source', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
-            });
-            this.map.addLayer({
-                id: 'streetview-markers-separator',
-                type: 'circle',
-                source: 'streetview-markers-separator-source',
-                layout: { visibility: 'none' },
-                paint: { 'circle-opacity': 0 }
-            });
-        }
+        // Ensure correct z-order after all layers are set visible
+        this._ensureLayerOrder();
     }
 
     clearCache = () => {

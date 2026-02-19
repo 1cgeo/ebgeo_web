@@ -1,5 +1,7 @@
 // Path: js/street_view_tool/streetview_markers.js
 
+import config from '../config.js';
+
 // Flag to prevent click propagation to line layer when marker is clicked
 // Shared between streetview markers and 3D viewer markers via window object
 window._markerClickConsumed = false;
@@ -22,9 +24,6 @@ const SV_MARKER_COLOR = '#ff6b00';
 
 // Marker popup offset
 const SV_MARKER_POPUP_OFFSET = 55;
-
-// Separator layer ID - markers are added before this layer to ensure correct z-order
-const STREETVIEW_MARKERS_SEPARATOR = 'streetview-markers-separator';
 
 /**
  * Manages streetview markers on the map.
@@ -117,6 +116,8 @@ class StreetviewMarkers {
             const projects = await fetchProjects();
             if (!projects || projects.length === 0) return;
 
+            const serviceUrl = config.streetView360.serviceUrl;
+
             features = projects.map(p => ({
                 type: 'Feature',
                 geometry: {
@@ -127,7 +128,9 @@ class StreetviewMarkers {
                     markerId: p.id,
                     name: p.name,
                     dataCaptura: p.captureDate || null,
-                    previewThumbnail: null,
+                    previewThumbnail: p.previewThumbnail
+                        ? `${serviceUrl}${p.previewThumbnail}`
+                        : null,
                     photoName: p.entryPhotoId
                 }
             }));
@@ -151,10 +154,8 @@ class StreetviewMarkers {
                 clusterRadius: SV_CLUSTER_CONFIG.radius
             });
 
-            // Get separator layer for z-ordering (markers added before separator = above lines)
-            const beforeId = this.map.getLayer(STREETVIEW_MARKERS_SEPARATOR)
-                ? STREETVIEW_MARKERS_SEPARATOR
-                : undefined;
+            // Marker layers are added at the top of the stack (no beforeId)
+            // so they always render above PMTiles line layers
 
             // Layer 1: Cluster circles
             this.map.addLayer({
@@ -179,7 +180,7 @@ class StreetviewMarkers {
                 layout: {
                     'visibility': 'none'
                 }
-            }, beforeId);
+            });
 
             // Layer 2: Cluster count labels
             this.map.addLayer({
@@ -196,7 +197,7 @@ class StreetviewMarkers {
                 paint: {
                     'text-color': '#ffffff'
                 }
-            }, beforeId);
+            });
 
             // Load marker icon
             await this.loadMarkerImage();
@@ -218,7 +219,7 @@ class StreetviewMarkers {
                 paint: {
                     'icon-opacity': 1.0
                 }
-            }, beforeId);
+            });
 
             // Layer 4: Marker labels
             this.map.addLayer({
@@ -241,7 +242,7 @@ class StreetviewMarkers {
                     'text-halo-width': 2,
                     'text-halo-blur': 1
                 }
-            }, beforeId);
+            });
         } else {
             // Update existing source data
             this.map.getSource(this.sourceId).setData(geojson);
@@ -642,12 +643,16 @@ class StreetviewMarkers {
             const project = projects.find(p => p.id === markerId);
             if (!project?.center) return null;
 
+            const serviceUrl = config.streetView360.serviceUrl;
+
             return {
                 coordinates: [project.center.lon, project.center.lat],
                 markerId: project.id,
                 name: project.name,
                 dataCaptura: project.captureDate || null,
-                previewThumbnail: null,
+                previewThumbnail: project.previewThumbnail
+                    ? `${serviceUrl}${project.previewThumbnail}`
+                    : null,
                 photoName: project.entryPhotoId
             };
         } catch {

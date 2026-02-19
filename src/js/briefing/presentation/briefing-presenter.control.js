@@ -23,7 +23,8 @@ import {
 import {
     getBriefingById,
     SlideMode,
-    setBriefingLockOverride
+    setBriefingLockOverride,
+    getAllMapNamesStore
 } from '../../store/index.js';
 import { getControl } from '../../store/control.registry.js';
 import { EventTypes } from '../../events/event_types.js';
@@ -140,6 +141,20 @@ export class BriefingPresenterControl {
 
             if (validation.warnings.length > 0) {
                 showWarning(`${validation.warnings.length} aviso(s) encontrado(s). A apresentação pode ter problemas.`);
+            }
+
+            // Validate that all referenced maps still exist
+            const availableMapNames = await getAllMapNamesStore();
+            const availableMapSet = new Set(availableMapNames);
+            const slidesWithMissingMaps = this._briefing.slides.filter(
+                s => s.mapId && !availableMapSet.has(s.mapId)
+            );
+            if (slidesWithMissingMaps.length > 0) {
+                const mapLines = slidesWithMissingMaps.map(s =>
+                    `\u2022 Slide "${s.title || 'Sem título'}": mapa "${s.mapId}" não encontrado`
+                );
+                showError(`Não é possível apresentar:\n${mapLines.join('\n')}`);
+                return false;
             }
 
             // Block presentation if any slide lacks a saved position
@@ -346,12 +361,12 @@ export class BriefingPresenterControl {
      * If a transition is in progress, finishes it instead of jumping.
      * @param {number} index - Slide index (0-based)
      */
-    async goToSlide(index) {
+    async goToSlide(index, { instant = false } = {}) {
         if (!this._isPresenting || !this._briefing) return;
         if (this._isTransitioning) { this._finishCurrentTransition(); return; }
 
         if (index >= 0 && index < this._briefing.slides.length) {
-            await this._goToSlide(index);
+            await this._goToSlide(index, { forceInstant: instant });
         }
     }
 
@@ -517,10 +532,12 @@ export class BriefingPresenterControl {
                 onFirst: () => this.firstSlide(),
                 onLast: () => this.lastSlide(),
                 onRestorePosition: () => this.restoreSlidePosition(),
+                onGoToSlide: (index) => this.goToSlide(index, { instant: true }),
                 onFullscreen: () => this.toggleFullscreen(),
                 onExit: () => this.exit()
             }
         );
+        this._textPanel.setSlides(this._briefing.slides);
         this._textPanel.mount();
     }
 

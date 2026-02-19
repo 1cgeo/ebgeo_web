@@ -42,12 +42,15 @@ import {
     setCurrentMap,
     getCurrentMapNameSync,
     setBriefingLockOverride,
-    getControl
+    getControl,
+    getMapNotes,
+    hasMapNotes
 } from '../../store/index.js';
 import { createQuillEditor } from '../../utilities/quill-helpers.js';
 import { EventTypes } from '../../events/event_types.js';
 import { getEventBus } from '../../store/services.js';
 import { showSuccess, showError, showWarning } from '../../utilities/index.js';
+
 import { showConfirm } from '../../modals/index.js';
 import { getApplicationModeManager, ApplicationMode } from '../../mode/application-mode.manager.js';
 import { getUIVisibilityController, VisibilityProfile } from '../../ui/ui-visibility.controller.js';
@@ -90,6 +93,8 @@ const EDITOR_ICONS = {
     crosshair: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>`,
 
     close: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+
+    importNotes: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>`,
 };
 
 /**
@@ -723,9 +728,23 @@ export class BriefingEditorControl {
         const contentGroup = document.createElement('div');
         contentGroup.className = 'briefing-editor-form-group briefing-editor-content-group';
 
+        const contentLabelRow = document.createElement('div');
+        contentLabelRow.className = 'briefing-editor-content-label-row';
+
         const contentLabel = document.createElement('label');
         contentLabel.textContent = 'Conte\u00FAdo';
-        contentGroup.appendChild(contentLabel);
+        contentLabelRow.appendChild(contentLabel);
+
+        if (slide.mapId) {
+            const importNotesBtn = document.createElement('button');
+            importNotesBtn.className = 'briefing-editor-import-notes-btn';
+            importNotesBtn.innerHTML = EDITOR_ICONS.importNotes;
+            importNotesBtn.title = 'Importar nota do mapa';
+            addDomListener(this, importNotesBtn, 'click', () => this._handleImportNotes(slide));
+            contentLabelRow.appendChild(importNotesBtn);
+        }
+
+        contentGroup.appendChild(contentLabelRow);
 
         const quillContainer = document.createElement('div');
         quillContainer.className = 'briefing-editor-quill-container';
@@ -1085,6 +1104,51 @@ export class BriefingEditorControl {
         } catch (error) {
             console.error('Error capturing position:', error);
             showError('Erro ao salvar posi\u00E7\u00E3o');
+        }
+    }
+
+    // =========================================================================
+    // MAP NOTES IMPORT
+    // =========================================================================
+
+    /**
+     * Imports map notes into the current slide content.
+     * Replaces the Quill editor content with the map's notes.
+     * @private
+     * @param {Object} slide - Current slide
+     */
+    async _handleImportNotes(slide) {
+        if (!slide.mapId) {
+            showWarning('Este slide não possui um mapa associado');
+            return;
+        }
+
+        try {
+            const notesExist = await hasMapNotes(slide.mapId);
+            if (!notesExist) {
+                showWarning('Este mapa não possui notas');
+                return;
+            }
+
+            const notes = await getMapNotes(slide.mapId);
+            if (!notes) return;
+
+            const html = notes.description?.trim() || '';
+
+            if (!html) {
+                showWarning('Este mapa não possui notas');
+                return;
+            }
+
+            if (this._quillEditor) {
+                this._quillEditor.root.innerHTML = html;
+                slide.content = this._quillEditor.root.innerHTML;
+                this._scheduleAutosave();
+                showSuccess('Nota importada');
+            }
+        } catch (error) {
+            console.error('Error importing map notes:', error);
+            showError('Erro ao importar nota do mapa');
         }
     }
 
