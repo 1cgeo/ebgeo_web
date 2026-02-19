@@ -517,6 +517,99 @@
     height: 16px;
 }
 
+/* Saved orientations button (bookmark icon) */
+.briefing-editor-saved-orientations-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: var(--gray-100);
+    color: var(--gray-600);
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.briefing-editor-saved-orientations-btn:hover {
+    background: var(--gray-200);
+    color: var(--gray-800);
+}
+
+.briefing-editor-saved-orientations-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Saved orientations dropdown */
+.briefing-editor-orientations-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: var(--z-dropdown, 100);
+    margin-top: var(--space-1);
+    min-width: 220px;
+    max-width: 320px;
+    max-height: 240px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    padding: var(--space-1);
+}
+
+.briefing-editor-orientations-dropdown__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-2);
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    text-align: left;
+    font-size: var(--font-size-xs);
+    color: var(--gray-700);
+    transition: background var(--transition-fast);
+}
+
+.briefing-editor-orientations-dropdown__item:hover {
+    background: var(--gray-100);
+}
+
+.briefing-editor-orientations-dropdown__icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: var(--gray-500);
+}
+
+.briefing-editor-orientations-dropdown__icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+.briefing-editor-orientations-dropdown__label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: var(--font-weight-medium);
+}
+
+.briefing-editor-orientations-dropdown__type {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--gray-400);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
 /* Content Group */
 .briefing-editor-content-group {
     flex: 1;

@@ -699,11 +699,13 @@ class TransitionService {
                 // Open target viewer if mode changed or it was closed above
                 if (needsClose || fromMode !== toMode) {
                     await this._openTargetViewer(toMode, slide);
-                } else if (fromMode === SlideMode.VIEWER_3D && toMode === SlideMode.VIEWER_3D
-                           && this._mapChangedDuringTransition) {
-                    // Same model, same mode, but map changed — reload 3D features
-                    const viewer3d = await get3DViewerModule();
-                    await this._reload3DFeatures(viewer3d, slide.modelId);
+                } else if (fromMode === SlideMode.VIEWER_3D && toMode === SlideMode.VIEWER_3D) {
+                    // Same model, same mode — apply camera position and reload if map changed
+                    await this._apply3DCameraFromSlide(slide);
+                    if (this._mapChangedDuringTransition) {
+                        const viewer3d = await get3DViewerModule();
+                        await this._reload3DFeatures(viewer3d, slide.modelId);
+                    }
                 }
             }
 

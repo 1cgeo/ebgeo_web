@@ -44,7 +44,10 @@ import {
     setBriefingLockOverride,
     getControl,
     getMapNotes,
-    hasMapNotes
+    hasMapNotes,
+    getMapPosition,
+    getAllCameraPositions,
+    getAllOrientations
 } from '../../store/index.js';
 import { createQuillEditor } from '../../utilities/quill-helpers.js';
 import { EventTypes } from '../../events/event_types.js';
@@ -95,6 +98,10 @@ const EDITOR_ICONS = {
     close: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
 
     importNotes: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>`,
+
+    savedOrientations: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`,
+
+    chevronDown: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
 };
 
 /**
@@ -253,6 +260,9 @@ export class BriefingEditorControl {
             clearTimeout(this._autosaveTimer);
             this._autosaveTimer = null;
         }
+
+        // Close any open dropdown
+        this._closeSavedOrientationsDropdown();
 
         // Close any open 3D/360 viewers via transition service
         if (this._transitionService) {
@@ -642,7 +652,17 @@ export class BriefingEditorControl {
         mapSelect.className = 'briefing-editor-select';
         this._populateMapSelect(mapSelect, slide);
         addDomListener(this, mapSelect, 'change', async () => {
+            const previousMapId = slide.mapId;
             slide.mapId = mapSelect.value || null;
+
+            // Clear saved position when switching maps
+            if (slide.mapId !== previousMapId) {
+                slide.position = { longitude: null, latitude: null, zoom: null, altitude: null };
+                slide.orientation = { bearing: null, pitch: null, heading: null, lon: null, lat: null, fov: null };
+                slide.mode = SlideMode.MAP_2D;
+                slide.modelId = null;
+                slide.photoId = null;
+            }
 
             await this._handleMapChange(slide.mapId);
 
@@ -696,6 +716,16 @@ export class BriefingEditorControl {
         addDomListener(this, captureBtn, 'click', () => this._handleCapturePosition());
 
         positionWrapper.appendChild(captureBtn);
+
+        // Saved orientations dropdown button
+        if (slide.mapId) {
+            const savedBtn = document.createElement('button');
+            savedBtn.className = 'briefing-editor-saved-orientations-btn';
+            savedBtn.innerHTML = EDITOR_ICONS.savedOrientations;
+            savedBtn.title = 'Usar orientação salva';
+            addDomListener(this, savedBtn, 'click', () => this._openSavedOrientationsDropdown(savedBtn, slide));
+            positionWrapper.appendChild(savedBtn);
+        }
 
         positionGroup.appendChild(positionWrapper);
 
@@ -1150,6 +1180,291 @@ export class BriefingEditorControl {
             console.error('Error importing map notes:', error);
             showError('Erro ao importar nota do mapa');
         }
+    }
+
+    // =========================================================================
+    // SAVED ORIENTATIONS DROPDOWN
+    // =========================================================================
+
+    /**
+     * Opens a dropdown with saved orientations (map 2D, 3D cameras, 360 orientations)
+     * for the slide's associated map.
+     * @private
+     * @param {HTMLElement} anchorEl - Button element to anchor the dropdown
+     * @param {Object} slide - Current slide
+     */
+    async _openSavedOrientationsDropdown(anchorEl, slide) {
+        // Close any existing dropdown
+        this._closeSavedOrientationsDropdown();
+
+        if (!slide.mapId) return;
+
+        try {
+            const items = await this._loadSavedOrientations(slide.mapId);
+
+            if (items.length === 0) {
+                showWarning('Nenhuma orientação salva neste mapa');
+                return;
+            }
+
+            const dropdown = document.createElement('div');
+            dropdown.className = 'briefing-editor-orientations-dropdown';
+            this._orientationsDropdown = dropdown;
+
+            for (const item of items) {
+                const btn = document.createElement('button');
+                btn.className = 'briefing-editor-orientations-dropdown__item';
+
+                const icon = document.createElement('span');
+                icon.className = 'briefing-editor-orientations-dropdown__icon';
+                icon.innerHTML = MODE_ICONS[item.mode] || EDITOR_ICONS.map2d;
+                btn.appendChild(icon);
+
+                const label = document.createElement('span');
+                label.className = 'briefing-editor-orientations-dropdown__label';
+                label.textContent = item.label;
+                btn.appendChild(label);
+
+                const type = document.createElement('span');
+                type.className = 'briefing-editor-orientations-dropdown__type';
+                type.textContent = item.typeLabel;
+                btn.appendChild(type);
+
+                addDomListener(this, btn, 'click', (e) => {
+                    e.stopPropagation();
+                    this._closeSavedOrientationsDropdown();
+                    this._applySavedOrientation(slide, item);
+                });
+
+                dropdown.appendChild(btn);
+            }
+
+            // Position dropdown below the anchor button
+            const wrapper = anchorEl.closest('.briefing-editor-position-wrapper');
+            if (wrapper) {
+                wrapper.style.position = 'relative';
+                wrapper.appendChild(dropdown);
+            }
+
+            // Close on outside click
+            const outsideHandler = (e) => {
+                if (!dropdown.contains(e.target) && e.target !== anchorEl) {
+                    this._closeSavedOrientationsDropdown();
+                }
+            };
+            // Delay registering to prevent the current click from closing it
+            requestAnimationFrame(() => {
+                this._orientationsOutsideHandler = outsideHandler;
+                document.addEventListener('mousedown', outsideHandler);
+            });
+
+        } catch (error) {
+            console.error('Error loading saved orientations:', error);
+            showError('Erro ao carregar orientações salvas');
+        }
+    }
+
+    /**
+     * Closes the saved orientations dropdown.
+     * @private
+     */
+    _closeSavedOrientationsDropdown() {
+        if (this._orientationsDropdown) {
+            this._orientationsDropdown.remove();
+            this._orientationsDropdown = null;
+        }
+        if (this._orientationsOutsideHandler) {
+            document.removeEventListener('mousedown', this._orientationsOutsideHandler);
+            this._orientationsOutsideHandler = null;
+        }
+    }
+
+    /**
+     * Loads saved orientations for a map: 2D position, 3D camera positions, 360 orientations.
+     * @private
+     * @param {string} mapName - Map name
+     * @returns {Promise<Array<{mode: string, label: string, typeLabel: string, data: Object}>>}
+     */
+    async _loadSavedOrientations(mapName) {
+        const items = [];
+
+        // 1. Map 2D saved position
+        try {
+            const mapPos = await getMapPosition(mapName);
+            if (mapPos.center_lat != null && mapPos.center_long != null && mapPos.zoom != null) {
+                items.push({
+                    mode: SlideMode.MAP_2D,
+                    label: 'Posição do mapa',
+                    typeLabel: 'Mapa 2D',
+                    data: {
+                        position: {
+                            longitude: mapPos.center_long,
+                            latitude: mapPos.center_lat,
+                            zoom: mapPos.zoom,
+                            altitude: null
+                        },
+                        orientation: {
+                            bearing: mapPos.bearing || 0,
+                            pitch: mapPos.pitch || 0,
+                            heading: null,
+                            lon: null,
+                            lat: null,
+                            fov: null
+                        },
+                        modelId: null,
+                        photoId: null
+                    }
+                });
+            }
+        } catch {
+            // Map position not available
+        }
+
+        // 2. 3D camera positions
+        try {
+            const cameraPositions = await getAllCameraPositions(mapName);
+            for (const [tilesetId, cam] of Object.entries(cameraPositions)) {
+                const tilesetConfig = config.tilesets?.find(t => t.id === tilesetId);
+                // Only show if tileset is available in this instance
+                if (!tilesetConfig) continue;
+
+                const displayName = tilesetConfig.name || tilesetId;
+                items.push({
+                    mode: SlideMode.VIEWER_3D,
+                    label: displayName,
+                    typeLabel: '3D',
+                    data: {
+                        position: {
+                            longitude: cam.position.longitude,
+                            latitude: cam.position.latitude,
+                            zoom: null,
+                            altitude: cam.position.height
+                        },
+                        orientation: {
+                            bearing: null,
+                            pitch: cam.orientation.pitch,
+                            heading: cam.orientation.heading,
+                            lon: null,
+                            lat: null,
+                            fov: null
+                        },
+                        modelId: tilesetId,
+                        photoId: null
+                    }
+                });
+            }
+        } catch {
+            // 3D data not available
+        }
+
+        // 3. 360 orientations
+        try {
+            const orientations = await getAllOrientations(mapName);
+            const photoNames = Object.keys(orientations);
+
+            if (photoNames.length > 0) {
+                const {
+                    fetchPhotoMetadata,
+                    getPhotoDisplayName
+                } = await import('../../street_view_tool/streetview-api.service.js');
+
+                for (const photoName of photoNames) {
+                    const ori = orientations[photoName];
+
+                    // Fetch geo position and display name from API
+                    let longitude = null;
+                    let latitude = null;
+                    let displayName = photoName;
+                    try {
+                        const [metadata, name] = await Promise.all([
+                            fetchPhotoMetadata(photoName),
+                            getPhotoDisplayName(photoName)
+                        ]);
+                        if (metadata?.camera?.lon != null && metadata?.camera?.lat != null) {
+                            longitude = metadata.camera.lon;
+                            latitude = metadata.camera.lat;
+                        }
+                        displayName = name || photoName;
+                    } catch {
+                        // API unavailable, use photoName as fallback
+                    }
+
+                    items.push({
+                        mode: SlideMode.VIEWER_360,
+                        label: displayName,
+                        typeLabel: '360°',
+                        data: {
+                            position: {
+                                longitude,
+                                latitude,
+                                zoom: null,
+                                altitude: null
+                            },
+                            orientation: {
+                                bearing: null,
+                                pitch: null,
+                                heading: null,
+                                lon: ori.lon,
+                                lat: ori.lat,
+                                fov: ori.fov
+                            },
+                            modelId: null,
+                            photoId: photoName
+                        }
+                    });
+                }
+            }
+        } catch {
+            // 360 data not available
+        }
+
+        return items;
+    }
+
+    /**
+     * Applies a saved orientation to the slide and navigates to it.
+     * @private
+     * @param {Object} slide - Current slide
+     * @param {Object} item - Saved orientation item from _loadSavedOrientations
+     */
+    async _applySavedOrientation(slide, item) {
+        const { data, mode } = item;
+
+        slide.mode = mode;
+        slide.position = { ...data.position };
+        slide.orientation = { ...data.orientation };
+        slide.modelId = data.modelId;
+        slide.photoId = data.photoId;
+
+        // Keep current mapId (the orientation belongs to this map)
+        this._scheduleAutosave();
+        this._renderSlideEditor();
+        this._renderSlideList();
+
+        // Navigate to the new position
+        if (this._transitionService) {
+            const effectiveMode = this._getEffectiveSlideMode(slide);
+            const transitionSlide = effectiveMode !== slide.mode
+                ? { ...slide, mode: effectiveMode }
+                : slide;
+
+            await this._transitionService.transitionToSlideInstant(transitionSlide);
+
+            const visController = getUIVisibilityController();
+            switch (effectiveMode) {
+                case SlideMode.VIEWER_3D:
+                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_3D);
+                    break;
+                case SlideMode.VIEWER_360:
+                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_360);
+                    break;
+                default:
+                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_2D);
+                    break;
+            }
+        }
+
+        showSuccess('Orientação aplicada');
     }
 
     // =========================================================================
