@@ -45,7 +45,9 @@ src/js/
 ├── config-loader.js         # Dynamic config loading
 │
 ├── store/                   # State management (central data store)
-│   ├── store.js             # Main facade with re-exports
+│   ├── index.js             # Public API barrel (re-exports from store.js + services)
+│   ├── store.js             # Store facade with all data operation re-exports
+│   ├── services.js          # Service container for dependency injection (initServices, getters)
 │   ├── store.constants.js   # Store configuration constants
 │   ├── store.types.js       # JSDoc type definitions
 │   ├── repository.js        # IndexedDB persistence layer
@@ -83,12 +85,19 @@ src/js/
 │   │   ├── migration.service.js     # Migration orchestrator
 │   │   └── v1-to-v2.migration.js    # v1.x to v2.0 migration
 │   │
-│   └── sync/                # Sync metadata and operation logging
+│   └── sync/                # Sync metadata, operation logging, and real-time sync infrastructure
 │       ├── sync-metadata.js         # Sync utilities, deletedAt, serverTimeOffset
 │       ├── operation-types.js       # Entity and operation type constants
 │       ├── operation-factory.js     # Lamport clock + operation creation
 │       ├── operation-queue.js       # IndexedDB-backed queue with compaction
 │       ├── operation-dispatcher.js  # Operation logging coordinator
+│       ├── session-context.js       # User identity (offline anonymous / online JWT)
+│       ├── connection-state.js      # Connection state machine (OFFLINE/CONNECTING/ONLINE/RECONNECTING)
+│       ├── permission-guard.js      # Role-based permission validator for operations
+│       ├── sync-gateway.js          # Operation transmission abstraction (no-op offline, future WebSocket)
+│       ├── event-bridges.js         # Bridges SessionContext/ConnectionState to EventBus
+│       ├── remote-operation-handler.js  # Applies remote operations to local store
+│       ├── sync-scheduler.js        # Debounced sync via SyncGateway on entity lifecycle events
 │       └── index.js                 # Sync module exports
 │
 ├── state/                   # UI State management
@@ -111,7 +120,19 @@ src/js/
 │   ├── tabbed_attribute_panel.js  # Tabbed panel for attributes
 │   ├── hatch_config_modal.js      # Hatch pattern configuration
 │   ├── hatch_pattern_generator.js # Hatch pattern generation
-│   ├── helpers/             # UI component helpers
+│   ├── helpers/             # UI component helpers for attribute panels
+│   │   ├── base-attributes-panel.js      # Shared functions for panel creation
+│   │   ├── buttons.helpers.js            # Apply/cancel/reset action buttons
+│   │   ├── color-picker.helpers.js       # Color picker with frequent colors
+│   │   ├── common-config.helpers.js      # Default UI config constants
+│   │   ├── coordinate-editor.helpers.js  # Point coordinate editing modal
+│   │   ├── feature-header.helpers.js     # Editable feature name header
+│   │   ├── form-controls.helpers.js      # Toggle switch and form controls
+│   │   ├── hatch-control.helpers.js      # Hatch pattern selector for polygons
+│   │   ├── line-style.helpers.js         # Line dash style selector
+│   │   ├── section-divider.helpers.js    # Section dividers with titles
+│   │   ├── slider.helpers.js             # Slider with numeric input
+│   │   └── text-alignment.helpers.js     # Text alignment selector
 │   └── managers/            # Manager classes
 │       ├── profile-panel.manager.js      # Line profile panel manager
 │       ├── selection-highlight.manager.js # Selection highlight manager
@@ -128,6 +149,7 @@ src/js/
 │   │   ├── feature-location-section.js # Feature location display
 │   │   ├── feature-photo-gallery.js    # Photo gallery for features
 │   │   ├── group-type-selector.js      # Group type selector
+│   │   ├── multi-selection-actions.js # Batch actions (lock/hide) for multi-selected features
 │   │   ├── sidebar-collapsed.js    # Collapsed state UI
 │   │   └── sidebar-panel.js        # Panel base component
 │   ├── handlers/            # Event handlers for sidebar interactions
@@ -148,8 +170,8 @@ src/js/
 ├── toolbar/                 # Grouped toolbar UI
 │   ├── toolbar.control.js   # Main toolbar component
 │   ├── toolbar.constants.js # Tool definitions and groupings
-│   ├── tool-button.js       # Individual tool button component
 │   └── components/          # Toolbar components
+│       ├── tool-button.js        # Individual tool button component
 │       ├── toolbar-group.js      # Tool group popup
 │       └── active-tool-chip.js   # Active tool indicator
 │
@@ -157,9 +179,12 @@ src/js/
 │   ├── bottom-controls.control.js  # Toggle buttons (terrain, 3D, etc.)
 │   ├── bottom-controls.constants.js
 │   └── components/          # Control components
+│       ├── feature-toggle.js     # Feature toggle button with active/disabled states
+│       └── nav-button.js         # Navigation icon button component
 │
 ├── base-layer-selector/     # Base layer picker with thumbnails
-│   └── base-layer-selector.control.js
+│   ├── base-layer-selector.control.js
+│   └── base-layer-selector.constants.js  # Layer thumbnail configs and metadata
 │
 ├── modals/                  # Modal dialogs
 │   ├── modal.base.js        # Base modal class
@@ -221,7 +246,11 @@ src/js/
 │   ├── rectangle_tool/
 │   ├── text_tool/
 │   ├── image_tool/
-│   └── brush_tool/
+│   ├── brush_tool/
+│   └── sector_tool/         # Sector (arc) drawing tool
+│       ├── add_sector_control.js
+│       ├── add_sector_geometry.js
+│       └── sector_attributes_panel.js
 │
 ├── azimuth_distance_tool/   # Azimuth & distance navigation tool
 │   ├── add_azimuth_distance_control.js   # Main control
@@ -263,12 +292,19 @@ src/js/
 │   ├── add_3d_models_viewer_control.js # MapLibre control for 3D toggle
 │   ├── map_3d.js            # Cesium viewer setup
 │   ├── tools/               # 3D-specific tools
+│   │   ├── marker_tool_3d.js         # 3D marker placement on tilesets
+│   │   ├── measurement_tool_3d.js    # 3D distance/area measurement
+│   │   ├── viewshed_tool_3d.js       # 3D viewshed tool with persistence
+│   │   ├── viewshed.js               # Viewshed analysis (add/remove fields)
+│   │   ├── mouse_coordinates_3d.js   # Cursor coordinate display in 3D
+│   │   └── screenshot_tool.js        # Cesium viewer screenshot capture
 │   ├── components/          # 3D UI components
 │   │   ├── marker-panel-3d.js      # 3D marker configuration
 │   │   ├── measurement-panel-3d.js # 3D measurement display
 │   │   └── viewshed-panel-3d.js    # 3D viewshed visualization
 │   └── services/
-│       └── keyboard-service-3d.js  # 3D keyboard shortcuts
+│       ├── keyboard-service-3d.js  # 3D keyboard shortcuts
+│       └── cesium-compat.js        # Compatibility patches for Cesium 1.138+
 │
 ├── street_view_tool/        # Street view 360 integration (API-based)
 │   ├── index.js                      # Public API with lazy loading exports
@@ -314,6 +350,12 @@ src/js/
 │   └── application-mode.manager.js  # Mode state machine
 │
 ├── baselayers/              # Base map configurations
+│   ├── base-layer.control.js    # MapLibre control for base layer switching
+│   ├── bdgex_layer.js           # BDGEx (Brazilian Army topographic) WMS style
+│   ├── carta_ortoimagem.js      # Orthoimage style definition
+│   ├── carta_topografica.js     # Topographic map style
+│   ├── imagens_layer.js         # Satellite imagery style
+│   └── osm_layer.js             # OpenStreetMap raster style
 ├── layers/                  # Layer styles and management
 │   ├── layer.manager.js     # Layer management logic
 │   ├── layer.constants.js   # Layer constants
@@ -375,9 +417,16 @@ src/js/
 │       ├── voronoi.algorithm.js    # Voronoi diagram algorithm
 │       └── index.js                # Algorithm registry
 ├── coordinates/             # Coordinate display/conversion
+│   └── mouse-coordinates.control.js  # Cursor coordinate display with format switching and elevation
 ├── grid/                    # UTM grid overlay
+│   ├── grid.control.js             # Grid toggle control with format selection
+│   └── grid-layers.config.js       # UTM/latlong grid layer IDs at different scales
 ├── keyboard/                # Keyboard shortcuts
+│   └── keyboard-shortcuts.js       # Centralized 2D keyboard shortcuts (undo/redo, etc.)
 ├── user_data/               # Feature attributes/images
+│   ├── user_data_manager.js         # CRUD for custom attributes and images with compression
+│   ├── attributes_tab_renderer.js   # Attributes tab with inline key-value editing
+│   └── images_tab_renderer.js       # Images tab with upload, preview, deletion
 ├── ui/                      # Shared UI utilities
 │   ├── ui-visibility.controller.js  # UI element visibility profiles per mode
 │   ├── loading-screen.js           # Loading screen fade-out
@@ -398,6 +447,7 @@ src/js/
     ├── deep-utils.js        # Deep object utilities (clone, equality, path get/set)
     ├── geometry-utils.js    # Geometry calculations (distance, bearing, bbox)
     ├── lru-cache.js         # LRU cache implementation
+    ├── maplibre-preload.js  # Tile preloader for smooth map animations
     ├── quill-helpers.js     # Quill.js rich text editor helpers
     └── geomagnetic/         # Geomagnetic calculations
         ├── wmm_calculator.js    # World Magnetic Model calculator
@@ -603,9 +653,12 @@ const control = getControl('myTool');
 ### Services Initialization
 Services are initialized via dependency injection at startup:
 ```javascript
-import { initServices } from './store/services.js';
+import { initServices, getEventBus, getStateManager, getLayerManager,
+         getGroupManager, getMapResolver, getSessionContext,
+         getConnectionState, getSyncGateway } from './store/services.js';
+
 initServices(); // Must be called before any component
-// Runs migrations automatically
+// Runs migrations automatically, initializes sync infrastructure
 ```
 
 ## Key Conventions
@@ -615,7 +668,7 @@ initServices(); // Must be called before any component
 - Each module folder has an `index.js` barrel file for public exports
 
 ### Feature Types
-Features are identified by type strings: `'point'`, `'line'`, `'polygon'`, `'circle'`, `'ellipse'`, `'rectangle'`, `'text'`, `'image'`, `'brush'`, `'arrow'`, `'boundary'`, `'occupied_front'`, `'military_symbol'`, `'coordination_measure'`, `'los'`, `'visibility'`
+Features are identified by type strings: `'point'`, `'line'`, `'polygon'`, `'circle'`, `'ellipse'`, `'rectangle'`, `'sector'`, `'text'`, `'image'`, `'brush'`, `'arrow'`, `'boundary'`, `'occupied_front'`, `'military_symbol'`, `'coordination_measure'`, `'los'`, `'visibility'`
 
 ### Layer System
 - Features belong to layers
@@ -846,16 +899,16 @@ function setupEventHandlers() { /* ... */ }
 ## Build Configuration
 
 Vite splits code into chunks:
-- `core` - Store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog, tool_manager, mode, briefing, UI, grid, coordinates
+- `core` - Store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog, tool_manager, mode, briefing, UI, grid, coordinates, snapping, config, map/animation.service
 - `ui-components` - Sidebar, features_tab, user_data, attribute_table, search, bottom-controls, base-layer-selector, context-menu, vector_info, processing
-- `draw-tools` - All drawing tools + azimuth_distance_tool
+- `draw-tools` - All drawing tools (including sector_tool) + azimuth_distance_tool
 - `military-tools` - Military symbology
 - `analysis-tools` - LOS and visibility
 - `selection-tools` - Rectangle selection
-- `cesium-integration` - 3D viewer (lazy loaded)
+- `cesium-integration` - 3D viewer: map_3d, tools/, services/ (lazy loaded)
 - `import-export` - File handling (lazy loaded)
 - `street-view` - Three.js street view (lazy loaded)
-- Unmapped modules (snapping, keyboard, map) go to the main entry bundle
+- Unmapped modules (keyboard, map/map.manager, map/drag-rotate) go to the main entry bundle
 
 External dependencies loaded via script tags:
 - MapLibre GL JS

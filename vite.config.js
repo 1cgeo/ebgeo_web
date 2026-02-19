@@ -39,10 +39,14 @@ export default defineConfig(({ mode: _mode }) => ({
         // Chunks by functionality (path-based matching)
         // IMPORTANT: Order matters! More specific rules must come first.
         // Chunks are organized to avoid circular dependencies:
-        //   core (store, state, events, layers, terrain, baselayers, catalog, modals, config, snapping, map/animation)
-        //   -> ui-components (sidebar, toolbar, features_tab, user_data)
+        //   core (store, state, events, utilities, layers, terrain, baselayers, catalog,
+        //         modals, toolbar, tool_manager, mode, briefing, ui, config, snapping,
+        //         map/animation, grid, coordinates)
+        //   -> ui-components (sidebar, features_tab, user_data, attribute_table, search,
+        //                     bottom-controls, base-layer-selector, context-menu, vector_info, processing)
         //   -> tools (draw, military, analysis, selection)
-        //   -> lazy (3d, street-view, import-export)
+        //   -> lazy (cesium-integration, street-view, import-export)
+        // Unmapped (falls to main entry bundle): keyboard, map/map.manager, map/drag-rotate
         manualChunks(id) {
           // ===== LAZY LOADED CHUNKS (independentes) =====
 
