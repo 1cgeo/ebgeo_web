@@ -871,6 +871,40 @@
     display: none;
 }
 
+/* Photo gallery hidden state (locked with no images) */
+.feature-photo-gallery--hidden {
+    display: none;
+}
+
+/* Photo gallery counter hidden state */
+.feature-photo-gallery-counter--hidden {
+    display: none;
+}
+
+/* Read-only attribute row: no hover effects, no delete button space */
+.feature-attribute-row--readonly {
+    cursor: default;
+}
+
+.feature-attribute-row--readonly .feature-attribute-key {
+    cursor: default;
+}
+
+.feature-attribute-row--readonly .feature-attribute-value {
+    cursor: default;
+}
+
+/* Read-only attributes section spacing */
+.feature-readonly-attributes-section {
+    padding: 0 12px;
+}
+
+/* Read-only type selector item: non-interactive */
+.group-type-selector-item--readonly {
+    cursor: default;
+    pointer-events: none;
+}
+
 /* =========================================================================
    MAP CONTEXT MENU
    ========================================================================= */

@@ -341,6 +341,70 @@ function renderEmptyState(container) {
 }
 
 /**
+ * Renders a read-only attributes section for locked map view.
+ * Shows a titled section with key-value pairs (not editable).
+ * Returns nothing visible if no attributes exist.
+ *
+ * @param {HTMLElement} container - Container to render into
+ * @param {string} featureId - Feature ID
+ * @param {string} featureType - Feature type
+ * @returns {Promise<void>}
+ */
+export async function renderReadOnlyAttributesSection(container, featureId, featureType) {
+    container.innerHTML = '';
+
+    const attributes = await userDataManager.getAttributes(featureId, featureType);
+    const entries = Object.entries(attributes);
+
+    // When locked with no attributes, show nothing (clean)
+    if (entries.length === 0) return;
+
+    // Section title styled like feature-photo-gallery-title
+    const header = document.createElement('div');
+    header.className = 'feature-photo-gallery-header';
+
+    const title = document.createElement('span');
+    title.className = 'feature-photo-gallery-title';
+    title.textContent = 'Atributos';
+
+    header.appendChild(title);
+    container.appendChild(header);
+
+    // Read-only attribute list
+    const listContainer = document.createElement('div');
+    listContainer.className = 'feature-attributes-list';
+
+    entries.forEach(([key, value]) => {
+        const row = document.createElement('div');
+        row.className = 'feature-attribute-row feature-attribute-row--readonly';
+
+        const keyContainer = document.createElement('div');
+        keyContainer.className = 'feature-attribute-key-container';
+
+        const keySpan = document.createElement('span');
+        keySpan.className = 'feature-attribute-key';
+        keySpan.textContent = key;
+
+        keyContainer.appendChild(keySpan);
+
+        const valueContainer = document.createElement('div');
+        valueContainer.className = 'feature-attribute-value-container';
+
+        const valueSpan = document.createElement('span');
+        valueSpan.className = 'feature-attribute-value';
+        valueSpan.textContent = value || '—';
+
+        valueContainer.appendChild(valueSpan);
+
+        row.appendChild(keyContainer);
+        row.appendChild(valueContainer);
+        listContainer.appendChild(row);
+    });
+
+    container.appendChild(listContainer);
+}
+
+/**
  * Mostra mensagem de erro.
  * @private
  * @param {HTMLElement} container - Container onde mostrar o erro
