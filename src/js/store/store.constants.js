@@ -5,6 +5,12 @@
  */
 
 /**
+ * Default map name used when creating new atlases or resetting data.
+ * @constant {string}
+ */
+export const DEFAULT_MAP_NAME = 'Principal';
+
+/**
  * Mapping of feature source types to their icon paths.
  * @constant {Object<string, string>}
  */

@@ -510,7 +510,11 @@ export class MapsTab {
         // Close any existing menu
         this._closeContextMenu();
 
-        const locked = await isMapLocked(mapName);
+        const [locked, allMapNames] = await Promise.all([
+            isMapLocked(mapName),
+            getAllMapNamesStore()
+        ]);
+        const isLastMap = allMapNames.length <= 1;
 
         const menu = document.createElement('div');
         menu.className = 'map-context-menu';
@@ -562,14 +566,16 @@ export class MapsTab {
                 handler: () => this._handleCombineMaps(mapName)
             });
 
-            menuItems.push({ separator: true });
+            if (!isLastMap) {
+                menuItems.push({ separator: true });
 
-            menuItems.push({
-                icon: SIDEBAR_ICONS.trash,
-                label: 'Deletar',
-                handler: () => this._handleDeleteMap(mapName),
-                className: 'menu-item-danger'
-            });
+                menuItems.push({
+                    icon: SIDEBAR_ICONS.trash,
+                    label: 'Deletar',
+                    handler: () => this._handleDeleteMap(mapName),
+                    className: 'menu-item-danger'
+                });
+            }
         }
 
         // Build menu items

@@ -20,6 +20,7 @@ import { detectMigrationNeeded, safelyMigrate } from './migration/migration.serv
 import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
 import config from '../config.js';
 import { createSyncMetadata } from './sync/sync-metadata.js';
+import { DEFAULT_MAP_NAME } from './store.constants.js';
 
 // Re-export from repository.utils.js for backward compatibility
 export {
@@ -320,9 +321,9 @@ export const initializeRepository = async () => {
                 }];
             }
 
-            await mapStore.setItem('Principal', newMapData);
-            memoryStore.currentMap = 'Principal';
-            return 'Principal';
+            await mapStore.setItem(DEFAULT_MAP_NAME, newMapData);
+            memoryStore.currentMap = DEFAULT_MAP_NAME;
+            return DEFAULT_MAP_NAME;
         }
 
         const lastActiveMap = await appStore.getItem('lastActiveMap');
@@ -336,8 +337,8 @@ export const initializeRepository = async () => {
         }
     } catch (error) {
         console.error('Error initializing repository:', error);
-        memoryStore.currentMap = 'Principal';
-        return 'Principal';
+        memoryStore.currentMap = DEFAULT_MAP_NAME;
+        return DEFAULT_MAP_NAME;
     }
 };
 

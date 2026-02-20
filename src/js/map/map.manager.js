@@ -22,6 +22,7 @@ import {
 } from '../store';
 
 import { IDUtils } from '../utilities';
+import { DEFAULT_MAP_NAME } from '../store/store.constants.js';
 
 class MapManager {
     constructor(baseLayerControl, selectionManager) {
@@ -408,7 +409,7 @@ class MapManager {
                 this.selectionManager.deselectAllFeatures();
             }
 
-            setCurrentMap('Principal');
+            setCurrentMap(DEFAULT_MAP_NAME);
 
             if (this.baseLayerControl) {
                 await this.baseLayerControl.switchMap();

@@ -184,6 +184,17 @@ export const removeMap = async (mapName) => {
         return { success: false, reason: 'PERMISSION_DENIED' };
     }
 
+    const allMaps = await getAllMapNames();
+
+    // Guard: prevent deleting the last map
+    if (allMaps.length <= 1) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+            operation: 'removeMap',
+            reason: 'Não é possível deletar o último mapa'
+        });
+        return { success: false, reason: 'LAST_MAP' };
+    }
+
     const mapData = await getMapData(mapName);
     if (!mapData || Object.keys(mapData).length === 0) {
         console.warn(`Tentativa de remover mapa inexistente: ${mapName}`);
@@ -195,7 +206,6 @@ export const removeMap = async (mapName) => {
 
     const currentMapName = mapManager.getCurrentMapName();
     const isCurrentMap = mapName === currentMapName;
-    const allMaps = await getAllMapNames();
     const remainingMaps = allMaps.filter(name => name !== mapName);
 
     await deleteMapData(mapName);
@@ -216,13 +226,8 @@ export const removeMap = async (mapName) => {
     }
 
     if (isCurrentMap) {
-        if (remainingMaps.length > 0) {
-            const newCurrentMap = remainingMaps[0];
-            await setCurrentMap(newCurrentMap);
-        } else {
-            await addMap('Principal');
-            await setCurrentMap('Principal');
-        }
+        const newCurrentMap = remainingMaps[0];
+        await setCurrentMap(newCurrentMap);
     }
 
     // Log operation for sync
@@ -232,7 +237,7 @@ export const removeMap = async (mapName) => {
         success: true,
         wasCurrentMap: isCurrentMap,
         remainingMapsCount: remainingMaps.length,
-        newCurrentMap: isCurrentMap ? (remainingMaps.length > 0 ? remainingMaps[0] : 'Principal') : currentMapName
+        newCurrentMap: isCurrentMap ? remainingMaps[0] : currentMapName
     };
 };
 
