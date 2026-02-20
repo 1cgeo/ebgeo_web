@@ -10,8 +10,7 @@ import { CatalogService } from './catalog.service.js';
 import {
     CATALOG_ITEM_TYPES,
     CATALOG_TYPE_CONFIG,
-    CATALOG_MODAL_ICON,
-    CATALOG_MODAL_FILTERS
+    CATALOG_MODAL_ICON
 } from './catalog.constants.js';
 import { createCatalogHeader } from './components/catalog-header.js';
 import { createCatalogFilters } from './components/catalog-filters.js';
@@ -47,8 +46,8 @@ export class CatalogModal extends ModalBase {
         // Internal state
         this._allItems = [];
         this._filteredItems = [];
-        // Only include modal filters (analysis includes hillshade)
-        this._activeFilters = new Set(CATALOG_MODAL_FILTERS);
+        // Start with no filters active — show all items by default
+        this._activeFilters = new Set();
         this._searchQuery = '';
 
         // DOM references
@@ -170,19 +169,20 @@ export class CatalogModal extends ModalBase {
      * @private
      */
     _applyFilters() {
-        // Filter by type
-        // When ANALYSIS_LAYER filter is active, also include HILLSHADE
-        let items = this._allItems.filter(item => {
-            if (this._activeFilters.has(item.type)) {
-                return true;
-            }
-            // Include hillshade when analysis filter is active
-            if (item.type === CATALOG_ITEM_TYPES.HILLSHADE &&
-                this._activeFilters.has(CATALOG_ITEM_TYPES.ANALYSIS_LAYER)) {
-                return true;
-            }
-            return false;
-        });
+        // No filters active → show all items; active filters → show only matching types
+        let items = this._activeFilters.size === 0
+            ? this._allItems
+            : this._allItems.filter(item => {
+                if (this._activeFilters.has(item.type)) {
+                    return true;
+                }
+                // Include hillshade when analysis filter is active
+                if (item.type === CATALOG_ITEM_TYPES.HILLSHADE &&
+                    this._activeFilters.has(CATALOG_ITEM_TYPES.ANALYSIS_LAYER)) {
+                    return true;
+                }
+                return false;
+            });
 
         // Filter by search
         if (this._searchQuery) {
