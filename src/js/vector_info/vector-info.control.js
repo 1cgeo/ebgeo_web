@@ -92,7 +92,8 @@ class VectorTileInfoControl {
     handleMapClick(e) {
         if (this.isActive) {
             const features = this.map.queryRenderedFeatures(e.point);
-            const filteredFeatures = features.filter(f => f.sourceLayer && !f.properties.source && !f.sourceLayer.startsWith('grid') && !f.sourceLayer.startsWith('situacao_ponto') && !f.sourceLayer.startsWith('fotos'));
+            // Only show EDGV layers in the identification tool
+            const filteredFeatures = features.filter(f => f.sourceLayer && f.sourceLayer.startsWith('edgv_') && !f.properties.source);
 
             // Remove duplicates caused by multiple layers (fill, border, etc.) sharing the same source
             const vectorTileFeatures = this._deduplicateFeatures(filteredFeatures);
@@ -101,10 +102,7 @@ class VectorTileInfoControl {
                 const preferenceOrder = ['Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon'];
 
                 vectorTileFeatures.sort((a, b) => {
-                    const aPriority = a.sourceLayer.startsWith('cobter_') ? 6 : preferenceOrder.indexOf(a.geometry.type);
-                    const bPriority = b.sourceLayer.startsWith('cobter_') ? 6 : preferenceOrder.indexOf(b.geometry.type);
-
-                    return aPriority - bPriority;
+                    return preferenceOrder.indexOf(a.geometry.type) - preferenceOrder.indexOf(b.geometry.type);
                 });
 
                 if (vectorTileFeatures.length === 1) {
