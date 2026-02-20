@@ -117,6 +117,14 @@ export class FeaturesTab {
         // Attribute table control reference (set by external code)
         this._attributeTableControl = null;
 
+        // Register catalog layer listener eagerly (not in createUI) so it
+        // handles events even before the camadas tab is first opened.
+        this._catalogLayerUnsubscriber = initCatalogLayerListeners(
+            this.map,
+            this._eventBus,
+            this.analysisLayersManager,
+            this.dataLayersManager
+        );
     }
 
     /**
@@ -158,14 +166,6 @@ export class FeaturesTab {
         const featuresList = document.createElement('div');
         featuresList.className = 'features-list';
         this.container.appendChild(featuresList);
-
-        // Initialize catalog layer listeners
-        this._catalogLayerUnsubscriber = initCatalogLayerListeners(
-            this.map,
-            this._eventBus,
-            this.analysisLayersManager,
-            this.dataLayersManager
-        );
 
         // Initialize 3D models section listeners
         this._models3dSectionUnsubscriber = initModels3dSectionListeners(
