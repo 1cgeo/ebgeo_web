@@ -782,6 +782,8 @@ export class SidebarControl {
 
     /**
      * Collapses the panel.
+     * Ensures StateManager state is consistent with the visual collapse.
+     * Safe to call even when state is already collapsed (set() is a no-op for equal values).
      * @private
      */
     _collapsePanel() {
@@ -794,6 +796,14 @@ export class SidebarControl {
 
         this._collapsedSidebar.setActiveTab(null);
         this._panel.collapse();
+
+        // Sync StateManager to prevent sidebar.expanded from staying true
+        // when the panel is visually collapsed by non-collapseSidebar paths
+        // (e.g. vector info panel, search result panel, tool panel).
+        // set() uses deepEqual and is a no-op when the value hasn't changed,
+        // so this is safe to call from any code path.
+        this._stateManager.set('sidebar.expanded', false);
+        this._stateManager.set('sidebar.activeTab', null);
     }
 
     /**
