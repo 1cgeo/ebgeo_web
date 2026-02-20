@@ -25,6 +25,7 @@ let _viewerImages = null;
 export async function createPhotoGallery(options) {
     const { featureId, featureType, compact = true } = options;
 
+    const mapLocked = isCurrentMapLockedSync();
     const container = document.createElement('div');
     container.className = 'feature-photo-gallery';
 
@@ -36,15 +37,22 @@ export async function createPhotoGallery(options) {
     title.className = 'feature-photo-gallery-title';
     title.textContent = 'Fotos / Imagens';
 
-    const addButton = document.createElement('button');
-    addButton.className = 'feature-photo-gallery-add-btn';
-    addButton.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Adicionar
-    `;
-
     header.appendChild(title);
-    header.appendChild(addButton);
+
+    if (!mapLocked) {
+        const addButton = document.createElement('button');
+        addButton.className = 'feature-photo-gallery-add-btn';
+        addButton.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Adicionar
+        `;
+        addButton.addEventListener('click', () => {
+            if (isCurrentMapLockedSync()) return;
+            fileInput.click();
+        });
+        header.appendChild(addButton);
+    }
+
     container.appendChild(header);
 
     // Grid container
@@ -73,17 +81,26 @@ export async function createPhotoGallery(options) {
 
         const images = await userDataManager.getImages(featureId, featureType);
 
+        // When map is locked and no images, hide the entire gallery
+        if (mapLocked && images.length === 0) {
+            container.classList.add('feature-photo-gallery--hidden');
+            return;
+        }
+        container.classList.remove('feature-photo-gallery--hidden');
+
         // Show images (limited to 5 in compact mode + add button)
         const maxVisible = compact ? 5 : images.length;
         const visibleImages = images.slice(0, maxVisible);
 
         visibleImages.forEach(img => {
-            const card = createImageCard(img, featureId, featureType, renderImages, images);
+            const card = mapLocked
+                ? createReadOnlyImageCard(img, images)
+                : createImageCard(img, featureId, featureType, renderImages, images);
             grid.appendChild(card);
         });
 
         // Add button card (hide when map is locked)
-        if (!isCurrentMapLockedSync() && images.length <= 2) {
+        if (!mapLocked && images.length <= 2) {
             const addCard = createAddCard(fileInput);
             grid.appendChild(addCard);
         }
@@ -91,10 +108,10 @@ export async function createPhotoGallery(options) {
         // Update counter
         if (images.length > 0) {
             counter.textContent = `${images.length} ${images.length === 1 ? 'imagem anexada' : 'imagens anexadas'}`;
-            counter.style.display = 'block';
+            counter.classList.remove('feature-photo-gallery-counter--hidden');
         } else {
             counter.textContent = '';
-            counter.style.display = 'none';
+            counter.classList.add('feature-photo-gallery-counter--hidden');
         }
     }
 
@@ -112,12 +129,6 @@ export async function createPhotoGallery(options) {
             }
             fileInput.value = '';
         }
-    });
-
-    // Add button click
-    addButton.addEventListener('click', () => {
-        if (isCurrentMapLockedSync()) return;
-        fileInput.click();
     });
 
     // Subscribe to image updates
@@ -188,6 +199,29 @@ function createImageCard(imageData, featureId, featureType, onDelete, allImages)
     card.appendChild(img);
     card.appendChild(deleteBtn);
 
+    return card;
+}
+
+/**
+ * Creates a read-only image card (no delete button).
+ * @param {Object} imageData - Image data object
+ * @param {Array<Object>} allImages - All images for navigation
+ * @returns {HTMLElement} Image card element
+ */
+function createReadOnlyImageCard(imageData, allImages) {
+    const card = document.createElement('div');
+    card.className = 'feature-photo-gallery-card';
+
+    const img = document.createElement('img');
+    img.src = imageData.thumbnail || imageData.data;
+    img.alt = imageData.name || 'Imagem';
+    img.loading = 'lazy';
+
+    img.addEventListener('click', () => {
+        openImageViewer(imageData, allImages);
+    });
+
+    card.appendChild(img);
     return card;
 }
 

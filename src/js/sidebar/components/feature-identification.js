@@ -5,7 +5,7 @@
  * Displays feature icon, name, type, layer information, and description.
  */
 
-import { getLayers, getFeatureIcon, getFeatureDisplayName, getFeatureById, updateFeature, getStorageTypeFromSource } from '../../store/index.js';
+import { getLayers, getFeatureIcon, getFeatureDisplayName, getFeatureById, updateFeature, getStorageTypeFromSource, isCurrentMapLockedSync } from '../../store/index.js';
 import { createFeatureOptionsButton } from '../../tool_manager/helpers/feature-header.helpers.js';
 
 /**
@@ -86,47 +86,54 @@ export async function createFeatureIdentification(options) {
     const nameDisplay = document.createElement('div');
     nameDisplay.className = 'feature-identification-name';
     nameDisplay.textContent = feature.properties?.nome || 'Sem nome';
-    nameDisplay.title = 'Clique para editar';
 
-    const nameInput = document.createElement('input');
-    nameInput.type = 'text';
-    nameInput.className = 'feature-identification-name-input';
-    nameInput.value = feature.properties?.nome || '';
-    nameInput.style.display = 'none';
+    const mapLocked = isCurrentMapLockedSync();
 
-    // Edit functionality
-    nameDisplay.addEventListener('click', () => {
-        nameDisplay.style.display = 'none';
-        nameInput.style.display = 'block';
-        nameInput.focus();
-        nameInput.select();
-    });
+    if (!mapLocked) {
+        nameDisplay.title = 'Clique para editar';
 
-    const saveEdit = () => {
-        const newName = nameInput.value.trim() || 'Sem nome';
-        nameDisplay.textContent = newName;
-        nameDisplay.style.display = 'block';
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'feature-identification-name-input';
+        nameInput.value = feature.properties?.nome || '';
         nameInput.style.display = 'none';
 
-        if (onNameChange && newName !== feature.properties?.nome) {
-            onNameChange(newName);
-        }
-    };
+        // Edit functionality
+        nameDisplay.addEventListener('click', () => {
+            nameDisplay.style.display = 'none';
+            nameInput.style.display = 'block';
+            nameInput.focus();
+            nameInput.select();
+        });
 
-    nameInput.addEventListener('blur', saveEdit);
-    nameInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            saveEdit();
-        } else if (e.key === 'Escape') {
-            nameInput.value = feature.properties?.nome || '';
+        const saveEdit = () => {
+            const newName = nameInput.value.trim() || 'Sem nome';
+            nameDisplay.textContent = newName;
             nameDisplay.style.display = 'block';
             nameInput.style.display = 'none';
-        }
-    });
 
-    nameContainer.appendChild(nameDisplay);
-    nameContainer.appendChild(nameInput);
+            if (onNameChange && newName !== feature.properties?.nome) {
+                onNameChange(newName);
+            }
+        };
+
+        nameInput.addEventListener('blur', saveEdit);
+        nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                saveEdit();
+            } else if (e.key === 'Escape') {
+                nameInput.value = feature.properties?.nome || '';
+                nameDisplay.style.display = 'block';
+                nameInput.style.display = 'none';
+            }
+        });
+
+        nameContainer.appendChild(nameDisplay);
+        nameContainer.appendChild(nameInput);
+    } else {
+        nameContainer.appendChild(nameDisplay);
+    }
 
     // Feature type label
     const typeLabel = document.createElement('div');
@@ -275,6 +282,8 @@ async function createDescriptionSection(options) {
         }
     }
 
+    const isMapLocked = isCurrentMapLockedSync();
+
     // Create the display/edit elements
     const displayContainer = document.createElement('div');
     displayContainer.className = 'feature-description-display';
@@ -288,6 +297,18 @@ async function createDescriptionSection(options) {
      */
     function renderDisplay() {
         displayContainer.innerHTML = '';
+
+        if (isMapLocked) {
+            // Locked: show description text only, no editing controls
+            if (currentDescription) {
+                const descText = document.createElement('div');
+                descText.className = 'feature-description-text';
+                descText.textContent = currentDescription;
+                displayContainer.appendChild(descText);
+            }
+            // When locked with no description, show nothing
+            return;
+        }
 
         if (!currentDescription) {
             // Show "Add description" button

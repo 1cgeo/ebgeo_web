@@ -41,14 +41,16 @@ function getTypePluralLabel(type) {
 /**
  * Creates a group type selector component.
  * Shows a list of feature types present in the group, allowing selection to edit style.
+ * In readOnly mode, shows only types and counts without interaction.
  *
  * @param {Object} options - Configuration options
  * @param {Array} options.selectedFeatures - All selected features in the group
  * @param {Function} options.onTypeSelect - Callback when a type is selected (receives type and features)
+ * @param {boolean} [options.readOnly=false] - When true, shows types/counts only without editing
  * @returns {Object} Object with element and cleanup function
  */
 export function createGroupTypeSelector(options) {
-    const { selectedFeatures, onTypeSelect } = options;
+    const { selectedFeatures, onTypeSelect, readOnly = false } = options;
 
     const container = document.createElement('div');
     container.className = 'group-type-selector';
@@ -65,14 +67,16 @@ export function createGroupTypeSelector(options) {
         featuresByType.get(type).push(feature);
     }
 
-    // Header
-    const header = document.createElement('div');
-    header.className = 'group-type-selector-header';
-    header.innerHTML = `
-        <span class="group-type-selector-title">Editar por tipo</span>
-        <span class="group-type-selector-hint">Selecione um tipo para editar seu estilo</span>
-    `;
-    container.appendChild(header);
+    if (!readOnly) {
+        // Header (only in editable mode)
+        const header = document.createElement('div');
+        header.className = 'group-type-selector-header';
+        header.innerHTML = `
+            <span class="group-type-selector-title">Editar por tipo</span>
+            <span class="group-type-selector-hint">Selecione um tipo para editar seu estilo</span>
+        `;
+        container.appendChild(header);
+    }
 
     // Type list
     const typeList = document.createElement('div');
@@ -81,35 +85,49 @@ export function createGroupTypeSelector(options) {
     let selectedTypeButton = null;
 
     for (const [type, features] of featuresByType) {
-        const typeButton = document.createElement('button');
-        typeButton.className = 'group-type-selector-item';
-        typeButton.type = 'button';
-
         const iconPath = getFeatureIcon(type) || './images/icon_point_black.svg';
         const label = getTypePluralLabel(type);
         const count = features.length;
 
-        typeButton.innerHTML = `
-            <img src="${iconPath}" alt="${label}" class="group-type-selector-icon" />
-            <span class="group-type-selector-label">${label}</span>
-            <span class="group-type-selector-count">${count}</span>
-        `;
+        if (readOnly) {
+            // Read-only: non-interactive item
+            const typeItem = document.createElement('div');
+            typeItem.className = 'group-type-selector-item group-type-selector-item--readonly';
 
-        typeButton.addEventListener('click', () => {
-            // Update active state
-            if (selectedTypeButton) {
-                selectedTypeButton.classList.remove('active');
-            }
-            typeButton.classList.add('active');
-            selectedTypeButton = typeButton;
+            typeItem.innerHTML = `
+                <img src="${iconPath}" alt="${label}" class="group-type-selector-icon" />
+                <span class="group-type-selector-label">${label}</span>
+                <span class="group-type-selector-count">${count}</span>
+            `;
 
-            // Call callback with type and its features
-            if (onTypeSelect) {
-                onTypeSelect(type, features);
-            }
-        });
+            typeList.appendChild(typeItem);
+        } else {
+            const typeButton = document.createElement('button');
+            typeButton.className = 'group-type-selector-item';
+            typeButton.type = 'button';
 
-        typeList.appendChild(typeButton);
+            typeButton.innerHTML = `
+                <img src="${iconPath}" alt="${label}" class="group-type-selector-icon" />
+                <span class="group-type-selector-label">${label}</span>
+                <span class="group-type-selector-count">${count}</span>
+            `;
+
+            typeButton.addEventListener('click', () => {
+                // Update active state
+                if (selectedTypeButton) {
+                    selectedTypeButton.classList.remove('active');
+                }
+                typeButton.classList.add('active');
+                selectedTypeButton = typeButton;
+
+                // Call callback with type and its features
+                if (onTypeSelect) {
+                    onTypeSelect(type, features);
+                }
+            });
+
+            typeList.appendChild(typeButton);
+        }
     }
 
     container.appendChild(typeList);

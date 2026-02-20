@@ -15,6 +15,7 @@ import { createLocationSection } from '../components/feature-location-section.js
 import { createGroupTypeSelector } from '../components/group-type-selector.js';
 import { createMultiSelectionActions } from '../components/multi-selection-actions.js';
 import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo } from '../../store';
+import { renderReadOnlyAttributesSection } from '../../user_data/attributes_tab_renderer.js';
 
 // ============================================================================
 // CONSTANTS
@@ -264,129 +265,151 @@ export async function createFeaturePanelContent({
         cleanupFunctions.push(photoGallery.cleanup);
     }
 
-    // 3. Info section before tabs (for LOS and similar analysis tools)
-    if (isSingleSelection && control && typeof control.createInfoSection === 'function') {
-        try {
-            const infoSection = control.createInfoSection(selectedFeatures[0]);
-            if (infoSection) {
-                container.appendChild(infoSection);
-            }
-        } catch (error) {
-            console.error(`Error creating info section for ${featureType}:`, error);
-        }
-    }
-
-    // 4. Tabs (Estilo / Parâmetros / Atributos) - only show for single selection or multiple same-type
-    // For mixed types, show group type selector to edit by type
-    if (!isMixedTypes) {
-        const featureTabs = createFeatureTabs({
-            featureId,
-            featureType,
-            singleSelection: isSingleSelection
-        });
-        container.appendChild(featureTabs.container);
-        cleanupFunctions.push(featureTabs.cleanup);
-
-        // Inject tool-specific style controls into the Style tab
-        if (control && control.hasAttributePanel && control.hasAttributePanel()) {
-            try {
-                control.createAttributePanel(
-                    featureTabs.styleTab,
-                    selectedFeatures,
-                    selectionManager,
-                    uiManager,
-                    { hideHeader: true }
-                );
-            } catch (error) {
-                console.error(`Error creating attribute panel for ${featureType}:`, error);
-            }
+    // When map is locked: skip tabs/style/parameters, show read-only attributes directly
+    if (mapLocked) {
+        // Read-only attributes section (only if attributes exist)
+        if (isSingleSelection) {
+            const readOnlyAttrsContainer = document.createElement('div');
+            readOnlyAttrsContainer.className = 'feature-readonly-attributes-section';
+            await renderReadOnlyAttributesSection(readOnlyAttrsContainer, featureId, featureType);
+            container.appendChild(readOnlyAttrsContainer);
         }
 
-        // Inject parameters controls into Parameters tab (for LOS and similar tools)
-        if (featureTabs.parametersTab && control && typeof control.createParametersPanel === 'function') {
-            try {
-                control.createParametersPanel(
-                    featureTabs.parametersTab,
-                    selectedFeatures,
-                    selectionManager,
-                    uiManager
-                );
-                // Register cleanup for terrain listener attached by parameters panel
-                if (featureTabs.parametersTab._parametersCleanup) {
-                    cleanupFunctions.push(featureTabs.parametersTab._parametersCleanup);
-                }
-            } catch (error) {
-                console.error(`Error creating parameters panel for ${featureType}:`, error);
-            }
+        // For mixed types in locked mode: show read-only type summary
+        if (!isSingleSelection && isMixedTypes) {
+            const typeSelector = createGroupTypeSelector({
+                selectedFeatures,
+                readOnly: true,
+                onTypeSelect: () => {}
+            });
+            container.appendChild(typeSelector.element);
+            cleanupFunctions.push(typeSelector.cleanup);
         }
     } else {
-        // Mixed types: show group type selector
-        const typeTabsContainer = document.createElement('div');
-        typeTabsContainer.className = 'group-type-tabs-container';
-
-        // Track state for each type that was edited
-        const editedTypesState = new Map();
-
-        const typeSelector = createGroupTypeSelector({
-            selectedFeatures,
-            onTypeSelect: (selectedType, featuresOfType) => {
-                // Clear previous tabs content
-                typeTabsContainer.innerHTML = '';
-
-                // Get control for this type
-                const typeControl = selectionManager?.controls.get(selectedType);
-
-                // Store initial properties for this type if not already stored
-                if (!editedTypesState.has(selectedType)) {
-                    editedTypesState.set(selectedType, {
-                        control: typeControl,
-                        features: featuresOfType,
-                        initialPropertiesMap: new Map(
-                            featuresOfType.map(f => [f.properties.id, { ...f.properties }])
-                        )
-                    });
+        // 3. Info section before tabs (for LOS and similar analysis tools)
+        if (isSingleSelection && control && typeof control.createInfoSection === 'function') {
+            try {
+                const infoSection = control.createInfoSection(selectedFeatures[0]);
+                if (infoSection) {
+                    container.appendChild(infoSection);
                 }
+            } catch (error) {
+                console.error(`Error creating info section for ${featureType}:`, error);
+            }
+        }
 
-                // Create tabs for this type (multi-selection mode)
-                const typeTabs = createFeatureTabs({
-                    featureId: featuresOfType[0]?.properties?.id,
-                    featureType: selectedType,
-                    singleSelection: false
-                });
-                typeTabsContainer.appendChild(typeTabs.container);
+        // 4. Tabs (Estilo / Parâmetros / Atributos) - only show for single selection or multiple same-type
+        // For mixed types, show group type selector to edit by type
+        if (!isMixedTypes) {
+            const featureTabs = createFeatureTabs({
+                featureId,
+                featureType,
+                singleSelection: isSingleSelection
+            });
+            container.appendChild(featureTabs.container);
+            cleanupFunctions.push(featureTabs.cleanup);
 
-                // Inject style controls for this type (hide buttons, we'll add global ones)
-                if (typeControl && typeControl.hasAttributePanel && typeControl.hasAttributePanel()) {
-                    try {
-                        typeControl.createAttributePanel(
-                            typeTabs.styleTab,
-                            featuresOfType,
-                            selectionManager,
-                            uiManager,
-                            { hideHeader: true, hideButtons: true }
-                        );
-                    } catch (error) {
-                        console.error(`Error creating attribute panel for ${selectedType}:`, error);
-                    }
+            // Inject tool-specific style controls into the Style tab
+            if (control && control.hasAttributePanel && control.hasAttributePanel()) {
+                try {
+                    control.createAttributePanel(
+                        featureTabs.styleTab,
+                        selectedFeatures,
+                        selectionManager,
+                        uiManager,
+                        { hideHeader: true }
+                    );
+                } catch (error) {
+                    console.error(`Error creating attribute panel for ${featureType}:`, error);
                 }
             }
-        });
 
-        container.appendChild(typeSelector.element);
-        container.appendChild(typeTabsContainer);
+            // Inject parameters controls into Parameters tab (for LOS and similar tools)
+            if (featureTabs.parametersTab && control && typeof control.createParametersPanel === 'function') {
+                try {
+                    control.createParametersPanel(
+                        featureTabs.parametersTab,
+                        selectedFeatures,
+                        selectionManager,
+                        uiManager
+                    );
+                    // Register cleanup for terrain listener attached by parameters panel
+                    if (featureTabs.parametersTab._parametersCleanup) {
+                        cleanupFunctions.push(featureTabs.parametersTab._parametersCleanup);
+                    }
+                } catch (error) {
+                    console.error(`Error creating parameters panel for ${featureType}:`, error);
+                }
+            }
+        } else {
+            // Mixed types: show group type selector
+            const typeTabsContainer = document.createElement('div');
+            typeTabsContainer.className = 'group-type-tabs-container';
 
-        // Create global Save/Discard buttons for all types
-        const globalButtons = createGlobalButtons({
-            editedTypesState,
-            selectionManager
-        });
-        container.appendChild(globalButtons.element);
+            // Track state for each type that was edited
+            const editedTypesState = new Map();
 
-        // Cleanup: save all edited types before destroying
-        cleanupFunctions.push(() => {
-            globalButtons.saveAll();
-            typeSelector.cleanup();
-        });
+            const typeSelector = createGroupTypeSelector({
+                selectedFeatures,
+                onTypeSelect: (selectedType, featuresOfType) => {
+                    // Clear previous tabs content
+                    typeTabsContainer.innerHTML = '';
+
+                    // Get control for this type
+                    const typeControl = selectionManager?.controls.get(selectedType);
+
+                    // Store initial properties for this type if not already stored
+                    if (!editedTypesState.has(selectedType)) {
+                        editedTypesState.set(selectedType, {
+                            control: typeControl,
+                            features: featuresOfType,
+                            initialPropertiesMap: new Map(
+                                featuresOfType.map(f => [f.properties.id, { ...f.properties }])
+                            )
+                        });
+                    }
+
+                    // Create tabs for this type (multi-selection mode)
+                    const typeTabs = createFeatureTabs({
+                        featureId: featuresOfType[0]?.properties?.id,
+                        featureType: selectedType,
+                        singleSelection: false
+                    });
+                    typeTabsContainer.appendChild(typeTabs.container);
+
+                    // Inject style controls for this type (hide buttons, we'll add global ones)
+                    if (typeControl && typeControl.hasAttributePanel && typeControl.hasAttributePanel()) {
+                        try {
+                            typeControl.createAttributePanel(
+                                typeTabs.styleTab,
+                                featuresOfType,
+                                selectionManager,
+                                uiManager,
+                                { hideHeader: true, hideButtons: true }
+                            );
+                        } catch (error) {
+                            console.error(`Error creating attribute panel for ${selectedType}:`, error);
+                        }
+                    }
+                }
+            });
+
+            container.appendChild(typeSelector.element);
+            container.appendChild(typeTabsContainer);
+
+            // Create global Save/Discard buttons for all types
+            const globalButtons = createGlobalButtons({
+                editedTypesState,
+                selectionManager
+            });
+            container.appendChild(globalButtons.element);
+
+            // Cleanup: save all edited types before destroying
+            cleanupFunctions.push(() => {
+                globalButtons.saveAll();
+                typeSelector.cleanup();
+            });
+        }
     }
 
     // 5. Location section (only for single selection)
