@@ -650,7 +650,7 @@ export class BriefingEditorControl {
 
         const mapSelect = document.createElement('select');
         mapSelect.className = 'briefing-editor-select';
-        this._populateMapSelect(mapSelect, slide);
+        await this._populateMapSelect(mapSelect, slide);
         addDomListener(this, mapSelect, 'change', async () => {
             const previousMapId = slide.mapId;
             slide.mapId = mapSelect.value || null;
