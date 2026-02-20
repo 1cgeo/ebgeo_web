@@ -77,7 +77,7 @@ mkdir -p "$RELEASES_DIR"
 if [ "${1:-}" != "--skip-build" ]; then
     log "Executando build..."
     cd "$PROJECT_DIR"
-    npm run build || fail "Build falhou"
+    vite build || fail "Build falhou"
 fi
 
 # Verificar dist/
