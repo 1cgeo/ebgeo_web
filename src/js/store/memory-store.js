@@ -14,6 +14,8 @@
  * on page refresh.
  */
 
+import { DEFAULT_MAP_NAME } from './store.constants.js';
+
 // ===== MEMORY STORE =====
 
 /**
@@ -28,7 +30,7 @@ export const memoryStore = {
      * @type {Object.<string, {undoStacks: Object.<string, Array>, redoStacks: Object.<string, Array>}>}
      */
     maps: {
-        'Principal': {
+        [DEFAULT_MAP_NAME]: {
             undoStacks: {},
             redoStacks: {}
         }
@@ -38,7 +40,7 @@ export const memoryStore = {
      * Current active map name.
      * @type {string}
      */
-    currentMap: 'Principal',
+    currentMap: DEFAULT_MAP_NAME,
 
     /**
      * Flag indicating if an undo operation is in progress.
@@ -120,12 +122,12 @@ export const memoryStore = {
  */
 export function resetMemoryStore() {
     memoryStore.maps = {
-        'Principal': {
+        [DEFAULT_MAP_NAME]: {
             undoStacks: {},
             redoStacks: {}
         }
     };
-    memoryStore.currentMap = 'Principal';
+    memoryStore.currentMap = DEFAULT_MAP_NAME;
     memoryStore.isUndoing = false;
     memoryStore.isRedoing = false;
     memoryStore.batchCollector = null;

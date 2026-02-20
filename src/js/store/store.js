@@ -277,6 +277,7 @@ export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = 
 export {
     FEATURE_TYPE_ICONS,
     FEATURE_TYPE_LAYERS,
+    DEFAULT_MAP_NAME,
     FEATURE_TYPE_MAPPINGS,
     FEATURE_DISPLAY_NAMES,
     UNCOPYABLE_FEATURE_TYPES,
