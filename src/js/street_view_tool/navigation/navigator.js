@@ -377,19 +377,6 @@ export class StreetViewNavigator {
     }
 
     /**
-     * Computes the elevation difference between a target and the camera.
-     * Returns 0 when either elevation is missing, preserving flat-ground behavior.
-     * Clamped to ±2m to avoid GPS elevation outliers distorting marker placement.
-     * @param {Object} target - Target with optional `ele` property
-     * @returns {number} Elevation delta in meters (positive = target above camera)
-     */
-    getElevationDelta(target) {
-        if (target.ele == null || this.cameraConfig?.ele == null) return 0;
-        const delta = target.ele - this.cameraConfig.ele;
-        return Math.max(-2, Math.min(2, delta));
-    }
-
-    /**
      * Projects a navigation target to screen coordinates
      * @param {Object} target - Target object with lon/lat
      * @param {number} yaw - Camera yaw
@@ -400,12 +387,7 @@ export class StreetViewNavigator {
     projectTarget(target, yaw, pitch, fov) {
         if (!this.cameraConfig) return null;
 
-        // Elevation delta: positive when target is above camera
-        const elevationDelta = this.getElevationDelta(target);
-
         // If target has a manual override, project from bearing + ground distance.
-        // Override uses its own height offset instead of GPS elevation delta —
-        // the user manually placed the marker, height is controlled via slider.
         if (target.override_bearing != null) {
             return this.projectFromOverride(
                 target.override_bearing,
@@ -426,27 +408,19 @@ export class StreetViewNavigator {
         x *= distanceScale;
         z *= distanceScale;
 
-        // Place marker accounting for elevation difference.
-        // y = -cameraHeight + elevationDelta:
-        //   elevationDelta > 0 → target above camera → marker rises from ground plane
-        //   elevationDelta = 0 → flat ground (original behavior)
-        //   elevationDelta < 0 → target below camera → marker sinks below ground plane
         const cameraHeight = this.cameraConfig.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT;
-        const y = -cameraHeight + elevationDelta;
+        const y = -cameraHeight;
 
-        // Horizontal distance (for flatten ratio — ground-plane perspective)
         const horizontalDistance = Math.sqrt(x * x + z * z);
 
-        // Project to screen
         const projected = this.projector.metersToScreen(x, y, z, yaw, pitch, fov);
 
         if (!projected.visible) return null;
 
-        // Size and flatten use elevation-corrected vertical drop
         const radius = this.projector.calculateMarkerSize(
-            NAV_CONSTANTS.MARKER_WORLD_RADIUS, horizontalDistance, fov, elevationDelta
+            NAV_CONSTANTS.MARKER_WORLD_RADIUS, horizontalDistance, fov
         );
-        const flattenY = this.projector.calculateFlattenRatio(horizontalDistance, pitch, elevationDelta);
+        const flattenY = this.projector.calculateFlattenRatio(horizontalDistance, pitch);
 
         return {
             id: target.id,

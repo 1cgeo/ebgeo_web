@@ -318,8 +318,8 @@ src/js/
 │   │   ├── constants.js
 │   │   ├── hit-tester.js
 │   │   ├── minimap-sync.js         # Syncs viewer state with MapLibre minimap
-│   │   ├── navigator.js            # Target projection with elevation delta + override height
-│   │   ├── projector.js            # Coordinate math (flatten ratio, marker size with elevationDelta)
+│   │   ├── navigator.js            # Target projection (flat ground + override height)
+│   │   ├── projector.js            # Coordinate math (flatten ratio, marker size with heightOffset)
 │   │   └── renderer.js
 │   ├── components/          # Street view UI components
 │   │   ├── marker-panel-360.js     # 360 marker configuration
@@ -619,22 +619,15 @@ Store error events:
 
 The navigation system (`street_view_tool/navigation/`) projects target markers onto the 360 viewer canvas:
 
-**Elevation Delta** (`navigator.js → getElevationDelta()`):
-- Computes `target.ele - camera.ele` for non-override targets
-- Returns 0 when either elevation is null (preserves flat-ground behavior)
-- Clamped to ±2m (`MAX_ELEVATION_DELTA`) to prevent GPS elevation outliers from distorting markers
-- Applied to Y position: `y = -cameraHeight + elevationDelta`
-- Also passed to `calculateMarkerSize()` and `calculateFlattenRatio()` for correct perspective
-
-**Override Height** (`navigator.js → projectFromOverride()`):
-- Override targets (manual bearing/distance) use `override_height` from the API instead of GPS elevation delta
-- `target.override_height ?? 0` is passed as `overrideHeight` parameter
-- Applied identically: `y = -cameraHeight + overrideHeight`
-- This separation ensures manually-placed markers appear exactly where the user clicked in the calibration tool
+**Height Model (Flat Ground)** — GPS elevation (`ele`) is present in API responses but **not used** for projection. All targets use a flat ground model:
+- **GPS targets**: `y = -cameraHeight` (all at ground level)
+- **Override targets**: `y = -cameraHeight + overrideHeight` (manual height via `projectFromOverride()`)
+- `override_height` defaults to 0 (ground plane), positive = above ground
 
 **Projector** (`projector.js`):
-- `calculateFlattenRatio(horizontalDistance, pitch, elevationDelta)` — elliptical marker flattening with `h = cameraHeight - elevationDelta` for perspective-correct vertical drop
-- `calculateMarkerSize(worldRadius, horizontalDistance, fov, elevationDelta)` — physically-based marker sizing using slant distance with `verticalDrop = cameraHeight - elevationDelta`
+- `calculateFlattenRatio(horizontalDistance, pitch, heightOffset)` — elliptical marker flattening with `h = cameraHeight - heightOffset`
+- `calculateMarkerSize(worldRadius, horizontalDistance, fov, heightOffset)` — physically-based marker sizing using slant distance with `verticalDrop = cameraHeight - heightOffset`
+- `heightOffset` defaults to 0; only override targets pass a non-zero value via `overrideHeight`
 
 Both must stay in sync with the calibration counterparts in `ebgeo_360/public/calibration/js/`.
 
