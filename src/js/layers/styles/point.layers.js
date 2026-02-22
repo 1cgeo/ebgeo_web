@@ -58,4 +58,36 @@ export function setupPointLayers(features, mapInstance) {
             }
         });
     }
+
+    // ===== LABEL LAYER =====
+    // Shows text labels for points with showLabel=true and non-empty labelText
+    if (!mapInstance.getLayer('point-label-layer')) {
+        mapInstance.addLayer({
+            id: 'point-label-layer',
+            type: 'symbol',
+            source: 'points',
+            filter: [
+                'all',
+                ['==', ['get', 'showLabel'], true],
+                ['!=', ['get', 'visivel'], false],
+                ['has', 'labelText'],
+                ['!=', ['get', 'labelText'], ''],
+            ],
+            layout: {
+                'text-field': ['get', 'labelText'],
+                'text-size': ['coalesce', ['get', 'labelSize'], 14],
+                'text-font': ['Noto Sans Bold'],
+                'text-offset': [0.8, -0.8],
+                'text-anchor': 'bottom-left',
+                'text-allow-overlap': true,
+                'text-ignore-placement': true,
+            },
+            paint: {
+                'text-color': ['coalesce', ['get', 'labelColor'], '#ffffff'],
+                'text-halo-color': ['coalesce', ['get', 'labelOutlineColor'], '#000000'],
+                'text-halo-width': ['coalesce', ['get', 'labelOutlineWidth'], 2],
+                'text-opacity': ['coalesce', ['get', 'opacity'], 1],
+            }
+        });
+    }
 }

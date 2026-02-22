@@ -22,7 +22,14 @@ class AddPointControl extends BaseControl {
         nome: '',
         descricao: '',
         visivel: true,
-        bloqueado: false
+        bloqueado: false,
+        // Label properties (matching 3D marker pattern)
+        showLabel: false,
+        labelText: '',
+        labelColor: '#ffffff',
+        labelSize: 14,
+        labelOutlineColor: '#000000',
+        labelOutlineWidth: 2,
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
@@ -105,7 +112,7 @@ class AddPointControl extends BaseControl {
     }
 
     getLayerIds() {
-        return ['point-layer'];
+        return ['point-layer', 'point-label-layer'];
     }
 
     getSourceNames() {
@@ -356,14 +363,21 @@ class AddPointControl extends BaseControl {
     hasFeatureChanged = (feature, initialProperties) => {
         if (!initialProperties) return true;
 
+        const props = feature.properties;
         return (
-            feature.properties.fillColor !== initialProperties.fillColor ||
-            feature.properties.size !== initialProperties.size ||
-            feature.properties.opacity !== initialProperties.opacity ||
-            feature.properties.nome !== initialProperties.nome ||
-            feature.properties.descricao !== initialProperties.descricao ||
-            feature.properties.visivel !== initialProperties.visivel ||
-            feature.properties.bloqueado !== initialProperties.bloqueado
+            props.fillColor !== initialProperties.fillColor ||
+            props.size !== initialProperties.size ||
+            props.opacity !== initialProperties.opacity ||
+            props.nome !== initialProperties.nome ||
+            props.descricao !== initialProperties.descricao ||
+            props.visivel !== initialProperties.visivel ||
+            props.bloqueado !== initialProperties.bloqueado ||
+            props.showLabel !== initialProperties.showLabel ||
+            props.labelText !== initialProperties.labelText ||
+            props.labelColor !== initialProperties.labelColor ||
+            props.labelSize !== initialProperties.labelSize ||
+            props.labelOutlineColor !== initialProperties.labelOutlineColor ||
+            props.labelOutlineWidth !== initialProperties.labelOutlineWidth
         );
     }
 

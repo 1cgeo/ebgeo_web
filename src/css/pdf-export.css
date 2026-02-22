@@ -164,3 +164,64 @@
 .pdf-export-tab-content[style*="display: block"] {
     opacity: 1;
 }
+
+/* ===== CARTOGRAPHIC ELEMENTS SECTION ===== */
+.pdf-cartographic-section {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+}
+
+.pdf-cartographic-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.pdf-cartographic-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 14px;
+    color: #495057;
+    cursor: pointer;
+}
+
+.pdf-cartographic-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.pdf-title-input {
+    width: 100%;
+    padding: 8px 10px;
+    margin-top: 4px;
+    margin-bottom: 6px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #495057;
+    background: #fff;
+    box-sizing: border-box;
+    transition: border-color 0.2s, opacity 0.2s;
+}
+
+.pdf-title-input:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+
+.pdf-title-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: #f1f3f5;
+}

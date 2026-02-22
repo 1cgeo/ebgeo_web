@@ -15,6 +15,13 @@ export default class PDFExportTab {
         this.paperBounds = null;
         this.usableBounds = null;
 
+        // Cartographic layout options
+        this.showTitle = false;
+        this.mapTitle = '';
+        this.showLegend = false;
+        this.showScaleBar = false;
+        this.showNorthArrow = false;
+
         this.availableScales = [
             { value: '1:1000', label: '1:1.000' },
             { value: '1:5000', label: '1:5.000' },
@@ -55,6 +62,31 @@ export default class PDFExportTab {
                     <label>
                         <input type="radio" name="pdf-orientation" value="portrait">
                         Retrato (A4)
+                    </label>
+                </div>
+
+                <div class="pdf-cartographic-section">
+                    <div class="pdf-cartographic-title">Elementos Cartográficos</div>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-title">
+                        Título do mapa
+                    </label>
+                    <input type="text" id="pdf-map-title" class="pdf-title-input" placeholder="Título do mapa..." disabled>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-legend">
+                        Legenda
+                    </label>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-scalebar">
+                        Barra de escala
+                    </label>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-north">
+                        Seta norte
                     </label>
                 </div>
 
@@ -99,6 +131,9 @@ export default class PDFExportTab {
         if (exportBtn) {
             exportBtn.addEventListener('click', this.onExportClick);
         }
+
+        // Cartographic options
+        this._attachCartographicListeners();
     }
 
     detachEventListeners() {
@@ -115,6 +150,43 @@ export default class PDFExportTab {
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) {
             exportBtn.removeEventListener('click', this.onExportClick);
+        }
+    }
+
+    _attachCartographicListeners() {
+        const titleCheckbox = document.getElementById('pdf-show-title');
+        const titleInput = document.getElementById('pdf-map-title');
+        const legendCheckbox = document.getElementById('pdf-show-legend');
+        const scalebarCheckbox = document.getElementById('pdf-show-scalebar');
+        const northCheckbox = document.getElementById('pdf-show-north');
+
+        if (titleCheckbox) {
+            titleCheckbox.addEventListener('change', (e) => {
+                this.showTitle = e.target.checked;
+                if (titleInput) {
+                    titleInput.disabled = !e.target.checked;
+                }
+            });
+        }
+        if (titleInput) {
+            titleInput.addEventListener('input', (e) => {
+                this.mapTitle = e.target.value;
+            });
+        }
+        if (legendCheckbox) {
+            legendCheckbox.addEventListener('change', (e) => {
+                this.showLegend = e.target.checked;
+            });
+        }
+        if (scalebarCheckbox) {
+            scalebarCheckbox.addEventListener('change', (e) => {
+                this.showScaleBar = e.target.checked;
+            });
+        }
+        if (northCheckbox) {
+            northCheckbox.addEventListener('change', (e) => {
+                this.showNorthArrow = e.target.checked;
+            });
         }
     }
 
@@ -243,12 +315,23 @@ export default class PDFExportTab {
 
     /**
      * Updates the preview bounds centered at a specific point.
+     * Rotates the preview rectangle by the current map bearing so it
+     * always appears aligned with the viewport (screen edges).
      * @param {Object} center - The center point with lng and lat properties
      */
     updateBoundsAtCenter(center) {
         const bounds = this.calculateBoundsFromScaleAtCenter(this.scale, this.orientation, center);
-        this.paperBounds = bounds.paper;
-        this.usableBounds = bounds.usable;
+
+        // Store unrotated bounds for fitBounds / zoom calculation
+        this._unrotatedPaperBounds = bounds.paper;
+        this._unrotatedUsableBounds = bounds.usable;
+
+        // Rotate corners by map bearing so preview aligns with viewport
+        const bearing = this.map.getBearing();
+        const centerCoord = [center.lng, center.lat];
+
+        this.paperBounds = this._rotateBounds(bounds.paper, centerCoord, bearing);
+        this.usableBounds = this._rotateBounds(bounds.usable, centerCoord, bearing);
 
         const paperFeature = {
             type: 'Feature',
@@ -289,18 +372,60 @@ export default class PDFExportTab {
         }
     }
 
+    /**
+     * Rotates all four corners of a bounds object around a center point.
+     * @param {Object} bounds - Bounds with topLeft, topRight, bottomRight, bottomLeft
+     * @param {number[]} center - [lng, lat] center of rotation
+     * @param {number} bearingDeg - Rotation angle in degrees (clockwise)
+     * @returns {Object} Rotated bounds
+     */
+    _rotateBounds(bounds, center, bearingDeg) {
+        if (Math.abs(bearingDeg) < 0.01) return bounds;
+        return {
+            topLeft: this._rotateCorner(center, bounds.topLeft, bearingDeg),
+            topRight: this._rotateCorner(center, bounds.topRight, bearingDeg),
+            bottomRight: this._rotateCorner(center, bounds.bottomRight, bearingDeg),
+            bottomLeft: this._rotateCorner(center, bounds.bottomLeft, bearingDeg),
+        };
+    }
+
+    /**
+     * Rotates a geographic point around a center by a given bearing.
+     * Uses turf.js destination/bearing for geodesic accuracy.
+     * @param {number[]} center - [lng, lat] center of rotation
+     * @param {number[]} corner - [lng, lat] point to rotate
+     * @param {number} angleDeg - Rotation angle in degrees (clockwise)
+     * @returns {number[]} Rotated [lng, lat]
+     */
+    _rotateCorner(center, corner, angleDeg) {
+        const from = turf.point(center);
+        const to = turf.point(corner);
+        const dist = turf.distance(from, to);
+        if (dist < 0.0001) return corner;
+        const currentBearing = turf.bearing(from, to);
+        const rotated = turf.destination(from, dist, currentBearing + angleDeg);
+        return rotated.geometry.coordinates;
+    }
+
     zoomToPreviewArea() {
         if (!this.paperBounds) return;
 
-        const mapBounds = [
+        // Compute axis-aligned bbox of the (possibly rotated) preview polygon
+        const corners = [
+            this.paperBounds.topLeft,
+            this.paperBounds.topRight,
+            this.paperBounds.bottomRight,
             this.paperBounds.bottomLeft,
-            this.paperBounds.topRight
         ];
+        const lngs = corners.map(c => c[0]);
+        const lats = corners.map(c => c[1]);
+        const sw = [Math.min(...lngs), Math.min(...lats)];
+        const ne = [Math.max(...lngs), Math.max(...lats)];
 
         // Calculate sidebar offset for asymmetric padding
         const sidebarOffset = this.getSidebarOffset();
 
-        this.map.fitBounds(mapBounds, {
+        this.map.fitBounds([sw, ne], {
             padding: {
                 top: 50,
                 bottom: 50,
@@ -663,10 +788,19 @@ export default class PDFExportTab {
 
             this.updateProgress(60, 'Enquadrando área...');
 
-            const mapBounds = [this.usableBounds.bottomLeft, this.usableBounds.topRight];
+            // Use unrotated (axis-aligned) bounds for zoom calculation
+            const unrotatedUsable = this._unrotatedUsableBounds || this.usableBounds;
+            const mapBounds = [unrotatedUsable.bottomLeft, unrotatedUsable.topRight];
             hiddenMap.fitBounds(mapBounds, { padding: 0, duration: 0 });
 
             await new Promise(resolve => hiddenMap.once('idle', resolve));
+
+            // Apply map bearing so the export matches the user's rotated view
+            const exportBearing = this.map.getBearing();
+            if (Math.abs(exportBearing) > 0.01) {
+                hiddenMap.setBearing(exportBearing);
+                await new Promise(resolve => hiddenMap.once('idle', resolve));
+            }
 
             this.updateProgress(70, 'Corrigindo feições...');
 
@@ -679,7 +813,22 @@ export default class PDFExportTab {
 
             this.updateProgress(80, 'Finalizando...');
 
-            const imageData = hiddenMap.getCanvas().toDataURL('image/jpeg', 0.85);
+            // Compose cartographic layout if any element is enabled
+            let exportCanvas = hiddenMap.getCanvas();
+            if (this.showTitle || this.showLegend || this.showScaleBar || this.showNorthArrow) {
+                const { composeLayout } = await import('./pdf-cartographic-elements.js');
+                exportCanvas = composeLayout(exportCanvas, {
+                    title: this.showTitle ? this.mapTitle : null,
+                    showLegend: this.showLegend,
+                    showScaleBar: this.showScaleBar,
+                    showNorthArrow: this.showNorthArrow,
+                    scale: this.scale,
+                    bearing: this.map.getBearing(),
+                    featuresByType: await this._collectFeatureStats(this._buildExportBoundsPolygon()),
+                });
+            }
+
+            const imageData = exportCanvas.toDataURL('image/jpeg', 0.85);
             const arr = imageData.split(',');
             const mimeMatch = arr[0].match(/:(.*?);/);
             const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
@@ -745,5 +894,102 @@ export default class PDFExportTab {
                 document.body.removeChild(hiddenMapContainer);
             }
         }
+    }
+
+    /**
+     * Builds a turf polygon from the current (rotated) usable bounds.
+     * Used to spatially filter features for the legend.
+     * @returns {Object|null} Turf polygon or null
+     */
+    _buildExportBoundsPolygon() {
+        if (!this.usableBounds) return null;
+        try {
+            return turf.polygon([[
+                this.usableBounds.topLeft,
+                this.usableBounds.topRight,
+                this.usableBounds.bottomRight,
+                this.usableBounds.bottomLeft,
+                this.usableBounds.topLeft,
+            ]]);
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Extracts a representative coordinate from any GeoJSON feature geometry.
+     * @param {Object} feature - GeoJSON Feature
+     * @returns {number[]|null} [lng, lat] or null
+     */
+    _getFeatureCoord(feature) {
+        const geom = feature?.geometry;
+        if (!geom?.coordinates) return null;
+        switch (geom.type) {
+            case 'Point': return geom.coordinates;
+            case 'LineString': return geom.coordinates[0];
+            case 'Polygon': return geom.coordinates[0]?.[0];
+            case 'MultiPoint': return geom.coordinates[0];
+            case 'MultiLineString': return geom.coordinates[0]?.[0];
+            case 'MultiPolygon': return geom.coordinates[0]?.[0]?.[0];
+            default: return null;
+        }
+    }
+
+    /**
+     * Collects feature counts by type, filtered to the export area.
+     * Only features whose representative coordinate falls within the
+     * export bounds polygon are counted.
+     * @param {Object} [boundsPolygon] - Turf polygon for spatial filtering (null = count all)
+     * @returns {Promise<Object>} Feature counts keyed by source type
+     */
+    async _collectFeatureStats(boundsPolygon) {
+        const stats = {};
+        const sourceTypes = [
+            'points', 'lines', 'polygons', 'texts', 'images',
+            'circles', 'rectangles', 'ellipses', 'brushes',
+            'arrows', 'boundarys', 'occupied_fronts',
+            'military_symbols', 'coordination_measures',
+            'los', 'visibility', 'setores',
+        ];
+
+        // Reverse map from storage name to source type
+        const storageToSource = {
+            points: 'point', lines: 'line', polygons: 'polygon',
+            texts: 'text', images: 'image', circles: 'circle',
+            rectangles: 'rectangle', ellipses: 'ellipse', brushes: 'brush',
+            arrows: 'arrow', boundarys: 'boundary', occupied_fronts: 'occupied_front',
+            military_symbols: 'military_symbol', coordination_measures: 'coordination_measure',
+            los: 'los', visibility: 'visibility', setores: 'sector',
+        };
+
+        for (const sourceName of sourceTypes) {
+            try {
+                const source = this.map.getSource(sourceName);
+                if (!source) continue;
+                const data = await source.getData();
+                if (!data?.features?.length) continue;
+
+                let count = 0;
+                if (boundsPolygon) {
+                    for (const feature of data.features) {
+                        const coord = this._getFeatureCoord(feature);
+                        if (coord && turf.booleanPointInPolygon(turf.point(coord), boundsPolygon)) {
+                            count++;
+                        }
+                    }
+                } else {
+                    count = data.features.length;
+                }
+
+                if (count > 0) {
+                    const sourceType = storageToSource[sourceName] || sourceName;
+                    stats[sourceType] = count;
+                }
+            } catch {
+                // Source may not support getData()
+            }
+        }
+
+        return stats;
     }
 }

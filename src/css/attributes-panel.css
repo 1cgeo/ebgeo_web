@@ -1284,6 +1284,17 @@
     color: var(--primary);
 }
 
+/* Fill with coordinates button wrapper */
+.point-label-coord-btn-wrapper {
+    margin-top: 8px;
+}
+
+.point-label-coord-btn-wrapper .attr-modern-btn {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
 /* Hidden buttons container */
 .attr-modern-buttons-hidden {
     display: none;

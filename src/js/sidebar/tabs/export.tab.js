@@ -292,6 +292,13 @@ export class ExportTab {
     _renderPdfContent() {
         if (!this._pdfExportTab || !this._pdfContentContainer) return;
 
+        // Reset cartographic state so fresh checkboxes match the state
+        this._pdfExportTab.showTitle = false;
+        this._pdfExportTab.mapTitle = '';
+        this._pdfExportTab.showLegend = false;
+        this._pdfExportTab.showScaleBar = false;
+        this._pdfExportTab.showNorthArrow = false;
+
         // Clear existing content
         this._pdfContentContainer.innerHTML = '';
 
@@ -357,6 +364,53 @@ export class ExportTab {
                 } else {
                     showError('Serviço de exportação PDF não disponível');
                 }
+            });
+        }
+
+        // Cartographic element checkboxes
+        this._setupCartographicListeners();
+    }
+
+    /**
+     * Sets up event listeners for cartographic layout options.
+     * @private
+     */
+    _setupCartographicListeners() {
+        if (!this._pdfExportTab || !this._pdfContentContainer) return;
+
+        const titleCheckbox = this._pdfContentContainer.querySelector('#pdf-show-title');
+        const titleInput = this._pdfContentContainer.querySelector('#pdf-map-title');
+        const legendCheckbox = this._pdfContentContainer.querySelector('#pdf-show-legend');
+        const scalebarCheckbox = this._pdfContentContainer.querySelector('#pdf-show-scalebar');
+        const northCheckbox = this._pdfContentContainer.querySelector('#pdf-show-north');
+
+        if (titleCheckbox) {
+            addDomListener(this, titleCheckbox, 'change', (e) => {
+                this._pdfExportTab.showTitle = e.target.checked;
+                if (titleInput) {
+                    titleInput.disabled = !e.target.checked;
+                    if (e.target.checked) titleInput.focus();
+                }
+            });
+        }
+        if (titleInput) {
+            addDomListener(this, titleInput, 'input', (e) => {
+                this._pdfExportTab.mapTitle = e.target.value;
+            });
+        }
+        if (legendCheckbox) {
+            addDomListener(this, legendCheckbox, 'change', (e) => {
+                this._pdfExportTab.showLegend = e.target.checked;
+            });
+        }
+        if (scalebarCheckbox) {
+            addDomListener(this, scalebarCheckbox, 'change', (e) => {
+                this._pdfExportTab.showScaleBar = e.target.checked;
+            });
+        }
+        if (northCheckbox) {
+            addDomListener(this, northCheckbox, 'change', (e) => {
+                this._pdfExportTab.showNorthArrow = e.target.checked;
             });
         }
     }

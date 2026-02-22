@@ -232,7 +232,10 @@ class KeyboardShortcuts {
         // Tools allowed even when locked (read-only utilities)
         const readOnlyTools = {
             'q': this.controls.rectangleSelectionControl,
-            'n': this.controls.vectorTileInfoControl
+            'n': this.controls.vectorTileInfoControl,
+            'j': this.controls.measureDistanceControl,
+            'h': this.controls.measureAreaControl,
+            'x': this.controls.measureAngleControl,
         };
 
         // Tools that require write access

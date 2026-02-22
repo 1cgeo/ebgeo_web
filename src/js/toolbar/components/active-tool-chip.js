@@ -46,6 +46,11 @@ const TOOL_NAMES = {
     los: 'Linha de Visada',
     visibility: 'Análise de Visibilidade',
 
+    // Measurement tools
+    measurementdistance: 'Medir Distância',
+    measurementarea: 'Medir Área',
+    measurementangle: 'Medir Ângulo',
+
     // Standalone tools
     vectortileinfo: 'Informações da Carta',
     rectangleselection: 'Selecionar',
@@ -63,6 +68,8 @@ const TOOLBAR_TOOLS = new Set([
     'arrow', 'boundary', 'occupied_front', 'occupiedfront',
     // Analysis tools
     'los', 'visibility',
+    // Measurement tools
+    'measurementdistance', 'measurementarea', 'measurementangle',
     // Utility tools
     'vectortileinfo', 'rectangleselection',
     'azimuth_distance', 'azimuthdistance',

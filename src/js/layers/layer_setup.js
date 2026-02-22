@@ -30,8 +30,9 @@ import {
     setupLOSLayers,
     setupVisibilityLayers,
     setupLayerSeparators,
-    setupAuxiliaryLayers
+    setupAuxiliaryLayers,
 } from './styles/index.js';
+import { setupMeasurementLayers } from '../measurement_tool/measurement-labels.js';
 
 /**
  * Creates an error placeholder image for failed image loads.
@@ -488,6 +489,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         setupCoordinationMeasureLayers(features, mapInstance);
         setupTextLayers(features, mapInstance);
         setupAuxiliaryLayers(mapInstance);
+        setupMeasurementLayers(mapInstance);
 
         if (config.features.grid) {
             setupGridLayers(mapInstance);

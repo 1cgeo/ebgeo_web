@@ -232,7 +232,11 @@ src/js/
 │
 ├── draw_tools/              # Drawing tools
 │   ├── drawing-touch-helpers.js  # Touch input helpers for drawing
-│   ├── point_tool/
+│   ├── point_tool/          # Point + Callout annotation mode
+│   │   ├── add_point_control.js       # Point control with callout leader line support
+│   │   ├── add_point_geometry.js
+│   │   ├── point_attributes_panel.js  # Includes callout section (mode, label, offset, leader)
+│   │   └── index.js
 │   ├── line_tool/
 │   │   ├── add_line_control.js
 │   │   ├── add_line_geometry.js
@@ -269,6 +273,16 @@ src/js/
 ├── snapping/                # Geometry snapping system
 │   ├── snapping.service.js  # Main snapping service (vertex, edge, endpoint)
 │   ├── snapping.constants.js # Snap types, tolerance, indicator styles
+│   └── index.js
+│
+├── measurement_tool/        # Ephemeral 2D measurement tools (distance, area, angle)
+│   ├── measurement.constants.js     # Source/layer IDs, units, styles
+│   ├── measurement-geometry.js      # Turf.js calculations (distance, area, angle, formatting)
+│   ├── measurement-labels.js        # MapLibre source/layer management + setupMeasurementLayers()
+│   ├── measurement-distance.control.js  # Distance measurement IControl (J)
+│   ├── measurement-area.control.js      # Area measurement IControl (H)
+│   ├── measurement-angle.control.js     # 3-click angle measurement IControl (X)
+│   ├── measurement-results-panel.js     # Results panel UI (unit toggles, save option)
 │   └── index.js
 │
 ├── military_tools/          # Military symbology
@@ -397,7 +411,8 @@ src/js/
 │   ├── export-import.service.js
 │   ├── import.control.js
 │   ├── screenshot.control.js
-│   ├── pdf-export.tab.js
+│   ├── pdf-export.tab.js         # PDF export with cartographic layout options
+│   ├── pdf-cartographic-elements.js  # Cartographic layout compositing (title, legend, scale bar, north arrow)
 │   ├── drag-drop.handler.js    # Drag and drop file handler
 │   └── csv/                 # CSV import with coordinate mapping
 │       ├── csv-parser.js            # Lightweight CSV parser (no deps)
@@ -533,6 +548,19 @@ Geometry snapping service for drawing tools:
 - Vertex, edge, and endpoint snapping with configurable tolerance
 - Visual feedback indicators during drawing
 - Integrated with draw tools via `snapping.service.js`
+
+### Measurement Tool Pattern
+Ephemeral (non-persistent) 2D measurement tools that do NOT follow the standard three-file tool pattern. They use a shared-module architecture: `measurement-geometry.js` (pure calculations), `measurement-labels.js` (MapLibre sources/layers), `measurement-results-panel.js` (UI). Each control (distance, area, angle) composes these modules. Measurements are read-only by default; distance and area offer "Salvar como feição" to persist as `line`/`polygon` features with `measure: true`. Keyboard shortcuts: `J` (distance), `H` (area), `X` (angle). Layers are initialized via `setupMeasurementLayers()` called from `layer_setup.js`.
+
+### Point Callout Mode
+Points support a `pointMode` property (`'marker'` | `'callout'`). When set to `'callout'`, additional properties control the annotation: `labelText`, `labelOffsetX/Y`, `labelFontSize`, `labelColor`, `showLeaderLine`, `leaderLineColor`. Two conditional MapLibre layers render callouts:
+- `point-callout-label-layer` (symbol) — filtered by `pointMode === 'callout'`
+- `point-callout-leader-layer` (line) — from `point-callout-leaders` GeoJSON source
+
+Leader line geometry is computed from pixel offsets in `add_point_control.js` → `updateCalloutSources()`. The callout UI section appears in `point_attributes_panel.js` for single-selection only.
+
+### PDF Cartographic Layout
+The PDF export (`pdf-export.tab.js`) supports optional cartographic elements via checkboxes: title, legend, scale bar, and north arrow. When enabled, `pdf-cartographic-elements.js` composites these onto the captured map canvas using Canvas 2D API before GDAL processing. The `composeLayout(mapCanvas, options)` function creates a larger canvas with title above and legend below the map, plus scale bar (bottom-left) and north arrow (top-right of map area). Feature statistics for the legend are collected via `_collectFeatureStats()`.
 
 ### Atlas/Project Structure (v2.0)
 - **Atlas**: Top-level container for projects
@@ -751,7 +779,7 @@ These rules are enforced across the codebase. Follow them when writing new code 
 - Do NOT use `style.cssText`, `style.xxx = '...'`, or inline style objects in JS
 - Extract styles to CSS files using BEM class naming (e.g., `.measurement-label`, `.visibility-progress-modal__bar`)
 - Use `className` and `classList.toggle/add/remove` instead of inline styles
-- CSS files: `base.css` (shared), `panels-2d.css` (2D tools), `panels-3d.css` (3D tools), `panels-360.css` (street view), `sidebar.css`, `features-tab.css`, `attributes-panel.css`, `briefing-editor.css`, `briefing-presentation.css`, and component-specific CSS files in `src/css/`
+- CSS files: `base.css` (shared), `panels-2d.css` (2D tools), `panels-3d.css` (3D tools), `panels-360.css` (street view), `sidebar.css`, `features-tab.css`, `attributes-panel.css`, `briefing-editor.css`, `briefing-presentation.css`, `measurement.css`, `pdf-export.css`, and component-specific CSS files in `src/css/`
 - **Exception**: Dynamic styles that depend on JS runtime values (e.g., colors from JS constants, computed positions) may use inline styles
 
 ### innerHTML and XSS Prevention
@@ -892,7 +920,7 @@ function setupEventHandlers() { /* ... */ }
 ## Build Configuration
 
 Vite splits code into chunks:
-- `core` - Store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog, tool_manager, mode, briefing, UI, grid, coordinates, snapping, config, map/animation.service
+- `core` - Store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog, tool_manager, mode, briefing, UI, grid, coordinates, snapping, measurement_tool, config, map/animation.service
 - `ui-components` - Sidebar, features_tab, user_data, attribute_table, search, bottom-controls, base-layer-selector, context-menu, vector_info, processing
 - `draw-tools` - All drawing tools (including sector_tool) + azimuth_distance_tool
 - `military-tools` - Military symbology

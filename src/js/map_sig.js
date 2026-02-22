@@ -69,6 +69,13 @@ import {
     AddOccupiedFrontControl
 } from './military_tools/index.js';
 
+// Measurement tools (ephemeral distance/area/angle)
+import {
+    MeasurementDistanceControl,
+    MeasurementAreaControl,
+    MeasurementAngleControl,
+} from './measurement_tool/index.js';
+
 // Snapping
 import { SnappingService } from './snapping/snapping.service.js';
 
@@ -210,6 +217,11 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     const azimuthDistanceControl = new AddAzimuthDistanceControl(toolManager);
     const sectorControl = new AddSectorControl(toolManager);
 
+    // Measurement tools (ephemeral, read-only — no selection registration)
+    const measureDistanceControl = new MeasurementDistanceControl(toolManager);
+    const measureAreaControl = new MeasurementAreaControl(toolManager);
+    const measureAngleControl = new MeasurementAngleControl(toolManager);
+
     // ===== SELECTION MANAGER REGISTRATIONS (declarative) =====
 
     const SELECTION_CONTROLS = [
@@ -325,7 +337,10 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             vectorTileInfoControl,
             coordinationMeasureControl,
             azimuthDistanceControl,
-            sectorControl
+            sectorControl,
+            measureDistanceControl,
+            measureAreaControl,
+            measureAngleControl,
         }
     });
 
@@ -407,6 +422,9 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         visibilityControl,
         vectorTileInfoControl,
         rectangleSelectionControl,
+        measureDistanceControl,
+        measureAreaControl,
+        measureAngleControl,
     ];
 
     toolbarManagedControls.forEach(control => {
@@ -463,6 +481,9 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             losControl,
             visibilityControl,
             vectorTileInfoControl,
+            measureDistanceControl,
+            measureAreaControl,
+            measureAngleControl,
         },
         eventBus: getEventBus(),
         stateManager: getStateManager(),
@@ -562,6 +583,10 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         // Analysis tools
         ['AddLOSControl', losControl],
         ['AddVisibilityControl', visibilityControl],
+        // Measurement tools
+        ['MeasurementDistanceControl', measureDistanceControl],
+        ['MeasurementAreaControl', measureAreaControl],
+        ['MeasurementAngleControl', measureAngleControl],
         // Infrastructure
         ['TerrainControl', terrainControl],
         ['MouseCoordinatesControl', mouseCoordinatesControl],
