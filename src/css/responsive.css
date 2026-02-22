@@ -514,7 +514,7 @@
    Desktop/tablet UI hidden entirely — replaced by phone/ JS module.
    ========================================================================= */
 
-@media (width <= 480px) {
+@media (width <= 480px), (height <= 440px) and (pointer: coarse) {
     /* Hide desktop/tablet UI */
     .sidebar-container {
         display: none !important;
@@ -529,7 +529,8 @@
         display: none !important;
     }
 
-    .search-bar {
+    .search-bar,
+    .search-bar-container {
         display: none !important;
     }
 
@@ -550,6 +551,10 @@
     }
 
     .chips-container {
+        display: none !important;
+    }
+
+    .sidebar-backdrop {
         display: none !important;
     }
 

@@ -612,6 +612,8 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         ['streetView', addStreetViewControl],
         ['modelsViewer', add3DModelsViewerControl],
         ['ClipboardManager', clipboardManager],
+        // UI components accessed by phone layout
+        ['chipsComponent', chipsComponent],
     ];
 
     for (const [name, ctrl] of CONTROL_REGISTRY) {

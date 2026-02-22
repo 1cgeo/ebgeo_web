@@ -4,8 +4,8 @@
  * @fileoverview Phone search overlay component.
  * Floating search pill + full-screen search overlay for the phone layout (<=480px).
  *
- * The pill auto-hides during map pan/zoom and reappears after 1s of inactivity.
- * Tapping the pill opens a full-screen overlay with an input field and result list.
+ * The pill is always visible. Tapping it opens a full-screen overlay with an
+ * input field and result list.
  *
  * This component does NOT implement search logic — it exposes callbacks
  * (onSearch, onResultSelect) for the layout orchestrator to wire up.
@@ -28,7 +28,6 @@ const LOCATION_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
 // ---------------------------------------------------------------------------
 
 const DEBOUNCE_DELAY_MS = 300;
-const REAPPEAR_DELAY_MS = 1000;
 
 /**
  * Phone search overlay with floating pill and full-screen search mode.
@@ -65,20 +64,19 @@ export class PhoneSearchOverlay {
         /** @private @type {Function|null} */
         this._resultSelectCallback = null;
 
-        /** @private @type {number|null} */
-        this._debounceTimer = null;
+        /** @private @type {Function|null} */
+        this._hamburgerCallback = null;
+
+        /** @private @type {HTMLElement|null} */
+        this._hamburgerBtn = null;
 
         /** @private @type {number|null} */
-        this._reappearTimer = null;
+        this._debounceTimer = null;
 
         /** @private @type {Array<Object>} */
         this._results = [];
 
         // Bind handlers once so they can be removed
-        /** @private */
-        this._handleMoveStart = this._onMoveStart.bind(this);
-        /** @private */
-        this._handleMoveEnd = this._onMoveEnd.bind(this);
         /** @private */
         this._handleKeyDown = this._onKeyDown.bind(this);
     }
@@ -106,13 +104,6 @@ export class PhoneSearchOverlay {
      */
     destroy() {
         this._clearDebounce();
-        this._clearReappear();
-
-        // Remove map listeners
-        if (this._map) {
-            this._map.off('movestart', this._handleMoveStart);
-            this._map.off('moveend', this._handleMoveEnd);
-        }
 
         cleanup(this);
 
@@ -123,8 +114,10 @@ export class PhoneSearchOverlay {
         this._overlay = null;
         this._input = null;
         this._resultsContainer = null;
+        this._hamburgerBtn = null;
         this._searchCallback = null;
         this._resultSelectCallback = null;
+        this._hamburgerCallback = null;
         this._results = [];
     }
 
@@ -202,6 +195,14 @@ export class PhoneSearchOverlay {
         this._resultSelectCallback = callback;
     }
 
+    /**
+     * Register a callback invoked when the hamburger menu button is tapped.
+     * @param {Function} callback - () => void
+     */
+    onHamburgerTap(callback) {
+        this._hamburgerCallback = callback;
+    }
+
     // -----------------------------------------------------------------------
     // DOM construction
     // -----------------------------------------------------------------------
@@ -210,6 +211,13 @@ export class PhoneSearchOverlay {
     _buildPill() {
         const pill = document.createElement('div');
         pill.className = 'phone-search-bar';
+
+        // Hamburger menu button
+        const hamburger = document.createElement('button');
+        hamburger.className = 'phone-search-bar__hamburger';
+        hamburger.setAttribute('aria-label', 'Menu');
+        hamburger.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>';
+        this._hamburgerBtn = hamburger;
 
         // Search icon
         const icon = document.createElement('div');
@@ -221,6 +229,7 @@ export class PhoneSearchOverlay {
         text.className = 'phone-search-bar__text';
         text.textContent = 'Pesquisar no mapa...';
 
+        pill.appendChild(hamburger);
         pill.appendChild(icon);
         pill.appendChild(text);
 
@@ -272,6 +281,14 @@ export class PhoneSearchOverlay {
 
     /** @private */
     _bindEvents() {
+        // Hamburger tap → fire hamburger callback
+        addDomListener(this, this._hamburgerBtn, 'click', (e) => {
+            e.stopPropagation(); // Prevent pill click from opening search
+            if (this._hamburgerCallback) {
+                this._hamburgerCallback();
+            }
+        });
+
         // Pill tap → open overlay
         addDomListener(this, this._pill, 'click', () => this.open());
 
@@ -284,34 +301,6 @@ export class PhoneSearchOverlay {
 
         // ESC key → close overlay
         addDomListener(this, document, 'keydown', this._handleKeyDown);
-
-        // Map move → auto-hide pill
-        this._map.on('movestart', this._handleMoveStart);
-        this._map.on('moveend', this._handleMoveEnd);
-    }
-
-    // -----------------------------------------------------------------------
-    // Map auto-hide
-    // -----------------------------------------------------------------------
-
-    /** @private */
-    _onMoveStart() {
-        this._clearReappear();
-        if (this._pill) {
-            this._pill.classList.add('phone-search-bar--hidden');
-        }
-    }
-
-    /** @private */
-    _onMoveEnd() {
-        this._clearReappear();
-        const timerId = setTimeout(() => {
-            if (this._pill) {
-                this._pill.classList.remove('phone-search-bar--hidden');
-            }
-        }, REAPPEAR_DELAY_MS);
-        this._reappearTimer = timerId;
-        trackTimer(this, timerId, 'timeout');
     }
 
     // -----------------------------------------------------------------------
@@ -469,14 +458,6 @@ export class PhoneSearchOverlay {
         if (this._debounceTimer !== null) {
             clearTimeout(this._debounceTimer);
             this._debounceTimer = null;
-        }
-    }
-
-    /** @private */
-    _clearReappear() {
-        if (this._reappearTimer !== null) {
-            clearTimeout(this._reappearTimer);
-            this._reappearTimer = null;
         }
     }
 }

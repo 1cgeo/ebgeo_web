@@ -110,6 +110,11 @@ export default defineConfig(({ mode: _mode }) => ({
             return 'core';
           }
 
+          // ===== PHONE UI (standalone, depends on core + ui-components) =====
+          if (id.includes('/phone/')) {
+            return 'phone-ui';
+          }
+
           // ===== UI COMPONENTS (depends on core) =====
           // Includes: sidebar, features_tab, user_data, attribute_table, search, bottom-controls, base-layer-selector, context-menu
 

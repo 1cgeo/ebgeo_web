@@ -14,18 +14,26 @@
 
 import { PhoneBottomSheet } from './phone-bottom-sheet.js';
 import { PhoneSearchOverlay } from './phone-search-overlay.js';
+import { PhoneDrawer } from './phone-drawer.js';
 import { PhoneFabs } from './phone-fabs.js';
 import { PhoneMoveActions } from './phone-move-actions.js';
 import { PhoneFeatureEditor } from './phone-feature-editor.js';
-import { getEventBus } from '@store/services.js';
+import { PhoneBaseLayerModal } from './phone-baselayer-modal.js';
+import { getEventBus, getStateManager } from '@store/services.js';
 import {
     getControl,
     getFeatureById,
     updateFeature,
+    addMap,
+    renameMap,
+    removeMap,
     getCurrentMapNameSync,
     getLayers,
     getCurrentMapFeatures,
     getAllStorageTypes,
+    getAllMapNamesStore,
+    setCurrentMap,
+    setLayerVisibility,
 } from '@store';
 import { EventTypes } from '@events/event_types.js';
 import { showToast } from '@utils';
@@ -35,7 +43,39 @@ import config from '../config.js';
 // CONSTANTS
 // ============================================================================
 
-const PHONE_QUERY = '(max-width: 480px)';
+const PHONE_QUERY = '(max-width: 480px), (max-height: 440px) and (pointer: coarse)';
+
+/**
+ * Maps toolbar controlKey values to the registered control names in the
+ * global control registry (map_sig.js). The toolbar constants use camelCase
+ * variable names while the registry uses PascalCase class-style names.
+ * @type {Object<string, string>}
+ */
+const CONTROL_KEY_TO_REGISTRY = {
+    pointControl: 'AddPointControl',
+    lineControl: 'AddLineControl',
+    polygonControl: 'AddPolygonControl',
+    rectangleControl: 'AddRectangleControl',
+    circleControl: 'AddCircleControl',
+    ellipseControl: 'AddEllipseControl',
+    textControl: 'AddTextControl',
+    imageControl: 'AddImageControl',
+    brushControl: 'AddBrushControl',
+    sectorControl: 'AddSectorControl',
+    azimuthDistanceControl: 'AddAzimuthDistanceControl',
+    militarySymbolControl: 'AddMilitarySymbolControl',
+    coordinationMeasureControl: 'AddCoordinationMeasureControl',
+    arrowControl: 'AddArrowControl',
+    boundaryControl: 'AddBoundaryControl',
+    occupiedFrontControl: 'AddOccupiedFrontControl',
+    losControl: 'AddLOSControl',
+    visibilityControl: 'AddVisibilityControl',
+    measureDistanceControl: 'MeasurementDistanceControl',
+    measureAreaControl: 'MeasurementAreaControl',
+    measureAngleControl: 'MeasurementAngleControl',
+    vectorTileInfoControl: 'VectorTileInfoControl',
+    rectangleSelectionControl: 'RectangleSelectionControl',
+};
 
 // ============================================================================
 // COMPONENT
@@ -66,17 +106,23 @@ export class PhoneLayout {
         /** @private */
         this._searchOverlay = null;
         /** @private */
+        this._drawer = null;
+        /** @private */
         this._fabs = null;
         /** @private */
         this._moveActions = null;
         /** @private */
         this._featureEditor = null;
+        /** @private */
+        this._baseLayerModal = null;
 
         // Event subscriptions to clean up
         /** @private */
         this._eventUnsubscribers = [];
         /** @private */
         this._mapClickHandler = null;
+        /** @private - guard to prevent double-fire when tree triggers selection */
+        this._treeInitiatedSelection = false;
     }
 
     // ========================================================================
@@ -137,25 +183,32 @@ export class PhoneLayout {
         // Create components
         this._bottomSheet = new PhoneBottomSheet({ map });
         this._searchOverlay = new PhoneSearchOverlay({ map });
+        this._drawer = new PhoneDrawer({ map });
         this._fabs = new PhoneFabs({ map });
         this._moveActions = new PhoneMoveActions();
         this._featureEditor = new PhoneFeatureEditor();
+        this._baseLayerModal = new PhoneBaseLayerModal();
 
         // Mount components to DOM
         this._bottomSheet.mount(body);
         this._searchOverlay.mount(body);
+        this._drawer.mount(body);
         this._fabs.mount(body);
         this._moveActions.mount(body);
         this._featureEditor.mount(body);
+        this._baseLayerModal.mount(body);
 
         // Wire inter-component communication
         this._wireBottomSheetToFabs();
         this._wireFeatureSelection();
         this._wireFeatureEditorCallbacks();
         this._wireSearch();
+        this._wireDrawer();
+        this._wireFeatureTree();
         this._wireLayerUpdates();
         this._wireMapInfo();
-        this._wireBaseLayerCycling();
+        this._wireMapList();
+        this._wireBaseLayerPicker();
         this._wireMapTapDeselect();
 
         // Add phone mode class to body for CSS targeting
@@ -182,6 +235,10 @@ export class PhoneLayout {
             this._searchOverlay.destroy();
             this._searchOverlay = null;
         }
+        if (this._drawer) {
+            this._drawer.destroy();
+            this._drawer = null;
+        }
         if (this._fabs) {
             this._fabs.destroy();
             this._fabs = null;
@@ -193,6 +250,10 @@ export class PhoneLayout {
         if (this._featureEditor) {
             this._featureEditor.destroy();
             this._featureEditor = null;
+        }
+        if (this._baseLayerModal) {
+            this._baseLayerModal.destroy();
+            this._baseLayerModal = null;
         }
 
         document.body.classList.remove('phone-mode');
@@ -221,6 +282,8 @@ export class PhoneLayout {
 
         const onFeaturePanelOpened = async ({ featureId, featureType }) => {
             try {
+                // Skip if already handled by tree click
+                if (this._treeInitiatedSelection) return;
                 if (!featureId || !featureType) return;
                 const feature = await getFeatureById(featureType, featureId);
                 if (feature) {
@@ -317,7 +380,166 @@ export class PhoneLayout {
     }
 
     /**
-     * Wire layer change events to bottom sheet.
+     * Wire drawer open/close and action callbacks.
+     * @private
+     */
+    _wireDrawer() {
+        // Open drawer when hamburger tapped
+        this._searchOverlay.onHamburgerTap(() => {
+            this._drawer.open();
+        });
+
+        // Tool selection — map toolbar controlKey to registered name
+        this._drawer.onToolSelect((controlKey) => {
+            const registryName = CONTROL_KEY_TO_REGISTRY[controlKey];
+            const control = registryName ? getControl(registryName) : null;
+            if (control && typeof control.activate === 'function') {
+                control.activate();
+            }
+        });
+
+        // Map creation
+        this._drawer.onMapCreate(async () => {
+            try {
+                await addMap('Novo Mapa');
+                showToast('Mapa criado', 'success');
+                await this._refreshMapList();
+            } catch (_e) {
+                showToast('Erro ao criar mapa', 'error');
+            }
+        });
+
+        // Map import — open sidebar import tab
+        this._drawer.onMapImport(() => {
+            try {
+                const eventBus = getEventBus();
+                eventBus.emit(EventTypes.UI_CLOSE_ALL_POPUPS);
+                const stateManager = getStateManager();
+                if (stateManager) {
+                    stateManager.batchUpdate({
+                        'sidebar.expanded': true,
+                        'sidebar.activeTab': 'import',
+                    });
+                }
+            } catch (_e) {
+                showToast('Erro ao abrir importação', 'error');
+            }
+        });
+
+        // Map rename
+        this._drawer.onMapRename(async (_mapId) => {
+            try {
+                const currentName = getCurrentMapNameSync() || '';
+                const newName = await this._showPrompt('Novo nome do mapa:', currentName);
+                if (newName && newName !== currentName) {
+                    await renameMap(currentName, newName);
+                    showToast('Mapa renomeado', 'success');
+                    await this._refreshMapList();
+                    this._bottomSheet.updateMapInfo(this._getMapInfo());
+                }
+            } catch (_e) {
+                showToast('Erro ao renomear mapa', 'error');
+            }
+        });
+
+        // Map delete
+        this._drawer.onMapDelete(async (_mapId) => {
+            try {
+                const currentName = getCurrentMapNameSync() || '';
+                const confirmed = await this._showConfirm(
+                    `Excluir o mapa "${currentName}"?`,
+                    'Excluir',
+                    true,
+                );
+                if (confirmed) {
+                    await removeMap(currentName);
+                    showToast('Mapa excluído', 'success');
+                    await this._refreshMapList();
+                    this._bottomSheet.updateMapInfo(this._getMapInfo());
+                    const layers = this._getLayerData();
+                    this._bottomSheet.updateLayers(layers);
+                    this._loadFeatureTree();
+                }
+            } catch (_e) {
+                showToast('Erro ao excluir mapa', 'error');
+            }
+        });
+
+        // Layer visibility toggle
+        this._drawer.onLayerToggle((layerId, visible) => {
+            setLayerVisibility(layerId, visible);
+        });
+
+        // Chip selection
+        this._drawer.onChipSelect((chipId) => {
+            this._handleChipAction(chipId);
+        });
+    }
+
+    /**
+     * Refresh the maps list in the drawer from the store.
+     * @private
+     */
+    async _refreshMapList() {
+        try {
+            const mapNames = await getAllMapNamesStore();
+            const currentName = getCurrentMapNameSync();
+            const maps = mapNames.map(name => ({
+                id: name,
+                nome: name,
+            }));
+            if (this._drawer) {
+                this._drawer.updateMaps(maps, currentName);
+            }
+        } catch (_e) {
+            // Maps loading is non-critical
+        }
+    }
+
+    /**
+     * Wire maps list to the drawer: initial load + live updates on map events.
+     * @private
+     */
+    _wireMapList() {
+        const eventBus = getEventBus();
+
+        // Wire map selection → switch active map
+        this._drawer.onMapSelect(async (mapId) => {
+            try {
+                await setCurrentMap(mapId);
+                showToast('Mapa alterado', 'success');
+                await this._refreshMapList();
+
+                // Refresh map info + layers + feature tree
+                const info = this._getMapInfo();
+                this._bottomSheet.updateMapInfo(info);
+                const layers = this._getLayerData();
+                this._bottomSheet.updateLayers(layers);
+                this._loadFeatureTree();
+            } catch (_e) {
+                showToast('Erro ao trocar de mapa', 'error');
+            }
+        });
+
+        // Subscribe to map lifecycle events
+        const onMapChanged = () => this._refreshMapList();
+
+        eventBus.on(EventTypes.MAP_CREATED, onMapChanged);
+        eventBus.on(EventTypes.MAP_DELETED, onMapChanged);
+        eventBus.on(EventTypes.MAP_MODIFIED, onMapChanged);
+
+        this._eventUnsubscribers.push(
+            () => eventBus.off(EventTypes.MAP_CREATED, onMapChanged),
+            () => eventBus.off(EventTypes.MAP_DELETED, onMapChanged),
+            () => eventBus.off(EventTypes.MAP_MODIFIED, onMapChanged),
+        );
+
+        // Initial load
+        this._refreshMapList();
+    }
+
+    /**
+     * Wire layer change events to bottom sheet and feature tree.
      * @private
      */
     _wireLayerUpdates() {
@@ -326,19 +548,37 @@ export class PhoneLayout {
         const onLayersChanged = () => {
             const layers = this._getLayerData();
             this._bottomSheet.updateLayers(layers);
-
-            // Update feature count in map info
+            if (this._drawer) {
+                this._drawer.updateLayers(layers);
+            }
+            this._loadFeatureTree();
             this._updateMapInfoFeatureCount();
         };
 
+        // Also refresh feature tree on feature lifecycle events
+        const onFeatureChanged = () => {
+            this._loadFeatureTree();
+        };
+
         eventBus.on(EventTypes.LAYERS_CHANGED, onLayersChanged);
+        eventBus.on(EventTypes.FEATURE_CREATED, onFeatureChanged);
+        eventBus.on(EventTypes.FEATURE_MODIFIED, onFeatureChanged);
+        eventBus.on(EventTypes.FEATURE_DELETED, onFeatureChanged);
+
         this._eventUnsubscribers.push(
             () => eventBus.off(EventTypes.LAYERS_CHANGED, onLayersChanged),
+            () => eventBus.off(EventTypes.FEATURE_CREATED, onFeatureChanged),
+            () => eventBus.off(EventTypes.FEATURE_MODIFIED, onFeatureChanged),
+            () => eventBus.off(EventTypes.FEATURE_DELETED, onFeatureChanged),
         );
 
-        // Initial layer load
+        // Initial load
         const layers = this._getLayerData();
         this._bottomSheet.updateLayers(layers);
+        if (this._drawer) {
+            this._drawer.updateLayers(layers);
+        }
+        this._loadFeatureTree();
     }
 
     /**
@@ -367,28 +607,149 @@ export class PhoneLayout {
     }
 
     /**
-     * Wire base layer cycling FAB.
+     * Wire base layer picker via PhoneBaseLayerModal.
      * @private
      */
-    _wireBaseLayerCycling() {
+    _wireBaseLayerPicker() {
         try {
             const enabledBasemaps = config.getEnabledBasemaps();
+            this._baseLayerModal.setBasemaps(enabledBasemaps);
+
+            // Set initial active layer
+            if (enabledBasemaps.length > 0) {
+                this._baseLayerModal.setActiveLayer(enabledBasemaps[0][0]);
+            }
+
             const names = enabledBasemaps.map(([, cfg]) => cfg.name || cfg.id);
             this._fabs.setBaseLayerNames(names);
 
-            this._fabs.onBaseLayerCycle((_name, index) => {
+            // FAB tap opens modal
+            this._fabs.onBaseLayerTap(() => {
+                this._baseLayerModal.open();
+            });
+
+            // Modal selection callback
+            this._baseLayerModal.onSelect((id, index) => {
                 const baseLayerControl = getControl('BaseLayerControl');
                 if (baseLayerControl) {
-                    const enabledList = config.getEnabledBasemaps();
-                    if (index < enabledList.length) {
-                        const [layerId] = enabledList[index];
-                        baseLayerControl.executeLayerChange(layerId);
-                    }
+                    baseLayerControl.executeLayerChange(id);
                 }
+                this._baseLayerModal.setActiveLayer(id);
+                this._fabs.setActiveBaseLayerIndex(index);
             });
         } catch (_e) {
             // Config may not have basemaps configured
             this._fabs.setBaseLayerNames([]);
+        }
+    }
+
+    /**
+     * Handle chip actions from the drawer (catalog, tutorial, info, shortcuts).
+     * @param {string} chipId - Chip identifier
+     * @private
+     */
+    _handleChipAction(chipId) {
+        // Access modal instances via the desktop ChipsComponent
+        const chipsComponent = getControl('chipsComponent');
+
+        switch (chipId) {
+        case 'catalog': {
+            const modal = chipsComponent?.getCatalogModal?.();
+            if (modal) {
+                modal.show();
+            }
+            break;
+        }
+        case 'tutorial': {
+            const tutorialUrl = config.app?.tutorialUrl || config.tutorialUrl || './docs/doc.html';
+            window.open(tutorialUrl, '_blank', 'noopener,noreferrer');
+            break;
+        }
+        case 'info': {
+            const modal = chipsComponent?.getInfoModal?.();
+            if (modal) {
+                modal.show();
+            }
+            break;
+        }
+        case 'shortcuts': {
+            const modal = chipsComponent?.getShortcutsModal?.();
+            if (modal) {
+                modal.show();
+            }
+            break;
+        }
+        }
+    }
+
+    /**
+     * Wire feature tree in bottom sheet to feature selection/deselection.
+     * @private
+     */
+    _wireFeatureTree() {
+        // Feature selection from tree
+        this._bottomSheet.onFeatureSelect(async (featureId, featureType) => {
+            try {
+                const feature = await getFeatureById(featureType, featureId);
+                if (feature) {
+                    const featureData = this._buildFeatureData(feature, featureType);
+                    this._featureEditor.showFeature(featureData);
+                    this._bottomSheet.setFeatureContent(this._featureEditor.getElement());
+                    this._bottomSheet.snapTo('half');
+
+                    // Emit event for other components (e.g. highlight on map)
+                    // Guard prevents _wireFeatureSelection from re-processing
+                    this._treeInitiatedSelection = true;
+                    const eventBus = getEventBus();
+                    eventBus.emit(EventTypes.FEATURE_PANEL_OPENED, { featureId, featureType });
+                    this._treeInitiatedSelection = false;
+                }
+            } catch (_e) {
+                // Feature may not be accessible in current map state
+            }
+        });
+
+        // Feature deselection from X close button
+        this._bottomSheet.onFeatureDeselect(() => {
+            this._featureEditor.clear();
+            this._bottomSheet.snapTo('peek');
+
+            const eventBus = getEventBus();
+            eventBus.emit(EventTypes.FEATURE_PANEL_CLOSED);
+        });
+    }
+
+    /**
+     * Load features grouped by layer and push to the bottom sheet tree.
+     * @private
+     */
+    async _loadFeatureTree() {
+        try {
+            const features = await getCurrentMapFeatures();
+            const featuresByLayer = {};
+
+            for (const storageType of getAllStorageTypes()) {
+                const typeFeatures = features[storageType] || [];
+                for (const feature of typeFeatures) {
+                    const props = feature.properties || {};
+                    const layerId = props.layerId;
+                    if (!layerId) continue;
+
+                    if (!featuresByLayer[layerId]) {
+                        featuresByLayer[layerId] = [];
+                    }
+
+                    featuresByLayer[layerId].push({
+                        id: props.id,
+                        type: storageType,
+                        name: props.nome || props.name || props.descricao || 'Sem nome',
+                    });
+                }
+            }
+
+            this._bottomSheet.updateFeatures(featuresByLayer);
+        } catch (_e) {
+            // Feature loading is non-critical
         }
     }
 
@@ -630,5 +991,151 @@ export class PhoneLayout {
         default:
             return null;
         }
+    }
+
+    // ========================================================================
+    // PHONE DIALOGS
+    // ========================================================================
+
+    /**
+     * Show a phone-friendly prompt dialog (replaces browser prompt()).
+     * Returns a Promise that resolves with the input value or null if cancelled.
+     * @param {string} title - Dialog title
+     * @param {string} [defaultValue=''] - Pre-filled value
+     * @returns {Promise<string|null>}
+     * @private
+     */
+    _showPrompt(title, defaultValue = '') {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'phone-dialog-overlay';
+
+            const card = document.createElement('div');
+            card.className = 'phone-dialog';
+
+            const titleEl = document.createElement('div');
+            titleEl.className = 'phone-dialog__title';
+            titleEl.textContent = title;
+
+            const input = document.createElement('input');
+            input.className = 'phone-dialog__input';
+            input.type = 'text';
+            input.value = defaultValue;
+            input.setAttribute('autocomplete', 'off');
+
+            const actions = document.createElement('div');
+            actions.className = 'phone-dialog__actions';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'phone-dialog__btn';
+            cancelBtn.textContent = 'Cancelar';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = 'phone-dialog__btn phone-dialog__btn--primary';
+            confirmBtn.textContent = 'OK';
+
+            actions.appendChild(cancelBtn);
+            actions.appendChild(confirmBtn);
+
+            card.appendChild(titleEl);
+            card.appendChild(input);
+            card.appendChild(actions);
+            overlay.appendChild(card);
+            document.body.appendChild(overlay);
+
+            // Animate in
+            requestAnimationFrame(() => {
+                overlay.classList.add('phone-dialog-overlay--open');
+                input.focus();
+                input.select();
+            });
+
+            const cleanup = (result) => {
+                overlay.classList.remove('phone-dialog-overlay--open');
+                // Wait for CSS transition before removing
+                setTimeout(() => overlay.remove(), 200);
+                resolve(result);
+            };
+
+            cancelBtn.addEventListener('click', () => cleanup(null));
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) cleanup(null);
+            });
+            confirmBtn.addEventListener('click', () => {
+                const val = input.value.trim();
+                cleanup(val || null);
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const val = input.value.trim();
+                    cleanup(val || null);
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cleanup(null);
+                }
+            });
+        });
+    }
+
+    /**
+     * Show a phone-friendly confirm dialog (replaces browser confirm()).
+     * Returns a Promise that resolves with true/false.
+     * @param {string} title - Dialog title/message
+     * @param {string} [confirmLabel='Excluir'] - Confirm button label
+     * @param {boolean} [danger=false] - Whether the confirm action is destructive
+     * @returns {Promise<boolean>}
+     * @private
+     */
+    _showConfirm(title, confirmLabel = 'Excluir', danger = false) {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'phone-dialog-overlay';
+
+            const card = document.createElement('div');
+            card.className = 'phone-dialog';
+
+            const titleEl = document.createElement('div');
+            titleEl.className = 'phone-dialog__title';
+            titleEl.textContent = title;
+
+            const actions = document.createElement('div');
+            actions.className = 'phone-dialog__actions';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'phone-dialog__btn';
+            cancelBtn.textContent = 'Cancelar';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = danger
+                ? 'phone-dialog__btn phone-dialog__btn--danger'
+                : 'phone-dialog__btn phone-dialog__btn--primary';
+            confirmBtn.textContent = confirmLabel;
+
+            actions.appendChild(cancelBtn);
+            actions.appendChild(confirmBtn);
+
+            card.appendChild(titleEl);
+            card.appendChild(actions);
+            overlay.appendChild(card);
+            document.body.appendChild(overlay);
+
+            // Animate in
+            requestAnimationFrame(() => {
+                overlay.classList.add('phone-dialog-overlay--open');
+            });
+
+            const cleanup = (result) => {
+                overlay.classList.remove('phone-dialog-overlay--open');
+                setTimeout(() => overlay.remove(), 200);
+                resolve(result);
+            };
+
+            cancelBtn.addEventListener('click', () => cleanup(false));
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) cleanup(false);
+            });
+            confirmBtn.addEventListener('click', () => cleanup(true));
+        });
     }
 }
