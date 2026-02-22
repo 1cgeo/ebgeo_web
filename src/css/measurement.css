@@ -1,0 +1,116 @@
+/* measurement.css — Styles for ephemeral measurement tools results panel */
+
+.measurement-results-panel {
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.measurement-results-panel__header {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--gray-800);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.measurement-results-panel__label {
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+    margin-top: var(--space-1);
+}
+
+.measurement-results-panel__total {
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.measurement-results-panel__value {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--gray-800);
+}
+
+.measurement-results-panel__unit-selector {
+    width: 100%;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    background: #fff;
+    cursor: pointer;
+}
+
+.measurement-results-panel__segment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.measurement-results-panel__segment-item {
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    padding: 2px 0;
+}
+
+.measurement-results-panel__angle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-1) 0;
+}
+
+.measurement-results-panel__angle-label {
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+}
+
+.measurement-results-panel__angle-value {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--gray-800);
+}
+
+.measurement-results-panel__actions {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-color);
+}
+
+.measurement-results-panel__save-btn,
+.measurement-results-panel__clear-btn {
+    flex: 1;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border-color);
+    transition: background-color 0.15s ease;
+}
+
+.measurement-results-panel__save-btn {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
+.measurement-results-panel__save-btn:hover {
+    opacity: 0.9;
+}
+
+.measurement-results-panel__clear-btn {
+    background: #fff;
+    color: var(--gray-700);
+}
+
+.measurement-results-panel__clear-btn:hover {
+    background: var(--gray-100);
+}

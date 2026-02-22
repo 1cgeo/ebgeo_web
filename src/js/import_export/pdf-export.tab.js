@@ -2,6 +2,7 @@
 /* global initGdalJs */
 import config from '../config.js'
 import { showError } from '../utilities/toast_service.js'
+import { deepClone } from '../utilities/deep-utils.js'
 
 export default class PDFExportTab {
     constructor(map) {
@@ -15,6 +16,29 @@ export default class PDFExportTab {
         this.paperBounds = null;
         this.usableBounds = null;
 
+        // Cartographic layout options
+        this.showTitle = false;
+        this.mapTitle = '';
+        this.showLegend = false;
+        this.showScaleBar = false;
+        this.showNorthArrow = false;
+        this.showLatLongGrid = false;
+        this.showUTMGrid = false;
+
+        // Extra margin (mm) for grid labels. Added to marginMM when any grid is on.
+        this._gridMarginMM = 5;
+
+        // DPI quality option
+        this.dpi = 300;
+        this.availableDPI = [
+            { value: 150, label: '150 DPI (rascunho)' },
+            { value: 200, label: '200 DPI (normal)' },
+            { value: 300, label: '300 DPI (alta qualidade)' },
+        ];
+
+        // GDAL pre-initialization flag
+        this._gdalPreInitStarted = false;
+
         this.availableScales = [
             { value: '1:1000', label: '1:1.000' },
             { value: '1:5000', label: '1:5.000' },
@@ -24,18 +48,34 @@ export default class PDFExportTab {
             { value: '1:100000', label: '1:100.000' },
             { value: '1:250000', label: '1:250.000' },
             { value: '1:500000', label: '1:500.000' },
-            { value: '1:1000000', label: '1:1.000.000' }
+            { value: '1:1000000', label: '1:1.000.000' },
+            { value: '1:2500000', label: '1:2.500.000' },
+            { value: '1:5000000', label: '1:5.000.000' }
         ];
 
         this.onOrientationChange = this.onOrientationChange.bind(this);
         this.onScaleChange = this.onScaleChange.bind(this);
+        this.onDPIChange = this.onDPIChange.bind(this);
         this.onExportClick = this.onExportClick.bind(this);
         this.onMapMove = this.onMapMove.bind(this);
+
+        // Auto-recover preview after base layer changes.
+        // setStyle() destroys all custom sources/layers; this re-adds them.
+        this.map.on('styledata', () => {
+            if (this.isVisible && !this.map.getSource('pdf-export-preview')) {
+                this.showPreview();
+                this.updateBounds();
+            }
+        });
     }
 
     createUI() {
         const scaleOptions = this.availableScales.map(scale =>
             `<option value="${scale.value}" ${scale.value === this.scale ? 'selected' : ''}>${scale.label}</option>`
+        ).join('');
+
+        const dpiOptions = this.availableDPI.map(dpi =>
+            `<option value="${dpi.value}" ${dpi.value === this.dpi ? 'selected' : ''}>${dpi.label}</option>`
         ).join('');
 
         return `
@@ -47,6 +87,13 @@ export default class PDFExportTab {
                     </select>
                 </div>
 
+                <div class="dpi-selector">
+                    <label for="pdf-dpi-select" class="dpi-label">Qualidade:</label>
+                    <select id="pdf-dpi-select" class="dpi-select">
+                        ${dpiOptions}
+                    </select>
+                </div>
+
                 <div class="orientation-selector">
                     <label>
                         <input type="radio" name="pdf-orientation" value="landscape" checked>
@@ -55,6 +102,41 @@ export default class PDFExportTab {
                     <label>
                         <input type="radio" name="pdf-orientation" value="portrait">
                         Retrato (A4)
+                    </label>
+                </div>
+
+                <div class="pdf-cartographic-section">
+                    <div class="pdf-cartographic-title">Elementos Cartográficos</div>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-title">
+                        Título do mapa
+                    </label>
+                    <input type="text" id="pdf-map-title" class="pdf-title-input" placeholder="Título do mapa..." disabled>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-legend">
+                        Legenda
+                    </label>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-scalebar">
+                        Barra de escala
+                    </label>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-north">
+                        Seta norte
+                    </label>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-latlong-grid">
+                        Grade Lat/Long
+                    </label>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-utm-grid">
+                        Grade UTM
                     </label>
                 </div>
 
@@ -74,6 +156,9 @@ export default class PDFExportTab {
         this.zoomToPreviewArea();
 
         this.map.on('move', this.onMapMove);
+
+        // Pre-initialize GDAL WASM in background so it's ready when user clicks export
+        this._preInitGdal();
     }
 
     hide() {
@@ -90,6 +175,11 @@ export default class PDFExportTab {
             scaleSelect.addEventListener('change', this.onScaleChange);
         }
 
+        const dpiSelect = document.getElementById('pdf-dpi-select');
+        if (dpiSelect) {
+            dpiSelect.addEventListener('change', this.onDPIChange);
+        }
+
         const orientationInputs = document.querySelectorAll('input[name="pdf-orientation"]');
         orientationInputs.forEach(input => {
             input.addEventListener('change', this.onOrientationChange);
@@ -99,12 +189,20 @@ export default class PDFExportTab {
         if (exportBtn) {
             exportBtn.addEventListener('click', this.onExportClick);
         }
+
+        // Cartographic options
+        this._attachCartographicListeners();
     }
 
     detachEventListeners() {
         const scaleSelect = document.getElementById('pdf-scale-select');
         if (scaleSelect) {
             scaleSelect.removeEventListener('change', this.onScaleChange);
+        }
+
+        const dpiSelect = document.getElementById('pdf-dpi-select');
+        if (dpiSelect) {
+            dpiSelect.removeEventListener('change', this.onDPIChange);
         }
 
         const orientationInputs = document.querySelectorAll('input[name="pdf-orientation"]');
@@ -116,6 +214,62 @@ export default class PDFExportTab {
         if (exportBtn) {
             exportBtn.removeEventListener('click', this.onExportClick);
         }
+    }
+
+    _attachCartographicListeners() {
+        const titleCheckbox = document.getElementById('pdf-show-title');
+        const titleInput = document.getElementById('pdf-map-title');
+        const legendCheckbox = document.getElementById('pdf-show-legend');
+        const scalebarCheckbox = document.getElementById('pdf-show-scalebar');
+        const northCheckbox = document.getElementById('pdf-show-north');
+
+        if (titleCheckbox) {
+            titleCheckbox.addEventListener('change', (e) => {
+                this.showTitle = e.target.checked;
+                if (titleInput) {
+                    titleInput.disabled = !e.target.checked;
+                }
+            });
+        }
+        if (titleInput) {
+            titleInput.addEventListener('input', (e) => {
+                this.mapTitle = e.target.value;
+            });
+        }
+        if (legendCheckbox) {
+            legendCheckbox.addEventListener('change', (e) => {
+                this.showLegend = e.target.checked;
+            });
+        }
+        if (scalebarCheckbox) {
+            scalebarCheckbox.addEventListener('change', (e) => {
+                this.showScaleBar = e.target.checked;
+            });
+        }
+        if (northCheckbox) {
+            northCheckbox.addEventListener('change', (e) => {
+                this.showNorthArrow = e.target.checked;
+            });
+        }
+
+        const latlongGridCheckbox = document.getElementById('pdf-show-latlong-grid');
+        const utmGridCheckbox = document.getElementById('pdf-show-utm-grid');
+
+        if (latlongGridCheckbox) {
+            latlongGridCheckbox.addEventListener('change', (e) => {
+                this.showLatLongGrid = e.target.checked;
+            });
+        }
+        if (utmGridCheckbox) {
+            utmGridCheckbox.addEventListener('change', (e) => {
+                this.showUTMGrid = e.target.checked;
+            });
+        }
+
+    }
+
+    onDPIChange(event) {
+        this.dpi = parseInt(event.target.value, 10);
     }
 
     onScaleChange(event) {
@@ -218,7 +372,7 @@ export default class PDFExportTab {
             bottomLeft: [center.lng - offsetLng, center.lat - offsetLat]
         };
 
-        const marginDegrees = this.convertMMToMapUnitsFromScale(this.marginMM, scale);
+        const marginDegrees = this.convertMMToMapUnitsFromScale(this.effectiveMarginMM, scale);
 
         const usable = {
             topLeft: [paper.topLeft[0] + marginDegrees / latCorrection, paper.topLeft[1] - marginDegrees],
@@ -243,10 +397,16 @@ export default class PDFExportTab {
 
     /**
      * Updates the preview bounds centered at a specific point.
+     * Preview is always axis-aligned (north-up) because the exported PDF
+     * is always rendered north-up for correct GDAL georeferencing.
      * @param {Object} center - The center point with lng and lat properties
      */
     updateBoundsAtCenter(center) {
         const bounds = this.calculateBoundsFromScaleAtCenter(this.scale, this.orientation, center);
+
+        // Preview is always north-up — no rotation applied.
+        // The export renders the hidden map north-up so GDAL's -a_ullr
+        // produces correct georeferencing.
         this.paperBounds = bounds.paper;
         this.usableBounds = bounds.usable;
 
@@ -292,15 +452,14 @@ export default class PDFExportTab {
     zoomToPreviewArea() {
         if (!this.paperBounds) return;
 
-        const mapBounds = [
-            this.paperBounds.bottomLeft,
-            this.paperBounds.topRight
-        ];
+        // Preview is always axis-aligned, so bottomLeft/topRight are the bbox
+        const sw = this.paperBounds.bottomLeft;
+        const ne = this.paperBounds.topRight;
 
         // Calculate sidebar offset for asymmetric padding
         const sidebarOffset = this.getSidebarOffset();
 
-        this.map.fitBounds(mapBounds, {
+        this.map.fitBounds([sw, ne], {
             padding: {
                 top: 50,
                 bottom: 50,
@@ -404,7 +563,7 @@ export default class PDFExportTab {
                 throw new Error('Map style not available');
             }
 
-            const cleanStyle = JSON.parse(JSON.stringify(currentStyle));
+            const cleanStyle = deepClone(currentStyle);
 
             const previewLayerIds = [
                 'pdf-export-preview-fill',
@@ -519,47 +678,52 @@ export default class PDFExportTab {
     }
 
     showExportModal() {
-        const modal = document.createElement('div');
-        modal.id = 'export-modal';
-        modal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: rgba(80, 141, 78, 0.9);
-            color: white;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 99999;
-            backdrop-filter: blur(2px);
-            font-family: Arial, sans-serif;
-        `;
+        this._exportCancelled = false;
 
-        modal.innerHTML = `
-            <div style="text-align: center;">
-                <div style="font-size: 24px; font-weight: 600; margin-bottom: 20px;">
-                    Exportando mapa...
-                </div>
-                <div id="export-progress-text" style="font-size: 16px; margin-bottom: 15px; opacity: 0.9;">
-                    Preparando...
-                </div>
-                <div style="width: 300px; height: 8px; background: rgba(255,255,255,0.3); border-radius: 4px; overflow: hidden;">
-                    <div id="export-progress-bar" style="
-                        height: 100%;
-                        background: #B4E380;
-                        width: 0%;
-                        border-radius: 4px;
-                        transition: width 0.3s ease;
-                    "></div>
-                </div>
-                <div style="font-size: 12px; margin-top: 10px; opacity: 0.7;">
-                    Isso pode levar alguns segundos...
-                </div>
-            </div>
-        `;
+        const modal = document.createElement('div');
+        modal.id = 'pdf-export-modal';
+        modal.className = 'pdf-export-modal';
+
+        const content = document.createElement('div');
+        content.className = 'pdf-export-modal__content';
+
+        const title = document.createElement('div');
+        title.className = 'pdf-export-modal__title';
+        title.textContent = 'Exportando mapa...';
+
+        const progressText = document.createElement('div');
+        progressText.id = 'export-progress-text';
+        progressText.className = 'pdf-export-modal__progress-text';
+        progressText.textContent = 'Preparando...';
+
+        const barContainer = document.createElement('div');
+        barContainer.className = 'pdf-export-modal__bar-container';
+
+        const bar = document.createElement('div');
+        bar.id = 'export-progress-bar';
+        bar.className = 'pdf-export-modal__bar';
+        barContainer.appendChild(bar);
+
+        const hint = document.createElement('div');
+        hint.className = 'pdf-export-modal__hint';
+        hint.textContent = 'Isso pode levar alguns segundos...';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'pdf-export-modal__cancel-btn';
+        cancelBtn.textContent = 'Cancelar';
+        cancelBtn.addEventListener('click', () => {
+            this._exportCancelled = true;
+            if (modal.parentNode) {
+                document.body.removeChild(modal);
+            }
+        });
+
+        content.appendChild(title);
+        content.appendChild(progressText);
+        content.appendChild(barContainer);
+        content.appendChild(hint);
+        content.appendChild(cancelBtn);
+        modal.appendChild(content);
 
         document.body.appendChild(modal);
         return modal;
@@ -577,9 +741,34 @@ export default class PDFExportTab {
         }
     }
 
+    /**
+     * Total effective margin in mm. Includes grid label margin when any grid is on.
+     * @returns {number}
+     */
+    get effectiveMarginMM() {
+        return (this.showLatLongGrid || this.showUTMGrid)
+            ? this.marginMM + this._gridMarginMM
+            : this.marginMM;
+    }
+
+    /**
+     * Whether any grid overlay is enabled.
+     * @returns {boolean}
+     */
+    get hasGrids() {
+        return this.showLatLongGrid || this.showUTMGrid;
+    }
+
     calculateA4PixelSize() {
-        const targetDPI = 300;
-        const marginMM = this.marginMM;
+        const targetDPI = this.dpi;
+        // Ratio between print DPI and screen DPI (~96).
+        // Using a higher pixelRatio with a proportionally smaller container
+        // makes MapLibre render tile labels larger, improving print legibility.
+        // 300/96 ≈ 3.125 so labels on the PDF match their physical screen size.
+        const printScaleFactor = targetDPI / 96;
+        // When grids are enabled, the effective margin is larger to accommodate labels.
+        // composeLayout() bakes these margins into the canvas, so GDAL MARGIN=0.
+        const marginMM = this.effectiveMarginMM;
 
         let usableWidthMM, usableHeightMM;
         if (this.orientation === 'landscape') {
@@ -593,13 +782,28 @@ export default class PDFExportTab {
         const usableWidthInches = usableWidthMM / 25.4;
         const usableHeightInches = usableHeightMM / 25.4;
 
+        // Full output dimensions at target DPI
+        const outputWidth = Math.round(usableWidthInches * targetDPI);
+        const outputHeight = Math.round(usableHeightInches * targetDPI);
+
         return {
-            width: Math.round(usableWidthInches * targetDPI),
-            height: Math.round(usableHeightInches * targetDPI)
+            width: outputWidth,
+            height: outputHeight,
+            // Smaller container; MapLibre canvas = container * pixelRatio ≈ output
+            containerWidth: Math.round(outputWidth / printScaleFactor),
+            containerHeight: Math.round(outputHeight / printScaleFactor),
+            pixelRatio: printScaleFactor,
         };
     }
 
     async onExportClick() {
+        // Prevent concurrent exports
+        if (this._exporting) return;
+        this._exporting = true;
+
+        const exportBtn = document.getElementById('pdf-export-btn');
+        if (exportBtn) exportBtn.disabled = true;
+
         let modal;
         let hiddenMapContainer;
         let hiddenMap;
@@ -608,29 +812,20 @@ export default class PDFExportTab {
             modal = this.showExportModal();
             this.updateProgress(10, 'Inicializando...');
 
-            // Build GDAL path - use window.location for local dev or configured URL for production
-            let gdalBasePath;
-            if (config.url_paths.url && config.url_paths.url !== 'IP:PORT') {
-                gdalBasePath = `http://${config.url_paths.url}${config.url_paths.prefix_name ? `/${config.url_paths.prefix_name}` : ''}`;
-            } else {
-                // Local development - use current origin
-                gdalBasePath = window.location.origin;
-            }
-            const gdalPath = `${gdalBasePath}/vendors/gdal`;
+            const Gdal = await initGdalJs({ path: this._getGdalPath(), useWorker: false })
 
-            const Gdal = await initGdalJs({ path: gdalPath, useWorker: false })
-
-            await new Promise(resolve => setTimeout(resolve, 200));
+            if (this._exportCancelled) return;
 
             const canvasSize = this.calculateA4PixelSize();
 
             this.updateProgress(20, 'Preparando dados...');
 
             hiddenMapContainer = document.createElement('div');
-            hiddenMapContainer.style.cssText = `
-                position: absolute; top: -9999px; left: -9999px;
-                width: ${canvasSize.width}px; height: ${canvasSize.height}px;
-            `;
+            hiddenMapContainer.className = 'pdf-export-hidden-map';
+            // Use smaller container with higher pixelRatio so MapLibre renders
+            // tile labels at print-legible size (canvas output stays the same)
+            hiddenMapContainer.style.width = `${canvasSize.containerWidth}px`;
+            hiddenMapContainer.style.height = `${canvasSize.containerHeight}px`;
             document.body.appendChild(hiddenMapContainer);
 
             this.updateProgress(30, 'Criando mapa de exportação...');
@@ -640,7 +835,9 @@ export default class PDFExportTab {
                 style: this.getCleanStyle(),
                 center: this.map.getCenter(),
                 zoom: this.map.getZoom(),
-                pixelRatio: 1,
+                // Reset pitch to 0 — perspective distortion breaks cartographic output
+                pitch: 0,
+                pixelRatio: canvasSize.pixelRatio,
                 preserveDrawingBuffer: true,
                 interactive: false,
                 fadeDuration: 0,
@@ -650,23 +847,35 @@ export default class PDFExportTab {
             this.updateProgress(40, 'Transferindo recursos...');
 
             const loadedImages = this.map.listImages();
-            const imagePromises = loadedImages.map(id => {
-                return new Promise((resolve) => {
-                    const image = this.map.getImage(id);
-                    if (image) {
-                        hiddenMap.addImage(id, image.data, { sdf: image.sdf });
-                    }
-                    resolve();
-                });
-            });
-            await Promise.all(imagePromises);
+            for (const id of loadedImages) {
+                const image = this.map.getImage(id);
+                if (image) {
+                    hiddenMap.addImage(id, image.data, { sdf: image.sdf });
+                }
+            }
+
+            if (this._exportCancelled) return;
 
             this.updateProgress(60, 'Enquadrando área...');
 
+            // Start feature stats collection in parallel with hidden map rendering.
+            // _collectFeatureStats reads from the MAIN map, not the hidden one,
+            // so it can run concurrently with tile loading.
+            const featureStatsPromise = this._collectFeatureStats(this._buildExportBoundsPolygon());
+
+            // Bounds are always axis-aligned (north-up)
             const mapBounds = [this.usableBounds.bottomLeft, this.usableBounds.topRight];
             hiddenMap.fitBounds(mapBounds, { padding: 0, duration: 0 });
 
             await new Promise(resolve => hiddenMap.once('idle', resolve));
+
+            // Hidden map is always rendered north-up (bearing = 0).
+            // GDAL's -a_ullr only supports axis-aligned georeferencing;
+            // applying a bearing would rotate the canvas content while
+            // -a_ullr still assumes north-up, causing every pixel to map
+            // to the wrong geographic coordinate.
+
+            if (this._exportCancelled) return;
 
             this.updateProgress(70, 'Corrigindo feições...');
 
@@ -679,39 +888,82 @@ export default class PDFExportTab {
 
             this.updateProgress(80, 'Finalizando...');
 
-            const imageData = hiddenMap.getCanvas().toDataURL('image/jpeg', 0.85);
-            const arr = imageData.split(',');
-            const mimeMatch = arr[0].match(/:(.*?);/);
-            const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
-            const bstr = atob(arr[1]);
-            let n = bstr.length;
-            const u8arr = new Uint8Array(n);
-            while (n--) {
-                u8arr[n] = bstr.charCodeAt(n);
+            // Always compose cartographic layout (at minimum draws map border)
+            let exportCanvas = hiddenMap.getCanvas();
+            {
+                const { composeLayout } = await import('./pdf-cartographic-elements.js');
+                exportCanvas = composeLayout(exportCanvas, {
+                    title: this.showTitle ? this.mapTitle : null,
+                    showLegend: this.showLegend,
+                    showScaleBar: this.showScaleBar,
+                    showNorthArrow: this.showNorthArrow,
+                    showLatLongGrid: this.showLatLongGrid,
+                    showUTMGrid: this.showUTMGrid,
+                    scale: this.scale,
+                    dpi: this.dpi,
+                    // Always 0 — hidden map is rendered north-up for correct georeferencing
+                    bearing: 0,
+                    featuresByType: await featureStatsPromise,
+                    mapBounds: {
+                        west: hiddenMap.getBounds().getWest(),
+                        east: hiddenMap.getBounds().getEast(),
+                        south: hiddenMap.getBounds().getSouth(),
+                        north: hiddenMap.getBounds().getNorth(),
+                    },
+                    projectionFn: (lngLat) => {
+                        const pt = hiddenMap.project(lngLat);
+                        return { x: pt.x * canvasSize.pixelRatio, y: pt.y * canvasSize.pixelRatio };
+                    },
+                });
             }
+
+            // Use toBlob() instead of toDataURL() to avoid base64 encode/decode round-trip.
+            // toBlob is async and produces binary directly, saving ~30MB memory at 300 DPI.
+            const pngBlob = await new Promise((resolve, reject) => {
+                exportCanvas.toBlob(
+                    blob => blob ? resolve(blob) : reject(new Error('Canvas toBlob returned null')),
+                    'image/png'
+                );
+            });
 
             this.updateProgress(90, 'Gerando PDF...');
 
-            const marginPoints = Math.round(this.marginMM * 2.83465);
-            const result = await Gdal.open([new File([u8arr], "input.jpeg", { type: mime })]);
+            const result = await Gdal.open([new File([pngBlob], 'input.png', { type: 'image/png' })]);
             const rasterDataset = result.datasets[0];
             const bounds = hiddenMap.getBounds();
-            const minX = bounds.getWest();
-            const minY = bounds.getSouth();
-            const maxX = bounds.getEast();
-            const maxY = bounds.getNorth();
+            let minX = bounds.getWest();
+            let minY = bounds.getSouth();
+            let maxX = bounds.getEast();
+            let maxY = bounds.getNorth();
+
+            // GDAL adds the regular margin (5mm) as outer page padding
+            const marginPoints = Math.round(this.marginMM * 2.83465);
+            if (this.hasGrids) {
+                // Grid label margins are baked into the canvas by composeLayout().
+                // Expand geographic bounds to cover the grid margin bands.
+                const mapCanvasW = hiddenMap.getCanvas().width;
+                const mapCanvasH = hiddenMap.getCanvas().height;
+                const gridMarginPx = Math.round(this._gridMarginMM * (this.dpi / 25.4));
+                const degPerPxX = (maxX - minX) / mapCanvasW;
+                const degPerPxY = (maxY - minY) / mapCanvasH;
+                minX -= gridMarginPx * degPerPxX;
+                maxX += gridMarginPx * degPerPxX;
+                minY -= gridMarginPx * degPerPxY;
+                maxY += gridMarginPx * degPerPxY;
+            }
+
             const translateOptions = [
                 '-of', 'PDF',
                 '-a_ullr', String(minX), String(maxY), String(maxX), String(minY),
                 '-a_srs', 'EPSG:4326',
-                '-co', 'DPI=300',
+                '-co', `DPI=${this.dpi}`,
                 '-co', `MARGIN=${marginPoints}`,
             ];
             const outputDataset = await Gdal.gdal_translate(rasterDataset, translateOptions);
 
             this.updateProgress(100, 'Fazendo download...');
 
-            const fileName = `mapa-${this.scale.replace(':', '-')}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
+            const fileName = `mapa-${this.scale.replace(':', '-')}-${this.dpi}dpi-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
 
             const pdfBytes = await Gdal.getFileBytes(outputDataset);
             const blob = new Blob([pdfBytes], { type: 'application/pdf' });
@@ -732,12 +984,19 @@ export default class PDFExportTab {
             }, 800);
 
         } catch (error) {
-            console.error('Error exporting PDF:', error);
-            showError('Não foi possível exportar o PDF: ' + error.message);
+            if (!this._exportCancelled) {
+                console.error('Error exporting PDF:', error);
+                showError('Não foi possível exportar o PDF: ' + error.message);
+            }
             if (modal && modal.parentNode) {
                 document.body.removeChild(modal);
             }
         } finally {
+            this._exporting = false;
+            this._exportCancelled = false;
+            const btn = document.getElementById('pdf-export-btn');
+            if (btn) btn.disabled = false;
+
             if (hiddenMap) {
                 hiddenMap.remove();
             }
@@ -745,5 +1004,166 @@ export default class PDFExportTab {
                 document.body.removeChild(hiddenMapContainer);
             }
         }
+    }
+
+    /**
+     * Builds the base path for GDAL WASM files.
+     * @returns {string} GDAL directory path
+     */
+    _getGdalPath() {
+        let gdalBasePath;
+        if (config.url_paths.url && config.url_paths.url !== 'IP:PORT') {
+            const protocol = window.location.protocol;
+            gdalBasePath = `${protocol}//${config.url_paths.url}${config.url_paths.prefix_name ? `/${config.url_paths.prefix_name}` : ''}`;
+        } else {
+            gdalBasePath = window.location.origin;
+        }
+        return `${gdalBasePath}/vendors/gdal`;
+    }
+
+    /**
+     * Pre-initializes GDAL WASM in the background.
+     * Called when the export tab is shown to avoid WASM load latency during export.
+     * initGdalJs() returns a cached promise on subsequent calls, so this is safe.
+     */
+    _preInitGdal() {
+        if (this._gdalPreInitStarted) return;
+        this._gdalPreInitStarted = true;
+
+        initGdalJs({ path: this._getGdalPath(), useWorker: false }).catch(() => {
+            // Reset flag so it can be retried on next show()
+            this._gdalPreInitStarted = false;
+        });
+    }
+
+    /**
+     * Builds a turf polygon from the current (rotated) usable bounds.
+     * Used to spatially filter features for the legend.
+     * @returns {Object|null} Turf polygon or null
+     */
+    _buildExportBoundsPolygon() {
+        if (!this.usableBounds) return null;
+        try {
+            return turf.polygon([[
+                this.usableBounds.topLeft,
+                this.usableBounds.topRight,
+                this.usableBounds.bottomRight,
+                this.usableBounds.bottomLeft,
+                this.usableBounds.topLeft,
+            ]]);
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Extracts a representative coordinate from any GeoJSON feature geometry.
+     * @param {Object} feature - GeoJSON Feature
+     * @returns {number[]|null} [lng, lat] or null
+     */
+    _getFeatureCoord(feature) {
+        const geom = feature?.geometry;
+        if (!geom?.coordinates) return null;
+        switch (geom.type) {
+            case 'Point': return geom.coordinates;
+            case 'LineString': return geom.coordinates[0];
+            case 'Polygon': return geom.coordinates[0]?.[0];
+            case 'MultiPoint': return geom.coordinates[0];
+            case 'MultiLineString': return geom.coordinates[0]?.[0];
+            case 'MultiPolygon': return geom.coordinates[0]?.[0]?.[0];
+            default: return null;
+        }
+    }
+
+    /**
+     * Checks whether a feature intersects the export bounds polygon.
+     * Uses booleanIntersects for area/line features to catch features
+     * whose centroid lies outside but whose geometry overlaps the area.
+     * Falls back to centroid test for point features.
+     * @param {Object} feature - GeoJSON Feature
+     * @param {Object} boundsPolygon - Turf polygon
+     * @returns {boolean}
+     */
+    _featureIntersectsBounds(feature, boundsPolygon) {
+        try {
+            const geomType = feature?.geometry?.type;
+            if (!geomType) return false;
+
+            if (geomType === 'Point') {
+                return turf.booleanPointInPolygon(feature, boundsPolygon);
+            }
+            return turf.booleanIntersects(feature, boundsPolygon);
+        } catch {
+            // Fallback to centroid check on malformed geometry
+            const coord = this._getFeatureCoord(feature);
+            if (!coord) return false;
+            return turf.booleanPointInPolygon(turf.point(coord), boundsPolygon);
+        }
+    }
+
+    /**
+     * Collects feature counts and representative colors by type,
+     * filtered to the export area. Uses geometric intersection for
+     * accurate filtering of area/line features.
+     * @param {Object} [boundsPolygon] - Turf polygon for spatial filtering (null = count all)
+     * @returns {Promise<Object>} Stats keyed by source type: { count, color }
+     */
+    async _collectFeatureStats(boundsPolygon) {
+        const stats = {};
+        const sourceTypes = [
+            'points', 'lines', 'polygons', 'texts', 'images',
+            'circles', 'rectangles', 'ellipses', 'brushes',
+            'arrows', 'boundarys', 'occupied_fronts',
+            'military_symbols', 'coordination_measures',
+            'los', 'visibility', 'setores',
+        ];
+
+        // Reverse map from storage name to source type
+        const storageToSource = {
+            points: 'point', lines: 'line', polygons: 'polygon',
+            texts: 'text', images: 'image', circles: 'circle',
+            rectangles: 'rectangle', ellipses: 'ellipse', brushes: 'brush',
+            arrows: 'arrow', boundarys: 'boundary', occupied_fronts: 'occupied_front',
+            military_symbols: 'military_symbol', coordination_measures: 'coordination_measure',
+            los: 'los', visibility: 'visibility', setores: 'sector',
+        };
+
+        for (const sourceName of sourceTypes) {
+            try {
+                const source = this.map.getSource(sourceName);
+                if (!source) continue;
+                const data = await source.getData();
+                if (!data?.features?.length) continue;
+
+                let count = 0;
+                let representativeColor = null;
+
+                for (const feature of data.features) {
+                    const inBounds = boundsPolygon
+                        ? this._featureIntersectsBounds(feature, boundsPolygon)
+                        : true;
+
+                    if (inBounds) {
+                        count++;
+                        // Grab the first available color as representative
+                        if (!representativeColor && feature.properties) {
+                            representativeColor = feature.properties.color
+                                || feature.properties.fillColor
+                                || feature.properties.lineColor
+                                || null;
+                        }
+                    }
+                }
+
+                if (count > 0) {
+                    const sourceType = storageToSource[sourceName] || sourceName;
+                    stats[sourceType] = { count, color: representativeColor };
+                }
+            } catch {
+                // Source may not support getData()
+            }
+        }
+
+        return stats;
     }
 }

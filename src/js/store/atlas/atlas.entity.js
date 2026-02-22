@@ -22,6 +22,14 @@ import { generateUUID } from '../../utilities/uuid.js';
  */
 export const ATLAS_SCHEMA_VERSION = '2.0';
 
+/** @type {number} Default terrain exaggeration multiplier */
+export const DEFAULT_TERRAIN_EXAGGERATION = 1.5;
+
+/**
+ * @typedef {Object} AtlasSettings
+ * @property {number} [terrainExaggeration] - Terrain height multiplier (1-3)
+ */
+
 /**
  * @typedef {Object} Atlas
  * @property {string} id - UUID of the Atlas
@@ -30,6 +38,7 @@ export const ATLAS_SCHEMA_VERSION = '2.0';
  * @property {string} schemaVersion - Schema version for migration support
  * @property {string[]} mapOrder - Ordered list of map IDs
  * @property {string|null} lastActiveMapId - UUID of last active map
+ * @property {AtlasSettings} [settings] - Atlas-wide settings
  */
 
 /**
@@ -45,6 +54,7 @@ export function createAtlas(name = 'Meu Atlas') {
         schemaVersion: ATLAS_SCHEMA_VERSION,
         mapOrder: [],
         lastActiveMapId: null,
+        settings: { terrainExaggeration: DEFAULT_TERRAIN_EXAGGERATION },
     };
 }
 
@@ -63,7 +73,8 @@ export function isValidAtlas(atlas) {
         typeof atlas.schemaVersion === 'string' &&
         Array.isArray(atlas.mapOrder) &&
         atlas.mapOrder.every(id => typeof id === 'string') &&
-        (atlas.lastActiveMapId === null || typeof atlas.lastActiveMapId === 'string')
+        (atlas.lastActiveMapId === null || typeof atlas.lastActiveMapId === 'string') &&
+        (atlas.settings === undefined || (typeof atlas.settings === 'object' && atlas.settings !== null))
     );
 }
 
@@ -145,4 +156,13 @@ export function renameAtlas(atlas, name) {
         ...atlas,
         name,
     };
+}
+
+/**
+ * Gets terrain exaggeration from an Atlas, with fallback to default.
+ * @param {Atlas|null} atlas - Atlas object (may be null or missing settings)
+ * @returns {number} Terrain exaggeration value
+ */
+export function getAtlasTerrainExaggeration(atlas) {
+    return atlas?.settings?.terrainExaggeration ?? DEFAULT_TERRAIN_EXAGGERATION;
 }

@@ -86,17 +86,20 @@ export const TOOLBAR_ICONS = {
     // 3D Cube icon for 3D tools group
     viewer3d: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`,
 
-    // Measure distance (ruler)
+    // Measure distance (diagonal ruler with tick marks — Lucide ruler style)
     measureDistance: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.3 8.7 8.7 21.3c-1 1-2.5 1-3.4 0l-2.6-2.6c-1-1-1-2.5 0-3.4L15.3 2.7c1-1 2.5-1 3.4 0l2.6 2.6c1 1 1 2.5 0 3.4Z"/><path d="m7.5 10.5 2 2"/><path d="m10.5 7.5 2 2"/><path d="m13.5 4.5 2 2"/><path d="m4.5 13.5 2 2"/></svg>`,
 
-    // Measure area (square with dimensions)
-    measureArea: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v18"/></svg>`,
+    // Measure area (irregular polygon with dashed fill)
+    measureArea: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19l4-13 8 2 6-4v14H3z"/><path d="M7 6l8 2" stroke-dasharray="2 2"/></svg>`,
 
     // Marker 3D (map pin with cube)
     marker3d: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`,
 
     // Sector - pie slice icon
     sector: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 20 20"><path d="M10 10 L10 2 A8 8 0 0 1 16.93 6 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
+
+    // Measure angle (polyline vertex with visible arc indicator)
+    measureAngle: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 20 3 20 15 4"/><path d="M10 20A7 7 0 0 0 7.2 14.4"/></svg>`,
 
     // Snapping magnet icon
     snapping: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15a6 6 0 0 0 12 0V9h-4v6a2 2 0 1 1-4 0V9H6v6z"/><line x1="6" y1="9" x2="6" y2="5"/><line x1="10" y1="9" x2="10" y2="5"/><line x1="14" y1="9" x2="14" y2="5"/><line x1="18" y1="9" x2="18" y2="5"/></svg>`,
@@ -154,6 +157,9 @@ export const TOOL_GROUPS = {
         icon: TOOLBAR_ICONS.utility,
         layout: 'list',
         tools: [
+            { id: 'measureDistance', label: 'Medir Distância', icon: TOOLBAR_ICONS.measureDistance, shortcut: 'J', controlKey: 'measureDistanceControl' },
+            { id: 'measureArea', label: 'Medir Área', icon: TOOLBAR_ICONS.measureArea, shortcut: 'H', controlKey: 'measureAreaControl' },
+            { id: 'measureAngle', label: 'Medir Ângulo', icon: TOOLBAR_ICONS.measureAngle, shortcut: 'X', controlKey: 'measureAngleControl' },
             { id: 'featureInfo', label: 'Informações da Carta', icon: TOOLBAR_ICONS.featureInfo, shortcut: 'N', controlKey: 'vectorTileInfoControl' },
             { id: 'rectangleSelection', label: 'Selecionar', icon: TOOLBAR_ICONS.select, shortcut: 'Q', controlKey: 'rectangleSelectionControl' },
         ],

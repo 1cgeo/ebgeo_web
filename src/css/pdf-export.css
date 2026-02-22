@@ -67,6 +67,48 @@
     font-weight: 600;
 }
 
+/* ===== DPI QUALITY SELECTOR ===== */
+.dpi-selector {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+}
+
+.dpi-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #495057;
+}
+
+.dpi-select {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #495057;
+    background-color: white;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.dpi-select:hover {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.1);
+}
+
+.dpi-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.15);
+}
+
 /* ===== EXPORT BUTTON ===== */
 .export-pdf-btn {
     width: 100%;
@@ -163,4 +205,146 @@
 
 .pdf-export-tab-content[style*="display: block"] {
     opacity: 1;
+}
+
+/* ===== CARTOGRAPHIC ELEMENTS SECTION ===== */
+.pdf-cartographic-section {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+}
+
+.pdf-cartographic-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.pdf-cartographic-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 14px;
+    color: #495057;
+    cursor: pointer;
+}
+
+.pdf-cartographic-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.pdf-title-input {
+    width: 100%;
+    padding: 8px 10px;
+    margin-top: 4px;
+    margin-bottom: 6px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #495057;
+    background: #fff;
+    box-sizing: border-box;
+    transition: border-color 0.2s, opacity 0.2s;
+}
+
+.pdf-title-input:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+
+.pdf-title-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: #f1f3f5;
+}
+
+/* ===== EXPORT PROGRESS MODAL ===== */
+.pdf-export-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(80, 141, 78, 0.9);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    backdrop-filter: blur(2px);
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+.pdf-export-modal__content {
+    text-align: center;
+}
+
+.pdf-export-modal__title {
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+
+.pdf-export-modal__progress-text {
+    font-size: 16px;
+    margin-bottom: 15px;
+    opacity: 0.9;
+}
+
+.pdf-export-modal__bar-container {
+    width: 300px;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 0 auto;
+}
+
+.pdf-export-modal__bar {
+    height: 100%;
+    background: #b4e380;
+    width: 0%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.pdf-export-modal__hint {
+    font-size: 12px;
+    margin-top: 10px;
+    opacity: 0.7;
+}
+
+.pdf-export-modal__cancel-btn {
+    margin-top: 24px;
+    padding: 8px 24px;
+    background: transparent;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.pdf-export-modal__cancel-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: white;
+}
+
+/* ===== HIDDEN MAP CONTAINER (for off-screen rendering) ===== */
+.pdf-export-hidden-map {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
 }

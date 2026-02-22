@@ -201,14 +201,6 @@ export class ExportTab {
     }
 
     /**
-     * @deprecated Use _updateViewerModeUI instead
-     * @private
-     */
-    _update3DViewerModeUI() {
-        this._updateViewerModeUI();
-    }
-
-    /**
      * Creates an export option button.
      * @private
      * @param {Object} option - Option configuration
@@ -292,6 +284,16 @@ export class ExportTab {
     _renderPdfContent() {
         if (!this._pdfExportTab || !this._pdfContentContainer) return;
 
+        // Reset cartographic state so fresh checkboxes match the state
+        this._pdfExportTab.showTitle = false;
+        this._pdfExportTab.mapTitle = '';
+        this._pdfExportTab.showLegend = false;
+        this._pdfExportTab.showScaleBar = false;
+        this._pdfExportTab.showNorthArrow = false;
+        this._pdfExportTab.showLatLongGrid = false;
+        this._pdfExportTab.showUTMGrid = false;
+        this._pdfExportTab.dpi = 300;
+
         // Clear existing content
         this._pdfContentContainer.innerHTML = '';
 
@@ -337,6 +339,16 @@ export class ExportTab {
             });
         }
 
+        // DPI quality select
+        const dpiSelect = this._pdfContentContainer.querySelector('#pdf-dpi-select');
+        if (dpiSelect) {
+            addDomListener(this, dpiSelect, 'change', (e) => {
+                if (this._pdfExportTab) {
+                    this._pdfExportTab.dpi = parseInt(e.target.value, 10);
+                }
+            });
+        }
+
         // Orientation radio buttons
         const orientationInputs = this._pdfContentContainer.querySelectorAll('input[name="pdf-orientation"]');
         orientationInputs.forEach(input => {
@@ -359,6 +371,68 @@ export class ExportTab {
                 }
             });
         }
+
+        // Cartographic element checkboxes
+        this._setupCartographicListeners();
+    }
+
+    /**
+     * Sets up event listeners for cartographic layout options.
+     * @private
+     */
+    _setupCartographicListeners() {
+        if (!this._pdfExportTab || !this._pdfContentContainer) return;
+
+        const titleCheckbox = this._pdfContentContainer.querySelector('#pdf-show-title');
+        const titleInput = this._pdfContentContainer.querySelector('#pdf-map-title');
+        const legendCheckbox = this._pdfContentContainer.querySelector('#pdf-show-legend');
+        const scalebarCheckbox = this._pdfContentContainer.querySelector('#pdf-show-scalebar');
+        const northCheckbox = this._pdfContentContainer.querySelector('#pdf-show-north');
+
+        if (titleCheckbox) {
+            addDomListener(this, titleCheckbox, 'change', (e) => {
+                this._pdfExportTab.showTitle = e.target.checked;
+                if (titleInput) {
+                    titleInput.disabled = !e.target.checked;
+                    if (e.target.checked) titleInput.focus();
+                }
+            });
+        }
+        if (titleInput) {
+            addDomListener(this, titleInput, 'input', (e) => {
+                this._pdfExportTab.mapTitle = e.target.value;
+            });
+        }
+        if (legendCheckbox) {
+            addDomListener(this, legendCheckbox, 'change', (e) => {
+                this._pdfExportTab.showLegend = e.target.checked;
+            });
+        }
+        if (scalebarCheckbox) {
+            addDomListener(this, scalebarCheckbox, 'change', (e) => {
+                this._pdfExportTab.showScaleBar = e.target.checked;
+            });
+        }
+        if (northCheckbox) {
+            addDomListener(this, northCheckbox, 'change', (e) => {
+                this._pdfExportTab.showNorthArrow = e.target.checked;
+            });
+        }
+
+        const latlongGridCheckbox = this._pdfContentContainer.querySelector('#pdf-show-latlong-grid');
+        const utmGridCheckbox = this._pdfContentContainer.querySelector('#pdf-show-utm-grid');
+
+        if (latlongGridCheckbox) {
+            addDomListener(this, latlongGridCheckbox, 'change', (e) => {
+                this._pdfExportTab.showLatLongGrid = e.target.checked;
+            });
+        }
+        if (utmGridCheckbox) {
+            addDomListener(this, utmGridCheckbox, 'change', (e) => {
+                this._pdfExportTab.showUTMGrid = e.target.checked;
+            });
+        }
+
     }
 
     /**

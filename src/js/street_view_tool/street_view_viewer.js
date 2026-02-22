@@ -163,6 +163,11 @@ async function initThreeJS() {
     container.style.touchAction = 'none';
     container.addEventListener('pointerdown', onPointerDown);
 
+    // Pinch-to-zoom touch listeners
+    container.addEventListener('touchstart', onTouchStart, { passive: true });
+    container.addEventListener('touchmove', onTouchMove, { passive: true });
+    container.addEventListener('touchend', onTouchEnd, { passive: true });
+
     // Prevent right-click context menu
     container.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -704,6 +709,44 @@ function onDocumentMouseWheel(event) {
     const fov = streetViewState.camera.fov + event.deltaY * 0.05;
     streetViewState.camera.fov = THREE.MathUtils.clamp(fov, 10, 75);
     streetViewState.camera.updateProjectionMatrix();
+}
+
+// ===== PINCH-TO-ZOOM (TOUCH) =====
+
+let pinchStartDistance = 0;
+let pinchStartFov = 75;
+
+function onTouchStart(event) {
+    if (event.touches.length === 2) {
+        // Start pinch — record initial distance and FOV
+        const dx = event.touches[1].clientX - event.touches[0].clientX;
+        const dy = event.touches[1].clientY - event.touches[0].clientY;
+        pinchStartDistance = Math.hypot(dx, dy);
+        pinchStartFov = streetViewState.camera.fov;
+
+        // Disable single-pointer drag while pinching
+        isUserInteracting = false;
+    }
+}
+
+function onTouchMove(event) {
+    if (event.touches.length === 2 && pinchStartDistance > 0) {
+        const dx = event.touches[1].clientX - event.touches[0].clientX;
+        const dy = event.touches[1].clientY - event.touches[0].clientY;
+        const currentDistance = Math.hypot(dx, dy);
+
+        // Ratio > 1 means fingers spread apart (zoom in = lower FOV)
+        const ratio = pinchStartDistance / currentDistance;
+        const newFov = pinchStartFov * ratio;
+        streetViewState.camera.fov = THREE.MathUtils.clamp(newFov, 10, 75);
+        streetViewState.camera.updateProjectionMatrix();
+    }
+}
+
+function onTouchEnd(event) {
+    if (event.touches.length < 2) {
+        pinchStartDistance = 0;
+    }
 }
 
 function onWindowResize() {
@@ -1463,11 +1506,18 @@ export function cleanupStreetViewFeatures() {
         }
     }
 
-    // Clean renderer
+    // Clean renderer and container listeners
     if (streetViewState.renderer) {
         const container = document.getElementById('street-view-container');
-        if (container && streetViewState.renderer.domElement.parentNode === container) {
-            container.removeChild(streetViewState.renderer.domElement);
+        if (container) {
+            container.removeEventListener('pointerdown', onPointerDown);
+            container.removeEventListener('touchstart', onTouchStart);
+            container.removeEventListener('touchmove', onTouchMove);
+            container.removeEventListener('touchend', onTouchEnd);
+
+            if (streetViewState.renderer.domElement.parentNode === container) {
+                container.removeChild(streetViewState.renderer.domElement);
+            }
         }
         streetViewState.renderer.dispose();
         streetViewState.renderer = null;

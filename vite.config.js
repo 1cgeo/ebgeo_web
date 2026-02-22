@@ -104,6 +104,16 @@ export default defineConfig(({ mode: _mode }) => ({
           if (id.includes('azimuth_distance_tool')) {
             return 'draw-tools';
           }
+          // Measurement tools (ephemeral distance/area/angle)
+          // In core because layer_setup.js (core) imports setupMeasurementLayers
+          if (id.includes('measurement_tool')) {
+            return 'core';
+          }
+
+          // ===== PHONE UI (standalone, depends on core + ui-components) =====
+          if (id.includes('/phone/')) {
+            return 'phone-ui';
+          }
 
           // ===== UI COMPONENTS (depends on core) =====
           // Includes: sidebar, features_tab, user_data, attribute_table, search, bottom-controls, base-layer-selector, context-menu

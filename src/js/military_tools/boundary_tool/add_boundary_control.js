@@ -2,10 +2,12 @@
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
-import { getPointerPosition } from '../../utilities/pointer-utils';
+import { getPointerPosition, isTouchDevice } from '../../utilities/pointer-utils';
 import { addBoundaryAttributesToPanel } from './boundary_attributes_panel.js';
 import AddBoundaryGeometry from './add_boundary_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import { DrawingFinishButton } from '../../draw_tools/drawing-touch-helpers';
+import { getSnappingService } from '../../snapping/snapping.service.js';
 
 /**
  * Boundary Tool Control
@@ -262,17 +264,47 @@ class AddBoundaryControl extends BaseControl {
         this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = 'crosshair';
         this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick);
+        this.map.on('mousemove', this._onPreClickMouseMove);
+
+        // Show finish button on touch devices
+        if (isTouchDevice()) {
+            this._finishButton = new DrawingFinishButton({
+                onFinish: () => this._finishFromTouch(),
+                onUndo: () => this._undoLastPoint()
+            });
+            this._finishButton.show();
+            this._finishButton.updateState(0, 2);
+        }
     }
 
     deactivate = () => {
         this.isActive = false;
+        this.map.off('mousemove', this._onPreClickMouseMove);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.drawPoints = [];
         this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = '';
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
+        getSnappingService()?.hideIndicator(this.map);
         this.clearPreview();
         this.deselectFeature();
+
+        if (this._finishButton) {
+            this._finishButton.hide();
+            this._finishButton = null;
+        }
+    }
+
+    // ===== PRE-CLICK SNAP INDICATOR =====
+
+    _onPreClickMouseMove = (e) => {
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====
@@ -343,7 +375,9 @@ class AddBoundaryControl extends BaseControl {
     handleMapClick = (e) => {
         if (!this.isActive) return;
 
-        const newPoint = [e.lngLat.lng, e.lngLat.lat];
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+        const newPoint = [snap.lng, snap.lat];
 
         if (this.geometry.isPointTooClose(newPoint, this.drawPoints)) {
             return;
@@ -355,9 +389,14 @@ class AddBoundaryControl extends BaseControl {
             this.drawPoints.push(this.lastClickCoords);
             this.lastClickCoords = null;
 
-            // Add mousemove listener when first point is added
+            // Switch from pre-click snap indicator to preview listener when first point is added
             if (this.drawPoints.length === 1) {
+                this.map.off('mousemove', this._onPreClickMouseMove);
                 this.map.on('mousemove', this.handlePreviewMouseMove);
+            }
+
+            if (this._finishButton) {
+                this._finishButton.updateState(this.drawPoints.length, 2);
             }
         }, 250);
     }
@@ -372,8 +411,12 @@ class AddBoundaryControl extends BaseControl {
         this.clickTimer = null;
         this.lastClickCoords = null;
 
-        const coordinates = this.map.unproject([e.offsetX, e.offsetY]);
-        const finalPoint = [coordinates.lng, coordinates.lat];
+        const screenPoint = { x: e.offsetX, y: e.offsetY };
+        const coordinates = this.map.unproject([screenPoint.x, screenPoint.y]);
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, screenPoint, coordinates) ?? coordinates;
+        snapping?.hideIndicator(this.map);
+        const finalPoint = [snap.lng, snap.lat];
 
         if (!this.geometry.isPointTooClose(finalPoint, this.drawPoints)) {
             this.drawPoints.push(finalPoint);
@@ -388,8 +431,17 @@ class AddBoundaryControl extends BaseControl {
 
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length >= 1) {
+            const snapping = getSnappingService();
+            const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+
+            if (snap.snapped) {
+                snapping.showIndicator(this.map, snap, snap.snapType);
+            } else {
+                snapping?.hideIndicator(this.map);
+            }
+
             this.lastPreviewPoints = [...this.drawPoints];
-            this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+            this.lastPreviewPosition = [snap.lng, snap.lat];
 
             if (!this.pendingPreviewUpdate) {
                 this.pendingPreviewUpdate = true;
@@ -453,6 +505,7 @@ class AddBoundaryControl extends BaseControl {
 
     stopDrawing = () => {
         this.map.off('mousemove', this.handlePreviewMouseMove);
+        getSnappingService()?.hideIndicator(this.map);
         this.drawPoints = [];
         this.lastClickCoords = null;
         this.clearPreview();
@@ -637,7 +690,17 @@ class AddBoundaryControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        this.lastPreviewPosition = [lngLat.lng, lngLat.lat];
+        const snapping = getSnappingService();
+        const excludeId = selectedFeature.properties?.id;
+        const snap = snapping?.resolve(this.map, point, lngLat, excludeId) ?? lngLat;
+
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
+
+        this.lastPreviewPosition = [snap.lng, snap.lat];
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;
@@ -688,6 +751,7 @@ class AddBoundaryControl extends BaseControl {
             }
         }
 
+        getSnappingService()?.hideIndicator(this.map);
         this.isDraggingHandle = false;
         this.activeHandleType = null;
         this.activeHandleIndex = null;
@@ -1152,11 +1216,48 @@ class AddBoundaryControl extends BaseControl {
         }
     }
 
+    /**
+     * Finish drawing from touch device (replaces right-click)
+     */
+    _finishFromTouch = async () => {
+        if (!this.isActive || this.drawPoints.length < 2) return;
+
+        clearTimeout(this.clickTimer);
+        this.clickTimer = null;
+        this.lastClickCoords = null;
+
+        getSnappingService()?.hideIndicator(this.map);
+
+        await this.createFeature();
+        this.stopDrawing();
+    }
+
+    /**
+     * Undo last drawn point (touch device helper)
+     */
+    _undoLastPoint = () => {
+        if (!this.isActive || this.drawPoints.length === 0) return;
+
+        this.drawPoints.pop();
+
+        if (this.drawPoints.length === 0) {
+            // Go back to pre-click snap indicator mode
+            this.map.off('mousemove', this.handlePreviewMouseMove);
+            this.map.on('mousemove', this._onPreClickMouseMove);
+            this.clearPreview();
+        }
+
+        if (this._finishButton) {
+            this._finishButton.updateState(this.drawPoints.length, 2);
+        }
+    }
+
     setupBaseEventListeners = () => {
     }
 
     removeAllEventListeners = () => {
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
+        this.map.off('mousemove', this._onPreClickMouseMove);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         this.removeHoverListeners();

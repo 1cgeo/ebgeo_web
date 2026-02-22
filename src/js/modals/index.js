@@ -12,3 +12,4 @@ export { ConfirmModal, showConfirm } from './confirm.modal.js';
 export { ExportModal, showExportModal } from './export.modal.js';
 export { CombineMapsModal, showCombineMapsModal } from './combine-maps.modal.js';
 export { CoordinateEditModal, showCoordinateEditModal } from './coordinate-edit.modal.js';
+export { SettingsModal, showSettingsModal } from './settings.modal.js';

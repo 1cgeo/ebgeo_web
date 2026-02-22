@@ -32,6 +32,8 @@ import { MouseCoordinatesControl } from './coordinates';
 import { TerrainControl, AnalysisLayersManager, DataLayersManager } from './terrain';
 import { BottomControlsControl } from './bottom-controls';
 import config from './config.js';
+import { getRepository } from './store/repositories/index.js';
+import { getAtlasTerrainExaggeration } from './store/atlas/atlas.entity.js';
 import baseStyle from './baselayers/carta_topografica.js';
 import { hideLoadingScreen } from './ui/loading-screen.js';
 import { ContextMenuControl } from './context-menu';
@@ -42,6 +44,7 @@ import { initKeyboardService3D } from './3d_models_viewer_tool/services/keyboard
 import { initKeyboardServiceBriefing, BriefingEditorControl, BriefingPresenterControl } from './briefing/index.js';
 import { ToolbarControl, ActiveToolChip } from './toolbar';
 import { AttributeTableControl } from './attribute_table';
+import { PhoneLayout } from './phone';
 
 // Draw tools
 import {
@@ -68,6 +71,13 @@ import {
     AddBoundaryControl,
     AddOccupiedFrontControl
 } from './military_tools/index.js';
+
+// Measurement tools (ephemeral distance/area/angle)
+import {
+    MeasurementDistanceControl,
+    MeasurementAreaControl,
+    MeasurementAngleControl,
+} from './measurement_tool/index.js';
 
 // Snapping
 import { SnappingService } from './snapping/snapping.service.js';
@@ -210,6 +220,11 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     const azimuthDistanceControl = new AddAzimuthDistanceControl(toolManager);
     const sectorControl = new AddSectorControl(toolManager);
 
+    // Measurement tools (ephemeral, read-only — no selection registration)
+    const measureDistanceControl = new MeasurementDistanceControl(toolManager);
+    const measureAreaControl = new MeasurementAreaControl(toolManager);
+    const measureAngleControl = new MeasurementAngleControl(toolManager);
+
     // ===== SELECTION MANAGER REGISTRATIONS (declarative) =====
 
     const SELECTION_CONTROLS = [
@@ -266,6 +281,11 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     importControl.setControls(pointControl, lineControl, polygonControl);
 
     const terrainControl = new TerrainControl(config.map2d);
+    // Load persisted terrain exaggeration from Atlas
+    const repo = getRepository();
+    const atlas = await repo.getAtlas();
+    terrainControl.initExaggeration(getAtlasTerrainExaggeration(atlas));
+
     const screenshotControl = new ScreenshotControl();
     screenshotControl.setMap(map);
 
@@ -325,7 +345,10 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             vectorTileInfoControl,
             coordinationMeasureControl,
             azimuthDistanceControl,
-            sectorControl
+            sectorControl,
+            measureDistanceControl,
+            measureAreaControl,
+            measureAngleControl,
         }
     });
 
@@ -407,6 +430,9 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         visibilityControl,
         vectorTileInfoControl,
         rectangleSelectionControl,
+        measureDistanceControl,
+        measureAreaControl,
+        measureAngleControl,
     ];
 
     toolbarManagedControls.forEach(control => {
@@ -463,6 +489,9 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             losControl,
             visibilityControl,
             vectorTileInfoControl,
+            measureDistanceControl,
+            measureAreaControl,
+            measureAngleControl,
         },
         eventBus: getEventBus(),
         stateManager: getStateManager(),
@@ -562,6 +591,10 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         // Analysis tools
         ['AddLOSControl', losControl],
         ['AddVisibilityControl', visibilityControl],
+        // Measurement tools
+        ['MeasurementDistanceControl', measureDistanceControl],
+        ['MeasurementAreaControl', measureAreaControl],
+        ['MeasurementAngleControl', measureAngleControl],
         // Infrastructure
         ['TerrainControl', terrainControl],
         ['MouseCoordinatesControl', mouseCoordinatesControl],
@@ -579,11 +612,18 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         ['streetView', addStreetViewControl],
         ['modelsViewer', add3DModelsViewerControl],
         ['ClipboardManager', clipboardManager],
+        // UI components accessed by phone layout
+        ['chipsComponent', chipsComponent],
     ];
 
     for (const [name, ctrl] of CONTROL_REGISTRY) {
         registerControl(name, ctrl);
     }
+
+    // ===== PHONE LAYOUT (<=480px responsive) =====
+
+    const phoneLayout = new PhoneLayout({ map });
+    phoneLayout.init();
 
     // Return everything needed by later phases
     return {
@@ -605,6 +645,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             featuresTab,
             dragDropHandler,
             dragRotateHandler,
+            phoneLayout,
         }
     };
 }
@@ -680,5 +721,6 @@ export function setupCleanupHandlers(destroyables) {
         destroyables.featuresTab.destroy();
         destroyables.dragDropHandler.disable();
         destroyables.dragRotateHandler.disable();
+        destroyables.phoneLayout.destroy();
     });
 }
