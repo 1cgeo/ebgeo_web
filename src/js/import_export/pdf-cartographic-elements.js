@@ -53,6 +53,7 @@ const GRID_LINE_SAMPLES = 80;
  * @param {Object} options.featuresByType - { type: { count, color } } for legend
  * @param {Object} [options.mapBounds] - { west, east, south, north } in degrees
  * @param {Function} [options.projectionFn] - (lngLat) => { x, y } canvas pixels
+ * @param {number} [options.dpi=300] - Output DPI for pixel calculations
  * @returns {HTMLCanvasElement} Composite canvas
  */
 export function composeLayout(mapCanvas, options) {
@@ -68,14 +69,15 @@ export function composeLayout(mapCanvas, options) {
         featuresByType = {},
         mapBounds,
         projectionFn,
+        dpi = 300,
     } = options;
 
     const mapW = mapCanvas.width;
     const mapH = mapCanvas.height;
     const hasGrids = showLatLongGrid || showUTMGrid;
 
-    // When grids are on, add margin bands for labels (15mm at 300 DPI ≈ 177px)
-    const marginPx = hasGrids ? Math.round(GRID_MARGIN_MM * (300 / 25.4)) : 0;
+    // When grids are on, add margin bands for labels
+    const marginPx = hasGrids ? Math.round(GRID_MARGIN_MM * (dpi / 25.4)) : 0;
 
     const totalWidth = mapW + 2 * marginPx;
     const totalHeight = mapH + 2 * marginPx;
@@ -104,34 +106,54 @@ export function composeLayout(mapCanvas, options) {
 
     const scaleDenom = scale ? parseInt(scale.split(':')[1], 10) : 25000;
 
+    // Scale factor for overlay elements. At 200 DPI the constant pixel sizes
+    // produce correctly proportioned output; scale proportionally for other DPIs.
+    // Canvas scaling is applied around each element so internal drawing code
+    // stays unchanged — only position coordinates are divided by uiScale.
+    const uiScale = dpi / 200;
+
     // Draw UTM grid first (black, heavier), then lat/long (blue, lighter) on top
     const hasBothGrids = showUTMGrid && showLatLongGrid;
     if (showUTMGrid && mapBounds && adjProjFn) {
-        _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, hasBothGrids);
+        _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, hasBothGrids, uiScale);
     }
     if (showLatLongGrid && mapBounds && adjProjFn) {
-        _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, hasBothGrids);
+        _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, hasBothGrids, uiScale);
     }
 
     // Map border — always drawn for cartographic framing
     ctx.strokeStyle = '#333333';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = Math.max(1, 2 * uiScale);
     ctx.strokeRect(marginPx, marginPx, mapW, mapH);
 
     // Title (overlaid on map area, pushed below margin band when grids are on)
     if (title) {
-        _drawTitle(ctx, title, totalWidth, marginPx);
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawTitle(ctx, title, totalWidth / uiScale, marginPx / uiScale);
+        ctx.restore();
     }
 
     // North arrow (top-right of map area)
     if (showNorthArrow) {
-        const northY = marginPx + (title ? (TITLE_HEIGHT + 40) : 30);
-        _drawNorthArrow(ctx, marginPx + mapW - NORTH_ARROW_SIZE - 30, northY, bearing);
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        const northY = marginPx / uiScale + (title ? (TITLE_HEIGHT + 40) : 30);
+        const northX = (marginPx + mapW) / uiScale - NORTH_ARROW_SIZE - 30;
+        _drawNorthArrow(ctx, northX, northY, bearing);
+        ctx.restore();
     }
 
     // Scale bar (bottom-left of map area)
     if (showScaleBar) {
-        _drawScaleBar(ctx, marginPx + 40, marginPx + mapH - SCALE_BAR_HEIGHT - 30, scale, mapW);
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        const barX = marginPx / uiScale + 40;
+        const barY = (marginPx + mapH) / uiScale - SCALE_BAR_HEIGHT - 30;
+        // Pass reference DPI (200) because the canvas scale transform
+        // accounts for the actual DPI ratio already
+        _drawScaleBar(ctx, barX, barY, scale, mapW / uiScale, 200);
+        ctx.restore();
     }
 
     // Legend (bottom-right of map area)
@@ -142,7 +164,10 @@ export function composeLayout(mapCanvas, options) {
         })
         .filter(([, count]) => count > 0);
     if (showLegend && legendEntries.length > 0) {
-        _drawLegend(ctx, marginPx + mapW, marginPx + mapH, legendEntries);
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawLegend(ctx, (marginPx + mapW) / uiScale, (marginPx + mapH) / uiScale, legendEntries);
+        ctx.restore();
     }
 
     return canvas;
@@ -259,11 +284,11 @@ function _drawNorthArrow(ctx, x, y, bearing) {
 /**
  * Draws a scale bar at the given position with labels at each division.
  */
-function _drawScaleBar(ctx, x, y, scale, canvasWidth) {
+function _drawScaleBar(ctx, x, y, scale, canvasWidth, dpi = 300) {
     const denominator = parseInt(scale.split(':')[1], 10);
 
     // Calculate a "nice" distance for the scale bar (roughly 1/5 of map width)
-    const mapWidthMM = canvasWidth / (300 / 25.4); // pixels to mm at 300 DPI
+    const mapWidthMM = canvasWidth / (dpi / 25.4);
     const mapWidthMeters = (mapWidthMM / 1000) * denominator;
     const targetBarMeters = mapWidthMeters / 5;
 
@@ -405,7 +430,7 @@ function _getGridSpacing(scaleDenom) {
  * Side labels are rotated vertically.
  * @param {boolean} hasBothGrids - When true, labels sit farther from map frame
  */
-function _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, hasBothGrids) {
+function _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, hasBothGrids, uiScale = 1) {
     const { degreesInterval } = _getGridSpacing(scaleDenom);
     const { west, east, south, north } = mapBounds;
 
@@ -415,14 +440,15 @@ function _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDen
     const mapBottom = marginPx + mapH;
 
     // Label offset from map frame — close when alone, farther when UTM labels are closer
-    const labelOffset = hasBothGrids ? 28 : 6;
+    const labelOffset = (hasBothGrids ? 28 : 6) * uiScale;
+    const fontSize = Math.round(13 * uiScale);
 
     ctx.save();
     ctx.strokeStyle = 'rgba(0, 80, 180, 0.4)';
-    ctx.lineWidth = 0.8;
-    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = Math.max(0.5, 0.8 * uiScale);
+    ctx.setLineDash([6 * uiScale, 4 * uiScale]);
     ctx.fillStyle = 'rgba(0, 80, 180, 0.9)';
-    ctx.font = `13px ${FONT_FAMILY}`;
+    ctx.font = `${fontSize}px ${FONT_FAMILY}`;
 
     // Horizontal lines (constant latitude, west → east)
     // Extend sampling 5% beyond bounds so endpoints land outside the map rect,
@@ -503,7 +529,7 @@ function _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDen
  * Side labels are rotated vertically.
  * @param {boolean} hasBothGrids - When true, labels always sit close to frame
  */
-function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, _hasBothGrids) {
+function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, _hasBothGrids, uiScale = 1) {
     const { utmMeters } = _getGridSpacing(scaleDenom);
     const { west, east, south, north } = mapBounds;
 
@@ -513,17 +539,18 @@ function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, 
     const mapBottom = marginPx + mapH;
 
     // UTM labels always close to the map frame
-    const labelOffset = 8;
+    const labelOffset = 8 * uiScale;
+    const fontSize = Math.round(13 * uiScale);
 
     const westZone = _utmZone(west);
     const eastZone = _utmZone(east);
 
     ctx.save();
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.lineWidth = 1.0;
+    ctx.lineWidth = Math.max(0.5, 1.0 * uiScale);
     ctx.setLineDash([]);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    ctx.font = `bold 13px ${FONT_FAMILY}`;
+    ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`;
 
     for (let zone = westZone; zone <= eastZone; zone++) {
         const isSouth = ((south + north) / 2) < 0;
@@ -640,8 +667,8 @@ function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, 
             }
             ctx.save();
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([10, 5]);
+            ctx.lineWidth = 2 * uiScale;
+            ctx.setLineDash([10 * uiScale, 5 * uiScale]);
             _drawClippedPolyline(ctx, points, mapLeft, mapTop, mapRight, mapBottom);
             ctx.restore();
         }

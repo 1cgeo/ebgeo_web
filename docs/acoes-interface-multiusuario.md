@@ -57,16 +57,18 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 10 | **Click em feição na lista** — Selecionar e zoom | 🟢 Ação local (seleção + navegação de câmera). Awareness opcional. |
 | 11 | **Visibilidade de feição individual** | 🟡 Broadcast `FEATURE_MODIFIED`. Visibilidade é persistida. Outros clientes atualizam estado visual da feição. |
 | 12 | **Bloquear/desbloquear feição** | 🟡🔒 Broadcast `FEATURE_MODIFIED`. Outros clientes desabilitam edição dessa feição específica. |
-| 13 | **Camadas do catálogo — toggle visibilidade** | 🟡 Broadcast visibilidade da referência de catálogo. Outros clientes atualizam. |
-| 14 | **Camadas do catálogo — remover** | 🟡 Broadcast remoção de referência de catálogo. |
-| 15 | **Seção Modelos 3D** — expandir/colapsar tileset | 🟢 Estado local da UI. |
-| 16 | **Seção Modelos 3D** — abrir no visualizador 3D | 🟢 Navegação local no viewer 3D. |
-| 17 | **Seção Modelos 3D** — deletar todas as feições do tileset | 🔴🔒 Operação destrutiva em batch. Broadcast deleção de todos os marcadores, medições, viewsheds e orientação salva do tileset. Soft-delete. Permissão de editor. |
-| 18 | **Seção Modelos 3D** — click em feição individual | 🟢 Navegação local (fly to marcador/medição/viewshed). |
-| 19 | **Seção Street View 360** — expandir/colapsar foto | 🟢 Estado local da UI. |
-| 20 | **Seção Street View 360** — abrir no visualizador 360 | 🟢 Navegação local no viewer 360. |
-| 21 | **Seção Street View 360** — deletar todas as feições da foto | 🔴🔒 Operação destrutiva em batch. Broadcast deleção de todos os marcadores e orientação salva da foto. Soft-delete. Permissão de editor. |
-| 22 | **Seção Street View 360** — click em feição individual | 🟢 Navegação local (abre foto e seleciona marcador/orientação). |
+| 13 | **Multi-seleção — ocultar/mostrar em batch** | 🟡 Broadcast `FEATURE_MODIFIED` para cada feição alterada. Last-write-wins. |
+| 14 | **Multi-seleção — bloquear/desbloquear em batch** | 🟡🔒 Broadcast `FEATURE_MODIFIED` para cada feição alterada. Permissão de editor. |
+| 15 | **Camadas do catálogo — toggle visibilidade** | 🟡 Broadcast visibilidade da referência de catálogo. Outros clientes atualizam. |
+| 16 | **Camadas do catálogo — remover** | 🟡 Broadcast remoção de referência de catálogo. |
+| 17 | **Seção Modelos 3D** — expandir/colapsar tileset | 🟢 Estado local da UI. |
+| 18 | **Seção Modelos 3D** — abrir no visualizador 3D | 🟢 Navegação local no viewer 3D. |
+| 19 | **Seção Modelos 3D** — deletar todas as feições do tileset | 🔴🔒 Operação destrutiva em batch. Broadcast deleção de todos os marcadores, medições, viewsheds e orientação salva do tileset. Soft-delete. Permissão de editor. |
+| 20 | **Seção Modelos 3D** — click em feição individual | 🟢 Navegação local (fly to marcador/medição/viewshed). |
+| 21 | **Seção Street View 360** — expandir/colapsar foto | 🟢 Estado local da UI. |
+| 22 | **Seção Street View 360** — abrir no visualizador 360 | 🟢 Navegação local no viewer 360. |
+| 23 | **Seção Street View 360** — deletar todas as feições da foto | 🔴🔒 Operação destrutiva em batch. Broadcast deleção de todos os marcadores e orientação salva da foto. Soft-delete. Permissão de editor. |
+| 24 | **Seção Street View 360** — click em feição individual | 🟢 Navegação local (abre foto e seleciona marcador/orientação). |
 
 ---
 
@@ -115,11 +117,14 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 
 | # | Ação | Impacto Multiusuário |
 |---|------|---------------------|
-| 1 | **Exportar PDF** (com configuração de escala/orientação) | 🟢 Ação local de download. |
+| 1 | **Exportar PDF** (com configuração de escala/orientação) | 🟢 Ação local de download. Desabilitado nos modos 3D e 360. |
 | 2 | **Exportar Imagem** (screenshot PNG) | 🟢 Ação local. |
 | 3 | **Selecionar escala do PDF** | 🟢 Configuração local. |
 | 4 | **Selecionar orientação** (paisagem/retrato) | 🟢 Configuração local. |
-| 5 | **Preview da área de exportação no mapa** | 🟢 Visual local. |
+| 5 | **Selecionar qualidade DPI** (150 rascunho / 200 normal / 300 alta) | 🟢 Configuração local. |
+| 6 | **Elementos cartográficos** — toggle título, legenda, barra de escala, seta norte | 🟢 Configuração local. Composição via Canvas 2D antes do GDAL. |
+| 7 | **Grades** — toggle grade Lat/Long e grade UTM no PDF | 🟢 Configuração local. |
+| 8 | **Preview da área de exportação no mapa** | 🟢 Visual local. |
 
 ---
 
@@ -127,7 +132,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 
 | # | Ação | Impacto Multiusuário |
 |---|------|---------------------|
-| 1 | **Ativar ferramenta** (Ponto, Linha, Polígono, Retângulo, Círculo, Elipse, Texto, Imagem, Pincel) | 🟢 Estado local do tool manager. Awareness opcional. |
+| 1 | **Ativar ferramenta** (Ponto, Linha, Polígono, Retângulo, Círculo, Elipse, Setor, Texto, Imagem, Pincel) | 🟢 Estado local do tool manager. Awareness opcional. |
 | 2 | **Desenhar geometria** (clicks/drag no mapa) | 🟡 Durante o desenho: estado local. Ao completar: `FEATURE_CREATED` via servidor com broadcast para todos. |
 | 3 | **Cancelar desenho** (Escape) | 🟢 Ação local. Descarta geometria parcial. |
 | 4 | **Configurar estilo** (cor, largura, opacidade) no painel | 🟢 Configuração local que será aplicada à feição ao salvar. |
@@ -163,9 +168,12 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 
 | # | Ação | Impacto Multiusuário |
 |---|------|---------------------|
-| 1 | **Informações da Carta (N)** — click em tile vetorial | 🟢 Consulta local de dados do tile. Sem edição. |
-| 2 | **Seleção por Retângulo (Q)** — selecionar feições | 🟢 Seleção local. |
-| 3 | **Toggle Snap (G)** — ativar/desativar snapping | 🟢 Preferência local de desenho. |
+| 1 | **Medir Distância (J)** — medição efêmera no mapa | 🟢 Medição local, não persistida. Opção "Salvar como feição" gera `FEATURE_CREATED` 🟡. |
+| 2 | **Medir Área (H)** — medição efêmera no mapa | 🟢 Medição local, não persistida. Opção "Salvar como feição" gera `FEATURE_CREATED` 🟡. |
+| 3 | **Medir Ângulo (X)** — medição efêmera de 3 pontos | 🟢 Medição local, não persistida. Sem opção de salvar. |
+| 4 | **Informações da Carta (N)** — click em tile vetorial | 🟢 Consulta local de dados do tile. Sem edição. |
+| 5 | **Seleção por Retângulo (Q)** — selecionar feições | 🟢 Seleção local. |
+| 6 | **Toggle Snap (G)** — ativar/desativar snapping | 🟢 Preferência local de desenho. |
 
 ---
 
@@ -455,15 +463,15 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | Categoria | Total de Ações | 🟢 Local | 🟡 Sync Simples | 🔴 Destrutivo |
 |---|---|---|---|---|
 | Aba Mapas | 16 | 3 | 9 | 4 |
-| Aba Camadas | 22 | 9 | 9 | 4 |
+| Aba Camadas | 24 | 9 | 11 | 4 |
 | Aba Briefings | 8 | 1 | 6 | 1 |
 | Aba Processamento | 5 | 4 | 1 | 0 |
 | Aba Importar | 7 | 0 | 7 | 0 |
-| Aba Exportar | 5 | 5 | 0 | 0 |
+| Aba Exportar | 8 | 8 | 0 | 0 |
 | Toolbar Desenho | 7 | 5 | 2 | 0 |
 | Toolbar Militar | 6 | 1 | 5 | 0 |
 | Toolbar Análise | 2 | 0 | 2 | 0 |
-| Toolbar Utilitários | 3 | 3 | 0 | 0 |
+| Toolbar Utilitários | 6 | 5 | 1 | 0 |
 | Controles Inferiores | 8 | 8 | 0 | 0 |
 | Busca | 7 | 6 | 1 | 0 |
 | Seletor Camada Base | 2 | 1 | 1 | 0 |
@@ -480,10 +488,10 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | Modais | 7 | 5 | 1 | 1 |
 | Display Coordenadas | 2 | 2 | 0 | 0 |
 | Grade UTM | 3 | 3 | 0 | 0 |
-| **TOTAL** | **~210** | **~95 (45%)** | **~101 (48%)** | **~14 (7%)** |
+| **TOTAL** | **~218** | **~101 (46%)** | **~103 (47%)** | **~14 (7%)** |
 
-**~45% das ações são puramente locais** — sem necessidade de sync.
-**~48% precisam de sync simples** — broadcast + last-write-wins, sem locks.
+**~46% das ações são puramente locais** — sem necessidade de sync.
+**~47% precisam de sync simples** — broadcast + last-write-wins, sem locks.
 **~7% são operações destrutivas** — soft-delete + permissão + broadcast.
 
 **Nenhuma ação requer lock.** Toda resolução de conflito é last-write-wins com timestamp do servidor.

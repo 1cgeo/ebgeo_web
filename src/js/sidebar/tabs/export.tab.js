@@ -292,6 +292,7 @@ export class ExportTab {
         this._pdfExportTab.showNorthArrow = false;
         this._pdfExportTab.showLatLongGrid = false;
         this._pdfExportTab.showUTMGrid = false;
+        this._pdfExportTab.dpi = 300;
 
         // Clear existing content
         this._pdfContentContainer.innerHTML = '';
@@ -334,6 +335,16 @@ export class ExportTab {
                     this._pdfExportTab.scale = e.target.value;
                     this._pdfExportTab.updateBounds();
                     this._pdfExportTab.zoomToPreviewArea();
+                }
+            });
+        }
+
+        // DPI quality select
+        const dpiSelect = this._pdfContentContainer.querySelector('#pdf-dpi-select');
+        if (dpiSelect) {
+            addDomListener(this, dpiSelect, 'change', (e) => {
+                if (this._pdfExportTab) {
+                    this._pdfExportTab.dpi = parseInt(e.target.value, 10);
                 }
             });
         }

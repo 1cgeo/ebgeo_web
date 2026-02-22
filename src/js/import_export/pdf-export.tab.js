@@ -28,6 +28,17 @@ export default class PDFExportTab {
         // Extra margin (mm) for grid labels. Added to marginMM when any grid is on.
         this._gridMarginMM = 5;
 
+        // DPI quality option
+        this.dpi = 300;
+        this.availableDPI = [
+            { value: 150, label: '150 DPI (rascunho)' },
+            { value: 200, label: '200 DPI (normal)' },
+            { value: 300, label: '300 DPI (alta qualidade)' },
+        ];
+
+        // GDAL pre-initialization flag
+        this._gdalPreInitStarted = false;
+
         this.availableScales = [
             { value: '1:1000', label: '1:1.000' },
             { value: '1:5000', label: '1:5.000' },
@@ -44,6 +55,7 @@ export default class PDFExportTab {
 
         this.onOrientationChange = this.onOrientationChange.bind(this);
         this.onScaleChange = this.onScaleChange.bind(this);
+        this.onDPIChange = this.onDPIChange.bind(this);
         this.onExportClick = this.onExportClick.bind(this);
         this.onMapMove = this.onMapMove.bind(this);
 
@@ -62,12 +74,23 @@ export default class PDFExportTab {
             `<option value="${scale.value}" ${scale.value === this.scale ? 'selected' : ''}>${scale.label}</option>`
         ).join('');
 
+        const dpiOptions = this.availableDPI.map(dpi =>
+            `<option value="${dpi.value}" ${dpi.value === this.dpi ? 'selected' : ''}>${dpi.label}</option>`
+        ).join('');
+
         return `
             <div class="pdf-export-container">
                 <div class="scale-selector">
                     <label for="pdf-scale-select" class="scale-label">Escala:</label>
                     <select id="pdf-scale-select" class="scale-select">
                         ${scaleOptions}
+                    </select>
+                </div>
+
+                <div class="dpi-selector">
+                    <label for="pdf-dpi-select" class="dpi-label">Qualidade:</label>
+                    <select id="pdf-dpi-select" class="dpi-select">
+                        ${dpiOptions}
                     </select>
                 </div>
 
@@ -133,6 +156,9 @@ export default class PDFExportTab {
         this.zoomToPreviewArea();
 
         this.map.on('move', this.onMapMove);
+
+        // Pre-initialize GDAL WASM in background so it's ready when user clicks export
+        this._preInitGdal();
     }
 
     hide() {
@@ -147,6 +173,11 @@ export default class PDFExportTab {
         const scaleSelect = document.getElementById('pdf-scale-select');
         if (scaleSelect) {
             scaleSelect.addEventListener('change', this.onScaleChange);
+        }
+
+        const dpiSelect = document.getElementById('pdf-dpi-select');
+        if (dpiSelect) {
+            dpiSelect.addEventListener('change', this.onDPIChange);
         }
 
         const orientationInputs = document.querySelectorAll('input[name="pdf-orientation"]');
@@ -167,6 +198,11 @@ export default class PDFExportTab {
         const scaleSelect = document.getElementById('pdf-scale-select');
         if (scaleSelect) {
             scaleSelect.removeEventListener('change', this.onScaleChange);
+        }
+
+        const dpiSelect = document.getElementById('pdf-dpi-select');
+        if (dpiSelect) {
+            dpiSelect.removeEventListener('change', this.onDPIChange);
         }
 
         const orientationInputs = document.querySelectorAll('input[name="pdf-orientation"]');
@@ -230,6 +266,10 @@ export default class PDFExportTab {
             });
         }
 
+    }
+
+    onDPIChange(event) {
+        this.dpi = parseInt(event.target.value, 10);
     }
 
     onScaleChange(event) {
@@ -720,7 +760,7 @@ export default class PDFExportTab {
     }
 
     calculateA4PixelSize() {
-        const targetDPI = 300;
+        const targetDPI = this.dpi;
         // Ratio between print DPI and screen DPI (~96).
         // Using a higher pixelRatio with a proportionally smaller container
         // makes MapLibre render tile labels larger, improving print legibility.
@@ -772,21 +812,9 @@ export default class PDFExportTab {
             modal = this.showExportModal();
             this.updateProgress(10, 'Inicializando...');
 
-            // Build GDAL path - use window.location for local dev or configured URL for production
-            let gdalBasePath;
-            if (config.url_paths.url && config.url_paths.url !== 'IP:PORT') {
-                const protocol = window.location.protocol;
-                gdalBasePath = `${protocol}//${config.url_paths.url}${config.url_paths.prefix_name ? `/${config.url_paths.prefix_name}` : ''}`;
-            } else {
-                gdalBasePath = window.location.origin;
-            }
-            const gdalPath = `${gdalBasePath}/vendors/gdal`;
-
-            const Gdal = await initGdalJs({ path: gdalPath, useWorker: false })
+            const Gdal = await initGdalJs({ path: this._getGdalPath(), useWorker: false })
 
             if (this._exportCancelled) return;
-
-            await new Promise(resolve => setTimeout(resolve, 200));
 
             const canvasSize = this.calculateA4PixelSize();
 
@@ -819,20 +847,21 @@ export default class PDFExportTab {
             this.updateProgress(40, 'Transferindo recursos...');
 
             const loadedImages = this.map.listImages();
-            const imagePromises = loadedImages.map(id => {
-                return new Promise((resolve) => {
-                    const image = this.map.getImage(id);
-                    if (image) {
-                        hiddenMap.addImage(id, image.data, { sdf: image.sdf });
-                    }
-                    resolve();
-                });
-            });
-            await Promise.all(imagePromises);
+            for (const id of loadedImages) {
+                const image = this.map.getImage(id);
+                if (image) {
+                    hiddenMap.addImage(id, image.data, { sdf: image.sdf });
+                }
+            }
 
             if (this._exportCancelled) return;
 
             this.updateProgress(60, 'Enquadrando área...');
+
+            // Start feature stats collection in parallel with hidden map rendering.
+            // _collectFeatureStats reads from the MAIN map, not the hidden one,
+            // so it can run concurrently with tile loading.
+            const featureStatsPromise = this._collectFeatureStats(this._buildExportBoundsPolygon());
 
             // Bounds are always axis-aligned (north-up)
             const mapBounds = [this.usableBounds.bottomLeft, this.usableBounds.topRight];
@@ -871,9 +900,10 @@ export default class PDFExportTab {
                     showLatLongGrid: this.showLatLongGrid,
                     showUTMGrid: this.showUTMGrid,
                     scale: this.scale,
+                    dpi: this.dpi,
                     // Always 0 — hidden map is rendered north-up for correct georeferencing
                     bearing: 0,
-                    featuresByType: await this._collectFeatureStats(this._buildExportBoundsPolygon()),
+                    featuresByType: await featureStatsPromise,
                     mapBounds: {
                         west: hiddenMap.getBounds().getWest(),
                         east: hiddenMap.getBounds().getEast(),
@@ -887,20 +917,18 @@ export default class PDFExportTab {
                 });
             }
 
-            const imageData = exportCanvas.toDataURL('image/png');
-            const arr = imageData.split(',');
-            const mimeMatch = arr[0].match(/:(.*?);/);
-            const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
-            const bstr = atob(arr[1]);
-            let n = bstr.length;
-            const u8arr = new Uint8Array(n);
-            while (n--) {
-                u8arr[n] = bstr.charCodeAt(n);
-            }
+            // Use toBlob() instead of toDataURL() to avoid base64 encode/decode round-trip.
+            // toBlob is async and produces binary directly, saving ~30MB memory at 300 DPI.
+            const pngBlob = await new Promise((resolve, reject) => {
+                exportCanvas.toBlob(
+                    blob => blob ? resolve(blob) : reject(new Error('Canvas toBlob returned null')),
+                    'image/png'
+                );
+            });
 
             this.updateProgress(90, 'Gerando PDF...');
 
-            const result = await Gdal.open([new File([u8arr], "input.png", { type: mime })]);
+            const result = await Gdal.open([new File([pngBlob], 'input.png', { type: 'image/png' })]);
             const rasterDataset = result.datasets[0];
             const bounds = hiddenMap.getBounds();
             let minX = bounds.getWest();
@@ -915,7 +943,7 @@ export default class PDFExportTab {
                 // Expand geographic bounds to cover the grid margin bands.
                 const mapCanvasW = hiddenMap.getCanvas().width;
                 const mapCanvasH = hiddenMap.getCanvas().height;
-                const gridMarginPx = Math.round(this._gridMarginMM * (300 / 25.4));
+                const gridMarginPx = Math.round(this._gridMarginMM * (this.dpi / 25.4));
                 const degPerPxX = (maxX - minX) / mapCanvasW;
                 const degPerPxY = (maxY - minY) / mapCanvasH;
                 minX -= gridMarginPx * degPerPxX;
@@ -928,14 +956,14 @@ export default class PDFExportTab {
                 '-of', 'PDF',
                 '-a_ullr', String(minX), String(maxY), String(maxX), String(minY),
                 '-a_srs', 'EPSG:4326',
-                '-co', 'DPI=300',
+                '-co', `DPI=${this.dpi}`,
                 '-co', `MARGIN=${marginPoints}`,
             ];
             const outputDataset = await Gdal.gdal_translate(rasterDataset, translateOptions);
 
             this.updateProgress(100, 'Fazendo download...');
 
-            const fileName = `mapa-${this.scale.replace(':', '-')}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
+            const fileName = `mapa-${this.scale.replace(':', '-')}-${this.dpi}dpi-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
 
             const pdfBytes = await Gdal.getFileBytes(outputDataset);
             const blob = new Blob([pdfBytes], { type: 'application/pdf' });
@@ -976,6 +1004,36 @@ export default class PDFExportTab {
                 document.body.removeChild(hiddenMapContainer);
             }
         }
+    }
+
+    /**
+     * Builds the base path for GDAL WASM files.
+     * @returns {string} GDAL directory path
+     */
+    _getGdalPath() {
+        let gdalBasePath;
+        if (config.url_paths.url && config.url_paths.url !== 'IP:PORT') {
+            const protocol = window.location.protocol;
+            gdalBasePath = `${protocol}//${config.url_paths.url}${config.url_paths.prefix_name ? `/${config.url_paths.prefix_name}` : ''}`;
+        } else {
+            gdalBasePath = window.location.origin;
+        }
+        return `${gdalBasePath}/vendors/gdal`;
+    }
+
+    /**
+     * Pre-initializes GDAL WASM in the background.
+     * Called when the export tab is shown to avoid WASM load latency during export.
+     * initGdalJs() returns a cached promise on subsequent calls, so this is safe.
+     */
+    _preInitGdal() {
+        if (this._gdalPreInitStarted) return;
+        this._gdalPreInitStarted = true;
+
+        initGdalJs({ path: this._getGdalPath(), useWorker: false }).catch(() => {
+            // Reset flag so it can be retried on next show()
+            this._gdalPreInitStarted = false;
+        });
     }
 
     /**

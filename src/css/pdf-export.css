@@ -67,6 +67,48 @@
     font-weight: 600;
 }
 
+/* ===== DPI QUALITY SELECTOR ===== */
+.dpi-selector {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+}
+
+.dpi-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #495057;
+}
+
+.dpi-select {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #495057;
+    background-color: white;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.dpi-select:hover {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.1);
+}
+
+.dpi-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.15);
+}
+
 /* ===== EXPORT BUTTON ===== */
 .export-pdf-btn {
     width: 100%;
