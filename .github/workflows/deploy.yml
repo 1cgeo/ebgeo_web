@@ -2,7 +2,7 @@ name: Deploy GitHub Pages
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -29,17 +29,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '22'
 
       - name: Instalar dependências
-        run: npm ci
+        run: npm install
 
       - name: Preparar config para GitHub Pages
-        run: node prepare-deploy.js
+        run: node prepare-deploy.cjs
 
       - name: Build com Vite
-        run: npm run build
+        run: npx vite build --base=/ebgeo_web/
 
       - name: Configurar Pages
         uses: actions/configure-pages@v4
@@ -52,6 +51,3 @@ jobs:
       - name: Deploy para GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-      - name: Sucesso
-        run: echo "Site disponível em ${{ steps.deployment.outputs.page_url }}"
