@@ -170,6 +170,14 @@
         white-space: nowrap;
     }
 
+    .phone-search-overlay__result-subtitle {
+        font-size: var(--font-size-xs);
+        color: var(--gray-500);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     .phone-search-overlay__section-title {
         padding: var(--space-4) var(--space-4) var(--space-2);
         font-size: var(--font-size-xs);
@@ -535,6 +543,28 @@
     .phone-fab__icon {
         width: 24px;
         height: 24px;
+    }
+
+    /* Shifted up when bottom sheet is at half or full */
+    .phone-fab-container--shifted {
+        transform: translateY(calc(-1 * (var(--phone-sheet-half) - var(--phone-sheet-peek) - var(--safe-area-bottom))));
+    }
+
+    /* Pulsing animation while geolocating */
+    .phone-fab--locating {
+        animation: phone-fab-pulse 1.2s ease-in-out infinite;
+        color: var(--primary);
+    }
+
+    @keyframes phone-fab-pulse {
+        0%,
+        100% {
+            box-shadow: var(--shadow-control);
+        }
+
+        50% {
+            box-shadow: 0 0 0 8px rgba(22, 163, 74, 0.2), var(--shadow-control);
+        }
     }
 
     /* =====================================================================
