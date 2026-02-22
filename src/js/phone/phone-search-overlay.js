@@ -429,7 +429,7 @@ export class PhoneSearchOverlay {
         // Icon
         const icon = document.createElement('div');
         icon.className = 'phone-search-overlay__result-icon';
-        icon.innerHTML = result.icon || LOCATION_ICON_SVG;
+        icon.innerHTML = LOCATION_ICON_SVG;
 
         // Text container
         const textContainer = document.createElement('div');

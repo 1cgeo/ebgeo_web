@@ -182,7 +182,7 @@ export class PhoneFabs {
         if (this._isLocating) return;
 
         if (!navigator.geolocation) {
-            showToast('Geolocalizacao nao suportada neste navegador', 'error');
+            showToast('Geolocalização não suportada neste navegador', 'error');
             return;
         }
 
@@ -200,7 +200,7 @@ export class PhoneFabs {
             () => {
                 this._isLocating = false;
                 this._locateBtn.classList.remove('phone-fab--locating');
-                showToast('Nao foi possivel obter a localizacao', 'error');
+                showToast('Não foi possível obter a localização', 'error');
             },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
         );

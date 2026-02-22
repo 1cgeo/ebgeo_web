@@ -298,14 +298,15 @@ export class PhoneBottomSheet {
 
     /**
      * Show feature detail content, replacing the tab view.
-     * @param {string} html - HTML string for feature detail
+     * @param {HTMLElement} element - DOM element for feature detail
      */
-    setFeatureContent(html) {
+    setFeatureContent(element) {
         this._showingFeatureDetail = true;
         this._tabsEl.style.display = 'none';
         this._contentEl.style.display = 'none';
 
-        this._featureDetailEl.innerHTML = html;
+        this._featureDetailEl.textContent = '';
+        this._featureDetailEl.appendChild(element);
         this._featureDetailEl.style.display = '';
 
         // Expand to half if currently at peek
