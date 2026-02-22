@@ -201,14 +201,6 @@ export class ExportTab {
     }
 
     /**
-     * @deprecated Use _updateViewerModeUI instead
-     * @private
-     */
-    _update3DViewerModeUI() {
-        this._updateViewerModeUI();
-    }
-
-    /**
      * Creates an export option button.
      * @private
      * @param {Object} option - Option configuration
