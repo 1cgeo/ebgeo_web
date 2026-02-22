@@ -290,6 +290,8 @@ export class ExportTab {
         this._pdfExportTab.showLegend = false;
         this._pdfExportTab.showScaleBar = false;
         this._pdfExportTab.showNorthArrow = false;
+        this._pdfExportTab.showLatLongGrid = false;
+        this._pdfExportTab.showUTMGrid = false;
 
         // Clear existing content
         this._pdfContentContainer.innerHTML = '';
@@ -405,6 +407,21 @@ export class ExportTab {
                 this._pdfExportTab.showNorthArrow = e.target.checked;
             });
         }
+
+        const latlongGridCheckbox = this._pdfContentContainer.querySelector('#pdf-show-latlong-grid');
+        const utmGridCheckbox = this._pdfContentContainer.querySelector('#pdf-show-utm-grid');
+
+        if (latlongGridCheckbox) {
+            addDomListener(this, latlongGridCheckbox, 'change', (e) => {
+                this._pdfExportTab.showLatLongGrid = e.target.checked;
+            });
+        }
+        if (utmGridCheckbox) {
+            addDomListener(this, utmGridCheckbox, 'change', (e) => {
+                this._pdfExportTab.showUTMGrid = e.target.checked;
+            });
+        }
+
     }
 
     /**

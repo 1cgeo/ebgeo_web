@@ -75,7 +75,7 @@ export function setupPointLayers(features, mapInstance) {
             ],
             layout: {
                 'text-field': ['get', 'labelText'],
-                'text-size': ['coalesce', ['get', 'labelSize'], 14],
+                'text-size': ['coalesce', ['get', 'labelCalculatedSize'], 14],
                 'text-font': ['Noto Sans Bold'],
                 'text-offset': [0.8, -0.8],
                 'text-anchor': 'bottom-left',

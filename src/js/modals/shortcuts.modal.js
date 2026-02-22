@@ -14,6 +14,7 @@ import { TOOLBAR_ICONS } from '../toolbar/toolbar.constants.js';
  */
 const SHORTCUT_ICONS = {
     system: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M6 8h.001"/><path d="M10 8h.001"/><path d="M14 8h.001"/><path d="M18 8h.001"/><path d="M8 12h.001"/><path d="M12 12h.001"/><path d="M16 12h.001"/><path d="M7 16h10"/></svg>`,
+    navigation: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>`,
     draw: TOOLBAR_ICONS.draw,
     military: TOOLBAR_ICONS.military,
     analysis: TOOLBAR_ICONS.analysis,
@@ -35,6 +36,14 @@ const SHORTCUTS_DATA = {
             { key: 'Ctrl+Y', description: 'Refazer última ação' },
             { key: 'Ctrl+C', description: 'Copiar feições selecionados' },
             { key: 'Ctrl+V', description: 'Colar feições' },
+        ],
+    },
+    navigation: {
+        title: 'Navegação no Mapa',
+        icon: SHORTCUT_ICONS.navigation,
+        shortcuts: [
+            { key: 'Ctrl+Arrastar', description: 'Inclinar e rotacionar o mapa' },
+            { key: 'Scroll', description: 'Zoom in / zoom out' },
         ],
     },
     drawing: {
@@ -77,6 +86,9 @@ const SHORTCUTS_DATA = {
         title: 'Utilitários',
         icon: SHORTCUT_ICONS.other,
         shortcuts: [
+            { key: 'J', icon: TOOLBAR_ICONS.measureDistance, description: 'Medir distância' },
+            { key: 'H', icon: TOOLBAR_ICONS.measureArea, description: 'Medir área' },
+            { key: 'X', icon: TOOLBAR_ICONS.measureAngle, description: 'Medir ângulo' },
             { key: 'Q', icon: TOOLBAR_ICONS.select, description: 'Seleção retangular' },
             { key: 'N', icon: TOOLBAR_ICONS.featureInfo, description: 'Informações da carta' },
             { key: 'G', icon: TOOLBAR_ICONS.snapping, description: 'Ativar/desativar snap' },

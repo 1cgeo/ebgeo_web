@@ -4,6 +4,7 @@ import { getEventBus } from '../store';
 import { EventTypes } from '../events/event_types.js';
 import { getCatalogLayers, toggleCatalogLayerVisibility } from '../store/catalog.operations.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
+import { DEFAULT_TERRAIN_EXAGGERATION } from '../store/atlas/atlas.entity.js';
 
 /**
  * Gets terrain elevation at given coordinates
@@ -35,8 +36,8 @@ class TerrainControl {
     constructor(config) {
         this.terrainSourceConfig = config.terrainSource;
         this.hillshadeSourceConfig = config.hillshadeSource;
-        this.terrainConfig = config.terrain;
         this.hillshadeConfig = config.hillshade;
+        this._exaggeration = DEFAULT_TERRAIN_EXAGGERATION;
         this._globeProjection = config.globe_projection || false;
         this._wasTerrainActive = false;
         this._map = null;
@@ -45,6 +46,30 @@ class TerrainControl {
         this._name = 'TerrainControl';
         this._terrainPitch = 60; // Pitch angle when terrain is active (like Google Maps 3D)
         this._unsubBaseLayerChanged = null;
+    }
+
+    /** @returns {{ source: string, exaggeration: number }} */
+    get terrainConfig() {
+        return { source: 'terrainSource', exaggeration: this._exaggeration };
+    }
+
+    /**
+     * Sets the exaggeration value without triggering a map update (startup use).
+     * @param {number} value - Exaggeration multiplier
+     */
+    initExaggeration(value) {
+        this._exaggeration = value;
+    }
+
+    /**
+     * Sets the exaggeration value and updates the live terrain if active.
+     * @param {number} value - Exaggeration multiplier
+     */
+    setExaggeration(value) {
+        this._exaggeration = value;
+        if (this._map?.getTerrain()) {
+            this._map.setTerrain(this.terrainConfig);
+        }
     }
 
     onAdd(map) {

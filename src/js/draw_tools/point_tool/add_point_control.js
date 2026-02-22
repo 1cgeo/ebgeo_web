@@ -12,6 +12,9 @@ class AddPointControl extends BaseControl {
         super(toolManager);
 
         this.geometry = new AddPointGeometry();
+
+        this.zoomRafId = null;
+        this.pendingZoomUpdate = false;
     }
 
     static DEFAULT_PROPERTIES = {
@@ -30,6 +33,10 @@ class AddPointControl extends BaseControl {
         labelSize: 14,
         labelOutlineColor: '#000000',
         labelOutlineWidth: 2,
+        // Label zoom correction properties
+        labelCreatedAtZoom: 0,
+        labelCalculatedSize: 14,
+        labelZoomCorrectionEnabled: true,
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
@@ -56,9 +63,16 @@ class AddPointControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
+        this.setupZoomListener();
     }
 
     onRemove = () => {
+        this.map.off('zoom', this.handleZoomChange);
+        if (this.zoomRafId) {
+            cancelAnimationFrame(this.zoomRafId);
+            this.zoomRafId = null;
+        }
+        this.pendingZoomUpdate = false;
         this.deactivate();
         this.removeAllEventListeners();
         this.map = undefined;
@@ -216,6 +230,63 @@ class AddPointControl extends BaseControl {
     syncEditHandlesAfterDrag = (_movedFeatures) => {
     }
 
+    // ===== LABEL ZOOM-INVARIANT SYSTEM =====
+
+    setupZoomListener = () => {
+        this.map.on('zoom', this.handleZoomChange);
+    }
+
+    handleZoomChange = () => {
+        if (!this.pendingZoomUpdate) {
+            this.pendingZoomUpdate = true;
+            this.zoomRafId = requestAnimationFrame(this.updateAllPointLabelSizes);
+        }
+    }
+
+    updateAllPointLabelSizes = async () => {
+        if (!this.map.getSource('points')) {
+            this.pendingZoomUpdate = false;
+            return;
+        }
+
+        const currentZoom = this.map.getZoom();
+        const data = await this.map.getSource('points').getData();
+        let hasChanges = false;
+
+        data.features.forEach(feature => {
+            // Skip features without labels
+            if (!feature.properties.showLabel) return;
+
+            // Backfill legacy features that don't have labelCreatedAtZoom set
+            if (!feature.properties.labelCreatedAtZoom) {
+                feature.properties.labelCreatedAtZoom = currentZoom;
+                hasChanges = true;
+            }
+
+            let newCalculatedSize;
+            const labelSize = feature.properties.labelSize || 14;
+
+            if (feature.properties.labelZoomCorrectionEnabled === false) {
+                newCalculatedSize = labelSize;
+            } else {
+                const zoomDifference = currentZoom - feature.properties.labelCreatedAtZoom;
+                const scaleFactor = Math.pow(2, zoomDifference);
+                newCalculatedSize = Math.min(labelSize * scaleFactor, 255);
+            }
+
+            if (feature.properties.labelCalculatedSize !== newCalculatedSize) {
+                feature.properties.labelCalculatedSize = newCalculatedSize;
+                hasChanges = true;
+            }
+        });
+
+        if (hasChanges) {
+            this.map.getSource('points').setData(data);
+        }
+
+        this.pendingZoomUpdate = false;
+    }
+
     // ===== DRAWING SYSTEM =====
 
     _onPreClickMouseMove = (e) => {
@@ -262,6 +333,7 @@ class AddPointControl extends BaseControl {
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('point', this.map);
 
+        const currentZoom = this.map.getZoom();
         const feature = {
             type: 'Feature',
             id: geoJsonId,
@@ -269,7 +341,9 @@ class AddPointControl extends BaseControl {
                 ...AddPointControl.DEFAULT_PROPERTIES,
                 layerId: getActiveLayerIdSync(),
                 id: featureId,
-                nome: featureName
+                nome: featureName,
+                labelCreatedAtZoom: currentZoom,
+                labelCalculatedSize: AddPointControl.DEFAULT_PROPERTIES.labelSize,
             },
             geometry: this.geometry.generate(coordinates)
         };
@@ -302,6 +376,11 @@ class AddPointControl extends BaseControl {
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
+
+                // Recalculate label size when zoom-correction-related properties change
+                if (property === 'labelZoomCorrectionEnabled' || property === 'labelCreatedAtZoom' || property === 'labelSize') {
+                    this._recalcLabelSize(sourceFeature, feature);
+                }
             }
         }
 
@@ -313,6 +392,34 @@ class AddPointControl extends BaseControl {
         });
 
         this.updateSelectionManagerFeatures(freshFeatures);
+    }
+
+    /**
+     * Recalculate labelCalculatedSize based on current zoom and feature properties.
+     * Updates both sourceFeature and selectedFeature in place.
+     */
+    _recalcLabelSize(sourceFeature, selectedFeature) {
+        const labelSize = sourceFeature.properties.labelSize || 14;
+        let newCalculatedSize;
+
+        // Backfill legacy features missing labelCreatedAtZoom
+        if (!sourceFeature.properties.labelCreatedAtZoom) {
+            const currentZoom = this.map.getZoom();
+            sourceFeature.properties.labelCreatedAtZoom = currentZoom;
+            selectedFeature.properties.labelCreatedAtZoom = currentZoom;
+        }
+
+        if (sourceFeature.properties.labelZoomCorrectionEnabled === false) {
+            newCalculatedSize = labelSize;
+        } else {
+            const currentZoom = this.map.getZoom();
+            const zoomDifference = currentZoom - sourceFeature.properties.labelCreatedAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            newCalculatedSize = Math.min(labelSize * scaleFactor, 255);
+        }
+
+        sourceFeature.properties.labelCalculatedSize = newCalculatedSize;
+        selectedFeature.properties.labelCalculatedSize = newCalculatedSize;
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
@@ -377,7 +484,9 @@ class AddPointControl extends BaseControl {
             props.labelColor !== initialProperties.labelColor ||
             props.labelSize !== initialProperties.labelSize ||
             props.labelOutlineColor !== initialProperties.labelOutlineColor ||
-            props.labelOutlineWidth !== initialProperties.labelOutlineWidth
+            props.labelOutlineWidth !== initialProperties.labelOutlineWidth ||
+            props.labelZoomCorrectionEnabled !== initialProperties.labelZoomCorrectionEnabled ||
+            props.labelCreatedAtZoom !== initialProperties.labelCreatedAtZoom
         );
     }
 
@@ -428,6 +537,12 @@ class AddPointControl extends BaseControl {
 
     removeAllEventListeners = () => {
         this.map.off('mousemove', this._onPreClickMouseMove);
+
+        if (this.zoomRafId) {
+            cancelAnimationFrame(this.zoomRafId);
+            this.zoomRafId = null;
+        }
+        this.pendingZoomUpdate = false;
     }
 }
 

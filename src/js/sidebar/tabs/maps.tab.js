@@ -28,6 +28,7 @@ import {
     hasMapNotes,
     isMapLocked,
     toggleMapLock,
+    getControl,
 } from '../../store/index.js';
 import { EventTypes } from '../../events/event_types.js';
 import { showSuccess, showError, showWarning, IDUtils } from '../../utilities/index.js';
@@ -70,6 +71,8 @@ const MAPS_ICONS = {
     lock: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
 
     lockOpen: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`,
+
+    gear: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
 };
 
 /**
@@ -136,6 +139,14 @@ export class MapsTab {
         this._mapsList = document.createElement('div');
         this._mapsList.className = 'maps-list';
         this._container.appendChild(this._mapsList);
+
+        // Settings button
+        const settingsBtn = document.createElement('button');
+        settingsBtn.className = 'sidebar-settings-btn';
+        settingsBtn.title = 'Configurações';
+        settingsBtn.innerHTML = `${MAPS_ICONS.gear}<span>Configurações</span>`;
+        addDomListener(this, settingsBtn, 'click', () => this._handleOpenSettings());
+        this._container.appendChild(settingsBtn);
 
         // Setup event listeners
         this._setupEventListeners();
@@ -1009,6 +1020,25 @@ export class MapsTab {
             } catch (error) {
                 console.error('Error combining maps:', error);
                 showError(error.message || 'Erro ao combinar mapas');
+            }
+        });
+    }
+
+    /**
+     * Opens the settings modal with terrain exaggeration control.
+     * @private
+     */
+    async _handleOpenSettings() {
+        const terrainControl = getControl('TerrainControl');
+        const currentExaggeration = terrainControl?._exaggeration ?? 1.5;
+
+        const { showSettingsModal } = await import('../../modals/settings.modal.js');
+        await showSettingsModal({
+            currentExaggeration,
+            onExaggerationChanged: (value) => {
+                if (terrainControl) {
+                    terrainControl.setExaggeration(value);
+                }
             }
         });
     }

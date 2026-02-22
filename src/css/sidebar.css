@@ -4370,3 +4370,41 @@ body:has(.sidebar-container) .unified-attributes-panel {
     width: 16px;
     height: 16px;
 }
+
+/* =========================================================================
+   SETTINGS BUTTON (Maps Tab)
+   ========================================================================= */
+
+.sidebar-settings-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    margin-top: auto;
+    background: transparent;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-500);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.sidebar-settings-btn:hover {
+    background: var(--gray-50);
+    border-color: var(--primary);
+    color: var(--gray-700);
+}
+
+.sidebar-settings-btn svg {
+    width: 18px;
+    height: 18px;
+    color: var(--gray-400);
+    transition: color var(--transition-fast);
+}
+
+.sidebar-settings-btn:hover svg {
+    color: var(--primary);
+}

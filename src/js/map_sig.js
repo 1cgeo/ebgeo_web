@@ -32,6 +32,8 @@ import { MouseCoordinatesControl } from './coordinates';
 import { TerrainControl, AnalysisLayersManager, DataLayersManager } from './terrain';
 import { BottomControlsControl } from './bottom-controls';
 import config from './config.js';
+import { getRepository } from './store/repositories/index.js';
+import { getAtlasTerrainExaggeration } from './store/atlas/atlas.entity.js';
 import baseStyle from './baselayers/carta_topografica.js';
 import { hideLoadingScreen } from './ui/loading-screen.js';
 import { ContextMenuControl } from './context-menu';
@@ -278,6 +280,11 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     importControl.setControls(pointControl, lineControl, polygonControl);
 
     const terrainControl = new TerrainControl(config.map2d);
+    // Load persisted terrain exaggeration from Atlas
+    const repo = getRepository();
+    const atlas = await repo.getAtlas();
+    terrainControl.initExaggeration(getAtlasTerrainExaggeration(atlas));
+
     const screenshotControl = new ScreenshotControl();
     screenshotControl.setMap(map);
 

@@ -3,23 +3,31 @@
 /**
  * @module import_export/pdf-cartographic-elements
  * @description Pure Canvas 2D drawing functions for cartographic layout elements.
- * Used by pdf-export.tab.js to compose title, legend, scale bar, and north arrow
- * onto the captured map canvas before sending to GDAL.
+ * Used by pdf-export.tab.js to compose title, legend, scale bar, north arrow,
+ * and geographic/UTM grids onto the captured map canvas before sending to GDAL.
  *
- * Legend, scale bar, and north arrow are overlaid on the map area so they don't
- * alter the A4 page dimensions. Only the title (when enabled) adds height above.
+ * Overlays (title, legend, scale bar, north arrow) are drawn on top of the map.
+ * Grids expand the canvas with margin bands for labels.
  */
+
+import proj4 from 'proj4';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const TITLE_HEIGHT = 80;
+const TITLE_HEIGHT = 60;
 const LEGEND_ROW_HEIGHT = 28;
 const LEGEND_PADDING = 20;
 const SCALE_BAR_HEIGHT = 60;
 const NORTH_ARROW_SIZE = 90;
 const FONT_FAMILY = 'Arial, Helvetica, sans-serif';
+
+/** Margin added around the map for grid labels (mm). Must match _gridMarginMM in pdf-export.tab.js */
+const GRID_MARGIN_MM = 5;
+
+/** Number of sample points for drawing curved grid lines */
+const GRID_LINE_SAMPLES = 80;
 
 // ============================================================================
 // PUBLIC API
@@ -29,9 +37,8 @@ const FONT_FAMILY = 'Arial, Helvetica, sans-serif';
  * Composes a cartographic layout onto the map canvas.
  * Returns a new canvas with map + cartographic elements.
  *
- * Legend, scale bar, and north arrow are overlaid on the map area
- * so they don't expand the A4 page dimensions.
- * Only the title adds height above the map when enabled.
+ * When grids are enabled, the canvas is expanded with margin bands
+ * for grid labels. Overlays are drawn on top of the map area.
  *
  * @param {HTMLCanvasElement} mapCanvas - The captured map canvas
  * @param {Object} options
@@ -39,9 +46,13 @@ const FONT_FAMILY = 'Arial, Helvetica, sans-serif';
  * @param {boolean} options.showLegend - Whether to draw legend
  * @param {boolean} options.showScaleBar - Whether to draw scale bar
  * @param {boolean} options.showNorthArrow - Whether to draw north arrow
+ * @param {boolean} [options.showLatLongGrid] - Whether to draw lat/long grid
+ * @param {boolean} [options.showUTMGrid] - Whether to draw UTM grid
  * @param {string} options.scale - Scale string like "1:25000"
  * @param {number} options.bearing - Map bearing in degrees
  * @param {Object} options.featuresByType - { type: { count, color } } for legend
+ * @param {Object} [options.mapBounds] - { west, east, south, north } in degrees
+ * @param {Function} [options.projectionFn] - (lngLat) => { x, y } canvas pixels
  * @returns {HTMLCanvasElement} Composite canvas
  */
 export function composeLayout(mapCanvas, options) {
@@ -50,46 +61,80 @@ export function composeLayout(mapCanvas, options) {
         showLegend,
         showScaleBar,
         showNorthArrow,
+        showLatLongGrid = false,
+        showUTMGrid = false,
         scale,
         bearing = 0,
         featuresByType = {},
+        mapBounds,
+        projectionFn,
     } = options;
 
-    const titleH = title ? TITLE_HEIGHT : 0;
+    const mapW = mapCanvas.width;
+    const mapH = mapCanvas.height;
+    const hasGrids = showLatLongGrid || showUTMGrid;
 
-    // Canvas includes title above map; legend/scale/north are overlaid on map
-    const totalWidth = mapCanvas.width;
-    const totalHeight = mapCanvas.height + titleH;
+    // When grids are on, add margin bands for labels (15mm at 300 DPI ≈ 177px)
+    const marginPx = hasGrids ? Math.round(GRID_MARGIN_MM * (300 / 25.4)) : 0;
+
+    const totalWidth = mapW + 2 * marginPx;
+    const totalHeight = mapH + 2 * marginPx;
 
     const canvas = document.createElement('canvas');
     canvas.width = totalWidth;
     canvas.height = totalHeight;
     const ctx = canvas.getContext('2d');
 
-    // White background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, totalWidth, totalHeight);
+    // White background for margin bands
+    if (hasGrids) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, totalWidth, totalHeight);
+    }
 
-    // Title above map
+    // Map image (offset by margin when grids are on)
+    ctx.drawImage(mapCanvas, marginPx, marginPx);
+
+    // Adjusted projection function that accounts for margin offset
+    const adjProjFn = projectionFn && marginPx > 0
+        ? (lngLat) => {
+            const pt = projectionFn(lngLat);
+            return { x: pt.x + marginPx, y: pt.y + marginPx };
+        }
+        : projectionFn;
+
+    const scaleDenom = scale ? parseInt(scale.split(':')[1], 10) : 25000;
+
+    // Draw UTM grid first (black, heavier), then lat/long (blue, lighter) on top
+    const hasBothGrids = showUTMGrid && showLatLongGrid;
+    if (showUTMGrid && mapBounds && adjProjFn) {
+        _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, hasBothGrids);
+    }
+    if (showLatLongGrid && mapBounds && adjProjFn) {
+        _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, hasBothGrids);
+    }
+
+    // Map border — always drawn for cartographic framing
+    ctx.strokeStyle = '#333333';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(marginPx, marginPx, mapW, mapH);
+
+    // Title (overlaid on map area, pushed below margin band when grids are on)
     if (title) {
-        _drawTitle(ctx, title, totalWidth, titleH);
+        _drawTitle(ctx, title, totalWidth, marginPx);
     }
 
-    // Map image
-    ctx.drawImage(mapCanvas, 0, titleH);
-
-    // North arrow (top-right corner of map area, overlaid)
+    // North arrow (top-right of map area)
     if (showNorthArrow) {
-        _drawNorthArrow(ctx, totalWidth - NORTH_ARROW_SIZE - 30, titleH + 30, bearing);
+        const northY = marginPx + (title ? (TITLE_HEIGHT + 40) : 30);
+        _drawNorthArrow(ctx, marginPx + mapW - NORTH_ARROW_SIZE - 30, northY, bearing);
     }
 
-    // Scale bar (bottom-left corner of map area, overlaid)
+    // Scale bar (bottom-left of map area)
     if (showScaleBar) {
-        _drawScaleBar(ctx, 40, titleH + mapCanvas.height - SCALE_BAR_HEIGHT - 30, scale, mapCanvas.width);
+        _drawScaleBar(ctx, marginPx + 40, marginPx + mapH - SCALE_BAR_HEIGHT - 30, scale, mapW);
     }
 
-    // Legend (bottom-right corner of map area, overlaid)
-    // Normalise stats: accept both { type: count } and { type: { count, color } }
+    // Legend (bottom-right of map area)
     const legendEntries = Object.entries(featuresByType)
         .map(([type, value]) => {
             if (typeof value === 'number') return [type, value, null];
@@ -97,7 +142,7 @@ export function composeLayout(mapCanvas, options) {
         })
         .filter(([, count]) => count > 0);
     if (showLegend && legendEntries.length > 0) {
-        _drawLegend(ctx, totalWidth, titleH + mapCanvas.height, legendEntries);
+        _drawLegend(ctx, marginPx + mapW, marginPx + mapH, legendEntries);
     }
 
     return canvas;
@@ -108,26 +153,48 @@ export function composeLayout(mapCanvas, options) {
 // ============================================================================
 
 /**
- * Draws the map title centered at the top.
+ * Draws the map title as an overlay badge centered at the top.
+ * When grids are on (marginPx > 0), the title sits inside the map area
+ * below the margin band so it does not overlap grid labels.
+ * @param {number} [marginPx=0] - Grid margin band height in pixels
  */
-function _drawTitle(ctx, title, width, height) {
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
+function _drawTitle(ctx, title, width, marginPx = 0) {
+    // When grids are on, position title inside the map area (below grid labels)
+    const topMargin = marginPx > 0 ? marginPx + 20 : 20;
+    const paddingX = 28;
+    const paddingY = 14;
 
-    // Bottom border
-    ctx.strokeStyle = '#cccccc';
+    ctx.font = `bold 36px ${FONT_FAMILY}`;
+    const textMetrics = ctx.measureText(title);
+    const textWidth = textMetrics.width;
+
+    const bgWidth = Math.min(textWidth + paddingX * 2, width - 60);
+    const bgHeight = TITLE_HEIGHT;
+    const bgX = (width - bgWidth) / 2;
+    const bgY = topMargin;
+
+    // Semi-transparent background with rounded corners
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.strokeStyle = '#999999';
     ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, height - 1);
-    ctx.lineTo(width, height - 1);
+    _roundRect(ctx, bgX, bgY, bgWidth, bgHeight, 6);
+    ctx.fill();
+    _roundRect(ctx, bgX, bgY, bgWidth, bgHeight, 6);
     ctx.stroke();
 
-    // Title text
+    // Title text (clipped to background width)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(bgX + paddingX / 2, bgY, bgWidth - paddingX, bgHeight);
+    ctx.clip();
+
     ctx.fillStyle = '#1a1a1a';
     ctx.font = `bold 36px ${FONT_FAMILY}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(title, width / 2, height / 2);
+    ctx.fillText(title, width / 2, bgY + bgHeight / 2 + paddingY / 4);
+
+    ctx.restore();
 }
 
 /**
@@ -313,6 +380,455 @@ function _drawLegend(ctx, canvasWidth, mapBottom, legendEntries) {
 
         offsetY += LEGEND_ROW_HEIGHT;
     }
+}
+
+// ============================================================================
+// GRID DRAWING FUNCTIONS
+// ============================================================================
+
+/**
+ * Returns grid spacing for a given scale denominator.
+ * @param {number} scaleDenom - Scale denominator (e.g. 25000)
+ * @returns {{ utmMeters: number, degreesInterval: number }}
+ */
+function _getGridSpacing(scaleDenom) {
+    if (scaleDenom <= 5000) return { utmMeters: 100, degreesInterval: 0.001 };
+    if (scaleDenom <= 25000) return { utmMeters: 1000, degreesInterval: 0.01 };
+    if (scaleDenom <= 100000) return { utmMeters: 5000, degreesInterval: 0.05 };
+    if (scaleDenom <= 1000000) return { utmMeters: 10000, degreesInterval: 0.1 };
+    return { utmMeters: 50000, degreesInterval: 0.5 };
+}
+
+/**
+ * Draws lat/long grid lines with labels in the margin bands.
+ * Lines are blue and dashed. Labels in DMS format.
+ * Side labels are rotated vertically.
+ * @param {boolean} hasBothGrids - When true, labels sit farther from map frame
+ */
+function _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, hasBothGrids) {
+    const { degreesInterval } = _getGridSpacing(scaleDenom);
+    const { west, east, south, north } = mapBounds;
+
+    const mapLeft = marginPx;
+    const mapTop = marginPx;
+    const mapRight = marginPx + mapW;
+    const mapBottom = marginPx + mapH;
+
+    // Label offset from map frame — close when alone, farther when UTM labels are closer
+    const labelOffset = hasBothGrids ? 28 : 6;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0, 80, 180, 0.4)';
+    ctx.lineWidth = 0.8;
+    ctx.setLineDash([6, 4]);
+    ctx.fillStyle = 'rgba(0, 80, 180, 0.9)';
+    ctx.font = `13px ${FONT_FAMILY}`;
+
+    // Horizontal lines (constant latitude, west → east)
+    // Extend sampling 5% beyond bounds so endpoints land outside the map rect,
+    // ensuring _findEdgeIntersection detects clear edge crossings for labels.
+    const lngPad = (east - west) * 0.05;
+    const latPad = (north - south) * 0.05;
+
+    const firstLat = Math.ceil(south / degreesInterval) * degreesInterval;
+    for (let lat = firstLat; lat <= north; lat += degreesInterval) {
+        const points = [];
+        for (let i = 0; i <= GRID_LINE_SAMPLES; i++) {
+            const lng = (west - lngPad) + ((east - west) + 2 * lngPad) * (i / GRID_LINE_SAMPLES);
+            points.push(projFn([lng, lat]));
+        }
+
+        _drawClippedPolyline(ctx, points, mapLeft, mapTop, mapRight, mapBottom);
+
+        const leftPt = _findEdgeIntersection(points, mapLeft, 'left', mapTop, mapBottom);
+        const rightPt = _findEdgeIntersection(points, mapRight, 'right', mapTop, mapBottom);
+        const label = _formatDMS(lat, 'lat');
+
+        // Left margin — rotated -90° (bottom-to-top), text extends into margin
+        if (leftPt) {
+            ctx.save();
+            ctx.translate(mapLeft - labelOffset, leftPt.y);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(label, 0, 0);
+            ctx.restore();
+        }
+        // Right margin — rotated +90° (top-to-bottom), text extends into margin
+        if (rightPt) {
+            ctx.save();
+            ctx.translate(mapRight + labelOffset, rightPt.y);
+            ctx.rotate(Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(label, 0, 0);
+            ctx.restore();
+        }
+    }
+
+    // Vertical lines (constant longitude, south → north)
+    const firstLng = Math.ceil(west / degreesInterval) * degreesInterval;
+    for (let lng = firstLng; lng <= east; lng += degreesInterval) {
+        const points = [];
+        for (let i = 0; i <= GRID_LINE_SAMPLES; i++) {
+            const lat = (south - latPad) + ((north - south) + 2 * latPad) * (i / GRID_LINE_SAMPLES);
+            points.push(projFn([lng, lat]));
+        }
+
+        _drawClippedPolyline(ctx, points, mapLeft, mapTop, mapRight, mapBottom);
+
+        const topPt = _findEdgeIntersection(points, mapTop, 'top', mapLeft, mapRight);
+        const bottomPt = _findEdgeIntersection(points, mapBottom, 'bottom', mapLeft, mapRight);
+        const label = _formatDMS(lng, 'lng');
+
+        if (topPt) {
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(label, topPt.x, mapTop - labelOffset);
+        }
+        if (bottomPt) {
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(label, bottomPt.x, mapBottom + labelOffset);
+        }
+    }
+
+    ctx.restore();
+}
+
+/**
+ * Draws UTM grid lines with labels in the margin bands.
+ * Lines are black and solid. Labels show full easting/northing with units.
+ * Handles multiple UTM zones when the map spans a zone boundary.
+ * Side labels are rotated vertically.
+ * @param {boolean} hasBothGrids - When true, labels always sit close to frame
+ */
+function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, _hasBothGrids) {
+    const { utmMeters } = _getGridSpacing(scaleDenom);
+    const { west, east, south, north } = mapBounds;
+
+    const mapLeft = marginPx;
+    const mapTop = marginPx;
+    const mapRight = marginPx + mapW;
+    const mapBottom = marginPx + mapH;
+
+    // UTM labels always close to the map frame
+    const labelOffset = 8;
+
+    const westZone = _utmZone(west);
+    const eastZone = _utmZone(east);
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.lineWidth = 1.0;
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.font = `bold 13px ${FONT_FAMILY}`;
+
+    for (let zone = westZone; zone <= eastZone; zone++) {
+        const isSouth = ((south + north) / 2) < 0;
+        const utmProj = `+proj=utm +zone=${zone} ${isSouth ? '+south' : ''} +datum=WGS84 +units=m +no_defs`;
+        const wgs84 = '+proj=longlat +datum=WGS84 +no_defs';
+
+        const zoneLngWest = Math.max((zone - 1) * 6 - 180, west);
+        const zoneLngEast = Math.min(zone * 6 - 180, east);
+
+        const corners = [
+            [zoneLngWest, south], [zoneLngEast, south],
+            [zoneLngWest, north], [zoneLngEast, north],
+        ];
+        let minE = Infinity, maxE = -Infinity, minN = Infinity, maxN = -Infinity;
+        for (const [lng, lat] of corners) {
+            const [e, n] = proj4(wgs84, utmProj, [lng, lat]);
+            if (e < minE) minE = e;
+            if (e > maxE) maxE = e;
+            if (n < minN) minN = n;
+            if (n > maxN) maxN = n;
+        }
+
+        const firstE = Math.ceil(minE / utmMeters) * utmMeters;
+        const firstN = Math.ceil(minN / utmMeters) * utmMeters;
+
+        // Extend sampling 5% beyond UTM extent so endpoints land outside
+        // the map rect, ensuring lines reach the frame and labels are found.
+        const nPad = (maxN - minN) * 0.1;
+        const ePad = (maxE - minE) * 0.1;
+
+        // Easting lines (vertical — constant easting, varying northing)
+        for (let e = firstE; e <= maxE; e += utmMeters) {
+            const points = [];
+            for (let i = 0; i <= GRID_LINE_SAMPLES; i++) {
+                const n = (minN - nPad) + ((maxN - minN) + 2 * nPad) * (i / GRID_LINE_SAMPLES);
+                try {
+                    const [lng, lat] = proj4(utmProj, wgs84, [e, n]);
+                    if (lng >= zoneLngWest - 0.01 && lng <= zoneLngEast + 0.01) {
+                        points.push(projFn([lng, lat]));
+                    }
+                } catch { /* skip invalid projections */ }
+            }
+            if (points.length < 2) continue;
+
+            _drawClippedPolyline(ctx, points, mapLeft, mapTop, mapRight, mapBottom);
+
+            const topPt = _findEdgeIntersection(points, mapTop, 'top', mapLeft, mapRight);
+            const bottomPt = _findEdgeIntersection(points, mapBottom, 'bottom', mapLeft, mapRight);
+            const label = _formatUTMValue(e, 'E');
+
+            if (topPt) {
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(label, topPt.x, mapTop - labelOffset);
+            }
+            if (bottomPt) {
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText(label, bottomPt.x, mapBottom + labelOffset);
+            }
+        }
+
+        // Northing lines (horizontal — constant northing, varying easting)
+        for (let n = firstN; n <= maxN; n += utmMeters) {
+            const points = [];
+            for (let i = 0; i <= GRID_LINE_SAMPLES; i++) {
+                const e = (minE - ePad) + ((maxE - minE) + 2 * ePad) * (i / GRID_LINE_SAMPLES);
+                try {
+                    const [lng, lat] = proj4(utmProj, wgs84, [e, n]);
+                    if (lng >= zoneLngWest - 0.01 && lng <= zoneLngEast + 0.01) {
+                        points.push(projFn([lng, lat]));
+                    }
+                } catch { /* skip invalid projections */ }
+            }
+            if (points.length < 2) continue;
+
+            _drawClippedPolyline(ctx, points, mapLeft, mapTop, mapRight, mapBottom);
+
+            const leftPt = _findEdgeIntersection(points, mapLeft, 'left', mapTop, mapBottom);
+            const rightPt = _findEdgeIntersection(points, mapRight, 'right', mapTop, mapBottom);
+            const label = _formatUTMValue(n, 'N');
+
+            // Left margin — rotated -90°, text extends into margin
+            if (leftPt) {
+                ctx.save();
+                ctx.translate(mapLeft - labelOffset, leftPt.y);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(label, 0, 0);
+                ctx.restore();
+            }
+            // Right margin — rotated +90°, text extends into margin
+            if (rightPt) {
+                ctx.save();
+                ctx.translate(mapRight + labelOffset, rightPt.y);
+                ctx.rotate(Math.PI / 2);
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(label, 0, 0);
+                ctx.restore();
+            }
+        }
+
+        // Zone boundary lines with heavier stroke
+        if (zone < eastZone) {
+            const boundaryLng = zone * 6 - 180;
+            const latRange = north - south;
+            const latBoundaryPad = latRange * 0.1;
+            const points = [];
+            for (let i = 0; i <= GRID_LINE_SAMPLES; i++) {
+                const lat = (south - latBoundaryPad) + (latRange + 2 * latBoundaryPad) * (i / GRID_LINE_SAMPLES);
+                points.push(projFn([boundaryLng, lat]));
+            }
+            ctx.save();
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 5]);
+            _drawClippedPolyline(ctx, points, mapLeft, mapTop, mapRight, mapBottom);
+            ctx.restore();
+        }
+    }
+
+    ctx.restore();
+}
+
+/**
+ * Draws a polyline clipped to the map rectangle.
+ * Only segments inside the rect are stroked.
+ */
+function _drawClippedPolyline(ctx, points, left, top, right, bottom) {
+    if (points.length < 2) return;
+
+    ctx.beginPath();
+    let drawing = false;
+
+    for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const inside = p.x >= left && p.x <= right && p.y >= top && p.y <= bottom;
+
+        if (inside) {
+            if (!drawing) {
+                // If previous point was outside, find edge crossing to start cleanly.
+                // _clipSegment handles any inside/outside combination and returns
+                // the entry point (x1, y1) at the rectangle edge.
+                if (i > 0) {
+                    const prev = points[i - 1];
+                    const seg = _clipSegment(prev, p, left, top, right, bottom);
+                    if (seg) ctx.moveTo(seg.x1, seg.y1);
+                    else ctx.moveTo(p.x, p.y);
+                } else {
+                    ctx.moveTo(p.x, p.y);
+                }
+                drawing = true;
+            }
+            ctx.lineTo(p.x, p.y);
+        } else if (drawing) {
+            // Just left the rect — clip to exit edge
+            const prev = points[i - 1];
+            const seg = _clipSegment(prev, p, left, top, right, bottom);
+            if (seg) ctx.lineTo(seg.x2, seg.y2);
+            drawing = false;
+        } else if (i > 0) {
+            // Both outside — check if segment crosses the rect
+            const prev = points[i - 1];
+            const segment = _clipSegment(prev, p, left, top, right, bottom);
+            if (segment) {
+                ctx.moveTo(segment.x1, segment.y1);
+                ctx.lineTo(segment.x2, segment.y2);
+            }
+        }
+    }
+
+    ctx.stroke();
+}
+
+/**
+ * Finds where a polyline crosses a specific edge of the map rectangle.
+ * Returns the intersection point closest to the middle of the edge.
+ * @param {Array} points - Array of {x, y}
+ * @param {number} edgeVal - The coordinate value of the edge
+ * @param {'left'|'right'|'top'|'bottom'} edgeType
+ * @param {number} minOrtho - Min value on the orthogonal axis
+ * @param {number} maxOrtho - Max value on the orthogonal axis
+ * @returns {{x: number, y: number}|null}
+ */
+function _findEdgeIntersection(points, edgeVal, edgeType, minOrtho, maxOrtho) {
+    const isHorizontal = edgeType === 'left' || edgeType === 'right';
+    let best = null;
+    let bestDist = Infinity;
+    const mid = (minOrtho + maxOrtho) / 2;
+
+    for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1];
+        const b = points[i];
+
+        let cross;
+        if (isHorizontal) {
+            // Edge is vertical line x = edgeVal
+            if ((a.x - edgeVal) * (b.x - edgeVal) > 0) continue;
+            if (Math.abs(b.x - a.x) < 0.001) continue;
+            const t = (edgeVal - a.x) / (b.x - a.x);
+            const y = a.y + t * (b.y - a.y);
+            if (y < minOrtho || y > maxOrtho) continue;
+            cross = { x: edgeVal, y };
+        } else {
+            // Edge is horizontal line y = edgeVal
+            if ((a.y - edgeVal) * (b.y - edgeVal) > 0) continue;
+            if (Math.abs(b.y - a.y) < 0.001) continue;
+            const t = (edgeVal - a.y) / (b.y - a.y);
+            const x = a.x + t * (b.x - a.x);
+            if (x < minOrtho || x > maxOrtho) continue;
+            cross = { x, y: edgeVal };
+        }
+
+        // Prefer intersection closest to the middle of the edge
+        const dist = isHorizontal
+            ? Math.abs(cross.y - mid)
+            : Math.abs(cross.x - mid);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = cross;
+        }
+    }
+
+    return best;
+}
+
+/**
+ * Clips a segment (both points outside) to a rectangle.
+ * Returns { x1, y1, x2, y2 } of the visible portion, or null.
+ */
+function _clipSegment(a, b, left, top, right, bottom) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    let tMin = 0;
+    let tMax = 1;
+
+    const edges = [
+        { p: -dx, q: a.x - left },
+        { p: dx, q: right - a.x },
+        { p: -dy, q: a.y - top },
+        { p: dy, q: bottom - a.y },
+    ];
+
+    for (const { p, q } of edges) {
+        if (Math.abs(p) < 0.0001) {
+            if (q < 0) return null;
+            continue;
+        }
+        const t = q / p;
+        if (p < 0) {
+            if (t > tMin) tMin = t;
+        } else {
+            if (t < tMax) tMax = t;
+        }
+        if (tMin > tMax) return null;
+    }
+
+    return {
+        x1: a.x + tMin * dx, y1: a.y + tMin * dy,
+        x2: a.x + tMax * dx, y2: a.y + tMax * dy,
+    };
+}
+
+/**
+ * Formats a degree value in degrees, minutes, seconds with hemisphere.
+ * Omits seconds when 0, omits minutes+seconds when both 0.
+ * @param {number} value - Degrees (signed)
+ * @param {'lat'|'lng'} axis
+ * @returns {string} e.g. "22°15'30"S" or "43°W"
+ */
+function _formatDMS(value, axis) {
+    const abs = Math.abs(value);
+    const deg = Math.floor(abs);
+    const minFloat = (abs - deg) * 60;
+    const min = Math.floor(minFloat);
+    const sec = Math.round((minFloat - min) * 60);
+
+    const hemisphere = axis === 'lat'
+        ? (value >= 0 ? 'N' : 'S')
+        : (value >= 0 ? 'E' : 'W');
+
+    if (sec === 0 && min === 0) return `${deg}°${hemisphere}`;
+    if (sec === 0) return `${deg}°${min}'${hemisphere}`;
+    return `${deg}°${min}'${sec}"${hemisphere}`;
+}
+
+/**
+ * Formats a UTM easting or northing value with unit.
+ * @param {number} meters - Value in meters
+ * @param {'E'|'N'} axis - Easting or Northing
+ * @returns {string} e.g. "680000 m E" or "7517000 m N"
+ */
+function _formatUTMValue(meters, axis) {
+    return `${Math.round(meters)} m ${axis}`;
+}
+
+/**
+ * Returns the UTM zone number for a longitude.
+ * @param {number} lng - Longitude in degrees
+ * @returns {number} Zone 1..60
+ */
+function _utmZone(lng) {
+    return Math.min(60, Math.max(1, Math.floor((lng + 180) / 6) + 1));
 }
 
 // ============================================================================

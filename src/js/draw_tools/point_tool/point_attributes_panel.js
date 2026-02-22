@@ -279,6 +279,37 @@ function _buildLabelTab(container, selectedFeatures, feature, pointControl) {
     });
     container.appendChild(labelSizeSlider);
 
+    // Zoom correction toggle
+    const zoomCorrectionToggle = createModernToggle({
+        label: 'Correção de Zoom',
+        checked: feature.properties.labelZoomCorrectionEnabled !== false,
+        onChange: (enabled) => {
+            pointControl.updateFeaturesProperty(selectedFeatures, 'labelZoomCorrectionEnabled', enabled);
+            zoomSlider.style.display = enabled ? '' : 'none';
+        }
+    });
+    container.appendChild(zoomCorrectionToggle);
+
+    // Reference zoom slider
+    const zoomSlider = createModernSlider({
+        label: 'Zoom de Referência',
+        min: 1,
+        max: 21,
+        step: 0.1,
+        value: Math.round((feature.properties.labelCreatedAtZoom || 0) * 10) / 10,
+        unit: '',
+        onChange: (value) => {
+            const roundedValue = Math.round(parseFloat(value) * 10) / 10;
+            pointControl.updateFeaturesProperty(selectedFeatures, 'labelCreatedAtZoom', roundedValue);
+        }
+    });
+
+    if (feature.properties.labelZoomCorrectionEnabled === false) {
+        zoomSlider.style.display = 'none';
+    }
+
+    container.appendChild(zoomSlider);
+
     container.appendChild(createSectionDivider('Contorno do Texto'));
 
     // Outline color
@@ -306,7 +337,7 @@ function _buildLabelTab(container, selectedFeatures, feature, pointControl) {
     container.appendChild(outlineWidthSlider);
 
     // Store control references for toggling
-    const controlElements = [textField, coordBtn, labelColorPicker, labelSizeSlider, outlineColorPicker, outlineWidthSlider];
+    const controlElements = [textField, coordBtn, labelColorPicker, labelSizeSlider, zoomCorrectionToggle, zoomSlider, outlineColorPicker, outlineWidthSlider];
 
     function toggleLabelControls(enabled) {
         controlElements.forEach(el => {

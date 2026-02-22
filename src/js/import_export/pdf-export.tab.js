@@ -22,6 +22,11 @@ export default class PDFExportTab {
         this.showLegend = false;
         this.showScaleBar = false;
         this.showNorthArrow = false;
+        this.showLatLongGrid = false;
+        this.showUTMGrid = false;
+
+        // Extra margin (mm) for grid labels. Added to marginMM when any grid is on.
+        this._gridMarginMM = 5;
 
         this.availableScales = [
             { value: '1:1000', label: '1:1.000' },
@@ -32,13 +37,24 @@ export default class PDFExportTab {
             { value: '1:100000', label: '1:100.000' },
             { value: '1:250000', label: '1:250.000' },
             { value: '1:500000', label: '1:500.000' },
-            { value: '1:1000000', label: '1:1.000.000' }
+            { value: '1:1000000', label: '1:1.000.000' },
+            { value: '1:2500000', label: '1:2.500.000' },
+            { value: '1:5000000', label: '1:5.000.000' }
         ];
 
         this.onOrientationChange = this.onOrientationChange.bind(this);
         this.onScaleChange = this.onScaleChange.bind(this);
         this.onExportClick = this.onExportClick.bind(this);
         this.onMapMove = this.onMapMove.bind(this);
+
+        // Auto-recover preview after base layer changes.
+        // setStyle() destroys all custom sources/layers; this re-adds them.
+        this.map.on('styledata', () => {
+            if (this.isVisible && !this.map.getSource('pdf-export-preview')) {
+                this.showPreview();
+                this.updateBounds();
+            }
+        });
     }
 
     createUI() {
@@ -88,6 +104,16 @@ export default class PDFExportTab {
                     <label class="pdf-cartographic-option">
                         <input type="checkbox" id="pdf-show-north">
                         Seta norte
+                    </label>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-latlong-grid">
+                        Grade Lat/Long
+                    </label>
+
+                    <label class="pdf-cartographic-option">
+                        <input type="checkbox" id="pdf-show-utm-grid">
+                        Grade UTM
                     </label>
                 </div>
 
@@ -189,6 +215,21 @@ export default class PDFExportTab {
                 this.showNorthArrow = e.target.checked;
             });
         }
+
+        const latlongGridCheckbox = document.getElementById('pdf-show-latlong-grid');
+        const utmGridCheckbox = document.getElementById('pdf-show-utm-grid');
+
+        if (latlongGridCheckbox) {
+            latlongGridCheckbox.addEventListener('change', (e) => {
+                this.showLatLongGrid = e.target.checked;
+            });
+        }
+        if (utmGridCheckbox) {
+            utmGridCheckbox.addEventListener('change', (e) => {
+                this.showUTMGrid = e.target.checked;
+            });
+        }
+
     }
 
     onScaleChange(event) {
@@ -291,7 +332,7 @@ export default class PDFExportTab {
             bottomLeft: [center.lng - offsetLng, center.lat - offsetLat]
         };
 
-        const marginDegrees = this.convertMMToMapUnitsFromScale(this.marginMM, scale);
+        const marginDegrees = this.convertMMToMapUnitsFromScale(this.effectiveMarginMM, scale);
 
         const usable = {
             topLeft: [paper.topLeft[0] + marginDegrees / latCorrection, paper.topLeft[1] - marginDegrees],
@@ -316,23 +357,18 @@ export default class PDFExportTab {
 
     /**
      * Updates the preview bounds centered at a specific point.
-     * Rotates the preview rectangle by the current map bearing so it
-     * always appears aligned with the viewport (screen edges).
+     * Preview is always axis-aligned (north-up) because the exported PDF
+     * is always rendered north-up for correct GDAL georeferencing.
      * @param {Object} center - The center point with lng and lat properties
      */
     updateBoundsAtCenter(center) {
         const bounds = this.calculateBoundsFromScaleAtCenter(this.scale, this.orientation, center);
 
-        // Store unrotated bounds for fitBounds / zoom calculation
-        this._unrotatedPaperBounds = bounds.paper;
-        this._unrotatedUsableBounds = bounds.usable;
-
-        // Rotate corners by map bearing so preview aligns with viewport
-        const bearing = this.map.getBearing();
-        const centerCoord = [center.lng, center.lat];
-
-        this.paperBounds = this._rotateBounds(bounds.paper, centerCoord, bearing);
-        this.usableBounds = this._rotateBounds(bounds.usable, centerCoord, bearing);
+        // Preview is always north-up — no rotation applied.
+        // The export renders the hidden map north-up so GDAL's -a_ullr
+        // produces correct georeferencing.
+        this.paperBounds = bounds.paper;
+        this.usableBounds = bounds.usable;
 
         const paperFeature = {
             type: 'Feature',
@@ -373,55 +409,12 @@ export default class PDFExportTab {
         }
     }
 
-    /**
-     * Rotates all four corners of a bounds object around a center point.
-     * @param {Object} bounds - Bounds with topLeft, topRight, bottomRight, bottomLeft
-     * @param {number[]} center - [lng, lat] center of rotation
-     * @param {number} bearingDeg - Rotation angle in degrees (clockwise)
-     * @returns {Object} Rotated bounds
-     */
-    _rotateBounds(bounds, center, bearingDeg) {
-        if (Math.abs(bearingDeg) < 0.01) return bounds;
-        return {
-            topLeft: this._rotateCorner(center, bounds.topLeft, bearingDeg),
-            topRight: this._rotateCorner(center, bounds.topRight, bearingDeg),
-            bottomRight: this._rotateCorner(center, bounds.bottomRight, bearingDeg),
-            bottomLeft: this._rotateCorner(center, bounds.bottomLeft, bearingDeg),
-        };
-    }
-
-    /**
-     * Rotates a geographic point around a center by a given bearing.
-     * Uses turf.js destination/bearing for geodesic accuracy.
-     * @param {number[]} center - [lng, lat] center of rotation
-     * @param {number[]} corner - [lng, lat] point to rotate
-     * @param {number} angleDeg - Rotation angle in degrees (clockwise)
-     * @returns {number[]} Rotated [lng, lat]
-     */
-    _rotateCorner(center, corner, angleDeg) {
-        const from = turf.point(center);
-        const to = turf.point(corner);
-        const dist = turf.distance(from, to);
-        if (dist < 0.0001) return corner;
-        const currentBearing = turf.bearing(from, to);
-        const rotated = turf.destination(from, dist, currentBearing + angleDeg);
-        return rotated.geometry.coordinates;
-    }
-
     zoomToPreviewArea() {
         if (!this.paperBounds) return;
 
-        // Compute axis-aligned bbox of the (possibly rotated) preview polygon
-        const corners = [
-            this.paperBounds.topLeft,
-            this.paperBounds.topRight,
-            this.paperBounds.bottomRight,
-            this.paperBounds.bottomLeft,
-        ];
-        const lngs = corners.map(c => c[0]);
-        const lats = corners.map(c => c[1]);
-        const sw = [Math.min(...lngs), Math.min(...lats)];
-        const ne = [Math.max(...lngs), Math.max(...lats)];
+        // Preview is always axis-aligned, so bottomLeft/topRight are the bbox
+        const sw = this.paperBounds.bottomLeft;
+        const ne = this.paperBounds.topRight;
 
         // Calculate sidebar offset for asymmetric padding
         const sidebarOffset = this.getSidebarOffset();
@@ -708,9 +701,34 @@ export default class PDFExportTab {
         }
     }
 
+    /**
+     * Total effective margin in mm. Includes grid label margin when any grid is on.
+     * @returns {number}
+     */
+    get effectiveMarginMM() {
+        return (this.showLatLongGrid || this.showUTMGrid)
+            ? this.marginMM + this._gridMarginMM
+            : this.marginMM;
+    }
+
+    /**
+     * Whether any grid overlay is enabled.
+     * @returns {boolean}
+     */
+    get hasGrids() {
+        return this.showLatLongGrid || this.showUTMGrid;
+    }
+
     calculateA4PixelSize() {
         const targetDPI = 300;
-        const marginMM = this.marginMM;
+        // Ratio between print DPI and screen DPI (~96).
+        // Using a higher pixelRatio with a proportionally smaller container
+        // makes MapLibre render tile labels larger, improving print legibility.
+        // 300/96 ≈ 3.125 so labels on the PDF match their physical screen size.
+        const printScaleFactor = targetDPI / 96;
+        // When grids are enabled, the effective margin is larger to accommodate labels.
+        // composeLayout() bakes these margins into the canvas, so GDAL MARGIN=0.
+        const marginMM = this.effectiveMarginMM;
 
         let usableWidthMM, usableHeightMM;
         if (this.orientation === 'landscape') {
@@ -724,9 +742,17 @@ export default class PDFExportTab {
         const usableWidthInches = usableWidthMM / 25.4;
         const usableHeightInches = usableHeightMM / 25.4;
 
+        // Full output dimensions at target DPI
+        const outputWidth = Math.round(usableWidthInches * targetDPI);
+        const outputHeight = Math.round(usableHeightInches * targetDPI);
+
         return {
-            width: Math.round(usableWidthInches * targetDPI),
-            height: Math.round(usableHeightInches * targetDPI)
+            width: outputWidth,
+            height: outputHeight,
+            // Smaller container; MapLibre canvas = container * pixelRatio ≈ output
+            containerWidth: Math.round(outputWidth / printScaleFactor),
+            containerHeight: Math.round(outputHeight / printScaleFactor),
+            pixelRatio: printScaleFactor,
         };
     }
 
@@ -768,9 +794,10 @@ export default class PDFExportTab {
 
             hiddenMapContainer = document.createElement('div');
             hiddenMapContainer.className = 'pdf-export-hidden-map';
-            // Dynamic dimensions depend on the computed A4 pixel size
-            hiddenMapContainer.style.width = `${canvasSize.width}px`;
-            hiddenMapContainer.style.height = `${canvasSize.height}px`;
+            // Use smaller container with higher pixelRatio so MapLibre renders
+            // tile labels at print-legible size (canvas output stays the same)
+            hiddenMapContainer.style.width = `${canvasSize.containerWidth}px`;
+            hiddenMapContainer.style.height = `${canvasSize.containerHeight}px`;
             document.body.appendChild(hiddenMapContainer);
 
             this.updateProgress(30, 'Criando mapa de exportação...');
@@ -782,7 +809,7 @@ export default class PDFExportTab {
                 zoom: this.map.getZoom(),
                 // Reset pitch to 0 — perspective distortion breaks cartographic output
                 pitch: 0,
-                pixelRatio: 1,
+                pixelRatio: canvasSize.pixelRatio,
                 preserveDrawingBuffer: true,
                 interactive: false,
                 fadeDuration: 0,
@@ -807,19 +834,17 @@ export default class PDFExportTab {
 
             this.updateProgress(60, 'Enquadrando área...');
 
-            // Use unrotated (axis-aligned) bounds for zoom calculation
-            const unrotatedUsable = this._unrotatedUsableBounds || this.usableBounds;
-            const mapBounds = [unrotatedUsable.bottomLeft, unrotatedUsable.topRight];
+            // Bounds are always axis-aligned (north-up)
+            const mapBounds = [this.usableBounds.bottomLeft, this.usableBounds.topRight];
             hiddenMap.fitBounds(mapBounds, { padding: 0, duration: 0 });
 
             await new Promise(resolve => hiddenMap.once('idle', resolve));
 
-            // Apply map bearing so the export matches the user's rotated view
-            const exportBearing = this.map.getBearing();
-            if (Math.abs(exportBearing) > 0.01) {
-                hiddenMap.setBearing(exportBearing);
-                await new Promise(resolve => hiddenMap.once('idle', resolve));
-            }
+            // Hidden map is always rendered north-up (bearing = 0).
+            // GDAL's -a_ullr only supports axis-aligned georeferencing;
+            // applying a bearing would rotate the canvas content while
+            // -a_ullr still assumes north-up, causing every pixel to map
+            // to the wrong geographic coordinate.
 
             if (this._exportCancelled) return;
 
@@ -834,19 +859,31 @@ export default class PDFExportTab {
 
             this.updateProgress(80, 'Finalizando...');
 
-            // Compose cartographic layout if any element is enabled
-            const hasCartographicElements = this.showTitle || this.showLegend || this.showScaleBar || this.showNorthArrow;
+            // Always compose cartographic layout (at minimum draws map border)
             let exportCanvas = hiddenMap.getCanvas();
-            if (hasCartographicElements) {
+            {
                 const { composeLayout } = await import('./pdf-cartographic-elements.js');
                 exportCanvas = composeLayout(exportCanvas, {
                     title: this.showTitle ? this.mapTitle : null,
                     showLegend: this.showLegend,
                     showScaleBar: this.showScaleBar,
                     showNorthArrow: this.showNorthArrow,
+                    showLatLongGrid: this.showLatLongGrid,
+                    showUTMGrid: this.showUTMGrid,
                     scale: this.scale,
-                    bearing: this.map.getBearing(),
+                    // Always 0 — hidden map is rendered north-up for correct georeferencing
+                    bearing: 0,
                     featuresByType: await this._collectFeatureStats(this._buildExportBoundsPolygon()),
+                    mapBounds: {
+                        west: hiddenMap.getBounds().getWest(),
+                        east: hiddenMap.getBounds().getEast(),
+                        south: hiddenMap.getBounds().getSouth(),
+                        north: hiddenMap.getBounds().getNorth(),
+                    },
+                    projectionFn: (lngLat) => {
+                        const pt = hiddenMap.project(lngLat);
+                        return { x: pt.x * canvasSize.pixelRatio, y: pt.y * canvasSize.pixelRatio };
+                    },
                 });
             }
 
@@ -863,29 +900,33 @@ export default class PDFExportTab {
 
             this.updateProgress(90, 'Gerando PDF...');
 
-            const marginPoints = Math.round(this.marginMM * 2.83465);
             const result = await Gdal.open([new File([u8arr], "input.png", { type: mime })]);
             const rasterDataset = result.datasets[0];
             const bounds = hiddenMap.getBounds();
-            const minX = bounds.getWest();
-            const minY = bounds.getSouth();
-            const maxX = bounds.getEast();
-            const maxY = bounds.getNorth();
-            // When title is enabled, the composite canvas is taller than the map area.
-            // Extend the upper-left latitude proportionally so GDAL maps
-            // only the map portion to the correct geographic bounds.
-            const mapCanvasHeight = hiddenMap.getCanvas().height;
-            const compositeHeight = exportCanvas.height;
-            let adjustedMaxY = maxY;
-            if (compositeHeight > mapCanvasHeight) {
-                const latRange = maxY - minY;
-                const extraRatio = (compositeHeight - mapCanvasHeight) / mapCanvasHeight;
-                adjustedMaxY = maxY + latRange * extraRatio;
+            let minX = bounds.getWest();
+            let minY = bounds.getSouth();
+            let maxX = bounds.getEast();
+            let maxY = bounds.getNorth();
+
+            // GDAL adds the regular margin (5mm) as outer page padding
+            const marginPoints = Math.round(this.marginMM * 2.83465);
+            if (this.hasGrids) {
+                // Grid label margins are baked into the canvas by composeLayout().
+                // Expand geographic bounds to cover the grid margin bands.
+                const mapCanvasW = hiddenMap.getCanvas().width;
+                const mapCanvasH = hiddenMap.getCanvas().height;
+                const gridMarginPx = Math.round(this._gridMarginMM * (300 / 25.4));
+                const degPerPxX = (maxX - minX) / mapCanvasW;
+                const degPerPxY = (maxY - minY) / mapCanvasH;
+                minX -= gridMarginPx * degPerPxX;
+                maxX += gridMarginPx * degPerPxX;
+                minY -= gridMarginPx * degPerPxY;
+                maxY += gridMarginPx * degPerPxY;
             }
 
             const translateOptions = [
                 '-of', 'PDF',
-                '-a_ullr', String(minX), String(adjustedMaxY), String(maxX), String(minY),
+                '-a_ullr', String(minX), String(maxY), String(maxX), String(minY),
                 '-a_srs', 'EPSG:4326',
                 '-co', 'DPI=300',
                 '-co', `MARGIN=${marginPoints}`,

@@ -263,12 +263,6 @@ const config = {
       // maxzoom: 10                                           // Zoom máximo do hillshade
     },
 
-    // ----- 3D Terrain Toggle -----
-    terrain: {
-      source: 'terrainSource',                              // Nome do source a usar
-      exaggeration: 1.5                                       // Multiplicador da elevação (1.0 = normal)
-    },
-
     // ----- Hillshade Layer -----
     hillshade: {
       enabled: false,
