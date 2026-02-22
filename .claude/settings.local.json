@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm test:*)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm view:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npx stylelint:*)",
+      "Bash(npx vitest run:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx knip:*)",
+      "Bash(npx vite build:*)",
+      "Bash(node -e:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)",
+      "Bash(git mv:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(ls:*)",
+      "Bash(tree:*)",
+      "Bash(wc:*)",
+      "Bash(echo:*)",
+      "Bash(sort:*)",
+      "Bash(find:*)",
+      "Bash(timeout:*)",
+      "Bash(taskkill:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(node node_modules/vite/bin/vite.js build:*)",
+      "Bash(node node_modules/eslint/bin/eslint.js:*)",
+      "Bash(node:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

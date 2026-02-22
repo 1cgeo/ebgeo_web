@@ -1,0 +1,382 @@
+/* Path: css/azimuth-distance.css */
+
+/* =========================================================================
+   AZIMUTH & DISTANCE PANEL STYLES
+   Polar coordinate input tool for military navigation
+
+   Note: This panel is rendered INSIDE the FeaturePanel, so it should NOT
+   have its own scroll behavior or panel structure. The FeaturePanel
+   handles the header, scrolling, and panel structure.
+   ========================================================================= */
+
+/* ===== CONTENT AREA (inside FeaturePanel) ===== */
+.azimuth-distance-content {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 4px 0;
+}
+
+/* ===== SECTION STYLING ===== */
+.azd-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+/* ===== SECTION LABELS ===== */
+.section-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--gray-400, #9ca3af);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+/* ===== UNIT TOGGLES ===== */
+.azd-unit-toggles {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+}
+
+.azd-unit-toggle {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--gray-200, #e5e7eb);
+    border-radius: 6px;
+    background: var(--gray-50, #f9fafb);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gray-700, #374151);
+    transition: all 0.15s ease;
+}
+
+.azd-unit-toggle:hover {
+    background: white;
+    border-color: var(--primary-400, #4ade80);
+}
+
+.azd-unit-label {
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--gray-400, #9ca3af);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* ===== MODE SELECTOR ===== */
+.azd-mode-selector {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+}
+
+.azd-mode-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 8px;
+    border: 2px solid var(--gray-200, #e5e7eb);
+    border-radius: 8px;
+    background: white;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.azd-mode-btn:hover:not(.active) {
+    border-color: var(--gray-300, #d1d5db);
+    background: var(--gray-50, #f9fafb);
+}
+
+.azd-mode-btn.active {
+    border-color: var(--primary-600, #16a34a);
+    background: var(--primary-50, #f0fdf4);
+}
+
+.azd-mode-btn svg {
+    color: var(--gray-400, #9ca3af);
+}
+
+.azd-mode-btn.active svg {
+    color: var(--primary-600, #16a34a);
+}
+
+.azd-mode-label {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--gray-600, #4b5563);
+}
+
+.azd-mode-btn.active .azd-mode-label {
+    color: var(--primary-700, #15803d);
+}
+
+/* ===== DECLINATION SECTION ===== */
+.azd-declination {
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--gray-50, #f9fafb);
+    border: 1px solid var(--gray-200, #e5e7eb);
+}
+
+.azd-declination.azd-declination-active {
+    background: var(--amber-50, #fffbeb);
+    border-color: var(--amber-300, #fcd34d);
+}
+
+.azd-declination-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.azd-north-toggle {
+    display: flex;
+    gap: 2px;
+    background: white;
+    border-radius: 5px;
+    padding: 2px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.azd-north-btn {
+    padding: 5px 12px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    transition: all 0.15s ease;
+    color: var(--gray-500, #6b7280);
+}
+
+.azd-north-btn:hover:not(.active) {
+    background: var(--gray-100, #f3f4f6);
+}
+
+.azd-north-btn.active {
+    background: white;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.azd-north-btn.nm.active {
+    color: var(--amber-600, #d97706);
+}
+
+.azd-north-btn.nv.active {
+    color: var(--blue-600, #2563eb);
+}
+
+.azd-decl-container {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.azd-decl-container.disabled {
+    opacity: 0.5;
+}
+
+.azd-decl-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--gray-500, #6b7280);
+}
+
+.azd-decl-input {
+    width: 68px;
+    padding: 5px 6px;
+    border: 1px solid var(--gray-300, #d1d5db);
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    text-align: right;
+    background: white;
+}
+
+.azd-decl-input:focus {
+    outline: none;
+    border-color: var(--primary-500, #22c55e);
+    box-shadow: 0 0 0 2px var(--primary-100, #dcfce7);
+}
+
+.azd-decl-input:disabled {
+    background: var(--gray-100, #f3f4f6);
+    cursor: not-allowed;
+}
+
+.azd-decl-unit {
+    font-size: 11px;
+    color: var(--gray-400, #9ca3af);
+}
+
+.azd-decl-helper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 4px;
+    font-size: 9px;
+    color: var(--gray-400, #9ca3af);
+}
+
+.azd-decl-warning {
+    color: var(--amber-600, #d97706);
+    font-weight: 600;
+}
+
+/* ===== COMPASS SECTION ===== */
+.azd-compass {
+    display: flex;
+    justify-content: center;
+    padding: 4px 0;
+}
+
+/* ===== QUICK AZIMUTH BUTTONS ===== */
+.azd-quick-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: center;
+}
+
+.azd-quick-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    padding: 5px 9px;
+    border: 1px solid var(--gray-300, #d1d5db);
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.azd-quick-btn:hover {
+    border-color: var(--primary-400, #4ade80);
+    background: var(--primary-50, #f0fdf4);
+}
+
+.azd-quick-btn.north {
+    border-color: var(--red-300, #fca5a5);
+}
+
+.azd-quick-btn.north:hover {
+    background: var(--red-50, #fef2f2);
+}
+
+.azd-quick-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--gray-700, #374151);
+}
+
+.azd-quick-btn.north .azd-quick-label {
+    color: var(--red-600, #dc2626);
+}
+
+.azd-quick-value {
+    font-size: 8px;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    color: var(--gray-400, #9ca3af);
+}
+
+/* ===== SUMMARY BAR ===== */
+.azd-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--gray-100, #f3f4f6);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--gray-600, #4b5563);
+}
+
+.azd-summary b {
+    color: var(--gray-900, #111827);
+    font-weight: 600;
+}
+
+.azd-summary-total {
+    color: var(--primary-700, #15803d);
+}
+
+/* ===== ACTION BUTTONS ===== */
+.azd-actions {
+    display: flex;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--gray-200, #e5e7eb);
+    margin-top: 8px;
+}
+
+.azd-btn {
+    flex: 1;
+    padding: 10px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.15s ease;
+}
+
+.azd-btn-cancel {
+    border: 1px solid var(--gray-300, #d1d5db);
+    background: white;
+    color: var(--gray-700, #374151);
+}
+
+.azd-btn-cancel:hover {
+    background: var(--gray-50, #f9fafb);
+    border-color: var(--gray-400, #9ca3af);
+}
+
+.azd-btn-create {
+    border: none;
+    background: var(--primary-600, #16a34a);
+    color: white;
+}
+
+.azd-btn-create:hover:not(:disabled) {
+    background: var(--primary-700, #15803d);
+}
+
+.azd-btn-create:disabled {
+    background: var(--gray-300, #d1d5db);
+    cursor: not-allowed;
+}
+
+/* ===== LEGS TABLE CONTAINER ===== */
+.azimuth-distance-legs-container {
+    display: flex;
+    flex-direction: column;
+}
+
+/* ===== REFERENCE POINT ===== */
+.azimuth-distance-reference-point {
+    /* Container for the reference point component */
+}
+
+/* ===== COMPASS CONTAINER ===== */
+.azimuth-distance-compass-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid var(--gray-200, #e5e7eb);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}

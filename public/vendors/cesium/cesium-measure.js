@@ -402,7 +402,6 @@
                         ]);
 
                         const area = +turf.area(polygon)
-                        console.log(area)
                         _labelEntity.label = {
                             text: `${(area / 1000000 < 1 ? area : area / 1000000).toFixed(1)} ${area / 1000000 < 1 ? 'm²' : 'km²'}`.replace('.', ','),
                             show: true,

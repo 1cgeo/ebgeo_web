@@ -1674,7 +1674,7 @@ const ViewShead3D_FS = '\x0auniform\x20float\x20czzj;\x0auniform\x20float\x20dis
                 _0x5944f7['setInputAction'](function (_0x1b3e30) {
                     var _0x535700 = Cesium['getCurrentMousePosition'](_0x219cf7['scene'], _0x1b3e30['position']);
                     var cartPoint = Cesium['Cartographic']['fromCartesian'](_0x535700);
-                    cartPoint.height += 1.5;
+                    cartPoint.height += 0;
                     var _0x535700 = Cesium['Cartographic']['toCartesian'](cartPoint);
                     _0x535700 && (_0x4602f6['cameraPosition'] ? _0x4602f6['cameraPosition'] && !_0x4602f6['viewPosition'] && (_0x4602f6['viewPosition'] = _0x535700, _0x4602f6['_addToScene'](), _0x4602f6['_unbindMourseEvent'](), _0x4602f6['calback'] && _0x4602f6['calback']()) : _0x4602f6['cameraPosition'] = _0x535700);
                 }, Cesium['ScreenSpaceEventType']['LEFT_CLICK']), _0x5944f7['setInputAction'](function (_0x1cd9d1) {
@@ -1704,7 +1704,7 @@ const ViewShead3D_FS = '\x0auniform\x20float\x20czzj;\x0auniform\x20float\x20dis
                     switch (_0x436d7b[_0x387e1e++]) {
                         case '0':
                             this['distance'] = _0x4a4e7e, _0x4eb33f['frustum'] = new Cesium['PerspectiveFrustum']({
-                                'fov': Cesium['Math']['toRadians'](0x78),
+                                'fov': Cesium['Math']['toRadians'](Math.min(Math.max(this['_horizontalAngle'] || 0x78, this['_verticalAngle'] || 0x5a), 170)),
                                 'aspectRatio': _0x10b9e7['Qemtg'](_0x2de5fe['canvas']['clientWidth'], _0x2de5fe['canvas']['clientHeight']),
                                 'near': 0.1,
                                 'far': 0x1388

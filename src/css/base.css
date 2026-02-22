@@ -1,0 +1,108 @@
+/* Path: css/base.css */
+
+/* ===== CSS VARIABLES ===== */
+:root {
+  --primary-color: #508D4E;
+  --primary-light: #B4E380;
+  --primary-dark: #427842;
+  --background-light: #fbfbfa;
+  --border-color: #EEE;
+  --text-color: #000;
+  --success-color: #28a745;
+  --error-color: #dc3545;
+  --warning-color: #ffc107;
+  --info-color: #17a2b8;
+  --ebgeo-primary: #315730;
+  --ebgeo-main: #508D4E;
+  --ebgeo-dark: #1d361c;
+  --ebgeo-light: #69bd66;
+  --ebgeo-contrast: #fff;
+}
+
+/* ===== RESET AND BASE ELEMENTS ===== */
+body,
+html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  overscroll-behavior: none;
+}
+
+ul {
+  padding-inline-start: 0;
+  padding-inline-end: 0;
+  margin-block-start: 0;
+  margin-block-end: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: inherit;
+}
+
+h2,
+h3 {
+  margin: 0;
+}
+
+/* ===== UTILITY CLASSES ===== */
+.loading-background {
+  position: fixed;
+  background-color: #508D4E;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999; /* Must cover all UI including modals (--z-toast: 70) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  top: 0;
+  left: 0;
+}
+
+.loading-hidden {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.loading-hidden.loaded {
+  opacity: 1;
+}
+
+/* Hides file inputs used by ExportImportService buttons */
+.hidden-file-input {
+  display: none !important;
+  position: absolute !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+}
+
+/* Measurement labels shared across LOS, line, and polygon tools */
+.measurement-label {
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 2px solid #508D4E;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  color: #333;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  transform: translate(-50%, -50%);
+  z-index: var(--z-floating);
+}
+
+.measurement-label.selected {
+  opacity: 0.3 !important;
+}

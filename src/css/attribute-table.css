@@ -1,0 +1,610 @@
+/* Path: css/attribute-table.css */
+
+/* =========================================================================
+   ATTRIBUTE TABLE PANEL
+   ========================================================================= */
+
+.attribute-table-panel {
+    position: fixed;
+    bottom: 0;
+    left: var(--sidebar-collapsed-width, 56px);
+    right: 0;
+    background: white;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+    z-index: 48;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(100%);
+    transition: transform var(--transition-panel, 300ms ease), height var(--transition-normal, 200ms ease);
+    contain: layout style;
+}
+
+.attribute-table-panel[data-state="minimized"] {
+    height: 44px !important;
+    transform: translateY(0);
+}
+
+.attribute-table-panel[data-state="expanded"] {
+    transform: translateY(0);
+}
+
+/* Default height when expanded */
+.attribute-table-panel[data-state="expanded"]:not([style*="height"]) {
+    height: 35vh;
+}
+
+.attribute-table-panel[data-state="closed"] {
+    transform: translateY(100%);
+}
+
+/* Adjust for sidebar expanded state */
+.sidebar-container[data-expanded="true"] ~ .attribute-table-panel {
+    left: calc(var(--sidebar-collapsed-width, 56px) + var(--sidebar-panel-width, 400px));
+}
+
+/* =========================================================================
+   RESIZE HANDLE
+   ========================================================================= */
+
+.attribute-table-resize-handle {
+    position: absolute;
+    top: -4px;
+    left: 0;
+    right: 0;
+    height: 8px;
+    cursor: ns-resize;
+    background: transparent;
+    z-index: 1;
+}
+
+.attribute-table-resize-handle:hover,
+.attribute-table-resize-handle.active {
+    background: var(--primary-200, #bbf7d0);
+}
+
+/* =========================================================================
+   TOOLBAR
+   ========================================================================= */
+
+.attribute-table-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-1, 4px) var(--space-3, 12px);
+    background: var(--gray-50, #f9fafb);
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    flex-shrink: 0;
+    min-height: 32px;
+}
+
+.attribute-table-info {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    overflow: hidden;
+}
+
+.attribute-table-layer-name {
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--gray-800, #1f2937);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 250px;
+}
+
+.attribute-table-count {
+    font-size: var(--font-size-sm, 0.875rem);
+    color: var(--gray-500, #6b7280);
+    white-space: nowrap;
+}
+
+.attribute-table-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+}
+
+.attribute-table-actions button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm, 4px);
+    cursor: pointer;
+    color: var(--gray-600, #4b5563);
+    transition: all var(--transition-fast, 150ms ease);
+}
+
+.attribute-table-actions button:hover {
+    background: var(--gray-200, #e5e7eb);
+    color: var(--gray-800, #1f2937);
+}
+
+.attribute-table-close-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--color-error, #ef4444);
+}
+
+/* =========================================================================
+   FILTERS
+   ========================================================================= */
+
+.attribute-table-filters {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    padding: var(--space-1, 4px) var(--space-3, 12px);
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    flex-shrink: 0;
+    background: white;
+    flex-wrap: nowrap;
+    min-height: 32px;
+}
+
+.attribute-table-search {
+    position: relative;
+    flex: 0 0 160px;
+    min-width: 120px;
+}
+
+.attribute-table-search-input {
+    width: 100%;
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    padding-right: 32px;
+    font-size: var(--font-size-sm, 0.875rem);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-md, 8px);
+    transition: border-color var(--transition-fast, 150ms ease), box-shadow var(--transition-fast, 150ms ease);
+}
+
+.attribute-table-search-input:focus {
+    outline: none;
+    border-color: var(--primary, #16a34a);
+    box-shadow: 0 0 0 2px var(--primary-100, #dcfce7);
+}
+
+.attribute-table-search-clear {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm, 4px);
+    cursor: pointer;
+    color: var(--gray-400, #9ca3af);
+    transition: color var(--transition-fast, 150ms ease);
+}
+
+.attribute-table-search-clear:hover {
+    color: var(--gray-600, #4b5563);
+}
+
+.attribute-table-type-chips {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: var(--space-1, 4px);
+    flex: 1;
+    overflow-x: auto;
+    overflow-y: hidden;
+    min-width: 0;
+    justify-content: flex-end;
+}
+
+.attribute-table-type-chip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1, 4px);
+    padding: var(--space-1, 4px) var(--space-2, 8px);
+    font-size: var(--font-size-xs, 0.75rem);
+    background: var(--gray-100, #f3f4f6);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-full, 9999px);
+    cursor: pointer;
+    transition: all var(--transition-fast, 150ms ease);
+    white-space: nowrap;
+}
+
+.attribute-table-type-chip:hover {
+    background: var(--gray-200, #e5e7eb);
+}
+
+.attribute-table-type-chip.active {
+    background: var(--primary-100, #dcfce7);
+    border-color: var(--primary-300, #86efac);
+    color: var(--primary-700, #15803d);
+}
+
+.attribute-table-selected-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    font-size: var(--font-size-sm, 0.875rem);
+    color: var(--gray-600, #4b5563);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.attribute-table-selected-toggle input {
+    accent-color: var(--primary, #16a34a);
+}
+
+/* =========================================================================
+   TABLE CONTAINER
+   ========================================================================= */
+
+.attribute-table-container {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+
+    /* Custom scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary-600, #16a34a) transparent;
+}
+
+.attribute-table-container::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.attribute-table-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.attribute-table-container::-webkit-scrollbar-thumb {
+    background-color: var(--primary-600, #16a34a);
+    border-radius: 3px;
+}
+
+.attribute-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+/* =========================================================================
+   TABLE HEADER
+   ========================================================================= */
+
+.attribute-table-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--gray-100, #f3f4f6);
+}
+
+.attribute-table-head th {
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    font-size: var(--font-size-sm, 0.875rem);
+    font-weight: var(--font-weight-semibold, 600);
+    color: var(--gray-700, #374151);
+    text-align: left;
+    border-bottom: 2px solid var(--border-color, #e5e7eb);
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background-color var(--transition-fast, 150ms ease);
+    background: var(--gray-100, #f3f4f6);
+}
+
+.attribute-table-head th:hover {
+    background: var(--gray-200, #e5e7eb);
+}
+
+.attribute-table-head th:focus,
+.attribute-table-head th:active {
+    background: var(--gray-100, #f3f4f6);
+    outline: none;
+}
+
+.attribute-table-head th.attribute-table-col-checkbox,
+.attribute-table-head th.attribute-table-col-actions {
+    cursor: default;
+    text-align: center;
+}
+
+.attribute-table-head th.attribute-table-col-checkbox:hover,
+.attribute-table-head th.attribute-table-col-actions:hover {
+    background: var(--gray-100, #f3f4f6);
+}
+
+.attribute-table-header-content {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1, 4px);
+}
+
+.attribute-table-header-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.attribute-table-sort-indicator {
+    display: flex;
+    align-items: center;
+    opacity: 0.5;
+    flex-shrink: 0;
+}
+
+.attribute-table-head th[data-sort] .attribute-table-sort-indicator {
+    opacity: 1;
+    color: var(--primary-600, #16a34a);
+}
+
+/* =========================================================================
+   TABLE BODY
+   ========================================================================= */
+
+.attribute-table-body tr {
+    border-bottom: 1px solid var(--border-color-light, #f0f0f0);
+    transition: background-color var(--transition-fast, 150ms ease);
+}
+
+.attribute-table-body tr:nth-child(even) {
+    background: var(--gray-50, #f9fafb);
+}
+
+.attribute-table-body tr:hover {
+    background: var(--gray-100, #f3f4f6);
+}
+
+.attribute-table-body tr[data-selected="true"] {
+    background: var(--primary-100, #dcfce7);
+    border-left: 3px solid var(--primary-600, #16a34a);
+}
+
+.attribute-table-body tr[data-selected="true"]:hover {
+    background: var(--primary-200, #bbf7d0);
+}
+
+.attribute-table-body tr[data-hovered="true"] {
+    background: #fff3cd;
+}
+
+.attribute-table-body td {
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    font-size: var(--font-size-sm, 0.875rem);
+    color: var(--gray-700, #374151);
+    vertical-align: middle;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.attribute-table-cell-value {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.attribute-table-cell-empty {
+    color: var(--gray-400, #9ca3af);
+    font-style: italic;
+}
+
+/* =========================================================================
+   EDITABLE CELLS
+   ========================================================================= */
+
+.attribute-table-cell-editing {
+    padding: 0 !important;
+}
+
+.attribute-table-cell-input {
+    width: 100%;
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    font-size: var(--font-size-sm, 0.875rem);
+    border: 2px solid var(--primary, #16a34a);
+    border-radius: 0;
+    outline: none;
+    box-sizing: border-box;
+    background: white;
+}
+
+/* =========================================================================
+   TYPE ICON
+   ========================================================================= */
+
+.attribute-table-cell-type {
+    text-align: center;
+}
+
+.attribute-table-type-icon {
+    width: 16px;
+    height: 16px;
+    opacity: 0.7;
+}
+
+/* =========================================================================
+   ACTION BUTTONS
+   ========================================================================= */
+
+.attribute-table-cell-actions {
+    text-align: center;
+}
+
+.attribute-table-zoom-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm, 4px);
+    cursor: pointer;
+    color: var(--gray-500, #6b7280);
+    transition: all var(--transition-fast, 150ms ease);
+}
+
+.attribute-table-zoom-btn:hover {
+    background: var(--primary-100, #dcfce7);
+    color: var(--primary-600, #16a34a);
+}
+
+/* =========================================================================
+   CHECKBOXES
+   ========================================================================= */
+
+.attribute-table-col-checkbox,
+.attribute-table-cell-checkbox {
+    text-align: center;
+    padding: var(--space-1, 4px) !important;
+    width: 28px !important;
+    min-width: 28px;
+    max-width: 28px;
+}
+
+.attribute-table-col-type,
+.attribute-table-cell-type {
+    padding: var(--space-1, 4px) !important;
+    width: 32px !important;
+    min-width: 32px;
+    max-width: 32px;
+}
+
+.attribute-table-col-actions,
+.attribute-table-cell-actions {
+    width: 44px !important;
+    min-width: 44px;
+    max-width: 44px;
+    padding: var(--space-1, 4px) !important;
+    text-align: center;
+}
+
+.attribute-table-select-all,
+.attribute-table-row-checkbox {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--primary, #16a34a);
+}
+
+/* =========================================================================
+   EMPTY STATE
+   ========================================================================= */
+
+.attribute-table-empty-row td {
+    padding: var(--space-6, 24px);
+    text-align: center;
+    color: var(--gray-500, #6b7280);
+    font-style: italic;
+}
+
+/* =========================================================================
+   COLUMN CONTEXT MENU
+   ========================================================================= */
+
+.attribute-table-column-menu {
+    position: fixed;
+    background: white;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: var(--shadow-lg, 0 10px 15px rgba(0, 0, 0, 0.1));
+    z-index: 60;
+    min-width: 150px;
+    padding: var(--space-2, 8px) 0;
+}
+
+.attribute-table-column-menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    padding: var(--space-2, 8px) var(--space-4, 16px);
+    font-size: var(--font-size-sm, 0.875rem);
+    color: var(--gray-700, #374151);
+    cursor: pointer;
+    transition: background-color var(--transition-fast, 150ms ease);
+}
+
+.attribute-table-column-menu-item:hover {
+    background: var(--gray-100, #f3f4f6);
+}
+
+.attribute-table-column-menu-item.danger {
+    color: var(--color-error, #ef4444);
+}
+
+.attribute-table-column-menu-item.danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* =========================================================================
+   MINIMIZED STATE
+   ========================================================================= */
+
+.attribute-table-panel[data-state="minimized"] .attribute-table-filters,
+.attribute-table-panel[data-state="minimized"] .attribute-table-container,
+.attribute-table-panel[data-state="minimized"] .attribute-table-resize-handle {
+    display: none;
+}
+
+/* =========================================================================
+   RESPONSIVE
+   ========================================================================= */
+
+@media (width <= 768px) {
+    .attribute-table-panel {
+        left: 0;
+    }
+
+    .attribute-table-search {
+        flex: 0 0 150px;
+    }
+
+    .attribute-table-type-chips {
+        display: none;
+    }
+
+    .attribute-table-layer-name {
+        max-width: 150px;
+    }
+}
+
+/* =========================================================================
+   TOUCH DEVICE OPTIMIZATIONS
+   ========================================================================= */
+
+@media (pointer: coarse) {
+    /* Larger resize handle for touch dragging */
+    .attribute-table-resize-handle {
+        height: 16px;
+        top: -8px;
+    }
+
+    /* Toolbar buttons meet touch target minimums */
+    .attribute-table-toolbar button {
+        min-height: var(--touch-target-min, 44px);
+    }
+
+    /* Toolbar taller for touch */
+    .attribute-table-toolbar {
+        min-height: var(--touch-target-min, 44px);
+        padding: var(--space-2, 8px) var(--space-3, 12px);
+    }
+
+    /* Minimize/close buttons larger */
+    .attribute-table-minimize-btn,
+    .attribute-table-close-btn {
+        min-width: 36px;
+        min-height: 36px;
+    }
+}

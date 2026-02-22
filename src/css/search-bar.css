@@ -1,0 +1,725 @@
+/* Path: src/css/search-bar.css */
+
+/**
+ * @fileoverview Redesigned search bar styles (Google Maps style).
+ */
+
+/* =========================================================================
+   SEARCH BAR CONTAINER
+   ========================================================================= */
+
+.search-bar-container {
+    position: fixed;
+    top: var(--space-4);
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
+    z-index: var(--z-search);
+    transition: transform var(--transition-panel);
+    will-change: transform;
+}
+
+/* Position based on sidebar state */
+.search-bar-container[data-sidebar-state="collapsed"],
+.search-bar-container:not([data-sidebar-state]) {
+    transform: translateX(0);
+}
+
+.search-bar-container[data-sidebar-state="expanded"] {
+    transform: translateX(var(--sidebar-panel-width));
+}
+
+/* =========================================================================
+   SEARCH WRAPPER (Input + Icons)
+   ========================================================================= */
+
+.search-bar-wrapper {
+    display: flex;
+    align-items: center;
+    width: var(--search-bar-width);
+    background-color: #fff !important;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    transition: box-shadow var(--transition-fast), border-radius var(--transition-fast);
+    overflow: hidden;
+}
+
+/* Elevate above chips when results are visible */
+.search-bar-container.has-results {
+    z-index: var(--z-floating);
+}
+
+/* Flatten bottom corners when results are visible */
+.search-bar-container.has-results .search-bar-wrapper {
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.search-bar-container.focused .search-bar-wrapper {
+    box-shadow: var(--shadow-lg), 0 0 0 2px var(--primary);
+}
+
+.search-bar-container.searching .search-bar-wrapper {
+    opacity: 0.8;
+}
+
+/* =========================================================================
+   SEARCH ICON
+   ========================================================================= */
+
+.search-bar-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 var(--space-3);
+    color: var(--gray-400);
+}
+
+.search-bar-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* =========================================================================
+   SEARCH INPUT
+   ========================================================================= */
+
+.search-bar-input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-3) var(--space-2);
+    border: none;
+    outline: none;
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    background: transparent;
+}
+
+.search-bar-input::placeholder {
+    color: var(--gray-400);
+}
+
+/* =========================================================================
+   CLEAR BUTTON
+   ========================================================================= */
+
+.search-bar-clear {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-3);
+    border: none;
+    background: transparent;
+    color: var(--gray-400);
+    cursor: pointer;
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.search-bar-clear:hover {
+    color: var(--gray-600);
+    background: var(--gray-100);
+}
+
+.search-bar-clear svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* =========================================================================
+   RESULTS DROPDOWN
+   ========================================================================= */
+
+.search-bar-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: var(--space-1);
+    background: #fff;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--gray-100);
+    border-top: none;
+}
+
+/* =========================================================================
+   RESULT ITEM
+   ========================================================================= */
+
+.search-result-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.search-result-item:hover {
+    background: var(--gray-50);
+}
+
+.search-result-item:not(:last-child) {
+    border-bottom: 1px solid var(--gray-100);
+}
+
+/* Result icon */
+.search-result-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: var(--radius-md);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    flex-shrink: 0;
+}
+
+.search-result-item[data-type="3d-model"] .search-result-icon {
+    background: #e8f5e9;
+    color: #388e3c;
+}
+
+.search-result-item[data-type="streetview-marker"] .search-result-icon {
+    background: var(--gray-100);
+    color: var(--gray-600);
+}
+
+.search-result-item[data-type="feature"] .search-result-icon {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.search-result-item[data-type="place"] .search-result-icon {
+    background: #fff3e0;
+    color: #f57c00;
+}
+
+.search-result-item[data-type="coordinate"] .search-result-icon {
+    background: #e8eaf6;
+    color: #3949ab;
+}
+
+.search-result-icon svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+/* Result content */
+.search-result-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.search-result-name {
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    color: var(--gray-800);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.search-result-subtitle {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* =========================================================================
+   NO RESULTS MESSAGE
+   ========================================================================= */
+
+.search-no-results {
+    padding: var(--space-4);
+    text-align: center;
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+}
+
+/* =========================================================================
+   LOADING STATE
+   ========================================================================= */
+
+.search-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+}
+
+.search-loading-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--gray-200);
+    border-top-color: var(--primary);
+    border-radius: var(--radius-full);
+    animation: search-spin 0.8s linear infinite;
+}
+
+@keyframes search-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* =========================================================================
+   SEARCH RESULT POPUP (MapLibre Popup)
+   ========================================================================= */
+
+.search-result-popup .maplibregl-popup-content {
+    padding: 0;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    min-width: 220px;
+    max-width: 300px;
+}
+
+.search-result-popup .maplibregl-popup-close-button {
+    font-size: 18px;
+    padding: 4px 8px;
+    color: var(--gray-500);
+}
+
+.search-result-popup .maplibregl-popup-close-button:hover {
+    background: var(--gray-100);
+    color: var(--gray-700);
+}
+
+.search-result-popup-content {
+    padding: var(--space-3);
+}
+
+.search-popup-title {
+    margin: 0 0 var(--space-2) 0;
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--gray-800);
+    padding-right: var(--space-4);
+    line-height: 1.3;
+}
+
+.search-popup-info {
+    list-style: none;
+    margin: 0 0 var(--space-3) 0;
+    padding: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}
+
+.search-popup-info li {
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid var(--gray-100);
+}
+
+.search-popup-info li:last-child {
+    border-bottom: none;
+}
+
+.search-popup-info strong {
+    color: var(--gray-700);
+}
+
+.search-popup-save-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--primary);
+    color: white;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.search-popup-save-btn:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+}
+
+.search-popup-save-btn:active {
+    transform: translateY(0);
+}
+
+.search-popup-save-btn svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+/* =========================================================================
+   SEARCH RESULT SIDEPANEL CONTENT
+   ========================================================================= */
+
+.search-result-sidepanel-content {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Properties section */
+.search-result-properties-section {
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.search-result-section-header {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--space-3);
+}
+
+.search-result-properties-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+}
+
+.search-result-property-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-color);
+    font-size: var(--font-size-sm);
+}
+
+.search-result-property-item:last-child {
+    border-bottom: none;
+}
+
+.search-result-property-label {
+    color: var(--gray-500);
+    font-weight: var(--font-weight-medium);
+}
+
+.search-result-property-value {
+    color: var(--gray-800);
+    text-align: right;
+}
+
+/* Save section */
+.search-result-save-section {
+    padding: var(--space-4);
+}
+
+.search-result-save-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-3);
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--primary);
+    color: white;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.search-result-save-btn:hover {
+    background: var(--primary-hover, #166534);
+    transform: translateY(-1px);
+}
+
+.search-result-save-btn:active {
+    transform: translateY(0);
+}
+
+.search-result-save-btn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+/* =========================================================================
+   COORDINATE RESULT STYLES
+   ========================================================================= */
+
+/* Blue icon background for coordinates */
+.coordinate-result-content .feature-icon-bg-blue {
+    background: linear-gradient(135deg, #3949ab 0%, #5c6bc0 100%);
+}
+
+/* Create feature section */
+.coordinate-create-section {
+    padding: var(--space-4);
+    border-top: 1px solid var(--border-color);
+}
+
+.coordinate-create-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.coordinate-create-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-align: left;
+}
+
+.coordinate-create-btn:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-300);
+    transform: translateY(-1px);
+}
+
+.coordinate-create-btn:active {
+    transform: translateY(0);
+    background: var(--gray-200);
+}
+
+.coordinate-create-btn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: var(--gray-500);
+}
+
+.coordinate-create-btn:hover svg {
+    color: var(--gray-700);
+}
+
+.coordinate-create-btn span {
+    flex: 1;
+}
+
+/* Coordinate conversion section */
+.coordinate-conversion-section {
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.coordinate-conversion-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.coordinate-conversion-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+}
+
+.coordinate-conversion-label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.coordinate-conversion-value-container {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.coordinate-conversion-value {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    color: var(--gray-800);
+    word-break: break-all;
+}
+
+.coordinate-copy-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: white;
+    color: var(--gray-500);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.coordinate-copy-btn:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-300);
+    color: var(--gray-700);
+}
+
+.coordinate-copy-btn.copied {
+    background: var(--color-success, #22c55e);
+    border-color: var(--color-success, #22c55e);
+    color: white;
+}
+
+.coordinate-copy-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* =========================================================================
+   HIDE OLD SEARCH CONTROL
+   ========================================================================= */
+
+.feature-search-control,
+.search-container#search-container-wrapper {
+    display: none !important;
+}
+
+/* =========================================================================
+   TABLET RESPONSIVE ADJUSTMENTS
+   ========================================================================= */
+
+/* Touch device optimizations */
+@media (pointer: coarse) {
+    /* Prevent iOS zoom on input focus - must be 16px or larger */
+    .search-bar-input {
+        font-size: 16px;
+    }
+
+    /* Slightly larger clear button for easier touch */
+    .search-bar-clear {
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    /* Result items taller */
+    .search-result-item {
+        min-height: 56px;
+        padding: var(--space-4);
+    }
+
+    /* Better active state */
+    .search-result-item:active {
+        background: var(--gray-100);
+    }
+
+    /* Result icons larger */
+    .search-result-icon {
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    .search-result-icon svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* Save button larger */
+    .search-popup-save-btn,
+    .search-result-save-btn {
+        min-height: var(--touch-target-min, 44px);
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* Better scrolling for results */
+    .search-bar-results {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+    }
+}
+
+/* Tablet breakpoint */
+@media (width <= 1024px) {
+    /* Clamp width to prevent overflow on tablets */
+    .search-bar-wrapper {
+        width: min(var(--search-bar-width), calc(100vw - var(--sidebar-collapsed-width) - 80px));
+        max-width: calc(100vw - var(--sidebar-collapsed-width) - var(--space-8) - 60px);
+    }
+
+    /* Adjust position for tablet sidebar */
+    .search-bar-container[data-sidebar-state="expanded"] {
+        transform: translateX(var(--sidebar-panel-width-tablet, 340px));
+    }
+
+    /* Results dropdown slightly shorter */
+    .search-bar-results {
+        max-height: 350px;
+    }
+}
+
+/* Small tablet breakpoint */
+@media (width <= 768px) {
+    /* Position closer to sidebar */
+    .search-bar-container {
+        left: calc(var(--sidebar-collapsed-width) + var(--space-3));
+    }
+
+    .search-bar-container[data-sidebar-state="expanded"] {
+        transform: translateX(min(100vw - var(--sidebar-collapsed-width), 400px));
+    }
+
+    /* Constrain width more on small tablets */
+    .search-bar-wrapper {
+        width: min(var(--search-bar-width), calc(100vw - var(--sidebar-collapsed-width) - 48px));
+        max-width: calc(100vw - var(--sidebar-collapsed-width) - var(--space-6) - 60px);
+    }
+
+    /* Results take more width */
+    .search-bar-results {
+        width: calc(100vw - var(--sidebar-collapsed-width) - var(--space-6));
+        max-width: 400px;
+    }
+
+    /* Popup content smaller */
+    .search-result-popup .maplibregl-popup-content {
+        min-width: 200px;
+        max-width: 280px;
+    }
+}
+
+/* Landscape mode */
+@media (orientation: landscape) and (width <= 1024px) {
+    /* Results shorter in landscape */
+    .search-bar-results {
+        max-height: 280px;
+    }
+}
+
+@media (orientation: landscape) and (width <= 768px) {
+    /* Very short results in small landscape */
+    .search-bar-results {
+        max-height: 200px;
+    }
+}

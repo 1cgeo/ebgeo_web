@@ -1,0 +1,27 @@
+// Path: js/store/migration/index.js
+
+/**
+ * @fileoverview Barrel file for migration module.
+ * Exports migration service and utilities.
+ */
+
+// Migration service (main entry point)
+export {
+    detectMigrationNeeded,
+    isTooOldToMigrate,
+    safelyMigrate,
+    getMigrationStatus,
+    restoreLatestBackup
+} from './migration.service.js';
+
+// Migration logic (for testing and advanced use)
+export {
+    migrateToV2,
+    createFullBackup,
+    restoreFromBackup,
+    validateMigration,
+    cleanupOldBackups,
+    createIdMappings,
+    migrateFeature,
+    migrateFeatures
+} from './v1-to-v2.migration.js';

@@ -1,0 +1,73 @@
+/* Path: css/style.css */
+
+/* =========================================================================
+   CSS IMPORTS - UI REDESIGN (Design System Foundation)
+   ========================================================================= */
+
+@import url('./design-tokens.css');
+@import url('./sidebar.css');
+@import url('./search-bar.css');
+@import url('./chips.css');
+@import url('./toolbar-groups.css');
+@import url('./bottom-controls.css');
+@import url('./base-layer-selector.css');
+@import url('./modals-redesign.css');
+@import url('./active-tool-chip.css');
+@import url('./catalog.css');
+@import url('./responsive.css');
+
+/* =========================================================================
+   EXISTING CSS IMPORTS
+   ========================================================================= */
+
+/* ===== SHARED BASE ===== */
+@import url('./base.css');
+
+/* ===== COORDINATES SYSTEM ===== */
+@import url('./coordinates.css');
+
+/* ===== MAP CONTROLS ===== */
+@import url('./map-controls.css');
+
+/* ===== 2D MODE PANELS ===== */
+@import url('./panels-2d.css');
+
+/* ===== 3D MODE PANELS ===== */
+@import url('./panels-3d.css');
+
+/* ===== 360 MODE PANELS ===== */
+@import url('./panels-360.css');
+
+/* ===== ATTRIBUTES SYSTEM ===== */
+@import url('./attributes-panel.css');
+
+/* ===== PDF EXPORT ===== */
+@import url('./pdf-export.css');
+
+/* ===== FEATURES TAB ===== */
+@import url('./features-tab.css');
+
+/* ===== FEATURE USER DATA (Attributes & Images) ===== */
+@import url('./feature-user-data.css');
+
+/* ===== ATTRIBUTE TABLE ===== */
+@import url('./attribute-table.css');
+
+/* ===== BRIEFING ===== */
+@import url('./briefing/briefing-editor.css');
+@import url('./briefing/briefing-presentation.css');
+
+/* ===== AZIMUTH DISTANCE ===== */
+@import url('./azimuth-distance.css');
+
+/* ===== PROCESSING ===== */
+@import url('./processing.css');
+
+/* ===== MEASUREMENT TOOLS ===== */
+@import url('./measurement.css');
+
+/* ===== CSV IMPORT ===== */
+@import url('./csv-import.css');
+
+/* ===== PHONE LAYOUT ===== */
+@import url('./phone.css');

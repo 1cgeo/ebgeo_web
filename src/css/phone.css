@@ -1,0 +1,1393 @@
+/* Path: src/css/phone.css */
+
+/**
+ * @fileoverview Phone-specific component styles for screens <= 480px.
+ * Google Maps-inspired layout: floating search, bottom sheet, FABs.
+ * All rules wrapped in @media (width <= 480px) so they are inert at larger sizes.
+ */
+
+/* =========================================================================
+   PHONE COMPONENTS (<=480px only)
+   At desktop/tablet sizes every phone element is display: none.
+   ========================================================================= */
+
+@media (width <= 480px), (height <= 440px) and (pointer: coarse) {
+    /* =====================================================================
+       FLOATING SEARCH BAR
+       Fixed pill at the top of the viewport with safe-area inset.
+       ===================================================================== */
+
+    .phone-search-bar {
+        position: fixed;
+        top: calc(var(--safe-area-top) + var(--space-2));
+        left: var(--phone-spacing);
+        right: var(--phone-spacing);
+        height: var(--phone-search-height);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: 0 var(--space-4);
+        background: white;
+        border-radius: var(--radius-full);
+        box-shadow: var(--shadow-lg);
+        z-index: var(--z-search);
+        transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+            transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .phone-search-bar__icon {
+        flex-shrink: 0;
+        width: 20px;
+        height: 20px;
+        color: var(--gray-500);
+    }
+
+    .phone-search-bar__text {
+        flex: 1;
+        font-size: var(--font-size-base);
+        color: var(--gray-500);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        user-select: none;
+    }
+
+    .phone-search-bar__avatar {
+        flex-shrink: 0;
+        width: 28px;
+        height: 28px;
+        border-radius: var(--radius-full);
+        background: var(--primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: var(--font-size-xs);
+        font-weight: var(--font-weight-bold);
+    }
+
+    .phone-search-bar__hamburger {
+        flex-shrink: 0;
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        color: var(--gray-600);
+        cursor: pointer;
+        border-radius: var(--radius-full);
+        padding: 0;
+        margin-left: calc(-1 * var(--space-2));
+    }
+
+    .phone-search-bar__hamburger:active {
+        background: var(--gray-100);
+    }
+
+    .phone-search-bar__hamburger svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* =====================================================================
+       SEARCH OVERLAY
+       Full-screen overlay with header (back button + input) and results.
+       ===================================================================== */
+
+    .phone-search-overlay {
+        position: fixed;
+        inset: 0;
+        background: white;
+        z-index: var(--z-modal);
+        display: flex;
+        flex-direction: column;
+        padding-top: var(--safe-area-top);
+    }
+
+    .phone-search-overlay[hidden] {
+        display: none;
+    }
+
+    .phone-search-overlay__header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .phone-search-overlay__back {
+        flex-shrink: 0;
+        width: var(--touch-target-min);
+        height: var(--touch-target-min);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        color: var(--gray-700);
+        cursor: pointer;
+        border-radius: var(--radius-full);
+        user-select: none;
+    }
+
+    .phone-search-overlay__back:active {
+        background: var(--gray-100);
+    }
+
+    .phone-search-overlay__input {
+        flex: 1;
+        height: var(--touch-target-min);
+        border: none;
+        outline: none;
+        font-size: 16px; /* Prevents iOS zoom */
+        color: var(--gray-900);
+        background: transparent;
+    }
+
+    .phone-search-overlay__input::placeholder {
+        color: var(--gray-400);
+    }
+
+    .phone-search-overlay__results {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+    }
+
+    .phone-search-overlay__result-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-3) var(--space-4);
+        min-height: var(--touch-target-min);
+        border-bottom: 1px solid var(--gray-100);
+        user-select: none;
+    }
+
+    .phone-search-overlay__result-item:active {
+        background: var(--gray-50);
+    }
+
+    .phone-search-overlay__result-icon {
+        flex-shrink: 0;
+        width: 24px;
+        height: 24px;
+        color: var(--gray-400);
+    }
+
+    .phone-search-overlay__result-text {
+        flex: 1;
+        font-size: var(--font-size-sm);
+        color: var(--gray-800);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .phone-search-overlay__result-subtitle {
+        font-size: var(--font-size-xs);
+        color: var(--gray-500);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .phone-search-overlay__section-title {
+        padding: var(--space-4) var(--space-4) var(--space-2);
+        font-size: var(--font-size-xs);
+        font-weight: 600;
+        color: var(--gray-400);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .phone-search-overlay__empty {
+        padding: var(--space-8) var(--space-4);
+        text-align: center;
+        color: var(--gray-400);
+        font-size: var(--font-size-sm);
+    }
+
+    /* =====================================================================
+       BOTTOM SHEET
+       Draggable sheet with peek / half / full states.
+       Uses translateY for GPU-accelerated positioning.
+       ===================================================================== */
+
+    .phone-bottom-sheet {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: white;
+        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.12);
+        z-index: var(--z-panel);
+        transform: translateY(calc(100% - var(--phone-sheet-peek) - var(--safe-area-bottom)));
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        height: var(--phone-sheet-full);
+        display: flex;
+        flex-direction: column;
+        padding-bottom: var(--safe-area-bottom);
+    }
+
+    .phone-bottom-sheet--half {
+        transform: translateY(calc(100% - var(--phone-sheet-half)));
+    }
+
+    .phone-bottom-sheet--full {
+        transform: translateY(calc(100% - var(--phone-sheet-full)));
+    }
+
+    .phone-bottom-sheet--dragging {
+        transition: none;
+    }
+
+    .phone-bottom-sheet--hidden {
+        transform: translateY(100%);
+    }
+
+    /* Handle */
+    .phone-bottom-sheet__handle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-2) 0;
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+        flex-shrink: 0;
+    }
+
+    .phone-bottom-sheet__handle-bar {
+        width: 32px;
+        height: 4px;
+        background: var(--gray-300);
+        border-radius: var(--radius-full);
+    }
+
+    /* Peek content — visible at collapsed height */
+    .phone-bottom-sheet__peek {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 var(--phone-spacing) var(--space-2);
+        flex-shrink: 0;
+        min-height: 36px;
+    }
+
+    .phone-bottom-sheet__title {
+        font-size: var(--font-size-base);
+        font-weight: var(--font-weight-semibold);
+        color: var(--gray-900);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .phone-bottom-sheet__subtitle {
+        font-size: var(--font-size-xs);
+        color: var(--gray-500);
+    }
+
+    /* Scrollable content */
+    .phone-bottom-sheet__content {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        padding: var(--space-3) var(--phone-spacing);
+    }
+
+    /* =====================================================================
+       LAYER TREE (inside bottom sheet)
+       Expandable layer list with nested features.
+       ===================================================================== */
+
+    .phone-layer-tree {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .phone-layer-tree__layer {
+        border-bottom: 1px solid var(--gray-100);
+    }
+
+    .phone-layer-tree__header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        width: 100%;
+        padding: var(--space-3) 0;
+        min-height: var(--touch-target-min);
+        background: none;
+        border: none;
+        cursor: pointer;
+        user-select: none;
+        text-align: left;
+    }
+
+    .phone-layer-tree__header:active {
+        background: var(--gray-50);
+    }
+
+    .phone-layer-tree__color {
+        flex-shrink: 0;
+        width: 12px;
+        height: 12px;
+        border-radius: var(--radius-full);
+        background: var(--gray-300);
+    }
+
+    .phone-layer-tree__name {
+        flex: 1;
+        font-size: var(--font-size-sm);
+        font-weight: var(--font-weight-medium);
+        color: var(--gray-800);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .phone-layer-tree__count {
+        flex-shrink: 0;
+        font-size: var(--font-size-xs);
+        color: var(--gray-400);
+    }
+
+    .phone-layer-tree__chevron {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--gray-400);
+        transition: transform 0.2s ease;
+    }
+
+    .phone-layer-tree__chevron--expanded {
+        transform: rotate(180deg);
+    }
+
+    .phone-layer-tree__features {
+        padding-left: calc(12px + var(--space-3));
+    }
+
+    .phone-layer-tree__feature {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        width: 100%;
+        padding: var(--space-2) var(--space-1);
+        min-height: var(--touch-target-min);
+        background: none;
+        border: none;
+        cursor: pointer;
+        user-select: none;
+        text-align: left;
+    }
+
+    .phone-layer-tree__feature:active {
+        background: var(--gray-50);
+        border-radius: var(--radius-sm);
+    }
+
+    .phone-layer-tree__feature-icon {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--gray-500);
+    }
+
+    .phone-layer-tree__feature-name {
+        flex: 1;
+        font-size: var(--font-size-sm);
+        color: var(--gray-700);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* =====================================================================
+       FEATURE CLOSE BUTTON (above feature detail)
+       ===================================================================== */
+
+    .phone-feature-close {
+        display: flex;
+        padding: var(--space-2) var(--phone-spacing);
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .phone-feature-close__btn {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+        background: none;
+        border: none;
+        color: var(--gray-600);
+        font-size: var(--font-size-sm);
+        cursor: pointer;
+        border-radius: var(--radius-md);
+        user-select: none;
+    }
+
+    .phone-feature-close__btn:active {
+        background: var(--gray-100);
+    }
+
+    /* =====================================================================
+       FEATURE DETAIL (inside bottom sheet)
+       ===================================================================== */
+
+    .phone-feature-detail {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+    }
+
+    .phone-feature-detail__header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding-bottom: var(--space-3);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .phone-feature-detail__icon {
+        flex-shrink: 0;
+        width: 32px;
+        height: 32px;
+        border-radius: var(--radius-md);
+        background: var(--primary-100);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--primary);
+    }
+
+    .phone-feature-detail__title {
+        flex: 1;
+        font-size: var(--font-size-base);
+        font-weight: var(--font-weight-semibold);
+        color: var(--gray-900);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .phone-feature-detail__actions {
+        display: flex;
+        gap: var(--space-2);
+    }
+
+    .phone-feature-detail__action-btn {
+        width: var(--touch-target-min);
+        height: var(--touch-target-min);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        color: var(--gray-500);
+        cursor: pointer;
+        border-radius: var(--radius-full);
+        user-select: none;
+    }
+
+    .phone-feature-detail__action-btn:active {
+        background: var(--gray-100);
+    }
+
+    .phone-feature-detail__action-btn--primary {
+        background: var(--primary-600);
+        color: var(--white);
+    }
+
+    .phone-feature-detail__action-btn--primary:active {
+        background: var(--primary-700);
+    }
+
+    .phone-feature-detail__properties {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+    }
+
+    .phone-feature-detail__property {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: var(--space-2) 0;
+        min-height: 32px;
+    }
+
+    .phone-feature-detail__property-label {
+        font-size: var(--font-size-xs);
+        color: var(--gray-500);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .phone-feature-detail__subtitle {
+        font-size: var(--font-size-xs);
+        color: var(--gray-500);
+    }
+
+    .phone-feature-detail__property-value {
+        font-size: var(--font-size-sm);
+        color: var(--gray-800);
+        text-align: right;
+        max-width: 60%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Edit mode inputs */
+    .phone-feature-detail__property-input {
+        width: 55%;
+        min-height: 32px;
+        padding: var(--space-1) var(--space-2);
+        border: 1px solid var(--gray-300);
+        border-radius: var(--radius-sm);
+        font-size: 16px; /* Prevents iOS zoom */
+        color: var(--gray-800);
+        background: var(--gray-50);
+        text-align: right;
+    }
+
+    .phone-feature-detail__property-input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px var(--primary-100);
+    }
+
+    .phone-feature-detail__property-input[type='color'] {
+        padding: var(--space-1);
+        height: 36px;
+        cursor: pointer;
+    }
+
+    .phone-feature-detail__property-input[type='checkbox'] {
+        width: 20px;
+        height: 20px;
+        accent-color: var(--primary);
+    }
+
+    /* Edit action buttons (sticky save/cancel) */
+    .phone-feature-detail__edit-actions {
+        display: flex;
+        gap: var(--space-2);
+        padding: var(--space-3) 0;
+        border-top: 1px solid var(--border-color);
+        position: sticky;
+        bottom: 0;
+        background: white;
+    }
+
+    .phone-feature-detail__edit-btn {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: var(--touch-target-min);
+        border: none;
+        border-radius: var(--radius-md);
+        font-size: var(--font-size-sm);
+        font-weight: var(--font-weight-semibold);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .phone-feature-detail__edit-btn:active {
+        transform: scale(0.97);
+    }
+
+    .phone-feature-detail__edit-btn--save {
+        background: var(--primary);
+        color: white;
+    }
+
+    .phone-feature-detail__edit-btn--save:active {
+        background: var(--primary-hover);
+    }
+
+    .phone-feature-detail__edit-btn--cancel {
+        background: var(--gray-100);
+        color: var(--gray-700);
+    }
+
+    .phone-feature-detail__edit-btn--cancel:active {
+        background: var(--gray-200);
+    }
+
+    /* Empty state */
+    .phone-feature-detail__empty {
+        padding: var(--space-8) var(--space-4);
+        text-align: center;
+        color: var(--gray-400);
+        font-size: var(--font-size-sm);
+    }
+
+    /* =====================================================================
+       PHONE DIALOG (prompt / confirm replacement)
+       Lightweight modal card for phone-friendly input and confirmation.
+       ===================================================================== */
+
+    .phone-dialog-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: calc(var(--z-modal) + 10);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    .phone-dialog-overlay--open {
+        opacity: 1;
+    }
+
+    .phone-dialog {
+        background: white;
+        border-radius: var(--radius-xl);
+        padding: var(--space-5);
+        width: calc(100% - 2 * var(--phone-spacing));
+        max-width: 320px;
+        box-shadow: var(--shadow-xl);
+        transform: scale(0.95);
+        transition: transform 0.2s ease;
+    }
+
+    .phone-dialog-overlay--open .phone-dialog {
+        transform: scale(1);
+    }
+
+    .phone-dialog__title {
+        font-size: var(--font-size-base);
+        font-weight: var(--font-weight-semibold);
+        color: var(--gray-900);
+        margin-bottom: var(--space-3);
+    }
+
+    .phone-dialog__input {
+        width: 100%;
+        padding: var(--space-3);
+        border: 1px solid var(--gray-300);
+        border-radius: var(--radius-md);
+        font-size: 16px; /* Prevents iOS zoom */
+        color: var(--gray-900);
+        background: var(--gray-50);
+        margin-bottom: var(--space-4);
+    }
+
+    .phone-dialog__input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px var(--primary-100);
+    }
+
+    .phone-dialog__actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--space-2);
+    }
+
+    .phone-dialog__btn {
+        padding: var(--space-2) var(--space-4);
+        border: none;
+        border-radius: var(--radius-md);
+        font-size: var(--font-size-sm);
+        font-weight: var(--font-weight-semibold);
+        cursor: pointer;
+        min-height: var(--touch-target-min);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--gray-100);
+        color: var(--gray-700);
+    }
+
+    .phone-dialog__btn:active {
+        background: var(--gray-200);
+    }
+
+    .phone-dialog__btn--primary {
+        background: var(--primary);
+        color: white;
+    }
+
+    .phone-dialog__btn--primary:active {
+        background: var(--primary-hover);
+    }
+
+    .phone-dialog__btn--danger {
+        background: var(--red-600, #dc2626);
+        color: white;
+    }
+
+    .phone-dialog__btn--danger:active {
+        background: var(--red-700, #b91c1c);
+    }
+
+    /* =====================================================================
+       FAB CONTAINER & BUTTONS
+       Vertical stack on the right edge, above bottom sheet peek.
+       ===================================================================== */
+
+    .phone-fab-container {
+        position: fixed;
+        right: var(--phone-spacing);
+        bottom: calc(
+            var(--phone-sheet-peek) + var(--safe-area-bottom) + var(--phone-spacing)
+        );
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        z-index: var(--z-floating);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .phone-fab-container--hidden {
+        transform: translateY(calc(100% + 100px));
+        pointer-events: none;
+    }
+
+    .phone-fab {
+        width: var(--phone-fab-size);
+        height: var(--phone-fab-size);
+        border-radius: var(--radius-full);
+        background: white;
+        border: none;
+        box-shadow: var(--shadow-control);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        user-select: none;
+        color: var(--gray-700);
+        transition: box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+            transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .phone-fab:active {
+        transform: scale(0.92);
+        box-shadow: var(--shadow-sm);
+    }
+
+    .phone-fab--primary {
+        background: var(--primary);
+        color: white;
+    }
+
+    .phone-fab--primary:active {
+        background: var(--primary-hover);
+    }
+
+    .phone-fab__icon {
+        width: 24px;
+        height: 24px;
+    }
+
+    /* Shifted up when bottom sheet is at half or full */
+    .phone-fab-container--shifted {
+        transform: translateY(calc(-1 * (var(--phone-sheet-half) - var(--phone-sheet-peek) - var(--safe-area-bottom))));
+    }
+
+    /* Pulsing animation while geolocating */
+    .phone-fab--locating {
+        animation: phone-fab-pulse 1.2s ease-in-out infinite;
+        color: var(--primary);
+    }
+
+    @keyframes phone-fab-pulse {
+        0%,
+        100% {
+            box-shadow: var(--shadow-control);
+        }
+
+        50% {
+            box-shadow: 0 0 0 8px rgba(22, 163, 74, 0.2), var(--shadow-control);
+        }
+    }
+
+    /* =====================================================================
+       MOVE-MODE ACTIONS
+       Confirm / cancel buttons during feature move mode.
+       ===================================================================== */
+
+    .phone-move-actions {
+        position: fixed;
+        bottom: calc(var(--phone-sheet-peek) + var(--safe-area-bottom) + var(--phone-spacing));
+        left: var(--phone-spacing);
+        right: var(--phone-spacing);
+        display: flex;
+        gap: var(--space-3);
+        z-index: var(--z-floating);
+    }
+
+    .phone-move-actions[hidden] {
+        display: none;
+    }
+
+    .phone-move-actions__btn {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2);
+        min-height: var(--touch-target-comfortable);
+        border: none;
+        border-radius: var(--radius-lg);
+        font-size: var(--font-size-base);
+        font-weight: var(--font-weight-semibold);
+        cursor: pointer;
+        user-select: none;
+        box-shadow: var(--shadow-md);
+    }
+
+    .phone-move-actions__btn:active {
+        transform: scale(0.97);
+    }
+
+    .phone-move-actions__btn--confirm {
+        background: var(--primary);
+        color: white;
+    }
+
+    .phone-move-actions__btn--confirm:active {
+        background: var(--primary-hover);
+    }
+
+    .phone-move-actions__btn--cancel {
+        background: white;
+        color: var(--gray-700);
+    }
+
+    .phone-move-actions__btn--cancel:active {
+        background: var(--gray-50);
+    }
+
+    /* =====================================================================
+       FAB GROUP (zoom +/-)
+       Shared container that groups multiple FABs into a single card.
+       ===================================================================== */
+
+    .phone-fab-group {
+        display: flex;
+        flex-direction: column;
+        background: white;
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-control);
+        overflow: hidden;
+    }
+
+    .phone-fab-group .phone-fab {
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    .phone-fab-group .phone-fab + .phone-fab {
+        border-top: 1px solid var(--gray-200);
+    }
+
+    /* =====================================================================
+       COMPASS FAB
+       Auto-hides when bearing ≈ 0; rotates icon to point north.
+       ===================================================================== */
+
+    .phone-fab--compass {
+        transition: opacity 0.3s ease;
+    }
+
+    .phone-fab--compass-hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .phone-fab--compass .phone-fab__icon {
+        transition: transform 0.15s ease;
+    }
+
+    /* =====================================================================
+       BASE LAYER MODAL
+       Standalone modal overlay for base layer selection.
+       ===================================================================== */
+
+    .phone-baselayer-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: var(--z-modal);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .phone-baselayer-modal--open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .phone-baselayer-modal__card {
+        background: white;
+        border-radius: var(--radius-xl);
+        padding: var(--space-4);
+        max-width: 340px;
+        width: calc(100% - 2 * var(--phone-spacing));
+        box-shadow: var(--shadow-xl);
+        transform: scale(0.95);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .phone-baselayer-modal--open .phone-baselayer-modal__card {
+        transform: scale(1);
+    }
+
+    .phone-baselayer-modal__title {
+        font-size: var(--font-size-base);
+        font-weight: var(--font-weight-semibold);
+        color: var(--gray-900);
+        margin-bottom: var(--space-3);
+    }
+
+    .phone-baselayer-modal__grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: var(--space-3);
+    }
+
+    .phone-baselayer-modal__item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-1);
+        padding: var(--space-2);
+        background: none;
+        border: 2px solid transparent;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .phone-baselayer-modal__item:active {
+        background: var(--gray-50);
+    }
+
+    .phone-baselayer-modal__item--active {
+        border-color: var(--primary);
+    }
+
+    .phone-baselayer-modal__thumb {
+        width: 80px;
+        height: 56px;
+        border-radius: var(--radius-sm);
+        background-size: cover;
+        background-position: center;
+        background-color: var(--gray-200);
+    }
+
+    .phone-baselayer-modal__label {
+        font-size: var(--font-size-xs);
+        color: var(--gray-700);
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+    }
+
+    /* =====================================================================
+       DRAWER (hamburger menu)
+       Left-side navigation drawer with maps, layers, tools, options.
+       ===================================================================== */
+
+    .phone-drawer-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        z-index: var(--z-modal-backdrop);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .phone-drawer-backdrop--open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .phone-drawer {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 85vw;
+        max-width: 360px;
+        background: white;
+        z-index: var(--z-modal);
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        flex-direction: column;
+        padding-top: var(--safe-area-top);
+        padding-bottom: var(--safe-area-bottom);
+    }
+
+    .phone-drawer--open {
+        transform: translateX(0);
+    }
+
+    .phone-drawer__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--space-4);
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .phone-drawer__title {
+        font-size: var(--font-size-lg);
+        font-weight: var(--font-weight-bold);
+        color: var(--gray-900);
+    }
+
+    .phone-drawer__close {
+        width: var(--touch-target-min);
+        height: var(--touch-target-min);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        color: var(--gray-500);
+        cursor: pointer;
+        border-radius: var(--radius-full);
+    }
+
+    .phone-drawer__close:active {
+        background: var(--gray-100);
+    }
+
+    .phone-drawer__close svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .phone-drawer__content {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+    }
+
+    .phone-drawer__section {
+        border-bottom: 1px solid var(--gray-100);
+    }
+
+    /* Collapsible section header */
+    .phone-drawer__section-header {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: var(--space-3) var(--space-4);
+        background: none;
+        border: none;
+        cursor: pointer;
+        user-select: none;
+        min-height: var(--touch-target-min);
+    }
+
+    .phone-drawer__section-header:active {
+        background: var(--gray-50);
+    }
+
+    .phone-drawer__section-title {
+        flex: 1;
+        text-align: left;
+        font-size: var(--font-size-xs);
+        font-weight: 600;
+        color: var(--gray-400);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 0;
+    }
+
+    .phone-drawer__section-chevron {
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        color: var(--gray-400);
+        transition: transform 0.2s ease;
+    }
+
+    .phone-drawer__section-chevron--expanded {
+        transform: rotate(180deg);
+    }
+
+    .phone-drawer__section-content {
+        padding: 0 var(--space-4) var(--space-3);
+    }
+
+    .phone-drawer__section-content--collapsed {
+        display: none;
+    }
+
+    .phone-drawer__empty {
+        padding: var(--space-3) 0;
+        color: var(--gray-400);
+        font-size: var(--font-size-sm);
+    }
+
+    /* Map action buttons */
+    .phone-drawer__map-actions {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--space-2);
+        padding: 0 var(--space-4) var(--space-2);
+    }
+
+    .phone-drawer__action-btn {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 36px;
+        padding: var(--space-1) var(--space-2);
+        background: var(--gray-100);
+        border: none;
+        border-radius: var(--radius-md);
+        font-size: var(--font-size-xs);
+        font-weight: var(--font-weight-medium);
+        color: var(--gray-700);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .phone-drawer__action-btn:active {
+        background: var(--gray-200);
+    }
+
+    .phone-drawer__action-btn--danger {
+        color: var(--red-600, #dc2626);
+    }
+
+    .phone-drawer__action-btn--danger:active {
+        background: var(--red-50, #fef2f2);
+    }
+
+    /* Layer items */
+    .phone-drawer__layer-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-2) 0;
+        min-height: var(--touch-target-min);
+    }
+
+    .phone-drawer__layer-color {
+        flex-shrink: 0;
+        width: 12px;
+        height: 12px;
+        border-radius: var(--radius-full);
+        background: var(--gray-300);
+    }
+
+    .phone-drawer__layer-name {
+        flex: 1;
+        font-size: var(--font-size-sm);
+        color: var(--gray-700);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .phone-drawer__layer-eye {
+        flex-shrink: 0;
+        width: var(--touch-target-min);
+        height: var(--touch-target-min);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        color: var(--gray-400);
+        cursor: pointer;
+        border-radius: var(--radius-full);
+    }
+
+    .phone-drawer__layer-eye:active {
+        background: var(--gray-100);
+    }
+
+    .phone-drawer__layer-eye[data-visible="true"] {
+        color: var(--primary);
+    }
+
+    /* Chip grid */
+    .phone-drawer__chip-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--space-2);
+        padding: 0 var(--space-4) var(--space-3);
+    }
+
+    .phone-drawer__chip-btn {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+        background: var(--gray-50);
+        border: 1px solid var(--gray-200);
+        border-radius: var(--radius-full);
+        cursor: pointer;
+        user-select: none;
+        min-height: 36px;
+    }
+
+    .phone-drawer__chip-btn:active {
+        background: var(--gray-100);
+    }
+
+    .phone-drawer__chip-icon {
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        color: var(--gray-500);
+    }
+
+    .phone-drawer__chip-icon svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .phone-drawer__chip-label {
+        font-size: var(--font-size-xs);
+        color: var(--gray-700);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Map items */
+    .phone-drawer__map-item {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: var(--space-3) 0;
+        background: none;
+        border: none;
+        font-size: var(--font-size-sm);
+        color: var(--gray-700);
+        cursor: pointer;
+        text-align: left;
+        min-height: var(--touch-target-min);
+    }
+
+    .phone-drawer__map-item:active {
+        color: var(--primary);
+    }
+
+    .phone-drawer__map-item--active {
+        color: var(--primary);
+        font-weight: var(--font-weight-semibold);
+    }
+
+    /* Tool grid */
+    .phone-drawer__tool-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--space-1);
+        padding: 0 var(--space-4) var(--space-3);
+    }
+
+    .phone-drawer__tool-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: var(--space-2);
+        background: none;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        min-height: var(--touch-target-min);
+    }
+
+    .phone-drawer__tool-btn:active {
+        background: var(--gray-100);
+    }
+
+    .phone-drawer__tool-icon {
+        width: 24px;
+        height: 24px;
+        color: var(--gray-600);
+    }
+
+    .phone-drawer__tool-icon svg {
+        width: 24px;
+        height: 24px;
+    }
+
+    .phone-drawer__tool-label {
+        font-size: 10px;
+        color: var(--gray-500);
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+        line-height: 1.2;
+    }
+
+}
+
+/* =====================================================================
+   LANDSCAPE PHONE ADJUSTMENTS
+   Reduced height when phone is in landscape orientation.
+   ===================================================================== */
+
+@media (orientation: landscape) and (height <= 440px) and (pointer: coarse) {
+    .phone-bottom-sheet {
+        height: 80vh;
+    }
+
+    .phone-search-bar {
+        max-width: 50%;
+    }
+
+    .phone-fab-container {
+        bottom: calc(var(--phone-sheet-peek) + var(--safe-area-bottom) + var(--space-2));
+        gap: var(--space-2);
+    }
+
+    .phone-fab-container--shifted {
+        transform: translateY(calc(-1 * (40vh - var(--phone-sheet-peek) - var(--safe-area-bottom))));
+    }
+}
+
+/* At desktop/tablet sizes, ensure all phone elements are hidden */
+@media (width > 480px) and ((height >= 441px) or (pointer: fine)) {
+    .phone-search-bar,
+    .phone-search-overlay,
+    .phone-bottom-sheet,
+    .phone-fab-container,
+    .phone-move-actions,
+    .phone-drawer-backdrop,
+    .phone-drawer,
+    .phone-baselayer-modal {
+        display: none !important;
+    }
+}

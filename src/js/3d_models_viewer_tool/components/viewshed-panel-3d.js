@@ -1,0 +1,783 @@
+// Path: js/3d_models_viewer_tool/components/viewshed-panel-3d.js
+
+/**
+ * @fileoverview Panel component for editing 3D viewshed properties.
+ * Simplified version of marker panel with:
+ * - Editable name (identification section)
+ * - Viewshed parameters (read-only)
+ * - Photo gallery
+ * - Description
+ * - Delete button
+ *
+ * NO location or style sections (viewsheds have fixed visualization).
+ */
+
+// Lazy-loaded tool functions to avoid static/dynamic import conflicts
+let _viewshedTool = null;
+async function getViewshedTool() {
+    if (!_viewshedTool) {
+        _viewshedTool = await import('../tools/viewshed_tool_3d.js');
+    }
+    return _viewshedTool;
+}
+import { addViewshedImage, getViewshedImages, removeViewshedImage } from '../../store/index.js';
+import { showSuccess, showToast } from '../../utilities/index.js';
+import { deepClone } from '../../utilities/deep-utils.js';
+import { showConfirm } from '../../modals/index.js';
+import config from '../../config.js';
+
+/**
+ * Icons used in the component.
+ */
+const ICONS = {
+    VIEWSHED: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    NAVIGATE: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>`,
+    TRASH: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+    SETTINGS: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`
+};
+
+
+/**
+ * Creates the content for the 3D viewshed panel.
+ * @param {Object} viewshed - Viewshed data
+ * @param {string} tilesetId - Tileset ID
+ * @param {Function} onClose - Callback when panel should close
+ * @returns {Object} Object with element and cleanup function
+ */
+export function createViewshedPanelContent(viewshed, tilesetId, onClose) {
+    const container = document.createElement('div');
+    container.className = 'viewshed-3d-panel-content';
+
+    // Store initial properties for discard functionality
+    const initialProperties = deepClone(viewshed.properties || {});
+
+    // Current viewshed state
+    const currentViewshed = { ...viewshed };
+
+    // Track cleanup functions
+    const cleanupFunctions = [];
+
+    // 1. Identification section (includes description)
+    buildIdentificationSection(container, currentViewshed, tilesetId, async (updates) => {
+        if (updates.properties) {
+            currentViewshed.properties = { ...currentViewshed.properties, ...updates.properties };
+            const { updateViewshedProperties } = await getViewshedTool();
+            await updateViewshedProperties(currentViewshed.id, { properties: currentViewshed.properties });
+        }
+    });
+
+    // 2. Parameters section (with editable observer height, horizontal angle, and distance)
+    buildParametersSection(container, currentViewshed, {
+        onHeightChange: async (newHeight) => {
+            currentViewshed.observerHeight = newHeight;
+            const { updateViewshedObserverHeight } = await getViewshedTool();
+            await updateViewshedObserverHeight(currentViewshed.id, newHeight);
+        },
+        onHorizontalAngleChange: async (newAngle) => {
+            if (!currentViewshed.parameters) currentViewshed.parameters = {};
+            currentViewshed.parameters.horizontalAngle = newAngle;
+            const { updateViewshedHorizontalAngle } = await getViewshedTool();
+            await updateViewshedHorizontalAngle(currentViewshed.id, newAngle);
+        },
+        onDistanceChange: async (newDistance) => {
+            if (!currentViewshed.parameters) currentViewshed.parameters = {};
+            currentViewshed.parameters.distance = newDistance;
+            const { updateViewshedDistance } = await getViewshedTool();
+            await updateViewshedDistance(currentViewshed.id, newDistance);
+        }
+    }, cleanupFunctions);
+
+    // 3. Photo gallery section
+    const photoGalleryPlaceholder = document.createElement('div');
+    photoGalleryPlaceholder.className = 'photo-gallery-placeholder';
+    container.appendChild(photoGalleryPlaceholder);
+    buildPhotoGallerySection(photoGalleryPlaceholder, currentViewshed.id, cleanupFunctions);
+
+    // 4. Action buttons (Save/Discard)
+    buildActionButtons(container, currentViewshed, initialProperties, onClose);
+
+    // 5. Navigate button
+    buildNavigateButton(container, currentViewshed);
+
+    // 6. Delete button at the end
+    buildDeleteButton(container, currentViewshed, onClose);
+
+    // Cleanup function
+    const cleanup = () => {
+        cleanupFunctions.forEach(fn => {
+            try {
+                fn();
+            } catch (e) {
+                console.warn('Cleanup error:', e);
+            }
+        });
+    };
+
+    return {
+        element: container,
+        cleanup
+    };
+}
+
+/**
+ * Gets tileset name by ID.
+ * @param {string} tilesetId - Tileset ID
+ * @returns {string} Tileset name
+ */
+function getTilesetName(tilesetId) {
+    const tilesetConfigs = config?.tilesets || [];
+    const tilesetConfig = tilesetConfigs.find(t => t.id === tilesetId);
+    return tilesetConfig?.name || tilesetId || 'Modelo 3D';
+}
+
+/**
+ * Builds the identification section (icon, editable name, type, model).
+ */
+function buildIdentificationSection(container, viewshed, tilesetId, onUpdate) {
+    const section = document.createElement('div');
+    section.className = 'feature-identification';
+
+    // Icon container
+    const iconContainer = document.createElement('div');
+    iconContainer.className = 'feature-identification-icon';
+    iconContainer.innerHTML = ICONS.VIEWSHED;
+
+    // Info container
+    const infoContainer = document.createElement('div');
+    infoContainer.className = 'feature-identification-info';
+
+    // Editable name
+    const nameContainer = document.createElement('div');
+    nameContainer.className = 'feature-identification-name-container';
+
+    const nameDisplay = document.createElement('div');
+    nameDisplay.className = 'feature-identification-name';
+    nameDisplay.textContent = viewshed.properties?.nome || 'Sem nome';
+    nameDisplay.title = 'Clique para editar';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'feature-identification-name-input';
+    nameInput.value = viewshed.properties?.nome || '';
+    nameInput.style.display = 'none';
+
+    // Edit functionality
+    nameDisplay.addEventListener('click', () => {
+        nameDisplay.style.display = 'none';
+        nameInput.style.display = 'block';
+        nameInput.focus();
+        nameInput.select();
+    });
+
+    const saveEdit = async () => {
+        const newName = nameInput.value.trim() || 'Sem nome';
+        nameDisplay.textContent = newName;
+        nameDisplay.style.display = 'block';
+        nameInput.style.display = 'none';
+
+        if (newName !== viewshed.properties?.nome) {
+            onUpdate({ properties: { nome: newName } });
+            const { updateViewshedProperties } = await getViewshedTool();
+            await updateViewshedProperties(viewshed.id, { properties: { nome: newName } });
+        }
+    };
+
+    nameInput.addEventListener('blur', saveEdit);
+    nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveEdit();
+        } else if (e.key === 'Escape') {
+            nameInput.value = viewshed.properties?.nome || '';
+            nameDisplay.style.display = 'block';
+            nameInput.style.display = 'none';
+        }
+    });
+
+    nameContainer.appendChild(nameDisplay);
+    nameContainer.appendChild(nameInput);
+
+    // Type label
+    const typeLabel = document.createElement('div');
+    typeLabel.className = 'feature-identification-type';
+    typeLabel.textContent = 'Tipo: Análise de Visibilidade';
+
+    // Model info
+    const modelLabel = document.createElement('div');
+    modelLabel.className = 'feature-identification-layer';
+    modelLabel.textContent = `Modelo: ${getTilesetName(tilesetId)}`;
+
+    // Description section (following 2D pattern)
+    const descriptionSection = createDescriptionSection2D(viewshed, onUpdate);
+
+    infoContainer.appendChild(nameContainer);
+    infoContainer.appendChild(typeLabel);
+    infoContainer.appendChild(modelLabel);
+    infoContainer.appendChild(descriptionSection);
+
+    section.appendChild(iconContainer);
+    section.appendChild(infoContainer);
+    container.appendChild(section);
+}
+
+/**
+ * Creates description section following the 2D pattern.
+ * Shows a button to add description when empty, or the description text when filled.
+ */
+function createDescriptionSection2D(viewshed, onUpdate) {
+    let currentDescription = viewshed.properties?.descricao || '';
+
+    const section = document.createElement('div');
+    section.className = 'feature-description-section';
+
+    const displayContainer = document.createElement('div');
+    displayContainer.className = 'feature-description-display';
+
+    const editContainer = document.createElement('div');
+    editContainer.className = 'feature-description-edit';
+    editContainer.style.display = 'none';
+
+    function renderDisplay() {
+        displayContainer.innerHTML = '';
+
+        if (!currentDescription) {
+            const addButton = document.createElement('button');
+            addButton.type = 'button';
+            addButton.className = 'feature-description-add-btn';
+            addButton.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>Adicionar descrição</span>
+            `;
+            addButton.addEventListener('click', enterEditMode);
+            displayContainer.appendChild(addButton);
+        } else {
+            const textWrapper = document.createElement('div');
+            textWrapper.className = 'feature-description-text-wrapper';
+
+            const descText = document.createElement('div');
+            descText.className = 'feature-description-text';
+            descText.textContent = currentDescription;
+            descText.title = 'Clique para editar';
+            descText.addEventListener('click', enterEditMode);
+
+            const editButton = document.createElement('button');
+            editButton.type = 'button';
+            editButton.className = 'feature-description-edit-btn';
+            editButton.title = 'Editar descrição';
+            editButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+            editButton.addEventListener('click', enterEditMode);
+
+            textWrapper.appendChild(descText);
+            textWrapper.appendChild(editButton);
+            displayContainer.appendChild(textWrapper);
+        }
+    }
+
+    function renderEdit() {
+        editContainer.innerHTML = '';
+
+        const textarea = document.createElement('textarea');
+        textarea.className = 'feature-description-textarea';
+        textarea.value = currentDescription;
+        textarea.placeholder = 'Digite uma descrição para esta análise de visibilidade...';
+        textarea.rows = 4;
+
+        const buttonsContainer = document.createElement('div');
+        buttonsContainer.className = 'feature-description-buttons';
+
+        const saveButton = document.createElement('button');
+        saveButton.type = 'button';
+        saveButton.className = 'feature-description-save-btn';
+        saveButton.textContent = 'Salvar';
+        saveButton.addEventListener('click', () => saveDescription(textarea.value));
+
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.className = 'feature-description-cancel-btn';
+        cancelButton.textContent = 'Cancelar';
+        cancelButton.addEventListener('click', exitEditMode);
+
+        buttonsContainer.appendChild(cancelButton);
+        buttonsContainer.appendChild(saveButton);
+
+        editContainer.appendChild(textarea);
+        editContainer.appendChild(buttonsContainer);
+
+        setTimeout(() => textarea.focus(), 0);
+    }
+
+    function enterEditMode() {
+        displayContainer.style.display = 'none';
+        editContainer.style.display = 'block';
+        renderEdit();
+    }
+
+    function exitEditMode() {
+        editContainer.style.display = 'none';
+        displayContainer.style.display = 'block';
+        renderDisplay();
+    }
+
+    function saveDescription(newValue) {
+        const trimmedValue = newValue.trim();
+        currentDescription = trimmedValue;
+        onUpdate({ properties: { descricao: trimmedValue } });
+        exitEditMode();
+    }
+
+    renderDisplay();
+
+    section.appendChild(displayContainer);
+    section.appendChild(editContainer);
+
+    return section;
+}
+
+/**
+ * Builds the parameters section with editable observer height, horizontal angle, and distance.
+ * @param {HTMLElement} container - Container element
+ * @param {Object} viewshed - Viewshed data
+ * @param {Object} callbacks - Callback functions
+ * @param {Function} callbacks.onHeightChange - Callback when observer height changes
+ * @param {Function} callbacks.onHorizontalAngleChange - Callback when horizontal angle changes
+ * @param {Function} callbacks.onDistanceChange - Callback when distance changes
+ * @param {Array} cleanupFunctions - Array to push cleanup functions into
+ */
+function buildParametersSection(container, viewshed, callbacks, cleanupFunctions) {
+    const { onHeightChange, onHorizontalAngleChange, onDistanceChange } = callbacks;
+    const section = document.createElement('div');
+    section.className = 'viewshed-parameters-section';
+
+    const header = document.createElement('div');
+    header.className = 'viewshed-parameters-header';
+    header.innerHTML = `${ICONS.SETTINGS}<span>Parâmetros</span>`;
+
+    const params = viewshed.parameters || {};
+
+    section.appendChild(header);
+
+    // Horizontal angle (editable)
+    buildEditableParam(section, {
+        label: 'Campo Horizontal',
+        value: params.horizontalAngle ?? 120,
+        min: 1, max: 360, step: 1,
+        unit: '°',
+        hint: 'Abertura horizontal do campo de visão (1° a 360°)',
+        parseValue: v => parseInt(v, 10),
+        onChange: onHorizontalAngleChange
+    }, cleanupFunctions);
+
+    // Distance (editable)
+    buildEditableParam(section, {
+        label: 'Distância',
+        value: params.distance ?? 500,
+        min: 10, max: 5000, step: 5,
+        unit: 'm',
+        hint: 'Alcance máximo da análise (10 a 5000 m)',
+        parseValue: v => parseInt(v, 10),
+        onChange: onDistanceChange
+    }, cleanupFunctions);
+
+    // Observer height (editable)
+    buildEditableParam(section, {
+        label: 'Altura do Observador',
+        value: viewshed.observerHeight ?? 1.5,
+        min: 0, max: 1000, step: 0.1,
+        unit: 'm',
+        hint: 'Altura acima do ponto clicado (ex: 1.5m para pessoa, 3m para veículo)',
+        parseValue: v => parseFloat(v),
+        epsilon: 0.001,
+        onChange: onHeightChange
+    }, cleanupFunctions);
+
+    container.appendChild(section);
+}
+
+/**
+ * Builds a single editable parameter row with debounce logic.
+ * @param {HTMLElement} parent - Parent element to append to
+ * @param {Object} config - Parameter configuration
+ * @param {Array} cleanupFunctions - Array to push cleanup functions into
+ */
+function buildEditableParam(parent, config, cleanupFunctions) {
+    const { label, value, min, max, step, unit, hint, parseValue, epsilon, onChange } = config;
+
+    const row = document.createElement('div');
+    row.className = 'viewshed-observer-height-section';
+
+    const labelEl = document.createElement('label');
+    labelEl.className = 'viewshed-observer-height-label';
+    labelEl.textContent = label;
+
+    const inputContainer = document.createElement('div');
+    inputContainer.className = 'viewshed-observer-height-input-container';
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'viewshed-observer-height-input';
+    input.value = value;
+    input.min = min;
+    input.max = max;
+    input.step = step;
+
+    const unitEl = document.createElement('span');
+    unitEl.className = 'viewshed-observer-height-unit';
+    unitEl.textContent = unit;
+
+    inputContainer.appendChild(input);
+    inputContainer.appendChild(unitEl);
+
+    const hintEl = document.createElement('div');
+    hintEl.className = 'viewshed-observer-height-hint';
+    hintEl.textContent = hint;
+
+    row.appendChild(labelEl);
+    row.appendChild(inputContainer);
+    row.appendChild(hintEl);
+
+    // Debounce logic
+    let lastApplied = value;
+    let debounceTimer = null;
+    let isUpdating = false;
+
+    const applyChange = async (newVal) => {
+        if (isUpdating) return;
+        // Compare with epsilon for floats, strict for integers
+        if (epsilon ? Math.abs(newVal - lastApplied) < epsilon : newVal === lastApplied) return;
+
+        isUpdating = true;
+        try {
+            if (onChange) {
+                await onChange(newVal);
+                lastApplied = newVal;
+            }
+        } catch (error) {
+            console.error(`Error updating ${label}:`, error);
+        } finally {
+            isUpdating = false;
+        }
+    };
+
+    const validate = () => {
+        const parsed = parseValue(input.value);
+        if (!isNaN(parsed) && parsed >= min && parsed <= max) {
+            applyChange(parsed);
+        }
+    };
+
+    input.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(validate, 500);
+    });
+
+    input.addEventListener('blur', () => {
+        clearTimeout(debounceTimer);
+        validate();
+    });
+
+    if (cleanupFunctions) {
+        cleanupFunctions.push(() => clearTimeout(debounceTimer));
+    }
+
+    parent.appendChild(row);
+}
+
+/**
+ * Builds the photo gallery section for 3D viewsheds.
+ */
+async function buildPhotoGallerySection(placeholder, viewshedId, _cleanupFunctions) {
+    const container = document.createElement('div');
+    container.className = 'feature-photo-gallery';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'feature-photo-gallery-header';
+
+    const title = document.createElement('span');
+    title.className = 'feature-photo-gallery-title';
+    title.textContent = 'Fotos / Imagens';
+
+    const addButton = document.createElement('button');
+    addButton.className = 'feature-photo-gallery-add-btn';
+    addButton.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Adicionar
+    `;
+
+    header.appendChild(title);
+    header.appendChild(addButton);
+    container.appendChild(header);
+
+    // Grid container
+    const grid = document.createElement('div');
+    grid.className = 'feature-photo-gallery-grid';
+    container.appendChild(grid);
+
+    // Counter label
+    const counter = document.createElement('div');
+    counter.className = 'feature-photo-gallery-counter';
+    container.appendChild(counter);
+
+    // Hidden file input
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/jpeg,image/png,image/gif,image/webp';
+    fileInput.multiple = true;
+    fileInput.style.display = 'none';
+    container.appendChild(fileInput);
+
+    /**
+     * Renders the images in the grid.
+     */
+    async function renderImages() {
+        grid.innerHTML = '';
+
+        const images = await getViewshedImages(viewshedId);
+
+        // Show images (limited to 5 in compact mode + add button)
+        const maxVisible = 5;
+        const visibleImages = images.slice(0, maxVisible);
+
+        visibleImages.forEach(img => {
+            const card = createImageCard(img, viewshedId, renderImages);
+            grid.appendChild(card);
+        });
+
+        // Add button card (only show if 2 or fewer images)
+        if (images.length <= 2) {
+            const addCard = createAddImageCard(fileInput);
+            grid.appendChild(addCard);
+        }
+
+        // Update counter
+        if (images.length > 0) {
+            counter.textContent = `${images.length} ${images.length === 1 ? 'imagem anexada' : 'imagens anexadas'}`;
+            counter.style.display = 'block';
+        } else {
+            counter.textContent = '';
+            counter.style.display = 'none';
+        }
+    }
+
+    // File input handler
+    fileInput.addEventListener('change', async (e) => {
+        if (e.target.files?.length) {
+            for (const file of Array.from(e.target.files)) {
+                if (!file.type.startsWith('image/')) continue;
+                if (file.size > 10 * 1024 * 1024) {
+                    showToast(`${file.name} excede 10MB`, 'error');
+                    continue;
+                }
+                await addViewshedImage(viewshedId, file);
+            }
+            fileInput.value = '';
+            await renderImages();
+        }
+    });
+
+    // Add button click
+    addButton.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    // Initial render
+    await renderImages();
+
+    // Replace placeholder with container
+    placeholder.innerHTML = '';
+    placeholder.appendChild(container);
+}
+
+/**
+ * Creates an image card for the gallery.
+ */
+function createImageCard(imageData, viewshedId, onUpdate) {
+    const card = document.createElement('div');
+    card.className = 'feature-photo-gallery-card';
+
+    const img = document.createElement('img');
+    img.src = imageData.thumbnail || imageData.data;
+    img.alt = imageData.name || 'Imagem';
+    img.loading = 'lazy';
+
+    // Click to view full size
+    img.addEventListener('click', () => {
+        openImageViewer(imageData);
+    });
+
+    // Delete button (shown on hover)
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'feature-photo-gallery-delete';
+    deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
+    deleteBtn.title = 'Remover imagem';
+
+    deleteBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const confirmed = await showConfirm('Remover esta imagem?', { destructive: true });
+        if (confirmed) {
+            await removeViewshedImage(viewshedId, imageData.id);
+            if (onUpdate) onUpdate();
+        }
+    });
+
+    card.appendChild(img);
+    card.appendChild(deleteBtn);
+
+    return card;
+}
+
+/**
+ * Creates the add button card.
+ */
+function createAddImageCard(fileInput) {
+    const card = document.createElement('div');
+    card.className = 'feature-photo-gallery-card feature-photo-gallery-add-card';
+    card.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+    card.title = 'Adicionar imagem';
+
+    card.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    return card;
+}
+
+/**
+ * Opens full-screen image viewer.
+ */
+function openImageViewer(imageData) {
+    const overlay = document.createElement('div');
+    overlay.className = 'feature-photo-viewer-overlay';
+
+    const viewer = document.createElement('div');
+    viewer.className = 'feature-photo-viewer';
+
+    const img = document.createElement('img');
+    img.src = imageData.data;
+    img.alt = imageData.name || 'Imagem';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'feature-photo-viewer-close';
+    closeBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+    closeBtn.title = 'Fechar';
+
+    const closeViewer = () => overlay.remove();
+
+    closeBtn.addEventListener('click', closeViewer);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closeViewer();
+    });
+
+    // Escape key to close
+    const handleKeydown = (e) => {
+        if (e.key === 'Escape') {
+            closeViewer();
+            document.removeEventListener('keydown', handleKeydown);
+        }
+    };
+    document.addEventListener('keydown', handleKeydown);
+
+    viewer.appendChild(img);
+    viewer.appendChild(closeBtn);
+    overlay.appendChild(viewer);
+    document.body.appendChild(overlay);
+}
+
+/**
+ * Builds the action buttons section (Save, Discard).
+ */
+function buildActionButtons(container, viewshed, initialProperties, _onClose) {
+    const section = document.createElement('div');
+    section.className = 'attr-modern-buttons';
+
+    const row = document.createElement('div');
+    row.className = 'attr-modern-buttons-row';
+
+    const saveButton = document.createElement('button');
+    saveButton.textContent = 'Salvar';
+    saveButton.className = 'attr-modern-btn-save';
+    saveButton.type = 'submit';
+    saveButton.addEventListener('click', async () => {
+        // Deselect viewshed - this emits VIEWSHED_3D_DESELECTED which closes panel
+        const { deselectCurrentViewshed } = await getViewshedTool();
+        deselectCurrentViewshed();
+    });
+    row.appendChild(saveButton);
+
+    const discardButton = document.createElement('button');
+    discardButton.textContent = 'Descartar';
+    discardButton.className = 'attr-modern-btn-discard';
+    discardButton.type = 'button';
+    discardButton.addEventListener('click', async () => {
+        // Restore initial properties
+        const { updateViewshedProperties, deselectCurrentViewshed } = await getViewshedTool();
+        await updateViewshedProperties(viewshed.id, {
+            properties: initialProperties
+        });
+        // Deselect viewshed - this emits VIEWSHED_3D_DESELECTED which closes panel
+        deselectCurrentViewshed();
+    });
+    row.appendChild(discardButton);
+
+    section.appendChild(row);
+    container.appendChild(section);
+}
+
+/**
+ * Builds the navigate button.
+ */
+function buildNavigateButton(container, viewshed) {
+    const section = document.createElement('div');
+    section.className = 'viewshed-navigate-section';
+
+    const navigateBtn = document.createElement('button');
+    navigateBtn.className = 'feature-location-center-btn';
+    navigateBtn.innerHTML = `${ICONS.NAVIGATE} Centralizar no modelo`;
+    navigateBtn.addEventListener('click', async () => {
+        const { flyToViewshed } = await getViewshedTool();
+        flyToViewshed(viewshed);
+    });
+
+    section.appendChild(navigateBtn);
+    container.appendChild(section);
+}
+
+/**
+ * Builds the delete button at the end.
+ */
+function buildDeleteButton(container, viewshed, onClose) {
+    const section = document.createElement('div');
+    section.className = 'feature-panel-delete-section';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'feature-panel-delete-btn';
+    deleteBtn.innerHTML = `${ICONS.TRASH}<span>Deletar</span>`;
+
+    deleteBtn.addEventListener('click', async () => {
+        const confirmed = await showConfirm('Deletar esta análise de visibilidade?', {
+            message: 'Esta ação não pode ser desfeita.',
+            destructive: true
+        });
+        if (!confirmed) return;
+
+        try {
+            const { deleteViewshed } = await getViewshedTool();
+            const result = await deleteViewshed(viewshed.id);
+            if (result) {
+                showSuccess('Análise de visibilidade deletada!');
+                if (onClose) onClose();
+            }
+        } catch (error) {
+            console.error('Error deleting viewshed:', error);
+            showToast('Erro ao deletar análise', 'error');
+        }
+    });
+
+    section.appendChild(deleteBtn);
+    container.appendChild(section);
+}
+
+/**
+ * Styles now in src/css/panels-3d.css — kept as no-op for backward compatibility.
+ */
+export function injectViewshedPanelStyles() {}

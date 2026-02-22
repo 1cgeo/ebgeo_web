@@ -1,0 +1,285 @@
+/* Path: src/css/base-layer-selector.css */
+
+/**
+ * @fileoverview Base layer selector styles.
+ * Bottom-left corner map style switcher with thumbnail-based UI.
+ */
+
+/* =========================================================================
+   BASE LAYER SELECTOR CONTAINER
+   ========================================================================= */
+
+.base-layer-selector {
+    position: fixed;
+    bottom: var(--space-6);
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
+    z-index: var(--z-controls);
+    transition: transform var(--transition-panel);
+    will-change: transform;
+}
+
+/* Position when sidebar collapsed */
+.base-layer-selector[data-sidebar-state="collapsed"] {
+    transform: translateX(0);
+}
+
+/* Position when sidebar expanded */
+.base-layer-selector[data-sidebar-state="expanded"] {
+    transform: translateX(calc(var(--sidebar-panel-width) + var(--space-1)));
+}
+
+/* =========================================================================
+   COLLAPSED STATE (Single Thumbnail)
+   ========================================================================= */
+
+.base-layer-collapsed {
+    width: 80px;
+    cursor: pointer;
+}
+
+.base-layer-thumbnail {
+    width: 80px;
+    height: 80px;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    border: 3px solid white;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+/* Gradient fallback only when no image */
+.base-layer-thumbnail:has(img:not([src])),
+.base-layer-thumbnail:has(img[src=""]) {
+    background: linear-gradient(135deg, #f5f5dc 0%, #ddd8c4 100%);
+}
+
+.base-layer-thumbnail:hover {
+    transform: scale(1.05);
+    box-shadow: var(--shadow-xl);
+}
+
+.base-layer-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.base-layer-label {
+    text-align: center;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: white;
+    margin-top: var(--space-1);
+    text-shadow:
+        -1px -1px 0 rgba(0, 0, 0, 0.8),
+        1px -1px 0 rgba(0, 0, 0, 0.8),
+        -1px 1px 0 rgba(0, 0, 0, 0.8),
+        1px 1px 0 rgba(0, 0, 0, 0.8),
+        0 0 4px rgba(0, 0, 0, 0.9),
+        0 0 8px rgba(0, 0, 0, 0.6);
+}
+
+/* Hide collapsed when expanded */
+.base-layer-selector[data-expanded="true"] .base-layer-collapsed {
+    display: none;
+}
+
+/* =========================================================================
+   EXPANDED STATE (Grid of Options)
+   ========================================================================= */
+
+.base-layer-expanded {
+    background: white;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    padding: var(--space-3);
+    display: none;
+    min-width: 180px;
+}
+
+.base-layer-selector[data-expanded="true"] .base-layer-expanded {
+    display: block;
+    animation: slideUpFadeIn var(--transition-fast) ease-out;
+}
+
+@keyframes slideUpFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.base-layer-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-2);
+}
+
+/* =========================================================================
+   LAYER OPTION
+   ========================================================================= */
+
+.base-layer-option {
+    cursor: pointer;
+    text-align: center;
+    transition: transform var(--transition-fast);
+}
+
+.base-layer-option:hover {
+    transform: scale(1.02);
+}
+
+.base-layer-option:focus {
+    outline: none;
+}
+
+.base-layer-option:focus .base-layer-option-thumb {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+.base-layer-option-thumb {
+    width: 80px;
+    height: 60px;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 2px solid var(--gray-200);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    margin-bottom: var(--space-1);
+}
+
+/* Gradient fallback only when no image */
+.base-layer-option-thumb:has(img:not([src])),
+.base-layer-option-thumb:has(img[src=""]) {
+    background: linear-gradient(135deg, #ccc 0%, #999 100%);
+}
+
+.base-layer-option:hover .base-layer-option-thumb {
+    border-color: var(--gray-400);
+}
+
+/* Selected state */
+.base-layer-option[data-selected="true"] .base-layer-option-thumb {
+    border-color: var(--primary);
+    border-width: 3px;
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+.base-layer-option-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.base-layer-option-name {
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    line-height: 1.2;
+}
+
+.base-layer-option[data-selected="true"] .base-layer-option-name {
+    color: var(--primary);
+    font-weight: var(--font-weight-medium);
+}
+
+/* =========================================================================
+   HIDE MAPLIBRE CONTROL WRAPPER
+   The radio-button base layer control is added via map.addControl() but its
+   container is hidden because BaseLayerSelectorControl provides the UI.
+   ========================================================================= */
+.base-layer-control.mapboxgl-ctrl {
+    display: none !important;
+}
+
+/* =========================================================================
+   TABLET RESPONSIVE ADJUSTMENTS
+   ========================================================================= */
+
+/* Touch device optimizations */
+@media (pointer: coarse) {
+    /* Larger thumbnail for touch */
+    .base-layer-thumbnail {
+        width: 88px;
+        height: 88px;
+    }
+
+    .base-layer-collapsed {
+        width: 88px;
+    }
+
+    /* Better touch feedback */
+    .base-layer-thumbnail:active {
+        transform: scale(0.95);
+    }
+
+    /* Larger option thumbnails */
+    .base-layer-option-thumb {
+        width: 88px;
+        height: 66px;
+    }
+
+    /* Better active state */
+    .base-layer-option:active {
+        transform: scale(0.95);
+    }
+
+    /* Remove sticky hover */
+    .base-layer-thumbnail:hover,
+    .base-layer-option:hover {
+        transform: none;
+    }
+}
+
+/* Tablet breakpoint */
+@media (width <= 1024px) {
+    /* Adjust position for tablet sidebar */
+    .base-layer-selector[data-sidebar-state="expanded"] {
+        transform: translateX(var(--sidebar-panel-width-tablet, 340px));
+    }
+
+    /* Slightly larger expanded panel */
+    .base-layer-expanded {
+        min-width: 200px;
+        padding: var(--space-4);
+    }
+
+    .base-layer-grid {
+        gap: var(--space-3);
+    }
+}
+
+/* Small tablet breakpoint */
+@media (width <= 768px) {
+    /* Position closer to sidebar + respect safe area at bottom */
+    .base-layer-selector {
+        left: calc(var(--sidebar-collapsed-width) + var(--space-3));
+        bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
+    }
+
+    .base-layer-selector[data-sidebar-state="expanded"] {
+        transform: translateX(min(100vw - var(--sidebar-collapsed-width), 400px));
+    }
+}
+
+/* Landscape mode */
+@media (orientation: landscape) and (width <= 768px) {
+    /* Keep selector compact in small landscape */
+    .base-layer-thumbnail {
+        width: 72px;
+        height: 72px;
+    }
+
+    .base-layer-collapsed {
+        width: 72px;
+    }
+
+    .base-layer-option-thumb {
+        width: 72px;
+        height: 54px;
+    }
+}

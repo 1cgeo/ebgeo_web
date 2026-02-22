@@ -1,0 +1,845 @@
+/* Path: src/css/briefing/briefing-editor.css */
+
+/**
+ * @fileoverview Briefing editor styles.
+ * Right-side panel overlay for editing briefings.
+ * The map remains in its normal DOM position behind the panel.
+ */
+
+/* =========================================================================
+   EDITOR CONTAINER (right-side panel)
+   ========================================================================= */
+
+.briefing-editor {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 520px;
+    background: white;
+    z-index: var(--z-modal, 1000);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-left: 1px solid var(--border-color);
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
+}
+
+/* =========================================================================
+   PANEL HEADER
+   ========================================================================= */
+
+.briefing-editor-panel-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: white;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.briefing-editor-back-btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--gray-600);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.briefing-editor-back-btn:hover {
+    background: var(--gray-100);
+    color: var(--gray-900);
+}
+
+.briefing-editor-name-input {
+    flex: 1;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-900);
+    background: transparent;
+    transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.briefing-editor-name-input:hover {
+    background: var(--gray-50);
+}
+
+.briefing-editor-name-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: white;
+}
+
+.briefing-editor-save-btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.briefing-editor-save-btn:hover {
+    background: var(--primary-700, #166534);
+}
+
+.briefing-editor-save-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* =========================================================================
+   SCROLLABLE CONTENT
+   ========================================================================= */
+
+.briefing-editor-scrollable {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary-600, #16a34a) transparent;
+}
+
+.briefing-editor-scrollable::-webkit-scrollbar {
+    width: 6px;
+}
+
+.briefing-editor-scrollable::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.briefing-editor-scrollable::-webkit-scrollbar-thumb {
+    background-color: var(--primary-600, #16a34a);
+    border-radius: 3px;
+}
+
+.briefing-editor-scrollable::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-700, #15803d);
+}
+
+/* =========================================================================
+   SLIDES SECTION
+   ========================================================================= */
+
+.briefing-editor-slides-section {
+    display: flex;
+    flex-direction: column;
+    min-height: 150px;
+    flex-shrink: 0;
+}
+
+.briefing-editor-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.briefing-editor-add-slide-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    background: var(--primary);
+    color: white;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.briefing-editor-add-slide-btn:hover {
+    background: var(--primary-700, #166534);
+    transform: scale(1.05);
+}
+
+.briefing-editor-add-slide-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* =========================================================================
+   SLIDE LIST
+   ========================================================================= */
+
+.briefing-editor-slide-list {
+    padding: var(--space-2);
+}
+
+.briefing-editor-slide-list-empty {
+    padding: var(--space-4);
+    text-align: center;
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+}
+
+/* Slide Card */
+.briefing-editor-slide-card {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-1);
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.briefing-editor-slide-card:hover {
+    background: var(--gray-50);
+    border-color: var(--gray-300);
+}
+
+.briefing-editor-slide-card[data-selected="true"] {
+    background: var(--primary-50, #f0fdf4);
+    border-color: var(--primary);
+}
+
+.briefing-editor-slide-handle {
+    color: var(--gray-400);
+    cursor: grab;
+    padding: var(--space-1);
+}
+
+.briefing-editor-slide-handle:active {
+    cursor: grabbing;
+}
+
+.briefing-editor-slide-info {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.briefing-editor-slide-number {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--gray-200);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-600);
+}
+
+.briefing-editor-slide-card[data-selected="true"] .briefing-editor-slide-number {
+    background: var(--primary);
+    color: white;
+}
+
+.briefing-editor-slide-title {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.briefing-editor-slide-mode-icon {
+    color: var(--gray-400);
+    display: flex;
+    align-items: center;
+}
+
+.briefing-editor-slide-mode-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+.briefing-editor-slide-warning {
+    color: var(--color-warning, #f59e0b);
+    display: flex;
+    align-items: center;
+}
+
+.briefing-editor-slide-warning svg {
+    width: 14px;
+    height: 14px;
+}
+
+.briefing-editor-slide-delete-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--gray-400);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    transition: color var(--transition-fast), background var(--transition-fast);
+    opacity: 0;
+}
+
+.briefing-editor-slide-card:hover .briefing-editor-slide-delete-btn {
+    opacity: 1;
+}
+
+.briefing-editor-slide-delete-btn:hover {
+    color: var(--color-error);
+    background: #fee2e2;
+}
+
+/* Sortable ghost */
+.briefing-editor-slide-list .sortable-ghost {
+    opacity: 0.4;
+}
+
+/* =========================================================================
+   SLIDE EDITOR
+   ========================================================================= */
+
+.briefing-editor-slide-editor {
+    padding: var(--space-4);
+    border-top: 1px solid var(--border-color);
+}
+
+.briefing-editor-no-slide {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+}
+
+/* Form Groups */
+.briefing-editor-form-group {
+    margin-bottom: var(--space-4);
+}
+
+.briefing-editor-form-group label {
+    display: block;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-600);
+    margin-bottom: var(--space-2);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.briefing-editor-description-input,
+.briefing-editor-slide-title-input {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--gray-900);
+    background: white;
+    resize: vertical;
+    transition: border-color var(--transition-fast);
+}
+
+.briefing-editor-description-input:focus,
+.briefing-editor-slide-title-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+/* Select Dropdown */
+.briefing-editor-select {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--gray-900);
+    background: white;
+    cursor: pointer;
+    transition: border-color var(--transition-fast);
+}
+
+.briefing-editor-select:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.briefing-editor-select:disabled {
+    background: var(--gray-100);
+    color: var(--gray-500);
+    cursor: not-allowed;
+}
+
+/* Info Text */
+.briefing-editor-info-text {
+    padding: var(--space-2) var(--space-3);
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+}
+
+/* Position Display */
+.briefing-editor-position-wrapper {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.briefing-editor-position-display {
+    flex: 1;
+    padding: var(--space-2) var(--space-3);
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+}
+
+.briefing-editor-position-set {
+    color: var(--gray-700);
+    font-family: var(--font-mono, monospace);
+    font-size: var(--font-size-xs);
+}
+
+.briefing-editor-position-warning {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-warning, #f59e0b);
+}
+
+.briefing-editor-position-warning svg {
+    flex-shrink: 0;
+}
+
+/* Resource unavailable warning (3D model / 360 photo) */
+.briefing-editor-resource-warning {
+    font-size: var(--font-size-xs);
+    color: var(--color-error);
+    padding: var(--space-1) var(--space-2);
+    background: rgba(220, 53, 69, 0.08);
+    border-radius: var(--radius-sm);
+    margin-top: var(--space-1);
+}
+
+/* Capture/Save position button (inline) */
+.briefing-editor-position-wrapper .briefing-editor-capture-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    background: var(--gray-700);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    white-space: nowrap;
+}
+
+.briefing-editor-position-wrapper .briefing-editor-capture-btn:hover:not(:disabled) {
+    background: var(--gray-800);
+}
+
+.briefing-editor-position-wrapper .briefing-editor-capture-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.briefing-editor-position-wrapper .briefing-editor-capture-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Content label row (label + import notes button) */
+.briefing-editor-content-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-2);
+}
+
+.briefing-editor-content-label-row label {
+    margin-bottom: 0;
+}
+
+/* Import notes button */
+.briefing-editor-import-notes-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--gray-500);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.briefing-editor-import-notes-btn:hover {
+    color: var(--primary);
+    background: var(--primary-50, #f0fdf4);
+}
+
+.briefing-editor-import-notes-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Saved orientations button (bookmark icon) */
+.briefing-editor-saved-orientations-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: var(--gray-100);
+    color: var(--gray-600);
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.briefing-editor-saved-orientations-btn:hover {
+    background: var(--gray-200);
+    color: var(--gray-800);
+}
+
+.briefing-editor-saved-orientations-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Saved orientations dropdown */
+.briefing-editor-orientations-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: var(--z-dropdown, 100);
+    margin-top: var(--space-1);
+    min-width: 220px;
+    max-width: 320px;
+    max-height: 240px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    padding: var(--space-1);
+}
+
+.briefing-editor-orientations-dropdown__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-2);
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    text-align: left;
+    font-size: var(--font-size-xs);
+    color: var(--gray-700);
+    transition: background var(--transition-fast);
+}
+
+.briefing-editor-orientations-dropdown__item:hover {
+    background: var(--gray-100);
+}
+
+.briefing-editor-orientations-dropdown__icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: var(--gray-500);
+}
+
+.briefing-editor-orientations-dropdown__icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+.briefing-editor-orientations-dropdown__label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: var(--font-weight-medium);
+}
+
+.briefing-editor-orientations-dropdown__type {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--gray-400);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Content Group */
+.briefing-editor-content-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 300px;
+}
+
+.briefing-editor-content-placeholder {
+    flex: 1;
+    min-height: 150px;
+    padding: var(--space-4);
+    background: var(--gray-50);
+    border: 1px dashed var(--gray-300);
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+}
+
+/* Quill Editor Container */
+.briefing-editor-quill-container {
+    flex: 1;
+    min-height: 280px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: white;
+    overflow: hidden;
+}
+
+.briefing-editor-quill-container .ql-toolbar {
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--gray-50);
+}
+
+.briefing-editor-quill-container .ql-container {
+    flex: 1;
+    border: none;
+    font-size: var(--font-size-sm);
+}
+
+.briefing-editor-quill-container .ql-editor {
+    min-height: 220px;
+    padding: var(--space-3);
+}
+
+.briefing-editor-quill-container .ql-editor.ql-blank::before {
+    color: var(--gray-400);
+    font-style: normal;
+}
+
+.briefing-editor-quill-error {
+    padding: var(--space-4);
+    color: var(--color-error);
+    text-align: center;
+    font-size: var(--font-size-sm);
+}
+
+/* Slide card error warning (red instead of yellow) */
+.briefing-editor-slide-warning--error {
+    color: #dc2626;
+}
+
+/* =========================================================================
+   SLIDE MODE BADGE (icon + label on each slide card)
+   ========================================================================= */
+
+.briefing-editor-slide-mode-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px var(--space-2);
+    background: var(--primary-50, #f0fdf4);
+    border: 1px solid var(--primary-200, #bbf7d0);
+    border-radius: var(--radius-sm);
+    color: var(--primary-700, #15803d);
+    flex-shrink: 0;
+}
+
+.briefing-editor-slide-mode-badge svg {
+    width: 12px;
+    height: 12px;
+}
+
+.briefing-editor-slide-mode-badge__label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+}
+
+/* =========================================================================
+   BODY LAYOUT OFFSET (shared by editor & presenter)
+   When a briefing panel is active:
+   - Hide the sidebar collapsed bar and chips (but keep feature-panel reachable)
+   - Shrink map/3D/360 containers so the panel sits beside them
+   - Reposition search bar to left edge (sidebar collapsed bar is gone)
+   ========================================================================= */
+
+/* Hide sidebar elements and chips during briefing (editor/presenter) */
+body.briefing-panel-active .sidebar-collapsed,
+body.briefing-panel-active .sidebar-panel:not(.feature-panel),
+body.briefing-panel-active .chips-container {
+    display: none !important;
+}
+
+/* Shift right-side controls left so they stay within the map area
+   (520px = briefing panel width) */
+body.briefing-panel-active .toolbar-container {
+    right: calc(520px + var(--space-4));
+}
+
+body.briefing-panel-active .bottom-controls-right {
+    right: calc(520px + var(--space-4));
+}
+
+body.briefing-panel-active .bottom-controls-left {
+    right: calc(520px + var(--control-button-size) + var(--space-4) + var(--space-3));
+}
+
+/* Feature panel repositions to left edge (sidebar collapsed bar is gone).
+   Override contain:layout from design-tokens so the panel is not clipped. */
+body.briefing-panel-active .sidebar-panels-wrapper {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    z-index: var(--z-sidebar);
+    contain: none;
+}
+
+/* Search bar repositions to left edge (sidebar collapsed bar is gone) */
+body.briefing-panel-active .search-bar-container {
+    left: var(--space-4);
+}
+
+/* When feature panel is open in briefing mode, shift search bar right */
+body.briefing-panel-active .search-bar-container[data-sidebar-state="expanded"] {
+    transform: translateX(var(--sidebar-panel-width));
+}
+
+/* Center coordinates on the visible map area instead of the full viewport */
+body.briefing-panel-active .coordinates-control,
+body.briefing-panel-active .coordinates-control-3d {
+    left: calc((100% - 520px) / 2) !important;
+}
+
+/* Map: absolute positioning within body to respect right:520px */
+body.briefing-panel-active {
+    position: relative;
+}
+
+body.briefing-panel-active #map-sig {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 520px !important;
+    bottom: 0 !important;
+    width: auto !important;
+    height: auto !important;
+}
+
+body.briefing-panel-active #map-3d-container {
+    left: 0 !important;
+    right: 520px !important;
+}
+
+body.briefing-panel-active #street-view-container {
+    left: 0 !important;
+    right: 520px !important;
+}
+
+/* 3D viewer controls: shift into the map area */
+body.briefing-panel-active #close-3d-viewer-button,
+body.briefing-panel-active #toolbar-3d {
+    right: calc(520px + 16px);
+}
+
+body.briefing-panel-active .nav-help-popup {
+    right: calc(520px + 72px);
+}
+
+body.briefing-panel-active .active-tool-chip-3d {
+    left: calc((100% - 520px) / 2);
+}
+
+/* 360 viewer controls: shift into the map area */
+body.briefing-panel-active #close-street-view-button,
+body.briefing-panel-active #toolbar-360 {
+    right: calc(520px + 16px);
+}
+
+body.briefing-panel-active .active-tool-chip-360 {
+    left: calc((100% - 520px) / 2);
+}
+
+/* 360 minimap: sidebar collapsed bar is hidden, move to left edge */
+body.briefing-panel-active #streetview-minimap-wrapper {
+    left: 16px;
+}
+
+/* Profile panel (line profile + LOS): shift into the map area */
+body.briefing-panel-active .profile-panel {
+    right: calc(520px + 20px);
+}
+
+/* =========================================================================
+   RESPONSIVE
+   ========================================================================= */
+
+@media (width <= 768px) {
+    .briefing-editor {
+        width: 100%;
+    }
+
+    body.briefing-panel-active #map-sig {
+        right: 0 !important;
+    }
+
+    body.briefing-panel-active #map-3d-container {
+        left: 0 !important;
+        right: 0 !important;
+    }
+
+    body.briefing-panel-active #street-view-container {
+        left: 0 !important;
+        right: 0 !important;
+    }
+}
