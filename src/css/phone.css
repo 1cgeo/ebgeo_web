@@ -476,6 +476,11 @@
         letter-spacing: 0.05em;
     }
 
+    .phone-feature-detail__subtitle {
+        font-size: var(--font-size-xs);
+        color: var(--gray-500);
+    }
+
     .phone-feature-detail__property-value {
         font-size: var(--font-size-sm);
         color: var(--gray-800);
@@ -484,6 +489,92 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    /* Edit mode inputs */
+    .phone-feature-detail__property-input {
+        width: 55%;
+        min-height: 32px;
+        padding: var(--space-1) var(--space-2);
+        border: 1px solid var(--gray-300);
+        border-radius: var(--radius-sm);
+        font-size: 16px; /* Prevents iOS zoom */
+        color: var(--gray-800);
+        background: var(--gray-50);
+        text-align: right;
+    }
+
+    .phone-feature-detail__property-input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px var(--primary-100);
+    }
+
+    .phone-feature-detail__property-input[type='color'] {
+        padding: var(--space-1);
+        height: 36px;
+        cursor: pointer;
+    }
+
+    .phone-feature-detail__property-input[type='checkbox'] {
+        width: 20px;
+        height: 20px;
+        accent-color: var(--primary);
+    }
+
+    /* Edit action buttons (sticky save/cancel) */
+    .phone-feature-detail__edit-actions {
+        display: flex;
+        gap: var(--space-2);
+        padding: var(--space-3) 0;
+        border-top: 1px solid var(--border-color);
+        position: sticky;
+        bottom: 0;
+        background: white;
+    }
+
+    .phone-feature-detail__edit-btn {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: var(--touch-target-min);
+        border: none;
+        border-radius: var(--radius-md);
+        font-size: var(--font-size-sm);
+        font-weight: var(--font-weight-semibold);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .phone-feature-detail__edit-btn:active {
+        transform: scale(0.97);
+    }
+
+    .phone-feature-detail__edit-btn--save {
+        background: var(--primary);
+        color: white;
+    }
+
+    .phone-feature-detail__edit-btn--save:active {
+        background: var(--primary-hover);
+    }
+
+    .phone-feature-detail__edit-btn--cancel {
+        background: var(--gray-100);
+        color: var(--gray-700);
+    }
+
+    .phone-feature-detail__edit-btn--cancel:active {
+        background: var(--gray-200);
+    }
+
+    /* Empty state */
+    .phone-feature-detail__empty {
+        padding: var(--space-8) var(--space-4);
+        text-align: center;
+        color: var(--gray-400);
+        font-size: var(--font-size-sm);
     }
 
     /* =====================================================================
