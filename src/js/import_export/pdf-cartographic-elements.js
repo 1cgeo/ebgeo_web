@@ -41,7 +41,7 @@ const FONT_FAMILY = 'Arial, Helvetica, sans-serif';
  * @param {boolean} options.showNorthArrow - Whether to draw north arrow
  * @param {string} options.scale - Scale string like "1:25000"
  * @param {number} options.bearing - Map bearing in degrees
- * @param {Object} options.featuresByType - { type: count } for legend
+ * @param {Object} options.featuresByType - { type: { count, color } } for legend
  * @returns {HTMLCanvasElement} Composite canvas
  */
 export function composeLayout(mapCanvas, options) {
@@ -89,7 +89,13 @@ export function composeLayout(mapCanvas, options) {
     }
 
     // Legend (bottom-right corner of map area, overlaid)
-    const legendEntries = Object.entries(featuresByType).filter(([, count]) => count > 0);
+    // Normalise stats: accept both { type: count } and { type: { count, color } }
+    const legendEntries = Object.entries(featuresByType)
+        .map(([type, value]) => {
+            if (typeof value === 'number') return [type, value, null];
+            return [type, value.count, value.color || null];
+        })
+        .filter(([, count]) => count > 0);
     if (showLegend && legendEntries.length > 0) {
         _drawLegend(ctx, totalWidth, titleH + mapCanvas.height, legendEntries);
     }
@@ -253,7 +259,7 @@ function _drawScaleBar(ctx, x, y, scale, canvasWidth) {
  * @param {CanvasRenderingContext2D} ctx
  * @param {number} canvasWidth - Total canvas width (for right-align)
  * @param {number} mapBottom - Bottom Y coordinate of map area
- * @param {Array} legendEntries - Array of [type, count]
+ * @param {Array} legendEntries - Array of [type, count, color|null]
  */
 function _drawLegend(ctx, canvasWidth, mapBottom, legendEntries) {
     const padding = LEGEND_PADDING;
@@ -293,11 +299,11 @@ function _drawLegend(ctx, canvasWidth, mapBottom, legendEntries) {
     let offsetY = boxY + padding + titleH;
     ctx.font = `14px ${FONT_FAMILY}`;
 
-    for (const [type, count] of legendEntries) {
+    for (const [type, count, color] of legendEntries) {
         const displayName = _getTypeDisplayName(type);
 
-        // Symbol swatch
-        _drawLegendSwatch(ctx, boxX + padding, offsetY + 4, type);
+        // Symbol swatch — use actual feature color when available
+        _drawLegendSwatch(ctx, boxX + padding, offsetY + 4, type, color);
 
         // Label
         ctx.fillStyle = '#333333';
@@ -330,12 +336,21 @@ function _roundRect(ctx, x, y, w, h, r) {
     ctx.closePath();
 }
 
+const DEFAULT_SWATCH_COLOR = '#3f4fb5';
+
 /**
  * Draws a small symbol swatch for the legend.
+ * Uses the actual feature color when available.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} x
+ * @param {number} y
+ * @param {string} type - Feature type
+ * @param {string|null} color - Representative color from features (null = default)
  */
-function _drawLegendSwatch(ctx, x, y, type) {
-    ctx.fillStyle = '#3f4fb5';
-    ctx.strokeStyle = '#3f4fb5';
+function _drawLegendSwatch(ctx, x, y, type, color) {
+    const swatchColor = color || DEFAULT_SWATCH_COLOR;
+    ctx.fillStyle = swatchColor;
+    ctx.strokeStyle = swatchColor;
     ctx.lineWidth = 2;
 
     switch (type) {

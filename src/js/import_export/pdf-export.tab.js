@@ -2,6 +2,7 @@
 /* global initGdalJs */
 import config from '../config.js'
 import { showError } from '../utilities/toast_service.js'
+import { deepClone } from '../utilities/deep-utils.js'
 
 export default class PDFExportTab {
     constructor(map) {
@@ -529,7 +530,7 @@ export default class PDFExportTab {
                 throw new Error('Map style not available');
             }
 
-            const cleanStyle = JSON.parse(JSON.stringify(currentStyle));
+            const cleanStyle = deepClone(currentStyle);
 
             const previewLayerIds = [
                 'pdf-export-preview-fill',
@@ -644,47 +645,52 @@ export default class PDFExportTab {
     }
 
     showExportModal() {
-        const modal = document.createElement('div');
-        modal.id = 'export-modal';
-        modal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: rgba(80, 141, 78, 0.9);
-            color: white;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 99999;
-            backdrop-filter: blur(2px);
-            font-family: Arial, sans-serif;
-        `;
+        this._exportCancelled = false;
 
-        modal.innerHTML = `
-            <div style="text-align: center;">
-                <div style="font-size: 24px; font-weight: 600; margin-bottom: 20px;">
-                    Exportando mapa...
-                </div>
-                <div id="export-progress-text" style="font-size: 16px; margin-bottom: 15px; opacity: 0.9;">
-                    Preparando...
-                </div>
-                <div style="width: 300px; height: 8px; background: rgba(255,255,255,0.3); border-radius: 4px; overflow: hidden;">
-                    <div id="export-progress-bar" style="
-                        height: 100%;
-                        background: #B4E380;
-                        width: 0%;
-                        border-radius: 4px;
-                        transition: width 0.3s ease;
-                    "></div>
-                </div>
-                <div style="font-size: 12px; margin-top: 10px; opacity: 0.7;">
-                    Isso pode levar alguns segundos...
-                </div>
-            </div>
-        `;
+        const modal = document.createElement('div');
+        modal.id = 'pdf-export-modal';
+        modal.className = 'pdf-export-modal';
+
+        const content = document.createElement('div');
+        content.className = 'pdf-export-modal__content';
+
+        const title = document.createElement('div');
+        title.className = 'pdf-export-modal__title';
+        title.textContent = 'Exportando mapa...';
+
+        const progressText = document.createElement('div');
+        progressText.id = 'export-progress-text';
+        progressText.className = 'pdf-export-modal__progress-text';
+        progressText.textContent = 'Preparando...';
+
+        const barContainer = document.createElement('div');
+        barContainer.className = 'pdf-export-modal__bar-container';
+
+        const bar = document.createElement('div');
+        bar.id = 'export-progress-bar';
+        bar.className = 'pdf-export-modal__bar';
+        barContainer.appendChild(bar);
+
+        const hint = document.createElement('div');
+        hint.className = 'pdf-export-modal__hint';
+        hint.textContent = 'Isso pode levar alguns segundos...';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'pdf-export-modal__cancel-btn';
+        cancelBtn.textContent = 'Cancelar';
+        cancelBtn.addEventListener('click', () => {
+            this._exportCancelled = true;
+            if (modal.parentNode) {
+                document.body.removeChild(modal);
+            }
+        });
+
+        content.appendChild(title);
+        content.appendChild(progressText);
+        content.appendChild(barContainer);
+        content.appendChild(hint);
+        content.appendChild(cancelBtn);
+        modal.appendChild(content);
 
         document.body.appendChild(modal);
         return modal;
@@ -725,6 +731,13 @@ export default class PDFExportTab {
     }
 
     async onExportClick() {
+        // Prevent concurrent exports
+        if (this._exporting) return;
+        this._exporting = true;
+
+        const exportBtn = document.getElementById('pdf-export-btn');
+        if (exportBtn) exportBtn.disabled = true;
+
         let modal;
         let hiddenMapContainer;
         let hiddenMap;
@@ -736,14 +749,16 @@ export default class PDFExportTab {
             // Build GDAL path - use window.location for local dev or configured URL for production
             let gdalBasePath;
             if (config.url_paths.url && config.url_paths.url !== 'IP:PORT') {
-                gdalBasePath = `http://${config.url_paths.url}${config.url_paths.prefix_name ? `/${config.url_paths.prefix_name}` : ''}`;
+                const protocol = window.location.protocol;
+                gdalBasePath = `${protocol}//${config.url_paths.url}${config.url_paths.prefix_name ? `/${config.url_paths.prefix_name}` : ''}`;
             } else {
-                // Local development - use current origin
                 gdalBasePath = window.location.origin;
             }
             const gdalPath = `${gdalBasePath}/vendors/gdal`;
 
             const Gdal = await initGdalJs({ path: gdalPath, useWorker: false })
+
+            if (this._exportCancelled) return;
 
             await new Promise(resolve => setTimeout(resolve, 200));
 
@@ -752,10 +767,10 @@ export default class PDFExportTab {
             this.updateProgress(20, 'Preparando dados...');
 
             hiddenMapContainer = document.createElement('div');
-            hiddenMapContainer.style.cssText = `
-                position: absolute; top: -9999px; left: -9999px;
-                width: ${canvasSize.width}px; height: ${canvasSize.height}px;
-            `;
+            hiddenMapContainer.className = 'pdf-export-hidden-map';
+            // Dynamic dimensions depend on the computed A4 pixel size
+            hiddenMapContainer.style.width = `${canvasSize.width}px`;
+            hiddenMapContainer.style.height = `${canvasSize.height}px`;
             document.body.appendChild(hiddenMapContainer);
 
             this.updateProgress(30, 'Criando mapa de exportação...');
@@ -765,6 +780,8 @@ export default class PDFExportTab {
                 style: this.getCleanStyle(),
                 center: this.map.getCenter(),
                 zoom: this.map.getZoom(),
+                // Reset pitch to 0 — perspective distortion breaks cartographic output
+                pitch: 0,
                 pixelRatio: 1,
                 preserveDrawingBuffer: true,
                 interactive: false,
@@ -786,6 +803,8 @@ export default class PDFExportTab {
             });
             await Promise.all(imagePromises);
 
+            if (this._exportCancelled) return;
+
             this.updateProgress(60, 'Enquadrando área...');
 
             // Use unrotated (axis-aligned) bounds for zoom calculation
@@ -802,6 +821,8 @@ export default class PDFExportTab {
                 await new Promise(resolve => hiddenMap.once('idle', resolve));
             }
 
+            if (this._exportCancelled) return;
+
             this.updateProgress(70, 'Corrigindo feições...');
 
             const finalZoom = hiddenMap.getZoom();
@@ -814,8 +835,9 @@ export default class PDFExportTab {
             this.updateProgress(80, 'Finalizando...');
 
             // Compose cartographic layout if any element is enabled
+            const hasCartographicElements = this.showTitle || this.showLegend || this.showScaleBar || this.showNorthArrow;
             let exportCanvas = hiddenMap.getCanvas();
-            if (this.showTitle || this.showLegend || this.showScaleBar || this.showNorthArrow) {
+            if (hasCartographicElements) {
                 const { composeLayout } = await import('./pdf-cartographic-elements.js');
                 exportCanvas = composeLayout(exportCanvas, {
                     title: this.showTitle ? this.mapTitle : null,
@@ -828,7 +850,7 @@ export default class PDFExportTab {
                 });
             }
 
-            const imageData = exportCanvas.toDataURL('image/jpeg', 0.85);
+            const imageData = exportCanvas.toDataURL('image/png');
             const arr = imageData.split(',');
             const mimeMatch = arr[0].match(/:(.*?);/);
             const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
@@ -842,16 +864,28 @@ export default class PDFExportTab {
             this.updateProgress(90, 'Gerando PDF...');
 
             const marginPoints = Math.round(this.marginMM * 2.83465);
-            const result = await Gdal.open([new File([u8arr], "input.jpeg", { type: mime })]);
+            const result = await Gdal.open([new File([u8arr], "input.png", { type: mime })]);
             const rasterDataset = result.datasets[0];
             const bounds = hiddenMap.getBounds();
             const minX = bounds.getWest();
             const minY = bounds.getSouth();
             const maxX = bounds.getEast();
             const maxY = bounds.getNorth();
+            // When title is enabled, the composite canvas is taller than the map area.
+            // Extend the upper-left latitude proportionally so GDAL maps
+            // only the map portion to the correct geographic bounds.
+            const mapCanvasHeight = hiddenMap.getCanvas().height;
+            const compositeHeight = exportCanvas.height;
+            let adjustedMaxY = maxY;
+            if (compositeHeight > mapCanvasHeight) {
+                const latRange = maxY - minY;
+                const extraRatio = (compositeHeight - mapCanvasHeight) / mapCanvasHeight;
+                adjustedMaxY = maxY + latRange * extraRatio;
+            }
+
             const translateOptions = [
                 '-of', 'PDF',
-                '-a_ullr', String(minX), String(maxY), String(maxX), String(minY),
+                '-a_ullr', String(minX), String(adjustedMaxY), String(maxX), String(minY),
                 '-a_srs', 'EPSG:4326',
                 '-co', 'DPI=300',
                 '-co', `MARGIN=${marginPoints}`,
@@ -881,12 +915,19 @@ export default class PDFExportTab {
             }, 800);
 
         } catch (error) {
-            console.error('Error exporting PDF:', error);
-            showError('Não foi possível exportar o PDF: ' + error.message);
+            if (!this._exportCancelled) {
+                console.error('Error exporting PDF:', error);
+                showError('Não foi possível exportar o PDF: ' + error.message);
+            }
             if (modal && modal.parentNode) {
                 document.body.removeChild(modal);
             }
         } finally {
+            this._exporting = false;
+            this._exportCancelled = false;
+            const btn = document.getElementById('pdf-export-btn');
+            if (btn) btn.disabled = false;
+
             if (hiddenMap) {
                 hiddenMap.remove();
             }
@@ -936,11 +977,37 @@ export default class PDFExportTab {
     }
 
     /**
-     * Collects feature counts by type, filtered to the export area.
-     * Only features whose representative coordinate falls within the
-     * export bounds polygon are counted.
+     * Checks whether a feature intersects the export bounds polygon.
+     * Uses booleanIntersects for area/line features to catch features
+     * whose centroid lies outside but whose geometry overlaps the area.
+     * Falls back to centroid test for point features.
+     * @param {Object} feature - GeoJSON Feature
+     * @param {Object} boundsPolygon - Turf polygon
+     * @returns {boolean}
+     */
+    _featureIntersectsBounds(feature, boundsPolygon) {
+        try {
+            const geomType = feature?.geometry?.type;
+            if (!geomType) return false;
+
+            if (geomType === 'Point') {
+                return turf.booleanPointInPolygon(feature, boundsPolygon);
+            }
+            return turf.booleanIntersects(feature, boundsPolygon);
+        } catch {
+            // Fallback to centroid check on malformed geometry
+            const coord = this._getFeatureCoord(feature);
+            if (!coord) return false;
+            return turf.booleanPointInPolygon(turf.point(coord), boundsPolygon);
+        }
+    }
+
+    /**
+     * Collects feature counts and representative colors by type,
+     * filtered to the export area. Uses geometric intersection for
+     * accurate filtering of area/line features.
      * @param {Object} [boundsPolygon] - Turf polygon for spatial filtering (null = count all)
-     * @returns {Promise<Object>} Feature counts keyed by source type
+     * @returns {Promise<Object>} Stats keyed by source type: { count, color }
      */
     async _collectFeatureStats(boundsPolygon) {
         const stats = {};
@@ -970,20 +1037,28 @@ export default class PDFExportTab {
                 if (!data?.features?.length) continue;
 
                 let count = 0;
-                if (boundsPolygon) {
-                    for (const feature of data.features) {
-                        const coord = this._getFeatureCoord(feature);
-                        if (coord && turf.booleanPointInPolygon(turf.point(coord), boundsPolygon)) {
-                            count++;
+                let representativeColor = null;
+
+                for (const feature of data.features) {
+                    const inBounds = boundsPolygon
+                        ? this._featureIntersectsBounds(feature, boundsPolygon)
+                        : true;
+
+                    if (inBounds) {
+                        count++;
+                        // Grab the first available color as representative
+                        if (!representativeColor && feature.properties) {
+                            representativeColor = feature.properties.color
+                                || feature.properties.fillColor
+                                || feature.properties.lineColor
+                                || null;
                         }
                     }
-                } else {
-                    count = data.features.length;
                 }
 
                 if (count > 0) {
                     const sourceType = storageToSource[sourceName] || sourceName;
-                    stats[sourceType] = count;
+                    stats[sourceType] = { count, color: representativeColor };
                 }
             } catch {
                 // Source may not support getData()
