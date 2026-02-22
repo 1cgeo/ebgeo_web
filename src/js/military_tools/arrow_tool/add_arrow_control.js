@@ -2,10 +2,11 @@
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils, showWarning } from '../../utilities';
-import { getPointerPosition } from '../../utilities/pointer-utils';
+import { getPointerPosition, isTouchDevice } from '../../utilities/pointer-utils';
 import { addArrowAttributesToPanel } from './arrow_attributes_panel.js';
 import AddArrowGeometry from './add_arrow_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import { DrawingFinishButton } from '../../draw_tools/drawing-touch-helpers';
 
 /**
  * Arrow Tool Control
@@ -238,6 +239,16 @@ class AddArrowControl extends BaseControl {
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
         this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick);
+
+        // Show finish button on touch devices
+        if (isTouchDevice()) {
+            this._finishButton = new DrawingFinishButton({
+                onFinish: () => this._finishFromTouch(),
+                onUndo: () => this._undoLastPoint()
+            });
+            this._finishButton.show();
+            this._finishButton.updateState(0, 2);
+        }
     }
 
     deactivate = () => {
@@ -247,6 +258,11 @@ class AddArrowControl extends BaseControl {
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
         this.clearPreview();
         this.deselectFeature();
+
+        if (this._finishButton) {
+            this._finishButton.hide();
+            this._finishButton = null;
+        }
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====
@@ -311,6 +327,10 @@ class AddArrowControl extends BaseControl {
 
         if (this.drawPoints.length === 1) {
             this.map.on('mousemove', this.handlePreviewMouseMove);
+        }
+
+        if (this._finishButton) {
+            this._finishButton.updateState(this.drawPoints.length, 2);
         }
     }
 
@@ -1056,6 +1076,35 @@ class AddArrowControl extends BaseControl {
             await updateFeature('arrows', feature);
         } catch (error) {
             console.error('Error saving changes:', error);
+        }
+    }
+
+    /**
+     * Finish drawing from touch device (replaces right-click)
+     */
+    _finishFromTouch = async () => {
+        if (!this.isActive || this.drawPoints.length < 2) return;
+
+        this.map.off('mousemove', this.handlePreviewMouseMove);
+        await this.createFeature();
+        this.toolManager.deactivateCurrentTool();
+    }
+
+    /**
+     * Undo last drawn point (touch device helper)
+     */
+    _undoLastPoint = () => {
+        if (!this.isActive || this.drawPoints.length === 0) return;
+
+        this.drawPoints.pop();
+
+        if (this.drawPoints.length === 0) {
+            this.map.off('mousemove', this.handlePreviewMouseMove);
+            this.clearPreview();
+        }
+
+        if (this._finishButton) {
+            this._finishButton.updateState(this.drawPoints.length, 2);
         }
     }
 

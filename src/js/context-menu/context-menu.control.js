@@ -1,6 +1,6 @@
 // Path: js/context-menu/context-menu.control.js
 import { formatCoordinates, showSuccess, showWarning, showError, escapeHtml } from '../utilities';
-import { createLongPressHandler } from '../utilities/pointer-utils';
+import { createLongPressHandler, isTouchDevice } from '../utilities/pointer-utils';
 import {
     getFeatureGroup,
     createGroup,
@@ -215,6 +215,11 @@ class ContextMenuControl {
             position: relative;
         `;
 
+        const isTouch = isTouchDevice();
+        const itemPadding = isTouch ? '12px 16px' : '8px 16px';
+        const itemFontSize = isTouch ? '15px' : '13px';
+        const itemMinHeight = isTouch ? 'min-height: 44px;' : '';
+
         const moveToLayerItem = document.createElement('div');
         moveToLayerItem.className = 'context-menu-item';
         moveToLayerItem.innerHTML = `
@@ -222,14 +227,15 @@ class ContextMenuControl {
             <span style="float: right; margin-left: 8px;">▶</span>
         `;
         moveToLayerItem.style.cssText = `
-            padding: 8px 16px;
+            padding: ${itemPadding};
             cursor: pointer;
-            font-size: 13px;
+            font-size: ${itemFontSize};
             user-select: none;
             transition: background-color 0.2s;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            ${itemMinHeight}
         `;
 
         const submenu = document.createElement('div');
@@ -259,11 +265,12 @@ class ContextMenuControl {
 
             layerItem.textContent = displayName;
             layerItem.style.cssText = `
-                padding: 8px 16px;
+                padding: ${itemPadding};
                 cursor: pointer;
-                font-size: 13px;
+                font-size: ${itemFontSize};
                 user-select: none;
                 transition: background-color 0.2s;
+                ${itemMinHeight}
             `;
 
             layerItem.addEventListener('mouseenter', () => {
@@ -371,6 +378,11 @@ class ContextMenuControl {
             position: relative;
         `;
 
+        const isTouch2 = isTouchDevice();
+        const mapItemPadding = isTouch2 ? '12px 16px' : '8px 16px';
+        const mapItemFontSize = isTouch2 ? '15px' : '13px';
+        const mapItemMinHeight = isTouch2 ? 'min-height: 44px;' : '';
+
         const moveToMapItem = document.createElement('div');
         moveToMapItem.className = 'context-menu-item';
         moveToMapItem.innerHTML = `
@@ -378,14 +390,15 @@ class ContextMenuControl {
             <span style="float: right; margin-left: 8px;">▶</span>
         `;
         moveToMapItem.style.cssText = `
-            padding: 8px 16px;
+            padding: ${mapItemPadding};
             cursor: pointer;
-            font-size: 13px;
+            font-size: ${mapItemFontSize};
             user-select: none;
             transition: background-color 0.2s;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            ${mapItemMinHeight}
         `;
 
         const submenu = document.createElement('div');
@@ -427,13 +440,14 @@ class ContextMenuControl {
                 <span>${escapeHtml(mapName)}</span>
             `;
             mapItem.style.cssText = `
-                padding: 8px 16px;
+                padding: ${mapItemPadding};
                 cursor: pointer;
-                font-size: 13px;
+                font-size: ${mapItemFontSize};
                 user-select: none;
                 transition: background-color 0.2s;
                 display: flex;
                 align-items: center;
+                ${mapItemMinHeight}
             `;
 
             mapItem.addEventListener('mouseenter', () => {
@@ -545,12 +559,14 @@ class ContextMenuControl {
         const item = document.createElement('div');
         item.className = 'context-menu-item';
         item.textContent = text;
+        const isTouch = isTouchDevice();
         item.style.cssText = `
-            padding: 8px 16px;
+            padding: ${isTouch ? '12px 16px' : '8px 16px'};
             cursor: pointer;
-            font-size: 13px;
+            font-size: ${isTouch ? '15px' : '13px'};
             user-select: none;
             transition: background-color 0.2s;
+            ${isTouch ? 'min-height: 44px; display: flex; align-items: center;' : ''}
         `;
 
         item.addEventListener('mouseenter', () => {
@@ -590,12 +606,14 @@ class ContextMenuControl {
         item.className = 'context-menu-item disabled';
         item.textContent = text;
         item.title = tooltip;
+        const isTouch = isTouchDevice();
         item.style.cssText = `
-            padding: 8px 16px;
+            padding: ${isTouch ? '12px 16px' : '8px 16px'};
             cursor: not-allowed;
-            font-size: 13px;
+            font-size: ${isTouch ? '15px' : '13px'};
             user-select: none;
             color: #999;
+            ${isTouch ? 'min-height: 44px; display: flex; align-items: center;' : ''}
         `;
         return item;
     }
@@ -804,7 +822,7 @@ class ContextMenuControl {
         const rect = this._contextMenu.getBoundingClientRect();
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
-        const padding = 8; // Padding from edge
+        const padding = isTouchDevice() ? 12 : 8;
 
         let finalX = x;
         let finalY = y;

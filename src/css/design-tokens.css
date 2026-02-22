@@ -44,6 +44,11 @@
     --toolbar-button-size-tablet: 48px;
     --control-button-size-tablet: 48px;
 
+    /* Bottom sheet (attributes panel on touch devices) */
+    --bottom-sheet-max-height: 60vh;
+    --bottom-sheet-peek-height: 56px;
+    --bottom-sheet-handle-height: 24px;
+
     /* =========================================================================
        COLORS - PRIMARY (Green)
        ========================================================================= */

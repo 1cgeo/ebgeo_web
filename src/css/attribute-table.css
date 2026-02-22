@@ -578,3 +578,33 @@
         max-width: 150px;
     }
 }
+
+/* =========================================================================
+   TOUCH DEVICE OPTIMIZATIONS
+   ========================================================================= */
+
+@media (pointer: coarse) {
+    /* Larger resize handle for touch dragging */
+    .attribute-table-resize-handle {
+        height: 16px;
+        top: -8px;
+    }
+
+    /* Toolbar buttons meet touch target minimums */
+    .attribute-table-toolbar button {
+        min-height: var(--touch-target-min, 44px);
+    }
+
+    /* Toolbar taller for touch */
+    .attribute-table-toolbar {
+        min-height: var(--touch-target-min, 44px);
+        padding: var(--space-2, 8px) var(--space-3, 12px);
+    }
+
+    /* Minimize/close buttons larger */
+    .attribute-table-minimize-btn,
+    .attribute-table-close-btn {
+        min-width: 36px;
+        min-height: 36px;
+    }
+}

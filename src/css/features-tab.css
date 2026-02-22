@@ -884,3 +884,73 @@
     font-size: 13px;
     font-style: italic;
 }
+
+/* =========================================================================
+   TABLET / TOUCH RESPONSIVE
+   ========================================================================= */
+
+@media (pointer: coarse) {
+    /* Layer header taller for touch */
+    .layer-header {
+        min-height: var(--touch-target-min, 44px);
+        padding: 10px 12px;
+    }
+
+    /* Feature items taller */
+    .feature-item {
+        min-height: var(--touch-target-min, 44px);
+        padding: 10px 12px;
+    }
+
+    .group-feature-item {
+        min-height: var(--touch-target-min, 44px);
+        padding: 10px 12px;
+    }
+
+    /* Control buttons (visibility, lock) larger */
+    .layer-expand-icon {
+        width: 36px;
+        height: 36px;
+    }
+
+    .visibility-toggle,
+    .lock-toggle {
+        min-width: 32px;
+        min-height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Layer action buttons */
+    .layer-add-btn,
+    .layer-table-btn-header,
+    .layer-menu-btn {
+        min-width: 36px;
+        min-height: 36px;
+    }
+
+    /* Better touch feedback */
+    .layer-header:active {
+        background: var(--gray-200, #e5e7eb);
+    }
+
+    .feature-item:active {
+        background: var(--gray-100, #f3f4f6);
+    }
+
+    /* Layer drag handle larger */
+    .layer-drag-handle {
+        min-width: 32px;
+        min-height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Scrolling optimization */
+    .features-tab-content {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+    }
+}

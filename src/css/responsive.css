@@ -394,9 +394,9 @@
 
     /* Toolbar popup positioning for small screens */
     .toolbar-popup {
-        right: auto;
-        left: calc(-200px + var(--toolbar-button-size-tablet, 48px));
-        max-width: calc(100vw - var(--space-6));
+        right: calc(100% + var(--space-2));
+        left: auto;
+        max-width: calc(100vw - 80px);
     }
 
     /* ----- BOTTOM CONTROLS ----- */

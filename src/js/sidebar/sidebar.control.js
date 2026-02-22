@@ -24,6 +24,7 @@ import {
     cleanup,
     removeElement
 } from '../utilities/event-cleanup.js';
+import { isTouchDevice } from '../utilities/pointer-utils.js';
 import { injectTabbedPanelStyles } from '../tool_manager/tabbed_attribute_panel.js';
 import { renderAttributesContent as _renderAttributesContent } from '../user_data/attributes_tab_renderer.js';
 import {
@@ -90,6 +91,7 @@ export class SidebarControl {
         this._panelsWrapper = null;
         this._panel = null;
         this._featurePanel = null;
+        this._backdrop = null;
 
         // Tab content components (created lazily)
         this._tabComponents = {
@@ -173,6 +175,79 @@ export class SidebarControl {
         });
 
         this._panelsWrapper.appendChild(this._featurePanel.render());
+
+        // Backdrop for tablet overlay mode
+        this._backdrop = document.createElement('div');
+        this._backdrop.className = 'sidebar-backdrop';
+        document.body.appendChild(this._backdrop);
+        _addDomListener(this, this._backdrop, 'click', () => {
+            this._stateManager.collapseSidebar();
+        });
+
+        // Swipe-to-dismiss on touch devices
+        if (isTouchDevice()) {
+            this._setupSwipeDismiss();
+        }
+    }
+
+    /**
+     * Sets up swipe-left gesture to dismiss expanded sidebar on touch devices.
+     * @private
+     */
+    _setupSwipeDismiss() {
+        const panel = this._panelsWrapper;
+        let startX = null;
+        let startY = null;
+        let isDragging = false;
+
+        const onTouchStart = (e) => {
+            if (e.touches.length !== 1) return;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            isDragging = false;
+        };
+
+        const onTouchMove = (e) => {
+            if (startX === null) return;
+            const dx = e.touches[0].clientX - startX;
+            const dy = e.touches[0].clientY - startY;
+            // Track horizontal swipes (more horizontal than vertical)
+            if (!isDragging && Math.abs(dx) > 20 && Math.abs(dx) > Math.abs(dy)) {
+                isDragging = true;
+            }
+        };
+
+        const onTouchEnd = (e) => {
+            if (!isDragging || startX === null) {
+                startX = null;
+                return;
+            }
+            const dx = e.changedTouches[0].clientX - startX;
+            // Swipe left to close (negative dx, at least 60px)
+            if (dx < -60) {
+                this._stateManager.collapseSidebar();
+            }
+            startX = null;
+            isDragging = false;
+        };
+
+        _addDomListener(this, panel, 'touchstart', onTouchStart, { passive: true });
+        _addDomListener(this, panel, 'touchmove', onTouchMove, { passive: true });
+        _addDomListener(this, panel, 'touchend', onTouchEnd);
+    }
+
+    /**
+     * Shows or hides the backdrop overlay.
+     * @private
+     * @param {boolean} show - Whether to show the backdrop
+     */
+    _setBackdropVisible(show) {
+        if (!this._backdrop) return;
+        if (show) {
+            this._backdrop.classList.add('visible');
+        } else {
+            this._backdrop.classList.remove('visible');
+        }
     }
 
     /**
@@ -405,6 +480,7 @@ export class SidebarControl {
         this._cleanupFeaturePanelContent();
 
         this._expandToTab(payload.tab);
+        this._setBackdropVisible(true);
     }
 
     /**
@@ -413,6 +489,7 @@ export class SidebarControl {
      */
     _onSidebarCollapsed() {
         this._collapsePanel();
+        this._setBackdropVisible(false);
     }
 
     /**
@@ -440,7 +517,7 @@ export class SidebarControl {
         // Collapse sidebar panel first
         this._collapsePanel();
 
-        // Show feature panel with content
+        // Show feature panel with content (no backdrop — map must remain interactive for editing)
         this._showFeatureContent(payload.featureId, payload.featureType);
     }
 
@@ -1200,6 +1277,12 @@ export class SidebarControl {
         if (this._panelsWrapper) {
             removeElement(this._panelsWrapper);
             this._panelsWrapper = null;
+        }
+
+        // Remove backdrop
+        if (this._backdrop) {
+            removeElement(this._backdrop);
+            this._backdrop = null;
         }
 
         // Cleanup events and remove container
