@@ -17,8 +17,9 @@ import { PhoneSearchOverlay } from './phone-search-overlay.js';
 import { PhoneFabs } from './phone-fabs.js';
 import { PhoneMoveActions } from './phone-move-actions.js';
 import { PhoneFeatureEditor } from './phone-feature-editor.js';
-import { getEventBus, getControl } from '@store/services.js';
+import { getEventBus } from '@store/services.js';
 import {
+    getControl,
     getFeatureById,
     updateFeature,
     getCurrentMapNameSync,
