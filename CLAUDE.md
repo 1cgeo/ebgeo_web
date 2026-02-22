@@ -6,18 +6,20 @@ GIS web para o Exercito Brasileiro. MapLibre GL JS (2D) + Cesium (3D) + Three.js
 
 ```bash
 npm run dev          # Dev server (port 3000)
-npm run build        # Production build (~28s)
+npm run build        # Production build via deploy/deploy.sh
 npm run lint         # ESLint + Stylelint (--max-warnings 0)
 npm run lint:fix     # Auto-fix lint issues
 npm test             # Vitest
 npm run test:watch   # Vitest watch mode
 npm run knip         # Dead code detection
+npm run preview      # Preview production build
+npm run clean        # Clean build artifacts
 ```
 
 ## Imports
 
 Use path aliases — never relative `../../`:
-`@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`
+`@/` (src root), `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`
 
 Each module folder has an `index.js` barrel for public exports.
 
@@ -114,7 +116,7 @@ const ctrl = getControl('myTool');
 
 ## CSS Files
 
-`base.css` (shared), `panels-2d.css`, `panels-3d.css`, `panels-360.css`, `sidebar.css`, `features-tab.css`, `attributes-panel.css`, `briefing-editor.css`, `briefing-presentation.css`, `measurement.css`, `pdf-export.css`, plus component-specific files in `src/css/`.
+All CSS in `src/css/` (~27 files, plus `briefing/` subfolder). `design-tokens.css` defines CSS custom properties (layout dimensions, colors, z-index, transitions) — use tokens instead of hardcoded values. Component CSS uses BEM naming and matches JS module names.
 
 ## External Dependencies (script tags)
 

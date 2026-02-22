@@ -45,6 +45,8 @@ src/js/
 ├── azimuth_distance_tool/   # Azimuth & distance navigation
 ├── measurement_tool/        # Ephemeral 2D measurements (distance/area/angle)
 ├── snapping/                # Vertex/edge/endpoint snapping service
+├── selection_tools/         # Selection interaction tools
+├── vector_info/             # Vector feature info panel
 │
 ├── sidebar/                 # Collapsible sidebar (tabs: Maps, Layers, Briefings, Import, Export)
 ├── toolbar/                 # Grouped tool buttons with popups
@@ -117,6 +119,9 @@ The app is currently **offline-only**. The sync infrastructure exists solely to 
 All events defined in `events/event_types.js`. Key categories:
 - **Entity lifecycle**: `FEATURE_CREATED/MODIFIED/DELETED`, `LAYER_*`, `MAP_*`, `GROUP_*`, `BRIEFING_*`
 - **UI coordination**: `SIDEBAR_EXPANDED/COLLAPSED`, `FEATURE_PANEL_OPENED/CLOSED`, `UI_LAYOUT_CHANGED`, `UI_CLOSE_ALL_POPUPS`
+- **Briefing**: `BRIEFING_EDIT_STARTED/ENDED`, `BRIEFING_PRESENT_STARTED/ENDED`, `BRIEFING_SLIDE_CHANGED`
+- **Processing**: `PROCESSING_STARTED/COMPLETED/ERROR`
+- **Session/Sync**: `SESSION_CHANGED`, `CONNECTION_STATE_CHANGED`, `SYNC_STARTED/COMPLETED`, `REMOTE_OPERATION_APPLIED`
 - **3D viewer**: `VIEWER_3D_OPENED/CLOSED`, `MARKER_3D_CLICKED`, `VIEWSHED_3D_*`
 - **360 viewer**: `STREETVIEW_360_OPENED/CLOSED`, `MARKER_360_*`, `ORIENTATION_360_*`
 - **Store errors**: `STORE_PERSIST_ERROR`, `STORE_SYNC_ERROR`, `STORE_OPERATION_BLOCKED`
