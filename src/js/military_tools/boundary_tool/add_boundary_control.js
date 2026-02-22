@@ -2,10 +2,11 @@
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
-import { getPointerPosition } from '../../utilities/pointer-utils';
+import { getPointerPosition, isTouchDevice } from '../../utilities/pointer-utils';
 import { addBoundaryAttributesToPanel } from './boundary_attributes_panel.js';
 import AddBoundaryGeometry from './add_boundary_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import { DrawingFinishButton } from '../../draw_tools/drawing-touch-helpers';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 /**
@@ -264,6 +265,16 @@ class AddBoundaryControl extends BaseControl {
         this.map.getCanvas().style.cursor = 'crosshair';
         this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick);
         this.map.on('mousemove', this._onPreClickMouseMove);
+
+        // Show finish button on touch devices
+        if (isTouchDevice()) {
+            this._finishButton = new DrawingFinishButton({
+                onFinish: () => this._finishFromTouch(),
+                onUndo: () => this._undoLastPoint()
+            });
+            this._finishButton.show();
+            this._finishButton.updateState(0, 2);
+        }
     }
 
     deactivate = () => {
@@ -277,6 +288,11 @@ class AddBoundaryControl extends BaseControl {
         getSnappingService()?.hideIndicator(this.map);
         this.clearPreview();
         this.deselectFeature();
+
+        if (this._finishButton) {
+            this._finishButton.hide();
+            this._finishButton = null;
+        }
     }
 
     // ===== PRE-CLICK SNAP INDICATOR =====
@@ -377,6 +393,10 @@ class AddBoundaryControl extends BaseControl {
             if (this.drawPoints.length === 1) {
                 this.map.off('mousemove', this._onPreClickMouseMove);
                 this.map.on('mousemove', this.handlePreviewMouseMove);
+            }
+
+            if (this._finishButton) {
+                this._finishButton.updateState(this.drawPoints.length, 2);
             }
         }, 250);
     }
@@ -1193,6 +1213,42 @@ class AddBoundaryControl extends BaseControl {
             await updateFeature('boundarys', feature);
         } catch (error) {
             console.error('Error saving feature changes:', error);
+        }
+    }
+
+    /**
+     * Finish drawing from touch device (replaces right-click)
+     */
+    _finishFromTouch = async () => {
+        if (!this.isActive || this.drawPoints.length < 2) return;
+
+        clearTimeout(this.clickTimer);
+        this.clickTimer = null;
+        this.lastClickCoords = null;
+
+        getSnappingService()?.hideIndicator(this.map);
+
+        await this.createFeature();
+        this.stopDrawing();
+    }
+
+    /**
+     * Undo last drawn point (touch device helper)
+     */
+    _undoLastPoint = () => {
+        if (!this.isActive || this.drawPoints.length === 0) return;
+
+        this.drawPoints.pop();
+
+        if (this.drawPoints.length === 0) {
+            // Go back to pre-click snap indicator mode
+            this.map.off('mousemove', this.handlePreviewMouseMove);
+            this.map.on('mousemove', this._onPreClickMouseMove);
+            this.clearPreview();
+        }
+
+        if (this._finishButton) {
+            this._finishButton.updateState(this.drawPoints.length, 2);
         }
     }
 

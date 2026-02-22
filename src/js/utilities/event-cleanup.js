@@ -120,7 +120,7 @@ export function cleanup(instance) {
     // Cleanup DOM listeners
     if (instance._domListeners) {
         instance._domListeners.forEach(({ element, event, handler, options }) => {
-            if (element) {
+            if (element && typeof element.removeEventListener === 'function') {
                 element.removeEventListener(event, handler, options);
             }
         });

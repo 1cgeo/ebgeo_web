@@ -44,6 +44,7 @@ import { initKeyboardService3D } from './3d_models_viewer_tool/services/keyboard
 import { initKeyboardServiceBriefing, BriefingEditorControl, BriefingPresenterControl } from './briefing/index.js';
 import { ToolbarControl, ActiveToolChip } from './toolbar';
 import { AttributeTableControl } from './attribute_table';
+import { PhoneLayout } from './phone';
 
 // Draw tools
 import {
@@ -611,11 +612,18 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         ['streetView', addStreetViewControl],
         ['modelsViewer', add3DModelsViewerControl],
         ['ClipboardManager', clipboardManager],
+        // UI components accessed by phone layout
+        ['chipsComponent', chipsComponent],
     ];
 
     for (const [name, ctrl] of CONTROL_REGISTRY) {
         registerControl(name, ctrl);
     }
+
+    // ===== PHONE LAYOUT (<=480px responsive) =====
+
+    const phoneLayout = new PhoneLayout({ map });
+    phoneLayout.init();
 
     // Return everything needed by later phases
     return {
@@ -637,6 +645,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             featuresTab,
             dragDropHandler,
             dragRotateHandler,
+            phoneLayout,
         }
     };
 }
@@ -712,5 +721,6 @@ export function setupCleanupHandlers(destroyables) {
         destroyables.featuresTab.destroy();
         destroyables.dragDropHandler.disable();
         destroyables.dragRotateHandler.disable();
+        destroyables.phoneLayout.destroy();
     });
 }

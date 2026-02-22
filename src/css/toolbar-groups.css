@@ -311,13 +311,14 @@
         right: var(--space-3);
     }
 
-    /* Popup repositioned to not overflow */
+    /* Popup opens to the left, constrained to viewport */
     .toolbar-popup {
-        right: auto;
-        left: calc(-180px + var(--toolbar-button-size, 40px));
+        right: calc(100% + var(--space-2));
+        left: auto;
+        max-width: calc(100vw - 80px);
     }
 
-    /* Prevent popup from going off screen */
+    /* 3-column grid to fit narrower popup */
     .toolbar-popup-grid {
         grid-template-columns: repeat(3, 1fr);
     }

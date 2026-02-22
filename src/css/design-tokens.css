@@ -36,6 +36,15 @@
     --breakpoint-tablet-sm: 600px;
     --breakpoint-tablet: 768px;
     --breakpoint-desktop: 1024px;
+    --breakpoint-phone: 480px;
+
+    /* Phone layout dimensions */
+    --phone-sheet-peek: 64px;
+    --phone-sheet-half: 45vh;
+    --phone-sheet-full: 90vh;
+    --phone-search-height: 48px;
+    --phone-fab-size: 48px;
+    --phone-spacing: 16px;
 
     /* =========================================================================
        TABLET-SPECIFIC DIMENSIONS (overridden via media queries)
@@ -43,6 +52,11 @@
     --sidebar-panel-width-tablet: 340px;
     --toolbar-button-size-tablet: 48px;
     --control-button-size-tablet: 48px;
+
+    /* Bottom sheet (attributes panel on touch devices) */
+    --bottom-sheet-max-height: 60vh;
+    --bottom-sheet-peek-height: 56px;
+    --bottom-sheet-handle-height: 24px;
 
     /* =========================================================================
        COLORS - PRIMARY (Green)

@@ -394,9 +394,9 @@
 
     /* Toolbar popup positioning for small screens */
     .toolbar-popup {
-        right: auto;
-        left: calc(-200px + var(--toolbar-button-size-tablet, 48px));
-        max-width: calc(100vw - var(--space-6));
+        right: calc(100% + var(--space-2));
+        left: auto;
+        max-width: calc(100vw - 80px);
     }
 
     /* ----- BOTTOM CONTROLS ----- */
@@ -505,6 +505,77 @@
     textarea,
     select {
         font-size: 16px;
+    }
+}
+
+/* =========================================================================
+   PHONE BREAKPOINT (<=480px)
+   Full-screen map with bottom sheet, floating search, FABs.
+   Desktop/tablet UI hidden entirely — replaced by phone/ JS module.
+   ========================================================================= */
+
+@media (width <= 480px), (height <= 440px) and (pointer: coarse) {
+    /* Hide desktop/tablet UI */
+    .sidebar-container {
+        display: none !important;
+    }
+
+    .toolbar-container {
+        display: none !important;
+    }
+
+    .bottom-controls-left,
+    .bottom-controls-right {
+        display: none !important;
+    }
+
+    .search-bar,
+    .search-bar-container {
+        display: none !important;
+    }
+
+    .coordinates-control {
+        display: none !important;
+    }
+
+    .drawing-touch-controls {
+        display: none !important;
+    }
+
+    .attribute-table-panel {
+        display: none !important;
+    }
+
+    .base-layer-selector {
+        display: none !important;
+    }
+
+    .chips-container {
+        display: none !important;
+    }
+
+    .sidebar-backdrop {
+        display: none !important;
+    }
+
+    /* Full-screen map */
+    #map-sig {
+        width: 100vw !important;
+        height: 100vh !important;
+        left: 0 !important;
+    }
+
+    /* MapLibre controls cleanup */
+    .maplibregl-ctrl-top-left,
+    .maplibregl-ctrl-bottom-left,
+    .maplibregl-ctrl-bottom-right {
+        display: none !important;
+    }
+
+    /* Keep compass only, position top-right */
+    .maplibregl-ctrl-top-right {
+        top: calc(var(--phone-search-height) + var(--safe-area-top) + 24px);
+        right: var(--phone-spacing);
     }
 }
 

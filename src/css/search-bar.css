@@ -662,9 +662,9 @@
 
 /* Tablet breakpoint */
 @media (width <= 1024px) {
-    /* Keep search bar same width as desktop, it will fit */
+    /* Clamp width to prevent overflow on tablets */
     .search-bar-wrapper {
-        width: var(--search-bar-width);
+        width: min(var(--search-bar-width), calc(100vw - var(--sidebar-collapsed-width) - 80px));
         max-width: calc(100vw - var(--sidebar-collapsed-width) - var(--space-8) - 60px);
     }
 
@@ -692,6 +692,7 @@
 
     /* Constrain width more on small tablets */
     .search-bar-wrapper {
+        width: min(var(--search-bar-width), calc(100vw - var(--sidebar-collapsed-width) - 48px));
         max-width: calc(100vw - var(--sidebar-collapsed-width) - var(--space-6) - 60px);
     }
 

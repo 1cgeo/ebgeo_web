@@ -434,6 +434,11 @@
         -webkit-overflow-scrolling: touch;
         overscroll-behavior: contain;
     }
+
+    /* Use dynamic viewport height to handle virtual keyboard */
+    .modal-container {
+        max-height: 100dvh;
+    }
 }
 
 /* Tablet breakpoint */
