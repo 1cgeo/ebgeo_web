@@ -549,6 +549,10 @@
         display: none !important;
     }
 
+    .chips-container {
+        display: none !important;
+    }
+
     /* Full-screen map */
     #map-sig {
         width: 100vw !important;

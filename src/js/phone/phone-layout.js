@@ -221,6 +221,7 @@ export class PhoneLayout {
 
         const onFeaturePanelOpened = async ({ featureId, featureType }) => {
             try {
+                if (!featureId || !featureType) return;
                 const feature = await getFeatureById(featureType, featureId);
                 if (feature) {
                     const featureData = this._buildFeatureData(feature, featureType);
@@ -228,8 +229,8 @@ export class PhoneLayout {
                     this._bottomSheet.setFeatureContent(this._featureEditor.getElement());
                     this._bottomSheet.snapTo('half');
                 }
-            } catch (err) {
-                console.error('PhoneLayout: error loading feature for panel:', err);
+            } catch {
+                // Feature may not be accessible in current map state
             }
         };
 

@@ -13,20 +13,6 @@ import { showToast } from '@utils';
 import { setupCleanup, addDomListener, cleanup, removeElement } from '@utils/event-cleanup.js';
 
 /**
- * SVG markup for the crosshair (location) icon.
- * @returns {string}
- */
-function crosshairIconSvg() {
-    return `<svg class="phone-fab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="4"/>
-        <line x1="12" y1="2" x2="12" y2="6"/>
-        <line x1="12" y1="18" x2="12" y2="22"/>
-        <line x1="2" y1="12" x2="6" y2="12"/>
-        <line x1="18" y1="12" x2="22" y2="12"/>
-    </svg>`;
-}
-
-/**
  * SVG markup for the layers icon.
  * @returns {string}
  */
@@ -52,8 +38,6 @@ export class PhoneFabs {
         /** @private */
         this._container = null;
         /** @private */
-        this._locateBtn = null;
-        /** @private */
         this._baseLayerBtn = null;
         /** @private */
         this._baseLayerCallback = null;
@@ -61,8 +45,6 @@ export class PhoneFabs {
         this._baseLayerNames = [];
         /** @private */
         this._currentBaseLayerIndex = 0;
-        /** @private */
-        this._isLocating = false;
 
         setupCleanup(this);
     }
@@ -75,16 +57,11 @@ export class PhoneFabs {
         this._container = document.createElement('div');
         this._container.className = 'phone-fab-container';
 
-        // My Location FAB
-        this._locateBtn = this._createFab('locate', 'Minha localiza\u00e7\u00e3o', crosshairIconSvg());
-        this._container.appendChild(this._locateBtn);
-
-        // Base Layer FAB
+        // Base Layer FAB (only FAB on phone)
         this._baseLayerBtn = this._createFab('baselayer', 'Camada base', layersIconSvg());
         this._container.appendChild(this._baseLayerBtn);
 
         // Event listeners
-        addDomListener(this, this._locateBtn, 'click', this._handleLocate.bind(this));
         addDomListener(this, this._baseLayerBtn, 'click', this._handleBaseLayerCycle.bind(this));
 
         parent.appendChild(this._container);
@@ -97,7 +74,6 @@ export class PhoneFabs {
         cleanup(this);
         removeElement(this._container);
         this._container = null;
-        this._locateBtn = null;
         this._baseLayerBtn = null;
         this._baseLayerCallback = null;
     }
@@ -172,38 +148,6 @@ export class PhoneFabs {
         // Static SVG icons — no user data, safe for innerHTML
         btn.innerHTML = iconHtml;
         return btn;
-    }
-
-    /**
-     * Handle My Location tap.
-     * @private
-     */
-    _handleLocate() {
-        if (this._isLocating) return;
-
-        if (!navigator.geolocation) {
-            showToast('Geolocalização não suportada neste navegador', 'error');
-            return;
-        }
-
-        this._isLocating = true;
-        this._locateBtn.classList.add('phone-fab--locating');
-
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                this._isLocating = false;
-                this._locateBtn.classList.remove('phone-fab--locating');
-
-                const { longitude, latitude } = position.coords;
-                this._map.flyTo({ center: [longitude, latitude], zoom: 15 });
-            },
-            () => {
-                this._isLocating = false;
-                this._locateBtn.classList.remove('phone-fab--locating');
-                showToast('Não foi possível obter a localização', 'error');
-            },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-        );
     }
 
     /**
