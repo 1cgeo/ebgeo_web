@@ -333,6 +333,7 @@ export class ExportTab {
             addDomListener(this, scaleSelect, 'change', (e) => {
                 if (this._pdfExportTab) {
                     this._pdfExportTab.scale = e.target.value;
+                    this._pdfExportTab._enforceUTMGridAvailability();
                     this._pdfExportTab.updateBounds();
                     this._pdfExportTab.zoomToPreviewArea();
                 }
@@ -497,6 +498,7 @@ export class ExportTab {
             addDomListener(this, scaleSelect, 'change', (e) => {
                 if (this._pdfExportTab) {
                     this._pdfExportTab.scale = e.target.value;
+                    this._pdfExportTab._enforceUTMGridAvailability();
                     if (this._pdfExportTab.updatePreview) {
                         this._pdfExportTab.updatePreview();
                     }

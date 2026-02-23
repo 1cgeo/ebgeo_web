@@ -266,6 +266,8 @@ export default class PDFExportTab {
             });
         }
 
+        // Enforce UTM availability for the initial scale
+        this._enforceUTMGridAvailability();
     }
 
     onDPIChange(event) {
@@ -274,8 +276,26 @@ export default class PDFExportTab {
 
     onScaleChange(event) {
         this.scale = event.target.value;
+        this._enforceUTMGridAvailability();
         this.updateBounds();
         this.zoomToPreviewArea();
+    }
+
+    /**
+     * Disables UTM grid option for scales where UTM is not meaningful
+     * (1:2.500.000 and 1:5.000.000).
+     */
+    _enforceUTMGridAvailability() {
+        const scaleDenom = parseInt(this.scale.split(':')[1], 10);
+        const utmCheckbox = document.getElementById('pdf-show-utm-grid');
+        if (!utmCheckbox) return;
+
+        const utmDisabled = scaleDenom >= 2500000;
+        utmCheckbox.disabled = utmDisabled;
+        if (utmDisabled && utmCheckbox.checked) {
+            utmCheckbox.checked = false;
+            this.showUTMGrid = false;
+        }
     }
 
     onOrientationChange(event) {
@@ -742,11 +762,20 @@ export default class PDFExportTab {
     }
 
     /**
+     * Whether UTM grid is effectively enabled (disabled at scales >= 1:2.500.000).
+     * @returns {boolean}
+     */
+    get isUTMGridAllowed() {
+        const scaleDenom = this.scale ? parseInt(this.scale.split(':')[1], 10) : 25000;
+        return this.showUTMGrid && scaleDenom < 2500000;
+    }
+
+    /**
      * Total effective margin in mm. Includes grid label margin when any grid is on.
      * @returns {number}
      */
     get effectiveMarginMM() {
-        return (this.showLatLongGrid || this.showUTMGrid)
+        return (this.showLatLongGrid || this.isUTMGridAllowed)
             ? this.marginMM + this._gridMarginMM
             : this.marginMM;
     }
@@ -756,7 +785,7 @@ export default class PDFExportTab {
      * @returns {boolean}
      */
     get hasGrids() {
-        return this.showLatLongGrid || this.showUTMGrid;
+        return this.showLatLongGrid || this.isUTMGridAllowed;
     }
 
     calculateA4PixelSize() {

@@ -74,7 +74,11 @@ export function composeLayout(mapCanvas, options) {
 
     const mapW = mapCanvas.width;
     const mapH = mapCanvas.height;
-    const hasGrids = showLatLongGrid || showUTMGrid;
+    const scaleDenom = scale ? parseInt(scale.split(':')[1], 10) : 25000;
+
+    // UTM grid is not meaningful at very small scales (1:2.500.000+)
+    const utmAllowed = showUTMGrid && scaleDenom < 2500000;
+    const hasGrids = showLatLongGrid || utmAllowed;
 
     // When grids are on, add margin bands for labels
     const marginPx = hasGrids ? Math.round(GRID_MARGIN_MM * (dpi / 25.4)) : 0;
@@ -104,8 +108,6 @@ export function composeLayout(mapCanvas, options) {
         }
         : projectionFn;
 
-    const scaleDenom = scale ? parseInt(scale.split(':')[1], 10) : 25000;
-
     // Scale factor for overlay elements. At 200 DPI the constant pixel sizes
     // produce correctly proportioned output; scale proportionally for other DPIs.
     // Canvas scaling is applied around each element so internal drawing code
@@ -113,8 +115,8 @@ export function composeLayout(mapCanvas, options) {
     const uiScale = dpi / 200;
 
     // Draw UTM grid first (black, heavier), then lat/long (blue, lighter) on top
-    const hasBothGrids = showUTMGrid && showLatLongGrid;
-    if (showUTMGrid && mapBounds && adjProjFn) {
+    const hasBothGrids = utmAllowed && showLatLongGrid;
+    if (utmAllowed && mapBounds && adjProjFn) {
         _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, hasBothGrids, uiScale);
     }
     if (showLatLongGrid && mapBounds && adjProjFn) {
@@ -412,16 +414,30 @@ function _drawLegend(ctx, canvasWidth, mapBottom, legendEntries) {
 // ============================================================================
 
 /**
+ * Grid spacing per scale denominator (~4-5 cm on paper).
+ * Each scale has its own unique UTM and degree interval.
+ */
+const GRID_SPACING = {
+    1000:    { utmMeters: 50,     degreesInterval: 0.0005 },
+    5000:    { utmMeters: 200,    degreesInterval: 0.002 },
+    10000:   { utmMeters: 500,    degreesInterval: 0.005 },
+    25000:   { utmMeters: 1000,   degreesInterval: 0.01 },
+    50000:   { utmMeters: 2000,   degreesInterval: 0.025 },
+    100000:  { utmMeters: 5000,   degreesInterval: 0.05 },
+    250000:  { utmMeters: 10000,  degreesInterval: 0.1 },
+    500000:  { utmMeters: 20000,  degreesInterval: 0.25 },
+    1000000: { utmMeters: 50000,  degreesInterval: 0.5 },
+    2500000: { utmMeters: 100000, degreesInterval: 1.0 },
+    5000000: { utmMeters: 200000, degreesInterval: 2.0 },
+};
+
+/**
  * Returns grid spacing for a given scale denominator.
  * @param {number} scaleDenom - Scale denominator (e.g. 25000)
  * @returns {{ utmMeters: number, degreesInterval: number }}
  */
 function _getGridSpacing(scaleDenom) {
-    if (scaleDenom <= 5000) return { utmMeters: 100, degreesInterval: 0.001 };
-    if (scaleDenom <= 25000) return { utmMeters: 1000, degreesInterval: 0.01 };
-    if (scaleDenom <= 100000) return { utmMeters: 5000, degreesInterval: 0.05 };
-    if (scaleDenom <= 1000000) return { utmMeters: 10000, degreesInterval: 0.1 };
-    return { utmMeters: 50000, degreesInterval: 0.5 };
+    return GRID_SPACING[scaleDenom] || GRID_SPACING[25000];
 }
 
 /**
@@ -440,7 +456,7 @@ function _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDen
     const mapBottom = marginPx + mapH;
 
     // Label offset from map frame — close when alone, farther when UTM labels are closer
-    const labelOffset = (hasBothGrids ? 28 : 6) * uiScale;
+    const labelOffset = (hasBothGrids ? 24 : 6) * uiScale;
     const fontSize = Math.round(13 * uiScale);
 
     ctx.save();
@@ -655,7 +671,7 @@ function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, 
             }
         }
 
-        // Zone boundary lines with heavier stroke
+        // Zone boundary lines with heavier stroke + zone labels
         if (zone < eastZone) {
             const boundaryLng = zone * 6 - 180;
             const latRange = north - south;
@@ -671,6 +687,28 @@ function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, 
             ctx.setLineDash([10 * uiScale, 5 * uiScale]);
             _drawClippedPolyline(ctx, points, mapLeft, mapTop, mapRight, mapBottom);
             ctx.restore();
+
+            // Zone indicator labels at top and bottom of the boundary
+            const topPt = _findEdgeIntersection(points, mapTop, 'top', mapLeft, mapRight);
+            const bottomPt = _findEdgeIntersection(points, mapBottom, 'bottom', mapLeft, mapRight);
+            const zoneGap = 6 * uiScale;
+
+            if (topPt) {
+                ctx.textBaseline = 'bottom';
+                const topY = mapTop - labelOffset;
+                ctx.textAlign = 'right';
+                ctx.fillText(`Fuso ${zone}`, topPt.x - zoneGap, topY);
+                ctx.textAlign = 'left';
+                ctx.fillText(`Fuso ${zone + 1}`, topPt.x + zoneGap, topY);
+            }
+            if (bottomPt) {
+                ctx.textBaseline = 'top';
+                const bottomY = mapBottom + labelOffset;
+                ctx.textAlign = 'right';
+                ctx.fillText(`Fuso ${zone}`, bottomPt.x - zoneGap, bottomY);
+                ctx.textAlign = 'left';
+                ctx.fillText(`Fuso ${zone + 1}`, bottomPt.x + zoneGap, bottomY);
+            }
         }
     }
 
