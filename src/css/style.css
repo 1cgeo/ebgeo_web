@@ -56,6 +56,7 @@
 /* ===== BRIEFING ===== */
 @import url('./briefing/briefing-editor.css');
 @import url('./briefing/briefing-presentation.css');
+@import url('./briefing/briefing-pdf-export.css');
 
 /* ===== AZIMUTH DISTANCE ===== */
 @import url('./azimuth-distance.css');

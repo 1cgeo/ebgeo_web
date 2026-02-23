@@ -135,12 +135,12 @@ export async function exportBriefingToPdf(briefingId, map) {
                 // Capture slide
                 const imageDataUrl = await captureSlide(slide, map);
 
-                // Compose PDF page
-                composePage(doc, imageDataUrl, slide, i, totalSlides, briefing.name);
+                // Compose PDF page (async: html2canvas renders text panel)
+                await composePage(doc, imageDataUrl, slide, i, totalSlides, briefing.name);
 
             } catch (slideError) {
                 console.error(`Error processing slide ${i + 1}:`, slideError);
-                composeErrorPage(
+                await composeErrorPage(
                     doc, slide, i, totalSlides, briefing.name,
                     slideError.message || 'Erro desconhecido'
                 );
