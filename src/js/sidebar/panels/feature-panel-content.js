@@ -232,6 +232,9 @@ export async function createFeaturePanelContent({
             onNameChange: (newName) => {
                 control.updateFeaturesProperty(selectedFeatures, 'nome', newName);
                 uiManager?.updateSelectionHighlight();
+            },
+            onDescriptionChange: (newDescription) => {
+                control.updateFeaturesProperty(selectedFeatures, 'descricao', newDescription);
             }
         });
     } else {

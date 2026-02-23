@@ -12,7 +12,17 @@
  * @module briefing/export/pdf-page-composer
  */
 
-import html2canvas from 'html2canvas';
+// Lazy-loaded to keep html2canvas out of the core chunk.
+// Only loaded when PDF export is actually invoked.
+let _html2canvas = null;
+
+async function getHtml2Canvas() {
+    if (!_html2canvas) {
+        const mod = await import('html2canvas');
+        _html2canvas = mod.default;
+    }
+    return _html2canvas;
+}
 
 // ============================================================================
 // CONSTANTS
@@ -225,6 +235,7 @@ async function renderTextPanel(slide) {
         }
 
         // Capture with html2canvas at high resolution
+        const html2canvas = await getHtml2Canvas();
         const canvas = await html2canvas(container, {
             width: TEXT_PANEL_BASE_PX,
             height: Math.round(TEXT_PANEL_BASE_PX * (CONTENT_H / TEXT_PANEL_W)),

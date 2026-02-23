@@ -57,6 +57,7 @@ export const DISTANCE_UNITS = [
     { id: 'meters', label: 'Metros (m)', factor: 1, suffix: 'm', decimals: 1 },
     { id: 'kilometers', label: 'Quilômetros (km)', factor: 0.001, suffix: 'km', decimals: 3 },
     { id: 'nautical_miles', label: 'Milhas Náuticas (NM)', factor: 1 / 1852, suffix: 'NM', decimals: 3 },
+    { id: 'feet', label: 'Pés (ft)', factor: 1 / 0.3048, suffix: 'ft', decimals: 1 },
 ];
 
 export const DEFAULT_DISTANCE_UNIT = 'meters';

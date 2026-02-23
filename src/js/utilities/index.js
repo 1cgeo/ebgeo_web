@@ -90,15 +90,6 @@ export { escapeHtml } from './html-escape.js';
 // Debounced persistence utility
 export { DebouncedPersist } from './debounced-persist.js';
 
-// Quill.js helpers
-export {
-    QUILL_DOMPURIFY_CONFIG,
-    QUILL_IMAGE_CONFIG,
-    QUILL_TOOLBAR_CONFIG,
-    sanitizeQuillHtml,
-    cleanQuillContent,
-    stripHtml,
-    compressQuillImage,
-    handleQuillImageUpload,
-    createQuillEditor
-} from './quill-helpers.js';
+// Quill.js helpers are NOT re-exported here to avoid pulling
+// dompurify into the core chunk. Import directly from
+// '@utils/quill-helpers.js' when needed.

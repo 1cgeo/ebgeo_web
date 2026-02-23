@@ -20,9 +20,9 @@
  * @module briefing/export/briefing-pdf-export
  */
 
-import { getBriefingById, getCurrentMapNameSync, setCurrentMap } from '../../store/index.js';
+import { getBriefingById, getCurrentMapNameSync, setCurrentMap, getAllMapNamesStore } from '../../store/index.js';
 import { getControl } from '../../store/control.registry.js';
-import { showError, showSuccess } from '../../utilities/index.js';
+import { showError, showSuccess, showWarning } from '../../utilities/index.js';
 import { createTransitionService } from '../presentation/transition.service.js';
 import { validateBriefing } from '../validation/reference-validator.js';
 import { captureSlide } from './slide-capture.service.js';
@@ -73,7 +73,37 @@ export async function exportBriefingToPdf(briefingId, map) {
 
         const validation = await validateBriefing(briefing);
         if (!validation.canPresent()) {
-            showError('Briefing possui erros que impedem a exportação');
+            const errorLines = validation.errors.map(e =>
+                `\u2022 Slide ${e.slideIndex + 1} "${e.slideTitle}": ${e.message}`
+            );
+            showError(`Não é possível exportar:\n${errorLines.join('\n')}`);
+            return;
+        }
+
+        if (validation.warnings.length > 0) {
+            showWarning(`${validation.warnings.length} aviso(s) encontrado(s). O PDF pode ter problemas.`);
+        }
+
+        // Validate that all referenced maps still exist
+        const availableMapNames = await getAllMapNamesStore();
+        const availableMapSet = new Set(availableMapNames);
+        const slidesWithMissingMaps = briefing.slides.filter(
+            s => s.mapId && !availableMapSet.has(s.mapId)
+        );
+        if (slidesWithMissingMaps.length > 0) {
+            const mapLines = slidesWithMissingMaps.map(s =>
+                `\u2022 Slide "${s.title || 'Sem título'}": mapa "${s.mapId}" não encontrado`
+            );
+            showError(`Não é possível exportar:\n${mapLines.join('\n')}`);
+            return;
+        }
+
+        // Block export if any slide lacks a saved position
+        const slidesWithoutPosition = briefing.slides.filter(
+            s => !s.position || s.position.longitude === null
+        );
+        if (slidesWithoutPosition.length > 0) {
+            showWarning(`${slidesWithoutPosition.length} slide(s) sem posição definida. Salve a posição de todos os slides antes de exportar.`);
             return;
         }
 

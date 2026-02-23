@@ -876,12 +876,16 @@ export class BriefingEditorControl {
                 placeholder: 'Digite o conte\u00FAdo do slide...',
                 theme: 'snow',
                 toolbar: [
-                    ['bold', 'italic', 'underline'],
+                    [{ 'header': [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline', 'strike'],
+                    [{ 'color': [] }, { 'background': [] }],
                     [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-                    ['link'],
+                    [{ 'indent': '-1' }, { 'indent': '+1' }],
+                    [{ 'align': [] }],
+                    ['link', 'image'],
                     ['clean']
                 ],
-                enableImageCompression: false
+                enableImageCompression: true
             });
 
             if (slide.content) {

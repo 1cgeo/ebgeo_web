@@ -56,10 +56,11 @@ export function getFeatureTypeConfig(featureType) {
  * @param {Object} options.selectionManager - SelectionManager instance
  * @param {Object} options.uiManager - UIManager instance
  * @param {Function} [options.onNameChange] - Callback when name is changed
+ * @param {Function} [options.onDescriptionChange] - Callback when description is changed
  * @returns {HTMLElement} The identification section element
  */
 export async function createFeatureIdentification(options) {
-    const { feature, featureType, selectedFeatures, selectionManager, uiManager, onNameChange } = options;
+    const { feature, featureType, selectedFeatures, selectionManager, uiManager, onNameChange, onDescriptionChange } = options;
     const config = getFeatureTypeConfig(featureType);
 
     const container = document.createElement('div');
@@ -157,12 +158,20 @@ export async function createFeatureIdentification(options) {
     const descriptionSection = await createDescriptionSection({
         featureId: feature.properties?.id,
         featureType,
-        initialDescription: feature.properties?.descricao || ''
+        initialDescription: feature.properties?.descricao || '',
+        onDescriptionChange
     });
 
     infoContainer.appendChild(nameContainer);
     infoContainer.appendChild(typeLabel);
     infoContainer.appendChild(layerLabel);
+
+    // Measurements section (circle-specific, computed from radius)
+    const measurementsSection = createMeasurementsSection(feature, featureType);
+    if (measurementsSection) {
+        infoContainer.appendChild(measurementsSection);
+    }
+
     infoContainer.appendChild(descriptionSection);
 
     container.appendChild(iconContainer);
@@ -254,16 +263,68 @@ export function createMultiSelectionHeader(options) {
 }
 
 /**
+ * Format a metric value, switching to km/km² when large.
+ * @param {number} value
+ * @param {string} unitSmall - e.g. 'm'
+ * @param {string} unitLarge - e.g. 'km'
+ * @param {number} threshold - value at which to switch units
+ * @returns {string} Formatted string in pt-BR locale
+ */
+function formatMetric(value, unitSmall, unitLarge, threshold) {
+    if (value >= threshold) {
+        const converted = value / threshold;
+        return `${converted.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${unitLarge}`;
+    }
+    return `${value.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${unitSmall}`;
+}
+
+/**
+ * Creates a measurements section for feature types that have computed metrics.
+ * Currently supports circles (radius, area, perimeter).
+ * @param {Object} feature - The selected feature
+ * @param {string} featureType - Feature type identifier
+ * @returns {HTMLElement|null} The measurements element, or null if not applicable
+ */
+function createMeasurementsSection(feature, featureType) {
+    if (featureType !== 'circle') return null;
+
+    const radius = feature.properties?.radius;
+    if (radius == null || radius <= 0) return null;
+
+    const area = Math.PI * radius * radius;
+    const perimeter = 2 * Math.PI * radius;
+
+    const container = document.createElement('div');
+    container.className = 'feature-identification-measurements';
+
+    const items = [
+        { label: 'Raio', value: formatMetric(radius, 'm', 'km', 1000) },
+        { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
+        { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
+    ];
+
+    for (const item of items) {
+        const row = document.createElement('span');
+        row.className = 'feature-identification-measurement';
+        row.textContent = `${item.label}: ${item.value}`;
+        container.appendChild(row);
+    }
+
+    return container;
+}
+
+/**
  * Creates the description section with editable text.
  * Shows a button to add description when empty, or the description text when filled.
  * @param {Object} options - Configuration options
  * @param {string} options.featureId - Feature ID
  * @param {string} options.featureType - Feature type (source type)
  * @param {string} [options.initialDescription=''] - Initial description value
+ * @param {Function} [options.onDescriptionChange] - Callback to sync map source after save
  * @returns {Promise<HTMLElement>} The description section element
  */
 async function createDescriptionSection(options) {
-    const { featureId, featureType, initialDescription = '' } = options;
+    const { featureId, featureType, initialDescription = '', onDescriptionChange } = options;
 
     const container = document.createElement('div');
     container.className = 'feature-description-section';
@@ -418,6 +479,11 @@ async function createDescriptionSection(options) {
             } catch (error) {
                 console.error('Error saving description:', error);
             }
+        }
+
+        // Sync description to map source so subsequent property edits don't overwrite it
+        if (onDescriptionChange) {
+            onDescriptionChange(trimmedValue);
         }
 
         exitEditMode();

@@ -2366,6 +2366,23 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 /* =========================================================================
+   FEATURE MEASUREMENTS (circle radius/area/perimeter)
+   ========================================================================= */
+
+.feature-identification-measurements {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    margin-top: var(--space-1);
+}
+
+.feature-identification-measurement {
+    font-size: var(--font-size-sm);
+    color: var(--gray-500);
+    line-height: 1.4;
+}
+
+/* =========================================================================
    FEATURE DESCRIPTION SECTION
    ========================================================================= */
 
