@@ -36,3 +36,6 @@ export {
     ValidationError,
     ValidationResult
 } from './validation/reference-validator.js';
+
+// PDF export
+export { exportBriefingToPdf } from './export/briefing-pdf-export.js';

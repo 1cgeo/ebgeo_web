@@ -27,6 +27,7 @@
     "dompurify": "^3.3.1",
     "fastify": "^5.7.4",
     "geomagnetism": "^0.2.0",
+    "jspdf": "^4.2.0",
     "jszip": "^3.10.1",
     "localforage": "^1.10.0",
     "mgrs": "^2.1.0",

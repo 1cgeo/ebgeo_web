@@ -247,6 +247,104 @@ class ScreenshotControl {
         }
     }
 
+    /**
+     * Captures the map canvas and returns a data URL without downloading.
+     * Tries direct canvas capture first, then falls back to a hidden map
+     * with preserveDrawingBuffer. Used by PDF export and other programmatic consumers.
+     * @param {Object} map - MapLibre GL map instance
+     * @returns {Promise<string|null>} Data URL of the captured image, or null on failure
+     */
+    static async captureMapAsDataUrl(map) {
+        if (!map) return null;
+
+        // Wait for idle if not loaded
+        if (!map.loaded()) {
+            await new Promise(resolve => map.once('idle', resolve));
+        }
+
+        // Force repaint
+        map.triggerRepaint();
+        await new Promise(resolve => requestAnimationFrame(resolve));
+
+        const canvas = map.getCanvas();
+
+        // Try direct capture
+        try {
+            const dataUrl = canvas.toDataURL('image/png');
+            if (dataUrl.length > 200) {
+                // Verify canvas is not empty by sampling a pixel
+                const testCanvas = document.createElement('canvas');
+                testCanvas.width = 1;
+                testCanvas.height = 1;
+                const ctx = testCanvas.getContext('2d');
+                ctx.drawImage(canvas, 0, 0, 1, 1);
+                const pixel = ctx.getImageData(0, 0, 1, 1).data;
+
+                if (pixel[0] !== 0 || pixel[1] !== 0 || pixel[2] !== 0 || pixel[3] !== 0) {
+                    return dataUrl;
+                }
+            }
+        } catch {
+            // Security error or empty canvas — fall through to hidden map
+        }
+
+        // Fallback: hidden map with preserveDrawingBuffer
+        return await ScreenshotControl._captureWithHiddenMap(map);
+    }
+
+    /**
+     * Creates a hidden map with preserveDrawingBuffer and captures its canvas.
+     * @param {Object} map - MapLibre GL map instance
+     * @returns {Promise<string|null>} Data URL or null
+     */
+    static _captureWithHiddenMap(map) {
+        return new Promise(resolve => {
+            let tempContainer;
+            let tempMap;
+
+            try {
+                tempContainer = document.createElement('div');
+                tempContainer.style.position = 'absolute';
+                tempContainer.style.left = '-9999px';
+                tempContainer.style.width = map.getCanvas().width + 'px';
+                tempContainer.style.height = map.getCanvas().height + 'px';
+                document.body.appendChild(tempContainer);
+
+                tempMap = new maplibregl.Map({
+                    container: tempContainer,
+                    style: map.getStyle(),
+                    center: map.getCenter(),
+                    zoom: map.getZoom(),
+                    bearing: map.getBearing(),
+                    pitch: map.getPitch(),
+                    preserveDrawingBuffer: true,
+                    interactive: false,
+                    validateStyle: false
+                });
+
+                tempMap.once('load', () => {
+                    tempMap.once('idle', () => {
+                        setTimeout(() => {
+                            try {
+                                const dataUrl = tempMap.getCanvas().toDataURL('image/png');
+                                resolve(dataUrl.length > 200 ? dataUrl : null);
+                            } catch {
+                                resolve(null);
+                            } finally {
+                                tempMap.remove();
+                                document.body.removeChild(tempContainer);
+                            }
+                        }, 500);
+                    });
+                });
+            } catch {
+                if (tempMap) tempMap.remove();
+                if (tempContainer?.parentNode) document.body.removeChild(tempContainer);
+                resolve(null);
+            }
+        });
+    }
+
     onRemove() {
         this.container.parentNode.removeChild(this.container);
         this.map = undefined;
