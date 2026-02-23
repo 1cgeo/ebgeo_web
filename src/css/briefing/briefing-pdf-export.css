@@ -3,10 +3,12 @@
 /**
  * @fileoverview Overrides for off-screen text panel capture during briefing PDF export.
  * The .briefing-pdf-export-capture class overrides .briefing-text-panel positioning
- * so the element can be captured by html2canvas off-screen.
+ * so the element can be captured by html2canvas off-screen at high resolution.
  */
 
-/* Off-screen capture container: override fixed positioning from presentation CSS */
+/* Off-screen capture container: override fixed positioning from presentation CSS.
+ * Width 420px matches TEXT_PANEL_BASE_PX in pdf-page-composer.js.
+ * Height preserves the panel ratio (CONTENT_H / TEXT_PANEL_W ≈ 2.49). */
 .briefing-text-panel.briefing-pdf-export-capture {
     position: absolute;
     top: 0;
@@ -14,8 +16,8 @@
     right: auto;
     bottom: auto;
     z-index: -1;
-    width: calc(77 * 3px);  /* TEXT_PANEL_W * TEXT_RENDER_SCALE */
-    height: calc(192 * 3px); /* CONTENT_H * TEXT_RENDER_SCALE */
+    width: 420px;
+    height: 1047px;
     background: #f9fafb;
     border-left: none;
     box-shadow: none;
@@ -26,18 +28,21 @@
     overflow: hidden;
 }
 
-/* Scale text content proportionally for the capture resolution */
+/* Title styling at capture resolution */
 .briefing-pdf-export-capture .briefing-text-panel__title {
-    padding: 12px;
+    padding: 20px 16px;
 }
 
 .briefing-pdf-export-capture .briefing-text-panel__title-text {
-    font-size: 16px;
+    font-size: 20px;
+    line-height: 1.3;
 }
 
+/* Content styling at capture resolution */
 .briefing-pdf-export-capture .briefing-text-panel__content {
-    padding: 12px;
-    font-size: 13px;
+    padding: 16px;
+    font-size: 15px;
+    line-height: 1.6;
     overflow: hidden;
 }
 

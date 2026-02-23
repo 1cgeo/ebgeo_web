@@ -6,7 +6,7 @@
  *
  * A4 landscape (297mm x 210mm) with proportions mirroring the presentation layout.
  *
- * - Map image is rendered with aspect-fit (no distortion, centered with background fill).
+ * - Map image is center-cropped to fill the PDF area (no black bars, no distortion).
  * - Text panel is rendered via html2canvas to preserve rich text formatting and images.
  *
  * @module briefing/export/pdf-page-composer
@@ -31,8 +31,20 @@ const IMAGE_W = USABLE_W - TEXT_PANEL_W - GAP;
 const FOOTER_H = 8;
 const CONTENT_H = USABLE_H - FOOTER_H;
 
-/** Pixels per mm for off-screen text panel rendering */
-const TEXT_RENDER_SCALE = 3;
+/** Target aspect ratio for the image area in the PDF */
+const IMAGE_AREA_ASPECT = IMAGE_W / CONTENT_H;
+
+/**
+ * Base pixel width for the off-screen text panel element.
+ * A wider base produces better text layout before html2canvas captures it.
+ */
+const TEXT_PANEL_BASE_PX = 420;
+
+/**
+ * html2canvas capture scale multiplier applied on top of the base element size.
+ * Output resolution = TEXT_PANEL_BASE_PX * HTML2CANVAS_SCALE.
+ */
+const HTML2CANVAS_SCALE = 3;
 
 // ============================================================================
 // PAGE COMPOSITION
@@ -49,13 +61,13 @@ const TEXT_RENDER_SCALE = 3;
  * @returns {Promise<void>}
  */
 export async function composePage(doc, imageDataUrl, slide, pageIndex, totalSlides, briefingName) {
-    // --- Background fill for image area (dark fill behind letterbox) ---
-    doc.setFillColor(24, 24, 27);
-    doc.rect(MARGIN, MARGIN, IMAGE_W, CONTENT_H, 'F');
-
-    // --- Map/viewer image (aspect-fit) ---
+    // --- Map/viewer image (center-cropped to fill) ---
     if (imageDataUrl) {
-        await addImageAspectFit(doc, imageDataUrl, MARGIN, MARGIN, IMAGE_W, CONTENT_H);
+        const croppedDataUrl = await cropImageToAspectRatio(imageDataUrl, IMAGE_AREA_ASPECT);
+        doc.addImage(
+            croppedDataUrl || imageDataUrl,
+            'JPEG', MARGIN, MARGIN, IMAGE_W, CONTENT_H
+        );
     } else {
         // Error placeholder
         doc.setFillColor(243, 244, 246);
@@ -76,7 +88,7 @@ export async function composePage(doc, imageDataUrl, slide, pageIndex, totalSlid
     const textY = MARGIN;
 
     try {
-        const textPanelDataUrl = await renderTextPanel(slide, TEXT_PANEL_W, CONTENT_H);
+        const textPanelDataUrl = await renderTextPanel(slide);
         if (textPanelDataUrl) {
             doc.addImage(textPanelDataUrl, 'PNG', textX, textY, TEXT_PANEL_W, CONTENT_H);
         } else {
@@ -111,59 +123,59 @@ export async function composeErrorPage(doc, slide, pageIndex, totalSlides, brief
 }
 
 // ============================================================================
-// IMAGE ASPECT-FIT
+// IMAGE CENTER-CROP
 // ============================================================================
 
 /**
- * Adds an image to the PDF preserving its aspect ratio (aspect-fit).
- * Centers the image within the available area; remaining space is left
- * to the pre-filled background.
- * @param {import('jspdf').jsPDF} doc - jsPDF document instance
- * @param {string} dataUrl - Image data URL
- * @param {number} areaX - Area X position in mm
- * @param {number} areaY - Area Y position in mm
- * @param {number} areaW - Area width in mm
- * @param {number} areaH - Area height in mm
- * @returns {Promise<void>}
+ * Crops an image (center crop) to match a target aspect ratio.
+ * This avoids both distortion and black bars — the screenshot fills
+ * the entire PDF image area, trimming only the excess edges.
+ * @param {string} dataUrl - Source image data URL
+ * @param {number} targetAspect - Target width/height ratio
+ * @returns {Promise<string|null>} Cropped JPEG data URL, or null on failure
  */
-async function addImageAspectFit(doc, dataUrl, areaX, areaY, areaW, areaH) {
-    const dims = await getImageDimensions(dataUrl);
-    if (!dims) {
-        doc.addImage(dataUrl, 'JPEG', areaX, areaY, areaW, areaH);
-        return;
+async function cropImageToAspectRatio(dataUrl, targetAspect) {
+    const img = await loadImage(dataUrl);
+    if (!img) return null;
+
+    const srcW = img.naturalWidth;
+    const srcH = img.naturalHeight;
+    const srcAspect = srcW / srcH;
+
+    let cropX = 0;
+    let cropY = 0;
+    let cropW = srcW;
+    let cropH = srcH;
+
+    if (srcAspect > targetAspect) {
+        // Source is wider than target — trim sides
+        cropW = Math.round(srcH * targetAspect);
+        cropX = Math.round((srcW - cropW) / 2);
+    } else if (srcAspect < targetAspect) {
+        // Source is taller than target — trim top/bottom
+        cropH = Math.round(srcW / targetAspect);
+        cropY = Math.round((srcH - cropH) / 2);
     }
 
-    const imgAspect = dims.width / dims.height;
-    const areaAspect = areaW / areaH;
+    const canvas = document.createElement('canvas');
+    canvas.width = cropW;
+    canvas.height = cropH;
 
-    let drawW, drawH, drawX, drawY;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-    if (imgAspect > areaAspect) {
-        // Image is wider — fit to width
-        drawW = areaW;
-        drawH = areaW / imgAspect;
-        drawX = areaX;
-        drawY = areaY + (areaH - drawH) / 2;
-    } else {
-        // Image is taller — fit to height
-        drawH = areaH;
-        drawW = areaH * imgAspect;
-        drawX = areaX + (areaW - drawW) / 2;
-        drawY = areaY;
-    }
-
-    doc.addImage(dataUrl, 'JPEG', drawX, drawY, drawW, drawH);
+    return canvas.toDataURL('image/jpeg', 0.92);
 }
 
 /**
- * Gets the natural dimensions of an image from its data URL.
+ * Loads an image from a data URL.
  * @param {string} dataUrl - Image data URL
- * @returns {Promise<{width: number, height: number}|null>}
+ * @returns {Promise<HTMLImageElement|null>}
  */
-function getImageDimensions(dataUrl) {
+function loadImage(dataUrl) {
     return new Promise(resolve => {
         const img = new Image();
-        img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        img.onload = () => resolve(img);
         img.onerror = () => resolve(null);
         img.src = dataUrl;
     });
@@ -176,19 +188,16 @@ function getImageDimensions(dataUrl) {
 /**
  * Renders the slide's text panel as an image using html2canvas.
  * Creates a temporary off-screen DOM element styled like the presentation panel,
- * captures it, and returns a data URL.
+ * captures it at high resolution, and returns a data URL.
  * @param {Object} slide - Slide data (title, content)
- * @param {number} widthMm - Panel width in mm
- * @param {number} heightMm - Panel height in mm
  * @returns {Promise<string|null>} PNG data URL or null on failure
  */
-async function renderTextPanel(slide, widthMm, heightMm) {
+async function renderTextPanel(slide) {
     if (!slide.title && !slide.content) return null;
 
-    const widthPx = Math.round(widthMm * TEXT_RENDER_SCALE);
-    const heightPx = Math.round(heightMm * TEXT_RENDER_SCALE);
-
-    // Create off-screen container reusing presentation panel BEM classes
+    // Create off-screen container reusing presentation panel BEM classes.
+    // The .briefing-pdf-export-capture class (CSS) overrides fixed positioning
+    // and sets width/height via CSS custom properties.
     const container = document.createElement('div');
     container.className = 'briefing-text-panel briefing-pdf-export-capture';
     document.body.appendChild(container);
@@ -212,16 +221,16 @@ async function renderTextPanel(slide, widthMm, heightMm) {
             const contentSection = document.createElement('div');
             contentSection.className = 'briefing-text-panel__content';
             contentSection.innerHTML = slide.content;
-
             container.appendChild(contentSection);
         }
 
-        // Capture with html2canvas
+        // Capture with html2canvas at high resolution
         const canvas = await html2canvas(container, {
-            width: widthPx,
-            height: heightPx,
-            scale: 1,
+            width: TEXT_PANEL_BASE_PX,
+            height: Math.round(TEXT_PANEL_BASE_PX * (CONTENT_H / TEXT_PANEL_W)),
+            scale: HTML2CANVAS_SCALE,
             useCORS: true,
+            allowTaint: true,
             logging: false,
             backgroundColor: '#f9fafb'
         });

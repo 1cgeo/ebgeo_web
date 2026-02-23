@@ -276,7 +276,7 @@ class ScreenshotControl {
                 const testCanvas = document.createElement('canvas');
                 testCanvas.width = 1;
                 testCanvas.height = 1;
-                const ctx = testCanvas.getContext('2d');
+                const ctx = testCanvas.getContext('2d', { willReadFrequently: true });
                 ctx.drawImage(canvas, 0, 0, 1, 1);
                 const pixel = ctx.getImageData(0, 0, 1, 1).data;
 
