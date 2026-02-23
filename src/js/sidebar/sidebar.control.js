@@ -967,6 +967,20 @@ export class SidebarControl {
                         console.warn('Briefing presenter control not found');
                     }
                 });
+                // Wire up PDF export callback
+                component.setOnExportPdf(async (briefingId) => {
+                    const map = this._mapManager?.map;
+                    if (!map) {
+                        console.warn('Map not available for PDF export');
+                        return;
+                    }
+                    // Collapse sidebar before export (modal covers screen)
+                    this._stateManager.collapseSidebar();
+                    const { exportBriefingToPdf } = await import(
+                        '../briefing/export/briefing-pdf-export.js'
+                    );
+                    await exportBriefingToPdf(briefingId, map);
+                });
                 break;
 
             case SIDEBAR_TABS.PROCESSAMENTO:
