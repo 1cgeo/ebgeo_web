@@ -270,8 +270,13 @@
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
 }
 
 .user-data-viewer-header {
@@ -712,9 +717,19 @@
 }
 
 @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-4px); }
-    75% { transform: translateX(4px); }
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    25% {
+        transform: translateX(-4px);
+    }
+
+    75% {
+        transform: translateX(4px);
+    }
 }
 
 .feature-attributes-inline-actions {
@@ -791,3 +806,56 @@
     }
 }
 
+/* =========================================================================
+   PHONE BREAKPOINT (<=480px) — User data panel overflow prevention
+   ========================================================================= */
+
+@media (width <=480px) {
+
+    /* Gallery uses fewer columns on phone */
+    .user-data-gallery {
+        grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+    }
+
+    /* Add-form wraps to column on phone */
+    .user-data-add-form {
+        flex-direction: column;
+    }
+
+    .user-data-add-form button {
+        width: 100%;
+    }
+
+    /* Attribute row key has min-width to stay readable */
+    .user-data-attr-key {
+        min-width: 60px;
+    }
+
+    /* Viewer modal full-screen on phone */
+    .user-data-viewer-name-input {
+        width: 120px;
+    }
+
+    /* Prevent iOS zoom on all inputs */
+    .user-data-add-form input,
+    .user-data-attr-value,
+    .feature-attributes-inline-input,
+    .feature-attribute-key-input,
+    .feature-attribute-value-input {
+        font-size: 16px;
+    }
+
+    /* Larger touch targets for attribute delete buttons */
+    .user-data-attr-delete,
+    .feature-attribute-delete {
+        min-width: 44px;
+        min-height: 44px;
+        padding: var(--space-2, 8px);
+    }
+
+    /* Feature attribute row stays horizontal but keys truncate */
+    .feature-attribute-key-container {
+        min-width: 60px;
+        max-width: 100px;
+    }
+}

@@ -388,6 +388,7 @@
 
 /* Touch device optimizations */
 @media (pointer: coarse) {
+
     /* Larger close button for touch */
     .modal-close-btn {
         width: var(--touch-target-min, 44px);
@@ -442,7 +443,8 @@
 }
 
 /* Tablet breakpoint */
-@media (width <= 1024px) {
+@media (width <=1024px) {
+
     /* Modal sizing */
     .modal-container {
         max-width: 90vw;
@@ -475,7 +477,8 @@
 }
 
 /* Small tablet breakpoint */
-@media (width <= 768px) {
+@media (width <=768px) {
+
     /* Full screen modals */
     .modal-container {
         max-width: 100vw;
@@ -546,7 +549,8 @@
 }
 
 /* Landscape mode */
-@media (orientation: landscape) and (width <= 1024px) {
+@media (orientation: landscape) and (width <=1024px) {
+
     /* Modal not full height in landscape */
     .modal-container {
         max-height: 95vh;
@@ -570,7 +574,8 @@
     }
 }
 
-@media (orientation: landscape) and (width <= 768px) {
+@media (orientation: landscape) and (width <=768px) {
+
     /* Keep modals contained in small landscape */
     .modal-container {
         max-height: 90vh;
@@ -776,7 +781,7 @@
 }
 
 /* Responsive adjustments */
-@media (width <= 480px) {
+@media (width <=480px) {
     .confirm-modal-container {
         max-width: 90vw;
     }
@@ -1067,7 +1072,7 @@
     }
 }
 
-@media (width <= 768px) {
+@media (width <=768px) {
     .export-modal-container {
         max-width: 100vw;
         max-height: 100vh;
@@ -1097,7 +1102,7 @@
     }
 }
 
-@media (orientation: landscape) and (width <= 1024px) {
+@media (orientation: landscape) and (width <=1024px) {
     .export-modal-container {
         max-width: 90vw;
         max-height: 95vh;
@@ -1378,7 +1383,7 @@
     }
 }
 
-@media (width <= 768px) {
+@media (width <=768px) {
     .combine-maps-modal-container {
         max-width: 100vw;
         max-height: 100vh;
@@ -1408,7 +1413,7 @@
     }
 }
 
-@media (orientation: landscape) and (width <= 1024px) {
+@media (orientation: landscape) and (width <=1024px) {
     .combine-maps-modal-container {
         max-width: 90vw;
         max-height: 95vh;
@@ -1645,7 +1650,7 @@
 }
 
 /* Symbol Selector - Responsive */
-@media (width <= 1200px) {
+@media (width <=1200px) {
     .symbol-selector-main {
         grid-template-columns: 1fr 200px 140px;
     }
@@ -1662,7 +1667,7 @@
     }
 }
 
-@media (width <= 1000px) {
+@media (width <=1000px) {
     .symbol-selector-main {
         grid-template-columns: 1fr 200px;
     }
@@ -1685,7 +1690,7 @@
     }
 }
 
-@media (width <= 768px) {
+@media (width <=768px) {
     .symbol-selector-modal-container {
         max-width: 100vw;
         max-height: 100vh;
@@ -1871,7 +1876,7 @@
     }
 }
 
-@media (width <= 768px) {
+@media (width <=768px) {
     .coordinate-edit-modal-container {
         max-width: 90vw;
         height: auto;
@@ -2019,7 +2024,7 @@
 }
 
 /* Point Selector - Responsive */
-@media (width <= 768px) {
+@media (width <=768px) {
     .point-selector-modal-container {
         max-width: 100vw;
         max-height: 100vh;
@@ -2160,7 +2165,7 @@
     -moz-appearance: textfield;
 }
 
-@media (width <= 480px) {
+@media (width <=480px) {
     .settings-modal-container {
         max-width: 100%;
     }
@@ -2174,5 +2179,83 @@
     .settings-slider__input {
         min-height: var(--touch-target-min, 44px);
         width: 72px;
+    }
+}
+
+/* =========================================================================
+   PHONE BREAKPOINT (<=480px) — Full-screen modals
+   On phone screens, all modals must be full-screen to avoid overflow.
+   The phone JS module may also intercept these via phone-drawer.js, but
+   CSS ensures correct sizing even if a modal is triggered independently.
+   ========================================================================= */
+
+@media (width <=480px) {
+
+    /* All modal containers become full-screen */
+    .modal-overlay {
+        padding: 0;
+        align-items: stretch;
+    }
+
+    .modal-container,
+    .shortcuts-modal-container,
+    .info-modal-container,
+    .export-modal-container,
+    .settings-modal-container {
+        max-width: 100vw !important;
+        width: 100vw;
+        height: 100dvh;
+        max-height: 100dvh;
+        border-radius: 0;
+        margin: 0;
+    }
+
+    /* Prompt and confirm modals stay floating (they're smaller) */
+    .prompt-modal-container,
+    .confirm-modal-container {
+        max-width: 90vw !important;
+        width: 90vw;
+        height: auto;
+        max-height: 80dvh;
+        border-radius: var(--radius-xl);
+        margin: auto;
+    }
+
+    /* Export modal grid collapses to single column */
+    .export-maps-list {
+        max-height: calc(100dvh - 200px);
+    }
+
+    /* Prevent iOS zoom on inputs inside modals */
+    .modal-container input[type="text"],
+    .modal-container input[type="email"],
+    .modal-container input[type="number"],
+    .modal-container input[type="search"],
+    .modal-container textarea,
+    .modal-container select {
+        font-size: 16px;
+    }
+
+    /* Prompt/confirm inputs */
+    .prompt-modal-input {
+        font-size: 16px;
+    }
+
+    /* Larger action buttons for touch */
+    .prompt-modal-btn,
+    .confirm-modal-btn {
+        min-height: 48px;
+        padding: var(--space-3) var(--space-5);
+        font-size: var(--font-size-base);
+    }
+
+    /* Settings modal tabs wrap */
+    .settings-tabs {
+        flex-wrap: wrap;
+    }
+
+    .settings-tab-btn {
+        flex: 1;
+        min-width: 80px;
     }
 }

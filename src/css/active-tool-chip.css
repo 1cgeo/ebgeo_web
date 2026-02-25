@@ -109,6 +109,7 @@
 
 /* Touch device optimizations */
 @media (pointer: coarse) {
+
     /* Taller chip for touch */
     .active-tool-chip-inner {
         min-height: var(--touch-target-min, 44px);
@@ -135,7 +136,8 @@
 }
 
 /* Tablet breakpoint */
-@media (width <= 1024px) {
+@media (width <=1024px) {
+
     /* Adjust offset for tablet panel width */
     .active-tool-chip[data-sidebar-state="expanded"] {
         transform: translateX(calc(-50% + 140px));
@@ -143,7 +145,8 @@
 }
 
 /* Small tablet breakpoint */
-@media (width <= 768px) {
+@media (width <=768px) {
+
     /* Chip moves more to center */
     .active-tool-chip[data-sidebar-state="expanded"] {
         transform: translateX(calc(-50% + 100px));
@@ -156,3 +159,29 @@
     }
 }
 
+/* Phone breakpoint (<=480px)
+   The chip is hidden via responsive.css / body.phone-mode gate.
+   These rules handle the edge case where the chip appears during
+   a phone-to-tablet resize transition. */
+@media (width <=480px) {
+
+    /* Chip positioned below the phone search pill */
+    .active-tool-chip {
+        top: calc(var(--phone-search-height, 52px) + var(--safe-area-top, 0px) + 8px);
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+    }
+
+    /* Chip does not offset for sidebar on phone (sidebar is hidden) */
+    .active-tool-chip[data-sidebar-state="expanded"] {
+        transform: translateX(-50%);
+    }
+
+    /* Compact chip for phone */
+    .active-tool-chip-inner {
+        font-size: var(--font-size-xs);
+        padding: var(--space-2) var(--space-3);
+        min-height: 40px;
+    }
+}

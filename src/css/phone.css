@@ -11,7 +11,8 @@
    At desktop/tablet sizes every phone element is display: none.
    ========================================================================= */
 
-@media (width <= 480px), (height <= 440px) and (pointer: coarse) {
+@media (width <=480px),
+(height <=440px) and (pointer: coarse) {
     /* =====================================================================
        FLOATING SEARCH BAR
        Fixed pill at the top of the viewport with safe-area inset.
@@ -142,7 +143,8 @@
         height: var(--touch-target-min);
         border: none;
         outline: none;
-        font-size: 16px; /* Prevents iOS zoom */
+        font-size: 16px;
+        /* Prevents iOS zoom */
         color: var(--gray-900);
         background: transparent;
     }
@@ -232,7 +234,7 @@
         height: var(--phone-sheet-full);
         display: flex;
         flex-direction: column;
-        padding-bottom: var(--safe-area-bottom);
+        padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-bottom, 0px));
     }
 
     .phone-bottom-sheet--half {
@@ -556,7 +558,8 @@
         padding: var(--space-1) var(--space-2);
         border: 1px solid var(--gray-300);
         border-radius: var(--radius-sm);
-        font-size: 16px; /* Prevents iOS zoom */
+        font-size: 16px;
+        /* Prevents iOS zoom */
         color: var(--gray-800);
         background: var(--gray-50);
         text-align: right;
@@ -683,7 +686,8 @@
         padding: var(--space-3);
         border: 1px solid var(--gray-300);
         border-radius: var(--radius-md);
-        font-size: 16px; /* Prevents iOS zoom */
+        font-size: 16px;
+        /* Prevents iOS zoom */
         color: var(--gray-900);
         background: var(--gray-50);
         margin-bottom: var(--space-4);
@@ -746,9 +750,7 @@
     .phone-fab-container {
         position: fixed;
         right: var(--phone-spacing);
-        bottom: calc(
-            var(--phone-sheet-peek) + var(--safe-area-bottom) + var(--phone-spacing)
-        );
+        bottom: calc(var(--phone-sheet-peek) + var(--safe-area-bottom) + var(--phone-spacing));
         display: flex;
         flex-direction: column;
         gap: var(--space-3);
@@ -809,6 +811,7 @@
     }
 
     @keyframes phone-fab-pulse {
+
         0%,
         100% {
             box-shadow: var(--shadow-control);
@@ -895,7 +898,7 @@
         box-shadow: none;
     }
 
-    .phone-fab-group .phone-fab + .phone-fab {
+    .phone-fab-group .phone-fab+.phone-fab {
         border-top: 1px solid var(--gray-200);
     }
 
@@ -1151,6 +1154,13 @@
         font-size: var(--font-size-sm);
     }
 
+    .phone-drawer__loading {
+        padding: var(--space-3) 0;
+        color: var(--gray-400);
+        font-size: var(--font-size-sm);
+        font-style: italic;
+    }
+
     /* Map action buttons */
     .phone-drawer__map-actions {
         display: grid;
@@ -1359,7 +1369,7 @@
    Reduced height when phone is in landscape orientation.
    ===================================================================== */
 
-@media (orientation: landscape) and (height <= 440px) and (pointer: coarse) {
+@media (orientation: landscape) and (height <=440px) and (pointer: coarse) {
     .phone-bottom-sheet {
         height: 80vh;
     }
@@ -1379,7 +1389,8 @@
 }
 
 /* At desktop/tablet sizes, ensure all phone elements are hidden */
-@media (width > 480px) and ((height >= 441px) or (pointer: fine)) {
+@media (width > 480px) and ((height >=441px) or (pointer: fine)) {
+
     .phone-search-bar,
     .phone-search-overlay,
     .phone-bottom-sheet,

@@ -419,6 +419,12 @@ export class PhoneDrawer {
         actions.appendChild(deleteBtn);
         content.appendChild(actions);
 
+        // Show loading placeholder until updateMaps() provides real data
+        const loading = document.createElement('div');
+        loading.className = 'phone-drawer__loading';
+        loading.textContent = 'Carregando mapas...';
+        content.appendChild(loading);
+
         // Map items will be rendered below the actions row
         this._renderMapsContent();
     }
@@ -427,11 +433,26 @@ export class PhoneDrawer {
     _renderMapsContent() {
         if (!this._mapsContainer) return;
 
-        // Remove old map items (keep the actions row)
+        // Remove loading placeholder and old map items (keep the actions row)
+        const loading = this._mapsContainer.querySelector('.phone-drawer__loading');
+        if (loading) loading.remove();
+
         const oldItems = this._mapsContainer.querySelectorAll('.phone-drawer__map-item');
         for (const item of oldItems) {
             item.remove();
         }
+
+        if (this._maps.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'phone-drawer__empty';
+            empty.textContent = 'Nenhum mapa';
+            this._mapsContainer.appendChild(empty);
+            return;
+        }
+
+        // Remove empty state if it exists
+        const emptyEl = this._mapsContainer.querySelector('.phone-drawer__empty');
+        if (emptyEl) emptyEl.remove();
 
         for (const map of this._maps) {
             const item = document.createElement('button');
@@ -453,12 +474,23 @@ export class PhoneDrawer {
     _buildLayersSection() {
         const { content } = this._createCollapsibleSection('layers', 'Camadas');
         this._layersContainer = content;
+
+        // Show loading placeholder until updateLayers() provides real data
+        const loading = document.createElement('div');
+        loading.className = 'phone-drawer__loading';
+        loading.textContent = 'Carregando camadas...';
+        content.appendChild(loading);
+
         this._renderLayersContent();
     }
 
     /** @private */
     _renderLayersContent() {
         if (!this._layersContainer) return;
+
+        // Remove loading placeholder
+        const loading = this._layersContainer.querySelector('.phone-drawer__loading');
+        if (loading) loading.remove();
 
         // Remove old layer items
         const oldItems = this._layersContainer.querySelectorAll('.phone-drawer__layer-item');

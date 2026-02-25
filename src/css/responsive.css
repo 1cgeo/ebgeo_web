@@ -125,6 +125,7 @@
    ========================================================================= */
 
 @media (pointer: coarse) {
+
     /* Enforce minimum touch targets on all interactive elements */
     button,
     .btn,
@@ -234,7 +235,8 @@
    TABLET BREAKPOINT (768px - 1024px)
    ========================================================================= */
 
-@media (width <= 1024px) {
+@media (width <=1024px) {
+
     /* ----- SIDEBAR ADJUSTMENTS ----- */
     .sidebar-panel {
         width: var(--sidebar-panel-width-tablet, 340px);
@@ -365,7 +367,8 @@
    TABLET SMALL BREAKPOINT (600px - 768px)
    ========================================================================= */
 
-@media (width <= 768px) {
+@media (width <=768px) {
+
     /* ----- SIDEBAR AS OVERLAY ----- */
     .sidebar-panel,
     .feature-panel {
@@ -383,7 +386,8 @@
     /* Responsive width handled in search-bar.css */
 
     .search-bar-input {
-        font-size: 16px; /* Prevents iOS zoom on focus */
+        font-size: 16px;
+        /* Prevents iOS zoom on focus */
     }
 
     /* ----- TOOLBAR ----- */
@@ -514,47 +518,54 @@
    Desktop/tablet UI hidden entirely — replaced by phone/ JS module.
    ========================================================================= */
 
-@media (width <= 480px), (height <= 440px) and (pointer: coarse) {
+@media (width <=480px),
+(height <=440px) and (pointer: coarse) {
     /* Hide desktop/tablet UI */
-    .sidebar-container {
-        display: none !important;
-    }
-
-    .toolbar-container {
-        display: none !important;
-    }
-
+    .sidebar-container,
+    .toolbar-container,
     .bottom-controls-left,
-    .bottom-controls-right {
-        display: none !important;
-    }
-
+    .bottom-controls-right,
     .search-bar,
-    .search-bar-container {
+    .search-bar-container,
+    .coordinates-control,
+    .drawing-touch-controls,
+    .attribute-table-panel,
+    .base-layer-selector,
+    .chips-container,
+    .sidebar-backdrop,
+    .maplibregl-ctrl-group,
+    /* Hide MapLibre control groups */
+    .maplibregl-ctrl-scale,
+    /* Hide MapLibre scale bar */
+    .maplibregl-ctrl-fullscreen,
+    /* Hide MapLibre fullscreen button */
+    .maplibregl-ctrl-geolocate,
+    /* Hide MapLibre geolocate button */
+    .maplibregl-ctrl-attrib
+
+    /* Hide MapLibre attribution control */
+        {
         display: none !important;
     }
 
-    .coordinates-control {
-        display: none !important;
-    }
-
-    .drawing-touch-controls {
-        display: none !important;
-    }
-
-    .attribute-table-panel {
-        display: none !important;
-    }
-
-    .base-layer-selector {
-        display: none !important;
-    }
-
-    .chips-container {
-        display: none !important;
-    }
-
-    .sidebar-backdrop {
+    /* Gate rules for phone mode */
+    body.phone-mode .sidebar-container,
+    body.phone-mode .toolbar-container,
+    body.phone-mode .bottom-controls-left,
+    body.phone-mode .bottom-controls-right,
+    body.phone-mode .search-bar,
+    body.phone-mode .search-bar-container,
+    body.phone-mode .coordinates-control,
+    body.phone-mode .drawing-touch-controls,
+    body.phone-mode .attribute-table-panel,
+    body.phone-mode .base-layer-selector,
+    body.phone-mode .chips-container,
+    body.phone-mode .sidebar-backdrop,
+    body.phone-mode .maplibregl-ctrl-group,
+    body.phone-mode .maplibregl-ctrl-scale,
+    body.phone-mode .maplibregl-ctrl-fullscreen,
+    body.phone-mode .maplibregl-ctrl-geolocate,
+    body.phone-mode .maplibregl-ctrl-attrib {
         display: none !important;
     }
 
@@ -580,10 +591,33 @@
 }
 
 /* =========================================================================
+   PHONE MODE (body.phone-mode class set by PhoneLayout JS)
+   Redundant gate — ensures desktop UI hides whenever JS activates phone mode,
+   regardless of media query timing or viewport resize edge cases.
+   ========================================================================= */
+
+body.phone-mode .sidebar-container,
+body.phone-mode .toolbar-container,
+body.phone-mode .bottom-controls-left,
+body.phone-mode .bottom-controls-right,
+body.phone-mode .search-bar-container,
+body.phone-mode .coordinates-control,
+body.phone-mode .drawing-touch-controls,
+body.phone-mode .attribute-table-panel,
+body.phone-mode .base-layer-selector,
+body.phone-mode .chips-container,
+body.phone-mode .sidebar-backdrop,
+body.phone-mode .active-tool-chip,
+body.phone-mode .unified-attributes-panel {
+    display: none !important;
+}
+
+/* =========================================================================
    LANDSCAPE ORIENTATION ADJUSTMENTS
    ========================================================================= */
 
-@media (orientation: landscape) and (width <= 1024px) {
+@media (orientation: landscape) and (width <=1024px) {
+
     /* Sidebar takes less vertical space in landscape */
     .sidebar-panel-content,
     .feature-panel-content {
@@ -617,7 +651,8 @@
     }
 }
 
-@media (orientation: landscape) and (width <= 768px) {
+@media (orientation: landscape) and (width <=768px) {
+
     /* In small landscape, keep controls more compact */
     .bottom-controls-left {
         flex-direction: row;
@@ -671,7 +706,8 @@
    PORTRAIT ORIENTATION SPECIFIC
    ========================================================================= */
 
-@media (orientation: portrait) and (width <= 768px) {
+@media (orientation: portrait) and (width <=768px) {
+
     /* More vertical space for content in portrait */
     .sidebar-panel-content {
         max-height: calc(100vh - 80px - var(--safe-area-top) - var(--safe-area-bottom));
@@ -687,7 +723,9 @@
    HIGH DENSITY DISPLAYS (Retina)
    ========================================================================= */
 
-@media (-webkit-min-device-pixel-ratio: 2), (resolution >= 192dpi) {
+@media (-webkit-min-device-pixel-ratio: 2),
+(resolution >=192dpi) {
+
     /* Slightly thinner borders on high-density displays */
     .sidebar-panel,
     .feature-panel,
@@ -701,6 +739,7 @@
    ========================================================================= */
 
 @media (prefers-reduced-motion: reduce) {
+
     .sidebar-panel,
     .feature-panel,
     .modal-container,
@@ -722,6 +761,7 @@
    ========================================================================= */
 
 @media print {
+
     .sidebar-container,
     .toolbar-container,
     .bottom-controls-left,
