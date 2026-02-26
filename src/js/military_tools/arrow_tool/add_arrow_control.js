@@ -21,6 +21,7 @@ class AddArrowControl extends BaseControl {
         this.activeHandle = null;
         this.activeHandleType = null;
         this.activeHandleIndex = null;
+        this.activeBranchIndex = null;
 
         this.geometry = new AddArrowGeometry();
 
@@ -188,13 +189,24 @@ class AddArrowControl extends BaseControl {
             coord[1] + offset.dy
         ]);
 
+        const updatedProps = {
+            ...feature.properties,
+            baseCoordinates: newBaseCoordinates
+        };
+
+        // Offset branches for merged arrows
+        if (feature.properties.isMerged && Array.isArray(feature.properties.branches)) {
+            updatedProps.branches = feature.properties.branches.map(branch => ({
+                ...branch,
+                baseCoordinates: this.geometry.normalizeBaseCoordinates(branch.baseCoordinates)
+                    .map(coord => [coord[0] + offset.dx, coord[1] + offset.dy])
+            }));
+        }
+
         return {
             ...feature,
-            properties: {
-                ...feature.properties,
-                baseCoordinates: newBaseCoordinates
-            },
-            geometry: this.geometry.generate(newBaseCoordinates, feature.properties)
+            properties: updatedProps,
+            geometry: this.geometry.generate(newBaseCoordinates, updatedProps)
         };
     }
 
@@ -216,16 +228,25 @@ class AddArrowControl extends BaseControl {
             coord[1] + dy
         ]);
 
-        const updatedFeature = {
-            ...feature,
-            properties: {
-                ...feature.properties,
-                baseCoordinates: newBaseCoordinates
-            },
-            geometry: this.geometry.generate(newBaseCoordinates, feature.properties)
+        const updatedProps = {
+            ...feature.properties,
+            baseCoordinates: newBaseCoordinates
         };
 
-        return updatedFeature;
+        // Translate branches for merged arrows
+        if (feature.properties.isMerged && Array.isArray(feature.properties.branches)) {
+            updatedProps.branches = feature.properties.branches.map(branch => ({
+                ...branch,
+                baseCoordinates: this.geometry.normalizeBaseCoordinates(branch.baseCoordinates)
+                    .map(coord => [coord[0] + dx, coord[1] + dy])
+            }));
+        }
+
+        return {
+            ...feature,
+            properties: updatedProps,
+            geometry: this.geometry.generate(newBaseCoordinates, updatedProps)
+        };
     }
 
     canMove(feature) {
@@ -502,6 +523,7 @@ class AddArrowControl extends BaseControl {
         this.activeHandle = null;
         this.activeHandleType = null;
         this.activeHandleIndex = null;
+        this.activeBranchIndex = null;
         this.clearEditHandles();
         this.removeEditEventListeners();
         this.removeHoverListeners();
@@ -582,9 +604,10 @@ class AddArrowControl extends BaseControl {
             const handle = handleFeatures[0];
             this.isDraggingHandle = true;
             this.activeHandle = handle;
-            // Extract type and index separately (like boundary tool)
+            // Extract type, index, and branchIndex separately
             this.activeHandleType = handle.properties.handleType;
             this.activeHandleIndex = handle.properties.index !== undefined ? handle.properties.index : null;
+            this.activeBranchIndex = handle.properties.branchIndex !== undefined ? handle.properties.branchIndex : null;
             this.map.dragPan.disable();
             this.map.getCanvas().style.cursor = 'grabbing';
 
@@ -639,12 +662,13 @@ class AddArrowControl extends BaseControl {
 
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType && this.lastPreviewPosition) {
-            // Use geometry.updateFromHandle with separate type and index (like boundary tool)
+            // Use geometry.updateFromHandle with separate type, index, and branchIndex
             const result = this.geometry.updateFromHandle(
                 this.activeHandleType,
                 this.lastPreviewPosition,
                 selectedFeature,
-                this.activeHandleIndex
+                this.activeHandleIndex,
+                this.activeBranchIndex
             );
 
             if (result) {
@@ -666,6 +690,7 @@ class AddArrowControl extends BaseControl {
         this.activeHandle = null;
         this.activeHandleType = null;
         this.activeHandleIndex = null;
+        this.activeBranchIndex = null;
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
     }
@@ -690,13 +715,14 @@ class AddArrowControl extends BaseControl {
                 return;
             }
 
-            // Use calculatePreview with separate type and index (like boundary tool)
+            // Use calculatePreview with separate type, index, and branchIndex
             // No mutation of selectedFeature during drag - only visual preview
             const preview = this.geometry.calculatePreview(
                 this.activeHandleType,
                 newPosition,
                 selectedFeature,
-                this.activeHandleIndex
+                this.activeHandleIndex,
+                this.activeBranchIndex
             );
 
             if (preview) {
@@ -771,29 +797,49 @@ class AddArrowControl extends BaseControl {
         e.stopPropagation();
 
         const vertexIndex = vertexHandle.properties.index;
-        const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
+        const branchIndex = vertexHandle.properties.branchIndex !== undefined
+            ? vertexHandle.properties.branchIndex : null;
 
-        // Check if we can remove (arrows must have more than 2 vertices)
-        if (!coordinates || coordinates.length <= 2) {
-            this.showVertexRemovalWarning();
-            return;
+        let updatedFeature;
+
+        if (selectedFeature.properties.isMerged && branchIndex !== null) {
+            // Merged arrow: remove vertex in specific branch
+            const updatedProperties = this.geometry.removeVertexInBranch(
+                selectedFeature.properties, branchIndex, vertexIndex
+            );
+            if (!updatedProperties) {
+                this.showVertexRemovalWarning();
+                return;
+            }
+
+            updatedFeature = {
+                ...selectedFeature,
+                properties: updatedProperties,
+                geometry: this.geometry.generate(updatedProperties.baseCoordinates, updatedProperties)
+            };
+        } else {
+            // Single arrow: remove vertex from baseCoordinates
+            const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
+
+            if (!coordinates || coordinates.length <= 2) {
+                this.showVertexRemovalWarning();
+                return;
+            }
+
+            const newCoordinates = this.geometry.removeVertexAtIndex(coordinates, vertexIndex);
+            if (!newCoordinates) {
+                return;
+            }
+
+            updatedFeature = {
+                ...selectedFeature,
+                properties: {
+                    ...selectedFeature.properties,
+                    baseCoordinates: newCoordinates
+                },
+                geometry: this.geometry.generate(newCoordinates, selectedFeature.properties)
+            };
         }
-
-        // Remove the vertex
-        const newCoordinates = this.geometry.removeVertexAtIndex(coordinates, vertexIndex);
-        if (!newCoordinates) {
-            return;
-        }
-
-        // Update the feature
-        const updatedFeature = {
-            ...selectedFeature,
-            properties: {
-                ...selectedFeature.properties,
-                baseCoordinates: newCoordinates
-            },
-            geometry: this.geometry.generate(newCoordinates, selectedFeature.properties)
-        };
 
         // Apply updates
         await this.forceUpdateMainSource(updatedFeature);
@@ -902,7 +948,7 @@ class AddArrowControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                if (['width', 'headLengthRatio', 'showArrowHead', 'airmobile', 'airmobilePosition', 'baseCoordinates'].includes(property)) {
+                if (['width', 'headLengthRatio', 'showArrowHead', 'airmobile', 'airmobilePosition', 'baseCoordinates', 'branches'].includes(property)) {
                     const newGeometry = this.geometry.generate(
                         sourceFeature.properties.baseCoordinates,
                         sourceFeature.properties
@@ -989,7 +1035,8 @@ class AddArrowControl extends BaseControl {
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
             feature.properties.bloqueado !== initialProperties.bloqueado ||
-            JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
+            JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates) ||
+            JSON.stringify(feature.properties.branches) !== JSON.stringify(initialProperties.branches)
         );
     }
 
@@ -1044,6 +1091,7 @@ class AddArrowControl extends BaseControl {
         this.lastPreviewPoints = null;
         this.activeHandle = null;
         this.activeHandleType = null;
+        this.activeBranchIndex = null;
 
         if (this.geometryDebounceTimer) {
             clearTimeout(this.geometryDebounceTimer);

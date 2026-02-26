@@ -1038,6 +1038,22 @@ async function handleClearOrientation() {
 }
 
 /**
+ * Handles share button click: builds a deep link URL and copies to clipboard.
+ */
+async function handleShare360Click(e) {
+    e.stopPropagation();
+
+    const photoName = streetViewState.currentPhotoName;
+    if (!photoName) return;
+
+    const { buildShareUrl360, copyShareUrl } = await import(
+        '../deep-link/deep-link.js'
+    );
+    const url = buildShareUrl360(photoName, lon, lat, streetViewState.camera?.fov || 75);
+    await copyShareUrl(url);
+}
+
+/**
  * Hides the active tool chip
  */
 function hideActiveToolChip360() {
@@ -1175,6 +1191,13 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
         console.warn('Could not activate keyboard service:', error);
     }
 
+    // Initialize share button
+    const shareBtn360 = document.getElementById('share-360');
+    if (shareBtn360) {
+        shareBtn360.removeEventListener('click', handleShare360Click);
+        shareBtn360.addEventListener('click', handleShare360Click);
+    }
+
     // Register event listeners for 360 features
     const eventBus = getEventBus();
 
@@ -1286,6 +1309,12 @@ export async function closeViewer360() {
     const closeBtn = document.getElementById('close-street-view-button');
     if (closeBtn) {
         closeBtn.removeEventListener('click', closeViewer360);
+    }
+
+    // Remove share button listener
+    const shareBtn360 = document.getElementById('share-360');
+    if (shareBtn360) {
+        shareBtn360.removeEventListener('click', handleShare360Click);
     }
 
     // Update UI

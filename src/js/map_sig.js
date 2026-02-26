@@ -686,6 +686,14 @@ export function initializeApp(map, controlsPromise) {
         map.setSky(undefined);
 
         hideLoadingScreen();
+
+        // Handle deep link from URL hash (opens 360/3D viewer if hash present)
+        try {
+            const { handleDeepLink } = await import('./deep-link/deep-link.js');
+            await handleDeepLink();
+        } catch (error) {
+            console.warn('[deep-link] Failed to handle deep link:', error);
+        }
     });
 }
 

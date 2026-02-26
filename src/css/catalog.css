@@ -109,6 +109,23 @@
     color: var(--gray-700);
 }
 
+.filter-count {
+    margin-left: auto;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-400);
+    min-width: 18px;
+    text-align: center;
+}
+
+.filter-count:empty {
+    display: none;
+}
+
+.catalog-filter-btn[data-active="true"] .filter-count {
+    color: var(--filter-color);
+}
+
 /* ==========================================================================
    MAIN AREA
    ========================================================================== */

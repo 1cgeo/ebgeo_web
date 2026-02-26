@@ -89,18 +89,16 @@ async function get360ViewerModule() {
  * Follows the same pattern as the features panel (models3d-section).
  * The control handles container visibility (setFullMap) and close button.
  * @param {string} tilesetId - Tileset ID to open
- * @param {Object} [options] - Options forwarded to the viewer
- * @param {boolean} [options.skipCameraAnimation=false] - Skip Cesium camera flyTo
  */
-async function open3DViewer(tilesetId, options = {}) {
+async function open3DViewer(tilesetId) {
     const modelsViewerControl = getControl('modelsViewer');
     if (modelsViewerControl) {
-        await modelsViewerControl.openViewer(tilesetId, options);
+        await modelsViewerControl.openViewer(tilesetId);
     } else {
         // Fallback: directly import (may not show container properly)
         console.warn('modelsViewerControl not found, using fallback');
         const viewer3d = await get3DViewerModule();
-        await viewer3d.openViewerWithTileset(tilesetId, options);
+        await viewer3d.openViewerWithTileset(tilesetId);
     }
 }
 
@@ -448,7 +446,7 @@ class TransitionService {
         }
 
         if (slide.modelId) {
-            await open3DViewer(slide.modelId, { skipCameraAnimation: true });
+            await open3DViewer(slide.modelId);
             await this._apply3DCameraFromSlide(slide);
         }
     }
@@ -527,14 +525,14 @@ class TransitionService {
                 console.warn('Cesium setView failed, falling back to reload:', error);
                 await close3DViewer();
                 await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
-                await open3DViewer(slide.modelId, { skipCameraAnimation: true });
+                await open3DViewer(slide.modelId);
                 await this._apply3DCameraFromSlide(slide);
             }
         } else if (slide.modelId) {
             // Different model: close and reopen (features load via loadSingleTileset)
             await close3DViewer();
             await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
-            await open3DViewer(slide.modelId, { skipCameraAnimation: true });
+            await open3DViewer(slide.modelId);
             await this._apply3DCameraFromSlide(slide);
         }
     }
@@ -602,7 +600,7 @@ class TransitionService {
         }
 
         if (slide.modelId) {
-            await open3DViewer(slide.modelId, { skipCameraAnimation: true });
+            await open3DViewer(slide.modelId);
             await this._apply3DCameraFromSlide(slide);
         }
     }
@@ -816,7 +814,7 @@ class TransitionService {
      */
     async _openTargetViewer(toMode, slide) {
         if (toMode === SlideMode.VIEWER_3D && slide.modelId) {
-            await open3DViewer(slide.modelId, { skipCameraAnimation: true });
+            await open3DViewer(slide.modelId);
             await this._apply3DCameraFromSlide(slide);
         } else if (toMode === SlideMode.VIEWER_360 && slide.photoId) {
             await open360Viewer(slide.photoId);

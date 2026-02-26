@@ -368,6 +368,13 @@ export class PresentationTextPanel {
 
         this._container.appendChild(controlsSection);
 
+        // EBGeo logo branding (bottom of panel)
+        const logoEl = document.createElement('img');
+        logoEl.className = 'briefing-text-panel__logo';
+        logoEl.src = '/images/logo_ebgeo.webp';
+        logoEl.alt = 'EBGeo';
+        this._container.appendChild(logoEl);
+
         // Render initial content
         this._renderContent();
     }

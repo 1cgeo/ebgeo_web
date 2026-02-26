@@ -22,8 +22,8 @@ import {
     clearAllSources,
 } from './measurement-labels.js';
 import { createDistanceResultsPanel } from './measurement-results-panel.js';
-import { addFeature, getActiveLayerIdSync, getControl } from '@store';
-import { IDUtils } from '@utils';
+import { addFeature, getActiveLayerIdSync, getControl, isCurrentMapLockedSync } from '@store';
+import { IDUtils, showToast } from '@utils';
 
 // ============================================================================
 // CONTROL CLASS
@@ -225,7 +225,7 @@ export class MeasurementDistanceControl {
         this._resultsPanel = createDistanceResultsPanel({
             segmentDistances,
             totalDistance,
-            onSave: () => this._saveAsFeature(vertices),
+            onSave: isCurrentMapLockedSync() ? null : () => this._saveAsFeature(vertices),
             onClear: () => {
                 this.deactivate();
                 this.toolManager.deactivateCurrentTool();
@@ -288,6 +288,11 @@ export class MeasurementDistanceControl {
     // --- Save as feature ---
 
     async _saveAsFeature(coordinates) {
+        if (isCurrentMapLockedSync()) {
+            showToast('Mapa bloqueado. Desbloqueie para salvar a medição.', 'warning');
+            return;
+        }
+
         const layerId = getActiveLayerIdSync();
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
 

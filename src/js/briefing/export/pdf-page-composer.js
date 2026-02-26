@@ -25,6 +25,39 @@ async function getHtml2Canvas() {
 }
 
 // ============================================================================
+// LOGO LOADER
+// ============================================================================
+
+/** Cached logo data URL for jsPDF embedding */
+let _logoDataUrl = null;
+let _logoLoadAttempted = false;
+
+/**
+ * Pre-loads the EBGeo logo as a data URL for embedding in jsPDF pages.
+ * Returns a cached data URL, or null if loading fails.
+ * @returns {Promise<string|null>}
+ */
+export async function loadLogoDataUrl() {
+    if (_logoLoadAttempted) return _logoDataUrl;
+    _logoLoadAttempted = true;
+
+    return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            _logoDataUrl = canvas.toDataURL('image/png');
+            resolve(_logoDataUrl);
+        };
+        img.onerror = () => resolve(null);
+        img.src = '/images/logo_ebgeo.webp';
+    });
+}
+
+// ============================================================================
 // CONSTANTS
 // ============================================================================
 
@@ -68,9 +101,10 @@ const HTML2CANVAS_SCALE = 3;
  * @param {number} pageIndex - Zero-based page index
  * @param {number} totalSlides - Total number of slides
  * @param {string} briefingName - Name of the briefing
+ * @param {string|null} [logoDataUrl] - Pre-loaded logo data URL for footer
  * @returns {Promise<void>}
  */
-export async function composePage(doc, imageDataUrl, slide, pageIndex, totalSlides, briefingName) {
+export async function composePage(doc, imageDataUrl, slide, pageIndex, totalSlides, briefingName, logoDataUrl) {
     // --- Map/viewer image (center-cropped to fill) ---
     if (imageDataUrl) {
         const croppedDataUrl = await cropImageToAspectRatio(imageDataUrl, IMAGE_AREA_ASPECT);
@@ -110,7 +144,7 @@ export async function composePage(doc, imageDataUrl, slide, pageIndex, totalSlid
     }
 
     // --- Footer ---
-    composeFooter(doc, pageIndex, totalSlides, briefingName);
+    composeFooter(doc, pageIndex, totalSlides, briefingName, logoDataUrl);
 }
 
 /**
@@ -121,10 +155,11 @@ export async function composePage(doc, imageDataUrl, slide, pageIndex, totalSlid
  * @param {number} totalSlides - Total number of slides
  * @param {string} briefingName - Name of the briefing
  * @param {string} errorMessage - Error description
+ * @param {string|null} [logoDataUrl] - Pre-loaded logo data URL for footer
  * @returns {Promise<void>}
  */
-export async function composeErrorPage(doc, slide, pageIndex, totalSlides, briefingName, errorMessage) {
-    await composePage(doc, null, slide, pageIndex, totalSlides, briefingName);
+export async function composeErrorPage(doc, slide, pageIndex, totalSlides, briefingName, errorMessage, logoDataUrl) {
+    await composePage(doc, null, slide, pageIndex, totalSlides, briefingName, logoDataUrl);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
@@ -378,18 +413,28 @@ function walkList(listEl, ordered) {
 // ============================================================================
 
 /**
- * Renders the page footer with slide count, briefing name, and date.
+ * Renders the page footer with logo, slide count, briefing name, and date.
  * @param {import('jspdf').jsPDF} doc - jsPDF document instance
  * @param {number} pageIndex - Zero-based page index
  * @param {number} totalSlides - Total number of slides
  * @param {string} briefingName - Name of the briefing
+ * @param {string|null} [logoDataUrl] - Pre-loaded logo data URL
  */
-function composeFooter(doc, pageIndex, totalSlides, briefingName) {
+function composeFooter(doc, pageIndex, totalSlides, briefingName, logoDataUrl) {
     const footerY = PAGE_H - MARGIN - 2;
+    const LOGO_H = 5;
+
+    // EBGeo logo (small, left-aligned in footer)
+    let textLeftX = MARGIN;
+    if (logoDataUrl) {
+        doc.addImage(logoDataUrl, 'PNG', MARGIN, footerY - LOGO_H, LOGO_H, LOGO_H);
+        textLeftX = MARGIN + LOGO_H + 2;
+    }
+
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8);
     doc.setTextColor(107, 114, 128);
     doc.text(`${pageIndex + 1} / ${totalSlides}`, PAGE_W / 2, footerY, { align: 'center' });
-    doc.text(briefingName, MARGIN, footerY);
+    doc.text(briefingName, textLeftX, footerY);
     doc.text(new Date().toLocaleDateString('pt-BR'), PAGE_W - MARGIN, footerY, { align: 'right' });
 }

@@ -343,7 +343,10 @@ const config = {
     }
   },
 
-  // ===== 3D TILESETS =====
+  // ===== 3D TILESETS & MODELS =====
+  // Supported types: '3dtiles' (default) and 'glb'
+  // 3D Tiles entries use: url (tileset.json), heightOffset
+  // GLB entries use: url (.glb), position, heightOffset, rotation, scale
   tilesets: [
     {
       url: "/3d/PCL/tileset.json",
@@ -355,10 +358,39 @@ const config = {
       local: "Resende, RJ",
       previewVideo: "/3d/videos/preview.webm",
       previewThumbnail: "/3d/videos/thumbnail.jpg",
+      // maximumScreenSpaceError: 16,  // Qualidade do modelo (menor = mais detalhado, default: 16)
       locate: {
         lon: -44.47332385414955,
         lat: -22.43976556982974,
         height: 1000
+      }
+    },
+    //===== GLB MODEL EXAMPLE =====
+    {
+      type: 'glb',                              // Required for GLB models
+      id: "hangar-01",
+      name: "Hangar Principal",
+      description: "Modelo 3D do hangar",
+      url: "/3d/models/TGL.glb",             // Path to .glb file
+      position: {                                // Where to place the model
+        lon: -44.42332,
+        lat: -22.43976
+      },
+      heightOffset: 10,                           // Meters above ellipsoid
+      rotation: {                                // Rotation in degrees
+        heading: 180,                              // 0-360 compass bearing
+        pitch: 0,                                // -90 to 90
+        roll: 0                                  // -180 to 180
+      },
+      scale: 1.0,                                // Uniform scale factor
+      maximumScale: 20000,                       // Max scale (optional)
+      data_captura: "20/01/2025",
+      local: "Resende, RJ",
+      //previewThumbnail: "/3d/models/hangar-thumb.jpg",
+      locate: {                                  // Camera fly-to position
+        lon: -44.42332,
+        lat: -22.43976,
+        height: 500
       }
     }
   ],

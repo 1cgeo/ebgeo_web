@@ -920,7 +920,8 @@ export default class PDFExportTab {
             // Always compose cartographic layout (at minimum draws map border)
             let exportCanvas = hiddenMap.getCanvas();
             {
-                const { composeLayout } = await import('./pdf-cartographic-elements.js');
+                const { composeLayout, loadLogoImage } = await import('./pdf-cartographic-elements.js');
+                const logoImage = await loadLogoImage();
                 exportCanvas = composeLayout(exportCanvas, {
                     title: this.showTitle ? this.mapTitle : null,
                     showLegend: this.showLegend,
@@ -943,6 +944,7 @@ export default class PDFExportTab {
                         const pt = hiddenMap.project(lngLat);
                         return { x: pt.x * canvasSize.pixelRatio, y: pt.y * canvasSize.pixelRatio };
                     },
+                    logoImage,
                 });
             }
 

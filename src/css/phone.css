@@ -144,6 +144,7 @@
         border: none;
         outline: none;
         font-size: 16px;
+
         /* Prevents iOS zoom */
         color: var(--gray-900);
         background: transparent;
@@ -559,6 +560,7 @@
         border: 1px solid var(--gray-300);
         border-radius: var(--radius-sm);
         font-size: 16px;
+
         /* Prevents iOS zoom */
         color: var(--gray-800);
         background: var(--gray-50);
@@ -687,6 +689,7 @@
         border: 1px solid var(--gray-300);
         border-radius: var(--radius-md);
         font-size: 16px;
+
         /* Prevents iOS zoom */
         color: var(--gray-900);
         background: var(--gray-50);
@@ -811,7 +814,6 @@
     }
 
     @keyframes phone-fab-pulse {
-
         0%,
         100% {
             box-shadow: var(--shadow-control);
@@ -1390,7 +1392,6 @@
 
 /* At desktop/tablet sizes, ensure all phone elements are hidden */
 @media (width > 480px) and ((height >=441px) or (pointer: fine)) {
-
     .phone-search-bar,
     .phone-search-overlay,
     .phone-bottom-sheet,

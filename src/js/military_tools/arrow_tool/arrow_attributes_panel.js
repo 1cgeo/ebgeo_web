@@ -10,6 +10,7 @@ import {
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
 } from '../../tool_manager/helpers/index.js';
+import { splitArrows } from './arrow-merge.js';
 
 /**
  * Create and populate arrow attributes panel with controls
@@ -65,6 +66,12 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         }
     }
 
+    // Merged arrow indicator
+    const isMerged = feature.properties.isMerged && Array.isArray(feature.properties.branches);
+    if (isMerged && selectedFeatures.length === 1) {
+        _addMergedIndicator(panel, feature, arrowControl, selectionManager);
+    }
+
     // Fill color picker
     panel.appendChild(createModernColorPicker({
         label: 'Preenchimento',
@@ -114,10 +121,75 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         }
     }));
 
-    // Geometry section
+    // Geometry section — per-branch for merged, single for normal
+    if (isMerged && selectedFeatures.length === 1) {
+        _addBranchGeometryControls(panel, feature, arrowControl, selectedFeatures);
+    } else {
+        _addSingleGeometryControls(panel, feature, arrowControl, selectedFeatures);
+    }
+
+    // Action buttons
+    panel.appendChild(createModernButtons({
+        selectedFeatures,
+        control: arrowControl,
+        selectionManager,
+        initialPropertiesMap,
+        hasSetDefault: selectedFeatures.length === 1 && !isMerged,
+        onSetDefault: () => arrowControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
+    }));
+}
+
+/**
+ * Add merged arrow indicator with split button
+ */
+function _addMergedIndicator(panel, feature, arrowControl, selectionManager) {
+    const branchCount = feature.properties.branches.length;
+
+    const indicator = document.createElement('div');
+    indicator.className = 'arrow-merged-indicator';
+    indicator.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        margin: 4px 0 8px;
+        background-color: var(--surface-secondary, #f0f4ff);
+        border-radius: 6px;
+        font-size: 12px;
+        color: var(--text-secondary, #555);
+    `;
+
+    const label = document.createElement('span');
+    label.textContent = `Seta combinada (${branchCount} ramos)`;
+    indicator.appendChild(label);
+
+    const splitBtn = document.createElement('button');
+    splitBtn.className = 'arrow-split-btn';
+    splitBtn.textContent = 'Separar';
+    splitBtn.style.cssText = `
+        padding: 4px 10px;
+        border: 1px solid var(--border-color, #ccc);
+        border-radius: 4px;
+        background: var(--surface-primary, white);
+        cursor: pointer;
+        font-size: 11px;
+        color: var(--text-primary, #333);
+    `;
+    splitBtn.addEventListener('click', async () => {
+        await splitArrows(feature, arrowControl.map, selectionManager);
+    });
+    indicator.appendChild(splitBtn);
+
+    panel.appendChild(indicator);
+}
+
+/**
+ * Add geometry controls for a single (non-merged) arrow
+ */
+function _addSingleGeometryControls(panel, feature, arrowControl, selectedFeatures) {
     panel.appendChild(createSectionDivider('Geometria'));
 
-    // Width input
     panel.appendChild(createModernNumericInput({
         label: 'Largura',
         min: 10,
@@ -130,10 +202,8 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         }
     }));
 
-    // Options section
     panel.appendChild(createSectionDivider('Opções'));
 
-    // Airmobile toggle
     panel.appendChild(createModernToggle({
         label: 'Aeromóvel / Aeroterrestre',
         checked: feature.properties.airmobile || false,
@@ -142,7 +212,6 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         }
     }));
 
-    // Show arrow head toggle
     panel.appendChild(createModernToggle({
         label: 'Mostrar Seta',
         checked: feature.properties.showArrowHead !== false,
@@ -150,15 +219,62 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
             arrowControl.updateFeaturesProperty(selectedFeatures, 'showArrowHead', checked);
         }
     }));
+}
 
-    // Action buttons
-    panel.appendChild(createModernButtons({
-        selectedFeatures,
-        control: arrowControl,
-        selectionManager,
-        initialPropertiesMap,
-        hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => arrowControl.setDefaultProperties(feature.properties),
-        hidden: options.hideButtons
-    }));
+/**
+ * Add per-branch geometry controls for merged arrow
+ */
+function _addBranchGeometryControls(panel, feature, arrowControl, selectedFeatures) {
+    const branches = feature.properties.branches;
+
+    branches.forEach((branch, idx) => {
+        panel.appendChild(createSectionDivider(`Ramo ${idx + 1}`));
+
+        panel.appendChild(createModernNumericInput({
+            label: 'Largura',
+            min: 10,
+            max: 10000,
+            step: 1,
+            value: Math.round(branch.width || feature.properties.width || 500),
+            unit: 'm',
+            onChange: (value) => {
+                _updateBranchProperty(feature, arrowControl, selectedFeatures, idx, 'width', value);
+            }
+        }));
+
+        panel.appendChild(createModernToggle({
+            label: 'Aeromóvel / Aeroterrestre',
+            checked: branch.airmobile || false,
+            onChange: (checked) => {
+                _updateBranchProperty(feature, arrowControl, selectedFeatures, idx, 'airmobile', checked);
+            }
+        }));
+
+        panel.appendChild(createModernToggle({
+            label: 'Mostrar Seta',
+            checked: branch.showArrowHead !== false,
+            onChange: (checked) => {
+                _updateBranchProperty(feature, arrowControl, selectedFeatures, idx, 'showArrowHead', checked);
+            }
+        }));
+    });
+}
+
+/**
+ * Update a property on a specific branch and regenerate geometry
+ */
+function _updateBranchProperty(feature, arrowControl, selectedFeatures, branchIndex, property, value) {
+    const branches = feature.properties.branches.map(b => ({ ...b }));
+    branches[branchIndex][property] = value;
+
+    // Update branches array, then regenerate geometry
+    feature.properties.branches = branches;
+
+    // Sync top-level compat props with first branch
+    if (branchIndex === 0) {
+        feature.properties[property] = value;
+    }
+
+    // Regenerate geometry via updateFeaturesProperty (triggers geometry regen for geometric props)
+    arrowControl.updateFeaturesProperty(selectedFeatures, 'branches', branches);
 }

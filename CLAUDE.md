@@ -118,24 +118,9 @@ const ctrl = getControl('myTool');
 
 All CSS in `src/css/` (~27 files, plus `briefing/` subfolder). `design-tokens.css` defines CSS custom properties (layout dimensions, colors, z-index, transitions) — use tokens instead of hardcoded values. Component CSS uses BEM naming and matches JS module names.
 
-## Preview — UI Review
+## Preview
 
-Dev server configured in `.claude/launch.json` (port 3001). After `preview_start("dev")`, navigate manually via `preview_eval` → `window.location.href = 'http://localhost:3001'`. Wait ~3s for MapLibre init.
-
-### Responsive Breakpoints
-```
-preview_resize  preset:"desktop"  → 1280×800
-preview_resize  preset:"tablet"   → 768×1024
-preview_resize  preset:"mobile"   → 375×812
-```
-
-### Verification Priority
-1. `preview_snapshot` — text/structure (preferred for content checks)
-2. `preview_screenshot` — visual layout
-3. `preview_inspect(selector, styles)` — exact CSS values (more accurate than screenshots)
-4. `preview_console_logs` — runtime errors
-
-Always edit source files. `preview_eval` DOM changes are temporary (lost on reload).
+**Do NOT use preview tools.** The user tests UI changes manually. Verify code changes via `npm run lint` and `npm test` only.
 
 ## Git
 

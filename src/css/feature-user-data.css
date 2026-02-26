@@ -717,7 +717,6 @@
 }
 
 @keyframes shake {
-
     0%,
     100% {
         transform: translateX(0);
@@ -811,7 +810,6 @@
    ========================================================================= */
 
 @media (width <=480px) {
-
     /* Gallery uses fewer columns on phone */
     .user-data-gallery {
         grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));

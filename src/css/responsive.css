@@ -125,7 +125,6 @@
    ========================================================================= */
 
 @media (pointer: coarse) {
-
     /* Enforce minimum touch targets on all interactive elements */
     button,
     .btn,
@@ -236,7 +235,6 @@
    ========================================================================= */
 
 @media (width <=1024px) {
-
     /* ----- SIDEBAR ADJUSTMENTS ----- */
     .sidebar-panel {
         width: var(--sidebar-panel-width-tablet, 340px);
@@ -368,7 +366,6 @@
    ========================================================================= */
 
 @media (width <=768px) {
-
     /* ----- SIDEBAR AS OVERLAY ----- */
     .sidebar-panel,
     .feature-panel {
@@ -387,6 +384,7 @@
 
     .search-bar-input {
         font-size: 16px;
+
         /* Prevents iOS zoom on focus */
     }
 
@@ -617,7 +615,6 @@ body.phone-mode .unified-attributes-panel {
    ========================================================================= */
 
 @media (orientation: landscape) and (width <=1024px) {
-
     /* Sidebar takes less vertical space in landscape */
     .sidebar-panel-content,
     .feature-panel-content {
@@ -652,7 +649,6 @@ body.phone-mode .unified-attributes-panel {
 }
 
 @media (orientation: landscape) and (width <=768px) {
-
     /* In small landscape, keep controls more compact */
     .bottom-controls-left {
         flex-direction: row;
@@ -707,7 +703,6 @@ body.phone-mode .unified-attributes-panel {
    ========================================================================= */
 
 @media (orientation: portrait) and (width <=768px) {
-
     /* More vertical space for content in portrait */
     .sidebar-panel-content {
         max-height: calc(100vh - 80px - var(--safe-area-top) - var(--safe-area-bottom));
@@ -725,7 +720,6 @@ body.phone-mode .unified-attributes-panel {
 
 @media (-webkit-min-device-pixel-ratio: 2),
 (resolution >=192dpi) {
-
     /* Slightly thinner borders on high-density displays */
     .sidebar-panel,
     .feature-panel,
@@ -739,7 +733,6 @@ body.phone-mode .unified-attributes-panel {
    ========================================================================= */
 
 @media (prefers-reduced-motion: reduce) {
-
     .sidebar-panel,
     .feature-panel,
     .modal-container,
@@ -761,7 +754,6 @@ body.phone-mode .unified-attributes-panel {
    ========================================================================= */
 
 @media print {
-
     .sidebar-container,
     .toolbar-container,
     .bottom-controls-left,

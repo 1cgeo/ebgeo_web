@@ -109,7 +109,6 @@
 
 /* Touch device optimizations */
 @media (pointer: coarse) {
-
     /* Taller chip for touch */
     .active-tool-chip-inner {
         min-height: var(--touch-target-min, 44px);
@@ -137,7 +136,6 @@
 
 /* Tablet breakpoint */
 @media (width <=1024px) {
-
     /* Adjust offset for tablet panel width */
     .active-tool-chip[data-sidebar-state="expanded"] {
         transform: translateX(calc(-50% + 140px));
@@ -146,7 +144,6 @@
 
 /* Small tablet breakpoint */
 @media (width <=768px) {
-
     /* Chip moves more to center */
     .active-tool-chip[data-sidebar-state="expanded"] {
         transform: translateX(calc(-50% + 100px));
@@ -164,7 +161,6 @@
    These rules handle the edge case where the chip appears during
    a phone-to-tablet resize transition. */
 @media (width <=480px) {
-
     /* Chip positioned below the phone search pill */
     .active-tool-chip {
         top: calc(var(--phone-search-height, 52px) + var(--safe-area-top, 0px) + 8px);

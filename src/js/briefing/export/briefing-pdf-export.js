@@ -26,7 +26,7 @@ import { showError, showSuccess, showWarning } from '../../utilities/index.js';
 import { createTransitionService } from '../presentation/transition.service.js';
 import { validateBriefing } from '../validation/reference-validator.js';
 import { captureSlide } from './slide-capture.service.js';
-import { composePage, composeErrorPage } from './pdf-page-composer.js';
+import { composePage, composeErrorPage, loadLogoDataUrl } from './pdf-page-composer.js';
 
 // ============================================================================
 // STATE
@@ -127,8 +127,11 @@ export async function exportBriefingToPdf(briefingId, map) {
 
         updateProgress(modal, 5, 'Preparando exportação...');
 
-        // ===== Step 5: Import jsPDF lazily =====
-        const { jsPDF } = await import('jspdf');
+        // ===== Step 5: Import jsPDF lazily + pre-load logo =====
+        const [{ jsPDF }, logoDataUrl] = await Promise.all([
+            import('jspdf'),
+            loadLogoDataUrl(),
+        ]);
         const doc = new jsPDF({
             orientation: 'landscape',
             unit: 'mm',
@@ -166,13 +169,14 @@ export async function exportBriefingToPdf(briefingId, map) {
                 const imageDataUrl = await captureSlide(slide, map);
 
                 // Compose PDF page (async: html2canvas renders text panel)
-                await composePage(doc, imageDataUrl, slide, i, totalSlides, briefing.name);
+                await composePage(doc, imageDataUrl, slide, i, totalSlides, briefing.name, logoDataUrl);
 
             } catch (slideError) {
                 console.error(`Error processing slide ${i + 1}:`, slideError);
                 await composeErrorPage(
                     doc, slide, i, totalSlides, briefing.name,
-                    slideError.message || 'Erro desconhecido'
+                    slideError.message || 'Erro desconhecido',
+                    logoDataUrl
                 );
             }
         }

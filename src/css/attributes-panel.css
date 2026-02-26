@@ -252,6 +252,7 @@
 .picker-color {
     width: 100% !important;
     height: 30px;
+
     /* Reduzido de 32px */
     border: none;
     border-radius: 4px;
@@ -314,6 +315,7 @@
 
 .slider-check-input:checked+.slider-check::before {
     transform: translateX(17px);
+
     /* Ajustado para novo tamanho */
 }
 
@@ -1526,7 +1528,6 @@
 }
 
 @media (pointer: coarse) {
-
     /* ===== BOTTOM SHEET LAYOUT ===== */
     .unified-attributes-panel {
         position: fixed;
@@ -1777,7 +1778,6 @@
    ========================================================================= */
 
 @media (width <=480px) {
-
     /* Floating attribute panel — prevent off-screen positioning */
     .unified-attributes-panel {
         position: fixed;

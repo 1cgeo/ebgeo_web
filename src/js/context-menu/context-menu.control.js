@@ -18,6 +18,7 @@ import {
 } from '../store';
 import { EventTypes } from '../events';
 import { fitBounds, ANIMATION_DURATION } from '../map/animation.service.js';
+import { canMergeArrows, canSplitArrows, mergeArrows, splitArrows } from '../military_tools/arrow_tool/arrow-merge.js';
 
 class ContextMenuControl {
     constructor(mouseCoordinatesControl, toolManager, selectionManager) {
@@ -150,6 +151,15 @@ class ContextMenuControl {
             this._contextMenu.appendChild(separator);
         }
 
+        // Arrow merge/split options
+        if (hasSelectedFeatures && !locked) {
+            const arrowMergeAdded = this._addArrowMergeOptions(groupingAnalysis.selectedFeatures);
+            if (arrowMergeAdded) {
+                const separator = this._createSeparator();
+                this._contextMenu.appendChild(separator);
+            }
+        }
+
         if (hasSelectedFeatures && !locked) {
             const layerOptionsAdded = await this._addLayerMoveOptions(groupingAnalysis.selectedFeatures);
             const mapOptionsAdded = await this._addMapMoveOptions(groupingAnalysis.selectedFeatures);
@@ -194,6 +204,55 @@ class ContextMenuControl {
                 () => this._handleUngroup(analysis.groupIds[0])
             );
             this._contextMenu.appendChild(ungroupItem);
+        }
+    }
+
+    /**
+     * Add arrow merge/split options to context menu
+     * @param {Array} selectedFeatures - Currently selected features
+     * @returns {boolean} Whether any option was added
+     */
+    _addArrowMergeOptions(selectedFeatures) {
+        let added = false;
+
+        const mergeCheck = canMergeArrows(selectedFeatures);
+        if (mergeCheck.canMerge) {
+            const mergeItem = this._createMenuItem(
+                'Combinar Setas',
+                () => this._handleMergeArrows(selectedFeatures)
+            );
+            this._contextMenu.appendChild(mergeItem);
+            added = true;
+        }
+
+        const splitCheck = canSplitArrows(selectedFeatures);
+        if (splitCheck.canSplit) {
+            const splitItem = this._createMenuItem(
+                'Separar Setas',
+                () => this._handleSplitArrows(selectedFeatures[0])
+            );
+            this._contextMenu.appendChild(splitItem);
+            added = true;
+        }
+
+        return added;
+    }
+
+    async _handleMergeArrows(features) {
+        try {
+            await mergeArrows(features, this._map, this._selectionManager);
+        } catch (error) {
+            console.error('Error merging arrows:', error);
+            showError('Erro ao combinar setas');
+        }
+    }
+
+    async _handleSplitArrows(mergedFeature) {
+        try {
+            await splitArrows(mergedFeature, this._map, this._selectionManager);
+        } catch (error) {
+            console.error('Error splitting arrows:', error);
+            showError('Erro ao separar setas');
         }
     }
 

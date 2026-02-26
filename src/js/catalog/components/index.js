@@ -5,6 +5,6 @@
  */
 
 export { createCatalogHeader } from './catalog-header.js';
-export { createCatalogFilters } from './catalog-filters.js';
+export { createCatalogFilters, updateFilterCounts } from './catalog-filters.js';
 export { createCatalogGrid } from './catalog-grid.js';
 export { createCatalogCard } from './catalog-card.js';

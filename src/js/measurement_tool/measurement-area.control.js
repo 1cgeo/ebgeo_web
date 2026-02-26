@@ -23,8 +23,8 @@ import {
     clearAllSources,
 } from './measurement-labels.js';
 import { createAreaResultsPanel } from './measurement-results-panel.js';
-import { addFeature, getActiveLayerIdSync, getControl } from '@store';
-import { IDUtils } from '@utils';
+import { addFeature, getActiveLayerIdSync, getControl, isCurrentMapLockedSync } from '@store';
+import { IDUtils, showToast } from '@utils';
 
 // ============================================================================
 // CONTROL CLASS
@@ -225,7 +225,7 @@ export class MeasurementAreaControl {
         this._resultsPanel = createAreaResultsPanel({
             area,
             perimeter,
-            onSave: () => this._saveAsFeature(vertices),
+            onSave: isCurrentMapLockedSync() ? null : () => this._saveAsFeature(vertices),
             onClear: () => {
                 this.deactivate();
                 this.toolManager.deactivateCurrentTool();
@@ -279,6 +279,11 @@ export class MeasurementAreaControl {
     // --- Save as feature ---
 
     async _saveAsFeature(coordinates) {
+        if (isCurrentMapLockedSync()) {
+            showToast('Mapa bloqueado. Desbloqueie para salvar a medição.', 'warning');
+            return;
+        }
+
         const layerId = getActiveLayerIdSync();
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const { area } = calculatePolygonMetrics(coordinates);

@@ -21,6 +21,7 @@ const LEGEND_ROW_HEIGHT = 28;
 const LEGEND_PADDING = 20;
 const SCALE_BAR_HEIGHT = 60;
 const NORTH_ARROW_SIZE = 90;
+const LOGO_SIZE = 90;
 const FONT_FAMILY = 'Arial, Helvetica, sans-serif';
 
 /** Margin added around the map for grid labels (mm). Must match _gridMarginMM in pdf-export.tab.js */
@@ -28,6 +29,34 @@ const GRID_MARGIN_MM = 5;
 
 /** Number of sample points for drawing curved grid lines */
 const GRID_LINE_SAMPLES = 80;
+
+// ============================================================================
+// LOGO LOADER
+// ============================================================================
+
+/** Cached logo Image element */
+let _logoImage = null;
+let _logoLoadAttempted = false;
+
+/**
+ * Pre-loads the EBGeo logo for use in composeLayout.
+ * Returns a cached Image element, or null if loading fails.
+ * @returns {Promise<HTMLImageElement|null>}
+ */
+export async function loadLogoImage() {
+    if (_logoLoadAttempted) return _logoImage;
+    _logoLoadAttempted = true;
+
+    return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+            _logoImage = img;
+            resolve(img);
+        };
+        img.onerror = () => resolve(null);
+        img.src = '/images/logo_ebgeo.webp';
+    });
+}
 
 // ============================================================================
 // PUBLIC API
@@ -70,6 +99,7 @@ export function composeLayout(mapCanvas, options) {
         mapBounds,
         projectionFn,
         dpi = 300,
+        logoImage,
     } = options;
 
     const mapW = mapCanvas.width;
@@ -170,6 +200,17 @@ export function composeLayout(mapCanvas, options) {
         ctx.scale(uiScale, uiScale);
         _drawLegend(ctx, (marginPx + mapW) / uiScale, (marginPx + mapH) / uiScale, legendEntries);
         ctx.restore();
+    }
+
+    // EBGeo logo (top-left of map area)
+    {
+        const logo = logoImage || _logoImage;
+        if (logo) {
+            ctx.save();
+            ctx.scale(uiScale, uiScale);
+            _drawLogo(ctx, logo, marginPx / uiScale, marginPx / uiScale);
+            ctx.restore();
+        }
     }
 
     return canvas;
@@ -407,6 +448,23 @@ function _drawLegend(ctx, canvasWidth, mapBottom, legendEntries) {
 
         offsetY += LEGEND_ROW_HEIGHT;
     }
+}
+
+/**
+ * Draws the EBGeo logo at the top-left corner of the map area.
+ * Discrete with a subtle white background for readability.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {HTMLImageElement} logoImage - Pre-loaded logo image
+ * @param {number} mapLeft - Left X coordinate of map area
+ * @param {number} mapTop - Top Y coordinate of map area
+ */
+function _drawLogo(ctx, logoImage, mapLeft, mapTop) {
+    const size = LOGO_SIZE;
+    const padding = 10;
+    const x = mapLeft + padding;
+    const y = mapTop + padding;
+
+    ctx.drawImage(logoImage, x, y, size, size);
 }
 
 // ============================================================================

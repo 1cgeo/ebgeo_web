@@ -10,10 +10,11 @@ import { CatalogService } from './catalog.service.js';
 import {
     CATALOG_ITEM_TYPES,
     CATALOG_TYPE_CONFIG,
+    CATALOG_MODAL_FILTERS,
     CATALOG_MODAL_ICON
 } from './catalog.constants.js';
 import { createCatalogHeader } from './components/catalog-header.js';
-import { createCatalogFilters } from './components/catalog-filters.js';
+import { createCatalogFilters, updateFilterCounts } from './components/catalog-filters.js';
 import { createCatalogGrid } from './components/catalog-grid.js';
 import { getControl, isCurrentMapLockedSync } from '../store';
 import { EventTypes } from '../events/event_types.js';
@@ -136,7 +137,31 @@ export class CatalogModal extends ModalBase {
      */
     async _loadItems() {
         this._allItems = await CatalogService.getAllItems();
+        updateFilterCounts(this._filtersContainer, this._computeFilterCounts());
         this._applyFilters();
+    }
+
+    /**
+     * Computes item counts per filter type.
+     * Includes hillshade count in analysis filter.
+     * @private
+     * @returns {Object<string, number>}
+     */
+    _computeFilterCounts() {
+        const counts = {};
+
+        CATALOG_MODAL_FILTERS.forEach(type => {
+            let count = this._allItems.filter(item => item.type === type).length;
+
+            // Include hillshade in analysis count
+            if (CATALOG_TYPE_CONFIG[type]?.includesHillshade) {
+                count += this._allItems.filter(item => item.type === CATALOG_ITEM_TYPES.HILLSHADE).length;
+            }
+
+            counts[type] = count;
+        });
+
+        return counts;
     }
 
     /**

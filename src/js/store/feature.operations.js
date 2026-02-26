@@ -133,7 +133,7 @@ export const addFeature = async (type, feature, mapName = null) => {
 
     const targetMap = mapName || mapManager.getCurrentMapName();
     if (memoryStore.lockedMaps.has(targetMap)) {
-        console.warn('Map is locked. Cannot add feature.');
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'addFeature', reason: 'map_locked' });
         return;
     }
 

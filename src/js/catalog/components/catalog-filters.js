@@ -42,6 +42,7 @@ export function createCatalogFilters({ types, activeFilters, onFilterChange }) {
             <span class="filter-indicator"></span>
             <span class="filter-icon">${config.icon}</span>
             <span class="filter-label">${config.label}</span>
+            <span class="filter-count" data-filter-count="${type}"></span>
         `;
 
         button.addEventListener('click', () => {
@@ -56,4 +57,20 @@ export function createCatalogFilters({ types, activeFilters, onFilterChange }) {
     sidebar.appendChild(filtersList);
 
     return sidebar;
+}
+
+/**
+ * Updates the count badges on filter buttons.
+ * @param {HTMLElement} filtersContainer - The filters sidebar element
+ * @param {Object<string, number>} counts - Map of type to item count
+ */
+export function updateFilterCounts(filtersContainer, counts) {
+    if (!filtersContainer) return;
+
+    Object.entries(counts).forEach(([type, count]) => {
+        const badge = filtersContainer.querySelector(`[data-filter-count="${type}"]`);
+        if (badge) {
+            badge.textContent = count;
+        }
+    });
 }
