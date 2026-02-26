@@ -339,7 +339,7 @@ async function createGlbModel(viewer, tilesetConfig) {
         url: tilesetConfig.url,
         modelMatrix,
         minimumPixelSize: tilesetConfig.minimumPixelSize ?? 0,
-        allowPicking: false,
+        allowPicking: true,
     };
     if (tilesetConfig.maximumScale !== undefined) {
         modelOptions.maximumScale = tilesetConfig.maximumScale;

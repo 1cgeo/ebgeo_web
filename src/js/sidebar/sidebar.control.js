@@ -777,6 +777,10 @@ export class SidebarControl {
         // Increment version to invalidate any in-flight async render
         const version = ++this._featureContentVersion;
 
+        // Preserve the currently active tab so we can restore it after rebuild
+        const previousActiveTab = this._featurePanel.getContentContainer()
+            ?.querySelector('.feature-tab-btn.active')?.dataset?.tabId || null;
+
         // Save pending changes from previous feature before replacing content
         this._featurePanel._triggerSave();
 
@@ -797,7 +801,8 @@ export class SidebarControl {
                     featureType,
                     selectionManager: this._selectionManager,
                     uiManager: this._uiManager,
-                    map: this._mapManager?.map
+                    map: this._mapManager?.map,
+                    activeTab: previousActiveTab
                 });
 
                 // Discard if a newer selection happened while awaiting

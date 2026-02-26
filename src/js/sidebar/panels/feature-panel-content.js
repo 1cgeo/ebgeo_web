@@ -16,6 +16,14 @@ import { createGroupTypeSelector } from '../components/group-type-selector.js';
 import { createMultiSelectionActions } from '../components/multi-selection-actions.js';
 import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo } from '../../store';
 import { renderReadOnlyAttributesSection } from '../../user_data/attributes_tab_renderer.js';
+import { COORDINATE_FORMATS, formatCoordinates } from '../../utilities/index.js';
+import { createModernSelect } from '../../tool_manager/helpers/index.js';
+import {
+    calculateSegmentDistance,
+    getBearing,
+    formatDistanceAuto,
+    calculateLineLength
+} from '../../measurement_tool/measurement-geometry.js';
 
 // ============================================================================
 // CONSTANTS
@@ -167,6 +175,154 @@ function createGlobalButtons({ editedTypesState, selectionManager }) {
 }
 
 // ============================================================================
+// AZIMUTES TAB CONTENT
+// ============================================================================
+
+/**
+ * Normalizes a bearing (-180 to 180) to an azimuth (0 to 360).
+ * @param {number} bearing - Bearing in degrees
+ * @returns {number} Azimuth in degrees (0-360)
+ */
+function normalizeAzimuth(bearing) {
+    return bearing < 0 ? bearing + 360 : bearing;
+}
+
+/**
+ * Builds the read-only azimutes tab content showing line decomposition
+ * into starting point coordinate, per-leg azimuth/distance, and total distance.
+ *
+ * @param {HTMLElement} container - Tab content container
+ * @param {Object} feature - Selected line feature (GeoJSON)
+ */
+function buildAzimutesTabContent(container, feature) {
+    const coords = feature.geometry?.coordinates;
+
+    // Edge case: line with insufficient vertices
+    if (!coords || coords.length < 2) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'azimutes-tab__empty';
+        emptyMsg.textContent = 'A linha precisa de pelo menos 2 vértices para calcular azimutes.';
+        container.appendChild(emptyMsg);
+        return;
+    }
+
+    let currentFormat = 'latlong';
+
+    // Coordinate display element (updated on format change)
+    const coordDisplay = document.createElement('div');
+    coordDisplay.className = 'azimutes-tab__coord-value';
+    coordDisplay.textContent = '...';
+
+    /**
+     * Updates the starting point coordinate display.
+     */
+    async function updateStartingPoint() {
+        const [lng, lat] = coords[0];
+        try {
+            const formatted = await formatCoordinates(lat, lng, currentFormat);
+            coordDisplay.textContent = formatted;
+        } catch {
+            coordDisplay.textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        }
+    }
+
+    // 1. Coordinate format selector
+    const formatSelect = createModernSelect({
+        label: 'Formato de Coordenadas',
+        value: currentFormat,
+        options: COORDINATE_FORMATS.map(f => ({ value: f.id, label: f.label })),
+        onChange: async (formatId) => {
+            currentFormat = formatId;
+            await updateStartingPoint();
+        }
+    });
+    container.appendChild(formatSelect);
+
+    // 2. Starting point section
+    const startSection = document.createElement('div');
+    startSection.className = 'azimutes-tab__start-point';
+
+    const startLabel = document.createElement('div');
+    startLabel.className = 'azimutes-tab__section-label';
+    startLabel.textContent = 'Ponto Inicial';
+    startSection.appendChild(startLabel);
+    startSection.appendChild(coordDisplay);
+    container.appendChild(startSection);
+
+    // 3. Legs table
+    const legsContainer = document.createElement('div');
+    legsContainer.className = 'azimutes-tab__legs';
+
+    // Header row
+    const headerRow = document.createElement('div');
+    headerRow.className = 'azimutes-tab__legs-header';
+
+    const headerNum = document.createElement('span');
+    headerNum.textContent = 'Perna';
+    const headerAz = document.createElement('span');
+    headerAz.textContent = 'Azimute';
+    const headerDist = document.createElement('span');
+    headerDist.textContent = 'Distância';
+
+    headerRow.appendChild(headerNum);
+    headerRow.appendChild(headerAz);
+    headerRow.appendChild(headerDist);
+    legsContainer.appendChild(headerRow);
+
+    // Legs body (scrollable)
+    const legsBody = document.createElement('div');
+    legsBody.className = 'azimutes-tab__legs-body';
+
+    for (let i = 0; i < coords.length - 1; i++) {
+        const bearing = getBearing(coords[i], coords[i + 1]);
+        const azimuth = normalizeAzimuth(bearing);
+        const distance = calculateSegmentDistance(coords[i], coords[i + 1]);
+
+        const row = document.createElement('div');
+        row.className = 'azimutes-tab__leg-row';
+
+        const numCell = document.createElement('span');
+        numCell.className = 'azimutes-tab__leg-num';
+        numCell.textContent = `${i + 1}`;
+
+        const azCell = document.createElement('span');
+        azCell.className = 'azimutes-tab__leg-az';
+        azCell.textContent = `${azimuth.toFixed(2)}°`;
+
+        const distCell = document.createElement('span');
+        distCell.className = 'azimutes-tab__leg-dist';
+        distCell.textContent = formatDistanceAuto(distance);
+
+        row.appendChild(numCell);
+        row.appendChild(azCell);
+        row.appendChild(distCell);
+        legsBody.appendChild(row);
+    }
+
+    legsContainer.appendChild(legsBody);
+    container.appendChild(legsContainer);
+
+    // 4. Total distance
+    const totalContainer = document.createElement('div');
+    totalContainer.className = 'azimutes-tab__total';
+
+    const totalLabel = document.createElement('span');
+    totalLabel.className = 'azimutes-tab__total-label';
+    totalLabel.textContent = 'Distância Total';
+
+    const totalValue = document.createElement('span');
+    totalValue.className = 'azimutes-tab__total-value';
+    totalValue.textContent = formatDistanceAuto(calculateLineLength(coords));
+
+    totalContainer.appendChild(totalLabel);
+    totalContainer.appendChild(totalValue);
+    container.appendChild(totalContainer);
+
+    // Initialize coordinate display
+    updateStartingPoint();
+}
+
+// ============================================================================
 // MAIN FUNCTION
 // ============================================================================
 
@@ -185,6 +341,7 @@ function createGlobalButtons({ editedTypesState, selectionManager }) {
  * @param {Object} options.selectionManager - Selection manager instance
  * @param {Object} options.uiManager - UI manager instance
  * @param {Object} [options.map] - MapLibre map instance (for location section)
+ * @param {string} [options.activeTab] - Previously active tab ID to restore after rebuild
  * @returns {Promise<{ element: HTMLElement, cleanup: Function } | null>}
  */
 export async function createFeaturePanelContent({
@@ -192,7 +349,8 @@ export async function createFeaturePanelContent({
     featureType,
     selectionManager,
     uiManager,
-    map
+    map,
+    activeTab
 }) {
     if (!selectedFeatures || selectedFeatures.length === 0) return null;
 
@@ -307,7 +465,8 @@ export async function createFeaturePanelContent({
             const featureTabs = createFeatureTabs({
                 featureId,
                 featureType,
-                singleSelection: isSingleSelection
+                singleSelection: isSingleSelection,
+                activeTab
             });
             container.appendChild(featureTabs.container);
             cleanupFunctions.push(featureTabs.cleanup);
@@ -342,6 +501,15 @@ export async function createFeaturePanelContent({
                     }
                 } catch (error) {
                     console.error(`Error creating parameters panel for ${featureType}:`, error);
+                }
+            }
+
+            // Inject azimutes content into Azimutes tab (for line features, single selection only)
+            if (featureTabs.azimutesTab && isSingleSelection) {
+                try {
+                    buildAzimutesTabContent(featureTabs.azimutesTab, selectedFeatures[0]);
+                } catch (error) {
+                    console.error(`Error creating azimutes tab for ${featureType}:`, error);
                 }
             }
         } else {
