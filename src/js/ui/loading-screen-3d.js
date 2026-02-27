@@ -22,7 +22,7 @@ function ensureLoadingElement() {
     el.setAttribute('aria-label', 'Carregando visualizador 3D');
     el.innerHTML = `
         <div class="loading-3d-content">
-            <img src="/images/logo_ebgeo.webp" alt="EBGeo" class="loading-3d-logo">
+            <img src="./images/logo_ebgeo.webp" alt="EBGeo" class="loading-3d-logo">
             <div class="loading-3d-bar">
                 <div class="loading-3d-bar-fill"></div>
             </div>
