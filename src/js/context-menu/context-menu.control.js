@@ -20,6 +20,17 @@ import { EventTypes } from '../events';
 import { fitBounds, ANIMATION_DURATION } from '../map/animation.service.js';
 import { canMergeArrows, canSplitArrows, mergeArrows, splitArrows } from '../military_tools/arrow_tool/arrow-merge.js';
 
+/** Pure property check for line split eligibility (no heavy imports) */
+function canSplitLineCheck(selectedFeatures) {
+    if (!selectedFeatures || selectedFeatures.length !== 1) return { canSplit: false };
+    const f = selectedFeatures[0];
+    return {
+        canSplit: f.properties?.source === 'line' &&
+                  f.geometry?.coordinates?.length >= 2 &&
+                  !f.properties?.bloqueado
+    };
+}
+
 class ContextMenuControl {
     constructor(mouseCoordinatesControl, toolManager, selectionManager) {
         this._map = null;
@@ -160,6 +171,14 @@ class ContextMenuControl {
             }
         }
 
+        // Line split option
+        if (hasSelectedFeatures && !locked) {
+            const lineSplitAdded = this._addLineSplitOption(groupingAnalysis.selectedFeatures);
+            if (lineSplitAdded) {
+                this._contextMenu.appendChild(this._createSeparator());
+            }
+        }
+
         if (hasSelectedFeatures && !locked) {
             const layerOptionsAdded = await this._addLayerMoveOptions(groupingAnalysis.selectedFeatures);
             const mapOptionsAdded = await this._addMapMoveOptions(groupingAnalysis.selectedFeatures);
@@ -253,6 +272,33 @@ class ContextMenuControl {
         } catch (error) {
             console.error('Error splitting arrows:', error);
             showError('Erro ao separar setas');
+        }
+    }
+
+    /**
+     * Add line split option to context menu
+     * @param {Array} selectedFeatures - Currently selected features
+     * @returns {boolean} Whether the option was added
+     */
+    _addLineSplitOption(selectedFeatures) {
+        const check = canSplitLineCheck(selectedFeatures);
+        if (!check.canSplit) return false;
+
+        const splitItem = this._createMenuItem(
+            'Cortar Linha',
+            () => this._handleSplitLine(selectedFeatures[0])
+        );
+        this._contextMenu.appendChild(splitItem);
+        return true;
+    }
+
+    async _handleSplitLine(lineFeature) {
+        try {
+            const { activateSplitMode } = await import('../draw_tools/line_tool/line-split.js');
+            await activateSplitMode(lineFeature, this._map, this._selectionManager);
+        } catch (error) {
+            console.error('Error splitting line:', error);
+            showError('Erro ao cortar linha');
         }
     }
 

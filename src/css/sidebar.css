@@ -3517,7 +3517,6 @@ body:has(.sidebar-container) .unified-attributes-panel {
 
 /* Touch device optimizations */
 @media (pointer: coarse) {
-
     /* Larger touch targets for sidebar navigation */
     .sidebar-nav-btn {
         min-height: 60px;
@@ -3594,6 +3593,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
         width: 32px;
         height: 32px;
         opacity: 1;
+
         /* Always visible on touch */
     }
 
@@ -3638,7 +3638,6 @@ body:has(.sidebar-container) .unified-attributes-panel {
 
 /* Tablet breakpoint adjustments */
 @media (width <=1024px) {
-
     /* Narrower panel on tablets */
     .sidebar-panel,
     .feature-panel {
@@ -3696,7 +3695,6 @@ body:has(.sidebar-container) .unified-attributes-panel {
 
 /* Small tablet / large phone breakpoint */
 @media (width <=768px) {
-
     /* Panel takes more width */
     .sidebar-panel,
     .feature-panel {
@@ -3721,7 +3719,6 @@ body:has(.sidebar-container) .unified-attributes-panel {
 
 /* Landscape mode on tablets */
 @media (orientation: landscape) and (width <=1024px) {
-
     /* Limit panel height in landscape */
     .sidebar-panel-content,
     .feature-panel-content {
@@ -3736,7 +3733,6 @@ body:has(.sidebar-container) .unified-attributes-panel {
 
 /* Portrait mode specific */
 @media (orientation: portrait) and (width <=768px) {
-
     /* More space for content */
     .sidebar-panel-content {
         padding-bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));

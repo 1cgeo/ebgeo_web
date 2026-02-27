@@ -16,9 +16,9 @@ const config = {
     grid: false,                  // Habilita/desabilita grid
   },
 
-  url_paths: {
-    url: 'IP:PORT', // endereço da aplicação. Colocar porta se necessário
-    prefix_name: '' // nome da aplicação na url, como aman, arandu, etc. Deixar vazio para testes locais
+  // ===== SERVICES =====
+  services: {
+    tileServerUrl: ''  // URL do servidor de tiles vetoriais (ex: 'http://10.0.0.5:7800')
   },
 
   // ===== SEARCH SETTINGS =====
@@ -101,7 +101,7 @@ const config = {
       //   description: 'Malha rodoviária federal',
       //   source: {
       //     type: 'vector',
-      //     url: 'http://IP:PORT/rodovias'
+      //     url: 'http://TILE_SERVER/rodovias'
       //   },
       //   sourceLayer: 'rodovias',
       //   minzoom: 4,
@@ -130,7 +130,7 @@ const config = {
       //   description: 'Divisão político-administrativa municipal',
       //   source: {
       //     type: 'vector',
-      //     url: 'http://IP:PORT/limites_municipais'
+      //     url: 'http://TILE_SERVER/limites_municipais'
       //   },
       //   sourceLayer: 'municipios',
       //   minzoom: 4,
@@ -162,13 +162,13 @@ const config = {
       //   thumbnail: null,  // Usa thumbnail padrão
       //   source: {
       //     type: 'vector',
-      //     url: 'http://IP:PORT/moldura_25k'
+      //     url: 'http://TILE_SERVER/moldura_25k'
       //   },
       //   sourceLayer: 'situacao_25k',
       //   // labelSource é OPCIONAL - se omitido, usa o mesmo source principal
       //   labelSource: {
       //     type: 'vector',
-      //     url: 'http://IP:PORT/moldura_ponto_25k'
+      //     url: 'http://TILE_SERVER/moldura_ponto_25k'
       //   },
       //   labelSourceLayer: 'situacao_ponto_25k',
       //   minzoom: 5,
@@ -354,6 +354,7 @@ const config = {
       id: "PCL",
       name: "Posto de Comando Logístico",
       description: "Modelo 3D do Posto de Comando Logístico capturado por drone",
+      keywords: ["PCL", "posto comando", "logística", "drone"],  // Optional: extra searchable terms
       data_captura: "15/03/2024",
       local: "Resende, RJ",
       previewVideo: "/3d/videos/preview.webm",
@@ -371,6 +372,7 @@ const config = {
       id: "hangar-01",
       name: "Hangar Principal",
       description: "Modelo 3D do hangar",
+      // keywords: ["TGL", "hangar"],           // Optional: extra searchable terms
       url: "/3d/models/TGL.glb",             // Path to .glb file
       position: {                                // Where to place the model
         lon: -44.42332,

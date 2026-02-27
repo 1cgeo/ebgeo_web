@@ -19,6 +19,7 @@ import { CATALOG_ITEM_TYPES, DEFAULT_THUMBNAILS } from './catalog.constants.js';
  * @property {string} [date] - Capture date (DD/MM/YYYY)
  * @property {string} [local] - Location (city, state) e.g. "Porto Alegre, RS"
  * @property {Object} [location] - Coordinates for zoom
+ * @property {string[]} [keywords] - Optional searchable keywords
  * @property {Object} originalData - Original config data
  */
 
@@ -88,9 +89,20 @@ export class CatalogService {
             const description = this._normalizeText(item.description || '');
             const local = this._normalizeText(item.local || '');
 
-            return name.includes(normalizedQuery) ||
-                   description.includes(normalizedQuery) ||
-                   local.includes(normalizedQuery);
+            if (name.includes(normalizedQuery) ||
+                description.includes(normalizedQuery) ||
+                local.includes(normalizedQuery)) {
+                return true;
+            }
+
+            // Search through optional keywords array
+            if (item.keywords?.length) {
+                return item.keywords.some(kw =>
+                    this._normalizeText(kw).includes(normalizedQuery)
+                );
+            }
+
+            return false;
         });
     }
 
@@ -146,6 +158,7 @@ export class CatalogService {
             type: CATALOG_ITEM_TYPES.MODEL_3D,
             name: tileset.name,
             description: tileset.description || null,
+            keywords: tileset.keywords || null,
             thumbnail: tileset.previewThumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.MODEL_3D],
             date: tileset.data_captura || null,
             local: tileset.local || null,
@@ -177,6 +190,7 @@ export class CatalogService {
                 type: CATALOG_ITEM_TYPES.PANORAMIC_360,
                 name: p.name,
                 description: p.description || null,
+                keywords: p.keywords || null,
                 thumbnail: p.previewThumbnail
                     ? `${serviceUrl}${p.previewThumbnail}`
                     : DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.PANORAMIC_360],

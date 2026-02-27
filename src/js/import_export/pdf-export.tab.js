@@ -1,6 +1,5 @@
 // Path: js/import_export/pdf-export.tab.js
 /* global initGdalJs */
-import config from '../config.js'
 import { showError } from '../utilities/toast_service.js'
 import { deepClone } from '../utilities/deep-utils.js'
 
@@ -1039,17 +1038,12 @@ export default class PDFExportTab {
 
     /**
      * Builds the base path for GDAL WASM files.
+     * Uses Vite's BASE_URL to resolve the correct path in any deployment.
      * @returns {string} GDAL directory path
      */
     _getGdalPath() {
-        let gdalBasePath;
-        if (config.url_paths.url && config.url_paths.url !== 'IP:PORT') {
-            const protocol = window.location.protocol;
-            gdalBasePath = `${protocol}//${config.url_paths.url}${config.url_paths.prefix_name ? `/${config.url_paths.prefix_name}` : ''}`;
-        } else {
-            gdalBasePath = window.location.origin;
-        }
-        return `${gdalBasePath}/vendors/gdal`;
+        const base = import.meta.env.BASE_URL || '/';
+        return `${window.location.origin}${base}vendors/gdal`;
     }
 
     /**

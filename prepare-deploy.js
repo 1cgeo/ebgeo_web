@@ -30,9 +30,9 @@ const config = {
     frame: false,
   },
 
-  url_paths: {
-    url: '',
-    prefix_name: ''
+  // ===== SERVICES =====
+  services: {
+    tileServerUrl: ''
   },
 
   // ===== BUSCA DESABILITADA =====

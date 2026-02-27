@@ -27,3 +27,10 @@ export {
     getAverageSlope,
     getMaxSlope
 } from './line_profile.js';
+
+// Split utilities
+export {
+    canSplitLine,
+    splitLineAtPoint,
+    activateSplitMode
+} from './line-split.js';

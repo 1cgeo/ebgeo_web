@@ -177,7 +177,10 @@ export function search3DModels(query) {
     const normalizedQuery = query.toLowerCase();
 
     return config.tilesets
-        .filter(tileset => tileset.name?.toLowerCase().includes(normalizedQuery))
+        .filter(tileset =>
+            tileset.name?.toLowerCase().includes(normalizedQuery) ||
+            tileset.keywords?.some(kw => kw.toLowerCase().includes(normalizedQuery))
+        )
         .slice(0, MAX_RESULTS.models3d)
         .map(tileset => ({
             type: '3d-model',
@@ -208,7 +211,10 @@ export async function searchStreetViewMarkers(query) {
         const normalizedQuery = query.toLowerCase();
 
         return projects
-            .filter(p => p.name?.toLowerCase().includes(normalizedQuery))
+            .filter(p =>
+                p.name?.toLowerCase().includes(normalizedQuery) ||
+                p.keywords?.some(kw => kw.toLowerCase().includes(normalizedQuery))
+            )
             .slice(0, MAX_RESULTS.streetview)
             .map(p => ({
                 type: 'streetview-marker',

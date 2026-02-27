@@ -313,6 +313,19 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
             closeAllFeatureDropdowns(true);
         });
         dropdown.appendChild(convertToBoundaryButton);
+
+        const splitLineButton = document.createElement('button');
+        splitLineButton.className = 'feature-menu-button';
+        splitLineButton.textContent = 'Cortar Linha';
+
+        splitLineButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeAllFeatureDropdowns(true);
+            const { activateSplitMode } = await import('../../draw_tools/line_tool/line-split.js');
+            await activateSplitMode(currentFeature, selectionManager.map, selectionManager);
+        });
+        dropdown.appendChild(splitLineButton);
     }
 
     // Add reverse option for arrow features (single selection only)

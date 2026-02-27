@@ -1,4 +1,6 @@
 // Path: js/grid/grid-layers.config.js
+import config from '../config.js';
+
 export const GRID_LAYERS = {
   latlong: [
     'grid_vertical_4326_25k',
@@ -39,65 +41,29 @@ export const GRID_LAYERS = {
 };
 
 /**
+ * Grid vector tile source names (one pair per scale).
+ */
+const GRID_SOURCES = [
+    'grid_4326_25k', 'grid_utm_25k',
+    'grid_4326_50k', 'grid_utm_50k',
+    'grid_4326_100k', 'grid_utm_100k',
+    'grid_4326_250k', 'grid_utm_250k',
+];
+
+/**
  * Initializes all grid layers and sources on the map
  * @param {Object} map - MapLibre map instance
  */
 export function initGridLayers(map) {
 
-    if(!map.getSource('grid_4326_25k')){
-    map.addSource('grid_4326_25k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_4326_25k'
-    });
-    }
-
-    if(!map.getSource('grid_utm_25k')){
-    map.addSource('grid_utm_25k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_utm_25k'
-    });
-    }
-
-    if(!map.getSource('grid_4326_50k')){
-    map.addSource('grid_4326_50k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_4326_50k'
-    });
-    }
-
-    if(!map.getSource('grid_utm_50k')){
-    map.addSource('grid_utm_50k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_utm_50k'
-    });
-    }
-
-    if(!map.getSource('grid_4326_100k')){
-    map.addSource('grid_4326_100k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_4326_100k'
-    });
-    }
-
-    if(!map.getSource('grid_utm_100k')){
-    map.addSource('grid_utm_100k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_utm_100k'
-    });
-    }
-
-    if(!map.getSource('grid_4326_250k')){
-    map.addSource('grid_4326_250k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_4326_250k'
-    });
-    }
-
-    if(!map.getSource('grid_utm_250k')){
-    map.addSource('grid_utm_250k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_utm_250k'
-    });
+    const baseUrl = config.services.tileServerUrl;
+    for (const name of GRID_SOURCES) {
+        if (!map.getSource(name)) {
+            map.addSource(name, {
+                type: 'vector',
+                url: `${baseUrl}/${name}`
+            });
+        }
     }
 
 
