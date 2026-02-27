@@ -11,6 +11,7 @@
  */
 
 import proj4 from 'proj4';
+import { EBGEO_LOGO_BASE64 } from '../utilities/logo-base64.js';
 
 // ============================================================================
 // CONSTANTS
@@ -36,25 +37,20 @@ const GRID_LINE_SAMPLES = 80;
 
 /** Cached logo Image element */
 let _logoImage = null;
-let _logoLoadAttempted = false;
 
 /**
- * Pre-loads the EBGeo logo for use in composeLayout.
- * Returns a cached Image element, or null if loading fails.
- * @returns {Promise<HTMLImageElement|null>}
+ * Returns the EBGeo logo as an HTMLImageElement loaded from the embedded Base64.
+ * Uses a cache so the Image is only decoded once.
+ * @returns {Promise<HTMLImageElement>}
  */
-export async function loadLogoImage() {
-    if (_logoLoadAttempted) return _logoImage;
-    _logoLoadAttempted = true;
+export function loadLogoImage() {
+    if (_logoImage) return Promise.resolve(_logoImage);
 
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
         const img = new Image();
-        img.onload = () => {
-            _logoImage = img;
-            resolve(img);
-        };
-        img.onerror = () => resolve(null);
-        img.src = '/images/logo_ebgeo.webp';
+        img.onload = () => { _logoImage = img; resolve(img); };
+        img.onerror = reject;
+        img.src = EBGEO_LOGO_BASE64;
     });
 }
 
@@ -476,15 +472,15 @@ function _drawLogo(ctx, logoImage, mapLeft, mapTop) {
  * Each scale has its own unique UTM and degree interval.
  */
 const GRID_SPACING = {
-    1000:    { utmMeters: 50,     degreesInterval: 0.0005 },
-    5000:    { utmMeters: 200,    degreesInterval: 0.002 },
-    10000:   { utmMeters: 500,    degreesInterval: 0.005 },
-    25000:   { utmMeters: 1000,   degreesInterval: 0.01 },
-    50000:   { utmMeters: 2000,   degreesInterval: 0.025 },
-    100000:  { utmMeters: 5000,   degreesInterval: 0.05 },
-    250000:  { utmMeters: 10000,  degreesInterval: 0.1 },
-    500000:  { utmMeters: 20000,  degreesInterval: 0.25 },
-    1000000: { utmMeters: 50000,  degreesInterval: 0.5 },
+    1000: { utmMeters: 50, degreesInterval: 0.0005 },
+    5000: { utmMeters: 200, degreesInterval: 0.002 },
+    10000: { utmMeters: 500, degreesInterval: 0.005 },
+    25000: { utmMeters: 1000, degreesInterval: 0.01 },
+    50000: { utmMeters: 2000, degreesInterval: 0.025 },
+    100000: { utmMeters: 5000, degreesInterval: 0.05 },
+    250000: { utmMeters: 10000, degreesInterval: 0.1 },
+    500000: { utmMeters: 20000, degreesInterval: 0.25 },
+    1000000: { utmMeters: 50000, degreesInterval: 0.5 },
     2500000: { utmMeters: 100000, degreesInterval: 1.0 },
     5000000: { utmMeters: 200000, degreesInterval: 2.0 },
 };

@@ -224,15 +224,15 @@ const config = {
   // ===== CONFIGURAÇÕES DO MAPA 2D =====
   map2d: {
     bounds: [
-      [-58.1,-33.4], // [longitude_min, latitude_min]
-      [-48.7,-27.1] // [longitude_max, latitude_max]
+      [-58.1, -33.4], // [longitude_min, latitude_min]
+      [-48.7, -27.1] // [longitude_max, latitude_max]
     ],
     minZoom: 1,              // Zoom mínimo permitido
     maxZoom: 17.9,           // Zoom máximo permitido
     maxPitch: 65,            // Inclinação máxima da câmera (0-60 graus)
 
     // Modo Globo
-    globe_projection:true,
+    globe_projection: true,
 
     // Configurações avançadas de carregamento de tiles
     sourceTileLodParams: [5, 6.0],  // [threshold, factor] para otimização de tiles
@@ -365,7 +365,7 @@ const config = {
         height: 1000
       }
     },
-    //===== GLB MODEL EXAMPLE =====
+    // ===== GLB MODEL EXAMPLE =====
     {
       type: 'glb',                              // Required for GLB models
       id: "hangar-01",
@@ -386,7 +386,7 @@ const config = {
       maximumScale: 20000,                       // Max scale (optional)
       data_captura: "20/01/2025",
       local: "Resende, RJ",
-      //previewThumbnail: "/3d/models/hangar-thumb.jpg",
+      // previewThumbnail: "/3d/models/hangar-thumb.jpg",
       locate: {                                  // Camera fly-to position
         lon: -44.42332,
         lat: -22.43976,

@@ -28,6 +28,7 @@ import {
     removeElement
 } from '../../utilities/event-cleanup.js';
 import { sanitizeQuillHtml } from '../../utilities/quill-helpers.js';
+import { EBGEO_LOGO_BASE64 } from '../../utilities/logo-base64.js';
 
 // ============================================================================
 // CONSTANTS
@@ -371,7 +372,7 @@ export class PresentationTextPanel {
         // EBGeo logo branding (bottom of panel)
         const logoEl = document.createElement('img');
         logoEl.className = 'briefing-text-panel__logo';
-        logoEl.src = '/images/logo_ebgeo.webp';
+        logoEl.src = EBGEO_LOGO_BASE64;
         logoEl.alt = 'EBGeo';
         this._container.appendChild(logoEl);
 

@@ -689,8 +689,11 @@ export function initializeApp(map, controlsPromise) {
 
         // Handle deep link from URL hash (opens 360/3D viewer if hash present)
         try {
-            const { handleDeepLink } = await import('./deep-link/deep-link.js');
+            const { handleDeepLink, initDeepLinkListener } = await import('./deep-link/deep-link.js');
             await handleDeepLink();
+            // Start listening for future hash changes so pasting a shared URL
+            // into an already-open tab also opens the correct viewer.
+            initDeepLinkListener();
         } catch (error) {
             console.warn('[deep-link] Failed to handle deep link:', error);
         }
@@ -714,7 +717,7 @@ export function setupCleanupHandlers(destroyables) {
         console.error('JavaScript error:', event.error);
     });
 
-    window.addEventListener('beforeunload', () => {
+    window.addEventListener('beforeunload', async () => {
         destroyables.keyboardShortcuts.destroy();
         destroyables.snappingService.destroy();
         destroyables.chipsComponent.destroy();
@@ -730,5 +733,9 @@ export function setupCleanupHandlers(destroyables) {
         destroyables.dragDropHandler.disable();
         destroyables.dragRotateHandler.disable();
         destroyables.phoneLayout.destroy();
+        try {
+            const { destroyDeepLinkListener } = await import('./deep-link/deep-link.js');
+            destroyDeepLinkListener();
+        } catch { /* ignore */ }
     });
 }

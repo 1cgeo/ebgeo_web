@@ -10,6 +10,7 @@ import config from '../config.js';
 import { getEventBus, getAllMarkers, getAllMeasurements, getAllViewsheds } from '../store';
 import { EventTypes } from '../events/event_types.js';
 import { setupCleanup, subscribe, addDomListener, trackTimer, cleanup } from '../utilities/event-cleanup.js';
+import { showLoading3DScreen, hideLoading3DScreen } from '../ui/loading-screen-3d.js';
 
 // Global flag to prevent click propagation between overlapping marker layers
 // (3D models, street view, saved photos)
@@ -800,6 +801,9 @@ class Add3DModelsViewerControl {
             this.removePreviewPopup();
             this.setFullMap(false);
 
+            // Show loading overlay while Cesium initializes (first open only)
+            showLoading3DScreen();
+
             const closeBtn = document.getElementById('close-3d-viewer-button');
             if (closeBtn) {
                 closeBtn.style.display = 'flex';
@@ -812,6 +816,7 @@ class Add3DModelsViewerControl {
 
         } catch (error) {
             console.error('Error opening 3D viewer:', error);
+            hideLoading3DScreen();
             this.setFullMap(true);
             const closeBtn = document.getElementById('close-3d-viewer-button');
             if (closeBtn) closeBtn.style.display = 'none';

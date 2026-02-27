@@ -24,6 +24,7 @@ import {
     formatDistanceAuto,
     calculateLineLength
 } from '../../measurement_tool/measurement-geometry.js';
+import { calculateMagneticDeclination } from '@utils/geomagnetic/wmm_calculator.js';
 
 // ============================================================================
 // CONSTANTS
@@ -188,8 +189,40 @@ function normalizeAzimuth(bearing) {
 }
 
 /**
+ * Copies text to clipboard with a brief "Copiado!" visual feedback on the target element.
+ * @param {string} text - Text to copy
+ * @param {HTMLElement} el - Element to show feedback on (textContent temporarily replaced)
+ */
+async function copyCoordToClipboard(text, el) {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+    }
+    if (el) {
+        const originalText = el.textContent;
+        el.textContent = 'Copiado!';
+        el.classList.add('azimutes-tab__coord-copied');
+        setTimeout(() => {
+            el.textContent = originalText;
+            el.classList.remove('azimutes-tab__coord-copied');
+        }, 1500);
+    }
+}
+
+
+/**
  * Builds the read-only azimutes tab content showing line decomposition
  * into starting point coordinate, per-leg azimuth/distance, and total distance.
+ * Includes:
+ *  - Copy-to-clipboard on the starting point coordinate
+ *  - Optional magnetic declination correction (NM/NV toggle + auto WMM2025)
  *
  * @param {HTMLElement} container - Tab content container
  * @param {Object} feature - Selected line feature (GeoJSON)
@@ -206,27 +239,93 @@ function buildAzimutesTabContent(container, feature) {
         return;
     }
 
+    // ── State ────────────────────────────────────────────────────────────────
     let currentFormat = 'latlong';
+    let currentCoordText = '';
+    let useMagnetic = false;          // NM toggle
+    let declination = 0;             // magnetic declination in degrees
+    let autoDeclinationValue = null; // last WMM-calculated value
 
-    // Coordinate display element (updated on format change)
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /** Returns azimuth with magnetic correction if NM is active */
+    function applyDeclination(trueBearing) {
+        if (!useMagnetic) return trueBearing;
+        // Compass bearing  = true azimuth − declination
+        // (E decl > 0, W decl < 0 – same convention as WMM output)
+        return normalizeAzimuth(trueBearing - declination);
+    }
+
+    // ── Coordinate display (starting point) ──────────────────────────────────
     const coordDisplay = document.createElement('div');
-    coordDisplay.className = 'azimutes-tab__coord-value';
+    coordDisplay.className = 'azimutes-tab__coord-value azimutes-tab__coord-clickable';
+    coordDisplay.title = 'Clique para copiar';
     coordDisplay.textContent = '...';
 
-    /**
-     * Updates the starting point coordinate display.
-     */
     async function updateStartingPoint() {
         const [lng, lat] = coords[0];
         try {
-            const formatted = await formatCoordinates(lat, lng, currentFormat);
-            coordDisplay.textContent = formatted;
+            currentCoordText = await formatCoordinates(lat, lng, currentFormat);
         } catch {
-            coordDisplay.textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+            currentCoordText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        }
+        coordDisplay.textContent = currentCoordText;
+    }
+
+    coordDisplay.addEventListener('click', () => {
+        copyCoordToClipboard(currentCoordText, coordDisplay);
+    });
+
+    // ── Legs body (built / rebuilt when declination changes) ─────────────────
+    const legsBody = document.createElement('div');
+    legsBody.className = 'azimutes-tab__legs-body';
+
+    function buildLegsBody() {
+        legsBody.innerHTML = '';
+        for (let i = 0; i < coords.length - 1; i++) {
+            const bearing = getBearing(coords[i], coords[i + 1]);
+            const azimuth = applyDeclination(normalizeAzimuth(bearing));
+            const distance = calculateSegmentDistance(coords[i], coords[i + 1]);
+
+            const row = document.createElement('div');
+            row.className = 'azimutes-tab__leg-row';
+
+            const numCell = document.createElement('span');
+            numCell.className = 'azimutes-tab__leg-num';
+            numCell.textContent = `${i + 1}`;
+
+            const azCell = document.createElement('span');
+            azCell.className = 'azimutes-tab__leg-az';
+            azCell.textContent = `${azimuth.toFixed(2)}°`;
+
+            const distCell = document.createElement('span');
+            distCell.className = 'azimutes-tab__leg-dist';
+            distCell.textContent = formatDistanceAuto(distance);
+
+            row.appendChild(numCell);
+            row.appendChild(azCell);
+            row.appendChild(distCell);
+            legsBody.appendChild(row);
         }
     }
 
-    // 1. Coordinate format selector
+    // ── Declination status line ───────────────────────────────────────────────
+    const declStatus = document.createElement('div');
+    declStatus.className = 'azimutes-tab__decl-status';
+
+    function updateDeclStatus() {
+        if (!useMagnetic) {
+            declStatus.textContent = '';
+            return;
+        }
+        const sign = declination > 0 ? '+' : '';
+        const autoTip = autoDeclinationValue != null
+            ? ` (auto WMM2025: ${autoDeclinationValue > 0 ? '+' : ''}${autoDeclinationValue.toFixed(2)}°)`
+            : '';
+        declStatus.textContent = `▸ Correção magnética ativa: ${sign}${declination.toFixed(2)}°${autoTip}`;
+    }
+
+    // ── 1. Coordinate format selector ────────────────────────────────────────
     const formatSelect = createModernSelect({
         label: 'Formato de Coordenadas',
         value: currentFormat,
@@ -238,18 +337,146 @@ function buildAzimutesTabContent(container, feature) {
     });
     container.appendChild(formatSelect);
 
-    // 2. Starting point section
+    // ── 2. Starting point section ─────────────────────────────────────────────
     const startSection = document.createElement('div');
     startSection.className = 'azimutes-tab__start-point';
+
+    const startLabelRow = document.createElement('div');
+    startLabelRow.className = 'azimutes-tab__start-label-row';
 
     const startLabel = document.createElement('div');
     startLabel.className = 'azimutes-tab__section-label';
     startLabel.textContent = 'Ponto Inicial';
-    startSection.appendChild(startLabel);
+    startLabelRow.appendChild(startLabel);
+
+    // Copy icon button
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'azimutes-tab__copy-btn';
+    copyBtn.title = 'Copiar coordenadas';
+    copyBtn.type = 'button';
+    copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+    copyBtn.addEventListener('click', () => copyCoordToClipboard(currentCoordText, coordDisplay));
+    startLabelRow.appendChild(copyBtn);
+
+    startSection.appendChild(startLabelRow);
     startSection.appendChild(coordDisplay);
     container.appendChild(startSection);
 
-    // 3. Legs table
+    // ── 3. Magnetic Declination section ──────────────────────────────────────
+    const declSection = document.createElement('div');
+    declSection.className = 'azimutes-tab__decl-section';
+
+    const declHeaderRow = document.createElement('div');
+    declHeaderRow.className = 'azimutes-tab__decl-header';
+
+    const declTitleLabel = document.createElement('div');
+    declTitleLabel.className = 'azimutes-tab__section-label';
+    declTitleLabel.textContent = 'Declinação Magnética';
+    declHeaderRow.appendChild(declTitleLabel);
+
+    // NM / NV toggle buttons
+    const northToggle = document.createElement('div');
+    northToggle.className = 'azimutes-tab__north-toggle';
+
+    const nmBtn = document.createElement('button');
+    nmBtn.type = 'button';
+    nmBtn.className = 'azimutes-tab__north-btn azimutes-tab__north-btn--nm';
+    nmBtn.title = 'Norte Magnético (aplicar declinação)';
+    nmBtn.textContent = 'NM';
+
+    const nvBtn = document.createElement('button');
+    nvBtn.type = 'button';
+    nvBtn.className = 'azimutes-tab__north-btn azimutes-tab__north-btn--nv active';
+    nvBtn.title = 'Norte Verdadeiro (sem correção)';
+    nvBtn.textContent = 'NV';
+
+    northToggle.appendChild(nmBtn);
+    northToggle.appendChild(nvBtn);
+    declHeaderRow.appendChild(northToggle);
+    declSection.appendChild(declHeaderRow);
+
+    // Declination input row (visible only when NM is active)
+    const declInputRow = document.createElement('div');
+    declInputRow.className = 'azimutes-tab__decl-input-row';
+    declInputRow.style.display = 'none';
+
+    const declLabel2 = document.createElement('span');
+    declLabel2.className = 'azimutes-tab__decl-label';
+    declLabel2.textContent = 'Decl:';
+    declInputRow.appendChild(declLabel2);
+
+    const declInput = document.createElement('input');
+    declInput.type = 'number';
+    declInput.className = 'azimutes-tab__decl-input';
+    declInput.value = 0;
+    declInput.step = '0.5';
+    declInput.title = 'Oeste (−) / Leste (+) em graus';
+    declInputRow.appendChild(declInput);
+
+    const declUnit = document.createElement('span');
+    declUnit.className = 'azimutes-tab__decl-unit';
+    declUnit.textContent = '°';
+    declInputRow.appendChild(declUnit);
+
+    // Auto-calculate button (WMM2025)
+    const autoBtn = document.createElement('button');
+    autoBtn.type = 'button';
+    autoBtn.className = 'azimutes-tab__auto-decl-btn';
+    autoBtn.title = 'Calcular declinação automática pelo modelo WMM2025';
+    autoBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>`;
+    declInputRow.appendChild(autoBtn);
+
+    declSection.appendChild(declInputRow);
+    declSection.appendChild(declStatus);
+    container.appendChild(declSection);
+
+    // ── Declination interaction ───────────────────────────────────────────────
+
+    function setMagnetic(active) {
+        useMagnetic = active;
+        nmBtn.classList.toggle('active', active);
+        nvBtn.classList.toggle('active', !active);
+        declInputRow.style.display = active ? 'flex' : 'none';
+        declSection.classList.toggle('azimutes-tab__decl-section--active', active && declination !== 0);
+        buildLegsBody();
+        updateDeclStatus();
+    }
+
+    nmBtn.addEventListener('click', () => setMagnetic(true));
+    nvBtn.addEventListener('click', () => setMagnetic(false));
+
+    declInput.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        if (!isNaN(val)) {
+            declination = Math.max(-45, Math.min(45, val));
+            declSection.classList.toggle('azimutes-tab__decl-section--active', useMagnetic && declination !== 0);
+            buildLegsBody();
+            updateDeclStatus();
+        }
+    });
+
+    autoBtn.addEventListener('click', async () => {
+        const [lng, lat] = coords[0];
+        try {
+            autoBtn.disabled = true;
+            autoBtn.style.opacity = '0.5';
+            const result = calculateMagneticDeclination(lat, lng);
+            if (!result) throw new Error('Coordenadas inválidas para WMM');
+            autoDeclinationValue = result.declination; // already a number
+            declination = autoDeclinationValue;
+            declInput.value = declination;
+            declSection.classList.toggle('azimutes-tab__decl-section--active', useMagnetic && declination !== 0);
+            buildLegsBody();
+            updateDeclStatus();
+        } catch (err) {
+            console.warn('[AzimutesTab] WMM calculation failed:', err);
+        } finally {
+            autoBtn.disabled = false;
+            autoBtn.style.opacity = '';
+        }
+    });
+
+    // ── 4. Legs table ─────────────────────────────────────────────────────────
     const legsContainer = document.createElement('div');
     legsContainer.className = 'azimutes-tab__legs';
 
@@ -269,40 +496,11 @@ function buildAzimutesTabContent(container, feature) {
     headerRow.appendChild(headerDist);
     legsContainer.appendChild(headerRow);
 
-    // Legs body (scrollable)
-    const legsBody = document.createElement('div');
-    legsBody.className = 'azimutes-tab__legs-body';
-
-    for (let i = 0; i < coords.length - 1; i++) {
-        const bearing = getBearing(coords[i], coords[i + 1]);
-        const azimuth = normalizeAzimuth(bearing);
-        const distance = calculateSegmentDistance(coords[i], coords[i + 1]);
-
-        const row = document.createElement('div');
-        row.className = 'azimutes-tab__leg-row';
-
-        const numCell = document.createElement('span');
-        numCell.className = 'azimutes-tab__leg-num';
-        numCell.textContent = `${i + 1}`;
-
-        const azCell = document.createElement('span');
-        azCell.className = 'azimutes-tab__leg-az';
-        azCell.textContent = `${azimuth.toFixed(2)}°`;
-
-        const distCell = document.createElement('span');
-        distCell.className = 'azimutes-tab__leg-dist';
-        distCell.textContent = formatDistanceAuto(distance);
-
-        row.appendChild(numCell);
-        row.appendChild(azCell);
-        row.appendChild(distCell);
-        legsBody.appendChild(row);
-    }
-
+    buildLegsBody();
     legsContainer.appendChild(legsBody);
     container.appendChild(legsContainer);
 
-    // 4. Total distance
+    // ── 5. Total distance ─────────────────────────────────────────────────────
     const totalContainer = document.createElement('div');
     totalContainer.className = 'azimutes-tab__total';
 
@@ -318,7 +516,7 @@ function buildAzimutesTabContent(container, feature) {
     totalContainer.appendChild(totalValue);
     container.appendChild(totalContainer);
 
-    // Initialize coordinate display
+    // Initialize
     updateStartingPoint();
 }
 
@@ -441,7 +639,7 @@ export async function createFeaturePanelContent({
             const typeSelector = createGroupTypeSelector({
                 selectedFeatures,
                 readOnly: true,
-                onTypeSelect: () => {}
+                onTypeSelect: () => { }
             });
             container.appendChild(typeSelector.element);
             cleanupFunctions.push(typeSelector.cleanup);

@@ -820,3 +820,68 @@ body.cesium-active .modal-overlay {
     background-color: #f0f0f0;
     font-weight: bold;
 }
+
+/* ============================================================================
+ * 3D VIEWER LOADING SCREEN
+ * ============================================================================ */
+
+#loading-screen-3d {
+    position: absolute;
+    inset: 0;
+    z-index: 500;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background-color: #508D4E;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}
+
+#loading-screen-3d.loading-3d-visible {
+    opacity: 1;
+}
+
+#loading-screen-3d.loading-3d-hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.loading-3d-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+}
+
+.loading-3d-logo {
+    width: 300px;
+    height: auto;
+}
+
+/* Progress bar — same style as initial loading */
+.loading-3d-bar {
+    width: 200px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.loading-3d-bar-fill {
+    height: 100%;
+    background: #B4E380;
+    width: 0%;
+    border-radius: 2px;
+    animation: loading3dBar 2s ease-out forwards;
+}
+
+@keyframes loading3dBar {
+    0% {
+        width: 0%;
+    }
+
+    100% {
+        width: 100%;
+    }
+}

@@ -20,6 +20,7 @@ import {
     applyCesiumPreLoadPatches,
     applyCesiumPostLoadPatches
 } from './services/cesium-compat.js';
+import { hideLoading3DScreen } from '../ui/loading-screen-3d.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
@@ -1278,6 +1279,9 @@ export async function openViewerWithTileset(tilesetId) {
     }
 
     registerToolEventListeners();
+
+    // Dismiss the 3D loading screen — model is loaded and camera is in position
+    hideLoading3DScreen();
 
     cesiumState.isVisible = true;
 

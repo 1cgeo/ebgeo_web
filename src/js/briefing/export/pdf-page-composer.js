@@ -12,6 +12,8 @@
  * @module briefing/export/pdf-page-composer
  */
 
+import { EBGEO_LOGO_BASE64 } from '../../utilities/logo-base64.js';
+
 // Lazy-loaded to keep html2canvas out of the core chunk.
 // Only loaded when PDF export is actually invoked.
 let _html2canvas = null;
@@ -28,18 +30,18 @@ async function getHtml2Canvas() {
 // LOGO LOADER
 // ============================================================================
 
-/** Cached logo data URL for jsPDF embedding */
-let _logoDataUrl = null;
-let _logoLoadAttempted = false;
+/** Cached PNG data URL for jsPDF embedding */
+let _logoPngDataUrl = null;
 
 /**
- * Pre-loads the EBGeo logo as a data URL for embedding in jsPDF pages.
- * Returns a cached data URL, or null if loading fails.
+ * Returns the EBGeo logo as a PNG data URL for embedding in jsPDF.
+ * jsPDF does not support WEBP — transparent areas would render as black.
+ * Converts the embedded WEBP Base64 to PNG via an off-screen canvas once,
+ * then caches the result.
  * @returns {Promise<string|null>}
  */
 export async function loadLogoDataUrl() {
-    if (_logoLoadAttempted) return _logoDataUrl;
-    _logoLoadAttempted = true;
+    if (_logoPngDataUrl) return _logoPngDataUrl;
 
     return new Promise(resolve => {
         const img = new Image();
@@ -49,11 +51,12 @@ export async function loadLogoDataUrl() {
             canvas.height = img.naturalHeight;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0);
-            _logoDataUrl = canvas.toDataURL('image/png');
-            resolve(_logoDataUrl);
+            _logoPngDataUrl = canvas.toDataURL('image/png');
+            resolve(_logoPngDataUrl);
         };
         img.onerror = () => resolve(null);
-        img.src = '/images/logo_ebgeo.webp';
+        // Source is the embedded Base64 — no HTTP request needed
+        img.src = EBGEO_LOGO_BASE64;
     });
 }
 

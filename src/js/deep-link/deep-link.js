@@ -171,6 +171,44 @@ export async function handleDeepLink() {
     }
 }
 
+// ===== HASHCHANGE LISTENER =====
+
+let _hashChangeHandler = null;
+let _hashChangeDebounce = null;
+
+/**
+ * Starts listening for URL hash changes so that sharing a link into an already-open
+ * tab (paste URL + Enter) correctly opens the corresponding viewer.
+ *
+ * Must be called once, after the map and all controls are fully initialized.
+ */
+export function initDeepLinkListener() {
+    if (_hashChangeHandler) return; // already registered
+
+    _hashChangeHandler = () => {
+        // Debounce: browsers may fire hashchange twice in quick succession
+        clearTimeout(_hashChangeDebounce);
+        _hashChangeDebounce = setTimeout(() => {
+            handleDeepLink().catch(err =>
+                console.warn('[deep-link] hashchange handler error:', err)
+            );
+        }, 100);
+    };
+
+    window.addEventListener('hashchange', _hashChangeHandler);
+}
+
+/**
+ * Removes the hashchange listener. Call on app teardown / beforeunload.
+ */
+export function destroyDeepLinkListener() {
+    if (_hashChangeHandler) {
+        window.removeEventListener('hashchange', _hashChangeHandler);
+        _hashChangeHandler = null;
+    }
+    clearTimeout(_hashChangeDebounce);
+}
+
 /**
  * Opens a 360 viewer from a deep link descriptor.
  * @param {{ photo: string, lon: number, lat: number, fov: number }} link

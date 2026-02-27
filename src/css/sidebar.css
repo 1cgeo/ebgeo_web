@@ -10,7 +10,7 @@
    ========================================================================= */
 
 /* Hide the old topbar when sidebar is present */
-.sidebar-container ~ #top-bar,
+.sidebar-container~#top-bar,
 #top-bar:has(~ .sidebar-container) {
     display: none !important;
 }
@@ -39,7 +39,7 @@
     pointer-events: none;
 }
 
-.sidebar-container > * {
+.sidebar-container>* {
     pointer-events: auto;
 }
 
@@ -52,7 +52,7 @@
     pointer-events: none;
 }
 
-.sidebar-panels-wrapper > * {
+.sidebar-panels-wrapper>* {
     pointer-events: auto;
 }
 
@@ -366,7 +366,7 @@
 }
 
 /* Make tab content fill available space */
-.sidebar-panel-content > .sidebar-tab-content {
+.sidebar-panel-content>.sidebar-tab-content {
     flex: 1;
     min-height: 0;
     display: flex;
@@ -1468,7 +1468,7 @@
 /* Sidebar feature content wrapper
    Note: height merged into .sidebar-feature-content above */
 
-.sidebar-feature-content > .tabbed-attribute-panel {
+.sidebar-feature-content>.tabbed-attribute-panel {
     flex: 1;
     min-height: 0;
 }
@@ -1750,7 +1750,7 @@
    ========================================================================= */
 
 /* Hide the old floating attribute panel when sidebar is present */
-.sidebar-container ~ .unified-attributes-panel,
+.sidebar-container~.unified-attributes-panel,
 .unified-attributes-panel:has(~ .sidebar-container) {
     display: none !important;
 }
@@ -2849,6 +2849,39 @@ body:has(.sidebar-container) .unified-attributes-panel {
     margin-bottom: var(--space-1);
 }
 
+/* Starting point label row (label + copy button) */
+.azimutes-tab__start-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-1);
+}
+
+.azimutes-tab__start-label-row .azimutes-tab__section-label {
+    margin-bottom: 0;
+}
+
+/* Copy button */
+.azimutes-tab__copy-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--gray-400);
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.azimutes-tab__copy-btn:hover {
+    background: var(--gray-100);
+    color: var(--primary);
+}
+
 .azimutes-tab__coord-value {
     font-size: var(--font-size-sm);
     font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
@@ -2858,6 +2891,159 @@ body:has(.sidebar-container) .unified-attributes-panel {
     border: var(--border-width) solid var(--border-color);
     border-radius: var(--radius-sm);
     word-break: break-all;
+}
+
+/* Clickable coord: cursor + hover */
+.azimutes-tab__coord-clickable {
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.azimutes-tab__coord-clickable:hover {
+    background: var(--primary-50);
+    border-color: var(--primary-200);
+    color: var(--primary-700);
+}
+
+.azimutes-tab__coord-copied {
+    background: var(--primary-50) !important;
+    border-color: var(--primary) !important;
+    color: var(--primary) !important;
+}
+
+/* ── Magnetic Declination section ─────────────────────────────────────────── */
+
+.azimutes-tab__decl-section {
+    margin-bottom: var(--space-4);
+    padding: var(--space-3);
+    background: var(--gray-50);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.azimutes-tab__decl-section--active {
+    background: rgba(245, 158, 11, 0.06);
+    border-color: var(--color-warning, #f59e0b);
+}
+
+.azimutes-tab__decl-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.azimutes-tab__decl-header .azimutes-tab__section-label {
+    margin-bottom: 0;
+}
+
+/* NM / NV toggle */
+.azimutes-tab__north-toggle {
+    display: flex;
+    gap: 4px;
+}
+
+.azimutes-tab__north-btn {
+    padding: 3px 10px;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.04em;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    border: 1px solid var(--gray-300);
+    background: var(--white);
+    color: var(--gray-500);
+    transition: all var(--transition-fast);
+}
+
+.azimutes-tab__north-btn:hover {
+    border-color: var(--gray-400);
+    color: var(--gray-700);
+}
+
+.azimutes-tab__north-btn--nm.active {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: var(--color-warning, #f59e0b);
+    color: #92400e;
+}
+
+.azimutes-tab__north-btn--nv.active {
+    background: var(--primary-50);
+    border-color: var(--primary);
+    color: var(--primary-700);
+}
+
+/* Declination input row */
+.azimutes-tab__decl-input-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.azimutes-tab__decl-label {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    white-space: nowrap;
+}
+
+.azimutes-tab__decl-input {
+    width: 72px;
+    padding: 4px 6px;
+    font-size: var(--font-size-sm);
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    background: var(--white);
+    color: var(--gray-800);
+    text-align: right;
+    transition: border-color var(--transition-fast);
+}
+
+.azimutes-tab__decl-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.azimutes-tab__decl-unit {
+    font-size: var(--font-size-sm);
+    color: var(--gray-500);
+}
+
+/* Auto-calculate (WMM) button */
+.azimutes-tab__auto-decl-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    margin-left: auto;
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    background: var(--white);
+    color: var(--gray-600);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.azimutes-tab__auto-decl-btn:hover {
+    border-color: var(--primary);
+    background: var(--primary-50);
+    color: var(--primary);
+}
+
+.azimutes-tab__auto-decl-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Declination status line */
+.azimutes-tab__decl-status {
+    margin-top: var(--space-2);
+    font-size: 11px;
+    color: #92400e;
+    min-height: 14px;
 }
 
 .azimutes-tab__legs {
@@ -3106,13 +3292,11 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 .feature-style-fill-stripes {
-    background: repeating-linear-gradient(
-        45deg,
-        var(--gray-800) 0,
-        var(--gray-800) 2px,
-        transparent 2px,
-        transparent 6px
-    );
+    background: repeating-linear-gradient(45deg,
+            var(--gray-800) 0,
+            var(--gray-800) 2px,
+            transparent 2px,
+            transparent 6px);
 }
 
 .feature-style-fill-dots {
@@ -3333,6 +3517,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
 
 /* Touch device optimizations */
 @media (pointer: coarse) {
+
     /* Larger touch targets for sidebar navigation */
     .sidebar-nav-btn {
         min-height: 60px;
@@ -3408,7 +3593,8 @@ body:has(.sidebar-container) .unified-attributes-panel {
     .feature-photo-gallery-delete {
         width: 32px;
         height: 32px;
-        opacity: 1; /* Always visible on touch */
+        opacity: 1;
+        /* Always visible on touch */
     }
 
     .feature-photo-gallery-add-btn {
@@ -3451,7 +3637,8 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 /* Tablet breakpoint adjustments */
-@media (width <= 1024px) {
+@media (width <=1024px) {
+
     /* Narrower panel on tablets */
     .sidebar-panel,
     .feature-panel {
@@ -3508,7 +3695,8 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 /* Small tablet / large phone breakpoint */
-@media (width <= 768px) {
+@media (width <=768px) {
+
     /* Panel takes more width */
     .sidebar-panel,
     .feature-panel {
@@ -3532,7 +3720,8 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 /* Landscape mode on tablets */
-@media (orientation: landscape) and (width <= 1024px) {
+@media (orientation: landscape) and (width <=1024px) {
+
     /* Limit panel height in landscape */
     .sidebar-panel-content,
     .feature-panel-content {
@@ -3546,7 +3735,8 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 /* Portrait mode specific */
-@media (orientation: portrait) and (width <= 768px) {
+@media (orientation: portrait) and (width <=768px) {
+
     /* More space for content */
     .sidebar-panel-content {
         padding-bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
@@ -4041,13 +4231,11 @@ body:has(.sidebar-container) .unified-attributes-panel {
 
 /* Unavailable tileset state */
 .models3d-tileset-unavailable {
-    background: repeating-linear-gradient(
-        -45deg,
-        transparent,
-        transparent 4px,
-        rgba(220, 53, 69, 0.06) 4px,
-        rgba(220, 53, 69, 0.06) 8px
-    );
+    background: repeating-linear-gradient(-45deg,
+            transparent,
+            transparent 4px,
+            rgba(220, 53, 69, 0.06) 4px,
+            rgba(220, 53, 69, 0.06) 8px);
     border-left: 3px solid var(--color-error);
 }
 
@@ -4278,13 +4466,11 @@ body:has(.sidebar-container) .unified-attributes-panel {
 
 /* Unavailable photo state */
 .streetview360-photo-unavailable {
-    background: repeating-linear-gradient(
-        -45deg,
-        transparent,
-        transparent 4px,
-        rgba(220, 53, 69, 0.06) 4px,
-        rgba(220, 53, 69, 0.06) 8px
-    );
+    background: repeating-linear-gradient(-45deg,
+            transparent,
+            transparent 4px,
+            rgba(220, 53, 69, 0.06) 4px,
+            rgba(220, 53, 69, 0.06) 8px);
     border-left: 3px solid var(--color-error);
 }
 
@@ -4570,7 +4756,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
     pointer-events: auto;
 }
 
-@media (width <= 1024px) {
+@media (width <=1024px) {
     .sidebar-backdrop {
         display: block;
     }
