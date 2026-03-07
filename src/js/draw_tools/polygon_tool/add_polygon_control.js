@@ -693,7 +693,7 @@ class AddPolygonControl extends BaseControl {
                 this.updateSelectionManagerFeature(updatedFeature);
                 this.createEditHandles(updatedFeature);
                 this.updateUIAfterEdit();
-                this.saveFeatureChanges(updatedFeature);
+                await this.saveFeatureChanges(updatedFeature);
                 this.updateFeatureMeasurement(updatedFeature);
             }
         }
@@ -820,7 +820,7 @@ class AddPolygonControl extends BaseControl {
         this.updateSelectionManagerFeature(updatedFeature);
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
-        this.saveFeatureChanges(updatedFeature);
+        await this.saveFeatureChanges(updatedFeature);
         this.updateFeatureMeasurement(updatedFeature);
     }
 
@@ -926,7 +926,7 @@ class AddPolygonControl extends BaseControl {
         this.updateSelectionManagerFeature(updatedFeature);
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
-        this.saveFeatureChanges(updatedFeature);
+        await this.saveFeatureChanges(updatedFeature);
         this.updateFeatureMeasurement(updatedFeature);
     }
 
@@ -976,7 +976,7 @@ class AddPolygonControl extends BaseControl {
                 const centroid = this.geometry.calculateCentroid(coordinates);
 
                 if (centroid) {
-                    this.displayMeasurement(centroid, areaFormatted, feature.properties.id);
+                    this.displayMeasurement(centroid, areaFormatted, feature.properties.id, feature.properties.layerId);
                 }
             }
         }
@@ -989,18 +989,19 @@ class AddPolygonControl extends BaseControl {
         }
     }
 
-    displayMeasurement = (coordinates, measurement, featureId) => {
-        const markerElement = this.createMeasurementLabel(measurement, featureId);
+    displayMeasurement = (coordinates, measurement, featureId, layerId) => {
+        const markerElement = this.createMeasurementLabel(measurement, featureId, layerId);
         new maplibregl.Marker({ element: markerElement })
             .setLngLat(coordinates)
             .addTo(this.map);
     }
 
-    createMeasurementLabel = (measurement, featureId) => {
+    createMeasurementLabel = (measurement, featureId, layerId) => {
         const label = document.createElement('div');
         label.className = 'measurement-label';
         label.innerText = measurement;
         label.dataset.featureId = featureId;
+        label.dataset.layerId = layerId || 'default';
 
         return label;
     }

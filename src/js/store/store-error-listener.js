@@ -7,33 +7,21 @@
  *
  * Uses showInChannel to prevent toast stacking on rapid failures
  * (e.g. IndexedDB quota exceeded during batch operations).
- *
- * @dependencies store/store-errors, utilities/toast_service
  */
 
 import { StoreErrorEvents } from './store-errors.js';
 import { showInChannel } from '../utilities/toast_service.js';
 
-// ============================================================================
-// DEBOUNCE STATE
-// ============================================================================
-
-/** Timestamp of last "blocked" toast to avoid spamming */
-let _lastBlockedToast = 0;
-
 /** Minimum interval between "blocked" toasts (ms) */
 const BLOCKED_DEBOUNCE_MS = 3000;
 
-// ============================================================================
-// LISTENER REGISTRATION
-// ============================================================================
+let _lastBlockedToastAt = 0;
 
 /**
  * Registers error event listeners on the EventBus.
  * @param {import('../events/event_bus.js').EventBus} eventBus
  */
 export function registerStoreErrorListeners(eventBus) {
-    // Persistence failure — always show immediately (channel prevents stacking)
     eventBus.on(StoreErrorEvents.STORE_PERSIST_ERROR, (payload) => {
         showInChannel(
             'store-persist-error',
@@ -44,7 +32,6 @@ export function registerStoreErrorListeners(eventBus) {
         console.error('[Store] Persistence error:', payload);
     });
 
-    // Sync queue failure — only show after multiple consecutive failures
     eventBus.on(StoreErrorEvents.STORE_SYNC_ERROR, (payload) => {
         if (payload.consecutiveFailures >= 3) {
             showInChannel(
@@ -56,17 +43,16 @@ export function registerStoreErrorListeners(eventBus) {
         }
     });
 
-    // Locked map operation — debounce to avoid spam during drawing attempts
     eventBus.on(StoreErrorEvents.STORE_OPERATION_BLOCKED, () => {
         const now = Date.now();
-        if (now - _lastBlockedToast > BLOCKED_DEBOUNCE_MS) {
-            showInChannel(
-                'store-blocked',
-                'Mapa bloqueado. Desbloqueie para editar.',
-                'warning',
-                { duration: 2000 }
-            );
-            _lastBlockedToast = now;
-        }
+        if (now - _lastBlockedToastAt < BLOCKED_DEBOUNCE_MS) return;
+
+        _lastBlockedToastAt = now;
+        showInChannel(
+            'store-blocked',
+            'Mapa bloqueado. Desbloqueie para editar.',
+            'warning',
+            { duration: 2000 }
+        );
     });
 }

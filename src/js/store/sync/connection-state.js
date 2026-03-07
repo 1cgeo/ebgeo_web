@@ -11,10 +11,6 @@
  * When the WebSocket client is implemented, it controls transitions.
  */
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
 /**
  * Connection states.
  * @readonly
@@ -38,10 +34,6 @@ const VALID_TRANSITIONS = Object.freeze({
     [ConnectionStates.ONLINE]: [ConnectionStates.RECONNECTING, ConnectionStates.OFFLINE],
     [ConnectionStates.RECONNECTING]: [ConnectionStates.ONLINE, ConnectionStates.OFFLINE]
 });
-
-// ============================================================================
-// CONNECTION STATE CLASS
-// ============================================================================
 
 /**
  * Manages connection state and notifies subscribers on transitions.
@@ -76,7 +68,8 @@ class ConnectionState {
      * @returns {boolean}
      */
     isConnected() {
-        return this._state === ConnectionStates.ONLINE || this._state === ConnectionStates.RECONNECTING;
+        return this._state === ConnectionStates.ONLINE
+            || this._state === ConnectionStates.RECONNECTING;
     }
 
     /**
@@ -89,7 +82,7 @@ class ConnectionState {
         if (newState === this._state) return;
 
         const allowed = VALID_TRANSITIONS[this._state];
-        if (!allowed || !allowed.includes(newState)) {
+        if (!allowed?.includes(newState)) {
             throw new Error(
                 `Invalid connection state transition: ${this._state} → ${newState}`
             );
@@ -113,8 +106,6 @@ class ConnectionState {
         return () => this._listeners.delete(callback);
     }
 
-    // ===== INTERNAL =====
-
     /** @private */
     _notifyListeners(previousState, currentState) {
         for (const listener of this._listeners) {
@@ -135,15 +126,10 @@ class ConnectionState {
     }
 }
 
-// ============================================================================
-// SINGLETON
-// ============================================================================
-
 /**
  * Singleton ConnectionState instance.
  * @type {ConnectionState}
  */
 export const connectionState = new ConnectionState();
 
-// Export class for testing
 export { ConnectionState };

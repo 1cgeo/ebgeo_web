@@ -792,7 +792,7 @@ class AddLineControl extends BaseControl {
 
                     this.updateUIAfterEdit();
 
-                    this.saveFeatureChanges(updatedFeature);
+                    await this.saveFeatureChanges(updatedFeature);
                     this.updateFeatureMeasurement(updatedFeature);
                 }
             } catch (error) {
@@ -930,7 +930,7 @@ class AddLineControl extends BaseControl {
         this.updateSelectionManagerFeature(updatedFeature);
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
-        this.saveFeatureChanges(updatedFeature);
+        await this.saveFeatureChanges(updatedFeature);
         this.updateFeatureMeasurement(updatedFeature);
     }
 
@@ -1046,7 +1046,7 @@ class AddLineControl extends BaseControl {
         this.updateSelectionManagerFeature(updatedFeature);
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
-        this.saveFeatureChanges(updatedFeature);
+        await this.saveFeatureChanges(updatedFeature);
         this.updateFeatureMeasurement(updatedFeature);
     }
 

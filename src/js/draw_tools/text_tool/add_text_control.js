@@ -281,9 +281,9 @@ class AddTextControl extends BaseControl {
         return selectedFeature && selectedFeature.properties.id === featureId;
     }
 
-    syncEditHandlesAfterDrag = (movedFeatures) => {
-        this.updateSelectionBoxesForFeatures(movedFeatures);
-        this.updateTextBackgroundsSource();
+    syncEditHandlesAfterDrag = async (movedFeatures) => {
+        await this.updateSelectionBoxesForFeatures(movedFeatures);
+        await this.updateTextBackgroundsSource();
 
         // Refresh rotation handle position after drag
         const selectedFeature = this.getSelectedFeature();
@@ -1067,7 +1067,7 @@ class AddTextControl extends BaseControl {
      * Handle pointer up — finalize rotation drag
      * @param {PointerEvent} _e
      */
-    _onEditPointerUp(_e) {
+    async _onEditPointerUp(_e) {
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -1094,7 +1094,7 @@ class AddTextControl extends BaseControl {
             this.updateUIAfterEdit();
 
             // Persist changes
-            this.saveFeatureChanges(selectedFeature);
+            await this.saveFeatureChanges(selectedFeature);
         }
 
         this.isDraggingHandle = false;

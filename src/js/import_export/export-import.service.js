@@ -697,7 +697,7 @@ export class ExportImportService {
                     importedMapsCount++;
                 }
 
-                setCurrentMap(data.currentMap);
+                await setCurrentMap(data.currentMap);
 
                 // Import groups directly (normal import)
                 await this.importGroupsDirectly(data.groups);
@@ -734,7 +734,7 @@ export class ExportImportService {
 
             const validBaseLayer = config.getValidBasemapFallback(currentBaseLayer);
 
-            setBaseLayer(validBaseLayer);
+            await setBaseLayer(validBaseLayer);
 
             await this.baseLayerControl.switchMap();
 

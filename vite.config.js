@@ -81,6 +81,11 @@ export default defineConfig(({ mode: _mode }) => ({
             return 'street-view';
           }
           // Import/export tools
+          // export-utils.js is shared between import_export (import-export chunk)
+          // and briefing/export (core chunk). Placing it in core breaks the cycle.
+          if (id.includes('import_export/export-utils')) {
+            return 'core';
+          }
           if (id.includes('import_export')) {
             return 'import-export';
           }

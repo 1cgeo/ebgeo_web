@@ -15,7 +15,8 @@ import {
     hasImageResource,
     getAllSourceTypes,
     getStateManager,
-    isCurrentMapLockedSync
+    isCurrentMapLockedSync,
+    buildLayerMappingForMove
 } from '../store';
 import { IDUtils, ToastService } from '../utilities';
 
@@ -109,6 +110,15 @@ class ClipboardManager {
                 this.calculatePixelToMetersOffset(clipboardData.pixelOffset) :
                 { dx: 0, dy: 0 };
 
+            // Build layer ID mapping for cross-map paste
+            let layerIdMapping = null;
+            if (!isSameMap) {
+                const allFeatures = clipboardData.features.map(item => item.feature);
+                layerIdMapping = await buildLayerMappingForMove(
+                    allFeatures, clipboardData.sourceMapName, currentMapName
+                );
+            }
+
             const idMapping = new Map();
             const resourceDuplicationTasks = [];
 
@@ -147,6 +157,15 @@ class ClipboardManager {
 
                 pastedFeature.id = newGeoJSONId;
                 pastedFeature.properties.id = newId;
+
+                // Remap layerId for cross-map paste
+                if (layerIdMapping && pastedFeature.properties.layerId) {
+                    const mappedLayerId = layerIdMapping.get(pastedFeature.properties.layerId);
+                    if (mappedLayerId) {
+                        pastedFeature.properties.layerId = mappedLayerId;
+                    }
+                }
+
                 pastedFeature.properties.nome = await this.generateUniqueFeatureName(
                     feature.properties.nome,
                     type

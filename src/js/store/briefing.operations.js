@@ -11,11 +11,11 @@
 
 import { localRepository } from './repositories/local.repository.js';
 import { generateUUID } from '../utilities/uuid.js';
+import { deepClone } from '../utilities/deep-utils.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 import { logBriefingOperation, logOperation, EntityType, OperationType } from './sync/index.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
-import { deepClone } from '../utilities/deep-utils.js';
 
 // ============================================================================
 // CONSTANTS
@@ -44,6 +44,18 @@ export const SlideMode = Object.freeze({
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
+
+/**
+ * Reassigns sequential order values to all slides starting from a given index.
+ *
+ * @param {Object[]} slides - Array of slide objects
+ * @param {number} [fromIndex=0] - Index to start reordering from
+ */
+function reindexSlides(slides, fromIndex = 0) {
+    for (let i = fromIndex; i < slides.length; i++) {
+        slides[i].order = i;
+    }
+}
 
 /**
  * Creates an empty slide structure.
@@ -108,8 +120,8 @@ export function createEmptyBriefing(name, description = '') {
  *
  * @returns {Promise<Array>} Array of briefings sorted by updatedAt desc
  */
-export async function getAllBriefings() {
-    return await localRepository.getAllBriefings();
+export function getAllBriefings() {
+    return localRepository.getAllBriefings();
 }
 
 /**
@@ -118,8 +130,8 @@ export async function getAllBriefings() {
  * @param {string} briefingId - Briefing UUID
  * @returns {Promise<Object|null>} Briefing data or null
  */
-export async function getBriefingById(briefingId) {
-    return await localRepository.getBriefing(briefingId);
+export function getBriefingById(briefingId) {
+    return localRepository.getBriefing(briefingId);
 }
 
 /**
@@ -141,7 +153,7 @@ export async function createBriefing(data) {
 
     const briefing = createEmptyBriefing(data.name, data.description || '');
 
-    if (data.slides && Array.isArray(data.slides)) {
+    if (Array.isArray(data.slides)) {
         briefing.slides = data.slides;
     }
 
@@ -151,7 +163,6 @@ export async function createBriefing(data) {
 
     await localRepository.saveBriefing(briefing.id, briefing);
 
-    // Log operation for sync
     logBriefingOperation(OperationType.CREATE, briefing.id, briefing);
 
     return briefing;
@@ -176,10 +187,8 @@ export async function updateBriefing(briefingId, data) {
         return null;
     }
 
-    // Capture previous state for logging
     const previousData = deepClone(existing);
 
-    // Deep merge settings to avoid losing nested fields
     const mergedSettings = data.settings
         ? { ...existing.settings, ...data.settings }
         : existing.settings;
@@ -188,7 +197,7 @@ export async function updateBriefing(briefingId, data) {
         ...existing,
         ...data,
         settings: mergedSettings,
-        id: briefingId, // Ensure ID is not changed
+        id: briefingId,
         sync: touchSyncMetadata(existing.sync),
         createdAt: existing.createdAt,
         updatedAt: Date.now()
@@ -196,7 +205,6 @@ export async function updateBriefing(briefingId, data) {
 
     await localRepository.saveBriefing(briefingId, updated);
 
-    // Log operation for sync
     logBriefingOperation(OperationType.UPDATE, briefingId, updated, previousData);
 
     return updated;
@@ -222,7 +230,6 @@ export async function deleteBriefing(briefingId) {
 
     await localRepository.deleteBriefing(briefingId);
 
-    // Log operation for sync
     logBriefingOperation(OperationType.DELETE, briefingId, null, existing);
 
     return true;
@@ -278,14 +285,9 @@ export async function addSlide(briefingId, slideData = {}, position = null) {
         sync: createSyncMetadata(null)
     };
 
-    // Insert at position or append
-    if (position !== null && position < briefing.slides.length) {
-        slide.order = position;
+    if (position !== null && position >= 0 && position < briefing.slides.length) {
         briefing.slides.splice(position, 0, slide);
-        // Reorder all slides from insertion point (inclusive)
-        for (let i = position; i < briefing.slides.length; i++) {
-            briefing.slides[i].order = i;
-        }
+        reindexSlides(briefing.slides, position);
     } else {
         slide.order = briefing.slides.length;
         briefing.slides.push(slide);
@@ -293,7 +295,6 @@ export async function addSlide(briefingId, slideData = {}, position = null) {
 
     await updateBriefing(briefingId, { slides: briefing.slides });
 
-    // Log slide operation for sync
     logOperation(EntityType.SLIDE, OperationType.CREATE, slide.id, briefingId, slide);
 
     return slide;
@@ -318,19 +319,17 @@ export async function updateSlide(briefingId, slideId, slideData) {
         return null;
     }
 
-    // Capture previous state for logging
     const previousSlide = { ...briefing.slides[slideIndex] };
 
     briefing.slides[slideIndex] = {
         ...briefing.slides[slideIndex],
         ...slideData,
-        id: slideId, // Ensure ID is not changed
+        id: slideId,
         sync: touchSyncMetadata(briefing.slides[slideIndex].sync || createSyncMetadata(null))
     };
 
     await updateBriefing(briefingId, { slides: briefing.slides });
 
-    // Log slide operation for sync
     logOperation(EntityType.SLIDE, OperationType.UPDATE, slideId, briefingId, briefing.slides[slideIndex], previousSlide);
 
     return briefing.slides[slideIndex];
@@ -354,19 +353,13 @@ export async function removeSlide(briefingId, slideId) {
         return false;
     }
 
-    // Capture slide data before removal for logging
     const removedSlide = { ...briefing.slides[slideIndex] };
 
     briefing.slides.splice(slideIndex, 1);
-
-    // Reorder remaining slides
-    for (let i = 0; i < briefing.slides.length; i++) {
-        briefing.slides[i].order = i;
-    }
+    reindexSlides(briefing.slides);
 
     await updateBriefing(briefingId, { slides: briefing.slides });
 
-    // Log slide operation for sync
     logOperation(EntityType.SLIDE, OperationType.DELETE, slideId, briefingId, null, removedSlide);
 
     return true;
@@ -385,29 +378,25 @@ export async function reorderSlides(briefingId, slideIds) {
         return false;
     }
 
-    // Create a map of slides by ID
     const slideMap = new Map(briefing.slides.map(s => [s.id, s]));
 
-    // Reorder based on slideIds array
     const reorderedSlides = [];
-    for (let i = 0; i < slideIds.length; i++) {
-        const slide = slideMap.get(slideIds[i]);
+    for (const id of slideIds) {
+        const slide = slideMap.get(id);
         if (slide) {
-            slide.order = i;
             reorderedSlides.push(slide);
-            slideMap.delete(slideIds[i]);
+            slideMap.delete(id);
         }
     }
 
-    // Append any slides not in slideIds and warn about incomplete array
     if (slideMap.size > 0) {
         console.warn(`reorderSlides: ${slideMap.size} slide(s) missing from slideIds array, appending at end`);
         for (const slide of slideMap.values()) {
-            slide.order = reorderedSlides.length;
             reorderedSlides.push(slide);
         }
     }
 
+    reindexSlides(reorderedSlides);
     await updateBriefing(briefingId, { slides: reorderedSlides });
     return true;
 }
@@ -417,13 +406,11 @@ export async function reorderSlides(briefingId, slideIds) {
 // ============================================================================
 
 /**
- * Gets all briefings for export.
+ * Alias for {@link getAllBriefings} used by the export pipeline.
  *
  * @returns {Promise<Array>} Array of briefings
  */
-export async function getBriefingsForExport() {
-    return await getAllBriefings();
-}
+export const getBriefingsForExport = getAllBriefings;
 
 /**
  * Imports briefings from external data.
@@ -444,17 +431,14 @@ export async function importBriefings(briefings, options = {}) {
             continue;
         }
 
-        // Clone to avoid mutating the input object
         const toSave = { ...briefing };
 
         const existing = await getBriefingById(toSave.id);
         if (existing && !overwrite) {
-            // Rename strategy: generate new UUID and unique name
             toSave.id = generateUUID();
             toSave.name = await generateUniqueBriefingName(toSave.name);
         }
 
-        // Ensure sync metadata
         if (!toSave.sync) {
             toSave.sync = createSyncMetadata(null);
         }

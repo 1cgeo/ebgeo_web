@@ -9,39 +9,23 @@ import {
     SNAP_INDICATOR_LAYER,
     SNAP_INDICATOR_STYLE,
 } from '../../snapping/snapping.constants.js';
+import { ensureSource, ensureLayer } from './layer.helpers.js';
 
 /**
  * Sets up layer separators for ordering control.
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupLayerSeparators(mapInstance) {
-    if (!mapInstance.getSource('analysis-separator-source')) {
-        mapInstance.addSource('analysis-separator-source', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
+    const separators = ['analysis-separator', 'features-separator'];
 
-        mapInstance.addLayer({
-            id: 'analysis-separator',
+    for (const name of separators) {
+        ensureSource(mapInstance, `${name}-source`);
+        ensureLayer(mapInstance, {
+            id: name,
             type: 'circle',
-            source: 'analysis-separator-source',
+            source: `${name}-source`,
             layout: { visibility: 'none' },
-            paint: { 'circle-opacity': 0 }
-        });
-    }
-
-    if (!mapInstance.getSource('features-separator-source')) {
-        mapInstance.addSource('features-separator-source', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-
-        mapInstance.addLayer({
-            id: 'features-separator',
-            type: 'circle',
-            source: 'features-separator-source',
-            layout: { visibility: 'none' },
-            paint: { 'circle-opacity': 0 }
+            paint: { 'circle-opacity': 0 },
         });
     }
 }
@@ -51,72 +35,45 @@ export function setupLayerSeparators(mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupAuxiliaryLayers(mapInstance) {
-    if (!mapInstance.getSource('rectangle-selection-preview')) {
-        mapInstance.addSource('rectangle-selection-preview', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: []
-            }
-        });
+    ensureSource(mapInstance, 'rectangle-selection-preview');
+    ensureLayer(mapInstance, {
+        id: 'rectangle-selection-preview-layer',
+        type: 'line',
+        source: 'rectangle-selection-preview',
+        paint: {
+            'line-color': '#ff0000',
+            'line-width': 2,
+            'line-dasharray': [3, 3],
+            'line-opacity': 0.8,
+        },
+    });
 
-        mapInstance.addLayer({
-            id: 'rectangle-selection-preview-layer',
-            type: 'line',
-            source: 'rectangle-selection-preview',
-            paint: {
-                'line-color': '#ff0000',
-                'line-width': 2,
-                'line-dasharray': [3, 3],
-                'line-opacity': 0.8
-            }
-        });
-    }
+    ensureSource(mapInstance, 'selection-boxes');
+    ensureLayer(mapInstance, {
+        id: 'selection-boxes-layer',
+        type: 'line',
+        source: 'selection-boxes',
+        paint: {
+            'line-color': '#FF0000',
+            'line-width': 2,
+            'line-dasharray': [2, 2],
+        },
+    });
 
-    if (!mapInstance.getSource('selection-boxes')) {
-        mapInstance.addSource('selection-boxes', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: []
-            }
-        });
-    }
+    // Snap indicator -- shown when cursor is near a snappable vertex/edge
+    ensureSource(mapInstance, SNAP_INDICATOR_SOURCE);
 
-    if (!mapInstance.getLayer('selection-boxes-layer')) {
-        mapInstance.addLayer({
-            id: 'selection-boxes-layer',
-            type: 'line',
-            source: 'selection-boxes',
-            paint: {
-                'line-color': '#FF0000',
-                'line-width': 2,
-                'line-dasharray': [2, 2]
-            }
-        });
-    }
-
-    // Snap indicator — shown when cursor is near a snappable vertex/edge
-    if (!mapInstance.getSource(SNAP_INDICATOR_SOURCE)) {
-        mapInstance.addSource(SNAP_INDICATOR_SOURCE, {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] },
-        });
-    }
-
-    if (!mapInstance.getLayer(SNAP_INDICATOR_LAYER)) {
-        const vertexStyle = SNAP_INDICATOR_STYLE.vertex;
-        mapInstance.addLayer({
-            id: SNAP_INDICATOR_LAYER,
-            type: 'circle',
-            source: SNAP_INDICATOR_SOURCE,
-            paint: {
-                'circle-radius': ['coalesce', ['get', 'radius'], vertexStyle.radius],
-                'circle-color': ['coalesce', ['get', 'color'], vertexStyle.color],
-                'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], vertexStyle.strokeWidth],
-                'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], vertexStyle.strokeColor],
-                'circle-opacity': ['coalesce', ['get', 'opacity'], vertexStyle.opacity],
-            },
-        });
-    }
+    const { vertex } = SNAP_INDICATOR_STYLE;
+    ensureLayer(mapInstance, {
+        id: SNAP_INDICATOR_LAYER,
+        type: 'circle',
+        source: SNAP_INDICATOR_SOURCE,
+        paint: {
+            'circle-radius': ['coalesce', ['get', 'radius'], vertex.radius],
+            'circle-color': ['coalesce', ['get', 'color'], vertex.color],
+            'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], vertex.strokeWidth],
+            'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], vertex.strokeColor],
+            'circle-opacity': ['coalesce', ['get', 'opacity'], vertex.opacity],
+        },
+    });
 }

@@ -806,9 +806,9 @@ class SelectionManager {
             selectAllItem.style.backgroundColor = 'white !important';
         });
 
-        selectAllItem.addEventListener('click', (evt) => {
+        selectAllItem.addEventListener('click', async (evt) => {
             evt.stopPropagation();
-            this._selectAllPendingFeatures();
+            await this._selectAllPendingFeatures();
             this._hideFeatureSelectionMenu();
         });
 

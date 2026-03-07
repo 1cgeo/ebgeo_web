@@ -394,12 +394,14 @@
 
 /* ===== FEATURE ITEM STATE MODIFIERS ===== */
 
-.feature-item--selected {
+.feature-item--selected,
+.group-feature-item--selected {
     background: var(--primary-50, #e8f0fe);
     border-left-color: var(--primary);
 }
 
-.feature-item--selected:hover {
+.feature-item--selected:hover,
+.group-feature-item--selected:hover {
     background: #d0e0fc;
 }
 

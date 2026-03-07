@@ -26,7 +26,7 @@ import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { generateUUID, isValidUUID } from '../utilities/uuid.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 
-// Alias for backward compatibility during migration
+// Repository aliases
 const getMapData = getMapDataCompat;
 const updateMapData = updateMapDataCompat;
 const createMapData = createMapCompat;
@@ -36,8 +36,14 @@ const getAllMapNames = getAllMapKeysCompat;
 const getAppSetting = getSettingCompat;
 const setAppSetting = setSettingCompat;
 const setMapNotesRepo = setMapNotesCompat;
-const getMapOrderRepo = async () => await getSettingCompat('mapOrder') || [];
-const setMapOrderRepo = async (order) => await setSettingCompat('mapOrder', order);
+
+async function getMapOrderRepo() {
+    return await getSettingCompat('mapOrder') || [];
+}
+
+async function setMapOrderRepo(order) {
+    await setSettingCompat('mapOrder', order);
+}
 
 // ===== DEPENDENCY INJECTION =====
 
@@ -91,7 +97,7 @@ export function setBriefingLockOverride(active) {
  *
  * @returns {Promise<string[]>} Array of map names
  */
-export const getAllMapNamesStore = async () => {
+export async function getAllMapNamesStore() {
     const allMaps = await getAllMapNames();
     const savedOrder = await getMapOrderRepo();
 
@@ -114,16 +120,16 @@ export const getAllMapNamesStore = async () => {
     }
 
     return orderedMaps;
-};
+}
 
 /**
  * Gets the map order.
  *
  * @returns {Promise<string[]>} Ordered array of map names
  */
-export const getMapOrder = async () => {
+export async function getMapOrder() {
     return await getMapOrderRepo();
-};
+}
 
 /**
  * Sets the map order.
@@ -131,9 +137,9 @@ export const getMapOrder = async () => {
  * @param {string[]} orderArray - New map order
  * @returns {Promise<void>}
  */
-export const setMapOrder = async (orderArray) => {
+export async function setMapOrder(orderArray) {
     await setMapOrderRepo(orderArray);
-};
+}
 
 /**
  * Adds a new map.
@@ -144,7 +150,7 @@ export const setMapOrder = async (orderArray) => {
  * @param {Object} [notesData=null] - Notes data
  * @returns {Promise<Object>} Created map data
  */
-export const addMap = async (mapName, mapData = null, colorUsageData = null, notesData = null) => {
+export async function addMap(mapName, mapData = null, colorUsageData = null, notesData = null) {
     const perm = checkPermission(GuardAction.CREATE_MAP);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'addMap', reason: perm.reason });
@@ -153,7 +159,6 @@ export const addMap = async (mapName, mapData = null, colorUsageData = null, not
 
     const newMapData = await createMapData(mapName, mapData);
 
-    // Register in resolver cache for O(1) name→ID lookups
     const mapId = newMapData.id || mapName;
     if (mapId !== mapName) {
         mapResolver.registerMap(mapName, mapId);
@@ -169,7 +174,7 @@ export const addMap = async (mapName, mapData = null, colorUsageData = null, not
     logMapOperation(OperationType.CREATE, mapId, newMapData);
 
     return newMapData;
-};
+}
 
 /**
  * Removes a map.
@@ -177,7 +182,7 @@ export const addMap = async (mapName, mapData = null, colorUsageData = null, not
  * @param {string} mapName - Map name to remove
  * @returns {Promise<import('./store.types.js').RemoveResult>} Removal result
  */
-export const removeMap = async (mapName) => {
+export async function removeMap(mapName) {
     const perm = checkPermission(GuardAction.DELETE_MAP);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'removeMap', reason: perm.reason });
@@ -186,7 +191,6 @@ export const removeMap = async (mapName) => {
 
     const allMaps = await getAllMapNames();
 
-    // Guard: prevent deleting the last map
     if (allMaps.length <= 1) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
             operation: 'removeMap',
@@ -201,7 +205,6 @@ export const removeMap = async (mapName) => {
         return { success: false, reason: 'MAP_NOT_FOUND' };
     }
 
-    // Get map ID before deletion for logging
     const mapId = mapResolver.resolveToId(mapName) || mapName;
 
     const currentMapName = mapManager.getCurrentMapName();
@@ -210,7 +213,6 @@ export const removeMap = async (mapName) => {
 
     await deleteMapData(mapName);
 
-    // Remove from resolver cache
     if (isValidUUID(mapId)) {
         mapResolver.unregisterMapById(mapId);
     }
@@ -218,19 +220,16 @@ export const removeMap = async (mapName) => {
     await mapManager.removeMapFromMemory(mapName);
     await deps.groupManager.clearMapGroups(mapName);
 
-    // Remove badge color for this map (will be reused for new maps)
     const colors = await getAppSetting('mapBadgeColors');
-    if (colors && colors[mapName]) {
+    if (colors?.[mapName]) {
         delete colors[mapName];
         await setAppSetting('mapBadgeColors', colors);
     }
 
     if (isCurrentMap) {
-        const newCurrentMap = remainingMaps[0];
-        await setCurrentMap(newCurrentMap);
+        await setCurrentMap(remainingMaps[0]);
     }
 
-    // Log operation for sync
     logMapOperation(OperationType.DELETE, mapId, null, mapData);
 
     return {
@@ -239,7 +238,7 @@ export const removeMap = async (mapName) => {
         remainingMapsCount: remainingMaps.length,
         newCurrentMap: isCurrentMap ? remainingMaps[0] : currentMapName
     };
-};
+}
 
 /**
  * Renames a map.
@@ -248,7 +247,7 @@ export const removeMap = async (mapName) => {
  * @param {string} newName - New map name
  * @returns {Promise<void>}
  */
-export const renameMap = async (oldName, newName) => {
+export async function renameMap(oldName, newName) {
     const perm = checkPermission(GuardAction.UPDATE_MAP);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameMap', reason: perm.reason });
@@ -260,17 +259,14 @@ export const renameMap = async (oldName, newName) => {
         return;
     }
 
-    // Get map data for logging before rename
     const oldMapData = await getMapData(oldName);
     const mapId = mapResolver.resolveToId(oldName) || oldName;
 
     await renameMapData(oldName, newName);
     mapManager.renameMapInMemory(oldName, newName);
 
-    // Update MapResolverService mapping
     mapResolver.renameMap(oldName, newName);
 
-    // Update map order
     const order = await getMapOrderRepo();
     if (order?.length > 0) {
         const idx = order.indexOf(oldName);
@@ -280,9 +276,8 @@ export const renameMap = async (oldName, newName) => {
         }
     }
 
-    // Transfer badge color to new name
     const colors = await getAppSetting('mapBadgeColors');
-    if (colors && colors[oldName]) {
+    if (colors?.[oldName]) {
         colors[newName] = colors[oldName];
         delete colors[oldName];
         await setAppSetting('mapBadgeColors', colors);
@@ -292,10 +287,9 @@ export const renameMap = async (oldName, newName) => {
         await deps.groupManager.loadGroupsToMemory(newName);
     }
 
-    // Log operation for sync
     const newMapData = await getMapData(newName);
     logMapOperation(OperationType.UPDATE, mapId, newMapData, oldMapData);
-};
+}
 
 /**
  * Sets the current map.
@@ -303,52 +297,51 @@ export const renameMap = async (oldName, newName) => {
  * @param {string} mapName - Map name to set as current
  * @returns {Promise<void>}
  */
-export const setCurrentMap = async (mapName) => {
+export async function setCurrentMap(mapName) {
     await mapManager.setCurrentMap(mapName);
     await deps.groupManager.loadGroupsToMemory(mapName);
     await deps.layerManager.loadLayersToMemory(mapName);
 
-    // Emit lock state change so all UI components update on map switch
     const locked = memoryStore.lockedMaps.has(mapName);
     deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName, locked });
-};
+}
 
 /**
- * Gets the current map name (async).
+ * Gets the current map name (async, from IndexedDB).
  *
  * @returns {Promise<string>} Current map name
  */
-export const getCurrentMapName = async () => {
+export async function getCurrentMapName() {
     return await getAppSetting('lastActiveMap');
-};
+}
 
 /**
  * Gets the current map name synchronously.
  *
  * @returns {string} Current map name
  */
-export const getCurrentMapNameSync = () => {
+export function getCurrentMapNameSync() {
     return mapManager.getCurrentMapName();
-};
+}
 
 /**
  * Gets the current map UUID synchronously.
- * Uses MapResolverService for name → ID resolution.
+ * Uses MapResolverService for name -> ID resolution.
  *
  * @returns {string} Current map UUID (or name if resolver not initialized)
  */
-export const getCurrentMapIdSync = () => {
+export function getCurrentMapIdSync() {
     return mapManager.getCurrentMapId();
-};
+}
 
 /**
  * Gets both current map name and ID synchronously.
  *
  * @returns {{name: string, id: string}} Object with name and id
  */
-export const getCurrentMapInfoSync = () => {
+export function getCurrentMapInfoSync() {
     return mapManager.getCurrentMapInfo();
-};
+}
 
 /**
  * Sets the last active map.
@@ -356,9 +349,9 @@ export const getCurrentMapInfoSync = () => {
  * @param {string} mapName - Map name
  * @returns {Promise<void>}
  */
-export const setLastActiveMap = async (mapName) => {
+export async function setLastActiveMap(mapName) {
     await setAppSetting('lastActiveMap', mapName);
-};
+}
 
 /**
  * Sets the schema version.
@@ -366,9 +359,9 @@ export const setLastActiveMap = async (mapName) => {
  * @param {string} schemaVersion - Schema version
  * @returns {Promise<void>}
  */
-export const setSchemaVersion = async (schemaVersion) => {
+export async function setSchemaVersion(schemaVersion) {
     await setAppSetting('schemaVersion', schemaVersion);
-};
+}
 
 /**
  * Gets map data from storage.
@@ -376,9 +369,9 @@ export const setSchemaVersion = async (schemaVersion) => {
  * @param {string} mapName - Map name
  * @returns {Promise<Object>} Map data
  */
-export const getMapDataStore = async (mapName) => {
+export async function getMapDataStore(mapName) {
     return await getMapData(mapName);
-};
+}
 
 // ===== MAP CONFIGURATION =====
 
@@ -388,11 +381,11 @@ export const getMapDataStore = async (mapName) => {
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<string>} Base layer ID
  */
-export const getCurrentBaseLayer = async (mapName = null) => {
+export async function getCurrentBaseLayer(mapName = null) {
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
     return currentMapData.baseLayer;
-};
+}
 
 /**
  * Sets the base layer for a map.
@@ -401,7 +394,7 @@ export const getCurrentBaseLayer = async (mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<void>}
  */
-export const setBaseLayer = async (layer, mapName = null) => {
+export async function setBaseLayer(layer, mapName = null) {
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot change base layer.');
         return;
@@ -415,17 +408,14 @@ export const setBaseLayer = async (layer, mapName = null) => {
 
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
-
-    // Capture old state for logging
     const previousBaseLayer = currentMapData.baseLayer;
 
     currentMapData.baseLayer = layer;
     await updateMapData(targetMap, currentMapData);
 
-    // Log operation for sync
     const mapId = mapResolver.resolveToId(targetMap) || targetMap;
     logBaseLayerOperation(OperationType.UPDATE, mapId, { baseLayer: layer }, { baseLayer: previousBaseLayer });
-};
+}
 
 /**
  * Updates the map position.
@@ -438,7 +428,7 @@ export const setBaseLayer = async (layer, mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<void>}
  */
-export const updateMapPosition = async (center_lat, center_long, zoom, bearing, pitch, mapName = null) => {
+export async function updateMapPosition(center_lat, center_long, zoom, bearing, pitch, mapName = null) {
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot update position.');
         return;
@@ -447,7 +437,6 @@ export const updateMapPosition = async (center_lat, center_long, zoom, bearing, 
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
 
-    // Check if this is an update or create
     const existingPosition = currentMapData.savedPosition;
     const isUpdate = !!existingPosition?.id;
     const previousData = existingPosition ? { ...existingPosition } : null;
@@ -456,7 +445,6 @@ export const updateMapPosition = async (center_lat, center_long, zoom, bearing, 
         ? touchSyncMetadata(existingPosition.sync)
         : createSyncMetadata(null);
 
-    // Store position as a proper entity with UUID and sync metadata
     currentMapData.savedPosition = {
         id: existingPosition?.id || generateUUID(),
         center_lat,
@@ -468,7 +456,7 @@ export const updateMapPosition = async (center_lat, center_long, zoom, bearing, 
         sync
     };
 
-    // Keep legacy fields for backward compatibility
+    // Legacy fields for backward compatibility
     currentMapData.center_lat = center_lat;
     currentMapData.center_long = center_long;
     currentMapData.zoom = zoom;
@@ -477,15 +465,10 @@ export const updateMapPosition = async (center_lat, center_long, zoom, bearing, 
 
     await updateMapData(targetMap, currentMapData);
 
-    // Log operation for sync
     const mapId = mapResolver.resolveToId(targetMap) || targetMap;
-    const newPosition = currentMapData.savedPosition;
-    if (isUpdate) {
-        logMapPositionOperation(OperationType.UPDATE, mapId, newPosition, previousData);
-    } else {
-        logMapPositionOperation(OperationType.CREATE, mapId, newPosition);
-    }
-};
+    const operationType = isUpdate ? OperationType.UPDATE : OperationType.CREATE;
+    logMapPositionOperation(operationType, mapId, currentMapData.savedPosition, previousData);
+}
 
 /**
  * Gets the map position.
@@ -493,7 +476,7 @@ export const updateMapPosition = async (center_lat, center_long, zoom, bearing, 
  * @param {string} mapName - Map name
  * @returns {Promise<import('./store.types.js').MapPosition>} Map position
  */
-export const getMapPosition = async (mapName) => {
+export async function getMapPosition(mapName) {
     const currentMapData = await getMapData(mapName);
     return {
         center_lat: currentMapData.center_lat,
@@ -502,7 +485,9 @@ export const getMapPosition = async (mapName) => {
         bearing: currentMapData.bearing,
         pitch: currentMapData.pitch
     };
-};
+}
+
+const POSITION_FIELDS = ['center_lat', 'center_long', 'zoom', 'bearing', 'pitch'];
 
 /**
  * Checks if a map has a saved position.
@@ -510,14 +495,10 @@ export const getMapPosition = async (mapName) => {
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<boolean>} True if has saved position
  */
-export const hasMapSavedPosition = async (mapName = null) => {
+export async function hasMapSavedPosition(mapName = null) {
     const position = await getMapPosition(mapName);
-    return position.center_lat !== null &&
-        position.center_long !== null &&
-        position.zoom !== null &&
-        position.bearing !== null &&
-        position.pitch !== null;
-};
+    return POSITION_FIELDS.every(field => position[field] !== null);
+}
 
 /**
  * Clears the map position.
@@ -525,7 +506,7 @@ export const hasMapSavedPosition = async (mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<void>}
  */
-export const clearMapPosition = async (mapName = null) => {
+export async function clearMapPosition(mapName = null) {
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot clear position.');
         return;
@@ -534,29 +515,23 @@ export const clearMapPosition = async (mapName = null) => {
     const targetMapName = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMapName);
 
-    // Capture for logging before clearing
     const existingPosition = currentMapData.savedPosition;
     const previousData = existingPosition ? { ...existingPosition } : null;
     const positionId = existingPosition?.id;
 
-    // Clear the saved position entity
     delete currentMapData.savedPosition;
 
-    // Clear legacy fields
-    currentMapData.center_lat = null;
-    currentMapData.center_long = null;
-    currentMapData.zoom = null;
-    currentMapData.bearing = null;
-    currentMapData.pitch = null;
+    for (const field of POSITION_FIELDS) {
+        currentMapData[field] = null;
+    }
 
     await updateMapData(targetMapName, currentMapData);
 
-    // Log operation for sync (only if there was a saved position)
     if (positionId) {
         const mapId = mapResolver.resolveToId(targetMapName) || targetMapName;
         logMapPositionOperation(OperationType.DELETE, mapId, null, previousData);
     }
-};
+}
 
 // ===== UNDO/REDO =====
 
@@ -566,9 +541,9 @@ export const clearMapPosition = async (mapName = null) => {
  * @param {Object} executeFunctions - Functions to execute undo
  * @returns {Promise<Object>} Undo result
  */
-export const undoLastAction = async (executeFunctions) => {
+export async function undoLastAction(executeFunctions) {
     return await mapManager.undoLastAction(executeFunctions);
-};
+}
 
 /**
  * Redoes the last undone action.
@@ -576,9 +551,9 @@ export const undoLastAction = async (executeFunctions) => {
  * @param {Object} executeFunctions - Functions to execute redo
  * @returns {Promise<Object>} Redo result
  */
-export const redoLastAction = async (executeFunctions) => {
+export async function redoLastAction(executeFunctions) {
     return await mapManager.redoLastAction(executeFunctions);
-};
+}
 
 // ===== COLOR TRACKING =====
 
@@ -589,9 +564,9 @@ export const redoLastAction = async (executeFunctions) => {
  * @param {string} [scope='current'] - Scope ('current' or 'project')
  * @returns {string[]} Array of hex colors
  */
-export const getFrequentColors = (limit = 10, scope = 'current') => {
+export function getFrequentColors(limit = 10, scope = 'current') {
     return mapManager.getFrequentColors(limit, scope);
-};
+}
 
 // ===== MAP BADGE COLORS =====
 
@@ -614,14 +589,35 @@ const MAP_BADGE_COLORS = [
 ];
 
 /**
+ * Finds the least-used color from the palette given current usage counts.
+ *
+ * @param {string[]} usedColors - Array of currently used color values
+ * @returns {string} Least-used color from the palette
+ */
+function findLeastUsedColor(usedColors) {
+    const colorCounts = {};
+    for (const c of MAP_BADGE_COLORS) {
+        colorCounts[c] = 0;
+    }
+    for (const c of usedColors) {
+        if (colorCounts[c] !== undefined) {
+            colorCounts[c]++;
+        }
+    }
+    return MAP_BADGE_COLORS.reduce((min, c) =>
+        colorCounts[c] < colorCounts[min] ? c : min
+    , MAP_BADGE_COLORS[0]);
+}
+
+/**
  * Gets map badge colors from storage.
  *
  * @returns {Promise<Object>} Map of mapName -> color
  */
-export const getMapBadgeColors = async () => {
+export async function getMapBadgeColors() {
     const colors = await getAppSetting('mapBadgeColors');
     return colors || {};
-};
+}
 
 /**
  * Sets map badge colors to storage.
@@ -629,9 +625,9 @@ export const getMapBadgeColors = async () => {
  * @param {Object} colors - Map of mapName -> color
  * @returns {Promise<void>}
  */
-export const setMapBadgeColors = async (colors) => {
+export async function setMapBadgeColors(colors) {
     await setAppSetting('mapBadgeColors', colors);
-};
+}
 
 /**
  * Gets the badge color for a specific map.
@@ -640,39 +636,21 @@ export const setMapBadgeColors = async (colors) => {
  * @param {string} mapName - Map name
  * @returns {Promise<string>} Hex color
  */
-export const getMapBadgeColor = async (mapName) => {
+export async function getMapBadgeColor(mapName) {
     const colors = await getMapBadgeColors();
 
     if (colors[mapName]) {
         return colors[mapName];
     }
 
-    // Assign a new color
     const usedColors = Object.values(colors);
-    const availableColors = MAP_BADGE_COLORS.filter(c => !usedColors.includes(c));
-
-    // If all colors are used, pick the least used one
-    let newColor;
-    if (availableColors.length > 0) {
-        newColor = availableColors[0];
-    } else {
-        // Count color usage and pick the least used
-        const colorCounts = {};
-        MAP_BADGE_COLORS.forEach(c => { colorCounts[c] = 0; });
-        usedColors.forEach(c => {
-            if (colorCounts[c] !== undefined) {
-                colorCounts[c]++;
-            }
-        });
-        newColor = MAP_BADGE_COLORS.reduce((min, c) =>
-            colorCounts[c] < colorCounts[min] ? c : min
-        , MAP_BADGE_COLORS[0]);
-    }
+    const availableColor = MAP_BADGE_COLORS.find(c => !usedColors.includes(c));
+    const newColor = availableColor || findLeastUsedColor(usedColors);
 
     colors[mapName] = newColor;
     await setMapBadgeColors(colors);
     return newColor;
-};
+}
 
 /**
  * Removes the badge color for a map.
@@ -680,18 +658,18 @@ export const getMapBadgeColor = async (mapName) => {
  * @param {string} mapName - Map name
  * @returns {Promise<void>}
  */
-export const removeMapBadgeColor = async (mapName) => {
+export async function removeMapBadgeColor(mapName) {
     const colors = await getMapBadgeColors();
     delete colors[mapName];
     await setMapBadgeColors(colors);
-};
+}
 
 /**
  * Gets all map badge colors, assigning colors to maps that don't have one.
  *
  * @returns {Promise<Object>} Map of mapName -> color
  */
-export const getAllMapBadgeColors = async () => {
+export async function getAllMapBadgeColors() {
     const allMaps = await getAllMapNames();
     const colors = await getMapBadgeColors();
 
@@ -710,22 +688,8 @@ export const getAllMapBadgeColors = async () => {
 
     for (const mapName of allMaps) {
         if (!colors[mapName]) {
-            // Find an unused color
-            let newColor = MAP_BADGE_COLORS.find(c => !usedColors.has(c));
-
-            if (!newColor) {
-                // All colors used, find least used
-                const colorCounts = {};
-                MAP_BADGE_COLORS.forEach(c => { colorCounts[c] = 0; });
-                Object.values(colors).forEach(c => {
-                    if (colorCounts[c] !== undefined) {
-                        colorCounts[c]++;
-                    }
-                });
-                newColor = MAP_BADGE_COLORS.reduce((min, c) =>
-                    colorCounts[c] < colorCounts[min] ? c : min
-                , MAP_BADGE_COLORS[0]);
-            }
+            const availableColor = MAP_BADGE_COLORS.find(c => !usedColors.has(c));
+            const newColor = availableColor || findLeastUsedColor(Object.values(colors));
 
             colors[mapName] = newColor;
             usedColors.add(newColor);
@@ -738,7 +702,7 @@ export const getAllMapBadgeColors = async () => {
     }
 
     return colors;
-};
+}
 
 // ===== MAP LOCK (READ-ONLY) =====
 
@@ -748,10 +712,10 @@ export const getAllMapBadgeColors = async () => {
  * @param {string} [mapName=null] - Map name (null = current)
  * @returns {Promise<boolean>} True if map is locked
  */
-export const isMapLocked = async (mapName = null) => {
+export async function isMapLocked(mapName = null) {
     const target = mapName || mapManager.getCurrentMapName();
     return !!(await getAppSetting(`mapLocked_${target}`));
-};
+}
 
 /**
  * Gets lock state for current map (synchronous, from memory cache).
@@ -759,10 +723,10 @@ export const isMapLocked = async (mapName = null) => {
  *
  * @returns {boolean} True if current map is locked
  */
-export const isCurrentMapLockedSync = () => {
+export function isCurrentMapLockedSync() {
     if (briefingLockOverride) return true;
     return memoryStore.lockedMaps.has(memoryStore.currentMap);
-};
+}
 
 /**
  * Toggles lock state for a map.
@@ -771,7 +735,7 @@ export const isCurrentMapLockedSync = () => {
  * @param {string} [mapName=null] - Map name (null = current)
  * @returns {Promise<boolean>} New lock state
  */
-export const toggleMapLock = async (mapName = null) => {
+export async function toggleMapLock(mapName = null) {
     const perm = checkPermission(GuardAction.LOCK_MAP);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'toggleMapLock', reason: perm.reason });
@@ -789,4 +753,4 @@ export const toggleMapLock = async (mapName = null) => {
     }
     deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName: target, locked: newState });
     return newState;
-};
+}

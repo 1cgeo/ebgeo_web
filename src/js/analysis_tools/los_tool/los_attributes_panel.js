@@ -100,10 +100,9 @@ function createCoordinateRow(label, coords, color) {
 
     // Format and display coordinates
     const [lng, lat] = coords;
-    formatCoordinates(lat, lng, 'latlong').then(formatted => {
-        formattedCoordinate = formatted;
-        valueSpan.textContent = formatted;
-    });
+    const formatted = formatCoordinates(lat, lng, 'latlong');
+    formattedCoordinate = formatted;
+    valueSpan.textContent = formatted;
 
     // Hover effect
     valueSpan.addEventListener('mouseenter', () => {

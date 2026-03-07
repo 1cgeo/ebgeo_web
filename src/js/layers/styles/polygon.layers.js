@@ -13,19 +13,13 @@ import { HatchPatternGenerator } from '../../tool_manager';
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupPolygonLayers(features, mapInstance) {
+    const polygons = features.polygons || [];
+    const data = { type: 'FeatureCollection', features: polygons };
+
     if (!mapInstance.getSource('polygons')) {
-        mapInstance.addSource('polygons', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: features.polygons || []
-            }
-        });
+        mapInstance.addSource('polygons', { type: 'geojson', data });
     } else {
-        mapInstance.getSource('polygons').setData({
-            type: 'FeatureCollection',
-            features: features.polygons || []
-        });
+        mapInstance.getSource('polygons').setData(data);
     }
 
     if (!mapInstance.getSource('polygon-feedback')) {
@@ -43,7 +37,7 @@ export function setupPolygonLayers(features, mapInstance) {
     }
 
     const hatchGenerator = new HatchPatternGenerator();
-    hatchGenerator.loadPatternsToMap(mapInstance, features.polygons || []);
+    hatchGenerator.loadPatternsToMap(mapInstance, polygons);
 
     if (!mapInstance.getLayer('polygon-fill-layer')) {
         mapInstance.addLayer({

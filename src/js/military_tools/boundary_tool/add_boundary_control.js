@@ -747,7 +747,7 @@ class AddBoundaryControl extends BaseControl {
                 await this.updateDependentFeatures(updatedFeature);
                 this.createEditHandles(updatedFeature);
                 this.updateUIAfterEdit();
-                this.saveFeatureChanges(updatedFeature);
+                await this.saveFeatureChanges(updatedFeature);
             }
         }
 
@@ -882,7 +882,7 @@ class AddBoundaryControl extends BaseControl {
         await this.updateDependentFeatures(updatedFeature);
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
-        this.saveFeatureChanges(updatedFeature);
+        await this.saveFeatureChanges(updatedFeature);
     }
 
     /**
@@ -979,12 +979,12 @@ class AddBoundaryControl extends BaseControl {
         await this.updateBoundaryTexts(boundaryFeature);
     }
 
-    updateDependentFeaturesFromMovedFeatures = (movedFeatures) => {
-        movedFeatures.forEach(feature => {
+    updateDependentFeaturesFromMovedFeatures = async (movedFeatures) => {
+        for (const feature of movedFeatures) {
             if (feature.properties.source === 'boundary') {
-                this.updateDependentFeatures(feature);
+                await this.updateDependentFeatures(feature);
             }
-        });
+        }
     }
 
     updateBoundaryCircles = async (boundaryFeature) => {

@@ -16,13 +16,15 @@
  *
  * @param {string} measurement - Formatted measurement text (e.g., "1.5 km")
  * @param {string} featureId - Feature ID for data attribute
+ * @param {string} [layerId='default'] - Layer ID for visibility tracking
  * @returns {HTMLElement} Styled measurement label element
  */
-export function createMeasurementLabel(measurement, featureId) {
+export function createMeasurementLabel(measurement, featureId, layerId) {
     const label = document.createElement('div');
     label.className = 'measurement-label';
     label.innerText = measurement;
     label.dataset.featureId = featureId;
+    label.dataset.layerId = layerId || 'default';
 
     return label;
 }
@@ -38,9 +40,10 @@ export function createMeasurementLabel(measurement, featureId) {
  * @param {Array<number>} coordinates - [lng, lat] for label position
  * @param {string} measurement - Formatted measurement text
  * @param {string} featureId - Feature ID for tracking
+ * @param {string} [layerId] - Layer ID for visibility tracking
  */
-export function displayMeasurement(map, coordinates, measurement, featureId) {
-    const markerElement = createMeasurementLabel(measurement, featureId);
+export function displayMeasurement(map, coordinates, measurement, featureId, layerId) {
+    const markerElement = createMeasurementLabel(measurement, featureId, layerId);
     new maplibregl.Marker({ element: markerElement })
         .setLngLat(coordinates)
         .addTo(map);
@@ -107,7 +110,7 @@ export function updateFeatureMeasurement(map, feature) {
         // Position at midpoint of line
         const midpoint = turf.along(line, lengthInMeters / 2, { units: 'meters' });
 
-        displayMeasurement(map, midpoint.geometry.coordinates, lengthFormatted, feature.properties.id);
+        displayMeasurement(map, midpoint.geometry.coordinates, lengthFormatted, feature.properties.id, feature.properties.layerId);
     }
 }
 

@@ -2,7 +2,14 @@
 
 /**
  * @fileoverview JSDoc type definitions for the store module.
+ *
+ * Provides shared type definitions consumed via `import('./store.types.js')`
+ * across store operations (feature, layer, map, group, settings).
  */
+
+// ============================================================================
+// GeoJSON Primitives
+// ============================================================================
 
 /**
  * @typedef {Object} GeoJSONGeometry
@@ -12,10 +19,10 @@
 
 /**
  * @typedef {Object} FeatureProperties
- * @property {string} id - Unique feature identifier
+ * @property {string} id - Unique feature identifier (UUID)
  * @property {string} source - Feature type (point, line, polygon, etc.)
- * @property {string} nome - Feature name
- * @property {string} [descricao] - Feature description
+ * @property {string} nome - Feature name (pt-BR)
+ * @property {string} [descricao] - Feature description (pt-BR)
  * @property {string} [layerId] - Layer ID the feature belongs to
  * @property {string} [groupId] - Group ID the feature belongs to
  * @property {boolean} [visivel=true] - Visibility state
@@ -23,6 +30,9 @@
  * @property {string} [color] - Fill/stroke color
  * @property {number} [opacity] - Opacity (0-1)
  * @property {number} [size] - Size/width
+ * @property {number} [createdAt] - Creation timestamp (epoch ms)
+ * @property {number} [updatedAt] - Last update timestamp (epoch ms)
+ * @property {number} [version] - Optimistic concurrency version
  */
 
 /**
@@ -31,6 +41,10 @@
  * @property {GeoJSONGeometry} geometry - GeoJSON geometry
  * @property {FeatureProperties} properties - Feature properties
  */
+
+// ============================================================================
+// Collections & Containers
+// ============================================================================
 
 /**
  * @typedef {Object} Layer
@@ -47,8 +61,38 @@
  * @property {string} name - Group display name
  * @property {boolean} visible - Visibility state
  * @property {boolean} locked - Lock state
- * @property {Array<{type: string, id: string}>} features - Feature references in the group
+ * @property {Array<{type: string, id: string}>} features - Feature references
  */
+
+/**
+ * Feature arrays keyed by storage type.
+ * Keys match FEATURE_TYPE_MAPPINGS values in store.constants.js.
+ *
+ * @typedef {Object} FeaturesCollection
+ * @property {Feature[]} points - Point features
+ * @property {Feature[]} lines - Line features
+ * @property {Feature[]} polygons - Polygon features
+ * @property {Feature[]} texts - Text features
+ * @property {Feature[]} images - Image features
+ * @property {Feature[]} circles - Circle features
+ * @property {Feature[]} rectangles - Rectangle features
+ * @property {Feature[]} ellipses - Ellipse features
+ * @property {Feature[]} brushes - Brush features
+ * @property {Feature[]} setores - Sector features
+ * @property {Feature[]} arrows - Arrow features
+ * @property {Feature[]} boundarys - Boundary features
+ * @property {Feature[]} occupied_fronts - Occupied front features
+ * @property {Feature[]} military_symbols - Military symbol features
+ * @property {Feature[]} coordination_measures - Coordination measure features
+ * @property {Feature[]} los - Line of sight features
+ * @property {Feature[]} visibility - Visibility features
+ * @property {Feature[]} processed_los - Processed LOS results
+ * @property {Feature[]} processed_visibility - Processed visibility results
+ */
+
+// ============================================================================
+// Map State
+// ============================================================================
 
 /**
  * @typedef {Object} MapPosition
@@ -74,28 +118,6 @@
  */
 
 /**
- * @typedef {Object} FeaturesCollection
- * @property {Feature[]} points - Point features
- * @property {Feature[]} lines - Line features
- * @property {Feature[]} polygons - Polygon features
- * @property {Feature[]} texts - Text features
- * @property {Feature[]} images - Image features
- * @property {Feature[]} circles - Circle features
- * @property {Feature[]} rectangles - Rectangle features
- * @property {Feature[]} ellipses - Ellipse features
- * @property {Feature[]} brushes - Brush features
- * @property {Feature[]} arrows - Arrow features
- * @property {Feature[]} boundarys - Boundary features
- * @property {Feature[]} occupied_fronts - Occupied front features
- * @property {Feature[]} military_symbols - Military symbol features
- * @property {Feature[]} coordination_measures - Coordination measure features
- * @property {Feature[]} los - Line of sight features
- * @property {Feature[]} visibility - Visibility features
- * @property {Feature[]} processed_los - Processed LOS features
- * @property {Feature[]} processed_visibility - Processed visibility features
- */
-
-/**
  * @typedef {Object} MapData
  * @property {string} schemaVersion - Data schema version
  * @property {string} baseLayer - Current base layer ID
@@ -105,43 +127,46 @@
  * @property {number|null} bearing - Bearing in degrees
  * @property {number|null} pitch - Pitch in degrees
  * @property {boolean} [hillshadeEnabled] - Hillshade enabled state
- * @property {Object} [analysisLayers] - Analysis layers states
- * @property {FeaturesCollection} features - Features by type
+ * @property {Object} [analysisLayers] - Analysis layer toggle states
+ * @property {FeaturesCollection} features - Features keyed by storage type
  */
+
+// ============================================================================
+// Store Infrastructure
+// ============================================================================
 
 /**
  * @typedef {Object} StoreDependencies
- * @property {import('../events/event_bus.js').EventBus|null} eventBus - Event bus instance
- * @property {import('../tool_manager/group_manager.js').GroupManager|null} groupManager - Group manager instance
- * @property {import('../layers/layer.manager.js').LayerManager|null} layerManager - Layer manager instance
+ * @property {import('../events/event_bus.js').EventBus|null} eventBus
+ * @property {import('../tool_manager/group_manager.js').GroupManager|null} groupManager
+ * @property {import('../layers/layer.manager.js').LayerManager|null} layerManager
  */
 
 /**
  * @typedef {Object} UndoRedoAction
- * @property {string} type - Action type (add, update, remove, addMultiple, removeWithProcessed, moveBetweenMaps)
- * @property {string} [featureType] - Feature type for single operations
- * @property {Feature} [feature] - Feature for add operations
- * @property {Feature} [oldFeature] - Old feature for update operations
- * @property {Feature} [newFeature] - New feature for update operations
+ * @property {'add'|'update'|'remove'|'addMultiple'|'removeWithProcessed'|'moveBetweenMaps'} type - Action type
+ * @property {string} [featureType] - Feature type for single-feature operations
+ * @property {Feature} [feature] - Feature snapshot for add/remove operations
+ * @property {Feature} [oldFeature] - Previous state for update operations
+ * @property {Feature} [newFeature] - New state for update operations
  * @property {Object} [features] - Features map for batch operations
  */
 
 /**
  * @typedef {Object} RemoveResult
- * @property {boolean} success - Whether removal was successful
- * @property {string} [reason] - Reason for failure
- * @property {boolean} [wasCurrentMap] - Whether removed map was current
+ * @property {boolean} success - Whether removal succeeded
+ * @property {string} [reason] - Failure reason
+ * @property {boolean} [wasCurrentMap] - Whether removed map was the active map
  * @property {number} [remainingMapsCount] - Count of remaining maps
- * @property {string} [newCurrentMap] - New current map name
+ * @property {string} [newCurrentMap] - New active map name after removal
  */
 
 /**
  * @typedef {Object} RemovedFeatureData
- * @property {Feature} mainFeature - The main removed feature
- * @property {Object|null} processedFeatures - Processed features data
+ * @property {Feature} mainFeature - The removed feature
+ * @property {Object|null} processedFeatures - Associated processed features
  * @property {string} processedFeatures.type - Processed feature type
  * @property {Feature[]} processedFeatures.features - Processed features array
  */
 
-// Export empty object to make this a module
 export {};

@@ -485,7 +485,7 @@ class AddCircleControl extends BaseControl {
             this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
         }
     }
-    _onEditPointerUp(_e) {
+    async _onEditPointerUp(_e) {
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -517,11 +517,11 @@ class AddCircleControl extends BaseControl {
                     },
                     geometry: result.geometry
                 };
-                this.forceUpdateMainSource(updatedFeature);
+                await this.forceUpdateMainSource(updatedFeature);
                 this.updateSelectionManagerFeature(updatedFeature);
                 this.createEditHandles(updatedFeature);
                 this.updateUIAfterEdit();
-                this.saveFeatureChanges(updatedFeature);
+                await this.saveFeatureChanges(updatedFeature);
             }
         }
         getSnappingService()?.hideIndicator(this.map);

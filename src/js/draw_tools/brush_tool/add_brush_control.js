@@ -214,9 +214,9 @@ class AddBrushControl extends BaseControl {
         this.setupDrawingEventListeners();
     }
 
-    deactivate = () => {
+    deactivate = async () => {
         this.isActive = false;
-        this.finishDrawing();
+        await this.finishDrawing();
         this.map.getCanvas().style.cursor = '';
         this.removeDrawingEventListeners();
         this.clearPreview();
@@ -344,7 +344,7 @@ class AddBrushControl extends BaseControl {
      * Handle pointer up - finish drawing
      * @param {PointerEvent} e
      */
-    _onPointerUp(_e) {
+    async _onPointerUp(_e) {
         if (!this.isActive || !this.isDrawing) return;
 
         // Release pointer capture
@@ -358,16 +358,16 @@ class AddBrushControl extends BaseControl {
             this._activePointerId = null;
         }
 
-        this.finishDrawing();
+        await this.finishDrawing();
     }
 
     /**
      * Handle pointer leave - finish drawing if active
      * @param {PointerEvent} e
      */
-    _onPointerLeave(_e) {
+    async _onPointerLeave(_e) {
         if (this.isDrawing) {
-            this.finishDrawing();
+            await this.finishDrawing();
         }
     }
 

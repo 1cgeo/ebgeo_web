@@ -3,17 +3,14 @@
 /**
  * @fileoverview Migration logic from v1.x to v2.0 schema.
  *
- * This migration performs the following transformations:
+ * Transforms:
  * 1. Creates an Atlas entity to wrap all maps
  * 2. Converts map names to UUIDs (maps still stored by name for backward compat)
  * 3. Adds sync metadata to all entities
- * 4. Updates feature IDs to UUIDs
- * 5. Updates layer IDs to UUIDs (except 'default')
- * 6. Updates group IDs to UUIDs
+ * 4. Updates feature, layer (except 'default'), and group IDs to UUIDs
  *
- * IMPORTANT: This migration is designed to be non-destructive.
- * Original data structure is preserved in IndexedDB, only new metadata is added.
- * Full structural migration (using map IDs as keys) is deferred to v2.1.
+ * Non-destructive: original IndexedDB structure is preserved, only new metadata
+ * is added. Full structural migration (map IDs as keys) deferred to v2.1.
  */
 
 import localforage from 'localforage';
@@ -21,7 +18,6 @@ import { generateUUID } from '../../utilities/uuid.js';
 import { createSyncMetadata } from '../sync/sync-metadata.js';
 import { createAtlas, ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
 
-// LocalForage stores - same as in repository.js
 const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
 const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
@@ -30,14 +26,13 @@ const layerStore = localforage.createInstance({ name: 'ebgeo_layers' });
 
 /**
  * @typedef {Object} IdMappings
- * @property {Map<string, string>} maps - Map name → UUID
- * @property {Map<string, string>} layers - Old layer ID → UUID
- * @property {Map<string, string>} groups - Old group ID → UUID
- * @property {Map<string, string>} features - Old feature ID → UUID
+ * @property {Map<string, string>} maps - Map name -> UUID
+ * @property {Map<string, string>} layers - Old layer ID -> UUID
+ * @property {Map<string, string>} groups - Old group ID -> UUID
+ * @property {Map<string, string>} features - Old feature ID -> UUID
  */
 
 /**
- * Creates ID mappings for migration.
  * @returns {IdMappings}
  */
 function createIdMappings() {
@@ -50,25 +45,25 @@ function createIdMappings() {
 }
 
 /**
- * Gets all map names from the store.
- * @returns {Promise<string[]>}
+ * Resolves an old ID to a new UUID. If the old ID has already been mapped,
+ * returns the existing UUID. Otherwise generates a new UUID and stores it.
+ * @param {Map<string, string>} mapping - ID mapping to use
+ * @param {string} oldId - Original ID to resolve
+ * @returns {string} Resolved UUID
  */
-async function getAllMapNames() {
-    return await mapStore.keys();
-}
-
-/**
- * Gets map order from settings.
- * @returns {Promise<string[]>}
- */
-async function getMapOrder() {
-    return await appStore.getItem('mapOrder') || [];
+function resolveId(mapping, oldId) {
+    if (mapping.has(oldId)) {
+        return mapping.get(oldId);
+    }
+    const newId = generateUUID();
+    mapping.set(oldId, newId);
+    return newId;
 }
 
 /**
  * Migrates a single feature to v2.0 format.
- * @param {Object} feature - Feature to migrate
- * @param {IdMappings} mappings - ID mappings
+ * @param {Object} feature
+ * @param {IdMappings} mappings
  * @returns {Object} Migrated feature
  */
 function migrateFeature(feature, mappings) {
@@ -76,46 +71,34 @@ function migrateFeature(feature, mappings) {
         return feature;
     }
 
-    const oldId = feature.properties.id;
-    let newId = oldId;
+    const { id: oldId, layerId: rawLayerId, groupId: rawGroupId } = feature.properties;
 
-    // Only generate new UUID if old ID exists and hasn't been mapped yet
-    if (oldId && !mappings.features.has(oldId)) {
-        newId = generateUUID();
-        mappings.features.set(oldId, newId);
-    } else if (oldId && mappings.features.has(oldId)) {
-        newId = mappings.features.get(oldId);
-    }
+    const id = oldId ? resolveId(mappings.features, oldId) : oldId;
 
-    // Update layer ID if mapped
-    let layerId = feature.properties.layerId || 'default';
-    if (layerId !== 'default' && mappings.layers.has(layerId)) {
-        layerId = mappings.layers.get(layerId);
-    }
+    const layerId = (rawLayerId || 'default') !== 'default' && mappings.layers.has(rawLayerId)
+        ? mappings.layers.get(rawLayerId)
+        : rawLayerId || 'default';
 
-    // Update group ID if mapped
-    let groupId = feature.properties.groupId;
-    if (groupId && mappings.groups.has(groupId)) {
-        groupId = mappings.groups.get(groupId);
-    }
+    const groupId = rawGroupId && mappings.groups.has(rawGroupId)
+        ? mappings.groups.get(rawGroupId)
+        : rawGroupId;
 
     return {
         ...feature,
         properties: {
             ...feature.properties,
-            id: newId,
+            id,
             layerId,
             groupId,
-            // Add sync metadata to feature
-            sync: createSyncMetadata(null)
+            sync: createSyncMetadata()
         }
     };
 }
 
 /**
  * Migrates all features in a map's feature collection.
- * @param {Object} features - Features object from map data
- * @param {IdMappings} mappings - ID mappings
+ * @param {Object} features - Features object keyed by feature type
+ * @param {IdMappings} mappings
  * @returns {Object} Migrated features
  */
 function migrateFeatures(features, mappings) {
@@ -123,64 +106,42 @@ function migrateFeatures(features, mappings) {
         return features;
     }
 
-    const migratedFeatures = {};
-
+    const migrated = {};
     for (const [featureType, featureList] of Object.entries(features)) {
-        if (!Array.isArray(featureList)) {
-            migratedFeatures[featureType] = featureList;
-            continue;
-        }
-
-        migratedFeatures[featureType] = featureList.map(feature =>
-            migrateFeature(feature, mappings)
-        );
+        migrated[featureType] = Array.isArray(featureList)
+            ? featureList.map(f => migrateFeature(f, mappings))
+            : featureList;
     }
-
-    return migratedFeatures;
+    return migrated;
 }
 
 /**
- * Migrates layers for a map.
- * @param {string} mapName - Map name
- * @param {IdMappings} mappings - ID mappings
+ * Migrates layers for a map: assigns UUIDs and adds sync metadata.
+ * @param {string} mapName
+ * @param {IdMappings} mappings
  * @returns {Promise<void>}
  */
 async function migrateLayers(mapName, mappings) {
     const key = `layers_${mapName}`;
     const layers = await layerStore.getItem(key);
 
-    if (!layers || !Array.isArray(layers)) {
+    if (!Array.isArray(layers)) {
         return;
     }
 
-    const migratedLayers = layers.map(layer => {
-        const oldId = layer.id;
-        let newId = oldId;
+    const migrated = layers.map(layer => ({
+        ...layer,
+        id: layer.id === 'default' ? 'default' : resolveId(mappings.layers, layer.id),
+        sync: createSyncMetadata()
+    }));
 
-        // Keep 'default' ID as-is, migrate others to UUID
-        if (oldId !== 'default') {
-            if (!mappings.layers.has(oldId)) {
-                newId = generateUUID();
-                mappings.layers.set(oldId, newId);
-            } else {
-                newId = mappings.layers.get(oldId);
-            }
-        }
-
-        return {
-            ...layer,
-            id: newId,
-            sync: createSyncMetadata(null)
-        };
-    });
-
-    await layerStore.setItem(key, migratedLayers);
+    await layerStore.setItem(key, migrated);
 }
 
 /**
- * Builds group ID mappings without saving (first pass).
- * @param {string} mapName - Map name
- * @param {IdMappings} mappings - ID mappings to populate
+ * Builds group ID mappings without persisting (first pass).
+ * @param {string} mapName
+ * @param {IdMappings} mappings
  * @returns {Promise<void>}
  */
 async function buildGroupMappings(mapName, mappings) {
@@ -191,16 +152,15 @@ async function buildGroupMappings(mapName, mappings) {
     }
 
     for (const oldGroupId of Object.keys(groups)) {
-        if (!mappings.groups.has(oldGroupId)) {
-            mappings.groups.set(oldGroupId, generateUUID());
-        }
+        resolveId(mappings.groups, oldGroupId);
     }
 }
 
 /**
- * Migrates groups for a map (second pass, after features are migrated).
- * @param {string} mapName - Map name
- * @param {IdMappings} mappings - ID mappings (must have groups and features populated)
+ * Migrates groups (second pass, after features are migrated).
+ * Updates group IDs and feature references within each group.
+ * @param {string} mapName
+ * @param {IdMappings} mappings - Must have groups and features populated
  * @returns {Promise<void>}
  */
 async function migrateGroups(mapName, mappings) {
@@ -210,121 +170,94 @@ async function migrateGroups(mapName, mappings) {
         return;
     }
 
-    const migratedGroups = {};
-
+    const migrated = {};
     for (const [oldGroupId, group] of Object.entries(groups)) {
         const newGroupId = mappings.groups.get(oldGroupId) || oldGroupId;
-
-        // Update feature references in the group
-        const migratedFeatures = (group.features || []).map(ref => ({
+        const features = (group.features || []).map(ref => ({
             ...ref,
             id: mappings.features.get(ref.id) || ref.id
         }));
 
-        migratedGroups[newGroupId] = {
+        migrated[newGroupId] = {
             ...group,
             id: newGroupId,
-            features: migratedFeatures,
-            sync: createSyncMetadata(null)
+            features,
+            sync: createSyncMetadata()
         };
     }
 
-    await groupStore.setItem(mapName, migratedGroups);
+    await groupStore.setItem(mapName, migrated);
 }
 
 /**
- * Migrates a single map to v2.0 format.
- * Uses 3-pass approach to ensure all ID mappings are built before use:
+ * Migrates a single map using a 3-pass approach:
  * 1. Build layer and group ID mappings
- * 2. Migrate features (uses layer/group mappings, builds feature mappings)
- * 3. Migrate groups (uses feature mappings to update references)
- *
- * @param {string} mapName - Map name
- * @param {IdMappings} mappings - ID mappings
+ * 2. Migrate features (consumes layer/group mappings, builds feature mappings)
+ * 3. Migrate groups (consumes feature mappings to update references)
+ * @param {string} mapName
+ * @param {IdMappings} mappings
  * @returns {Promise<void>}
  */
 async function migrateMap(mapName, mappings) {
     const mapData = await mapStore.getItem(mapName);
-
     if (!mapData) {
         return;
     }
 
-    // Generate UUID for this map
     const mapId = generateUUID();
     mappings.maps.set(mapName, mapId);
 
-    // Pass 1: Build all ID mappings (layers and groups)
     await migrateLayers(mapName, mappings);
     await buildGroupMappings(mapName, mappings);
 
-    // Pass 2: Migrate features (uses layer/group mappings, builds feature mappings)
-    const migratedFeatures = migrateFeatures(mapData.features, mappings);
+    const features = migrateFeatures(mapData.features, mappings);
 
-    // Pass 3: Migrate groups (uses feature mappings to update references)
     await migrateGroups(mapName, mappings);
 
-    // Save migrated map data
-    const migratedMapData = {
+    await mapStore.setItem(mapName, {
         ...mapData,
         id: mapId,
         name: mapName,
-        features: migratedFeatures,
-        sync: createSyncMetadata(null)
-    };
-
-    await mapStore.setItem(mapName, migratedMapData);
+        features,
+        sync: createSyncMetadata()
+    });
 }
 
 /**
- * Main migration function: v1.x to v2.0
- * @returns {Promise<{success: boolean, error?: string}>}
+ * Main migration function: v1.x to v2.0.
+ * @returns {Promise<{success: boolean}>}
  */
 export async function migrateToV2() {
     console.log('Starting migration to v2.0...');
 
     const mappings = createIdMappings();
-
-    // Get all map names and order
-    const mapNames = await getAllMapNames();
-    const mapOrder = await getMapOrder();
+    const mapNames = await mapStore.keys();
+    const mapOrder = await appStore.getItem('mapOrder') || [];
     const lastActiveMap = await appStore.getItem('lastActiveMap');
 
     console.log(`Found ${mapNames.length} maps to migrate`);
 
-    // Migrate each map
     for (const mapName of mapNames) {
         console.log(`Migrating map: ${mapName}`);
         await migrateMap(mapName, mappings);
     }
 
-    // Create Atlas
     const atlas = createAtlas('Meu Atlas');
-
-    // Build map order using UUIDs (but maintain original order)
-    // For now, we keep map names as the ordering reference
-    // since we're not changing the IndexedDB keys yet
     atlas.mapOrder = mapOrder.length > 0 ? mapOrder : mapNames;
 
-    // Set last active map
     if (lastActiveMap && mapNames.includes(lastActiveMap)) {
-        atlas.lastActiveMapId = lastActiveMap; // Keep name for now
+        atlas.lastActiveMapId = lastActiveMap;
     } else if (mapNames.length > 0) {
         atlas.lastActiveMapId = mapNames[0];
     }
 
-    // Save Atlas
     await atlasStore.setItem('current_atlas', atlas);
-
-    // Update schema version
     await appStore.setItem('schemaVersion', ATLAS_SCHEMA_VERSION);
 
     console.log('Migration to v2.0 complete');
-
     return { success: true };
 }
 
-// Export helper functions for testing
 export {
     createIdMappings,
     migrateFeature,

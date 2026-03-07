@@ -511,7 +511,7 @@ class AddOccupiedFrontControl extends BaseControl {
         }
     }
 
-    _onEditPointerUp(_e) {
+    async _onEditPointerUp(_e) {
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -548,11 +548,11 @@ class AddOccupiedFrontControl extends BaseControl {
                         geometry: this.geometry.generate(coords)
                     };
 
-                    this.forceUpdateMainSource(updatedFeature);
+                    await this.forceUpdateMainSource(updatedFeature);
                     this.updateSelectionManagerFeature(updatedFeature);
                     this.createEditHandles(updatedFeature);
                     this.updateUIAfterEdit();
-                    this.saveFeatureChanges(updatedFeature);
+                    await this.saveFeatureChanges(updatedFeature);
                 }
             }
         }

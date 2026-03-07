@@ -626,7 +626,7 @@ export class SymbolSelectorModal extends ModalBase {
             }
         }
 
-        this._militarySymbolControl.saveFeatures(this._selectedFeatures, this._initialPropertiesMap);
+        await this._militarySymbolControl.saveFeatures(this._selectedFeatures, this._initialPropertiesMap);
         this.hide();
         this._selectionManager.deselectAllFeatures();
     }

@@ -5,6 +5,7 @@
  */
 
 import { getControl } from '../../store';
+import { setOrCreateSource, ensureLayer, VISIBLE_FILTER } from './layer.helpers.js';
 
 /**
  * Sets up military symbol layers on the map.
@@ -12,46 +13,29 @@ import { getControl } from '../../store';
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupMilitarySymbolsLayers(features, mapInstance) {
-    const militarySymbolControl = getControl('AddMilitarySymbolControl');
+    const control = getControl('AddMilitarySymbolControl');
+    const corrected = control
+        ? control.applyZoomCorrections(features.military_symbols)
+        : features.military_symbols;
 
-    let correctedSymbols = features.military_symbols;
-    if (militarySymbolControl) {
-        correctedSymbols = militarySymbolControl.applyZoomCorrections(features.military_symbols);
-    }
+    setOrCreateSource(mapInstance, 'military_symbols', corrected);
 
-    if (!mapInstance.getSource('military_symbols')) {
-        mapInstance.addSource('military_symbols', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: correctedSymbols
-            }
-        });
-    } else {
-        mapInstance.getSource('military_symbols').setData({
-            type: 'FeatureCollection',
-            features: correctedSymbols
-        });
-    }
-
-    if (!mapInstance.getLayer('military-symbols-layer')) {
-        mapInstance.addLayer({
-            id: 'military-symbols-layer',
-            type: 'symbol',
-            source: 'military_symbols',
-            paint: {
-                'icon-opacity': ['get', 'opacity']
-            },
-            layout: {
-                'icon-image': ['get', 'id'],
-                'icon-size': ['get', 'calculatedSize'],
-                'icon-rotate': ['get', 'rotation'],
-                'icon-allow-overlap': true,
-                'icon-ignore-placement': true
-            },
-            filter: ['!=', ['get', 'visivel'], false]
-        });
-    }
+    ensureLayer(mapInstance, {
+        id: 'military-symbols-layer',
+        type: 'symbol',
+        source: 'military_symbols',
+        paint: {
+            'icon-opacity': ['get', 'opacity'],
+        },
+        layout: {
+            'icon-image': ['get', 'id'],
+            'icon-size': ['get', 'calculatedSize'],
+            'icon-rotate': ['get', 'rotation'],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+        },
+        filter: VISIBLE_FILTER,
+    });
 }
 
 /**
@@ -60,49 +44,33 @@ export function setupMilitarySymbolsLayers(features, mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupCoordinationMeasureLayers(features, mapInstance) {
-    const coordinationMeasureControl = getControl('AddCoordinationMeasureControl');
+    const control = getControl('AddCoordinationMeasureControl');
+    const raw = features.coordination_measures || [];
+    const corrected = control && raw.length > 0
+        ? control.applyZoomCorrections(raw)
+        : raw;
 
-    let correctedSymbols = features.coordination_measures || [];
-    if (coordinationMeasureControl && features.coordination_measures && features.coordination_measures.length > 0) {
-        correctedSymbols = coordinationMeasureControl.applyZoomCorrections(features.coordination_measures);
-    }
+    setOrCreateSource(mapInstance, 'coordination_measures', corrected);
 
-    if (!mapInstance.getSource('coordination_measures')) {
-        mapInstance.addSource('coordination_measures', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: correctedSymbols
-            }
-        });
-    } else {
-        mapInstance.getSource('coordination_measures').setData({
-            type: 'FeatureCollection',
-            features: correctedSymbols
-        });
-    }
-
-    if (!mapInstance.getLayer('coordination-measures-layer')) {
-        mapInstance.addLayer({
-            id: 'coordination-measures-layer',
-            type: 'symbol',
-            source: 'coordination_measures',
-            paint: {
-                'icon-opacity': ['get', 'opacity']
-            },
-            layout: {
-                'icon-image': ['get', 'id'],
-                'icon-size': ['get', 'calculatedSize'],
-                'icon-rotate': ['get', 'rotation'],
-                'icon-anchor': [
-                    'coalesce',
-                    ['get', 'anchor'],
-                    'center'
-                ],
-                'icon-allow-overlap': true,
-                'icon-ignore-placement': true
-            },
-            filter: ['!=', ['get', 'visivel'], false]
-        });
-    }
+    ensureLayer(mapInstance, {
+        id: 'coordination-measures-layer',
+        type: 'symbol',
+        source: 'coordination_measures',
+        paint: {
+            'icon-opacity': ['get', 'opacity'],
+        },
+        layout: {
+            'icon-image': ['get', 'id'],
+            'icon-size': ['get', 'calculatedSize'],
+            'icon-rotate': ['get', 'rotation'],
+            'icon-anchor': [
+                'coalesce',
+                ['get', 'anchor'],
+                'center',
+            ],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+        },
+        filter: VISIBLE_FILTER,
+    });
 }

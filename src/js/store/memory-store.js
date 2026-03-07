@@ -15,136 +15,61 @@
  */
 
 import { DEFAULT_MAP_NAME } from './store.constants.js';
+import { getEmptyCesium3dData, getEmptyStreetview360Data } from './repository.utils.js';
 
-// ===== MEMORY STORE =====
+/**
+ * Creates a fresh initial state object for the memory store.
+ *
+ * Used both for the initial memoryStore declaration and for resetMemoryStore(),
+ * ensuring the initial shape is defined in exactly one place.
+ *
+ * @returns {Object} Initial memory store state (plain-object fields only)
+ */
+function createInitialState() {
+    return {
+        maps: {
+            [DEFAULT_MAP_NAME]: {
+                undoStacks: {},
+                redoStacks: {}
+            }
+        },
+        currentMap: DEFAULT_MAP_NAME,
+        isUndoing: false,
+        isRedoing: false,
+        batchCollector: null,
+        groups: {},
+        layers: {},
+        activeLayerId: 'default',
+        colorUsageCache: new Map(),
+        cesium3d: getEmptyCesium3dData(),
+        streetview360: { ...getEmptyStreetview360Data(), _mapName: null },
+        lockedMaps: new Set()
+    };
+}
 
 /**
  * In-memory store for runtime state.
- * @type {Object}
+ *
+ * @property {Object.<string, {undoStacks: Object.<string, Array>, redoStacks: Object.<string, Array>}>} maps
+ *   Undo/redo stacks per map, per user. In offline mode the single userId is the clientId.
+ * @property {string} currentMap - Current active map name.
+ * @property {boolean} isUndoing - Whether an undo operation is in progress.
+ * @property {boolean} isRedoing - Whether a redo operation is in progress.
+ * @property {Array|null} batchCollector - null = not collecting, [] = collecting actions for batch.
+ * @property {Object.<string, Object>} groups - Groups cache per map.
+ * @property {Object.<string, Array>} layers - Layer system cache per map.
+ * @property {string} activeLayerId - Active layer ID.
+ * @property {Map<string, number>} colorUsageCache - Color usage cache for current map.
+ * @property {Object} cesium3d - Cesium 3D cache (camera positions, markers, measurements, viewsheds).
+ * @property {Object} streetview360 - Street View 360 cache (orientations, markers, _mapName for validation).
+ * @property {Set<string>} lockedMaps - Locked (read-only) map names, loaded from IndexedDB for synchronous access.
  */
-export const memoryStore = {
-    /**
-     * Maps state (undo/redo stacks per map, per user).
-     * Each map has undoStacks and redoStacks keyed by userId.
-     * In offline mode, the single userId is the clientId.
-     * @type {Object.<string, {undoStacks: Object.<string, Array>, redoStacks: Object.<string, Array>}>}
-     */
-    maps: {
-        [DEFAULT_MAP_NAME]: {
-            undoStacks: {},
-            redoStacks: {}
-        }
-    },
-
-    /**
-     * Current active map name.
-     * @type {string}
-     */
-    currentMap: DEFAULT_MAP_NAME,
-
-    /**
-     * Flag indicating if an undo operation is in progress.
-     * @type {boolean}
-     */
-    isUndoing: false,
-
-    /**
-     * Flag indicating if a redo operation is in progress.
-     * @type {boolean}
-     */
-    isRedoing: false,
-
-    /**
-     * Batch collector for grouping multiple undo entries into one.
-     * null = not collecting, [] = collecting actions for batch.
-     * @type {Array|null}
-     */
-    batchCollector: null,
-
-    /**
-     * Groups cache per map.
-     * @type {Object.<string, Object>}
-     */
-    groups: {},
-
-    /**
-     * Layer system cache per map.
-     * @type {Object.<string, Array>}
-     */
-    layers: {},
-
-    /**
-     * Active layer ID.
-     * @type {string}
-     */
-    activeLayerId: 'default',
-
-    /**
-     * Color usage cache for current map.
-     * @type {Map<string, number>}
-     */
-    colorUsageCache: new Map(),
-
-    /**
-     * Cesium 3D cache.
-     * @type {Object}
-     */
-    cesium3d: {
-        cameraPositions: {},  // { tilesetId: TilesetCameraPosition }
-        markers: [],          // Cesium3DMarker[]
-        measurements: [],     // Cesium3DMeasurement[]
-        viewsheds: []         // Cesium3DViewshed[]
-    },
-
-    /**
-     * Street View 360 cache.
-     * @type {Object}
-     */
-    streetview360: {
-        orientations: {},     // { photoName: PhotoOrientation }
-        markers: [],          // Marker360[]
-        _mapName: null        // Current map name for cache validation
-    },
-
-    /**
-     * Set of locked (read-only) map names.
-     * Loaded from IndexedDB on map switch for synchronous access.
-     * @type {Set<string>}
-     */
-    lockedMaps: new Set()
-};
-
-// ===== MEMORY STORE OPERATIONS =====
+export const memoryStore = createInitialState();
 
 /**
  * Resets memory store to initial state.
  * Called when clearing all data or reinitializing.
  */
 export function resetMemoryStore() {
-    memoryStore.maps = {
-        [DEFAULT_MAP_NAME]: {
-            undoStacks: {},
-            redoStacks: {}
-        }
-    };
-    memoryStore.currentMap = DEFAULT_MAP_NAME;
-    memoryStore.isUndoing = false;
-    memoryStore.isRedoing = false;
-    memoryStore.batchCollector = null;
-    memoryStore.groups = {};
-    memoryStore.layers = {};
-    memoryStore.activeLayerId = 'default';
-    memoryStore.colorUsageCache = new Map();
-    memoryStore.cesium3d = {
-        cameraPositions: {},
-        markers: [],
-        measurements: [],
-        viewsheds: []
-    };
-    memoryStore.streetview360 = {
-        orientations: {},
-        markers: [],
-        _mapName: null
-    };
-    memoryStore.lockedMaps = new Set();
+    Object.assign(memoryStore, createInitialState());
 }

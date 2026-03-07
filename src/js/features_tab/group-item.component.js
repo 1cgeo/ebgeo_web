@@ -326,7 +326,8 @@ export async function toggleGroupVisibility(
         updateGroupProperty(groupId, 'visible', newVisibility);
 
         const currentMapName = getCurrentMapNameSync();
-        const group = getMapGroups(currentMapName).get(groupId);
+        const groups = getMapGroups(currentMapName);
+        const group = groups[groupId];
         if (group) {
             for (const featureRef of group.features) {
                 const storageType = getStorageTypeFromSource(featureRef.type);
@@ -366,7 +367,8 @@ export async function toggleGroupLock(
         updateGroupProperty(groupId, 'locked', newLockState);
 
         const currentMapName = getCurrentMapNameSync();
-        const group = getMapGroups(currentMapName).get(groupId);
+        const groups = getMapGroups(currentMapName);
+        const group = groups[groupId];
         if (group) {
             for (const featureRef of group.features) {
                 const storageType = getStorageTypeFromSource(featureRef.type);

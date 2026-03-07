@@ -17,40 +17,22 @@ import { getFeatureDisplayNameFromStorage } from './store.constants.js';
  */
 export function describeUndoRedoAction(action, direction) {
     const suffix = direction === 'undo' ? 'desfeita' : 'refeita';
-    const suffixMasc = direction === 'undo' ? 'desfeito' : 'refeito';
 
     switch (action.type) {
-        case 'add': {
-            const typeName = getFeatureDisplayNameFromStorage(action.featureType);
-            const label = _labelWithName(typeName, action.feature);
-            return `Criação de ${label} ${suffix}`;
-        }
+        case 'add':
+            return _describeSimple('Criação', action.featureType, action.feature, suffix);
 
-        case 'update': {
-            const typeName = getFeatureDisplayNameFromStorage(action.featureType);
-            const feature = direction === 'undo' ? action.newFeature : action.oldFeature;
-            const label = _labelWithName(typeName, feature);
-            return `Edição de ${label} ${suffix}`;
-        }
+        case 'update':
+            return _describeSimple('Edição', action.featureType, _pickFeature(action, direction), suffix);
 
-        case 'remove': {
-            const typeName = getFeatureDisplayNameFromStorage(action.featureType);
-            const label = _labelWithName(typeName, action.feature);
-            return `Exclusão de ${label} ${suffix}`;
-        }
+        case 'remove':
+            return _describeSimple('Exclusão', action.featureType, action.feature, suffix);
 
-        case 'removeWithProcessed': {
-            const typeName = getFeatureDisplayNameFromStorage(action.mainFeatureType);
-            const label = _labelWithName(typeName, action.mainFeature);
-            return `Exclusão de ${label} ${suffix}`;
-        }
+        case 'removeWithProcessed':
+            return _describeSimple('Exclusão', action.mainFeatureType, action.mainFeature, suffix);
 
-        case 'updateWithProcessed': {
-            const typeName = getFeatureDisplayNameFromStorage(action.mainFeatureType);
-            const feature = direction === 'undo' ? action.newFeature : action.oldFeature;
-            const label = _labelWithName(typeName, feature);
-            return `Edição de ${label} ${suffix}`;
-        }
+        case 'updateWithProcessed':
+            return _describeSimple('Edição', action.mainFeatureType, _pickFeature(action, direction), suffix);
 
         case 'addMultiple': {
             const totalCount = Object.values(action.features)
@@ -64,6 +46,7 @@ export function describeUndoRedoAction(action, direction) {
         }
 
         case 'moveBetweenMaps': {
+            const suffixMasc = direction === 'undo' ? 'desfeito' : 'refeito';
             const totalMoved = Object.values(action.movedFeatures)
                 .reduce((sum, typeOps) => sum + typeOps.mainFeatures.length, 0);
             return `Mover ${totalMoved} feição(ões) entre mapas ${suffixMasc}`;
@@ -82,12 +65,28 @@ export function describeUndoRedoAction(action, direction) {
 }
 
 /**
- * Builds a label including the feature name when available.
- * @param {string} typeName - Display name of the feature type
+ * Builds a description string for single-feature operations.
+ * @param {string} verb - Action verb (e.g. 'Criação', 'Edição', 'Exclusão')
+ * @param {string} featureType - Storage type key for display name lookup
  * @param {Object} feature - GeoJSON feature (may be null/undefined)
- * @returns {string} Label like 'Ponto "Posto 1"' or just 'Ponto'
+ * @param {string} suffix - Gender-appropriate suffix ('desfeita'/'refeita')
+ * @returns {string} e.g. 'Criação de Ponto "Posto 1" desfeita'
  */
-function _labelWithName(typeName, feature) {
+function _describeSimple(verb, featureType, feature, suffix) {
+    const typeName = getFeatureDisplayNameFromStorage(featureType);
     const name = feature?.properties?.nome;
-    return name ? `${typeName} "${name}"` : typeName;
+    const label = name ? `${typeName} "${name}"` : typeName;
+    return `${verb} de ${label} ${suffix}`;
+}
+
+/**
+ * Selects the relevant feature snapshot for update actions based on direction.
+ * On undo we show the feature being reverted (newFeature),
+ * on redo we show the feature being restored (oldFeature).
+ * @param {Object} action - The update action
+ * @param {'undo'|'redo'} direction
+ * @returns {Object} The appropriate feature snapshot
+ */
+function _pickFeature(action, direction) {
+    return direction === 'undo' ? action.newFeature : action.oldFeature;
 }

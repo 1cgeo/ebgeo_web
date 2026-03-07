@@ -7,29 +7,16 @@
  *
  * Offline: no-op (events are emitted but scheduler exits early).
  * Online: debounced sync attempts via SyncGateway.
- *
- * @dependencies services.js, event_types.js, connection-state.js, sync-gateway.js
  */
 
 import { EventTypes } from '../../events/event_types.js';
-import { connectionState } from './connection-state.js';
+import { connectionState, ConnectionStates } from './connection-state.js';
 import { syncGateway } from './sync-gateway.js';
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-/**
- * Debounce delay for sync attempts (ms).
- * Coalesces rapid operations (e.g., bulk import) into a single sync batch.
- * @type {number}
- */
+/** Debounce delay (ms). Coalesces rapid operations into a single sync batch. */
 const SYNC_DEBOUNCE_MS = 1000;
 
-/**
- * Entity lifecycle events that should trigger a sync attempt when online.
- * @type {string[]}
- */
+/** Entity lifecycle events that trigger a sync attempt when online. */
 const SYNC_TRIGGER_EVENTS = [
     EventTypes.FEATURE_CREATED,
     EventTypes.FEATURE_MODIFIED,
@@ -48,16 +35,8 @@ const SYNC_TRIGGER_EVENTS = [
     EventTypes.BRIEFING_DELETED,
 ];
 
-// ============================================================================
-// MODULE STATE
-// ============================================================================
-
-/** @type {ReturnType<typeof setTimeout>|null} */
+/** @type {number|null} */
 let _syncTimer = null;
-
-// ============================================================================
-// PUBLIC API
-// ============================================================================
 
 /**
  * Initializes the sync scheduler.
@@ -67,30 +46,22 @@ let _syncTimer = null;
  * @param {import('../../events/event_bus.js').EventBus} eventBus
  */
 export function initSyncScheduler(eventBus) {
-    // Subscribe to entity lifecycle events
     for (const eventType of SYNC_TRIGGER_EVENTS) {
-        eventBus.on(eventType, () => {
-            scheduleSyncAttempt();
-        });
+        eventBus.on(eventType, () => scheduleSyncAttempt());
     }
 
-    // Flush queue immediately when connection goes ONLINE
     connectionState.onStateChanged(({ currentState }) => {
-        if (currentState === 'online') {
+        if (currentState === ConnectionStates.ONLINE) {
             scheduleSyncAttempt(0);
         }
     });
 }
 
-// ============================================================================
-// PRIVATE
-// ============================================================================
-
 /**
  * Schedules a debounced sync attempt via SyncGateway.
- * No-op when offline (exits before scheduling).
+ * No-op when offline.
  *
- * @param {number} [delayMs=SYNC_DEBOUNCE_MS] - Delay before sync
+ * @param {number} [delayMs=SYNC_DEBOUNCE_MS]
  */
 function scheduleSyncAttempt(delayMs = SYNC_DEBOUNCE_MS) {
     if (!connectionState.isOnline()) {

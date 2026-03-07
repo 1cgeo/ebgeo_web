@@ -516,7 +516,7 @@ class MoveHandler {
             await this.selectionManager.updateSelectedFeatures();
 
             this.selectionManager.updateProfile();
-            this._syncEditHandlesForMovedFeatures(updatedFeatures);
+            await this._syncEditHandlesForMovedFeatures(updatedFeatures);
             this._updateMeasurementsForMovedFeatures(updatedFeatures);
 
             this.uiManager.updatePanels();
@@ -683,7 +683,7 @@ class MoveHandler {
      * Sync edit handles using tool-centric approach.
      * @private
      */
-    _syncEditHandlesForMovedFeatures(updatedFeatures) {
+    async _syncEditHandlesForMovedFeatures(updatedFeatures) {
         const featuresByType = new Map();
 
         for (const feature of updatedFeatures) {
@@ -694,15 +694,15 @@ class MoveHandler {
             featuresByType.get(type).push(feature);
         }
 
-        featuresByType.forEach((features, type) => {
+        for (const [type, features] of featuresByType) {
             const control = this.getControl(type);
 
             if (control && typeof control.syncEditHandlesAfterDrag === 'function') {
-                control.syncEditHandlesAfterDrag(features);
+                await control.syncEditHandlesAfterDrag(features);
             } else if (control) {
                 console.warn(`Tool ${type} does not implement syncEditHandlesAfterDrag interface`);
             }
-        });
+        }
     }
 
     // =========================================================================

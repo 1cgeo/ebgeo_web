@@ -87,7 +87,7 @@ export async function zoomAndSelectFeature(feature, mapInstance, selectionManage
     selectionManager.deselectAllFeatures();
 
     const sourceType = getSourceTypeFromStorage(featureType);
-    selectionManager.selectFeature(sourceType, featureId, feature);
+    await selectionManager.selectFeature(sourceType, featureId, feature);
 
     await zoomToFeature(feature, mapInstance, {
         paddingPercent: 0.25,

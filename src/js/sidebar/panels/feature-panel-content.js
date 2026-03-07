@@ -774,8 +774,8 @@ export async function createFeaturePanelContent({
             container.appendChild(globalButtons.element);
 
             // Cleanup: save all edited types before destroying
-            cleanupFunctions.push(() => {
-                globalButtons.saveAll();
+            cleanupFunctions.push(async () => {
+                await globalButtons.saveAll();
                 typeSelector.cleanup();
             });
         }
@@ -804,14 +804,14 @@ export async function createFeaturePanelContent({
     }
 
     // Cleanup function
-    const cleanup = () => {
-        cleanupFunctions.forEach(fn => {
+    const cleanup = async () => {
+        for (const fn of cleanupFunctions) {
             try {
-                fn();
+                await fn();
             } catch (e) {
                 console.warn('Cleanup error:', e);
             }
-        });
+        }
     };
 
     return {

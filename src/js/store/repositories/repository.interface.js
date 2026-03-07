@@ -81,20 +81,6 @@ export const RepositoryMethods = Object.freeze([
 ]);
 
 /**
- * Validates if an object implements the IRepository interface.
- * @param {Object} repository - Object to validate
- * @returns {boolean} True if all required methods are present
- */
-export function validateRepository(repository) {
-    if (!repository || typeof repository !== 'object') {
-        return false;
-    }
-    return RepositoryMethods.every(
-        method => typeof repository[method] === 'function'
-    );
-}
-
-/**
  * Gets list of missing methods from a repository implementation.
  * Useful for debugging incomplete implementations.
  * @param {Object} repository - Object to check
@@ -107,6 +93,15 @@ export function getMissingMethods(repository) {
     return RepositoryMethods.filter(
         method => typeof repository[method] !== 'function'
     );
+}
+
+/**
+ * Validates if an object implements the IRepository interface.
+ * @param {Object} repository - Object to validate
+ * @returns {boolean} True if all required methods are present
+ */
+export function validateRepository(repository) {
+    return getMissingMethods(repository).length === 0;
 }
 
 /**
@@ -211,90 +206,3 @@ export function getMissingMethods(repository) {
  *   Clear all data (for testing/reset)
  */
 
-// ============================================================================
-// FUTURE: RemoteRepository Implementation Guide
-// ============================================================================
-/**
- * @fileoverview RemoteRepository Implementation Guide
- *
- * When implementing a RemoteRepository for backend sync, consider:
- *
- * 1. AUTHENTICATION
- *    - Token-based auth (JWT) in Authorization header
- *    - Handle 401 responses and token refresh
- *
- * 2. CONFLICT RESOLUTION
- *    - Use `version` field for optimistic locking
- *    - On conflict (409), fetch latest version and merge
- *    - Consider Last-Write-Wins (LWW) or user prompt for conflicts
- *
- * 3. OFFLINE SUPPORT
- *    - Queue operations when offline
- *    - Sync when connection restored
- *    - Use `dirty` flag to track pending changes
- *
- * 4. ENTITY SYNC METADATA
- *    Each entity should have:
- *    - id: UUID (primary key)
- *    - createdAt: number (timestamp ms)
- *    - updatedAt: number (timestamp ms)
- *    - version: number (for conflict resolution)
- *    - ownerId: string (user UUID)
- *    - deleted: boolean (soft delete for sync)
- *
- * 5. API ENDPOINTS (suggested structure)
- *    - GET    /api/atlas                  -> getAtlas()
- *    - PUT    /api/atlas                  -> saveAtlas()
- *    - GET    /api/maps                   -> getAllMaps()
- *    - GET    /api/maps/:id               -> getMap()
- *    - PUT    /api/maps/:id               -> saveMap()
- *    - DELETE /api/maps/:id               -> deleteMap()
- *    - GET    /api/maps/:id/layers        -> getLayers()
- *    - PUT    /api/maps/:id/layers        -> saveLayers()
- *    - POST   /api/images                 -> saveImage() (multipart)
- *    - GET    /api/images/:id             -> getImage()
- *    - DELETE /api/images/:id             -> deleteImage()
- *    - GET    /api/briefings              -> getAllBriefings()
- *    - GET    /api/briefings/:id          -> getBriefing()
- *    - PUT    /api/briefings/:id          -> saveBriefing()
- *    - DELETE /api/briefings/:id          -> deleteBriefing()
- *
- * 6. SYNC STRATEGY
- *    SyncRepository should combine Local + Remote:
- *    - Read: Local first, then remote if stale
- *    - Write: Local immediately, then queue remote
- *    - Sync: Batch upload dirty entities, download changes
- *
- * Example RemoteRepository skeleton:
- * ```javascript
- * class RemoteRepository {
- *     constructor(baseUrl, authProvider) {
- *         this.baseUrl = baseUrl;
- *         this.auth = authProvider;
- *     }
- *
- *     async getMap(mapId) {
- *         const response = await fetch(`${this.baseUrl}/maps/${mapId}`, {
- *             headers: { Authorization: `Bearer ${await this.auth.getToken()}` }
- *         });
- *         if (response.status === 404) return null;
- *         if (response.status === 401) throw new AuthError();
- *         return response.json();
- *     }
- *
- *     async saveMap(mapId, data) {
- *         const response = await fetch(`${this.baseUrl}/maps/${mapId}`, {
- *             method: 'PUT',
- *             headers: {
- *                 'Content-Type': 'application/json',
- *                 Authorization: `Bearer ${await this.auth.getToken()}`,
- *                 'If-Match': data.version  // Optimistic locking
- *             },
- *             body: JSON.stringify(data)
- *         });
- *         if (response.status === 409) throw new ConflictError(await response.json());
- *         if (!response.ok) throw new ApiError(response);
- *     }
- * }
- * ```
- */

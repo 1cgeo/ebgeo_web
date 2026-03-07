@@ -940,7 +940,7 @@ class AddLOSControl extends BaseControl {
                 const formattedDistance = this.geometry.formatDistance(distance);
                 const midpoint = this.geometry.getMidpoint(coordinates);
 
-                this.displayMeasurement(midpoint, formattedDistance, feature.properties.id);
+                this.displayMeasurement(midpoint, formattedDistance, feature.properties.id, feature.properties.layerId);
             }
         }
     }
@@ -952,18 +952,19 @@ class AddLOSControl extends BaseControl {
         }
     }
 
-    displayMeasurement = (coordinates, measurement, featureId) => {
-        const markerElement = this.createMeasurementLabel(measurement, featureId);
+    displayMeasurement = (coordinates, measurement, featureId, layerId) => {
+        const markerElement = this.createMeasurementLabel(measurement, featureId, layerId);
         new maplibregl.Marker({ element: markerElement })
             .setLngLat(coordinates)
             .addTo(this.map);
     }
 
-    createMeasurementLabel = (measurement, featureId) => {
+    createMeasurementLabel = (measurement, featureId, layerId) => {
         const label = document.createElement('div');
         label.className = 'measurement-label';
         label.innerText = measurement;
         label.dataset.featureId = featureId;
+        label.dataset.layerId = layerId || 'default';
 
         return label;
     }

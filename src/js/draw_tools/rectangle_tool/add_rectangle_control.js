@@ -795,7 +795,7 @@ class AddRectangleControl extends BaseControl {
                     }, 10);
 
                     this.updateUIAfterEdit();
-                    this.saveFeatureChanges(updatedFeature);
+                    await this.saveFeatureChanges(updatedFeature);
                 }
             }
         }

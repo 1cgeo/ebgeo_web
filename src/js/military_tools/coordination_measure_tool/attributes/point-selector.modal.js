@@ -418,7 +418,7 @@ export class PointSelectorModal extends ModalBase {
             }
         }
 
-        this._coordinationMeasureControl.saveFeatures(this._selectedFeatures, this._initialPropertiesMap);
+        await this._coordinationMeasureControl.saveFeatures(this._selectedFeatures, this._initialPropertiesMap);
         this.hide();
         this._selectionManager.deselectAllFeatures();
     }

@@ -846,7 +846,7 @@ export class FeaturesTab {
     _highlightSelectedFeatures() {
         if (!this.container || !this.selectionManager) return;
 
-        const allItems = this.container.querySelectorAll('.feature-item[data-feature-id]');
+        const allItems = this.container.querySelectorAll('[data-feature-id][data-feature-type]');
         for (const item of allItems) {
             const featureId = item.dataset.featureId;
             const storageType = item.dataset.featureType;
@@ -924,11 +924,14 @@ export class FeaturesTab {
 
         // Listen for selection changes to highlight features in the layers panel
         this._selectionHighlightHandler = () => this._highlightSelectedFeatures();
+        // Deferred: FEATURE_PANEL_CLOSED fires before clearSelection() in deselectAllFeatures,
+        // so we use queueMicrotask to read the updated selection state.
+        this._selectionClosedHandler = () => queueMicrotask(() => this._highlightSelectedFeatures());
         this._unsubscribers.push(
             this._eventBus.on(EventTypes.FEATURE_PANEL_OPENED, this._selectionHighlightHandler)
         );
         this._unsubscribers.push(
-            this._eventBus.on(EventTypes.FEATURE_PANEL_CLOSED, this._selectionHighlightHandler)
+            this._eventBus.on(EventTypes.FEATURE_PANEL_CLOSED, this._selectionClosedHandler)
         );
     }
 

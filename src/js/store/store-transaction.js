@@ -10,19 +10,11 @@
 
 import { StoreErrorEvents, emitStoreError } from './store-errors.js';
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
 const TxState = Object.freeze({
     OPEN: 'open',
     COMMITTED: 'committed',
     ROLLED_BACK: 'rolled_back'
 });
-
-// ============================================================================
-// STORE TRANSACTION CLASS
-// ============================================================================
 
 /**
  * Collects deferred side effects and executes them only after persistence succeeds.
@@ -42,9 +34,7 @@ class StoreTransaction {
      * @param {function(): void} fn
      */
     deferSync(fn) {
-        if (this._state !== TxState.OPEN) {
-            throw new Error(`Cannot defer to ${this._state} transaction`);
-        }
+        this._assertOpen();
         this._syncEffects.push(fn);
     }
 
@@ -53,9 +43,7 @@ class StoreTransaction {
      * @param {function(): Promise<void>} fn
      */
     deferAsync(fn) {
-        if (this._state !== TxState.OPEN) {
-            throw new Error(`Cannot defer to ${this._state} transaction`);
-        }
+        this._assertOpen();
         this._asyncEffects.push(fn);
     }
 
@@ -74,7 +62,6 @@ class StoreTransaction {
             try {
                 fn();
             } catch (error) {
-                // Non-fatal: persistence already succeeded, these are recoverable
                 console.warn('Sync side effect failed after persistence:', error);
             }
         }
@@ -91,19 +78,21 @@ class StoreTransaction {
     }
 
     /**
-     * Rolls back: discards all deferred side effects.
-     * Since persistence has not happened, nothing needs undoing.
+     * Rolls back: discards all deferred side effects without executing them.
      */
     rollback() {
         this._state = TxState.ROLLED_BACK;
         this._syncEffects = [];
         this._asyncEffects = [];
     }
-}
 
-// ============================================================================
-// PUBLIC HELPER
-// ============================================================================
+    /** @private */
+    _assertOpen() {
+        if (this._state !== TxState.OPEN) {
+            throw new Error(`Cannot defer to ${this._state} transaction`);
+        }
+    }
+}
 
 /**
  * Executes a persistence-first transaction.
@@ -121,7 +110,6 @@ export async function runTransaction(workFn) {
         tx.commit();
     } catch (error) {
         tx.rollback();
-        // Notify UI before re-throwing (existing callers still catch the throw)
         emitStoreError(StoreErrorEvents.STORE_PERSIST_ERROR, {
             operation: 'transaction',
             error: error.message || String(error),

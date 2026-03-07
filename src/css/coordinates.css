@@ -93,6 +93,11 @@
     opacity: 0.5;
 }
 
+.coordinates-grid-button--active {
+    background-color: rgba(80, 141, 78, 0.2) !important;
+    opacity: 1 !important;
+}
+
 .coordinates-button:hover,
 .coordinates-grid-button:hover,
 .coordinates-gear-button:hover {
@@ -122,6 +127,10 @@
 
 .grid-format-selector {
     left: 0 !important;
+}
+
+.grid-format-selector--visible {
+    display: block !important;
 }
 
 .grid-format-option,

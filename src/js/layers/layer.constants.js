@@ -4,10 +4,7 @@
  * @fileoverview Layer constants and configuration for MapLibre layers.
  */
 
-/**
- * MapLibre layer IDs that receive visibility filters by layerId.
- * @constant {string[]}
- */
+/** MapLibre layer IDs that receive visibility filters by layerId. */
 export const FEATURE_LAYER_IDS = [
     'point-layer',
     'line-layer',
@@ -45,28 +42,17 @@ export const FEATURE_LAYER_IDS = [
     'visibility-obstructed-layer'
 ];
 
-/**
- * Mapping of layer IDs to whether they use hatch pattern filter.
- * true = uses hatch pattern, false = uses solid fill
- * @constant {Object<string, boolean>}
- */
-export const HATCH_PATTERN_LAYERS = {
-    'polygon-fill-layer': false,
-    'polygon-fill-pattern-layer': true,
-    'rectangle-fill-layer': false,
-    'rectangle-fill-pattern-layer': true,
-    'circle-fill-layer': false,
-    'circle-fill-pattern-layer': true,
-    'ellipse-fill-layer': false,
-    'ellipse-fill-pattern-layer': true,
-    'sector-fill-layer': false,
-    'sector-fill-pattern-layer': true
-};
+/** Fill layer IDs mapped to whether they use hatch pattern (true) or solid fill (false). */
+const FILL_SHAPES = ['polygon', 'rectangle', 'circle', 'ellipse', 'sector'];
 
-/**
- * Source names for features.
- * @constant {Object<string, string>}
- */
+export const HATCH_PATTERN_LAYERS = Object.fromEntries(
+    FILL_SHAPES.flatMap(shape => [
+        [`${shape}-fill-layer`, false],
+        [`${shape}-fill-pattern-layer`, true]
+    ])
+);
+
+/** Source names for features. */
 export const FEATURE_SOURCES = {
     POINTS: 'points',
     LINES: 'lines',

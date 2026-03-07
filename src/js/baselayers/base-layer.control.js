@@ -28,6 +28,16 @@ import config from '../config.js';
 import { setupMapFeatures } from '../layers';
 import { showError } from '../utilities';
 
+const STYLE_MAP = {
+    'carta-topografica': cartaTopografica,
+    'carta-ortoimagem': cartaOrtoimagem,
+    'osm': osmLayer,
+    'imagens': imagensLayer,
+    'bdgex': bdgexLayer
+};
+
+const DEFAULT_LAYER = 'carta-topografica';
+
 class BaseLayerControl {
     constructor(uiManager, hillshadeConfig) {
         this.container = null;
@@ -44,58 +54,28 @@ class BaseLayerControl {
         config.validateBasemapsConfig();
 
         this.styleUrls = {};
-        config.getEnabledBasemaps().forEach(([id, _basemapConfig]) => {
-            switch(id) {
-                case 'carta-topografica':
-                    this.styleUrls[id] = cartaTopografica;
-                    break;
-                case 'carta-ortoimagem':
-                    this.styleUrls[id] = cartaOrtoimagem;
-                    break;
-                case 'osm':
-                    this.styleUrls[id] = osmLayer;
-                    break;
-                case 'imagens':
-                    this.styleUrls[id] = imagensLayer;
-                    break;
-                case 'bdgex':
-                    this.styleUrls[id] = bdgexLayer;
-                    break;
+        for (const [id] of config.getEnabledBasemaps()) {
+            if (STYLE_MAP[id]) {
+                this.styleUrls[id] = STYLE_MAP[id];
             }
-        });
-    }
-
-    // =========================================================================
-    // STATE MANAGER INTEGRATION
-    // =========================================================================
-
-    /**
-     * Get current layer from StateManager.
-     * @returns {string}
-     */
-    get currentLayer() {
-        try {
-            return getStateManager().get('baseLayer.activeLayer') || 'carta-topografica';
-        } catch (_e) {
-            return 'carta-topografica';
         }
     }
 
-    /**
-     * Set current layer in StateManager.
-     * @param {string} value
-     */
+    get currentLayer() {
+        try {
+            return getStateManager().get('baseLayer.activeLayer') || DEFAULT_LAYER;
+        } catch {
+            return DEFAULT_LAYER;
+        }
+    }
+
     set currentLayer(value) {
         try {
             getStateManager().set('baseLayer.activeLayer', value);
-        } catch (_e) {
+        } catch {
             // StateManager not available
         }
     }
-
-    // =========================================================================
-    // CONTROL SETUP
-    // =========================================================================
 
     /**
      * Injects runtime dependencies needed by switchMap().
@@ -119,17 +99,13 @@ class BaseLayerControl {
 
         let htmlContent = '';
         enabledBasemaps.forEach(([id, basemapConfig], index) => {
-            const isFirst = index === 0;
-
-            // Use optional image if available
-            let iconHtml = '';
-            if (basemapConfig.image) {
-                iconHtml = `<img src="${basemapConfig.image}" class="layer-icon">`;
-            }
+            const iconHtml = basemapConfig.image
+                ? `<img src="${basemapConfig.image}" class="layer-icon">`
+                : '';
 
             htmlContent += `
                 <label class="layer-switch">
-                    <input type="radio" name="base-layer" value="${id}" ${isFirst ? 'checked' : ''}>
+                    <input type="radio" name="base-layer" value="${id}" ${index === 0 ? 'checked' : ''}>
                     <span>${iconHtml}${basemapConfig.name}</span>
                 </label>
             `;
@@ -150,25 +126,20 @@ class BaseLayerControl {
             this.changeDebounceTimer = null;
         }
 
-        if (this.container && this.container.parentNode) {
-            this.container.parentNode.removeChild(this.container);
-        }
+        this.container?.remove();
         this.map = null;
     }
 
-    // =========================================================================
-    // LAYER CHANGE HANDLING
-    // =========================================================================
-
     handleLayerChange = async (event) => {
-        const layer = event.target.value
+        const layer = event.target.value;
         this.syncVisualState(layer);
-        if (this.changeDebounceTimer) {
-            clearTimeout(this.changeDebounceTimer);
-        }
 
         if (this.isChanging) {
             return;
+        }
+
+        if (this.changeDebounceTimer) {
+            clearTimeout(this.changeDebounceTimer);
         }
 
         this.changeDebounceTimer = setTimeout(async () => {
@@ -183,16 +154,11 @@ class BaseLayerControl {
         try {
             await setBaseLayer(newLayer);
             await this.switchMap(false);
-
         } catch (error) {
             console.error('Error changing base layer:', error);
-
-            // Rollback on error
-            setBaseLayer(previousLayer);
+            await setBaseLayer(previousLayer);
             this.syncVisualState(previousLayer);
-
             showError('Erro ao trocar camada base');
-
         } finally {
             this.isChanging = false;
         }
@@ -200,12 +166,10 @@ class BaseLayerControl {
 
     async switchLayer(layer, { skipPersist = false } = {}) {
         if (!skipPersist) {
-            setBaseLayer(layer);
+            await setBaseLayer(layer);
         }
 
-        if (this.uiManager && this.uiManager.saveChangesAndClosePanel) {
-            this.uiManager.saveChangesAndClosePanel();
-        }
+        this.uiManager?.saveChangesAndClosePanel?.();
 
         const styleUrl = this.styleUrls[layer];
         if (this.currentLayer !== layer) {
@@ -215,17 +179,18 @@ class BaseLayerControl {
                     reject(new Error(`Timeout loading style for layer: ${layer}`));
                 }, 10000);
 
-                const cleanup = () => {
+                function cleanup() {
                     clearTimeout(timeout);
-                    this.map.off('styledata', handleStyleData);
-                };
+                    map.off('styledata', handleStyleData);
+                }
 
-                const handleStyleData = () => {
+                function handleStyleData() {
                     cleanup();
                     resolve();
-                };
+                }
 
-                this.map.on('styledata', handleStyleData);
+                const { map } = this;
+                map.on('styledata', handleStyleData);
             });
 
             this.map.setStyle(styleUrl);
@@ -234,8 +199,7 @@ class BaseLayerControl {
 
             // Reapply globe projection after style change (setStyle resets projection)
             // Skip if terrain is active — globe + terrain is incompatible (MapLibre #4792)
-            const terrainControl = getControl('TerrainControl');
-            const terrainActive = terrainControl?._wasTerrainActive;
+            const terrainActive = getControl('TerrainControl')?._wasTerrainActive;
             if (config.map2d.globe_projection && !terrainActive) {
                 this.map.setProjection({ type: 'globe' });
             }
@@ -243,21 +207,16 @@ class BaseLayerControl {
             // Disable sky/fog - setStyle resets it (background is set via CSS)
             this.map.setSky(undefined);
         }
-        await this._updateHillshadeVisibility(layer);
+        await this._updateHillshadeVisibility();
         this.syncVisualState(layer);
     }
 
     syncVisualState(layer = null) {
         const targetLayer = layer || this.currentLayer;
 
-        const targetInput = this.container.querySelector(`input[value="${targetLayer}"]`);
-        if (targetInput) {
-            this.container.querySelectorAll('input[name="base-layer"]').forEach(input => {
-                input.checked = false;
-            });
-
-            targetInput.checked = true;
-        }
+        this.container.querySelectorAll('input[name="base-layer"]').forEach(input => {
+            input.checked = (input.value === targetLayer);
+        });
 
         this.updateActiveState(targetLayer);
     }
@@ -267,7 +226,6 @@ class BaseLayerControl {
         const skipPersist = isCurrentMapLockedSync();
 
         let baseLayer = await getCurrentBaseLayer();
-
         const validFallback = config.getValidBasemapFallback(baseLayer);
 
         if (baseLayer !== validFallback) {
@@ -282,65 +240,51 @@ class BaseLayerControl {
         this._selectionManager.deselectAllFeatures();
 
         await this.switchLayer(baseLayer, { skipPersist });
-
         await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
 
-        if(applyPosition){
+        if (applyPosition) {
             await this.applyMapSavedPosition(currentMapName);
         }
 
-        // Emit event for viewers to reload their layers
         getEventBus().emit(EventTypes.BASE_LAYER_CHANGED, { layer: baseLayer });
     }
 
     async applyMapSavedPosition(mapName = null) {
         try {
             const targetMapName = mapName || await getCurrentMapName();
-
             const hasSavedPosition = await hasMapSavedPosition(targetMapName);
 
-            if (hasSavedPosition) {
-                const position = await getMapPosition(targetMapName);
-
-                this.map.jumpTo({
-                    center: [position.center_long, position.center_lat],
-                    bearing: position.bearing,
-                    pitch: position.pitch,
-                    zoom: position.zoom
-                });
-
-                return true;
-            } else {
+            if (!hasSavedPosition) {
                 return false;
             }
+
+            const position = await getMapPosition(targetMapName);
+            this.map.jumpTo({
+                center: [position.center_long, position.center_lat],
+                bearing: position.bearing,
+                pitch: position.pitch,
+                zoom: position.zoom
+            });
+
+            return true;
         } catch (error) {
             console.error('Error applying saved position:', error);
             return false;
         }
     }
 
-    // =========================================================================
-    // HILLSHADE
-    // =========================================================================
-
-    async _updateHillshadeVisibility(_currentLayer) {
+    async _updateHillshadeVisibility() {
         if (!this.hillshadeConfig?.enabled) {
             return;
         }
 
         try {
-            // Check if hillshade is in catalog layers and visible
             const catalogLayers = await getCatalogLayers();
             const hillshadeLayer = catalogLayers?.find(l => l.type === CATALOG_ITEM_TYPES.HILLSHADE);
 
-            // Only restore hillshade if it was added via catalog and is visible
-            if (hillshadeLayer && hillshadeLayer.visible && hillshadeLayer.status !== 'unavailable') {
-                const terrainControl = this.map._controls?.find(
-                    (control) => control._name === 'TerrainControl'
-                );
-                if (terrainControl?.setHillshadeVisibility) {
-                    terrainControl.setHillshadeVisibility(true);
-                }
+            if (hillshadeLayer?.visible && hillshadeLayer.status !== 'unavailable') {
+                const terrainControl = getControl('TerrainControl');
+                terrainControl?.setHillshadeVisibility?.(true);
             }
         } catch (error) {
             console.warn('Could not update hillshade visibility:', error);
@@ -352,13 +296,8 @@ class BaseLayerControl {
             span.classList.remove('active-layer');
         });
 
-        const activeInput = this.container.querySelector(`input[value="${activeLayer}"]`);
-        if (activeInput) {
-            const activeSpan = activeInput.nextElementSibling;
-            if (activeSpan) {
-                activeSpan.classList.add('active-layer');
-            }
-        }
+        const activeSpan = this.container.querySelector(`input[value="${activeLayer}"]`)?.nextElementSibling;
+        activeSpan?.classList.add('active-layer');
     }
 }
 

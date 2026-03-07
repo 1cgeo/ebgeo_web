@@ -322,7 +322,7 @@ async function handleDeleteLayer(layerId, callbacks) {
  * @param {LayerListCallbacks} callbacks - Callback functions
  */
 export async function handleAddLayer(createLayer, callbacks) {
-    const existingLayers = getLayers();
+    const existingLayers = await getLayers();
     const defaultName = IDUtils.generateUniqueLayerName(existingLayers, 'Nova Camada');
     const name = await showPrompt('Nome da nova camada:', defaultName);
     if (!name || !name.trim()) return;

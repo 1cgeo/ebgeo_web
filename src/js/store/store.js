@@ -36,7 +36,6 @@ import mapManager from './store-state-manager.js';
 import { mapResolver, awaitMapResolverReady } from './services/map-resolver.service.js';
 import { EventTypes } from '../events';
 
-// Import specialized operation modules
 import {
     setFeatureDependencies,
     deleteLayerFeatures,
@@ -88,7 +87,6 @@ export function initStoreEvents(eventBus, groupManager, layerManager) {
     deps.groupManager = groupManager;
     deps.layerManager = layerManager;
 
-    // Propagate dependencies to all operation modules
     const dependencies = { eventBus, groupManager, layerManager };
     setFeatureDependencies(dependencies);
     setMapDependencies(dependencies);
@@ -97,7 +95,6 @@ export function initStoreEvents(eventBus, groupManager, layerManager) {
     setCesium3dDependencies({ eventBus });
     setStreetview360Dependencies({ eventBus });
 
-    // Initialize error handling infrastructure
     setStoreErrorEventBus(eventBus);
     registerStoreErrorListeners(eventBus);
 }
@@ -105,19 +102,29 @@ export function initStoreEvents(eventBus, groupManager, layerManager) {
 // ===== INITIALIZATION =====
 
 /**
+ * Loads all map-scoped data (groups, layers, 3D, 360) into memory.
+ *
+ * @param {string} mapName - Map to load
+ * @returns {Promise<void>}
+ */
+async function loadMapDataToMemory(mapName) {
+    await deps.groupManager.loadGroupsToMemory(mapName);
+    await deps.layerManager.loadLayersToMemory(mapName);
+    await loadCesium3dDataToMemory(mapName);
+    await loadStreetview360DataToMemory(mapName);
+}
+
+/**
  * Initialize with last active map.
  *
  * @returns {Promise<string>} Last active map name
  */
-export const initializeWithLastActiveMap = async () => {
+export async function initializeWithLastActiveMap() {
     const lastActiveMap = await initializeRepository();
     await awaitMapResolverReady();
     await mapManager.setCurrentMap(lastActiveMap);
     await mapManager.initializeProjectColorCache();
-    await deps.groupManager.loadGroupsToMemory(lastActiveMap);
-    await deps.layerManager.loadLayersToMemory(lastActiveMap);
-    await loadCesium3dDataToMemory(lastActiveMap);
-    await loadStreetview360DataToMemory(lastActiveMap);
+    await loadMapDataToMemory(lastActiveMap);
 
     // Emit lock state so UI components created later can read it via isCurrentMapLockedSync().
     // Components that init before this resolves will pick it up via MAP_LOCK_CHANGED listener.
@@ -125,16 +132,16 @@ export const initializeWithLastActiveMap = async () => {
     deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName: lastActiveMap, locked });
 
     return lastActiveMap;
-};
+}
 
 // ===== CLEANUP OPERATIONS =====
 
 /**
- * Clears all data from storage.
+ * Clears all data from storage and reinitializes with defaults.
  *
  * @returns {Promise<void>}
  */
-export const clearAllDataStore = async () => {
+export async function clearAllDataStore() {
     resetMemoryStore();
     mapResolver.clear();
     await clearAllMapData();
@@ -154,19 +161,14 @@ export const clearAllDataStore = async () => {
 
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
 
-    // Notify subscribers that all data was cleared
     deps.eventBus.emit(EventTypes.ALL_DATA_CLEARED);
 
-    // Reinitialize with default map and layers
     const defaultMap = await initializeRepository();
     await mapManager.setCurrentMap(defaultMap);
-    await deps.groupManager.loadGroupsToMemory(defaultMap);
-    await deps.layerManager.loadLayersToMemory(defaultMap);
-    await loadCesium3dDataToMemory(defaultMap);
-    await loadStreetview360DataToMemory(defaultMap);
+    await loadMapDataToMemory(defaultMap);
 
     deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
-};
+}
 
 // ===== DELETE LAYER WITH FEATURES =====
 
@@ -177,64 +179,57 @@ export const clearAllDataStore = async () => {
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<Object>} Deletion result
  */
-export const deleteLayer = async (layerId, mapName = null) => {
+export async function deleteLayer(layerId, mapName = null) {
     if (isCurrentMapLockedSync()) {
         console.warn('Map is locked. Cannot delete layer.');
         return { success: false, reason: 'MAP_LOCKED' };
     }
     await deleteLayerFeatures(layerId, mapName);
     return deleteLayerOnly(layerId, mapName);
-};
+}
 
 // ===== UNDO/REDO SYSTEM =====
+
+/** Feature operation executors passed to the undo/redo engine. */
+const undoRedoExecutors = {
+    addFeature,
+    updateFeature,
+    removeFeature,
+    addFeatureToMap,
+    removeFeatureFromMap
+};
 
 /**
  * Undoes the last action.
  *
  * @returns {Promise<Object|false>} The undone action object, or false if nothing to undo
  */
-export const undoLastAction = async () => {
+export async function undoLastAction() {
     if (isCurrentMapLockedSync()) return false;
 
-    const executeFunction = {
-        addFeature,
-        updateFeature,
-        removeFeature,
-        addFeatureToMap,
-        removeFeatureFromMap
-    };
-
     try {
-        return await mapManager.undoLastAction(executeFunction);
+        return await mapManager.undoLastAction(undoRedoExecutors);
     } catch (error) {
         console.error('Undo failed:', error);
         return false;
     }
-};
+}
 
 /**
  * Redoes the last undone action.
  *
  * @returns {Promise<Object|false>} The redone action object, or false if nothing to redo
  */
-export const redoLastAction = async () => {
+export async function redoLastAction() {
     if (isCurrentMapLockedSync()) return false;
 
-    const executeFunction = {
-        addFeature,
-        updateFeature,
-        removeFeature,
-        addFeatureToMap,
-        removeFeatureFromMap
-    };
-
     try {
-        return await mapManager.redoLastAction(executeFunction);
+        return await mapManager.redoLastAction(undoRedoExecutors);
     } catch (error) {
         console.error('Redo failed:', error);
         return false;
     }
-};
+}
 
 // ===== BATCH UNDO/REDO =====
 
@@ -242,35 +237,41 @@ export const redoLastAction = async () => {
  * Starts collecting undo actions into a single batch entry.
  * All recordAction() calls between start and commit are grouped.
  */
-export const startBatchUndo = () => mapManager.startBatchCollection();
+export function startBatchUndo() {
+    return mapManager.startBatchCollection();
+}
 
 /**
  * Commits collected actions as a single batch undo entry.
  */
-export const commitBatchUndo = () => mapManager.commitBatchCollection();
+export function commitBatchUndo() {
+    return mapManager.commitBatchCollection();
+}
 
 /**
  * Discards collected batch actions without recording.
  */
-export const discardBatchUndo = () => mapManager.discardBatchCollection();
+export function discardBatchUndo() {
+    return mapManager.discardBatchCollection();
+}
 
-// ===== MOVE FEATURES TO LAYER (with event emission) =====
+// ===== MOVE FEATURES TO LAYER =====
 
 /**
- * Moves features to another layer (with event emission).
+ * Moves features to another layer and emits LAYERS_CHANGED on success.
  *
  * @param {Array} featureRefs - Array of layer IDs or feature references
  * @param {string} targetLayerId - Target layer ID
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<void>}
  */
-export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = null) => {
+export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = null) {
     const modified = await moveFeaturesToLayerBase(featureRefs, targetLayerId, mapName);
     if (modified) {
         const targetMap = mapName || getCurrentMapNameSync();
         deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: targetMap });
     }
-};
+}
 
 // ===== RE-EXPORTS FROM CONSTANTS =====
 
@@ -312,7 +313,8 @@ export {
     batchUpdateVisibilityFeatures,
     deleteLayerFeatures,
     isFeatureEffectivelyLocked,
-    getLayerFeatures
+    getLayerFeatures,
+    buildLayerMappingForMove
 } from './feature.operations.js';
 
 // ===== RE-EXPORTS FROM MAP OPERATIONS =====
@@ -425,7 +427,6 @@ export {
     addMarkerImage,
     getMarkerImages,
     removeMarkerImage,
-    // Measurement operations
     addMeasurement,
     getMeasurements,
     getAllMeasurements,
@@ -435,7 +436,6 @@ export {
     addMeasurementImage,
     getMeasurementImages,
     removeMeasurementImage,
-    // Viewshed operations
     addViewshed,
     getViewsheds,
     getAllViewsheds,
@@ -445,7 +445,6 @@ export {
     addViewshedImage,
     getViewshedImages,
     removeViewshedImage,
-    // Bulk removal operations
     removeMarkersByTileset,
     removeMeasurementsByTileset,
     removeViewshedsByTileset,
@@ -455,13 +454,11 @@ export {
 // ===== RE-EXPORTS FROM STREET VIEW 360 OPERATIONS =====
 
 export {
-    // Orientation operations
     saveOrientation,
     getOrientation,
     hasOrientation,
     clearOrientation,
     getAllOrientations,
-    // Marker operations
     addMarker360,
     getMarkers360,
     getAllMarkers360,
@@ -469,17 +466,13 @@ export {
     updateMarker360,
     removeMarker360,
     removeMarkers360ByPhoto,
-    // Marker image operations
     addMarker360Image,
     getMarker360Images,
     removeMarker360Image,
-    // Memory operations
     loadStreetview360DataToMemory,
     clearStreetview360Cache,
-    // Export/Import
     getStreetview360DataForExport,
     setStreetview360DataForImport,
-    // Constants
     DEFAULT_MARKER_360_STYLE
 } from './streetview360.operations.js';
 

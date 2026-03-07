@@ -2,30 +2,89 @@
 
 import { memoryStore } from './memory-store.js';
 import {
-    setSettingCompat,
+    setSettingCompat as setAppSetting,
     getSettingCompat,
-    getColorUsageCompat,
-    setColorUsageCompat,
-    removeColorUsageCompat,
-    getAllMapKeysCompat,
-    getMapDataCompat
+    getColorUsageCompat as getColorUsage,
+    setColorUsageCompat as setColorUsage,
+    removeColorUsageCompat as removeColorUsage,
+    getAllMapKeysCompat as getAllMapNames,
+    getMapDataCompat as getMapData
 } from './repositories/index.js';
 import { getGroupManager } from './services.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import { logOperation, EntityType, OperationType, sessionContext } from './sync/index.js';
 import { LRUCache } from '../utilities/lru-cache.js';
 
-// Alias for backward compatibility during migration
-const setAppSetting = setSettingCompat;
-const setColorUsage = setColorUsageCompat;
-const getColorUsage = getColorUsageCompat;
-const removeColorUsage = removeColorUsageCompat;
-const getAllMapNames = getAllMapKeysCompat;
-const getMapData = getMapDataCompat;
+/** @type {string[]} All feature properties that hold color values */
+const COLOR_PROPERTIES = [
+    'color',
+    'fillColor',
+    'lineColor',
+    'outlinecolor',
+    'backgroundColor',
+    'hatchColor',
+    'backgroundFillColor',
+    'backgroundBorderColor'
+];
 
 /**
- * In-memory state manager with undo/redo system and color tracking
- * Manages map state, history, and integrates with group management
+ * Adjusts a color count in a Map cache: increments or decrements,
+ * removing the entry when it drops to zero or below.
+ * @param {Map<string, number>} cache - Color count cache
+ * @param {string} color - Color value
+ * @param {number} delta - Amount to add (positive) or subtract (negative)
+ */
+function adjustColorCount(cache, color, delta) {
+    const updated = (cache.get(color) || 0) + delta;
+    if (updated <= 0) {
+        cache.delete(color);
+    } else {
+        cache.set(color, updated);
+    }
+}
+
+/**
+ * Converts a plain object of color counts to a Map with numeric values.
+ * @param {Object} colorData - { color: count } object
+ * @returns {Map<string, number>}
+ */
+function colorDataToMap(colorData) {
+    const map = new Map();
+    for (const [color, count] of Object.entries(colorData)) {
+        map.set(color, Number(count) || 0);
+    }
+    return map;
+}
+
+/**
+ * Counts all colors across feature groups in map data.
+ * @param {Object} mapData - Map data containing features
+ * @returns {Map<string, number>} Color counts
+ */
+function countMapColors(mapData) {
+    const colorCounts = new Map();
+
+    for (const features of Object.values(mapData.features || {})) {
+        if (!Array.isArray(features)) continue;
+
+        for (const feature of features) {
+            const props = feature.properties;
+            if (!props) continue;
+
+            for (const prop of COLOR_PROPERTIES) {
+                if (props[prop] && typeof props[prop] === 'string') {
+                    colorCounts.set(props[prop], (colorCounts.get(props[prop]) || 0) + 1);
+                }
+            }
+        }
+    }
+
+    return colorCounts;
+}
+
+/**
+ * In-memory state manager with undo/redo system and color tracking.
+ * Manages map state, history, and integrates with group management.
  */
 class MapManager {
     constructor() {
@@ -45,21 +104,18 @@ class MapManager {
 
     /**
      * Gets the current map UUID.
-     * Uses the MapResolverService to resolve the name to an ID.
-     * @returns {string} Current map UUID (or name if resolver not initialized)
+     * Falls back to the name if the resolver is not initialized.
+     * @returns {string} Current map UUID
      */
     getCurrentMapId() {
         const mapName = this.memoryStore.currentMap;
         if (!mapName) return mapName;
-
-        // Use the mapResolver to get the UUID
-        // If resolver is not initialized, returns the name as fallback
         return mapResolver.resolveToId(mapName);
     }
 
     /**
      * Gets both the current map name and ID.
-     * @returns {{name: string, id: string}} Object with name and id
+     * @returns {{name: string, id: string}}
      */
     getCurrentMapInfo() {
         const name = this.memoryStore.currentMap;
@@ -83,7 +139,6 @@ class MapManager {
 
         if (previousMap && previousMap !== mapName) {
             await this.saveColorUsageToDB(previousMap);
-            // Free undo/redo memory for inactive map
             this.clearHistory(previousMap);
         }
 
@@ -93,7 +148,6 @@ class MapManager {
         await getGroupManager().loadGroupsToMemory(mapName);
         await setAppSetting('lastActiveMap', mapName);
 
-        // Load lock state into memory cache
         const locked = await getSettingCompat(`mapLocked_${mapName}`);
         if (locked) {
             this.memoryStore.lockedMaps.add(mapName);
@@ -101,7 +155,6 @@ class MapManager {
             this.memoryStore.lockedMaps.delete(mapName);
         }
 
-        // Log operation for sync
         logOperation(
             EntityType.SETTING,
             OperationType.UPDATE,
@@ -115,7 +168,7 @@ class MapManager {
     // ===== COLOR TRACKING SYSTEM =====
 
     /**
-     * Extracts the primary color from a feature based on layer_setup.js properties
+     * Extracts the primary color from a feature.
      * @param {Object} feature - GeoJSON feature
      * @returns {string|null} Color value or null
      */
@@ -132,27 +185,15 @@ class MapManager {
 
     /**
      * Extracts ALL color properties from a feature.
-     * Used to track all colors when a feature is created.
      * @param {Object} feature - GeoJSON feature
-     * @returns {string[]} Array of color values (may have duplicates if same color used multiple times)
+     * @returns {string[]} Array of color values
      */
     getFeatureColors(feature) {
         const props = feature.properties;
         if (!props) return [];
 
-        const colorProperties = [
-            'color',
-            'fillColor',
-            'lineColor',
-            'outlinecolor',
-            'backgroundColor',
-            'hatchColor',
-            'backgroundFillColor',
-            'backgroundBorderColor'
-        ];
-
         const colors = [];
-        for (const prop of colorProperties) {
+        for (const prop of COLOR_PROPERTIES) {
             if (props[prop] && typeof props[prop] === 'string') {
                 colors.push(props[prop]);
             }
@@ -162,31 +203,23 @@ class MapManager {
     }
 
     /**
-     * Processes colors for a map (used in addMap)
+     * Processes colors for a map (used in addMap).
      * @param {string} mapName - Map name
      * @param {Object} mapData - Map data
      * @param {Object} colorUsageData - Optional pre-calculated color usage
      */
     async processMapColors(mapName, mapData, colorUsageData = null) {
-        let mapColorCounts;
-
-        if (colorUsageData) {
-            mapColorCounts = new Map();
-            for (const [color, count] of Object.entries(colorUsageData)) {
-                mapColorCounts.set(color, Number(count) || 0);
-            }
-        } else {
-            mapColorCounts = await this.calculateMapColors(mapData);
-        }
+        const mapColorCounts = colorUsageData
+            ? colorDataToMap(colorUsageData)
+            : countMapColors(mapData);
 
         // Remove old colors before adding new ones to prevent inflated counts on reload
         try {
             const oldColorData = await getColorUsage(mapName);
             if (oldColorData && Object.keys(oldColorData).length > 0) {
-                const oldColors = new Map(Object.entries(oldColorData));
-                this.updateProjectColorCache(oldColors, 'remove');
+                this.updateProjectColorCache(new Map(Object.entries(oldColorData)), 'remove');
             }
-        } catch (_) { /* first time — no old data */ }
+        } catch (_) { /* first time -- no old data */ }
 
         await setColorUsage(mapName, Object.fromEntries(mapColorCounts));
         this.updateProjectColorCache(mapColorCounts, 'add');
@@ -197,60 +230,26 @@ class MapManager {
     }
 
     /**
-     * Calculates colors for a map from scratch
-     * @param {Object} mapData - Map data
-     * @returns {Map} Map of color counts
-     */
-    async calculateMapColors(mapData) {
-        const colorCounts = new Map();
-
-        Object.entries(mapData.features || {}).forEach(([_featureType, features]) => {
-            if (!Array.isArray(features)) return;
-
-            features.forEach(feature => {
-                // Get all colors from the feature
-                const colors = this.getFeatureColors(feature);
-                for (const color of colors) {
-                    colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
-                }
-            });
-        });
-
-        return colorCounts;
-    }
-
-    /**
-     * Updates project color cache (sum of all maps)
-     * @param {Map} mapColors - Map colors to add or remove
-     * @param {string} operation - 'add' or 'remove'
+     * Updates project color cache (sum of all maps).
+     * @param {Map<string, number>} mapColors - Color counts to apply
+     * @param {'add'|'remove'} operation - Direction of update
      */
     updateProjectColorCache(mapColors, operation) {
         const multiplier = operation === 'add' ? 1 : -1;
 
         for (const [color, count] of mapColors) {
-            const currentCount = this.projectColorCache.get(color) || 0;
-            const newCount = currentCount + (count * multiplier);
-
-            if (newCount <= 0) {
-                this.projectColorCache.delete(color);
-            } else {
-                this.projectColorCache.set(color, newCount);
-            }
+            adjustColorCount(this.projectColorCache, color, count * multiplier);
         }
     }
 
     /**
-     * Loads color usage from IndexedDB to cache
+     * Loads color usage from IndexedDB to the in-memory cache.
      * @param {string} mapName - Map name
      */
     async loadColorUsageFromDB(mapName) {
         try {
             const colorData = await getColorUsage(mapName);
-            const colorMap = new Map();
-
-            for (const [color, count] of Object.entries(colorData)) {
-                colorMap.set(color, Number(count) || 0);
-            }
+            const colorMap = colorDataToMap(colorData);
 
             this.memoryStore.colorUsageCache = colorMap;
 
@@ -265,7 +264,7 @@ class MapManager {
     }
 
     /**
-     * Saves color cache to IndexedDB (background)
+     * Saves color cache to IndexedDB.
      * @param {string} mapName - Map name
      */
     async saveColorUsageToDB(mapName) {
@@ -278,24 +277,13 @@ class MapManager {
     }
 
     /**
-     * Performs initial color analysis for an existing map
+     * Performs initial color analysis for an existing map that has no cached data.
      * @param {string} mapName - Map name
      */
     async performInitialColorAnalysis(mapName) {
         try {
             const mapData = await getMapData(mapName);
-            const colorCounts = new Map();
-
-            Object.entries(mapData.features || {}).forEach(([_featureType, features]) => {
-                if (!Array.isArray(features)) return;
-
-                features.forEach(feature => {
-                    const color = this.getFeatureColor(feature);
-                    if (color) {
-                        colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
-                    }
-                });
-            });
+            const colorCounts = countMapColors(mapData);
 
             if (mapName === this.memoryStore.currentMap) {
                 this.memoryStore.colorUsageCache = colorCounts;
@@ -310,10 +298,10 @@ class MapManager {
     }
 
     /**
-     * Updates color tracking when features change
-     * @param {string} oldColor - Previous color
-     * @param {string} newColor - New color
-     * @param {string} mapName - Map name
+     * Updates color tracking when features change.
+     * @param {string|null} oldColor - Previous color
+     * @param {string|null} newColor - New color
+     * @param {string} [mapName] - Map name (defaults to current)
      */
     updateColorUsage(oldColor, newColor, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -324,47 +312,32 @@ class MapManager {
 
         if (isCurrentMap) {
             if (oldColor) {
-                const oldCount = this.memoryStore.colorUsageCache.get(oldColor) || 0;
-                if (oldCount <= 1) {
-                    this.memoryStore.colorUsageCache.delete(oldColor);
-                } else {
-                    this.memoryStore.colorUsageCache.set(oldColor, oldCount - 1);
-                }
+                adjustColorCount(this.memoryStore.colorUsageCache, oldColor, -1);
             }
-
             if (newColor) {
-                const newCount = this.memoryStore.colorUsageCache.get(newColor) || 0;
-                this.memoryStore.colorUsageCache.set(newColor, newCount + 1);
+                adjustColorCount(this.memoryStore.colorUsageCache, newColor, 1);
             }
-
             setTimeout(() => this.saveColorUsageToDB(targetMap), 100);
         }
 
         if (oldColor) {
-            const oldProjectCount = this.projectColorCache.get(oldColor) || 0;
-            if (oldProjectCount <= 1) {
-                this.projectColorCache.delete(oldColor);
-            } else {
-                this.projectColorCache.set(oldColor, oldProjectCount - 1);
-            }
+            adjustColorCount(this.projectColorCache, oldColor, -1);
         }
-
         if (newColor) {
-            const newProjectCount = this.projectColorCache.get(newColor) || 0;
-            this.projectColorCache.set(newColor, newProjectCount + 1);
+            adjustColorCount(this.projectColorCache, newColor, 1);
         }
     }
 
     /**
-     * Gets frequently used colors
+     * Gets frequently used colors sorted by count descending.
      * @param {number} limit - Maximum number of colors to return
-     * @param {string} scope - 'current' or 'project'
-     * @returns {Array} Array of {color, count} objects
+     * @param {'current'|'project'} scope - Which cache to query
+     * @returns {Array<{color: string, count: number}>}
      */
     getFrequentColors(limit = 10, scope = 'current') {
-        const sourceCache = scope === 'project' ?
-            this.projectColorCache :
-            this.memoryStore.colorUsageCache;
+        const sourceCache = scope === 'project'
+            ? this.projectColorCache
+            : this.memoryStore.colorUsageCache;
 
         return Array.from(sourceCache.entries())
             .sort((a, b) => b[1] - a[1])
@@ -373,7 +346,7 @@ class MapManager {
     }
 
     /**
-     * Clears all color caches
+     * Clears all color caches (memory and IndexedDB).
      */
     async clearAllColorCaches() {
         this.memoryStore.colorUsageCache = new Map();
@@ -390,7 +363,7 @@ class MapManager {
     }
 
     /**
-     * Initializes project color cache by loading colors from all maps
+     * Initializes project color cache by aggregating colors from all maps.
      */
     async initializeProjectColorCache() {
         try {
@@ -399,8 +372,7 @@ class MapManager {
 
             for (const mapName of allMaps) {
                 const colorData = await getColorUsage(mapName);
-                const mapColors = new Map(Object.entries(colorData));
-                this.updateProjectColorCache(mapColors, 'add');
+                this.updateProjectColorCache(new Map(Object.entries(colorData)), 'add');
             }
         } catch (error) {
             console.warn('Error initializing project color cache:', error);
@@ -413,55 +385,50 @@ class MapManager {
     static MAX_UNDO_HISTORY = 20;
 
     /**
-     * Gets the undo stack for the current user on the current map.
-     * Creates the stack if it doesn't exist.
+     * Gets a named stack (undo or redo) for the current user on the current map.
+     * Creates the stack if it does not exist.
      * @private
+     * @param {'undoStacks'|'redoStacks'} stackName
      * @returns {Array}
      */
-    _getUndoStack() {
+    _getStack(stackName) {
         const mapState = this.memoryStore.maps[this.memoryStore.currentMap];
         if (!mapState) return [];
         const userId = sessionContext.getUserId();
-        if (!mapState.undoStacks[userId]) {
-            mapState.undoStacks[userId] = [];
+        if (!mapState[stackName][userId]) {
+            mapState[stackName][userId] = [];
         }
-        return mapState.undoStacks[userId];
+        return mapState[stackName][userId];
     }
 
-    /**
-     * Gets the redo stack for the current user on the current map.
-     * Creates the stack if it doesn't exist.
-     * @private
-     * @returns {Array}
-     */
+    /** @private @returns {Array} */
+    _getUndoStack() {
+        return this._getStack('undoStacks');
+    }
+
+    /** @private @returns {Array} */
     _getRedoStack() {
-        const mapState = this.memoryStore.maps[this.memoryStore.currentMap];
-        if (!mapState) return [];
-        const userId = sessionContext.getUserId();
-        if (!mapState.redoStacks[userId]) {
-            mapState.redoStacks[userId] = [];
-        }
-        return mapState.redoStacks[userId];
+        return this._getStack('redoStacks');
     }
 
     recordAction(action) {
-        if (!this.memoryStore.isUndoing && !this.memoryStore.isRedoing) {
-            if (this.memoryStore.batchCollector !== null) {
-                // Batch mode: collect instead of pushing directly
-                this.memoryStore.batchCollector.push(action);
-            } else {
-                const undoStack = this._getUndoStack();
-                undoStack.push(action);
-                const excess = undoStack.length - MapManager.MAX_UNDO_HISTORY;
-                if (excess > 0) {
-                    undoStack.splice(0, excess);
-                }
-                // Clear redo on new action (fork)
-                const mapState = this.memoryStore.maps[this.memoryStore.currentMap];
-                const userId = sessionContext.getUserId();
-                mapState.redoStacks[userId] = [];
-            }
+        if (this.memoryStore.isUndoing || this.memoryStore.isRedoing) return;
+
+        if (this.memoryStore.batchCollector !== null) {
+            this.memoryStore.batchCollector.push(action);
+            return;
         }
+
+        const undoStack = this._getUndoStack();
+        undoStack.push(action);
+        const excess = undoStack.length - MapManager.MAX_UNDO_HISTORY;
+        if (excess > 0) {
+            undoStack.splice(0, excess);
+        }
+        // Clear redo on new action (fork)
+        const mapState = this.memoryStore.maps[this.memoryStore.currentMap];
+        const userId = sessionContext.getUserId();
+        mapState.redoStacks[userId] = [];
     }
 
     /**
@@ -500,11 +467,8 @@ class MapManager {
         this.memoryStore.isUndoing = true;
         try {
             await this._executeUndoAction(lastAction, executeFunction);
-            // Only move to redoStack after successful execution
-            const redoStack = this._getRedoStack();
-            redoStack.push(lastAction);
+            this._getRedoStack().push(lastAction);
         } catch (error) {
-            // Restore to undoStack so the user can retry
             undoStack.push(lastAction);
             throw error;
         } finally {
@@ -522,11 +486,8 @@ class MapManager {
         this.memoryStore.isRedoing = true;
         try {
             await this._executeRedoAction(lastUndoneAction, executeFunction);
-            // Only move to undoStack after successful execution
-            const undoStack = this._getUndoStack();
-            undoStack.push(lastUndoneAction);
+            this._getUndoStack().push(lastUndoneAction);
         } catch (error) {
-            // Restore to redoStack so the user can retry
             redoStack.push(lastUndoneAction);
             throw error;
         } finally {
@@ -556,9 +517,7 @@ class MapManager {
                 }
                 break;
             case 'updateWithProcessed':
-                // Restore old main feature
                 await executeFunction.updateFeature(action.mainFeatureType, action.oldFeature);
-                // Replace new processed features with old ones
                 if (action.newProcessedFeatures) {
                     for (const pf of action.newProcessedFeatures.features) {
                         await executeFunction.removeFeature(action.newProcessedFeatures.type, pf.properties.id);
@@ -592,7 +551,6 @@ class MapManager {
                 }
                 break;
             case 'batch':
-                // Undo batch: execute each operation in reverse order
                 for (let i = action.operations.length - 1; i >= 0; i--) {
                     await this._executeUndoAction(action.operations[i], executeFunction);
                 }
@@ -615,9 +573,7 @@ class MapManager {
                 await executeFunction.removeFeature(action.mainFeatureType, action.mainFeature.properties.id);
                 break;
             case 'updateWithProcessed':
-                // Apply new main feature
                 await executeFunction.updateFeature(action.mainFeatureType, action.newFeature);
-                // Replace old processed features with new ones
                 if (action.oldProcessedFeatures) {
                     for (const pf of action.oldProcessedFeatures.features) {
                         await executeFunction.removeFeature(action.oldProcessedFeatures.type, pf.properties.id);
@@ -651,7 +607,6 @@ class MapManager {
                 }
                 break;
             case 'batch':
-                // Redo batch: execute each operation in original order
                 for (const op of action.operations) {
                     await this._executeRedoAction(op, executeFunction);
                 }
@@ -670,13 +625,11 @@ class MapManager {
     }
 
     canUndo() {
-        const undoStack = this._getUndoStack();
-        return undoStack.length > 0;
+        return this._getUndoStack().length > 0;
     }
 
     canRedo() {
-        const redoStack = this._getRedoStack();
-        return redoStack.length > 0;
+        return this._getRedoStack().length > 0;
     }
 
     clearHistory(mapName = null) {
@@ -705,8 +658,7 @@ class MapManager {
         try {
             const mapColors = await getColorUsage(mapName);
             if (mapColors && Object.keys(mapColors).length > 0) {
-                const mapColorsMap = new Map(Object.entries(mapColors));
-                this.updateProjectColorCache(mapColorsMap, 'remove');
+                this.updateProjectColorCache(new Map(Object.entries(mapColors)), 'remove');
             }
             await removeColorUsage(mapName);
         } catch (error) {
@@ -721,28 +673,22 @@ class MapManager {
     }
 
     renameMapInMemory(oldName, newName) {
-        if (this.memoryStore.maps[oldName]) {
-            this.memoryStore.maps[newName] = this.memoryStore.maps[oldName];
-            delete this.memoryStore.maps[oldName];
+        const store = this.memoryStore;
 
-            if (this.memoryStore.currentMap === oldName) {
-                this.memoryStore.currentMap = newName;
+        for (const key of ['maps', 'groups', 'layers']) {
+            if (store[key][oldName]) {
+                store[key][newName] = store[key][oldName];
+                delete store[key][oldName];
             }
         }
 
-        if (this.memoryStore.groups[oldName]) {
-            this.memoryStore.groups[newName] = this.memoryStore.groups[oldName];
-            delete this.memoryStore.groups[oldName];
+        if (store.currentMap === oldName) {
+            store.currentMap = newName;
         }
 
-        if (this.memoryStore.layers[oldName]) {
-            this.memoryStore.layers[newName] = this.memoryStore.layers[oldName];
-            delete this.memoryStore.layers[oldName];
-        }
-
-        if (this.memoryStore.lockedMaps.has(oldName)) {
-            this.memoryStore.lockedMaps.delete(oldName);
-            this.memoryStore.lockedMaps.add(newName);
+        if (store.lockedMaps.has(oldName)) {
+            store.lockedMaps.delete(oldName);
+            store.lockedMaps.add(newName);
         }
     }
 
@@ -756,7 +702,7 @@ class MapManager {
         } else {
             this.recordAction({
                 type: 'batch',
-                operations: operations
+                operations
             });
         }
     }

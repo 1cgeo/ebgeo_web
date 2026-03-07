@@ -234,51 +234,51 @@ Apos simplificar cada modulo individualmente, executar `/simplify` nos pares de 
 | # | Arquivo | Simplificado |
 |---|---------|:------------:|
 | 1 | `src/js/store/index.js` | N/A |
-| 2 | `src/js/store/store.js` | - |
-| 3 | `src/js/store/store.constants.js` | - |
-| 4 | `src/js/store/store.types.js` | - |
-| 5 | `src/js/store/store-errors.js` | - |
-| 6 | `src/js/store/store-error-listener.js` | - |
-| 7 | `src/js/store/store-state-manager.js` | - |
-| 8 | `src/js/store/store-transaction.js` | - |
-| 9 | `src/js/store/services.js` | - |
-| 10 | `src/js/store/memory-store.js` | - |
-| 11 | `src/js/store/repository.js` | - |
-| 12 | `src/js/store/repository.utils.js` | - |
-| 13 | `src/js/store/control.registry.js` | - |
-| 14 | `src/js/store/feature.operations.js` | - |
-| 15 | `src/js/store/layer.operations.js` | - |
-| 16 | `src/js/store/group.operations.js` | - |
-| 17 | `src/js/store/map.operations.js` | - |
-| 18 | `src/js/store/briefing.operations.js` | - |
-| 19 | `src/js/store/catalog.operations.js` | - |
-| 20 | `src/js/store/cesium3d.operations.js` | - |
-| 21 | `src/js/store/streetview360.operations.js` | - |
-| 22 | `src/js/store/settings.operations.js` | - |
-| 23 | `src/js/store/undo-redo-messages.js` | - |
-| 24 | `src/js/store/atlas/atlas.entity.js` | - |
+| 2 | `src/js/store/store.js` | OK |
+| 3 | `src/js/store/store.constants.js` | OK |
+| 4 | `src/js/store/store.types.js` | OK |
+| 5 | `src/js/store/store-errors.js` | OK |
+| 6 | `src/js/store/store-error-listener.js` | OK |
+| 7 | `src/js/store/store-state-manager.js` | OK |
+| 8 | `src/js/store/store-transaction.js` | OK |
+| 9 | `src/js/store/services.js` | OK |
+| 10 | `src/js/store/memory-store.js` | OK |
+| 11 | `src/js/store/repository.js` | OK |
+| 12 | `src/js/store/repository.utils.js` | OK |
+| 13 | `src/js/store/control.registry.js` | OK |
+| 14 | `src/js/store/feature.operations.js` | OK |
+| 15 | `src/js/store/layer.operations.js` | OK |
+| 16 | `src/js/store/group.operations.js` | OK |
+| 17 | `src/js/store/map.operations.js` | OK |
+| 18 | `src/js/store/briefing.operations.js` | OK |
+| 19 | `src/js/store/catalog.operations.js` | OK |
+| 20 | `src/js/store/cesium3d.operations.js` | OK |
+| 21 | `src/js/store/streetview360.operations.js` | OK |
+| 22 | `src/js/store/settings.operations.js` | OK |
+| 23 | `src/js/store/undo-redo-messages.js` | OK |
+| 24 | `src/js/store/atlas/atlas.entity.js` | OK |
 | 25 | `src/js/store/atlas/index.js` | N/A |
 | 26 | `src/js/store/repositories/index.js` | N/A |
-| 27 | `src/js/store/repositories/local.repository.js` | - |
-| 28 | `src/js/store/repositories/repository.interface.js` | - |
+| 27 | `src/js/store/repositories/local.repository.js` | OK |
+| 28 | `src/js/store/repositories/repository.interface.js` | OK |
 | 29 | `src/js/store/services/index.js` | N/A |
-| 30 | `src/js/store/services/map-resolver.service.js` | - |
+| 30 | `src/js/store/services/map-resolver.service.js` | OK |
 | 31 | `src/js/store/migration/index.js` | N/A |
-| 32 | `src/js/store/migration/migration.service.js` | - |
-| 33 | `src/js/store/migration/v1-to-v2.migration.js` | - |
+| 32 | `src/js/store/migration/migration.service.js` | OK |
+| 33 | `src/js/store/migration/v1-to-v2.migration.js` | OK |
 | 34 | `src/js/store/sync/index.js` | N/A |
-| 35 | `src/js/store/sync/connection-state.js` | - |
-| 36 | `src/js/store/sync/event-bridges.js` | - |
-| 37 | `src/js/store/sync/operation-dispatcher.js` | - |
-| 38 | `src/js/store/sync/operation-factory.js` | - |
-| 39 | `src/js/store/sync/operation-queue.js` | - |
-| 40 | `src/js/store/sync/operation-types.js` | - |
-| 41 | `src/js/store/sync/permission-guard.js` | - |
-| 42 | `src/js/store/sync/remote-operation-handler.js` | - |
-| 43 | `src/js/store/sync/session-context.js` | - |
-| 44 | `src/js/store/sync/sync-gateway.js` | - |
-| 45 | `src/js/store/sync/sync-metadata.js` | - |
-| 46 | `src/js/store/sync/sync-scheduler.js` | - |
+| 35 | `src/js/store/sync/connection-state.js` | OK |
+| 36 | `src/js/store/sync/event-bridges.js` | OK |
+| 37 | `src/js/store/sync/operation-dispatcher.js` | OK |
+| 38 | `src/js/store/sync/operation-factory.js` | OK |
+| 39 | `src/js/store/sync/operation-queue.js` | OK |
+| 40 | `src/js/store/sync/operation-types.js` | OK |
+| 41 | `src/js/store/sync/permission-guard.js` | OK |
+| 42 | `src/js/store/sync/remote-operation-handler.js` | OK |
+| 43 | `src/js/store/sync/session-context.js` | OK |
+| 44 | `src/js/store/sync/sync-gateway.js` | OK |
+| 45 | `src/js/store/sync/sync-metadata.js` | OK |
+| 46 | `src/js/store/sync/sync-scheduler.js` | OK |
 
 ---
 
@@ -287,19 +287,19 @@ Apos simplificar cada modulo individualmente, executar `/simplify` nos pares de 
 | # | Arquivo | Simplificado |
 |---|---------|:------------:|
 | 1 | `src/js/layers/index.js` | N/A |
-| 2 | `src/js/layers/layer.constants.js` | - |
-| 3 | `src/js/layers/layer.manager.js` | - |
-| 4 | `src/js/layers/layer_setup.js` | - |
-| 5 | `src/js/layers/visibility-filter.js` | - |
+| 2 | `src/js/layers/layer.constants.js` | OK |
+| 3 | `src/js/layers/layer.manager.js` | OK |
+| 4 | `src/js/layers/layer_setup.js` | OK |
+| 5 | `src/js/layers/visibility-filter.js` | OK |
 | 6 | `src/js/layers/styles/index.js` | N/A |
-| 7 | `src/js/layers/styles/auxiliary.layers.js` | - |
-| 8 | `src/js/layers/styles/content.layers.js` | - |
-| 9 | `src/js/layers/styles/line.layers.js` | - |
-| 10 | `src/js/layers/styles/point.layers.js` | - |
-| 11 | `src/js/layers/styles/polygon.layers.js` | - |
-| 12 | `src/js/layers/styles/shape.layers.js` | - |
-| 13 | `src/js/layers/styles/symbol.layers.js` | - |
-| 14 | `src/js/layers/styles/tactical.layers.js` | - |
+| 7 | `src/js/layers/styles/auxiliary.layers.js` | OK |
+| 8 | `src/js/layers/styles/content.layers.js` | OK |
+| 9 | `src/js/layers/styles/line.layers.js` | OK |
+| 10 | `src/js/layers/styles/point.layers.js` | OK |
+| 11 | `src/js/layers/styles/polygon.layers.js` | OK |
+| 12 | `src/js/layers/styles/shape.layers.js` | OK |
+| 13 | `src/js/layers/styles/symbol.layers.js` | OK |
+| 14 | `src/js/layers/styles/tactical.layers.js` | OK |
 
 ---
 
@@ -308,9 +308,9 @@ Apos simplificar cada modulo individualmente, executar `/simplify` nos pares de 
 | # | Arquivo | Simplificado |
 |---|---------|:------------:|
 | 1 | `src/js/map/index.js` | N/A |
-| 2 | `src/js/map/animation.service.js` | - |
-| 3 | `src/js/map/drag-rotate.handler.js` | - |
-| 4 | `src/js/map/map.manager.js` | - |
+| 2 | `src/js/map/animation.service.js` | OK |
+| 3 | `src/js/map/drag-rotate.handler.js` | OK |
+| 4 | `src/js/map/map.manager.js` | OK |
 
 ---
 
@@ -319,12 +319,12 @@ Apos simplificar cada modulo individualmente, executar `/simplify` nos pares de 
 | # | Arquivo | Simplificado |
 |---|---------|:------------:|
 | 1 | `src/js/baselayers/index.js` | N/A |
-| 2 | `src/js/baselayers/base-layer.control.js` | - |
-| 3 | `src/js/baselayers/bdgex_layer.js` | - |
-| 4 | `src/js/baselayers/carta_ortoimagem.js` | - |
-| 5 | `src/js/baselayers/carta_topografica.js` | - |
-| 6 | `src/js/baselayers/imagens_layer.js` | - |
-| 7 | `src/js/baselayers/osm_layer.js` | - |
+| 2 | `src/js/baselayers/base-layer.control.js` | OK |
+| 3 | `src/js/baselayers/bdgex_layer.js` | OK |
+| 4 | `src/js/baselayers/carta_ortoimagem.js` | OK |
+| 5 | `src/js/baselayers/carta_topografica.js` | OK |
+| 6 | `src/js/baselayers/imagens_layer.js` | OK |
+| 7 | `src/js/baselayers/osm_layer.js` | OK |
 
 ---
 
@@ -333,9 +333,9 @@ Apos simplificar cada modulo individualmente, executar `/simplify` nos pares de 
 | # | Arquivo | Simplificado |
 |---|---------|:------------:|
 | 1 | `src/js/terrain/index.js` | N/A |
-| 2 | `src/js/terrain/analysis-layers.manager.js` | - |
-| 3 | `src/js/terrain/data-layers.manager.js` | - |
-| 4 | `src/js/terrain/terrain.control.js` | - |
+| 2 | `src/js/terrain/analysis-layers.manager.js` | OK |
+| 3 | `src/js/terrain/data-layers.manager.js` | OK |
+| 4 | `src/js/terrain/terrain.control.js` | OK |
 
 ---
 
@@ -344,8 +344,8 @@ Apos simplificar cada modulo individualmente, executar `/simplify` nos pares de 
 | # | Arquivo | Simplificado |
 |---|---------|:------------:|
 | 1 | `src/js/grid/index.js` | N/A |
-| 2 | `src/js/grid/grid-layers.config.js` | - |
-| 3 | `src/js/grid/grid.control.js` | - |
+| 2 | `src/js/grid/grid-layers.config.js` | OK |
+| 3 | `src/js/grid/grid.control.js` | OK |
 
 ---
 
@@ -923,15 +923,15 @@ Apos completar a simplificacao individual, executar `/simplify` nos seguintes pa
 | Categoria | Total | Simplificados | Pendentes | N/A |
 |-----------|------:|:-------------:|:---------:|:---:|
 | CSS | 31 | 31 | 0 | 0 |
-| JS - Utilities | 21 | 0 | 19 | 2 |
-| JS - Events | 4 | 0 | 3 | 1 |
-| JS - State | 2 | 0 | 1 | 1 |
-| JS - Store | 46 | 0 | 40 | 6 |
-| JS - Layers | 14 | 0 | 12 | 2 |
-| JS - Map | 4 | 0 | 3 | 1 |
-| JS - Baselayers | 7 | 0 | 6 | 1 |
-| JS - Terrain | 4 | 0 | 3 | 1 |
-| JS - Grid | 3 | 0 | 2 | 1 |
+| JS - Utilities | 21 | 19 | 0 | 2 |
+| JS - Events | 4 | 3 | 0 | 1 |
+| JS - State | 2 | 1 | 0 | 1 |
+| JS - Store | 46 | 40 | 0 | 6 |
+| JS - Layers | 14 | 12 | 0 | 2 |
+| JS - Map | 4 | 3 | 0 | 1 |
+| JS - Baselayers | 7 | 6 | 0 | 1 |
+| JS - Terrain | 4 | 3 | 0 | 1 |
+| JS - Grid | 3 | 2 | 0 | 1 |
 | JS - Tool Manager | 28 | 0 | 25 | 3 |
 | JS - Draw Tools | 45 | 0 | 33 | 12 |
 | JS - Military Tools | 54 | 0 | 44 | 10 |
@@ -955,4 +955,4 @@ Apos completar a simplificacao individual, executar `/simplify` nos seguintes pa
 | JS - Outros modulos | 30 | 0 | 17 | 13 |
 | JS - Entry points | 5 | 0 | 5 | 0 |
 | Conexoes inter-modulo | 20 | 0 | 20 | 0 |
-| **TOTAL** | **509** | **31** | **363** | **95** |
+| **TOTAL** | **509** | **120** | **274** | **95** |

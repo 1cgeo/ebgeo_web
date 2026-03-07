@@ -1,46 +1,26 @@
 // Path: js/store/repository.utils.js
 
 /**
- * @fileoverview Repository utility functions.
- *
- * This module contains utility functions that were previously in repository.js
- * but are not related to IndexedDB operations. These are pure functions
- * for data manipulation and validation.
- *
- * NOTE: These functions are re-exported from repository.js for backward
- * compatibility during the migration period.
+ * @fileoverview Pure utility functions for data manipulation and validation.
+ * Re-exported from repository.js for backward compatibility.
  */
 
-// ===== VERSION CONSTANTS =====
-
-/**
- * Legacy schema version (pre-Atlas).
- * Used for v1.3-v1.7 data.
- */
+/** Legacy schema version (pre-Atlas, v1.3-v1.7). */
 export const SCHEMA_VERSION = '1.7';
 
-/**
- * Minimum supported legacy schema version.
- */
+/** Minimum supported legacy schema version. */
 export const MIN_SCHEMA_VERSION = '1.3';
 
-/**
- * Maximum legacy schema version.
- */
+/** Maximum legacy schema version. */
 export const MAX_SCHEMA_VERSION = '1.7';
 
-// ===== INTERNAL PROPERTY DETECTION =====
-
-/**
- * List of properties that are internal to MapLibre/Mapbox
- * and should not be persisted.
- */
-const INTERNAL_PROPERTIES = [
+/** Properties internal to MapLibre/Mapbox that should not be persisted. */
+const INTERNAL_PROPERTIES = new Set([
     '_vectorTileFeature', '_pbf', '_geometry', '_keys', '_values',
     '_z', '_x', '_y',
     'layer', 'state',
     'extent', 'type'
-];
+]);
 
 /**
  * Checks if a property is internal MapLibre/Mapbox metadata.
@@ -48,10 +28,8 @@ const INTERNAL_PROPERTIES = [
  * @returns {boolean} True if internal property
  */
 export function isInternalProperty(key) {
-    return INTERNAL_PROPERTIES.includes(key) || key.startsWith('_');
+    return key.startsWith('_') || INTERNAL_PROPERTIES.has(key);
 }
-
-// ===== FEATURE CLEANING =====
 
 /**
  * Removes internal Mapbox metadata and keeps only essential GeoJSON data.
@@ -64,29 +42,24 @@ export function cleanFeature(feature) {
         return null;
     }
 
-    let geometry = feature.geometry;
-    if (!geometry && feature._geometry) {
-        geometry = feature._geometry;
-    }
+    const geometry = feature.geometry || feature._geometry;
 
     const cleanedProperties = {};
     if (feature.properties) {
-        Object.keys(feature.properties).forEach(key => {
+        for (const [key, value] of Object.entries(feature.properties)) {
             if (!isInternalProperty(key)) {
-                cleanedProperties[key] = feature.properties[key];
+                cleanedProperties[key] = value;
             }
-        });
+        }
     }
 
     return {
         type: feature.type,
         id: feature.id,
         properties: cleanedProperties,
-        geometry: geometry
+        geometry
     };
 }
-
-// ===== VERSION UTILITIES =====
 
 /**
  * Compares two version strings (format X.Y or X.Y.Z).
@@ -97,8 +70,9 @@ export function cleanFeature(feature) {
 export function compareVersions(version1, version2) {
     const v1Parts = version1.split('.').map(Number);
     const v2Parts = version2.split('.').map(Number);
+    const maxLen = Math.max(v1Parts.length, v2Parts.length);
 
-    for (let i = 0; i < Math.max(v1Parts.length, v2Parts.length); i++) {
+    for (let i = 0; i < maxLen; i++) {
         const v1Part = v1Parts[i] || 0;
         const v2Part = v2Parts[i] || 0;
 
@@ -107,8 +81,6 @@ export function compareVersions(version1, version2) {
     }
     return 0;
 }
-
-// ===== DATA STRUCTURE FACTORIES =====
 
 /**
  * Returns empty map data structure.
