@@ -7,6 +7,7 @@
 
 import config from '@js/config.js';
 import { getCurrentMapFeatures } from '@store/feature.operations.js';
+import { getAllMapNamesStore, getCurrentMapNameSync } from '@store/map.operations.js';
 import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '@store/store.constants.js';
 import { tryParseCoordinates, formatCoordinates } from '@utils/coordinate_converter.js';
 import { MAX_RESULTS } from './search-bar.icons.js';
@@ -108,43 +109,92 @@ function getFeatureCenter(feature) {
 }
 
 /**
- * Searches local features from the store.
+ * Searches features in a single map.
+ * @param {string} mapName - Map name to search
+ * @param {string} normalizedQuery - Lowercase search query
+ * @param {boolean} isCurrentMap - Whether this is the active map
+ * @param {number} maxResults - Maximum results to collect
+ * @returns {Promise<Array>} Search results
+ */
+async function searchFeaturesInMap(mapName, normalizedQuery, isCurrentMap, maxResults) {
+    const results = [];
+    const allFeatures = await getCurrentMapFeatures(mapName);
+    const storageTypes = getAllStorageTypes();
+
+    for (const storageType of storageTypes) {
+        const features = allFeatures[storageType] || [];
+
+        for (const feature of features) {
+            const matchInfo = featureMatchesQuery(feature, normalizedQuery);
+            if (matchInfo) {
+                const name = feature.properties?.name || feature.properties?.nome || 'Sem nome';
+                const typeLabel = getFeatureDisplayNameFromStorage(storageType);
+
+                results.push({
+                    type: 'feature',
+                    subtype: storageType,
+                    name: name,
+                    layer: isCurrentMap ? typeLabel : `${typeLabel} · ${mapName}`,
+                    matchedField: matchInfo.field,
+                    coordinates: getFeatureCenter(feature),
+                    feature: feature,
+                    mapName: isCurrentMap ? null : mapName,
+                });
+
+                if (results.length >= maxResults) {
+                    return results;
+                }
+            }
+        }
+    }
+
+    return results;
+}
+
+/**
+ * Searches local features from the store across all maps.
+ * Current map results appear first, followed by other maps.
  * @param {string} query - Search query
  * @returns {Promise<Array>} Search results
  */
 export async function searchLocalFeatures(query) {
-    const results = [];
     const normalizedQuery = query.toLowerCase();
+    const maxTotal = MAX_RESULTS.features;
 
+    // Search current map first (priority)
+    let results = [];
     try {
-        const allFeatures = await getCurrentMapFeatures();
-        const storageTypes = getAllStorageTypes();
+        results = await searchFeaturesInMap(
+            getCurrentMapNameSync(), normalizedQuery, true, maxTotal
+        );
+    } catch (error) {
+        console.warn('[SearchProviders] Error searching current map features:', error);
+    }
 
-        for (const storageType of storageTypes) {
-            const features = allFeatures[storageType] || [];
+    if (results.length >= maxTotal) {
+        return results;
+    }
 
-            for (const feature of features) {
-                const matchInfo = featureMatchesQuery(feature, normalizedQuery);
-                if (matchInfo) {
-                    const name = feature.properties?.name || feature.properties?.nome || 'Sem nome';
-                    results.push({
-                        type: 'feature',
-                        subtype: storageType,
-                        name: name,
-                        layer: getFeatureDisplayNameFromStorage(storageType),
-                        matchedField: matchInfo.field,
-                        coordinates: getFeatureCenter(feature),
-                        feature: feature,
-                    });
+    // Search remaining maps
+    try {
+        const allMapNames = await getAllMapNamesStore();
+        const currentMap = getCurrentMapNameSync();
 
-                    if (results.length >= MAX_RESULTS.features) {
-                        return results;
-                    }
-                }
+        for (const mapName of allMapNames) {
+            if (mapName === currentMap) continue;
+
+            const remaining = maxTotal - results.length;
+            const mapResults = await searchFeaturesInMap(
+                mapName, normalizedQuery, false, remaining
+            );
+            results.push(...mapResults);
+
+            if (results.length >= maxTotal) {
+                return results.slice(0, maxTotal);
             }
         }
     } catch (error) {
-        console.warn('[SearchProviders] Error searching local features:', error);
+        console.warn('[SearchProviders] Error searching other maps:', error);
     }
 
     return results;

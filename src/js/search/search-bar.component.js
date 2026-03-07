@@ -14,7 +14,7 @@ import {
     cleanup,
     removeElement
 } from '@utils/event-cleanup.js';
-import { addFeature, getActiveLayerIdSync } from '@store/store.js';
+import { addFeature, getActiveLayerIdSync, setCurrentMap, getCurrentMapNameSync } from '@store/store.js';
 import { zoomToFeature, zoomAndSelectFeature } from '@utils/feature_navigation_utils.js';
 import { IDUtils } from '@utils/id_utils.js';
 import { showError } from '@utils';
@@ -475,6 +475,7 @@ export class SearchBarComponent {
 
     /**
      * Selects a local feature: zoom to it and open attributes panel.
+     * If the feature is from another map, switches to that map first.
      * @private
      * @param {Object} result - Search result with feature data
      */
@@ -495,6 +496,11 @@ export class SearchBarComponent {
         }
 
         try {
+            // Switch map if the feature is from another map
+            if (result.mapName && result.mapName !== getCurrentMapNameSync()) {
+                await this._switchToMap(result.mapName);
+            }
+
             await zoomAndSelectFeature(
                 feature,
                 this._map,
@@ -508,6 +514,24 @@ export class SearchBarComponent {
                 await zoomToFeature(feature, this._map);
             }
         }
+    }
+
+    /**
+     * Switches to a different map and reloads the view.
+     * Mirrors sidebar._handleRecentMapClick flow.
+     * @private
+     * @param {string} mapName - Target map name
+     */
+    async _switchToMap(mapName) {
+        await setCurrentMap(mapName);
+
+        const baseLayerControl = getControl('BaseLayerControl');
+        if (baseLayerControl) {
+            await baseLayerControl.switchMap();
+        }
+
+        // Notify sidebar and other UI components about the map switch
+        this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
     }
 
     /**

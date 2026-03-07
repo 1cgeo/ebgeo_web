@@ -229,6 +229,8 @@ class AddImportControl {
             return await this.readKMZ(file);
         } else if (fileName.endsWith('.gpx')) {
             return await this.readGPX(file);
+        } else if (fileName.endsWith('.rar') || fileName.endsWith('.7z')) {
+            throw new Error('Formato de compactação não suportado. Extraia os arquivos e recompacte como .zip');
         } else {
             throw new Error('Formato não suportado. Use: GeoJSON, Shapefile (ZIP), KML, KMZ ou GPX');
         }
@@ -254,49 +256,18 @@ class AddImportControl {
             file,
             'arraybuffer',
             async (buffer) => {
-                const zipFile = await JSZip.loadAsync(buffer);
+                // shp() handles everything: ZIP extraction, .prj reprojection,
+                // .cpg encoding, .dbf attributes, and combining into GeoJSON
+                const result = await shp(buffer);
 
-                const shpFile = Object.values(zipFile.files).find(f =>
-                    f.name.toLowerCase().endsWith('.shp')
-                );
-                const dbfFile = Object.values(zipFile.files).find(f =>
-                    f.name.toLowerCase().endsWith('.dbf')
-                );
+                // Multiple shapefiles in ZIP → returns array; pick first
+                const geoJSON = Array.isArray(result) ? result[0] : result;
 
-                if (!shpFile) {
-                    throw new Error('Arquivo .shp não encontrado');
-                }
-
-                const shpBuffer = await shpFile.async('arraybuffer');
-                const dbfBuffer = dbfFile ? await dbfFile.async('arraybuffer') : null;
-
-                const result = await shp.parseShp(shpBuffer, dbfBuffer);
-
-                if (!Array.isArray(result)) {
+                if (!geoJSON?.features) {
                     throw new Error('Formato de shapefile inválido');
                 }
 
-                const features = result.map((geometry, index) => {
-                    if (geometry.type === 'Feature') {
-                        return geometry;
-                    }
-
-                    return {
-                        type: 'Feature',
-                        properties: {
-                            name: `Shapefile_${index + 1}`
-                        },
-                        geometry: {
-                            type: geometry.type,
-                            coordinates: geometry.coordinates
-                        }
-                    };
-                });
-
-                return {
-                    type: 'FeatureCollection',
-                    features: features
-                };
+                return geoJSON;
             },
             'Erro ao processar Shapefile'
         );

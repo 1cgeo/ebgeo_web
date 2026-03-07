@@ -13,6 +13,7 @@ import {
     removeElement
 } from '@utils/event-cleanup.js';
 import { EventTypes } from '@events/event_types.js';
+import { showWarning } from '@utils/toast_service.js';
 
 /**
  * Toolbar group component.
@@ -281,7 +282,7 @@ export class ToolbarGroup {
 
         // Check terrain requirement
         if (toolConfig.requiresTerrain && this._map && !this._map.getTerrain()) {
-            console.warn(`Tool ${toolConfig.id} requires terrain`);
+            showWarning('Ative o terreno 3D para usar esta ferramenta');
             return;
         }
 
@@ -350,12 +351,13 @@ export class ToolbarGroup {
      */
     _updateTerrainTools() {
         const hasTerrain = this._map?.getTerrain() != null;
+        const reason = hasTerrain ? null : 'Ative o terreno 3D para usar esta ferramenta';
 
         this._config.tools.forEach(toolConfig => {
             if (toolConfig.requiresTerrain) {
                 const button = this._toolButtons.get(toolConfig.id);
                 if (button) {
-                    button.setDisabled(!hasTerrain);
+                    button.setDisabled(!hasTerrain, reason);
                 }
             }
         });
@@ -368,7 +370,8 @@ export class ToolbarGroup {
      */
     _updateToolTerrainState(toolButton) {
         const hasTerrain = this._map?.getTerrain() != null;
-        toolButton.setDisabled(!hasTerrain);
+        const reason = hasTerrain ? null : 'Ative o terreno 3D para usar esta ferramenta';
+        toolButton.setDisabled(!hasTerrain, reason);
     }
 
     /**

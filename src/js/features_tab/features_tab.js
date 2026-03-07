@@ -63,6 +63,7 @@ import {
     getCurrentMapNameSync,
     isCurrentMapLockedSync,
     getSourceTypeFromStorage,
+    getStateManager,
 } from '@store';
 import { EventTypes } from '@events';
 import { showConfirm } from '@modals';
@@ -906,17 +907,16 @@ export class FeaturesTab {
             this._eventBus.on(EventTypes.STREETVIEW_360_CLOSED, this._viewer360ClosedHandler)
         );
 
-        // Listen for selection changes to highlight features in the layers panel
-        this._selectionHighlightHandler = () => this._highlightSelectedFeatures();
-        // Deferred: FEATURE_PANEL_CLOSED fires before clearSelection() in deselectAllFeatures,
-        // so we use queueMicrotask to read the updated selection state.
-        this._selectionClosedHandler = () => queueMicrotask(() => this._highlightSelectedFeatures());
-        this._unsubscribers.push(
-            this._eventBus.on(EventTypes.FEATURE_PANEL_OPENED, this._selectionHighlightHandler)
-        );
-        this._unsubscribers.push(
-            this._eventBus.on(EventTypes.FEATURE_PANEL_CLOSED, this._selectionClosedHandler)
-        );
+        // Subscribe to selection state changes to highlight features in the layers panel.
+        // Using StateManager subscription instead of FEATURE_PANEL events ensures
+        // the highlight updates even when the sidebar is already open during deselection.
+        try {
+            this._unsubscribers.push(
+                getStateManager().subscribe('selection.features', () => this._highlightSelectedFeatures())
+            );
+        } catch (_e) {
+            // StateManager not available yet
+        }
     }
 
     /**

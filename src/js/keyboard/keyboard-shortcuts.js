@@ -11,7 +11,7 @@
 
 import { undoLastAction, redoLastAction, getStateManager, isCurrentMapLockedSync } from '@store';
 import { showConfirm } from '@modals/index.js';
-import { showInChannel } from '@utils/toast_service.js';
+import { showInChannel, showWarning } from '@utils/toast_service.js';
 import { describeUndoRedoAction } from '@store/undo-redo-messages.js';
 
 /**
@@ -262,18 +262,22 @@ class KeyboardShortcuts {
 
         if (key === 'v') {
             if (locked) return;
+            e.preventDefault();
             if (this.map.getTerrain()) {
-                e.preventDefault();
                 this.toolManager.setActiveTool(this.controls.visibilityControl);
+            } else {
+                showWarning('Ative o terreno 3D para usar esta ferramenta');
             }
             return;
         }
 
         if (key === 'o') {
             if (locked) return;
+            e.preventDefault();
             if (this.map.getTerrain()) {
-                e.preventDefault();
                 this.toolManager.setActiveTool(this.controls.losControl);
+            } else {
+                showWarning('Ative o terreno 3D para usar esta ferramenta');
             }
             return;
         }

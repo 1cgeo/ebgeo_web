@@ -167,6 +167,8 @@ export class IDUtils {
         }
 
         newMapData.nome = mapName;
+        newMapData.name = mapName;
+        newMapData.id = null;
 
         return { newMapData, idMapping };
     }

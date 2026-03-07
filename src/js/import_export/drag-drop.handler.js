@@ -5,7 +5,7 @@ import { isCurrentMapLockedSync } from '@store';
 /** @type {Record<string, string[]>} */
 const FILE_TYPES = {
     EBGEO: ['.ebgeo'],
-    GEO_IMPORT: ['.geojson', '.json', '.zip', '.kml', '.kmz', '.gpx', '.csv', '.tsv'],
+    GEO_IMPORT: ['.geojson', '.json', '.zip', '.kml', '.kmz', '.gpx', '.csv', '.tsv', '.rar', '.7z'],
     IMAGE: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
 };
 

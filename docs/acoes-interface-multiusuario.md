@@ -38,6 +38,8 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 14 | **Puxar outros mapas** (combinar mapas) | 🔴🔒 Move feições entre mapas. Servidor executa operação atômica. Broadcast `MAP_MODIFIED` + feições movidas para todos. Permissão de editor em ambos os mapas. |
 | 15 | **Trocar mapa ativo** (click no mapa) | 🟢 Ação local de navegação. Awareness opcional: "Usuário X está no Mapa Y". |
 | 16 | **Atalhos de mapas recentes** (badges laterais) | 🟢 Ação local de navegação. |
+| 17 | **Configurações** (botão engrenagem) — abre modal de configurações | 🟢 Ação local. Modal permite ajustar preferências como exagero de terreno. |
+| 18 | **Restaurar posição salva** (click no ícone de posição) | 🟢 Ação local de navegação. Restaura centro/zoom/bearing/pitch salvos do mapa. |
 
 ---
 
@@ -69,6 +71,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 22 | **Seção Street View 360** — abrir no visualizador 360 | 🟢 Navegação local no viewer 360. |
 | 23 | **Seção Street View 360** — deletar todas as feições da foto | 🔴🔒 Operação destrutiva em batch. Broadcast deleção de todos os marcadores e orientação salva da foto. Soft-delete. Permissão de editor. |
 | 24 | **Seção Street View 360** — click em feição individual | 🟢 Navegação local (abre foto e seleciona marcador/orientação). |
+| 25 | **Seção Análises** — toggle visibilidade de resultado LOS/Visibilidade | 🟢 Visualização local dos resultados de análise. |
 
 ---
 
@@ -80,10 +83,11 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 2 | **Deletar briefing** | 🔴🔒 Broadcast `BRIEFING_DELETED`. Soft-delete. Se outro usuário está editando/apresentando, notificar. |
 | 3 | **Abrir editor de briefing** | 🟡 Broadcast `BRIEFING_EDIT_STARTED` com userId (awareness). Sem lock — múltiplos usuários podem editar simultaneamente. |
 | 4 | **Apresentar briefing** | 🟢 Ação local de visualização. |
-| 5 | **Editar slides** (adicionar, remover, reordenar) | 🟡 Broadcast `BRIEFING_UPDATED` com deltas por slide. Last-write-wins por slide. |
-| 6 | **Editar conteúdo do slide** (título, texto rico) | 🟡 Last-write-wins por slide. Broadcast `BRIEFING_UPDATED` com conteúdo atualizado do slide ao salvar. |
-| 7 | **Configurar câmera do slide** | 🟡 Broadcast atualização do slide. Last-write-wins. |
-| 8 | **Vincular modelo 3D ou foto 360 ao slide** | 🟡 Broadcast atualização do slide. Last-write-wins. |
+| 5 | **Exportar PDF do briefing** (botão no card) | 🟢 Ação local de download. Gera PDF das slides sem abrir o editor. |
+| 6 | **Editar slides** (adicionar, remover, reordenar) | 🟡 Broadcast `BRIEFING_UPDATED` com deltas por slide. Last-write-wins por slide. |
+| 7 | **Editar conteúdo do slide** (título, texto rico) | 🟡 Last-write-wins por slide. Broadcast `BRIEFING_UPDATED` com conteúdo atualizado do slide ao salvar. |
+| 8 | **Configurar câmera do slide** | 🟡 Broadcast atualização do slide. Last-write-wins. |
+| 9 | **Vincular modelo 3D ou foto 360 ao slide** | 🟡 Broadcast atualização do slide. Last-write-wins. |
 
 ---
 
@@ -91,7 +95,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 
 | # | Ação | Impacto Multiusuário |
 |---|------|---------------------|
-| 1 | **Selecionar algoritmo** (Buffer, Voronoi) | 🟢 Ação local de UI. |
+| 1 | **Selecionar algoritmo** (Buffer, Voronoi, Convex Hull) | 🟢 Ação local de UI. |
 | 2 | **Configurar parâmetros** | 🟢 Ação local de UI. |
 | 3 | **Executar algoritmo** | 🟡 Resultado (novas feições) deve ser persistido via servidor. Broadcast `LAYER_CREATED` + `FEATURE_CREATED` para a camada de resultado. |
 | 4 | **Selecionar camada/feições de entrada** | 🟢 Ação local. |
@@ -125,6 +129,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 6 | **Elementos cartográficos** — toggle título, legenda, barra de escala, seta norte | 🟢 Configuração local. Composição via Canvas 2D antes do GDAL. |
 | 7 | **Grades** — toggle grade Lat/Long e grade UTM no PDF | 🟢 Configuração local. |
 | 8 | **Preview da área de exportação no mapa** | 🟢 Visual local. |
+| 9 | **Exportar Garmin KMZ** | 🟢 Ação local. Exporta feições como KMZ formatado para dispositivos GPS Garmin. |
 
 ---
 
@@ -136,6 +141,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 2 | **Desenhar geometria** (clicks/drag no mapa) | 🟡 Durante o desenho: estado local. Ao completar: `FEATURE_CREATED` via servidor com broadcast para todos. |
 | 3 | **Cancelar desenho** (Escape) | 🟢 Ação local. Descarta geometria parcial. |
 | 4 | **Configurar estilo** (cor, largura, opacidade) no painel | 🟢 Configuração local que será aplicada à feição ao salvar. |
+| 4a | **Configurar etiqueta do ponto** — aba "Etiqueta" no painel do ponto | 🟢 Configuração local. Permite mostrar/ocultar label, definir texto, preencher com coordenadas, cor/tamanho da fonte, correção de zoom, contorno do texto. Dados persistidos na feição ao salvar. |
 | 5 | **Azimute e Distância** — adicionar/remover pernas | 🟢 Estado local do painel durante construção. Ao criar/salvar a feição: `FEATURE_CREATED`/`FEATURE_MODIFIED` via servidor. |
 | 6 | **Azimute e Distância** — configurar referência (magnético/verdadeiro/quadrícula) | 🟢 Configuração local do painel. |
 | 7 | **Azimute e Distância** — definir ponto de referência | 🟢 Estado local do painel durante construção. Faz parte dos dados da feição, sincronizado ao criar/salvar. |
@@ -202,7 +208,10 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 4 | **Buscar marcadores 360** | 🟢 Consulta local. |
 | 5 | **Buscar lugares** (geocoding API externo) | 🟢 Consulta a API externa, navegação local. |
 | 6 | **Voar para resultado** (fly to) | 🟢 Navegação local. |
-| 7 | **Criar feição a partir de resultado** | 🟡 `FEATURE_CREATED` via servidor. |
+| 7 | **Criar feição a partir de resultado de busca por local** — "Salvar como feição" | 🟡 Cria ponto com metadados do local como atributos. `FEATURE_CREATED` via servidor. |
+| 8 | **Criar ponto a partir de coordenada buscada** | 🟡 `FEATURE_CREATED` via servidor. |
+| 9 | **Criar símbolo militar a partir de coordenada buscada** | 🟡 `FEATURE_CREATED` via servidor. |
+| 10 | **Criar medida de coordenação a partir de coordenada buscada** | 🟡 `FEATURE_CREATED` via servidor. |
 
 ---
 
@@ -226,6 +235,11 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 5 | **Desagrupar** | 🟡 `GROUP_DELETED` via servidor (feições voltam a ser soltas). Broadcast. |
 | 6 | **Mover para camada** (submenu) | 🟡🔒 Muda associação feição→camada. Servidor valida permissões. Broadcast `FEATURE_MODIFIED`. Last-write-wins. |
 | 7 | **Mover para mapa** (submenu) | 🟡🔒 Move feições entre mapas. Servidor valida permissões em ambos. Broadcast em ambos os mapas. Last-write-wins. |
+| 8 | **Zoom para seleção** | 🟢 Ação local. Ajusta a câmera ao bounding box das feições selecionadas. |
+| 9 | **Duplicar seleção** | 🟡 Cria cópias das feições selecionadas. `FEATURE_CREATED` via servidor para cada cópia. Broadcast. |
+| 10 | **Combinar setas** (múltiplas setas selecionadas) | 🟡 Merge de múltiplas Arrow em uma seta composta multi-geometria. `FEATURE_MODIFIED` + `FEATURE_DELETED` via servidor. Broadcast. |
+| 11 | **Separar setas** (seta composta selecionada) | 🟡 Split de seta composta em setas individuais. `FEATURE_CREATED` + `FEATURE_DELETED` via servidor. Broadcast. |
+| 12 | **Cortar linha** (linha selecionada) | 🟡 Ativa modo de split para cortar linha em um ponto. Gera duas novas feições. `FEATURE_CREATED` + `FEATURE_DELETED` via servidor. Broadcast. |
 
 ---
 
@@ -283,6 +297,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 16 | **Reordenar fotos** (drag & drop) | 🟡 Broadcast `FEATURE_MODIFIED`. Last-write-wins para ordem. |
 | 17 | **Deletar feição** (ícone lixeira) | 🔴🔒 Mesmo que Delete por teclado. |
 | 18 | **Fechar painel** (X) — salva automaticamente | 🟡 Trigger de save das alterações pendentes. |
+| 19 | **Configurar etiqueta do ponto** — toggle mostrar, texto, cor, tamanho, contorno, correção de zoom | 🟡 Broadcast `FEATURE_MODIFIED`. Last-write-wins. Inclui: mostrar/ocultar label, texto da etiqueta, preencher com coordenadas, cor/tamanho da fonte, contorno, correção de zoom com zoom de referência. |
 
 ---
 
@@ -303,6 +318,9 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 11 | **Exportar para CSV** | 🟢 Download local. |
 | 12 | **Minimizar / Maximizar / Fechar painel** | 🟢 UI local. |
 | 13 | **Redimensionar painel** (drag handle) | 🟢 UI local. |
+| 14 | **Hover em linha** — destaque da feição no mapa | 🟢 Ação local. Aplica `tableHover` feature state para highlight visual temporário. |
+| 15 | **Filtrar por "Mostrar apenas selecionados"** | 🟢 Ação local de visualização. Mostra apenas feições com seleção ativa. |
+| 16 | **Filtrar por tipo de feição** (chips de tipo) | 🟢 Ação local de visualização. Filtra por polígono, linha, ponto, etc. |
 
 ---
 
@@ -334,6 +352,13 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 11 | **Deletar viewshed** | 🟡 Broadcast `VIEWSHEDS_3D_CHANGED`. |
 | 12 | **Salvar câmera 3D** | 🟡 Broadcast `CAMERA_3D_SAVED`. |
 | 13 | **Screenshot 3D** | 🟢 Download local. |
+| 14 | **Copiar link para compartilhar** (deep-link 3D) | 🟢 Ação local. Copia URL com hash `#view=3d&tileset=...&lon=...&lat=...&alt=...&heading=...&pitch=...` para clipboard. |
+| 15 | **Atalho V** — ativar ferramenta viewshed | 🟢 Ação local de UI. |
+| 16 | **Atalho D** — ativar medição de distância 3D | 🟢 Ação local de UI. |
+| 17 | **Atalho A** — ativar medição de área 3D | 🟢 Ação local de UI. |
+| 18 | **Atalho M** — adicionar marcador 3D na posição da câmera | 🟡 Broadcast `MARKERS_3D_CHANGED`. |
+| 19 | **Atalho Escape** — fechar popup de ajuda / desativar ferramenta 3D | 🟢 Ação local de UI. |
+| 20 | **Atalho Delete/Backspace** — deletar feição 3D selecionada | 🟡🔒 Broadcast deleção do marcador/medição/viewshed. |
 
 ---
 
@@ -349,6 +374,12 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 6 | **Salvar orientação** (direção de visualização) | 🟡 Broadcast `ORIENTATION_360_SAVED`. |
 | 7 | **Limpar orientação** | 🟡 Broadcast `ORIENTATION_360_CLEARED`. |
 | 8 | **Screenshot 360** | 🟢 Download local. |
+| 9 | **Copiar link para compartilhar** (deep-link 360) | 🟢 Ação local. Copia URL com hash `#view=360&photo=...&lon=...&lat=...&fov=...` para clipboard. |
+| 10 | **Atalhos setas / W/A/S/D** — rotacionar câmera 360 | 🟢 Ação local de navegação. 5° por tecla. |
+| 11 | **Atalhos +/-** — zoom in/out (ajuste de FOV) | 🟢 Ação local de navegação. ±5° de FOV. |
+| 12 | **Atalho M** — toggle ferramenta de marcador | 🟢 Ação local de UI. Desabilitado com mapa bloqueado. |
+| 13 | **Atalho O** — salvar orientação atual | 🟡 Broadcast `ORIENTATION_360_SAVED`. Desabilitado com mapa bloqueado. |
+| 14 | **Atalho Escape** — fechar popup / desativar ferramenta / desselecionar / fechar viewer | 🟢 Ação local de UI (4 níveis de prioridade). |
 
 ---
 
@@ -369,6 +400,8 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 11 | **Vincular foto 360** | 🟡 Broadcast atualização. Last-write-wins por slide. |
 | 12 | **Preview apresentação** | 🟢 Visualização local. |
 | 13 | **Sair do editor** | 🟡 Broadcast `BRIEFING_EDIT_ENDED` (awareness). |
+| 14 | **Importar nota do mapa** — copiar notas rich text do mapa para o slide | 🟡 Broadcast `BRIEFING_UPDATED`. Last-write-wins por slide. Importa conteúdo Quill das notas do mapa selecionado. |
+| 15 | **Usar orientação salva** — aplicar orientação 360 salva ao slide | 🟡 Broadcast atualização do slide. Last-write-wins. Dropdown com orientações 360 disponíveis para o mapa. |
 
 ---
 
@@ -382,6 +415,11 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 4 | **Último slide** (End) | 🟢 Navegação local. |
 | 5 | **Sair da apresentação** (Escape) | 🟢 Ação local. |
 | 6 | **Tela cheia** (F) | 🟢 UI local. |
+| 7 | **Mostrar/Ocultar texto** — toggle do painel de texto do slide | 🟢 UI local. Botão na barra de controles flutuante. |
+| 8 | **Atalhos A/D** — slide anterior/próximo | 🟢 Navegação local. Alternativa às setas. |
+| 9 | **Restaurar posição do slide** — reposicionar câmera na posição salva | 🟢 Ação local. Re-aplica transição de câmera para a posição salva do slide atual. |
+| 10 | **Validação pré-apresentação** — verifica modelos 3D, fotos 360, mapas e posições salvas | 🟢 Ação local. Bloqueia início se recursos obrigatórios estiverem faltando. Exibe warnings para problemas não-críticos. |
+| 11 | **Lock temporário do mapa durante apresentação** | 🟢 Ação local. Todos os mapas ficam temporariamente bloqueados (`setBriefingLockOverride`) para evitar edição acidental. Restaurado ao sair. |
 
 ---
 
@@ -396,6 +434,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 5 | **Modal de exportação** — Configurar e exportar | 🟢 Download local. |
 | 6 | **Modal de confirmação** — Confirmar ação destrutiva | 🟢 UI local (a ação confirmada tem seu próprio impacto). |
 | 7 | **Modal de prompt** — Inserir texto (renomear, etc.) | 🟢 UI local (o resultado tem seu próprio impacto). |
+| 8 | **Modal de configurações** — Ajustar exagero de terreno (slider 1×–3×) | 🟡 Persistido no Atlas. Broadcast `MAP_MODIFIED` se persistido por mapa. Outros clientes atualizam exagero de terreno. |
 
 ---
 
@@ -404,7 +443,9 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | # | Ação | Impacto Multiusuário |
 |---|------|---------------------|
 | 1 | **Trocar formato de coordenadas** (DD, DMS, MGRS, UTM) | 🟢 Preferência local. |
-| 2 | **Toggle elevação** | 🟢 Preferência local. |
+| 2 | **Toggle elevação** | 🟢 Preferência local. Exibe elevação do terreno em metros (`Elev: NNNm`) quando terreno ativo. |
+| 3 | **Exibir nível de zoom** | 🟢 Informação local. Mostra o zoom atual do mapa (`Z12.3`) junto às coordenadas. |
+| 4 | **Seletor de formato de coordenadas** (ícone engrenagem) | 🟢 Preferência local. Popup com lista de formatos disponíveis (DD, DMS, MGRS, UTM). |
 
 ---
 
@@ -415,6 +456,38 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 1 | **Ativar grade Lat/Long** | 🟢 Preferência local de visualização. |
 | 2 | **Ativar grade UTM** | 🟢 Preferência local de visualização. |
 | 3 | **Desligar grade** | 🟢 Preferência local. |
+
+---
+
+## 27. Deep-link / Compartilhamento por URL
+
+| # | Ação | Impacto Multiusuário |
+|---|------|---------------------|
+| 1 | **Copiar link 3D** — gera URL com hash `#view=3d&tileset=...&lon=...&lat=...&alt=...&heading=...&pitch=...` | 🟢 Ação local. Copia para clipboard. |
+| 2 | **Copiar link 360** — gera URL com hash `#view=360&photo=...&lon=...&lat=...&fov=...` | 🟢 Ação local. Copia para clipboard. |
+| 3 | **Abrir deep-link ao carregar** — detecta hash na URL e abre viewer 3D ou 360 automaticamente | 🟢 Ação local de navegação. |
+| 4 | **Hash change listener** — monitora mudanças no hash para abrir viewer em sessão já aberta | 🟢 Ação local de navegação. |
+
+---
+
+## 28. Layout Mobile (Phone)
+
+| # | Ação | Impacto Multiusuário |
+|---|------|---------------------|
+| 1 | **Bottom sheet** — painel deslizante inferior com 3 posições (peek/half/full) para mapas, camadas e feições | 🟢 UI local. |
+| 2 | **Search overlay** — busca em tela cheia ativada por botão no header | 🟢 UI local. |
+| 3 | **Drawer lateral** — menu com ferramentas, lista de mapas, camadas e chips de ação | 🟢 UI local. |
+| 4 | **FABs** — botões flutuantes (seletor de camada base, ferramentas) | 🟢 UI local. |
+| 5 | **Criar mapa** | 🟡 Mesmo impacto que na versão desktop (seção 1 item 8). |
+| 6 | **Renomear mapa** | 🟡 Mesmo impacto (seção 1 item 7). |
+| 7 | **Deletar mapa** | 🔴🔒 Mesmo impacto (seção 1 item 9). |
+| 8 | **Selecionar mapa** | 🟢 Ação local de navegação. |
+| 9 | **Importar** — abre aba de importação na sidebar | 🟡🔒 Mesmo impacto (seção 5). |
+| 10 | **Toggle visibilidade de camada** | 🟡 Mesmo impacto (seção 2 item 4). |
+| 11 | **Selecionar feição na árvore** | 🟢 Seleção local. |
+| 12 | **Editar feição** (nome/propriedades) — editor simplificado | 🟡 Broadcast `FEATURE_MODIFIED`. Last-write-wins. |
+| 13 | **Mover feição** — modo com botões flutuantes confirmar/cancelar | 🟡 Broadcast `FEATURE_MODIFIED` ao confirmar. Last-write-wins. |
+| 14 | **Seletor de camada base** (modal mobile) | 🟡 Mesmo impacto (seção 13 item 2). |
 
 ---
 
@@ -462,36 +535,38 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 
 | Categoria | Total de Ações | 🟢 Local | 🟡 Sync Simples | 🔴 Destrutivo |
 |---|---|---|---|---|
-| Aba Mapas | 16 | 3 | 9 | 4 |
-| Aba Camadas | 24 | 9 | 11 | 4 |
-| Aba Briefings | 8 | 1 | 6 | 1 |
+| Aba Mapas | 18 | 5 | 9 | 4 |
+| Aba Camadas | 25 | 10 | 11 | 4 |
+| Aba Briefings | 9 | 2 | 6 | 1 |
 | Aba Processamento | 5 | 4 | 1 | 0 |
 | Aba Importar | 7 | 0 | 7 | 0 |
-| Aba Exportar | 8 | 8 | 0 | 0 |
-| Toolbar Desenho | 7 | 5 | 2 | 0 |
+| Aba Exportar | 9 | 9 | 0 | 0 |
+| Toolbar Desenho | 8 | 6 | 2 | 0 |
 | Toolbar Militar | 6 | 1 | 5 | 0 |
 | Toolbar Análise | 2 | 0 | 2 | 0 |
 | Toolbar Utilitários | 6 | 5 | 1 | 0 |
 | Controles Inferiores | 8 | 8 | 0 | 0 |
-| Busca | 7 | 6 | 1 | 0 |
+| Busca | 10 | 6 | 4 | 0 |
 | Seletor Camada Base | 2 | 1 | 1 | 0 |
-| Menu de Contexto | 7 | 2 | 5 | 0 |
+| Menu de Contexto | 12 | 3 | 9 | 0 |
 | Interação com Mapa | 12 | 9 | 3 | 0 |
 | Atalhos Teclado | 6 | 2 | 3 | 1 |
-| Painel de Feição | 18 | 0 | 17 | 1 |
-| Tabela de Atributos | 13 | 9 | 2 | 2 |
+| Painel de Feição | 19 | 0 | 18 | 1 |
+| Tabela de Atributos | 16 | 12 | 2 | 2 |
 | Catálogo | 4 | 3 | 1 | 0 |
-| Viewer 3D | 13 | 3 | 10 | 0 |
-| Street View 360 | 8 | 3 | 5 | 0 |
-| Editor Briefing | 13 | 2 | 11 | 0 |
-| Apresentação Briefing | 6 | 6 | 0 | 0 |
-| Modais | 7 | 5 | 1 | 1 |
-| Display Coordenadas | 2 | 2 | 0 | 0 |
+| Viewer 3D | 20 | 8 | 12 | 0 |
+| Street View 360 | 14 | 8 | 6 | 0 |
+| Editor Briefing | 15 | 2 | 13 | 0 |
+| Apresentação Briefing | 11 | 11 | 0 | 0 |
+| Modais | 8 | 5 | 2 | 1 |
+| Display Coordenadas | 4 | 4 | 0 | 0 |
 | Grade UTM | 3 | 3 | 0 | 0 |
-| **TOTAL** | **~218** | **~101 (46%)** | **~103 (47%)** | **~14 (7%)** |
+| Deep-link / URL | 4 | 4 | 0 | 0 |
+| Layout Mobile | 14 | 6 | 7 | 1 |
+| **TOTAL** | **~277** | **~137 (49%)** | **~125 (45%)** | **~15 (6%)** |
 
-**~46% das ações são puramente locais** — sem necessidade de sync.
-**~47% precisam de sync simples** — broadcast + last-write-wins, sem locks.
-**~7% são operações destrutivas** — soft-delete + permissão + broadcast.
+**~49% das ações são puramente locais** — sem necessidade de sync.
+**~45% precisam de sync simples** — broadcast + last-write-wins, sem locks.
+**~6% são operações destrutivas** — soft-delete + permissão + broadcast.
 
 **Nenhuma ação requer lock.** Toda resolução de conflito é last-write-wins com timestamp do servidor.
