@@ -1,8 +1,7 @@
 /* Path: css/coordinates.css */
 
 /* ===== BASE PANEL STRUCTURE ===== */
-.coordinates-control,
-.coordinates-control-3d {
+.coordinates-control {
     position: fixed !important;
     bottom: 10px !important;
     left: 50% !important;
@@ -13,16 +12,16 @@
     /* Visual styles */
     background: rgba(255, 255, 255, 0.95) !important;
     backdrop-filter: blur(8px) !important;
-    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    border: var(--border-width) solid rgba(0, 0, 0, 0.1) !important;
     border-radius: 6px !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
-    padding: 8px 12px !important;
+    box-shadow: var(--shadow-control) !important;
+    padding: var(--space-2) var(--space-3) !important;
 
     /* Typography */
     font-family: 'Courier New', monospace !important;
-    font-size: 12px !important;
-    color: #333 !important;
-    font-weight: 500 !important;
+    font-size: var(--font-size-xs) !important;
+    color: var(--gray-700) !important;
+    font-weight: var(--font-weight-medium) !important;
     white-space: nowrap !important;
     user-select: none !important;
     pointer-events: auto !important;
@@ -30,7 +29,7 @@
     align-items: center !important;
 
     /* Reset inherited styles from MapLibre control containers */
-    transition: opacity 0.3s ease, transform 0.3s ease;
+    transition: opacity var(--transition-slow), transform var(--transition-slow);
     text-align: left !important;
     line-height: normal !important;
     letter-spacing: normal !important;
@@ -44,22 +43,21 @@
 .coordinates-display {
     display: flex !important;
     align-items: center !important;
-    gap: 8px !important;
+    gap: var(--space-2) !important;
     min-width: 200px !important;
 }
 
 .coordinates-text {
     display: flex !important;
     align-items: center !important;
-    gap: 12px !important;
+    gap: var(--space-3) !important;
     min-width: 200px !important;
 }
 
 .coordinates-text span,
-.coordinates-control span,
-.coordinates-control-3d span {
-    font-weight: 500 !important;
-    color: #333 !important;
+.coordinates-control span {
+    font-weight: var(--font-weight-medium) !important;
+    color: var(--gray-700) !important;
     background: transparent !important;
     text-shadow: none !important;
     font-style: normal !important;
@@ -72,17 +70,15 @@
 .coordinates-controls {
     display: flex !important;
     align-items: center !important;
-    gap: 8px !important;
-    margin-left: 8px !important;
+    gap: var(--space-2) !important;
+    margin-left: var(--space-2) !important;
 }
 
 .coordinates-button,
-.coordinates-copy-button,
-.coordinates-flyto-button,
 .coordinates-grid-button,
 .coordinates-gear-button {
     opacity: 0.7;
-    transition: opacity 0.2s ease !important;
+    transition: opacity var(--transition-normal) !important;
     cursor: pointer !important;
     display: flex !important;
     align-items: center !important;
@@ -90,108 +86,68 @@
     width: 16px !important;
     height: 16px !important;
     border-radius: 2px !important;
-    font-size: 14px !important;
+    font-size: var(--font-size-sm) !important;
 }
 
-.coordinates-grid-button{
-    opacity: 0.5 ;
+.coordinates-grid-button {
+    opacity: 0.5;
 }
 
 .coordinates-button:hover,
-.coordinates-copy-button:hover,
-.coordinates-flyto-button:hover,
 .coordinates-grid-button:hover,
 .coordinates-gear-button:hover {
     opacity: 1 !important;
     background-color: rgba(0, 0, 0, 0.05) !important;
 }
 
-/* ===== FORMAT SELECTOR ===== */
-
-.coordinates-format-selector {
-    position: absolute !important;
-    bottom: 100% !important;
-    right: 0 !important;
-    background-color: white !important;
-    border: 1px solid rgba(0, 0, 0, 0.1) !important;
-    border-radius: 6px !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
-    padding: 4px 0 !important;
-    display: none;
-    z-index: 1001 !important;
-    margin-bottom: 8px !important;
-    width: fit-content !important;
-}
-
+/* ===== FORMAT SELECTORS ===== */
+.coordinates-format-selector,
 .grid-format-selector {
     position: absolute !important;
     bottom: 100% !important;
-    left: 0 !important;
     background-color: white !important;
-    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    border: var(--border-width) solid rgba(0, 0, 0, 0.1) !important;
     border-radius: 6px !important;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
-    padding: 4px 0 !important;
+    padding: var(--space-1) 0 !important;
     display: none;
     z-index: 1001 !important;
-    margin-bottom: 8px !important;
+    margin-bottom: var(--space-2) !important;
     width: fit-content !important;
 }
 
+.coordinates-format-selector {
+    right: 0 !important;
+}
+
+.grid-format-selector {
+    left: 0 !important;
+}
+
 .grid-format-option,
-.frame-format-option,
 .coordinates-format-option {
-    padding: 8px 16px !important;
+    padding: var(--space-2) var(--space-4) !important;
     cursor: pointer !important;
     white-space: nowrap !important;
-    color: #333 !important;
-    font-size: 12px !important;
-    transition: background-color 0.2s ease !important;
+    color: var(--gray-700) !important;
+    font-size: var(--font-size-xs) !important;
+    transition: background-color var(--transition-normal) !important;
     background-color: white !important;
 }
 
-.grid-format-option::before,
-.frame-format-option::before,
-.coordinates-format-option::before {
-    content: '' !important;
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    background-color: transparent !important;
-    transition: background-color 0.2s ease !important;
-    z-index: -1 !important;
-}
-
-.grid-format-option:hover::before,
-.frame-format-option:hover::before,
-.coordinates-format-option:hover::before {
-    background-color: rgba(0, 0, 0, 0.05) !important;
-}
-
-.grid-format-option.active::before,
-.frame-format-option.active::before,
-.coordinates-format-option.active::before {
-    background-color: rgba(80, 141, 78, 0.1) !important;
-}
-
 .grid-format-option:hover,
-.frame-format-option:hover,
 .coordinates-format-option:hover {
     background-color: rgba(0, 0, 0, 0.05) !important;
 }
 
 .grid-format-option.active,
-.frame-format-option.active,
 .coordinates-format-option.active {
     background-color: rgba(80, 141, 78, 0.1) !important;
     color: var(--primary) !important;
-    font-weight: 600 !important;
+    font-weight: var(--font-weight-semibold) !important;
 }
 
 .grid-format-option.disabled,
-.frame-format-option.disabled,
 .coordinates-format-option.disabled {
     opacity: 0.4 !important;
     pointer-events: none !important;
@@ -199,8 +155,8 @@
 
 .toggle-fill-option {
     color: var(--primary);
-    background-color: #fafafa !important;
-    border-top: 1px rgba(0,0,0,0.2) !important;
+    background-color: var(--gray-50) !important;
+    border-top: var(--border-width) rgba(0, 0, 0, 0.2) !important;
 }
 
 .toggle-fill-option.disabled {
@@ -208,12 +164,11 @@
     pointer-events: none !important;
 }
 
-
 /* ===== COORDINATES MODAL ===== */
 .coordinates-modal {
     display: none;
     position: fixed;
-    z-index: 1001;
+    z-index: var(--z-modal);
     left: 0;
     top: 0;
     width: 100%;
@@ -225,9 +180,9 @@
 .coordinates-modal-content {
     background-color: white;
     margin: 10% auto;
-    padding: 20px;
-    border: 1px solid #888;
-    border-radius: 8px;
+    padding: var(--space-5);
+    border: var(--border-width) solid var(--gray-400);
+    border-radius: var(--radius-md);
     width: 90%;
     max-width: 400px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
@@ -237,27 +192,27 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    margin-bottom: var(--space-5);
 }
 
 .coordinates-modal-header h3 {
     margin: 0;
-    color: #333;
-    font-size: 18px;
+    color: var(--gray-700);
+    font-size: var(--font-size-lg);
 }
 
 .coordinates-modal-close {
-    color: #aaa;
+    color: var(--gray-400);
     float: right;
     font-size: 28px;
-    font-weight: bold;
+    font-weight: var(--font-weight-bold);
     cursor: pointer;
     line-height: 1;
 }
 
 .coordinates-modal-close:hover,
 .coordinates-modal-close:focus {
-    color: #000;
+    color: var(--gray-900);
     text-decoration: none;
 }
 
@@ -268,16 +223,16 @@
 .coordinates-modal-format label {
     display: block;
     margin-bottom: 5px;
-    font-weight: 500;
-    color: #333;
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
 }
 
 .coordinates-modal-format select {
     width: 100%;
-    padding: 8px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 14px;
+    padding: var(--space-2);
+    border: var(--border-width) solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
 }
 
 .coordinates-modal-input {
@@ -287,22 +242,22 @@
 .coordinates-modal-input label {
     display: block;
     margin-bottom: 5px;
-    font-weight: 500;
-    color: #333;
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
 }
 
 .coordinates-modal-input input {
     width: 100%;
-    padding: 8px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 14px;
+    padding: var(--space-2);
+    border: var(--border-width) solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
     font-family: 'Courier New', monospace;
 }
 
 .coordinates-validation-message {
     color: var(--error-color);
-    font-size: 12px;
+    font-size: var(--font-size-xs);
     margin-top: 5px;
     min-height: 16px;
 }
@@ -311,17 +266,17 @@
     display: flex;
     gap: 10px;
     justify-content: flex-end;
-    margin-top: 20px;
+    margin-top: var(--space-5);
 }
 
 .coordinates-modal-button {
-    padding: 8px 16px;
+    padding: var(--space-2) var(--space-4);
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    transition: background-color 0.2s ease;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    transition: background-color var(--transition-normal);
 }
 
 .coordinates-modal-button.primary {
@@ -334,51 +289,13 @@
 }
 
 .coordinates-modal-button.secondary {
-    background-color: #f5f5f5;
-    color: #333;
-    border: 1px solid #ddd;
+    background-color: var(--gray-100);
+    color: var(--gray-700);
+    border: var(--border-width) solid var(--gray-200);
 }
 
 .coordinates-modal-button.secondary:hover {
-    background-color: #e9e9e9;
-}
-
-/* ===== ANIMATIONS ===== */
-.coordinates-copy-button.copied {
-    color: var(--success-color) !important;
-    animation: copySuccess 0.3s ease !important;
-}
-
-@keyframes copySuccess {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.1); }
-    100% { transform: scale(1); }
-}
-
-@keyframes slideUp {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* ===== Z-INDEX AND ISOLATION ===== */
-.coordinates-control-3d + div[style*="position: fixed"] {
-    z-index: 1002 !important;
-}
-
-.coordinates-control-3d,
-.coordinates-control-3d * {
-    z-index: 1000 !important;
-}
-
-.coordinates-control-3d div[style*="position: absolute"] {
-    z-index: 1001 !important;
+    background-color: var(--gray-200);
 }
 
 /* =========================================================================
@@ -386,55 +303,44 @@
    ========================================================================= */
 
 @media (pointer: coarse) {
-    /* Control buttons larger for touch */
     .coordinates-button,
-    .coordinates-copy-button,
-    .coordinates-flyto-button,
     .coordinates-grid-button,
     .coordinates-gear-button {
         width: 32px !important;
         height: 32px !important;
         min-width: 32px !important;
         min-height: 32px !important;
-        border-radius: 4px !important;
+        border-radius: var(--radius-sm) !important;
     }
 
     .coordinates-controls {
-        gap: 4px !important;
+        gap: var(--space-1) !important;
     }
 
-    /* Format selector options taller */
     .grid-format-option,
-    .frame-format-option,
     .coordinates-format-option {
-        padding: 12px 16px !important;
-        font-size: 14px !important;
+        padding: var(--space-3) var(--space-4) !important;
+        font-size: var(--font-size-sm) !important;
         min-height: var(--touch-target-min, 44px) !important;
         display: flex !important;
         align-items: center !important;
     }
 
-    /* Coordinate text slightly larger */
-    .coordinates-control,
-    .coordinates-control-3d {
+    .coordinates-control {
         font-size: 13px !important;
         padding: 10px 14px !important;
     }
 
-    /* Better active feedback */
     .coordinates-button:active,
-    .coordinates-copy-button:active,
-    .coordinates-flyto-button:active,
     .coordinates-grid-button:active,
     .coordinates-gear-button:active {
         opacity: 1 !important;
         background-color: rgba(0, 0, 0, 0.1) !important;
     }
 
-    /* Modal buttons larger */
     .coordinates-modal-button {
         min-height: var(--touch-target-min, 44px);
-        padding: 12px 20px;
+        padding: var(--space-3) var(--space-5);
         font-size: 15px;
     }
 
@@ -446,12 +352,10 @@
         justify-content: center;
     }
 
-    /* Modal inputs larger */
     .coordinates-modal-input input,
     .coordinates-modal-format select {
-        font-size: 16px;
-        padding: 12px;
-        min-height: 44px;
+        font-size: var(--font-size-base);
+        padding: var(--space-3);
+        min-height: var(--touch-target-min, 44px);
     }
 }
-

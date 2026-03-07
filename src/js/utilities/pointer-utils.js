@@ -1,65 +1,52 @@
 // Path: js/utilities/pointer-utils.js
 /**
  * Pointer/Touch Utilities
- * Utilitários para suporte unificado a mouse e touch
+ * Unified support for mouse and touch input.
  */
 
 /**
- * Detecta se o dispositivo suporta touch
+ * Detects whether the device supports touch input.
  * @returns {boolean}
  */
-export const isTouchDevice = () => {
-    return 'ontouchstart' in window ||
-        navigator.maxTouchPoints > 0 ||
-        window.matchMedia('(pointer: coarse)').matches;
-};
+export function isTouchDevice() {
+    return 'ontouchstart' in window
+        || navigator.maxTouchPoints > 0
+        || window.matchMedia('(pointer: coarse)').matches;
+}
 
 /**
- * Detecta se é um dispositivo mobile (tela pequena + touch)
+ * Detects whether the device is a mobile device (small screen + touch).
  * @returns {boolean}
  */
-export const isMobileDevice = () => {
+export function isMobileDevice() {
     return isTouchDevice() && window.innerWidth < 768;
-};
+}
 
 /**
- * Obtém a posição do pointer (mouse ou touch) relativa ao canvas
+ * Returns the pointer position (mouse or touch) relative to a canvas element.
  * @param {PointerEvent|MouseEvent|TouchEvent} event
  * @param {HTMLElement} canvas
  * @returns {{x: number, y: number}}
  */
-export const getPointerPosition = (event, canvas) => {
+export function getPointerPosition(event, canvas) {
     const rect = canvas.getBoundingClientRect();
+    const touch = event.touches?.[0] ?? event.changedTouches?.[0];
 
-    // Touch event
-    if (event.touches && event.touches.length > 0) {
-        return {
-            x: event.touches[0].clientX - rect.left,
-            y: event.touches[0].clientY - rect.top
-        };
-    }
+    const clientX = touch ? touch.clientX : event.clientX;
+    const clientY = touch ? touch.clientY : event.clientY;
 
-    // Changed touches (touchend)
-    if (event.changedTouches && event.changedTouches.length > 0) {
-        return {
-            x: event.changedTouches[0].clientX - rect.left,
-            y: event.changedTouches[0].clientY - rect.top
-        };
-    }
-
-    // Mouse/Pointer event
     return {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top
+        x: clientX - rect.left,
+        y: clientY - rect.top
     };
-};
+}
 
 /**
- * Calcula o ponto médio entre dois touches
+ * Calculates the midpoint between two touches.
  * @param {TouchList} touches
  * @returns {{x: number, y: number}}
  */
-export const getTouchesMidpoint = (touches) => {
+export function getTouchesMidpoint(touches) {
     if (touches.length < 2) {
         return { x: touches[0].clientX, y: touches[0].clientY };
     }
@@ -67,68 +54,64 @@ export const getTouchesMidpoint = (touches) => {
         x: (touches[0].clientX + touches[1].clientX) / 2,
         y: (touches[0].clientY + touches[1].clientY) / 2
     };
-};
+}
 
 /**
- * Calcula o ângulo entre dois touches (para rotação)
+ * Calculates the angle between two touches (for rotation gestures).
  * @param {TouchList} touches
- * @returns {number} Ângulo em graus
+ * @returns {number} Angle in degrees
  */
-export const getTouchesAngle = (touches) => {
+export function getTouchesAngle(touches) {
     if (touches.length < 2) return 0;
     const dx = touches[1].clientX - touches[0].clientX;
     const dy = touches[1].clientY - touches[0].clientY;
     return Math.atan2(dy, dx) * (180 / Math.PI);
-};
+}
 
 /**
- * Calcula a distância entre dois touches (para pinch-zoom)
+ * Calculates the distance between two touches (for pinch-zoom gestures).
  * @param {TouchList} touches
  * @returns {number}
  */
-export const getTouchesDistance = (touches) => {
+export function getTouchesDistance(touches) {
     if (touches.length < 2) return 0;
     const dx = touches[1].clientX - touches[0].clientX;
     const dy = touches[1].clientY - touches[0].clientY;
     return Math.hypot(dx, dy);
-};
+}
 
 /**
- * Cria um handler de long-press com cancelamento por movimento
+ * Creates a long-press handler with movement cancellation.
  * @param {HTMLElement} element
- * @param {Function} callback - Chamado quando long-press é detectado
+ * @param {Function} callback - Called when long-press is detected
  * @param {Object} options
- * @param {number} options.duration - Duração em ms (default: 500)
- * @param {number} options.moveThreshold - Pixels de movimento para cancelar (default: 10)
- * @returns {Function} Função para remover os listeners
+ * @param {number} options.duration - Duration in ms (default: 500)
+ * @param {number} options.moveThreshold - Movement pixels to cancel (default: 10)
+ * @returns {Function} Cleanup function to remove all listeners
  */
-export const createLongPressHandler = (element, callback, options = {}) => {
+export function createLongPressHandler(element, callback, options = {}) {
     const { duration = 500, moveThreshold = 10 } = options;
 
     let timer = null;
     let startPos = null;
-    let _isLongPressTriggered = false;
 
-    const onTouchStart = (e) => {
+    function onTouchStart(e) {
         if (e.touches.length !== 1) return;
 
-        _isLongPressTriggered = false;
         startPos = {
             x: e.touches[0].clientX,
             y: e.touches[0].clientY
         };
 
         timer = setTimeout(() => {
-            _isLongPressTriggered = true;
-            // Haptic feedback se disponível
             if (navigator.vibrate) {
                 navigator.vibrate(50);
             }
             callback(e, startPos);
         }, duration);
-    };
+    }
 
-    const onTouchMove = (e) => {
+    function onTouchMove(e) {
         if (!timer || !startPos) return;
 
         const touch = e.touches[0];
@@ -141,46 +124,45 @@ export const createLongPressHandler = (element, callback, options = {}) => {
             clearTimeout(timer);
             timer = null;
         }
-    };
+    }
 
-    const onTouchEnd = () => {
+    function onTouchEnd() {
         if (timer) {
             clearTimeout(timer);
             timer = null;
         }
         startPos = null;
-    };
+    }
 
     element.addEventListener('touchstart', onTouchStart, { passive: true });
     element.addEventListener('touchmove', onTouchMove, { passive: true });
     element.addEventListener('touchend', onTouchEnd);
     element.addEventListener('touchcancel', onTouchEnd);
 
-    // Retorna função de cleanup
-    return () => {
+    return function cleanup() {
         element.removeEventListener('touchstart', onTouchStart);
         element.removeEventListener('touchmove', onTouchMove);
         element.removeEventListener('touchend', onTouchEnd);
         element.removeEventListener('touchcancel', onTouchEnd);
         if (timer) clearTimeout(timer);
     };
-};
+}
 
 /**
- * Cria um handler para two-finger tap
+ * Creates a handler for two-finger tap gestures.
  * @param {HTMLElement} element
- * @param {Function} callback - Chamado com (event, midpoint)
+ * @param {Function} callback - Called with (event, midpoint)
  * @param {Object} options
- * @param {number} options.maxDuration - Duração máxima do tap em ms (default: 300)
- * @param {number} options.maxDistance - Distância máxima de movimento (default: 20)
- * @returns {Function} Função para remover os listeners
+ * @param {number} options.maxDuration - Maximum tap duration in ms (default: 300)
+ * @param {number} options.maxDistance - Maximum movement distance in px (default: 20)
+ * @returns {Function} Cleanup function to remove all listeners
  */
-export const createTwoFingerTapHandler = (element, callback, options = {}) => {
+export function createTwoFingerTapHandler(element, callback, options = {}) {
     const { maxDuration = 300, maxDistance = 20 } = options;
 
     let twoFingerStart = null;
 
-    const onTouchStart = (e) => {
+    function onTouchStart(e) {
         if (e.touches.length === 2) {
             twoFingerStart = {
                 time: Date.now(),
@@ -190,9 +172,9 @@ export const createTwoFingerTapHandler = (element, callback, options = {}) => {
         } else {
             twoFingerStart = null;
         }
-    };
+    }
 
-    const onTouchMove = (e) => {
+    function onTouchMove(e) {
         if (!twoFingerStart || e.touches.length !== 2) return;
 
         const currentMidpoint = getTouchesMidpoint(e.touches);
@@ -204,12 +186,11 @@ export const createTwoFingerTapHandler = (element, callback, options = {}) => {
         if (dist > maxDistance) {
             twoFingerStart = null;
         }
-    };
+    }
 
-    const onTouchEnd = (e) => {
+    function onTouchEnd(e) {
         if (!twoFingerStart) return;
 
-        // Verifica se todos os dedos foram levantados
         if (e.touches.length === 0) {
             const elapsed = Date.now() - twoFingerStart.time;
             if (elapsed < maxDuration) {
@@ -217,37 +198,41 @@ export const createTwoFingerTapHandler = (element, callback, options = {}) => {
             }
         }
         twoFingerStart = null;
-    };
+    }
+
+    function onTouchCancel() {
+        twoFingerStart = null;
+    }
 
     element.addEventListener('touchstart', onTouchStart, { passive: true });
     element.addEventListener('touchmove', onTouchMove, { passive: true });
     element.addEventListener('touchend', onTouchEnd);
-    element.addEventListener('touchcancel', () => { twoFingerStart = null; });
+    element.addEventListener('touchcancel', onTouchCancel);
 
-    return () => {
+    return function cleanup() {
         element.removeEventListener('touchstart', onTouchStart);
         element.removeEventListener('touchmove', onTouchMove);
         element.removeEventListener('touchend', onTouchEnd);
-        element.removeEventListener('touchcancel', () => { twoFingerStart = null; });
+        element.removeEventListener('touchcancel', onTouchCancel);
     };
-};
+}
 
 /**
- * Cria um handler para two-finger drag (rotação/pitch)
+ * Creates a handler for two-finger drag gestures (rotation/pitch).
  * @param {HTMLElement} element
  * @param {Object} callbacks
- * @param {Function} callbacks.onStart - Chamado ao iniciar com (initialAngle, initialMidpoint)
- * @param {Function} callbacks.onMove - Chamado durante drag com (angleDelta, midpointDelta)
- * @param {Function} callbacks.onEnd - Chamado ao finalizar
- * @returns {Function} Função para remover os listeners
+ * @param {Function} callbacks.onStart - Called with (initialState)
+ * @param {Function} callbacks.onMove - Called with (angleDelta, midpointDelta, currentMidpoint)
+ * @param {Function} callbacks.onEnd - Called when gesture ends
+ * @returns {Function} Cleanup function to remove all listeners
  */
-export const createTwoFingerDragHandler = (element, callbacks) => {
+export function createTwoFingerDragHandler(element, callbacks) {
     const { onStart, onMove, onEnd } = callbacks;
 
     let initialState = null;
     let isActive = false;
 
-    const onTouchStart = (e) => {
+    function onTouchStart(e) {
         if (e.touches.length !== 2) return;
 
         e.preventDefault();
@@ -259,12 +244,10 @@ export const createTwoFingerDragHandler = (element, callbacks) => {
             distance: getTouchesDistance(e.touches)
         };
 
-        if (onStart) {
-            onStart(initialState);
-        }
-    };
+        onStart?.(initialState);
+    }
 
-    const onTouchMove = (e) => {
+    function onTouchMove(e) {
         if (!isActive || e.touches.length !== 2 || !initialState) return;
 
         e.preventDefault();
@@ -278,55 +261,51 @@ export const createTwoFingerDragHandler = (element, callbacks) => {
             y: currentMidpoint.y - initialState.midpoint.y
         };
 
-        if (onMove) {
-            onMove(angleDelta, midpointDelta, currentMidpoint);
-        }
-    };
+        onMove?.(angleDelta, midpointDelta, currentMidpoint);
+    }
 
-    const onTouchEnd = (e) => {
+    function onTouchEnd(e) {
         if (!isActive) return;
 
         if (e.touches.length < 2) {
             isActive = false;
             initialState = null;
-            if (onEnd) {
-                onEnd();
-            }
+            onEnd?.();
         }
-    };
+    }
 
     element.addEventListener('touchstart', onTouchStart, { passive: false });
     element.addEventListener('touchmove', onTouchMove, { passive: false });
     element.addEventListener('touchend', onTouchEnd);
     element.addEventListener('touchcancel', onTouchEnd);
 
-    return () => {
+    return function cleanup() {
         element.removeEventListener('touchstart', onTouchStart);
         element.removeEventListener('touchmove', onTouchMove);
         element.removeEventListener('touchend', onTouchEnd);
         element.removeEventListener('touchcancel', onTouchEnd);
     };
-};
+}
 
 /**
- * Previne gestos padrão do browser em um elemento
- * Útil para áreas de desenho
+ * Prevents default browser gestures on an element (for drawing surfaces).
+ * Uses inline styles since these are runtime-dynamic toggles.
  * @param {HTMLElement} element
  */
-export const preventDefaultGestures = (element) => {
+export function preventDefaultGestures(element) {
     element.style.touchAction = 'none';
     element.style.userSelect = 'none';
     element.style.webkitUserSelect = 'none';
     element.style.webkitTouchCallout = 'none';
-};
+}
 
 /**
- * Restaura gestos padrão do browser
+ * Restores default browser gestures on an element.
  * @param {HTMLElement} element
  */
-export const restoreDefaultGestures = (element) => {
+export function restoreDefaultGestures(element) {
     element.style.touchAction = '';
     element.style.userSelect = '';
     element.style.webkitUserSelect = '';
     element.style.webkitTouchCallout = '';
-};
+}

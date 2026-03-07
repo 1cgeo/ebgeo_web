@@ -13,10 +13,10 @@
     --sidebar-panel-width: 400px;
     --toolbar-button-size: 40px;
     --control-button-size: 40px;
-    --toggle-button-width: 128px;
-    --search-bar-height: 48px;
     --search-bar-width: 420px;
+    --search-bar-height: 44px;
     --chip-height: 32px;
+    --briefing-panel-width: 520px;
 
     /* =========================================================================
        RESPONSIVE / TOUCH
@@ -31,12 +31,6 @@
     --safe-area-bottom: env(safe-area-inset-bottom, 0);
     --safe-area-left: env(safe-area-inset-left, 0);
     --safe-area-right: env(safe-area-inset-right, 0);
-
-    /* Breakpoints (for reference in JS, actual usage via media queries) */
-    --breakpoint-tablet-sm: 600px;
-    --breakpoint-tablet: 768px;
-    --breakpoint-desktop: 1024px;
-    --breakpoint-phone: 480px;
 
     /* Phone layout dimensions */
     --phone-sheet-peek: 64px;
@@ -55,8 +49,6 @@
 
     /* Bottom sheet (attributes panel on touch devices) */
     --bottom-sheet-max-height: 60vh;
-    --bottom-sheet-peek-height: 56px;
-    --bottom-sheet-handle-height: 24px;
 
     /* =========================================================================
        COLORS - PRIMARY (Green)
@@ -65,12 +57,9 @@
     --primary-100: #dcfce7;
     --primary-200: #bbf7d0;
     --primary-300: #86efac;
-    --primary-400: #4ade80;
-    --primary-500: #22c55e;
     --primary-600: #16a34a;
     --primary-700: #15803d;
     --primary-800: #166534;
-    --primary-900: #14532d;
 
     /* Semantic aliases */
     --primary: var(--primary-600);
@@ -110,6 +99,7 @@
     --import-shapefile: #3b82f6;
     --import-kml: #f97316;
     --import-gpx: #8b5cf6;
+    --import-csv: #0ea5e9;
 
     /* =========================================================================
        TYPOGRAPHY
@@ -170,7 +160,6 @@
     /* =========================================================================
        Z-INDEX SCALE
        ========================================================================= */
-    --z-base: 0;
     --z-dropdown: 10;
     --z-toolbar: 20;
     --z-controls: 25;
@@ -182,7 +171,7 @@
     --z-modal: 60;
     --z-toast: 70;
 
-    /* 3D viewer - reasonable value, sidebar will be higher in 3D mode */
+    /* 3D viewer - sidebar will be higher in 3D mode */
     --z-3d-viewer: 200;
     --z-3d-controls: 210;
 }
@@ -204,73 +193,32 @@
    - 'will-change: transform' - Use sparingly for animated elements
    ========================================================================= */
 
-/* Sidebar containment */
-.sidebar-container {
+/* Layout + style containment for major UI containers */
+.sidebar-container,
+.sidebar-panels-wrapper,
+.sidebar-collapsed,
+.toolbar-container,
+.bottom-controls-container,
+.base-layer-selector,
+.modal-container,
+.search-bar-wrapper,
+.chips-container,
+.maps-list,
+.attribute-table-panel,
+.features-tab-content {
     contain: layout style;
 }
 
-.sidebar-panels-wrapper {
-    contain: layout style;
-}
-
+/* Animated panels also hint transform for GPU compositing */
 .sidebar-panel,
 .feature-panel {
     contain: layout style;
     will-change: transform;
 }
 
-.sidebar-collapsed {
-    contain: layout style;
-}
-
-/* Toolbar containment */
-.toolbar-container {
-    contain: layout style;
-}
-
-.toolbar-popup {
-    contain: layout style paint;
-}
-
-/* Bottom controls containment */
-.bottom-controls-container {
-    contain: layout style;
-}
-
-/* Base layer selector containment */
-.base-layer-selector {
-    contain: layout style;
-}
-
-.base-layer-panel {
-    contain: layout style paint;
-}
-
-/* Modal containment */
+/* Strict containment (layout + style + paint) for overlays and popups */
+.toolbar-popup,
+.base-layer-panel,
 .modal-overlay {
     contain: layout style paint;
-}
-
-.modal-container {
-    contain: layout style;
-}
-
-/* Search bar containment */
-.search-bar-wrapper {
-    contain: layout style;
-}
-
-/* Chips containment */
-.chips-container {
-    contain: layout style;
-}
-
-/* Maps list containment (for scrolling performance) */
-.maps-list {
-    contain: layout style;
-}
-
-/* Features/Layers tab containment */
-.features-tab-content {
-    contain: layout style;
 }

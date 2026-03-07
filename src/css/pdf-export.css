@@ -6,42 +6,45 @@
     background: inherit !important;
     margin: 0 !important;
     padding: 0 !important;
-    transition: opacity 0.3s ease;
+    transition: opacity var(--transition-slow);
 }
 
 /* ===== MAIN CONTAINER ===== */
 .pdf-export-container {
-    padding: 16px;
+    padding: var(--space-4);
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(8px);
-    border-bottom-left-radius: 12px;
-    border-bottom-right-radius: 12px;
+    border-bottom-left-radius: var(--radius-lg);
+    border-bottom-right-radius: var(--radius-lg);
     margin: 0;
     width: 100%;
     box-sizing: border-box;
 }
 
-/* ===== ORIENTATION SELECTOR ===== */
-.orientation-selector {
-    margin-bottom: 16px;
-    padding: 12px;
-    background: #f8f9fa;
-    border-radius: 6px;
-    border: 1px solid #e9ecef;
+/* ===== SHARED FORM SECTION ===== */
+.orientation-selector,
+.dpi-selector,
+.pdf-cartographic-section {
+    margin-bottom: var(--space-4);
+    padding: var(--space-3);
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+    border: var(--border-width) solid var(--border-color);
 }
 
+/* ===== ORIENTATION SELECTOR ===== */
 .orientation-selector label {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-2);
     cursor: pointer;
-    padding: 8px 10px;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-    font-size: 14px;
-    font-weight: 500;
-    color: #495057;
+    padding: var(--space-2) 10px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-normal);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-600);
 }
 
 .orientation-selector label:last-child {
@@ -64,36 +67,28 @@
 .orientation-selector label:has(input:checked) {
     background: rgba(80, 141, 78, 0.15);
     color: var(--primary-dark);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 /* ===== DPI QUALITY SELECTOR ===== */
-.dpi-selector {
-    margin-bottom: 16px;
-    padding: 12px;
-    background: #f8f9fa;
-    border-radius: 6px;
-    border: 1px solid #e9ecef;
-}
-
 .dpi-label {
     display: block;
-    margin-bottom: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    color: #495057;
+    margin-bottom: var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-600);
 }
 
 .dpi-select {
     width: 100%;
-    padding: 10px 12px;
-    font-size: 14px;
-    font-weight: 500;
-    color: #495057;
+    padding: 10px var(--space-3);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-600);
     background-color: white;
-    border: 1px solid #ced4da;
-    border-radius: 4px;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    border: var(--border-width) solid var(--border-color-dark);
+    border-radius: var(--radius-sm);
+    transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
     cursor: pointer;
     box-sizing: border-box;
 }
@@ -112,17 +107,17 @@
 /* ===== EXPORT BUTTON ===== */
 .export-pdf-btn {
     width: 100%;
-    padding: 12px 16px;
-    font-size: 14px;
-    font-weight: 600;
-    border-radius: 6px;
-    transition: all 0.2s ease;
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    border-radius: var(--radius-md);
+    transition: all var(--transition-normal);
     border: none;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--space-2);
     background-color: var(--primary);
     color: white;
 }
@@ -140,30 +135,30 @@
 .export-pdf-btn:disabled {
     cursor: not-allowed;
     opacity: 0.6;
-    background-color: #6c757d;
+    background-color: var(--gray-500);
 }
 
 /* ===== EXPORT STATUS ===== */
 .export-status {
-    margin-top: 12px;
-    padding: 12px;
+    margin-top: var(--space-3);
+    padding: var(--space-3);
     background: #e3f2fd;
-    border: 1px solid #bbdefb;
-    border-radius: 6px;
+    border: var(--border-width) solid #bbdefb;
+    border-radius: var(--radius-md);
     display: flex;
     align-items: center;
-    gap: 12px;
-    font-size: 14px;
-    color: #1976d2;
-    font-weight: 500;
+    gap: var(--space-3);
+    font-size: var(--font-size-sm);
+    color: var(--color-info);
+    font-weight: var(--font-weight-medium);
 }
 
 .loading-spinner {
     width: 16px;
     height: 16px;
     border: 2px solid #bbdefb;
-    border-top: 2px solid #1976d2;
-    border-radius: 50%;
+    border-top: 2px solid var(--color-info);
+    border-radius: var(--radius-full);
     animation: spin 1s linear infinite;
     flex-shrink: 0;
 }
@@ -175,7 +170,7 @@
 }
 
 .orientation-selector label.selecting {
-    animation: orientationSelect 0.2s ease;
+    animation: orientationSelect var(--transition-normal) ease;
 }
 
 @keyframes orientationSelect {
@@ -196,30 +191,11 @@
     outline-offset: 2px;
 }
 
-/* ===== MAIN THEME INTEGRATION =====
-   Note: transition merged into .pdf-export-tab-content above */
-
-.pdf-export-tab-content[style*="display: none"] {
-    opacity: 0;
-}
-
-.pdf-export-tab-content[style*="display: block"] {
-    opacity: 1;
-}
-
 /* ===== CARTOGRAPHIC ELEMENTS SECTION ===== */
-.pdf-cartographic-section {
-    margin-bottom: 16px;
-    padding: 12px;
-    background: #f8f9fa;
-    border-radius: 6px;
-    border: 1px solid #e9ecef;
-}
-
 .pdf-cartographic-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: #495057;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-600);
     margin-bottom: 10px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -228,10 +204,10 @@
 .pdf-cartographic-option {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 6px 0;
-    font-size: 14px;
-    color: #495057;
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
     cursor: pointer;
 }
 
@@ -245,16 +221,16 @@
 
 .pdf-title-input {
     width: 100%;
-    padding: 8px 10px;
-    margin-top: 4px;
+    padding: var(--space-2) 10px;
+    margin-top: var(--space-1);
     margin-bottom: 6px;
-    border: 1px solid #dee2e6;
-    border-radius: 4px;
-    font-size: 13px;
-    color: #495057;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
     background: #fff;
     box-sizing: border-box;
-    transition: border-color 0.2s, opacity 0.2s;
+    transition: border-color var(--transition-normal), opacity var(--transition-normal);
 }
 
 .pdf-title-input:focus {
@@ -265,7 +241,7 @@
 .pdf-title-input:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-    background: #f1f3f5;
+    background: var(--gray-100);
 }
 
 /* ===== EXPORT PROGRESS MODAL ===== */
@@ -283,7 +259,7 @@
     justify-content: center;
     z-index: 99999;
     backdrop-filter: blur(2px);
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: var(--font-family-base);
 }
 
 .pdf-export-modal__content {
@@ -292,49 +268,49 @@
 
 .pdf-export-modal__title {
     font-size: 24px;
-    font-weight: 600;
-    margin-bottom: 20px;
+    font-weight: var(--font-weight-semibold);
+    margin-bottom: var(--space-5);
 }
 
 .pdf-export-modal__progress-text {
-    font-size: 16px;
+    font-size: var(--font-size-base);
     margin-bottom: 15px;
     opacity: 0.9;
 }
 
 .pdf-export-modal__bar-container {
     width: 300px;
-    height: 8px;
+    height: var(--space-2);
     background: rgba(255, 255, 255, 0.3);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     margin: 0 auto;
 }
 
 .pdf-export-modal__bar {
     height: 100%;
-    background: #b4e380;
+    background: var(--primary-light);
     width: 0%;
-    border-radius: 4px;
-    transition: width 0.3s ease;
+    border-radius: var(--radius-sm);
+    transition: width var(--transition-slow);
 }
 
 .pdf-export-modal__hint {
-    font-size: 12px;
+    font-size: var(--font-size-xs);
     margin-top: 10px;
     opacity: 0.7;
 }
 
 .pdf-export-modal__cancel-btn {
-    margin-top: 24px;
-    padding: 8px 24px;
+    margin-top: var(--space-6);
+    padding: var(--space-2) var(--space-6);
     background: transparent;
     color: white;
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    border-radius: 4px;
-    font-size: 14px;
+    border: var(--border-width) solid rgba(255, 255, 255, 0.5);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
     cursor: pointer;
-    transition: background 0.2s ease, border-color 0.2s ease;
+    transition: background var(--transition-normal), border-color var(--transition-normal);
 }
 
 .pdf-export-modal__cancel-btn:hover {
@@ -343,7 +319,8 @@
 }
 
 /* ===== HIDDEN MAP CONTAINER (for off-screen rendering) ===== */
-.pdf-export-hidden-map {
+.pdf-export-hidden-map,
+.garmin-kmz-hidden-map {
     position: absolute;
     top: -9999px;
     left: -9999px;

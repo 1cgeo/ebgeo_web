@@ -11,7 +11,8 @@
  */
 
 import proj4 from 'proj4';
-import { EBGEO_LOGO_BASE64 } from '../utilities/logo-base64.js';
+// Re-exported so pdf-export.tab.js can dynamically import it alongside composeLayout.
+export { loadLogoImage } from '../utilities/logo-base64.js';
 
 // ============================================================================
 // CONSTANTS
@@ -30,29 +31,6 @@ const GRID_MARGIN_MM = 5;
 
 /** Number of sample points for drawing curved grid lines */
 const GRID_LINE_SAMPLES = 80;
-
-// ============================================================================
-// LOGO LOADER
-// ============================================================================
-
-/** Cached logo Image element */
-let _logoImage = null;
-
-/**
- * Returns the EBGeo logo as an HTMLImageElement loaded from the embedded Base64.
- * Uses a cache so the Image is only decoded once.
- * @returns {Promise<HTMLImageElement>}
- */
-export function loadLogoImage() {
-    if (_logoImage) return Promise.resolve(_logoImage);
-
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => { _logoImage = img; resolve(img); };
-        img.onerror = reject;
-        img.src = EBGEO_LOGO_BASE64;
-    });
-}
 
 // ============================================================================
 // PUBLIC API
@@ -199,14 +177,11 @@ export function composeLayout(mapCanvas, options) {
     }
 
     // EBGeo logo (top-left of map area)
-    {
-        const logo = logoImage || _logoImage;
-        if (logo) {
-            ctx.save();
-            ctx.scale(uiScale, uiScale);
-            _drawLogo(ctx, logo, marginPx / uiScale, marginPx / uiScale);
-            ctx.restore();
-        }
+    if (logoImage) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawLogo(ctx, logoImage, marginPx / uiScale, marginPx / uiScale);
+        ctx.restore();
     }
 
     return canvas;

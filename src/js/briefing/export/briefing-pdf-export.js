@@ -27,6 +27,7 @@ import { createTransitionService } from '../presentation/transition.service.js';
 import { validateBriefing } from '../validation/reference-validator.js';
 import { captureSlide } from './slide-capture.service.js';
 import { composePage, composeErrorPage, loadLogoDataUrl } from './pdf-page-composer.js';
+import { createExportProgressModal } from '../../import_export/export-utils.js';
 
 // ============================================================================
 // STATE
@@ -52,7 +53,8 @@ export async function exportBriefingToPdf(briefingId, map) {
 
     _isExporting = true;
 
-    let modal = null;
+    let progress = null;
+    let cancelled = false;
     let transitionService = null;
     let savedPosition = null;
     let originalMapName = null;
@@ -111,7 +113,10 @@ export async function exportBriefingToPdf(briefingId, map) {
         const totalSlides = slides.length;
 
         // ===== Step 2: Show progress modal =====
-        modal = createProgressModal();
+        progress = createExportProgressModal({
+            title: 'Exportando Briefing...',
+            onCancel: () => { cancelled = true; },
+        });
 
         // ===== Step 3: Save current state =====
         savedPosition = {
@@ -125,7 +130,7 @@ export async function exportBriefingToPdf(briefingId, map) {
         // ===== Step 4: Create transition service =====
         transitionService = createTransitionService(map);
 
-        updateProgress(modal, 5, 'Preparando exportação...');
+        progress.updateProgress(5, 'Preparando exportação...');
 
         // ===== Step 5: Import jsPDF lazily + pre-load logo =====
         const [{ jsPDF }, logoDataUrl] = await Promise.all([
@@ -140,15 +145,14 @@ export async function exportBriefingToPdf(briefingId, map) {
 
         // ===== Step 6: Process each slide =====
         for (let i = 0; i < totalSlides; i++) {
-            if (modal._cancelled) {
+            if (cancelled) {
                 showError('Exportação cancelada');
                 return;
             }
 
             const slide = slides[i];
             const progressPercent = 5 + ((i / totalSlides) * 80);
-            updateProgress(
-                modal,
+            progress.updateProgress(
                 progressPercent,
                 `Capturando slide ${i + 1} de ${totalSlides}...`
             );
@@ -181,19 +185,19 @@ export async function exportBriefingToPdf(briefingId, map) {
             }
         }
 
-        if (modal._cancelled) {
+        if (cancelled) {
             showError('Exportação cancelada');
             return;
         }
 
         // ===== Step 7: Download PDF =====
-        updateProgress(modal, 90, 'Gerando PDF...');
+        progress.updateProgress(90, 'Gerando PDF...');
 
         const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
         const safeFileName = briefing.name.replace(/[^a-zA-Z0-9\u00C0-\u024F _-]/g, '').trim() || 'briefing';
         doc.save(`briefing-${safeFileName}-${timestamp}.pdf`);
 
-        updateProgress(modal, 100, 'Download concluído!');
+        progress.updateProgress(100, 'Download concluído!');
         showSuccess('Briefing exportado com sucesso');
 
         // Brief delay for progress to show 100%
@@ -239,88 +243,10 @@ export async function exportBriefingToPdf(briefingId, map) {
         }
 
         // Remove progress modal
-        if (modal?.parentNode) {
-            document.body.removeChild(modal);
-        }
+        progress?.remove();
     }
 }
 
-// ============================================================================
-// PROGRESS MODAL
-// ============================================================================
-
-/**
- * Creates a full-screen progress modal.
- * Reuses the same BEM classes as pdf-export.css for visual consistency.
- * @returns {HTMLElement} Modal element with _cancelled flag
- */
-function createProgressModal() {
-    const modal = document.createElement('div');
-    modal.className = 'pdf-export-modal';
-    modal._cancelled = false;
-
-    const content = document.createElement('div');
-    content.className = 'pdf-export-modal__content';
-
-    const title = document.createElement('div');
-    title.className = 'pdf-export-modal__title';
-    title.textContent = 'Exportando Briefing...';
-
-    const progressText = document.createElement('div');
-    progressText.className = 'pdf-export-modal__progress-text briefing-pdf-progress-text';
-    progressText.textContent = 'Preparando...';
-
-    const barContainer = document.createElement('div');
-    barContainer.className = 'pdf-export-modal__bar-container';
-
-    const bar = document.createElement('div');
-    bar.className = 'pdf-export-modal__bar briefing-pdf-progress-bar';
-    barContainer.appendChild(bar);
-
-    const hint = document.createElement('div');
-    hint.className = 'pdf-export-modal__hint';
-    hint.textContent = 'Isso pode levar alguns segundos...';
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'pdf-export-modal__cancel-btn';
-    cancelBtn.textContent = 'Cancelar';
-    cancelBtn.addEventListener('click', () => {
-        modal._cancelled = true;
-        if (modal.parentNode) {
-            document.body.removeChild(modal);
-        }
-    });
-
-    content.appendChild(title);
-    content.appendChild(progressText);
-    content.appendChild(barContainer);
-    content.appendChild(hint);
-    content.appendChild(cancelBtn);
-    modal.appendChild(content);
-
-    document.body.appendChild(modal);
-    return modal;
-}
-
-/**
- * Updates the progress modal bar and text.
- * @param {HTMLElement} modal - Modal element
- * @param {number} percent - Progress percentage (0-100)
- * @param {string} text - Progress description text
- */
-function updateProgress(modal, percent, text) {
-    if (!modal || modal._cancelled) return;
-
-    const bar = modal.querySelector('.briefing-pdf-progress-bar');
-    const progressText = modal.querySelector('.briefing-pdf-progress-text');
-
-    if (bar) {
-        bar.style.width = percent + '%';
-    }
-    if (progressText) {
-        progressText.textContent = text;
-    }
-}
 
 // ============================================================================
 // UTILITIES

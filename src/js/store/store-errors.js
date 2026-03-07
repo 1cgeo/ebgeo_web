@@ -22,7 +22,7 @@
 
 /**
  * Store error event constants.
- * These are also mirrored in EventTypes for discoverability.
+ * These are the canonical definitions; not duplicated in EventTypes.
  * @readonly
  * @enum {string}
  */

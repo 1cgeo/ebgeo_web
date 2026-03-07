@@ -1010,6 +1010,7 @@ export class SidebarControl {
 
             case SIDEBAR_TABS.EXPORTAR:
                 component = new ExportTab({
+                    map: this._mapManager?.map,
                     pdfExportTab: this._pdfExportTab,
                     screenshotControl: this._screenshotControl,
                     exportImportService: this._exportImportService,

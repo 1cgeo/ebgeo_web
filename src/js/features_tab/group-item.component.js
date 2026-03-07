@@ -12,7 +12,7 @@ import {
     getStorageTypeFromSource,
     getFeatureIconFromStorage,
 } from '../store';
-import { FeatureNavigationUtils } from '../utilities';
+import { zoomToFeature } from '../utilities';
 
 /**
  * @typedef {Object} GroupItemCallbacks
@@ -242,11 +242,11 @@ function createGroupFeatureItem(feature, groupData, callbacks) {
 export async function handleGroupFeatureClick(feature, groupData, map, selectionManager) {
     try {
         if (groupData.locked) {
-            await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, map);
+            await zoomToFeature(feature.rawFeature, map);
             return;
         }
 
-        await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, map);
+        await zoomToFeature(feature.rawFeature, map);
 
         if (selectionManager) {
             selectionManager.deselectAllFeatures();
@@ -272,7 +272,7 @@ export async function handleGroupFeatureClick(feature, groupData, map, selection
         console.error('Error navigating to group feature:', error);
 
         try {
-            await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, map);
+            await zoomToFeature(feature.rawFeature, map);
         } catch (fallbackError) {
             console.error('Error in zoom fallback:', fallbackError);
         }

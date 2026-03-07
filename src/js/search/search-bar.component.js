@@ -18,7 +18,7 @@ import {
     removeElement
 } from '../utilities/event-cleanup.js';
 import { addFeature, getActiveLayerIdSync } from '../store/store.js';
-import { FeatureNavigationUtils } from '../utilities/feature_navigation_utils.js';
+import { zoomToFeature, zoomAndSelectFeature } from '../utilities/feature_navigation_utils.js';
 import { IDUtils } from '../utilities/id_utils.js';
 import { showError } from '../utilities';
 import { escapeHtml } from '../utilities/html-escape.js';
@@ -522,7 +522,7 @@ export class SearchBarComponent {
         }
 
         try {
-            await FeatureNavigationUtils.zoomAndSelectFeature(
+            await zoomAndSelectFeature(
                 feature,
                 this._map,
                 this._selectionManager,
@@ -532,7 +532,7 @@ export class SearchBarComponent {
         } catch (error) {
             console.warn('[SearchBar] Error selecting feature:', error);
             if (result.coordinates) {
-                await FeatureNavigationUtils.zoomToFeature(feature, this._map);
+                await zoomToFeature(feature, this._map);
             }
         }
     }

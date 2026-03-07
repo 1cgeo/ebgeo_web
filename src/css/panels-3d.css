@@ -5,22 +5,20 @@
     display: none;
     position: fixed !important;
     top: 0 !important;
-    left: 56px !important;
+    left: var(--sidebar-collapsed-width) !important;
     right: 0 !important;
     bottom: 0 !important;
     width: auto !important;
     height: 100vh !important;
     overflow: hidden;
-    z-index: 200 !important;
-    background: #000;
+    z-index: var(--z-3d-viewer) !important;
+    background: var(--gray-900);
 
     /* Create isolated stacking context to prevent Cesium elements from escaping */
     isolation: isolate;
 }
 
 /* ===== SIDEBAR VISIBILITY IN 3D MODE ===== */
-
-/* Make entire sidebar visible above Cesium viewer */
 
 /* Keep the same behavior as 2D mode, just ensure proper z-index */
 body.cesium-active .sidebar-container {
@@ -62,32 +60,32 @@ body.cesium-active .modal-overlay {
 #toolbar-3d {
     position: fixed;
     top: 80px;
-    right: 16px;
+    right: var(--space-4);
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    z-index: var(--z-3d-controls, 110);
+    gap: var(--space-2);
+    z-index: var(--z-3d-controls);
 }
 
 /* ===== 3D TOOL BUTTONS ===== */
 .button-tool-3d {
-    width: 44px;
-    height: 44px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
     border: none;
     background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-control);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--gray-600, #4b5563);
-    transition: all 0.2s ease;
+    color: var(--gray-600);
+    transition: all var(--transition-normal);
     position: relative;
 }
 
 .button-tool-3d:hover {
-    background: var(--gray-50, #f9fafb);
+    background: var(--gray-50);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
@@ -104,7 +102,7 @@ body.cesium-active .modal-overlay {
 .button-tool-3d img {
     width: 22px;
     height: 22px;
-    transition: all 0.2s ease;
+    transition: all var(--transition-normal);
 }
 
 .button-tool-3d.active img,
@@ -119,16 +117,16 @@ body.cesium-active .modal-overlay {
     top: 50%;
     right: calc(100% + 10px);
     transform: translateY(-50%);
-    background: var(--gray-900, #111827);
+    background: var(--gray-900);
     color: white;
-    padding: 6px 10px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 500;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.2s ease;
+    transition: opacity var(--transition-normal);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
@@ -142,14 +140,12 @@ body.cesium-active .modal-overlay {
     outline-offset: 2px;
 }
 
-/* Performance is already defined above */
-
 /* ===== TOOLBAR SEPARATOR ===== */
 .toolbar-3d-separator {
-    width: 32px;
+    width: var(--space-8);
     height: 1px;
-    background: var(--gray-300, #d1d5db);
-    margin: 4px auto;
+    background: var(--gray-300);
+    margin: var(--space-1) auto;
 }
 
 /* ===== CAMERA BUTTONS ===== */
@@ -159,7 +155,7 @@ body.cesium-active .modal-overlay {
 }
 
 #limpar-camera {
-    background: #fff;
+    background: white;
 }
 
 #limpar-camera:hover {
@@ -182,14 +178,14 @@ body.cesium-active .modal-overlay {
     right: 72px;
     width: 280px;
     background: white;
-    border-radius: 12px;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
-    z-index: var(--z-3d-controls, 110);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    z-index: var(--z-3d-controls);
     overflow: hidden;
     opacity: 0;
     visibility: hidden;
     transform: translateX(10px);
-    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+    transition: opacity var(--transition-normal), transform var(--transition-normal), visibility var(--transition-normal);
 }
 
 .nav-help-popup:not([hidden]) {
@@ -204,7 +200,7 @@ body.cesium-active .modal-overlay {
 
 .nav-help-tabs {
     display: flex;
-    border-radius: 12px 12px 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     overflow: hidden;
 }
 
@@ -213,16 +209,16 @@ body.cesium-active .modal-overlay {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 10px 16px;
-    background: var(--gray-300, #d1d5db);
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    background: var(--gray-300);
     border: none;
-    color: var(--gray-700, #374151);
+    color: var(--gray-700);
     font-family: inherit;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all var(--transition-normal);
 }
 
 .nav-help-tab.active {
@@ -237,13 +233,13 @@ body.cesium-active .modal-overlay {
 
 .nav-help-tab img {
     flex-shrink: 0;
-    width: 24px;
-    height: 24px;
+    width: var(--space-6);
+    height: var(--space-6);
     object-fit: contain;
 }
 
 .nav-help-content {
-    padding: 8px 0;
+    padding: var(--space-2) 0;
 }
 
 .nav-help-panel {
@@ -258,29 +254,29 @@ body.cesium-active .modal-overlay {
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 12px 16px;
-    transition: background 0.15s ease;
+    padding: var(--space-3) var(--space-4);
+    transition: background var(--transition-fast);
 }
 
 .nav-help-item:hover {
-    background: var(--gray-50, #f9fafb);
+    background: var(--gray-50);
 }
 
 .nav-help-icon {
-    width: 48px;
-    height: 48px;
+    width: var(--touch-target-comfortable);
+    height: var(--touch-target-comfortable);
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     background: var(--primary);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: white;
 }
 
 .nav-help-icon svg {
-    width: 32px;
-    height: 32px;
+    width: var(--space-8);
+    height: var(--space-8);
 }
 
 .nav-help-icon img {
@@ -296,43 +292,43 @@ body.cesium-active .modal-overlay {
 
 .nav-help-text strong {
     display: block;
-    color: var(--gray-900, #111827);
+    color: var(--gray-900);
     font-size: 13px;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     margin-bottom: 2px;
 }
 
 .nav-help-text span {
     display: block;
-    color: var(--gray-500, #6b7280);
-    font-size: 12px;
+    color: var(--gray-500);
+    font-size: var(--font-size-xs);
     line-height: 1.4;
 }
 
 /* ===== 3D VIEWER CLOSE BUTTON ===== */
 #close-3d-viewer-button {
     position: fixed;
-    top: 16px;
-    right: 16px;
+    top: var(--space-4);
+    right: var(--space-4);
     display: none;
     align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
     background: var(--primary);
     border: 2px solid rgba(255, 255, 255, 0.3);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     box-shadow: 0 4px 16px rgba(80, 141, 78, 0.3);
-    color: #fff;
+    color: white;
     font-family: inherit;
-    font-size: 14px;
-    font-weight: 500;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
     cursor: pointer;
-    z-index: var(--z-3d-controls, 110);
-    transition: all 0.2s ease;
+    z-index: var(--z-3d-controls);
+    transition: all var(--transition-normal);
 }
 
 #close-3d-viewer-button:hover {
-    background: var(--primary-dark, #3d6e3b);
+    background: var(--primary-dark);
     box-shadow: 0 6px 20px rgba(80, 141, 78, 0.4);
     transform: translateY(-1px);
 }
@@ -347,8 +343,8 @@ body.cesium-active .modal-overlay {
 }
 
 #close-3d-viewer-button svg {
-    width: 16px;
-    height: 16px;
+    width: var(--space-4);
+    height: var(--space-4);
     stroke: currentcolor;
     flex-shrink: 0;
 }
@@ -360,28 +356,28 @@ body.cesium-active .modal-overlay {
 /* ===== ACTIVE TOOL CHIP 3D ===== */
 .active-tool-chip-3d {
     position: fixed;
-    top: 16px;
+    top: var(--space-4);
     left: 50%;
     transform: translateX(-50%);
-    z-index: var(--z-3d-controls, 110);
+    z-index: var(--z-3d-controls);
     pointer-events: none;
 }
 
 .active-tool-chip-3d-inner {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     background: var(--primary);
     color: white;
-    padding: 8px 16px;
-    border-radius: 9999px;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-full);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-    font-size: 14px;
+    font-size: var(--font-size-sm);
     white-space: nowrap;
     pointer-events: auto;
     opacity: 0;
     transform: translateY(-10px);
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    transition: opacity var(--transition-normal), transform var(--transition-normal);
 }
 
 .active-tool-chip-3d.visible .active-tool-chip-3d-inner {
@@ -390,28 +386,28 @@ body.cesium-active .modal-overlay {
 }
 
 .active-tool-chip-3d-label {
-    font-weight: 400;
+    font-weight: var(--font-weight-normal);
     opacity: 0.9;
 }
 
 .active-tool-chip-3d-name {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 .active-tool-chip-3d-close {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
-    margin-left: 4px;
+    width: var(--space-6);
+    height: var(--space-6);
+    margin-left: var(--space-1);
     border: none;
     background: transparent;
     color: white;
-    border-radius: 9999px;
+    border-radius: var(--radius-full);
     cursor: pointer;
     opacity: 0.7;
-    transition: opacity 0.15s ease, background 0.15s ease;
+    transition: opacity var(--transition-fast), background var(--transition-fast);
 }
 
 .active-tool-chip-3d-close:hover {
@@ -424,8 +420,8 @@ body.cesium-active .modal-overlay {
 }
 
 .active-tool-chip-3d-close svg {
-    width: 16px;
-    height: 16px;
+    width: var(--space-4);
+    height: var(--space-4);
 }
 
 /* ===== MAP LOCK: HIDE WRITE-ACTION BUTTONS ===== */
@@ -455,13 +451,13 @@ body.cesium-active .modal-overlay {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 10000;
+    z-index: var(--z-modal);
 }
 
 .coordinate-edit-modal {
     background: white;
-    border-radius: 12px;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
     width: 90%;
     max-width: 400px;
     overflow: hidden;
@@ -471,110 +467,110 @@ body.cesium-active .modal-overlay {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: var(--border-width) solid var(--border-color);
 }
 
 .coordinate-edit-modal-header h3 {
     margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--gray-900, #111827);
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-900);
 }
 
 .coordinate-edit-modal-close {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: var(--space-8);
+    height: var(--space-8);
     background: transparent;
     border: none;
-    border-radius: 6px;
-    color: var(--gray-500, #6b7280);
+    border-radius: var(--radius-sm);
+    color: var(--gray-500);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
 }
 
 .coordinate-edit-modal-close:hover {
-    background: var(--gray-100, #f3f4f6);
-    color: var(--gray-700, #374151);
+    background: var(--gray-100);
+    color: var(--gray-700);
 }
 
 .coordinate-edit-modal-content {
-    padding: 20px;
+    padding: var(--space-5);
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--space-4);
 }
 
 .coordinate-edit-field {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-2);
 }
 
 .coordinate-edit-field label {
     font-size: 13px;
-    font-weight: 500;
-    color: var(--gray-700, #374151);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
 }
 
 .coordinate-edit-field input {
-    padding: 10px 12px;
-    border: 1px solid var(--gray-300, #d1d5db);
-    border-radius: 8px;
-    font-size: 14px;
+    padding: var(--space-3) var(--space-3);
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
     font-family: "SF Mono", Consolas, monospace;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .coordinate-edit-field input:focus {
     outline: none;
-    border-color: var(--primary, #16a34a);
+    border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
 }
 
 .coordinate-edit-modal-actions {
     display: flex;
-    gap: 8px;
-    padding: 16px 20px;
-    border-top: 1px solid var(--border-color, #e5e7eb);
-    background: var(--gray-50, #f9fafb);
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-5);
+    border-top: var(--border-width) solid var(--border-color);
+    background: var(--gray-50);
 }
 
 .coordinate-edit-cancel {
     flex: 1;
-    padding: 10px 16px;
+    padding: var(--space-3) var(--space-4);
     background: white;
-    border: 1px solid var(--gray-300, #d1d5db);
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--gray-700, #374151);
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
 }
 
 .coordinate-edit-cancel:hover {
-    background: var(--gray-100, #f3f4f6);
+    background: var(--gray-100);
 }
 
 .coordinate-edit-confirm {
     flex: 1;
-    padding: 10px 16px;
-    background: var(--primary, #16a34a);
+    padding: var(--space-3) var(--space-4);
+    background: var(--primary);
     border: none;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 500;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
     color: white;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
 }
 
 .coordinate-edit-confirm:hover {
-    background: var(--primary-dark, #15803d);
+    background: var(--primary-hover);
 }
 
 /* ===== MEASUREMENT PANEL 3D STYLES =====
@@ -586,21 +582,21 @@ body.cesium-active .modal-overlay {
 
 /* Measurement Result Section */
 .measurement-result-section {
-    padding: 12px 16px;
-    background: var(--gray-50, #f9fafb);
-    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    padding: var(--space-3) var(--space-4);
+    background: var(--gray-50);
+    border-bottom: var(--border-width) solid var(--border-color);
 }
 
 .measurement-result-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--gray-500, #6b7280);
+    gap: var(--space-2);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-500);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-2);
 }
 
 .measurement-result-header svg {
@@ -609,21 +605,20 @@ body.cesium-active .modal-overlay {
 }
 
 .measurement-result-value {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--primary, #16a34a);
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--primary);
     font-family: "SF Mono", Consolas, monospace;
 }
 
 /* Navigate Section */
 .measurement-navigate-section {
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: var(--border-width) solid var(--border-color);
 }
 
-/* ============================================================================
- * VIEWSHED PANEL 3D (extracted from viewshed-panel-3d.js)
- * ============================================================================ */
+/* ===== VIEWSHED PANEL 3D =====
+   Extracted from viewshed-panel-3d.js */
 
 .viewshed-3d-panel-content {
     padding: 0;
@@ -631,21 +626,21 @@ body.cesium-active .modal-overlay {
 
 /* Parameters Section */
 .viewshed-parameters-section {
-    padding: 12px 16px;
-    background: var(--gray-50, #f9fafb);
-    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    padding: var(--space-3) var(--space-4);
+    background: var(--gray-50);
+    border-bottom: var(--border-width) solid var(--border-color);
 }
 
 .viewshed-parameters-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--gray-500, #6b7280);
+    gap: var(--space-2);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-500);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .viewshed-parameters-header svg {
@@ -656,70 +651,70 @@ body.cesium-active .modal-overlay {
 .viewshed-parameters-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .viewshed-parameter-item {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-1);
 }
 
 .viewshed-parameter-label {
     font-size: 11px;
-    color: var(--gray-500, #6b7280);
+    color: var(--gray-500);
 }
 
 .viewshed-parameter-value {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--primary, #16a34a);
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--primary);
     font-family: "SF Mono", Consolas, monospace;
 }
 
 /* Navigate Section */
 .viewshed-navigate-section {
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: var(--border-width) solid var(--border-color);
 }
 
 /* Observer Height Section */
 .viewshed-observer-height-section {
-    margin-top: 16px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border-color, #e5e7eb);
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: var(--border-width) solid var(--border-color);
 }
 
 .viewshed-observer-height-label {
     display: block;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--gray-700, #374151);
-    margin-bottom: 6px;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+    margin-bottom: var(--space-2);
 }
 
 .viewshed-observer-height-input-container {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
 }
 
 .viewshed-observer-height-input {
     width: 100px;
-    padding: 8px 12px;
-    font-size: 14px;
-    font-weight: 600;
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
     font-family: "SF Mono", Consolas, monospace;
-    color: var(--primary, #16a34a);
+    color: var(--primary);
     background: white;
-    border: 1px solid var(--border-color, #e5e7eb);
-    border-radius: 6px;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-sm);
+    transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
 }
 
 .viewshed-observer-height-input:focus {
     outline: none;
-    border-color: var(--primary, #16a34a);
+    border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
 }
 
@@ -729,37 +724,35 @@ body.cesium-active .modal-overlay {
 }
 
 .viewshed-observer-height-unit {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--gray-500, #6b7280);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-500);
 }
 
 .viewshed-observer-height-hint {
-    margin-top: 6px;
+    margin-top: var(--space-2);
     font-size: 11px;
-    color: var(--gray-400, #9ca3af);
+    color: var(--gray-400);
     line-height: 1.4;
 }
 
-/* ============================================================================
- * MOUSE COORDINATES 3D (extracted from mouse_coordinates_3d.js)
- * ============================================================================ */
+/* ===== MOUSE COORDINATES 3D ===== */
 
 .coordinates-control-3d {
     position: absolute;
     bottom: 10px;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 1000;
+    z-index: var(--z-floating);
     min-width: 280px;
     width: auto;
-    padding: 6px 10px;
+    padding: var(--space-2) var(--space-3);
     font-family: monospace;
-    font-size: 12px;
+    font-size: var(--font-size-xs);
     white-space: nowrap;
     background: rgba(255, 255, 255, 0.9);
-    border-radius: 4px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-control);
     display: flex;
     align-items: center;
 }
@@ -767,26 +760,26 @@ body.cesium-active .modal-overlay {
 .coordinates-control-3d__text {
     flex-grow: 1;
     display: flex;
-    gap: 10px;
+    gap: var(--space-3);
     min-width: 160px;
 }
 
 .coordinates-control-3d__controls {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-left: 8px;
+    gap: var(--space-2);
+    margin-left: var(--space-2);
 }
 
 .coordinates-control-3d__btn {
     opacity: 0.7;
     cursor: pointer;
-    transition: opacity 0.2s;
+    transition: opacity var(--transition-normal);
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
+    width: var(--space-4);
+    height: var(--space-4);
 }
 
 .coordinates-control-3d__btn:hover {
@@ -798,32 +791,30 @@ body.cesium-active .modal-overlay {
     bottom: 100%;
     right: 0;
     background-color: white;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-    padding: 5px 0;
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+    padding: var(--space-1) 0;
     display: none;
-    z-index: 1001;
+    z-index: calc(var(--z-floating) + 1);
 }
 
 .coordinates-control-3d__option {
-    padding: 5px 15px;
+    padding: var(--space-1) var(--space-4);
     cursor: pointer;
     white-space: nowrap;
 }
 
 .coordinates-control-3d__option:hover {
-    background-color: #f0f0f0;
+    background-color: var(--gray-100);
 }
 
 .coordinates-control-3d__option--active {
-    background-color: #f0f0f0;
-    font-weight: bold;
+    background-color: var(--gray-100);
+    font-weight: var(--font-weight-bold);
 }
 
-/* ============================================================================
- * 3D VIEWER LOADING SCREEN
- * ============================================================================ */
+/* ===== 3D VIEWER LOADING SCREEN ===== */
 
 #loading-screen-3d {
     position: absolute;
@@ -832,7 +823,7 @@ body.cesium-active .modal-overlay {
     display: none;
     align-items: center;
     justify-content: center;
-    background-color: #508D4E;
+    background-color: var(--primary-color);
     opacity: 0;
     transition: opacity 0.4s ease;
 }
@@ -851,7 +842,7 @@ body.cesium-active .modal-overlay {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 20px;
+    gap: var(--space-5);
 }
 
 .loading-3d-logo {
@@ -859,7 +850,7 @@ body.cesium-active .modal-overlay {
     height: auto;
 }
 
-/* Progress bar — same style as initial loading */
+/* Progress bar -- same style as initial loading */
 .loading-3d-bar {
     width: 200px;
     height: 4px;
@@ -870,7 +861,7 @@ body.cesium-active .modal-overlay {
 
 .loading-3d-bar-fill {
     height: 100%;
-    background: #B4E380;
+    background: var(--primary-light);
     width: 0%;
     border-radius: 2px;
     animation: loading3dBar 2s ease-out forwards;

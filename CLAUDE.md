@@ -52,6 +52,9 @@ Use `setupCleanup/subscribe/addDomListener/trackTimer/cleanup` from `@utils/even
 - `generateUUID()` from `@utils/uuid.js` for all IDs
 - `EventTypes.XXX` constants (not hardcoded strings)
 
+### File Path Comments
+Every JS file must keep a path comment on line 1: `// Path: js/utilities/viewer3d-state.js` (relative to `src/`). Never remove these.
+
 ### Dead Code
 Remove unused imports, commented-out code, and no-op functions. No `_` prefix aliasing.
 

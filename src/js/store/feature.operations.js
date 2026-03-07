@@ -176,6 +176,8 @@ export const addFeature = async (type, feature, mapName = null) => {
 
         return () => updateMapData(targetMap, currentMapData);
     });
+
+    return cleanedFeature;
 };
 
 /**

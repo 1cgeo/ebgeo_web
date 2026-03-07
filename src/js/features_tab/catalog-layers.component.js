@@ -653,9 +653,9 @@ export function initCatalogLayerListeners(map, eventBus, analysisLayersManager, 
         handleCatalogAddLayer(payload, map, eventBus, analysisLayersManager, dataLayersManager);
     };
 
-    eventBus.on('CATALOG_ADD_LAYER', handler);
+    eventBus.on(EventTypes.CATALOG_ADD_LAYER, handler);
 
     return () => {
-        eventBus.off('CATALOG_ADD_LAYER', handler);
+        eventBus.off(EventTypes.CATALOG_ADD_LAYER, handler);
     };
 }

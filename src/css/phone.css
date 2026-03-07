@@ -202,7 +202,7 @@
     .phone-search-overlay__section-title {
         padding: var(--space-4) var(--space-4) var(--space-2);
         font-size: var(--font-size-xs);
-        font-weight: 600;
+        font-weight: var(--font-weight-semibold);
         color: var(--gray-400);
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -509,7 +509,7 @@
 
     .phone-feature-detail__action-btn--primary {
         background: var(--primary-600);
-        color: var(--white);
+        color: white;
     }
 
     .phone-feature-detail__action-btn--primary:active {
@@ -900,7 +900,7 @@
         box-shadow: none;
     }
 
-    .phone-fab-group .phone-fab+.phone-fab {
+    .phone-fab-group .phone-fab + .phone-fab {
         border-top: 1px solid var(--gray-200);
     }
 
@@ -1123,7 +1123,7 @@
         flex: 1;
         text-align: left;
         font-size: var(--font-size-xs);
-        font-weight: 600;
+        font-weight: var(--font-weight-semibold);
         color: var(--gray-400);
         text-transform: uppercase;
         letter-spacing: 0.5px;

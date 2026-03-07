@@ -1,87 +1,138 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Mock session-context
-vi.mock('../../src/js/store/sync/session-context.js', () => {
-    const mockContext = {
-        isOffline: vi.fn(() => true),
-        canPerformAction: vi.fn(() => true),
-        role: null
-    };
-    return {
-        sessionContext: mockContext,
-        PermissionAction: {
-            EDIT: 'canEdit',
-            DELETE: 'canDelete',
-            MANAGE_USERS: 'canManageUsers',
-            LOCK_MAPS: 'canLockMaps'
-        }
-    };
-});
+// Mock only operation-factory (sessionContext's sole external dependency)
+vi.mock('../../src/js/store/sync/operation-factory.js', () => ({
+    getClientId: vi.fn(() => 'mock-client-id-123')
+}));
 
+// NO mock of session-context — use the REAL singleton + ROLE_PERMISSIONS
 import { checkPermission, assertPermission, GuardAction } from '../../src/js/store/sync/permission-guard.js';
-import { sessionContext } from '../../src/js/store/sync/session-context.js';
+import { sessionContext, UserRole } from '../../src/js/store/sync/session-context.js';
 
 beforeEach(() => {
-    vi.clearAllMocks();
-    sessionContext.isOffline.mockReturnValue(true);
-    sessionContext.canPerformAction.mockReturnValue(true);
-    sessionContext.role = null;
+    sessionContext._reset(); // restores OFFLINE mode with full permissions
 });
 
 // ============================================================================
-// Offline mode
+// Offline mode (default) — real sessionContext in OFFLINE mode
 // ============================================================================
 
 describe('Offline mode', () => {
-    it('always allows all actions when offline', () => {
+    it('allows all actions when offline', () => {
         expect(checkPermission('CREATE_FEATURE')).toEqual({ allowed: true });
         expect(checkPermission('DELETE_MAP')).toEqual({ allowed: true });
         expect(checkPermission('MANAGE_USERS')).toEqual({ allowed: true });
-    });
-
-    it('does not call canPerformAction when offline', () => {
-        checkPermission('CREATE_FEATURE');
-        expect(sessionContext.canPerformAction).not.toHaveBeenCalled();
+        expect(checkPermission('LOCK_MAP')).toEqual({ allowed: true });
     });
 });
 
 // ============================================================================
-// Online mode — allowed
+// Online — Viewer role (real ROLE_PERMISSIONS lookup)
 // ============================================================================
 
-describe('Online mode — allowed', () => {
+describe('Online — Viewer', () => {
     beforeEach(() => {
-        sessionContext.isOffline.mockReturnValue(false);
-        sessionContext.canPerformAction.mockReturnValue(true);
-        sessionContext.role = 'editor';
+        sessionContext.setSession({ userId: 'user-1', role: UserRole.VIEWER });
     });
 
-    it('returns allowed:true for permitted actions', () => {
+    it('blocks CREATE_FEATURE (viewer cannot edit)', () => {
+        const result = checkPermission('CREATE_FEATURE');
+        expect(result.allowed).toBe(false);
+        expect(result.reason).toContain('viewer');
+    });
+
+    it('blocks DELETE_MAP (viewer cannot delete)', () => {
+        const result = checkPermission('DELETE_MAP');
+        expect(result.allowed).toBe(false);
+    });
+
+    it('blocks MANAGE_USERS', () => {
+        expect(checkPermission('MANAGE_USERS').allowed).toBe(false);
+    });
+
+    it('blocks LOCK_MAP', () => {
+        expect(checkPermission('LOCK_MAP').allowed).toBe(false);
+    });
+});
+
+// ============================================================================
+// Online — Editor role
+// ============================================================================
+
+describe('Online — Editor', () => {
+    beforeEach(() => {
+        sessionContext.setSession({ userId: 'user-2', role: UserRole.EDITOR });
+    });
+
+    it('allows CREATE_FEATURE (editor can edit)', () => {
         expect(checkPermission('CREATE_FEATURE')).toEqual({ allowed: true });
     });
 
-    it('checks the correct permission for each action', () => {
-        checkPermission('DELETE_MAP');
-        expect(sessionContext.canPerformAction).toHaveBeenCalledWith('canDelete');
+    it('allows DELETE_FEATURE (editor can delete)', () => {
+        expect(checkPermission('DELETE_FEATURE')).toEqual({ allowed: true });
+    });
+
+    it('blocks LOCK_MAP (editor cannot lock)', () => {
+        const result = checkPermission('LOCK_MAP');
+        expect(result.allowed).toBe(false);
+        expect(result.reason).toContain('editor');
+    });
+
+    it('blocks MANAGE_USERS (editor cannot manage)', () => {
+        expect(checkPermission('MANAGE_USERS').allowed).toBe(false);
     });
 });
 
 // ============================================================================
-// Online mode — denied
+// Online — Admin role
 // ============================================================================
 
-describe('Online mode — denied', () => {
+describe('Online — Admin', () => {
     beforeEach(() => {
-        sessionContext.isOffline.mockReturnValue(false);
-        sessionContext.canPerformAction.mockReturnValue(false);
-        sessionContext.role = 'viewer';
+        sessionContext.setSession({ userId: 'user-3', role: UserRole.ADMIN });
     });
 
-    it('returns allowed:false with reason', () => {
-        const result = checkPermission('CREATE_FEATURE');
-        expect(result.allowed).toBe(false);
-        expect(result.reason).toContain('Permissão insuficiente');
-        expect(result.reason).toContain('viewer');
+    it('allows all actions', () => {
+        expect(checkPermission('CREATE_FEATURE')).toEqual({ allowed: true });
+        expect(checkPermission('DELETE_MAP')).toEqual({ allowed: true });
+        expect(checkPermission('MANAGE_USERS')).toEqual({ allowed: true });
+        expect(checkPermission('LOCK_MAP')).toEqual({ allowed: true });
+    });
+});
+
+// ============================================================================
+// Online — Owner role
+// ============================================================================
+
+describe('Online — Owner', () => {
+    beforeEach(() => {
+        sessionContext.setSession({ userId: 'user-4', role: UserRole.OWNER });
+    });
+
+    it('allows all actions', () => {
+        expect(checkPermission('CREATE_FEATURE')).toEqual({ allowed: true });
+        expect(checkPermission('DELETE_MAP')).toEqual({ allowed: true });
+        expect(checkPermission('MANAGE_USERS')).toEqual({ allowed: true });
+        expect(checkPermission('LOCK_MAP')).toEqual({ allowed: true });
+    });
+});
+
+// ============================================================================
+// Session transitions: offline → online → offline
+// ============================================================================
+
+describe('Session transitions', () => {
+    it('offline → viewer → offline restores full permissions', () => {
+        // Start offline — allowed
+        expect(checkPermission('CREATE_FEATURE').allowed).toBe(true);
+
+        // Go online as viewer — blocked
+        sessionContext.setSession({ userId: 'u1', role: UserRole.VIEWER });
+        expect(checkPermission('CREATE_FEATURE').allowed).toBe(false);
+
+        // Back to offline — allowed again
+        sessionContext.clearSession();
+        expect(checkPermission('CREATE_FEATURE').allowed).toBe(true);
     });
 });
 
@@ -90,14 +141,12 @@ describe('Online mode — denied', () => {
 // ============================================================================
 
 describe('assertPermission', () => {
-    it('does not throw when allowed', () => {
+    it('does not throw when allowed (offline)', () => {
         expect(() => assertPermission('CREATE_FEATURE')).not.toThrow();
     });
 
-    it('throws PermissionError when denied', () => {
-        sessionContext.isOffline.mockReturnValue(false);
-        sessionContext.canPerformAction.mockReturnValue(false);
-        sessionContext.role = 'viewer';
+    it('throws PermissionError with correct fields when denied', () => {
+        sessionContext.setSession({ userId: 'u1', role: UserRole.VIEWER });
 
         try {
             assertPermission('DELETE_MAP');
@@ -105,12 +154,13 @@ describe('assertPermission', () => {
         } catch (error) {
             expect(error.name).toBe('PermissionError');
             expect(error.action).toBe('DELETE_MAP');
+            expect(error.message).toContain('viewer');
         }
     });
 });
 
 // ============================================================================
-// GuardAction mapping
+// GuardAction mapping completeness
 // ============================================================================
 
 describe('GuardAction covers all expected actions', () => {

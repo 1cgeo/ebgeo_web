@@ -13,7 +13,7 @@
     position: fixed;
     top: 80px;
     right: var(--space-4);
-    z-index: var(--z-toolbar);  /* 20 - Below 3D viewer (100) */
+    z-index: var(--z-toolbar);
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
@@ -27,7 +27,12 @@
     position: relative;
 }
 
-.toolbar-group-btn {
+/* =========================================================================
+   SHARED TOOLBAR BUTTON (group trigger + standalone)
+   ========================================================================= */
+
+.toolbar-group-btn,
+.toolbar-standalone-btn {
     width: var(--toolbar-button-size);
     height: var(--toolbar-button-size);
     border: none;
@@ -42,16 +47,19 @@
     transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.toolbar-group-btn:hover {
+.toolbar-group-btn:hover,
+.toolbar-standalone-btn:hover {
     background: var(--gray-50);
 }
 
-.toolbar-group-btn[data-active="true"] {
+.toolbar-group-btn[data-active="true"],
+.toolbar-standalone-btn[data-active="true"] {
     background: var(--primary);
     color: white;
 }
 
-.toolbar-group-btn svg {
+.toolbar-group-btn svg,
+.toolbar-standalone-btn svg {
     width: 22px;
     height: 22px;
 }
@@ -141,8 +149,8 @@
     position: absolute;
     bottom: 2px;
     right: 2px;
-    font-size: 0.75rem;
-    font-weight: 600;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-400);
     font-family: monospace;
     line-height: 1;
@@ -156,7 +164,6 @@
 .toolbar-popup-grid .toolbar-tool-btn[data-active="true"] .tool-shortcut-badge {
     color: var(--primary-600);
 }
-
 
 /* List item (icon + label) */
 .toolbar-popup-list .toolbar-tool-btn {
@@ -182,39 +189,6 @@
 }
 
 /* =========================================================================
-   STANDALONE TOOL BUTTON
-   ========================================================================= */
-
-.toolbar-standalone-btn {
-    width: var(--toolbar-button-size);
-    height: var(--toolbar-button-size);
-    border: none;
-    background: white;
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-control);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--gray-600);
-    transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.toolbar-standalone-btn:hover {
-    background: var(--gray-50);
-}
-
-.toolbar-standalone-btn[data-active="true"] {
-    background: var(--primary);
-    color: white;
-}
-
-.toolbar-standalone-btn svg {
-    width: 22px;
-    height: 22px;
-}
-
-/* =========================================================================
    DISABLED STATE (Terrain-dependent tools)
    ========================================================================= */
 
@@ -226,11 +200,6 @@
 
 .toolbar-tool-btn.disabled:hover,
 .toolbar-tool-btn:disabled:hover {
-    background: transparent;
-}
-
-.toolbar-popup-list .toolbar-tool-btn.disabled:hover,
-.toolbar-popup-list .toolbar-tool-btn:disabled:hover {
     background: transparent;
 }
 
@@ -299,7 +268,7 @@
     .toolbar-popup {
         max-height: calc(100vh - 160px);
         overflow-y: auto;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        box-shadow: var(--shadow-xl);
     }
 }
 

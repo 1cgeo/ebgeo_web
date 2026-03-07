@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { LRUCache, createLRUCache } from '../../src/js/utilities/lru-cache.js';
+import { LRUCache } from '../../src/js/utilities/lru-cache.js';
 
 // ============================================================================
 // Constructor
@@ -17,10 +17,16 @@ describe('LRUCache constructor', () => {
         expect(() => new LRUCache(-1)).toThrow('maxSize must be at least 1');
     });
 
-    it('works via factory function', () => {
-        const cache = createLRUCache({ maxSize: 5 });
-        expect(cache).toBeInstanceOf(LRUCache);
-        expect(cache.maxSize).toBe(5);
+    it('accepts optional onDispose parameter', () => {
+        const dispose = vi.fn();
+        const cache = new LRUCache(5, dispose);
+        cache.set('a', 1);
+        cache.set('b', 2);
+        cache.set('c', 3);
+        cache.set('d', 4);
+        cache.set('e', 5);
+        cache.set('f', 6); // Evicts 'a'
+        expect(dispose).toHaveBeenCalledWith(1, 'a');
     });
 });
 

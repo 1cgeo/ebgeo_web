@@ -27,6 +27,12 @@ const EXPORT_OPTIONS = {
         description: 'Gerar documento PDF do mapa',
         icon: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
     },
+    garmin: {
+        id: 'garmin',
+        name: 'Exportar Garmin KMZ',
+        description: 'Gerar mapa para GPS Garmin',
+        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/><path d="M2 16l3 3 3-3"/><path d="M22 16l-3 3-3-3"/></svg>`,
+    },
     image: {
         id: 'image',
         name: 'Exportar Imagem',
@@ -41,12 +47,14 @@ const EXPORT_OPTIONS = {
 export class ExportTab {
     /**
      * @param {Object} dependencies - Required dependencies
+     * @param {maplibregl.Map} dependencies.map - The main MapLibre map instance
      * @param {Object} dependencies.pdfExportTab - PDFExportTab instance
      * @param {Object} dependencies.screenshotControl - ScreenshotControl instance
      * @param {Object} dependencies.exportImportService - ExportImportService instance
      * @param {Object} dependencies.eventBus - EventBus instance
      */
     constructor(dependencies) {
+        this._map = dependencies.map;
         this._pdfExportTab = dependencies.pdfExportTab;
         this._screenshotControl = dependencies.screenshotControl;
         this._exportImportService = dependencies.exportImportService;
@@ -57,6 +65,10 @@ export class ExportTab {
         this._pdfContentContainer = null;
         this._pdfOptionButton = null;
         this._imageOptionButton = null;
+        this._garminOptionButton = null;
+        this._garminContentExpanded = false;
+        this._garminContentContainer = null;
+        this._garminExport = null;
         this._is3DViewerOpen = false;
         this._is360ViewerOpen = false;
 
@@ -96,6 +108,16 @@ export class ExportTab {
         this._pdfContentContainer.className = 'export-pdf-content';
         this._pdfContentContainer.dataset.visible = 'false';
         container.appendChild(this._pdfContentContainer);
+
+        // Garmin KMZ Export option
+        this._garminOptionButton = this._createExportOption(EXPORT_OPTIONS.garmin, () => this._toggleGarminContent());
+        container.appendChild(this._garminOptionButton);
+
+        // Garmin expanded content container
+        this._garminContentContainer = document.createElement('div');
+        this._garminContentContainer.className = 'export-garmin-content';
+        this._garminContentContainer.dataset.visible = 'false';
+        container.appendChild(this._garminContentContainer);
 
         // Image Export option
         this._imageOptionButton = this._createExportOption(EXPORT_OPTIONS.image, () => this._handleImageExport());
@@ -182,21 +204,23 @@ export class ExportTab {
 
             // If PDF content was expanded, collapse it
             if (this._pdfContentExpanded) {
-                this._pdfContentExpanded = false;
-                if (this._pdfContentContainer) {
-                    this._pdfContentContainer.dataset.visible = 'false';
-                }
-                // Reset arrow direction
-                const arrow = this._pdfOptionButton.querySelector('.export-option-arrow svg');
-                if (arrow) {
-                    arrow.style.transform = 'rotate(0deg)';
-                }
-                // Hide PDF preview
-                this._hidePdfPreview();
+                this._collapsePdfContent();
+            }
+
+            // Disable Garmin export option
+            if (this._garminOptionButton) {
+                this._garminOptionButton.classList.add('disabled-3d-mode');
+            }
+            if (this._garminContentExpanded) {
+                this._collapseGarminContent();
             }
         } else {
             // Re-enable PDF export option
             this._pdfOptionButton.classList.remove('disabled-3d-mode');
+            // Re-enable Garmin export option
+            if (this._garminOptionButton) {
+                this._garminOptionButton.classList.remove('disabled-3d-mode');
+            }
         }
     }
 
@@ -231,26 +255,35 @@ export class ExportTab {
     }
 
     /**
+     * Checks if a 3D or 360 viewer is open, blocking export.
+     * @param {string} exportName - Export type name for the error message
+     * @returns {boolean} true if blocked
+     * @private
+     */
+    _isViewerBlocked(exportName) {
+        if (this._is3DViewerOpen) {
+            showError(`Exportar ${exportName} desabilitado no modo 3D`);
+            return true;
+        }
+        if (this._is360ViewerOpen) {
+            showError(`Exportar ${exportName} desabilitado no modo 360`);
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Toggles the PDF export content.
      * @private
      */
     _togglePdfContent() {
-        // Block PDF export when 3D or 360 viewer is open
-        if (this._is3DViewerOpen) {
-            showError('Exportar PDF desabilitado no modo 3D');
-            return;
-        }
-        if (this._is360ViewerOpen) {
-            showError('Exportar PDF desabilitado no modo 360');
-            return;
-        }
+        if (this._isViewerBlocked('PDF')) return;
 
         this._pdfContentExpanded = !this._pdfContentExpanded;
         this._pdfContentContainer.dataset.visible = this._pdfContentExpanded.toString();
 
         // Update arrow direction
-        const pdfBtn = this._container.querySelector('#export-option-pdf');
-        const arrow = pdfBtn?.querySelector('.export-option-arrow svg');
+        const arrow = this._pdfOptionButton?.querySelector('.export-option-arrow svg');
         if (arrow) {
             arrow.style.transform = this._pdfContentExpanded ? 'rotate(90deg)' : 'rotate(0deg)';
         }
@@ -258,9 +291,24 @@ export class ExportTab {
         if (this._pdfContentExpanded && this._pdfExportTab) {
             this._renderPdfContent();
         } else if (!this._pdfContentExpanded && this._pdfExportTab) {
-            // Hide the PDF preview on map when collapsing
             this._hidePdfPreview();
         }
+    }
+
+    /**
+     * Collapses PDF content and hides preview.
+     * @private
+     */
+    _collapsePdfContent() {
+        this._pdfContentExpanded = false;
+        if (this._pdfContentContainer) {
+            this._pdfContentContainer.dataset.visible = 'false';
+        }
+        const arrow = this._pdfOptionButton?.querySelector('.export-option-arrow svg');
+        if (arrow) {
+            arrow.style.transform = 'rotate(0deg)';
+        }
+        this._hidePdfPreview();
     }
 
     /**
@@ -276,6 +324,230 @@ export class ExportTab {
         }
         this._pdfExportTab.map.off('move', this._pdfExportTab.onMapMove);
     }
+
+    // ===== GARMIN KMZ EXPORT =====
+
+    /**
+     * Toggles the Garmin KMZ export content.
+     * @private
+     */
+    _toggleGarminContent() {
+        if (this._isViewerBlocked('Garmin')) return;
+
+        this._garminContentExpanded = !this._garminContentExpanded;
+        this._garminContentContainer.dataset.visible = this._garminContentExpanded.toString();
+
+        const arrow = this._garminOptionButton?.querySelector('.export-option-arrow svg');
+        if (arrow) {
+            arrow.style.transform = this._garminContentExpanded ? 'rotate(90deg)' : 'rotate(0deg)';
+        }
+
+        if (this._garminContentExpanded) {
+            this._renderGarminContent();
+        } else {
+            this._hideGarminPreview();
+        }
+    }
+
+    /**
+     * Collapses Garmin content and hides preview.
+     * @private
+     */
+    _collapseGarminContent() {
+        this._garminContentExpanded = false;
+        if (this._garminContentContainer) {
+            this._garminContentContainer.dataset.visible = 'false';
+        }
+        const arrow = this._garminOptionButton?.querySelector('.export-option-arrow svg');
+        if (arrow) {
+            arrow.style.transform = 'rotate(0deg)';
+        }
+        this._hideGarminPreview();
+    }
+
+    /**
+     * Renders the Garmin export panel content.
+     * @private
+     */
+    _renderGarminContent() {
+        if (!this._garminContentContainer) return;
+
+        this._garminContentContainer.innerHTML = `
+            <div class="garmin-export-container">
+                <div class="garmin-export-instructions">
+                    Clique em "Selecionar Area" e depois clique dois pontos no mapa
+                    para definir a area de exportacao.
+                </div>
+
+                <button class="garmin-export-select-btn" id="garmin-select-area-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
+                    <span>Selecionar Area</span>
+                </button>
+
+                <div class="garmin-export-info" id="garmin-tile-info">
+                </div>
+
+                <div class="garmin-export-actions" id="garmin-export-actions">
+                    <button class="garmin-export-btn" id="garmin-export-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        <span>Exportar KMZ</span>
+                    </button>
+                    <button class="garmin-export-clear-btn" id="garmin-clear-btn">
+                        Limpar
+                    </button>
+                </div>
+            </div>
+        `;
+
+        this._setupGarminEventListeners();
+    }
+
+    /**
+     * Sets up event listeners for Garmin export controls.
+     * @private
+     */
+    _setupGarminEventListeners() {
+        const selectBtn = this._garminContentContainer.querySelector('#garmin-select-area-btn');
+        if (selectBtn) {
+            addDomListener(this, selectBtn, 'click', () => this._handleGarminSelectArea());
+        }
+
+        const exportBtn = this._garminContentContainer.querySelector('#garmin-export-btn');
+        if (exportBtn) {
+            addDomListener(this, exportBtn, 'click', () => this._handleGarminExport());
+        }
+
+        const clearBtn = this._garminContentContainer.querySelector('#garmin-clear-btn');
+        if (clearBtn) {
+            addDomListener(this, clearBtn, 'click', () => this._handleGarminClear());
+        }
+    }
+
+    /**
+     * Ensures the GarminKmzExport instance exists.
+     * @private
+     * @returns {Promise<import('../../import_export/garmin-kmz-export.js').GarminKmzExport>}
+     */
+    async _ensureGarminExport() {
+        if (!this._garminExport) {
+            if (!this._map) {
+                showError('Mapa nao disponivel');
+                return null;
+            }
+            const { GarminKmzExport } = await import('../../import_export/garmin-kmz-export.js');
+            this._garminExport = new GarminKmzExport(this._map);
+        }
+        return this._garminExport;
+    }
+
+    /**
+     * Handles the "Selecionar Area" button click.
+     * @private
+     */
+    async _handleGarminSelectArea() {
+        const exporter = await this._ensureGarminExport();
+        if (!exporter) return;
+
+        const selectBtn = this._garminContentContainer.querySelector('#garmin-select-area-btn');
+
+        if (exporter.isDrawing()) {
+            exporter.cancelDrawing();
+            if (selectBtn) {
+                selectBtn.querySelector('span').textContent = 'Selecionar Area';
+            }
+            return;
+        }
+
+        if (selectBtn) {
+            selectBtn.querySelector('span').textContent = 'Cancelar Selecao';
+        }
+
+        // Hide existing info while redrawing
+        const infoEl = this._garminContentContainer.querySelector('#garmin-tile-info');
+        const actionsEl = this._garminContentContainer.querySelector('#garmin-export-actions');
+        if (infoEl) infoEl.classList.remove('garmin-export-info--visible');
+        if (actionsEl) actionsEl.classList.remove('garmin-export-actions--visible');
+
+        exporter.startBboxDrawing(() => {
+            if (selectBtn) {
+                selectBtn.querySelector('span').textContent = 'Redesenhar Area';
+            }
+            this._updateGarminTileInfo();
+        });
+    }
+
+    /**
+     * Updates the tile info display after bbox selection.
+     * @private
+     */
+    _updateGarminTileInfo() {
+        if (!this._garminExport?.hasBbox()) return;
+
+        const info = this._garminExport.getTileInfo();
+        if (!info) return;
+
+        const infoEl = this._garminContentContainer.querySelector('#garmin-tile-info');
+        const actionsEl = this._garminContentContainer.querySelector('#garmin-export-actions');
+
+        if (infoEl) {
+            infoEl.classList.add('garmin-export-info--visible');
+            infoEl.innerHTML = `
+                <div class="garmin-info-row">
+                    <span class="garmin-info-label">Tiles:</span>
+                    <span class="garmin-info-value">${info.cols} x ${info.rows} (${info.total} de 100)</span>
+                </div>
+            `;
+        }
+
+        if (actionsEl) {
+            actionsEl.classList.add('garmin-export-actions--visible');
+        }
+    }
+
+    /**
+     * Handles the "Exportar KMZ" button click.
+     * @private
+     */
+    async _handleGarminExport() {
+        if (!this._garminExport?.hasBbox()) {
+            showError('Selecione uma area no mapa primeiro');
+            return;
+        }
+        await this._garminExport.exportKmz();
+    }
+
+    /**
+     * Handles the "Limpar" button click.
+     * @private
+     */
+    _handleGarminClear() {
+        if (this._garminExport) {
+            this._garminExport.clearBbox();
+        }
+
+        const selectBtn = this._garminContentContainer.querySelector('#garmin-select-area-btn');
+        if (selectBtn) {
+            selectBtn.querySelector('span').textContent = 'Selecionar Area';
+        }
+
+        const infoEl = this._garminContentContainer.querySelector('#garmin-tile-info');
+        const actionsEl = this._garminContentContainer.querySelector('#garmin-export-actions');
+        if (infoEl) infoEl.classList.remove('garmin-export-info--visible');
+        if (actionsEl) actionsEl.classList.remove('garmin-export-actions--visible');
+    }
+
+    /**
+     * Hides the Garmin preview from the map.
+     * @private
+     */
+    _hideGarminPreview() {
+        if (this._garminExport) {
+            this._garminExport.destroy();
+            this._garminExport = null;
+        }
+    }
+
+    // ===== PDF EXPORT =====
 
     /**
      * Renders the PDF export content.
@@ -589,22 +861,11 @@ export class ExportTab {
      * Hides the PDF preview if it was active.
      */
     onDeactivate() {
-        // Collapse PDF content and hide preview
         if (this._pdfContentExpanded) {
-            this._pdfContentExpanded = false;
-            if (this._pdfContentContainer) {
-                this._pdfContentContainer.dataset.visible = 'false';
-            }
-
-            // Reset arrow direction
-            const pdfBtn = this._container?.querySelector('#export-option-pdf');
-            const arrow = pdfBtn?.querySelector('.export-option-arrow svg');
-            if (arrow) {
-                arrow.style.transform = 'rotate(0deg)';
-            }
-
-            // Hide the PDF preview on map
-            this._hidePdfPreview();
+            this._collapsePdfContent();
+        }
+        if (this._garminContentExpanded) {
+            this._collapseGarminContent();
         }
     }
 
@@ -615,11 +876,16 @@ export class ExportTab {
         // Hide PDF preview if it was active
         this._hidePdfPreview();
 
+        // Cleanup Garmin export
+        this._hideGarminPreview();
+
         cleanup(this);
         removeElement(this._container);
         this._container = null;
         this._pdfContentContainer = null;
         this._pdfOptionButton = null;
         this._imageOptionButton = null;
+        this._garminOptionButton = null;
+        this._garminContentContainer = null;
     }
 }

@@ -8,7 +8,7 @@ import {
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
 } from '../../tool_manager/helpers/index.js';
-import { formatCoordinates } from '../../utilities/coordinate_converter.js';
+import { formatCoordinates } from '@utils/coordinate_converter.js';
 
 /**
  * Format distance for display

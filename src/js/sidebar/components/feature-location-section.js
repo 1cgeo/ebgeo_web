@@ -5,8 +5,8 @@
  * Displays coordinates in multiple formats and provides navigation and editing.
  */
 
-import { formatCoordinates } from '../../utilities/coordinate_converter.js';
-import { FeatureNavigationUtils } from '../../utilities/feature_navigation_utils.js';
+import { formatCoordinates } from '@utils/coordinate_converter.js';
+import { zoomToFeature } from '../../utilities/feature_navigation_utils.js';
 import { showCoordinateEditModal } from '../../modals/coordinate-edit.modal.js';
 
 // turf is loaded globally via script tag
@@ -152,7 +152,7 @@ export async function createLocationSection(options) {
 
     centerButton.addEventListener('click', () => {
         if (map && feature) {
-            FeatureNavigationUtils.zoomToFeature(feature, map, {
+            zoomToFeature(feature, map, {
                 duration: 800,
                 paddingPercent: 0.3
             });

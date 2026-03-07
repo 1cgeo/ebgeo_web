@@ -1,0 +1,105 @@
+/* Path: src/css/toast.css */
+
+/**
+ * @fileoverview Toast notification styles.
+ * BEM naming: .toast, .toast--{type}, .toast__content, .toast__close.
+ * Uses design tokens for colors, typography, shadows, and z-index.
+ */
+
+/* ===== Base Toast ===== */
+.toast {
+    position: fixed;
+    padding: var(--space-3) var(--space-4); /* 12px 16px approx (18px close enough) */
+    border-radius: var(--radius-md);
+    color: white;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    z-index: var(--z-toast);
+    max-width: 90vw;
+    word-wrap: break-word;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    opacity: 0;
+    transition: opacity var(--transition-slow), transform var(--transition-slow);
+}
+
+.toast--visible {
+    opacity: 1;
+}
+
+/* ===== Type Variants ===== */
+.toast--success {
+    background-color: var(--success-color);
+}
+
+.toast--error {
+    background-color: var(--error-color);
+}
+
+.toast--info {
+    background-color: var(--color-info);
+}
+
+.toast--warning {
+    background-color: var(--color-warning);
+}
+
+/* ===== Position Variants ===== */
+.toast--top {
+    transform: translateY(-10px);
+}
+
+.toast--top.toast--visible {
+    transform: translateY(0);
+}
+
+.toast--top.toast--center {
+    left: 50%;
+    transform: translateX(-50%) translateY(-10px);
+}
+
+.toast--top.toast--center.toast--visible {
+    transform: translateX(-50%) translateY(0);
+}
+
+.toast--bottom {
+    transform: translateY(10px);
+}
+
+.toast--bottom.toast--visible {
+    transform: translateY(0);
+}
+
+.toast--bottom.toast--center {
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+}
+
+.toast--bottom.toast--center.toast--visible {
+    transform: translateX(-50%) translateY(0);
+}
+
+/* ===== Content Layout ===== */
+.toast__content {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+/* ===== Close Button ===== */
+.toast__close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: var(--font-size-lg);
+    cursor: pointer;
+    padding: 0;
+    margin-left: var(--space-2);
+    opacity: 0.8;
+    line-height: 1;
+    transition: opacity var(--transition-fast);
+}
+
+.toast__close:hover {
+    opacity: 1;
+}

@@ -1,5 +1,4 @@
 // Path: js/utilities/image_utils.js
-
 /**
  * @fileoverview Image processing utilities.
  * Provides compression, thumbnail generation, and validation for images.
@@ -19,6 +18,20 @@ export const IMAGE_CONFIG = {
     allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     allowedExtensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp'],
 };
+
+/**
+ * Loads a base64 image and returns the HTMLImageElement.
+ * @param {string} src - Image source (data URL or path)
+ * @returns {Promise<HTMLImageElement>} Loaded image element
+ */
+function loadImage(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Image load failed'));
+        img.src = src;
+    });
+}
 
 /**
  * Validates an image file.
@@ -51,50 +64,31 @@ export function validateImageFile(file) {
  * @returns {Promise<string>} Compressed base64 image
  */
 export async function compressImage(base64Data, options = {}) {
-    const maxDimension = options.maxDimension || IMAGE_CONFIG.maxDimension;
-    const quality = options.quality || IMAGE_CONFIG.compressionQuality;
+    const maxDimension = options.maxDimension ?? IMAGE_CONFIG.maxDimension;
+    const quality = options.quality ?? IMAGE_CONFIG.compressionQuality;
 
-    return new Promise((resolve) => {
-        const img = new Image();
+    try {
+        const img = await loadImage(base64Data);
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
 
-        img.onload = () => {
-            try {
-                const canvas = document.createElement('canvas');
-                // Use willReadFrequently for better performance with multiple readback operations
-                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        let { width, height } = img;
 
-                let { width, height } = img;
+        if (width > maxDimension || height > maxDimension) {
+            const scale = maxDimension / Math.max(width, height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+        }
 
-                if (width > maxDimension || height > maxDimension) {
-                    if (width > height) {
-                        height = (height / width) * maxDimension;
-                        width = maxDimension;
-                    } else {
-                        width = (width / height) * maxDimension;
-                        height = maxDimension;
-                    }
-                }
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
 
-                canvas.width = width;
-                canvas.height = height;
-                ctx.drawImage(img, 0, 0, width, height);
-
-                const compressed = canvas.toDataURL('image/jpeg', quality);
-                resolve(compressed);
-            } catch {
-                // Fallback to original on compression failure
-                console.warn('ImageUtils: Compression failed, using original');
-                resolve(base64Data);
-            }
-        };
-
-        img.onerror = () => {
-            console.warn('ImageUtils: Image load failed for compression');
-            resolve(base64Data);
-        };
-
-        img.src = base64Data;
-    });
+        return canvas.toDataURL('image/jpeg', quality);
+    } catch {
+        console.warn('ImageUtils: Compression failed, using original');
+        return base64Data;
+    }
 }
 
 /**
@@ -106,41 +100,41 @@ export async function compressImage(base64Data, options = {}) {
  * @returns {Promise<string>} Thumbnail as base64
  */
 export async function createThumbnail(base64Data, options = {}) {
-    const size = options.size || IMAGE_CONFIG.thumbnailSize;
-    const quality = options.quality || IMAGE_CONFIG.thumbnailQuality;
+    const size = options.size ?? IMAGE_CONFIG.thumbnailSize;
+    const quality = options.quality ?? IMAGE_CONFIG.thumbnailQuality;
 
-    return new Promise((resolve) => {
-        const img = new Image();
+    try {
+        const img = await loadImage(base64Data);
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
 
-        img.onload = () => {
-            try {
-                const canvas = document.createElement('canvas');
-                // Use willReadFrequently for better performance with multiple readback operations
-                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        // Crop to center square
+        const minDimension = Math.min(img.width, img.height);
+        const sx = (img.width - minDimension) / 2;
+        const sy = (img.height - minDimension) / 2;
 
-                // Create square thumbnail (crop to center)
-                const minDimension = Math.min(img.width, img.height);
-                const sx = (img.width - minDimension) / 2;
-                const sy = (img.height - minDimension) / 2;
+        canvas.width = size;
+        canvas.height = size;
+        ctx.drawImage(img, sx, sy, minDimension, minDimension, 0, 0, size, size);
 
-                canvas.width = size;
-                canvas.height = size;
-                ctx.drawImage(img, sx, sy, minDimension, minDimension, 0, 0, size, size);
+        return canvas.toDataURL('image/jpeg', quality);
+    } catch {
+        console.warn('ImageUtils: Thumbnail creation failed');
+        return base64Data;
+    }
+}
 
-                const thumbnail = canvas.toDataURL('image/jpeg', quality);
-                resolve(thumbnail);
-            } catch {
-                console.warn('ImageUtils: Thumbnail creation failed');
-                resolve(base64Data);
-            }
-        };
-
-        img.onerror = () => {
-            console.warn('ImageUtils: Image load failed for thumbnail');
-            resolve(base64Data);
-        };
-
-        img.src = base64Data;
+/**
+ * Reads a File as a data URL.
+ * @param {File} file - File to read
+ * @returns {Promise<string>} Base64 data URL
+ */
+function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(file);
     });
 }
 
@@ -152,33 +146,15 @@ export async function createThumbnail(base64Data, options = {}) {
  * @returns {Promise<Object>} Object with data (base64) and thumbnail (base64)
  */
 export async function processImageFile(file, options = {}) {
-    const threshold = options.compressionThreshold || IMAGE_CONFIG.compressionThreshold;
+    const threshold = options.compressionThreshold ?? IMAGE_CONFIG.compressionThreshold;
 
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
+    let imageData = await readFileAsDataURL(file);
 
-        reader.onload = async (e) => {
-            try {
-                let imageData = e.target.result;
+    if (file.size > threshold) {
+        imageData = await compressImage(imageData);
+    }
 
-                // Compress if above threshold
-                if (file.size > threshold) {
-                    imageData = await compressImage(imageData);
-                }
+    const thumbnail = await createThumbnail(imageData);
 
-                // Generate thumbnail
-                const thumbnail = await createThumbnail(imageData);
-
-                resolve({
-                    data: imageData,
-                    thumbnail: thumbnail,
-                });
-            } catch (error) {
-                reject(error);
-            }
-        };
-
-        reader.onerror = () => reject(new Error('Failed to read file'));
-        reader.readAsDataURL(file);
-    });
+    return { data: imageData, thumbnail };
 }

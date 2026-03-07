@@ -1,4 +1,4 @@
-// Path: src/js/phone/phone-search-overlay.js
+// Path: js/phone/phone-search-overlay.js
 
 /**
  * @fileoverview Phone search overlay component.

@@ -222,15 +222,7 @@ export function createReferencePointComponent(options) {
  */
 export function createSectionLabel(text) {
     const label = document.createElement('div');
-    label.className = 'section-label';
-    label.style.cssText = `
-        font-size: 9px;
-        font-weight: 700;
-        color: ${COLORS.gray400};
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 4px;
-    `;
+    label.className = 'azd-section-label';
     label.textContent = text;
     return label;
 }

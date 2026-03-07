@@ -1,7 +1,12 @@
 // Path: js/import_export/pdf-export.tab.js
 /* global initGdalJs */
 import { showError } from '../utilities/toast_service.js'
-import { deepClone } from '../utilities/deep-utils.js'
+import {
+    correctZoomInvariantFeatures,
+    transferMapImages,
+    createExportProgressModal,
+    getCleanMapStyle,
+} from './export-utils.js'
 
 export default class PDFExportTab {
     constructor(map) {
@@ -576,187 +581,35 @@ export default class PDFExportTab {
 
     getCleanStyle() {
         try {
-            const currentStyle = this.map.getStyle();
-
-            if (!currentStyle) {
-                throw new Error('Map style not available');
-            }
-
-            const cleanStyle = deepClone(currentStyle);
-
-            const previewLayerIds = [
-                'pdf-export-preview-fill',
-                'pdf-export-preview-stroke',
-                'pdf-export-usable-stroke'
-            ];
-
-            cleanStyle.layers = cleanStyle.layers.filter(layer =>
-                !previewLayerIds.includes(layer.id)
-            );
-
-            if (cleanStyle.sources && cleanStyle.sources['pdf-export-preview']) {
-                delete cleanStyle.sources['pdf-export-preview'];
-            }
-
-            return cleanStyle;
-
+            return getCleanMapStyle(this.map);
         } catch (error) {
             console.error('Error creating clean style:', error);
             return this.map.getStyle();
         }
     }
 
+    /**
+     * Delegates to shared utility.
+     * @param {maplibregl.Map} hiddenMap
+     * @param {number} finalZoom
+     * @returns {Promise<boolean>}
+     */
     async correctZoomInvariantFeatures(hiddenMap, finalZoom) {
-        const zoomInvariantSources = [
-            {
-                sourceName: 'texts',
-                property: 'calculatedSize',
-                baseProperty: 'size',
-                maxValue: 255
-            },
-            {
-                sourceName: 'brushes',
-                property: 'calculatedLineWidth',
-                baseProperty: 'lineWidth',
-                maxValue: Infinity
-            },
-            {
-                sourceName: 'images',
-                property: 'calculatedSize',
-                baseProperty: 'size',
-                maxValue: 10
-            },
-            {
-                sourceName: 'military_symbols',
-                property: 'calculatedSize',
-                baseProperty: 'size',
-                maxValue: 10
-            },
-            {
-                sourceName: 'coordination-measures-source',
-                property: 'calculatedSize',
-                baseProperty: 'size',
-                maxValue: 10
-            }
-        ];
-
-        let anyChanges = false;
-
-        for (const sourceConfig of zoomInvariantSources) {
-            const sourceHasChanges = await this.correctSourceFeatures(hiddenMap, sourceConfig, finalZoom);
-            if (sourceHasChanges) {
-                anyChanges = true;
-            }
-        }
-
-        return anyChanges;
-    }
-
-    async correctSourceFeatures(hiddenMap, sourceConfig, finalZoom) {
-        try {
-            const source = hiddenMap.getSource(sourceConfig.sourceName);
-            if (!source) {
-                // Source doesn't exist - this is expected if user hasn't created features of this type
-                return false;
-            }
-
-            const data = await source.getData();
-            if (!data?.features?.length) return false;
-
-            let hasChanges = false;
-
-            data.features.forEach(feature => {
-                if (!feature?.properties) return;
-                if (typeof feature.properties.createdAtZoom !== 'number') return;
-                if (typeof feature.properties[sourceConfig.baseProperty] !== 'number') return;
-
-                const zoomDifference = finalZoom - feature.properties.createdAtZoom;
-                const scaleFactor = Math.pow(2, zoomDifference);
-                const baseValue = feature.properties[sourceConfig.baseProperty];
-
-                if (baseValue <= 0) return;
-
-                const newValue = Math.min(baseValue * scaleFactor, sourceConfig.maxValue);
-
-                if (Math.abs(feature.properties[sourceConfig.property] - newValue) > 0.001) {
-                    feature.properties[sourceConfig.property] = newValue;
-                    hasChanges = true;
-                }
-            });
-
-            if (hasChanges) {
-                source.setData(data);
-            }
-
-            return hasChanges;
-
-        } catch (error) {
-            console.error(`Error correcting features from source ${sourceConfig.sourceName}:`, error);
-            return false;
-        }
+        return correctZoomInvariantFeatures(hiddenMap, finalZoom);
     }
 
     showExportModal() {
         this._exportCancelled = false;
-
-        const modal = document.createElement('div');
-        modal.id = 'pdf-export-modal';
-        modal.className = 'pdf-export-modal';
-
-        const content = document.createElement('div');
-        content.className = 'pdf-export-modal__content';
-
-        const title = document.createElement('div');
-        title.className = 'pdf-export-modal__title';
-        title.textContent = 'Exportando mapa...';
-
-        const progressText = document.createElement('div');
-        progressText.id = 'export-progress-text';
-        progressText.className = 'pdf-export-modal__progress-text';
-        progressText.textContent = 'Preparando...';
-
-        const barContainer = document.createElement('div');
-        barContainer.className = 'pdf-export-modal__bar-container';
-
-        const bar = document.createElement('div');
-        bar.id = 'export-progress-bar';
-        bar.className = 'pdf-export-modal__bar';
-        barContainer.appendChild(bar);
-
-        const hint = document.createElement('div');
-        hint.className = 'pdf-export-modal__hint';
-        hint.textContent = 'Isso pode levar alguns segundos...';
-
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className = 'pdf-export-modal__cancel-btn';
-        cancelBtn.textContent = 'Cancelar';
-        cancelBtn.addEventListener('click', () => {
-            this._exportCancelled = true;
-            if (modal.parentNode) {
-                document.body.removeChild(modal);
-            }
+        this._progress = createExportProgressModal({
+            title: 'Exportando mapa...',
+            onCancel: () => { this._exportCancelled = true; },
         });
-
-        content.appendChild(title);
-        content.appendChild(progressText);
-        content.appendChild(barContainer);
-        content.appendChild(hint);
-        content.appendChild(cancelBtn);
-        modal.appendChild(content);
-
-        document.body.appendChild(modal);
-        return modal;
+        return this._progress;
     }
 
     updateProgress(percent, text) {
-        const progressBar = document.getElementById('export-progress-bar');
-        const progressText = document.getElementById('export-progress-text');
-
-        if (progressBar) {
-            progressBar.style.width = percent + '%';
-        }
-        if (progressText) {
-            progressText.textContent = text;
+        if (this._progress) {
+            this._progress.updateProgress(percent, text);
         }
     }
 
@@ -832,12 +685,11 @@ export default class PDFExportTab {
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) exportBtn.disabled = true;
 
-        let modal;
         let hiddenMapContainer;
         let hiddenMap;
 
         try {
-            modal = this.showExportModal();
+            this.showExportModal();
             this.updateProgress(10, 'Inicializando...');
 
             const Gdal = await initGdalJs({ path: this._getGdalPath(), useWorker: false })
@@ -874,13 +726,7 @@ export default class PDFExportTab {
 
             this.updateProgress(40, 'Transferindo recursos...');
 
-            const loadedImages = this.map.listImages();
-            for (const id of loadedImages) {
-                const image = this.map.getImage(id);
-                if (image) {
-                    hiddenMap.addImage(id, image.data, { sdf: image.sdf });
-                }
-            }
+            transferMapImages(this.map, hiddenMap);
 
             if (this._exportCancelled) return;
 
@@ -1007,20 +853,14 @@ export default class PDFExportTab {
             Gdal.close(rasterDataset);
             Gdal.close(outputDataset);
 
-            setTimeout(() => {
-                if (modal && modal.parentNode) {
-                    document.body.removeChild(modal);
-                }
-            }, 800);
+            setTimeout(() => this._progress?.remove(), 800);
 
         } catch (error) {
             if (!this._exportCancelled) {
                 console.error('Error exporting PDF:', error);
                 showError('Não foi possível exportar o PDF: ' + error.message);
             }
-            if (modal && modal.parentNode) {
-                document.body.removeChild(modal);
-            }
+            this._progress?.remove();
         } finally {
             this._exporting = false;
             this._exportCancelled = false;

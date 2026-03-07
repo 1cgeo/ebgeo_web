@@ -10,7 +10,7 @@
 import config from '../config.js';
 import { getCurrentMapFeatures } from '../store/feature.operations.js';
 import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '../store/store.constants.js';
-import { tryParseCoordinates, formatCoordinates } from '../utilities/coordinate_converter.js';
+import { tryParseCoordinates, formatCoordinates } from '@utils/coordinate_converter.js';
 import { MAX_RESULTS } from './search-bar.icons.js';
 
 // ============================================================================

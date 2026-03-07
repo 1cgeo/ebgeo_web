@@ -27,7 +27,7 @@ export {
 } from './coordinate_converter.js';
 
 // Feature navigation utilities
-export { FeatureNavigationUtils } from './feature_navigation_utils.js';
+export { zoomToFeature, zoomAndSelectFeature } from './feature_navigation_utils.js';
 
 // Toast service
 export {
@@ -71,8 +71,7 @@ export {
 
 // LRU cache utility
 export {
-    LRUCache,
-    createLRUCache
+    LRUCache
 } from './lru-cache.js';
 
 // Deep object utilities

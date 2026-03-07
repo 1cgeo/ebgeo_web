@@ -18,7 +18,7 @@
     z-index: -1;
     width: 420px;
     height: 1047px;
-    background: #f9fafb;
+    background: var(--gray-50);
     border-left: none;
     box-shadow: none;
     transition: none;
@@ -30,23 +30,17 @@
 
 /* Title styling at capture resolution */
 .briefing-pdf-export-capture .briefing-text-panel__title {
-    padding: 20px 16px;
+    padding: var(--space-5) var(--space-4);
 }
 
 .briefing-pdf-export-capture .briefing-text-panel__title-text {
-    font-size: 20px;
-    line-height: 1.3;
+    font-size: var(--font-size-xl);
 }
 
 /* Content styling at capture resolution */
 .briefing-pdf-export-capture .briefing-text-panel__content {
-    padding: 16px;
+    padding: var(--space-4);
     font-size: 15px;
     line-height: 1.6;
     overflow: hidden;
-}
-
-.briefing-pdf-export-capture .briefing-text-panel__content img {
-    max-width: 100%;
-    height: auto;
 }

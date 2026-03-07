@@ -14,7 +14,7 @@
  */
 
 import { EventTypes } from '../events';
-import { deepClone, getByPath, setByPath, deepEqual } from '../utilities/deep-utils.js';
+import { deepClone, getByPath, setByPath, deepEqual, shallowClone } from '../utilities/deep-utils.js';
 
 // ============================================================================
 // CONSTANTS
@@ -188,15 +188,7 @@ class StateManager {
      */
     getShallow(path) {
         const value = path ? getByPath(this._state, path) : this._state;
-
-        if (value === null || value === undefined) return value;
-        if (typeof value !== 'object') return value;
-
-        // Shallow clone: spread for arrays/objects
-        if (Array.isArray(value)) {
-            return [...value];
-        }
-        return { ...value };
+        return shallowClone(value);
     }
 
     /**
@@ -521,7 +513,7 @@ class StateManager {
      * @returns {string|null}
      */
     getActiveTool() {
-        return this.get('activeTool.type');
+        return this.getUnsafe('activeTool.type');
     }
 
     /**
@@ -540,7 +532,7 @@ class StateManager {
      * Toggle sidebar expanded state.
      */
     toggleSidebar() {
-        const current = this.get('sidebar.expanded');
+        const current = this.getUnsafe('sidebar.expanded');
         this.set('sidebar.expanded', !current);
     }
 
@@ -553,17 +545,38 @@ class StateManager {
     }
 
     /**
+     * Toggle an item in a collapsed-IDs array at the given state path.
+     * @private
+     * @param {string} path - State path to the collapsed array
+     * @param {string} itemId - ID to toggle
+     */
+    _toggleCollapsed(path, itemId) {
+        const collapsed = this.getUnsafe(path) || [];
+        if (collapsed.includes(itemId)) {
+            this.set(path, collapsed.filter(id => id !== itemId));
+        } else {
+            this.set(path, [...collapsed, itemId]);
+        }
+    }
+
+    /**
+     * Check if an item is in a collapsed-IDs array at the given state path.
+     * @private
+     * @param {string} path - State path to the collapsed array
+     * @param {string} itemId - ID to check
+     * @returns {boolean}
+     */
+    _isCollapsed(path, itemId) {
+        const collapsed = this.getUnsafe(path) || [];
+        return collapsed.includes(itemId);
+    }
+
+    /**
      * Toggle layer collapsed state in FeaturesTab.
      * @param {string} layerId - Layer ID
      */
     toggleLayerCollapsed(layerId) {
-        const collapsed = this.get('sidebar.collapsedLayers') || [];
-        const index = collapsed.indexOf(layerId);
-        if (index === -1) {
-            this.set('sidebar.collapsedLayers', [...collapsed, layerId]);
-        } else {
-            this.set('sidebar.collapsedLayers', collapsed.filter(id => id !== layerId));
-        }
+        this._toggleCollapsed('sidebar.collapsedLayers', layerId);
     }
 
     /**
@@ -572,8 +585,7 @@ class StateManager {
      * @returns {boolean}
      */
     isLayerCollapsed(layerId) {
-        const collapsed = this.get('sidebar.collapsedLayers') || [];
-        return collapsed.includes(layerId);
+        return this._isCollapsed('sidebar.collapsedLayers', layerId);
     }
 
     /**
@@ -581,13 +593,7 @@ class StateManager {
      * @param {string} groupId - Group ID
      */
     toggleGroupCollapsed(groupId) {
-        const collapsed = this.get('sidebar.collapsedGroups') || [];
-        const index = collapsed.indexOf(groupId);
-        if (index === -1) {
-            this.set('sidebar.collapsedGroups', [...collapsed, groupId]);
-        } else {
-            this.set('sidebar.collapsedGroups', collapsed.filter(id => id !== groupId));
-        }
+        this._toggleCollapsed('sidebar.collapsedGroups', groupId);
     }
 
     /**
@@ -596,8 +602,7 @@ class StateManager {
      * @returns {boolean}
      */
     isGroupCollapsed(groupId) {
-        const collapsed = this.get('sidebar.collapsedGroups') || [];
-        return collapsed.includes(groupId);
+        return this._isCollapsed('sidebar.collapsedGroups', groupId);
     }
 
     // ========================================================================
@@ -630,7 +635,7 @@ class StateManager {
      * @returns {boolean}
      */
     hasClipboardData() {
-        const features = this.get('clipboard.features') || [];
+        const features = this.getUnsafe('clipboard.features') || [];
         return features.length > 0;
     }
 
@@ -682,7 +687,7 @@ class StateManager {
      * @returns {string}
      */
     getBaseLayer() {
-        return this.get('baseLayer.activeLayer') || 'carta-topografica';
+        return this.getUnsafe('baseLayer.activeLayer') || 'carta-topografica';
     }
 
     // ========================================================================
@@ -702,7 +707,7 @@ class StateManager {
      * @returns {string} Current format (defaults to 'latlong')
      */
     getCoordinateFormat() {
-        return this.get('mouse.format') || 'latlong';
+        return this.getUnsafe('mouse.format') || 'latlong';
     }
 
     /**
@@ -711,7 +716,7 @@ class StateManager {
      */
     setElevationEnabled(enabled) {
         if (typeof enabled === 'undefined') {
-            enabled = !this.get('mouse.elevationEnabled');
+            enabled = !this.getUnsafe('mouse.elevationEnabled');
         }
         this.set('mouse.elevationEnabled', enabled);
     }
@@ -721,7 +726,7 @@ class StateManager {
      * @returns {boolean}
      */
     isElevationEnabled() {
-        return this.get('mouse.elevationEnabled') || false;
+        return this.getUnsafe('mouse.elevationEnabled') || false;
     }
 
     /**
@@ -737,7 +742,7 @@ class StateManager {
      * @returns {number|null}
      */
     getElevation() {
-        return this.get('mouse.elevation');
+        return this.getUnsafe('mouse.elevation');
     }
 
     // ========================================================================
@@ -949,7 +954,7 @@ class StateManager {
      * Close base layer selector.
      */
     closeBaseLayerSelector() {
-        if (this.get('ui.baseLayerSelectorOpen')) {
+        if (this.getUnsafe('ui.baseLayerSelectorOpen')) {
             this.set('ui.baseLayerSelectorOpen', false);
             this._emitEvent(EventTypes.BASE_LAYER_SELECTOR_CLOSED, {});
         }
@@ -959,7 +964,7 @@ class StateManager {
      * Toggle base layer selector.
      */
     toggleBaseLayerSelector() {
-        if (this.get('ui.baseLayerSelectorOpen')) {
+        if (this.getUnsafe('ui.baseLayerSelectorOpen')) {
             this.closeBaseLayerSelector();
         } else {
             this.openBaseLayerSelector();
@@ -971,7 +976,7 @@ class StateManager {
      */
     closeAllPopups() {
         this.batchUpdate(() => {
-            if (this.get('sidebar.expanded')) {
+            if (this.getUnsafe('sidebar.expanded')) {
                 this.collapseSidebar();
             }
             this.closeFeaturePanel();
@@ -982,41 +987,26 @@ class StateManager {
     }
 
     /**
+     * Calculate content left offset based on current sidebar/panel state.
+     * Sidebar collapsed: 56px, Sidebar expanded or feature panel open: 376px (56 + 320).
+     * @returns {number} Pixels from left edge
+     */
+    getContentLeftOffset() {
+        const sidebarExpanded = this.getUnsafe('sidebar.expanded');
+        const featurePanelOpen = this.getUnsafe('ui.featurePanelOpen');
+        return (sidebarExpanded || featurePanelOpen) ? 376 : 56;
+    }
+
+    /**
      * Calculate and emit current layout state.
      * @private
      */
     _emitLayoutChanged() {
-        const sidebarExpanded = this.get('sidebar.expanded');
-        const featurePanelOpen = this.get('ui.featurePanelOpen');
-
-        // Calculate content offset
-        // Sidebar collapsed: 56px, Sidebar expanded: 56px + 320px = 376px
-        // Feature panel: 56px + 320px = 376px (same as expanded sidebar)
-        let contentLeftOffset = 56; // Collapsed sidebar width
-
-        if (sidebarExpanded || featurePanelOpen) {
-            contentLeftOffset = 376; // 56 + 320
-        }
-
         this._emitEvent(EventTypes.UI_LAYOUT_CHANGED, {
-            sidebarExpanded,
-            featurePanelOpen,
-            contentLeftOffset
+            sidebarExpanded: this.getUnsafe('sidebar.expanded'),
+            featurePanelOpen: this.getUnsafe('ui.featurePanelOpen'),
+            contentLeftOffset: this.getContentLeftOffset()
         });
-    }
-
-    /**
-     * Get current content left offset.
-     * @returns {number} Pixels from left edge
-     */
-    getContentLeftOffset() {
-        const sidebarExpanded = this.get('sidebar.expanded');
-        const featurePanelOpen = this.get('ui.featurePanelOpen');
-
-        if (sidebarExpanded || featurePanelOpen) {
-            return 376;
-        }
-        return 56;
     }
 
     /**

@@ -9,8 +9,9 @@ import {
     updateFeatureProperty,
     getFeatureById,
     getFeatureIconFromStorage,
+    getSourceTypeFromStorage,
 } from '../store';
-import { FeatureNavigationUtils, escapeHtml } from '../utilities';
+import { zoomToFeature, zoomAndSelectFeature, escapeHtml } from '../utilities';
 
 /**
  * @typedef {Object} FeatureItemCallbacks
@@ -97,11 +98,11 @@ export async function handleFeatureClick(feature, map, selectionManager) {
         const isLocked = currentFeature?.properties?.bloqueado ?? false;
 
         if (isLocked) {
-            await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, map);
+            await zoomToFeature(feature.rawFeature, map);
             return;
         }
 
-        await FeatureNavigationUtils.zoomAndSelectFeature(
+        await zoomAndSelectFeature(
             feature.rawFeature,
             map,
             selectionManager,
@@ -112,7 +113,7 @@ export async function handleFeatureClick(feature, map, selectionManager) {
         console.error('Error navigating to feature:', error);
 
         try {
-            await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, map);
+            await zoomToFeature(feature.rawFeature, map);
         } catch (fallbackError) {
             console.error('Error in zoom fallback:', fallbackError);
         }
@@ -151,7 +152,7 @@ export async function toggleFeatureVisibility(
     updateItemVisualState(featureId, newVisibility, feature.properties.bloqueado ?? false);
 
     if (!newVisibility && selectionManager?.isFeatureSelected) {
-        const selectionManagerType = FeatureNavigationUtils.mapFeatureType(featureType);
+        const selectionManagerType = getSourceTypeFromStorage(featureType);
         const isSelected = selectionManager.isFeatureSelected(selectionManagerType, featureId);
 
         if (isSelected && selectionManager.deselectFeature) {
@@ -192,7 +193,7 @@ export async function toggleFeatureLock(
     updateItemVisualState(featureId, feature.properties.visivel ?? true, newLockState);
 
     if (newLockState && selectionManager?.isFeatureSelected) {
-        const selectionManagerType = FeatureNavigationUtils.mapFeatureType(featureType);
+        const selectionManagerType = getSourceTypeFromStorage(featureType);
         const isSelected = selectionManager.isFeatureSelected(selectionManagerType, featureId);
 
         if (isSelected && selectionManager.deselectFeature) {

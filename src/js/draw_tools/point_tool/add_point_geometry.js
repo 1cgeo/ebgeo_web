@@ -1,6 +1,7 @@
 // Path: js/draw_tools/point_tool/add_point_geometry.js
 
 import { BaseGeometry } from '../../tool_manager';
+import { pixelsToDegrees } from '../../utilities/geometry-utils.js';
 
 /**
  * Point Geometry Operations
@@ -170,7 +171,7 @@ class AddPointGeometry extends BaseGeometry {
         }
 
         const latitude = coordinates[1];
-        const paddingDegrees = this.pixelsToDegrees(paddingPixels, latitude, zoom);
+        const paddingDegrees = pixelsToDegrees(paddingPixels, latitude, zoom);
 
         return {
             type: 'Polygon',
@@ -184,19 +185,6 @@ class AddPointGeometry extends BaseGeometry {
         };
     }
 
-    /**
-     * Convert pixels to degrees at given latitude and zoom
-     * @param {number} pixels - Pixels
-     * @param {number} latitude - Latitude
-     * @param {number} zoom - Zoom level
-     * @returns {number} Degrees
-     */
-    pixelsToDegrees(pixels, latitude, zoom) {
-        const earthCircumference = 40075017;
-        const metersPerPixel = earthCircumference * Math.cos(latitude * Math.PI / 180) / Math.pow(2, zoom + 8);
-        const degreesPerMeter = 360 / earthCircumference;
-        return pixels * metersPerPixel * degreesPerMeter;
-    }
 }
 
 export default AddPointGeometry;

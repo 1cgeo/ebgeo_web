@@ -1,14 +1,14 @@
 /* Path: css/responsive.css */
 
 /**
- * @fileoverview Responsive styles for tablet devices
+ * @fileoverview Responsive styles for all device categories.
  * Breakpoints:
  *   - Desktop: > 1024px (default styles)
  *   - Tablet: 768px - 1024px
  *   - Tablet Small: 600px - 768px
+ *   - Phone: <=480px (or short landscape touch)
  *
- * Touch optimizations, safe areas, and layout adjustments.
- * Mobile styles intentionally omitted - tablet/desktop focus only.
+ * Touch optimizations, safe areas, orientation, and layout adjustments.
  */
 
 /* =========================================================================
@@ -23,7 +23,7 @@
     display: flex;
     gap: var(--space-2);
     z-index: var(--z-floating);
-    animation: slideUp 200ms ease-out;
+    animation: slideUp var(--transition-normal) ease-out;
 }
 
 @keyframes slideUp {
@@ -53,7 +53,7 @@
     font-weight: var(--font-weight-semibold);
     box-shadow: var(--shadow-lg);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: background var(--transition-fast), transform var(--transition-fast);
     min-height: var(--touch-target-min);
 }
 
@@ -86,13 +86,11 @@
    UTILITY CLASSES
    ========================================================================= */
 
-/* Touch target enforcement */
 .touch-target {
     min-width: var(--touch-target-min);
     min-height: var(--touch-target-min);
 }
 
-/* Safe area utilities */
 .safe-area-top {
     padding-top: var(--safe-area-top);
 }
@@ -109,23 +107,12 @@
     padding-right: var(--safe-area-right);
 }
 
-/* Hide on tablet */
-.hide-on-tablet {
-    display: none !important;
-}
-
-/* Show only on tablet */
-.show-on-tablet {
-    display: block;
-}
-
 /* =========================================================================
    TOUCH DEVICE OPTIMIZATIONS (pointer: coarse)
-   Applied to all touch devices regardless of screen size
+   Applied to all touch devices regardless of screen size.
    ========================================================================= */
 
 @media (pointer: coarse) {
-    /* Enforce minimum touch targets on all interactive elements */
     button,
     .btn,
     [role="button"],
@@ -201,7 +188,6 @@
         min-height: var(--touch-target-min);
     }
 
-    /* Ensure proper spacing between touch targets */
     .sidebar-nav {
         gap: var(--space-2);
     }
@@ -216,7 +202,6 @@
     .feature-panel-content,
     .modal-body,
     .catalog-grid-wrapper {
-        -webkit-overflow-scrolling: touch;
         overscroll-behavior: contain;
     }
 
@@ -234,25 +219,17 @@
    TABLET BREAKPOINT (768px - 1024px)
    ========================================================================= */
 
-@media (width <=1024px) {
+@media (width <= 1024px) {
     /* ----- SIDEBAR ADJUSTMENTS ----- */
-    .sidebar-panel {
-        width: var(--sidebar-panel-width-tablet, 340px);
-    }
-
+    .sidebar-panel,
     .feature-panel {
         width: var(--sidebar-panel-width-tablet, 340px);
     }
 
-    /* Reduce padding in panels */
     .sidebar-tab-content,
     .feature-panel-content {
         padding: var(--space-3);
     }
-
-    /* ----- SEARCH BAR ----- */
-
-    /* Responsive width handled in search-bar.css */
 
     /* ----- TOOLBAR ----- */
     .toolbar-container {
@@ -271,7 +248,6 @@
         height: 24px;
     }
 
-    /* Toolbar popup - ensure it doesn't overflow screen */
     .toolbar-popup {
         max-height: calc(100vh - 160px);
         overflow-y: auto;
@@ -298,7 +274,6 @@
         padding: 0 var(--space-4);
     }
 
-    /* Position adjustment for larger controls */
     .bottom-controls-left {
         right: calc(var(--control-button-size-tablet, 48px) + var(--space-4) + var(--space-4));
     }
@@ -313,7 +288,6 @@
         max-width: 95vw;
     }
 
-    /* Shortcuts modal - single column on smaller tablets */
     .shortcuts-sections {
         grid-template-columns: 1fr;
         gap: var(--space-3);
@@ -336,8 +310,6 @@
     }
 
     /* ----- ACTION BUTTONS ----- */
-
-    /* Ensure all small action buttons meet touch target requirements */
     .map-list-action-btn,
     .sidebar-section-header-btn,
     .catalog-layer-btn,
@@ -365,7 +337,7 @@
    TABLET SMALL BREAKPOINT (600px - 768px)
    ========================================================================= */
 
-@media (width <=768px) {
+@media (width <= 768px) {
     /* ----- SIDEBAR AS OVERLAY ----- */
     .sidebar-panel,
     .feature-panel {
@@ -373,19 +345,15 @@
         max-width: 400px;
     }
 
-    /* Add safe area padding */
     .sidebar-container {
         padding-top: var(--safe-area-top);
     }
 
     /* ----- SEARCH BAR ----- */
 
-    /* Responsive width handled in search-bar.css */
-
+    /* Prevents iOS zoom on focus */
     .search-bar-input {
         font-size: 16px;
-
-        /* Prevents iOS zoom on focus */
     }
 
     /* ----- TOOLBAR ----- */
@@ -394,7 +362,6 @@
         right: var(--space-3);
     }
 
-    /* Toolbar popup positioning for small screens */
     .toolbar-popup {
         right: calc(100% + var(--space-2));
         left: auto;
@@ -410,32 +377,6 @@
     .bottom-controls-left {
         right: calc(var(--control-button-size-tablet, 48px) + var(--space-3) + var(--space-3));
         bottom: calc(var(--space-4) + var(--safe-area-bottom));
-    }
-
-    /* Icon-only feature toggles in small tablet */
-    .feature-toggle-btn {
-        width: 48px;
-        height: 48px;
-        min-width: 48px;
-        max-width: 48px;
-        padding: 0;
-        border-radius: var(--radius-md);
-        justify-content: center;
-        gap: 0;
-    }
-
-    .feature-toggle-label {
-        display: none;
-    }
-
-    .feature-toggle-icon {
-        width: 24px;
-        height: 24px;
-    }
-
-    .feature-toggle-icon svg {
-        width: 24px;
-        height: 24px;
     }
 
     /* ----- MODALS ----- */
@@ -464,7 +405,6 @@
         border-radius: 0;
     }
 
-    /* Collapse filters to horizontal scroll */
     .catalog-layout {
         flex-direction: column;
     }
@@ -475,7 +415,7 @@
         overflow-x: auto;
         padding: var(--space-2) var(--space-3);
         border-right: none;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: var(--border-width) solid var(--border-color);
         gap: var(--space-2);
     }
 
@@ -499,7 +439,7 @@
 
     /* ----- FORM INPUTS ----- */
 
-    /* Prevent iOS zoom on input focus */
+    /* Prevents iOS zoom on input focus */
     input[type="text"],
     input[type="email"],
     input[type="number"],
@@ -511,14 +451,41 @@
 }
 
 /* =========================================================================
-   PHONE BREAKPOINT (<=480px)
-   Full-screen map with bottom sheet, floating search, FABs.
-   Desktop/tablet UI hidden entirely — replaced by phone/ JS module.
+   ICON-ONLY FEATURE TOGGLES
+   Shared by <=768px portrait and <=768px landscape breakpoints.
    ========================================================================= */
 
-@media (width <=480px),
-(height <=440px) and (pointer: coarse) {
-    /* Hide desktop/tablet UI */
+@media (width <= 768px) {
+    .feature-toggle-btn {
+        width: var(--control-button-size-tablet, 48px);
+        height: var(--control-button-size-tablet, 48px);
+        min-width: var(--control-button-size-tablet, 48px);
+        max-width: var(--control-button-size-tablet, 48px);
+        padding: 0;
+        border-radius: var(--radius-md);
+        justify-content: center;
+        gap: 0;
+    }
+
+    .feature-toggle-label {
+        display: none;
+    }
+
+    .feature-toggle-icon,
+    .feature-toggle-icon svg {
+        width: 24px;
+        height: 24px;
+    }
+}
+
+/* =========================================================================
+   PHONE BREAKPOINT (<=480px)
+   Full-screen map with bottom sheet, floating search, FABs.
+   Desktop/tablet UI hidden entirely -- replaced by phone/ JS module.
+   ========================================================================= */
+
+@media (width <= 480px),
+(height <= 440px) and (pointer: coarse) {
     .sidebar-container,
     .toolbar-container,
     .bottom-controls-left,
@@ -532,38 +499,10 @@
     .chips-container,
     .sidebar-backdrop,
     .maplibregl-ctrl-group,
-    /* Hide MapLibre control groups */
     .maplibregl-ctrl-scale,
-    /* Hide MapLibre scale bar */
     .maplibregl-ctrl-fullscreen,
-    /* Hide MapLibre fullscreen button */
     .maplibregl-ctrl-geolocate,
-    /* Hide MapLibre geolocate button */
-    .maplibregl-ctrl-attrib
-
-    /* Hide MapLibre attribution control */
-        {
-        display: none !important;
-    }
-
-    /* Gate rules for phone mode */
-    body.phone-mode .sidebar-container,
-    body.phone-mode .toolbar-container,
-    body.phone-mode .bottom-controls-left,
-    body.phone-mode .bottom-controls-right,
-    body.phone-mode .search-bar,
-    body.phone-mode .search-bar-container,
-    body.phone-mode .coordinates-control,
-    body.phone-mode .drawing-touch-controls,
-    body.phone-mode .attribute-table-panel,
-    body.phone-mode .base-layer-selector,
-    body.phone-mode .chips-container,
-    body.phone-mode .sidebar-backdrop,
-    body.phone-mode .maplibregl-ctrl-group,
-    body.phone-mode .maplibregl-ctrl-scale,
-    body.phone-mode .maplibregl-ctrl-fullscreen,
-    body.phone-mode .maplibregl-ctrl-geolocate,
-    body.phone-mode .maplibregl-ctrl-attrib {
+    .maplibregl-ctrl-attrib {
         display: none !important;
     }
 
@@ -583,14 +522,14 @@
 
     /* Keep compass only, position top-right */
     .maplibregl-ctrl-top-right {
-        top: calc(var(--phone-search-height) + var(--safe-area-top) + 24px);
+        top: calc(var(--phone-search-height) + var(--safe-area-top) + var(--space-6));
         right: var(--phone-spacing);
     }
 }
 
 /* =========================================================================
    PHONE MODE (body.phone-mode class set by PhoneLayout JS)
-   Redundant gate — ensures desktop UI hides whenever JS activates phone mode,
+   Ensures desktop UI hides whenever JS activates phone mode,
    regardless of media query timing or viewport resize edge cases.
    ========================================================================= */
 
@@ -614,19 +553,17 @@ body.phone-mode .unified-attributes-panel {
    LANDSCAPE ORIENTATION ADJUSTMENTS
    ========================================================================= */
 
-@media (orientation: landscape) and (width <=1024px) {
-    /* Sidebar takes less vertical space in landscape */
+@media (orientation: landscape) and (width <= 1024px) {
     .sidebar-panel-content,
     .feature-panel-content {
         max-height: calc(100vh - 120px);
     }
 
-    /* Modals should not be full height in landscape */
     .modal-container {
         max-height: 95vh;
     }
 
-    /* Catalog keeps sidebar in landscape */
+    /* Catalog keeps sidebar layout in landscape */
     .catalog-layout {
         flex-direction: row;
     }
@@ -634,7 +571,7 @@ body.phone-mode .unified-attributes-panel {
     .catalog-filters {
         width: 140px;
         flex-direction: column;
-        border-right: 1px solid var(--border-color);
+        border-right: var(--border-width) solid var(--border-color);
         border-bottom: none;
         overflow-x: visible;
     }
@@ -648,38 +585,12 @@ body.phone-mode .unified-attributes-panel {
     }
 }
 
-@media (orientation: landscape) and (width <=768px) {
-    /* In small landscape, keep controls more compact */
+@media (orientation: landscape) and (width <= 768px) {
     .bottom-controls-left {
         flex-direction: row;
         bottom: var(--space-3);
         right: auto;
         left: calc(var(--sidebar-collapsed-width) + var(--space-3));
-    }
-
-    .feature-toggle-btn {
-        width: 48px;
-        height: 48px;
-        min-width: 48px;
-        max-width: 48px;
-        padding: 0;
-        border-radius: var(--radius-md);
-        justify-content: center;
-        gap: 0;
-    }
-
-    .feature-toggle-label {
-        display: none;
-    }
-
-    .feature-toggle-icon {
-        width: 24px;
-        height: 24px;
-    }
-
-    .feature-toggle-icon svg {
-        width: 24px;
-        height: 24px;
     }
 
     /* Toolbar horizontal in small landscape */
@@ -702,13 +613,11 @@ body.phone-mode .unified-attributes-panel {
    PORTRAIT ORIENTATION SPECIFIC
    ========================================================================= */
 
-@media (orientation: portrait) and (width <=768px) {
-    /* More vertical space for content in portrait */
+@media (orientation: portrait) and (width <= 768px) {
     .sidebar-panel-content {
         max-height: calc(100vh - 80px - var(--safe-area-top) - var(--safe-area-bottom));
     }
 
-    /* Drawing touch controls higher in portrait */
     .drawing-touch-controls {
         bottom: calc(100px + var(--safe-area-bottom));
     }
@@ -719,8 +628,7 @@ body.phone-mode .unified-attributes-panel {
    ========================================================================= */
 
 @media (-webkit-min-device-pixel-ratio: 2),
-(resolution >=192dpi) {
-    /* Slightly thinner borders on high-density displays */
+(resolution >= 192dpi) {
     .sidebar-panel,
     .feature-panel,
     .modal-container {
@@ -736,10 +644,8 @@ body.phone-mode .unified-attributes-panel {
     .sidebar-panel,
     .feature-panel,
     .modal-container,
-    .toolbar-popup,
-    .drawing-touch-controls {
+    .toolbar-popup {
         transition: none;
-        animation: none;
     }
 
     .drawing-touch-controls {

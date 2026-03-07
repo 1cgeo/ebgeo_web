@@ -1,4 +1,5 @@
 // Path: js/tool_manager/base_geometry.js
+import { calculateDistance as haversineDistance } from '../utilities/geometry-utils.js';
 
 /**
  * Base class for all geometry operations
@@ -77,18 +78,7 @@ class BaseGeometry {
      * @returns {number} Distance in meters
      */
     calculateDistance(point1, point2) {
-        const R = 6371000; // Earth's radius in meters
-        const lat1Rad = point1[1] * Math.PI / 180;
-        const lat2Rad = point2[1] * Math.PI / 180;
-        const deltaLatRad = (point2[1] - point1[1]) * Math.PI / 180;
-        const deltaLngRad = (point2[0] - point1[0]) * Math.PI / 180;
-
-        const a = Math.sin(deltaLatRad / 2) * Math.sin(deltaLatRad / 2) +
-            Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-            Math.sin(deltaLngRad / 2) * Math.sin(deltaLngRad / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-        return R * c;
+        return haversineDistance(point1, point2);
     }
 
     /**

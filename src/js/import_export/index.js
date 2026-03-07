@@ -11,3 +11,4 @@ export { ExportImportService } from './export-import.service.js';
 export { default as DragDropHandler } from './drag-drop.handler.js';
 export { default as ScreenshotControl } from './screenshot.control.js';
 export { default as PDFExportTab } from './pdf-export.tab.js';
+export { GarminKmzExport } from './garmin-kmz-export.js';

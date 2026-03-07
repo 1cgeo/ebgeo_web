@@ -1,16 +1,13 @@
 // Path: js/utilities/streetview360-state.js
-
 /**
- * @fileoverview Lightweight utility for checking Street View 360 viewer state via DOM.
- * This avoids importing the full street_view_viewer.js module which causes circular dependencies.
+ * @fileoverview Lightweight DOM-based check for Street View 360 viewer visibility.
+ * Avoids importing street_view_viewer.js which would cause circular dependencies.
  */
 
 /**
- * Checks if the Street View 360 viewer is currently visible/open.
- * Uses DOM-based check to avoid circular dependency with street_view_viewer.js
- * @returns {boolean} True if viewer is visible
+ * @returns {boolean} True if the 360 viewer is currently visible
  */
 export function isStreetView360Open() {
-    const streetViewContainer = document.getElementById('street-view-container');
-    return streetViewContainer && streetViewContainer.style.display !== 'none';
+    const container = document.getElementById('street-view-container');
+    return container !== null && container.style.display !== 'none';
 }

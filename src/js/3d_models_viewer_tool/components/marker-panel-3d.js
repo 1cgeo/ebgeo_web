@@ -23,7 +23,7 @@ import { DEFAULT_MARKER_STYLE, addMarkerImage, getMarkerImages, removeMarkerImag
 import { showSuccess, showToast } from '../../utilities/index.js';
 import { deepClone } from '../../utilities/deep-utils.js';
 import { showConfirm } from '../../modals/index.js';
-import { formatCoordinates } from '../../utilities/coordinate_converter.js';
+import { formatCoordinates } from '@utils/coordinate_converter.js';
 import {
     createModernSlider,
     createModernColorPicker,

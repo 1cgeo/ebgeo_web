@@ -25,7 +25,7 @@
 }
 
 /* ===== SECTION LABELS ===== */
-.section-label {
+.azd-section-label {
     font-size: 9px;
     font-weight: 700;
     color: var(--gray-400, #9ca3af);
@@ -54,7 +54,7 @@
     font-size: 12px;
     font-weight: 500;
     color: var(--gray-700, #374151);
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
 }
 
 .azd-unit-toggle:hover {
@@ -85,10 +85,10 @@
     gap: 4px;
     padding: 10px 8px;
     border: 2px solid var(--gray-200, #e5e7eb);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: white;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
 }
 
 .azd-mode-btn:hover:not(.active) {
@@ -151,13 +151,13 @@
 .azd-north-btn {
     padding: 5px 12px;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: transparent;
     cursor: pointer;
     font-size: 11px;
     font-weight: 700;
     font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
     color: var(--gray-500, #6b7280);
 }
 
@@ -198,7 +198,7 @@
     width: 68px;
     padding: 5px 6px;
     border: 1px solid var(--gray-300, #d1d5db);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-size: 12px;
     font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
     text-align: right;
@@ -257,10 +257,10 @@
     gap: 1px;
     padding: 5px 9px;
     border: 1px solid var(--gray-300, #d1d5db);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: white;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
 }
 
 .azd-quick-btn:hover {
@@ -329,7 +329,7 @@
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
 }
 
 .azd-btn-cancel {
@@ -364,11 +364,6 @@
     flex-direction: column;
 }
 
-/* ===== REFERENCE POINT ===== */
-.azimuth-distance-reference-point {
-    /* Container for the reference point component */
-}
-
 /* ===== COMPASS CONTAINER ===== */
 .azimuth-distance-compass-container {
     display: flex;
@@ -376,7 +371,7 @@
     align-items: center;
     padding: 10px;
     background: white;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--gray-200, #e5e7eb);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
