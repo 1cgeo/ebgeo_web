@@ -5,7 +5,7 @@
  * Contains reusable components like digital combobox, color control and tabs.
  */
 
-import { createModernToggle, createModernColorPicker } from '../../../tool_manager';
+import { createModernToggle, createModernColorPicker } from '@tools';
 
 /**
  * @typedef {Object} ComboBoxOption
@@ -28,9 +28,7 @@ import { createModernToggle, createModernColorPicker } from '../../../tool_manag
  * @returns {DropdownState} Dropdown state object
  */
 export function createDropdownState() {
-    return {
-        openDropdowns: []
-    };
+    return { openDropdowns: [] };
 }
 
 /**
@@ -38,11 +36,52 @@ export function createDropdownState() {
  * @param {DropdownState} state - Dropdown state
  */
 export function closeAllDropdowns(state) {
-    state.openDropdowns.forEach(dropdown => {
+    for (const dropdown of state.openDropdowns) {
         if (dropdown.style.display === 'block') {
             dropdown.style.display = 'none';
         }
-    });
+    }
+}
+
+/**
+ * Gets the best display text for an option.
+ * @param {ComboBoxOption} option - Option object
+ * @param {string} displayMode - Display mode ('modifier' or 'mainIcon')
+ * @returns {string} Display text
+ */
+function getOptionDisplayText(option, displayMode) {
+    if (option.entity_portugues) {
+        if (displayMode === 'mainIcon') {
+            return option.entity_subtype_portugues
+                || option.entity_type_portugues
+                || option.entity_portugues;
+        }
+        return option.entity_portugues;
+    }
+    return option.label;
+}
+
+/**
+ * Gets the tooltip text for an option.
+ * @param {ComboBoxOption} option - Option object
+ * @returns {string} Tooltip text
+ */
+function getOptionTooltipText(option) {
+    if (option.entity_portugues) {
+        return option.entity_subtype_portugues
+            || option.entity_type_portugues
+            || option.entity_portugues;
+    }
+    return option.label;
+}
+
+/**
+ * Gets the value for an option (normalizes value/code).
+ * @param {ComboBoxOption} option - Option object
+ * @returns {string} Option value
+ */
+function getOptionValue(option) {
+    return option.value || option.code;
 }
 
 /**
@@ -52,7 +91,7 @@ export function closeAllDropdowns(state) {
  * @param {string} currentValue - Current selected value
  * @param {Function} onChange - Callback when value changes
  * @param {string} label - Label text
- * @param {boolean} [simplifiedDisplay=false] - Whether to use simplified display
+ * @param {boolean} [_simplifiedDisplay=false] - Whether to use simplified display
  * @param {string} [displayMode='modifier'] - Display mode ('modifier' or 'mainIcon')
  * @param {boolean} [disableHoverPreview=false] - Whether to disable hover preview
  * @param {DropdownState} dropdownState - Shared dropdown state
@@ -60,82 +99,37 @@ export function closeAllDropdowns(state) {
  */
 export function createDigitalComboBox(options, currentValue, onChange, label, _simplifiedDisplay = false, displayMode = 'modifier', disableHoverPreview = false, dropdownState) {
     const container = document.createElement('div');
-    container.className = 'digital-combo-container';
-    container.style.cssText = 'margin-bottom: 12px; position: relative;';
+    container.className = 'digital-combo';
 
     const labelElement = document.createElement('label');
+    labelElement.className = 'digital-combo__label';
     labelElement.textContent = label + ':';
-    labelElement.style.cssText = 'display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; color: #333;';
 
     const selectContainer = document.createElement('div');
-    selectContainer.style.cssText = 'position: relative;';
+    selectContainer.className = 'digital-combo__select';
 
     const selectDisplay = document.createElement('div');
-    selectDisplay.style.cssText = `
-        width: 100%;
-        padding: 10px 36px 10px 12px;
-        border: 2px solid #ddd;
-        border-radius: 6px;
-        font-size: 14px;
-        background: #fff;
-        cursor: pointer;
-        transition: border-color 0.2s;
-        box-sizing: border-box;
-        position: relative;
-    `;
+    selectDisplay.className = 'digital-combo__display';
 
     const textContainer = document.createElement('div');
-    textContainer.style.cssText = `
-        flex: 1;
-        overflow: hidden;
-        word-wrap: break-word;
-        hyphens: auto;
-        pointer-events: none;
-    `;
+    textContainer.className = 'digital-combo__display-text';
     selectDisplay.appendChild(textContainer);
 
     const dropdownIcon = document.createElement('span');
-    dropdownIcon.innerHTML = '\u25BC';
-    dropdownIcon.style.cssText = `
-        position: absolute;
-        right: 10px;
-        top: 50%;
-        transform: translateY(-50%);
-        font-size: 12px;
-        pointer-events: none;
-        color: #000;
-    `;
+    dropdownIcon.className = 'digital-combo__arrow';
+    dropdownIcon.textContent = '\u25BC';
     selectDisplay.appendChild(dropdownIcon);
 
     const dropdown = document.createElement('div');
-    dropdown.style.cssText = `
-        position: fixed;
-        background: white;
-        border: 2px solid #007bff;
-        border-radius: 8px;
-        max-height: 250px;
-        overflow: hidden;
-        z-index: 20000;
-        display: none;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    `;
+    dropdown.className = 'digital-combo__dropdown';
 
     const searchInput = document.createElement('input');
     searchInput.type = 'text';
+    searchInput.className = 'digital-combo__search';
     searchInput.placeholder = '\uD83D\uDD0D Digite para buscar...';
-    searchInput.style.cssText = `
-        width: 100%;
-        padding: 10px 15px;
-        border: none;
-        border-bottom: 2px solid #e9ecef;
-        font-size: 14px;
-        outline: none;
-        box-sizing: border-box;
-        background: #f8f9fa;
-    `;
 
     const optionsList = document.createElement('div');
-    optionsList.style.cssText = 'max-height: 200px; overflow-y: auto;';
+    optionsList.className = 'digital-combo__options';
 
     dropdown.appendChild(searchInput);
     dropdown.appendChild(optionsList);
@@ -149,55 +143,12 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
     let optionElements = [];
     let internalCurrentValue = currentValue;
 
-    /**
-     * Gets option display text based on mode.
-     * @param {ComboBoxOption} option - Option object
-     * @returns {string} Display text
-     */
-    function getOptionDisplayText(option) {
-        if (option.entity_portugues) {
-            if (displayMode === 'mainIcon') {
-                if (option.entity_subtype_portugues) {
-                    return option.entity_subtype_portugues;
-                } else if (option.entity_type_portugues) {
-                    return option.entity_type_portugues;
-                } else {
-                    return option.entity_portugues;
-                }
-            } else {
-                return option.entity_portugues;
-            }
-        }
-        return option.label;
-    }
-
-    /**
-     * Gets option tooltip text.
-     * @param {ComboBoxOption} option - Option object
-     * @returns {string} Tooltip text
-     */
-    function getOptionTooltipText(option) {
-        if (option.entity_portugues) {
-            if (option.entity_subtype_portugues) {
-                return option.entity_subtype_portugues;
-            } else if (option.entity_type_portugues) {
-                return option.entity_type_portugues;
-            } else {
-                return option.entity_portugues;
-            }
-        }
-        return option.label;
-    }
-
-    const currentOption = options.find(opt => opt.value === internalCurrentValue || opt.code === internalCurrentValue);
+    // Set initial display
+    const currentOption = options.find(opt => getOptionValue(opt) === internalCurrentValue);
     if (currentOption) {
-        const displayText = getOptionDisplayText(currentOption);
-        const tooltipText = getOptionTooltipText(currentOption);
-
-        textContainer.textContent = displayText;
-        textContainer.title = tooltipText;
-
-        highlightedIndex = options.findIndex(opt => opt.value === internalCurrentValue || opt.code === internalCurrentValue);
+        textContainer.textContent = getOptionDisplayText(currentOption, displayMode);
+        textContainer.title = getOptionTooltipText(currentOption);
+        highlightedIndex = options.indexOf(currentOption);
     }
 
     /**
@@ -206,9 +157,7 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
      * @returns {ComboBoxOption[]} Filtered options
      */
     function searchOptions(searchTerm) {
-        if (!searchTerm.trim()) {
-            return options;
-        }
+        if (!searchTerm.trim()) return options;
 
         const term = searchTerm.toLowerCase();
         return options.filter(option => {
@@ -219,9 +168,8 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
                     option.entity_subtype_portugues
                 ].filter(Boolean).join(' ').toLowerCase();
                 return searchText.includes(term);
-            } else {
-                return option.label.toLowerCase().includes(term);
             }
+            return option.label.toLowerCase().includes(term);
         });
     }
 
@@ -230,36 +178,23 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
      * @param {number} index - Option index
      */
     function updateHighlight(index) {
-        optionElements.forEach(el => {
-            el.style.backgroundColor = '';
-            el.style.fontWeight = '';
-            el.classList.remove('highlighted');
-        });
+        for (const el of optionElements) {
+            el.classList.remove('digital-combo__option--highlighted');
+        }
 
         if (index >= 0 && index < optionElements.length) {
             highlightedIndex = index;
             const highlightedElement = optionElements[index];
-
-            highlightedElement.style.backgroundColor = '#e3f2fd';
-            highlightedElement.style.fontWeight = '600';
-            highlightedElement.classList.add('highlighted');
-
-            highlightedElement.scrollIntoView({
-                behavior: 'auto',
-                block: 'nearest'
-            });
+            highlightedElement.classList.add('digital-combo__option--highlighted');
+            highlightedElement.scrollIntoView({ behavior: 'auto', block: 'nearest' });
 
             const highlightedOption = filteredOptions[index];
             if (highlightedOption) {
-                const value = highlightedOption.value || highlightedOption.code;
-
-                const displayText = getOptionDisplayText(highlightedOption);
-                const tooltipText = getOptionTooltipText(highlightedOption);
-                textContainer.textContent = displayText;
-                textContainer.title = tooltipText;
+                textContainer.textContent = getOptionDisplayText(highlightedOption, displayMode);
+                textContainer.title = getOptionTooltipText(highlightedOption);
 
                 if (!disableHoverPreview) {
-                    onChange(value, highlightedOption);
+                    onChange(getOptionValue(highlightedOption), highlightedOption);
                 }
             }
         }
@@ -270,15 +205,11 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
      * @param {ComboBoxOption} option - Selected option
      */
     function selectOption(option) {
-        const value = option.value || option.code;
-        const displayText = getOptionDisplayText(option);
-        const tooltipText = getOptionTooltipText(option);
-
-        textContainer.textContent = displayText;
-        textContainer.title = tooltipText;
+        const value = getOptionValue(option);
+        textContainer.textContent = getOptionDisplayText(option, displayMode);
+        textContainer.title = getOptionTooltipText(option);
         internalCurrentValue = value;
         closeDropdown();
-
         onChange(value, option);
     }
 
@@ -289,30 +220,18 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
         optionsList.innerHTML = '';
         optionElements = [];
 
-        filteredOptions.forEach((option, index) => {
+        for (let index = 0; index < filteredOptions.length; index++) {
+            const option = filteredOptions[index];
             const optionElement = document.createElement('div');
-            optionElement.style.cssText = `
-                padding: 12px 15px;
-                cursor: pointer;
-                font-size: 14px;
-                transition: background-color 0.1s;
-                color: #333;
-                user-select: none;
-            `;
+            optionElement.className = 'digital-combo__option';
 
-            const displayText = getOptionDisplayText(option);
-            optionElement.textContent = displayText;
-
-            const value = option.value || option.code;
-            if (value === internalCurrentValue) {
-                optionElement.style.backgroundColor = '#e3f2fd';
-                optionElement.style.fontWeight = '600';
+            if (getOptionValue(option) === internalCurrentValue) {
+                optionElement.classList.add('digital-combo__option--selected');
             }
 
-            optionElement.onmouseenter = () => {
-                updateHighlight(index);
-            };
+            optionElement.textContent = getOptionDisplayText(option, displayMode);
 
+            optionElement.onmouseenter = () => updateHighlight(index);
             optionElement.onclick = (e) => {
                 e.stopPropagation();
                 selectOption(option);
@@ -320,18 +239,12 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
 
             optionsList.appendChild(optionElement);
             optionElements.push(optionElement);
-        });
+        }
 
         if (filteredOptions.length === 0) {
             const noResultElement = document.createElement('div');
+            noResultElement.className = 'digital-combo__no-results';
             noResultElement.textContent = 'Nenhuma opção encontrada';
-            noResultElement.style.cssText = `
-                padding: 12px 15px;
-                font-size: 14px;
-                color: #999;
-                font-style: italic;
-                text-align: center;
-            `;
             optionsList.appendChild(noResultElement);
         }
     }
@@ -357,7 +270,7 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
         setTimeout(() => searchInput.focus(), 50);
 
         highlightedIndex = filteredOptions.findIndex(opt =>
-            (opt.value || opt.code) === internalCurrentValue
+            getOptionValue(opt) === internalCurrentValue
         );
     }
 
@@ -422,8 +335,7 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
     };
 
     searchInput.oninput = (e) => {
-        const searchTerm = e.target.value;
-        filteredOptions = searchOptions(searchTerm);
+        filteredOptions = searchOptions(e.target.value);
         renderOptions();
         highlightedIndex = -1;
     };
@@ -431,11 +343,11 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
     searchInput.onkeydown = handleKeyDown;
 
     // Named handler so it can be removed in _cleanup
-    const handleDocumentClick = (e) => {
+    function handleDocumentClick(e) {
         if (!container.contains(e.target) && !dropdown.contains(e.target)) {
             closeDropdown();
         }
-    };
+    }
     document.addEventListener('click', handleDocumentClick);
 
     selectContainer.appendChild(selectDisplay);
@@ -446,19 +358,15 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
 
     container._cleanup = () => {
         document.removeEventListener('click', handleDocumentClick);
-        if (dropdown.parentNode) {
-            dropdown.parentNode.removeChild(dropdown);
-        }
+        dropdown.remove();
     };
 
     container.updateValue = (newValue) => {
         internalCurrentValue = newValue;
-        const option = options.find(opt => (opt.value || opt.code) === newValue);
+        const option = options.find(opt => getOptionValue(opt) === newValue);
         if (option) {
-            const displayText = getOptionDisplayText(option);
-            const tooltipText = getOptionTooltipText(option);
-            textContainer.textContent = displayText;
-            textContainer.title = tooltipText;
+            textContainer.textContent = getOptionDisplayText(option, displayMode);
+            textContainer.title = getOptionTooltipText(option);
         }
     };
 
@@ -478,10 +386,9 @@ export function createColorControl(currentValue, onChange, label) {
     container.className = 'color-control-container';
 
     const labelElement = document.createElement('label');
+    labelElement.className = 'color-control__label';
     labelElement.textContent = label + ':';
-    labelElement.style.cssText = 'display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; color: #333;';
 
-    let colorPickerContainer = null;
     let currentColorValue = currentValue;
 
     const toggle = createModernToggle({
@@ -500,9 +407,9 @@ export function createColorControl(currentValue, onChange, label) {
     });
 
     const controlsContainer = document.createElement('div');
-    controlsContainer.style.cssText = 'margin-top: 12px;';
+    controlsContainer.className = 'color-control__picker-wrapper';
 
-    colorPickerContainer = createModernColorPicker({
+    const colorPickerContainer = createModernColorPicker({
         label: 'Cor',
         value: currentValue || '#11FF00',
         onChange: (color) => {
@@ -516,10 +423,12 @@ export function createColorControl(currentValue, onChange, label) {
      * @param {string|null} color - Color value
      */
     function updateColorControlState(color) {
-        const isCustomColor = !!color;
         currentColorValue = color;
-        colorPickerContainer.style.opacity = isCustomColor ? '1' : '0.5';
-        colorPickerContainer.style.pointerEvents = isCustomColor ? 'auto' : 'none';
+        if (color) {
+            colorPickerContainer.classList.remove('color-control__picker--disabled');
+        } else {
+            colorPickerContainer.classList.add('color-control__picker--disabled');
+        }
     }
 
     updateColorControlState(currentValue);
@@ -546,19 +455,8 @@ export function createColorControl(currentValue, onChange, label) {
  */
 export function createTabButton(text, active = false) {
     const button = document.createElement('button');
+    button.className = 'symbol-selector-tabs__btn';
     button.textContent = text;
-    button.style.cssText = `
-        flex: 1;
-        padding: 12px 20px;
-        border: none;
-        border-radius: 8px 8px 0 0;
-        font-size: 15px;
-        font-weight: ${active ? 'bold' : 'normal'};
-        cursor: pointer;
-        transition: all 0.2s;
-        background: ${active ? '#508d4e' : '#f5f5f5'};
-        color: ${active ? 'white' : '#333'};
-    `;
 
     if (active) {
         button.classList.add('active');
@@ -584,10 +482,10 @@ export function createTabButton(text, active = false) {
  */
 export function createTabsContainer() {
     const container = document.createElement('div');
-    container.style.cssText = 'display: flex; flex-direction: column; height: 100%;';
+    container.className = 'symbol-selector-tabs';
 
     const tabButtonsContainer = document.createElement('div');
-    tabButtonsContainer.style.cssText = 'display: flex; gap: 5px; flex-shrink: 0;';
+    tabButtonsContainer.className = 'symbol-selector-tabs__buttons';
 
     const simboloButton = createTabButton('Símbolo', true);
     const textoButton = createTabButton('Texto', false);
@@ -597,18 +495,17 @@ export function createTabsContainer() {
     tabButtonsContainer.appendChild(textoButton);
     tabButtonsContainer.appendChild(engajamentoButton);
 
-    // Scrollable content wrapper
     const tabContentWrapper = document.createElement('div');
-    tabContentWrapper.style.cssText = 'flex: 1; overflow-y: auto; overflow-x: hidden;';
+    tabContentWrapper.className = 'symbol-selector-tabs__content';
 
     const simboloTab = document.createElement('div');
-    simboloTab.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 30px; width: 100%; padding: 16px 0;';
+    simboloTab.className = 'symbol-selector-tabs__panel--simbolo';
 
     const textoTab = document.createElement('div');
-    textoTab.style.cssText = 'display: none;';
+    textoTab.className = 'symbol-selector-tabs__panel--texto';
 
     const engajamentoTab = document.createElement('div');
-    engajamentoTab.style.cssText = 'display: none; padding: 16px 0;';
+    engajamentoTab.className = 'symbol-selector-tabs__panel--engajamento';
 
     tabContentWrapper.appendChild(simboloTab);
     tabContentWrapper.appendChild(textoTab);
@@ -617,14 +514,12 @@ export function createTabsContainer() {
     container.appendChild(tabButtonsContainer);
     container.appendChild(tabContentWrapper);
 
-    // Store tab references in the buttons object for switchTab to use
     const tabButtons = {
         simbolo: simboloButton,
         texto: textoButton,
         engajamento: engajamentoButton
     };
 
-    // Store tab content references
     const tabs = {
         simbolo: simboloTab,
         texto: textoTab,
@@ -634,14 +529,7 @@ export function createTabsContainer() {
     // Attach tabs reference to tabButtons for switchTab function
     tabButtons._tabs = tabs;
 
-    return {
-        container,
-        simboloTab,
-        textoTab,
-        engajamentoTab,
-        tabButtons,
-        tabs
-    };
+    return { container, simboloTab, textoTab, engajamentoTab, tabButtons, tabs };
 }
 
 /**
@@ -657,48 +545,16 @@ export function switchTab(tabName, tabButtons) {
         return;
     }
 
-    const { simbolo: simboloTab, texto: textoTab, engajamento: engajamentoTab } = tabs;
-    const { simbolo: simboloButton, texto: textoButton, engajamento: engajamentoButton } = tabButtons;
+    const TAB_NAMES = ['simbolo', 'texto', 'engajamento'];
+    const DISPLAY_MODES = { simbolo: 'grid', texto: 'block', engajamento: 'block' };
 
-    // Hide all tabs
-    simboloTab.style.display = 'none';
-    textoTab.style.display = 'none';
-    engajamentoTab.style.display = 'none';
-
-    // Reset all buttons
-    simboloButton.style.background = '#f5f5f5';
-    simboloButton.style.color = '#333';
-    simboloButton.style.fontWeight = 'normal';
-    simboloButton.classList.remove('active');
-
-    textoButton.style.background = '#f5f5f5';
-    textoButton.style.color = '#333';
-    textoButton.style.fontWeight = 'normal';
-    textoButton.classList.remove('active');
-
-    engajamentoButton.style.background = '#f5f5f5';
-    engajamentoButton.style.color = '#333';
-    engajamentoButton.style.fontWeight = 'normal';
-    engajamentoButton.classList.remove('active');
+    // Hide all tabs and deactivate all buttons
+    for (const name of TAB_NAMES) {
+        tabs[name].style.display = 'none';
+        tabButtons[name].classList.remove('active');
+    }
 
     // Show selected tab and activate button
-    if (tabName === 'simbolo') {
-        simboloTab.style.display = 'grid';
-        simboloButton.style.background = '#508d4e';
-        simboloButton.style.color = 'white';
-        simboloButton.style.fontWeight = 'bold';
-        simboloButton.classList.add('active');
-    } else if (tabName === 'texto') {
-        textoTab.style.display = 'block';
-        textoButton.style.background = '#508d4e';
-        textoButton.style.color = 'white';
-        textoButton.style.fontWeight = 'bold';
-        textoButton.classList.add('active');
-    } else if (tabName === 'engajamento') {
-        engajamentoTab.style.display = 'block';
-        engajamentoButton.style.background = '#508d4e';
-        engajamentoButton.style.color = 'white';
-        engajamentoButton.style.fontWeight = 'bold';
-        engajamentoButton.classList.add('active');
-    }
+    tabs[tabName].style.display = DISPLAY_MODES[tabName];
+    tabButtons[tabName].classList.add('active');
 }

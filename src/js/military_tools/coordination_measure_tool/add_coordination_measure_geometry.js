@@ -1,6 +1,6 @@
 // Path: js/military_tools/coordination_measure_tool/add_coordination_measure_geometry.js
 
-import { BaseGeometry } from '../../tool_manager';
+import { BaseGeometry } from '@tools';
 
 /**
  * Coordination Measure Geometry Operations

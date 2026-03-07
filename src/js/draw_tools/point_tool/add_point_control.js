@@ -8,6 +8,7 @@ import { BaseControl } from '../../tool_manager';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddPointControl extends BaseControl {
+    featureType = 'point';
     constructor(toolManager) {
         super(toolManager);
 
@@ -40,24 +41,6 @@ class AddPointControl extends BaseControl {
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
-
-    /**
-     * Get currently selected point feature from SelectionManager
-     * @returns {Object|null} Selected point feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('point');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected point features from SelectionManager
-     * @returns {Array} Array of selected point features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('point')
-            .map(item => item.feature);
-    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -424,7 +407,6 @@ class AddPointControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('points').getData();
-        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
@@ -432,7 +414,6 @@ class AddPointControl extends BaseControl {
 
                 if (currentFeature) {
                     await updateFeature('points', currentFeature);
-                    _hasChanges = true;
                 }
             }
         }
@@ -515,9 +496,6 @@ class AddPointControl extends BaseControl {
             this.updateSelectionManagerFeatures(features);
         }
     }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     updateSelectionManagerFeature(feature) {
         this.selectionManager.updateSelectedFeature('point', feature.properties.id, feature);
     }

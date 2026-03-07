@@ -7,7 +7,6 @@
 import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, updateFeature, storeImage, getGroupManager } from '../../store';
 import { IDUtils } from '../../utilities';
 
-
 // ── Arrow merge/split helpers ─────────────────────────────────────────────────
 // These inline checks avoid a static import from military_tools (which would
 // create a military-tools ↔ core circular chunk).  The actual merge/split
@@ -58,11 +57,10 @@ export function createEditableFeatureName(initialName, onNameChange) {
     nameInput.type = 'text';
     nameInput.className = 'feature-name-input';
     nameInput.value = initialName || '';
-    nameInput.style.cssText = 'display: none; width: 100%; font-size: 16px; font-weight: bold; padding: 6px; border: 1px solid #007bff; border-radius: 4px;';
 
     nameDisplay.onclick = () => {
-        nameDisplay.style.display = 'none';
-        nameInput.style.display = 'block';
+        nameDisplay.classList.add('hidden');
+        nameInput.classList.add('editing');
         nameInput.focus();
         nameInput.select();
     };
@@ -75,8 +73,8 @@ export function createEditableFeatureName(initialName, onNameChange) {
         }
 
         nameDisplay.textContent = newName;
-        nameDisplay.style.display = 'block';
-        nameInput.style.display = 'none';
+        nameDisplay.classList.remove('hidden');
+        nameInput.classList.remove('editing');
 
         if (newName !== initialName) {
             onNameChange(newName);
@@ -85,8 +83,8 @@ export function createEditableFeatureName(initialName, onNameChange) {
 
     const cancelEdit = () => {
         nameInput.value = initialName || '';
-        nameDisplay.style.display = 'block';
-        nameInput.style.display = 'none';
+        nameDisplay.classList.remove('hidden');
+        nameInput.classList.remove('editing');
     };
 
     nameInput.onblur = saveEdit;
@@ -252,7 +250,7 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
 
     if (currentLayer) {
         const separator1 = document.createElement('div');
-        separator1.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        separator1.className = 'feature-menu-separator';
         dropdown.appendChild(separator1);
 
         const selectAllLayerButton = document.createElement('button');
@@ -287,7 +285,7 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
     // Add conversion options for line features (single selection only)
     if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'line') {
         const separator2 = document.createElement('div');
-        separator2.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        separator2.className = 'feature-menu-separator';
         dropdown.appendChild(separator2);
 
         const convertToArrowButton = document.createElement('button');
@@ -331,7 +329,7 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
     // Add reverse option for arrow features (single selection only)
     if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'arrow') {
         const separator3 = document.createElement('div');
-        separator3.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        separator3.className = 'feature-menu-separator';
         dropdown.appendChild(separator3);
 
         const reverseArrowButton = document.createElement('button');
@@ -355,7 +353,7 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
 
         if (mergeCheck.canMerge || splitCheck.canSplit) {
             const separatorMerge = document.createElement('div');
-            separatorMerge.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+            separatorMerge.className = 'feature-menu-separator';
             dropdown.appendChild(separatorMerge);
 
             if (mergeCheck.canMerge) {
@@ -397,7 +395,7 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
     // Add conversion options for point features (single selection only)
     if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'point') {
         const separatorPoint = document.createElement('div');
-        separatorPoint.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        separatorPoint.className = 'feature-menu-separator';
         dropdown.appendChild(separatorPoint);
 
         const convertToMilSymButton = document.createElement('button');

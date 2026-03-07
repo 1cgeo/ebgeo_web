@@ -5,7 +5,7 @@
  */
 
 import Sortable from 'sortablejs';
-import { reorderLayers } from '../store';
+import { reorderLayers } from '@store';
 
 /**
  * Initializes Sortable.js for layer reordering.

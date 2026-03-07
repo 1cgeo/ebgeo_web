@@ -5,7 +5,7 @@
  * Captures the current view without UI elements and downloads as PNG.
  */
 
-import { showSuccess, showError } from '../../utilities/toast_service.js';
+import { showSuccess, showError } from '@utils/toast_service.js';
 
 /**
  * Hides 360 UI elements and captures the canvas as a data URL.

@@ -3,12 +3,12 @@
 import {
     createModernSlider,
     createModernColorPicker,
-    createModernButtons,
     createModernToggle,
     createModernTextarea,
     createSectionDivider,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
+    createInitialPropertiesMap,
+    createPanelHeader,
+    createActionButtons
 } from '../../tool_manager/helpers/index.js';
 import { formatCoordinates } from '@utils/coordinate_converter.js';
 
@@ -42,67 +42,30 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
     }
 
     const feature = selectedFeatures[0];
+    const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
 
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
-
-    // Header
-    if (!options.hideHeader) {
-        _buildHeader(panel, selectedFeatures, feature, pointControl, selectionManager, uiManager);
-    }
+    createPanelHeader({
+        panel,
+        features: selectedFeatures,
+        featureType: 'point',
+        control: pointControl,
+        selectionManager,
+        uiManager,
+        hideHeader: options.hideHeader
+    });
 
     // Tabs (Marcador / Etiqueta)
     _buildStyleTabs(panel, selectedFeatures, feature, pointControl);
 
     // Action buttons (below tabs)
-    panel.appendChild(createModernButtons({
-        selectedFeatures,
+    createActionButtons({
+        panel,
+        features: selectedFeatures,
         control: pointControl,
         selectionManager,
         initialPropertiesMap,
-        hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => pointControl.setDefaultProperties(feature.properties),
-        hidden: options.hideButtons
-    }));
-}
-
-// ============================================================================
-// PRIVATE: HEADER
-// ============================================================================
-
-/**
- * Builds the header section (single or multi-selection).
- */
-function _buildHeader(panel, selectedFeatures, feature, pointControl, selectionManager, uiManager) {
-    if (selectedFeatures.length === 1) {
-        const headerComponent = createFeatureHeaderWithOptions(
-            feature.properties.nome,
-            (newName) => {
-                pointControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                uiManager.updateSelectionHighlight();
-            },
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
-        panel.appendChild(headerComponent);
-    } else if (selectedFeatures.length > 1) {
-        const multiSelectHeader = document.createElement('div');
-        multiSelectHeader.className = 'feature-header-with-options';
-
-        const infoText = document.createElement('div');
-        infoText.className = 'feature-name-wrapper';
-        infoText.textContent = `${selectedFeatures.length} pontos selecionados`;
-
-        const optionsButton = createFeatureOptionsButton(
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
-
-        multiSelectHeader.appendChild(infoText);
-        multiSelectHeader.appendChild(optionsButton);
-        panel.appendChild(multiSelectHeader);
-    }
+        hideButtons: options.hideButtons
+    });
 }
 
 // ============================================================================
@@ -245,8 +208,7 @@ function _buildLabelTab(container, selectedFeatures, feature, pointControl) {
     });
     // Single-line style
     const textarea = textField.getTextarea();
-    textarea.style.minHeight = '38px';
-    textarea.style.resize = 'none';
+    textarea.classList.add('attr-modern-textarea-input--single-line');
     container.appendChild(textField);
 
     // Fill with coordinates button

@@ -5,7 +5,7 @@
  * Allows selecting a feature type within a group to edit its style.
  */
 
-import { getFeatureIcon, getFeatureDisplayName } from '../../store/index.js';
+import { getFeatureIcon, getFeatureDisplayName } from '@store/index.js';
 
 /**
  * Feature type configuration with labels.

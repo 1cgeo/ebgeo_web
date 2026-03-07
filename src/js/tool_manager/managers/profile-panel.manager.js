@@ -613,4 +613,3 @@ export class ProfilePanelManager {
     }
 }
 
-export default ProfilePanelManager;

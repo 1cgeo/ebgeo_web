@@ -362,7 +362,7 @@ export class GarminKmzExport {
             // Vertical grid lines (between columns)
             for (let c = 1; c < cols; c++) {
                 // Get the east edge of tile in column (c-1), which equals west edge of column c
-                const leftTile = tiles[(0) * cols + (c - 1)];
+                const leftTile = tiles[c - 1];
                 const lng = leftTile.east;
                 const topTile = tiles[0];
                 const bottomTile = tiles[(rows - 1) * cols];

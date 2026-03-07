@@ -49,7 +49,7 @@ export async function calculateProfile(map, coordinates) {
 
         profileData.push({
             distance: i * stepLength,
-            elevation: elevation,
+            elevation,
             slope: 0 // Will be calculated after all elevations are collected
         });
     }

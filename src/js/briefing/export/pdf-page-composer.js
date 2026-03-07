@@ -12,7 +12,7 @@
  * @module briefing/export/pdf-page-composer
  */
 
-import { loadLogoImage } from '../../utilities/logo-base64.js';
+import { loadLogoImage } from '@utils/logo-base64.js';
 
 // Lazy-loaded to keep html2canvas out of the core chunk.
 // Only loaded when PDF export is actually invoked.

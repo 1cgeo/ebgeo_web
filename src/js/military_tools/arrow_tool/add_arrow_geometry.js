@@ -1,6 +1,6 @@
 // Path: js/military_tools/arrow_tool/add_arrow_geometry.js
 
-import { BaseGeometry } from '../../tool_manager';
+import { BaseGeometry } from '@tools';
 
 /**
  * Arrow Geometry Operations

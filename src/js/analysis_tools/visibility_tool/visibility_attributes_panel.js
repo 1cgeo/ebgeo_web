@@ -6,7 +6,7 @@ import {
     createSectionDivider,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
-} from '../../tool_manager/helpers/index.js';
+} from '@tools/helpers/index.js';
 
 /**
  * Create visibility parameters panel content (for Parameters tab).
@@ -23,13 +23,10 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
     const isTerrainAvailable = visibilityControl.geometry.isTerrainAvailable(visibilityControl.map);
     const disabledMessage = 'Ative o terreno para modificar este parâmetro';
 
-    // Collect sliders for reactive terrain toggle
     const terrainDependentSliders = [];
 
-    // --- Geometry section ---
     container.appendChild(createSectionDivider('Geometria'));
 
-    // Radius slider
     const radiusSlider = createModernSlider({
         label: 'Raio',
         min: 100,
@@ -46,7 +43,6 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
     terrainDependentSliders.push(radiusSlider);
     container.appendChild(radiusSlider);
 
-    // Aperture slider
     const apertureSlider = createModernSlider({
         label: 'Abertura',
         min: 1,
@@ -63,10 +59,8 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
     terrainDependentSliders.push(apertureSlider);
     container.appendChild(apertureSlider);
 
-    // --- Heights section ---
     container.appendChild(createSectionDivider('Alturas'));
 
-    // Observer height slider
     const observerSlider = createModernSlider({
         label: 'Altura do Observador',
         min: 0,
@@ -83,7 +77,6 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
     terrainDependentSliders.push(observerSlider);
     container.appendChild(observerSlider);
 
-    // Target height slider
     const targetSlider = createModernSlider({
         label: 'Altura do Alvo',
         min: 0,
@@ -100,7 +93,6 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
     terrainDependentSliders.push(targetSlider);
     container.appendChild(targetSlider);
 
-    // Reactively update slider disabled state when terrain is toggled
     const onTerrainChange = () => {
         const terrainActive = visibilityControl.geometry.isTerrainAvailable(visibilityControl.map);
         for (const slider of terrainDependentSliders) {
@@ -112,7 +104,6 @@ export function addVisibilityParametersToPanel(container, selectedFeatures, visi
 
     visibilityControl.map.on('terrain', onTerrainChange);
 
-    // Store cleanup on the container so it can be called when the panel is destroyed
     const previousCleanup = container._parametersCleanup;
     container._parametersCleanup = () => {
         visibilityControl.map.off('terrain', onTerrainChange);
@@ -140,7 +131,6 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // Only show header if not hidden (for sidebar integration)
     if (!options.hideHeader) {
         if (selectedFeatures.length === 1) {
             const headerComponent = createFeatureHeaderWithOptions(
@@ -160,7 +150,6 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
 
             const infoText = document.createElement('div');
             infoText.className = 'feature-name-wrapper';
-            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
             infoText.textContent = `${selectedFeatures.length} áreas de visibilidade selecionadas`;
 
             const optionsButton = createFeatureOptionsButton(
@@ -175,7 +164,6 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
         }
     }
 
-    // Opacity slider
     panel.appendChild(createModernSlider({
         label: 'Opacidade',
         min: 0,
@@ -188,7 +176,6 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
         }
     }));
 
-    // Action buttons
     panel.appendChild(createModernButtons({
         selectedFeatures,
         control: visibilityControl,

@@ -12,3 +12,5 @@ export {
     isKeyboardService3DActive,
     confirmAndDelete3DFeature
 } from './keyboard-service-3d.js';
+
+export { hexToCesiumColor } from './cesium-color.js';

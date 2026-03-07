@@ -52,11 +52,8 @@ class SelectionManager {
         /** @type {Function|null} Bound keydown handler for cleanup */
         this._handleKeydown = null;
 
-        /** @type {Function|null} Bound movestart handler for cleanup */
-        this._handleMoveStart = null;
-
-        /** @type {Function|null} Bound zoomstart handler for cleanup */
-        this._handleZoomStart = null;
+        /** @type {Function|null} Bound movestart/zoomstart handler for cleanup */
+        this._handleMapInteraction = null;
 
         this._setupEventListeners();
     }
@@ -371,15 +368,11 @@ class SelectionManager {
         };
         document.addEventListener('keydown', this._handleKeydown);
 
-        this._handleMoveStart = () => {
+        this._handleMapInteraction = () => {
             if (this.contextMenu) this._hideFeatureSelectionMenu();
         };
-        this.map.on('movestart', this._handleMoveStart);
-
-        this._handleZoomStart = () => {
-            if (this.contextMenu) this._hideFeatureSelectionMenu();
-        };
-        this.map.on('zoomstart', this._handleZoomStart);
+        this.map.on('movestart', this._handleMapInteraction);
+        this.map.on('zoomstart', this._handleMapInteraction);
 
         // Two-finger tap para multi-select em dispositivos touch
         this._setupTwoFingerTap();
@@ -691,25 +684,7 @@ class SelectionManager {
         const menu = document.createElement('div');
         menu.className = 'feature-selection-menu';
 
-        menu.style.cssText = `
-            position: fixed !important;
-            background: white !important;
-            border: 1px solid #ccc !important;
-            border-radius: 6px !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-            z-index: 999999 !important;
-            min-width: 200px !important;
-            max-height: 300px !important;
-            overflow-y: auto !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-            font-size: 14px !important;
-            line-height: 1.4 !important;
-            display: block !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            pointer-events: auto !important;
-        `;
-
+        // Position is dynamic and must be computed at runtime
         const x = Math.min(e.originalEvent.clientX, window.innerWidth - 220);
         const y = Math.min(e.originalEvent.clientY, window.innerHeight - 50);
         menu.style.left = `${x}px`;
@@ -717,21 +692,14 @@ class SelectionManager {
 
         // Header
         const header = document.createElement('div');
+        header.className = 'feature-selection-menu__header';
         header.textContent = `Selecionar feição (${features.length})`;
-        header.style.cssText = `
-            padding: 8px 12px !important;
-            background: #f5f5f5 !important;
-            color: #666 !important;
-            border-bottom: 1px solid #ddd !important;
-            font-weight: bold !important;
-            font-size: 12px !important;
-            margin: 0 !important;
-        `;
         menu.appendChild(header);
 
         // Feature items
-        features.forEach((feature, index) => {
+        features.forEach((feature) => {
             const item = document.createElement('div');
+            item.className = 'feature-selection-menu__item';
             const featureName = this._getFeatureName(feature);
 
             const iconPath = getFeatureIcon(feature.toolType);
@@ -739,34 +707,13 @@ class SelectionManager {
                 const icon = document.createElement('img');
                 icon.src = iconPath;
                 icon.alt = '';
-                icon.style.cssText = 'width: 16px; height: 16px; margin-right: 8px; vertical-align: middle; flex-shrink: 0;';
+                icon.className = 'feature-selection-menu__item-icon';
                 item.appendChild(icon);
             }
 
             const nameSpan = document.createElement('span');
             nameSpan.textContent = featureName;
-            nameSpan.style.cssText = 'vertical-align: middle;';
             item.appendChild(nameSpan);
-
-            item.style.cssText = `
-                padding: 10px 12px !important;
-                cursor: pointer !important;
-                border-bottom: ${index < features.length - 1 ? '1px solid #eee' : 'none'} !important;
-                transition: background-color 0.2s !important;
-                background: white !important;
-                color: black !important;
-                font-size: 14px !important;
-                margin: 0 !important;
-                display: flex !important;
-                align-items: center !important;
-            `;
-
-            item.addEventListener('mouseenter', () => {
-                item.style.backgroundColor = '#f0f8ff !important';
-            });
-            item.addEventListener('mouseleave', () => {
-                item.style.backgroundColor = 'white !important';
-            });
 
             item.addEventListener('click', (evt) => {
                 evt.stopPropagation();
@@ -779,32 +726,13 @@ class SelectionManager {
 
         // Separator
         const separator = document.createElement('div');
-        separator.style.cssText = `
-            height: 1px !important;
-            background: #ddd !important;
-            margin: 4px 0 !important;
-        `;
+        separator.className = 'feature-selection-menu__separator';
         menu.appendChild(separator);
 
         // Select all option
         const selectAllItem = document.createElement('div');
+        selectAllItem.className = 'feature-selection-menu__select-all';
         selectAllItem.textContent = 'Selecionar Todas';
-        selectAllItem.style.cssText = `
-            padding: 10px 12px !important;
-            cursor: pointer !important;
-            background: white !important;
-            color: black !important;
-            font-size: 14px !important;
-            margin: 0 !important;
-            transition: background-color 0.2s !important;
-        `;
-
-        selectAllItem.addEventListener('mouseenter', () => {
-            selectAllItem.style.backgroundColor = '#f0f8ff !important';
-        });
-        selectAllItem.addEventListener('mouseleave', () => {
-            selectAllItem.style.backgroundColor = 'white !important';
-        });
 
         selectAllItem.addEventListener('click', async (evt) => {
             evt.stopPropagation();
@@ -1053,14 +981,10 @@ class SelectionManager {
         // Cleanup map event listeners
         this.map.off('click', this._handleMapClick);
 
-        if (this._handleMoveStart) {
-            this.map.off('movestart', this._handleMoveStart);
-            this._handleMoveStart = null;
-        }
-
-        if (this._handleZoomStart) {
-            this.map.off('zoomstart', this._handleZoomStart);
-            this._handleZoomStart = null;
+        if (this._handleMapInteraction) {
+            this.map.off('movestart', this._handleMapInteraction);
+            this.map.off('zoomstart', this._handleMapInteraction);
+            this._handleMapInteraction = null;
         }
 
         // Cleanup document event listener

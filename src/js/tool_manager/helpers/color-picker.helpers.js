@@ -216,9 +216,9 @@ function normalizeColor(color) {
  */
 function isLightColor(color) {
     const hex = color.replace('#', '');
-    const r = parseInt(hex.substr(0, 2), 16);
-    const g = parseInt(hex.substr(2, 2), 16);
-    const b = parseInt(hex.substr(4, 2), 16);
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
     const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
     return luminance > 0.5;
 }
@@ -260,7 +260,7 @@ export function createModernColorPicker(config) {
         trackColorUsage(normalized);
 
         // Update UI (will be done by refreshAllColorPickers, but do immediately for responsiveness)
-        updateGridColors(grid, normalized, handleColorSelect);
+        buildColorGrid(grid, normalized, handleColorSelect);
 
         // Notify parent
         onChange(normalized);
@@ -348,18 +348,6 @@ function buildColorGrid(grid, currentColor, onSelect) {
     // Add custom color button (+ button) - always last
     const customButton = createCustomColorButton(normalizedCurrent, onSelect);
     grid.appendChild(customButton);
-}
-
-/**
- * Updates the grid with new colors (called when selection changes).
- *
- * @param {HTMLElement} grid - Grid container
- * @param {string} currentColor - Currently selected color
- * @param {Function} onSelect - Selection handler
- */
-function updateGridColors(grid, currentColor, onSelect) {
-    // Rebuild the entire grid to reflect current frequent colors
-    buildColorGrid(grid, currentColor, onSelect);
 }
 
 /**
@@ -486,7 +474,7 @@ export function initColorPickerEvents() {
             resetColorCache();
         });
         _eventSubscribed = true;
-    } catch (_e) {
+    } catch {
         // EventBus not yet initialized, will be called again later
     }
 }

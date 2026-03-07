@@ -7,18 +7,18 @@
  */
 
 import * as THREE from '../../vendor/three/three.module.js';
-import { getEventBus } from '../store/services.js';
-import { EventTypes } from '../events/event_types.js';
+import config from '../config.js';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
+import { getOrientation, saveOrientation, clearOrientation, getMarkers360 } from '@store';
+import { showSuccess } from '@utils/toast_service.js';
+import { LRUCache } from '@utils/lru-cache.js';
 import { NAV_CONSTANTS } from './navigation/constants.js';
-import { getOrientation, saveOrientation, clearOrientation, getMarkers360 } from '../store';
-import { showSuccess } from '../utilities/toast_service.js';
-import { LRUCache } from '../utilities/lru-cache.js';
 import {
     activateKeyboardService360,
     deactivateKeyboardService360,
     setKeyboardCallbacks
 } from './services/keyboard_service_360.js';
-import config from '../config.js';
 
 // ===== CONFIGURATION =====
 
@@ -1107,9 +1107,8 @@ export async function deactivateCurrentTool360() {
         if (isMarkerToolActive()) {
             deactivateMarkerTool();
         }
-    } catch (_error) {
-        // Tool module not loaded, ignore
-        console.warn('[street-view-viewer] Tool module not loaded during deactivation:', _error);
+    } catch (error) {
+        console.warn('[street-view-viewer] Tool module not loaded during deactivation:', error);
     }
 }
 

@@ -13,7 +13,6 @@ import {
     getSourceTypeFromStorage,
     isUncopyableFeatureType,
     hasImageResource,
-    getAllSourceTypes,
     getStateManager,
     isCurrentMapLockedSync,
     buildLayerMappingForMove
@@ -485,15 +484,6 @@ class ClipboardManager {
     // =========================================================================
 
     /**
-     * Check if pasting on the same map where features were copied.
-     * @returns {boolean}
-     */
-    isSameMapPaste() {
-        const currentMapName = getCurrentMapNameSync();
-        return this.clipboard.sourceMapName === currentMapName;
-    }
-
-    /**
      * Get storage type from source type.
      * @param {string} sourceType
      * @returns {string}
@@ -509,105 +499,6 @@ class ClipboardManager {
      */
     getSourceTypeFromStorage(storageType) {
         return getSourceTypeFromStorage(storageType);
-    }
-
-    /**
-     * Normalize center coordinates (handle string format).
-     * @param {*} center
-     * @returns {Array<number>}
-     */
-    normalizeCenter(center) {
-        if (typeof center === 'string') {
-            try {
-                center = JSON.parse(center);
-            } catch (_e) {
-                console.error('Erro ao parsear center:', center, _e);
-                return [0, 0];
-            }
-        }
-
-        if (!Array.isArray(center) || center.length < 2) {
-            console.error('Center inválido:', center);
-            return [0, 0];
-        }
-
-        return center;
-    }
-
-    /**
-     * Normalize coordinates (handle string format).
-     * @param {*} coords
-     * @returns {Array}
-     */
-    normalizeCoordinates(coords) {
-        if (typeof coords === 'string') {
-            try {
-                coords = JSON.parse(coords);
-            } catch (_e) {
-                console.warn('Erro ao parsear coordenadas:', coords);
-                return [];
-            }
-        }
-        return Array.isArray(coords) ? coords : [];
-    }
-
-    /**
-     * Validate if feature can be pasted.
-     * @param {Object} feature
-     * @returns {boolean}
-     */
-    isValidForPaste(feature) {
-        const BLACKLISTED_TYPES = [];
-        return feature &&
-            feature.type === 'Feature' &&
-            feature.properties &&
-            feature.properties.source &&
-            feature.geometry &&
-            !BLACKLISTED_TYPES.includes(feature.properties.source);
-    }
-
-    // =========================================================================
-    // DEBUG METHODS
-    // =========================================================================
-
-    /**
-     * Get clipboard info for debugging.
-     * @returns {Object}
-     */
-    getClipboardInfo() {
-        const currentMapName = getCurrentMapNameSync();
-        const clipboardData = this.clipboard;
-        return {
-            hasData: this.hasClipboardData(),
-            featureCount: clipboardData.features.length,
-            types: clipboardData.features.map(item => item.type),
-            copiedAt: clipboardData.copiedAt,
-            sourceMap: clipboardData.sourceMapName,
-            currentMap: currentMapName,
-            isSameMap: clipboardData.sourceMapName === currentMapName,
-            willApplyOffset: clipboardData.sourceMapName === currentMapName,
-            toolCentricStatus: this.getToolCentricStatus()
-        };
-    }
-
-    /**
-     * Get tool-centric implementation status for debugging.
-     * @returns {Object}
-     */
-    getToolCentricStatus() {
-        const status = {};
-
-        for (const type of getAllSourceTypes()) {
-            const control = this.selectionManager.controls.get(type);
-            const hasToolCentricInterface = control &&
-                typeof control.prepareForPaste === 'function' &&
-                typeof control.canCopy === 'function' &&
-                typeof control.prepareForCopy === 'function';
-
-            status[type] = hasToolCentricInterface ? 'implemented' : 'missing';
-        }
-
-        return status;
     }
 }
 

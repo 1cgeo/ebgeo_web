@@ -11,11 +11,11 @@ import {
     subscribe,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
-import { showSuccess, showError } from '../../utilities/index.js';
-import { EventTypes } from '../../events/event_types.js';
-import { isViewer3DOpen } from '../../utilities/viewer3d-state.js';
-import { isCurrentMapLockedSync } from '../../store/index.js';
+} from '@utils/event-cleanup.js';
+import { showSuccess, showError } from '@utils/index.js';
+import { EventTypes } from '@events/event_types.js';
+import { isViewer3DOpen } from '@utils/viewer3d-state.js';
+import { isCurrentMapLockedSync } from '@store/index.js';
 
 /**
  * Import format configurations.
@@ -118,7 +118,7 @@ export class ImportTab {
         // Hidden file input
         this._fileInput = document.createElement('input');
         this._fileInput.type = 'file';
-        this._fileInput.style.display = 'none';
+        this._fileInput.className = 'sidebar-hidden-file-input';
         this._fileInput.multiple = false;
         addDomListener(this, this._fileInput, 'change', (e) => this._handleFileSelect(e));
         this._container.appendChild(this._fileInput);

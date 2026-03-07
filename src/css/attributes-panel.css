@@ -118,6 +118,10 @@
     transform: translateY(-1px);
 }
 
+.feature-name-editable.hidden {
+    display: none;
+}
+
 .feature-name-input {
     display: none;
     width: 100%;
@@ -128,6 +132,10 @@
     border-radius: var(--radius-sm);
     outline: none;
     background-color: white;
+}
+
+.feature-name-input.editing {
+    display: block;
 }
 
 .feature-name-input:focus {
@@ -579,6 +587,12 @@
     cursor: not-allowed;
     color: var(--gray-400);
     background-color: transparent;
+}
+
+.feature-menu-separator {
+    height: 1px;
+    background: #e0e0e0;
+    margin: 4px 0;
 }
 
 /* ===== MODERN COMPONENTS ===== */
@@ -1067,6 +1081,8 @@
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-medium);
     color: var(--gray-600);
+    display: block;
+    margin-bottom: var(--space-2);
 }
 
 .attr-modern-hatch-grid {
@@ -1167,6 +1183,11 @@
 
 .attr-modern-alignment-btn.selected svg {
     color: var(--primary);
+}
+
+.attr-modern-alignment-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .attr-modern-button-row {
@@ -1286,6 +1307,41 @@
     background: var(--gray-50);
     border-color: var(--primary-light);
     color: var(--primary);
+}
+
+/* ===== COORDINATE EDITOR ===== */
+.coordinate-editor-container {
+    margin-bottom: 10px;
+}
+
+.coordinate-editor-label {
+    display: block;
+    font-weight: var(--font-weight-medium);
+    color: #333;
+    font-size: var(--font-size-xs);
+    margin-bottom: 4px;
+}
+
+.coordinate-editor-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.coordinate-editor-input {
+    flex-grow: 1;
+    padding: 6px 8px;
+    border: var(--border-width) solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    background: var(--gray-50);
+    font-family: monospace;
+    cursor: text;
+}
+
+.coordinate-editor-btn {
+    padding: 6px 8px;
+    min-width: auto;
 }
 
 /* Fill with coordinates button wrapper */
@@ -1490,6 +1546,11 @@
     box-shadow: var(--panel-focus-ring);
 }
 
+.attr-modern-textarea-input--single-line {
+    min-height: 38px;
+    resize: none;
+}
+
 .attr-modern-image-preview {
     margin-bottom: var(--space-4);
     aspect-ratio: 16/9;
@@ -1511,6 +1572,29 @@
     width: 48px;
     height: 48px;
     color: var(--gray-400);
+}
+
+/* ===== ARROW MERGED INDICATOR ===== */
+.arrow-merged-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-2) var(--space-3);
+    margin: var(--space-1) 0 var(--space-2);
+    background-color: var(--surface-secondary, #f0f4ff);
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    color: var(--text-secondary, #555);
+}
+
+.arrow-split-btn {
+    padding: var(--space-1) 10px;
+    border: var(--border-width) solid var(--border-color, #ccc);
+    border-radius: var(--radius-sm);
+    background: var(--surface-primary, white);
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text-primary, #333);
 }
 
 /* =========================================================================
@@ -1823,4 +1907,239 @@
     .unified-attributes-panel select {
         font-size: var(--font-size-base);
     }
+}
+
+/* ===== HATCH CONFIG MODAL ===== */
+.hatch-config-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: var(--z-modal, 10000);
+}
+
+.hatch-config-modal__content {
+    background: white;
+    border-radius: var(--radius-lg, 8px);
+    padding: var(--space-5, 20px);
+    min-width: 320px;
+    max-width: 400px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.hatch-config-modal__title {
+    margin: 0 0 var(--space-5, 20px) 0;
+    font-size: 16px;
+}
+
+.hatch-config-modal__type-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.hatch-config-modal__type-label {
+    min-width: 100px;
+    font-size: 13px;
+}
+
+.hatch-config-modal__select {
+    width: 100%;
+    padding: 6px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+
+.hatch-config-modal__close-btn {
+    width: 100%;
+    margin-top: var(--space-5, 20px);
+}
+
+/* ===== COORDINATION MEASURE COMPONENTS ===== */
+
+/* Color control section */
+.coord-color-control {
+    margin-bottom: 16px;
+}
+
+.coord-color-control__label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    font-size: 15px;
+    color: #333;
+}
+
+.coord-color-control__picker-wrapper {
+    margin-top: 12px;
+}
+
+.coord-color-control__picker--disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Text modifier fields */
+.coord-text-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.coord-text-field__label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #495057;
+}
+
+.coord-text-field__input,
+.coord-text-field__select {
+    padding: 8px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.coord-text-field__help {
+    font-size: 11px;
+    color: #6c757d;
+    font-style: italic;
+}
+
+.coord-text-modifiers {
+    padding-top: 15px;
+}
+
+.coord-text-modifiers__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+/* Digital combo box */
+.coord-combo {
+    margin-bottom: 20px;
+    position: relative;
+}
+
+.coord-combo__label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    font-size: 15px;
+    color: #333;
+}
+
+.coord-combo__select-wrapper {
+    position: relative;
+}
+
+.coord-combo__display {
+    width: 100%;
+    padding: 15px 40px 15px 15px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    font-size: 15px;
+    background: #fff;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 50px;
+}
+
+.coord-combo__display--open {
+    border-color: #007bff;
+}
+
+.coord-combo__display-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+
+.coord-combo__display-thumbnail {
+    width: 30px;
+    height: 30px;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
+.coord-combo__display-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.coord-combo__display-text--simple {
+    flex: 1;
+    overflow: hidden;
+    word-wrap: break-word;
+    pointer-events: none;
+}
+
+.coord-combo__arrow {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 15px;
+    pointer-events: none;
+    color: #000;
+}
+
+.coord-combo__dropdown {
+    position: fixed;
+    max-height: 400px;
+    overflow-y: auto;
+    background: white;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    z-index: 10001;
+    display: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    min-width: 300px;
+}
+
+.coord-combo__dropdown--simple {
+    max-height: 300px;
+    min-width: 200px;
+}
+
+.coord-combo__option {
+    padding: 12px 15px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.coord-combo__option--selected {
+    background-color: #e9ecef;
+}
+
+.coord-combo__option-thumbnail {
+    width: 25px;
+    height: 25px;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
+.coord-combo__option-text {
+    flex: 1;
+}
+
+/* Point button full-width */
+.coord-point-btn {
+    flex: 1;
 }

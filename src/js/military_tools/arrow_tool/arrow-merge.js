@@ -1,7 +1,7 @@
 // Path: js/military_tools/arrow_tool/arrow-merge.js
 
-import { addFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils, showSuccess, showWarning } from '../../utilities';
+import { addFeature, removeFeature, getActiveLayerIdSync } from '@store';
+import { IDUtils, showSuccess, showWarning } from '@utils';
 import AddArrowGeometry from './add_arrow_geometry.js';
 
 /**

@@ -66,11 +66,11 @@
     width: 28px;
     height: 28px;
     color: #666;
+    cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: color var(--transition-fast);
-    cursor: pointer;
 }
 
 .layer-expand-icon:hover {
@@ -859,4 +859,54 @@
         -webkit-overflow-scrolling: touch;
         overscroll-behavior: contain;
     }
+}
+
+/* ===== ERROR / EMPTY MESSAGES ===== */
+
+.features-error {
+    padding: 20px;
+    text-align: center;
+    color: #dc3545;
+    font-size: 14px;
+    background-color: #fff;
+    border-radius: 4px;
+}
+
+.features-empty-message {
+    padding: 20px;
+    text-align: center;
+    color: #666;
+    font-size: 14px;
+    font-style: italic;
+    background-color: #fff;
+    border-radius: 4px;
+}
+
+/* ===== LOCK TOGGLE ACTIVE STATE ===== */
+
+.lock-toggle--active svg {
+    color: #dc3545;
+}
+
+/* ===== LAYER RENAME INPUT ===== */
+
+.layer-rename-input {
+    font-size: inherit;
+    padding: 2px 4px;
+    border: 1px solid #007bff;
+    border-radius: 3px;
+    outline: none;
+    width: 120px;
+}
+
+/* ===== ANALYSIS LAYERS SPACER ===== */
+
+.analysis-layers-spacer {
+    height: 4px;
+}
+
+/* ===== SEARCH CLEAR BUTTON VISIBILITY ===== */
+
+.attribute-table-search-clear--hidden {
+    display: none;
 }

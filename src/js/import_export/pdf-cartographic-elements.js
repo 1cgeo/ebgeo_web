@@ -11,8 +11,9 @@
  */
 
 import proj4 from 'proj4';
+import { GRID_MARGIN_MM, UTM_MAX_SCALE_DENOM, parseScaleDenom } from './pdf-export.constants.js';
 // Re-exported so pdf-export.tab.js can dynamically import it alongside composeLayout.
-export { loadLogoImage } from '../utilities/logo-base64.js';
+export { loadLogoImage } from '@utils/logo-base64.js';
 
 // ============================================================================
 // CONSTANTS
@@ -25,9 +26,6 @@ const SCALE_BAR_HEIGHT = 60;
 const NORTH_ARROW_SIZE = 90;
 const LOGO_SIZE = 90;
 const FONT_FAMILY = 'Arial, Helvetica, sans-serif';
-
-/** Margin added around the map for grid labels (mm). Must match _gridMarginMM in pdf-export.tab.js */
-const GRID_MARGIN_MM = 5;
 
 /** Number of sample points for drawing curved grid lines */
 const GRID_LINE_SAMPLES = 80;
@@ -78,10 +76,10 @@ export function composeLayout(mapCanvas, options) {
 
     const mapW = mapCanvas.width;
     const mapH = mapCanvas.height;
-    const scaleDenom = scale ? parseInt(scale.split(':')[1], 10) : 25000;
+    const scaleDenom = parseScaleDenom(scale || '1:25000');
 
     // UTM grid is not meaningful at very small scales (1:2.500.000+)
-    const utmAllowed = showUTMGrid && scaleDenom < 2500000;
+    const utmAllowed = showUTMGrid && scaleDenom < UTM_MAX_SCALE_DENOM;
     const hasGrids = showLatLongGrid || utmAllowed;
 
     // When grids are on, add margin bands for labels
@@ -121,7 +119,7 @@ export function composeLayout(mapCanvas, options) {
     // Draw UTM grid first (black, heavier), then lat/long (blue, lighter) on top
     const hasBothGrids = utmAllowed && showLatLongGrid;
     if (utmAllowed && mapBounds && adjProjFn) {
-        _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, hasBothGrids, uiScale);
+        _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, uiScale);
     }
     if (showLatLongGrid && mapBounds && adjProjFn) {
         _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, hasBothGrids, uiScale);
@@ -218,7 +216,6 @@ function _drawTitle(ctx, title, width, marginPx = 0) {
     ctx.lineWidth = 1;
     _roundRect(ctx, bgX, bgY, bgWidth, bgHeight, 6);
     ctx.fill();
-    _roundRect(ctx, bgX, bgY, bgWidth, bgHeight, 6);
     ctx.stroke();
 
     // Title text (clipped to background width)
@@ -228,7 +225,6 @@ function _drawTitle(ctx, title, width, marginPx = 0) {
     ctx.clip();
 
     ctx.fillStyle = '#1a1a1a';
-    ctx.font = `bold 36px ${FONT_FAMILY}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(title, width / 2, bgY + bgHeight / 2 + paddingY / 4);
@@ -299,7 +295,7 @@ function _drawNorthArrow(ctx, x, y, bearing) {
  * Draws a scale bar at the given position with labels at each division.
  */
 function _drawScaleBar(ctx, x, y, scale, canvasWidth, dpi = 300) {
-    const denominator = parseInt(scale.split(':')[1], 10);
+    const denominator = parseScaleDenom(scale);
 
     // Calculate a "nice" distance for the scale bar (roughly 1/5 of map width)
     const mapWidthMM = canvasWidth / (dpi / 25.4);
@@ -572,9 +568,8 @@ function _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDen
  * Lines are black and solid. Labels show full easting/northing with units.
  * Handles multiple UTM zones when the map spans a zone boundary.
  * Side labels are rotated vertically.
- * @param {boolean} hasBothGrids - When true, labels always sit close to frame
  */
-function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, _hasBothGrids, uiScale = 1) {
+function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, uiScale = 1) {
     const { utmMeters } = _getGridSpacing(scaleDenom);
     const { west, east, south, north } = mapBounds;
 

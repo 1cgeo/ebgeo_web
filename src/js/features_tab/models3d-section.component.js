@@ -6,13 +6,11 @@
  * allowing navigation to features in 3D viewer.
  */
 
-import { getAllMarkers, getAllMeasurements, getAllViewsheds, removeAllFeaturesByTileset, getControl, getAllCameraPositions, clearCameraPosition } from '../store';
-import { getStateManager } from '../store/services.js';
-import { EventTypes } from '../events/index.js';
-import config from '../config.js';
-import { showConfirm } from '../modals/confirm.modal.js';
-import { showSuccess, showError } from '../utilities/toast_service.js';
-import { escapeHtml } from '../utilities/html-escape.js';
+import { getAllMarkers, getAllMeasurements, getAllViewsheds, removeAllFeaturesByTileset, getControl, getAllCameraPositions, clearCameraPosition, getStateManager } from '@store';
+import { EventTypes } from '@events';
+import config from '@js/config.js';
+import { showConfirm } from '@modals';
+import { showSuccess, showError, escapeHtml } from '@utils';
 
 /**
  * Icons used in the component.
@@ -538,7 +536,7 @@ async function openTilesetInViewer(tilesetId) {
         } else {
             // Fallback: directly import and call (may not show container properly)
             console.warn('modelsViewerControl not found, using fallback');
-            const { openViewerWithTileset } = await import('../3d_models_viewer_tool/map_3d.js');
+            const { openViewerWithTileset } = await import('@js/3d_models_viewer_tool/map_3d.js');
             await openViewerWithTileset(tilesetId);
         }
     } catch (error) {
@@ -558,11 +556,11 @@ async function navigateToMarker(marker) {
         // Wait for viewer to be ready, then fly to marker and select it
         setTimeout(async () => {
             try {
-                const markerModule = await import('../3d_models_viewer_tool/tools/marker_tool_3d.js');
+                const markerModule = await import('@js/3d_models_viewer_tool/tools/marker_tool_3d.js');
                 markerModule.flyToMarker(marker);
 
                 // Also emit the marker clicked event to open the panel
-                const { getEventBus } = await import('../store/services.js');
+                const { getEventBus } = await import('@store/services.js');
                 const eventBus = getEventBus();
                 if (eventBus) {
                     eventBus.emit(EventTypes.MARKER_3D_CLICKED, {
@@ -591,11 +589,11 @@ async function navigateToMeasurement(measurement) {
         // Wait for viewer to be ready, then fly to measurement and select it
         setTimeout(async () => {
             try {
-                const measurementModule = await import('../3d_models_viewer_tool/tools/measurement_tool_3d.js');
+                const measurementModule = await import('@js/3d_models_viewer_tool/tools/measurement_tool_3d.js');
                 measurementModule.flyToMeasurement(measurement);
 
                 // Also emit the measurement clicked event to open the panel
-                const { getEventBus } = await import('../store/services.js');
+                const { getEventBus } = await import('@store/services.js');
                 const eventBus = getEventBus();
                 if (eventBus) {
                     eventBus.emit(EventTypes.MEASUREMENT_3D_CLICKED, {
@@ -624,11 +622,11 @@ async function navigateToViewshed(viewshed) {
         // Wait for viewer to be ready, then fly to viewshed and select it
         setTimeout(async () => {
             try {
-                const viewshedModule = await import('../3d_models_viewer_tool/tools/viewshed_tool_3d.js');
+                const viewshedModule = await import('@js/3d_models_viewer_tool/tools/viewshed_tool_3d.js');
                 viewshedModule.flyToViewshed(viewshed);
 
                 // Also emit the viewshed clicked event to open the panel
-                const { getEventBus } = await import('../store/services.js');
+                const { getEventBus } = await import('@store/services.js');
                 const eventBus = getEventBus();
                 if (eventBus) {
                     eventBus.emit(EventTypes.VIEWSHED_3D_CLICKED, {

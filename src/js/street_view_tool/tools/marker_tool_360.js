@@ -5,8 +5,8 @@
  * Allows users to place markers (POIs) on the 360 panorama.
  */
 
-import { addMarker360 } from '../../store';
-import { showSuccess } from '../../utilities/toast_service.js';
+import { addMarker360 } from '@store';
+import { showSuccess } from '@utils/toast_service.js';
 
 // ===== STATE =====
 

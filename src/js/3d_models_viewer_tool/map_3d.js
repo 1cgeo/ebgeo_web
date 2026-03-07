@@ -1,15 +1,15 @@
 // Path: js/3d_models_viewer_tool/map_3d.js
-import config from '../config.js';
+import config from '@js/config.js';
 import {
     saveCameraPosition,
     getCameraPosition,
     hasSavedCameraPosition,
     clearCameraPosition,
     isCurrentMapLockedSync
-} from '../store/index.js';
-import { showSuccess } from '../utilities/index.js';
-import { getEventBus } from '../store/services.js';
-import { EventTypes } from '../events/event_types.js';
+} from '@store/index.js';
+import { showSuccess } from '@utils/index.js';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
 import {
     setKeyboardCallbacks3D,
     activateKeyboardService3D,
@@ -20,7 +20,7 @@ import {
     applyCesiumPreLoadPatches,
     applyCesiumPostLoadPatches
 } from './services/cesium-compat.js';
-import { hideLoading3DScreen } from '../ui/loading-screen-3d.js';
+import { hideLoading3DScreen } from '@ui/loading-screen-3d.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
@@ -364,9 +364,6 @@ async function setupTools(viewer) {
         const mouseCoordModule = await import('./tools/mouse_coordinates_3d.js');
         cesiumState.modules.mouseCoordinates = mouseCoordModule;
 
-        const viewshedModule = await import('./tools/viewshed.js');
-        cesiumState.modules.viewshed = viewshedModule;
-
         const screenshotModule = await import('./tools/screenshot_tool.js');
         cesiumState.modules.screenshot = screenshotModule;
 
@@ -460,8 +457,8 @@ function resumeRendering() {
  */
 export function cleanup3DFeatures() {
     try {
-        if (cesiumState.modules.viewshed) {
-            cesiumState.modules.viewshed.clearAllViewField();
+        if (cesiumState.modules.viewshedTool) {
+            cesiumState.modules.viewshedTool.clearAllViewField();
         }
 
         if (cesiumState.modules.mouseCoordinates) {
@@ -1377,8 +1374,8 @@ export function deactivateActiveTool3D() {
 
 function cleanupActiveTools() {
     try {
-        if (cesiumState.modules.viewshed) {
-            cesiumState.modules.viewshed.clearAllViewField();
+        if (cesiumState.modules.viewshedTool) {
+            cesiumState.modules.viewshedTool.clearAllViewField();
         }
     } catch (error) {
         console.warn('Error cleaning tools:', error);

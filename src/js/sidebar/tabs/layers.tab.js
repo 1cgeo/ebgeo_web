@@ -10,8 +10,8 @@ import {
     subscribe,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
-import { EventTypes } from '../../events/event_types.js';
+} from '@utils/event-cleanup.js';
+import { EventTypes } from '@events/event_types.js';
 
 /**
  * Layers tab component - wrapper around FeaturesTab.
@@ -83,7 +83,7 @@ export class LayersTab {
         selectors.forEach(selector => {
             const element = this._featuresTabContainer.querySelector(selector);
             if (element) {
-                element.style.display = 'none';
+                element.remove();
             }
         });
     }

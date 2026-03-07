@@ -126,7 +126,6 @@ function attachHeaderEventHandlers(header, layerId, callbacks) {
             e.stopPropagation();
             callbacks.onToggleLayerExpansion(layerId);
         };
-        expandIcon.style.cursor = 'pointer';
     }
 
     const visBtn = header.querySelector('.visibility-toggle');

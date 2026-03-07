@@ -10,8 +10,8 @@ import {
     getFeatureById,
     getFeatureIconFromStorage,
     getSourceTypeFromStorage,
-} from '../store';
-import { zoomToFeature, zoomAndSelectFeature, escapeHtml } from '../utilities';
+} from '@store';
+import { zoomToFeature, zoomAndSelectFeature, escapeHtml } from '@utils';
 
 /**
  * @typedef {Object} FeatureItemCallbacks
@@ -233,13 +233,7 @@ export function updateLockButton(container, featureId, locked) {
         const title = locked ? 'Desbloquear' : 'Bloquear';
         btn.innerHTML = icon;
         btn.title = title;
-
-        const svg = btn.querySelector('svg');
-        if (svg && locked) {
-            svg.style.color = '#dc3545';
-        } else if (svg) {
-            svg.style.color = '';
-        }
+        btn.classList.toggle('lock-toggle--active', locked);
     }
 }
 

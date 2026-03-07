@@ -10,6 +10,7 @@ import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddPolygonControl extends BaseControl {
+    featureType = 'polygon';
     constructor(toolManager) {
         super(toolManager);
 
@@ -56,24 +57,6 @@ class AddPolygonControl extends BaseControl {
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
-
-    /**
-     * Get currently selected polygon feature from SelectionManager
-     * @returns {Object|null} Selected polygon feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('polygon');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected polygon features from SelectionManager
-     * @returns {Array} Array of selected polygon features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('polygon')
-            .map(item => item.feature);
-    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -828,55 +811,7 @@ class AddPolygonControl extends BaseControl {
      * Show warning when vertex cannot be removed
      */
     showVertexRemovalWarning() {
-        // Remove existing warning if any
-        const existingWarning = document.querySelector('.vertex-removal-warning');
-        if (existingWarning) {
-            existingWarning.remove();
-        }
-
-        const warning = document.createElement('div');
-        warning.className = 'vertex-removal-warning';
-        warning.textContent = 'Polígono deve ter no mínimo 3 vértices';
-        warning.style.cssText = `
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: #f44336;
-            color: white;
-            padding: 12px 24px;
-            border-radius: 4px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 14px;
-            font-weight: 500;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            z-index: 10000;
-            animation: fadeInOut 2s ease-in-out forwards;
-        `;
-
-        // Add animation style if not exists
-        if (!document.querySelector('#vertex-warning-style')) {
-            const style = document.createElement('style');
-            style.id = 'vertex-warning-style';
-            style.textContent = `
-                @keyframes fadeInOut {
-                    0% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
-                    15% { opacity: 1; transform: translateX(-50%) translateY(0); }
-                    85% { opacity: 1; transform: translateX(-50%) translateY(0); }
-                    100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
-                }
-            `;
-            document.head.appendChild(style);
-        }
-
-        document.body.appendChild(warning);
-
-        // Remove after animation
-        setTimeout(() => {
-            if (warning.parentNode) {
-                warning.remove();
-            }
-        }, 2000);
+        showWarning('Polígono deve ter no mínimo 3 vértices');
     }
 
     /**
@@ -1104,7 +1039,6 @@ class AddPolygonControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('polygons').getData();
-        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
@@ -1112,7 +1046,6 @@ class AddPolygonControl extends BaseControl {
 
                 if (currentFeature) {
                     await updateFeature('polygons', currentFeature);
-                    _hasChanges = true;
                 }
             }
         }
@@ -1200,9 +1133,6 @@ class AddPolygonControl extends BaseControl {
             this.updateSelectionManagerFeatures(features);
         }
     }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     updateSelectionManagerFeature(feature) {
         this.selectionManager.updateSelectedFeature('polygon', feature.properties.id, feature);
     }
@@ -1269,7 +1199,6 @@ class AddPolygonControl extends BaseControl {
     }
 
     setupBaseEventListeners = () => {
-        // Base listeners setup if needed
     }
 
     removeAllEventListeners = () => {

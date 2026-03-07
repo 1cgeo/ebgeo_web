@@ -7,8 +7,6 @@
  * @module azimuth_distance_tool/components/reference-point
  */
 
-import { COLORS } from '../azimuth_distance_constants.js';
-
 /**
  * Create reference point component.
  *
@@ -30,39 +28,15 @@ export function createReferencePointComponent(options) {
         container.innerHTML = '';
 
         const box = document.createElement('div');
-        box.className = 'reference-point-box';
-        box.style.cssText = `
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 10px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.15s;
-            background: ${hasPoint ? COLORS.primary50 : COLORS.red50};
-            border: 1px ${hasPoint ? 'solid' : 'dashed'} ${hasPoint ? COLORS.primary600 : '#fca5a5'};
-        `;
-
-        // Hover effect
-        box.addEventListener('mouseenter', () => {
-            if (hasPoint) {
-                box.style.background = 'rgba(22,163,74,0.12)';
-                box.style.borderColor = COLORS.primary700;
-            }
-        });
-        box.addEventListener('mouseleave', () => {
-            box.style.background = hasPoint ? COLORS.primary50 : COLORS.red50;
-            box.style.borderColor = hasPoint ? COLORS.primary600 : '#fca5a5';
-        });
+        box.className = hasPoint ? 'azd-ref-box azd-ref-box--set' : 'azd-ref-box azd-ref-box--empty';
 
         // Reticle icon
-        const iconColor = hasPoint ? COLORS.primary600 : COLORS.red600;
         const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         icon.setAttribute('width', '14');
         icon.setAttribute('height', '14');
         icon.setAttribute('viewBox', '0 0 24 24');
         icon.setAttribute('fill', 'none');
-        icon.setAttribute('stroke', iconColor);
+        icon.setAttribute('stroke', 'currentColor');
         icon.setAttribute('stroke-width', '2.5');
         icon.innerHTML = `
             <circle cx="12" cy="12" r="3"/>
@@ -75,132 +49,43 @@ export function createReferencePointComponent(options) {
 
         // Text content
         const text = document.createElement('span');
-        text.style.cssText = `
-            font-size: 11.5px;
-            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-            font-weight: 500;
-            color: ${hasPoint ? COLORS.primary700 : COLORS.red600};
-            flex: 1;
-        `;
-
-        if (hasPoint) {
-            text.textContent = `${referencePoint[1].toFixed(6)}, ${referencePoint[0].toFixed(6)}`;
-        } else {
-            text.textContent = 'Clique no mapa para definir';
-        }
-
+        text.className = hasPoint ? 'azd-ref-text azd-ref-text--set' : 'azd-ref-text azd-ref-text--empty';
+        text.textContent = hasPoint
+            ? `${referencePoint[1].toFixed(6)}, ${referencePoint[0].toFixed(6)}`
+            : 'Clique no mapa para definir';
         box.appendChild(text);
 
-        // Buttons container (when point is set)
+        // Action buttons (when point is set)
         if (hasPoint) {
             const buttonsContainer = document.createElement('div');
-            buttonsContainer.style.cssText = `display: flex; gap: 4px;`;
+            buttonsContainer.className = 'azd-ref-buttons';
 
-            // Edit button
-            const editBtn = document.createElement('button');
-            editBtn.title = 'Editar coordenadas';
-            editBtn.style.cssText = `
-                width: 22px;
-                height: 22px;
-                border: none;
-                background: transparent;
-                cursor: pointer;
-                padding: 0;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: ${COLORS.gray500};
-                transition: all 0.15s;
-                border-radius: 4px;
-            `;
-            editBtn.innerHTML = `
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-            `;
+            buttonsContainer.appendChild(createActionButton(
+                'Editar coordenadas',
+                'azd-ref-action-btn azd-ref-action-btn--edit',
+                createEditIcon(),
+                (e) => { e.stopPropagation(); onEditCoordinates(); }
+            ));
 
-            editBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                onEditCoordinates();
-            });
-
-            editBtn.addEventListener('mouseenter', () => {
-                editBtn.style.color = COLORS.primary600;
-                editBtn.style.background = 'rgba(22,163,74,0.1)';
-            });
-            editBtn.addEventListener('mouseleave', () => {
-                editBtn.style.color = COLORS.gray500;
-                editBtn.style.background = 'transparent';
-            });
-
-            buttonsContainer.appendChild(editBtn);
-
-            // Reset/reselect button
-            const resetBtn = document.createElement('button');
-            resetBtn.title = 'Escolher novo ponto no mapa';
-            resetBtn.style.cssText = `
-                width: 22px;
-                height: 22px;
-                border: none;
-                background: transparent;
-                cursor: pointer;
-                padding: 0;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: ${COLORS.gray500};
-                transition: all 0.15s;
-                border-radius: 4px;
-            `;
-            resetBtn.innerHTML = `
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-                    <path d="M3 3v5h5"/>
-                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
-                    <path d="M16 21h5v-5"/>
-                </svg>
-            `;
-
-            resetBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                // Reset point and trigger map click mode
-                if (onReset) {
-                    onReset();
+            buttonsContainer.appendChild(createActionButton(
+                'Escolher novo ponto no mapa',
+                'azd-ref-action-btn azd-ref-action-btn--reset',
+                createResetIcon(),
+                (e) => {
+                    e.stopPropagation();
+                    onReset?.();
+                    onClickMap();
                 }
-                onClickMap();
-            });
+            ));
 
-            resetBtn.addEventListener('mouseenter', () => {
-                resetBtn.style.color = COLORS.amber600;
-                resetBtn.style.background = 'rgba(245,158,11,0.1)';
-            });
-            resetBtn.addEventListener('mouseleave', () => {
-                resetBtn.style.color = COLORS.gray500;
-                resetBtn.style.background = 'transparent';
-            });
-
-            buttonsContainer.appendChild(resetBtn);
             box.appendChild(buttonsContainer);
         }
 
         // Click handler for the whole box
         box.addEventListener('click', (e) => {
-            // Don't trigger if clicking on buttons
-            if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
-                return;
-            }
-
-            if (!hasPoint) {
-                // No point yet - enter map click mode
-                onClickMap();
-            } else {
-                // Has point - reset and enter map click mode
-                if (onReset) {
-                    onReset();
-                }
-                onClickMap();
-            }
+            if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+            onReset?.();
+            onClickMap();
         });
 
         container.appendChild(box);
@@ -212,6 +97,64 @@ export function createReferencePointComponent(options) {
         container,
         update: (newOptions) => render({ ...options, ...newOptions })
     };
+}
+
+/**
+ * Create an action button with an SVG icon.
+ *
+ * @param {string} title - Button tooltip
+ * @param {string} className - CSS class name
+ * @param {SVGElement} iconSvg - SVG icon element
+ * @param {Function} onClick - Click handler
+ * @returns {HTMLButtonElement}
+ */
+function createActionButton(title, className, iconSvg, onClick) {
+    const btn = document.createElement('button');
+    btn.title = title;
+    btn.className = className;
+    btn.appendChild(iconSvg);
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+/**
+ * Create the edit (pencil) SVG icon.
+ * @returns {SVGElement}
+ */
+function createEditIcon() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '12');
+    svg.setAttribute('height', '12');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.innerHTML = `
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+    `;
+    return svg;
+}
+
+/**
+ * Create the reset (refresh) SVG icon.
+ * @returns {SVGElement}
+ */
+function createResetIcon() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '12');
+    svg.setAttribute('height', '12');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.innerHTML = `
+        <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+        <path d="M3 3v5h5"/>
+        <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+        <path d="M16 21h5v-5"/>
+    `;
+    return svg;
 }
 
 /**

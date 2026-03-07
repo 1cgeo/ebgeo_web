@@ -190,6 +190,7 @@ describe('addFeature', () => {
 
     it('blocks add on locked map', async () => {
         mockLockedMaps.value = new Set(['TestMap']);
+        isCurrentMapLockedSync.mockReturnValue(true);
         const feature = makeFeature('f1');
 
         await addFeature('points', feature);
@@ -543,6 +544,7 @@ describe('addFeatures', () => {
 
     it('blocks batch add on locked map', async () => {
         mockLockedMaps.value = new Set(['TestMap']);
+        isCurrentMapLockedSync.mockReturnValue(true);
 
         await addFeatures({ points: [makeFeature('p1')] });
 

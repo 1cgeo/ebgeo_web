@@ -13,6 +13,7 @@ import AddImageGeometry from "./add_image_geometry.js";
 import { BaseControl } from "../../tool_manager";
 
 class AddImageControl extends BaseControl {
+    featureType = 'image';
   constructor(toolManager) {
     super(toolManager);
 
@@ -42,26 +43,6 @@ class AddImageControl extends BaseControl {
   static IMAGE_QUALITY = 0.7;
 
   // ===== SINGLE SOURCE OF TRUTH =====
-
-  /**
-   * Get currently selected image feature from SelectionManager
-   * @returns {Object|null} Selected image feature or null
-   */
-  getSelectedFeature() {
-    const selectedItems =
-      this.selectionManager.getSelectedFeaturesByType("image");
-    return selectedItems.length > 0 ? selectedItems[0].feature : null;
-  }
-
-  /**
-   * Get all selected image features from SelectionManager
-   * @returns {Array} Array of selected image features
-   */
-  getSelectedFeatures() {
-    return this.selectionManager
-      .getSelectedFeaturesByType("image")
-      .map((item) => item.feature);
-  }
 
   // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -212,7 +193,7 @@ class AddImageControl extends BaseControl {
       effectiveZoom
     );
 
-    const updatedFeature = {
+    return {
       ...feature,
       geometry: this.geometry.generate(newCoordinates),
       properties: {
@@ -220,8 +201,6 @@ class AddImageControl extends BaseControl {
         selectionBox: newSelectionBox,
       },
     };
-
-    return updatedFeature;
   }
 
   canMove(feature) {
@@ -821,9 +800,6 @@ class AddImageControl extends BaseControl {
       this.updateSelectionManagerFeatures(features);
     }
   };
-
-  // ===== SELECTION MANAGER INTEGRATION =====
-
   /**
    * Update SelectionManager with current feature data
    * @param {Object} feature - Feature to update in SelectionManager

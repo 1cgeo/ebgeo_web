@@ -1,13 +1,14 @@
 // Path: js/military_tools/occupied_front_tool/add_occupied_front_control.js
 
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils, showWarning } from '../../utilities';
-import { getPointerPosition } from '../../utilities/pointer-utils';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '@store';
+import { IDUtils, showWarning } from '@utils';
+import { getPointerPosition } from '@utils/pointer-utils';
 import { addOccupiedFrontAttributesToPanel } from './occupied_front_attributes_panel.js';
 import AddOccupiedFrontGeometry from './add_occupied_front_geometry.js';
-import { BaseControl } from '../../tool_manager';
+import { BaseControl } from '@tools';
 
 class AddOccupiedFrontControl extends BaseControl {
+    featureType = 'occupied_front';
     constructor(toolManager) {
         super(toolManager);
 
@@ -44,24 +45,6 @@ class AddOccupiedFrontControl extends BaseControl {
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
-
-    /**
-     * Get currently selected occupied front feature from SelectionManager
-     * @returns {Object|null} Selected occupied front feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('occupied_front');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected occupied front features from SelectionManager
-     * @returns {Array} Array of selected occupied front features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('occupied_front')
-            .map(item => item.feature);
-    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -257,7 +240,7 @@ class AddOccupiedFrontControl extends BaseControl {
         if (!this.isActive) return;
 
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
-            console.warn('Coordenadas inválidas para frente ocupada');
+            console.warn('Invalid coordinates for occupied front');
             return;
         }
 
@@ -380,7 +363,7 @@ class AddOccupiedFrontControl extends BaseControl {
             await this.selectionManager.toggleFeatureSelection('occupied_front', featureId, feature);
             this.selectionManager.updateUI();
         } catch (error) {
-            console.error('Erro ao criar frente ocupada:', error);
+            console.error('Error creating occupied front:', error);
         }
     }
 
@@ -767,9 +750,6 @@ class AddOccupiedFrontControl extends BaseControl {
             this.updateSelectionManagerFeatures(features);
         }
     }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     /**
      * Update SelectionManager with current feature data
      * @param {Object} feature - Feature to update in SelectionManager
@@ -816,10 +796,7 @@ class AddOccupiedFrontControl extends BaseControl {
         const data = await this.map.getSource('occupied_fronts').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
-            sourceFeature.properties = {
-                ...feature.properties,
-                baseCoordinates: feature.properties.baseCoordinates
-            };
+            sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('occupied_fronts').setData(data);
         }
@@ -835,11 +812,8 @@ class AddOccupiedFrontControl extends BaseControl {
         try {
             await updateFeature('occupied_fronts', feature);
         } catch (error) {
-            console.error('Erro ao salvar mudanças:', error);
+            console.error('Error saving changes:', error);
         }
-    }
-
-    setupBaseEventListeners = () => {
     }
 
     removeAllEventListeners = () => {

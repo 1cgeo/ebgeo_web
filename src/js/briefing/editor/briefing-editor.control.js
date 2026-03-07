@@ -29,7 +29,7 @@ import {
     cleanup,
     removeElement,
     trackTimer
-} from '../../utilities/event-cleanup.js';
+} from '@utils/event-cleanup.js';
 import {
     getBriefingById,
     updateBriefing,
@@ -43,23 +43,22 @@ import {
     getCurrentMapNameSync,
     setBriefingLockOverride,
     getControl,
+    getEventBus,
     getMapNotes,
     hasMapNotes,
     getMapPosition,
     getAllCameraPositions,
     getAllOrientations
-} from '../../store/index.js';
-import { createQuillEditor } from '../../utilities/quill-helpers.js';
-import { EventTypes } from '../../events/event_types.js';
-import { getEventBus } from '../../store/services.js';
-import { showSuccess, showError, showWarning } from '../../utilities/index.js';
-
-import { showConfirm } from '../../modals/index.js';
-import { getApplicationModeManager, ApplicationMode } from '../../mode/application-mode.manager.js';
-import { getUIVisibilityController, VisibilityProfile } from '../../ui/ui-visibility.controller.js';
-import { isViewer3DOpen } from '../../utilities/viewer3d-state.js';
-import { isStreetView360Open } from '../../utilities/streetview360-state.js';
-import config from '../../config.js';
+} from '@store/index.js';
+import { createQuillEditor } from '@utils/quill-helpers.js';
+import { EventTypes } from '@events/event_types.js';
+import { showSuccess, showError, showWarning } from '@utils/index.js';
+import { showConfirm } from '@modals/index.js';
+import { getApplicationModeManager, ApplicationMode } from '@js/mode/application-mode.manager.js';
+import { getUIVisibilityController, VisibilityProfile } from '@ui/ui-visibility.controller.js';
+import { isViewer3DOpen } from '@utils/viewer3d-state.js';
+import { isStreetView360Open } from '@utils/streetview360-state.js';
+import config from '@js/config.js';
 import { createTransitionService } from '../presentation/transition.service.js';
 
 // ============================================================================
@@ -339,9 +338,9 @@ export class BriefingEditorControl {
                 } else {
                     // Fallback: hide container directly
                     const container = document.getElementById('map-3d-container');
-                    if (container) container.style.display = 'none';
+                    if (container) container.classList.add('hidden');
                     const mapSig = document.getElementById('map-sig');
-                    if (mapSig) mapSig.style.display = 'block';
+                    if (mapSig) mapSig.classList.remove('hidden');
                 }
             }
         } catch (error) {
@@ -350,7 +349,7 @@ export class BriefingEditorControl {
 
         try {
             if (isStreetView360Open()) {
-                const { closeViewer360 } = await import('../../street_view_tool/street_view_viewer.js');
+                const { closeViewer360 } = await import('@js/street_view_tool/street_view_viewer.js');
                 await closeViewer360();
             }
         } catch (error) {
@@ -843,7 +842,7 @@ export class BriefingEditorControl {
             // (3D markers/measurements/viewsheds are stored per-map)
             if (isViewer3DOpen()) {
                 try {
-                    const viewer3d = await import('../../3d_models_viewer_tool/map_3d.js');
+                    const viewer3d = await import('@js/3d_models_viewer_tool/map_3d.js');
                     const cesiumViewer = viewer3d.getCesiumViewer?.();
                     const tilesetId = viewer3d.getCurrentTilesetId?.();
                     if (cesiumViewer && tilesetId) {
@@ -902,8 +901,7 @@ export class BriefingEditorControl {
             const errorMsg = document.createElement('p');
             errorMsg.className = 'briefing-editor-quill-error';
             errorMsg.textContent = 'Erro ao carregar editor';
-            container.innerHTML = '';
-            container.appendChild(errorMsg);
+            container.replaceChildren(errorMsg);
         }
     }
 
@@ -970,20 +968,7 @@ export class BriefingEditorControl {
                 : slide;
 
             await this._transitionService.transitionToSlideInstant(transitionSlide);
-
-            // Update visibility profile based on the effective viewer mode
-            const visController = getUIVisibilityController();
-            switch (effectiveMode) {
-                case SlideMode.VIEWER_3D:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_3D);
-                    break;
-                case SlideMode.VIEWER_360:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_360);
-                    break;
-                default:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_2D);
-                    break;
-            }
+            this._applyLockedVisibilityProfile(effectiveMode);
         }
     }
 
@@ -1018,6 +1003,27 @@ export class BriefingEditorControl {
         return slide.mode || SlideMode.MAP_2D;
     }
 
+    /**
+     * Applies the locked visibility profile matching the given viewer mode.
+     * @private
+     * @param {string} mode - Effective SlideMode
+     */
+    _applyLockedVisibilityProfile(mode) {
+        const visController = getUIVisibilityController();
+
+        switch (mode) {
+            case SlideMode.VIEWER_3D:
+                visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_3D);
+                break;
+            case SlideMode.VIEWER_360:
+                visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_360);
+                break;
+            default:
+                visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_2D);
+                break;
+        }
+    }
+
     // =========================================================================
     // POSITION CAPTURE (auto-detects active viewer)
     // =========================================================================
@@ -1044,7 +1050,7 @@ export class BriefingEditorControl {
                     getCameraRotation,
                     getCameraFOV,
                     getCurrentPhotoName
-                } = await import('../../street_view_tool/street_view_viewer.js');
+                } = await import('@js/street_view_tool/street_view_viewer.js');
 
                 const geoPos = await getCurrentPhotoGeoPosition();
                 slide.position = {
@@ -1072,7 +1078,7 @@ export class BriefingEditorControl {
                 // Capture from live Cesium 3D viewer camera
                 slide.mode = SlideMode.VIEWER_3D;
 
-                const { getCesiumViewer, getCurrentTilesetId } = await import('../../3d_models_viewer_tool/map_3d.js');
+                const { getCesiumViewer, getCurrentTilesetId } = await import('@js/3d_models_viewer_tool/map_3d.js');
                 const viewer = getCesiumViewer();
 
                 if (viewer) {
@@ -1246,7 +1252,6 @@ export class BriefingEditorControl {
             // Position dropdown below the anchor button
             const wrapper = anchorEl.closest('.briefing-editor-position-wrapper');
             if (wrapper) {
-                wrapper.style.position = 'relative';
                 wrapper.appendChild(dropdown);
             }
 
@@ -1370,7 +1375,7 @@ export class BriefingEditorControl {
                 const {
                     fetchPhotoMetadata,
                     getPhotoDisplayName
-                } = await import('../../street_view_tool/streetview-api.service.js');
+                } = await import('@js/street_view_tool/streetview-api.service.js');
 
                 for (const photoName of photoNames) {
                     const ori = orientations[photoName];
@@ -1453,19 +1458,7 @@ export class BriefingEditorControl {
                 : slide;
 
             await this._transitionService.transitionToSlideInstant(transitionSlide);
-
-            const visController = getUIVisibilityController();
-            switch (effectiveMode) {
-                case SlideMode.VIEWER_3D:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_3D);
-                    break;
-                case SlideMode.VIEWER_360:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_360);
-                    break;
-                default:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_2D);
-                    break;
-            }
+            this._applyLockedVisibilityProfile(effectiveMode);
         }
 
         showSuccess('Orientação aplicada');

@@ -9,7 +9,7 @@ import {
     addDomListener,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
+} from '@utils/event-cleanup.js';
 
 /**
  * Tool button component.

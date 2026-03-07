@@ -1,12 +1,6 @@
 // Path: js/military_tools/military_symbol_tool/brazilian_extension_catalog.js
 
 /**
- * ========================================
- * SYMBOL SET CATALOGS
- * ========================================
- */
-
-/**
  * Symbol Set 10: Unidades (Land Units)
  */
 const SYMBOL_SET_10_CATALOG = {
@@ -1192,12 +1186,6 @@ const COMMAND_ELEMENTS = {
 };
 
 /**
- * ========================================
- * PUBLIC API
- * ========================================
- */
-
-/**
  * Get catalog entry with bi-dimensional extension support
  *
  * @param {string} symbolSet - Symbol set code (e.g., "10", "15")
@@ -1324,12 +1312,6 @@ export function getExtensionNumbers(symbolSet, elementType, codeBase) {
 export function getAvailableSymbolSets() {
     return Object.keys(SYMBOL_SET_CATALOGS);
 }
-
-/**
- * ========================================
- * NEW FUNCTIONS - Missing Exports
- * ========================================
- */
 
 /**
  * Check if a section exists for a symbol set

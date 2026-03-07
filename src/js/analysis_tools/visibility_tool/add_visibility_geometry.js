@@ -1,7 +1,7 @@
 // Path: js/analysis_tools/visibility_tool/add_visibility_geometry.js
 
-import { BaseGeometry } from '../../tool_manager';
-import { getTerrainElevation } from '../../terrain';
+import { BaseGeometry } from '@tools';
+import { getTerrainElevation } from '@js/terrain';
 
 /**
  * Visibility Geometry Operations
@@ -22,9 +22,6 @@ class AddVisibilityGeometry extends BaseGeometry {
         this.OBSTRUCTED_COLOR = '#FF0000';
     }
 
-    // ========================================================================
-    // SECTOR GEOMETRY (preview and outline)
-    // ========================================================================
 
     /**
      * Generate sector polygon geometry for preview / feedback.
@@ -83,9 +80,6 @@ class AddVisibilityGeometry extends BaseGeometry {
         return geometry.coordinates[0];
     }
 
-    // ========================================================================
-    // BEARING / DISTANCE HELPERS
-    // ========================================================================
 
     /**
      * Calculate bearing from center to a point (geographic: 0=N, clockwise).
@@ -121,9 +115,6 @@ class AddVisibilityGeometry extends BaseGeometry {
         return [lng, lat];
     }
 
-    // ========================================================================
-    // EDIT HANDLES
-    // ========================================================================
 
     /**
      * Create edit handles for visibility sector.
@@ -250,9 +241,6 @@ class AddVisibilityGeometry extends BaseGeometry {
         };
     }
 
-    // ========================================================================
-    // VIEWSHED CALCULATION
-    // ========================================================================
 
     /**
      * Calculate optimal distance step as a multiple of 30m (raster resolution).
@@ -267,10 +255,8 @@ class AddVisibilityGeometry extends BaseGeometry {
         const TARGET_POINTS = 10000;
 
         const numRays = Math.ceil(aperture / ANGULAR_STEP);
-        // Ideal points per ray to hit target total
         const idealPointsPerRay = Math.max(1, Math.round(TARGET_POINTS / Math.max(1, numRays)));
         const idealStep = radius / idealPointsPerRay;
-        // Round up to nearest multiple of 30m
         const step = Math.max(MIN_STEP, Math.ceil(idealStep / MIN_STEP) * MIN_STEP);
         return step;
     }
@@ -321,7 +307,6 @@ class AddVisibilityGeometry extends BaseGeometry {
         for (let rayIdx = 0; rayIdx <= numRays; rayIdx++) {
             const angle = startAngle + rayIdx * ANGULAR_STEP;
 
-            // Phase 1: Batch-collect elevations for this ray
             const rayElevations = [];
             for (let ptIdx = 1; ptIdx <= numPointsPerRay; ptIdx++) {
                 const dist = ptIdx * distanceStep;
@@ -330,21 +315,15 @@ class AddVisibilityGeometry extends BaseGeometry {
                 rayElevations.push({ dist, terrainElev: elev });
             }
 
-            // Phase 2: Resolve LOS using maximum-angle sweep (pure CPU, no I/O)
-            // maxElevAngle tracks the terrain-only barrier (no targetHeight).
-            // Each point is evaluated with targetHeight added for visibility check,
-            // but the barrier is updated using terrain-only elevation.
+            // Max-angle sweep: barrier uses terrain only; visibility check adds targetHeight
             const rayResult = [];
             let maxElevAngle = -Infinity;
 
             for (let ptIdx = 0; ptIdx < rayElevations.length; ptIdx++) {
                 const { dist, terrainElev } = rayElevations[ptIdx];
 
-                // Visibility check: can we see an object of targetHeight at this point?
                 const targetElev = terrainElev + targetHeight;
                 const targetElevAngle = Math.atan2(targetElev - observerElev, dist);
-
-                // Terrain-only angle for barrier tracking
                 const terrainElevAngle = Math.atan2(terrainElev - observerElev, dist);
 
                 if (targetElevAngle > maxElevAngle) {
@@ -353,7 +332,6 @@ class AddVisibilityGeometry extends BaseGeometry {
                     rayResult.push({ visible: false });
                 }
 
-                // Update barrier using terrain only (not target object height)
                 if (terrainElevAngle > maxElevAngle) {
                     maxElevAngle = terrainElevAngle;
                 }
@@ -361,7 +339,6 @@ class AddVisibilityGeometry extends BaseGeometry {
 
             resultGrid.push(rayResult);
 
-            // Yield to event loop for UI responsiveness
             if (rayIdx % 5 === 0 && progressCallback) {
                 const pct = 10 + 60 * (rayIdx / numRays);
                 progressCallback(pct, `Processando raio ${rayIdx + 1}/${numRays + 1}...`);
@@ -374,7 +351,6 @@ class AddVisibilityGeometry extends BaseGeometry {
             await this.delay(50);
         }
 
-        // Phase 3: Convert result grid to wedge polygon cells
         const cells = this.generateWedgeCells(
             resultGrid, center, startAngle, ANGULAR_STEP, distanceStep, numPointsPerRay
         );
@@ -384,7 +360,6 @@ class AddVisibilityGeometry extends BaseGeometry {
             await this.delay(50);
         }
 
-        // Phase 4: Dissolve adjacent same-visibility cells
         const optimizedCells = this.dissolveVisibilityCells(cells);
 
         return optimizedCells;
@@ -398,7 +373,6 @@ class AddVisibilityGeometry extends BaseGeometry {
      * @returns {Promise<number>} Elevation in meters
      */
     async getCachedElevation(map, coord, cache) {
-        // Round to ~1m precision for cache key
         const key = `${coord[0].toFixed(5)},${coord[1].toFixed(5)}`;
         if (cache.has(key)) return cache.get(key);
         const elev = await getTerrainElevation(map, coord);
@@ -429,7 +403,6 @@ class AddVisibilityGeometry extends BaseGeometry {
 
                 const coords = this.generateWedgePolygon(center, innerDist, outerDist, angleStart, angleEnd);
 
-                // Use the visibility result from the current ray at this point
                 const isVisible = resultGrid[rayIdx][ptIdx].visible;
 
                 cells.push({ coordinates: coords, isVisible });
@@ -453,31 +426,24 @@ class AddVisibilityGeometry extends BaseGeometry {
         const arcPoints = Math.max(2, Math.ceil(angularWidth / 2));
         const coords = [];
 
-        // Inner arc (from startAngle to endAngle)
         if (innerDist > 0) {
             for (let i = 0; i <= arcPoints; i++) {
                 const a = startAngle + (endAngle - startAngle) * (i / arcPoints);
                 coords.push(this.pointAtBearing(center, innerDist, a));
             }
         } else {
-            // Innermost ring: single center point
             coords.push([center[0], center[1]]);
         }
 
-        // Outer arc (from endAngle back to startAngle)
         for (let i = arcPoints; i >= 0; i--) {
             const a = startAngle + (endAngle - startAngle) * (i / arcPoints);
             coords.push(this.pointAtBearing(center, outerDist, a));
         }
 
-        // Close ring
         coords.push(coords[0]);
         return coords;
     }
 
-    // ========================================================================
-    // DISSOLVE AND PROCESSED FEATURES
-    // ========================================================================
 
     /**
      * Group cells by visibility. No dissolve — wedge cells from the polar grid
@@ -557,9 +523,6 @@ class AddVisibilityGeometry extends BaseGeometry {
         return processedFeatures;
     }
 
-    // ========================================================================
-    // FEATURE CREATION AND RECALCULATION
-    // ========================================================================
 
     /**
      * Create complete visibility feature from two click points.
@@ -642,9 +605,6 @@ class AddVisibilityGeometry extends BaseGeometry {
         };
     }
 
-    // ========================================================================
-    // VALIDATION AND NORMALIZATION
-    // ========================================================================
 
     /**
      * Validate viewshed parameters.
@@ -712,9 +672,6 @@ class AddVisibilityGeometry extends BaseGeometry {
             !isNaN(coordinates[1]);
     }
 
-    // ========================================================================
-    // GEOMETRY OPERATIONS (move, translate, bbox)
-    // ========================================================================
 
     /**
      * Translate visibility geometry by offset for immediate drag preview.

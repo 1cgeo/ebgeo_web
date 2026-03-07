@@ -17,10 +17,9 @@ import { csvToGeoJSON } from './csv-to-geojson.js';
 import {
     createModernSelect,
     createSectionDivider,
-} from '../../tool_manager/helpers/index.js';
-import { setupCleanup, addDomListener, cleanup } from '../../utilities/event-cleanup.js';
-import { escapeHtml } from '../../utilities/html-escape.js';
-import { showWarning } from '../../utilities/toast_service.js';
+} from '@tools/helpers/index.js';
+import { setupCleanup, addDomListener, cleanup } from '@utils/event-cleanup.js';
+import { showWarning } from '@utils/toast_service.js';
 
 // ============================================================================
 // CONSTANTS
@@ -191,7 +190,7 @@ export function createCSVConfigPanel(options) {
     // ========================================================================
 
     function _rebuildPreview() {
-        previewContainer.innerHTML = '';
+        previewContainer.replaceChildren();
 
         if (preview.headers.length === 0) {
             previewContainer.textContent = 'Nenhuma coluna detectada';
@@ -244,7 +243,7 @@ export function createCSVConfigPanel(options) {
     }
 
     function _rebuildMapping() {
-        mappingContainer.innerHTML = '';
+        mappingContainer.replaceChildren();
 
         const format = CSV_COORDINATE_FORMATS.find(f => f.id === currentFormat);
         if (!format) return;
@@ -406,58 +405,42 @@ export function createCSVConfigPanel(options) {
         const attrColumns = preview.headers.filter(h => !coordinateColumns.has(h));
 
         if (attrColumns.length > 0) {
-            const names = attrColumns.map(c => escapeHtml(c)).join(', ');
-            attributeInfo.textContent = `Colunas que serão atributos: ${names}`;
+            // textContent is XSS-safe, no need for escapeHtml
+            attributeInfo.textContent = `Colunas que serão atributos: ${attrColumns.join(', ')}`;
         } else {
             attributeInfo.textContent = 'Todas as colunas mapeadas como coordenadas';
         }
     }
 
     function _validate() {
+        const isValid = _checkValidity();
+        importBtn.disabled = !isValid;
+        return isValid;
+    }
+
+    function _checkValidity() {
         const format = CSV_COORDINATE_FORMATS.find(f => f.id === currentFormat);
-        if (!format) {
-            importBtn.disabled = true;
-            return false;
-        }
+        if (!format) return false;
 
         // Check all required columns are mapped
-        for (const role of format.requiredColumns) {
-            if (!currentMapping[role]) {
-                importBtn.disabled = true;
-                return false;
-            }
-        }
+        const allMapped = format.requiredColumns.every(role => currentMapping[role]);
+        if (!allMapped) return false;
 
         // Check UTM zone
         if (currentFormat === 'utm') {
             if (utmZoneSource === 'fixed') {
-                if (!currentFixedValues.zone || !currentFixedValues.zone.trim()) {
-                    importBtn.disabled = true;
-                    return false;
-                }
-            } else {
-                if (!currentMapping.zone) {
-                    importBtn.disabled = true;
-                    return false;
-                }
+                if (!currentFixedValues.zone?.trim()) return false;
+            } else if (!currentMapping.zone) {
+                return false;
             }
         }
 
         // Check no duplicate column assignments
         const assignedColumns = Object.values(currentMapping).filter(v => v);
-        if (new Set(assignedColumns).size !== assignedColumns.length) {
-            importBtn.disabled = true;
-            return false;
-        }
+        if (new Set(assignedColumns).size !== assignedColumns.length) return false;
 
         // Check we have data
-        if (preview.totalRows === 0) {
-            importBtn.disabled = true;
-            return false;
-        }
-
-        importBtn.disabled = false;
-        return true;
+        return preview.totalRows > 0;
     }
 
     function _showResult(message, success) {

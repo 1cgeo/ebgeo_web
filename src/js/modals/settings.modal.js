@@ -1,9 +1,7 @@
 // Path: js/modals/settings.modal.js
 
 /**
- * @module modals/settings-modal
- * @description Atlas settings modal with terrain exaggeration control.
- * @dependencies utilities/event-cleanup, store/repositories/index, store/atlas/atlas.entity
+ * @fileoverview Atlas settings modal with terrain exaggeration control.
  */
 
 import {
@@ -11,9 +9,9 @@ import {
     addDomListener,
     cleanup,
     removeElement
-} from '../utilities/event-cleanup.js';
-import { getRepository } from '../store/repositories/index.js';
-import { DEFAULT_TERRAIN_EXAGGERATION } from '../store/atlas/atlas.entity.js';
+} from '@utils/event-cleanup.js';
+import { getRepository } from '@store/repositories/index.js';
+import { DEFAULT_TERRAIN_EXAGGERATION } from '@store/atlas/atlas.entity.js';
 
 const MIN_EXAGGERATION = 1;
 const MAX_EXAGGERATION = 3;

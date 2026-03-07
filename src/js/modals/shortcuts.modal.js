@@ -6,7 +6,7 @@
  */
 
 import { ModalBase } from './modal.base.js';
-import { TOOLBAR_ICONS } from '../toolbar/toolbar.constants.js';
+import { TOOLBAR_ICONS } from '@toolbar/toolbar.constants.js';
 
 /**
  * SVG icons for shortcuts modal categories.

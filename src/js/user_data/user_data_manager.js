@@ -11,15 +11,15 @@
  * - Extracts custom attributes from imported GeoJSON properties
  */
 
-import { getMapData, updateMapData, getCurrentMapNameSync, getStorageTypeFromSource, FEATURE_TYPE_MAPPINGS as _FEATURE_TYPE_MAPPINGS, getEventBus } from '../store';
-import { IDUtils } from '../utilities';
-import { EventTypes, FeatureUpdateProperty } from '../events';
+import { getMapData, updateMapData, getCurrentMapNameSync, getStorageTypeFromSource, getEventBus } from '@store';
+import { IDUtils } from '@utils';
+import { EventTypes, FeatureUpdateProperty } from '@events';
 import {
     IMAGE_CONFIG,
     validateImageFile,
     processImageFile
-} from '../utilities/image_utils.js';
-import { sanitizeHtml } from '../sidebar/panels/notes-panel.js';
+} from '@utils/image_utils.js';
+import { sanitizeHtml } from '@sidebar/panels/notes-panel.js';
 
 /**
  * System properties that should NOT be extracted as user attributes during import.

@@ -11,7 +11,7 @@ import {
     addDomListener,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
+} from '@utils/event-cleanup.js';
 
 /**
  * Creates and manages the collapsed sidebar component.

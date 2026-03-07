@@ -8,6 +8,7 @@ import AddTextGeometry from './add_text_geometry.js';
 import { BaseControl } from '../../tool_manager';
 
 class AddTextControl extends BaseControl {
+    featureType = 'text';
     constructor(toolManager) {
         super(toolManager);
 
@@ -58,24 +59,6 @@ class AddTextControl extends BaseControl {
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
-
-    /**
-     * Get currently selected text feature from SelectionManager
-     * @returns {Object|null} Selected text feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('text');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected text features from SelectionManager
-     * @returns {Array} Array of selected text features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('text')
-            .map(item => item.feature);
-    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -805,7 +788,6 @@ class AddTextControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('texts').getData();
-        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
@@ -813,7 +795,6 @@ class AddTextControl extends BaseControl {
 
                 if (currentFeature) {
                     await updateFeature('texts', currentFeature);
-                    _hasChanges = true;
                 }
             }
         }
@@ -916,9 +897,6 @@ class AddTextControl extends BaseControl {
             this.updateSelectionManagerFeatures(features);
         }
     }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     /**
      * Update SelectionManager with current feature data
      * @param {Object} feature - Feature to update in SelectionManager

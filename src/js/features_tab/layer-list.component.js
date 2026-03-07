@@ -13,9 +13,9 @@ import {
     setLayerLocked,
     deleteLayer,
     renameLayer,
-} from '../store';
-import { showPrompt, showConfirm } from '../modals/index.js';
-import { IDUtils, showError } from '../utilities';
+} from '@store';
+import { showPrompt, showConfirm } from '@modals';
+import { IDUtils, showError } from '@utils';
 
 /**
  * @typedef {Object} LayerListCallbacks
@@ -154,14 +154,6 @@ function startLayerRenameInline(layerId, nameElement, callbacks) {
     input.type = 'text';
     input.className = 'layer-rename-input';
     input.value = currentName;
-    input.style.cssText = `
-        font-size: inherit;
-        padding: 2px 4px;
-        border: 1px solid #007bff;
-        border-radius: 3px;
-        outline: none;
-        width: 120px;
-    `;
 
     const originalHTML = nameElement.innerHTML;
 
@@ -433,10 +425,6 @@ export function updateLayerLockIndicator(container, layerId, locked) {
     if (lockBtn) {
         lockBtn.innerHTML = locked ? FEATURES_TAB_ICONS.LOCK_LOCKED : FEATURES_TAB_ICONS.LOCK_UNLOCKED;
         lockBtn.title = locked ? 'Desbloquear camada' : 'Bloquear camada';
-
-        const svg = lockBtn.querySelector('svg');
-        if (svg) {
-            svg.style.color = locked ? '#dc3545' : '';
-        }
+        lockBtn.classList.toggle('lock-toggle--active', locked);
     }
 }

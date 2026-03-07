@@ -12,7 +12,7 @@ import {
 import {
     FEATURE_TYPE_ICONS,
     FEATURE_DISPLAY_NAMES,
-} from '../../store/store.constants.js';
+} from '@store';
 import { tableDataService } from '../services/table-data.service.js';
 
 /**

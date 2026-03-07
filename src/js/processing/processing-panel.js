@@ -1,23 +1,23 @@
 // Path: js/processing/processing-panel.js
 
 /**
- * @fileoverview Factory do painel de processamento.
- * Envolve o formulário do algoritmo com lógica de execução.
- * @dependencies processing-runner, event_types, event-cleanup
+ * @fileoverview Factory for the processing panel.
+ * Wraps the algorithm form with execution logic.
  */
 
+import { isCurrentMapLockedSync } from '@store/map.operations.js';
+import { addDomListener, setupCleanup, cleanup } from '@utils/event-cleanup.js';
+import { escapeHtml } from '@utils/html-escape.js';
 import { runProcessing } from './processing-runner.js';
 import { PROCESSING_ICONS } from './processing.constants.js';
-import { addDomListener, setupCleanup, cleanup } from '../utilities/event-cleanup.js';
-import { isCurrentMapLockedSync } from '../store/map.operations.js';
 
 // ============================================================================
 // PUBLIC API
 // ============================================================================
 
 /**
- * Cria o painel completo de um algoritmo de processamento.
- * Retorna { element, cleanup } para uso com showToolPanel().
+ * Creates the complete panel for a processing algorithm.
+ * Returns { element, cleanup } for use with showToolPanel().
  *
  * @param {Object} options
  * @param {import('./algorithms/algorithm.interface.js').AlgorithmDefinition} options.algorithm
@@ -31,21 +31,16 @@ export function createProcessingPanel(options) {
     const panelCleanup = {};
     setupCleanup(panelCleanup);
 
-    // Verifica mapa bloqueado
     const mapLocked = isCurrentMapLockedSync();
 
-    // Cria o formulário do algoritmo
     const panelResult = algorithm.createPanel({ stateManager, eventBus });
-
     const { element, getParams, validate, ui } = panelResult;
 
-    // Desabilita execução se mapa bloqueado
     if (mapLocked && ui?.executeBtn) {
         ui.executeBtn.disabled = true;
         ui.executeBtn.title = 'Mapa bloqueado para edição';
     }
 
-    // Wiring do botão executar
     if (ui?.executeBtn) {
         addDomListener(panelCleanup, ui.executeBtn, 'click', async () => {
             const validation = validate();
@@ -72,21 +67,20 @@ export function createProcessingPanel(options) {
 // ============================================================================
 
 /**
- * Executa o algoritmo e atualiza a UI de progresso/resultado.
+ * Executes the algorithm and updates the progress/result UI.
  * @private
  */
 async function _executeAlgorithm(algorithm, params, ui, stateManager, eventBus) {
     const { executeBtn, progressContainer, progressText, progressFill, resultContainer } = ui;
 
-    // Estado: executando
     executeBtn.disabled = true;
     executeBtn.textContent = 'Analisando...';
-    if (resultContainer) resultContainer.style.display = 'none';
+    resultContainer?.classList.add('processing-panel__result--hidden');
 
     if (progressContainer) {
-        progressContainer.style.display = 'block';
+        progressContainer.classList.remove('processing-panel__progress--hidden');
         progressText.textContent = 'Preparando...';
-        progressFill.style.width = '0%';
+        progressFill.classList.remove('processing-panel__progress-fill--active');
     }
 
     try {
@@ -100,21 +94,20 @@ async function _executeAlgorithm(algorithm, params, ui, stateManager, eventBus) 
                     progressText.textContent = `Analisando... ${current} de ${total}`;
                 }
                 if (progressFill) {
-                    progressFill.style.width = `${Math.round((current / total) * 100)}%`;
+                    const pct = Math.round((current / total) * 100);
+                    progressFill.style.width = `${pct}%`;
                 }
             },
         });
 
-        // Sucesso
-        if (progressContainer) progressContainer.style.display = 'none';
-        const msg = `${result.featureCount} ${result.featureCount === 1 ? 'feição criada' : 'feições criadas'} na camada "${params.outputLayerName}"`;
+        if (progressContainer) progressContainer.classList.add('processing-panel__progress--hidden');
+        const msg = `${result.featureCount} ${result.featureCount === 1 ? 'feição criada' : 'feições criadas'} na camada "${escapeHtml(params.outputLayerName)}"`;
         _showResult(ui, msg, true);
         executeBtn.textContent = 'EXECUTAR';
         executeBtn.disabled = false;
 
     } catch (error) {
-        // Erro
-        if (progressContainer) progressContainer.style.display = 'none';
+        if (progressContainer) progressContainer.classList.add('processing-panel__progress--hidden');
         _showResult(ui, error.message || 'Erro na análise', false);
         executeBtn.textContent = 'EXECUTAR';
         executeBtn.disabled = false;
@@ -122,17 +115,17 @@ async function _executeAlgorithm(algorithm, params, ui, stateManager, eventBus) 
 }
 
 /**
- * Exibe mensagem de resultado.
+ * Displays a result message.
  * @private
  */
 function _showResult(ui, message, success) {
     const { resultContainer } = ui;
     if (!resultContainer) return;
 
-    resultContainer.style.display = 'flex';
+    resultContainer.classList.remove('processing-panel__result--hidden');
     resultContainer.className = `processing-panel__result ${success ? 'processing-panel__result--success' : 'processing-panel__result--error'}`;
     resultContainer.innerHTML = `
         ${success ? PROCESSING_ICONS.check : PROCESSING_ICONS.alertCircle}
-        <span>${message}</span>
+        <span>${escapeHtml(message)}</span>
     `;
 }

@@ -1,12 +1,13 @@
 // Path: js/import_export/pdf-export.tab.js
 /* global initGdalJs */
-import { showError } from '../utilities/toast_service.js'
+import { showError } from '@utils/toast_service.js'
 import {
     correctZoomInvariantFeatures,
     transferMapImages,
     createExportProgressModal,
     getCleanMapStyle,
 } from './export-utils.js'
+import { GRID_MARGIN_MM, UTM_MAX_SCALE_DENOM, parseScaleDenom } from './pdf-export.constants.js'
 
 export default class PDFExportTab {
     constructor(map) {
@@ -30,7 +31,7 @@ export default class PDFExportTab {
         this.showUTMGrid = false;
 
         // Extra margin (mm) for grid labels. Added to marginMM when any grid is on.
-        this._gridMarginMM = 5;
+        this._gridMarginMM = GRID_MARGIN_MM;
 
         // DPI quality option
         this.dpi = 300;
@@ -167,6 +168,7 @@ export default class PDFExportTab {
 
     hide() {
         this.isVisible = false;
+        clearTimeout(this.updateTimeout);
         this.hidePreview();
         this.detachEventListeners();
 
@@ -185,9 +187,9 @@ export default class PDFExportTab {
         }
 
         const orientationInputs = document.querySelectorAll('input[name="pdf-orientation"]');
-        orientationInputs.forEach(input => {
+        for (const input of orientationInputs) {
             input.addEventListener('change', this.onOrientationChange);
-        });
+        }
 
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) {
@@ -210,9 +212,9 @@ export default class PDFExportTab {
         }
 
         const orientationInputs = document.querySelectorAll('input[name="pdf-orientation"]');
-        orientationInputs.forEach(input => {
+        for (const input of orientationInputs) {
             input.removeEventListener('change', this.onOrientationChange);
-        });
+        }
 
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) {
@@ -290,11 +292,11 @@ export default class PDFExportTab {
      * (1:2.500.000 and 1:5.000.000).
      */
     _enforceUTMGridAvailability() {
-        const scaleDenom = parseInt(this.scale.split(':')[1], 10);
+        const scaleDenom = this._parseScaleDenom();
         const utmCheckbox = document.getElementById('pdf-show-utm-grid');
         if (!utmCheckbox) return;
 
-        const utmDisabled = scaleDenom >= 2500000;
+        const utmDisabled = scaleDenom >= UTM_MAX_SCALE_DENOM;
         utmCheckbox.disabled = utmDisabled;
         if (utmDisabled && utmCheckbox.checked) {
             utmCheckbox.checked = false;
@@ -345,20 +347,9 @@ export default class PDFExportTab {
         if (this.isVisible) {
             clearTimeout(this.updateTimeout);
             this.updateTimeout = setTimeout(() => {
-                this.updateBoundsOnly();
+                this.updateBounds();
             }, 100);
         }
-    }
-
-    updateBoundsOnly() {
-        // Reuse updateBounds which now delegates to updateBoundsAtCenter
-        this.updateBounds();
-    }
-
-    calculateBoundsFromScale(scale, orientation) {
-        // Use visible center that accounts for sidebar offset
-        const center = this.getVisibleCenter();
-        return this.calculateBoundsFromScaleAtCenter(scale, orientation, center);
     }
 
     /**
@@ -369,17 +360,12 @@ export default class PDFExportTab {
      * @returns {Object} Object with paper and usable bounds
      */
     calculateBoundsFromScaleAtCenter(scale, orientation, center) {
-        const denominator = parseInt(scale.split(':')[1], 10);
+        const denominator = this._parseScaleDenom(scale);
 
-        let realWidthMeters, realHeightMeters;
-
-        if (orientation === 'landscape') {
-            realWidthMeters = (297 / 1000) * denominator;
-            realHeightMeters = (210 / 1000) * denominator;
-        } else {
-            realWidthMeters = (210 / 1000) * denominator;
-            realHeightMeters = (297 / 1000) * denominator;
-        }
+        const isLandscape = orientation === 'landscape';
+        const [longSide, shortSide] = [297, 210];
+        const realWidthMeters = ((isLandscape ? longSide : shortSide) / 1000) * denominator;
+        const realHeightMeters = ((isLandscape ? shortSide : longSide) / 1000) * denominator;
 
         const latCorrection = Math.cos(center.lat * Math.PI / 180);
 
@@ -409,7 +395,7 @@ export default class PDFExportTab {
     }
 
     convertMMToMapUnitsFromScale(marginMM, scale) {
-        const denominator = parseInt(scale.split(':')[1], 10);
+        const denominator = this._parseScaleDenom(scale);
         const marginMeters = (marginMM / 1000) * denominator;
         return marginMeters / 111320;
     }
@@ -568,11 +554,11 @@ export default class PDFExportTab {
             'pdf-export-usable-stroke'
         ];
 
-        layerIds.forEach(layerId => {
+        for (const layerId of layerIds) {
             if (this.map.getLayer(layerId)) {
                 this.map.removeLayer(layerId);
             }
-        });
+        }
 
         if (this.map.getSource('pdf-export-preview')) {
             this.map.removeSource('pdf-export-preview');
@@ -586,16 +572,6 @@ export default class PDFExportTab {
             console.error('Error creating clean style:', error);
             return this.map.getStyle();
         }
-    }
-
-    /**
-     * Delegates to shared utility.
-     * @param {maplibregl.Map} hiddenMap
-     * @param {number} finalZoom
-     * @returns {Promise<boolean>}
-     */
-    async correctZoomInvariantFeatures(hiddenMap, finalZoom) {
-        return correctZoomInvariantFeatures(hiddenMap, finalZoom);
     }
 
     showExportModal() {
@@ -618,8 +594,7 @@ export default class PDFExportTab {
      * @returns {boolean}
      */
     get isUTMGridAllowed() {
-        const scaleDenom = this.scale ? parseInt(this.scale.split(':')[1], 10) : 25000;
-        return this.showUTMGrid && scaleDenom < 2500000;
+        return this.showUTMGrid && this._parseScaleDenom() < UTM_MAX_SCALE_DENOM;
     }
 
     /**
@@ -651,14 +626,9 @@ export default class PDFExportTab {
         // composeLayout() bakes these margins into the canvas, so GDAL MARGIN=0.
         const marginMM = this.effectiveMarginMM;
 
-        let usableWidthMM, usableHeightMM;
-        if (this.orientation === 'landscape') {
-            usableWidthMM = 297 - (2 * marginMM);
-            usableHeightMM = 210 - (2 * marginMM);
-        } else {
-            usableWidthMM = 210 - (2 * marginMM);
-            usableHeightMM = 297 - (2 * marginMM);
-        }
+        const isLandscape = this.orientation === 'landscape';
+        const usableWidthMM = (isLandscape ? 297 : 210) - (2 * marginMM);
+        const usableHeightMM = (isLandscape ? 210 : 297) - (2 * marginMM);
 
         const usableWidthInches = usableWidthMM / 25.4;
         const usableHeightInches = usableHeightMM / 25.4;
@@ -754,7 +724,7 @@ export default class PDFExportTab {
             this.updateProgress(70, 'Corrigindo feições...');
 
             const finalZoom = hiddenMap.getZoom();
-            const hadChanges = await this.correctZoomInvariantFeatures(hiddenMap, finalZoom);
+            const hadChanges = await correctZoomInvariantFeatures(hiddenMap, finalZoom);
 
             if (hadChanges) {
                 await new Promise(resolve => hiddenMap.once('idle', resolve));
@@ -870,9 +840,7 @@ export default class PDFExportTab {
             if (hiddenMap) {
                 hiddenMap.remove();
             }
-            if (hiddenMapContainer && hiddenMapContainer.parentNode) {
-                document.body.removeChild(hiddenMapContainer);
-            }
+            hiddenMapContainer?.remove();
         }
     }
 
@@ -899,6 +867,15 @@ export default class PDFExportTab {
             // Reset flag so it can be retried on next show()
             this._gdalPreInitStarted = false;
         });
+    }
+
+    /**
+     * Extracts the denominator from a scale string like "1:25000".
+     * @param {string} [scale] - Scale string (defaults to this.scale)
+     * @returns {number} Scale denominator
+     */
+    _parseScaleDenom(scale = this.scale) {
+        return parseScaleDenom(scale);
     }
 
     /**

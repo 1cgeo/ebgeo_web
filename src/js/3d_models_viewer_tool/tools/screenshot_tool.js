@@ -1,6 +1,6 @@
 // Path: js/3d_models_viewer_tool/tools/screenshot_tool.js
 
-import { showToast } from '../../utilities/index.js';
+import { showToast } from '@utils/index.js';
 
 let viewerInstance = null;
 

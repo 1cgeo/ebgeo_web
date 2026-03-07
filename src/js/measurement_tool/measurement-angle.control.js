@@ -3,7 +3,7 @@
 /**
  * @module measurement_tool/measurement-angle.control
  * @description Ephemeral angle measurement tool for 2D map.
- * 3-click interaction: P1 (ray end) → P2 (vertex) → P3 (ray end).
+ * 3-click interaction: P1 (ray end) -> P2 (vertex) -> P3 (ray end).
  * Displays angle arc, rays, and label at the vertex.
  * After finalize, clicking on the map restarts a new measurement.
  * @dependencies turf (global), maplibregl (global)
@@ -26,10 +26,6 @@ import { ANGLE_UNITS } from './measurement.constants.js';
 import { createAngleResultsPanel } from './measurement-results-panel.js';
 import { getControl } from '@store';
 
-// ============================================================================
-// CONTROL CLASS
-// ============================================================================
-
 export class MeasurementAngleControl {
     constructor(toolManager) {
         this.toolManager = toolManager;
@@ -38,19 +34,17 @@ export class MeasurementAngleControl {
 
         /** @type {number[][]} Up to 3 collected points: [P1, P2, P3] */
         this._points = [];
-        /** @type {number[]|null} Current cursor position */
+        /** @type {number[]|null} */
         this._cursorPos = null;
-        /** @type {HTMLElement|null} Results panel */
+        /** @type {HTMLElement|null} */
         this._resultsPanel = null;
-        /** @type {boolean} Whether measurement has been finalized (awaiting new click to restart) */
+        /** @type {boolean} Whether measurement has been finalized */
         this._finalized = false;
 
         this._onMapClick = this._onMapClick.bind(this);
         this._onMouseMove = this._onMouseMove.bind(this);
         this._onContextMenu = this._onContextMenu.bind(this);
     }
-
-    // --- MapLibre IControl interface ---
 
     onAdd(map) {
         this.map = map;
@@ -62,8 +56,6 @@ export class MeasurementAngleControl {
         this.deactivate();
         this.map = null;
     }
-
-    // --- Tool activation ---
 
     activate() {
         if (!this.map || this.isActive) return;
@@ -95,12 +87,9 @@ export class MeasurementAngleControl {
         this._removeResultsPanel();
     }
 
-    // --- Event handlers ---
-
     _onMapClick(e) {
         if (!this.isActive) return;
 
-        // Clicking after finalize restarts a new measurement
         if (this._finalized) {
             this._restart();
         }
@@ -126,7 +115,7 @@ export class MeasurementAngleControl {
         e.preventDefault();
         if (this._finalized) return;
 
-        // If 2 points placed, treat right-click as the 3rd point
+        // With 2 points placed, treat right-click as the 3rd point
         if (this._points.length === 2) {
             const coord = [e.lngLat.lng, e.lngLat.lat];
             this._points.push(coord);
@@ -134,12 +123,9 @@ export class MeasurementAngleControl {
             return;
         }
 
-        // Otherwise cancel
         this.deactivate();
         this.toolManager.deactivateCurrentTool();
     }
-
-    // --- Visualization ---
 
     _updateVisualization() {
         if (!this.map) return;
@@ -147,23 +133,18 @@ export class MeasurementAngleControl {
         const pts = [...this._points];
         const cursor = this._cursorPos;
 
-        // Always show vertices
         updateVertices(this.map, pts);
 
         if (pts.length === 1 && cursor) {
-            // Show ray from P1 to cursor
             updateAngleRays(this.map, [[pts[0], cursor]]);
             updateAngleArc(this.map, []);
             updateLabels(this.map, []);
         } else if (pts.length === 2 && cursor) {
-            // P1 and P2 placed; show ray P2→P1, rubber-band P2→cursor, arc + label
-            const p1 = pts[0];
-            const p2 = pts[1]; // vertex
+            const [p1, p2] = pts;
             const p3 = cursor;
 
             updateAngleRays(this.map, [[p2, p1], [p2, p3]]);
 
-            // Compute angle and arc
             const angleDeg = calculateAngle(p1, p2, p3);
             const bearing1 = getBearing(p2, p1);
             const bearing2 = getBearing(p2, p3);
@@ -172,8 +153,7 @@ export class MeasurementAngleControl {
 
             updateAngleArc(this.map, arcCoords);
 
-            // Label at arc midpoint
-            const defaultUnit = ANGLE_UNITS[0]; // degrees
+            const defaultUnit = ANGLE_UNITS[0];
             const midIndex = Math.floor(arcCoords.length / 2);
             const labelCoord = arcCoords[midIndex] || p2;
             updateLabels(this.map, [{
@@ -189,18 +169,14 @@ export class MeasurementAngleControl {
 
     /**
      * Computes arc radius in meters proportional to current zoom level.
-     * Larger radius at lower zoom so the arc is visible.
+     * At zoom 15 ~ 50m, at zoom 10 ~ 1500m.
      * @returns {number} Radius in meters
      */
     _getArcRadiusMeters() {
         if (!this.map) return 100;
         const zoom = this.map.getZoom();
-        // ~50px on screen → scale inversely with zoom
-        // At zoom 15 ≈ 50m, at zoom 10 ≈ 1500m
         return 50 * Math.pow(2, 15 - zoom);
     }
-
-    // --- Finalize ---
 
     _finalize() {
         if (this._points.length < 3) {
@@ -211,7 +187,6 @@ export class MeasurementAngleControl {
 
         this._finalized = true;
 
-        // Stop rubber-band but keep click listener for restart
         this.map.off('mousemove', this._onMouseMove);
         this.map.getCanvas().style.cursor = '';
         this._cursorPos = null;
@@ -219,7 +194,6 @@ export class MeasurementAngleControl {
         const [p1, p2, p3] = this._points;
         const angleDeg = calculateAngle(p1, p2, p3);
 
-        // Final static visualization
         updateVertices(this.map, this._points);
         updateAngleRays(this.map, [[p2, p1], [p2, p3]]);
 
@@ -237,11 +211,8 @@ export class MeasurementAngleControl {
             text: formatAngle(angleDeg, defaultUnit),
         }]);
 
-        // Show results panel
         this._showResultsPanel(angleDeg);
     }
-
-    // --- Restart (new measurement, keeping tool active) ---
 
     _restart() {
         this._finalized = false;
@@ -250,11 +221,8 @@ export class MeasurementAngleControl {
         clearAllSources(this.map);
         this._removeResultsPanel();
         this.map.getCanvas().style.cursor = 'crosshair';
-        // Re-add mousemove for rubber-band
         this.map.on('mousemove', this._onMouseMove);
     }
-
-    // --- Results panel ---
 
     _showResultsPanel(angleDegrees) {
         this._removeResultsPanel();
@@ -267,7 +235,6 @@ export class MeasurementAngleControl {
             },
         });
 
-        // Use sidebar's showToolPanel API for proper panel display
         const sidebarControl = getControl('sidebarControl');
         if (sidebarControl?.showToolPanel) {
             sidebarControl.showToolPanel(

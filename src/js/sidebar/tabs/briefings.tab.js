@@ -11,8 +11,8 @@ import {
     subscribe,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
-import { escapeHtml } from '../../utilities/html-escape.js';
+} from '@utils/event-cleanup.js';
+import { escapeHtml } from '@utils/html-escape.js';
 import {
     getAllBriefings,
     deleteBriefing,
@@ -20,10 +20,10 @@ import {
     generateUniqueBriefingName,
     createEmptySlide,
     addSlide
-} from '../../store/index.js';
-import { EventTypes } from '../../events/event_types.js';
-import { showSuccess, showError } from '../../utilities/index.js';
-import { showConfirm } from '../../modals/index.js';
+} from '@store/index.js';
+import { EventTypes } from '@events/event_types.js';
+import { showSuccess, showError } from '@utils/index.js';
+import { showConfirm } from '@modals/index.js';
 
 /**
  * Icons specific to briefings tab.

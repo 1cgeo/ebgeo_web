@@ -7,8 +7,6 @@
  * @module sidebar/panels/vector-info-panel
  */
 
-import { escapeHtml } from '../../utilities/html-escape.js';
-
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -100,14 +98,8 @@ export function createVectorInfoPanelContent({ feature, title }) {
     const contentWrapper = document.createElement('div');
     contentWrapper.className = 'vector-info-panel-content';
 
-    // Build the properties list
     const propertiesList = document.createElement('ul');
     propertiesList.className = 'vector-info-properties';
-    propertiesList.style.cssText = `
-        list-style: none;
-        padding: 0;
-        margin: 0;
-    `;
 
     for (const [key, value] of Object.entries(feature.properties)) {
         if (shouldExcludeProperty(key)) {
@@ -118,12 +110,18 @@ export function createVectorInfoPanelContent({ feature, title }) {
         const displayValue = formatPropertyValue(value);
 
         const listItem = document.createElement('li');
-        listItem.style.cssText = `
-            padding: var(--space-2) 0;
-            border-bottom: 1px solid var(--border-color);
-            font-size: var(--font-size-sm);
-        `;
-        listItem.innerHTML = `<strong style="color: var(--gray-600);">${escapeHtml(displayKey)}:</strong> <span style="color: var(--gray-800);">${escapeHtml(String(displayValue))}</span>`;
+        listItem.className = 'vector-info-properties__item';
+
+        const keyEl = document.createElement('strong');
+        keyEl.className = 'vector-info-properties__key';
+        keyEl.textContent = `${displayKey}: `;
+
+        const valueEl = document.createElement('span');
+        valueEl.className = 'vector-info-properties__value';
+        valueEl.textContent = String(displayValue);
+
+        listItem.appendChild(keyEl);
+        listItem.appendChild(valueEl);
         propertiesList.appendChild(listItem);
     }
 
@@ -131,8 +129,8 @@ export function createVectorInfoPanelContent({ feature, title }) {
         contentWrapper.appendChild(propertiesList);
     } else {
         const noPropertiesMsg = document.createElement('p');
+        noPropertiesMsg.className = 'vector-info-panel__empty';
         noPropertiesMsg.textContent = 'Feição sem atributos';
-        noPropertiesMsg.style.cssText = 'color: var(--gray-500); text-align: center; padding: var(--space-4);';
         contentWrapper.appendChild(noPropertiesMsg);
     }
 

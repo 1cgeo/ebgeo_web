@@ -9,6 +9,7 @@ import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddRectangleControl extends BaseControl {
+    featureType = 'rectangle';
     constructor(toolManager) {
         super(toolManager);
 
@@ -56,27 +57,6 @@ class AddRectangleControl extends BaseControl {
         hatchSpacing: 8,
         hatchLineWidth: 2
     };
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
-    /**
-     * Get currently selected rectangle feature from SelectionManager
-     * @returns {Object|null} Selected rectangle feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('rectangle');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected rectangle features from SelectionManager
-     * @returns {Array} Array of selected rectangle features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('rectangle')
-            .map(item => item.feature);
-    }
-
     // ===== MAPBOX CONTROL INTERFACE =====
 
     onAdd = (map) => {
@@ -804,7 +784,6 @@ class AddRectangleControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandleType = null;
         this.currentMousePosition = null;
-        this.hatchGenerator = new HatchPatternGenerator();
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
     }
@@ -1010,9 +989,7 @@ class AddRectangleControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        // Always get fresh feature data from map source before saving
         const currentData = await this.map.getSource('rectangles').getData();
-        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
@@ -1020,7 +997,6 @@ class AddRectangleControl extends BaseControl {
 
                 if (currentFeature) {
                     await updateFeature('rectangles', currentFeature);
-                    _hasChanges = true;
                 }
             }
         }
@@ -1162,9 +1138,6 @@ class AddRectangleControl extends BaseControl {
             this.updateSelectionManagerFeatures(features);
         }
     }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     /**
      * Update SelectionManager with current feature data
      */
@@ -1195,7 +1168,6 @@ class AddRectangleControl extends BaseControl {
         this.lastPreviewCenter = null;
         this.activeHandleType = null;
         this.currentMousePosition = null;
-        this.hatchGenerator = new HatchPatternGenerator();
 
         if (this.geometryDebounceTimer) {
             clearTimeout(this.geometryDebounceTimer);
@@ -1211,12 +1183,7 @@ class AddRectangleControl extends BaseControl {
         const data = await this.map.getSource('rectangles').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
-            sourceFeature.properties = {
-                ...feature.properties,
-                corner1: feature.properties.corner1,
-                corner2: feature.properties.corner2,
-                center: feature.properties.center
-            };
+            sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('rectangles').setData(data);
         }

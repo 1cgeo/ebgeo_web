@@ -1,34 +1,32 @@
 // Path: js/processing/processing.tab.js
 
 /**
- * @fileoverview Aba de Processamento no sidebar.
- * Lista os algoritmos registrados com botão para abrir cada um.
- * @dependencies processing.constants, event-cleanup, event_types
+ * @fileoverview Processing tab in the sidebar.
+ * Lists registered algorithms with a button to open each one.
  */
 
-import { getAllAlgorithms, PROCESSING_ICONS } from './processing.constants.js';
 import {
     setupCleanup,
-    subscribe,
     cleanup,
     removeElement,
     addDomListener,
-} from '../utilities/event-cleanup.js';
-import { EventTypes } from '../events/event_types.js';
+} from '@utils/event-cleanup.js';
+import { escapeHtml } from '@utils/html-escape.js';
+import { getAllAlgorithms, PROCESSING_ICONS } from './processing.constants.js';
 
 // ============================================================================
 // PROCESSING TAB
 // ============================================================================
 
 /**
- * Componente da aba de processamento geoespacial.
+ * Processing tab component for the sidebar.
  */
 export class ProcessingTab {
     /**
      * @param {Object} dependencies
      * @param {Object} dependencies.eventBus - EventBus instance
      * @param {Object} dependencies.stateManager - StateManager instance
-     * @param {Function} dependencies.onOpenAlgorithm - Callback(algorithmId) para abrir painel
+     * @param {Function} dependencies.onOpenAlgorithm - Callback(algorithmId) to open panel
      */
     constructor(dependencies) {
         this._eventBus = dependencies.eventBus;
@@ -42,25 +40,22 @@ export class ProcessingTab {
     }
 
     /**
-     * Cria a UI da aba.
+     * Creates the tab UI.
      * @returns {HTMLElement}
      */
     render() {
         this._container = document.createElement('div');
         this._container.className = 'sidebar-tab-content processing-tab';
 
-        // Cabeçalho da seção
         const sectionHeader = document.createElement('div');
         sectionHeader.className = 'sidebar-section-header';
         sectionHeader.textContent = 'Algoritmos Disponíveis';
         this._container.appendChild(sectionHeader);
 
-        // Lista de algoritmos
         this._algorithmList = document.createElement('div');
         this._algorithmList.className = 'processing-algorithm-list';
         this._container.appendChild(this._algorithmList);
 
-        this._setupEventListeners();
         this._renderAlgorithmList();
 
         return this._container;
@@ -73,22 +68,22 @@ export class ProcessingTab {
         return this._container;
     }
 
-    /** Chamado quando a aba é ativada (exibida). */
+    /** Called when the tab is activated (shown). */
     onActivate() {
         this._renderAlgorithmList();
     }
 
-    /** Chamado quando a aba é desativada (escondida). */
+    /** Called when the tab is deactivated (hidden). */
     onDeactivate() {
-        // Nenhum cleanup necessário
+        // No cleanup needed
     }
 
-    /** Atualiza o conteúdo da aba. */
+    /** Refreshes the tab content. */
     refresh() {
         this._renderAlgorithmList();
     }
 
-    /** Limpa recursos. */
+    /** Cleans up resources. */
     destroy() {
         cleanup(this);
         removeElement(this._container);
@@ -101,16 +96,7 @@ export class ProcessingTab {
     // ========================================================================
 
     /**
-     * @private
-     */
-    _setupEventListeners() {
-        subscribe(this, this._eventBus, EventTypes.PROCESSING_COMPLETED, () => {
-            // Poderia atualizar status na lista
-        });
-    }
-
-    /**
-     * Renderiza a lista de algoritmos registrados.
+     * Renders the list of registered algorithms.
      * @private
      */
     _renderAlgorithmList() {
@@ -124,14 +110,14 @@ export class ProcessingTab {
             return;
         }
 
-        algorithms.forEach(algorithm => {
+        for (const algorithm of algorithms) {
             const card = this._createAlgorithmCard(algorithm);
             this._algorithmList.appendChild(card);
-        });
+        }
     }
 
     /**
-     * Cria um card para um algoritmo.
+     * Creates a card for an algorithm.
      * @private
      * @param {import('./algorithms/algorithm.interface.js').AlgorithmDefinition} algorithm
      * @returns {HTMLElement}
@@ -141,52 +127,61 @@ export class ProcessingTab {
         card.className = 'processing-card';
         card.dataset.algorithmId = algorithm.id;
 
-        card.innerHTML = `
-            <div class="processing-card__icon">${algorithm.icon}</div>
-            <div class="processing-card__info">
-                <div class="processing-card__name">${algorithm.name}</div>
-                <div class="processing-card__description">${algorithm.description}</div>
-            </div>
-            <button class="processing-card__action" title="Abrir ${algorithm.name}">
-                ${PROCESSING_ICONS.play}
-                <span>Abrir</span>
-            </button>
-        `;
+        // Icon (static SVG from algorithm definition)
+        const iconEl = document.createElement('div');
+        iconEl.className = 'processing-card__icon';
+        iconEl.innerHTML = algorithm.icon;
+        card.appendChild(iconEl);
 
-        const actionBtn = card.querySelector('.processing-card__action');
+        // Info section
+        const infoEl = document.createElement('div');
+        infoEl.className = 'processing-card__info';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'processing-card__name';
+        nameEl.textContent = algorithm.name;
+        infoEl.appendChild(nameEl);
+
+        const descEl = document.createElement('div');
+        descEl.className = 'processing-card__description';
+        descEl.textContent = algorithm.description;
+        infoEl.appendChild(descEl);
+
+        card.appendChild(infoEl);
+
+        // Action button
+        const actionBtn = document.createElement('button');
+        actionBtn.className = 'processing-card__action';
+        actionBtn.title = `Abrir ${escapeHtml(algorithm.name)}`;
+        actionBtn.innerHTML = `${PROCESSING_ICONS.play}<span>Abrir</span>`;
+
         addDomListener(this, actionBtn, 'click', (e) => {
             e.stopPropagation();
-            this._handleOpenAlgorithm(algorithm.id);
+            this._onOpenAlgorithm?.(algorithm.id);
         });
 
+        card.appendChild(actionBtn);
+
         addDomListener(this, card, 'click', () => {
-            this._handleOpenAlgorithm(algorithm.id);
+            this._onOpenAlgorithm?.(algorithm.id);
         });
 
         return card;
     }
 
     /**
-     * Renderiza estado vazio.
+     * Renders the empty state.
      * @private
      */
     _renderEmptyState() {
-        this._algorithmList.innerHTML = `
-            <div class="processing-empty-state">
-                ${PROCESSING_ICONS.cpu}
-                <p>Nenhum algoritmo disponível</p>
-            </div>
-        `;
-    }
+        const emptyEl = document.createElement('div');
+        emptyEl.className = 'processing-empty-state';
+        emptyEl.innerHTML = PROCESSING_ICONS.cpu;
 
-    /**
-     * Abre o painel de um algoritmo.
-     * @private
-     * @param {string} algorithmId
-     */
-    _handleOpenAlgorithm(algorithmId) {
-        if (this._onOpenAlgorithm) {
-            this._onOpenAlgorithm(algorithmId);
-        }
+        const textEl = document.createElement('p');
+        textEl.textContent = 'Nenhum algoritmo disponível';
+        emptyEl.appendChild(textEl);
+
+        this._algorithmList.appendChild(emptyEl);
     }
 }

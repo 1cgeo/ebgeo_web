@@ -4,7 +4,9 @@
  * @fileoverview Individual catalog card component.
  */
 
+import { escapeHtml } from '@utils/html-escape.js';
 import {
+    CATALOG_ITEM_TYPES,
     CATALOG_TYPE_CONFIG,
     DEFAULT_THUMBNAILS,
     CATALOG_UI_ICONS
@@ -75,14 +77,14 @@ export function createCatalogCard({ item, onClick, mapLocked = false }) {
         if (item.local) {
             const localSpan = document.createElement('span');
             localSpan.className = 'catalog-card-meta-item';
-            localSpan.innerHTML = `${MAP_PIN}<span>${item.local}</span>`;
+            localSpan.innerHTML = `${MAP_PIN}<span>${escapeHtml(item.local)}</span>`;
             meta.appendChild(localSpan);
         }
 
         if (item.date) {
             const dateSpan = document.createElement('span');
             dateSpan.className = 'catalog-card-meta-item';
-            dateSpan.innerHTML = `${CALENDAR}<span>${item.date}</span>`;
+            dateSpan.innerHTML = `${CALENDAR}<span>${escapeHtml(item.date)}</span>`;
             meta.appendChild(dateSpan);
         }
 
@@ -99,7 +101,9 @@ export function createCatalogCard({ item, onClick, mapLocked = false }) {
     openBtn.className = 'catalog-card-btn';
 
     // Only block data/analysis/hillshade types when locked; 3D and 360 remain accessible
-    const isBlockedByLock = mapLocked && !['model_3d', 'panoramic_360'].includes(item.type);
+    const isBlockedByLock = mapLocked &&
+        item.type !== CATALOG_ITEM_TYPES.MODEL_3D &&
+        item.type !== CATALOG_ITEM_TYPES.PANORAMIC_360;
 
     if (isBlockedByLock) {
         openBtn.innerHTML = `<span>Mapa Bloqueado</span>`;

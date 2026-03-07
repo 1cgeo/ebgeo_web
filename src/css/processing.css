@@ -200,6 +200,10 @@
     gap: var(--space-2);
 }
 
+.processing-panel__progress--hidden {
+    display: none;
+}
+
 .processing-panel__progress-text {
     font-size: var(--font-size-xs);
     color: var(--gray-600);
@@ -231,6 +235,16 @@
     border-radius: var(--radius-md);
     font-size: var(--font-size-xs);
     line-height: 1.4;
+}
+
+.processing-panel__result--hidden {
+    display: none;
+}
+
+/* Output name input - override textarea defaults */
+.processing-panel__output-name {
+    min-height: auto;
+    resize: none;
 }
 
 .processing-panel__result svg {

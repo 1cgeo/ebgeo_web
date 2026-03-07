@@ -117,9 +117,11 @@ function resolveMap(mapName) {
 /**
  * Checks permission and map lock for a write operation.
  * Returns an object with `blocked` flag. If blocked, emits the appropriate error.
+ * Uses isCurrentMapLockedSync for current-map operations (includes briefing lock override),
+ * and memoryStore.lockedMaps for explicit cross-map operations.
  * @param {string} guardAction - GuardAction constant
  * @param {string} operationName - Name for error reporting
- * @param {string} [targetMap] - Map name to check lock against (uses lockedMaps set)
+ * @param {string} [targetMap] - Map name to check lock against
  * @returns {{ blocked: boolean }}
  */
 function guardWrite(guardAction, operationName, targetMap) {
@@ -128,9 +130,15 @@ function guardWrite(guardAction, operationName, targetMap) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: operationName, reason: perm.reason });
         return { blocked: true };
     }
-    if (targetMap && memoryStore.lockedMaps.has(targetMap)) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: operationName, reason: 'map_locked' });
-        return { blocked: true };
+    if (targetMap) {
+        const isCurrentMap = targetMap === mapManager.getCurrentMapName();
+        const isLocked = isCurrentMap
+            ? isCurrentMapLockedSync()
+            : memoryStore.lockedMaps.has(targetMap);
+        if (isLocked) {
+            emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: operationName, reason: 'map_locked' });
+            return { blocked: true };
+        }
     }
     return { blocked: false };
 }
@@ -260,16 +268,8 @@ export async function addFeature(type, feature, mapName = null) {
  * @param {string} [mapName=null] - Target map name
  */
 export async function updateFeature(type, feature, mapName = null) {
-    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateFeature', reason: perm.reason });
-        return;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot update feature.');
-        return;
-    }
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.UPDATE_FEATURE, 'updateFeature', targetMap).blocked) return;
 
     const cleanedFeature = cleanFeature(feature);
     if (!cleanedFeature) {
@@ -277,7 +277,6 @@ export async function updateFeature(type, feature, mapName = null) {
         return;
     }
 
-    const targetMap = resolveMap(mapName);
     const currentMapData = await getMapDataCompat(targetMap);
     const index = currentMapData.features[type].findIndex(f => f.properties.id === cleanedFeature.properties.id);
     if (index === -1) return;
@@ -327,18 +326,8 @@ export async function updateFeature(type, feature, mapName = null) {
  * @param {string} [mapName=null] - Target map name
  */
 export async function removeFeature(type, id, mapName = null) {
-    const perm = checkPermission(GuardAction.DELETE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'removeFeature', reason: perm.reason });
-        return;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot remove feature.');
-        return;
-    }
-
     const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.DELETE_FEATURE, 'removeFeature', targetMap).blocked) return;
     const currentMapData = await getMapDataCompat(targetMap);
     const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id === id);
     if (featureIndex === -1) return;
@@ -554,18 +543,8 @@ export async function getFeatureById(featureType, featureId, mapName = null) {
  * @returns {Promise<boolean>} Whether update was successful
  */
 export async function updateFeatureProperty(featureType, featureId, property, value, mapName = null) {
-    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateFeatureProperty', reason: perm.reason });
-        return false;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot update feature property.');
-        return false;
-    }
-
     const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.UPDATE_FEATURE, 'updateFeatureProperty', targetMap).blocked) return false;
     const currentMapData = await getMapDataCompat(targetMap);
     const feature = currentMapData.features[featureType].find(f => f.properties.id === featureId);
 
@@ -612,22 +591,12 @@ export async function updateFeatureProperty(featureType, featureId, property, va
 export async function moveFeaturesToMap(features, targetMapName) {
     if (!features || features.length === 0) return;
 
-    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'moveFeaturesToMap', reason: perm.reason });
-        return;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Source map is locked. Cannot move features.');
-        return;
-    }
-    if (memoryStore.lockedMaps.has(targetMapName)) {
-        console.warn('Target map is locked. Cannot move features.');
-        return;
-    }
-
     const sourceMapName = mapManager.getCurrentMapName();
+    if (guardWrite(GuardAction.UPDATE_FEATURE, 'moveFeaturesToMap', sourceMapName).blocked) return;
+    if (memoryStore.lockedMaps.has(targetMapName)) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'moveFeaturesToMap', reason: 'target_map_locked' });
+        return;
+    }
     if (sourceMapName === targetMapName) {
         console.warn('Attempt to move features to the same map');
         return;
@@ -785,22 +754,11 @@ export async function buildLayerMappingForMove(features, sourceMapName, targetMa
  * @param {string|null} mapName - Target map name
  */
 async function batchUpdateAnalysisFeatures(mainType, mainFeature, processedFeatures, mapName) {
-    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
-            operation: `batchUpdate${mainType.charAt(0).toUpperCase() + mainType.slice(1)}Features`,
-            reason: perm.reason
-        });
-        return;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn(`Map is locked. Cannot update ${mainType} features.`);
-        return;
-    }
+    const operationName = `batchUpdate${mainType.charAt(0).toUpperCase() + mainType.slice(1)}Features`;
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.UPDATE_FEATURE, operationName, targetMap).blocked) return;
 
     const processedType = getProcessedType(mainType);
-    const targetMap = resolveMap(mapName);
     const currentMapData = await getMapDataCompat(targetMap);
 
     const mainIndex = currentMapData.features[mainType].findIndex(
@@ -878,13 +836,8 @@ export async function batchUpdateVisibilityFeatures(visibilityFeature, processed
  * @returns {Promise<boolean>} Whether any features were deleted
  */
 export async function deleteLayerFeatures(layerId, mapName = null) {
-    const perm = checkPermission(GuardAction.DELETE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'deleteLayerFeatures', reason: perm.reason });
-        return false;
-    }
-
     const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.DELETE_FEATURE, 'deleteLayerFeatures', targetMap).blocked) return false;
     const currentMapData = await getMapDataCompat(targetMap);
     let modified = false;
     const groupCleanups = [];
@@ -956,20 +909,10 @@ export async function getLayerFeatures(layerId, mapName = null) {
  * @returns {Promise<boolean>} Whether any features were moved
  */
 export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = null) {
-    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'moveFeaturesToLayer', reason: perm.reason });
-        return false;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot move features to layer.');
-        return false;
-    }
-
     if (featureRefs.length === 0) return false;
 
     const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.UPDATE_FEATURE, 'moveFeaturesToLayer', targetMap).blocked) return false;
     const currentMapData = await getMapDataCompat(targetMap);
     let modified = false;
     const isLayerIdArray = typeof featureRefs[0] === 'string';

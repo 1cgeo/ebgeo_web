@@ -14,14 +14,14 @@ import {
     addCatalogLayer,
     hasCatalogLayer,
     revalidateCatalogLayers
-} from '../store';
-import { EventTypes } from '../events';
+} from '@store';
+import { EventTypes } from '@events';
 import {
     CATALOG_ITEM_TYPES,
     CATALOG_ICONS,
     CATALOG_TYPE_CONFIG
-} from '../catalog/catalog.constants.js';
-import { showSuccess, showToast } from '../utilities';
+} from '@catalog/catalog.constants.js';
+import { showSuccess, showToast } from '@utils';
 
 /**
  * Icons used in the component.

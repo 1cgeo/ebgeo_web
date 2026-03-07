@@ -7,7 +7,7 @@ import {
     createModernButtons,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
-} from '../../tool_manager/helpers/index.js';
+} from '@tools/helpers/index.js';
 
 /**
  * Create and populate boundary attributes panel with controls

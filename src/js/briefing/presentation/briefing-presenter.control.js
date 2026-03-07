@@ -19,27 +19,27 @@ import {
     setupCleanup,
     addDomListener,
     cleanup
-} from '../../utilities/event-cleanup.js';
+} from '@utils/event-cleanup.js';
 import {
     getBriefingById,
     SlideMode,
     setBriefingLockOverride,
-    getAllMapNamesStore
-} from '../../store/index.js';
-import { getControl } from '../../store/control.registry.js';
-import { EventTypes } from '../../events/event_types.js';
-import { getEventBus } from '../../store/services.js';
-import { showError, showWarning } from '../../utilities/index.js';
-import { isViewer3DOpen } from '../../utilities/viewer3d-state.js';
-import { isStreetView360Open } from '../../utilities/streetview360-state.js';
+    getAllMapNamesStore,
+    getControl,
+    getEventBus
+} from '@store/index.js';
+import { EventTypes } from '@events/event_types.js';
+import { showError, showWarning } from '@utils/index.js';
+import { isViewer3DOpen } from '@utils/viewer3d-state.js';
+import { isStreetView360Open } from '@utils/streetview360-state.js';
 import {
     getApplicationModeManager,
     ApplicationMode
-} from '../../mode/application-mode.manager.js';
+} from '@js/mode/application-mode.manager.js';
 import {
     getUIVisibilityController,
     VisibilityProfile
-} from '../../ui/ui-visibility.controller.js';
+} from '@ui/ui-visibility.controller.js';
 import {
     setKeyboardCallbacksBriefing,
     activateKeyboardServiceBriefing,
@@ -506,7 +506,7 @@ export class BriefingPresenterControl {
 
         try {
             if (isStreetView360Open()) {
-                const { closeViewer360 } = await import('../../street_view_tool/street_view_viewer.js');
+                const { closeViewer360 } = await import('@js/street_view_tool/street_view_viewer.js');
                 await closeViewer360();
             }
         } catch (error) {

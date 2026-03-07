@@ -8,15 +8,7 @@
 
 import { MEASUREMENT_SOURCES, MEASUREMENT_LAYERS, MEASUREMENT_STYLE } from './measurement.constants.js';
 
-// ============================================================================
-// EMPTY FEATURE COLLECTION
-// ============================================================================
-
 const EMPTY_FC = Object.freeze({ type: 'FeatureCollection', features: [] });
-
-// ============================================================================
-// PUBLIC API
-// ============================================================================
 
 /**
  * Updates the label source with new label features.
@@ -150,12 +142,11 @@ export function updateAngleRays(map, rayCoordinates) {
 }
 
 /**
- * Clears all measurement sources (labels, preview, vertices, angle).
+ * Clears all measurement sources.
  * @param {Object} map - MapLibre map instance
  */
 export function clearAllSources(map) {
-    const sourceIds = Object.values(MEASUREMENT_SOURCES);
-    for (const sourceId of sourceIds) {
+    for (const sourceId of Object.values(MEASUREMENT_SOURCES)) {
         const source = map.getSource(sourceId);
         if (source) {
             source.setData(EMPTY_FC);
@@ -163,25 +154,13 @@ export function clearAllSources(map) {
     }
 }
 
-// ============================================================================
-// LAYER SETUP (called from auxiliary.layers.js)
-// ============================================================================
-
 /**
  * Sets up all measurement-related sources and layers on the map.
- * Called once during map initialization.
+ * Called once during map initialization from auxiliary.layers.js.
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupMeasurementLayers(mapInstance) {
-    // --- Sources ---
-    const sources = [
-        MEASUREMENT_SOURCES.PREVIEW_LINE,
-        MEASUREMENT_SOURCES.PREVIEW_FILL,
-        MEASUREMENT_SOURCES.VERTICES,
-        MEASUREMENT_SOURCES.LABELS,
-        MEASUREMENT_SOURCES.ANGLE_ARC,
-        MEASUREMENT_SOURCES.ANGLE_RAYS,
-    ];
+    const sources = Object.values(MEASUREMENT_SOURCES);
 
     for (const sourceId of sources) {
         if (!mapInstance.getSource(sourceId)) {
@@ -192,7 +171,6 @@ export function setupMeasurementLayers(mapInstance) {
         }
     }
 
-    // --- Preview fill (area) ---
     if (!mapInstance.getLayer(MEASUREMENT_LAYERS.PREVIEW_FILL)) {
         mapInstance.addLayer({
             id: MEASUREMENT_LAYERS.PREVIEW_FILL,
@@ -205,7 +183,6 @@ export function setupMeasurementLayers(mapInstance) {
         });
     }
 
-    // --- Preview line ---
     if (!mapInstance.getLayer(MEASUREMENT_LAYERS.PREVIEW_LINE)) {
         mapInstance.addLayer({
             id: MEASUREMENT_LAYERS.PREVIEW_LINE,
@@ -219,7 +196,6 @@ export function setupMeasurementLayers(mapInstance) {
         });
     }
 
-    // --- Angle rays ---
     if (!mapInstance.getLayer(MEASUREMENT_LAYERS.ANGLE_RAYS)) {
         mapInstance.addLayer({
             id: MEASUREMENT_LAYERS.ANGLE_RAYS,
@@ -232,7 +208,6 @@ export function setupMeasurementLayers(mapInstance) {
         });
     }
 
-    // --- Angle arc ---
     if (!mapInstance.getLayer(MEASUREMENT_LAYERS.ANGLE_ARC)) {
         mapInstance.addLayer({
             id: MEASUREMENT_LAYERS.ANGLE_ARC,
@@ -246,7 +221,6 @@ export function setupMeasurementLayers(mapInstance) {
         });
     }
 
-    // --- Vertices ---
     if (!mapInstance.getLayer(MEASUREMENT_LAYERS.VERTICES)) {
         mapInstance.addLayer({
             id: MEASUREMENT_LAYERS.VERTICES,
@@ -261,7 +235,6 @@ export function setupMeasurementLayers(mapInstance) {
         });
     }
 
-    // --- Labels (text) ---
     if (!mapInstance.getLayer(MEASUREMENT_LAYERS.LABELS)) {
         mapInstance.addLayer({
             id: MEASUREMENT_LAYERS.LABELS,

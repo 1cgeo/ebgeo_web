@@ -2,20 +2,14 @@
 
 /**
  * @fileoverview Search providers for the search bar.
- * Extracted from search-bar.component.js for better organization.
  * Each provider handles a specific search source.
- * @module search/search-bar.search-providers
  */
 
-import config from '../config.js';
-import { getCurrentMapFeatures } from '../store/feature.operations.js';
-import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '../store/store.constants.js';
+import config from '@js/config.js';
+import { getCurrentMapFeatures } from '@store/feature.operations.js';
+import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '@store/store.constants.js';
 import { tryParseCoordinates, formatCoordinates } from '@utils/coordinate_converter.js';
 import { MAX_RESULTS } from './search-bar.icons.js';
-
-// ============================================================================
-// COORDINATE SEARCH
-// ============================================================================
 
 /**
  * Searches for coordinates in the query string.
@@ -50,10 +44,6 @@ export async function searchCoordinates(query) {
     }
     return [];
 }
-
-// ============================================================================
-// LOCAL FEATURES SEARCH
-// ============================================================================
 
 /**
  * Checks if a feature matches the search query.
@@ -160,10 +150,6 @@ export async function searchLocalFeatures(query) {
     return results;
 }
 
-// ============================================================================
-// 3D MODELS SEARCH
-// ============================================================================
-
 /**
  * Searches 3D models from config.
  * @param {string} query - Search query
@@ -190,10 +176,6 @@ export function search3DModels(query) {
             dataCaptura: tileset.data_captura,
         }));
 }
-
-// ============================================================================
-// STREETVIEW MARKERS SEARCH
-// ============================================================================
 
 /**
  * Searches streetview projects from the API service cache.
@@ -227,10 +209,6 @@ export async function searchStreetViewMarkers(query) {
         return [];
     }
 }
-
-// ============================================================================
-// API SEARCH
-// ============================================================================
 
 /**
  * Searches external API.

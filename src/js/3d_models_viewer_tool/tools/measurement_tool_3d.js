@@ -12,9 +12,10 @@ import {
     updateMeasurement,
     removeMeasurement,
     DEFAULT_MEASUREMENT_STYLE
-} from '../../store/index.js';
-import { getEventBus } from '../../store/services.js';
-import { EventTypes } from '../../events/event_types.js';
+} from '@store/index.js';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
+import { hexToCesiumColor } from '../services/cesium-color.js';
 
 // ===== MODULE STATE =====
 
@@ -58,21 +59,6 @@ function initColors() {
 }
 
 // ===== UTILITY FUNCTIONS =====
-
-/**
- * Converts hex color to Cesium.Color.
- * @param {string} hex - Hex color string (e.g., '#ff0000')
- * @param {number} [alpha=1] - Alpha value
- * @returns {Cesium.Color} Cesium color
- */
-function hexToCesiumColor(hex, alpha = 1) {
-    if (!hex) return Cesium.Color.WHITE.withAlpha(alpha);
-    hex = hex.replace('#', '');
-    const r = parseInt(hex.substring(0, 2), 16) / 255;
-    const g = parseInt(hex.substring(2, 4), 16) / 255;
-    const b = parseInt(hex.substring(4, 6), 16) / 255;
-    return new Cesium.Color(r, g, b, alpha);
-}
 
 /**
  * Resolves measurement style with defaults.

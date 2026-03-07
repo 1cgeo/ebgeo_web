@@ -97,23 +97,13 @@ export class PhoneMoveActions {
     // Private
     // -------------------------------------------------------------------------
 
-    /**
-     * Handle confirm tap.
-     * @private
-     */
+    /** @private */
     _handleConfirm() {
-        if (typeof this._onConfirm === 'function') {
-            this._onConfirm();
-        }
+        this._onConfirm?.();
     }
 
-    /**
-     * Handle cancel tap.
-     * @private
-     */
+    /** @private */
     _handleCancel() {
-        if (typeof this._onCancel === 'function') {
-            this._onCancel();
-        }
+        this._onCancel?.();
     }
 }

@@ -9,7 +9,7 @@
 import {
     COORDINATE_FORMATS,
     getDisplayFormat
-} from '../../utilities';
+} from '@utils/index.js';
 
 let viewerInstance = null;
 

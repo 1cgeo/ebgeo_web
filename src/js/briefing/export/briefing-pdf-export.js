@@ -20,14 +20,13 @@
  * @module briefing/export/briefing-pdf-export
  */
 
-import { getBriefingById, getCurrentMapNameSync, setCurrentMap, getAllMapNamesStore } from '../../store/index.js';
-import { getControl } from '../../store/control.registry.js';
-import { showError, showSuccess, showWarning } from '../../utilities/index.js';
+import { getBriefingById, getCurrentMapNameSync, setCurrentMap, getAllMapNamesStore, getControl } from '@store/index.js';
+import { showError, showSuccess, showWarning } from '@utils/index.js';
 import { createTransitionService } from '../presentation/transition.service.js';
 import { validateBriefing } from '../validation/reference-validator.js';
 import { captureSlide } from './slide-capture.service.js';
 import { composePage, composeErrorPage, loadLogoDataUrl } from './pdf-page-composer.js';
-import { createExportProgressModal } from '../../import_export/export-utils.js';
+import { createExportProgressModal } from '@js/import_export/export-utils.js';
 
 // ============================================================================
 // STATE

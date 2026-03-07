@@ -5,7 +5,9 @@
  * Extends ModalBase with catalog-specific functionality.
  */
 
-import { ModalBase } from '../modals/modal.base.js';
+import { getControl, isCurrentMapLockedSync } from '@store';
+import { EventTypes } from '@events/event_types.js';
+import { ModalBase } from '@modals/modal.base.js';
 import { CatalogService } from './catalog.service.js';
 import {
     CATALOG_ITEM_TYPES,
@@ -16,10 +18,6 @@ import {
 import { createCatalogHeader } from './components/catalog-header.js';
 import { createCatalogFilters, updateFilterCounts } from './components/catalog-filters.js';
 import { createCatalogGrid } from './components/catalog-grid.js';
-import { getControl, isCurrentMapLockedSync } from '../store';
-import { EventTypes } from '../events/event_types.js';
-// Note: Using literal 'camadas' to avoid circular dependency with sidebar/sidebar.constants.js
-// SIDEBAR_TABS.CAMADAS === 'camadas'
 
 /**
  * Catalog modal class.
@@ -250,13 +248,9 @@ export class CatalogModal extends ModalBase {
                 await this._openPanoramic360(item);
                 break;
             case CATALOG_ITEM_TYPES.HILLSHADE:
-                await this._addHillshade(item);
-                break;
             case CATALOG_ITEM_TYPES.ANALYSIS_LAYER:
-                await this._addAnalysisLayer(item);
-                break;
             case CATALOG_ITEM_TYPES.DATA_LAYER:
-                await this._addDataLayer(item);
+                await this._addCatalogLayer(item);
                 break;
         }
 
@@ -321,65 +315,26 @@ export class CatalogModal extends ModalBase {
     }
 
     /**
-     * Adds hillshade layer.
+     * Adds a catalog layer (hillshade, analysis, or data) and opens the layers tab.
      * @private
      * @param {CatalogItem} item
      */
-    async _addHillshade(item) {
-        // Emit event to add hillshade
+    async _addCatalogLayer(item) {
         this._eventBus.emit(EventTypes.CATALOG_ADD_LAYER, {
-            type: CATALOG_ITEM_TYPES.HILLSHADE,
-            item: item
+            type: item.type,
+            item
         });
 
-        // Open the layers sidebar tab to show the added layer
-        if (this._stateManager) {
-            this._stateManager.expandSidebar('camadas');
-        }
-    }
-
-    /**
-     * Adds analysis layer.
-     * @private
-     * @param {CatalogItem} item
-     */
-    async _addAnalysisLayer(item) {
-        // Emit event to add analysis layer
-        this._eventBus.emit(EventTypes.CATALOG_ADD_LAYER, {
-            type: CATALOG_ITEM_TYPES.ANALYSIS_LAYER,
-            item: item
-        });
-
-        // Open the layers sidebar tab to show the added layer
         if (this._stateManager) {
             this._stateManager.expandSidebar('camadas');
         }
 
-        // Zoom to bounds if available
         if (item.location?.bounds) {
             const [west, south, east, north] = item.location.bounds;
             this._map.fitBounds([[west, south], [east, north]], {
                 padding: 50,
                 duration: 1000
             });
-        }
-    }
-
-    /**
-     * Adds data layer (molduras, etc.).
-     * @private
-     * @param {CatalogItem} item
-     */
-    async _addDataLayer(item) {
-        // Emit event to add data layer
-        this._eventBus.emit(EventTypes.CATALOG_ADD_LAYER, {
-            type: CATALOG_ITEM_TYPES.DATA_LAYER,
-            item: item
-        });
-
-        // Open the layers sidebar tab to show the added layer
-        if (this._stateManager) {
-            this._stateManager.expandSidebar('camadas');
         }
     }
 }

@@ -14,7 +14,7 @@ import { COLORS, NORTH_REFERENCE } from '../azimuth_distance_constants.js';
  *
  * @param {Object} options - Component options
  * @param {number} options.azimuthDeg - Current azimuth in degrees
- * @param {number} [options.size=156] - Size in pixels
+ * @param {number} [options.size=180] - Size in pixels
  * @param {number} [options.declination=0] - Magnetic declination in degrees
  * @param {string} [options.northRef='true'] - North reference
  * @returns {SVGElement} SVG element
@@ -22,23 +22,20 @@ import { COLORS, NORTH_REFERENCE } from '../azimuth_distance_constants.js';
 export function createCompassRose(options) {
     const {
         azimuthDeg = 0,
-        size = 180, // Increased default size
+        size = 180,
         declination = 0,
         northRef = NORTH_REFERENCE.TRUE
     } = options;
 
-    // When magnetic north is active, show declination offset
     const showDecl = northRef === NORTH_REFERENCE.MAGNETIC && declination !== 0;
     const declDeg = showDecl ? declination : 0;
 
-    // Extra space for labels outside compass
     const extraTop = showDecl ? 24 : 0;
     const extraBottom = showDecl ? 26 : 0;
     const totalHeight = size + extraTop + extraBottom;
 
-    // Center of compass (offset by extraTop)
     const c = size / 2;
-    const cy = c + extraTop; // Y center is offset
+    const cy = c + extraTop;
     const outerR = c - 8;
     const innerR = outerR - 16;
     const labelR = innerR - 14;
@@ -52,13 +49,10 @@ export function createCompassRose(options) {
     svg.setAttribute('viewBox', `0 0 ${size} ${totalHeight}`);
     svg.style.display = 'block';
 
-    // Build SVG content
     let content = '';
 
-    // Outer circle
+    // Outer and inner circles
     content += `<circle cx="${c}" cy="${cy}" r="${outerR}" fill="none" stroke="${COLORS.gray300}" stroke-width="1.5"/>`;
-
-    // Inner circle
     content += `<circle cx="${c}" cy="${cy}" r="${innerR}" fill="none" stroke="${COLORS.gray200}" stroke-width="0.8"/>`;
 
     // Tick marks
@@ -79,49 +73,10 @@ export function createCompassRose(options) {
 
     // Declination indicator (when active)
     if (showDecl) {
-        // Dashed line from center to magnetic north position
-        content += `<line x1="${c}" y1="${cy}"
-            x2="${c + (outerR + 8) * Math.cos(declRad)}"
-            y2="${cy + (outerR + 8) * Math.sin(declRad)}"
-            stroke="${COLORS.amber500}" stroke-width="2.5" stroke-dasharray="5 4"/>`;
-
-        // Arc between NV and NM
-        const sr = outerR + 6;
-        const startDeg = -90;
-        const endDeg = declDeg - 90;
-        const minDeg = Math.min(startDeg, endDeg);
-        const maxDeg = Math.max(startDeg, endDeg);
-        const sPoint = polar(c, cy, sr, minDeg);
-        const ePoint = polar(c, cy, sr, maxDeg);
-        const sweep = Math.abs(declDeg) > 180 ? '1' : '0';
-
-        content += `<path d="M ${sPoint.x} ${sPoint.y} A ${sr} ${sr} 0 ${sweep} 1 ${ePoint.x} ${ePoint.y}"
-            fill="none" stroke="${COLORS.amber500}" stroke-width="2.5" stroke-dasharray="4 4"/>`;
-
-        // NM label at magnetic north - positioned outside compass
-        const nmLabelR = outerR + 18;
-        content += `<text
-            x="${c + nmLabelR * Math.cos(declRad)}"
-            y="${cy + nmLabelR * Math.sin(declRad)}"
-            text-anchor="middle" dominant-baseline="central"
-            fill="${COLORS.amber600}" font-size="13" font-weight="700"
-            font-family="'SF Mono', 'Cascadia Code', 'Consolas', monospace">NM</text>`;
-
-        // NV label at true north (top) - positioned outside compass in extra top space
-        content += `<text x="${c}" y="${12}"
-            text-anchor="middle" dominant-baseline="central"
-            fill="${COLORS.blue500}" font-size="13" font-weight="700"
-            font-family="'SF Mono', 'Cascadia Code', 'Consolas', monospace">NV</text>`;
-
-        // Declination value label at bottom
-        const declText = declination > 0 ? `+${declination.toFixed(1)}` : declination.toFixed(1);
-        content += `<text x="${c}" y="${totalHeight - 8}"
-            text-anchor="middle" fill="${COLORS.amber600}"
-            font-size="13" font-weight="700"
-            font-family="'SF Mono', 'Cascadia Code', 'Consolas', monospace">Decl: ${declText}°</text>`;
+        content += buildDeclinationContent(c, cy, outerR, declDeg, declRad, declination, totalHeight);
     }
 
-    // Cardinal labels - INCREASED SIZE
+    // Cardinal labels
     const cardinals = [
         { l: 'N', deg: 0, color: COLORS.red600, bold: true },
         { l: 'E', deg: 90, color: COLORS.gray700, bold: false },
@@ -140,10 +95,8 @@ export function createCompassRose(options) {
     // Sweep fill arc (from 0 to current azimuth)
     if (azimuthDeg > 0) {
         const sweepR = innerR - 16;
-        const startAng = -90;
-        const endAng = azimuthDeg - 90;
-        const start = polar(c, cy, sweepR, endAng);
-        const end = polar(c, cy, sweepR, startAng);
+        const start = polar(c, cy, sweepR, azimuthDeg - 90);
+        const end = polar(c, cy, sweepR, -90);
         const large = azimuthDeg > 180 ? '1' : '0';
 
         content += `<path d="M ${c} ${cy} L ${start.x} ${start.y} A ${sweepR} ${sweepR} 0 ${large} 0 ${end.x} ${end.y} Z"
@@ -162,38 +115,79 @@ export function createCompassRose(options) {
     // Center dot
     content += `<circle cx="${c}" cy="${cy}" r="4" fill="${COLORS.gray700}"/>`;
 
-    // Value readout box - positioned relative to compass center
+    // Value readout box
     const boxY = cy + outerR - 14;
     content += `<rect x="${c - 34}" y="${boxY}" width="68" height="20" rx="5"
         fill="${COLORS.primary50}" stroke="${COLORS.primary600}" stroke-width="1"/>`;
-
     content += `<text x="${c}" y="${boxY + 12}" text-anchor="middle" fill="${COLORS.primary700}"
         font-size="13" font-weight="700"
-        font-family="'SF Mono', 'Cascadia Code', 'Consolas', monospace">${azimuthDeg.toFixed(1)}°</text>`;
+        font-family="'SF Mono', 'Cascadia Code', 'Consolas', monospace">${azimuthDeg.toFixed(1)}\u00B0</text>`;
 
     svg.innerHTML = content;
     return svg;
 }
 
 /**
- * Update compass rose with new azimuth.
+ * Build SVG content for the declination indicator.
  *
- * @param {SVGElement} svg - Existing SVG element
- * @param {Object} options - Update options
+ * @param {number} c - Center X coordinate
+ * @param {number} cy - Center Y coordinate
+ * @param {number} outerR - Outer radius
+ * @param {number} declDeg - Declination in degrees
+ * @param {number} declRad - Declination in radians (pre-calculated)
+ * @param {number} declination - Raw declination value for display
+ * @param {number} totalHeight - Total SVG height
+ * @returns {string} SVG content string
  */
-export function updateCompassRose(svg, options) {
-    // For simplicity, recreate the SVG content
-    const parent = svg.parentElement;
-    if (parent) {
-        const newSvg = createCompassRose(options);
-        parent.replaceChild(newSvg, svg);
-        return newSvg;
-    }
-    return svg;
+function buildDeclinationContent(c, cy, outerR, declDeg, declRad, declination, totalHeight) {
+    let content = '';
+
+    // Dashed line from center to magnetic north
+    content += `<line x1="${c}" y1="${cy}"
+        x2="${c + (outerR + 8) * Math.cos(declRad)}"
+        y2="${cy + (outerR + 8) * Math.sin(declRad)}"
+        stroke="${COLORS.amber500}" stroke-width="2.5" stroke-dasharray="5 4"/>`;
+
+    // Arc between NV and NM
+    const sr = outerR + 6;
+    const startDeg = -90;
+    const endDeg = declDeg - 90;
+    const minDeg = Math.min(startDeg, endDeg);
+    const maxDeg = Math.max(startDeg, endDeg);
+    const sPoint = polar(c, cy, sr, minDeg);
+    const ePoint = polar(c, cy, sr, maxDeg);
+    const sweep = Math.abs(declDeg) > 180 ? '1' : '0';
+
+    content += `<path d="M ${sPoint.x} ${sPoint.y} A ${sr} ${sr} 0 ${sweep} 1 ${ePoint.x} ${ePoint.y}"
+        fill="none" stroke="${COLORS.amber500}" stroke-width="2.5" stroke-dasharray="4 4"/>`;
+
+    // NM label at magnetic north
+    const nmLabelR = outerR + 18;
+    content += `<text
+        x="${c + nmLabelR * Math.cos(declRad)}"
+        y="${cy + nmLabelR * Math.sin(declRad)}"
+        text-anchor="middle" dominant-baseline="central"
+        fill="${COLORS.amber600}" font-size="13" font-weight="700"
+        font-family="'SF Mono', 'Cascadia Code', 'Consolas', monospace">NM</text>`;
+
+    // NV label at true north
+    content += `<text x="${c}" y="12"
+        text-anchor="middle" dominant-baseline="central"
+        fill="${COLORS.blue500}" font-size="13" font-weight="700"
+        font-family="'SF Mono', 'Cascadia Code', 'Consolas', monospace">NV</text>`;
+
+    // Declination value label at bottom
+    const declText = declination > 0 ? `+${declination.toFixed(1)}` : declination.toFixed(1);
+    content += `<text x="${c}" y="${totalHeight - 8}"
+        text-anchor="middle" fill="${COLORS.amber600}"
+        font-size="13" font-weight="700"
+        font-family="'SF Mono', 'Cascadia Code', 'Consolas', monospace">Decl: ${declText}\u00B0</text>`;
+
+    return content;
 }
 
 /**
- * Helper function to calculate polar coordinates.
+ * Convert polar coordinates to cartesian.
  *
  * @param {number} cx - Center X
  * @param {number} cy - Center Y
@@ -213,33 +207,21 @@ function polar(cx, cy, r, deg) {
  * Create compass rose container with wrapper.
  *
  * @param {Object} options - Options
- * @returns {{container: HTMLElement, svg: SVGElement, update: Function}}
+ * @returns {{container: HTMLElement, update: Function}}
  */
 export function createCompassRoseComponent(options) {
     const container = document.createElement('div');
     container.className = 'azimuth-distance-compass-container';
-    container.style.cssText = `
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 14px;
-        background: ${COLORS.white};
-        border-radius: 12px;
-        border: 1px solid ${COLORS.gray200};
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    `;
 
     let currentSvg = createCompassRose(options);
     container.appendChild(currentSvg);
 
     return {
         container,
-        svg: currentSvg,
         update: (newOptions) => {
             const newSvg = createCompassRose(newOptions);
             container.replaceChild(newSvg, currentSvg);
             currentSvg = newSvg;
-            return newSvg;
         }
     };
 }

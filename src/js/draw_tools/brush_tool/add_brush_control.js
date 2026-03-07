@@ -12,6 +12,8 @@ import { BaseControl } from '../../tool_manager';
  * Manages freehand drawing for brush/pencil features with zoom-adaptive scaling
  */
 class AddBrushControl extends BaseControl {
+    featureType = 'brush';
+
     constructor(toolManager) {
         super(toolManager);
 
@@ -51,26 +53,6 @@ class AddBrushControl extends BaseControl {
         visivel: true,
         bloqueado: false
     };
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
-    /**
-     * Get currently selected brush feature from SelectionManager
-     * @returns {Object|null} Selected brush feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('brush');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected brush features from SelectionManager
-     * @returns {Array} Array of selected brush features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('brush')
-            .map(item => item.feature);
-    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 

@@ -4880,3 +4880,143 @@ body:has(.sidebar-container) .unified-attributes-panel {
         display: block;
     }
 }
+
+/* =========================================================================
+   VECTOR INFO PANEL
+   ========================================================================= */
+
+.vector-info-panel-content {
+    padding: 0;
+}
+
+.vector-info-properties {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.vector-info-properties__item {
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: var(--font-size-sm);
+}
+
+.vector-info-properties__key {
+    color: var(--gray-600);
+}
+
+.vector-info-properties__value {
+    color: var(--gray-800);
+}
+
+.vector-info-panel__empty {
+    color: var(--gray-500);
+    text-align: center;
+    padding: var(--space-4);
+}
+
+/* =========================================================================
+   FEATURE LOCATION - CLICKABLE COORDINATES
+   ========================================================================= */
+
+.feature-location-text--clickable {
+    cursor: pointer;
+}
+
+/* =========================================================================
+   FEATURE IDENTIFICATION - NAME EDIT TOGGLE
+   ========================================================================= */
+
+.feature-identification-name-input--hidden {
+    display: none;
+}
+
+.feature-identification-name--hidden {
+    display: none;
+}
+
+/* =========================================================================
+   FEATURE DESCRIPTION - EDIT TOGGLE
+   ========================================================================= */
+
+.feature-description-edit--hidden {
+    display: none;
+}
+
+.feature-description-display--hidden {
+    display: none;
+}
+
+/* =========================================================================
+   MAP NOTES - MODE TOGGLE
+   ========================================================================= */
+
+.map-notes-edit-container--hidden {
+    display: none;
+}
+
+.map-notes-view-container--hidden {
+    display: none;
+}
+
+/* =========================================================================
+   AZIMUTES TAB - DECLINATION INPUT TOGGLE
+   ========================================================================= */
+
+.azimutes-tab__decl-input-row--hidden {
+    display: none;
+}
+
+/* =========================================================================
+   PDF EXPORT FALLBACK
+   ========================================================================= */
+
+.pdf-orientation-btns {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+}
+
+.pdf-orientation-btns .orientation-btn {
+    flex: 1;
+    justify-content: center;
+}
+
+.pdf-option-group--spaced {
+    margin-bottom: var(--space-3);
+}
+
+.pdf-option-label--block {
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+    margin-bottom: var(--space-1);
+    display: block;
+}
+
+.pdf-scale-select {
+    width: 100%;
+    padding: var(--space-2);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.pdf-export-btn--full {
+    width: 100%;
+    justify-content: center;
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+/* =========================================================================
+   PHOTO GALLERY - HIDDEN ELEMENTS
+   ========================================================================= */
+
+.feature-photo-gallery__file-input,
+.sidebar-hidden-file-input {
+    display: none;
+}
+
+.feature-photo-viewer-counter--hidden {
+    display: none;
+}

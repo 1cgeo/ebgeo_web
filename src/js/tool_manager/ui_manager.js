@@ -406,7 +406,10 @@ class UIManager {
 
         infoItems.forEach(item => {
             const listItem = document.createElement('li');
-            listItem.innerHTML = `<strong>${item.label}:</strong> ${item.value}`;
+            const strong = document.createElement('strong');
+            strong.textContent = `${item.label}:`;
+            listItem.appendChild(strong);
+            listItem.append(` ${item.value}`);
             infoList.appendChild(listItem);
         });
 
@@ -518,7 +521,10 @@ class UIManager {
             }
 
             const listItem = document.createElement('li');
-            listItem.innerHTML = `<strong>${displayKey}:</strong> ${displayValue}`;
+            const strong = document.createElement('strong');
+            strong.textContent = `${displayKey}:`;
+            listItem.appendChild(strong);
+            listItem.append(` ${displayValue}`);
             propertiesList.appendChild(listItem);
         }
 

@@ -2,11 +2,19 @@
 import JSZip from 'jszip';
 import * as toGeoJSON from '@tmcw/togeojson';
 import shp from 'shpjs';
-import { addFeatures, createLayerForImport, getLayers, getCurrentMapNameSync, getEventBus } from '../store';
-import { IDUtils, showSuccess, showError } from '../utilities';
-import { getTerrainElevation } from '../terrain';
-import { EventTypes } from '../events';
-import { userDataManager } from '../user_data';
+import { addFeatures, createLayerForImport, getLayers, getCurrentMapNameSync, getEventBus } from '@store';
+import { IDUtils } from '@utils/id_utils.js';
+import { showSuccess, showError } from '@utils/toast_service.js';
+import { getTerrainElevation } from '@js/terrain';
+import { EventTypes } from '@events';
+import { userDataManager } from '@js/user_data';
+
+/** Maps source type to Portuguese display name for imported features. */
+const TYPE_DISPLAY_NAMES = {
+    'points': 'Ponto',
+    'lines': 'Linha',
+    'polygons': 'Polígono'
+};
 
 class AddImportControl {
     static FILE_LIMITS = {
@@ -54,7 +62,7 @@ class AddImportControl {
         this.fileInput = document.createElement('input');
         this.fileInput.type = 'file';
         this.fileInput.accept = '.geojson,.json,.zip,.kml,.kmz,.gpx';
-        this.fileInput.style.display = 'none';
+        this.fileInput.className = 'hidden-file-input';
         this.fileInput.addEventListener('change', this.handleFileSelect.bind(this));
         this.container.appendChild(this.fileInput);
 
@@ -83,9 +91,6 @@ class AddImportControl {
     deactivate() {
         this.isActive = false;
         this.changeButtonColor();
-    }
-
-    handleMapClick() {
     }
 
     async handleFileSelect(event) {
@@ -127,45 +132,11 @@ class AddImportControl {
         }
     }
 
-    _createFileReader(cleanup = true) {
-        const reader = new FileReader();
-
-        if (cleanup) {
-            const originalOnLoad = reader.onload;
-            const originalOnError = reader.onerror;
-
-            reader.onload = (e) => {
-                try {
-                    if (originalOnLoad) originalOnLoad(e);
-                } finally {
-                    this._cleanupReader(reader);
-                }
-            };
-
-            reader.onerror = (e) => {
-                try {
-                    if (originalOnError) originalOnError(e);
-                } finally {
-                    this._cleanupReader(reader);
-                }
-            };
-        }
-
-        return reader;
-    }
-
-    _cleanupReader(reader) {
-        reader.onload = null;
-        reader.onerror = null;
-        reader.onprogress = null;
-        reader.abort();
-    }
-
     async _readFileWithProgress(file, method = 'text') {
         this._validateFile(file);
 
         return new Promise((resolve, reject) => {
-            const reader = this._createFileReader();
+            const reader = new FileReader();
             let progressCallback = null;
 
             const timeout = setTimeout(() => {
@@ -206,30 +177,34 @@ class AddImportControl {
 
     _showProgressIndicator() {
         const progressDiv = document.createElement('div');
-        progressDiv.id = 'import-progress';
-        progressDiv.style.cssText = `
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: white; padding: 20px; border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 10000;
-        `;
-        progressDiv.innerHTML = `
-            <div>Importando arquivo...</div>
-            <div style="margin-top: 10px; background: #f0f0f0; border-radius: 4px; height: 8px;">
-                <div id="progress-bar" style="background: #007bff; height: 100%; border-radius: 4px; width: 0%; transition: width 0.3s;"></div>
-            </div>
-        `;
+        progressDiv.className = 'import-progress';
 
+        const label = document.createElement('div');
+        label.textContent = 'Importando arquivo...';
+
+        const barContainer = document.createElement('div');
+        barContainer.className = 'import-progress__bar-container';
+
+        const bar = document.createElement('div');
+        bar.className = 'import-progress__bar';
+        barContainer.appendChild(bar);
+
+        progressDiv.appendChild(label);
+        progressDiv.appendChild(barContainer);
         document.body.appendChild(progressDiv);
 
+        this._progressElement = progressDiv;
+
         return (percent) => {
-            const bar = document.getElementById('progress-bar');
-            if (bar) bar.style.width = `${percent}%`;
+            bar.style.width = `${percent}%`;
         };
     }
 
     _hideProgressIndicator() {
-        const progress = document.getElementById('import-progress');
-        if (progress) progress.remove();
+        if (this._progressElement) {
+            this._progressElement.remove();
+            this._progressElement = null;
+        }
     }
 
     async _processFileWithReader(file, readerMethod, processor, errorMessage) {
@@ -372,70 +347,32 @@ class AddImportControl {
     }
 
     decomposeMultiGeometry(feature) {
-        const geometry = feature.geometry;
-        const properties = feature.properties;
-        const features = [];
+        const { geometry, properties } = feature;
+        const singularType = geometry.type.replace('Multi', '');
 
-        switch (geometry.type) {
-            case 'MultiPoint':
-                geometry.coordinates.forEach(coord => {
-                    features.push({
-                        type: 'Feature',
-                        properties: { ...properties },
-                        geometry: {
-                            type: 'Point',
-                            coordinates: coord
-                        }
-                    });
-                });
-                break;
-
-            case 'MultiLineString':
-                geometry.coordinates.forEach(coords => {
-                    features.push({
-                        type: 'Feature',
-                        properties: { ...properties },
-                        geometry: {
-                            type: 'LineString',
-                            coordinates: coords
-                        }
-                    });
-                });
-                break;
-
-            case 'MultiPolygon':
-                geometry.coordinates.forEach(coords => {
-                    features.push({
-                        type: 'Feature',
-                        properties: { ...properties },
-                        geometry: {
-                            type: 'Polygon',
-                            coordinates: coords
-                        }
-                    });
-                });
-                break;
-
-            case 'GeometryCollection':
-                geometry.geometries.forEach(geom => {
-                    const subFeature = {
-                        type: 'Feature',
-                        properties: { ...properties },
-                        geometry: geom
-                    };
-                    if (geom.type.startsWith('Multi') || geom.type === 'GeometryCollection') {
-                        features.push(...this.decomposeMultiGeometry(subFeature));
-                    } else {
-                        features.push(subFeature);
-                    }
-                });
-                break;
-
-            default:
-                features.push(feature);
+        // Multi* types share the same pattern: each coordinate element becomes a single-geometry feature
+        if (geometry.type === 'MultiPoint' || geometry.type === 'MultiLineString' || geometry.type === 'MultiPolygon') {
+            return geometry.coordinates.map(coords => ({
+                type: 'Feature',
+                properties: { ...properties },
+                geometry: { type: singularType, coordinates: coords }
+            }));
         }
 
-        return features;
+        if (geometry.type === 'GeometryCollection') {
+            const features = [];
+            for (const geom of geometry.geometries) {
+                const subFeature = { type: 'Feature', properties: { ...properties }, geometry: geom };
+                if (geom.type.startsWith('Multi') || geom.type === 'GeometryCollection') {
+                    features.push(...this.decomposeMultiGeometry(subFeature));
+                } else {
+                    features.push(subFeature);
+                }
+            }
+            return features;
+        }
+
+        return [feature];
     }
 
     getTargetType(geometryType) {
@@ -468,12 +405,6 @@ class AddImportControl {
             return typeCounters;
         }
 
-        const typeMap = {
-            'points': 'Ponto',
-            'lines': 'Linha',
-            'polygons': 'Polígono'
-        };
-
         for (const sourceType of Object.keys(typeCounters)) {
             try {
                 const source = this.map.getSource(sourceType);
@@ -481,7 +412,7 @@ class AddImportControl {
                     const data = await source.getData();
                     if (data && data.features) {
                         const existingNumbers = [];
-                        const expectedPrefix = typeMap[sourceType];
+                        const expectedPrefix = TYPE_DISPLAY_NAMES[sourceType];
 
                         data.features.forEach(feature => {
                             if (feature.properties && feature.properties.nome) {
@@ -514,13 +445,7 @@ class AddImportControl {
      * @returns {string} Generated unique name
      */
     generateImportName(targetType, counters) {
-        const typeMap = {
-            'points': 'Ponto',
-            'lines': 'Linha',
-            'polygons': 'Polígono'
-        };
-
-        const name = `${typeMap[targetType]} #${counters[targetType]}`;
+        const name = `${TYPE_DISPLAY_NAMES[targetType]} #${counters[targetType]}`;
         counters[targetType]++;
         return name;
     }
@@ -577,9 +502,6 @@ class AddImportControl {
             feature.properties
         );
 
-        // Store geoJsonId for use in the return statement
-        this._lastGeoJsonId = geoJsonId;
-
         const baseProperties = {
             ...this.getDefaultProperties(targetType),
             // Note: We no longer spread feature.properties here to avoid mixing
@@ -625,7 +547,7 @@ class AddImportControl {
 
         return {
             type: 'Feature',
-            id: this._lastGeoJsonId,
+            id: geoJsonId,
             properties: baseProperties,
             geometry: feature.geometry
         };

@@ -1,6 +1,6 @@
 // Path: js/military_tools/military_symbol_tool/add_military_symbol_geometry.js
 
-import { BaseGeometry } from '../../tool_manager';
+import { BaseGeometry } from '@tools';
 
 /**
  * Military Symbol Geometry Operations

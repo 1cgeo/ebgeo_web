@@ -61,8 +61,6 @@ export function createModernTextAlignment(config) {
         }
         if (isDisabled) {
             btn.disabled = true;
-            btn.style.opacity = '0.5';
-            btn.style.cursor = 'not-allowed';
         }
 
         btn.innerHTML = alignment.icon;
@@ -92,8 +90,6 @@ export function createModernTextAlignment(config) {
         isDisabled = newDisabledState;
         buttonsContainer.querySelectorAll('.attr-modern-alignment-btn').forEach(btn => {
             btn.disabled = newDisabledState;
-            btn.style.opacity = newDisabledState ? '0.5' : '';
-            btn.style.cursor = newDisabledState ? 'not-allowed' : '';
         });
     };
 
@@ -106,13 +102,4 @@ export function createModernTextAlignment(config) {
     };
 
     return container;
-}
-
-/**
- * Gets all available alignment options.
- *
- * @returns {Array} Array of alignment objects
- */
-export function getAlignments() {
-    return [...ALIGNMENTS];
 }

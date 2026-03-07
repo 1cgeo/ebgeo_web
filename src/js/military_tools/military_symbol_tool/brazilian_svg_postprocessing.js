@@ -12,14 +12,6 @@ import {
 import { BrazilianSIDCExtension } from './brazilian_sidc_extension.js';
 
 /**
- * ========================================
- * SITUATION 1: TEXT ADAPTATION
- * ========================================
- * Replaces American text with Brazilian text
- * Supports: Main Icon, Modifier 1, Modifier 2
- */
-
-/**
  * Apply Brazilian label translations to SVG
  * @param {string} svgString - Base SVG from milsymbol.js
  * @param {string} sidc20 - 20-digit SIDC
@@ -33,12 +25,10 @@ export function applyBrazilianLabelsToSVG(svgString, sidc20, symbolSetCode) {
 
     let modifiedSVG = svgString;
 
-    // Extract codes from SIDC
-    const mainIcon = sidc20.substring(10, 16);    // Positions 11-16
-    const modifier1 = sidc20.substring(16, 18);   // Positions 17-18
-    const modifier2 = sidc20.substring(18, 20);   // Positions 19-20
+    const mainIcon = sidc20.substring(10, 16);
+    const modifier1 = sidc20.substring(16, 18);
+    const modifier2 = sidc20.substring(18, 20);
 
-    // 1. Process Main Icon labels
     const mainIconMapping = getCatalogEntry(
         symbolSetCode,
         'mainIcon',
@@ -49,7 +39,6 @@ export function applyBrazilianLabelsToSVG(svgString, sidc20, symbolSetCode) {
         modifiedSVG = replaceTextInSVG(modifiedSVG, mainIconMapping);
     }
 
-    // 2. Process Modifier 1 labels (only if not '00')
     if (modifier1 !== '00') {
         const mod1Mapping = getCatalogEntry(
             symbolSetCode,
@@ -62,7 +51,6 @@ export function applyBrazilianLabelsToSVG(svgString, sidc20, symbolSetCode) {
         }
     }
 
-    // 3. Process Modifier 2 labels (only if not '00' and section exists)
     if (modifier2 !== '00' && hasSection(symbolSetCode, 'modifier2')) {
         const mod2Mapping = getCatalogEntry(
             symbolSetCode,
@@ -79,7 +67,7 @@ export function applyBrazilianLabelsToSVG(svgString, sidc20, symbolSetCode) {
 }
 
 /**
- * Replace text in SVG based on mapping (SIMPLIFIED)
+ * Replace text in SVG based on mapping
  * @param {string} svgString - SVG to modify
  * @param {Object} mapping - { from: '...', to: '...', fontSize?: '...' }
  * @returns {string} Modified SVG
@@ -87,12 +75,9 @@ export function applyBrazilianLabelsToSVG(svgString, sidc20, symbolSetCode) {
 function replaceTextInSVG(svgString, mapping) {
     const { from, to, fontSize } = mapping;
 
-    // Simple replace: >TEXT</text>
     let result = svgString.replace(`>${from}</text>`, `>${to}</text>`);
 
-    // Adjust fontSize if specified and replacement was made
     if (fontSize && result !== svgString) {
-        // Find the <text> element that now contains the new text and update its font-size
         const pattern = new RegExp(
             `(<text[^>]*?)font-size="[^"]*"([^>]*>${to}</text>)`,
             'g'
@@ -104,14 +89,7 @@ function replaceTextInSVG(svgString, mapping) {
 }
 
 /**
- * ========================================
- * SITUATION 2: GRAPHIC ADAPTATION
- * ========================================
- * Replaces complete SVG elements using find/replace
- */
-
-/**
- * Apply graphic adaptations (GENERALIZED)
+ * Apply graphic adaptations
  * @param {string} svgString - Base SVG
  * @param {string} code - Element code (6-digit for mainIcon, 2-digit for modifiers)
  * @param {string} elementType - Element type: 'mainIcon', 'modifier1', 'modifier2'
@@ -141,13 +119,7 @@ export function applyGraphicAdaptations(svgString, code, elementType, symbolSetC
 }
 
 /**
- * ========================================
- * HELPER FUNCTIONS
- * ========================================
- */
-
-/**
- * Build text SVG element from descriptor (with default fontFamily)
+ * Build text SVG element from descriptor
  * @param {Object} descriptor - { position, text, style }
  * @returns {string} SVG text element
  */
@@ -163,10 +135,8 @@ function buildTextElement(descriptor) {
  * @returns {string} RGB string (e.g., "rgb(17,255,0)")
  */
 function hexToRgb(hex) {
-    // Remove # if present
     hex = hex.replace('#', '');
 
-    // Parse hex values
     const r = parseInt(hex.substring(0, 2), 16);
     const g = parseInt(hex.substring(2, 4), 16);
     const b = parseInt(hex.substring(4, 6), 16);
@@ -175,20 +145,8 @@ function hexToRgb(hex) {
 }
 
 /**
- * ========================================
- * COMPLETE PIPELINE
- * ========================================
- */
-
-/**
- * Complete Brazilian modifications pipeline (REFACTORED)
- *
- * IMPORTANT: Extensions are added to SVG that already comes EMPTY (codes zeroed)
- * - No need to remove existing elements
- * - No need to search for specific positions
- * - Just append before </svg>
- * - Order doesn't matter (no overlapping)
- *
+ * Complete Brazilian modifications pipeline.
+ * Extensions are appended to SVG that already has zeroed codes (no removal needed).
  * @param {string} svgString - Base SVG from milsymbol.js
  * @param {string} sidc30 - SIDC with 30 digits
  * @param {string} symbolSetCode - Symbol set code (e.g., "10", "15")
@@ -235,8 +193,7 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode, cu
             'mainIcon',
             'extensions',
             mainIconCode,
-            extension.entityExtension,  // Can be 0, 1, 2... 31
-            standardIdentity
+            extension.entityExtension,            standardIdentity
         );
 
         if (entityExt) {
@@ -272,7 +229,6 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode, cu
         }
     }
 
-    // 5. Modifier 2 Extension
     if (hasSection(symbolSetCode, 'modifier2') &&
         hasExtensions(symbolSetCode, 'modifier2', modifier2Code)) {
 
@@ -281,8 +237,7 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode, cu
             'modifier2',
             'extensions',
             modifier2Code,
-            extension.mod2Extension,  // Can be 0, 1, 2... 31
-            standardIdentity
+            extension.mod2Extension,            standardIdentity
         );
 
         if (mod2Ext) {
@@ -295,15 +250,13 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode, cu
         }
     }
 
-    // 6. Modifier 1 Extension
     if (hasExtensions(symbolSetCode, 'modifier1', modifier1Code)) {
         const mod1Ext = getCatalogEntryWithStandardIdentity(
             symbolSetCode,
             'modifier1',
             'extensions',
             modifier1Code,
-            extension.mod1Extension,  // Can be 0, 1, 2... 31
-            standardIdentity
+            extension.mod1Extension,            standardIdentity
         );
 
         if (mod1Ext) {
@@ -327,7 +280,6 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode, cu
         }
     }
 
-    // Apply engagement bar color if custom color is set
     if (customColor) {
         const customRgb = hexToRgb(customColor);
         result = result.replace(/rgb\(128,224,255\)/g, customRgb);
@@ -341,10 +293,9 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode, cu
 
 /**
  * Check for uncataloged extensions and return warnings
- * Performs REAL validation by checking if extensions exist in catalog
  * @param {Object} extension - Decoded extension
  * @param {string} symbolSetCode - Symbol set code (e.g., "10", "15")
- * @param {string} sidc20 - 20-digit base SIDC (needed to extract codes)
+ * @param {string} sidc20 - 20-digit base SIDC
  * @returns {Array<string>} Array of warning messages
  */
 export function checkCatalogWarnings(extension, symbolSetCode, sidc20) {
@@ -352,13 +303,11 @@ export function checkCatalogWarnings(extension, symbolSetCode, sidc20) {
 
     const warnings = [];
 
-    // Extract codes from SIDC (needed for catalog lookups)
-    const mainIconCode = sidc20 ? sidc20.substring(10, 16) : null;    // Positions 11-16
-    const modifier1Code = sidc20 ? sidc20.substring(16, 18) : null;   // Positions 17-18
-    const modifier2Code = sidc20 ? sidc20.substring(18, 20) : null;   // Positions 19-20
-    const standardIdentity = sidc20 ? sidc20.substring(3, 4) : null;  // Position 4
+    const mainIconCode = sidc20 ? sidc20.substring(10, 16) : null;
+    const modifier1Code = sidc20 ? sidc20.substring(16, 18) : null;
+    const modifier2Code = sidc20 ? sidc20.substring(18, 20) : null;
+    const standardIdentity = sidc20 ? sidc20.substring(3, 4) : null;
 
-    // 1. Entity Extension - check if exists in catalog
     if (extension.entityExtension !== null && extension.entityExtension !== undefined) {
         if (mainIconCode && hasExtensions(symbolSetCode, 'mainIcon', mainIconCode)) {
             const entityExt = getCatalogEntryWithStandardIdentity(
@@ -376,7 +325,6 @@ export function checkCatalogWarnings(extension, symbolSetCode, sidc20) {
         }
     }
 
-    // 2. Special Modifier - check if exists in catalog
     if (extension.specialModifier > 0) {
         const modifiersCatalog = getSpecialModifiers(symbolSetCode);
         if (!modifiersCatalog || !modifiersCatalog[extension.specialModifier]) {
@@ -384,7 +332,6 @@ export function checkCatalogWarnings(extension, symbolSetCode, sidc20) {
         }
     }
 
-    // 3. Modifier 1 Extension - check if exists in catalog
     if (extension.mod1Extension !== null && extension.mod1Extension !== undefined) {
         if (modifier1Code && modifier1Code !== '00' && hasExtensions(symbolSetCode, 'modifier1', modifier1Code)) {
             const mod1Ext = getCatalogEntryWithStandardIdentity(
@@ -402,9 +349,7 @@ export function checkCatalogWarnings(extension, symbolSetCode, sidc20) {
         }
     }
 
-    // 4. Modifier 2 Extension - check if exists in catalog
     if (extension.mod2Extension !== null && extension.mod2Extension !== undefined) {
-        // First check if modifier2 section exists for this symbol set
         if (!hasSection(symbolSetCode, 'modifier2')) {
             if (extension.mod2Extension > 0) {
                 warnings.push(`Modifier 2 not applicable for Symbol Set ${symbolSetCode}`);

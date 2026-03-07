@@ -7,6 +7,11 @@
  * @module draw_tools/line_tool/line_measurement
  */
 
+import { calculateLineLength } from '@js/measurement_tool/measurement-geometry.js';
+
+// Re-export for barrel consumers
+export { calculateLineLength };
+
 // ============================================================================
 // MEASUREMENT LABEL CREATION
 // ============================================================================
@@ -74,11 +79,7 @@ export function setMeasurementLabelSelected(featureId, isSelected) {
         `.measurement-label[data-feature-id="${featureId}"]`
     );
     if (measurementLabel) {
-        if (isSelected) {
-            measurementLabel.classList.add('selected');
-        } else {
-            measurementLabel.classList.remove('selected');
-        }
+        measurementLabel.classList.toggle('selected', isSelected);
     }
 }
 
@@ -101,21 +102,15 @@ export function updateFeatureMeasurement(map, feature) {
     if (feature.properties.measure) {
         const line = turf.lineString(feature.geometry.coordinates);
         const lengthInMeters = turf.length(line, { units: 'meters' });
-
-        // Format length with appropriate unit
-        const lengthFormatted = lengthInMeters >= 1000
-            ? `${(lengthInMeters / 1000).toFixed(2)} km`
-            : `${lengthInMeters.toFixed(2)} m`;
-
-        // Position at midpoint of line
         const midpoint = turf.along(line, lengthInMeters / 2, { units: 'meters' });
 
-        displayMeasurement(map, midpoint.geometry.coordinates, lengthFormatted, feature.properties.id, feature.properties.layerId);
+        displayMeasurement(map, midpoint.geometry.coordinates, formatLength(lengthInMeters), feature.properties.id, feature.properties.layerId);
     }
 }
 
 /**
- * Format length value with appropriate unit.
+ * Format length value with appropriate unit (2 decimal places for both m and km).
+ * Note: differs from measurement-geometry.js formatDistanceAuto which uses 1 decimal for meters.
  *
  * @param {number} lengthInMeters - Length in meters
  * @returns {string} Formatted length string
@@ -125,15 +120,4 @@ export function formatLength(lengthInMeters) {
         return `${(lengthInMeters / 1000).toFixed(2)} km`;
     }
     return `${lengthInMeters.toFixed(2)} m`;
-}
-
-/**
- * Calculate line length in meters.
- *
- * @param {Array} coordinates - Line coordinates
- * @returns {number} Length in meters
- */
-export function calculateLineLength(coordinates) {
-    const line = turf.lineString(coordinates);
-    return turf.length(line, { units: 'meters' });
 }

@@ -1,40 +1,11 @@
 // Path: js/layers/styles/point.layers.js
 
-const EMPTY_FC = { type: 'FeatureCollection', features: [] };
-
-/**
- * Creates a GeoJSON FeatureCollection wrapper.
- * @param {Array} features
- * @returns {{ type: string, features: Array }}
- */
-function featureCollection(features) {
-    return { type: 'FeatureCollection', features: features || [] };
-}
-
-/**
- * Adds a GeoJSON source if missing, or updates its data if it already exists.
- * @param {Object} map - MapLibre map instance
- * @param {string} id - Source ID
- * @param {Object} data - GeoJSON data
- */
-function ensureSource(map, id, data) {
-    if (map.getSource(id)) {
-        map.getSource(id).setData(data);
-    } else {
-        map.addSource(id, { type: 'geojson', data });
-    }
-}
-
-/**
- * Adds a layer if it does not already exist.
- * @param {Object} map - MapLibre map instance
- * @param {Object} layerDef - Full MapLibre layer definition
- */
-function ensureLayer(map, layerDef) {
-    if (!map.getLayer(layerDef.id)) {
-        map.addLayer(layerDef);
-    }
-}
+import {
+    setOrCreateSource,
+    ensureSource,
+    ensureLayer,
+    VISIBLE_FILTER
+} from './layer.helpers.js';
 
 /**
  * Sets up point layers on the map.
@@ -42,8 +13,8 @@ function ensureLayer(map, layerDef) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupPointLayers(features, mapInstance) {
-    ensureSource(mapInstance, 'points', featureCollection(features.points));
-    ensureSource(mapInstance, 'point-feedback', EMPTY_FC);
+    setOrCreateSource(mapInstance, 'points', features.points || []);
+    ensureSource(mapInstance, 'point-feedback');
 
     ensureLayer(mapInstance, {
         id: 'point-layer',
@@ -54,7 +25,7 @@ export function setupPointLayers(features, mapInstance) {
             'circle-color': ['get', 'fillColor'],
             'circle-opacity': ['get', 'opacity'],
         },
-        filter: ['!=', ['get', 'visivel'], false],
+        filter: VISIBLE_FILTER,
     });
 
     ensureLayer(mapInstance, {

@@ -11,7 +11,7 @@ import {
     createModernButtons,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
-} from '../../../tool_manager/helpers/index.js';
+} from '@tools';
 
 import { openSymbolModal } from './symbol-selector.modal.js';
 
@@ -25,6 +25,7 @@ import { openSymbolModal } from './symbol-selector.modal.js';
  * @param {Object} uiManager - UI manager instance
  * @param {Object} [options={}] - Additional options
  * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
+ * @param {boolean} [options.hideButtons=false] - Whether to hide the action buttons
  */
 export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, militarySymbolControl, selectionManager, uiManager, options = {}) {
     if (!selectedFeatures || selectedFeatures.length === 0) {
@@ -35,7 +36,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // Only show header if not hidden (for sidebar integration)
     if (!options.hideHeader) {
         if (selectedFeatures.length === 1) {
             const headerComponent = createFeatureHeaderWithOptions(
@@ -55,7 +55,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
             const infoText = document.createElement('div');
             infoText.className = 'feature-name-wrapper';
-
             infoText.textContent = `${selectedFeatures.length} símbolos militares selecionados`;
 
             const optionsButton = createFeatureOptionsButton(
@@ -76,8 +75,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         symbolButtonContainer.className = 'attr-modern-button-row';
 
         const symbolButton = document.createElement('button');
-        symbolButton.className = 'attr-modern-btn attr-modern-btn-primary';
-        symbolButton.style.flex = '1';
+        symbolButton.className = 'attr-modern-btn attr-modern-btn-primary symbol-selector-configure-btn';
         symbolButton.textContent = 'Configurar Símbolo';
         symbolButton.onclick = () => openSymbolModal({
             feature,

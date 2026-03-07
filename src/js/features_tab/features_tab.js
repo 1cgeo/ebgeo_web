@@ -63,12 +63,12 @@ import {
     getCurrentMapNameSync,
     isCurrentMapLockedSync,
     getSourceTypeFromStorage,
-} from '../store';
-import { EventTypes } from '../events';
-import { showConfirm } from '../modals/index.js';
-import { isViewer3DOpen } from '../utilities/viewer3d-state.js';
-import { showError } from '../utilities/toast_service.js';
-import { isStreetView360Open } from '../utilities/streetview360-state.js';
+} from '@store';
+import { EventTypes } from '@events';
+import { showConfirm } from '@modals';
+import { isViewer3DOpen } from '@utils/viewer3d-state.js';
+import { showError } from '@utils';
+import { isStreetView360Open } from '@utils/streetview360-state.js';
 
 /**
  * FeaturesTab class - Main orchestrator for the features panel.
@@ -584,14 +584,7 @@ export class FeaturesTab {
     _renderErrorMessage() {
         const featuresList = this.container.querySelector('.features-list');
         featuresList.innerHTML = `
-            <div class="features-error" style="
-                padding: 20px;
-                text-align: center;
-                color: #dc3545;
-                font-size: 14px;
-                background-color: #ffffff;
-                border-radius: 4px;
-            ">
+            <div class="features-error">
                 Erro ao carregar feições
             </div>
         `;
@@ -604,15 +597,6 @@ export class FeaturesTab {
     _renderEmptyMessage(container) {
         const emptyMessage = document.createElement('div');
         emptyMessage.className = 'features-empty-message';
-        emptyMessage.style.cssText = `
-            padding: 20px;
-            text-align: center;
-            color: #666;
-            font-size: 14px;
-            font-style: italic;
-            background-color: #ffffff;
-            border-radius: 4px;
-        `;
         emptyMessage.textContent = 'Sem feições no mapa';
         container.appendChild(emptyMessage);
     }
@@ -1056,14 +1040,6 @@ export class FeaturesTab {
                 }
             }
         }
-    }
-
-    /**
-     * @deprecated Use _updateViewerModeUI instead
-     * @private
-     */
-    _update3DViewerModeUI() {
-        this._updateViewerModeUI();
     }
 
     /**

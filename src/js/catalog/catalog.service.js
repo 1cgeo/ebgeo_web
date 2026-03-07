@@ -6,7 +6,7 @@
  * into a common structure for the catalog.
  */
 
-import config from '../config.js';
+import config from '@js/config.js';
 import { CATALOG_ITEM_TYPES, DEFAULT_THUMBNAILS } from './catalog.constants.js';
 
 /**

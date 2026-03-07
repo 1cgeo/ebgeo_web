@@ -5,8 +5,8 @@
  * Main orchestrator for the point configuration modal.
  */
 
-import { ModalBase } from '../../../modals/modal.base.js';
-import { addDomListener } from '../../../utilities/event-cleanup.js';
+import { ModalBase } from '@modals';
+import { addDomListener } from '@utils/event-cleanup.js';
 
 import {
     createDigitalComboBoxWithThumbnails,
@@ -14,7 +14,6 @@ import {
     getPointsGroupedOptions,
     getEchelonSubtypeOptions,
     clearAllTextModifiers,
-    closeAllDropdowns as _closeAllDropdowns,
     createDropdownState
 } from './ui-components.helpers.js';
 import { createColorControlSection } from './color-control.section.js';
@@ -125,16 +124,13 @@ export class PointSelectorModal extends ModalBase {
         const content = document.createElement('div');
         content.className = 'point-selector-content';
 
-        // Main layout: controls + preview
         const mainLayout = document.createElement('div');
         mainLayout.className = 'point-selector-main';
 
-        // Controls column
         const controlsColumn = document.createElement('div');
         controlsColumn.className = 'point-selector-controls';
         this._controlsColumn = controlsColumn;
 
-        // Point type combo
         const generateThumbnail = (pointCode, defaultEchelonCode) => {
             return generatePointThumbnailForCombo(this._coordinationMeasureControl, pointCode, defaultEchelonCode);
         };
@@ -149,14 +145,12 @@ export class PointSelectorModal extends ModalBase {
         );
         controlsColumn.appendChild(pointTypeCombo);
 
-        // Subtype dropdown (for echelon types)
         this._subtypeDropdown = document.createElement('div');
         this._subtypeDropdown.className = 'point-selector-subtype';
         this._subtypeDropdown.style.display = isEchelonPointCode(this._tempProperties.pointCode) ? 'block' : 'none';
         this._updateSubtypeCombo();
         controlsColumn.appendChild(this._subtypeDropdown);
 
-        // Color control
         const colorControl = createColorControlSection(
             this._tempProperties.fillColor,
             (newColor) => {
@@ -167,7 +161,6 @@ export class PointSelectorModal extends ModalBase {
         );
         controlsColumn.appendChild(colorControl);
 
-        // Text modifiers section
         const textModifiersSection = document.createElement('div');
         textModifiersSection.className = 'point-selector-text-modifiers';
 
@@ -177,7 +170,6 @@ export class PointSelectorModal extends ModalBase {
         textModifiersSection.appendChild(this._textModifiersContent);
         controlsColumn.appendChild(textModifiersSection);
 
-        // Preview column
         const previewColumn = document.createElement('div');
         previewColumn.className = 'point-selector-preview';
 
@@ -199,7 +191,6 @@ export class PointSelectorModal extends ModalBase {
 
         content.appendChild(mainLayout);
 
-        // Actions
         const actions = document.createElement('div');
         actions.className = 'point-selector-actions';
 
@@ -364,7 +355,7 @@ export class PointSelectorModal extends ModalBase {
                 this._previewImage.style.display = 'none';
             }
         } catch (error) {
-            console.error('Erro ao gerar preview:', error);
+            console.error('Error generating preview:', error);
             this._previewImage.style.display = 'none';
         }
     }
@@ -428,7 +419,6 @@ export class PointSelectorModal extends ModalBase {
      * @override
      */
     hide() {
-        // Cleanup comboboxes
         if (this._controlsColumn) {
             const comboBoxes = Array.from(this._controlsColumn.children);
             comboBoxes.forEach(combo => {

@@ -9,6 +9,7 @@ import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddEllipseControl extends BaseControl {
+    featureType = 'ellipse';
     constructor(toolManager) {
         super(toolManager);
 
@@ -51,24 +52,6 @@ class AddEllipseControl extends BaseControl {
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
-
-    /**
-     * Get currently selected ellipse feature from SelectionManager
-     * @returns {Object|null} Selected ellipse feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('ellipse');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected ellipse features from SelectionManager
-     * @returns {Array} Array of selected ellipse features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('ellipse')
-            .map(item => item.feature);
-    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -815,7 +798,6 @@ class AddEllipseControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('ellipses').getData();
-        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
@@ -823,7 +805,6 @@ class AddEllipseControl extends BaseControl {
 
                 if (currentFeature) {
                     await updateFeature('ellipses', currentFeature);
-                    _hasChanges = true;
                 }
             }
         }
@@ -961,9 +942,6 @@ class AddEllipseControl extends BaseControl {
             this.updateSelectionManagerFeatures(features);
         }
     }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     /**
      * Update SelectionManager with current feature data
      * @param {Object} feature - Feature to update in SelectionManager
@@ -1009,10 +987,7 @@ class AddEllipseControl extends BaseControl {
         const data = await this.map.getSource('ellipses').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
-            sourceFeature.properties = {
-                ...feature.properties,
-                center: feature.properties.center
-            };
+            sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('ellipses').setData(data);
         }

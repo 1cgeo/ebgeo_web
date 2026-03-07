@@ -7,31 +7,22 @@
  * @module azimuth_distance_tool/add_azimuth_distance_control
  */
 
-import { BaseControl } from '../tool_manager/index.js';
+import { BaseControl } from '@tools/index.js';
 import { AzimuthDistancePanel } from './azimuth_distance_panel.js';
 import { generateFeature, generatePointFeatures, calculateWaypoints } from './azimuth_distance_geometry.js';
 import { addAzimuthDistanceAttributesToPanel } from './azimuth_distance_attributes_panel.js';
-import {
-    DEFAULT_PROPERTIES,
-    OUTPUT_MODE,
-    MODE_TO_SOURCE,
-    NORTH_REFERENCE,
-    COLORS
-} from './azimuth_distance_constants.js';
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync, getControl } from '../store/index.js';
-import { IDUtils } from '../utilities/index.js';
-import { showCoordinateEditModal } from '../modals/coordinate-edit.modal.js';
-import { showConfirm } from '../modals/confirm.modal.js';
+import { DEFAULT_PROPERTIES, OUTPUT_MODE, MODE_TO_SOURCE, NORTH_REFERENCE } from './azimuth_distance_constants.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync, getControl } from '@store';
+import { IDUtils } from '@utils';
+import { showCoordinateEditModal } from '@modals/coordinate-edit.modal.js';
+import { showConfirm } from '@modals/confirm.modal.js';
 
 /**
  * Azimuth and Distance Tool Control.
  * Extends BaseControl to manage polar construction of geometries.
  */
 class AddAzimuthDistanceControl extends BaseControl {
-    /**
-     * Tool type identifier for StateManager/toolbar integration.
-     * @type {string}
-     */
+    /** @type {string} */
     type = 'azimuth_distance';
 
     constructor(toolManager) {
@@ -42,19 +33,14 @@ class AddAzimuthDistanceControl extends BaseControl {
         this._previewFeature = null;
         this._referenceMarker = null;
 
-        // Bind methods
         this._handleMapClick = this._handleMapClick.bind(this);
         this._handleKeyDown = this._handleKeyDown.bind(this);
     }
 
-    // =========================================================================
-    // DEFAULT PROPERTIES
-    // =========================================================================
-
     static DEFAULT_PROPERTIES = { ...DEFAULT_PROPERTIES };
 
     // =========================================================================
-    // MAPBOX CONTROL INTERFACE
+    // MAPLIBRE CONTROL INTERFACE
     // =========================================================================
 
     onAdd = (map) => {
@@ -68,7 +54,7 @@ class AddAzimuthDistanceControl extends BaseControl {
     }
 
     // =========================================================================
-    // TOOL-CENTRIC INTERFACE IMPLEMENTATIONS
+    // TOOL-CENTRIC INTERFACE
     // =========================================================================
 
     hasAttributePanel() {
@@ -81,12 +67,7 @@ class AddAzimuthDistanceControl extends BaseControl {
 
         try {
             addAzimuthDistanceAttributesToPanel(
-                sectionPanel,
-                features,
-                this,
-                selectionManager,
-                uiManager,
-                options
+                sectionPanel, features, this, selectionManager, uiManager, options
             );
             container.appendChild(sectionPanel);
         } catch (error) {
@@ -95,7 +76,6 @@ class AddAzimuthDistanceControl extends BaseControl {
     }
 
     getDragSources() {
-        // Returns sources that this control can drag
         return ['points', 'lines', 'polygons'];
     }
 
@@ -123,8 +103,6 @@ class AddAzimuthDistanceControl extends BaseControl {
         this.isActive = true;
         this._showPanel();
         this._setupEventListeners();
-
-        // Enter map click mode by default
         this._enterMapClickMode();
     }
 
@@ -145,40 +123,17 @@ class AddAzimuthDistanceControl extends BaseControl {
      * Create and show a marker at the reference point.
      * @param {number} lng - Longitude
      * @param {number} lat - Latitude
-     * @private
      */
     _showReferenceMarker(lng, lat) {
         this._removeReferenceMarker();
 
-        // Create custom marker element
         const el = document.createElement('div');
-        el.className = 'azimuth-reference-marker';
-        el.style.cssText = `
-            width: 24px;
-            height: 24px;
-            background: ${COLORS.primary600};
-            border: 3px solid ${COLORS.white};
-            border-radius: 50%;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-            cursor: pointer;
-            position: relative;
-        `;
+        el.className = 'azd-reference-marker';
 
-        // Add inner crosshair
         const crosshair = document.createElement('div');
-        crosshair.style.cssText = `
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 8px;
-            height: 8px;
-            border: 2px solid ${COLORS.white};
-            border-radius: 50%;
-        `;
+        crosshair.className = 'azd-reference-marker__crosshair';
         el.appendChild(crosshair);
 
-        // Create MapLibre marker
         this._referenceMarker = new maplibregl.Marker({
             element: el,
             anchor: 'center'
@@ -189,7 +144,6 @@ class AddAzimuthDistanceControl extends BaseControl {
 
     /**
      * Remove the reference point marker.
-     * @private
      */
     _removeReferenceMarker() {
         if (this._referenceMarker) {
@@ -203,7 +157,6 @@ class AddAzimuthDistanceControl extends BaseControl {
     // =========================================================================
 
     _showPanel() {
-        // Create panel content
         this._panel = new AzimuthDistancePanel({
             onCreateFeature: (state) => this._createFeature(state),
             onCancel: () => this._handleCancel(),
@@ -215,27 +168,22 @@ class AddAzimuthDistanceControl extends BaseControl {
 
         const panelContent = this._panel.render();
 
-        // Get the SidebarControl and show the panel
         const sidebarControl = getControl('sidebarControl');
-        if (sidebarControl && sidebarControl.showToolPanel) {
-            // Use the new public method to show custom panel content
+        if (sidebarControl?.showToolPanel) {
             sidebarControl.showToolPanel(
                 panelContent,
-                'Azimute e Distância',
-                // Cleanup function
+                'Azimute e Dist\u00E2ncia',
                 () => {
                     if (this._panel) {
                         this._panel.destroy();
                         this._panel = null;
                     }
                 },
-                // onClose callback - deactivate tool when panel is closed by user
                 () => {
                     this.toolManager?.deactivateCurrentTool();
                 }
             );
         } else {
-            // Fallback: find feature panel directly
             const featurePanel = document.querySelector('.feature-panel');
             if (featurePanel) {
                 const contentContainer = featurePanel.querySelector('.feature-panel-content');
@@ -254,13 +202,10 @@ class AddAzimuthDistanceControl extends BaseControl {
             this._panel = null;
         }
 
-        // Hide using SidebarControl
         const sidebarControl = getControl('sidebarControl');
-        if (sidebarControl && sidebarControl.hideToolPanel) {
-            // Don't save changes, and don't trigger onClose (we're already deactivating)
+        if (sidebarControl?.hideToolPanel) {
             sidebarControl.hideToolPanel(false, false);
         } else {
-            // Fallback
             const featurePanel = document.querySelector('.feature-panel');
             if (featurePanel) {
                 featurePanel.dataset.expanded = 'false';
@@ -301,24 +246,17 @@ class AddAzimuthDistanceControl extends BaseControl {
 
         const { lng, lat } = e.lngLat;
 
-        // Set reference point in panel
         if (this._panel) {
             this._panel.setReferencePoint(lng, lat);
         }
 
-        // Show marker at reference point
         this._showReferenceMarker(lng, lat);
-
-        // Exit map click mode after setting point
         this._exitMapClickMode();
     }
 
     _handleKeyDown(e) {
         if (!this.isActive) return;
-
-        if (e.key === 'Escape') {
-            this._handleCancel();
-        }
+        if (e.key === 'Escape') this._handleCancel();
     }
 
     // =========================================================================
@@ -331,10 +269,7 @@ class AddAzimuthDistanceControl extends BaseControl {
             lng: lng || 0,
             currentFormat: 'latlong',
             onConfirm: (newLat, newLng) => {
-                if (this._panel) {
-                    this._panel.setReferencePoint(newLng, newLat);
-                }
-                // Update marker position
+                this._panel?.setReferencePoint(newLng, newLat);
                 this._showReferenceMarker(newLng, newLat);
             }
         });
@@ -345,22 +280,17 @@ class AddAzimuthDistanceControl extends BaseControl {
     // =========================================================================
 
     _updatePreview(state) {
-        if (!state || !state.referencePoint) {
+        if (!state?.referencePoint) {
             this._clearPreview();
             return;
         }
 
-        // Calculate waypoints
         const declination = state.northReference === NORTH_REFERENCE.MAGNETIC
             ? state.magneticDeclination : 0;
 
         const waypoints = calculateWaypoints(
-            state.referencePoint,
-            state.legs,
-            declination,
-            state.northReference,
-            state.angularUnit,
-            state.distanceUnit
+            state.referencePoint, state.legs, declination,
+            state.northReference, state.angularUnit, state.distanceUnit
         );
 
         if (waypoints.length < 1) {
@@ -368,10 +298,8 @@ class AddAzimuthDistanceControl extends BaseControl {
             return;
         }
 
-        // Generate preview based on mode
         switch (state.outputMode) {
             case OUTPUT_MODE.POINT:
-                // Show all waypoints as MultiPoint for preview
                 if (waypoints.length >= 1) {
                     this._showPreview({
                         type: 'MultiPoint',
@@ -403,54 +331,44 @@ class AddAzimuthDistanceControl extends BaseControl {
     }
 
     _showPreview(geometry, outputMode) {
-        // Clear all previews first
         this._clearPreview();
 
-        // Use appropriate feedback source based on output mode
         const feedbackSource = this._getFeedbackSource(outputMode);
         if (!feedbackSource) return;
 
         const source = this.map.getSource(feedbackSource);
-        if (source) {
-            // For MultiPoint (point mode), create individual point features
-            if (geometry.type === 'MultiPoint') {
-                const features = geometry.coordinates.map((coord, index) => ({
-                    type: 'Feature',
-                    geometry: {
-                        type: 'Point',
-                        coordinates: coord
-                    },
-                    properties: {
-                        isPreview: true,
-                        fillColor: DEFAULT_PROPERTIES.fillColor || '#16a34a',
-                        size: 10,
-                        opacity: 0.7,
-                        pointIndex: index
-                    }
-                }));
+        if (!source) return;
 
-                source.setData({
-                    type: 'FeatureCollection',
-                    features
-                });
-            } else {
-                source.setData({
-                    type: 'Feature',
-                    geometry,
-                    properties: {
-                        isPreview: true,
-                        lineColor: DEFAULT_PROPERTIES.strokeColor || '#16a34a',
-                        lineWidth: outputMode === OUTPUT_MODE.ROUTE ? 5 : 2,
-                        fillColor: DEFAULT_PROPERTIES.fillColor || '#16a34a',
-                        opacity: outputMode === OUTPUT_MODE.ROUTE ? 0.7 : 0.3
-                    }
-                });
-            }
+        if (geometry.type === 'MultiPoint') {
+            const features = geometry.coordinates.map((coord, index) => ({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: coord },
+                properties: {
+                    isPreview: true,
+                    fillColor: DEFAULT_PROPERTIES.fillColor || '#16a34a',
+                    size: 10,
+                    opacity: 0.7,
+                    pointIndex: index
+                }
+            }));
+
+            source.setData({ type: 'FeatureCollection', features });
+        } else {
+            source.setData({
+                type: 'Feature',
+                geometry,
+                properties: {
+                    isPreview: true,
+                    lineColor: DEFAULT_PROPERTIES.strokeColor || '#16a34a',
+                    lineWidth: outputMode === OUTPUT_MODE.ROUTE ? 5 : 2,
+                    fillColor: DEFAULT_PROPERTIES.fillColor || '#16a34a',
+                    opacity: outputMode === OUTPUT_MODE.ROUTE ? 0.7 : 0.3
+                }
+            });
         }
     }
 
     _clearPreview() {
-        // Clear all possible feedback sources
         ['point-feedback', 'line-feedback', 'polygon-feedback'].forEach(sourceName => {
             const source = this.map.getSource(sourceName);
             if (source) {
@@ -461,14 +379,10 @@ class AddAzimuthDistanceControl extends BaseControl {
 
     _getFeedbackSource(outputMode) {
         switch (outputMode) {
-            case OUTPUT_MODE.POINT:
-                return 'point-feedback';
-            case OUTPUT_MODE.ROUTE:
-                return 'line-feedback';
-            case OUTPUT_MODE.AREA:
-                return 'polygon-feedback';
-            default:
-                return null;
+            case OUTPUT_MODE.POINT: return 'point-feedback';
+            case OUTPUT_MODE.ROUTE: return 'line-feedback';
+            case OUTPUT_MODE.AREA: return 'polygon-feedback';
+            default: return null;
         }
     }
 
@@ -479,43 +393,31 @@ class AddAzimuthDistanceControl extends BaseControl {
     async _createFeature(state) {
         const layerId = getActiveLayerIdSync();
 
-        // Calculate waypoints first
         const declination = state.northReference === NORTH_REFERENCE.MAGNETIC
             ? state.magneticDeclination : 0;
 
         const waypoints = calculateWaypoints(
-            state.referencePoint,
-            state.legs,
-            declination,
-            state.northReference,
-            state.angularUnit,
-            state.distanceUnit
+            state.referencePoint, state.legs, declination,
+            state.northReference, state.angularUnit, state.distanceUnit
         );
 
         if (waypoints.length === 0) {
             await showConfirm('Erro ao criar geometria', {
-                message: 'Não foi possível calcular os pontos. Verifique os dados.',
+                message: 'N\u00E3o foi poss\u00EDvel calcular os pontos. Verifique os dados.',
                 confirmText: 'OK'
             });
             return;
         }
 
         try {
-            // Handle different output modes
             if (state.outputMode === OUTPUT_MODE.POINT) {
-                // POINT MODE: Create multiple point features
                 await this._createPointFeatures(state, waypoints, layerId);
             } else {
-                // ROUTE or AREA MODE: Create single line or polygon feature
                 await this._createLineOrPolygonFeature(state, layerId);
             }
 
-            // Clear preview
             this._clearPreview();
-
-            // Deactivate tool
             this.toolManager.deactivateCurrentTool();
-
         } catch (error) {
             console.error('Error creating azimuth/distance feature:', error);
             await showConfirm('Erro ao criar geometria', {
@@ -527,10 +429,8 @@ class AddAzimuthDistanceControl extends BaseControl {
 
     /**
      * Create multiple point features (Point mode).
-     * @private
      */
     async _createPointFeatures(state, waypoints, layerId) {
-        // Store polar data for reference
         const storedLegs = state.legs.map(leg => ({
             azimuth: leg.azimuth,
             distance: leg.distance,
@@ -547,7 +447,6 @@ class AddAzimuthDistanceControl extends BaseControl {
             legs: storedLegs
         };
 
-        // Generate point features
         const features = await generatePointFeatures({
             waypoints,
             generateIds: () => IDUtils.generateFeatureIds(),
@@ -563,35 +462,29 @@ class AddAzimuthDistanceControl extends BaseControl {
 
         if (features.length === 0) {
             await showConfirm('Erro ao criar pontos', {
-                message: 'Não foi possível criar os pontos.',
+                message: 'N\u00E3o foi poss\u00EDvel criar os pontos.',
                 confirmText: 'OK'
             });
             return;
         }
 
-        // Add all points to store and map
         const source = this.map.getSource('points');
         if (source) {
             const data = await source.getData();
-
             for (const feature of features) {
                 await addFeature('points', feature);
                 data.features.push(feature);
             }
-
             source.setData(data);
         }
 
-        // Select the last created point
         const lastFeature = features[features.length - 1];
         await this.selectionManager.toggleFeatureSelection('point', lastFeature.properties.id, lastFeature);
         this.selectionManager.updateUI();
-
     }
 
     /**
      * Create line or polygon feature (Route/Area mode).
-     * @private
      */
     async _createLineOrPolygonFeature(state, layerId) {
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
@@ -621,19 +514,16 @@ class AddAzimuthDistanceControl extends BaseControl {
 
         if (!feature) {
             await showConfirm('Erro ao criar geometria', {
-                message: 'Não foi possível criar a geometria. Verifique os dados.',
+                message: 'N\u00E3o foi poss\u00EDvel criar a geometria. Verifique os dados.',
                 confirmText: 'OK'
             });
             return;
         }
 
-        // Determine target source based on output mode
         const sourceName = MODE_TO_SOURCE[state.outputMode];
 
-        // Add to store
         await addFeature(sourceName, feature);
 
-        // Add to map source
         const source = this.map.getSource(sourceName);
         if (source) {
             const data = await source.getData();
@@ -641,20 +531,14 @@ class AddAzimuthDistanceControl extends BaseControl {
             source.setData(data);
         }
 
-        // Select the created feature
         const featureType = this._getFeatureTypeFromSource(sourceName);
         await this.selectionManager.toggleFeatureSelection(featureType, featureId, feature);
         this.selectionManager.updateUI();
-
     }
 
     _getFeatureTypeFromSource(sourceName) {
-        const map = {
-            'points': 'point',
-            'lines': 'line',
-            'polygons': 'polygon'
-        };
-        return map[sourceName] || 'line';
+        const sourceMap = { 'points': 'point', 'lines': 'line', 'polygons': 'polygon' };
+        return sourceMap[sourceName] || 'line';
     }
 
     // =========================================================================
@@ -671,10 +555,7 @@ class AddAzimuthDistanceControl extends BaseControl {
     // =========================================================================
 
     onFeatureSelected = (feature) => {
-        // If we're in creation mode, ignore selection
         if (this.isActive && this._panel) return;
-
-        // Otherwise, show attribute panel for editing
         if (feature.properties?.featureType === 'azimuth_distance') {
             this.selectFeature(feature);
         }
@@ -691,7 +572,6 @@ class AddAzimuthDistanceControl extends BaseControl {
     }
 
     selectFeature(feature) {
-        // Show edit handles if needed
         this.createEditHandles(feature);
     }
 
@@ -700,8 +580,7 @@ class AddAzimuthDistanceControl extends BaseControl {
     }
 
     createEditHandles(_feature) {
-        // For now, no edit handles
-        // Could add waypoint handles for advanced editing
+        // Waypoint handles reserved for future advanced editing
     }
 
     clearEditHandles() {
@@ -733,9 +612,7 @@ class AddAzimuthDistanceControl extends BaseControl {
                     sourceFeature.properties[property] = value;
                     feature.properties[property] = value;
 
-                    // If legs changed, recalculate geometry
-                    if (property === 'legs' || property === 'referencePoint' ||
-                        property === 'magneticDeclination' || property === 'northReference') {
+                    if (['legs', 'referencePoint', 'magneticDeclination', 'northReference'].includes(property)) {
                         this._recalculateGeometry(sourceFeature);
                     }
                 }
@@ -749,8 +626,6 @@ class AddAzimuthDistanceControl extends BaseControl {
 
     _recalculateGeometry(feature) {
         const props = feature.properties;
-
-        // For point features, get polar data from azimuthDistanceData
         const polarData = props.azimuthDistanceData || props;
         const referencePoint = polarData.referencePoint || props.referencePoint;
         const legs = polarData.legs || props.legs;
@@ -766,54 +641,36 @@ class AddAzimuthDistanceControl extends BaseControl {
             ? magneticDeclination : 0;
 
         const waypoints = calculateWaypoints(
-            referencePoint,
-            legs,
-            declination,
-            northReference,
-            angularUnit,
-            distanceUnit
+            referencePoint, legs, declination,
+            northReference, angularUnit, distanceUnit
         );
 
         if (waypoints.length === 0) return;
 
-        // Update geometry based on output mode
         switch (outputMode) {
             case OUTPUT_MODE.POINT: {
-                // For point features, use the waypoint at the stored index
                 const waypointIndex = props.azimuthDistanceData?.waypointIndex ?? waypoints.length - 1;
                 if (waypointIndex < waypoints.length) {
-                    feature.geometry = {
-                        type: 'Point',
-                        coordinates: waypoints[waypointIndex]
-                    };
+                    feature.geometry = { type: 'Point', coordinates: waypoints[waypointIndex] };
                 }
                 break;
             }
             case OUTPUT_MODE.ROUTE:
-                feature.geometry = {
-                    type: 'LineString',
-                    coordinates: waypoints
-                };
-                // Also update baseCoordinates
+                feature.geometry = { type: 'LineString', coordinates: waypoints };
                 props.baseCoordinates = waypoints;
                 break;
             case OUTPUT_MODE.AREA:
-                feature.geometry = {
-                    type: 'Polygon',
-                    coordinates: [[...waypoints, waypoints[0]]]
-                };
-                // Also update baseCoordinates
+                feature.geometry = { type: 'Polygon', coordinates: [[...waypoints, waypoints[0]]] };
                 props.baseCoordinates = waypoints;
                 break;
         }
 
-        // Update stored waypoints for line/polygon
         if (props.azimuthDistanceData) {
             props.azimuthDistanceData.calculatedWaypoints = waypoints;
         }
     }
 
-    async saveFeatures(features, _initialPropertiesMap) {
+    async saveFeatures(features) {
         for (const feature of features) {
             const sourceName = feature.properties.source || 'lines';
             const source = this.map.getSource(sourceName);
@@ -821,7 +678,6 @@ class AddAzimuthDistanceControl extends BaseControl {
             if (source) {
                 const data = await source.getData();
                 const currentFeature = data.features.find(f => f.properties.id === feature.properties.id);
-
                 if (currentFeature) {
                     await updateFeature(sourceName, currentFeature);
                 }
@@ -855,7 +711,7 @@ class AddAzimuthDistanceControl extends BaseControl {
                     source.setData(data);
                 }
             } catch (error) {
-                console.error(`Error removing azimuth distance feature:`, error);
+                console.error('Error removing azimuth distance feature:', error);
             }
         }
     }
@@ -913,9 +769,9 @@ class AddAzimuthDistanceControl extends BaseControl {
     }
 
     updateSelectionManagerFeatures(features) {
-        features.forEach(feature => {
+        for (const feature of features) {
             this.updateSelectionManagerFeature(feature);
-        });
+        }
     }
 
     // =========================================================================
@@ -923,7 +779,6 @@ class AddAzimuthDistanceControl extends BaseControl {
     // =========================================================================
 
     getSelectedFeature() {
-        // Check all possible sources for azimuth_distance features
         for (const featureType of ['point', 'line', 'polygon']) {
             const items = this.selectionManager.getSelectedFeaturesByType(featureType);
             const azFeature = items.find(item =>
@@ -938,11 +793,11 @@ class AddAzimuthDistanceControl extends BaseControl {
         const features = [];
         for (const featureType of ['point', 'line', 'polygon']) {
             const items = this.selectionManager.getSelectedFeaturesByType(featureType);
-            items.forEach(item => {
+            for (const item of items) {
                 if (item.feature.properties?.featureType === 'azimuth_distance') {
                     features.push(item.feature);
                 }
-            });
+            }
         }
         return features;
     }
@@ -961,29 +816,19 @@ class AddAzimuthDistanceControl extends BaseControl {
         ];
     }
 
-    updateFeatureForMove(feature, dx, dy, _newCoords) {
-        const props = feature.properties;
-        const oldRefPoint = props.referencePoint;
-
+    updateFeatureForMove(feature, dx, dy) {
+        const oldRefPoint = feature.properties.referencePoint;
         if (!oldRefPoint) return feature;
-
-        // Update reference point
-        const newRefPoint = [
-            oldRefPoint[0] + dx,
-            oldRefPoint[1] + dy
-        ];
 
         const updatedFeature = {
             ...feature,
             properties: {
-                ...props,
-                referencePoint: newRefPoint
+                ...feature.properties,
+                referencePoint: [oldRefPoint[0] + dx, oldRefPoint[1] + dy]
             }
         };
 
-        // Recalculate geometry
         this._recalculateGeometry(updatedFeature);
-
         return updatedFeature;
     }
 }

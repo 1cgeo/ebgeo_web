@@ -305,7 +305,6 @@ class AddPolygonGeometry extends BaseGeometry {
         }
 
         try {
-            // CRITICAL FIX: Ensure coordinates are closed for turf operations
             const closedCoordinates = [...coordinates];
             if (!this.isPolygonClosed(coordinates)) {
                 closedCoordinates.push(coordinates[0]);
@@ -339,17 +338,16 @@ class AddPolygonGeometry extends BaseGeometry {
     }
 
     /**
- * Get center point of polygon (centroid for move operations)
- * @param {Array} coordinates - Array of coordinate points
- * @returns {Array} Center point [lng, lat]
- */
+     * Get center point of polygon (centroid for move operations)
+     * @param {Array} coordinates - Array of coordinate points
+     * @returns {Array} Center point [lng, lat]
+     */
     getCenter(coordinates) {
         if (!this.validate(coordinates)) {
             return null;
         }
 
         try {
-            // CRITICAL FIX: Ensure polygon is closed before passing to turf
             const closedCoordinates = [...coordinates];
             if (!this.isPolygonClosed(coordinates)) {
                 closedCoordinates.push(coordinates[0]);
@@ -360,7 +358,6 @@ class AddPolygonGeometry extends BaseGeometry {
             return centroid.geometry.coordinates;
         } catch (error) {
             console.warn('Error calculating polygon center:', error);
-            // Fallback: use first point
             return coordinates[0];
         }
     }
@@ -405,15 +402,6 @@ class AddPolygonGeometry extends BaseGeometry {
     }
 
     /**
-     * Check if coordinates represent a valid polygon
-     * @param {Array} coordinates - Coordinates to check
-     * @returns {boolean} True if valid polygon
-     */
-    isValidPolygon(coordinates) {
-        return this.validate(coordinates);
-    }
-
-    /**
      * Remove vertex at specific index
      * @param {Array} coordinates - Current coordinates
      * @param {number} index - Index to remove
@@ -449,17 +437,16 @@ class AddPolygonGeometry extends BaseGeometry {
     }
 
     /**
- * Calculate polygon centroid for measurements
- * @param {Array} coordinates - Array of coordinate points
- * @returns {Array|null} Centroid coordinates or null if error
- */
+     * Calculate polygon centroid for measurements
+     * @param {Array} coordinates - Array of coordinate points
+     * @returns {Array|null} Centroid coordinates or null if error
+     */
     calculateCentroid(coordinates) {
         if (!this.validate(coordinates)) {
             return null;
         }
 
         try {
-            // CRITICAL FIX: Apply same auto-closing logic
             const closedCoordinates = [...coordinates];
             if (!this.isPolygonClosed(coordinates)) {
                 closedCoordinates.push(coordinates[0]);
@@ -473,7 +460,6 @@ class AddPolygonGeometry extends BaseGeometry {
             return this.getCenter(coordinates); // Fallback to getCenter
         }
     }
-
 
     /**
      * Format area measurement for display
@@ -499,7 +485,6 @@ class AddPolygonGeometry extends BaseGeometry {
         }
 
         try {
-            // CRITICAL FIX: Ensure coordinates are closed for turf operations
             const closedCoordinates = [...coordinates];
             if (!this.isPolygonClosed(coordinates)) {
                 closedCoordinates.push(coordinates[0]);
@@ -525,7 +510,6 @@ class AddPolygonGeometry extends BaseGeometry {
         if (coordinates.length <= this.MIN_POINTS) return coordinates;
 
         try {
-            // CRITICAL FIX: Ensure coordinates are closed for turf operations
             const closedCoordinates = [...coordinates];
             if (!this.isPolygonClosed(coordinates)) {
                 closedCoordinates.push(coordinates[0]);

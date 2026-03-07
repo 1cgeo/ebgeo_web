@@ -4,9 +4,9 @@ import {
     createModernSlider,
     createModernColorPicker,
     createModernToggle,
-    createModernButtons,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
+    createInitialPropertiesMap,
+    createPanelHeader,
+    createActionButtons
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -25,43 +25,17 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
     }
 
     const feature = selectedFeatures[0];
+    const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
 
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
-
-    // Only show header if not hidden (for sidebar integration)
-    if (!options.hideHeader) {
-        if (selectedFeatures.length === 1) {
-            const headerComponent = createFeatureHeaderWithOptions(
-                feature.properties.nome,
-                (newName) => {
-                    brushControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                    uiManager.updateSelectionHighlight();
-                },
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-            panel.appendChild(headerComponent);
-        } else if (selectedFeatures.length > 1) {
-            const multiSelectHeader = document.createElement('div');
-            multiSelectHeader.className = 'feature-header-with-options';
-
-            const infoText = document.createElement('div');
-            infoText.className = 'feature-name-wrapper';
-
-            infoText.textContent = `${selectedFeatures.length} pincéis selecionados`;
-
-            const optionsButton = createFeatureOptionsButton(
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-
-            multiSelectHeader.appendChild(infoText);
-            multiSelectHeader.appendChild(optionsButton);
-            panel.appendChild(multiSelectHeader);
-        }
-    }
+    createPanelHeader({
+        panel,
+        features: selectedFeatures,
+        featureType: 'brush',
+        control: brushControl,
+        selectionManager,
+        uiManager,
+        hideHeader: options.hideHeader
+    });
 
     // Color picker
     panel.appendChild(createModernColorPicker({
@@ -117,13 +91,12 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
     panel.appendChild(zoomSlider);
 
     // Action buttons
-    panel.appendChild(createModernButtons({
-        selectedFeatures,
+    createActionButtons({
+        panel,
+        features: selectedFeatures,
         control: brushControl,
         selectionManager,
         initialPropertiesMap,
-        hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => brushControl.setDefaultProperties(feature.properties),
-        hidden: options.hideButtons
-    }));
+        hideButtons: options.hideButtons
+    });
 }

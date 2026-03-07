@@ -10,7 +10,7 @@
  * @module briefing/export/slide-capture.service
  */
 
-import { SlideMode } from '../../store/index.js';
+import { SlideMode } from '@store/index.js';
 
 // ============================================================================
 // PUBLIC API
@@ -52,7 +52,7 @@ export async function captureSlide(slide, map) {
 async function capture2DSlide(map) {
     try {
         const { default: ScreenshotControl } = await import(
-            '../../import_export/screenshot.control.js'
+            '@js/import_export/screenshot.control.js'
         );
         return await ScreenshotControl.captureMapAsDataUrl(map);
     } catch (error) {
@@ -72,7 +72,7 @@ async function capture2DSlide(map) {
 async function capture3DSlide() {
     try {
         const { getCesiumViewer } = await import(
-            '../../3d_models_viewer_tool/map_3d.js'
+            '@js/3d_models_viewer_tool/map_3d.js'
         );
         const viewer = getCesiumViewer();
 
@@ -82,7 +82,7 @@ async function capture3DSlide() {
         }
 
         const { captureScreenshotAsDataUrl } = await import(
-            '../../3d_models_viewer_tool/tools/screenshot_tool.js'
+            '@js/3d_models_viewer_tool/tools/screenshot_tool.js'
         );
         return await captureScreenshotAsDataUrl(viewer);
     } catch (error) {
@@ -102,7 +102,7 @@ async function capture3DSlide() {
 async function capture360Slide() {
     try {
         const { captureScreenshot360AsDataUrl } = await import(
-            '../../street_view_tool/tools/screenshot_tool_360.js'
+            '@js/street_view_tool/tools/screenshot_tool_360.js'
         );
         return await captureScreenshot360AsDataUrl();
     } catch (error) {

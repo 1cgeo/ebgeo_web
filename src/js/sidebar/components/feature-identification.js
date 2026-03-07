@@ -5,8 +5,8 @@
  * Displays feature icon, name, type, layer information, and description.
  */
 
-import { getLayers, getFeatureIcon, getFeatureDisplayName, getFeatureById, updateFeature, getStorageTypeFromSource, isCurrentMapLockedSync } from '../../store/index.js';
-import { createFeatureOptionsButton } from '../../tool_manager/helpers/feature-header.helpers.js';
+import { getLayers, getFeatureIcon, getFeatureDisplayName, getFeatureById, updateFeature, getStorageTypeFromSource, isCurrentMapLockedSync } from '@store/index.js';
+import { createFeatureOptionsButton } from '@tools/helpers/feature-header.helpers.js';
 
 /**
  * Feature type configuration with labels.
@@ -95,14 +95,12 @@ export async function createFeatureIdentification(options) {
 
         const nameInput = document.createElement('input');
         nameInput.type = 'text';
-        nameInput.className = 'feature-identification-name-input';
+        nameInput.className = 'feature-identification-name-input feature-identification-name-input--hidden';
         nameInput.value = feature.properties?.nome || '';
-        nameInput.style.display = 'none';
 
-        // Edit functionality
         nameDisplay.addEventListener('click', () => {
-            nameDisplay.style.display = 'none';
-            nameInput.style.display = 'block';
+            nameDisplay.classList.add('feature-identification-name--hidden');
+            nameInput.classList.remove('feature-identification-name-input--hidden');
             nameInput.focus();
             nameInput.select();
         });
@@ -110,8 +108,8 @@ export async function createFeatureIdentification(options) {
         const saveEdit = () => {
             const newName = nameInput.value.trim() || 'Sem nome';
             nameDisplay.textContent = newName;
-            nameDisplay.style.display = 'block';
-            nameInput.style.display = 'none';
+            nameDisplay.classList.remove('feature-identification-name--hidden');
+            nameInput.classList.add('feature-identification-name-input--hidden');
 
             if (onNameChange && newName !== feature.properties?.nome) {
                 onNameChange(newName);
@@ -125,8 +123,8 @@ export async function createFeatureIdentification(options) {
                 saveEdit();
             } else if (e.key === 'Escape') {
                 nameInput.value = feature.properties?.nome || '';
-                nameDisplay.style.display = 'block';
-                nameInput.style.display = 'none';
+                nameDisplay.classList.remove('feature-identification-name--hidden');
+                nameInput.classList.add('feature-identification-name-input--hidden');
             }
         });
 
@@ -350,8 +348,7 @@ async function createDescriptionSection(options) {
     displayContainer.className = 'feature-description-display';
 
     const editContainer = document.createElement('div');
-    editContainer.className = 'feature-description-edit';
-    editContainer.style.display = 'none';
+    editContainer.className = 'feature-description-edit feature-description-edit--hidden';
 
     /**
      * Renders the display state (button or text)
@@ -447,8 +444,8 @@ async function createDescriptionSection(options) {
      * Enters edit mode
      */
     function enterEditMode() {
-        displayContainer.style.display = 'none';
-        editContainer.style.display = 'block';
+        displayContainer.classList.add('feature-description-display--hidden');
+        editContainer.classList.remove('feature-description-edit--hidden');
         renderEdit();
     }
 
@@ -456,8 +453,8 @@ async function createDescriptionSection(options) {
      * Exits edit mode without saving
      */
     function exitEditMode() {
-        editContainer.style.display = 'none';
-        displayContainer.style.display = 'block';
+        editContainer.classList.add('feature-description-edit--hidden');
+        displayContainer.classList.remove('feature-description-display--hidden');
         renderDisplay();
     }
 

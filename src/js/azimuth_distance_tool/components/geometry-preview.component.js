@@ -42,17 +42,9 @@ export function createGeometryPreview(options) {
     svg.setAttribute('width', width);
     svg.setAttribute('height', height);
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    svg.style.cssText = `
-        background: ${COLORS.gray50};
-        border-radius: 8px;
-        border: 1px solid ${COLORS.gray200};
-        display: block;
-    `;
+    svg.classList.add('azd-geometry-preview');
 
-    // Calculate preview points
     const rawPoints = calculatePreviewPoints(legs, angularUnit, distanceUnit, declination, northRef);
-
-    // Normalize points to fit in viewport
     const pts = normalizePoints(rawPoints, width, height, pad);
 
     let content = '';
@@ -79,7 +71,7 @@ export function createGeometryPreview(options) {
         fill="${COLORS.red600}" font-weight="700"
         font-family="'SF Mono', 'Cascadia Code', 'Consolas', monospace">N</text>`;
 
-    // Generate path data
+    // Path and labels
     if (pts.length > 1) {
         const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
         const closedPath = outputMode === OUTPUT_MODE.AREA && pts.length > 2 ? pathD + ' Z' : pathD;
@@ -109,7 +101,7 @@ export function createGeometryPreview(options) {
         });
     }
 
-    // Points
+    // Waypoint dots
     pts.forEach((p, i) => {
         const isOrigin = i === 0;
         const radius = isOrigin ? 5 : 4;
@@ -167,35 +159,21 @@ function normalizePoints(raw, W, H, pad) {
  * Create geometry preview container with wrapper.
  *
  * @param {Object} options - Options
- * @returns {{container: HTMLElement, svg: SVGElement, update: Function}}
+ * @returns {{container: HTMLElement, update: Function}}
  */
 export function createGeometryPreviewComponent(options) {
     const container = document.createElement('div');
     container.className = 'azimuth-distance-preview-container';
-    container.style.cssText = `
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 14px;
-        background: ${COLORS.white};
-        border-radius: 12px;
-        border: 1px solid ${COLORS.gray200};
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        flex: 1;
-        min-width: 200px;
-    `;
 
     let currentSvg = createGeometryPreview(options);
     container.appendChild(currentSvg);
 
     return {
         container,
-        svg: currentSvg,
         update: (newOptions) => {
             const newSvg = createGeometryPreview(newOptions);
             container.replaceChild(newSvg, currentSvg);
             currentSvg = newSvg;
-            return newSvg;
         }
     };
 }

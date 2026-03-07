@@ -394,27 +394,6 @@ class AddEllipseGeometry extends BaseGeometry {
     }
 
     /**
-     * Calculate distance between two points using turf
-     * @param {Array} point1 - First point [lng, lat]
-     * @param {Array} point2 - Second point [lng, lat]
-     * @param {Object} options - Turf distance options
-     * @returns {number} Distance in specified units
-     */
-    calculateDistance(point1, point2, options = { units: 'kilometers' }) {
-        return turf.distance(point1, point2, options);
-    }
-
-    /**
-     * Calculate bearing between two points using turf
-     * @param {Array} start - Start point [lng, lat]
-     * @param {Array} end - End point [lng, lat]
-     * @returns {number} Bearing in degrees
-     */
-    calculateBearing(start, end) {
-        return turf.bearing(start, end);
-    }
-
-    /**
      * Convert ellipse properties for move operation
      * @param {Array} center - Current center
      * @param {number} majorRadius - Major radius

@@ -79,10 +79,3 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
-// ============================================================================
-// STREET VIEW SETUP
-// ============================================================================
-
-const minimapWrapper = document.getElementById('streetview-minimap-wrapper');
-if (minimapWrapper) minimapWrapper.style.display = 'none';
-

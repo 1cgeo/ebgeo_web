@@ -49,29 +49,6 @@ class BaseGeometry {
     }
 
     /**
-     * Normalize coordinates from various formats
-     * @param {string|Array} coordinates - Coordinates to normalize
-     * @returns {Array|null} Normalized coordinates or null if invalid
-     */
-    normalizeCoordinates(coordinates) {
-        if (typeof coordinates === 'string') {
-            try {
-                coordinates = JSON.parse(coordinates);
-            } catch (e) {
-                console.error('Error parsing coordinates:', coordinates, e);
-                return null;
-            }
-        }
-
-        if (!Array.isArray(coordinates) || coordinates.length < 2) {
-            console.error('Invalid coordinates:', coordinates);
-            return null;
-        }
-
-        return coordinates;
-    }
-
-    /**
      * Calculate distance between two points using Haversine formula
      * @param {Array} point1 - First point [lng, lat]
      * @param {Array} point2 - Second point [lng, lat]

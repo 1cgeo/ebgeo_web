@@ -18,27 +18,18 @@ import { UI_DATA, SUPPLY_CLASSES } from '../coordination_measure_constants.js';
  */
 export function createTextModifierField(fieldName, fieldDef, currentValue, onChange) {
     const container = document.createElement('div');
-    container.style.cssText = 'display: flex; flex-direction: column; gap: 5px;';
+    container.className = 'coord-text-field';
 
     const label = document.createElement('label');
     label.textContent = fieldDef.label;
-    label.style.cssText = `
-        font-size: 13px;
-        font-weight: 600;
-        color: #495057;
-    `;
+    label.className = 'coord-text-field__label';
     container.appendChild(label);
 
     let inputElement;
 
     if (fieldDef.type === 'select') {
         inputElement = document.createElement('select');
-        inputElement.style.cssText = `
-            padding: 8px;
-            border: 2px solid #ddd;
-            border-radius: 6px;
-            font-size: 13px;
-        `;
+        inputElement.className = 'coord-text-field__select';
 
         const emptyOption = document.createElement('option');
         emptyOption.value = '';
@@ -66,12 +57,7 @@ export function createTextModifierField(fieldName, fieldDef, currentValue, onCha
         inputElement.type = fieldDef.type;
         inputElement.placeholder = fieldDef.placeholder || '';
         inputElement.value = currentValue || '';
-        inputElement.style.cssText = `
-            padding: 8px;
-            border: 2px solid #ddd;
-            border-radius: 6px;
-            font-size: 13px;
-        `;
+        inputElement.className = 'coord-text-field__input';
 
         inputElement.oninput = (e) => {
             const value = e.target.value.trim();
@@ -84,7 +70,7 @@ export function createTextModifierField(fieldName, fieldDef, currentValue, onCha
     if (fieldDef.help) {
         const helpText = document.createElement('div');
         helpText.textContent = fieldDef.help;
-        helpText.style.cssText = 'font-size: 11px; color: #6c757d; font-style: italic;';
+        helpText.className = 'coord-text-field__help';
         container.appendChild(helpText);
     }
 
@@ -100,10 +86,10 @@ export function createTextModifierField(fieldName, fieldDef, currentValue, onCha
  */
 export function createTextModifiersSection(properties, pointCode, onPropertyChange) {
     const section = document.createElement('div');
-    section.style.cssText = 'padding-top: 15px;';
+    section.className = 'coord-text-modifiers';
 
     const content = document.createElement('div');
-    content.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 15px;';
+    content.className = 'coord-text-modifiers__grid';
 
     const applicableFields = getAvailableTextFields(pointCode);
 

@@ -13,8 +13,8 @@ import {
     subscribe,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
-import { escapeHtml } from '../../utilities/html-escape.js';
+} from '@utils/event-cleanup.js';
+import { escapeHtml } from '@utils/html-escape.js';
 import {
     getAllMapNamesStore,
     getCurrentMapName,
@@ -29,10 +29,10 @@ import {
     isMapLocked,
     toggleMapLock,
     getControl,
-} from '../../store/index.js';
-import { EventTypes } from '../../events/event_types.js';
-import { showSuccess, showError, showWarning, IDUtils } from '../../utilities/index.js';
-import { showPrompt, showConfirm } from '../../modals/index.js';
+} from '@store/index.js';
+import { EventTypes } from '@events/event_types.js';
+import { showSuccess, showError, showWarning, IDUtils } from '@utils/index.js';
+import { showPrompt, showConfirm } from '@modals/index.js';
 
 /**
  * Icons specific to maps tab.

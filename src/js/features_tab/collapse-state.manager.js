@@ -5,7 +5,7 @@
  * Provides a simplified interface for managing layer and group collapse states.
  */
 
-import { getStateManager } from '../store';
+import { getStateManager } from '@store';
 
 /**
  * Class that wraps StateManager collapse functionality.

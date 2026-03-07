@@ -11,8 +11,8 @@ import {
     getCurrentMapNameSync,
     getStorageTypeFromSource,
     getFeatureIconFromStorage,
-} from '../store';
-import { zoomToFeature } from '../utilities';
+} from '@store';
+import { zoomToFeature } from '@utils';
 
 /**
  * @typedef {Object} GroupItemCallbacks
@@ -456,11 +456,5 @@ export function updateGroupLockState(container, groupId, locked) {
         ? FEATURES_TAB_ICONS.LOCK_LOCKED
         : FEATURES_TAB_ICONS.LOCK_UNLOCKED;
     lockBtn.title = locked ? 'Desbloquear grupo' : 'Bloquear grupo';
-
-    const svg = lockBtn.querySelector('svg');
-    if (svg && locked) {
-        svg.style.color = '#dc3545';
-    } else if (svg) {
-        svg.style.color = '';
-    }
+    lockBtn.classList.toggle('lock-toggle--active', locked);
 }

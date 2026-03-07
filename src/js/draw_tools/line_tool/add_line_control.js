@@ -25,6 +25,8 @@ import {
 import { calculateProfile } from './line_profile.js';
 
 class AddLineControl extends BaseControl {
+    featureType = 'line';
+
     constructor(toolManager) {
         super(toolManager);
 
@@ -67,26 +69,6 @@ class AddLineControl extends BaseControl {
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
-
-    /**
-     * Get currently selected line feature from SelectionManager
-     * @param {void}
-     * @returns {Object|null} Selected line feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('line');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected line features from SelectionManager
-     * @param {void}
-     * @returns {Array} Array of selected line features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('line')
-            .map(item => item.feature);
-    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 

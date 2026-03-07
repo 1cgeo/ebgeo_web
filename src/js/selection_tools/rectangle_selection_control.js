@@ -1,5 +1,5 @@
 // Path: js/selection_tools/rectangle_selection_control.js
-import { getSelectionControlConfig } from '../store';
+import { getSelectionControlConfig } from '@store';
 
 class RectangleSelectionControl {
     constructor(toolManager) {
@@ -188,7 +188,6 @@ class RectangleSelectionControl {
         // Update UI and provide feedback
         this.selectionManager.updateUI();
 
-
         // Deactivate tool after successful selection
         this.toolManager.deactivateCurrentTool();
     }
@@ -221,8 +220,8 @@ class RectangleSelectionControl {
         const customFeatures = [];
 
         // Filter custom features using the same logic as SelectionManager
-        for (const [type, config] of Object.entries(CONTROL_CONFIG)) {
-            for (const sourceName of config.sourceNames) {
+        for (const [type, controlCfg] of Object.entries(CONTROL_CONFIG)) {
+            for (const sourceName of controlCfg.sourceNames) {
                 const matchingFeatures = allFeatures.filter(f =>
                     f.source === sourceName && f.properties.source === type
                 );

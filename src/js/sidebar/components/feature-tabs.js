@@ -5,9 +5,9 @@
  * Manages Estilo (Style), Azimutes (line decomposition), and Atributos (Attributes) tabs.
  */
 
-import { getEventBus } from '../../store/index.js';
-import { EventTypes, FeatureUpdateProperty } from '../../events/index.js';
-import { renderAttributesContent } from '../../user_data/attributes_tab_renderer.js';
+import { getEventBus } from '@store/index.js';
+import { EventTypes, FeatureUpdateProperty } from '@events/index.js';
+import { renderAttributesContent } from '@js/user_data/attributes_tab_renderer.js';
 
 /**
  * Tab IDs for the feature panel.

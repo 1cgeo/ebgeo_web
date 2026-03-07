@@ -8,7 +8,7 @@
  * @dependencies utilities/maplibre-preload
  */
 
-import { MaplibrePreload } from '../../utilities/maplibre-preload.js';
+import { MaplibrePreload } from '@utils/maplibre-preload.js';
 
 // ============================================================================
 // TILE PRELOADER

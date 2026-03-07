@@ -13,6 +13,8 @@ import { DrawingFinishButton } from '../../draw_tools/drawing-touch-helpers';
  * Manages drawing, editing, and interaction for arrow features on the map
  */
 class AddArrowControl extends BaseControl {
+    featureType = 'arrow';
+
     constructor(toolManager) {
         super(toolManager);
 
@@ -85,24 +87,6 @@ class AddArrowControl extends BaseControl {
             console.warn('Error calculating zoom-adaptive width, using default:', error);
             return DEFAULT_WIDTH_M;
         }
-    }
-
-    /**
-     * Get currently selected arrow feature from SelectionManager
-     * @returns {Object|null} Selected arrow feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('arrow');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected arrow features from SelectionManager
-     * @returns {Array} Array of selected arrow features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('arrow')
-            .map(item => item.feature);
     }
 
     // ===== MAPBOX CONTROL INTERFACE =====

@@ -363,6 +363,48 @@
     transform: translateY(0);
 }
 
+/* ===== VECTOR TILE SELECTION MENU ===== */
+.vector-tile-selection-menu {
+    position: fixed;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 999999;
+    min-width: 200px;
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: var(--font-size-base);
+    line-height: 1.4;
+}
+
+.vector-tile-selection-menu__header {
+    padding: var(--space-2) var(--space-3);
+    background: #f5f5f5;
+    color: #666;
+    border-bottom: 1px solid #ddd;
+    font-weight: bold;
+    font-size: var(--font-size-sm);
+}
+
+.vector-tile-selection-menu__item {
+    padding: var(--space-3) var(--space-3);
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+    background: white;
+    color: black;
+    font-size: var(--font-size-base);
+}
+
+.vector-tile-selection-menu__item:not(:last-child) {
+    border-bottom: 1px solid #eee;
+}
+
+.vector-tile-selection-menu__item:hover {
+    background-color: #f0f8ff;
+}
+
 /* ===== ANIMATIONS ===== */
 @keyframes slideInFromRight {
     from {
@@ -501,4 +543,126 @@
     font-size: var(--font-size-xs);
     color: var(--gray-500);
     font-weight: var(--font-weight-medium);
+}
+
+/* ===== LOS INFO SECTION ===== */
+.los-info-section__container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-4);
+}
+
+.los-info-section__subtitle {
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--space-1);
+}
+
+.los-info-section__coords-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-3);
+}
+
+.los-info-section__separator {
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    margin: var(--space-1) 0;
+}
+
+.los-info-section__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.los-info-section__row-label {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.los-info-section__row-value {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+}
+
+.los-info-section__row-value--visible {
+    color: #0A0;
+}
+
+.los-info-section__row-value--obstructed {
+    color: #C00;
+}
+
+.los-info-section__color-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-xs);
+    flex-shrink: 0;
+}
+
+.los-info-section__color-dot--visible {
+    background: #0F0;
+}
+
+.los-info-section__color-dot--obstructed {
+    background: #F00;
+}
+
+/* ===== LOS COORDINATE ROW ===== */
+.los-coord-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--font-size-xs);
+}
+
+.los-coord-row__indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.los-coord-row__indicator--green {
+    background-color: #00c853;
+    box-shadow: 0 0 4px rgba(0, 200, 83, 0.5);
+}
+
+.los-coord-row__indicator--red {
+    background-color: #ff5252;
+    box-shadow: 0 0 4px rgba(255, 82, 82, 0.5);
+}
+
+.los-coord-row__label {
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-500);
+    min-width: 65px;
+}
+
+.los-coord-row__value {
+    font-family: 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+    color: var(--gray-800);
+    padding: 2px 6px;
+    background-color: rgba(255, 255, 255, 0.7);
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+    transition: background-color var(--transition-fast), color var(--transition-fast);
+    user-select: text;
+}
+
+.los-coord-row__value:hover {
+    background-color: var(--primary-light, #e3f2fd);
+    color: var(--primary-color, #1976d2);
 }

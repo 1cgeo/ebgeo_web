@@ -8,85 +8,78 @@
 import { getEngagementBarData } from '../military_constants.js';
 
 /**
- * @typedef {Object} EngagementBarContainer
- * @property {Function} updateFromProperties - Updates controls from properties
+ * Populates a select element with options from data array.
+ *
+ * @param {HTMLSelectElement} select - Select element
+ * @param {Array<{value: string, label: string}>} items - Option items
  */
+function populateSelect(select, items) {
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Não Aplicável';
+    select.appendChild(defaultOption);
+
+    for (const item of items) {
+        const option = document.createElement('option');
+        option.value = item.value;
+        option.textContent = `${item.value} - ${item.label}`;
+        select.appendChild(option);
+    }
+}
+
+/**
+ * Creates a labeled select field.
+ *
+ * @param {string} labelText - Label text
+ * @param {Array<{value: string, label: string}>} items - Option items
+ * @returns {{ container: HTMLElement, select: HTMLSelectElement }}
+ */
+function createSelectField(labelText, items) {
+    const container = document.createElement('div');
+    container.className = 'engagement-bar__field';
+
+    const label = document.createElement('label');
+    label.className = 'engagement-bar__label';
+    label.textContent = labelText;
+
+    const select = document.createElement('select');
+    select.className = 'engagement-bar__select';
+    populateSelect(select, items);
+
+    container.appendChild(label);
+    container.appendChild(select);
+
+    return { container, select };
+}
 
 /**
  * Creates the engagement bar content section.
  *
  * @param {Object} tempProperties - Temporary properties object
  * @param {Function} onUpdate - Callback when any field changes
- * @returns {HTMLElement & EngagementBarContainer} Container with engagement bar controls
+ * @returns {HTMLElement & { updateFromProperties: Function }} Container with engagement bar controls
  */
 export function createEngagementBarContent(tempProperties, onUpdate) {
     const container = document.createElement('div');
-    container.style.cssText = 'display: flex; flex-direction: column; gap: 16px; max-width: 600px;';
+    container.className = 'engagement-bar';
 
     const data = getEngagementBarData();
 
-    const stageContainer = document.createElement('div');
-    stageContainer.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
-
-    const stageLabel = document.createElement('label');
-    stageLabel.textContent = 'Estágio do Engajamento:';
-    stageLabel.style.cssText = 'font-weight: 600; font-size: 14px; color: #333;';
-
-    const stageSelect = document.createElement('select');
-    stageSelect.style.cssText = 'padding: 10px 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;';
-
-    const stageDefaultOption = document.createElement('option');
-    stageDefaultOption.value = '';
-    stageDefaultOption.textContent = 'Não Aplicável';
-    stageSelect.appendChild(stageDefaultOption);
-
-    data.stages.forEach(stage => {
-        const option = document.createElement('option');
-        option.value = stage.value;
-        option.textContent = `${stage.value} - ${stage.label}`;
-        stageSelect.appendChild(option);
-    });
-
-    stageContainer.appendChild(stageLabel);
-    stageContainer.appendChild(stageSelect);
-
-    const weaponContainer = document.createElement('div');
-    weaponContainer.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
-
-    const weaponLabel = document.createElement('label');
-    weaponLabel.textContent = 'Armamento/Elemento:';
-    weaponLabel.style.cssText = 'font-weight: 600; font-size: 14px; color: #333;';
-
-    const weaponSelect = document.createElement('select');
-    weaponSelect.style.cssText = 'padding: 10px 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;';
-
-    const weaponDefaultOption = document.createElement('option');
-    weaponDefaultOption.value = '';
-    weaponDefaultOption.textContent = 'Não Aplicável';
-    weaponSelect.appendChild(weaponDefaultOption);
-
-    data.weapons.forEach(weapon => {
-        const option = document.createElement('option');
-        option.value = weapon.value;
-        option.textContent = `${weapon.value} - ${weapon.label}`;
-        weaponSelect.appendChild(option);
-    });
-
-    weaponContainer.appendChild(weaponLabel);
-    weaponContainer.appendChild(weaponSelect);
+    const stageField = createSelectField('Estágio do Engajamento:', data.stages);
+    const weaponField = createSelectField('Armamento/Elemento:', data.weapons);
 
     const remoteContainer = document.createElement('div');
-    remoteContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+    remoteContainer.className = 'engagement-bar__checkbox-row';
 
     const remoteCheckbox = document.createElement('input');
     remoteCheckbox.type = 'checkbox';
     remoteCheckbox.id = 'engagement-remote';
-    remoteCheckbox.style.cssText = 'width: 18px; height: 18px; cursor: pointer;';
+    remoteCheckbox.className = 'engagement-bar__checkbox';
 
     const remoteLabel = document.createElement('label');
     remoteLabel.htmlFor = 'engagement-remote';
+    remoteLabel.className = 'engagement-bar__checkbox-label';
     remoteLabel.textContent = 'Designação Remota';
-    remoteLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
 
     remoteContainer.appendChild(remoteCheckbox);
     remoteContainer.appendChild(remoteLabel);
@@ -95,8 +88,8 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
      * Updates engagement bar property from controls.
      */
     function updateEngagementBar() {
-        const stage = stageSelect.value;
-        const weapon = weaponSelect.value;
+        const stage = stageField.select.value;
+        const weapon = weaponField.select.value;
         const remote = remoteCheckbox.checked;
 
         if (!stage && !weapon) {
@@ -107,10 +100,8 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
 
             if (stage && weapon) {
                 text = `${stage}-${weapon}`;
-            } else if (stage) {
-                text = stage;
             } else {
-                text = weapon;
+                text = stage || weapon;
             }
 
             tempProperties.engagementBar = `${prefix}${text}`;
@@ -119,12 +110,12 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
         onUpdate();
     }
 
-    stageSelect.addEventListener('change', updateEngagementBar);
-    weaponSelect.addEventListener('change', updateEngagementBar);
+    stageField.select.addEventListener('change', updateEngagementBar);
+    weaponField.select.addEventListener('change', updateEngagementBar);
     remoteCheckbox.addEventListener('change', updateEngagementBar);
 
-    container.appendChild(stageContainer);
-    container.appendChild(weaponContainer);
+    container.appendChild(stageField.container);
+    container.appendChild(weaponField.container);
     container.appendChild(remoteContainer);
 
     /**
@@ -133,35 +124,36 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
      */
     container.updateFromProperties = (properties) => {
         const engagementBar = properties.engagementBar;
-        if (engagementBar) {
-            let processedBar = engagementBar;
-            let isRemote = false;
-
-            if (processedBar.startsWith('R:')) {
-                isRemote = true;
-                processedBar = processedBar.substring(2);
-            }
-
-            if (processedBar.includes('-')) {
-                const parts = processedBar.split('-');
-                stageSelect.value = parts[0] || '';
-                weaponSelect.value = parts[1] || '';
-            } else {
-                const stageExists = data.stages.some(s => s.value === processedBar);
-                if (stageExists) {
-                    stageSelect.value = processedBar;
-                    weaponSelect.value = '';
-                } else {
-                    stageSelect.value = '';
-                    weaponSelect.value = processedBar;
-                }
-            }
-            remoteCheckbox.checked = isRemote;
-        } else {
-            stageSelect.value = '';
-            weaponSelect.value = '';
+        if (!engagementBar) {
+            stageField.select.value = '';
+            weaponField.select.value = '';
             remoteCheckbox.checked = false;
+            return;
         }
+
+        let processedBar = engagementBar;
+        let isRemote = false;
+
+        if (processedBar.startsWith('R:')) {
+            isRemote = true;
+            processedBar = processedBar.substring(2);
+        }
+
+        if (processedBar.includes('-')) {
+            const parts = processedBar.split('-');
+            stageField.select.value = parts[0] || '';
+            weaponField.select.value = parts[1] || '';
+        } else {
+            const stageExists = data.stages.some(s => s.value === processedBar);
+            if (stageExists) {
+                stageField.select.value = processedBar;
+                weaponField.select.value = '';
+            } else {
+                stageField.select.value = '';
+                weaponField.select.value = processedBar;
+            }
+        }
+        remoteCheckbox.checked = isRemote;
     };
 
     return container;

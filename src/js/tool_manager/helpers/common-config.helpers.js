@@ -18,17 +18,6 @@ export const DEFAULT_SLIDER_CONFIG = {
 };
 
 /**
- * Compact styles configuration.
- * @constant {Object}
- */
-export const COMPACT_STYLES = {
-    containerGap: '6px',
-    marginBottom: '10px',
-    fontSize: '13px',
-    minHeight: '28px'
-};
-
-/**
  * Common configurations for different property types.
  * @constant {Object}
  */

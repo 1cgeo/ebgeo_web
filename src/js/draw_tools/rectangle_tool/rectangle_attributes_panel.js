@@ -5,10 +5,10 @@ import {
     createModernColorPicker,
     createModernLineStyleSelect,
     createModernHatchControl,
-    createModernButtons,
     createSectionDivider,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
+    createInitialPropertiesMap,
+    createPanelHeader,
+    createActionButtons
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -27,43 +27,17 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
     }
 
     const feature = selectedFeatures[0];
+    const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
 
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
-
-    // Only show header if not hidden (for sidebar integration)
-    if (!options.hideHeader) {
-        if (selectedFeatures.length === 1) {
-            const headerComponent = createFeatureHeaderWithOptions(
-                feature.properties.nome,
-                (newName) => {
-                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                    uiManager.updateSelectionHighlight();
-                },
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-            panel.appendChild(headerComponent);
-        } else if (selectedFeatures.length > 1) {
-            const multiSelectHeader = document.createElement('div');
-            multiSelectHeader.className = 'feature-header-with-options';
-
-            const infoText = document.createElement('div');
-            infoText.className = 'feature-name-wrapper';
-
-            infoText.textContent = `${selectedFeatures.length} retângulos selecionados`;
-
-            const optionsButton = createFeatureOptionsButton(
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-
-            multiSelectHeader.appendChild(infoText);
-            multiSelectHeader.appendChild(optionsButton);
-            panel.appendChild(multiSelectHeader);
-        }
-    }
+    createPanelHeader({
+        panel,
+        features: selectedFeatures,
+        featureType: 'rectangle',
+        control: rectangleControl,
+        selectionManager,
+        uiManager,
+        hideHeader: options.hideHeader
+    });
 
     // Hatch control reference for color sync
     let hatchControl = null;
@@ -170,13 +144,12 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
     panel.appendChild(hatchControl);
 
     // Action buttons
-    panel.appendChild(createModernButtons({
-        selectedFeatures,
+    createActionButtons({
+        panel,
+        features: selectedFeatures,
         control: rectangleControl,
         selectionManager,
         initialPropertiesMap,
-        hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => rectangleControl.setDefaultProperties(feature.properties),
-        hidden: options.hideButtons
-    }));
+        hideButtons: options.hideButtons
+    });
 }

@@ -26,9 +26,9 @@ import {
     addDomListener,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
-import { sanitizeQuillHtml } from '../../utilities/quill-helpers.js';
-import { EBGEO_LOGO_BASE64 } from '../../utilities/logo-base64.js';
+} from '@utils/event-cleanup.js';
+import { sanitizeQuillHtml } from '@utils/quill-helpers.js';
+import { EBGEO_LOGO_BASE64 } from '@utils/logo-base64.js';
 
 // ============================================================================
 // CONSTANTS

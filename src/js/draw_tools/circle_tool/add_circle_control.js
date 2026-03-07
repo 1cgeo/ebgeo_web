@@ -7,6 +7,8 @@ import AddCircleGeometry from './add_circle_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 class AddCircleControl extends BaseControl {
+    featureType = 'circle';
+
     constructor(toolManager) {
         super(toolManager);
         this.drawPoints = [];
@@ -45,23 +47,6 @@ class AddCircleControl extends BaseControl {
         hatchSpacing: 8,
         hatchLineWidth: 2
     };
-    // ===== SELECTION MANAGER INTEGRATION =====
-    /**
-     * Get currently selected circle feature from SelectionManager
-     * @returns {Object|null} Selected circle feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('circle');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-    /**
-     * Get all selected circle features from SelectionManager
-     * @returns {Array} Array of selected circle features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('circle')
-            .map(item => item.feature);
-    }
     // ===== MAPBOX CONTROL INTERFACE =====
     onAdd = (map) => {
         this.map = map;
@@ -680,16 +665,13 @@ class AddCircleControl extends BaseControl {
         }
     }
 
-
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('circles').getData();
-        let _hasChanges = false;
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
                 if (currentFeature) {
                     await updateFeature('circles', currentFeature);
-                    _hasChanges = true;
                 }
             }
         }
@@ -794,10 +776,7 @@ class AddCircleControl extends BaseControl {
         const data = await this.map.getSource('circles').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
-            sourceFeature.properties = {
-                ...feature.properties,
-                center: feature.properties.center
-            };
+            sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('circles').setData(data);
         }

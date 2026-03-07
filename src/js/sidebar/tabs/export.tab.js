@@ -11,11 +11,11 @@ import {
     subscribe,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
-import { showSuccess, showError } from '../../utilities/index.js';
-import { EventTypes } from '../../events/event_types.js';
-import { isViewer3DOpen } from '../../utilities/viewer3d-state.js';
-import { isStreetView360Open } from '../../utilities/streetview360-state.js';
+} from '@utils/event-cleanup.js';
+import { showSuccess, showError } from '@utils/index.js';
+import { EventTypes } from '@events/event_types.js';
+import { isViewer3DOpen } from '@utils/viewer3d-state.js';
+import { isStreetView360Open } from '@utils/streetview360-state.js';
 
 /**
  * Export option configurations.
@@ -717,20 +717,20 @@ export class ExportTab {
             <div class="pdf-export-fallback">
                 <div class="pdf-option-group">
                     <label class="pdf-option-label">Orientação</label>
-                    <div class="pdf-orientation-btns" style="display: flex; gap: var(--space-2); margin-bottom: var(--space-3);">
-                        <button class="sidebar-action-btn orientation-btn active" data-orientation="landscape" style="flex: 1; justify-content: center;">
+                    <div class="pdf-orientation-btns">
+                        <button class="sidebar-action-btn orientation-btn active" data-orientation="landscape">
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/></svg>
                             <span>Paisagem</span>
                         </button>
-                        <button class="sidebar-action-btn orientation-btn" data-orientation="portrait" style="flex: 1; justify-content: center;">
+                        <button class="sidebar-action-btn orientation-btn" data-orientation="portrait">
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/></svg>
                             <span>Retrato</span>
                         </button>
                     </div>
                 </div>
-                <div class="pdf-option-group" style="margin-bottom: var(--space-3);">
-                    <label class="pdf-option-label" style="font-size: var(--font-size-sm); color: var(--gray-600); margin-bottom: var(--space-1); display: block;">Escala</label>
-                    <select class="pdf-scale-select" style="width: 100%; padding: var(--space-2); border: 1px solid var(--border-color); border-radius: var(--radius-md);">
+                <div class="pdf-option-group pdf-option-group--spaced">
+                    <label class="pdf-option-label pdf-option-label--block">Escala</label>
+                    <select class="pdf-scale-select">
                         <option value="1:1000">1:1.000</option>
                         <option value="1:5000">1:5.000</option>
                         <option value="1:10000">1:10.000</option>
@@ -742,7 +742,7 @@ export class ExportTab {
                         <option value="1:1000000">1:1.000.000</option>
                     </select>
                 </div>
-                <button class="sidebar-action-btn pdf-export-btn" id="pdf-export-btn" style="width: 100%; justify-content: center; background: var(--primary); color: white; border-color: var(--primary);">
+                <button class="sidebar-action-btn pdf-export-btn--full" id="pdf-export-btn">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     <span>Gerar PDF</span>
                 </button>

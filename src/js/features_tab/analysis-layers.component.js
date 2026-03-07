@@ -4,7 +4,7 @@
  * @fileoverview Analysis layers control component.
  */
 
-import { getMapAnalysisLayersStates } from '../store';
+import { getMapAnalysisLayersStates } from '@store';
 import { FEATURES_TAB_ICONS } from './features_tab.icons.js';
 
 /**
@@ -64,7 +64,7 @@ function buildAnalysisLayersHTML(analysisLayersManager) {
         `;
     });
 
-    html += '<div style="height: 4px;"></div>';
+    html += '<div class="analysis-layers-spacer"></div>';
 
     return html;
 }

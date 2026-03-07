@@ -988,7 +988,10 @@ class StateManager {
 
     /**
      * Calculate content left offset based on current sidebar/panel state.
-     * Sidebar collapsed: 56px, Sidebar expanded or feature panel open: 376px (56 + 320).
+     * Values mirror SIDEBAR_DIMENSIONS in sidebar.constants.js:
+     * - COLLAPSED_WIDTH = 56
+     * - TOTAL_EXPANDED_WIDTH = 376 (56 + 320)
+     * Cannot import directly to avoid circular dependency (sidebar -> state -> sidebar).
      * @returns {number} Pixels from left edge
      */
     getContentLeftOffset() {

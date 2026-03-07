@@ -7,23 +7,23 @@
  * @module sidebar/panels/feature-panel-content
  */
 
-import { showConfirm } from '../../modals/index.js';
+import { showConfirm } from '@modals/index.js';
 import { createFeatureIdentification, createMultiSelectionHeader } from '../components/feature-identification.js';
 import { createPhotoGallery } from '../components/feature-photo-gallery.js';
 import { createFeatureTabs } from '../components/feature-tabs.js';
 import { createLocationSection } from '../components/feature-location-section.js';
 import { createGroupTypeSelector } from '../components/group-type-selector.js';
 import { createMultiSelectionActions } from '../components/multi-selection-actions.js';
-import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo } from '../../store';
-import { renderReadOnlyAttributesSection } from '../../user_data/attributes_tab_renderer.js';
-import { COORDINATE_FORMATS, formatCoordinates } from '../../utilities/index.js';
-import { createModernSelect } from '../../tool_manager/helpers/index.js';
+import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo } from '@store/index.js';
+import { renderReadOnlyAttributesSection } from '@js/user_data/attributes_tab_renderer.js';
+import { COORDINATE_FORMATS, formatCoordinates } from '@utils/index.js';
+import { createModernSelect } from '@tools/helpers/index.js';
 import {
     calculateSegmentDistance,
     getBearing,
     formatDistanceAuto,
     calculateLineLength
-} from '../../measurement_tool/measurement-geometry.js';
+} from '@js/measurement_tool/measurement-geometry.js';
 import { calculateMagneticDeclination } from '@utils/geomagnetic/wmm_calculator.js';
 
 // ============================================================================
@@ -397,8 +397,7 @@ function buildAzimutesTabContent(container, feature) {
 
     // Declination input row (visible only when NM is active)
     const declInputRow = document.createElement('div');
-    declInputRow.className = 'azimutes-tab__decl-input-row';
-    declInputRow.style.display = 'none';
+    declInputRow.className = 'azimutes-tab__decl-input-row azimutes-tab__decl-input-row--hidden';
 
     const declLabel2 = document.createElement('span');
     declLabel2.className = 'azimutes-tab__decl-label';
@@ -436,7 +435,7 @@ function buildAzimutesTabContent(container, feature) {
         useMagnetic = active;
         nmBtn.classList.toggle('active', active);
         nvBtn.classList.toggle('active', !active);
-        declInputRow.style.display = active ? 'flex' : 'none';
+        declInputRow.classList.toggle('azimutes-tab__decl-input-row--hidden', !active);
         declSection.classList.toggle('azimutes-tab__decl-section--active', active && declination !== 0);
         buildLegsBody();
         updateDeclStatus();

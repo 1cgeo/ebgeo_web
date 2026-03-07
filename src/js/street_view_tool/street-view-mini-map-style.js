@@ -1,5 +1,5 @@
 // Path: js/street_view_tool/street-view-mini-map-style.js
- export const STYLE_MINI_MAPA  = {
+export const STYLE_MINI_MAPA = {
     "version": 8,
     "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
     "sources": {
@@ -18,4 +18,5 @@
             "source": "osm"
         }
     ]
-}
+};
+

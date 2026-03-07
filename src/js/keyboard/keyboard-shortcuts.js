@@ -9,10 +9,10 @@
  * Both services disable this handler when active and re-enable when closed.
  */
 
-import { undoLastAction, redoLastAction, getStateManager, isCurrentMapLockedSync } from '../store';
-import { showConfirm } from '../modals/index.js';
-import { showInChannel } from '../utilities/toast_service.js';
-import { describeUndoRedoAction } from '../store/undo-redo-messages.js';
+import { undoLastAction, redoLastAction, getStateManager, isCurrentMapLockedSync } from '@store';
+import { showConfirm } from '@modals/index.js';
+import { showInChannel } from '@utils/toast_service.js';
+import { describeUndoRedoAction } from '@store/undo-redo-messages.js';
 
 /**
  * Keyboard shortcuts manager for the SIG map

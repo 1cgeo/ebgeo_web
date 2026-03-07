@@ -6,7 +6,7 @@ import {
     createModernButtons,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
-} from '../../tool_manager/helpers/index.js';
+} from '@tools/helpers/index.js';
 
 /**
  * Add occupied front attributes to the panel

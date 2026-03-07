@@ -13,16 +13,12 @@ import {
 } from './measurement.constants.js';
 import { formatDistance, formatArea, formatAngle } from './measurement-geometry.js';
 
-// ============================================================================
-// PANEL CREATION
-// ============================================================================
-
 /**
  * Creates a results panel for distance measurement.
  * @param {Object} options
  * @param {number[]} options.segmentDistances - Distance per segment in meters
  * @param {number} options.totalDistance - Total distance in meters
- * @param {Function} [options.onSave] - Called when user clicks "Salvar como feição"
+ * @param {Function} [options.onSave] - Called when user clicks "Salvar como feicao"
  * @param {Function} [options.onClear] - Called when user clicks "Limpar"
  * @param {Function} [options.onUnitChange] - Called when unit changes, receives { unit }
  * @returns {HTMLElement}
@@ -43,7 +39,7 @@ export function createDistanceResultsPanel({ segmentDistances, totalDistance, on
     function refresh() {
         totalEl.textContent = formatDistance(totalDistance, currentUnit);
 
-        segmentList.innerHTML = '';
+        segmentList.replaceChildren();
         segmentDistances.forEach((dist, i) => {
             const item = document.createElement('div');
             item.className = 'measurement-results-panel__segment-item';
@@ -58,23 +54,19 @@ export function createDistanceResultsPanel({ segmentDistances, totalDistance, on
         if (onUnitChange) onUnitChange({ unit: currentUnit });
     });
 
-    // Header
     const header = document.createElement('div');
     header.className = 'measurement-results-panel__header';
     header.textContent = 'Medição de Distância';
     container.appendChild(header);
 
-    // Unit selector
     container.appendChild(unitSelect);
 
-    // Total
     const totalLabel = document.createElement('div');
     totalLabel.className = 'measurement-results-panel__label';
     totalLabel.textContent = 'Distância total:';
     container.appendChild(totalLabel);
     container.appendChild(totalEl);
 
-    // Segments
     if (segmentDistances.length > 1) {
         const segLabel = document.createElement('div');
         segLabel.className = 'measurement-results-panel__label';
@@ -83,7 +75,6 @@ export function createDistanceResultsPanel({ segmentDistances, totalDistance, on
         container.appendChild(segmentList);
     }
 
-    // Actions
     container.appendChild(_createActions(onSave, onClear));
 
     refresh();
@@ -93,9 +84,9 @@ export function createDistanceResultsPanel({ segmentDistances, totalDistance, on
 /**
  * Creates a results panel for area measurement.
  * @param {Object} options
- * @param {number} options.area - Area in m²
+ * @param {number} options.area - Area in m2
  * @param {number} options.perimeter - Perimeter in meters
- * @param {Function} [options.onSave] - Called when user clicks "Salvar como feição"
+ * @param {Function} [options.onSave] - Called when user clicks "Salvar como feicao"
  * @param {Function} [options.onClear] - Called when user clicks "Limpar"
  * @param {Function} [options.onUnitChange] - Called when unit changes, receives { areaUnit }
  * @returns {HTMLElement}
@@ -125,30 +116,25 @@ export function createAreaResultsPanel({ area, perimeter, onSave, onClear, onUni
         if (onUnitChange) onUnitChange({ areaUnit: currentAreaUnit });
     });
 
-    // Header
     const header = document.createElement('div');
     header.className = 'measurement-results-panel__header';
     header.textContent = 'Medição de Área';
     container.appendChild(header);
 
-    // Unit selector
     container.appendChild(areaUnitSelect);
 
-    // Area
     const areaLabel = document.createElement('div');
     areaLabel.className = 'measurement-results-panel__label';
     areaLabel.textContent = 'Área:';
     container.appendChild(areaLabel);
     container.appendChild(areaValueEl);
 
-    // Perimeter
     const perimLabel = document.createElement('div');
     perimLabel.className = 'measurement-results-panel__label';
     perimLabel.textContent = 'Perímetro:';
     container.appendChild(perimLabel);
     container.appendChild(perimeterEl);
 
-    // Actions
     container.appendChild(_createActions(onSave, onClear));
 
     refresh();
@@ -166,13 +152,11 @@ export function createAngleResultsPanel({ angleDegrees, onClear }) {
     const container = document.createElement('div');
     container.className = 'measurement-results-panel';
 
-    // Header
     const header = document.createElement('div');
     header.className = 'measurement-results-panel__header';
     header.textContent = 'Medição de Ângulo';
     container.appendChild(header);
 
-    // Show all angle units simultaneously
     for (const unit of ANGLE_UNITS) {
         const row = document.createElement('div');
         row.className = 'measurement-results-panel__angle-row';
@@ -190,7 +174,6 @@ export function createAngleResultsPanel({ angleDegrees, onClear }) {
         container.appendChild(row);
     }
 
-    // Actions (no save for angles, only clear)
     const actions = document.createElement('div');
     actions.className = 'measurement-results-panel__actions';
 
@@ -205,10 +188,6 @@ export function createAngleResultsPanel({ angleDegrees, onClear }) {
     container.appendChild(actions);
     return container;
 }
-
-// ============================================================================
-// PRIVATE HELPERS
-// ============================================================================
 
 /**
  * @param {Array} units - Unit definitions

@@ -15,6 +15,8 @@ import AddCoordinationMeasureGeometry from './add_coordination_measure_geometry.
 import { BaseControl } from "../../tool_manager";
 
 class AddCoordinationMeasureControl extends BaseControl {
+  featureType = 'coordination_measure';
+
   constructor(toolManager) {
     super(toolManager);
 
@@ -63,28 +65,6 @@ class AddCoordinationMeasureControl extends BaseControl {
     numeroConcentracao: null,
     altitude: null
   };
-
-  // ===== SINGLE SOURCE OF TRUTH =====
-
-  /**
-   * Get currently selected coordination measure feature from SelectionManager
-   * @returns {Object|null} Selected coordination measure feature or null
-   */
-  getSelectedFeature() {
-    const selectedItems =
-      this.selectionManager.getSelectedFeaturesByType("coordination_measure");
-    return selectedItems.length > 0 ? selectedItems[0].feature : null;
-  }
-
-  /**
-   * Get all selected coordination measure features from SelectionManager
-   * @returns {Array} Array of selected coordination measure features
-   */
-  getSelectedFeatures() {
-    return this.selectionManager
-      .getSelectedFeaturesByType("coordination_measure")
-      .map((item) => item.feature);
-  }
 
   // ===== MAPBOX CONTROL INTERFACE =====
 

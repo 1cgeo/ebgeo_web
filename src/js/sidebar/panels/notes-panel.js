@@ -7,16 +7,16 @@
  * @module sidebar/panels/notes-panel
  */
 
-import { getMapNotes, setMapNotes } from '../../store/index.js';
+import { getMapNotes, setMapNotes } from '@store/index.js';
 import {
     sanitizeQuillHtml,
     cleanQuillContent,
     handleQuillImageUpload
-} from '../../utilities/quill-helpers.js';
-import { showSuccess, showError } from '../../utilities/index.js';
+} from '@utils/quill-helpers.js';
+import { showSuccess, showError } from '@utils/index.js';
 
-// Re-export for backward compatibility (if any external code imports from here)
-export { sanitizeQuillHtml, cleanQuillContent } from '../../utilities/quill-helpers.js';
+// Re-export for backward compatibility
+export { sanitizeQuillHtml, cleanQuillContent } from '@utils/quill-helpers.js';
 
 // Alias export for backward compatibility with code that imports sanitizeHtml
 export const sanitizeHtml = sanitizeQuillHtml;
@@ -117,8 +117,7 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
 
     // --- EDIT MODE ELEMENTS ---
     const editContainer = document.createElement('div');
-    editContainer.className = 'map-notes-edit-container';
-    editContainer.style.display = 'none';
+    editContainer.className = 'map-notes-edit-container map-notes-edit-container--hidden';
 
     // Title section
     const titleSection = document.createElement('div');
@@ -217,8 +216,8 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
 
     // --- MODE SWITCHING ---
     const switchToEditMode = async () => {
-        viewContainer.style.display = 'none';
-        editContainer.style.display = 'flex';
+        viewContainer.classList.add('map-notes-view-container--hidden');
+        editContainer.classList.remove('map-notes-edit-container--hidden');
 
         // Initialize Quill on first edit
         await initQuill();
@@ -232,8 +231,8 @@ export async function createNotesPanelContent({ mapName, readOnly = false }) {
     };
 
     const switchToViewMode = (updatedData = null) => {
-        editContainer.style.display = 'none';
-        viewContainer.style.display = 'flex';
+        editContainer.classList.add('map-notes-edit-container--hidden');
+        viewContainer.classList.remove('map-notes-view-container--hidden');
 
         if (updatedData) {
             // Update view with new data

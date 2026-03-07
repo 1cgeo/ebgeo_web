@@ -1,7 +1,7 @@
 // Path: js/analysis_tools/los_tool/add_los_geometry.js
 
-import { BaseGeometry } from '../../tool_manager';
-import { getTerrainElevation } from '../../terrain';
+import { BaseGeometry } from '@tools';
+import { getTerrainElevation } from '@js/terrain';
 
 /**
  * Line of Sight Geometry Operations
@@ -14,7 +14,6 @@ class AddLOSGeometry extends BaseGeometry {
 
         this.VISIBLE_COLOR = '#00FF00';
         this.OBSTRUCTED_COLOR = '#FF0000';
-        // Default parameters - can be overridden per feature
         this.DEFAULT_OBSERVER_HEIGHT = 1.5;
         this.DEFAULT_TARGET_HEIGHT = 0;
         this.DEFAULT_SAMPLE_POINTS = 100;
@@ -97,31 +96,23 @@ class AddLOSGeometry extends BaseGeometry {
         const steps = Math.max(2, samplePoints);
         const stepLength = totalLength / steps;
 
-        // Get terrain elevations at start and end points
         const startTerrainElevation = await getTerrainElevation(map, startCoordinates);
         const endTerrainElevation = await getTerrainElevation(map, endCoordinates);
-
-        // Calculate observer and target absolute elevations (terrain + height above ground)
         const observerElevation = startTerrainElevation + observerHeight;
         const targetElevation = endTerrainElevation + targetHeight;
 
         let firstObstructedPoint = null;
         let obstructionDistance = 0;
 
-        // Check intermediate points for obstruction (exclude start and end points)
         for (let i = 1; i < steps; i++) {
             const distance = i * stepLength;
             const segment = turf.along(line, distance, { units: 'meters' });
             const segmentCoordinates = segment.geometry.coordinates;
 
-            // Calculate expected LOS elevation at this point (linear interpolation)
             const progress = i / steps;
             const expectedLOSElevation = observerElevation + (targetElevation - observerElevation) * progress;
-
-            // Get actual terrain elevation at this point
             const terrainElevation = await getTerrainElevation(map, segmentCoordinates);
 
-            // Obstruction occurs when terrain is above the line of sight
             if (terrainElevation > expectedLOSElevation) {
                 firstObstructedPoint = segmentCoordinates;
                 obstructionDistance = distance;
@@ -129,7 +120,6 @@ class AddLOSGeometry extends BaseGeometry {
             }
         }
 
-        // Create visible and obstructed line segments
         const visibleLine = firstObstructedPoint
             ? turf.lineString([startCoordinates, firstObstructedPoint])
             : turf.lineString([startCoordinates, endCoordinates]);
@@ -168,18 +158,14 @@ class AddLOSGeometry extends BaseGeometry {
 
         const observerHeight = options.observerHeight ?? this.DEFAULT_OBSERVER_HEIGHT;
         const targetHeight = options.targetHeight ?? this.DEFAULT_TARGET_HEIGHT;
-        // Use samplePoints from options if provided, otherwise use PROFILE_STEPS for graph display
         const profileSteps = options.samplePoints ?? this.PROFILE_STEPS;
 
         const line = turf.lineString(coordinates);
         const length = turf.length(line, { units: 'meters' });
         const stepLength = length / profileSteps;
 
-        // Get start and end terrain elevations
         const startTerrainElevation = await getTerrainElevation(map, coordinates[0]);
         const endTerrainElevation = await getTerrainElevation(map, coordinates[1]);
-
-        // Calculate observer and target absolute elevations (terrain + height)
         const observerElevation = startTerrainElevation + observerHeight;
         const targetElevation = endTerrainElevation + targetHeight;
 
@@ -189,7 +175,6 @@ class AddLOSGeometry extends BaseGeometry {
             const point = turf.along(line, i * stepLength, { units: 'meters' });
             const terrainElevation = await getTerrainElevation(map, point.geometry.coordinates);
 
-            // Calculate LOS elevation at this point (linear interpolation between observer and target)
             const progress = i / profileSteps;
             const losElevation = observerElevation + (targetElevation - observerElevation) * progress;
 
@@ -201,18 +186,15 @@ class AddLOSGeometry extends BaseGeometry {
             });
         }
 
-        // Calculate slope percentage between consecutive points
         for (let i = 1; i < profileData.length; i++) {
             const deltaElevation = profileData[i].elevation - profileData[i - 1].elevation;
             const deltaDistance = profileData[i].distance - profileData[i - 1].distance;
 
             if (deltaDistance > 0) {
-                // Slope as percentage: (rise / run) * 100
                 profileData[i].slope = (deltaElevation / deltaDistance) * 100;
             }
         }
 
-        // First point inherits slope from second point for display continuity
         if (profileData.length > 1) {
             profileData[0].slope = profileData[1].slope;
         }

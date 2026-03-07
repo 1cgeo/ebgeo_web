@@ -14,6 +14,7 @@ import { getSnappingService } from '../../snapping/snapping.service.js';
  * Default aperture is 60 degrees.
  */
 class AddSectorControl extends BaseControl {
+    featureType = 'sector';
     constructor(toolManager) {
         super(toolManager);
         this.drawPoints = [];
@@ -54,19 +55,6 @@ class AddSectorControl extends BaseControl {
         hatchLineWidth: 2,
         aperture: 60
     };
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('sector');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('sector')
-            .map(item => item.feature);
-    }
-
     // ===== MAPBOX CONTROL INTERFACE =====
 
     onAdd = (map) => {
@@ -866,9 +854,6 @@ class AddSectorControl extends BaseControl {
             this.updateSelectionManagerFeatures(features);
         }
     }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     updateSelectionManagerFeature(feature) {
         this.selectionManager.updateSelectedFeature('sector', feature.properties.id, feature);
     }
@@ -902,10 +887,7 @@ class AddSectorControl extends BaseControl {
         const data = await this.map.getSource('setores').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
-            sourceFeature.properties = {
-                ...feature.properties,
-                center: feature.properties.center
-            };
+            sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('setores').setData(data);
         }

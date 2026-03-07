@@ -1,23 +1,19 @@
 // Path: js/processing/algorithms/voronoi.algorithm.js
 
 /**
- * @fileoverview Algoritmo de Diagrama de Voronoi.
- * Gera células de Voronoi a partir de pontos (ou centroides) dentro de um bbox desenhado pelo usuário.
- * @dependencies processing.constants, turf (global), control.registry
+ * @fileoverview Voronoi Diagram algorithm.
+ * Generates Voronoi cells from points (or centroids) within a user-drawn bbox.
  */
 
-import { registerAlgorithm } from '../processing.constants.js';
-import { getLayers, getActiveLayerIdSync } from '../../store/layer.operations.js';
-import { getControl } from '../../store/control.registry.js';
+import { getControl } from '@store/control.registry.js';
+import { createModernToggle, createSectionDivider } from '@tools/helpers/index.js';
 import {
-    createModernSelect,
-    createModernToggle,
-    createSectionDivider,
-} from '../../tool_manager/helpers/index.js';
-import {
-    setupCleanup,
-    cleanup,
-} from '../../utilities/event-cleanup.js';
+    registerAlgorithm,
+    POLYGON_DEFAULTS,
+    SUPPORTED_GEOMETRY_TYPES,
+    extractBaseCoordinates,
+} from '../processing.constants.js';
+import { buildAlgorithmPanelScaffold } from './panel-builder.js';
 
 // ============================================================================
 // CONSTANTS
@@ -25,47 +21,41 @@ import {
 
 const VORONOI_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="22" height="22" rx="1"/><line x1="11.5" y1="1" x2="12.5" y2="11"/><line x1="12.5" y1="11" x2="1" y2="16"/><line x1="12.5" y1="11" x2="23" y2="9"/><line x1="12.5" y1="11" x2="13" y2="23"/><circle cx="6" cy="7" r="1.5" fill="currentColor" stroke="none"/><circle cx="18" cy="5" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="17" r="1.5" fill="currentColor" stroke="none"/><circle cx="7" cy="19" r="1.5" fill="currentColor" stroke="none"/></svg>`;
 
-const SUPPORTED_TYPES = [
-    // Geometrias básicas
-    'point', 'line', 'polygon',
-    // Formas derivadas (armazenadas como Polygon)
-    'circle', 'rectangle', 'ellipse',
-    // Tipos ponto (tratados como Point pelo turf)
-    'text', 'image', 'military_symbol', 'coordination_measure',
-    // Tipos linha (tratados como LineString pelo turf)
-    'brush', 'arrow', 'boundary', 'occupied_front',
-];
-
 // ============================================================================
 // PANEL CREATION
 // ============================================================================
 
 /**
- * Cria o formulário do algoritmo de Voronoi.
+ * Creates the Voronoi algorithm panel.
  * @param {import('./algorithm.interface.js').AlgorithmPanelDeps} deps
  * @returns {import('./algorithm.interface.js').AlgorithmPanelResult}
  */
 function createVoronoiPanel(deps) {
     const { stateManager } = deps;
-    const cleanupContext = {};
-    setupCleanup(cleanupContext);
 
-    const container = document.createElement('div');
-    container.className = 'processing-panel';
+    const scaffold = buildAlgorithmPanelScaffold({
+        stateManager,
+        defaultOutputPrefix: 'Proximidade',
+    });
 
-    // -- Ilustração --
+    const { container } = scaffold;
+
+    // Start with execute disabled (bbox required)
+    scaffold.executeBtn.disabled = true;
+
+    // -- Illustration --
     const illustration = document.createElement('div');
     illustration.className = 'processing-panel__illustration';
     illustration.innerHTML = `
         <svg width="180" height="100" viewBox="0 0 180 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <!-- Bbox externo (área de recorte) -->
+            <!-- Bbox (clipping area) -->
             <rect x="8" y="8" width="164" height="84" rx="2" fill="#dcfce7" fill-opacity="0.15" stroke="#16a34a" stroke-width="1.2" stroke-dasharray="5 3"/>
-            <!-- Células de Voronoi (calculadas geometricamente) -->
+            <!-- Voronoi cells -->
             <polygon points="86.35,8 88.35,41.87 8,61 8,8" fill="#bbf7d0" fill-opacity="0.45" stroke="#16a34a" stroke-width="1"/>
             <polygon points="86.35,8 172,8 172,39.28 97.14,55.91 88.35,41.87" fill="#86efac" fill-opacity="0.35" stroke="#16a34a" stroke-width="1"/>
             <polygon points="172,39.28 172,92 97.99,92 97.14,55.91" fill="#dcfce7" fill-opacity="0.55" stroke="#16a34a" stroke-width="1"/>
             <polygon points="8,61 88.35,41.87 97.14,55.91 97.99,92 8,92" fill="#86efac" fill-opacity="0.45" stroke="#16a34a" stroke-width="1"/>
-            <!-- Pontos geradores -->
+            <!-- Generator points -->
             <circle cx="45" cy="30" r="3" fill="#16a34a"/>
             <circle cx="130" cy="25" r="3" fill="#16a34a"/>
             <circle cx="140" cy="70" r="3" fill="#16a34a"/>
@@ -74,84 +64,10 @@ function createVoronoiPanel(deps) {
     `;
     container.appendChild(illustration);
 
-    // -- Seção: Dados de Entrada --
-    container.appendChild(createSectionDivider('Dados de Entrada'));
+    // -- Input section (layer selector + toggle) --
+    scaffold.appendInputSection();
 
-    // -- Seletor de camada --
-    const layers = getLayers();
-    const activeLayerId = getActiveLayerIdSync();
-    const layerOptions = layers.map(l => ({
-        value: l.id,
-        label: l.name,
-    }));
-
-    let selectedLayerId = activeLayerId;
-
-    const layerSelect = createModernSelect({
-        label: 'Camada de origem',
-        value: activeLayerId,
-        options: layerOptions,
-        onChange: (value) => {
-            selectedLayerId = value;
-            _updateSelectionHint();
-            _updateOutputName();
-            _validateForm();
-        },
-    });
-    container.appendChild(layerSelect);
-
-    // -- Toggle feições selecionadas --
-    let useSelectedOnly = false;
-
-    const toggleContainer = document.createElement('div');
-    toggleContainer.className = 'processing-panel__toggle-section';
-
-    const toggle = createModernToggle({
-        label: 'Apenas feições selecionadas',
-        checked: false,
-        onChange: (checked) => {
-            useSelectedOnly = checked;
-            _validateForm();
-        },
-    });
-    toggleContainer.appendChild(toggle);
-
-    const selectionHint = document.createElement('div');
-    selectionHint.className = 'processing-panel__hint';
-    toggleContainer.appendChild(selectionHint);
-
-    // Count selected features filtered by the current source layer
-    function _getSelectedCountForLayer(layerId) {
-        const allSelected = stateManager ? stateManager.getSelectedFeatures() : [];
-        return allSelected.filter(item => {
-            const fLayerId = item.feature?.properties?.layerId || 'default';
-            return fLayerId === layerId;
-        }).length;
-    }
-
-    function _updateSelectionHint() {
-        const count = _getSelectedCountForLayer(selectedLayerId);
-        selectionHint.textContent = count > 0
-            ? `${count} ${count === 1 ? 'feição selecionada' : 'feições selecionadas'} na camada`
-            : 'Nenhuma feição selecionada na camada';
-
-        if (count === 0) {
-            toggle.classList.add('processing-panel__toggle--disabled');
-            if (useSelectedOnly) {
-                useSelectedOnly = false;
-                const switchEl = toggle.querySelector('.attr-modern-toggle-switch');
-                if (switchEl) switchEl.classList.remove('active');
-            }
-        } else {
-            toggle.classList.remove('processing-panel__toggle--disabled');
-        }
-    }
-
-    _updateSelectionHint();
-
-    container.appendChild(toggleContainer);
-
-    // -- Toggle apenas pontos --
+    // -- Points-only toggle --
     let pointsOnly = false;
 
     const pointsToggleContainer = document.createElement('div');
@@ -174,11 +90,10 @@ function createVoronoiPanel(deps) {
 
     container.appendChild(pointsToggleContainer);
 
-    // -- Seção: Área de Recorte --
+    // -- Clipping area section --
     container.appendChild(createSectionDivider('Área de Recorte'));
 
-    // -- Bbox picker --
-    let bboxValue = null; // [minX, minY, maxX, maxY]
+    let bboxValue = null;
 
     const bboxSection = document.createElement('div');
     bboxSection.className = 'processing-panel__bbox-section';
@@ -242,7 +157,6 @@ function createVoronoiPanel(deps) {
         map.off('mousemove', _handleMouseMove);
         document.removeEventListener('keydown', _handleKeyDown);
 
-        // Limpa preview
         _cancelPendingUpdates();
         _clearPreview(map);
 
@@ -258,7 +172,6 @@ function createVoronoiPanel(deps) {
         const point = [e.lngLat.lng, e.lngLat.lat];
 
         if (drawPoints.length === 0) {
-            // Primeiro clique: registra canto 1
             drawPoints.push(point);
             const map = _getMap();
             if (map) {
@@ -266,7 +179,6 @@ function createVoronoiPanel(deps) {
             }
             drawBtn.querySelector('span').textContent = 'Clique no 2º canto...';
         } else if (drawPoints.length === 1) {
-            // Segundo clique: completa bbox
             drawPoints.push(point);
 
             const [corner1, corner2] = drawPoints;
@@ -277,7 +189,6 @@ function createVoronoiPanel(deps) {
 
             bboxValue = [minX, minY, maxX, maxY];
 
-            // Atualiza display
             bboxDisplay.className = 'processing-panel__bbox-display processing-panel__bbox-display--set';
             bboxDisplay.innerHTML = `
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -312,28 +223,17 @@ function createVoronoiPanel(deps) {
             return;
         }
 
-        const corner1 = drawPoints[0];
-        const corner2 = lastPreviewPosition;
-
-        const [x1, y1] = corner1;
-        const [x2, y2] = corner2;
-
-        const rectGeometry = {
-            type: 'Polygon',
-            coordinates: [[
-                [x1, y1],
-                [x2, y1],
-                [x2, y2],
-                [x1, y2],
-                [x1, y1],
-            ]],
-        };
+        const [x1, y1] = drawPoints[0];
+        const [x2, y2] = lastPreviewPosition;
 
         const source = map.getSource('rectangle-selection-preview');
         if (source) {
             source.setData({
                 type: 'Feature',
-                geometry: rectGeometry,
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[[x1, y1], [x2, y1], [x2, y2], [x1, y2], [x1, y1]]],
+                },
                 properties: { isPreview: true },
             });
         }
@@ -344,10 +244,7 @@ function createVoronoiPanel(deps) {
     function _clearPreview(map) {
         const source = map?.getSource('rectangle-selection-preview');
         if (source) {
-            source.setData({
-                type: 'FeatureCollection',
-                features: [],
-            });
+            source.setData({ type: 'FeatureCollection', features: [] });
         }
     }
 
@@ -374,67 +271,8 @@ function createVoronoiPanel(deps) {
         }
     });
 
-    // -- Seção: Resultado --
-    container.appendChild(createSectionDivider('Resultado'));
-
-    // -- Nome da camada de saída --
-    const outputNameContainer = document.createElement('div');
-    outputNameContainer.className = 'attr-modern-textarea';
-
-    const outputNameLabel = document.createElement('label');
-    outputNameLabel.className = 'attr-modern-textarea-label';
-    outputNameLabel.textContent = 'Nome da nova camada';
-    outputNameContainer.appendChild(outputNameLabel);
-
-    const outputNameInput = document.createElement('input');
-    outputNameInput.type = 'text';
-    outputNameInput.className = 'attr-modern-textarea-input';
-    outputNameInput.style.minHeight = 'auto';
-    outputNameInput.style.resize = 'none';
-
-    const _getDefaultOutputName = () => {
-        const layer = layers.find(l => l.id === selectedLayerId);
-        return `Proximidade - ${layer ? layer.name : 'Camada'}`;
-    };
-    outputNameInput.value = _getDefaultOutputName();
-
-    outputNameContainer.appendChild(outputNameInput);
-    container.appendChild(outputNameContainer);
-
-    function _updateOutputName() {
-        outputNameInput.value = _getDefaultOutputName();
-    }
-
-    // -- Botão Executar --
-    const executeBtn = document.createElement('button');
-    executeBtn.className = 'processing-panel__execute-btn';
-    executeBtn.textContent = 'EXECUTAR';
-    executeBtn.disabled = true; // Bbox obrigatório
-    container.appendChild(executeBtn);
-
-    // -- Progresso --
-    const progressContainer = document.createElement('div');
-    progressContainer.className = 'processing-panel__progress';
-    progressContainer.style.display = 'none';
-
-    const progressText = document.createElement('div');
-    progressText.className = 'processing-panel__progress-text';
-    progressContainer.appendChild(progressText);
-
-    const progressBar = document.createElement('div');
-    progressBar.className = 'processing-panel__progress-bar';
-    const progressFill = document.createElement('div');
-    progressFill.className = 'processing-panel__progress-fill';
-    progressBar.appendChild(progressFill);
-    progressContainer.appendChild(progressBar);
-
-    container.appendChild(progressContainer);
-
-    // -- Resultado --
-    const resultContainer = document.createElement('div');
-    resultContainer.className = 'processing-panel__result';
-    resultContainer.style.display = 'none';
-    container.appendChild(resultContainer);
+    // -- Output section (name + execute + progress + result) --
+    scaffold.appendOutputSection();
 
     // ========================================================================
     // VALIDATION
@@ -442,19 +280,18 @@ function createVoronoiPanel(deps) {
 
     function _validateForm() {
         const validation = validate();
-        executeBtn.disabled = !validation.valid;
+        scaffold.executeBtn.disabled = !validation.valid;
         return validation;
     }
 
+    scaffold.onLayerChangeCallbacks.push(_validateForm);
+
     function validate() {
-        if (!selectedLayerId) {
-            return { valid: false, message: 'Selecione uma camada' };
-        }
+        const baseValidation = scaffold.validateBase();
+        if (!baseValidation.valid) return baseValidation;
+
         if (!bboxValue) {
             return { valid: false, message: 'Desenhe a área de recorte no mapa' };
-        }
-        if (useSelectedOnly && _getSelectedCountForLayer(selectedLayerId) === 0) {
-            return { valid: false, message: 'Nenhuma feição selecionada na camada' };
         }
         return { valid: true };
     }
@@ -468,39 +305,26 @@ function createVoronoiPanel(deps) {
 
         getParams() {
             return {
-                sourceLayerId: selectedLayerId,
-                useSelectedOnly,
+                sourceLayerId: scaffold.getSelectedLayerId(),
+                useSelectedOnly: scaffold.getUseSelectedOnly(),
                 pointsOnly,
                 bbox: bboxValue,
-                outputLayerName: outputNameInput.value.trim() || _getDefaultOutputName(),
+                outputLayerName: scaffold.getOutputLayerName(),
             };
         },
 
         validate,
-
-        /**
-         * Referências para UI de progresso/resultado.
-         * Usadas pelo processing-panel.js para atualizar durante execução.
-         */
-        ui: {
-            executeBtn,
-            progressContainer,
-            progressText,
-            progressFill,
-            resultContainer,
-        },
+        ui: scaffold.ui,
 
         cleanup() {
-            // Para desenho em andamento
             if (isDrawing) {
                 _stopDrawing();
             }
-            // Limpa preview residual
             const map = _getMap();
             if (map) {
                 _clearPreview(map);
             }
-            cleanup(cleanupContext);
+            scaffold.cleanupFn();
         },
     };
 }
@@ -510,40 +334,22 @@ function createVoronoiPanel(deps) {
 // ============================================================================
 
 /**
- * Propriedades padrão para polígonos gerados pelo Voronoi.
- * Segue exatamente o padrão de AddPolygonControl.DEFAULT_PROPERTIES.
- */
-const POLYGON_DEFAULTS = {
-    fillColor: '#3f4fb5',
-    lineColor: '#3f4fb5',
-    lineWidth: 2,
-    opacity: 0.5,
-    lineStyle: 'solid',
-    measure: false,
-    hatchEnabled: false,
-    hatchType: 'none',
-    hatchColor: '#000000',
-    hatchSpacing: 8,
-    hatchLineWidth: 2,
-};
-
-/**
- * Executa o diagrama de Voronoi nas feições fornecidas.
- * Função pura: recebe features, retorna features processadas.
+ * Executes the Voronoi diagram on provided features.
+ * Pure function: receives features, returns processed features.
  *
- * @param {Object[]} features - Array de GeoJSON features
+ * @param {Object[]} features - Array of GeoJSON features
  * @param {Object} params
  * @param {number[]} params.bbox - Bounding box [minX, minY, maxX, maxY]
- * @param {boolean} [params.pointsOnly] - Se true, ignora features não-ponto
+ * @param {boolean} [params.pointsOnly] - If true, ignores non-point features
  * @param {Function} [params.onProgress] - Callback(current, total)
- * @returns {Object[]} Features com células de Voronoi (sempre polígonos)
+ * @returns {Object[]} Voronoi cell features (always polygons)
  */
 function executeVoronoi(features, params) {
     const { bbox, pointsOnly, onProgress } = params;
 
-    // 1. Converter features para pontos
+    // Convert features to points
     const points = [];
-    const pointSources = []; // Referência ao feature original (para nome)
+    const pointSources = [];
 
     for (const feature of features) {
         const geomType = feature.geometry?.type;
@@ -556,10 +362,8 @@ function executeVoronoi(features, params) {
             points.push(feature);
             pointSources.push(feature);
         } else {
-            // Centroide para geometrias não-ponto
             try {
                 const centroid = window.turf.centroid(feature);
-                // Preserva propriedades do original no centroide
                 centroid.properties = { ...feature.properties };
                 points.push(centroid);
                 pointSources.push(feature);
@@ -573,17 +377,13 @@ function executeVoronoi(features, params) {
         throw new Error('São necessários pelo menos 2 pontos para gerar o diagrama de Voronoi');
     }
 
-    // 2. Criar FeatureCollection
     const collection = window.turf.featureCollection(points);
-
-    // 3. Executar turf.voronoi
     const voronoi = window.turf.voronoi(collection, { bbox });
 
     if (!voronoi || !voronoi.features || voronoi.features.length === 0) {
         throw new Error('O algoritmo não produziu resultados');
     }
 
-    // 4. Converter para formato EBGeo (polígono padrão)
     const results = [];
 
     for (let i = 0; i < voronoi.features.length; i++) {
@@ -595,15 +395,8 @@ function executeVoronoi(features, params) {
         }
 
         try {
-            // Extrai coordenadas do anel externo (sem ponto de fechamento)
-            const coords = cell.geometry.coordinates[0];
-            const baseCoordinates = (coords && coords.length > 1 &&
-                coords[0][0] === coords[coords.length - 1][0] &&
-                coords[0][1] === coords[coords.length - 1][1])
-                ? coords.slice(0, -1)
-                : coords;
+            const baseCoordinates = extractBaseCoordinates(cell.geometry.coordinates[0]);
 
-            // Nome baseado no ponto de origem
             const sourceName = pointSources[i]?.properties?.nome;
             const cellName = sourceName
                 ? `Proximidade - ${sourceName}`
@@ -619,7 +412,6 @@ function executeVoronoi(features, params) {
                 baseCoordinates,
             };
 
-            // Preserva atributos do ponto de origem (somente se existirem)
             if (pointSources[i]?.properties?.attributes) {
                 props.attributes = structuredClone(pointSources[i].properties.attributes);
             }
@@ -627,16 +419,14 @@ function executeVoronoi(features, params) {
                 props.images = structuredClone(pointSources[i].properties.images);
             }
 
-            // Constrói feature limpa (sem metadata do turf)
-            const cleanFeature = {
+            results.push({
                 type: 'Feature',
                 properties: props,
                 geometry: {
                     type: cell.geometry.type,
                     coordinates: cell.geometry.coordinates,
                 },
-            };
-            results.push(cleanFeature);
+            });
         } catch (error) {
             console.warn(`Voronoi falhou para célula ${i}:`, error);
         }
@@ -659,7 +449,7 @@ registerAlgorithm({
     description: 'Divide uma região em áreas onde cada ponto do terreno é associado ao ponto de referência mais próximo, formando um mosaico de zonas de proximidade.',
     icon: VORONOI_ICON,
     category: 'geometry',
-    supportedGeometryTypes: SUPPORTED_TYPES,
+    supportedGeometryTypes: SUPPORTED_GEOMETRY_TYPES,
     createPanel: createVoronoiPanel,
     execute: executeVoronoi,
 });

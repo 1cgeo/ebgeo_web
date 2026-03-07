@@ -25,10 +25,6 @@ import { createDistanceResultsPanel } from './measurement-results-panel.js';
 import { addFeature, getActiveLayerIdSync, getControl, isCurrentMapLockedSync } from '@store';
 import { IDUtils, showToast } from '@utils';
 
-// ============================================================================
-// CONTROL CLASS
-// ============================================================================
-
 export class MeasurementDistanceControl {
     constructor(toolManager) {
         this.toolManager = toolManager;
@@ -37,11 +33,11 @@ export class MeasurementDistanceControl {
 
         /** @type {number[][]} Collected vertex coordinates [lng, lat] */
         this._vertices = [];
-        /** @type {number[]|null} Current cursor position */
+        /** @type {number[]|null} */
         this._cursorPos = null;
-        /** @type {HTMLElement|null} Results panel DOM element */
+        /** @type {HTMLElement|null} */
         this._resultsPanel = null;
-        /** @type {boolean} Whether measurement has been finalized (awaiting new click to restart) */
+        /** @type {boolean} Whether measurement has been finalized */
         this._finalized = false;
 
         this._onMapClick = this._onMapClick.bind(this);
@@ -49,8 +45,6 @@ export class MeasurementDistanceControl {
         this._onContextMenu = this._onContextMenu.bind(this);
         this._onDblClick = this._onDblClick.bind(this);
     }
-
-    // --- MapLibre IControl interface ---
 
     onAdd(map) {
         this.map = map;
@@ -62,8 +56,6 @@ export class MeasurementDistanceControl {
         this.deactivate();
         this.map = null;
     }
-
-    // --- Tool activation ---
 
     activate() {
         if (!this.map || this.isActive) return;
@@ -97,12 +89,9 @@ export class MeasurementDistanceControl {
         this._removeResultsPanel();
     }
 
-    // --- Event handlers ---
-
     _onMapClick(e) {
         if (!this.isActive) return;
 
-        // Clicking after finalize restarts a new measurement
         if (this._finalized) {
             this._restart();
         }
@@ -122,7 +111,7 @@ export class MeasurementDistanceControl {
     _onContextMenu(e) {
         e.preventDefault();
         if (this._finalized) return;
-        // Include right-click position as final vertex before finalizing
+
         const coord = [e.lngLat.lng, e.lngLat.lat];
         this._vertices.push(coord);
         this._finalize();
@@ -131,14 +120,11 @@ export class MeasurementDistanceControl {
     _onDblClick(e) {
         e.preventDefault();
         if (this._finalized) return;
-        // Remove the last click that double-click also triggers
         if (this._vertices.length > 1) {
             this._vertices.pop();
         }
         this._finalize();
     }
-
-    // --- Visualization ---
 
     _updateVisualization() {
         if (!this.map) return;
@@ -148,13 +134,9 @@ export class MeasurementDistanceControl {
             coords.push(this._cursorPos);
         }
 
-        // Update preview line
         updatePreviewLine(this.map, coords);
-
-        // Update vertices
         updateVertices(this.map, this._vertices);
 
-        // Update labels at segment midpoints
         const labels = [];
         for (let i = 1; i < coords.length; i++) {
             const dist = calculateSegmentDistance(coords[i - 1], coords[i]);
@@ -162,7 +144,6 @@ export class MeasurementDistanceControl {
             labels.push({ coordinates: mid, text: formatDistanceAuto(dist) });
         }
 
-        // Add total label at last vertex if > 1 segment
         if (coords.length > 2) {
             const total = calculateLineLength(coords);
             const last = coords[coords.length - 1];
@@ -171,8 +152,6 @@ export class MeasurementDistanceControl {
 
         updateLabels(this.map, labels);
     }
-
-    // --- Finalize ---
 
     _finalize() {
         if (this._vertices.length < 2) {
@@ -183,26 +162,19 @@ export class MeasurementDistanceControl {
 
         this._finalized = true;
 
-        // Stop rubber-band but keep click listener for restart
         this.map.off('mousemove', this._onMouseMove);
         this.map.getCanvas().style.cursor = '';
         this._cursorPos = null;
 
-        // Compute final values
         const segmentDistances = [];
         for (let i = 1; i < this._vertices.length; i++) {
             segmentDistances.push(calculateSegmentDistance(this._vertices[i - 1], this._vertices[i]));
         }
         const totalDistance = calculateLineLength(this._vertices);
 
-        // Final static visualization (no rubber-band)
         this._updateVisualization();
-
-        // Show results panel
         this._showResultsPanel(segmentDistances, totalDistance);
     }
-
-    // --- Restart (new measurement, keeping tool active) ---
 
     _restart() {
         this._finalized = false;
@@ -211,11 +183,8 @@ export class MeasurementDistanceControl {
         clearAllSources(this.map);
         this._removeResultsPanel();
         this.map.getCanvas().style.cursor = 'crosshair';
-        // Re-add mousemove for rubber-band
         this.map.on('mousemove', this._onMouseMove);
     }
-
-    // --- Results panel ---
 
     _showResultsPanel(segmentDistances, totalDistance) {
         this._removeResultsPanel();
@@ -233,7 +202,6 @@ export class MeasurementDistanceControl {
             onUnitChange: ({ unit }) => this._updateMapLabels(unit),
         });
 
-        // Use sidebar's showToolPanel API for proper panel display
         const sidebarControl = getControl('sidebarControl');
         if (sidebarControl?.showToolPanel) {
             sidebarControl.showToolPanel(
@@ -257,8 +225,6 @@ export class MeasurementDistanceControl {
             this._resultsPanel = null;
         }
     }
-
-    // --- Map label update on unit change ---
 
     /**
      * Redraws map labels using the selected distance unit.
@@ -285,8 +251,7 @@ export class MeasurementDistanceControl {
         updateLabels(this.map, labels);
     }
 
-    // --- Save as feature ---
-
+    /** @param {number[][]} coordinates */
     async _saveAsFeature(coordinates) {
         if (isCurrentMapLockedSync()) {
             showToast('Mapa bloqueado. Desbloqueie para salvar a medição.', 'warning');
@@ -322,7 +287,6 @@ export class MeasurementDistanceControl {
 
         await addFeature('lines', feature);
 
-        // Push to MapLibre source for immediate rendering
         const data = await this.map.getSource('lines').getData();
         data.features.push(feature);
         this.map.getSource('lines').setData(data);

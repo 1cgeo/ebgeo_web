@@ -11,8 +11,8 @@ import {
     subscribe,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
-import { EventTypes } from '../../events/event_types.js';
+} from '@utils/event-cleanup.js';
+import { EventTypes } from '@events/event_types.js';
 
 /**
  * Toolbar group component.
@@ -167,9 +167,6 @@ export class ToolbarGroup {
         if (this._eventBus) {
             subscribe(this, this._eventBus, EventTypes.TOOLBAR_GROUP_OPENED,
                 (payload) => this._onToolbarGroupOpened(payload));
-
-            subscribe(this, this._eventBus, EventTypes.TOOLBAR_GROUP_CLOSED,
-                () => this._onToolbarGroupClosed());
         }
 
         // Listen for terrain changes
@@ -268,14 +265,6 @@ export class ToolbarGroup {
         if (payload.group !== this._config.id && this._isOpen) {
             this._closePopupInternal();
         }
-    }
-
-    /**
-     * Handles toolbar group closed event.
-     * @private
-     */
-    _onToolbarGroupClosed() {
-        // StateManager handles the state update, this is for any additional cleanup
     }
 
     /**

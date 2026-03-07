@@ -7,9 +7,9 @@ import {
     createModernToggle,
     createModernButtons,
     createSectionDivider,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
-} from '../../tool_manager/helpers/index.js';
+    createInitialPropertiesMap,
+    createPanelHeader
+} from '@tools/helpers/index.js';
 import { splitArrows } from './arrow-merge.js';
 
 /**
@@ -28,43 +28,17 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
     }
 
     const feature = selectedFeatures[0];
+    const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
 
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
-
-    // Only show header if not hidden (for sidebar integration)
-    if (!options.hideHeader) {
-        if (selectedFeatures.length === 1) {
-            const headerComponent = createFeatureHeaderWithOptions(
-                feature.properties.nome,
-                (newName) => {
-                    arrowControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                    uiManager.updateSelectionHighlight();
-                },
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-            panel.appendChild(headerComponent);
-        } else if (selectedFeatures.length > 1) {
-            const multiSelectHeader = document.createElement('div');
-            multiSelectHeader.className = 'feature-header-with-options';
-
-            const infoText = document.createElement('div');
-            infoText.className = 'feature-name-wrapper';
-
-            infoText.textContent = `${selectedFeatures.length} setas selecionadas`;
-
-            const optionsButton = createFeatureOptionsButton(
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-
-            multiSelectHeader.appendChild(infoText);
-            multiSelectHeader.appendChild(optionsButton);
-            panel.appendChild(multiSelectHeader);
-        }
-    }
+    createPanelHeader({
+        panel,
+        features: selectedFeatures,
+        featureType: 'arrow',
+        control: arrowControl,
+        selectionManager,
+        uiManager,
+        hideHeader: options.hideHeader
+    });
 
     // Merged arrow indicator
     const isMerged = feature.properties.isMerged && Array.isArray(feature.properties.branches);
@@ -90,18 +64,13 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         }
     }));
 
-    // Helper function for default values
-    const setDefaultIfMissing = (value, defaultValue) => {
-        return (value !== null && value !== undefined) ? value : defaultValue;
-    };
-
     // Fill opacity slider
     panel.appendChild(createModernSlider({
         label: 'Opacidade do Preenchimento',
         min: 0,
         max: 100,
         step: 1,
-        value: Math.round(setDefaultIfMissing(feature.properties.fillOpacity, 0.8) * 100),
+        value: Math.round((feature.properties.fillOpacity ?? 0.8) * 100),
         unit: '%',
         onChange: (value) => {
             arrowControl.updateFeaturesProperty(selectedFeatures, 'fillOpacity', value / 100);
@@ -148,17 +117,6 @@ function _addMergedIndicator(panel, feature, arrowControl, selectionManager) {
 
     const indicator = document.createElement('div');
     indicator.className = 'arrow-merged-indicator';
-    indicator.style.cssText = `
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 8px 12px;
-        margin: 4px 0 8px;
-        background-color: var(--surface-secondary, #f0f4ff);
-        border-radius: 6px;
-        font-size: 12px;
-        color: var(--text-secondary, #555);
-    `;
 
     const label = document.createElement('span');
     label.textContent = `Seta combinada (${branchCount} ramos)`;
@@ -167,15 +125,6 @@ function _addMergedIndicator(panel, feature, arrowControl, selectionManager) {
     const splitBtn = document.createElement('button');
     splitBtn.className = 'arrow-split-btn';
     splitBtn.textContent = 'Separar';
-    splitBtn.style.cssText = `
-        padding: 4px 10px;
-        border: 1px solid var(--border-color, #ccc);
-        border-radius: 4px;
-        background: var(--surface-primary, white);
-        cursor: pointer;
-        font-size: 11px;
-        color: var(--text-primary, #333);
-    `;
     splitBtn.addEventListener('click', async () => {
         await splitArrows(feature, arrowControl.map, selectionManager);
     });

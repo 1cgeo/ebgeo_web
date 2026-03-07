@@ -2,13 +2,7 @@
 
 /**
  * @fileoverview Search bar icons and constants.
- * Extracted from search-bar.component.js for better organization.
- * @module search/search-bar.icons
  */
-
-// ============================================================================
-// SVG ICONS
-// ============================================================================
 
 /**
  * SVG Icons for search bar.
@@ -48,10 +42,6 @@ export const SEARCH_ICONS = {
     // Crosshair for coordination measure
     crosshair: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2v4"/><path d="M12 18v4"/><path d="M2 12h4"/><path d="M18 12h4"/></svg>`,
 };
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
 
 /**
  * Maximum results per category.

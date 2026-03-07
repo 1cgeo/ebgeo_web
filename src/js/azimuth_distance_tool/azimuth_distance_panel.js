@@ -33,14 +33,8 @@ import {
     createSectionLabel
 } from './components/index.js';
 
-import {
-    setupCleanup,
-    addDomListener,
-    cleanup
-} from '../utilities/event-cleanup.js';
-
-import { showConfirm } from '../modals/confirm.modal.js';
-
+import { setupCleanup, addDomListener, cleanup } from '@utils/event-cleanup.js';
+import { showConfirm } from '@modals/confirm.modal.js';
 import { calculateMagneticDeclination } from '@utils/geomagnetic/wmm_calculator.js';
 
 /**
@@ -67,10 +61,10 @@ export class AzimuthDistancePanel {
             angularUnit: ANGULAR_UNIT.DEGREES,
             distanceUnit: DISTANCE_UNIT.METERS,
             northReference: NORTH_REFERENCE.MAGNETIC,
-            magneticDeclination: -21.5, // Default for Brazil
-            autoDeclinationValue: null, // WMM calculated value (degrees)
-            autoDeclinationWarning: null, // Warning if coefficients expired
-            manuallyEdited: false, // Operator manually edited declination field
+            magneticDeclination: -21.5,
+            autoDeclinationValue: null,
+            autoDeclinationWarning: null,
+            manuallyEdited: false,
             outputMode: OUTPUT_MODE.ROUTE,
             activeIndex: 0,
             legs: [{ azimuth: '', distance: '' }]
@@ -89,6 +83,7 @@ export class AzimuthDistancePanel {
         this._declinationSection = null;
         this._quickAzLabel = null;
         this._quickAzButtons = null;
+        this._declInput = null;
 
         setupCleanup(this);
     }
@@ -101,31 +96,14 @@ export class AzimuthDistancePanel {
         this._container = document.createElement('div');
         this._container.className = 'azimuth-distance-content';
 
-        // Reference Point Section
         this._container.appendChild(this._createReferencePointSection());
-
-        // Unit Toggles
         this._container.appendChild(this._createUnitToggles());
-
-        // Output Mode Selector
         this._container.appendChild(this._createOutputModeSelector());
-
-        // Declination Section
         this._container.appendChild(this._createDeclinationSection());
-
-        // Compass Rose
         this._container.appendChild(this._createCompassSection());
-
-        // Legs Section
         this._container.appendChild(this._createLegsSection());
-
-        // Quick Azimuth Buttons
         this._container.appendChild(this._createQuickAzimuthSection());
-
-        // Summary
         this._container.appendChild(this._createSummary());
-
-        // Action Buttons
         this._container.appendChild(this._createActionButtons());
 
         return this._container;
@@ -139,7 +117,7 @@ export class AzimuthDistancePanel {
         const section = document.createElement('div');
         section.className = 'azd-section';
 
-        section.appendChild(createSectionLabel('Ponto de Referência (Origem)'));
+        section.appendChild(createSectionLabel('Ponto de Refer\u00EAncia (Origem)'));
 
         this._refPointComponent = createReferencePointComponent({
             referencePoint: this._state.referencePoint,
@@ -155,7 +133,6 @@ export class AzimuthDistancePanel {
             onReset: () => {
                 this._state.referencePoint = null;
                 this._options.onResetReferencePoint?.();
-                // Update the reference point component to show "click to define" state
                 this._updateAll();
             }
         });
@@ -172,21 +149,17 @@ export class AzimuthDistancePanel {
         const section = document.createElement('div');
         section.className = 'azd-section azd-unit-toggles';
 
-        // Angular unit toggle
-        const angToggle = this._createUnitToggle(
+        section.appendChild(this._createUnitToggle(
             'ANG',
-            this._state.angularUnit === ANGULAR_UNIT.DEGREES ? 'Graus (°)' : 'Milésimos (₥)',
+            this._state.angularUnit === ANGULAR_UNIT.DEGREES ? 'Graus (\u00B0)' : 'Mil\u00E9simos (\u20A5)',
             () => this._toggleAngularUnit()
-        );
-        section.appendChild(angToggle);
+        ));
 
-        // Distance unit toggle
-        const distToggle = this._createUnitToggle(
+        section.appendChild(this._createUnitToggle(
             'DIST',
-            this._state.distanceUnit === DISTANCE_UNIT.METERS ? 'Metros (m)' : 'Quilômetros (km)',
+            this._state.distanceUnit === DISTANCE_UNIT.METERS ? 'Metros (m)' : 'Quil\u00F4metros (km)',
             () => this._toggleDistanceUnit()
-        );
-        section.appendChild(distToggle);
+        ));
 
         this._unitTogglesSection = section;
         return section;
@@ -195,10 +168,13 @@ export class AzimuthDistancePanel {
     _createUnitToggle(label, value, onClick) {
         const btn = document.createElement('button');
         btn.className = 'azd-unit-toggle';
-        btn.innerHTML = `
-            <span class="azd-unit-label">${label}</span>
-            ${value}
-        `;
+
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'azd-unit-label';
+        labelSpan.textContent = label;
+        btn.appendChild(labelSpan);
+
+        btn.appendChild(document.createTextNode(` ${value}`));
 
         addDomListener(this, btn, 'click', onClick);
         return btn;
@@ -213,8 +189,7 @@ export class AzimuthDistancePanel {
         section.className = 'azd-section azd-mode-selector';
 
         Object.values(OUTPUT_MODE_INFO).forEach(mode => {
-            const btn = this._createModeButton(mode);
-            section.appendChild(btn);
+            section.appendChild(this._createModeButton(mode));
         });
 
         this._modeSelector = section;
@@ -229,11 +204,8 @@ export class AzimuthDistancePanel {
         btn.title = mode.description;
         btn.className = `azd-mode-btn ${isActive ? 'active' : ''}`;
 
-        // Icon
-        const iconSvg = this._getModeIcon(mode.id, isActive);
-        btn.appendChild(iconSvg);
+        btn.appendChild(this._getModeIcon(mode.id, isActive));
 
-        // Label
         const label = document.createElement('span');
         label.className = 'azd-mode-label';
         label.textContent = mode.label;
@@ -293,7 +265,7 @@ export class AzimuthDistancePanel {
             section.classList.add('azd-declination-active');
         }
 
-        section.appendChild(createSectionLabel('Norte de Referência'));
+        section.appendChild(createSectionLabel('Norte de Refer\u00EAncia'));
 
         const row = document.createElement('div');
         row.className = 'azd-declination-row';
@@ -301,14 +273,11 @@ export class AzimuthDistancePanel {
         // NM/NV Toggle
         const northToggle = document.createElement('div');
         northToggle.className = 'azd-north-toggle';
-
-        const nmBtn = this._createNorthButton('NM', 'Norte Magnético (bússola)', NORTH_REFERENCE.MAGNETIC);
-        const nvBtn = this._createNorthButton('NV', 'Norte Verdadeiro (carta)', NORTH_REFERENCE.TRUE);
-        northToggle.appendChild(nmBtn);
-        northToggle.appendChild(nvBtn);
+        northToggle.appendChild(this._createNorthButton('NM', 'Norte Magn\u00E9tico (b\u00FAssola)', NORTH_REFERENCE.MAGNETIC));
+        northToggle.appendChild(this._createNorthButton('NV', 'Norte Verdadeiro (carta)', NORTH_REFERENCE.TRUE));
         row.appendChild(northToggle);
 
-        // Declination input + auto button wrapper
+        // Declination input container
         const isDisabled = !isMagnetic;
         const declContainer = document.createElement('div');
         declContainer.className = `azd-decl-container ${isDisabled ? 'disabled' : ''}`;
@@ -324,7 +293,7 @@ export class AzimuthDistancePanel {
         declInput.value = this._state.magneticDeclination;
         declInput.step = '0.5';
         declInput.disabled = isDisabled;
-        declInput.title = 'Oeste (−) / Leste (+)';
+        declInput.title = 'Oeste (\u2212) / Leste (+)';
 
         addDomListener(this, declInput, 'input', (e) => {
             const val = parseFloat(e.target.value);
@@ -342,13 +311,10 @@ export class AzimuthDistancePanel {
 
         const unitLabel = document.createElement('span');
         unitLabel.className = 'azd-decl-unit';
-        unitLabel.textContent = '°';
+        unitLabel.textContent = '\u00B0';
         declContainer.appendChild(unitLabel);
 
-        // Auto-calculate button [⟳]
-        const autoBtn = this._createAutoDeclinationButton();
-        declContainer.appendChild(autoBtn);
-
+        declContainer.appendChild(this._createAutoDeclinationButton());
         row.appendChild(declContainer);
         section.appendChild(row);
 
@@ -356,29 +322,26 @@ export class AzimuthDistancePanel {
         const helper = document.createElement('div');
         helper.className = 'azd-decl-helper';
 
-        // Auto-declination info line
         const autoInfo = document.createElement('span');
         autoInfo.className = 'azd-auto-decl-info';
         this._renderAutoDeclinationInfo(autoInfo);
         helper.appendChild(autoInfo);
 
-        // Correction active warning
         if (showWarning) {
             const warningSpan = document.createElement('span');
             warningSpan.className = 'azd-decl-warning';
             const sign = this._state.magneticDeclination > 0 ? '+' : '';
-            warningSpan.textContent = `Correção ativa: ${sign}${this._state.magneticDeclination}°`;
+            warningSpan.textContent = `Corre\u00E7\u00E3o ativa: ${sign}${this._state.magneticDeclination}\u00B0`;
             helper.appendChild(warningSpan);
         }
 
         section.appendChild(helper);
-
         this._declinationSection = section;
         return section;
     }
 
     /**
-     * Creates the auto-calculate declination button [⟳].
+     * Creates the auto-calculate declination button.
      * @returns {HTMLButtonElement}
      */
     _createAutoDeclinationButton() {
@@ -388,24 +351,8 @@ export class AzimuthDistancePanel {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'azd-auto-decl-btn';
-        btn.title = 'Calcular declinação automática (WMM2025)';
+        btn.title = 'Calcular declina\u00E7\u00E3o autom\u00E1tica (WMM2025)';
         btn.disabled = isDisabled;
-        btn.style.cssText = `
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 28px;
-            height: 28px;
-            padding: 0;
-            margin-left: 4px;
-            border: 1px solid ${isDisabled ? COLORS.gray200 : COLORS.gray300};
-            border-radius: 6px;
-            background: ${isDisabled ? COLORS.gray50 : COLORS.white};
-            cursor: ${isDisabled ? 'not-allowed' : 'pointer'};
-            opacity: ${isDisabled ? '0.4' : '1'};
-            transition: all 0.15s;
-            flex-shrink: 0;
-        `;
 
         // SVG refresh icon
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -413,7 +360,7 @@ export class AzimuthDistancePanel {
         svg.setAttribute('height', '14');
         svg.setAttribute('viewBox', '0 0 24 24');
         svg.setAttribute('fill', 'none');
-        svg.setAttribute('stroke', isDisabled ? COLORS.gray400 : COLORS.gray600);
+        svg.setAttribute('stroke', 'currentColor');
         svg.setAttribute('stroke-width', '2.5');
         svg.setAttribute('stroke-linecap', 'round');
         svg.setAttribute('stroke-linejoin', 'round');
@@ -426,14 +373,6 @@ export class AzimuthDistancePanel {
         btn.appendChild(svg);
 
         if (!isDisabled) {
-            btn.addEventListener('mouseenter', () => {
-                btn.style.borderColor = COLORS.primary600;
-                btn.style.background = COLORS.primary50;
-            });
-            btn.addEventListener('mouseleave', () => {
-                btn.style.borderColor = COLORS.gray300;
-                btn.style.background = COLORS.white;
-            });
             addDomListener(this, btn, 'click', () => this._applyAutoDeclinacao());
         }
 
@@ -442,13 +381,10 @@ export class AzimuthDistancePanel {
 
     /**
      * Renders the auto-declination info text into the given span element.
-     * @param {HTMLSpanElement} el
+     * @param {HTMLSpanElement} el - Target element
      */
     _renderAutoDeclinationInfo(el) {
-        el.style.cssText = `
-            font-size: 11px;
-            color: ${COLORS.gray500};
-        `;
+        el.className = 'azd-auto-decl-info';
 
         if (this._state.northReference === NORTH_REFERENCE.TRUE) {
             el.textContent = '';
@@ -456,16 +392,16 @@ export class AzimuthDistancePanel {
         }
 
         if (!this._state.referencePoint) {
-            el.textContent = '\u25B8 Defina o ponto de referência';
+            el.textContent = '\u25B8 Defina o ponto de refer\u00EAncia';
             return;
         }
 
         if (this._state.autoDeclinationValue != null) {
             let displayValue = this._state.autoDeclinationValue;
-            let unit = '°';
+            let unit = '\u00B0';
             if (this._state.angularUnit === ANGULAR_UNIT.MILS) {
                 displayValue = parseFloat((displayValue * DEG_TO_MIL).toFixed(1));
-                unit = '₥';
+                unit = '\u20A5';
             }
 
             const modelLabel = this._state.autoDeclinationWarning
@@ -475,10 +411,12 @@ export class AzimuthDistancePanel {
             el.textContent = `\u25B8 Auto: ${displayValue}${unit} (${modelLabel})`;
 
             if (this._state.autoDeclinationWarning) {
-                el.style.color = COLORS.amber600;
+                el.classList.add('azd-auto-decl-info--warning');
+            } else {
+                el.classList.remove('azd-auto-decl-info--warning');
             }
         } else {
-            el.textContent = '\u25B8 Defina o ponto de referência';
+            el.textContent = '\u25B8 Defina o ponto de refer\u00EAncia';
         }
     }
 
@@ -514,7 +452,6 @@ export class AzimuthDistancePanel {
         });
 
         section.appendChild(this._compassComponent.container);
-
         return section;
     }
 
@@ -538,7 +475,6 @@ export class AzimuthDistancePanel {
         });
 
         section.appendChild(this._legsComponent.container);
-
         return section;
     }
 
@@ -550,21 +486,15 @@ export class AzimuthDistancePanel {
         const section = document.createElement('div');
         section.className = 'azd-section';
 
-        const label = createSectionLabel(`Azimute rápido → Perna ${this._state.activeIndex + 1}`);
+        const label = createSectionLabel(`Azimute r\u00E1pido \u2192 Perna ${this._state.activeIndex + 1}`);
         section.appendChild(label);
         this._quickAzLabel = label;
 
         const buttonsContainer = document.createElement('div');
         buttonsContainer.className = 'azd-quick-buttons';
-        buttonsContainer.style.cssText = `
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-        `;
 
         COMPASS_PRESETS.forEach(preset => {
-            const btn = this._createQuickAzimuthButton(preset);
-            buttonsContainer.appendChild(btn);
+            buttonsContainer.appendChild(this._createQuickAzimuthButton(preset));
         });
 
         section.appendChild(buttonsContainer);
@@ -582,54 +512,16 @@ export class AzimuthDistancePanel {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = `azd-quick-btn ${isN ? 'north' : ''}`;
-        btn.style.cssText = `
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 2px;
-            padding: 10px 8px;
-            border: 1px solid ${isN ? COLORS.red600 : COLORS.gray300};
-            border-radius: 6px;
-            background: ${isN ? COLORS.red50 : COLORS.white};
-            cursor: pointer;
-            transition: all 0.15s;
-            min-height: 50px;
-        `;
 
         const labelSpan = document.createElement('span');
         labelSpan.className = 'azd-quick-label';
-        labelSpan.style.cssText = `
-            font-size: 14px;
-            font-weight: 700;
-            color: ${isN ? COLORS.red600 : COLORS.gray700};
-        `;
         labelSpan.textContent = preset.label;
         btn.appendChild(labelSpan);
 
         const valueSpan = document.createElement('span');
         valueSpan.className = 'azd-quick-value';
-        valueSpan.style.cssText = `
-            font-size: 11px;
-            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-            color: ${COLORS.gray500};
-        `;
-        valueSpan.textContent = this._state.angularUnit === ANGULAR_UNIT.MILS ? `${value}₥` : `${value}°`;
+        valueSpan.textContent = this._state.angularUnit === ANGULAR_UNIT.MILS ? `${value}\u20A5` : `${value}\u00B0`;
         btn.appendChild(valueSpan);
-
-        // Hover effects
-        btn.addEventListener('mouseenter', () => {
-            if (!isN) {
-                btn.style.borderColor = COLORS.primary600;
-                btn.style.background = COLORS.primary50;
-            }
-        });
-        btn.addEventListener('mouseleave', () => {
-            if (!isN) {
-                btn.style.borderColor = COLORS.gray300;
-                btn.style.background = COLORS.white;
-            }
-        });
 
         addDomListener(this, btn, 'click', () => this._applyQuickAzimuth(preset.deg));
 
@@ -644,17 +536,34 @@ export class AzimuthDistancePanel {
         const section = document.createElement('div');
         section.className = 'azd-summary';
 
-        const legsCount = document.createElement('span');
-        legsCount.innerHTML = `<b>${this._state.legs.length}</b> perna${this._state.legs.length !== 1 ? 's' : ''}`;
-        section.appendChild(legsCount);
-
-        const totalDist = calculateTotalDistance(this._state.legs, this._state.distanceUnit);
-        const totalSpan = document.createElement('span');
-        totalSpan.innerHTML = `Total: <b class="azd-summary-total">${formatTotalDistance(totalDist, this._state.distanceUnit)}</b>`;
-        section.appendChild(totalSpan);
+        this._renderSummaryContent(section);
 
         this._summaryElement = section;
         return section;
+    }
+
+    /**
+     * Render summary content into the given element using safe DOM methods.
+     * @param {HTMLElement} container - Target container
+     */
+    _renderSummaryContent(container) {
+        container.innerHTML = '';
+
+        const legsCount = document.createElement('span');
+        const countBold = document.createElement('b');
+        countBold.textContent = this._state.legs.length;
+        legsCount.appendChild(countBold);
+        legsCount.appendChild(document.createTextNode(` perna${this._state.legs.length !== 1 ? 's' : ''}`));
+        container.appendChild(legsCount);
+
+        const totalDist = calculateTotalDistance(this._state.legs, this._state.distanceUnit);
+        const totalSpan = document.createElement('span');
+        totalSpan.appendChild(document.createTextNode('Total: '));
+        const totalBold = document.createElement('b');
+        totalBold.className = 'azd-summary-total';
+        totalBold.textContent = formatTotalDistance(totalDist, this._state.distanceUnit);
+        totalSpan.appendChild(totalBold);
+        container.appendChild(totalSpan);
     }
 
     // =========================================================================
@@ -665,20 +574,16 @@ export class AzimuthDistancePanel {
         const section = document.createElement('div');
         section.className = 'azd-actions';
 
-        // Cancel button
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'azd-btn azd-btn-cancel';
         cancelBtn.textContent = 'Cancelar';
         addDomListener(this, cancelBtn, 'click', () => this._options.onCancel?.());
         section.appendChild(cancelBtn);
 
-        // Create button
         const createBtn = document.createElement('button');
         createBtn.className = 'azd-btn azd-btn-create';
         createBtn.textContent = `Criar ${OUTPUT_MODE_INFO[this._state.outputMode].label}`;
-
         addDomListener(this, createBtn, 'click', () => this._handleCreate());
-
         this._createButton = createBtn;
         section.appendChild(createBtn);
 
@@ -691,7 +596,6 @@ export class AzimuthDistancePanel {
 
     _toggleAngularUnit() {
         if (this._state.angularUnit === ANGULAR_UNIT.DEGREES) {
-            // Convert all azimuths to mils
             this._state.legs = this._state.legs.map(leg => ({
                 ...leg,
                 azimuth: leg.azimuth !== '' && leg.azimuth != null
@@ -700,7 +604,6 @@ export class AzimuthDistancePanel {
             }));
             this._state.angularUnit = ANGULAR_UNIT.MILS;
         } else {
-            // Convert all azimuths to degrees
             this._state.legs = this._state.legs.map(leg => ({
                 ...leg,
                 azimuth: leg.azimuth !== '' && leg.azimuth != null
@@ -714,7 +617,6 @@ export class AzimuthDistancePanel {
 
     _toggleDistanceUnit() {
         if (this._state.distanceUnit === DISTANCE_UNIT.METERS) {
-            // Convert all distances to km
             this._state.legs = this._state.legs.map(leg => ({
                 ...leg,
                 distance: leg.distance
@@ -723,7 +625,6 @@ export class AzimuthDistancePanel {
             }));
             this._state.distanceUnit = DISTANCE_UNIT.KILOMETERS;
         } else {
-            // Convert all distances to meters
             this._state.legs = this._state.legs.map(leg => ({
                 ...leg,
                 distance: leg.distance
@@ -747,9 +648,7 @@ export class AzimuthDistancePanel {
 
     _updateLeg(index, field, value) {
         this._state.legs[index][field] = value;
-        // Don't call _updateAll() here - it would rebuild the legs table
-        // and cause the input to lose focus while typing.
-        // Instead, just update the parts that need refreshing:
+        // Only update derived state, not the inputs (avoids losing focus)
         this._updateSummary();
         this._updateCompass();
         this._notifyStateChange();
@@ -770,38 +669,24 @@ export class AzimuthDistancePanel {
     }
 
     _setActiveLeg(index) {
-        // Don't do anything if already active
-        if (this._state.activeIndex === index) {
-            return;
-        }
+        if (this._state.activeIndex === index) return;
 
         this._state.activeIndex = index;
 
-        // Update visual state without rebuilding inputs
-        // Just update the quick azimuth label and compass
         if (this._quickAzLabel) {
-            this._quickAzLabel.textContent = `Azimute rápido → Perna ${index + 1}`;
+            this._quickAzLabel.textContent = `Azimute r\u00E1pido \u2192 Perna ${index + 1}`;
         }
         this._updateCompass();
-
-        // Update row visual states (active highlighting)
         this._updateLegRowStyles();
     }
 
     _updateLegRowStyles() {
-        const rows = this._container?.querySelectorAll('.azimuth-distance-leg-row');
+        const rows = this._container?.querySelectorAll('.azd-leg-row');
         if (!rows) return;
 
         rows.forEach((row, i) => {
             const isActive = i === this._state.activeIndex;
-            row.style.background = isActive ? 'rgba(22,163,74,0.05)' : 'transparent';
-
-            // Update badge color
-            const badge = row.querySelector('.leg-badge');
-            if (badge) {
-                badge.style.background = isActive ? '#16a34a' : '#e5e7eb';
-                badge.style.color = isActive ? '#ffffff' : '#6b7280';
-            }
+            row.classList.toggle('azd-leg-row--active', isActive);
         });
     }
 
@@ -858,7 +743,7 @@ export class AzimuthDistancePanel {
 
     /**
      * Applies WMM auto-declination value to the input field.
-     * Called by the [⟳] button — always overwrites, resets manual flag.
+     * Called by the auto button -- always overwrites, resets manual flag.
      */
     _applyAutoDeclinacao() {
         this._calculateAutoDeclinacao();
@@ -878,7 +763,6 @@ export class AzimuthDistancePanel {
     // =========================================================================
 
     _updateAll() {
-        // Update reference point
         if (this._refPointComponent) {
             this._refPointComponent.update({
                 referencePoint: this._state.referencePoint,
@@ -894,27 +778,13 @@ export class AzimuthDistancePanel {
                 onReset: () => {
                     this._state.referencePoint = null;
                     this._options.onResetReferencePoint?.();
-                    // Update the reference point component to show "click to define" state
                     this._updateAll();
                 }
             });
         }
 
-        // Update compass
-        if (this._compassComponent) {
-            const activeAzDeg = this._getActiveAzimuthDeg();
-            const declInDeg = this._state.northReference === NORTH_REFERENCE.MAGNETIC
-                ? this._state.magneticDeclination : 0;
+        this._updateCompass();
 
-            this._compassComponent.update({
-                azimuthDeg: activeAzDeg,
-                size: 156,
-                declination: declInDeg,
-                northRef: this._state.northReference
-            });
-        }
-
-        // Update legs table
         if (this._legsComponent) {
             this._legsComponent.update({
                 legs: this._state.legs,
@@ -928,57 +798,42 @@ export class AzimuthDistancePanel {
             });
         }
 
-        // Update summary
         this._updateSummary();
 
-        // Update create button text
         if (this._createButton) {
             this._createButton.textContent = `Criar ${OUTPUT_MODE_INFO[this._state.outputMode].label}`;
         }
 
-        // Update quick azimuth label
         if (this._quickAzLabel) {
-            this._quickAzLabel.textContent = `Azimute rápido → Perna ${this._state.activeIndex + 1}`;
+            this._quickAzLabel.textContent = `Azimute r\u00E1pido \u2192 Perna ${this._state.activeIndex + 1}`;
         }
 
-        // Rebuild sections that need full refresh
         this._rebuildUnitToggles();
         this._rebuildModeSelector();
         this._rebuildDeclinationSection();
         this._rebuildQuickAzimuthButtons();
-
-        // Notify state change for map preview
         this._notifyStateChange();
     }
 
     _updateSummary() {
         if (this._summaryElement) {
-            const totalDist = calculateTotalDistance(this._state.legs, this._state.distanceUnit);
-            this._summaryElement.innerHTML = '';
-
-            const legsCount = document.createElement('span');
-            legsCount.innerHTML = `<b>${this._state.legs.length}</b> perna${this._state.legs.length !== 1 ? 's' : ''}`;
-            this._summaryElement.appendChild(legsCount);
-
-            const totalSpan = document.createElement('span');
-            totalSpan.innerHTML = `Total: <b class="azd-summary-total">${formatTotalDistance(totalDist, this._state.distanceUnit)}</b>`;
-            this._summaryElement.appendChild(totalSpan);
+            this._renderSummaryContent(this._summaryElement);
         }
     }
 
     _updateCompass() {
-        if (this._compassComponent) {
-            const activeAzDeg = this._getActiveAzimuthDeg();
-            const declInDeg = this._state.northReference === NORTH_REFERENCE.MAGNETIC
-                ? this._state.magneticDeclination : 0;
+        if (!this._compassComponent) return;
 
-            this._compassComponent.update({
-                azimuthDeg: activeAzDeg,
-                size: 156,
-                declination: declInDeg,
-                northRef: this._state.northReference
-            });
-        }
+        const activeAzDeg = this._getActiveAzimuthDeg();
+        const declInDeg = this._state.northReference === NORTH_REFERENCE.MAGNETIC
+            ? this._state.magneticDeclination : 0;
+
+        this._compassComponent.update({
+            azimuthDeg: activeAzDeg,
+            size: 156,
+            declination: declInDeg,
+            northRef: this._state.northReference
+        });
     }
 
     _updateDeclinationHelper() {
@@ -987,13 +842,11 @@ export class AzimuthDistancePanel {
         const helper = this._declinationSection.querySelector('.azd-decl-helper');
         if (!helper) return;
 
-        // Update auto-declination info line
         const autoInfo = helper.querySelector('.azd-auto-decl-info');
         if (autoInfo) {
             this._renderAutoDeclinationInfo(autoInfo);
         }
 
-        // Update or create correction warning
         const showWarning = this._state.northReference === NORTH_REFERENCE.MAGNETIC &&
             this._state.magneticDeclination !== 0;
 
@@ -1001,7 +854,7 @@ export class AzimuthDistancePanel {
 
         if (showWarning) {
             const sign = this._state.magneticDeclination > 0 ? '+' : '';
-            const warningText = `Correção ativa: ${sign}${this._state.magneticDeclination}°`;
+            const warningText = `Corre\u00E7\u00E3o ativa: ${sign}${this._state.magneticDeclination}\u00B0`;
 
             if (warningSpan) {
                 warningSpan.textContent = warningText;
@@ -1014,9 +867,7 @@ export class AzimuthDistancePanel {
 
             this._declinationSection.classList.add('azd-declination-active');
         } else {
-            if (warningSpan) {
-                warningSpan.remove();
-            }
+            if (warningSpan) warningSpan.remove();
             this._declinationSection.classList.remove('azd-declination-active');
         }
     }
@@ -1026,19 +877,17 @@ export class AzimuthDistancePanel {
 
         this._unitTogglesSection.innerHTML = '';
 
-        const angToggle = this._createUnitToggle(
+        this._unitTogglesSection.appendChild(this._createUnitToggle(
             'ANG',
-            this._state.angularUnit === ANGULAR_UNIT.DEGREES ? 'Graus (°)' : 'Milésimos (₥)',
+            this._state.angularUnit === ANGULAR_UNIT.DEGREES ? 'Graus (\u00B0)' : 'Mil\u00E9simos (\u20A5)',
             () => this._toggleAngularUnit()
-        );
-        this._unitTogglesSection.appendChild(angToggle);
+        ));
 
-        const distToggle = this._createUnitToggle(
+        this._unitTogglesSection.appendChild(this._createUnitToggle(
             'DIST',
-            this._state.distanceUnit === DISTANCE_UNIT.METERS ? 'Metros (m)' : 'Quilômetros (km)',
+            this._state.distanceUnit === DISTANCE_UNIT.METERS ? 'Metros (m)' : 'Quil\u00F4metros (km)',
             () => this._toggleDistanceUnit()
-        );
-        this._unitTogglesSection.appendChild(distToggle);
+        ));
     }
 
     _rebuildModeSelector() {
@@ -1046,24 +895,20 @@ export class AzimuthDistancePanel {
 
         this._modeSelector.innerHTML = '';
         Object.values(OUTPUT_MODE_INFO).forEach(mode => {
-            const btn = this._createModeButton(mode);
-            this._modeSelector.appendChild(btn);
+            this._modeSelector.appendChild(this._createModeButton(mode));
         });
     }
 
     _rebuildDeclinationSection() {
-        if (!this._declinationSection || !this._declinationSection.parentNode) return;
+        if (!this._declinationSection?.parentNode) return;
 
         const parent = this._declinationSection.parentNode;
         const nextSibling = this._declinationSection.nextSibling;
 
-        // Remove old section
         parent.removeChild(this._declinationSection);
 
-        // Create new section
         const newSection = this._createDeclinationSection();
 
-        // Insert at same position
         if (nextSibling) {
             parent.insertBefore(newSection, nextSibling);
         } else {
@@ -1075,15 +920,8 @@ export class AzimuthDistancePanel {
         if (!this._quickAzButtons) return;
 
         this._quickAzButtons.innerHTML = '';
-        // Maintain the grid style
-        this._quickAzButtons.style.cssText = `
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-        `;
         COMPASS_PRESETS.forEach(preset => {
-            const btn = this._createQuickAzimuthButton(preset);
-            this._quickAzButtons.appendChild(btn);
+            this._quickAzButtons.appendChild(this._createQuickAzimuthButton(preset));
         });
     }
 
@@ -1101,10 +939,8 @@ export class AzimuthDistancePanel {
     setReferencePoint(lng, lat) {
         this._state.referencePoint = [lng, lat];
 
-        // Auto-calculate declination from WMM
         this._calculateAutoDeclinacao();
 
-        // Auto-fill if NM and operator hasn't manually edited
         if (this._state.northReference === NORTH_REFERENCE.MAGNETIC &&
             this._state.autoDeclinationValue != null &&
             !this._state.manuallyEdited) {
@@ -1155,9 +991,7 @@ export class AzimuthDistancePanel {
      */
     destroy() {
         cleanup(this);
-        if (this._container && this._container.parentNode) {
-            this._container.parentNode.removeChild(this._container);
-        }
+        this._container?.remove();
         this._container = null;
     }
 }

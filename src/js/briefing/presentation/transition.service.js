@@ -31,10 +31,9 @@
  * @module briefing/presentation/transition.service
  */
 
-import { SlideMode, getCurrentMapNameSync, setCurrentMap, getEventBus } from '../../store/index.js';
-import { EventTypes } from '../../events/event_types.js';
-import { flyTo } from '../../map/animation.service.js';
-import { getControl } from '../../store/control.registry.js';
+import { SlideMode, getCurrentMapNameSync, setCurrentMap, getEventBus, getControl } from '@store/index.js';
+import { EventTypes } from '@events/event_types.js';
+import { flyTo } from '@js/map/animation.service.js';
 
 // ============================================================================
 // CONSTANTS
@@ -48,11 +47,7 @@ const TRANSITION_CONFIG = {
     /** Fixed map flyTo duration in milliseconds */
     MAP_FLY_DURATION: 5000,
     /** Delay before opening viewer after map animation */
-    VIEWER_OPEN_DELAY: 800,
-    /** Cesium camera transition duration in seconds */
-    CESIUM_FLY_DURATION: 2.0,
-    /** 360 camera rotation duration */
-    ROTATION_360_DURATION: 1000
+    VIEWER_OPEN_DELAY: 800
 };
 
 // ============================================================================
@@ -73,7 +68,7 @@ function delay(ms) {
  * @returns {Promise<Object>} 3D viewer module
  */
 async function get3DViewerModule() {
-    return await import('../../3d_models_viewer_tool/map_3d.js');
+    return await import('@js/3d_models_viewer_tool/map_3d.js');
 }
 
 /**
@@ -81,7 +76,7 @@ async function get3DViewerModule() {
  * @returns {Promise<Object>} 360 viewer module
  */
 async function get360ViewerModule() {
-    return await import('../../street_view_tool/street_view_viewer.js');
+    return await import('@js/street_view_tool/street_view_viewer.js');
 }
 
 /**
@@ -160,22 +155,6 @@ class TransitionService {
         this._currentViewerMode = SlideMode.MAP_2D;
         this._currentModelId = null;
         this._currentMapId = null;
-    }
-
-    /**
-     * Gets the current viewer mode.
-     * @returns {string}
-     */
-    getCurrentViewerMode() {
-        return this._currentViewerMode;
-    }
-
-    /**
-     * Checks if a transition is in progress.
-     * @returns {boolean}
-     */
-    isTransitioning() {
-        return this._isTransitioning;
     }
 
     /**

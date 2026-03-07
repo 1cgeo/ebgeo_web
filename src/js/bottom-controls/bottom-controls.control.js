@@ -8,16 +8,14 @@
 import { FeatureToggle } from './components/feature-toggle.js';
 import { NavButton } from './components/nav-button.js';
 import { FEATURE_TOGGLES, NAV_BUTTONS } from './bottom-controls.constants.js';
-import { EventTypes } from '../events/event_types.js';
-import config from '../config.js';
+import config from '@js/config.js';
 import {
     setupCleanup,
-    subscribe,
     addDomListener,
     cleanup,
     removeElement
-} from '../utilities/event-cleanup.js';
-import { registerControl } from '../store/control.registry.js';
+} from '@utils/event-cleanup.js';
+import { registerControl } from '@store/control.registry.js';
 
 /**
  * Main bottom controls controller.
@@ -87,23 +85,6 @@ export class BottomControlsControl {
 
         // Initialize states
         this._syncInitialStates();
-
-        // Listen to UI layout changes for positioning
-        subscribe(this, this._eventBus, EventTypes.UI_LAYOUT_CHANGED,
-            (payload) => this._onLayoutChanged(payload));
-
-        // Listen to 3D viewer state changes for sync
-        subscribe(this, this._eventBus, EventTypes.VIEWER_3D_OPENED,
-            () => this._on3DViewerOpened());
-        subscribe(this, this._eventBus, EventTypes.VIEWER_3D_CLOSED,
-            () => this._on3DViewerClosed());
-
-        // Listen for map lock changes
-        subscribe(this, this._eventBus, EventTypes.MAP_LOCK_CHANGED,
-            () => this._applyMapLockState());
-
-        // Apply initial lock state
-        this._applyMapLockState();
 
         // Register for external access (e.g., briefing transitions calling syncStates)
         registerControl('bottomControls', this);
@@ -241,11 +222,10 @@ export class BottomControlsControl {
         // Store unsubscribe functions for cleanup to prevent memory leaks
         if (this._toolManager?.on) {
             this._toolManagerUnsubscribers.push(
-                this._toolManager.on('toolActivated', (tool) => this._onToolActivated(tool)),
-                this._toolManager.on('toolDeactivated', (tool) => this._onToolDeactivated(tool)),
-                // Viewer events (3D, Street View) - viewers can be active simultaneously
-                this._toolManager.on('viewerActivated', (viewer) => this._onViewerActivated(viewer)),
-                this._toolManager.on('viewerDeactivated', (viewer) => this._onViewerDeactivated(viewer))
+                this._toolManager.on('toolActivated', (tool) => this._syncViewerToggle(tool, true)),
+                this._toolManager.on('toolDeactivated', (tool) => this._syncViewerToggle(tool, false)),
+                this._toolManager.on('viewerActivated', (viewer) => this._syncViewerToggle(viewer, true)),
+                this._toolManager.on('viewerDeactivated', (viewer) => this._syncViewerToggle(viewer, false))
             );
         }
     }
@@ -456,109 +436,19 @@ export class BottomControlsControl {
     }
 
     /**
-     * Handles tool activation event.
+     * Syncs a viewer control's toggle state when activated or deactivated.
+     * Shared handler for both tool and viewer events.
      * @private
-     * @param {Object} tool - Activated tool
+     * @param {Object} control - Activated/deactivated control
+     * @param {boolean} active - Whether the control is now active
      */
-    _onToolActivated(tool) {
-        // Check if models viewer was activated
-        if (tool === this._modelsViewerControl) {
-            this._featureToggles.get('models3d')?.setActive(true);
+    _syncViewerToggle(control, active) {
+        if (control === this._modelsViewerControl) {
+            this._featureToggles.get('models3d')?.setActive(active);
         }
-
-        // Check if street view was activated
-        if (tool === this._streetViewControl) {
-            this._featureToggles.get('panorama')?.setActive(true);
+        if (control === this._streetViewControl) {
+            this._featureToggles.get('panorama')?.setActive(active);
         }
-    }
-
-    /**
-     * Handles tool deactivation event.
-     * @private
-     * @param {Object} tool - Deactivated tool
-     */
-    _onToolDeactivated(tool) {
-        // Deactivate model toggles
-        if (tool === this._modelsViewerControl) {
-            this._featureToggles.get('models3d')?.setActive(false);
-        }
-
-        if (tool === this._streetViewControl) {
-            this._featureToggles.get('panorama')?.setActive(false);
-        }
-    }
-
-    /**
-     * Handles viewer activation event (3D, Street View).
-     * Viewers can be active simultaneously.
-     * @private
-     * @param {Object} viewer - Activated viewer
-     */
-    _onViewerActivated(viewer) {
-        if (viewer === this._modelsViewerControl) {
-            this._featureToggles.get('models3d')?.setActive(true);
-        }
-
-        if (viewer === this._streetViewControl) {
-            this._featureToggles.get('panorama')?.setActive(true);
-        }
-    }
-
-    /**
-     * Handles viewer deactivation event (3D, Street View).
-     * @private
-     * @param {Object} viewer - Deactivated viewer
-     */
-    _onViewerDeactivated(viewer) {
-        if (viewer === this._modelsViewerControl) {
-            this._featureToggles.get('models3d')?.setActive(false);
-        }
-
-        if (viewer === this._streetViewControl) {
-            this._featureToggles.get('panorama')?.setActive(false);
-        }
-    }
-
-    /**
-     * Handles UI layout change events.
-     * @private
-     * @param {Object} payload - Layout change payload
-     */
-    _onLayoutChanged(_payload) {
-        // Feature toggles are now positioned on the right side
-        // No need to adjust left offset based on sidebar state
-    }
-
-    /**
-     * Applies map lock state to bottom controls.
-     * All toggles remain visible — 3D/360 are viewers (read-only), not write operations.
-     * Write operations inside the viewers are blocked at the store guard level.
-     * @private
-     */
-    _applyMapLockState() {
-        // No toggles are hidden when locked.
-        // 3D and 360 viewers are accessible for viewing; edits inside are guarded.
-    }
-
-    /**
-     * Handles 3D viewer opened event.
-     * Note: This doesn't affect the models3d toggle - that controls marker visibility on 2D map.
-     * The 3D viewer can be open independently of whether markers are shown on 2D map.
-     * @private
-     */
-    _on3DViewerOpened() {
-        // The 3D viewer opening doesn't change the toggle state
-        // The toggle controls marker visibility on 2D map, not the Cesium viewer
-    }
-
-    /**
-     * Handles 3D viewer closed event.
-     * Note: This doesn't affect the models3d toggle - that controls marker visibility on 2D map.
-     * @private
-     */
-    _on3DViewerClosed() {
-        // The 3D viewer closing doesn't change the toggle state
-        // The toggle controls marker visibility on 2D map, not the Cesium viewer
     }
 
     /**

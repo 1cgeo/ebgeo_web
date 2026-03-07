@@ -1,7 +1,13 @@
 // Path: js/search/feature-search.control.js
-import config from '../config.js';
-import { showError, escapeHtml } from '../utilities';
-import { getControl } from '../store';
+
+/**
+ * @fileoverview Legacy feature search control (MapLibre IControl).
+ * Provides API-based place search and 3D model search.
+ */
+
+import config from '@js/config.js';
+import { escapeHtml } from '@utils';
+import { getControl } from '@store';
 
 // Maximum number of 3D model results to display
 const MAX_3D_MODEL_RESULTS = 5;
@@ -26,21 +32,16 @@ class FeatureSearchControl {
     this._button = document.createElement('button');
     this._button.type = 'button';
     this._button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-    this._button.setAttribute("id", "feature-search-tool");
+    this._button.id = 'feature-search-tool';
     this._button.title = 'Buscar';
-
-    const strokeColor = this._disabled ? '#999' : '#333';
-    const cursorStyle = this._disabled ? 'not-allowed' : 'pointer';
+    this._button.disabled = this._disabled;
 
     this._button.innerHTML = `
-        <svg class="icon-sig-tool" viewBox="0 0 24 24" fill="none" stroke="${strokeColor}" stroke-width="2">
+        <svg class="icon-sig-tool" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="6"></circle>
             <path d="m21 21-4.35-4.35"></path>
         </svg>
     `;
-
-    this._button.style.cursor = cursorStyle;
-    this._button.disabled = this._disabled;
 
     if (this._disabled) {
       this._container.classList.add('disabled');
@@ -240,7 +241,6 @@ class FeatureSearchControl {
     this._suggestionsList.innerHTML = '';
 
     const validSuggestions = this._filterValidSuggestions(suggestions);
-    console.log(`[Search] Valid suggestions after filter: ${validSuggestions.length}`);
 
     if (validSuggestions.length === 0) {
       this._suggestionsList.style.display = 'none';
@@ -277,29 +277,10 @@ class FeatureSearchControl {
         this._selectFeature(suggestion);
       });
 
-      li.addEventListener('mouseenter', () => {
-        if (!this._isTouchDevice()) {
-          li.style.backgroundColor = 'rgba(80, 141, 78, 0.1)';
-        }
-      });
-
-      li.addEventListener('mouseleave', () => {
-        li.style.backgroundColor = '';
-      });
-
       this._suggestionsList.appendChild(li);
     });
 
     this._suggestionsList.style.display = 'block';
-  }
-
-  _isTouchDevice() {
-    return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  }
-
-  _displayError() {
-    this._suggestionsList.style.display = 'none';
-    showError('Não foi possível buscar sugestões. Verifique sua conexão.');
   }
 
   _selectFeature(feature) {

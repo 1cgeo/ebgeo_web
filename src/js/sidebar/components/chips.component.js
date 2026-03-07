@@ -5,19 +5,19 @@
  * Provides access to Tutorial, Info modal, and Shortcuts modal.
  */
 
-import { EventTypes } from '../../events/event_types.js';
-import config from '../../config.js';
+import { EventTypes } from '@events/event_types.js';
+import config from '@js/config.js';
 import {
     setupCleanup,
     subscribe,
     addDomListener,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
-import { ShortcutsModal, InfoModal } from '../../modals/index.js';
-import { CatalogModal } from '../../catalog/catalog.modal.js';
-import { CatalogService } from '../../catalog/catalog.service.js';
-import { CATALOG_CHIP_CONFIG } from '../../catalog/catalog.constants.js';
+} from '@utils/event-cleanup.js';
+import { ShortcutsModal, InfoModal } from '@modals/index.js';
+import { CatalogModal } from '@catalog/catalog.modal.js';
+import { CatalogService } from '@catalog/catalog.service.js';
+import { CATALOG_CHIP_CONFIG } from '@catalog/catalog.constants.js';
 
 /**
  * Chip button configurations.

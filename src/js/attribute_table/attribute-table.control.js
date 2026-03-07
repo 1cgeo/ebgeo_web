@@ -18,12 +18,11 @@ import {
 import { createFiltersBar } from './components/table-filters.js';
 import { renderTable, updateRowSelections } from './components/table-renderer.js';
 import { showColumnContextMenu } from './components/column-context-menu.js';
-import { EventTypes } from '../events/event_types.js';
-import { getLayers, getCurrentMapNameSync, isCurrentMapLockedSync } from '../store';
-import { FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES } from '../store/store.constants.js';
-import { showPrompt } from '../modals/prompt.modal.js';
-import userDataManager from '../user_data/user_data_manager.js';
-import { showWarning, showError, showSuccess } from '../utilities';
+import { EventTypes } from '@events';
+import { getLayers, getCurrentMapNameSync, isCurrentMapLockedSync, FEATURE_TYPE_MAPPINGS, FEATURE_DISPLAY_NAMES } from '@store';
+import { showPrompt } from '@modals';
+import userDataManager from '@js/user_data/user_data_manager.js';
+import { showWarning, showError, showSuccess } from '@utils';
 
 // turf is loaded as a global via script tag in index.html
 
@@ -639,7 +638,7 @@ export class AttributeTableControl {
                 const storageType = FEATURE_TYPE_MAPPINGS[featureType] || featureType;
 
                 // Update in persistence (IndexedDB)
-                const { updateFeatureProperty } = await import('../store/feature.operations.js');
+                const { updateFeatureProperty } = await import('@store/feature.operations.js');
                 await updateFeatureProperty(storageType, featureId, columnKey, newValue);
 
                 // Update in MapLibre source

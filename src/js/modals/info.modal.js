@@ -6,7 +6,7 @@
  */
 
 import { ModalBase } from './modal.base.js';
-import { setupCleanup, addDomListener, cleanup } from '../utilities/event-cleanup.js';
+import { setupCleanup, addDomListener, cleanup } from '@utils/event-cleanup.js';
 
 /**
  * CGEO support centers data.

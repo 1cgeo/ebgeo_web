@@ -37,7 +37,7 @@ import {
 } from '@store';
 import { EventTypes } from '@events/event_types.js';
 import { showToast } from '@utils';
-import config from '../config.js';
+import config from '@js/config.js';
 
 // ============================================================================
 // CONSTANTS
@@ -182,7 +182,7 @@ export class PhoneLayout {
 
         // Create components
         this._bottomSheet = new PhoneBottomSheet({ map });
-        this._searchOverlay = new PhoneSearchOverlay({ map });
+        this._searchOverlay = new PhoneSearchOverlay();
         this._drawer = new PhoneDrawer({ map });
         this._fabs = new PhoneFabs({ map });
         this._moveActions = new PhoneMoveActions();
@@ -223,37 +223,16 @@ export class PhoneLayout {
         if (!this._active) return;
         this._active = false;
 
-        // Remove event subscriptions
         this._unwireEvents();
 
-        // Destroy components
-        if (this._bottomSheet) {
-            this._bottomSheet.destroy();
-            this._bottomSheet = null;
-        }
-        if (this._searchOverlay) {
-            this._searchOverlay.destroy();
-            this._searchOverlay = null;
-        }
-        if (this._drawer) {
-            this._drawer.destroy();
-            this._drawer = null;
-        }
-        if (this._fabs) {
-            this._fabs.destroy();
-            this._fabs = null;
-        }
-        if (this._moveActions) {
-            this._moveActions.destroy();
-            this._moveActions = null;
-        }
-        if (this._featureEditor) {
-            this._featureEditor.destroy();
-            this._featureEditor = null;
-        }
-        if (this._baseLayerModal) {
-            this._baseLayerModal.destroy();
-            this._baseLayerModal = null;
+        // Destroy all phone components
+        const components = [
+            '_bottomSheet', '_searchOverlay', '_drawer', '_fabs',
+            '_moveActions', '_featureEditor', '_baseLayerModal',
+        ];
+        for (const key of components) {
+            this[key]?.destroy();
+            this[key] = null;
         }
 
         document.body.classList.remove('phone-mode');
@@ -302,13 +281,8 @@ export class PhoneLayout {
             this._bottomSheet.clearFeatureContent();
         };
 
-        eventBus.on(EventTypes.FEATURE_PANEL_OPENED, onFeaturePanelOpened);
-        eventBus.on(EventTypes.FEATURE_PANEL_CLOSED, onFeaturePanelClosed);
-
-        this._eventUnsubscribers.push(
-            () => eventBus.off(EventTypes.FEATURE_PANEL_OPENED, onFeaturePanelOpened),
-            () => eventBus.off(EventTypes.FEATURE_PANEL_CLOSED, onFeaturePanelClosed),
-        );
+        this._subscribeEvent(eventBus, EventTypes.FEATURE_PANEL_OPENED, onFeaturePanelOpened);
+        this._subscribeEvent(eventBus, EventTypes.FEATURE_PANEL_CLOSED, onFeaturePanelClosed);
     }
 
     /**
@@ -320,7 +294,7 @@ export class PhoneLayout {
         this._featureEditor.onSave(async (featureId, properties) => {
             try {
                 // Find the feature type from the current feature data
-                const featureData = this._featureEditor._featureData;
+                const featureData = this._featureEditor.getFeatureData();
                 if (!featureData) return;
 
                 await updateFeature(featureData.type, featureId, { properties });
@@ -333,26 +307,19 @@ export class PhoneLayout {
 
         // Move start callback
         this._featureEditor.onMoveStart((_featureId) => {
-            // Collapse sheet, hide FABs, show move actions
             this._bottomSheet.snapTo('peek');
             this._fabs.hide();
 
+            const restoreUI = () => {
+                this._moveActions.hide();
+                this._fabs.show();
+                this._bottomSheet.snapTo('half');
+                this._featureEditor.exitMoveMode();
+            };
+
             this._moveActions.show(
-                // Confirm: restore UI
-                () => {
-                    this._moveActions.hide();
-                    this._fabs.show();
-                    this._bottomSheet.snapTo('half');
-                    this._featureEditor.exitMoveMode();
-                    showToast('Posição atualizada', 'success');
-                },
-                // Cancel: restore UI
-                () => {
-                    this._moveActions.hide();
-                    this._fabs.show();
-                    this._bottomSheet.snapTo('half');
-                    this._featureEditor.exitMoveMode();
-                },
+                () => { restoreUI(); showToast('Posição atualizada', 'success'); },
+                () => { restoreUI(); },
             );
         });
     }
@@ -416,9 +383,9 @@ export class PhoneLayout {
                 eventBus.emit(EventTypes.UI_CLOSE_ALL_POPUPS);
                 const stateManager = getStateManager();
                 if (stateManager) {
-                    stateManager.batchUpdate({
-                        'sidebar.expanded': true,
-                        'sidebar.activeTab': 'import',
+                    stateManager.batchUpdate(() => {
+                        stateManager.set('sidebar.expanded', true);
+                        stateManager.set('sidebar.activeTab', 'import');
                     });
                 }
             } catch (_e) {
@@ -524,15 +491,9 @@ export class PhoneLayout {
         // Subscribe to map lifecycle events
         const onMapChanged = () => this._refreshMapList();
 
-        eventBus.on(EventTypes.MAP_CREATED, onMapChanged);
-        eventBus.on(EventTypes.MAP_DELETED, onMapChanged);
-        eventBus.on(EventTypes.MAP_MODIFIED, onMapChanged);
-
-        this._eventUnsubscribers.push(
-            () => eventBus.off(EventTypes.MAP_CREATED, onMapChanged),
-            () => eventBus.off(EventTypes.MAP_DELETED, onMapChanged),
-            () => eventBus.off(EventTypes.MAP_MODIFIED, onMapChanged),
-        );
+        this._subscribeEvent(eventBus, EventTypes.MAP_CREATED, onMapChanged);
+        this._subscribeEvent(eventBus, EventTypes.MAP_DELETED, onMapChanged);
+        this._subscribeEvent(eventBus, EventTypes.MAP_MODIFIED, onMapChanged);
 
         // Initial load
         this._refreshMapList();
@@ -560,17 +521,10 @@ export class PhoneLayout {
             this._loadFeatureTree();
         };
 
-        eventBus.on(EventTypes.LAYERS_CHANGED, onLayersChanged);
-        eventBus.on(EventTypes.FEATURE_CREATED, onFeatureChanged);
-        eventBus.on(EventTypes.FEATURE_MODIFIED, onFeatureChanged);
-        eventBus.on(EventTypes.FEATURE_DELETED, onFeatureChanged);
-
-        this._eventUnsubscribers.push(
-            () => eventBus.off(EventTypes.LAYERS_CHANGED, onLayersChanged),
-            () => eventBus.off(EventTypes.FEATURE_CREATED, onFeatureChanged),
-            () => eventBus.off(EventTypes.FEATURE_MODIFIED, onFeatureChanged),
-            () => eventBus.off(EventTypes.FEATURE_DELETED, onFeatureChanged),
-        );
+        this._subscribeEvent(eventBus, EventTypes.LAYERS_CHANGED, onLayersChanged);
+        this._subscribeEvent(eventBus, EventTypes.FEATURE_CREATED, onFeatureChanged);
+        this._subscribeEvent(eventBus, EventTypes.FEATURE_MODIFIED, onFeatureChanged);
+        this._subscribeEvent(eventBus, EventTypes.FEATURE_DELETED, onFeatureChanged);
 
         // Initial load
         const layers = this._getLayerData();
@@ -600,10 +554,7 @@ export class PhoneLayout {
             this._bottomSheet.updateLayers(layers);
         };
 
-        eventBus.on(EventTypes.MAP_LOCK_CHANGED, onMapLockChanged);
-        this._eventUnsubscribers.push(
-            () => eventBus.off(EventTypes.MAP_LOCK_CHANGED, onMapLockChanged),
-        );
+        this._subscribeEvent(eventBus, EventTypes.MAP_LOCK_CHANGED, onMapLockChanged);
     }
 
     /**
@@ -615,31 +566,23 @@ export class PhoneLayout {
             const enabledBasemaps = config.getEnabledBasemaps();
             this._baseLayerModal.setBasemaps(enabledBasemaps);
 
-            // Set initial active layer
             if (enabledBasemaps.length > 0) {
                 this._baseLayerModal.setActiveLayer(enabledBasemaps[0][0]);
             }
 
-            const names = enabledBasemaps.map(([, cfg]) => cfg.name || cfg.id);
-            this._fabs.setBaseLayerNames(names);
-
-            // FAB tap opens modal
             this._fabs.onBaseLayerTap(() => {
                 this._baseLayerModal.open();
             });
 
-            // Modal selection callback
-            this._baseLayerModal.onSelect((id, index) => {
+            this._baseLayerModal.onSelect((id) => {
                 const baseLayerControl = getControl('BaseLayerControl');
                 if (baseLayerControl) {
                     baseLayerControl.executeLayerChange(id);
                 }
                 this._baseLayerModal.setActiveLayer(id);
-                this._fabs.setActiveBaseLayerIndex(index);
             });
         } catch (_e) {
             // Config may not have basemaps configured
-            this._fabs.setBaseLayerNames([]);
         }
     }
 
@@ -769,6 +712,18 @@ export class PhoneLayout {
         };
 
         this._map.on('click', this._mapClickHandler);
+    }
+
+    /**
+     * Subscribe to an event bus event with automatic cleanup on unwire.
+     * @param {Object} eventBus - Event bus instance
+     * @param {string} eventType - Event type constant
+     * @param {Function} handler - Event handler
+     * @private
+     */
+    _subscribeEvent(eventBus, eventType, handler) {
+        eventBus.on(eventType, handler);
+        this._eventUnsubscribers.push(() => eventBus.off(eventType, handler));
     }
 
     /**

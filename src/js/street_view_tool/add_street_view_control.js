@@ -11,14 +11,14 @@
 /* global PMTiles */
 
 import config from '../config.js';
+import { getEventBus, registerControl } from '@store';
+import { EventTypes } from '@events/event_types.js';
 import StreetviewMarkers from './streetview_markers.js';
+import SavedPhotosMarkers from './saved_photos_markers.js';
+import { STYLE_MINI_MAPA } from './street-view-mini-map-style.js';
 
 // Property name used in PMTiles to identify photos
 const PHOTO_PROPERTY = 'photo_uuid';
-import SavedPhotosMarkers from './saved_photos_markers.js';
-import { getEventBus, registerControl } from '../store';
-import { EventTypes } from '../events/event_types.js';
-import { STYLE_MINI_MAPA } from './street-view-mini-map-style.js'
 
 class AddStreetViewControl {
 
@@ -480,8 +480,8 @@ class AddStreetViewControl {
         // Safe hidePhotos call
         try {
             this.hidePhotos();
-        } catch (_e) {
-            console.warn('Error hiding photos:', _e);
+        } catch (error) {
+            console.warn('Error hiding photos:', error);
         }
 
         // Hide streetview markers
@@ -607,14 +607,6 @@ class AddStreetViewControl {
 
     clearCache = () => {
         this.nearbyFeaturesCache.clear();
-    }
-
-    handleMapClick(_e) {
-        // Placeholder for future click handling
-    }
-
-    handleMouseDown(_e) {
-        // Placeholder for future mouse handling
     }
 
     /**

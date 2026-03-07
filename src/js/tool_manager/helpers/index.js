@@ -8,7 +8,6 @@
 // Common configuration
 export {
     DEFAULT_SLIDER_CONFIG,
-    COMPACT_STYLES,
     COMMON_CONFIGS,
     getCommonConfig
 } from './common-config.helpers.js';
@@ -57,8 +56,7 @@ export {
 
 // Text alignment
 export {
-    createModernTextAlignment,
-    getAlignments
+    createModernTextAlignment
 } from './text-alignment.helpers.js';
 
 // Coordinate editor
@@ -84,6 +82,5 @@ export {
     createInitialPropertiesMap,
     createPanelHeader,
     createActionButtons,
-    AttributePanelBuilder,
     getFeatureTypeDisplayName
 } from './base-attributes-panel.js';
