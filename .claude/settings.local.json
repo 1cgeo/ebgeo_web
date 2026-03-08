@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm uninstall:*)",
+      "Bash(npm install:*)",
+      "Bash(node:*)",
+      "Bash(find:*)",
+      "Bash(dir \"C:\\\\Users\\\\diniz\\\\OneDrive\\\\Desktop\\\\Desenvolvimento\\\\ebgeo_web\" /s /b)",
+      "Bash(powershell -Command:*)",
+      "Bash(npm test:*)"
+    ]
+  }
+}

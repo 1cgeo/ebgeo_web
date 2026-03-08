@@ -1,0 +1,41 @@
+{
+  "name": "ebgeo-backend",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "db:migrate": "node src/database/migrate.js",
+    "db:seed": "node src/database/seed.js",
+    "db:test:create": "node scripts/test-db.js create",
+    "db:test:drop": "node scripts/test-db.js drop",
+    "db:test:reset": "node scripts/test-db.js reset",
+    "test": "node scripts/run-tests.js",
+    "test:coverage": "node scripts/run-tests.js --coverage",
+    "test:keep-db": "node scripts/run-tests.js --keep-db",
+    "test:unit": "node scripts/run-tests.js tests/unit/**/*.test.js",
+    "test:integration": "node scripts/run-tests.js tests/integration/**/*.test.js",
+    "test:ws": "node scripts/run-tests.js tests/ws/**/*.test.js",
+    "test:quick": "node --test --env-file=.env.test tests/**/*.test.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "compression": "^1.7.4",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "helmet": "^8.0.0",
+    "joi": "^17.13.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "pg-promise": "^12.5.0",
+    "pino": "^8.21.0",
+    "pino-pretty": "^11.3.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "supertest": "^6.3.3"
+  }
+}
