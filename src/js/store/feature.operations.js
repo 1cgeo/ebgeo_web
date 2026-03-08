@@ -231,6 +231,9 @@ export async function addFeature(type, feature, mapName = null) {
 
     await runTransaction(async (tx) => {
         const currentMapData = await getMapDataCompat(targetMap);
+        if (!currentMapData.features[type]) {
+            currentMapData.features[type] = [];
+        }
         currentMapData.features[type].push(cleanedFeature);
 
         const colors = mapManager.getFeatureColors(cleanedFeature);

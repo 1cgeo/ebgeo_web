@@ -28,7 +28,8 @@ export const FEATURE_TYPE_CONFIG = {
     military_symbol: { label: 'Símbolo Militar' },
     coordination_measure: { label: 'Medida de Coordenação' },
     los: { label: 'Linha de Visada' },
-    visibility: { label: 'Visibilidade' }
+    visibility: { label: 'Visibilidade' },
+    magnetic_declination: { label: 'Declinação Magnética' },
 };
 
 /**
@@ -170,6 +171,12 @@ export async function createFeatureIdentification(options) {
         infoContainer.appendChild(measurementsSection);
     }
 
+    // Declination info section
+    const declinationSection = createDeclinationInfoSection(feature, featureType);
+    if (declinationSection) {
+        infoContainer.appendChild(declinationSection);
+    }
+
     infoContainer.appendChild(descriptionSection);
 
     container.appendChild(iconContainer);
@@ -255,6 +262,41 @@ export function createMultiSelectionHeader(options) {
             uiManager
         );
         container.appendChild(optionsButton);
+    }
+
+    return container;
+}
+
+/**
+ * Creates a declination info section for magnetic declination features.
+ * Shows declination angle and calculation date.
+ * @param {Object} feature - The selected feature
+ * @param {string} featureType - Feature type identifier
+ * @returns {HTMLElement|null} The declination info element, or null if not applicable
+ */
+function createDeclinationInfoSection(feature, featureType) {
+    if (featureType !== 'magnetic_declination') return null;
+
+    const dec = feature.properties?.declination;
+    if (dec == null) return null;
+
+    const absDec = Math.abs(dec).toFixed(1).replace('.', ',');
+    const dirLabel = dec >= 0 ? 'Leste' : 'Oeste';
+    const dateStr = feature.properties?.calculationDate || '—';
+
+    const container = document.createElement('div');
+    container.className = 'feature-identification-measurements';
+
+    const items = [
+        { label: 'Declinação', value: `${absDec}° ${dirLabel}` },
+        { label: 'Data do cálculo', value: dateStr },
+    ];
+
+    for (const item of items) {
+        const row = document.createElement('span');
+        row.className = 'feature-identification-measurement';
+        row.textContent = `${item.label}: ${item.value}`;
+        container.appendChild(row);
     }
 
     return container;

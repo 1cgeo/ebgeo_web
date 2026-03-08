@@ -6,6 +6,7 @@
 /* ===== Foundation ===== */
 @import url('./design-tokens.css');
 @import url('./base.css');
+@import url('./tab-lock.css');
 
 /* ===== Layout & Structure ===== */
 @import url('./sidebar.css');

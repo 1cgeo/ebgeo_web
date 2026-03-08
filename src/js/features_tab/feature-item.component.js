@@ -46,6 +46,9 @@ export function createFeatureItem(feature, callbacks) {
     const lockTitle = feature.locked ? 'Desbloquear' : 'Bloquear';
 
     item.innerHTML = `
+        <div class="feature-drag-handle" title="Arrastar para outra camada">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="2"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/><circle cx="15" cy="18" r="2"/></svg>
+        </div>
         <div class="feature-main">
             <img class="feature-type-icon" src="${typeIconPath}" alt="${typeIconAlt}" />
             <div class="feature-name">${escapeHtml(feature.name)}</div>

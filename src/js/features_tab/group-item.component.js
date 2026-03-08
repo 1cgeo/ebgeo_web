@@ -91,6 +91,11 @@ function createGroupHeader(groupData, featureCount, isSplit, totalInGroup, callb
         header.classList.add('group-locked');
     }
 
+    const dragHandle = document.createElement('div');
+    dragHandle.className = 'feature-drag-handle';
+    dragHandle.title = 'Arrastar grupo para outra camada';
+    dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="2"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/><circle cx="15" cy="18" r="2"/></svg>';
+
     const expandIcon = document.createElement('div');
     expandIcon.className = 'group-expand-icon expanded';
     expandIcon.innerHTML = FEATURES_TAB_ICONS.EXPAND;
@@ -114,6 +119,7 @@ function createGroupHeader(groupData, featureCount, isSplit, totalInGroup, callb
 
     const groupControls = createGroupControls(groupData, callbacks);
 
+    header.appendChild(dragHandle);
     header.appendChild(expandIcon);
     header.appendChild(groupIcon);
     header.appendChild(groupName);

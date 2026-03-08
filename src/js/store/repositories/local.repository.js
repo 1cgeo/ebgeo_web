@@ -62,7 +62,8 @@ export function getEmptyMapData() {
             military_symbols: [],
             setores: [],
             coordenadas: [],
-            coordination_measures: []
+            coordination_measures: [],
+            magnetic_declinations: []
         },
         zoom: null,
         center_lat: null,

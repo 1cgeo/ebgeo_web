@@ -255,7 +255,8 @@ class KeyboardShortcuts {
             'b': this.controls.brushControl,
             'k': this.controls.coordinationMeasureControl,
             'z': this.controls.azimuthDistanceControl,
-            'u': this.controls.sectorControl
+            'u': this.controls.sectorControl,
+            'w': this.controls.declinationControl
         };
 
         const locked = isCurrentMapLockedSync();

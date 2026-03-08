@@ -65,7 +65,8 @@ class AddLineControl extends BaseControl {
         nome: '',
         descricao: '',
         visivel: true,
-        bloqueado: false
+        bloqueado: false,
+        observations: []
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
@@ -1233,6 +1234,7 @@ class AddLineControl extends BaseControl {
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
             feature.properties.bloqueado !== initialProperties.bloqueado ||
+            JSON.stringify(feature.properties.observations) !== JSON.stringify(initialProperties.observations) ||
             JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
         );
     }

@@ -2315,3 +2315,176 @@
         max-width: 100%;
     }
 }
+
+/* =========================================================================
+   BATCH POINTS MODAL
+   ========================================================================= */
+
+#batch-points-modal {
+    max-width: 560px;
+    width: 100%;
+}
+
+/* ===== BATCH POINTS PANEL (sidebar tool panel) ===== */
+
+.batch-points-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3) 0;
+}
+
+.batch-points-panel__format {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.batch-points-panel__format-label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-600);
+}
+
+.batch-points-panel__format-select {
+    width: 100%;
+    padding: var(--space-2);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.batch-points-panel__format-select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15);
+}
+
+.batch-points-panel__rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.batch-points-panel__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.batch-points-panel__badge {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.batch-points-panel__coord-input,
+.batch-points-panel__name-input {
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    color: var(--gray-700);
+    font-size: var(--font-size-xs);
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.batch-points-panel__coord-input {
+    flex: 2;
+    min-width: 0;
+}
+
+.batch-points-panel__name-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.batch-points-panel__coord-input:focus,
+.batch-points-panel__name-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15);
+}
+
+.batch-points-panel__coord-input::placeholder,
+.batch-points-panel__name-input::placeholder {
+    color: var(--gray-400);
+}
+
+.batch-points-panel__coord-input--error {
+    border-color: var(--color-error);
+}
+
+.batch-points-panel__remove-btn {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--gray-400);
+    font-size: 16px;
+    cursor: pointer;
+    transition: color var(--transition-fast);
+}
+
+.batch-points-panel__remove-btn:hover {
+    color: var(--color-error);
+}
+
+.batch-points-panel__add-btn {
+    align-self: flex-start;
+    padding: var(--space-1) var(--space-2);
+    border: 1px dashed var(--gray-300);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.batch-points-panel__add-btn:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+.batch-points-panel__create-btn {
+    width: 100%;
+    padding: var(--space-3);
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--primary);
+    color: #fff;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.batch-points-panel__create-btn:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.batch-points-panel__create-btn:active {
+    transform: translateY(0);
+}

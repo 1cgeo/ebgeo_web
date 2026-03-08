@@ -392,6 +392,30 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
         }
     }
 
+    // Add recalculate option for magnetic declination features (single selection only)
+    if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'magnetic_declination') {
+        const separatorDecl = document.createElement('div');
+        separatorDecl.className = 'feature-menu-separator';
+        dropdown.appendChild(separatorDecl);
+
+        const recalcButton = document.createElement('button');
+        recalcButton.className = 'feature-menu-button';
+        recalcButton.textContent = 'Recalcular Declinação';
+
+        recalcButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const { getControl } = await import('../../store/index.js');
+            const control = getControl('AddDeclinationControl');
+            if (control) {
+                await control.recalculateDeclination(currentFeature);
+                uiManager.updatePanels();
+            }
+            closeAllFeatureDropdowns(true);
+        });
+        dropdown.appendChild(recalcButton);
+    }
+
     // Add conversion options for point features (single selection only)
     if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'point') {
         const separatorPoint = document.createElement('div');
@@ -453,6 +477,7 @@ function getFeatureTypeName(featureType) {
         'occupied_front': 'Frentes Ocupadas',
         'military_symbol': 'Símbolos Militares',
         'coordination_measure': 'Medidas de Coordenação',
+        'magnetic_declination': 'Declinações Magnéticas',
         'los': 'Linhas de Visada',
         'visibility': 'Visibilidade',
         'sector': 'Setores'

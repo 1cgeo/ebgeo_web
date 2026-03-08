@@ -46,7 +46,7 @@ import {
 } from './group-item.component.js';
 import { getCollapseStateManager } from './collapse-state.manager.js';
 import { getFeaturesFromMapSources, organizeFeaturesByLayers } from './feature-organizer.service.js';
-import { initLayerSortable, destroySortable } from './sortable.handler.js';
+import { initLayerSortable, initFeatureSortable, destroySortable } from './sortable.handler.js';
 import {
     createLayerContainer,
     applyLayerCollapseState,
@@ -63,7 +63,9 @@ import {
     getCurrentMapNameSync,
     isCurrentMapLockedSync,
     getSourceTypeFromStorage,
+    getStorageTypeFromSource,
     getStateManager,
+    moveFeaturesToLayer,
 } from '@store';
 import { EventTypes } from '@events';
 import { showConfirm } from '@modals';
@@ -101,6 +103,7 @@ export class FeaturesTab {
         this._suppressLayersChangedRefresh = false;
 
         this._sortableInstance = null;
+        this._featureSortableInstances = [];
         this._unsubscribers = [];
         this._collapseManager = getCollapseStateManager();
         this._catalogLayerUnsubscriber = null;
@@ -249,6 +252,8 @@ export class FeaturesTab {
         clearTimeout(this._debounceTimer);
         destroySortable(this._sortableInstance);
         this._sortableInstance = null;
+        this._featureSortableInstances.forEach(s => destroySortable(s));
+        this._featureSortableInstances = [];
 
         // Cleanup catalog layer listener
         if (this._catalogLayerUnsubscriber) {
@@ -639,6 +644,15 @@ export class FeaturesTab {
         destroySortable(this._sortableInstance);
         this._sortableInstance = initLayerSortable(featuresList);
 
+        // Initialize feature sortable for cross-layer drag
+        this._featureSortableInstances.forEach(s => destroySortable(s));
+        this._featureSortableInstances = [];
+        const onMoveFeatures = (refs, layerId) => this._handleMoveFeatures(refs, layerId);
+        featuresList.querySelectorAll('.layer-content').forEach(content => {
+            const instance = initFeatureSortable(content, onMoveFeatures);
+            if (instance) this._featureSortableInstances.push(instance);
+        });
+
         // Highlight currently selected features
         this._highlightSelectedFeatures();
     }
@@ -700,6 +714,31 @@ export class FeaturesTab {
     // =========================================================================
     // PRIVATE - DATA SYNC
     // =========================================================================
+
+    /**
+     * Handles moving features to another layer (drag-and-drop).
+     * Persists to IndexedDB, propagates layerId to MapLibre sources, and refreshes UI.
+     * @param {Array<{type: string, id: string}>} featureRefs - Features to move (source types)
+     * @param {string} targetLayerId - Destination layer ID
+     */
+    async _handleMoveFeatures(featureRefs, targetLayerId) {
+        // Suppress the LAYERS_CHANGED event that moveFeaturesToLayer emits internally,
+        // because MapLibre sources are not yet updated at that point.
+        this._suppressLayersChangedRefresh = true;
+
+        await moveFeaturesToLayer(featureRefs, targetLayerId);
+
+        // Propagate layerId to MapLibre sources using the proven pattern
+        for (const ref of featureRefs) {
+            const storageType = getStorageTypeFromSource(ref.type);
+            await this._propagateFeaturePropertyToSource(
+                storageType, ref.id, 'layerId', targetLayerId
+            );
+        }
+
+        this._suppressLayersChangedRefresh = false;
+        this._emitLayersChanged();
+    }
 
     /**
      * Syncs MapLibre sources after deleting features from a layer.

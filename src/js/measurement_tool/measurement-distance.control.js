@@ -141,13 +141,13 @@ export class MeasurementDistanceControl {
         for (let i = 1; i < coords.length; i++) {
             const dist = calculateSegmentDistance(coords[i - 1], coords[i]);
             const mid = getSegmentMidpoint(coords[i - 1], coords[i]);
-            labels.push({ coordinates: mid, text: formatDistanceAuto(dist) });
+            labels.push({ coordinates: mid, text: formatDistanceAuto(dist), labelType: 'segment' });
         }
 
         if (coords.length > 2) {
             const total = calculateLineLength(coords);
             const last = coords[coords.length - 1];
-            labels.push({ coordinates: last, text: `Total: ${formatDistanceAuto(total)}` });
+            labels.push({ coordinates: last, text: `Total: ${formatDistanceAuto(total)}`, labelType: 'total' });
         }
 
         updateLabels(this.map, labels);
@@ -239,13 +239,13 @@ export class MeasurementDistanceControl {
         for (let i = 1; i < coords.length; i++) {
             const dist = calculateSegmentDistance(coords[i - 1], coords[i]);
             const mid = getSegmentMidpoint(coords[i - 1], coords[i]);
-            labels.push({ coordinates: mid, text: formatDistance(dist, unit) });
+            labels.push({ coordinates: mid, text: formatDistance(dist, unit), labelType: 'segment' });
         }
 
         if (coords.length > 2) {
             const total = calculateLineLength(coords);
             const last = coords[coords.length - 1];
-            labels.push({ coordinates: last, text: `Total: ${formatDistance(total, unit)}` });
+            labels.push({ coordinates: last, text: `Total: ${formatDistance(total, unit)}`, labelType: 'total' });
         }
 
         updateLabels(this.map, labels);

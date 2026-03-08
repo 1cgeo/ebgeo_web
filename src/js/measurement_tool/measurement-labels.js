@@ -23,7 +23,7 @@ export function updateLabels(map, labels) {
     const features = labels.map((label, i) => ({
         type: 'Feature',
         id: i,
-        properties: { text: label.text },
+        properties: { text: label.text, labelType: label.labelType || 'segment' },
         geometry: { type: 'Point', coordinates: label.coordinates },
     }));
 
@@ -244,7 +244,18 @@ export function setupMeasurementLayers(mapInstance) {
                 'text-field': ['get', 'text'],
                 'text-size': MEASUREMENT_STYLE.labelSize,
                 'text-font': ['Noto Sans Bold'],
-                'text-anchor': 'center',
+                'text-anchor': [
+                    'case',
+                    ['==', ['get', 'labelType'], 'total'],
+                    'bottom-right',
+                    'center'
+                ],
+                'text-offset': [
+                    'case',
+                    ['==', ['get', 'labelType'], 'total'],
+                    ['literal', [-0.5, -0.5]],
+                    ['literal', [0, 0]]
+                ],
                 'text-allow-overlap': true,
                 'text-ignore-placement': true,
             },

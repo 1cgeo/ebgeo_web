@@ -6,6 +6,7 @@ import { addPointAttributesToPanel } from './point_attributes_panel.js';
 import AddPointGeometry from './add_point_geometry.js';
 import { BaseControl } from '../../tool_manager';
 import { getSnappingService } from '../../snapping/snapping.service.js';
+import { loadMarkerImages } from './point-marker-symbols.js';
 
 class AddPointControl extends BaseControl {
     featureType = 'point';
@@ -20,6 +21,8 @@ class AddPointControl extends BaseControl {
 
     static DEFAULT_PROPERTIES = {
         fillColor: '#3f4fb5',
+        lineColor: '#000000',
+        lineWidth: 0,
         size: 10,
         opacity: 1,
         source: 'point',
@@ -38,6 +41,8 @@ class AddPointControl extends BaseControl {
         labelCreatedAtZoom: 0,
         labelCalculatedSize: 14,
         labelZoomCorrectionEnabled: true,
+        // Marker symbol
+        markerSymbol: 'circle',
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
@@ -47,6 +52,7 @@ class AddPointControl extends BaseControl {
     onAdd = (map) => {
         this.map = map;
         this.setupZoomListener();
+        loadMarkerImages(map);
     }
 
     onRemove = () => {
@@ -109,7 +115,7 @@ class AddPointControl extends BaseControl {
     }
 
     getLayerIds() {
-        return ['point-layer', 'point-label-layer'];
+        return ['point-layer', 'point-symbol-layer', 'point-label-layer'];
     }
 
     getSourceNames() {
@@ -454,6 +460,8 @@ class AddPointControl extends BaseControl {
         const props = feature.properties;
         return (
             props.fillColor !== initialProperties.fillColor ||
+            props.lineColor !== initialProperties.lineColor ||
+            props.lineWidth !== initialProperties.lineWidth ||
             props.size !== initialProperties.size ||
             props.opacity !== initialProperties.opacity ||
             props.nome !== initialProperties.nome ||
@@ -467,7 +475,8 @@ class AddPointControl extends BaseControl {
             props.labelOutlineColor !== initialProperties.labelOutlineColor ||
             props.labelOutlineWidth !== initialProperties.labelOutlineWidth ||
             props.labelZoomCorrectionEnabled !== initialProperties.labelZoomCorrectionEnabled ||
-            props.labelCreatedAtZoom !== initialProperties.labelCreatedAtZoom
+            props.labelCreatedAtZoom !== initialProperties.labelCreatedAtZoom ||
+            props.markerSymbol !== initialProperties.markerSymbol
         );
     }
 

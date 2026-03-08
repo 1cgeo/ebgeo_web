@@ -113,6 +113,35 @@ export function setupPolygonLayers(features, mapInstance) {
         });
     }
 
+    if (!mapInstance.getLayer('polygon-label-layer')) {
+        mapInstance.addLayer({
+            id: 'polygon-label-layer',
+            type: 'symbol',
+            source: 'polygons',
+            filter: [
+                'all',
+                ['==', ['get', 'showLabel'], true],
+                ['!=', ['get', 'visivel'], false],
+                ['has', 'labelText'],
+                ['!=', ['get', 'labelText'], ''],
+            ],
+            layout: {
+                'text-field': ['get', 'labelText'],
+                'text-size': ['coalesce', ['get', 'labelSize'], 14],
+                'text-font': ['Noto Sans Bold'],
+                'text-anchor': 'center',
+                'text-allow-overlap': true,
+                'text-ignore-placement': true,
+            },
+            paint: {
+                'text-color': ['coalesce', ['get', 'labelColor'], '#ffffff'],
+                'text-halo-color': ['coalesce', ['get', 'labelOutlineColor'], '#000000'],
+                'text-halo-width': ['coalesce', ['get', 'labelOutlineWidth'], 2],
+                'text-opacity': ['coalesce', ['get', 'opacity'], 1],
+            },
+        });
+    }
+
     if (!mapInstance.getLayer('polygon-edit-handles-layer')) {
         mapInstance.addLayer({
             id: 'polygon-edit-handles-layer',

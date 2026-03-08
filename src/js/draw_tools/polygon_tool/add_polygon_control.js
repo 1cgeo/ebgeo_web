@@ -7,6 +7,7 @@ import { DrawingFinishButton, setupVertexRemoveLongPress } from '../drawing-touc
 import { addPolygonAttributesToPanel } from './polygon_attributes_panel.js';
 import AddPolygonGeometry from './add_polygon_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
+import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddPolygonControl extends BaseControl {
@@ -53,7 +54,9 @@ class AddPolygonControl extends BaseControl {
         hatchType: 'none',
         hatchColor: '#000000',
         hatchSpacing: 8,
-        hatchLineWidth: 2
+        hatchLineWidth: 2,
+        ...LABEL_DEFAULT_PROPERTIES,
+        observations: [],
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
@@ -116,7 +119,7 @@ class AddPolygonControl extends BaseControl {
     }
 
     getLayerIds() {
-        return ['polygon-fill-layer', 'polygon-fill-pattern-layer', 'polygon-layer'];
+        return ['polygon-fill-layer', 'polygon-fill-pattern-layer', 'polygon-layer', 'polygon-label-layer'];
     }
 
     getSourceNames() {
@@ -1105,6 +1108,8 @@ class AddPolygonControl extends BaseControl {
             feature.properties.hatchColor !== initialProperties.hatchColor ||
             feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
             feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
+            hasLabelChanged(feature, initialProperties) ||
+            JSON.stringify(feature.properties.observations) !== JSON.stringify(initialProperties.observations) ||
             JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
         );
     }

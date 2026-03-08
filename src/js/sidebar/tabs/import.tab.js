@@ -83,7 +83,6 @@ export class ImportTab {
         this._onHideToolPanel = dependencies.onHideToolPanel || null;
 
         this._container = null;
-        this._dropZone = null;
         this._fileInput = null;
         this._currentFormat = null;
         this._optionsContainer = null;
@@ -107,13 +106,9 @@ export class ImportTab {
         header.textContent = 'Selecione o Formato';
         this._container.appendChild(header);
 
-        // Import options
+        // Import options (includes batch-points button)
         this._optionsContainer = this._createImportOptions();
         this._container.appendChild(this._optionsContainer);
-
-        // Drop zone
-        this._dropZone = this._createDropZone();
-        this._container.appendChild(this._dropZone);
 
         // Hidden file input
         this._fileInput = document.createElement('input');
@@ -167,21 +162,13 @@ export class ImportTab {
         if (!this._container) return;
 
         if (this._is3DViewerOpen) {
-            // Disable import options and drop zone
             if (this._optionsContainer) {
                 this._optionsContainer.classList.add('disabled-3d-mode');
             }
-            if (this._dropZone) {
-                this._dropZone.classList.add('disabled-3d-mode');
-            }
         } else {
-            // Re-enable import options and drop zone, but only if map is NOT locked
             if (!isCurrentMapLockedSync()) {
                 if (this._optionsContainer) {
                     this._optionsContainer.classList.remove('disabled-3d-mode');
-                }
-                if (this._dropZone) {
-                    this._dropZone.classList.remove('disabled-3d-mode');
                 }
             }
         }
@@ -198,9 +185,6 @@ export class ImportTab {
         if (this._optionsContainer) {
             this._optionsContainer.classList.toggle('disabled-3d-mode', locked);
         }
-        if (this._dropZone) {
-            this._dropZone.classList.toggle('disabled-3d-mode', locked);
-        }
     }
 
     /**
@@ -216,6 +200,9 @@ export class ImportTab {
             const button = this._createFormatButton(format);
             container.appendChild(button);
         });
+
+        // Batch points button (same styling as format buttons)
+        container.appendChild(this._createBatchPointsButton());
 
         return container;
     }
@@ -246,48 +233,6 @@ export class ImportTab {
         return button;
     }
 
-    /**
-     * Creates the drop zone.
-     * @private
-     * @returns {HTMLElement}
-     */
-    _createDropZone() {
-        const dropZone = document.createElement('div');
-        dropZone.className = 'import-drop-zone';
-        dropZone.dataset.dragover = 'false';
-
-        dropZone.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="17 8 12 3 7 8"/>
-                <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-            <p>Arraste arquivos aqui</p>
-            <span>ou clique em um formato acima</span>
-        `;
-
-        // Drag events
-        addDomListener(this, dropZone, 'dragover', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dropZone.dataset.dragover = 'true';
-        });
-
-        addDomListener(this, dropZone, 'dragleave', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dropZone.dataset.dragover = 'false';
-        });
-
-        addDomListener(this, dropZone, 'drop', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dropZone.dataset.dragover = 'false';
-            this._handleFileDrop(e);
-        });
-
-        return dropZone;
-    }
 
     /**
      * Handles format button click.
@@ -335,30 +280,6 @@ export class ImportTab {
         // Reset input
         this._fileInput.value = '';
         this._currentFormat = null;
-    }
-
-    /**
-     * Handles file drop.
-     * @private
-     * @param {DragEvent} e - Drop event
-     */
-    async _handleFileDrop(e) {
-        // Block import when map is locked
-        if (isCurrentMapLockedSync()) {
-            showError('Mapa bloqueado');
-            return;
-        }
-
-        // Block import when 3D viewer is open
-        if (this._is3DViewerOpen) {
-            showError('Importação desabilitada no modo 3D');
-            return;
-        }
-
-        const file = e.dataTransfer?.files[0];
-        if (!file) return;
-
-        await this._processFile(file);
     }
 
     /**
@@ -442,6 +363,74 @@ export class ImportTab {
     }
 
     /**
+     * Creates a button to open the batch points panel in the sidebar.
+     * @private
+     * @returns {HTMLElement}
+     */
+    _createBatchPointsButton() {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'import-option-btn';
+
+        btn.innerHTML = `
+            <div class="import-option-icon" style="background: #ec4899">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            </div>
+            <div class="import-option-info">
+                <div class="import-option-name">Pontos por Coordenadas</div>
+                <div class="import-option-desc">Criar vários pontos informando coordenadas</div>
+            </div>
+        `;
+
+        addDomListener(this, btn, 'click', async () => {
+            if (isCurrentMapLockedSync()) {
+                showError('Mapa bloqueado');
+                return;
+            }
+            if (this._is3DViewerOpen) {
+                showError('Importação desabilitada no modo 3D');
+                return;
+            }
+            await this._openBatchPointsPanel();
+        });
+
+        return btn;
+    }
+
+    /**
+     * Opens the batch points panel in the sidebar tool panel area.
+     * @private
+     */
+    async _openBatchPointsPanel() {
+        if (!this._onShowToolPanel) {
+            showError('Painel não disponível');
+            return;
+        }
+
+        try {
+            const { createBatchPointsPanel } = await import('@modals/batch-points.modal.js');
+
+            const panelResult = createBatchPointsPanel({
+                onSuccess: () => {
+                    if (this._onHideToolPanel) {
+                        this._onHideToolPanel();
+                    }
+                },
+            });
+
+            this._onShowToolPanel(
+                panelResult.element,
+                'Pontos por Coordenadas',
+                panelResult.cleanup,
+                () => panelResult.cleanup()
+            );
+        } catch (error) {
+            console.error('Batch points panel error:', error);
+            showError('Erro ao abrir painel');
+        }
+    }
+
+    /**
      * Gets the container element.
      * @returns {HTMLElement|null}
      */
@@ -463,7 +452,6 @@ export class ImportTab {
         cleanup(this);
         removeElement(this._container);
         this._container = null;
-        this._dropZone = null;
         this._fileInput = null;
         this._optionsContainer = null;
     }

@@ -842,6 +842,155 @@
     opacity: 1;
 }
 
+/* Polygon measures (read-only area/perimeter display) */
+.polygon-measures {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+}
+
+.polygon-measures__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: var(--font-size-sm);
+}
+
+.polygon-measures__label {
+    color: var(--gray-400);
+}
+
+.polygon-measures__value {
+    color: var(--gray-100);
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* =========================================================================
+   OBSERVATIONS EDITOR
+   ========================================================================= */
+
+.obs-editor {
+    padding: 0 var(--space-3) var(--space-2);
+}
+
+.obs-editor__empty {
+    font-size: var(--font-size-sm);
+    color: var(--gray-400);
+    text-align: center;
+    padding: var(--space-2) 0;
+}
+
+.obs-editor__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.obs-editor__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.obs-editor__badge {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--gray-600);
+    color: var(--gray-200);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+}
+
+.obs-editor__input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--gray-600);
+    border-radius: var(--radius-sm);
+    background: var(--gray-700);
+    color: var(--gray-100);
+    font-size: var(--font-size-sm);
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.obs-editor__input:focus {
+    border-color: var(--blue-500);
+}
+
+.obs-editor__input::placeholder {
+    color: var(--gray-500);
+}
+
+.obs-editor__export {
+    padding: var(--space-1) var(--space-3) var(--space-2);
+}
+
+/* =========================================================================
+   MARKER SYMBOL PICKER
+   ========================================================================= */
+
+.marker-symbol-picker {
+    padding: var(--space-2) var(--space-3);
+}
+
+.marker-symbol-picker__label {
+    font-size: var(--font-size-sm);
+    color: var(--gray-400);
+    font-weight: 500;
+    margin-bottom: var(--space-1);
+}
+
+.marker-symbol-picker__cat-label {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    margin-top: var(--space-1);
+    margin-bottom: var(--space-1);
+}
+
+.marker-symbol-picker__grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+}
+
+.marker-symbol-picker__item {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--gray-600);
+    border-radius: var(--radius-sm);
+    background: var(--gray-700);
+    cursor: pointer;
+    transition: border-color var(--transition-fast);
+}
+
+.marker-symbol-picker__item:hover {
+    border-color: var(--gray-400);
+}
+
+.marker-symbol-picker__item.active {
+    border-color: var(--blue-500);
+    background: var(--gray-600);
+}
+
+/* Disabled state for label tab controls */
+.feature-tab-control--disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
 /* Disable slider controls when locked */
 .feature-panel--locked .attr-modern-slider {
     pointer-events: none;
@@ -1081,38 +1230,6 @@
 .import-option-desc {
     font-size: var(--font-size-xs);
     color: var(--gray-500);
-}
-
-/* Drop Zone */
-.import-drop-zone {
-    border: 2px dashed var(--gray-300);
-    border-radius: var(--radius-lg);
-    padding: var(--space-8);
-    text-align: center;
-    transition: all var(--transition-fast);
-}
-
-.import-drop-zone:hover,
-.import-drop-zone[data-dragover="true"] {
-    border-color: var(--primary);
-    background: var(--primary-50);
-}
-
-.import-drop-zone svg {
-    width: 48px;
-    height: 48px;
-    color: var(--gray-400);
-    margin-bottom: var(--space-3);
-}
-
-.import-drop-zone p {
-    color: var(--gray-600);
-    margin-bottom: var(--space-2);
-}
-
-.import-drop-zone span {
-    font-size: var(--font-size-xs);
-    color: var(--gray-400);
 }
 
 /* =========================================================================

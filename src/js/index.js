@@ -17,6 +17,7 @@ import { initConfigHelpers } from './config.helpers.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
 import { initServices } from './store';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
+import { initTabLock } from '@utils/tab-lock.js';
 
 // ============================================================================
 // BOOTSTRAP
@@ -50,6 +51,9 @@ async function initApp() {
 
     // Cleanup handlers (global error handlers + beforeunload)
     setupCleanupHandlers(controls.destroyables);
+
+    // Tab lock — runs after app is fully loaded so the map is visible behind the overlay
+    initTabLock();
 }
 
 // Start initialization immediately (map container exists in static HTML)

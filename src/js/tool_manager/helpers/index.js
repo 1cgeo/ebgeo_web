@@ -84,3 +84,23 @@ export {
     createActionButtons,
     getFeatureTypeDisplayName
 } from './base-attributes-panel.js';
+
+// Label tab helper for shapes
+export {
+    buildShapeTabsWithLabel,
+    LABEL_DEFAULT_PROPERTIES,
+    hasLabelChanged,
+    LABEL_ICON,
+    STYLE_ICON,
+} from './label-tab.helpers.js';
+
+// Observations editor
+export {
+    createObservationsEditor,
+    createObservationsSection,
+} from './observations-editor.helpers.js';
+
+// Marker symbol picker
+export {
+    createMarkerSymbolPicker
+} from './marker-symbol-picker.helpers.js';

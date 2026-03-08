@@ -168,7 +168,7 @@
 }
 
 .layer-container.layer-locked .lock-toggle svg,
-.group-controls .lock-toggle svg {
+.group-header.group-locked .group-controls .lock-toggle svg {
     color: #dc3545;
 }
 
@@ -206,10 +206,13 @@
 .group-container {
     background: transparent;
     overflow: hidden;
+    border-left: 2px solid #e0e0e0;
+    margin-left: var(--space-2);
+    transition: border-left-color var(--transition-fast);
 }
 
 .layer-content .group-container {
-    margin: 0;
+    margin-left: var(--space-2);
 }
 
 .group-header {
@@ -305,7 +308,8 @@
 }
 
 .feature-item:hover,
-.group-feature-item:hover {
+.group-feature-item:hover,
+.group-container:hover {
     background: #f8f9fa;
     border-left-color: var(--primary);
 }
@@ -792,6 +796,45 @@
     opacity: 1 !important;
     background-color: white !important;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Feature drag handle */
+.feature-drag-handle {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    color: #999;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.feature-item:hover .feature-drag-handle,
+.group-header:hover .feature-drag-handle {
+    opacity: 1;
+}
+
+.feature-drag-handle:active {
+    cursor: grabbing;
+}
+
+/* Feature sortable visual feedback */
+.feature-sortable-ghost {
+    opacity: 0.4;
+    background-color: rgba(0, 123, 255, 0.1) !important;
+}
+
+.feature-sortable-chosen {
+    background-color: rgba(0, 123, 255, 0.15) !important;
+}
+
+.feature-sortable-drag {
+    opacity: 1 !important;
+    background-color: white !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
 }
 
 .layer-empty-message {

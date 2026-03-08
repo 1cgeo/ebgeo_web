@@ -4,8 +4,29 @@ import {
     setOrCreateSource,
     ensureSource,
     ensureLayer,
-    VISIBLE_FILTER
 } from './layer.helpers.js';
+
+/**
+ * Filter for circle-type markers (default or explicit 'circle').
+ */
+const CIRCLE_MARKER_FILTER = [
+    'all',
+    ['!=', ['get', 'visivel'], false],
+    ['any',
+        ['!', ['has', 'markerSymbol']],
+        ['==', ['get', 'markerSymbol'], 'circle'],
+    ],
+];
+
+/**
+ * Filter for non-circle symbol markers.
+ */
+const SYMBOL_MARKER_FILTER = [
+    'all',
+    ['!=', ['get', 'visivel'], false],
+    ['has', 'markerSymbol'],
+    ['!=', ['get', 'markerSymbol'], 'circle'],
+];
 
 /**
  * Sets up point layers on the map.
@@ -16,6 +37,7 @@ export function setupPointLayers(features, mapInstance) {
     setOrCreateSource(mapInstance, 'points', features.points || []);
     ensureSource(mapInstance, 'point-feedback');
 
+    // Circle markers (default symbol or no symbol set)
     ensureLayer(mapInstance, {
         id: 'point-layer',
         type: 'circle',
@@ -24,8 +46,33 @@ export function setupPointLayers(features, mapInstance) {
             'circle-radius': ['get', 'size'],
             'circle-color': ['get', 'fillColor'],
             'circle-opacity': ['get', 'opacity'],
+            'circle-stroke-color': ['coalesce', ['get', 'lineColor'], 'transparent'],
+            'circle-stroke-width': ['coalesce', ['get', 'lineWidth'], 0],
         },
-        filter: VISIBLE_FILTER,
+        filter: CIRCLE_MARKER_FILTER,
+    });
+
+    // Symbol markers (non-circle shapes rendered as SDF icons)
+    ensureLayer(mapInstance, {
+        id: 'point-symbol-layer',
+        type: 'symbol',
+        source: 'points',
+        filter: SYMBOL_MARKER_FILTER,
+        layout: {
+            'icon-image': ['concat', 'marker-', ['get', 'markerSymbol']],
+            'icon-size': [
+                'interpolate', ['linear'], ['coalesce', ['get', 'size'], 10],
+                6, 0.4,
+                10, 0.6,
+                20, 1.0,
+            ],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+        },
+        paint: {
+            'icon-color': ['coalesce', ['get', 'fillColor'], '#3f4fb5'],
+            'icon-opacity': ['coalesce', ['get', 'opacity'], 1],
+        },
     });
 
     ensureLayer(mapInstance, {
@@ -36,6 +83,8 @@ export function setupPointLayers(features, mapInstance) {
             'circle-radius': ['coalesce', ['get', 'size'], 8],
             'circle-color': ['coalesce', ['get', 'fillColor'], '#ff0000'],
             'circle-opacity': ['coalesce', ['get', 'opacity'], 0.8],
+            'circle-stroke-color': ['coalesce', ['get', 'lineColor'], 'transparent'],
+            'circle-stroke-width': ['coalesce', ['get', 'lineWidth'], 0],
         },
     });
 

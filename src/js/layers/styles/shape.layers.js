@@ -122,6 +122,34 @@ function setupShapeType(map, config) {
         filter: VISIBLE_FILTER,
     });
 
+    // Label layer (symbol at centroid)
+    ensureLayer(map, {
+        id: `${prefix}-label-layer`,
+        type: 'symbol',
+        source: sourceId,
+        filter: [
+            'all',
+            ['==', ['get', 'showLabel'], true],
+            ['!=', ['get', 'visivel'], false],
+            ['has', 'labelText'],
+            ['!=', ['get', 'labelText'], ''],
+        ],
+        layout: {
+            'text-field': ['get', 'labelText'],
+            'text-size': ['coalesce', ['get', 'labelSize'], 14],
+            'text-font': ['Noto Sans Bold'],
+            'text-anchor': 'center',
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+        },
+        paint: {
+            'text-color': ['coalesce', ['get', 'labelColor'], '#ffffff'],
+            'text-halo-color': ['coalesce', ['get', 'labelOutlineColor'], '#000000'],
+            'text-halo-width': ['coalesce', ['get', 'labelOutlineWidth'], 2],
+            'text-opacity': ['coalesce', ['get', 'opacity'], 1],
+        },
+    });
+
     ensureLayer(map, {
         id: `${prefix}-edit-handles-layer`,
         type: 'circle',

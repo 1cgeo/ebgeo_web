@@ -5,6 +5,7 @@ import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addCircleAttributesToPanel } from './circle_attributes_panel.js';
 import AddCircleGeometry from './add_circle_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
+import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 class AddCircleControl extends BaseControl {
     featureType = 'circle';
@@ -45,7 +46,8 @@ class AddCircleControl extends BaseControl {
         hatchType: 'none',
         hatchColor: '#000000',
         hatchSpacing: 8,
-        hatchLineWidth: 2
+        hatchLineWidth: 2,
+        ...LABEL_DEFAULT_PROPERTIES,
     };
     // ===== MAPBOX CONTROL INTERFACE =====
     onAdd = (map) => {
@@ -93,7 +95,7 @@ class AddCircleControl extends BaseControl {
         return 5;
     }
     getLayerIds() {
-        return ['circle-fill-layer', 'circle-layer'];
+        return ['circle-fill-layer', 'circle-layer', 'circle-label-layer'];
     }
     getSourceNames() {
         return ['circles'];
@@ -719,6 +721,7 @@ class AddCircleControl extends BaseControl {
             feature.properties.hatchColor !== initialProperties.hatchColor ||
             feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
             feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
+            hasLabelChanged(feature, initialProperties) ||
             JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
         );
     }

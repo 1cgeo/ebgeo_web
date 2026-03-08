@@ -69,7 +69,8 @@ import {
     AddCoordinationMeasureControl,
     AddArrowControl,
     AddBoundaryControl,
-    AddOccupiedFrontControl
+    AddOccupiedFrontControl,
+    AddDeclinationControl
 } from './military_tools/index.js';
 
 // Measurement tools (ephemeral distance/area/angle)
@@ -217,6 +218,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     const militarySymbolControl = new AddMilitarySymbolControl(toolManager);
     const brushControl = new AddBrushControl(toolManager);
     const coordinationMeasureControl = new AddCoordinationMeasureControl(toolManager);
+    const declinationControl = new AddDeclinationControl(toolManager);
     const azimuthDistanceControl = new AddAzimuthDistanceControl(toolManager);
     const sectorControl = new AddSectorControl(toolManager);
 
@@ -244,6 +246,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         ['military_symbol', militarySymbolControl],
         ['brush', brushControl],
         ['coordination_measure', coordinationMeasureControl],
+        ['magnetic_declination', declinationControl],
         ['azimuth_distance', azimuthDistanceControl],
         ['sector', sectorControl],
     ];
@@ -344,6 +347,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             rectangleSelectionControl,
             vectorTileInfoControl,
             coordinationMeasureControl,
+            declinationControl,
             azimuthDistanceControl,
             sectorControl,
             measureDistanceControl,
@@ -424,6 +428,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         occupiedFrontControl,
         militarySymbolControl,
         coordinationMeasureControl,
+        declinationControl,
         azimuthDistanceControl,
         sectorControl,
         losControl,
@@ -481,6 +486,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             brushControl,
             militarySymbolControl,
             coordinationMeasureControl,
+            declinationControl,
             arrowControl,
             boundaryControl,
             occupiedFrontControl,
@@ -585,6 +591,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         // Military tools
         ['AddMilitarySymbolControl', militarySymbolControl],
         ['AddCoordinationMeasureControl', coordinationMeasureControl],
+        ['AddDeclinationControl', declinationControl],
         ['AddArrowControl', arrowControl],
         ['AddBoundaryControl', boundaryControl],
         ['AddOccupiedFrontControl', occupiedFrontControl],

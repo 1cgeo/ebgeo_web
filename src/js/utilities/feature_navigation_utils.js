@@ -8,7 +8,7 @@
 import { getSourceTypeFromStorage } from '@store';
 
 /** Feature types that use a selectionBox polygon for zoom bounds. */
-const SELECTION_BOX_TYPES = ['text', 'image', 'military_symbol'];
+const SELECTION_BOX_TYPES = ['text', 'image', 'military_symbol', 'magnetic_declination'];
 
 /**
  * Approximate degree-to-pixel scale factor for padding calculation.

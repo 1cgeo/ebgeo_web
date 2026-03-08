@@ -49,6 +49,7 @@ const FEATURE_TYPE_NAMES = {
     'occupied_front': 'Frente Ocupada',
     'military_symbol': 'Símbolo Militar',
     'coordination_measure': 'Medida de Coordenação',
+    'magnetic_declination': 'Declinação Magnética',
     'los': 'Linha de Visada',
     'visibility': 'Visibilidade',
 };

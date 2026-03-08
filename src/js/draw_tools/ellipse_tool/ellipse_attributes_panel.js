@@ -8,7 +8,8 @@ import {
     createModernButtons,
     createSectionDivider,
     createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
+    createFeatureOptionsButton,
+    buildShapeTabsWithLabel
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -65,85 +66,92 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
         }
     }
 
-    // Hatch control reference for color sync
-    let hatchControl = null;
+    panel.appendChild(buildShapeTabsWithLabel({
+        buildStyleContent: (container) => {
+            // Hatch control reference for color sync
+            let hatchControl = null;
 
-    // Fill color picker
-    panel.appendChild(createModernColorPicker({
-        label: 'Preenchimento',
-        value: feature.properties.fillColor,
-        onChange: (color) => {
-            ellipseControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
-            // Update hatch preview colors
-            if (hatchControl?.updatePreviewColor) {
-                hatchControl.updatePreviewColor(color);
-            }
-        }
-    }));
+            // Fill color picker
+            container.appendChild(createModernColorPicker({
+                label: 'Preenchimento',
+                value: feature.properties.fillColor,
+                onChange: (color) => {
+                    ellipseControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
+                    // Update hatch preview colors
+                    if (hatchControl?.updatePreviewColor) {
+                        hatchControl.updatePreviewColor(color);
+                    }
+                }
+            }));
 
-    // Line color picker
-    panel.appendChild(createModernColorPicker({
-        label: 'Borda',
-        value: feature.properties.lineColor,
-        onChange: (color) => {
-            ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
-        }
-    }));
+            // Line color picker
+            container.appendChild(createModernColorPicker({
+                label: 'Borda',
+                value: feature.properties.lineColor,
+                onChange: (color) => {
+                    ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
+                }
+            }));
 
-    // Opacity slider
-    panel.appendChild(createModernSlider({
-        label: 'Opacidade do Preenchimento',
-        min: 0,
-        max: 100,
-        step: 1,
-        value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100),
-        unit: '%',
-        onChange: (newValue) => {
-            ellipseControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
-        }
-    }));
+            // Opacity slider
+            container.appendChild(createModernSlider({
+                label: 'Opacidade do Preenchimento',
+                min: 0,
+                max: 100,
+                step: 1,
+                value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100),
+                unit: '%',
+                onChange: (newValue) => {
+                    ellipseControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
+                }
+            }));
 
-    // Border width slider
-    panel.appendChild(createModernSlider({
-        label: 'Espessura da Borda',
-        min: 1,
-        max: 10,
-        step: 1,
-        value: feature.properties.lineWidth || 2,
-        unit: 'px',
-        onChange: (newValue) => {
-            ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
-        }
-    }));
+            // Border width slider
+            container.appendChild(createModernSlider({
+                label: 'Espessura da Borda',
+                min: 1,
+                max: 10,
+                step: 1,
+                value: feature.properties.lineWidth || 2,
+                unit: 'px',
+                onChange: (newValue) => {
+                    ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
+                }
+            }));
 
-    // Line style selector
-    panel.appendChild(createModernLineStyleSelect({
-        value: feature.properties.lineStyle || 'solid',
-        onChange: (newValue) => {
-            ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
-        }
-    }));
+            // Line style selector
+            container.appendChild(createModernLineStyleSelect({
+                value: feature.properties.lineStyle || 'solid',
+                onChange: (newValue) => {
+                    ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
+                }
+            }));
 
-    // Fill section
-    panel.appendChild(createSectionDivider('Preenchimento'));
+            // Fill section
+            container.appendChild(createSectionDivider('Preenchimento'));
 
-    // Hatch control (uses fillColor for hatch color)
-    hatchControl = createModernHatchControl({
-        hatchType: feature.properties.hatchType || 'none',
-        onTypeChange: (type) => {
-            ellipseControl.updateHatchType(selectedFeatures, type);
+            // Hatch control (uses fillColor for hatch color)
+            hatchControl = createModernHatchControl({
+                hatchType: feature.properties.hatchType || 'none',
+                onTypeChange: (type) => {
+                    ellipseControl.updateHatchType(selectedFeatures, type);
+                },
+                fillColor: feature.properties.fillColor,
+                hatchSpacing: feature.properties.hatchSpacing || 8,
+                onSpacingChange: (spacing) => {
+                    ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);
+                },
+                hatchLineWidth: feature.properties.hatchLineWidth || 2,
+                onLineWidthChange: (width) => {
+                    ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
+                }
+            });
+            container.appendChild(hatchControl);
         },
-        fillColor: feature.properties.fillColor,
-        hatchSpacing: feature.properties.hatchSpacing || 8,
-        onSpacingChange: (spacing) => {
-            ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);
-        },
-        hatchLineWidth: feature.properties.hatchLineWidth || 2,
-        onLineWidthChange: (width) => {
-            ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
-        }
-    });
-    panel.appendChild(hatchControl);
+        selectedFeatures,
+        feature,
+        control: ellipseControl,
+    }));
 
     // Action buttons
     panel.appendChild(createModernButtons({

@@ -6,6 +6,7 @@ import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addRectangleAttributesToPanel } from './rectangle_attributes_panel.js';
 import AddRectangleGeometry from './add_rectangle_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
+import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddRectangleControl extends BaseControl {
@@ -55,7 +56,8 @@ class AddRectangleControl extends BaseControl {
         hatchType: 'none',
         hatchColor: '#000000',
         hatchSpacing: 8,
-        hatchLineWidth: 2
+        hatchLineWidth: 2,
+        ...LABEL_DEFAULT_PROPERTIES,
     };
     // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -115,7 +117,7 @@ class AddRectangleControl extends BaseControl {
     }
 
     getLayerIds() {
-        return ['rectangle-fill-layer', 'rectangle-layer'];
+        return ['rectangle-fill-layer', 'rectangle-layer', 'rectangle-label-layer'];
     }
 
     getSourceNames() {
@@ -1108,6 +1110,7 @@ class AddRectangleControl extends BaseControl {
             feature.properties.hatchColor !== initialProperties.hatchColor ||
             feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
             feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
+            hasLabelChanged(feature, initialProperties) ||
             JSON.stringify(feature.properties.corner1) !== JSON.stringify(initialProperties.corner1) ||
             JSON.stringify(feature.properties.corner2) !== JSON.stringify(initialProperties.corner2)
         );

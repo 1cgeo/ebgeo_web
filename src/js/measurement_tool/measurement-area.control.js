@@ -10,6 +10,8 @@
 
 import {
     calculatePolygonMetrics,
+    calculateSegmentDistance,
+    getSegmentMidpoint,
     getPolygonCentroid,
     formatAreaAuto,
     formatDistanceAuto,
@@ -143,10 +145,23 @@ export class MeasurementAreaControl {
 
             const { area, perimeter } = calculatePolygonMetrics(coords);
             const centroid = getPolygonCentroid(coords);
-            updateLabels(this.map, [{
+
+            // Area/perimeter label at centroid
+            const labels = [{
                 coordinates: centroid,
                 text: `${formatAreaAuto(area)}\n\u2300 ${formatDistanceAuto(perimeter)}`,
-            }]);
+                labelType: 'segment',
+            }];
+
+            // Side length labels at each segment midpoint
+            const closedCoords = [...coords, coords[0]];
+            for (let i = 0; i < closedCoords.length - 1; i++) {
+                const dist = calculateSegmentDistance(closedCoords[i], closedCoords[i + 1]);
+                const mid = getSegmentMidpoint(closedCoords[i], closedCoords[i + 1]);
+                labels.push({ coordinates: mid, text: formatDistanceAuto(dist), labelType: 'segment' });
+            }
+
+            updateLabels(this.map, labels);
         } else if (coords.length === 2) {
             updatePreviewLine(this.map, coords);
             updatePreviewFill(this.map, []);
@@ -237,10 +252,22 @@ export class MeasurementAreaControl {
         if (!this.map || this._vertices.length < 3) return;
 
         const centroid = getPolygonCentroid(this._vertices);
-        updateLabels(this.map, [{
+
+        const labels = [{
             coordinates: centroid,
             text: `${formatArea(area, areaUnit)}\n\u2300 ${formatDistanceAuto(perimeter)}`,
-        }]);
+            labelType: 'segment',
+        }];
+
+        // Side length labels
+        const closedCoords = [...this._vertices, this._vertices[0]];
+        for (let i = 0; i < closedCoords.length - 1; i++) {
+            const dist = calculateSegmentDistance(closedCoords[i], closedCoords[i + 1]);
+            const mid = getSegmentMidpoint(closedCoords[i], closedCoords[i + 1]);
+            labels.push({ coordinates: mid, text: formatDistanceAuto(dist), labelType: 'segment' });
+        }
+
+        updateLabels(this.map, labels);
     }
 
     /** @param {number[][]} coordinates */

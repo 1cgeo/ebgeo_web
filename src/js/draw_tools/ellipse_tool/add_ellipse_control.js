@@ -6,6 +6,7 @@ import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addEllipseAttributesToPanel } from './ellipse_attributes_panel.js';
 import AddEllipseGeometry from './add_ellipse_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
+import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddEllipseControl extends BaseControl {
@@ -48,7 +49,8 @@ class AddEllipseControl extends BaseControl {
         hatchType: 'none',
         hatchColor: '#000000',
         hatchSpacing: 8,
-        hatchLineWidth: 2
+        hatchLineWidth: 2,
+        ...LABEL_DEFAULT_PROPERTIES,
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
@@ -111,7 +113,7 @@ class AddEllipseControl extends BaseControl {
     }
 
     getLayerIds() {
-        return ['ellipse-fill-layer', 'ellipse-layer'];
+        return ['ellipse-fill-layer', 'ellipse-layer', 'ellipse-label-layer'];
     }
 
     getSourceNames() {
@@ -914,6 +916,7 @@ class AddEllipseControl extends BaseControl {
             feature.properties.hatchColor !== initialProperties.hatchColor ||
             feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
             feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
+            hasLabelChanged(feature, initialProperties) ||
             JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
         );
     }

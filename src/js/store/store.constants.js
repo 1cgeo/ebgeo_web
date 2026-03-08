@@ -18,6 +18,7 @@ const SOURCE_TYPES = Object.freeze([
     'text', 'image', 'brush',
     'arrow', 'boundary', 'occupied_front', 'military_symbol', 'coordination_measure',
     'los', 'visibility',
+    'magnetic_declination',
 ]);
 
 /**
@@ -42,6 +43,7 @@ export const FEATURE_TYPE_ICONS = Object.freeze({
     coordination_measure: './images/icon_coordination_black.svg',
     los: './images/icon_los_black.svg',
     visibility: './images/icon_visibility_black.svg',
+    magnetic_declination: './images/icon_declination_black.svg',
 });
 
 /**
@@ -66,6 +68,7 @@ export const FEATURE_TYPE_LAYERS = Object.freeze({
     coordination_measure: 'coordination-measures-layer',
     los: 'los-layer',
     visibility: 'visibility-layer',
+    magnetic_declination: 'magnetic-declinations-layer',
 });
 
 /**
@@ -90,6 +93,7 @@ export const FEATURE_TYPE_MAPPINGS = Object.freeze({
     coordination_measure: 'coordination_measures',
     los: 'los',
     visibility: 'visibility',
+    magnetic_declination: 'magnetic_declinations',
 });
 
 /**
@@ -114,13 +118,14 @@ export const FEATURE_DISPLAY_NAMES = Object.freeze({
     coordination_measure: 'Medida de Coordenação',
     los: 'Linha de Visada',
     visibility: 'Visibilidade',
+    magnetic_declination: 'Declinação Magnética',
 });
 
 /** @constant {string[]} */
 export const UNCOPYABLE_FEATURE_TYPES = Object.freeze(['los', 'visibility']);
 
 /** @constant {string[]} */
-export const IMAGE_RESOURCE_FEATURE_TYPES = Object.freeze(['image', 'military_symbol', 'coordination_measure']);
+export const IMAGE_RESOURCE_FEATURE_TYPES = Object.freeze(['image', 'military_symbol', 'coordination_measure', 'magnetic_declination']);
 
 // Pre-built reverse lookup: storage type -> source type
 const STORAGE_TO_SOURCE = Object.freeze(

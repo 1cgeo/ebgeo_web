@@ -8,7 +8,8 @@ import {
     createSectionDivider,
     createInitialPropertiesMap,
     createPanelHeader,
-    createActionButtons
+    createActionButtons,
+    buildShapeTabsWithLabel
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -39,109 +40,116 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         hideHeader: options.hideHeader
     });
 
-    // Hatch control reference for color sync
-    let hatchControl = null;
+    // Tabs (Estilo / Etiqueta)
+    panel.appendChild(buildShapeTabsWithLabel({
+        buildStyleContent: (container) => {
+            let hatchControl = null;
 
-    // Fill color picker
-    panel.appendChild(createModernColorPicker({
-        label: 'Preenchimento',
-        value: feature.properties.fillColor,
-        onChange: (color) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
-            // Update hatch preview colors
-            if (hatchControl?.updatePreviewColor) {
-                hatchControl.updatePreviewColor(color);
-            }
-        }
-    }));
+            // Fill color picker
+            container.appendChild(createModernColorPicker({
+                label: 'Preenchimento',
+                value: feature.properties.fillColor,
+                onChange: (color) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
+                    // Update hatch preview colors
+                    if (hatchControl?.updatePreviewColor) {
+                        hatchControl.updatePreviewColor(color);
+                    }
+                }
+            }));
 
-    // Line color picker
-    panel.appendChild(createModernColorPicker({
-        label: 'Borda',
-        value: feature.properties.lineColor,
-        onChange: (color) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
-        }
-    }));
+            // Line color picker
+            container.appendChild(createModernColorPicker({
+                label: 'Borda',
+                value: feature.properties.lineColor,
+                onChange: (color) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
+                }
+            }));
 
-    // Opacity slider
-    panel.appendChild(createModernSlider({
-        label: 'Opacidade do Preenchimento',
-        min: 0,
-        max: 100,
-        step: 1,
-        value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100),
-        unit: '%',
-        onChange: (newValue) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
-        }
-    }));
+            // Opacity slider
+            container.appendChild(createModernSlider({
+                label: 'Opacidade do Preenchimento',
+                min: 0,
+                max: 100,
+                step: 1,
+                value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100),
+                unit: '%',
+                onChange: (newValue) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
+                }
+            }));
 
-    // Border width slider
-    panel.appendChild(createModernSlider({
-        label: 'Espessura da Borda',
-        min: 1,
-        max: 10,
-        step: 1,
-        value: feature.properties.lineWidth || 2,
-        unit: 'px',
-        onChange: (newValue) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
-        }
-    }));
+            // Border width slider
+            container.appendChild(createModernSlider({
+                label: 'Espessura da Borda',
+                min: 1,
+                max: 10,
+                step: 1,
+                value: feature.properties.lineWidth || 2,
+                unit: 'px',
+                onChange: (newValue) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
+                }
+            }));
 
-    // Line style selector
-    panel.appendChild(createModernLineStyleSelect({
-        value: feature.properties.lineStyle || 'solid',
-        onChange: (newValue) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
-        }
-    }));
+            // Line style selector
+            container.appendChild(createModernLineStyleSelect({
+                value: feature.properties.lineStyle || 'solid',
+                onChange: (newValue) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
+                }
+            }));
 
-    // Geometry section
-    panel.appendChild(createSectionDivider('Geometria'));
+            // Geometry section
+            container.appendChild(createSectionDivider('Geometria'));
 
-    // Border radius slider
-    panel.appendChild(createModernSlider({
-        label: 'Arredondamento',
-        min: 0,
-        max: 10,
-        step: 1,
-        value: feature.properties.borderRadius || 0,
-        unit: '',
-        onChange: (value) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'borderRadius', value);
+            // Border radius slider
+            container.appendChild(createModernSlider({
+                label: 'Arredondamento',
+                min: 0,
+                max: 10,
+                step: 1,
+                value: feature.properties.borderRadius || 0,
+                unit: '',
+                onChange: (value) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'borderRadius', value);
 
-            selectedFeatures.forEach(f => {
-                const corner1 = rectangleControl.geometry.normalizeCorner(f.properties.corner1);
-                const corner2 = rectangleControl.geometry.normalizeCorner(f.properties.corner2);
-                f.geometry = rectangleControl.geometry.generate(corner1, corner2, value);
+                    selectedFeatures.forEach(f => {
+                        const corner1 = rectangleControl.geometry.normalizeCorner(f.properties.corner1);
+                        const corner2 = rectangleControl.geometry.normalizeCorner(f.properties.corner2);
+                        f.geometry = rectangleControl.geometry.generate(corner1, corner2, value);
+                    });
+
+                    rectangleControl.updateFeatures(selectedFeatures, false, false);
+                }
+            }));
+
+            // Fill section
+            container.appendChild(createSectionDivider('Preenchimento'));
+
+            // Hatch control (uses fillColor for hatch color)
+            hatchControl = createModernHatchControl({
+                hatchType: feature.properties.hatchType || 'none',
+                onTypeChange: (type) => {
+                    rectangleControl.updateHatchType(selectedFeatures, type);
+                },
+                fillColor: feature.properties.fillColor,
+                hatchSpacing: feature.properties.hatchSpacing || 8,
+                onSpacingChange: (spacing) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);
+                },
+                hatchLineWidth: feature.properties.hatchLineWidth || 2,
+                onLineWidthChange: (width) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
+                }
             });
-
-            rectangleControl.updateFeatures(selectedFeatures, false, false);
-        }
+            container.appendChild(hatchControl);
+        },
+        selectedFeatures,
+        feature,
+        control: rectangleControl,
     }));
-
-    // Fill section
-    panel.appendChild(createSectionDivider('Preenchimento'));
-
-    // Hatch control (uses fillColor for hatch color)
-    hatchControl = createModernHatchControl({
-        hatchType: feature.properties.hatchType || 'none',
-        onTypeChange: (type) => {
-            rectangleControl.updateHatchType(selectedFeatures, type);
-        },
-        fillColor: feature.properties.fillColor,
-        hatchSpacing: feature.properties.hatchSpacing || 8,
-        onSpacingChange: (spacing) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);
-        },
-        hatchLineWidth: feature.properties.hatchLineWidth || 2,
-        onLineWidthChange: (width) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
-        }
-    });
-    panel.appendChild(hatchControl);
 
     // Action buttons
     createActionButtons({

@@ -171,6 +171,14 @@ class ContextMenuControl {
             }
         }
 
+        // QAN export option (lines and polygons)
+        if (hasSelectedFeatures) {
+            const qanAdded = this._addQANExportOption(groupingAnalysis.selectedFeatures);
+            if (qanAdded) {
+                this._contextMenu.appendChild(this._createSeparator());
+            }
+        }
+
         if (hasSelectedFeatures && !locked) {
             const layerOptionsAdded = await this._addLayerMoveOptions(groupingAnalysis.selectedFeatures);
             const mapOptionsAdded = await this._addMapMoveOptions(groupingAnalysis.selectedFeatures);
@@ -291,6 +299,35 @@ class ContextMenuControl {
         } catch (error) {
             console.error('Error splitting line:', error);
             showError('Erro ao cortar linha');
+        }
+    }
+
+    /**
+     * Add QAN export option for line/polygon features.
+     * @param {Array} selectedFeatures - Currently selected features
+     * @returns {boolean} Whether the option was added
+     */
+    _addQANExportOption(selectedFeatures) {
+        if (selectedFeatures.length !== 1) return false;
+        const source = selectedFeatures[0].properties?.source;
+        if (source !== 'line' && source !== 'polygon') return false;
+
+        const item = this._createMenuItem(
+            'Exportar QAN',
+            () => this._handleQANExport(selectedFeatures[0])
+        );
+        this._contextMenu.appendChild(item);
+        return true;
+    }
+
+    async _handleQANExport(feature) {
+        try {
+            const { generateQAN, downloadQANAsHTML } = await import('@js/import_export/qan/index.js');
+            const qanData = await generateQAN(feature);
+            downloadQANAsHTML(qanData, feature.properties.nome);
+        } catch (error) {
+            console.error('Error exporting QAN:', error);
+            showError('Erro ao exportar QAN');
         }
     }
 

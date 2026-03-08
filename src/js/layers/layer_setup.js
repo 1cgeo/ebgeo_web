@@ -25,6 +25,7 @@ import {
     setupArrowLayers,
     setupMilitarySymbolsLayers,
     setupCoordinationMeasureLayers,
+    setupDeclinationLayers,
     setupBoundaryLayers,
     setupOccupiedFrontLayers,
     setupLOSLayers,
@@ -157,7 +158,8 @@ async function setImages(features, mapInstance) {
     const allImageFeatures = [
         ...features.images,
         ...features.military_symbols,
-        ...(features.coordination_measures || [])
+        ...(features.coordination_measures || []),
+        ...(features.magnetic_declinations || [])
     ];
 
     const imagePromises = [];
@@ -409,6 +411,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         setupPointLayers(features, mapInstance);
         setupMilitarySymbolsLayers(features, mapInstance);
         setupCoordinationMeasureLayers(features, mapInstance);
+        setupDeclinationLayers(features, mapInstance);
         setupTextLayers(features, mapInstance);
         setupAuxiliaryLayers(mapInstance);
         setupMeasurementLayers(mapInstance);

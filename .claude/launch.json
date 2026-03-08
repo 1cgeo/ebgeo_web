@@ -8,5 +8,5 @@
       "port": 3001
     }
   ],
-  "autoVerify": true
+  "autoVerify": false
 }

@@ -723,19 +723,68 @@ export class MapsTab {
      * Handles opening a project file (replaces current project).
      * @private
      */
-    _handleOpenProject() {
-        if (this._exportImportService) {
-            const fileInput = document.createElement('input');
-            fileInput.type = 'file';
-            fileInput.accept = '.ebgeo';
-            fileInput.onchange = async (e) => {
-                if (e.target.files[0]) {
-                    await this._exportImportService.processFileDirectly(e.target.files[0], false);
-                    this._loadMaps();
-                }
-            };
-            fileInput.click();
+    async _handleOpenProject() {
+        if (!this._exportImportService) return;
+
+        // Check if there are existing features that would be lost
+        const hasExistingFeatures = await this._checkForExistingFeatures();
+        if (hasExistingFeatures) {
+            const confirmed = await showConfirm(
+                'Ao abrir um novo projeto, todos os dados atuais serão perdidos. Deseja continuar?',
+                { destructive: true }
+            );
+            if (!confirmed) return;
         }
+
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.ebgeo';
+        fileInput.onchange = async (e) => {
+            if (e.target.files[0]) {
+                await this._exportImportService.processFileDirectly(e.target.files[0], false);
+                this._loadMaps();
+            }
+        };
+        fileInput.click();
+    }
+
+    /**
+     * Checks if any map has existing features in IndexedDB.
+     * @returns {Promise<boolean>} True if features exist.
+     * @private
+     */
+    async _checkForExistingFeatures() {
+        try {
+            // Fast path: check current map first (most common case)
+            const currentMap = await getCurrentMapName();
+            if (currentMap && this._mapHasFeatures(await getMapDataStore(currentMap))) {
+                return true;
+            }
+
+            const mapNames = await getAllMapNamesStore();
+            for (const mapName of mapNames) {
+                if (mapName === currentMap) continue;
+                if (this._mapHasFeatures(await getMapDataStore(mapName))) {
+                    return true;
+                }
+            }
+        } catch (error) {
+            console.error('Failed to check for existing features:', error);
+        }
+        return false;
+    }
+
+    /**
+     * Checks if a single map data object contains any features.
+     * @param {object} mapData
+     * @returns {boolean}
+     * @private
+     */
+    _mapHasFeatures(mapData) {
+        if (!mapData?.features) return false;
+        return Object.values(mapData.features).some(
+            arr => Array.isArray(arr) && arr.length > 0
+        );
     }
 
     /**

@@ -8,7 +8,8 @@ import {
     createSectionDivider,
     createInitialPropertiesMap,
     createPanelHeader,
-    createActionButtons
+    createActionButtons,
+    createMarkerSymbolPicker
 } from '../../tool_manager/helpers/index.js';
 import { formatCoordinates } from '@utils/coordinate_converter.js';
 
@@ -141,12 +142,43 @@ function _buildStyleTabs(panel, selectedFeatures, feature, pointControl) {
  * Builds the Marcador (marker style) tab content.
  */
 function _buildMarkerTab(container, selectedFeatures, feature, pointControl) {
-    // Color picker
+    // Marker symbol picker
+    container.appendChild(createMarkerSymbolPicker({
+        value: feature.properties.markerSymbol || 'circle',
+        color: feature.properties.fillColor,
+        onChange: (symbolId) => {
+            pointControl.updateFeaturesProperty(selectedFeatures, 'markerSymbol', symbolId);
+        }
+    }));
+
+    // Fill color picker
     container.appendChild(createModernColorPicker({
         label: 'Cor',
         value: feature.properties.fillColor,
         onChange: (color) => {
             pointControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
+        }
+    }));
+
+    // Border color picker
+    container.appendChild(createModernColorPicker({
+        label: 'Borda',
+        value: feature.properties.lineColor || '#000000',
+        onChange: (color) => {
+            pointControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
+        }
+    }));
+
+    // Border width slider
+    container.appendChild(createModernSlider({
+        label: 'Espessura da Borda',
+        min: 0,
+        max: 5,
+        step: 1,
+        value: feature.properties.lineWidth ?? 0,
+        unit: 'px',
+        onChange: (value) => {
+            pointControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
         }
     }));
 

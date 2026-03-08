@@ -1,7 +1,7 @@
 // Path: js/layers/styles/symbol.layers.js
 
 /**
- * @fileoverview Symbol layer styles (military symbols, coordination measures).
+ * @fileoverview Symbol layer styles (military symbols, coordination measures, declination diagrams).
  */
 
 import { getControl } from '../../store';
@@ -68,6 +68,37 @@ export function setupCoordinationMeasureLayers(features, mapInstance) {
                 ['get', 'anchor'],
                 'center',
             ],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+        },
+        filter: VISIBLE_FILTER,
+    });
+}
+
+/**
+ * Sets up magnetic declination diagram layers on the map.
+ * @param {Object} features - Feature collection with declination diagrams
+ * @param {Object} mapInstance - MapLibre map instance
+ */
+export function setupDeclinationLayers(features, mapInstance) {
+    const control = getControl('AddDeclinationControl');
+    const raw = features.magnetic_declinations || [];
+    const corrected = control && raw.length > 0
+        ? control.applyZoomCorrections(raw)
+        : raw;
+
+    setOrCreateSource(mapInstance, 'magnetic_declinations', corrected);
+
+    ensureLayer(mapInstance, {
+        id: 'magnetic-declinations-layer',
+        type: 'symbol',
+        source: 'magnetic_declinations',
+        paint: {
+            'icon-opacity': ['get', 'opacity'],
+        },
+        layout: {
+            'icon-image': ['get', 'id'],
+            'icon-size': ['get', 'calculatedSize'],
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
         },

@@ -100,6 +100,13 @@ export default defineConfig(({ mode: _mode }) => ({
           if (id.includes('analysis_tools')) {
              return 'analysis-tools';
           }
+          // point-marker-symbols.js is a leaf module (symbol definitions +
+          // canvas helpers, zero draw_tools imports). It lives under draw_tools/
+          // but is consumed by tool_manager/helpers/marker-symbol-picker (core).
+          // Routing it to core breaks the draw-tools <-> core cycle.
+          if (id.includes('draw_tools/point_tool/point-marker-symbols')) {
+            return 'core';
+          }
           // Drawing tools
           if (id.includes('draw_tools')) {
             return 'draw-tools';
