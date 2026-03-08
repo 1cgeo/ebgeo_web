@@ -9,7 +9,7 @@ import { BaseGeometry } from '../../tool_manager';
 class AddLineGeometry extends BaseGeometry {
     constructor(properties = {}) {
         super(properties);
-        this.MIN_DISTANCE_METERS = 5;
+        this.MIN_DISTANCE_METERS = 1;
     }
 
     /**

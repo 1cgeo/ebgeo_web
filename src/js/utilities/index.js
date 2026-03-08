@@ -89,6 +89,9 @@ export { escapeHtml } from './html-escape.js';
 // Debounced persistence utility
 export { DebouncedPersist } from './debounced-persist.js';
 
+// Map image loader
+export { loadImageToMap } from './map-image-loader.js';
+
 // Quill.js helpers are NOT re-exported here to avoid pulling
 // dompurify into the core chunk. Import directly from
 // '@utils/quill-helpers.js' when needed.

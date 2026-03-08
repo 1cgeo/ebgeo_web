@@ -77,30 +77,6 @@ class AddDeclinationGeometry extends BaseGeometry {
         return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
     }
 
-    /**
-     * Create selection box polygon from degree measurements.
-     * @param {Array} coordinates - Center coordinates [lng, lat]
-     * @param {number} widthDegrees - Width in degrees
-     * @param {number} heightDegrees - Height in degrees
-     * @returns {Object} GeoJSON Polygon geometry
-     */
-    createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees) {
-        const [lng, lat] = coordinates;
-        const halfWidth = widthDegrees / 2;
-        const halfHeight = heightDegrees / 2;
-
-        return {
-            type: 'Polygon',
-            coordinates: [[
-                [lng - halfWidth, lat - halfHeight],
-                [lng + halfWidth, lat - halfHeight],
-                [lng + halfWidth, lat + halfHeight],
-                [lng - halfWidth, lat + halfHeight],
-                [lng - halfWidth, lat - halfHeight]
-            ]]
-        };
-    }
-
 }
 
 export default AddDeclinationGeometry;

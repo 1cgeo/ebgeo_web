@@ -88,30 +88,6 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
     }
 
     /**
-     * Create selection box polygon from degree measurements
-     * @param {Array} coordinates - Center coordinates [lng, lat]
-     * @param {number} widthDegrees - Width in degrees
-     * @param {number} heightDegrees - Height in degrees
-     * @returns {Object} GeoJSON Polygon geometry
-     */
-    createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees) {
-        const [lng, lat] = coordinates;
-        const halfWidth = widthDegrees / 2;
-        const halfHeight = heightDegrees / 2;
-
-        return {
-            type: 'Polygon',
-            coordinates: [[
-                [lng - halfWidth, lat - halfHeight],
-                [lng + halfWidth, lat - halfHeight],
-                [lng + halfWidth, lat + halfHeight],
-                [lng - halfWidth, lat + halfHeight],
-                [lng - halfWidth, lat - halfHeight]
-            ]]
-        };
-    }
-
-    /**
      * Update military symbol position for move operation
      * @param {Array} currentCoordinates - Current position
      * @param {number} dx - Delta X in geographic coordinates

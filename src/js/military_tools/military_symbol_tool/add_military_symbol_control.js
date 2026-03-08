@@ -9,10 +9,14 @@ import {
   getActiveLayerIdSync
 } from '@store';
 import { MilitarySymbolGenerator } from './military_symbol_generator.js';
-import { IDUtils, showError } from '@utils';
+import { IDUtils, showError, loadImageToMap } from '@utils';
 import { addMilitarySymbolAttributesToPanel } from './attributes/index.js';
 import AddMilitarySymbolGeometry from './add_military_symbol_geometry.js';
 import { BaseControl } from '@tools';
+import {
+    applyZoomCorrections as applyZoomCorrectionsUtil,
+    syncZoomCorrectedProperty,
+} from '@tools/helpers/zoom-correction.helpers.js';
 
 class AddMilitarySymbolControl extends BaseControl {
     featureType = 'military_symbol';
@@ -436,13 +440,13 @@ class AddMilitarySymbolControl extends BaseControl {
       );
 
       await storeImage(featureId, result.blob);
+      await this.loadSymbolToMap(featureId, result.blob);
+
       await addFeature("military_symbols", feature);
 
       const data = await this.map.getSource("military_symbols").getData();
       data.features.push(feature);
       this.map.getSource("military_symbols").setData(data);
-
-      await this.loadSymbolToMap(featureId, result.blob);
 
       await this.selectionManager.toggleFeatureSelection(
         "military_symbol",
@@ -457,38 +461,7 @@ class AddMilitarySymbolControl extends BaseControl {
   };
 
   async loadSymbolToMap(symbolId, blob) {
-    const url = URL.createObjectURL(blob);
-
-    return new Promise((resolve, reject) => {
-      const image = new Image();
-
-      image.onload = () => {
-        try {
-          if (this.map.hasImage(symbolId)) {
-            this.map.removeImage(symbolId);
-          }
-          if (!this.map.hasImage(symbolId)) {
-            this.map.addImage(symbolId, image);
-          }
-          URL.revokeObjectURL(url);
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      };
-
-      image.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error(`Failed to load military symbol ${symbolId}`));
-      };
-
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-        reject(new Error(`Timeout loading military symbol ${symbolId}`));
-      }, 10000);
-
-      image.src = url;
-    });
+    return loadImageToMap(this.map, symbolId, blob, { replaceExisting: true });
   }
 
   scheduleSymbolUpdate = (feature) => {
@@ -581,10 +554,6 @@ class AddMilitarySymbolControl extends BaseControl {
       this.map.getSource("military_symbols").setData(data);
 
       await storeImage(symbolId, result.blob);
-
-      if (this.map.hasImage(symbolId)) {
-        this.map.removeImage(symbolId);
-      }
       await this.loadSymbolToMap(symbolId, result.blob);
 
       if (this.selectionManager.uiManager.invalidateCache) {
@@ -631,34 +600,10 @@ class AddMilitarySymbolControl extends BaseControl {
   };
 
   applyZoomCorrections = (features) => {
-    const currentZoom = this.map.getZoom();
-    return features.map((feature) => {
-      const isEnabled = feature.properties.zoomCorrectionEnabled !== false;
-
-      if (!isEnabled) {
-        return {
-          ...feature,
-          properties: {
-            ...feature.properties,
-            calculatedSize: feature.properties.size
-          }
-        };
-      }
-
-      const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-      const scaleFactor = Math.pow(2, zoomDifference);
-      const newCalculatedSize = Math.min(
-        feature.properties.size * scaleFactor,
-        10
-      );
-
-      return {
-        ...feature,
-        properties: {
-          ...feature.properties,
-          calculatedSize: newCalculatedSize
-        }
-      };
+    return applyZoomCorrectionsUtil(features, this.map.getZoom(), {
+      sourceProperty: 'size',
+      calculatedProperty: 'calculatedSize',
+      maxValue: 10,
     });
   };
 
@@ -804,36 +749,8 @@ class AddMilitarySymbolControl extends BaseControl {
           }
         }
 
-        if (property === "zoomCorrectionEnabled") {
-          let newCalculatedSize;
-          if (value === false) {
-            newCalculatedSize = sourceFeature.properties.size;
-          } else {
-            const currentZoom = this.map.getZoom();
-            const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 10);
-          }
-          sourceFeature.properties.calculatedSize = newCalculatedSize;
-          feature.properties.calculatedSize = newCalculatedSize;
-        } else if (property === "createdAtZoom") {
-          const roundedValue = Math.round(value * 10) / 10;
-          sourceFeature.properties[property] = roundedValue;
-          feature.properties[property] = roundedValue;
-
-          if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
-            const currentZoom = this.map.getZoom();
-            const zoomDifference = currentZoom - roundedValue;
-            const scaleFactor = Math.pow(2, zoomDifference);
-
-            const newCalculatedSize = Math.min(
-              sourceFeature.properties.size * scaleFactor,
-              10
-            );
-            sourceFeature.properties.calculatedSize = newCalculatedSize;
-            feature.properties.calculatedSize = newCalculatedSize;
-          }
-        } else {
+        // Tool-specific: SIDC regeneration for non-zoom properties
+        if (property !== 'zoomCorrectionEnabled' && property !== 'createdAtZoom') {
           const needsRegeneration =
             this.geometry.affectsSIDC(property) ||
             this.geometry.affectsTextModifiers(property) ||
@@ -857,23 +774,12 @@ class AddMilitarySymbolControl extends BaseControl {
               this.scheduleSymbolUpdate(feature);
             }
           }
-
-          if (sourceFeature.properties.zoomCorrectionEnabled === false) {
-            sourceFeature.properties.calculatedSize = sourceFeature.properties.size;
-            feature.properties.calculatedSize = sourceFeature.properties.size;
-          } else {
-            const currentZoom = this.map.getZoom();
-            const zoomDifference =
-              currentZoom - sourceFeature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            sourceFeature.properties.calculatedSize = Math.min(
-              sourceFeature.properties.size * scaleFactor,
-              10
-            );
-            feature.properties.calculatedSize =
-              sourceFeature.properties.calculatedSize;
-          }
         }
+
+        syncZoomCorrectedProperty(
+          sourceFeature, feature, property, value, this.map.getZoom(),
+          { sourceProperty: 'size', calculatedProperty: 'calculatedSize', maxValue: 10 }
+        );
 
         if (
           this.geometry.affectsVisuals(property) ||

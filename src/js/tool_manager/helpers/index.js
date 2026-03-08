@@ -104,3 +104,10 @@ export {
 export {
     createMarkerSymbolPicker
 } from './marker-symbol-picker.helpers.js';
+
+// Zoom correction
+export {
+    applyZoomCorrections,
+    calculateZoomCorrectedValue,
+    syncZoomCorrectedProperty
+} from './zoom-correction.helpers.js';

@@ -6,6 +6,10 @@ import { getPointerPosition, preventDefaultGestures, restoreDefaultGestures } fr
 import { addBrushAttributesToPanel } from './brush_attributes_panel.js';
 import AddBrushGeometry from './add_brush_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import {
+    applyZoomCorrections as applyZoomCorrectionsUtil,
+    syncZoomCorrectedProperty,
+} from '../../tool_manager/helpers/zoom-correction.helpers.js';
 
 /**
  * Brush Tool Control
@@ -475,31 +479,9 @@ class AddBrushControl extends BaseControl {
     }
 
     applyZoomCorrections = (features) => {
-        const currentZoom = this.map.getZoom();
-        return features.map(feature => {
-            const isEnabled = feature.properties.zoomCorrectionEnabled !== false;
-
-            if (!isEnabled) {
-                return {
-                    ...feature,
-                    properties: {
-                        ...feature.properties,
-                        calculatedLineWidth: feature.properties.lineWidth
-                    }
-                };
-            }
-
-            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            const newCalculatedWidth = feature.properties.lineWidth * scaleFactor;
-
-            return {
-                ...feature,
-                properties: {
-                    ...feature.properties,
-                    calculatedLineWidth: newCalculatedWidth
-                }
-            };
+        return applyZoomCorrectionsUtil(features, this.map.getZoom(), {
+            sourceProperty: 'lineWidth',
+            calculatedProperty: 'calculatedLineWidth',
         });
     }
 
@@ -514,54 +496,10 @@ class AddBrushControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                if (property === 'lineWidth') {
-                    let newCalculatedWidth;
-
-                    if (sourceFeature.properties.zoomCorrectionEnabled === false) {
-                        newCalculatedWidth = value;
-                    } else {
-                        const currentZoom = this.map.getZoom();
-                        const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-                        const scaleFactor = Math.pow(2, zoomDifference);
-                        newCalculatedWidth = value * scaleFactor;
-                    }
-
-                    sourceFeature.properties.calculatedLineWidth = newCalculatedWidth;
-                    feature.properties.calculatedLineWidth = newCalculatedWidth;
-                }
-
-                if (property === 'createdAtZoom') {
-                    const roundedValue = Math.round(value * 10) / 10;
-                    sourceFeature.properties[property] = roundedValue;
-                    feature.properties[property] = roundedValue;
-
-                    // Only recalculate if zoom correction is enabled
-                    if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
-                        const currentZoom = this.map.getZoom();
-                        const zoomDifference = currentZoom - roundedValue;
-                        const scaleFactor = Math.pow(2, zoomDifference);
-                        const newCalculatedWidth = sourceFeature.properties.lineWidth * scaleFactor;
-
-                        sourceFeature.properties.calculatedLineWidth = newCalculatedWidth;
-                        feature.properties.calculatedLineWidth = newCalculatedWidth;
-                    }
-                }
-
-                if (property === 'zoomCorrectionEnabled') {
-                    const currentZoom = this.map.getZoom();
-                    let newCalculatedWidth;
-
-                    if (value === false) {
-                        newCalculatedWidth = sourceFeature.properties.lineWidth;
-                    } else {
-                        const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-                        const scaleFactor = Math.pow(2, zoomDifference);
-                        newCalculatedWidth = sourceFeature.properties.lineWidth * scaleFactor;
-                    }
-
-                    sourceFeature.properties.calculatedLineWidth = newCalculatedWidth;
-                    feature.properties.calculatedLineWidth = newCalculatedWidth;
-                }
+                syncZoomCorrectedProperty(
+                    sourceFeature, feature, property, value, this.map.getZoom(),
+                    { sourceProperty: 'lineWidth', calculatedProperty: 'calculatedLineWidth' }
+                );
             }
         }
 

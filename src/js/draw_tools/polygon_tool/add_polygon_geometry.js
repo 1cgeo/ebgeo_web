@@ -9,7 +9,7 @@ import { BaseGeometry } from '../../tool_manager';
 class AddPolygonGeometry extends BaseGeometry {
     constructor(properties = {}) {
         super(properties);
-        this.MIN_DISTANCE_METERS = 5; // Minimum distance between points
+        this.MIN_DISTANCE_METERS = 1; // Minimum distance between points
         this.MIN_POINTS = 3; // Minimum points for polygon
     }
 

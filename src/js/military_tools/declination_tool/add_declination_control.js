@@ -11,13 +11,17 @@ import {
     storeImage,
     getActiveLayerIdSync
 } from '@store';
-import { IDUtils, showError } from '@utils';
+import { IDUtils, showError, loadImageToMap } from '@utils';
 import { calculateMagneticDeclination } from '@utils/geomagnetic/wmm_calculator.js';
 import { convertSvgToPngBlob } from '../svg-to-png.js';
 import { addDeclinationAttributesToPanel } from './declination_attributes_panel.js';
 import AddDeclinationGeometry from './add_declination_geometry.js';
 import { generateDeclinationSvg } from './declination_svg_generator.js';
 import { BaseControl } from '@tools';
+import {
+    applyZoomCorrections as applyZoomCorrectionsUtil,
+    syncZoomCorrectedProperty,
+} from '@tools/helpers/zoom-correction.helpers.js';
 
 /** SVG rasterization target dimensions */
 const ICON_WIDTH = 400;
@@ -187,13 +191,13 @@ class AddDeclinationControl extends BaseControl {
 
         try {
             await storeImage(featureId, blob);
+            await this.loadIconToMap(featureId, blob);
+
             await addFeature('magnetic_declinations', feature);
 
             const data = await this.map.getSource('magnetic_declinations').getData();
             data.features.push(feature);
             this.map.getSource('magnetic_declinations').setData(data);
-
-            await this.loadIconToMap(featureId, blob);
 
             await this.selectionManager.toggleFeatureSelection(
                 'magnetic_declination',
@@ -216,41 +220,7 @@ class AddDeclinationControl extends BaseControl {
      * @returns {Promise<void>}
      */
     async loadIconToMap(iconId, blob) {
-        const url = URL.createObjectURL(blob);
-
-        return new Promise((resolve, reject) => {
-            const image = new Image();
-
-            const timeoutId = setTimeout(() => {
-                URL.revokeObjectURL(url);
-                reject(new Error(`Timeout loading declination icon ${iconId}`));
-            }, 10000);
-
-            image.onload = () => {
-                clearTimeout(timeoutId);
-                try {
-                    if (this.map.hasImage(iconId)) {
-                        this.map.removeImage(iconId);
-                    }
-                    if (!this.map.hasImage(iconId)) {
-                        this.map.addImage(iconId, image);
-                    }
-                    URL.revokeObjectURL(url);
-                    resolve();
-                } catch (error) {
-                    URL.revokeObjectURL(url);
-                    reject(error);
-                }
-            };
-
-            image.onerror = () => {
-                clearTimeout(timeoutId);
-                URL.revokeObjectURL(url);
-                reject(new Error(`Failed to load declination icon ${iconId}`));
-            };
-
-            image.src = url;
-        });
+        return loadImageToMap(this.map, iconId, blob, { replaceExisting: true });
     }
 
     /**
@@ -362,34 +332,10 @@ class AddDeclinationControl extends BaseControl {
      * @returns {Array} Features with corrected calculatedSize
      */
     applyZoomCorrections = (features) => {
-        const currentZoom = this.map.getZoom();
-        return features.map((feature) => {
-            const isEnabled = feature.properties.zoomCorrectionEnabled !== false;
-
-            if (!isEnabled) {
-                return {
-                    ...feature,
-                    properties: {
-                        ...feature.properties,
-                        calculatedSize: feature.properties.size,
-                    },
-                };
-            }
-
-            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            const newCalculatedSize = Math.min(
-                feature.properties.size * scaleFactor,
-                10
-            );
-
-            return {
-                ...feature,
-                properties: {
-                    ...feature.properties,
-                    calculatedSize: newCalculatedSize,
-                },
-            };
+        return applyZoomCorrectionsUtil(features, this.map.getZoom(), {
+            sourceProperty: 'size',
+            calculatedProperty: 'calculatedSize',
+            maxValue: 10,
         });
     };
 
@@ -413,51 +359,10 @@ class AddDeclinationControl extends BaseControl {
             sourceFeature.properties[property] = value;
             feature.properties[property] = value;
 
-            // Handle zoom correction toggle
-            if (property === 'zoomCorrectionEnabled') {
-                let newCalculatedSize;
-                if (value === false) {
-                    newCalculatedSize = sourceFeature.properties.size;
-                } else {
-                    const currentZoom = this.map.getZoom();
-                    const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-                    const scaleFactor = Math.pow(2, zoomDifference);
-                    newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 10);
-                }
-                sourceFeature.properties.calculatedSize = newCalculatedSize;
-                feature.properties.calculatedSize = newCalculatedSize;
-            } else if (property === 'createdAtZoom') {
-                const roundedValue = Math.round(value * 10) / 10;
-                sourceFeature.properties[property] = roundedValue;
-                feature.properties[property] = roundedValue;
-
-                if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
-                    const currentZoom = this.map.getZoom();
-                    const zoomDifference = currentZoom - roundedValue;
-                    const scaleFactor = Math.pow(2, zoomDifference);
-                    const newCalculatedSize = Math.min(
-                        sourceFeature.properties.size * scaleFactor,
-                        10
-                    );
-                    sourceFeature.properties.calculatedSize = newCalculatedSize;
-                    feature.properties.calculatedSize = newCalculatedSize;
-                }
-            } else {
-                // Recalculate calculatedSize for size changes
-                if (sourceFeature.properties.zoomCorrectionEnabled === false) {
-                    sourceFeature.properties.calculatedSize = sourceFeature.properties.size;
-                    feature.properties.calculatedSize = sourceFeature.properties.size;
-                } else {
-                    const currentZoom = this.map.getZoom();
-                    const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-                    const scaleFactor = Math.pow(2, zoomDifference);
-                    sourceFeature.properties.calculatedSize = Math.min(
-                        sourceFeature.properties.size * scaleFactor,
-                        10
-                    );
-                    feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
-                }
-            }
+            syncZoomCorrectedProperty(
+                sourceFeature, feature, property, value, this.map.getZoom(),
+                { sourceProperty: 'size', calculatedProperty: 'calculatedSize', maxValue: 10 }
+            );
 
             // Recalculate selection box when visual properties change
             if (property === 'size' || property === 'createdAtZoom' || property === 'zoomCorrectionEnabled') {

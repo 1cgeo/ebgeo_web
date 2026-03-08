@@ -9,10 +9,14 @@ import {
   getActiveLayerIdSync
 } from "../../store";
 import { CoordinationMeasureGenerator } from './coordination_measure_generator.js';
-import { IDUtils, showWarning as showWarningToast } from "../../utilities";
+import { IDUtils, showWarning as showWarningToast, loadImageToMap } from "../../utilities";
 import { addCoordinationMeasureAttributesToPanel } from "./attributes/index.js";
 import AddCoordinationMeasureGeometry from './add_coordination_measure_geometry.js';
 import { BaseControl } from "../../tool_manager";
+import {
+    applyZoomCorrections as applyZoomCorrectionsUtil,
+    syncZoomCorrectedProperty,
+} from '../../tool_manager/helpers/zoom-correction.helpers.js';
 
 class AddCoordinationMeasureControl extends BaseControl {
   featureType = 'coordination_measure';
@@ -440,14 +444,13 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       await storeImage(featureId, result.blob);
+      await this.loadSymbolToMap(featureId, result.blob);
 
       await addFeature("coordination_measures", feature);
 
       const data = await this.map.getSource("coordination_measures").getData();
       data.features.push(feature);
       this.map.getSource("coordination_measures").setData(data);
-
-      await this.loadSymbolToMap(featureId, result.blob);
 
       await this.selectionManager.toggleFeatureSelection(
         "coordination_measure",
@@ -464,38 +467,7 @@ class AddCoordinationMeasureControl extends BaseControl {
   // ===== SYMBOL PROCESSING =====
 
   async loadSymbolToMap(symbolId, blob) {
-    const url = URL.createObjectURL(blob);
-
-    return new Promise((resolve, reject) => {
-      const image = new Image();
-
-      image.onload = () => {
-        try {
-          if (this.map.hasImage(symbolId)) {
-            this.map.removeImage(symbolId);
-          }
-          if (!this.map.hasImage(symbolId)) {
-            this.map.addImage(symbolId, image);
-          }
-          URL.revokeObjectURL(url);
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      };
-
-      image.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error(`Failed to load coordination measure symbol ${symbolId}`));
-      };
-
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-        reject(new Error(`Timeout loading coordination measure symbol ${symbolId}`));
-      }, 10000);
-
-      image.src = url;
-    });
+    return loadImageToMap(this.map, symbolId, blob, { replaceExisting: true });
   }
 
   scheduleSymbolUpdate = (feature) => {
@@ -662,10 +634,6 @@ class AddCoordinationMeasureControl extends BaseControl {
       this.map.getSource("coordination_measures").setData(data);
 
       await storeImage(symbolId, result.blob);
-
-      if (this.map.hasImage(symbolId)) {
-        this.map.removeImage(symbolId);
-      }
       await this.loadSymbolToMap(symbolId, result.blob);
 
       if (this.selectionManager.uiManager.invalidateCache) {
@@ -715,38 +683,10 @@ class AddCoordinationMeasureControl extends BaseControl {
   };
 
   applyZoomCorrections = (features) => {
-    if (!features || !Array.isArray(features)) {
-      return [];
-    }
-
-    const currentZoom = this.map.getZoom();
-    return features.map((feature) => {
-      const isEnabled = feature.properties.zoomCorrectionEnabled !== false;
-
-      if (!isEnabled) {
-        return {
-          ...feature,
-          properties: {
-            ...feature.properties,
-            calculatedSize: feature.properties.size
-          }
-        };
-      }
-
-      const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-      const scaleFactor = Math.pow(2, zoomDifference);
-      const newCalculatedSize = Math.min(
-        feature.properties.size * scaleFactor,
-        10
-      );
-
-      return {
-        ...feature,
-        properties: {
-          ...feature.properties,
-          calculatedSize: newCalculatedSize
-        }
-      };
+    return applyZoomCorrectionsUtil(features, this.map.getZoom(), {
+      sourceProperty: 'size',
+      calculatedProperty: 'calculatedSize',
+      maxValue: 10,
     });
   };
 
@@ -867,37 +807,8 @@ class AddCoordinationMeasureControl extends BaseControl {
         sourceFeature.properties[property] = value;
         feature.properties[property] = value;
 
-        if (property === "zoomCorrectionEnabled") {
-          let newCalculatedSize;
-          if (value === false) {
-            newCalculatedSize = sourceFeature.properties.size;
-          } else {
-            const currentZoom = this.map.getZoom();
-            const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 10);
-          }
-          sourceFeature.properties.calculatedSize = newCalculatedSize;
-          feature.properties.calculatedSize = newCalculatedSize;
-        } else if (property === "createdAtZoom") {
-          const roundedValue = Math.round(value * 10) / 10;
-          sourceFeature.properties[property] = roundedValue;
-          feature.properties[property] = roundedValue;
-
-          // Only recalculate if zoom correction is enabled
-          if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
-            const currentZoom = this.map.getZoom();
-            const zoomDifference = currentZoom - roundedValue;
-            const scaleFactor = Math.pow(2, zoomDifference);
-
-            const newCalculatedSize = Math.min(
-              sourceFeature.properties.size * scaleFactor,
-              10
-            );
-            sourceFeature.properties.calculatedSize = newCalculatedSize;
-            feature.properties.calculatedSize = newCalculatedSize;
-          }
-        } else {
+        // Tool-specific: symbol regeneration for non-zoom properties
+        if (property !== 'zoomCorrectionEnabled' && property !== 'createdAtZoom') {
           const needsRegeneration =
             this.geometry.affectsSIDC(property) ||
             this.geometry.affectsTextModifiers(property);
@@ -910,24 +821,12 @@ class AddCoordinationMeasureControl extends BaseControl {
               this.scheduleSymbolUpdate(feature);
             }
           }
-
-          // Recalculate respecting zoom correction toggle
-          if (sourceFeature.properties.zoomCorrectionEnabled === false) {
-            sourceFeature.properties.calculatedSize = sourceFeature.properties.size;
-            feature.properties.calculatedSize = sourceFeature.properties.size;
-          } else {
-            const currentZoom = this.map.getZoom();
-            const zoomDifference =
-              currentZoom - sourceFeature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            sourceFeature.properties.calculatedSize = Math.min(
-              sourceFeature.properties.size * scaleFactor,
-              10
-            );
-            feature.properties.calculatedSize =
-              sourceFeature.properties.calculatedSize;
-          }
         }
+
+        syncZoomCorrectedProperty(
+          sourceFeature, feature, property, value, this.map.getZoom(),
+          { sourceProperty: 'size', calculatedProperty: 'calculatedSize', maxValue: 10 }
+        );
 
         if (
           this.geometry.affectsVisuals(property) ||

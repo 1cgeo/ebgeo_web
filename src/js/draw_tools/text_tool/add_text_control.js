@@ -6,6 +6,10 @@ import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addTextAttributesToPanel } from './text_attributes_panel.js';
 import AddTextGeometry from './add_text_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import {
+    applyZoomCorrections as applyZoomCorrectionsUtil,
+    syncZoomCorrectedProperty,
+} from '../../tool_manager/helpers/zoom-correction.helpers.js';
 
 class AddTextControl extends BaseControl {
     featureType = 'text';
@@ -433,31 +437,10 @@ class AddTextControl extends BaseControl {
     }
 
     applyZoomCorrections = (features) => {
-        const currentZoom = this.map.getZoom();
-        return features.map(feature => {
-            const isEnabled = feature.properties.zoomCorrectionEnabled !== false;
-
-            if (!isEnabled) {
-                return {
-                    ...feature,
-                    properties: {
-                        ...feature.properties,
-                        calculatedSize: feature.properties.size
-                    }
-                };
-            }
-
-            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            const newCalculatedSize = Math.min(feature.properties.size * scaleFactor, 255);
-
-            return {
-                ...feature,
-                properties: {
-                    ...feature.properties,
-                    calculatedSize: newCalculatedSize
-                }
-            };
+        return applyZoomCorrectionsUtil(features, this.map.getZoom(), {
+            sourceProperty: 'size',
+            calculatedProperty: 'calculatedSize',
+            maxValue: 255,
         });
     }
 
@@ -646,45 +629,10 @@ class AddTextControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                if (property === 'zoomCorrectionEnabled') {
-                    let newCalculatedSize;
-                    if (value === false) {
-                        newCalculatedSize = sourceFeature.properties.size;
-                    } else {
-                        const currentZoom = this.map.getZoom();
-                        const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-                        const scaleFactor = Math.pow(2, zoomDifference);
-                        newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
-                    }
-                    sourceFeature.properties.calculatedSize = newCalculatedSize;
-                    feature.properties.calculatedSize = newCalculatedSize;
-                } else if (property === 'createdAtZoom') {
-                    const roundedValue = Math.round(value * 10) / 10;
-                    sourceFeature.properties[property] = roundedValue;
-                    feature.properties[property] = roundedValue;
-
-                    // Only recalculate if zoom correction is enabled
-                    if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
-                        const currentZoom = this.map.getZoom();
-                        const zoomDifference = currentZoom - roundedValue;
-                        const scaleFactor = Math.pow(2, zoomDifference);
-                        const newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
-                        sourceFeature.properties.calculatedSize = newCalculatedSize;
-                        feature.properties.calculatedSize = newCalculatedSize;
-                    }
-                } else {
-                    // For other properties, recalculate only if zoom correction is enabled
-                    if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
-                        const currentZoom = this.map.getZoom();
-                        const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-                        const scaleFactor = Math.pow(2, zoomDifference);
-                        sourceFeature.properties.calculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
-                        feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
-                    } else {
-                        sourceFeature.properties.calculatedSize = sourceFeature.properties.size;
-                        feature.properties.calculatedSize = sourceFeature.properties.size;
-                    }
-                }
+                syncZoomCorrectedProperty(
+                    sourceFeature, feature, property, value, this.map.getZoom(),
+                    { sourceProperty: 'size', calculatedProperty: 'calculatedSize', maxValue: 255 }
+                );
 
                 const visualProperties = ['text', 'size', 'rotation', 'showBackground', 'backgroundBorderWidth', 'zoomCorrectionEnabled'];
                 if (visualProperties.includes(property) || property === 'createdAtZoom') {
