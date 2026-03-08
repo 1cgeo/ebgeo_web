@@ -17,7 +17,7 @@ import { createMultiSelectionActions } from '../components/multi-selection-actio
 import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo } from '@store/index.js';
 import { renderReadOnlyAttributesSection } from '@js/user_data/attributes_tab_renderer.js';
 import { COORDINATE_FORMATS, formatCoordinates } from '@utils/index.js';
-import { createModernSelect } from '@tools/helpers/index.js';
+import { createModernSelect, createObservationsSection } from '@tools/helpers/index.js';
 import {
     calculateSegmentDistance,
     getBearing,
@@ -702,10 +702,33 @@ export async function createFeaturePanelContent({
                 }
             }
 
-            // Inject azimutes content into Azimutes tab (for line features, single selection only)
+            // Inject azimutes content into Azimutes tab (for line/polygon features, single selection only)
             if (featureTabs.azimutesTab && isSingleSelection) {
                 try {
-                    buildAzimutesTabContent(featureTabs.azimutesTab, selectedFeatures[0]);
+                    const azFeature = selectedFeatures[0];
+                    if (featureType === 'polygon') {
+                        // Polygon coords are [[[lng,lat],...]], extract outer ring as line-like coords
+                        const ring = azFeature.geometry?.coordinates?.[0];
+                        if (ring) {
+                            const syntheticFeature = {
+                                ...azFeature,
+                                geometry: { type: 'LineString', coordinates: ring }
+                            };
+                            buildAzimutesTabContent(featureTabs.azimutesTab, syntheticFeature);
+                        }
+                    } else {
+                        buildAzimutesTabContent(featureTabs.azimutesTab, azFeature);
+                    }
+
+                    // Per-segment observations + QAN export (inside azimutes tab)
+                    if (control) {
+                        const obsSection = createObservationsSection({
+                            feature: azFeature,
+                            selectedFeatures,
+                            control,
+                        });
+                        featureTabs.azimutesTab.appendChild(obsSection);
+                    }
                 } catch (error) {
                     console.error(`Error creating azimutes tab for ${featureType}:`, error);
                 }

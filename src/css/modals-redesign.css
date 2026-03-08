@@ -558,13 +558,15 @@
 
 /* Container */
 .export-modal-container,
-.combine-maps-modal-container {
+.combine-maps-modal-container,
+.import-slides-modal-container {
     max-width: 480px;
 }
 
 /* Content layout */
 .export-modal-content,
-.combine-maps-modal-content {
+.combine-maps-modal-content,
+.import-slides-modal-content {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
@@ -572,19 +574,22 @@
 
 /* Description text */
 .export-modal-description,
-.combine-maps-description {
+.combine-maps-description,
+.import-slides-description {
     color: var(--gray-600);
     font-size: var(--font-size-sm);
     line-height: var(--line-height-normal);
 }
 
-.combine-maps-description strong {
+.combine-maps-description strong,
+.import-slides-description strong {
     color: var(--gray-800);
 }
 
 /* Selection controls row */
 .export-selection-controls,
-.combine-maps-selection-controls {
+.combine-maps-selection-controls,
+.import-slides-selection-controls {
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -593,7 +598,8 @@
 
 /* Select all / none buttons */
 .export-select-btn,
-.combine-maps-select-btn {
+.combine-maps-select-btn,
+.import-slides-select-btn {
     padding: var(--space-1) var(--space-2);
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-medium);
@@ -606,28 +612,32 @@
 }
 
 .export-select-btn:hover,
-.combine-maps-select-btn:hover {
+.combine-maps-select-btn:hover,
+.import-slides-select-btn:hover {
     background: var(--primary-100);
     border-color: var(--primary-300);
 }
 
 /* Selection count */
 .export-selection-count,
-.combine-maps-selection-count {
+.combine-maps-selection-count,
+.import-slides-selection-count {
     margin-left: auto;
     font-size: var(--font-size-xs);
     color: var(--gray-500);
 }
 
 .export-selection-count .count-value,
-.combine-maps-selection-count .count-value {
+.combine-maps-selection-count .count-value,
+.import-slides-selection-count .count-value {
     font-weight: var(--font-weight-semibold);
     color: var(--primary);
 }
 
-/* Scrollable maps list */
+/* Scrollable list */
 .export-maps-list,
-.combine-maps-list {
+.combine-maps-list,
+.import-slides-list {
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
@@ -643,38 +653,44 @@
 }
 
 .export-maps-list::-webkit-scrollbar,
-.combine-maps-list::-webkit-scrollbar {
+.combine-maps-list::-webkit-scrollbar,
+.import-slides-list::-webkit-scrollbar {
     width: 6px;
 }
 
 .export-maps-list::-webkit-scrollbar-track,
-.combine-maps-list::-webkit-scrollbar-track {
+.combine-maps-list::-webkit-scrollbar-track,
+.import-slides-list::-webkit-scrollbar-track {
     background: transparent;
 }
 
 .export-maps-list::-webkit-scrollbar-thumb,
-.combine-maps-list::-webkit-scrollbar-thumb {
+.combine-maps-list::-webkit-scrollbar-thumb,
+.import-slides-list::-webkit-scrollbar-thumb {
     background-color: var(--primary);
     border-radius: var(--radius-sm);
 }
 
 .export-maps-list::-webkit-scrollbar-thumb:hover,
-.combine-maps-list::-webkit-scrollbar-thumb:hover {
+.combine-maps-list::-webkit-scrollbar-thumb:hover,
+.import-slides-list::-webkit-scrollbar-thumb:hover {
     background-color: var(--primary-hover);
 }
 
 /* Empty state */
 .export-maps-empty,
-.combine-maps-empty {
+.combine-maps-empty,
+.import-slides-empty {
     padding: var(--space-6);
     text-align: center;
     color: var(--gray-500);
     font-size: var(--font-size-sm);
 }
 
-/* Map item row */
+/* Item row */
 .export-map-item,
-.combine-map-item {
+.combine-map-item,
+.import-slides-item {
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -688,13 +704,15 @@
 }
 
 .export-map-item:hover,
-.combine-map-item:hover {
+.combine-map-item:hover,
+.import-slides-item:hover {
     border-color: var(--primary-300);
     background: var(--primary-50);
 }
 
 .export-map-item.selected,
-.combine-map-item.selected {
+.combine-map-item.selected,
+.import-slides-item.selected {
     border-color: var(--primary);
     background: var(--primary-50);
 }
@@ -713,7 +731,8 @@
 
 /* Custom checkbox indicator */
 .export-map-checkbox-custom,
-.combine-map-checkbox-custom {
+.combine-map-checkbox-custom,
+.import-slides-checkbox-custom {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -727,7 +746,8 @@
 }
 
 .export-map-checkbox-custom svg,
-.combine-map-checkbox-custom svg {
+.combine-map-checkbox-custom svg,
+.import-slides-checkbox-custom svg {
     opacity: 0;
     transform: scale(0.5);
     transition: all var(--transition-fast);
@@ -735,13 +755,15 @@
 }
 
 .export-map-item.selected .export-map-checkbox-custom,
-.combine-map-item.selected .combine-map-checkbox-custom {
+.combine-map-item.selected .combine-map-checkbox-custom,
+.import-slides-item.selected .import-slides-checkbox-custom {
     background: var(--primary);
     border-color: var(--primary);
 }
 
 .export-map-item.selected .export-map-checkbox-custom svg,
-.combine-map-item.selected .combine-map-checkbox-custom svg {
+.combine-map-item.selected .combine-map-checkbox-custom svg,
+.import-slides-item.selected .import-slides-checkbox-custom svg {
     opacity: 1;
     transform: scale(1);
 }
@@ -758,9 +780,10 @@
     color: var(--primary);
 }
 
-/* Map name */
+/* Name */
 .export-map-name,
-.combine-map-name {
+.combine-map-name,
+.import-slides-name {
     flex: 1;
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-medium);
@@ -782,7 +805,8 @@
     border-radius: var(--radius-full);
 }
 
-.combine-map-badge {
+.combine-map-badge,
+.import-slides-badge {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -796,9 +820,18 @@
     flex-shrink: 0;
 }
 
+/* Slide count label */
+.import-slides-count {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
 /* Action row */
 .export-modal-actions,
-.combine-maps-modal-actions {
+.combine-maps-modal-actions,
+.import-slides-modal-actions {
     display: flex;
     justify-content: flex-end;
     gap: var(--space-2);
@@ -808,7 +841,8 @@
 
 /* Action buttons */
 .export-modal-btn,
-.combine-maps-modal-btn {
+.combine-maps-modal-btn,
+.import-slides-modal-btn {
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -821,39 +855,45 @@
 }
 
 .export-modal-btn-cancel,
-.combine-maps-modal-btn-cancel {
+.combine-maps-modal-btn-cancel,
+.import-slides-modal-btn-cancel {
     background: transparent;
     border: var(--border-width) solid var(--border-color);
     color: var(--gray-600);
 }
 
 .export-modal-btn-cancel:hover,
-.combine-maps-modal-btn-cancel:hover {
+.combine-maps-modal-btn-cancel:hover,
+.import-slides-modal-btn-cancel:hover {
     background: var(--gray-50);
     border-color: var(--gray-300);
 }
 
 .export-modal-btn-confirm,
-.combine-maps-modal-btn-confirm {
+.combine-maps-modal-btn-confirm,
+.import-slides-modal-btn-confirm {
     background: var(--primary);
     border: var(--border-width) solid var(--primary);
     color: white;
 }
 
 .export-modal-btn-confirm:hover:not(:disabled),
-.combine-maps-modal-btn-confirm:hover:not(:disabled) {
+.combine-maps-modal-btn-confirm:hover:not(:disabled),
+.import-slides-modal-btn-confirm:hover:not(:disabled) {
     background: var(--primary-600);
     border-color: var(--primary-600);
 }
 
 .export-modal-btn-confirm:disabled,
-.combine-maps-modal-btn-confirm:disabled {
+.combine-maps-modal-btn-confirm:disabled,
+.import-slides-modal-btn-confirm:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 
 .export-modal-btn-confirm svg,
-.combine-maps-modal-btn-confirm svg {
+.combine-maps-modal-btn-confirm svg,
+.import-slides-modal-btn-confirm svg {
     width: 16px;
     height: 16px;
 }
@@ -1857,25 +1897,29 @@
 
     /* Map-picker items */
     .export-map-item,
-    .combine-map-item {
+    .combine-map-item,
+    .import-slides-item {
         min-height: var(--touch-target-min);
         padding: var(--space-3);
     }
 
     .export-map-checkbox-custom,
-    .combine-map-checkbox-custom {
+    .combine-map-checkbox-custom,
+    .import-slides-checkbox-custom {
         width: 22px;
         height: 22px;
     }
 
     .export-select-btn,
-    .combine-maps-select-btn {
+    .combine-maps-select-btn,
+    .import-slides-select-btn {
         min-height: 36px;
         padding: var(--space-2) var(--space-3);
     }
 
     .export-modal-btn,
-    .combine-maps-modal-btn {
+    .combine-maps-modal-btn,
+    .import-slides-modal-btn {
         min-height: var(--touch-target-min);
         padding: var(--space-3) var(--space-4);
     }
@@ -2062,7 +2106,8 @@
 
     /* Map-picker modals full-screen */
     .export-modal-container,
-    .combine-maps-modal-container {
+    .combine-maps-modal-container,
+    .import-slides-modal-container {
         max-width: 100vw;
         max-height: 100vh;
         height: 100vh;
@@ -2071,19 +2116,22 @@
     }
 
     .export-maps-list,
-    .combine-maps-list {
+    .combine-maps-list,
+    .import-slides-list {
         max-height: none;
         flex: 1;
         min-height: 200px;
     }
 
     .export-modal-content,
-    .combine-maps-modal-content {
+    .combine-maps-modal-content,
+    .import-slides-modal-content {
         height: 100%;
     }
 
     .export-selection-count,
-    .combine-maps-selection-count {
+    .combine-maps-selection-count,
+    .import-slides-selection-count {
         width: 100%;
         margin-left: 0;
         margin-top: var(--space-1);
@@ -2205,7 +2253,8 @@
 
     /* Map-picker modals */
     .export-modal-container,
-    .combine-maps-modal-container {
+    .combine-maps-modal-container,
+    .import-slides-modal-container {
         max-width: 90vw;
         max-height: 95vh;
         height: auto;
@@ -2213,7 +2262,8 @@
     }
 
     .export-maps-list,
-    .combine-maps-list {
+    .combine-maps-list,
+    .import-slides-list {
         max-height: 200px;
     }
 }
@@ -2246,6 +2296,7 @@
     .info-modal-container,
     .export-modal-container,
     .combine-maps-modal-container,
+    .import-slides-modal-container,
     .settings-modal-container {
         max-width: 100vw !important;
         width: 100vw;

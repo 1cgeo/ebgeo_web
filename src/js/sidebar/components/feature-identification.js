@@ -7,6 +7,7 @@
 
 import { getLayers, getFeatureIcon, getFeatureDisplayName, getFeatureById, updateFeature, getStorageTypeFromSource, isCurrentMapLockedSync } from '@store/index.js';
 import { createFeatureOptionsButton } from '@tools/helpers/feature-header.helpers.js';
+import { calculatePolygonMetrics } from '../../measurement_tool/measurement-geometry.js';
 
 /**
  * Feature type configuration with labels.
@@ -326,22 +327,96 @@ function formatMetric(value, unitSmall, unitLarge, threshold) {
  * @returns {HTMLElement|null} The measurements element, or null if not applicable
  */
 function createMeasurementsSection(feature, featureType) {
-    if (featureType !== 'circle') return null;
+    if (featureType === 'circle') {
+        const radius = feature.properties?.radius;
+        if (radius == null || radius <= 0) return null;
 
-    const radius = feature.properties?.radius;
-    if (radius == null || radius <= 0) return null;
+        const area = Math.PI * radius * radius;
+        const perimeter = 2 * Math.PI * radius;
 
-    const area = Math.PI * radius * radius;
-    const perimeter = 2 * Math.PI * radius;
+        return _buildMeasurementsContainer([
+            { label: 'Raio', value: formatMetric(radius, 'm', 'km', 1000) },
+            { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
+            { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
+        ]);
+    }
 
+    if (featureType === 'polygon') {
+        const coords = feature.properties?.baseCoordinates || feature.geometry?.coordinates?.[0];
+        if (!coords || coords.length < 3) return null;
+
+        const ring = feature.properties?.baseCoordinates ? coords : coords.slice(0, -1);
+        const { area, perimeter } = calculatePolygonMetrics(ring);
+
+        return _buildMeasurementsContainer([
+            { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
+            { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
+        ]);
+    }
+
+    if (featureType === 'ellipse') {
+        const a = feature.properties?.majorRadius;
+        const b = feature.properties?.minorRadius;
+        if (a == null || b == null || a <= 0 || b <= 0) return null;
+
+        const area = Math.PI * a * b;
+        // Ramanujan approximation for ellipse perimeter
+        const h = Math.pow(a - b, 2) / Math.pow(a + b, 2);
+        const perimeter = Math.PI * (a + b) * (1 + (3 * h) / (10 + Math.sqrt(4 - 3 * h)));
+
+        return _buildMeasurementsContainer([
+            { label: 'Semi-eixo maior', value: formatMetric(a, 'm', 'km', 1000) },
+            { label: 'Semi-eixo menor', value: formatMetric(b, 'm', 'km', 1000) },
+            { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
+            { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
+        ]);
+    }
+
+    if (featureType === 'rectangle') {
+        const w = feature.properties?.width;
+        const h = feature.properties?.height;
+        if (w == null || h == null || w <= 0 || h <= 0) return null;
+
+        const area = w * h;
+        const perimeter = 2 * (w + h);
+
+        return _buildMeasurementsContainer([
+            { label: 'Largura', value: formatMetric(w, 'm', 'km', 1000) },
+            { label: 'Altura', value: formatMetric(h, 'm', 'km', 1000) },
+            { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
+            { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
+        ]);
+    }
+
+    if (featureType === 'sector') {
+        const radius = feature.properties?.radius;
+        const aperture = feature.properties?.aperture;
+        if (radius == null || radius <= 0) return null;
+
+        const apertureRad = (aperture || 60) * Math.PI / 180;
+        const area = 0.5 * radius * radius * apertureRad;
+        const arcLength = radius * apertureRad;
+        const perimeter = arcLength + 2 * radius;
+
+        return _buildMeasurementsContainer([
+            { label: 'Raio', value: formatMetric(radius, 'm', 'km', 1000) },
+            { label: 'Abertura', value: `${aperture || 60}°` },
+            { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
+            { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
+        ]);
+    }
+
+    return null;
+}
+
+/**
+ * Builds a measurements container with label/value rows.
+ * @param {Array<{label: string, value: string}>} items - Measurement items
+ * @returns {HTMLElement} Container element
+ */
+function _buildMeasurementsContainer(items) {
     const container = document.createElement('div');
     container.className = 'feature-identification-measurements';
-
-    const items = [
-        { label: 'Raio', value: formatMetric(radius, 'm', 'km', 1000) },
-        { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
-        { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
-    ];
 
     for (const item of items) {
         const row = document.createElement('span');

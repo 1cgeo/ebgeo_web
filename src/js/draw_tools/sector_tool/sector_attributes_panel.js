@@ -5,10 +5,12 @@ import {
     createModernColorPicker,
     createModernLineStyleSelect,
     createModernHatchControl,
-    createModernButtons,
     createSectionDivider,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
+    createInitialPropertiesMap,
+    createPanelHeader,
+    createActionButtons,
+    buildShapeTabsWithLabel,
+    createFillAreaButton,
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -25,158 +27,139 @@ export function addSectorAttributesToPanel(panel, selectedFeatures, sectorContro
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
+    const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
 
-    // Header
-    if (!options.hideHeader) {
-        if (selectedFeatures.length === 1) {
-            const headerComponent = createFeatureHeaderWithOptions(
-                feature.properties.nome,
-                (newName) => {
-                    sectorControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                    uiManager.updateSelectionHighlight();
-                },
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-            panel.appendChild(headerComponent);
-        } else if (selectedFeatures.length > 1) {
-            const multiSelectHeader = document.createElement('div');
-            multiSelectHeader.className = 'feature-header-with-options';
-
-            const infoText = document.createElement('div');
-            infoText.className = 'feature-name-wrapper';
-            infoText.textContent = `${selectedFeatures.length} setores selecionados`;
-
-            const optionsButton = createFeatureOptionsButton(
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-
-            multiSelectHeader.appendChild(infoText);
-            multiSelectHeader.appendChild(optionsButton);
-            panel.appendChild(multiSelectHeader);
-        }
-    }
-
-    // Hatch control reference for color sync
-    let hatchControl = null;
-
-    // Fill color picker
-    panel.appendChild(createModernColorPicker({
-        label: 'Preenchimento',
-        value: feature.properties.fillColor,
-        onChange: (color) => {
-            sectorControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
-            if (hatchControl?.updatePreviewColor) {
-                hatchControl.updatePreviewColor(color);
-            }
-        }
-    }));
-
-    // Line color picker
-    panel.appendChild(createModernColorPicker({
-        label: 'Borda',
-        value: feature.properties.lineColor,
-        onChange: (color) => {
-            sectorControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
-        }
-    }));
-
-    // Opacity slider
-    panel.appendChild(createModernSlider({
-        label: 'Opacidade do Preenchimento',
-        min: 0,
-        max: 100,
-        step: 1,
-        value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.5) * 100),
-        unit: '%',
-        onChange: (newValue) => {
-            sectorControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
-        }
-    }));
-
-    // Border width slider
-    panel.appendChild(createModernSlider({
-        label: 'Espessura da Borda',
-        min: 1,
-        max: 10,
-        step: 1,
-        value: feature.properties.lineWidth || 2,
-        unit: 'px',
-        onChange: (newValue) => {
-            sectorControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
-        }
-    }));
-
-    // Line style selector
-    panel.appendChild(createModernLineStyleSelect({
-        value: feature.properties.lineStyle || 'solid',
-        onChange: (newValue) => {
-            sectorControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
-        }
-    }));
-
-    // Geometry section
-    panel.appendChild(createSectionDivider('Geometria'));
-
-    // Radius slider
-    panel.appendChild(createModernSlider({
-        label: 'Raio',
-        min: 10,
-        max: 100000,
-        step: 1,
-        value: Math.round(feature.properties.radius || 1000),
-        unit: 'm',
-        onChange: (value) => {
-            sectorControl.updateFeaturesProperty(selectedFeatures, 'radius', value);
-        }
-    }));
-
-    // Aperture slider
-    panel.appendChild(createModernSlider({
-        label: 'Ângulo de Abertura',
-        min: 1,
-        max: 359,
-        step: 1,
-        value: Math.round(feature.properties.aperture || 60),
-        unit: '°',
-        onChange: (value) => {
-            sectorControl.updateFeaturesProperty(selectedFeatures, 'aperture', value);
-        }
-    }));
-
-    // Fill section
-    panel.appendChild(createSectionDivider('Preenchimento'));
-
-    // Hatch control
-    hatchControl = createModernHatchControl({
-        hatchType: feature.properties.hatchType || 'none',
-        onTypeChange: (type) => {
-            sectorControl.updateHatchType(selectedFeatures, type);
-        },
-        fillColor: feature.properties.fillColor,
-        hatchSpacing: feature.properties.hatchSpacing || 8,
-        onSpacingChange: (spacing) => {
-            sectorControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);
-        },
-        hatchLineWidth: feature.properties.hatchLineWidth || 2,
-        onLineWidthChange: (width) => {
-            sectorControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
-        }
+    createPanelHeader({
+        panel,
+        features: selectedFeatures,
+        featureType: 'sector',
+        control: sectorControl,
+        selectionManager,
+        uiManager,
+        hideHeader: options.hideHeader
     });
-    panel.appendChild(hatchControl);
+
+    // Tabs (Símbolo / Etiqueta)
+    panel.appendChild(buildShapeTabsWithLabel({
+        styleLabel: 'Símbolo',
+        fillButton: selectedFeatures.length === 1 ? createFillAreaButton(() => {
+            const radius = feature.properties.radius;
+            const aperture = feature.properties.aperture || 60;
+            if (!radius || radius <= 0) return null;
+            return 0.5 * radius * radius * (aperture * Math.PI / 180);
+        }) : undefined,
+        buildStyleContent: (container) => {
+            let hatchControl = null;
+
+            // Fill color picker
+            container.appendChild(createModernColorPicker({
+                label: 'Preenchimento',
+                value: feature.properties.fillColor,
+                onChange: (color) => {
+                    sectorControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
+                    if (hatchControl?.updatePreviewColor) {
+                        hatchControl.updatePreviewColor(color);
+                    }
+                }
+            }));
+
+            // Line color picker
+            container.appendChild(createModernColorPicker({
+                label: 'Borda',
+                value: feature.properties.lineColor,
+                onChange: (color) => {
+                    sectorControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
+                }
+            }));
+
+            // Opacity slider
+            container.appendChild(createModernSlider({
+                label: 'Opacidade do Preenchimento',
+                min: 0, max: 100, step: 1,
+                value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.5) * 100),
+                unit: '%',
+                onChange: (newValue) => {
+                    sectorControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
+                }
+            }));
+
+            // Border width slider
+            container.appendChild(createModernSlider({
+                label: 'Espessura da Borda',
+                min: 1, max: 10, step: 1,
+                value: feature.properties.lineWidth || 2,
+                unit: 'px',
+                onChange: (newValue) => {
+                    sectorControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
+                }
+            }));
+
+            // Line style selector
+            container.appendChild(createModernLineStyleSelect({
+                value: feature.properties.lineStyle || 'solid',
+                onChange: (newValue) => {
+                    sectorControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
+                }
+            }));
+
+            // Geometry section
+            container.appendChild(createSectionDivider('Geometria'));
+
+            // Radius slider
+            container.appendChild(createModernSlider({
+                label: 'Raio',
+                min: 10, max: 100000, step: 1,
+                value: Math.round(feature.properties.radius || 1000),
+                unit: 'm',
+                onChange: (value) => {
+                    sectorControl.updateFeaturesProperty(selectedFeatures, 'radius', value);
+                }
+            }));
+
+            // Aperture slider
+            container.appendChild(createModernSlider({
+                label: 'Ângulo de Abertura',
+                min: 1, max: 359, step: 1,
+                value: Math.round(feature.properties.aperture || 60),
+                unit: '°',
+                onChange: (value) => {
+                    sectorControl.updateFeaturesProperty(selectedFeatures, 'aperture', value);
+                }
+            }));
+
+            // Fill section
+            container.appendChild(createSectionDivider('Preenchimento'));
+
+            // Hatch control
+            hatchControl = createModernHatchControl({
+                hatchType: feature.properties.hatchType || 'none',
+                onTypeChange: (type) => {
+                    sectorControl.updateHatchType(selectedFeatures, type);
+                },
+                fillColor: feature.properties.fillColor,
+                hatchSpacing: feature.properties.hatchSpacing || 8,
+                onSpacingChange: (spacing) => {
+                    sectorControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);
+                },
+                hatchLineWidth: feature.properties.hatchLineWidth || 2,
+                onLineWidthChange: (width) => {
+                    sectorControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
+                }
+            });
+            container.appendChild(hatchControl);
+        },
+        selectedFeatures,
+        feature,
+        control: sectorControl,
+    }));
 
     // Action buttons
-    panel.appendChild(createModernButtons({
-        selectedFeatures,
+    createActionButtons({
+        panel,
+        features: selectedFeatures,
         control: sectorControl,
         selectionManager,
         initialPropertiesMap,
-        hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => sectorControl.setDefaultProperties(feature.properties),
-        hidden: options.hideButtons
-    }));
+        hideButtons: options.hideButtons
+    });
 }

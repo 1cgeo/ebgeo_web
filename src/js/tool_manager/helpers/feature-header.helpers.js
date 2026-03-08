@@ -4,7 +4,7 @@
  * @fileoverview Feature header components for attribute panels.
  */
 
-import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, updateFeature, storeImage, getGroupManager } from '../../store';
+import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, updateFeature, storeImage, getGroupManager, getControl } from '../../store';
 import { IDUtils } from '../../utilities';
 
 // ── Arrow merge/split helpers ─────────────────────────────────────────────────
@@ -405,7 +405,6 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
         recalcButton.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            const { getControl } = await import('../../store/index.js');
             const control = getControl('AddDeclinationControl');
             if (control) {
                 await control.recalculateDeclination(currentFeature);

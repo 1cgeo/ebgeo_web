@@ -6,6 +6,7 @@ import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addSectorAttributesToPanel } from './sector_attributes_panel.js';
 import AddSectorGeometry from './add_sector_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
+import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 /**
@@ -53,17 +54,23 @@ class AddSectorControl extends BaseControl {
         hatchColor: '#000000',
         hatchSpacing: 8,
         hatchLineWidth: 2,
-        aperture: 60
+        aperture: 60,
+        ...LABEL_DEFAULT_PROPERTIES,
     };
     // ===== MAPBOX CONTROL INTERFACE =====
 
     onAdd = (map) => {
         this.map = map;
+        map.on('zoom', this._onZoomForLabels);
     }
 
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
+        if (this.map) {
+            this.map.off('zoom', this._onZoomForLabels);
+        }
+        this.#labelZoom.cleanup();
         this.map = undefined;
     }
 
@@ -394,7 +401,8 @@ class AddSectorControl extends BaseControl {
                 bearing: bearing,
                 aperture: aperture,
                 id: featureId,
-                nome: featureName
+                nome: featureName,
+                labelCreatedAtZoom: this.map.getZoom(),
             },
             geometry: this.geometry.generate(center, radius, bearing, aperture)
         };
@@ -408,6 +416,7 @@ class AddSectorControl extends BaseControl {
                 this.updateHatchPatterns(data);
             }
             this.map.getSource('setores').setData(data);
+            syncLabelSource(this.map, 'sector-labels', data);
 
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
@@ -686,6 +695,10 @@ class AddSectorControl extends BaseControl {
         );
     }
 
+    // ===== LABEL ZOOM CORRECTION =====
+    #labelZoom = createLabelZoomHandler(() => this.map, 'setores', 'sector-labels');
+    _onZoomForLabels = this.#labelZoom.handler;
+
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = async (features, property, value) => {
@@ -706,6 +719,10 @@ class AddSectorControl extends BaseControl {
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
+
+                if (LABEL_ZOOM_PROPERTIES.has(property)) {
+                    recalcLabelSize(sourceFeature, feature, this.map.getZoom());
+                }
             }
         }
 
@@ -714,6 +731,7 @@ class AddSectorControl extends BaseControl {
         }
 
         this.map.getSource('setores').setData(data);
+        syncLabelSource(this.map, 'sector-labels', data);
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
@@ -755,6 +773,7 @@ class AddSectorControl extends BaseControl {
         }
 
         this.map.getSource('setores').setData(data);
+        syncLabelSource(this.map, 'sector-labels', data);
 
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -799,6 +818,7 @@ class AddSectorControl extends BaseControl {
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('setores').setData(data);
+                syncLabelSource(this.map, 'sector-labels', data);
             } catch (error) {
                 console.error(`Error removing sector ${feature.properties.id}:`, error);
             }
@@ -812,6 +832,7 @@ class AddSectorControl extends BaseControl {
     hasFeatureChanged = (feature, initialProperties) => {
         if (!initialProperties) return true;
         return (
+            hasLabelChanged(feature, initialProperties) ||
             feature.properties.lineColor !== initialProperties.lineColor ||
             feature.properties.fillColor !== initialProperties.fillColor ||
             feature.properties.opacity !== initialProperties.opacity ||
@@ -841,7 +862,11 @@ class AddSectorControl extends BaseControl {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
                     } else {
+                        const prevCalcSize = data.features[featureIndex].properties.labelCalculatedSize;
                         data.features[featureIndex] = feature;
+                        if (prevCalcSize !== undefined) {
+                            feature.properties.labelCalculatedSize = prevCalcSize;
+                        }
                     }
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
@@ -851,6 +876,7 @@ class AddSectorControl extends BaseControl {
                 }
             }
             this.map.getSource('setores').setData(data);
+            syncLabelSource(this.map, 'sector-labels', data);
             this.updateSelectionManagerFeatures(features);
         }
     }
@@ -890,6 +916,7 @@ class AddSectorControl extends BaseControl {
             sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('setores').setData(data);
+            syncLabelSource(this.map, 'sector-labels', data);
         }
     }
 

@@ -158,6 +158,12 @@
     border-bottom: 1px solid var(--border-color);
 }
 
+.briefing-editor-slide-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
 .briefing-editor-add-slide-btn {
     width: 28px;
     height: 28px;

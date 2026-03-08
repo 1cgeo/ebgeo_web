@@ -92,6 +92,13 @@ export {
     hasLabelChanged,
     LABEL_ICON,
     STYLE_ICON,
+    LABEL_ZOOM_PROPERTIES,
+    AREA_ICON,
+    recalcLabelSize,
+    createLabelZoomHandler,
+    createFillAreaButton,
+    syncLabelSource,
+    computeShapeCentroid,
 } from './label-tab.helpers.js';
 
 // Observations editor

@@ -9,7 +9,6 @@ import {
     createInitialPropertiesMap,
     createPanelHeader,
     createActionButtons,
-    createObservationsSection,
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -107,15 +106,6 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
                 await lineControl.updateFeaturesProperty(selectedFeatures, 'profile', checked);
                 selectionManager.updateProfile();
             }
-        }));
-    }
-
-    // Per-segment observations + QAN export
-    if (selectedFeatures.length === 1) {
-        panel.appendChild(createObservationsSection({
-            feature,
-            selectedFeatures,
-            control: lineControl,
         }));
     }
 

@@ -18,7 +18,12 @@ import {
     setMapOrder,
     getLayerManager,
     getLayersRepo,
-    getGroupManager
+    getGroupManager,
+    getCesium3dDataForExport,
+    setCesium3dDataForImport,
+    getStreetview360DataForExport,
+    setStreetview360DataForImport,
+    getEmptyCesium3dData
 } from '../store';
 
 import { IDUtils } from '../utilities';
@@ -137,6 +142,13 @@ class MapManager {
             await addMap(trimmed, newMapData, originalColorUsage, originalNotes);
             await getGroupManager().duplicateMapGroups(mapName, trimmed, idMapping);
 
+            const [cesium3dData, streetview360Data] = await Promise.all([
+                getCesium3dDataForExport(mapName),
+                getStreetview360DataForExport(mapName)
+            ]);
+            if (cesium3dData) await setCesium3dDataForImport(trimmed, cesium3dData);
+            if (streetview360Data) await setStreetview360DataForImport(trimmed, streetview360Data);
+
             await setCurrentMap(trimmed);
             await this._switchBaseLayer();
 
@@ -184,6 +196,7 @@ class MapManager {
         try {
             let totalFeatures = 0;
             const layerManager = getLayerManager();
+            const combinedCesium3d = getEmptyCesium3dData();
 
             for (const mapName of selectedMapNames) {
                 const mapData = await getMapDataStore(mapName);
@@ -202,7 +215,27 @@ class MapManager {
                         totalFeatures++;
                     }
                 }
+
+                // 360: setStreetview360DataForImport merges automatically
+                const sv360Data = await getStreetview360DataForExport(mapName);
+                if (sv360Data) await setStreetview360DataForImport(targetMapName, sv360Data);
+
+                // 3D: accumulate for manual merge (setCesium3dDataForImport overwrites)
+                const c3dData = await getCesium3dDataForExport(mapName);
+                if (c3dData) {
+                    combinedCesium3d.markers.push(...(c3dData.markers || []));
+                    combinedCesium3d.measurements.push(...(c3dData.measurements || []));
+                    combinedCesium3d.viewsheds.push(...(c3dData.viewsheds || []));
+                    Object.assign(combinedCesium3d.cameraPositions, c3dData.cameraPositions || {});
+                }
             }
+
+            // Save accumulated 3D data once
+            const hasCesium3d = combinedCesium3d.markers.length
+                || combinedCesium3d.measurements.length
+                || combinedCesium3d.viewsheds.length
+                || Object.keys(combinedCesium3d.cameraPositions).length;
+            if (hasCesium3d) await setCesium3dDataForImport(targetMapName, combinedCesium3d);
 
             try {
                 await getGroupManager().combineMapGroups(selectedMapNames, targetMapName, idMappings);

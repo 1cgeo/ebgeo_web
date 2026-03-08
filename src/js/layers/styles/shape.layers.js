@@ -5,6 +5,7 @@
  */
 
 import { HatchPatternGenerator } from '../../tool_manager';
+import { syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import {
     setOrCreateSource,
     ensureSource,
@@ -65,6 +66,7 @@ function setupShapeType(map, config) {
 
     ensureSource(map, `${prefix}-feedback`);
     ensureSource(map, `${prefix}-edit-handles`);
+    ensureSource(map, `${prefix}-labels`);
 
     if (extraSources) {
         for (const id of extraSources) {
@@ -122,11 +124,11 @@ function setupShapeType(map, config) {
         filter: VISIBLE_FILTER,
     });
 
-    // Label layer (symbol at centroid)
+    // Label layer (reads from separate point source to avoid tile duplication)
     ensureLayer(map, {
         id: `${prefix}-label-layer`,
         type: 'symbol',
-        source: sourceId,
+        source: `${prefix}-labels`,
         filter: [
             'all',
             ['==', ['get', 'showLabel'], true],
@@ -136,7 +138,7 @@ function setupShapeType(map, config) {
         ],
         layout: {
             'text-field': ['get', 'labelText'],
-            'text-size': ['coalesce', ['get', 'labelSize'], 14],
+            'text-size': ['coalesce', ['get', 'labelCalculatedSize'], 14],
             'text-font': ['Noto Sans Bold'],
             'text-anchor': 'center',
             'text-allow-overlap': true,
@@ -146,7 +148,7 @@ function setupShapeType(map, config) {
             'text-color': ['coalesce', ['get', 'labelColor'], '#ffffff'],
             'text-halo-color': ['coalesce', ['get', 'labelOutlineColor'], '#000000'],
             'text-halo-width': ['coalesce', ['get', 'labelOutlineWidth'], 2],
-            'text-opacity': ['coalesce', ['get', 'opacity'], 1],
+            'text-opacity': 1,
         },
     });
 
@@ -157,6 +159,9 @@ function setupShapeType(map, config) {
         paint: handlePaint,
         filter: POINT_TYPE_FILTER,
     });
+
+    // Populate label source with centroids from initial features
+    syncLabelSource(map, `${prefix}-labels`, { type: 'FeatureCollection', features: features || [] });
 }
 
 // --- Public API -------------------------------------------------------------------

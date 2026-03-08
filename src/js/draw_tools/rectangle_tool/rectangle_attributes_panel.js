@@ -9,7 +9,8 @@ import {
     createInitialPropertiesMap,
     createPanelHeader,
     createActionButtons,
-    buildShapeTabsWithLabel
+    buildShapeTabsWithLabel,
+    createFillAreaButton,
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -40,8 +41,14 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         hideHeader: options.hideHeader
     });
 
-    // Tabs (Estilo / Etiqueta)
+    // Tabs (Símbolo / Etiqueta)
     panel.appendChild(buildShapeTabsWithLabel({
+        styleLabel: 'Símbolo',
+        fillButton: selectedFeatures.length === 1 ? createFillAreaButton(() => {
+            const w = feature.properties.width;
+            const h = feature.properties.height;
+            return (w > 0 && h > 0) ? w * h : null;
+        }) : undefined,
         buildStyleContent: (container) => {
             let hatchControl = null;
 
@@ -161,3 +168,4 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         hideButtons: options.hideButtons
     });
 }
+

@@ -6,7 +6,7 @@
  * allowing navigation to features in 3D viewer.
  */
 
-import { getAllMarkers, getAllMeasurements, getAllViewsheds, removeAllFeaturesByTileset, getControl, getAllCameraPositions, clearCameraPosition, getStateManager } from '@store';
+import { getAllMarkers, getAllMeasurements, getAllViewsheds, removeAllFeaturesByTileset, getControl, getAllCameraPositions, clearCameraPosition, getStateManager, getEventBus } from '@store';
 import { EventTypes } from '@events';
 import config from '@js/config.js';
 import { showConfirm } from '@modals';
@@ -560,7 +560,7 @@ async function navigateToMarker(marker) {
                 markerModule.flyToMarker(marker);
 
                 // Also emit the marker clicked event to open the panel
-                const { getEventBus } = await import('@store/services.js');
+
                 const eventBus = getEventBus();
                 if (eventBus) {
                     eventBus.emit(EventTypes.MARKER_3D_CLICKED, {
@@ -593,7 +593,7 @@ async function navigateToMeasurement(measurement) {
                 measurementModule.flyToMeasurement(measurement);
 
                 // Also emit the measurement clicked event to open the panel
-                const { getEventBus } = await import('@store/services.js');
+
                 const eventBus = getEventBus();
                 if (eventBus) {
                     eventBus.emit(EventTypes.MEASUREMENT_3D_CLICKED, {
@@ -626,7 +626,7 @@ async function navigateToViewshed(viewshed) {
                 viewshedModule.flyToViewshed(viewshed);
 
                 // Also emit the viewshed clicked event to open the panel
-                const { getEventBus } = await import('@store/services.js');
+
                 const eventBus = getEventBus();
                 if (eventBus) {
                     eventBus.emit(EventTypes.VIEWSHED_3D_CLICKED, {

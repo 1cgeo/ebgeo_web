@@ -38,6 +38,7 @@ import {
     reorderSlides,
     createEmptySlide,
     SlideMode,
+    getAllBriefings,
     getAllMapNamesStore,
     setCurrentMap,
     getCurrentMapNameSync,
@@ -50,10 +51,12 @@ import {
     getAllCameraPositions,
     getAllOrientations
 } from '@store/index.js';
+import { deepClone } from '@utils/deep-utils.js';
+import { generateUUID } from '@utils/uuid.js';
 import { createQuillEditor } from '@utils/quill-helpers.js';
 import { EventTypes } from '@events/event_types.js';
 import { showSuccess, showError, showWarning } from '@utils/index.js';
-import { showConfirm } from '@modals/index.js';
+import { showConfirm, showImportSlidesModal } from '@modals/index.js';
 import { getApplicationModeManager, ApplicationMode } from '@js/mode/application-mode.manager.js';
 import { getUIVisibilityController, VisibilityProfile } from '@ui/ui-visibility.controller.js';
 import { isViewer3DOpen } from '@utils/viewer3d-state.js';
@@ -101,6 +104,8 @@ const EDITOR_ICONS = {
     savedOrientations: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`,
 
     chevronDown: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
+
+    importSlides: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
 };
 
 /**
@@ -391,12 +396,24 @@ export class BriefingEditorControl {
         slidesTitle.textContent = 'Slides';
         slidesHeader.appendChild(slidesTitle);
 
+        const slidesActions = document.createElement('div');
+        slidesActions.className = 'briefing-editor-slide-actions';
+
+        const importSlidesBtn = document.createElement('button');
+        importSlidesBtn.className = 'briefing-editor-add-slide-btn';
+        importSlidesBtn.innerHTML = EDITOR_ICONS.importSlides;
+        importSlidesBtn.title = 'Importar slides de outros briefings';
+        addDomListener(this, importSlidesBtn, 'click', () => this._handleImportSlides());
+        slidesActions.appendChild(importSlidesBtn);
+
         const addSlideBtn = document.createElement('button');
         addSlideBtn.className = 'briefing-editor-add-slide-btn';
         addSlideBtn.innerHTML = EDITOR_ICONS.plus;
         addSlideBtn.title = 'Adicionar slide';
         addDomListener(this, addSlideBtn, 'click', () => this._handleAddSlide());
-        slidesHeader.appendChild(addSlideBtn);
+        slidesActions.appendChild(addSlideBtn);
+
+        slidesHeader.appendChild(slidesActions);
 
         slidesSection.appendChild(slidesHeader);
 
@@ -1553,6 +1570,86 @@ export class BriefingEditorControl {
         } catch (error) {
             console.error('Error deleting slide:', error);
             showError('Erro ao excluir slide');
+        }
+    }
+
+    /**
+     * Opens modal to import slides from other briefings.
+     * @private
+     */
+    async _handleImportSlides() {
+        try {
+            await this._flushAutosave();
+
+            const allBriefings = await getAllBriefings();
+            const availableBriefings = allBriefings
+                .filter(b => b.id !== this._briefing.id)
+                .map(b => ({
+                    id: b.id,
+                    name: b.name,
+                    slideCount: b.slides?.length || 0
+                }));
+
+            if (availableBriefings.length === 0) {
+                showWarning('Não há outros briefings para importar slides');
+                return;
+            }
+
+            showImportSlidesModal(
+                this._briefing.name,
+                availableBriefings,
+                (selectedIds) => this._importSlidesFromBriefings(selectedIds)
+            );
+        } catch (error) {
+            console.error('Error opening import slides modal:', error);
+            showError('Erro ao abrir importação de slides');
+        }
+    }
+
+    /**
+     * Copies slides from selected source briefings into the current one.
+     * @private
+     * @param {string[]} briefingIds - Source briefing IDs
+     */
+    async _importSlidesFromBriefings(briefingIds) {
+        try {
+            const sourceBriefings = await Promise.all(
+                briefingIds.map(id => getBriefingById(id))
+            );
+
+            const newSlides = [];
+            for (const sourceBriefing of sourceBriefings) {
+                if (!sourceBriefing?.slides?.length) continue;
+
+                for (const sourceSlide of sourceBriefing.slides) {
+                    const cloned = deepClone(sourceSlide);
+                    cloned.id = generateUUID();
+                    delete cloned.sync;
+                    delete cloned.order;
+                    newSlides.push(cloned);
+                }
+            }
+
+            if (newSlides.length === 0) {
+                showWarning('Nenhum slide encontrado nos briefings selecionados');
+                return;
+            }
+
+            const existingSlides = this._briefing.slides.map(s => ({ ...s }));
+            const allSlides = [...existingSlides, ...newSlides];
+            for (let i = 0; i < allSlides.length; i++) {
+                allSlides[i].order = i;
+            }
+
+            await updateBriefing(this._briefing.id, { slides: allSlides });
+
+            this._briefing = await getBriefingById(this._briefing.id);
+            this._renderSlideList();
+
+            showSuccess(`${newSlides.length} slide(s) importado(s)`);
+        } catch (error) {
+            console.error('Error importing slides:', error);
+            showError('Erro ao importar slides');
         }
     }
 

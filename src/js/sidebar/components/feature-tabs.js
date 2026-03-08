@@ -56,7 +56,7 @@ const AZIMUTES_TAB_CONFIG = {
 /**
  * Feature types that should show the Azimutes tab.
  */
-const FEATURE_TYPES_WITH_AZIMUTES = ['line'];
+const FEATURE_TYPES_WITH_AZIMUTES = ['line', 'polygon'];
 
 /**
  * Feature types that should show the Parameters tab.

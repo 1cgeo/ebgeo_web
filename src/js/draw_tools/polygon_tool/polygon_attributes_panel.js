@@ -3,7 +3,6 @@
 import {
     createModernSlider,
     createModernColorPicker,
-    createModernToggle,
     createModernLineStyleSelect,
     createModernHatchControl,
     createSectionDivider,
@@ -11,13 +10,9 @@ import {
     createPanelHeader,
     createActionButtons,
     buildShapeTabsWithLabel,
-    createObservationsSection,
+    createFillAreaButton,
 } from '../../tool_manager/helpers/index.js';
-import {
-    calculatePolygonMetrics,
-    formatAreaAuto,
-    formatDistanceAuto,
-} from '../../measurement_tool/measurement-geometry.js';
+import { calculatePolygonMetrics } from '../../measurement_tool/measurement-geometry.js';
 
 /**
  * Add polygon attributes to the attributes panel
@@ -47,8 +42,15 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
         hideHeader: options.hideHeader
     });
 
-    // Tabs (Estilo / Etiqueta)
+    // Tabs (Símbolo / Etiqueta)
     panel.appendChild(buildShapeTabsWithLabel({
+        styleLabel: 'Símbolo',
+        fillButton: selectedFeatures.length === 1 ? createFillAreaButton(() => {
+            const coords = feature.properties.baseCoordinates || feature.geometry?.coordinates?.[0];
+            if (!coords || coords.length < 3) return null;
+            const ring = feature.properties.baseCoordinates ? coords : coords.slice(0, -1);
+            return calculatePolygonMetrics(ring).area;
+        }) : undefined,
         buildStyleContent: (container) => {
             let hatchControl = null;
 
@@ -128,59 +130,11 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
                 }
             });
             container.appendChild(hatchControl);
-
-            // Measure toggle (view-only: allowed in locked mode, not persisted)
-            container.appendChild(createModernToggle({
-                label: 'Mostrar medição',
-                className: 'attr-toggle--view-only',
-                checked: feature.properties.measure === true,
-                onChange: (checked) => {
-                    polygonControl.updateFeaturesProperty(selectedFeatures, 'measure', checked);
-                }
-            }));
-
-            // Area and perimeter display (read-only)
-            if (selectedFeatures.length === 1) {
-                const coords = feature.properties.baseCoordinates || feature.geometry?.coordinates?.[0];
-                if (coords && coords.length >= 3) {
-                    // Use baseCoordinates (unclosed ring) or strip closing point from geometry
-                    const ring = feature.properties.baseCoordinates
-                        ? coords
-                        : coords.slice(0, -1);
-                    const { area, perimeter } = calculatePolygonMetrics(ring);
-
-                    container.appendChild(createSectionDivider('Medidas'));
-
-                    const measuresContainer = document.createElement('div');
-                    measuresContainer.className = 'polygon-measures';
-
-                    const areaRow = document.createElement('div');
-                    areaRow.className = 'polygon-measures__row';
-                    areaRow.innerHTML = `<span class="polygon-measures__label">Área</span><span class="polygon-measures__value">${formatAreaAuto(area)}</span>`;
-                    measuresContainer.appendChild(areaRow);
-
-                    const perimeterRow = document.createElement('div');
-                    perimeterRow.className = 'polygon-measures__row';
-                    perimeterRow.innerHTML = `<span class="polygon-measures__label">Perímetro</span><span class="polygon-measures__value">${formatDistanceAuto(perimeter)}</span>`;
-                    measuresContainer.appendChild(perimeterRow);
-
-                    container.appendChild(measuresContainer);
-                }
-            }
         },
         selectedFeatures,
         feature,
         control: polygonControl,
     }));
-
-    // Per-segment observations + QAN export
-    if (selectedFeatures.length === 1) {
-        panel.appendChild(createObservationsSection({
-            feature,
-            selectedFeatures,
-            control: polygonControl,
-        }));
-    }
 
     // Action buttons
     createActionButtons({

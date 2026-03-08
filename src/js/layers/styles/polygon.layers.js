@@ -5,6 +5,7 @@
  */
 
 import { HatchPatternGenerator } from '../../tool_manager';
+import { syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 
 /**
  * Sets up polygon layers on the map.
@@ -31,6 +32,13 @@ export function setupPolygonLayers(features, mapInstance) {
 
     if (!mapInstance.getSource('polygon-edit-handles')) {
         mapInstance.addSource('polygon-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    if (!mapInstance.getSource('polygon-labels')) {
+        mapInstance.addSource('polygon-labels', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
@@ -117,7 +125,7 @@ export function setupPolygonLayers(features, mapInstance) {
         mapInstance.addLayer({
             id: 'polygon-label-layer',
             type: 'symbol',
-            source: 'polygons',
+            source: 'polygon-labels',
             filter: [
                 'all',
                 ['==', ['get', 'showLabel'], true],
@@ -127,7 +135,7 @@ export function setupPolygonLayers(features, mapInstance) {
             ],
             layout: {
                 'text-field': ['get', 'labelText'],
-                'text-size': ['coalesce', ['get', 'labelSize'], 14],
+                'text-size': ['coalesce', ['get', 'labelCalculatedSize'], 14],
                 'text-font': ['Noto Sans Bold'],
                 'text-anchor': 'center',
                 'text-allow-overlap': true,
@@ -137,7 +145,7 @@ export function setupPolygonLayers(features, mapInstance) {
                 'text-color': ['coalesce', ['get', 'labelColor'], '#ffffff'],
                 'text-halo-color': ['coalesce', ['get', 'labelOutlineColor'], '#000000'],
                 'text-halo-width': ['coalesce', ['get', 'labelOutlineWidth'], 2],
-                'text-opacity': ['coalesce', ['get', 'opacity'], 1],
+                'text-opacity': 1,
             },
         });
     }
@@ -166,4 +174,7 @@ export function setupPolygonLayers(features, mapInstance) {
             filter: ['==', '$type', 'Point']
         });
     }
+
+    // Populate label source with centroids from initial features
+    syncLabelSource(mapInstance, 'polygon-labels', data);
 }

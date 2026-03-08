@@ -10,7 +10,8 @@ import {
     createInitialPropertiesMap,
     createPanelHeader,
     createActionButtons,
-    buildShapeTabsWithLabel
+    buildShapeTabsWithLabel,
+    createFillAreaButton,
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -41,8 +42,13 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         hideHeader: options.hideHeader
     });
 
-    // Tabs (Estilo / Etiqueta)
+    // Tabs (Símbolo / Etiqueta)
     panel.appendChild(buildShapeTabsWithLabel({
+        styleLabel: 'Símbolo',
+        fillButton: selectedFeatures.length === 1 ? createFillAreaButton(() => {
+            const r = feature.properties.radius;
+            return (r > 0) ? Math.PI * r * r : null;
+        }) : undefined,
         buildStyleContent: (container) => {
             let hatchControl = null;
 
@@ -124,3 +130,4 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         hideButtons: options.hideButtons
     });
 }
+

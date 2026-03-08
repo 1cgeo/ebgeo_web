@@ -5,7 +5,7 @@ import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addCircleAttributesToPanel } from './circle_attributes_panel.js';
 import AddCircleGeometry from './add_circle_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
-import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged } from '../../tool_manager/helpers/label-tab.helpers.js';
+import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 class AddCircleControl extends BaseControl {
     featureType = 'circle';
@@ -52,10 +52,15 @@ class AddCircleControl extends BaseControl {
     // ===== MAPBOX CONTROL INTERFACE =====
     onAdd = (map) => {
         this.map = map;
+        map.on('zoom', this._onZoomForLabels);
     }
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
+        if (this.map) {
+            this.map.off('zoom', this._onZoomForLabels);
+        }
+        this.#labelZoom.cleanup();
         this.map = undefined;
     }
     // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
@@ -327,7 +332,8 @@ class AddCircleControl extends BaseControl {
                 center: center,
                 radius: radius,
                 id: featureId,
-                nome: featureName
+                nome: featureName,
+                labelCreatedAtZoom: this.map.getZoom(),
             },
             geometry: this.geometry.generate(center, radius)
         };
@@ -340,6 +346,7 @@ class AddCircleControl extends BaseControl {
                 this.updateHatchPatterns(data);
             }
             this.map.getSource('circles').setData(data);
+            syncLabelSource(this.map, 'circle-labels', data);
 
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
@@ -582,6 +589,10 @@ class AddCircleControl extends BaseControl {
             f.properties.id === selectedFeature.properties.id
         );
     }
+    // ===== LABEL ZOOM CORRECTION =====
+    #labelZoom = createLabelZoomHandler(() => this.map, 'circles', 'circle-labels');
+    _onZoomForLabels = this.#labelZoom.handler;
+
     // ===== FEATURE MANAGEMENT INTERFACE =====
     updateFeaturesProperty = async (features, property, value) => {
         const data = await this.map.getSource('circles').getData();
@@ -596,6 +607,10 @@ class AddCircleControl extends BaseControl {
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
+
+                if (LABEL_ZOOM_PROPERTIES.has(property)) {
+                    recalcLabelSize(sourceFeature, feature, this.map.getZoom());
+                }
             }
         }
 
@@ -605,6 +620,7 @@ class AddCircleControl extends BaseControl {
         }
 
         this.map.getSource('circles').setData(data);
+        syncLabelSource(this.map, 'circle-labels', data);
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
@@ -654,6 +670,7 @@ class AddCircleControl extends BaseControl {
         }
 
         this.map.getSource('circles').setData(data);
+        syncLabelSource(this.map, 'circle-labels', data);
 
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -696,6 +713,7 @@ class AddCircleControl extends BaseControl {
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('circles').setData(data);
+                syncLabelSource(this.map, 'circle-labels', data);
             } catch (error) {
                 console.error(`Error removing circle ${feature.properties.id}:`, error);
             }
@@ -734,7 +752,11 @@ class AddCircleControl extends BaseControl {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
                     } else {
+                        const prevCalcSize = data.features[featureIndex].properties.labelCalculatedSize;
                         data.features[featureIndex] = feature;
+                        if (prevCalcSize !== undefined) {
+                            feature.properties.labelCalculatedSize = prevCalcSize;
+                        }
                     }
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
@@ -744,6 +766,7 @@ class AddCircleControl extends BaseControl {
                 }
             }
             this.map.getSource('circles').setData(data);
+            syncLabelSource(this.map, 'circle-labels', data);
             this.updateSelectionManagerFeatures(features);
         }
     }
@@ -782,6 +805,7 @@ class AddCircleControl extends BaseControl {
             sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('circles').setData(data);
+            syncLabelSource(this.map, 'circle-labels', data);
         }
     }
     updateUIAfterEdit = () => {

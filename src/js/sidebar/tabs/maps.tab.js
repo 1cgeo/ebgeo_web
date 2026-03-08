@@ -32,7 +32,7 @@ import {
 } from '@store/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { showSuccess, showError, showWarning, IDUtils } from '@utils/index.js';
-import { showPrompt, showConfirm } from '@modals/index.js';
+import { showPrompt, showConfirm, showCombineMapsModal } from '@modals/index.js';
 
 /**
  * Icons specific to maps tab.
@@ -1058,7 +1058,6 @@ export class MapsTab {
             return;
         }
 
-        const { showCombineMapsModal } = await import('../../modals/index.js');
         showCombineMapsModal(targetMapName, availableMaps, async (selectedMaps) => {
             try {
                 const result = await this._mapManager.combineSelectedMapsIntoTarget(selectedMaps, targetMapName);
