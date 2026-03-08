@@ -1,14 +1,14 @@
 // Path: tests/helpers/setup.js
-// Provides isolated test database and app instance per test suite.
-// Each suite runs in a transaction that is rolled back after all tests.
+// Provides test database and app instance per test suite.
+// The test database is created fresh by run-tests.js and dropped after all tests,
+// so no per-suite transaction isolation is needed. Each test file creates
+// unique data (via UUID-based names) to avoid conflicts with parallel files.
 
 import pg from 'pg';
 import { createApp } from '../../src/app.js';
-import { runMigrations } from '../../src/database/migrate.js';
 
 let _app = null;
 let _pool = null;
-let _migrationsRan = false;
 
 /**
  * Gets the database connection string for tests.
@@ -38,7 +38,8 @@ function ensureTestEnv() {
 
 /**
  * Initializes the test environment.
- * Runs migrations once, then wraps each suite in a savepoint.
+ * Migrations are handled by run-tests.js (or must be applied manually for test:quick).
+ * Returns a pool client for direct DB access in tests.
  */
 export async function setupTestEnv() {
   ensureTestEnv();
@@ -51,27 +52,13 @@ export async function setupTestEnv() {
     });
   }
 
-  // Run migrations once (skip if already ran by run-tests.js)
-  if (!_migrationsRan) {
-    try {
-      await runMigrations(getTestConnectionString());
-    } catch (err) {
-      // Migrations might already be applied by run-tests.js
-      if (!err.message.includes('already applied')) {
-        throw err;
-      }
-    }
-    _migrationsRan = true;
-  }
-
   // Create app if needed
   if (!_app) {
     _app = createApp();
   }
 
-  // Acquire a client and start a transaction for test isolation
+  // Acquire a client (no transaction — data is committed so the app can see it)
   const client = await _pool.connect();
-  await client.query('BEGIN');
 
   return {
     app: _app,
@@ -81,15 +68,10 @@ export async function setupTestEnv() {
 }
 
 /**
- * Rolls back the transaction and releases the client.
+ * Releases the client back to the pool.
  */
 export async function teardownTestEnv(client) {
   if (client) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (err) {
-      // Ignore rollback errors (connection might be closed)
-    }
     try {
       client.release();
     } catch (err) {
@@ -107,7 +89,6 @@ export async function destroyTestEnv() {
     _pool = null;
   }
   _app = null;
-  _migrationsRan = false;
 }
 
 /**

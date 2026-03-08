@@ -19,13 +19,15 @@ export const pullOperations = asyncHandler(async (req, res) => {
 
 // Admin endpoints for cleanup management
 export const getCleanupStats = asyncHandler(async (req, res) => {
-  const stats = await syncService.getCleanupStats(req.atlasId);
+  const atlasId = req.params.atlasId;
+  const stats = await syncService.getCleanupStats(atlasId);
   res.json({ data: stats });
 });
 
 export const cleanupOperations = asyncHandler(async (req, res) => {
+  const atlasId = req.params.atlasId;
   const { keepFromVersion, keepDays } = req.body;
-  const result = await syncService.cleanupOldOperations(req.atlasId, {
+  const result = await syncService.cleanupOldOperations(atlasId, {
     keepFromVersion: keepFromVersion ? parseInt(keepFromVersion, 10) : undefined,
     keepDays: keepDays ? parseInt(keepDays, 10) : 7,
   });

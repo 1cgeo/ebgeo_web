@@ -28,7 +28,7 @@ export const searchUsers = asyncHandler(async (req, res) => {
 // ============================================
 
 export const listUsers = asyncHandler(async (req, res) => {
-  const includeInactive = req.query.includeInactive === 'true';
+  const includeInactive = !!req.query.includeInactive;
   const users = await usersService.listUsers(includeInactive);
   res.json({ data: users });
 });

@@ -498,39 +498,50 @@ O snapshot retorna estrutura idêntica ao IndexedDB do frontend:
 
 ## Limitações Conhecidas e Gaps para Multiusuário
 
-Baseado na análise do documento `acoes-interface-multiusuario.md` do frontend, os seguintes gaps foram identificados no backend:
+Baseado na análise completa do documento `docs/acoes-interface-multiusuario.md` do frontend (277 ações em 28 seções da interface). O backend já suporta ~85% das funcionalidades multiusuário. Os gaps abaixo representam o que ainda falta implementar.
 
 ### P0 — Críticos para multiusuário funcionar
 
-| Gap | Descrição | Impacto |
-|-----|-----------|---------|
-| **Atlas delete não notifica WS** | `DELETE /atlas/:atlasId` faz soft-delete no banco mas não desconecta clientes WebSocket. Usuários conectados permanecem na sala de um atlas deletado. | Clientes ficam em estado inconsistente após deleção. |
-| **Mutações REST sem broadcast WS** | Alterações feitas via REST (`PUT /atlas`, `PATCH /atlas/settings`, `POST/DELETE sharing`) não emitem eventos WebSocket. Outros clientes não recebem essas mudanças em tempo real. | Reorder de mapas, mudança de settings, compartilhamento — nada é refletido em real-time para outros usuários. |
+| Gap | Ref. Frontend | Descrição | Impacto |
+|-----|---------------|-----------|---------|
+| **Atlas delete não notifica WS** | §1 item 4 | `DELETE /atlas/:atlasId` faz soft-delete no banco mas não desconecta clientes WebSocket. Usuários conectados permanecem na sala de um atlas deletado. Frontend espera broadcast de desconexão + redirecionamento para tela de projetos. | Clientes ficam em estado inconsistente após deleção. |
+| **Mutações REST sem broadcast WS** | §1 items 5,7,11; §24 item 8 | Alterações feitas via REST (`PUT /atlas`, `PATCH /atlas/settings`, `POST/DELETE sharing`) não emitem eventos WebSocket. Outros clientes não recebem essas mudanças em tempo real. | Reorder de mapas, mudança de settings, compartilhamento, configurações (exagero de terreno) — nada é refletido em real-time para outros usuários. |
 
 ### P1 — Funcionalidades necessárias
 
-| Gap | Descrição | Impacto |
-|-----|-----------|---------|
-| **Mover feição entre mapas** | O sync update de feature não suporta alterar `map_id`. Workaround atual (create+delete) não é atômico. | "Mover para mapa" no menu de contexto não funciona de forma confiável. |
-| **Duplicar mapa individual** | Só existe clone de atlas inteiro (`POST /atlas/:atlasId/clone`). Não há endpoint para duplicar um mapa dentro do mesmo atlas. | Item "Duplicar mapa" na sidebar fica sem backend. |
-| **Map reorder via WS** | `map_order` só é atualizado via `PUT /atlas/:atlasId` (REST), sem broadcast via WebSocket. | Reordenação de mapas por drag & drop não reflete em outros clientes. |
+| Gap | Ref. Frontend | Descrição | Impacto |
+|-----|---------------|-----------|---------|
+| **Mover feição entre mapas** | §14 item 7 | O sync update de feature não suporta alterar `map_id` (campo ausente em `UPDATE_FIELDS`). Workaround atual (create+delete) não é atômico. Frontend espera validação de permissões em ambos os mapas + broadcast em ambos. | "Mover para mapa" no menu de contexto não funciona de forma confiável. |
+| **Duplicar mapa individual** | §1 item 10 | Só existe clone de atlas inteiro (`POST /atlas/:atlasId/clone`). Não há endpoint para duplicar um mapa dentro do mesmo atlas. Frontend espera cópia com novos UUIDs + broadcast `MAP_CREATED`. | Item "Duplicar mapa" na sidebar fica sem backend. |
+| **Map reorder via WS** | §1 item 11 | `map_order` só é atualizado via `PUT /atlas/:atlasId` (REST), sem broadcast via WebSocket. | Reordenação de mapas por drag & drop não reflete em outros clientes. |
 
 ### P2 — Melhorias de UX
 
-| Gap | Descrição | Impacto |
-|-----|-----------|---------|
-| **Awareness de briefing** | Não há mensagens WS `briefing_edit_started` / `briefing_edit_ended` para indicar quem está editando um briefing. | Sem indicação visual de edição simultânea de briefing. |
+| Gap | Ref. Frontend | Descrição | Impacto |
+|-----|---------------|-----------|---------|
+| **Awareness de briefing** | §3 items 3,13; §22 item 13 | Não há mensagens WS `briefing_edit_started` / `briefing_edit_ended` para indicar quem está editando um briefing. Frontend espera broadcast ao abrir e fechar o editor. | Sem indicação visual de edição simultânea de briefing. |
 
 ### P3 — Otimizações futuras
 
-| Gap | Descrição | Impacto |
-|-----|-----------|---------|
-| **Sub-canais por mapa** | Todas as mensagens WS são broadcast para a room inteira (atlas). Cursor e seleção são enviados para todos, mesmo quem está em outro mapa. | Tráfego desnecessário em atlas com muitos mapas e usuários. |
-| **Combinar mapas (merge)** | Não há endpoint para mover feições de múltiplos mapas para um mapa destino atomicamente. | "Puxar outros mapas" na sidebar não tem backend. |
+| Gap | Ref. Frontend | Descrição | Impacto |
+|-----|---------------|-----------|---------|
+| **Sub-canais por mapa** | §Resumo, item 2 | Todas as mensagens WS são broadcast para a room inteira (atlas). Cursor e seleção são enviados para todos, mesmo quem está em outro mapa. Frontend sugere sub-canais por mapa para otimizar tráfego. | Tráfego desnecessário em atlas com muitos mapas e usuários. |
+| **Combinar mapas (merge)** | §1 item 14; §24 item 3 | Não há endpoint para mover feições de múltiplos mapas para um mapa destino atomicamente. | "Puxar outros mapas" na sidebar e modal de combinação ficam sem backend. |
 
 ### Não requer mudança no backend
 
-| Item | Justificativa |
-|------|---------------|
-| **Undo/Redo (Ctrl+Z/Y)** | Implementável 100% no frontend. O frontend gera operações inversas e envia via sync normal. O backend já suporta create↔delete e update com dados anteriores. |
-| **Operações locais (~49%)** | Zoom, pan, seleção, ferramentas — ações puramente locais sem impacto no servidor. |
+| Item | Ref. Frontend | Justificativa |
+|------|---------------|---------------|
+| **Undo/Redo (Ctrl+Z/Y)** | §16 items 1,2 | Implementável 100% no frontend. O frontend gera operações inversas e envia via sync normal. O backend já suporta create↔delete e update com dados anteriores. Pilha de undo/redo é local por usuário. |
+| **Operações locais (~137 ações, 49%)** | Todas as seções | Zoom, pan, seleção, ferramentas, exportação, navegação, configurações locais — ações puramente locais sem impacto no servidor. |
+| **Operações batch** | §2 items 13-14,19,23 | Multi-seleção (ocultar/bloquear), deletar feições de tileset/foto — resolvidas enviando múltiplas operações sync individuais. Backend já suporta array de operações. |
+| **Operações de split/merge de geometrias** | §14 items 10,11,12 | Combinar/separar setas, cortar linha — resolvidas pelo frontend gerando operações CRDT (create+delete). |
+| **Importação de arquivos geoespaciais** | §5 items 1-7 | GeoJSON, Shapefile, KML, GPX, CSV — parsing é feito no frontend, que envia operações sync com as feições resultantes. |
+
+### Estatísticas do Frontend (Ref: acoes-interface-multiusuario.md)
+
+| Categoria | Total | Local | Sync Simples | Destrutivo |
+|-----------|-------|-------|--------------|------------|
+| **TOTAL** | **~277** | **~137 (49%)** | **~125 (45%)** | **~15 (6%)** |
+
+**Nenhuma ação requer lock.** Toda resolução de conflito é last-write-wins com timestamp.

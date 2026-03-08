@@ -33,7 +33,7 @@ describe('Auth API', () => {
   it('POST /auth/login — rejects wrong password', async () => {
     await supertest(app)
       .post('/api/v1/auth/login')
-      .send({ username: user.username, password: 'wrong' })
+      .send({ username: user.username, password: 'WrongPassword123' })
       .expect(401);
   });
 

@@ -3,6 +3,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import crypto from 'crypto';
 import { join } from 'path';
+import { mkdirSync } from 'fs';
 import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { requireAtlasPermission } from '../../middleware/permissions.js';
@@ -17,6 +18,7 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const atlasId = req.params.atlasId;
     const dest = join(config.images.dir, atlasId);
+    mkdirSync(dest, { recursive: true });
     cb(null, dest);
   },
   filename: (req, file, cb) => {

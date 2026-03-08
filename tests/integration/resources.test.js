@@ -78,14 +78,11 @@ describe('Resources API', () => {
       assert.ok(res.body.data.every(r => r.category === 'analysis_layer'));
     });
 
-    it('returns empty array for non-existent category', async () => {
-      const res = await supertest(app)
+    it('rejects invalid category with validation error', async () => {
+      await supertest(app)
         .get('/api/v1/resources?category=nonexistent')
         .set('Authorization', `Bearer ${userToken}`)
-        .expect(200);
-
-      assert.ok(Array.isArray(res.body.data));
-      // May be empty or validation error depending on implementation
+        .expect(422);
     });
 
     it('requires authentication', async () => {

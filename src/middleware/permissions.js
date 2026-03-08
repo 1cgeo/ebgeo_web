@@ -2,6 +2,8 @@
 import { query } from '../database/index.js';
 import { ForbiddenError, NotFoundError } from '../utils/errors.js';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Permission hierarchy levels (higher number = more access).
  */
@@ -72,8 +74,9 @@ export function requireAtlasPermission(requiredLevel) {
       const userId = req.user?.id || null;
 
       // Fetch user's share if they have one
+      // Skip share lookup for public tokens (non-UUID user IDs)
       let share = null;
-      if (userId) {
+      if (userId && UUID_RE.test(userId)) {
         const shareResult = await query(
           `SELECT permission FROM atlas_shares WHERE atlas_id = $1 AND user_id = $2`,
           [atlasId, userId]

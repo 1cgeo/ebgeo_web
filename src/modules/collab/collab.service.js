@@ -27,7 +27,7 @@ const UPDATE_SESSION_PRESENCE = `
   UPDATE active_sessions
   SET cursor_position = $4::jsonb,
       current_map_id = $5,
-      selected_features = $6,
+      selected_features = $6::uuid[],
       last_heartbeat = NOW()
   WHERE user_id = $1 AND atlas_id = $2 AND client_id = $3
 `;

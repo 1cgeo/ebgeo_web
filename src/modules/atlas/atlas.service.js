@@ -341,7 +341,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
 
     // Update map_order
     await t.none(
-      `UPDATE atlas SET map_order = $2 WHERE id = $1`,
+      `UPDATE atlas SET map_order = $2::uuid[] WHERE id = $1`,
       [newAtlas.id, newMapOrder]
     );
 
@@ -394,7 +394,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       // Update slide_order
       if (newSlideOrder.length > 0) {
         await t.none(
-          `UPDATE briefings SET slide_order = $2 WHERE id = $1`,
+          `UPDATE briefings SET slide_order = $2::uuid[] WHERE id = $1`,
           [newBriefing.id, newSlideOrder]
         );
       }
@@ -601,7 +601,7 @@ export async function importAtlas(userId, data) {
 
     // 3. Update map_order
     if (mapIds.length > 0) {
-      await t.none(`UPDATE atlas SET map_order = $2 WHERE id = $1`, [atlasId, mapIds]);
+      await t.none(`UPDATE atlas SET map_order = $2::uuid[] WHERE id = $1`, [atlasId, mapIds]);
     }
 
     // 4. Import briefings
@@ -610,7 +610,7 @@ export async function importAtlas(userId, data) {
 
       await t.none(
         `INSERT INTO briefings (id, atlas_id, name, description, settings, slide_order)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6::uuid[])`,
         [
           briefing.id,
           atlasId,

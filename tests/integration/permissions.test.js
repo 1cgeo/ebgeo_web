@@ -64,12 +64,24 @@ describe('Permission Matrix', () => {
       .expect(200);
   });
 
-  it('owner can create features', async () => {
+  it('owner can create features via sync', async () => {
+    const { randomUUID } = await import('crypto');
     await supertest(app)
-      .post(`/api/v1/atlas/${privateAtlas.id}/maps/${privateMap.id}/features`)
+      .post(`/api/v1/atlas/${privateAtlas.id}/sync`)
       .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ feature_type: 'point', geometry: { coordinates: [0, 0] }, properties: {} })
-      .expect(201);
+      .send({
+        operations: [{
+          id: randomUUID(),
+          entityType: 'feature',
+          operationType: 'create',
+          entityId: randomUUID(),
+          mapId: privateMap.id,
+          data: { feature_type: 'point', geometry: { coordinates: [0, 0] }, properties: {} },
+          timestamp: Date.now(),
+          clientId: 'perm-test-owner',
+        }],
+      })
+      .expect(200);
   });
 
   it('owner can manage settings', async () => {
@@ -88,12 +100,24 @@ describe('Permission Matrix', () => {
       .expect(200);
   });
 
-  it('writer can create features', async () => {
+  it('writer can create features via sync', async () => {
+    const { randomUUID } = await import('crypto');
     await supertest(app)
-      .post(`/api/v1/atlas/${privateAtlas.id}/maps/${privateMap.id}/features`)
+      .post(`/api/v1/atlas/${privateAtlas.id}/sync`)
       .set('Authorization', `Bearer ${writerToken}`)
-      .send({ feature_type: 'point', geometry: { coordinates: [1, 1] }, properties: {} })
-      .expect(201);
+      .send({
+        operations: [{
+          id: randomUUID(),
+          entityType: 'feature',
+          operationType: 'create',
+          entityId: randomUUID(),
+          mapId: privateMap.id,
+          data: { feature_type: 'point', geometry: { coordinates: [1, 1] }, properties: {} },
+          timestamp: Date.now(),
+          clientId: 'perm-test-writer',
+        }],
+      })
+      .expect(200);
   });
 
   it('writer can update atlas name', async () => {
@@ -127,18 +151,30 @@ describe('Permission Matrix', () => {
       .expect(200);
   });
 
-  it('reader can list features', async () => {
+  it('reader can pull sync (read features)', async () => {
     await supertest(app)
-      .get(`/api/v1/atlas/${privateAtlas.id}/maps/${privateMap.id}/features`)
+      .get(`/api/v1/atlas/${privateAtlas.id}/sync/0`)
       .set('Authorization', `Bearer ${readerToken}`)
       .expect(200);
   });
 
-  it('reader cannot create features', async () => {
+  it('reader cannot push sync (create features)', async () => {
+    const { randomUUID } = await import('crypto');
     await supertest(app)
-      .post(`/api/v1/atlas/${privateAtlas.id}/maps/${privateMap.id}/features`)
+      .post(`/api/v1/atlas/${privateAtlas.id}/sync`)
       .set('Authorization', `Bearer ${readerToken}`)
-      .send({ feature_type: 'point', geometry: { coordinates: [0, 0] }, properties: {} })
+      .send({
+        operations: [{
+          id: randomUUID(),
+          entityType: 'feature',
+          operationType: 'create',
+          entityId: randomUUID(),
+          mapId: privateMap.id,
+          data: { feature_type: 'point', geometry: { coordinates: [0, 0] }, properties: {} },
+          timestamp: Date.now(),
+          clientId: 'perm-test-reader',
+        }],
+      })
       .expect(403);
   });
 

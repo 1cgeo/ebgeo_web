@@ -76,7 +76,7 @@ function buildDynamicUpdate(table, changes, fields, whereValues, whereClause) {
       ? JSON.stringify(changes[sourceKey])
       : changes[sourceKey];
 
-    const cast = field.jsonb ? '::jsonb' : '';
+    const cast = field.cast || (field.jsonb ? '::jsonb' : '');
     setClauses.push(`${field.column} = $${paramIndex}${cast}`);
     values.push(value);
     paramIndex++;
@@ -620,7 +620,7 @@ const UPDATE_FIELDS = {
     { column: 'name' },
     { column: 'description' },
     { column: 'settings', jsonb: true },
-    { column: 'slide_order' },
+    { column: 'slide_order', cast: '::uuid[]' },
   ],
   slide: [
     { column: 'title' },
@@ -916,7 +916,7 @@ async function applyOperation(t, atlasId, op) {
         const data = op.data;
         await t.none(`
           INSERT INTO briefings (id, atlas_id, name, description, settings, slide_order)
-          VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+          VALUES ($1, $2, $3, $4, $5::jsonb, $6::uuid[])
           ON CONFLICT (id) DO NOTHING
         `, [
           op.targetId,

@@ -10,6 +10,8 @@ import * as schemas from './atlas.schemas.js';
 import { sharingRoutes } from '../sharing/index.js';
 import { imagesRoutes } from '../images/index.js';
 import { syncRoutes } from '../sync/index.js';
+import { mapsRoutes } from '../maps/index.js';
+import { briefingsRoutes } from '../briefings/index.js';
 
 const router = Router();
 
@@ -30,9 +32,10 @@ router.patch('/:atlasId/settings', auth, requireAtlasPermission('owner'), valida
 router.post('/:atlasId/clone', auth, requireAtlasPermission('read'), validate({ body: schemas.cloneAtlasSchema }), ctrl.cloneAtlas);
 
 // Mount nested routers
-// Note: Maps and Briefings are managed via sync API only (no direct REST routes)
 router.use('/:atlasId/sharing', sharingRoutes);
 router.use('/:atlasId/images', imagesRoutes);
 router.use('/:atlasId/sync', syncRoutes);
+router.use('/:atlasId/maps', mapsRoutes);
+router.use('/:atlasId/briefings', briefingsRoutes);
 
 export { router as atlasRoutes };

@@ -1,0 +1,73 @@
+// Path: tests/unit/errors.test.js
+// Tests for custom error classes.
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  AppError, NotFoundError, ForbiddenError, UnauthorizedError,
+  ConflictError, ValidationError, BadRequestError,
+} from '../../src/utils/errors.js';
+
+describe('Error Classes', () => {
+  it('AppError sets statusCode, code, and isOperational', () => {
+    const err = new AppError('test', 500, 'TEST_ERROR');
+    assert.equal(err.message, 'test');
+    assert.equal(err.statusCode, 500);
+    assert.equal(err.code, 'TEST_ERROR');
+    assert.equal(err.isOperational, true);
+    assert.ok(err instanceof Error);
+  });
+
+  it('NotFoundError: 404, NOT_FOUND, message includes resource name', () => {
+    const err = new NotFoundError('Atlas');
+    assert.equal(err.statusCode, 404);
+    assert.equal(err.code, 'NOT_FOUND');
+    assert.equal(err.message, 'Atlas not found');
+
+    const errDefault = new NotFoundError();
+    assert.equal(errDefault.message, 'Resource not found');
+  });
+
+  it('ForbiddenError: 403, FORBIDDEN', () => {
+    const err = new ForbiddenError();
+    assert.equal(err.statusCode, 403);
+    assert.equal(err.code, 'FORBIDDEN');
+    assert.equal(err.message, 'Insufficient permissions');
+
+    const errCustom = new ForbiddenError('Access denied');
+    assert.equal(errCustom.message, 'Access denied');
+  });
+
+  it('UnauthorizedError: 401, UNAUTHORIZED', () => {
+    const err = new UnauthorizedError();
+    assert.equal(err.statusCode, 401);
+    assert.equal(err.code, 'UNAUTHORIZED');
+    assert.equal(err.message, 'Authentication required');
+  });
+
+  it('ConflictError: 409, CONFLICT', () => {
+    const err = new ConflictError('Duplicate');
+    assert.equal(err.statusCode, 409);
+    assert.equal(err.code, 'CONFLICT');
+    assert.equal(err.message, 'Duplicate');
+  });
+
+  it('ValidationError: 422, VALIDATION_ERROR with details', () => {
+    const details = [{ field: 'name', message: 'required' }];
+    const err = new ValidationError('Bad data', details);
+    assert.equal(err.statusCode, 422);
+    assert.equal(err.code, 'VALIDATION_ERROR');
+    assert.deepEqual(err.details, details);
+
+    const errDefault = new ValidationError();
+    assert.equal(errDefault.message, 'Validation failed');
+    assert.equal(errDefault.details, null);
+  });
+
+  it('BadRequestError: 400, BAD_REQUEST', () => {
+    const err = new BadRequestError();
+    assert.equal(err.statusCode, 400);
+    assert.equal(err.code, 'BAD_REQUEST');
+    assert.equal(err.message, 'Bad request');
+  });
+});

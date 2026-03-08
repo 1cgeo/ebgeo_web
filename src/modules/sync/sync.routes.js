@@ -9,12 +9,12 @@ import * as schemas from './sync.schemas.js';
 
 const router = Router({ mergeParams: true });
 
+// Admin cleanup endpoints (must come before /:version to avoid catch-all)
+router.get('/admin/stats', auth, requireAdmin, ctrl.getCleanupStats);
+router.post('/admin/cleanup', auth, requireAdmin, validate({ body: schemas.cleanupSchema }), ctrl.cleanupOperations);
+
 // Sync operations
 router.post('/', auth, requireAtlasPermission('write'), ctrl.pushOperations);
 router.get('/:version', auth, requireAtlasPermission('read'), ctrl.pullOperations);
-
-// Admin cleanup endpoints
-router.get('/admin/stats', auth, requireAdmin, ctrl.getCleanupStats);
-router.post('/admin/cleanup', auth, requireAdmin, validate({ body: schemas.cleanupSchema }), ctrl.cleanupOperations);
 
 export { router as syncRoutes };

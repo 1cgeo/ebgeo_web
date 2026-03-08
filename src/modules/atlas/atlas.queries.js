@@ -29,7 +29,7 @@ export const UPDATE_ATLAS = `
   UPDATE atlas
   SET name = COALESCE($2, name),
       description = COALESCE($3, description),
-      map_order = COALESCE($4, map_order),
+      map_order = COALESCE($4::uuid[], map_order),
       updated_at = NOW(),
       version = version + 1
   WHERE id = $1 AND deleted_at IS NULL

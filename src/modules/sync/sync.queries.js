@@ -97,7 +97,6 @@ export const UPDATE_ATLAS_MIN_VERSION = `
   UPDATE atlas
   SET min_version = $2, updated_at = NOW()
   WHERE id = $1
-  RETURNING min_version
 `;
 
 export const GET_OLDEST_OPERATION_VERSION = `

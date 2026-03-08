@@ -66,7 +66,7 @@ async function migrate() {
 async function runTests() {
   console.log(`\n🧪 Running tests${withCoverage ? ' with coverage' : ''}...\n`);
 
-  const nodeArgs = ['--test'];
+  const nodeArgs = ['--test', '--test-force-exit', '--test-concurrency=1', '--test-timeout=30000'];
 
   if (withCoverage) {
     nodeArgs.push('--experimental-test-coverage');
