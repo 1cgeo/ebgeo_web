@@ -3,6 +3,12 @@
 import { BaseGeometry } from '../../tool_manager';
 import { pixelsToDegrees } from '../../utilities/geometry-utils.js';
 
+/** Scale factor for point visual diameter in pixels (circle-radius → diameter). */
+const POINT_DIAMETER_SCALE = 2;
+
+/** Default padding around selection box in pixels. */
+const SELECTION_BOX_PADDING = 2;
+
 /**
  * Point Geometry Operations
  * Handles all geometric calculations for point features
@@ -159,30 +165,55 @@ class AddPointGeometry extends BaseGeometry {
     }
 
     /**
-     * Calculate selection box for point with padding
-     * @param {Array} coordinates - Point coordinates
-     * @param {number} paddingPixels - Padding in pixels
-     * @param {number} zoom - Current zoom level
+     * Calculate selection box geometry for a point using the same approach as
+     * image/military symbol: convert base pixel dimensions at createdAtZoom
+     * so the geographic box scales in sync with zoom-corrected rendering.
+     * @param {Array} coordinates - Point coordinates [lng, lat]
+     * @param {number} size - Base point size (circle-radius in pixels)
+     * @param {number} lineWidth - Border width in pixels
+     * @param {number} createdAtZoom - Zoom level when point was created
+     * @param {number} [effectiveZoom] - Optional zoom override (used when zoom correction is disabled)
      * @returns {Object|null} GeoJSON Polygon geometry for selection box or null if invalid
      */
-    createSelectionBoxGeometry(coordinates, paddingPixels, zoom) {
+    calculateSelectionBoxGeometry(coordinates, size, lineWidth, createdAtZoom, effectiveZoom = null) {
         if (!this.validate(coordinates)) {
             return null;
         }
 
-        const latitude = coordinates[1];
-        const paddingDegrees = pixelsToDegrees(paddingPixels, latitude, zoom);
+        const diameter = size * POINT_DIAMETER_SCALE + (lineWidth || 0);
+        const totalSize = diameter + SELECTION_BOX_PADDING * 2;
+
+        const centerLat = coordinates[1];
+        const zoomForCalculation = effectiveZoom !== null ? effectiveZoom : createdAtZoom;
+        const halfExtent = pixelsToDegrees(totalSize, centerLat, zoomForCalculation) / 2;
 
         return {
             type: 'Polygon',
             coordinates: [[
-                [coordinates[0] - paddingDegrees, coordinates[1] - paddingDegrees],
-                [coordinates[0] + paddingDegrees, coordinates[1] - paddingDegrees],
-                [coordinates[0] + paddingDegrees, coordinates[1] + paddingDegrees],
-                [coordinates[0] - paddingDegrees, coordinates[1] + paddingDegrees],
-                [coordinates[0] - paddingDegrees, coordinates[1] - paddingDegrees]
+                [coordinates[0] - halfExtent, coordinates[1] + halfExtent],
+                [coordinates[0] + halfExtent, coordinates[1] + halfExtent],
+                [coordinates[0] + halfExtent, coordinates[1] - halfExtent],
+                [coordinates[0] - halfExtent, coordinates[1] - halfExtent],
+                [coordinates[0] - halfExtent, coordinates[1] + halfExtent]
             ]]
         };
+    }
+
+    /**
+     * Recalculate selection box for a point feature.
+     * @param {Object} feature - Point feature
+     * @param {number} [currentZoom] - Current map zoom (used when zoom correction is disabled)
+     * @returns {Object|null} Updated selection box geometry
+     */
+    recalculateSelectionBox(feature, currentZoom = null) {
+        const effectiveZoom = feature.properties.sizeZoomCorrectionEnabled === false ? currentZoom : null;
+        return this.calculateSelectionBoxGeometry(
+            feature.geometry.coordinates,
+            feature.properties.size || 10,
+            feature.properties.lineWidth || 0,
+            feature.properties.sizeCreatedAtZoom || 0,
+            effectiveZoom
+        );
     }
 
 }

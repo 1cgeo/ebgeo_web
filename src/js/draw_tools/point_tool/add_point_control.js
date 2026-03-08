@@ -9,8 +9,17 @@ import { LABEL_ZOOM_PROPERTIES, recalcLabelSize } from '../../tool_manager/helpe
 import { getSnappingService } from '../../snapping/snapping.service.js';
 import { generatePointImage, needsPerFeatureImage } from './point-marker-symbols.js';
 
+/** Maximum circle-radius (in pixels) for zoom-corrected points. */
+const MAX_POINT_RADIUS = 500;
+
+/** Maximum label text-size (in pixels) for zoom-corrected labels. */
+const MAX_LABEL_SIZE = 255;
+
 /** Properties that trigger size recalculation when changed. */
 const SIZE_ZOOM_PROPERTIES = new Set(['sizeZoomCorrectionEnabled', 'sizeCreatedAtZoom', 'size']);
+
+/** Properties that trigger selection box recalculation. */
+const SELECTION_BOX_PROPERTIES = new Set(['sizeZoomCorrectionEnabled', 'sizeCreatedAtZoom', 'size', 'lineWidth']);
 
 /** Properties that require per-feature image regeneration. */
 const IMAGE_REGEN_PROPERTIES = new Set(['fillColor', 'lineColor', 'lineWidth', 'markerSymbol']);
@@ -28,7 +37,7 @@ function recalcPointSize(sourceFeature, selectedFeature, currentZoom) {
         newCalc = size;
     } else {
         const diff = currentZoom - (sourceFeature.properties.sizeCreatedAtZoom || 0);
-        newCalc = size * Math.pow(2, diff);
+        newCalc = Math.min(size * Math.pow(2, diff), MAX_POINT_RADIUS);
     }
     sourceFeature.properties.calculatedSize = newCalc;
     selectedFeature.properties.calculatedSize = newCalc;
@@ -103,6 +112,7 @@ class AddPointControl extends BaseControl {
         sizeZoomCorrectionEnabled: true,
         sizeCreatedAtZoom: 0,
         calculatedSize: 10,
+        selectionBox: null,
     };
 
     // ===== MAPBOX CONTROL INTERFACE =====
@@ -130,9 +140,20 @@ class AddPointControl extends BaseControl {
                 let newCalcSize;
                 if (props.sizeZoomCorrectionEnabled === false) {
                     newCalcSize = size;
+
+                    // Recalculate selection box for features with zoom correction disabled
+                    const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+                        feature.geometry.coordinates,
+                        size,
+                        props.lineWidth || 0,
+                        props.sizeCreatedAtZoom || 0,
+                        currentZoom
+                    );
+                    props.selectionBox = newSelectionBox;
+                    hasChanges = true;
                 } else {
                     const diff = currentZoom - (props.sizeCreatedAtZoom || 0);
-                    newCalcSize = size * Math.pow(2, diff);
+                    newCalcSize = Math.min(size * Math.pow(2, diff), MAX_POINT_RADIUS);
                 }
                 if (props.calculatedSize !== newCalcSize) {
                     props.calculatedSize = newCalcSize;
@@ -151,7 +172,7 @@ class AddPointControl extends BaseControl {
                         newCalcLabel = labelSize;
                     } else {
                         const diff = currentZoom - props.labelCreatedAtZoom;
-                        newCalcLabel = labelSize * Math.pow(2, diff);
+                        newCalcLabel = Math.min(labelSize * Math.pow(2, diff), MAX_LABEL_SIZE);
                     }
                     if (props.labelCalculatedSize !== newCalcLabel) {
                         props.labelCalculatedSize = newCalcLabel;
@@ -172,6 +193,12 @@ class AddPointControl extends BaseControl {
                             selFeature.properties.calculatedSize = srcFeature.properties.calculatedSize;
                             if (srcFeature.properties.labelCalculatedSize !== undefined) {
                                 selFeature.properties.labelCalculatedSize = srcFeature.properties.labelCalculatedSize;
+                            }
+                            if (srcFeature.properties.sizeZoomCorrectionEnabled === false) {
+                                selFeature.properties.selectionBox = srcFeature.properties.selectionBox;
+                                if (this.selectionManager.uiManager?.invalidateCache) {
+                                    this.selectionManager.uiManager.invalidateCache(id);
+                                }
                             }
                         }
                     }
@@ -200,6 +227,53 @@ class AddPointControl extends BaseControl {
         this.map = undefined;
     }
 
+    // ===== ZOOM CORRECTION (initial load) =====
+
+    /**
+     * Apply zoom corrections to point features loaded from persistence.
+     * Called by setupPointLayers to ensure calculatedSize and labelCalculatedSize
+     * match the current zoom level on load (mirrors image/military symbol pattern).
+     * @param {Array} features - Point GeoJSON features
+     * @returns {Array} Features with corrected calculatedSize/labelCalculatedSize
+     */
+    applyZoomCorrections = (features) => {
+        if (!features || !Array.isArray(features)) return [];
+        const currentZoom = this.map.getZoom();
+
+        return features.map(feature => {
+            const props = feature.properties;
+            const size = props.size || 10;
+
+            let calculatedSize;
+            if (props.sizeZoomCorrectionEnabled === false) {
+                calculatedSize = size;
+            } else {
+                const diff = currentZoom - (props.sizeCreatedAtZoom || 0);
+                calculatedSize = Math.min(size * Math.pow(2, diff), MAX_POINT_RADIUS);
+            }
+
+            let labelCalculatedSize = props.labelCalculatedSize;
+            if (props.showLabel) {
+                const labelSize = props.labelSize || 14;
+                if (props.labelZoomCorrectionEnabled === false) {
+                    labelCalculatedSize = labelSize;
+                } else {
+                    const diff = currentZoom - (props.labelCreatedAtZoom || currentZoom);
+                    labelCalculatedSize = Math.min(labelSize * Math.pow(2, diff), MAX_LABEL_SIZE);
+                }
+            }
+
+            return {
+                ...feature,
+                properties: {
+                    ...props,
+                    calculatedSize,
+                    labelCalculatedSize,
+                },
+            };
+        });
+    };
+
     // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
 
     hasAttributePanel() {
@@ -227,26 +301,28 @@ class AddPointControl extends BaseControl {
     }
 
     createSelectionBox(feature) {
-        try {
-            const coordinates = feature.geometry.coordinates;
-            const zoom = this.map.getZoom();
-            const calcSize = feature?.properties?.calculatedSize || feature?.properties?.size || 10;
-            const lineWidth = feature?.properties?.lineWidth || 0;
-            const paddingPixels = this.getSelectionBoxPadding() + calcSize + lineWidth;
-
-            return this.geometry.createSelectionBoxGeometry(coordinates, paddingPixels, zoom);
-        } catch (error) {
-            console.warn('Error creating point selection box:', error);
-            return null;
+        if (feature.properties.selectionBox) {
+            return { geometry: feature.properties.selectionBox };
         }
+
+        const effectiveZoom = feature.properties.sizeZoomCorrectionEnabled === false ? this.map.getZoom() : null;
+        const selectionBox = this.geometry.calculateSelectionBoxGeometry(
+            feature.geometry.coordinates,
+            feature.properties.size || 10,
+            feature.properties.lineWidth || 0,
+            feature.properties.sizeCreatedAtZoom || 0,
+            effectiveZoom
+        );
+
+        return { geometry: selectionBox };
     }
 
     getSelectionBoxStrategy() {
-        return 'custom';
+        return 'preCalculated';
     }
 
     getSelectionBoxPadding() {
-        return 15;
+        return 5;
     }
 
     getLayerIds() {
@@ -276,11 +352,24 @@ class AddPointControl extends BaseControl {
             offset.dy
         );
 
+        const effectiveZoom = feature.properties.sizeZoomCorrectionEnabled === false ? this.map.getZoom() : null;
+        const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+            newCoordinates,
+            feature.properties.size || 10,
+            feature.properties.lineWidth || 0,
+            feature.properties.sizeCreatedAtZoom || 0,
+            effectiveZoom
+        );
+
         return {
             ...feature,
             geometry: {
                 ...feature.geometry,
                 coordinates: newCoordinates
+            },
+            properties: {
+                ...feature.properties,
+                selectionBox: newSelectionBox,
             }
         };
     }
@@ -304,11 +393,24 @@ class AddPointControl extends BaseControl {
             dy
         );
 
+        const effectiveZoom = feature.properties.sizeZoomCorrectionEnabled === false ? this.map.getZoom() : null;
+        const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+            newCoordinates,
+            feature.properties.size || 10,
+            feature.properties.lineWidth || 0,
+            feature.properties.sizeCreatedAtZoom || 0,
+            effectiveZoom
+        );
+
         return {
             ...feature,
             geometry: {
                 ...feature.geometry,
                 coordinates: newCoordinates
+            },
+            properties: {
+                ...feature.properties,
+                selectionBox: newSelectionBox,
             }
         };
     }
@@ -351,7 +453,39 @@ class AddPointControl extends BaseControl {
         return false;
     }
 
-    syncEditHandlesAfterDrag = (_movedFeatures) => {
+    syncEditHandlesAfterDrag = async (movedFeatures) => {
+        if (!movedFeatures?.length) return;
+
+        const data = await this.map.getSource('points').getData();
+        let hasChanges = false;
+
+        for (const inputFeature of movedFeatures) {
+            if (inputFeature.properties.source !== 'point') continue;
+
+            const sourceFeature = data.features.find(
+                f => f.properties.id === inputFeature.properties.id
+            );
+            if (!sourceFeature) continue;
+
+            const effectiveZoom = sourceFeature.properties.sizeZoomCorrectionEnabled === false
+                ? this.map.getZoom() : null;
+            const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+                sourceFeature.geometry.coordinates,
+                sourceFeature.properties.size || 10,
+                sourceFeature.properties.lineWidth || 0,
+                sourceFeature.properties.sizeCreatedAtZoom || 0,
+                effectiveZoom
+            );
+            sourceFeature.properties.selectionBox = newSelectionBox;
+            hasChanges = true;
+        }
+
+        if (hasChanges) {
+            this.map.getSource('points').setData(data);
+            this.updateSelectionManagerFeatures(movedFeatures);
+            this.selectionManager.uiManager?.invalidateCache?.();
+            this.selectionManager.uiManager?.updateSelectionHighlight?.();
+        }
     }
 
     // ===== DRAWING SYSTEM =====
@@ -401,21 +535,29 @@ class AddPointControl extends BaseControl {
         const featureName = await IDUtils.generateFeatureName('point', this.map);
 
         const currentZoom = this.map.getZoom();
+        const defaults = AddPointControl.DEFAULT_PROPERTIES;
         const feature = {
             type: 'Feature',
             id: geoJsonId,
             properties: {
-                ...AddPointControl.DEFAULT_PROPERTIES,
+                ...defaults,
                 layerId: getActiveLayerIdSync(),
                 id: featureId,
                 nome: featureName,
                 labelCreatedAtZoom: currentZoom,
-                labelCalculatedSize: AddPointControl.DEFAULT_PROPERTIES.labelSize,
+                labelCalculatedSize: defaults.labelSize,
                 sizeCreatedAtZoom: currentZoom,
-                calculatedSize: AddPointControl.DEFAULT_PROPERTIES.size,
+                calculatedSize: defaults.size,
             },
             geometry: this.geometry.generate(coordinates)
         };
+
+        feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
+            coordinates,
+            defaults.size,
+            defaults.lineWidth,
+            currentZoom
+        );
 
         // Register per-feature image if non-circle marker
         const markerSymbol = feature.properties.markerSymbol;
@@ -469,6 +611,20 @@ class AddPointControl extends BaseControl {
 
                 if (SIZE_ZOOM_PROPERTIES.has(property)) {
                     recalcPointSize(sourceFeature, feature, this.map.getZoom());
+                }
+
+                if (SELECTION_BOX_PROPERTIES.has(property)) {
+                    const effectiveZoom = sourceFeature.properties.sizeZoomCorrectionEnabled === false
+                        ? this.map.getZoom() : null;
+                    const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+                        sourceFeature.geometry.coordinates,
+                        sourceFeature.properties.size || 10,
+                        sourceFeature.properties.lineWidth || 0,
+                        sourceFeature.properties.sizeCreatedAtZoom || 0,
+                        effectiveZoom
+                    );
+                    sourceFeature.properties.selectionBox = newSelectionBox;
+                    feature.properties.selectionBox = newSelectionBox;
                 }
 
                 // Regenerate per-feature image when visual properties change
@@ -601,10 +757,10 @@ class AddPointControl extends BaseControl {
                         const prevLabelCalcSize = data.features[featureIndex].properties.labelCalculatedSize;
                         const prevCalcSize = data.features[featureIndex].properties.calculatedSize;
                         data.features[featureIndex] = feature;
-                        if (prevLabelCalcSize !== undefined) {
+                        if (prevLabelCalcSize !== undefined && feature.properties.labelCalculatedSize === undefined) {
                             feature.properties.labelCalculatedSize = prevLabelCalcSize;
                         }
-                        if (prevCalcSize !== undefined) {
+                        if (prevCalcSize !== undefined && feature.properties.calculatedSize === undefined) {
                             feature.properties.calculatedSize = prevCalcSize;
                         }
                     }

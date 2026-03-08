@@ -7,6 +7,7 @@ import {
 } from './layer.helpers.js';
 import { LAYER_ADDITIONAL_FILTERS } from '../layer.constants.js';
 import { POINT_IMAGE_HALF_SIZE } from '../../draw_tools/point_tool/point-marker-symbols.js';
+import { getControl } from '../../store';
 
 /** Filter for circle-type markers (default or explicit 'circle'). */
 const CIRCLE_MARKER_FILTER = [
@@ -28,7 +29,12 @@ const MARKER_FILTER = [
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupPointLayers(features, mapInstance) {
-    setOrCreateSource(mapInstance, 'points', features.points || []);
+    const pointControl = getControl('AddPointControl');
+    const correctedPoints = pointControl
+        ? pointControl.applyZoomCorrections(features.points || [])
+        : (features.points || []);
+
+    setOrCreateSource(mapInstance, 'points', correctedPoints);
     ensureSource(mapInstance, 'point-feedback');
 
     // Circle markers (default symbol or no symbol set)
