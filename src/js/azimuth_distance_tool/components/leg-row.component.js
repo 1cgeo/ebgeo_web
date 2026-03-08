@@ -7,7 +7,7 @@
  * @module azimuth_distance_tool/components/leg-row
  */
 
-import { ANGULAR_UNIT, DISTANCE_UNIT, MILS_PER_CIRCLE, DEGREES_PER_CIRCLE } from '../azimuth_distance_constants.js';
+import { ANGULAR_UNIT, DISTANCE_UNIT, MILS_PER_CIRCLE, DEGREES_PER_CIRCLE, VALIDATION } from '../azimuth_distance_constants.js';
 import { calculateContraAzimuth } from '../azimuth_distance_geometry.js';
 
 /**
@@ -107,6 +107,27 @@ export function createLegRow(options) {
         onChange,
         onFocus
     }));
+
+    // Observation input
+    const obsInput = document.createElement('input');
+    obsInput.type = 'text';
+    obsInput.className = 'azd-leg-obs-input';
+    obsInput.placeholder = 'Obs';
+    obsInput.title = 'Observação';
+    obsInput.maxLength = VALIDATION.MAX_OBSERVATION_LENGTH;
+    obsInput.value = leg.observation || '';
+
+    obsInput.addEventListener('input', (e) => {
+        e.stopPropagation();
+        onChange(index, 'observation', e.target.value);
+    });
+
+    obsInput.addEventListener('focus', (e) => {
+        e.stopPropagation();
+        onFocus(index);
+    });
+
+    row.appendChild(obsInput);
 
     // Remove button
     const removeBtn = document.createElement('button');
@@ -233,6 +254,11 @@ export function createLegsTable(options) {
         distHeader.className = 'azd-legs-header__label';
         distHeader.textContent = 'Dist\u00E2ncia';
         headers.appendChild(distHeader);
+
+        const obsHeader = document.createElement('div');
+        obsHeader.className = 'azd-legs-header__label azd-legs-header__label--obs';
+        obsHeader.textContent = 'Obs';
+        headers.appendChild(obsHeader);
 
         const spacer3 = document.createElement('div');
         spacer3.className = 'azd-legs-header__spacer';

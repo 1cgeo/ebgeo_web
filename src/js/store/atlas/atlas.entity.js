@@ -9,7 +9,7 @@ import { createSyncMetadata, isValidSyncMetadata } from '../sync/sync-metadata.j
 import { generateUUID } from '../../utilities/uuid.js';
 
 /** Current Atlas schema version. Increment on breaking changes to Atlas structure. */
-export const ATLAS_SCHEMA_VERSION = '2.0';
+export const ATLAS_SCHEMA_VERSION = '2.1';
 
 /** @type {number} Default terrain exaggeration multiplier */
 export const DEFAULT_TERRAIN_EXAGGERATION = 1.5;

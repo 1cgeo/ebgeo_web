@@ -43,6 +43,7 @@ export const SnapType = Object.freeze({
  */
 export const SNAPPABLE_LAYER_IDS = [
     'point-layer',
+    'point-marker-layer',
     'line-layer',
     'polygon-fill-layer',
     'polygon-layer',

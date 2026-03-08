@@ -15,6 +15,7 @@ import { renderAttributesContent } from '@js/user_data/attributes_tab_renderer.j
 export const FEATURE_TAB_IDS = {
     STYLE: 'estilo',
     AZIMUTES: 'azimutes',
+    COORDINATES: 'coordenadas',
     PARAMETERS: 'parametros',
     ATTRIBUTES: 'atributos'
 };
@@ -54,9 +55,23 @@ const AZIMUTES_TAB_CONFIG = {
 };
 
 /**
+ * Coordinates tab configuration (vertex coordinates for shapes without azimutes).
+ */
+const COORDINATES_TAB_CONFIG = {
+    id: FEATURE_TAB_IDS.COORDINATES,
+    label: 'Coordenadas',
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`
+};
+
+/**
  * Feature types that should show the Azimutes tab.
  */
 const FEATURE_TYPES_WITH_AZIMUTES = ['line', 'polygon'];
+
+/**
+ * Feature types that should show the Coordinates tab (no azimutes, just vertex coords).
+ */
+const FEATURE_TYPES_WITH_COORDINATES = ['rectangle', 'arrow'];
 
 /**
  * Feature types that should show the Parameters tab.
@@ -85,6 +100,14 @@ function getTabsConfig(featureType) {
             BASE_TABS_CONFIG[1]  // Attributes
         ];
     }
+    if (FEATURE_TYPES_WITH_COORDINATES.includes(featureType)) {
+        // Insert Coordinates tab between Style and Attributes
+        return [
+            BASE_TABS_CONFIG[0], // Style
+            COORDINATES_TAB_CONFIG, // Coordinates
+            BASE_TABS_CONFIG[1]  // Attributes
+        ];
+    }
     return BASE_TABS_CONFIG;
 }
 
@@ -107,6 +130,7 @@ export function createFeatureTabs(options) {
     const tabsConfig = getTabsConfig(featureType);
     const hasParametersTab = FEATURE_TYPES_WITH_PARAMETERS.includes(featureType);
     const hasAzimutesTab = FEATURE_TYPES_WITH_AZIMUTES.includes(featureType);
+    const hasCoordinatesTab = FEATURE_TYPES_WITH_COORDINATES.includes(featureType);
 
     // For multi-selection, return simple container without tabs
     if (!singleSelection) {
@@ -116,6 +140,7 @@ export function createFeatureTabs(options) {
             container: simpleContainer,
             styleTab: simpleContainer,
             azimutesTab: null,
+            coordinatesTab: null,
             parametersTab: hasParametersTab ? simpleContainer : null,
             attributesTab: null,
             cleanup: () => {},
@@ -218,6 +243,7 @@ export function createFeatureTabs(options) {
         container,
         styleTab: tabContents[FEATURE_TAB_IDS.STYLE],
         azimutesTab: hasAzimutesTab ? tabContents[FEATURE_TAB_IDS.AZIMUTES] : null,
+        coordinatesTab: hasCoordinatesTab ? tabContents[FEATURE_TAB_IDS.COORDINATES] : null,
         parametersTab: tabContents[FEATURE_TAB_IDS.PARAMETERS] || null,
         attributesTab: tabContents[FEATURE_TAB_IDS.ATTRIBUTES],
         cleanup,

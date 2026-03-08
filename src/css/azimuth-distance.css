@@ -416,6 +416,7 @@
 
 .azd-legs-header__spacer {
     width: 28px;
+    flex-shrink: 0;
 }
 
 .azd-legs-header__label {
@@ -514,6 +515,36 @@
 
 .azd-leg-suffix--dist {
     width: 20px;
+}
+
+/* ===== LEG OBSERVATION INPUT ===== */
+.azd-leg-obs-input {
+    width: 60px;
+    min-width: 50px;
+    flex-shrink: 0;
+    padding: 6px;
+    border: 1px solid var(--gray-300, #d1d5db);
+    border-radius: 4px;
+    font-size: 11px;
+    outline: none;
+    background: white;
+    color: var(--gray-900, #111827);
+}
+
+.azd-leg-obs-input:focus {
+    border-color: var(--primary-500, #22c55e);
+    box-shadow: 0 0 0 2px var(--primary-100, #dcfce7);
+}
+
+.azd-leg-obs-input::placeholder {
+    color: var(--gray-400, #9ca3af);
+}
+
+/* ===== LEG HEADER OBS LABEL ===== */
+.azd-legs-header__label--obs {
+    width: 60px;
+    min-width: 50px;
+    flex: none;
 }
 
 /* ===== CONTRA-AZIMUTH BUTTON ===== */

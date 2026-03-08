@@ -127,10 +127,9 @@ class AddTextGeometry extends BaseGeometry {
         const HANDLE_PADDING_PX = 12;
         const offsetPixels = (width / 2) + HANDLE_PADDING_PX;
 
-        // Use createdAtZoom for zoom-corrected text, current zoom otherwise
-        const zoom = feature.properties.zoomCorrectionEnabled !== false
-            ? feature.properties.createdAtZoom
-            : (mapZoom || feature.properties.createdAtZoom);
+        // Always use current map zoom — the handle is a screen-space UI element
+        // that must stay at a fixed pixel distance from the text center
+        const zoom = mapZoom || feature.properties.createdAtZoom;
 
         const latitude = coordinates[1];
         const offsetDegrees = pixelsToDegrees(offsetPixels, latitude, zoom);

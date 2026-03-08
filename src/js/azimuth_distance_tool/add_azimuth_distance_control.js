@@ -447,6 +447,8 @@ class AddAzimuthDistanceControl extends BaseControl {
             legs: storedLegs
         };
 
+        const legObservations = storedLegs.map(leg => leg.observation);
+
         const features = await generatePointFeatures({
             waypoints,
             generateIds: () => IDUtils.generateFeatureIds(),
@@ -457,7 +459,8 @@ class AddAzimuthDistanceControl extends BaseControl {
                 size: 10,
                 opacity: 1
             },
-            polarData
+            polarData,
+            observations: legObservations
         });
 
         if (features.length === 0) {

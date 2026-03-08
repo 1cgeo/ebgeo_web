@@ -10,6 +10,7 @@
 import localforage from 'localforage';
 import { ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
 import { migrateToV2 } from './v1-to-v2.migration.js';
+import { migrateToV2_1 } from './v2-to-v2.1.migration.js';
 
 const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
 const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
@@ -87,13 +88,18 @@ export async function safelyMigrate() {
     console.log(`Migration needed: ${currentVersion} -> ${ATLAS_SCHEMA_VERSION}`);
 
     try {
-        await migrateToV2();
+        if (compareVersions(currentVersion, '2.0') < 0) {
+            await migrateToV2();
+        }
+        if (compareVersions(currentVersion, '2.1') < 0) {
+            await migrateToV2_1();
+        }
         console.log('Migration completed successfully');
         return { success: true };
     } catch (error) {
         console.error('Migration failed:', error);
         throw new Error(
-            `Falha na migração para v2.0: ${error.message}. Por favor, exporte seus dados e limpe o armazenamento local.`
+            `Falha na migração para ${ATLAS_SCHEMA_VERSION}: ${error.message}. Por favor, exporte seus dados e limpe o armazenamento local.`
         );
     }
 }

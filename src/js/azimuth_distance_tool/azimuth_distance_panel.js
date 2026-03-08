@@ -17,7 +17,8 @@ import {
     OUTPUT_MODE_INFO,
     COMPASS_PRESETS,
     DEG_TO_MIL,
-    MIL_TO_DEG
+    MIL_TO_DEG,
+    createDefaultLeg
 } from './azimuth_distance_constants.js';
 
 import {
@@ -67,7 +68,7 @@ export class AzimuthDistancePanel {
             manuallyEdited: false,
             outputMode: OUTPUT_MODE.ROUTE,
             activeIndex: 0,
-            legs: [{ azimuth: '', distance: '' }]
+            legs: [createDefaultLeg()]
         };
 
         // Component references
@@ -556,7 +557,7 @@ export class AzimuthDistancePanel {
         legsCount.appendChild(document.createTextNode(` perna${this._state.legs.length !== 1 ? 's' : ''}`));
         container.appendChild(legsCount);
 
-        const totalDist = calculateTotalDistance(this._state.legs, this._state.distanceUnit);
+        const totalDist = calculateTotalDistance(this._state.legs);
         const totalSpan = document.createElement('span');
         totalSpan.appendChild(document.createTextNode('Total: '));
         const totalBold = document.createElement('b');
@@ -648,10 +649,13 @@ export class AzimuthDistancePanel {
 
     _updateLeg(index, field, value) {
         this._state.legs[index][field] = value;
-        // Only update derived state, not the inputs (avoids losing focus)
+        // Only update derived state, not the inputs (avoids losing focus).
+        // Observation does not affect geometry or compass — skip preview recalculation.
         this._updateSummary();
-        this._updateCompass();
-        this._notifyStateChange();
+        if (field !== 'observation') {
+            this._updateCompass();
+            this._notifyStateChange();
+        }
     }
 
     _removeLeg(index) {
@@ -663,7 +667,7 @@ export class AzimuthDistancePanel {
     }
 
     _addLeg() {
-        this._state.legs.push({ azimuth: '', distance: '' });
+        this._state.legs.push(createDefaultLeg());
         this._state.activeIndex = this._state.legs.length - 1;
         this._updateAll();
     }
@@ -973,7 +977,7 @@ export class AzimuthDistancePanel {
             manuallyEdited: false,
             outputMode: OUTPUT_MODE.ROUTE,
             activeIndex: 0,
-            legs: [{ azimuth: '', distance: '' }]
+            legs: [createDefaultLeg()]
         };
         this._updateAll();
     }

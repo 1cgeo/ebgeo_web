@@ -513,6 +513,14 @@ class AddTextControl extends BaseControl {
                     }
                 }
             }
+
+            // Refresh rotation handle position on zoom (handle uses screen-space offset)
+            if (!this.isDraggingHandle) {
+                const selectedFeature = this.getSelectedFeature();
+                if (selectedFeature) {
+                    this.createEditHandles(selectedFeature);
+                }
+            }
         }
 
         this.pendingZoomUpdate = false;

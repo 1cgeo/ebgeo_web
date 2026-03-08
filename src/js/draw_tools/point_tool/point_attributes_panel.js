@@ -145,7 +145,6 @@ function _buildMarkerTab(container, selectedFeatures, feature, pointControl) {
     // Marker symbol picker
     container.appendChild(createMarkerSymbolPicker({
         value: feature.properties.markerSymbol || 'circle',
-        color: feature.properties.fillColor,
         onChange: (symbolId) => {
             pointControl.updateFeaturesProperty(selectedFeatures, 'markerSymbol', symbolId);
         }
@@ -186,7 +185,7 @@ function _buildMarkerTab(container, selectedFeatures, feature, pointControl) {
     container.appendChild(createModernSlider({
         label: 'Tamanho',
         min: 6,
-        max: 20,
+        max: 50,
         step: 1,
         value: feature.properties.size || 10,
         unit: 'px',
@@ -194,6 +193,36 @@ function _buildMarkerTab(container, selectedFeatures, feature, pointControl) {
             pointControl.updateFeaturesProperty(selectedFeatures, 'size', newValue);
         }
     }));
+
+    // Size zoom correction toggle
+    container.appendChild(createModernToggle({
+        label: 'Correção de Zoom',
+        checked: feature.properties.sizeZoomCorrectionEnabled !== false,
+        onChange: (enabled) => {
+            pointControl.updateFeaturesProperty(selectedFeatures, 'sizeZoomCorrectionEnabled', enabled);
+            sizeZoomSlider.style.display = enabled ? '' : 'none';
+        }
+    }));
+
+    // Size reference zoom slider
+    const sizeZoomSlider = createModernSlider({
+        label: 'Zoom de Referência',
+        min: 1,
+        max: 21,
+        step: 0.1,
+        value: Math.round((feature.properties.sizeCreatedAtZoom || 0) * 10) / 10,
+        unit: '',
+        onChange: (value) => {
+            const roundedValue = Math.round(parseFloat(value) * 10) / 10;
+            pointControl.updateFeaturesProperty(selectedFeatures, 'sizeCreatedAtZoom', roundedValue);
+        }
+    });
+
+    if (feature.properties.sizeZoomCorrectionEnabled === false) {
+        sizeZoomSlider.style.display = 'none';
+    }
+
+    container.appendChild(sizeZoomSlider);
 
     // Opacity slider
     container.appendChild(createModernSlider({

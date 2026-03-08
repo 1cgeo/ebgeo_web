@@ -10,6 +10,7 @@ import { initGridLayers } from '../grid/index.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
 
+import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
 import {
     setupPointLayers,
@@ -171,6 +172,21 @@ async function setImages(features, mapInstance) {
     }
 
     await Promise.allSettled(imagePromises);
+
+    // Generate per-feature canvas images for non-circle point markers
+    for (const feature of (features.points || [])) {
+        const props = feature.properties;
+        if (!needsPerFeatureImage(props.markerSymbol)) continue;
+        if (mapInstance.hasImage(props.id)) continue;
+
+        const imageData = generatePointImage(
+            props.markerSymbol,
+            props.fillColor || '#3f4fb5',
+            props.lineColor || '#000000',
+            props.lineWidth || 0,
+        );
+        mapInstance.addImage(props.id, imageData, { pixelRatio: 2 });
+    }
 }
 
 /**

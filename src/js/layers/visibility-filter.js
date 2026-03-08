@@ -4,7 +4,7 @@
  * @fileoverview Layer visibility filter system for MapLibre.
  */
 
-import { FEATURE_LAYER_IDS, HATCH_PATTERN_LAYERS } from './layer.constants.js';
+import { FEATURE_LAYER_IDS, HATCH_PATTERN_LAYERS, LAYER_ADDITIONAL_FILTERS } from './layer.constants.js';
 import { getVisibleLayerIds } from '../store';
 
 const VISIBLE_FILTER = ['!=', ['get', 'visivel'], false];
@@ -26,14 +26,12 @@ function buildLayerFilter(visibleLayerIds) {
  * @param {Array|null} [additionalFilters=null] - Additional filter expressions
  * @returns {Array} MapLibre filter expression
  */
-export function createLayerVisibilityFilter(visibleLayerIds, additionalFilters = null) {
-    const base = [VISIBLE_FILTER, buildLayerFilter(visibleLayerIds)];
-
+export function createLayerVisibilityFilter(visibleLayerIds, additionalFilters) {
+    const layerFilter = buildLayerFilter(visibleLayerIds);
     if (additionalFilters) {
-        return ['all', ...base, ...additionalFilters];
+        return ['all', VISIBLE_FILTER, layerFilter, ...additionalFilters];
     }
-
-    return ['all', ...base];
+    return ['all', VISIBLE_FILTER, layerFilter];
 }
 
 /**
@@ -66,9 +64,12 @@ export function updateAllLayerFilters(mapInstance) {
         if (!mapInstance.getLayer(layerId)) return;
 
         try {
-            const filter = layerId in HATCH_PATTERN_LAYERS
-                ? createHatchLayerFilter(visibleLayerIds, HATCH_PATTERN_LAYERS[layerId])
-                : createLayerVisibilityFilter(visibleLayerIds);
+            let filter;
+            if (layerId in HATCH_PATTERN_LAYERS) {
+                filter = createHatchLayerFilter(visibleLayerIds, HATCH_PATTERN_LAYERS[layerId]);
+            } else {
+                filter = createLayerVisibilityFilter(visibleLayerIds, LAYER_ADDITIONAL_FILTERS[layerId]);
+            }
             mapInstance.setFilter(layerId, filter);
         } catch (error) {
             console.warn(`Error updating filter for ${layerId}:`, error);

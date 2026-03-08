@@ -316,6 +316,7 @@ export function generateGeometry(waypoints, referencePoint, outputMode) {
  * @param {string} options.layerId - Layer ID
  * @param {Object} options.style - Point style properties
  * @param {Object} options.polarData - Original polar construction data for reference
+ * @param {Array<string>} [options.observations] - Per-leg observations to use as point names
  * @returns {Promise<Array<Object>>} Array of point features
  */
 export async function generatePointFeatures(options) {
@@ -325,7 +326,8 @@ export async function generatePointFeatures(options) {
         generateName,
         layerId,
         style,
-        polarData
+        polarData,
+        observations = []
     } = options;
 
     if (!waypoints || waypoints.length === 0) {
@@ -337,7 +339,9 @@ export async function generatePointFeatures(options) {
     for (let i = 0; i < waypoints.length; i++) {
         const coords = waypoints[i];
         const { id: featureId, geoJsonId } = generateIds();
-        const featureName = await generateName();
+        // Use observation as name: waypoint 0 = ref point (no obs), waypoint i = end of leg i-1
+        const obsName = i > 0 ? observations[i - 1] : '';
+        const featureName = obsName || await generateName();
 
         const feature = {
             type: 'Feature',
@@ -485,6 +489,9 @@ export function generateFeature(options) {
                 // Store base coordinates for editing (like line tool)
                 baseCoordinates: waypoints,
 
+                // Per-leg observations (used by QAN export and observations editor)
+                observations: storedLegs.map(leg => leg.observation),
+
                 // Store polar construction data
                 azimuthDistanceData: polarData
             },
@@ -521,6 +528,9 @@ export function generateFeature(options) {
                 // Store base coordinates for editing (like polygon tool)
                 baseCoordinates: waypoints,
 
+                // Per-leg observations (used by QAN export and observations editor)
+                observations: storedLegs.map(leg => leg.observation),
+
                 // Store polar construction data
                 azimuthDistanceData: polarData
             },
@@ -537,12 +547,13 @@ export function generateFeature(options) {
 
 /**
  * Calculate total distance of all legs.
+ * Returns the sum of leg distances as entered (unit-agnostic).
+ * Use formatTotalDistance() to display with unit label.
  *
  * @param {Array<Object>} legs - Array of leg objects
- * @param {string} distanceUnit - Distance unit
- * @returns {number} Total distance in the specified unit
+ * @returns {number} Total distance in the current unit
  */
-export function calculateTotalDistance(legs, _distanceUnit) {
+export function calculateTotalDistance(legs) {
     let total = 0;
 
     for (const leg of legs) {

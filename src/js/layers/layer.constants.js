@@ -7,6 +7,8 @@
 /** MapLibre layer IDs that receive visibility filters by layerId. */
 export const FEATURE_LAYER_IDS = [
     'point-layer',
+    'point-marker-layer',
+    'point-label-layer',
     'line-layer',
     'brush-layer',
     'polygon-fill-layer',
@@ -46,6 +48,26 @@ export const FEATURE_LAYER_IDS = [
     'visibility-visible-layer',
     'visibility-obstructed-layer'
 ];
+
+/**
+ * Additional filter expressions per layer, merged with visibility filters
+ * by updateAllLayerFilters(). Prevents visibility updates from overwriting
+ * layer-specific filters (e.g. markerSymbol routing, label visibility).
+ */
+export const LAYER_ADDITIONAL_FILTERS = {
+    'point-layer': [
+        ['any', ['!', ['has', 'markerSymbol']], ['==', ['get', 'markerSymbol'], 'circle']],
+    ],
+    'point-marker-layer': [
+        ['has', 'markerSymbol'],
+        ['!=', ['get', 'markerSymbol'], 'circle'],
+    ],
+    'point-label-layer': [
+        ['==', ['get', 'showLabel'], true],
+        ['has', 'labelText'],
+        ['!=', ['get', 'labelText'], ''],
+    ],
+};
 
 /** Fill layer IDs mapped to whether they use hatch pattern (true) or solid fill (false). */
 const FILL_SHAPES = ['polygon', 'rectangle', 'circle', 'ellipse', 'sector'];

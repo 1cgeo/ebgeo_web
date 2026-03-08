@@ -25,3 +25,5 @@ export {
     migrateFeature,
     migrateFeatures
 } from './v1-to-v2.migration.js';
+
+export { migrateToV2_1 } from './v2-to-v2.1.migration.js';

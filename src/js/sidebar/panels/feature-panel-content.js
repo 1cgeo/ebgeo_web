@@ -218,11 +218,105 @@ async function copyCoordToClipboard(text, el) {
 }
 
 
+// Copy icon SVG shared by vertex table and azimutes tab
+const COPY_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+
 /**
- * Builds the read-only azimutes tab content showing line decomposition
- * into starting point coordinate, per-leg azimuth/distance, and total distance.
+ * Builds a vertex coordinates table with copy buttons.
+ * Shared by the azimutes tab (lines/polygons) and the coordinates tab (rectangles/arrows).
+ *
+ * @param {Array<Array<number>>} coords - Array of [lng, lat] vertex coordinates
+ * @param {string} initialFormat - Initial coordinate format ID
+ * @returns {{ element: HTMLElement, updateFormat: Function }}
+ */
+function buildVertexTable(coords, initialFormat) {
+    let currentFormat = initialFormat;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'coords-table';
+
+    const sectionLabel = document.createElement('div');
+    sectionLabel.className = 'azimutes-tab__section-label';
+    sectionLabel.textContent = 'Coordenadas dos Vértices';
+    wrapper.appendChild(sectionLabel);
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'coords-table__header';
+    const hNum = document.createElement('span');
+    hNum.textContent = '#';
+    const hCoord = document.createElement('span');
+    hCoord.textContent = 'Coordenada';
+    const hAction = document.createElement('span');
+    header.appendChild(hNum);
+    header.appendChild(hCoord);
+    header.appendChild(hAction);
+    wrapper.appendChild(header);
+
+    // Scrollable body
+    const body = document.createElement('div');
+    body.className = 'coords-table__body';
+    wrapper.appendChild(body);
+
+    // Build rows once, store value cells for efficient format updates
+    const valueCells = [];
+    for (let i = 0; i < coords.length; i++) {
+        const [lng, lat] = coords[i];
+        let formatted;
+        try {
+            formatted = formatCoordinates(lat, lng, currentFormat);
+        } catch {
+            formatted = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        }
+
+        const row = document.createElement('div');
+        row.className = 'coords-table__row';
+
+        const numCell = document.createElement('span');
+        numCell.className = 'coords-table__num';
+        numCell.textContent = `${i + 1}`;
+
+        const valueCell = document.createElement('span');
+        valueCell.className = 'coords-table__value';
+        valueCell.textContent = formatted;
+        valueCells.push(valueCell);
+
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'coords-table__copy-btn';
+        copyBtn.title = 'Copiar coordenada';
+        copyBtn.innerHTML = COPY_ICON_SVG;
+        copyBtn.addEventListener('click', () => {
+            copyCoordToClipboard(valueCell.textContent, valueCell);
+        });
+
+        row.appendChild(numCell);
+        row.appendChild(valueCell);
+        row.appendChild(copyBtn);
+        body.appendChild(row);
+    }
+
+    return {
+        element: wrapper,
+        updateFormat(formatId) {
+            currentFormat = formatId;
+            for (let i = 0; i < coords.length; i++) {
+                const [lng, lat] = coords[i];
+                try {
+                    valueCells[i].textContent = formatCoordinates(lat, lng, currentFormat);
+                } catch {
+                    valueCells[i].textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                }
+            }
+        }
+    };
+}
+
+/**
+ * Builds the read-only azimutes tab content showing vertex coordinates,
+ * per-leg azimuth/distance, and total distance.
  * Includes:
- *  - Copy-to-clipboard on the starting point coordinate
+ *  - Vertex coordinates table with copy buttons
  *  - Optional magnetic declination correction (NM/NV toggle + auto WMM2025)
  *
  * @param {HTMLElement} container - Tab content container
@@ -242,7 +336,6 @@ function buildAzimutesTabContent(container, feature) {
 
     // ── State ────────────────────────────────────────────────────────────────
     let currentFormat = 'latlong';
-    let currentCoordText = '';
     let useMagnetic = false;          // NM toggle
     let declination = 0;             // magnetic declination in degrees
     let autoDeclinationValue = null; // last WMM-calculated value
@@ -257,25 +350,8 @@ function buildAzimutesTabContent(container, feature) {
         return normalizeAzimuth(trueBearing - declination);
     }
 
-    // ── Coordinate display (starting point) ──────────────────────────────────
-    const coordDisplay = document.createElement('div');
-    coordDisplay.className = 'azimutes-tab__coord-value azimutes-tab__coord-clickable';
-    coordDisplay.title = 'Clique para copiar';
-    coordDisplay.textContent = '...';
-
-    async function updateStartingPoint() {
-        const [lng, lat] = coords[0];
-        try {
-            currentCoordText = await formatCoordinates(lat, lng, currentFormat);
-        } catch {
-            currentCoordText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-        }
-        coordDisplay.textContent = currentCoordText;
-    }
-
-    coordDisplay.addEventListener('click', () => {
-        copyCoordToClipboard(currentCoordText, coordDisplay);
-    });
+    // ── Vertex coordinates table ────────────────────────────────────────────
+    const vertexTable = buildVertexTable(coords, currentFormat);
 
     // ── Legs body (built / rebuilt when declination changes) ─────────────────
     const legsBody = document.createElement('div');
@@ -331,37 +407,15 @@ function buildAzimutesTabContent(container, feature) {
         label: 'Formato de Coordenadas',
         value: currentFormat,
         options: COORDINATE_FORMATS.map(f => ({ value: f.id, label: f.label })),
-        onChange: async (formatId) => {
+        onChange: (formatId) => {
             currentFormat = formatId;
-            await updateStartingPoint();
+            vertexTable.updateFormat(formatId);
         }
     });
     container.appendChild(formatSelect);
 
-    // ── 2. Starting point section ─────────────────────────────────────────────
-    const startSection = document.createElement('div');
-    startSection.className = 'azimutes-tab__start-point';
-
-    const startLabelRow = document.createElement('div');
-    startLabelRow.className = 'azimutes-tab__start-label-row';
-
-    const startLabel = document.createElement('div');
-    startLabel.className = 'azimutes-tab__section-label';
-    startLabel.textContent = 'Ponto Inicial';
-    startLabelRow.appendChild(startLabel);
-
-    // Copy icon button
-    const copyBtn = document.createElement('button');
-    copyBtn.className = 'azimutes-tab__copy-btn';
-    copyBtn.title = 'Copiar coordenadas';
-    copyBtn.type = 'button';
-    copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-    copyBtn.addEventListener('click', () => copyCoordToClipboard(currentCoordText, coordDisplay));
-    startLabelRow.appendChild(copyBtn);
-
-    startSection.appendChild(startLabelRow);
-    startSection.appendChild(coordDisplay);
-    container.appendChild(startSection);
+    // ── 2. Vertex coordinates table ──────────────────────────────────────────
+    container.appendChild(vertexTable.element);
 
     // ── 3. Magnetic Declination section ──────────────────────────────────────
     const declSection = document.createElement('div');
@@ -515,9 +569,90 @@ function buildAzimutesTabContent(container, feature) {
     totalContainer.appendChild(totalLabel);
     totalContainer.appendChild(totalValue);
     container.appendChild(totalContainer);
+}
 
-    // Initialize
-    updateStartingPoint();
+// ============================================================================
+// COORDINATES TAB CONTENT (rectangles, arrows)
+// ============================================================================
+
+/**
+ * Extracts vertex coordinates for the coordinates tab based on feature type.
+ * @param {Object} feature - GeoJSON feature
+ * @param {string} featureType - Feature type identifier
+ * @returns {Array<Array<number>>|null} Array of [lng, lat] or null
+ */
+function extractVertexCoords(feature, featureType) {
+    if (featureType === 'rectangle') {
+        const ring = feature.geometry?.coordinates?.[0];
+        if (!ring || ring.length < 4) return null;
+        // Remove closing point (last = first)
+        return ring.slice(0, -1);
+    }
+    if (featureType === 'arrow') {
+        const baseCoords = feature.properties?.baseCoordinates;
+        if (Array.isArray(baseCoords) && baseCoords.length >= 2) return baseCoords;
+        return null;
+    }
+    return null;
+}
+
+/**
+ * Builds the coordinates tab content for rectangles and arrows.
+ * Shows a vertex coordinates table with format selector and copy buttons.
+ *
+ * @param {HTMLElement} container - Tab content container
+ * @param {Object} feature - Selected feature (GeoJSON)
+ * @param {string} featureType - Feature type ('rectangle' or 'arrow')
+ */
+function buildCoordinatesTabContent(container, feature, featureType) {
+    const isMerged = featureType === 'arrow' && feature.properties?.isMerged && Array.isArray(feature.properties?.branches);
+
+    // Collect all vertex tables to update on format change
+    const tables = [];
+    let currentFormat = 'latlong';
+
+    // Format selector
+    const formatSelect = createModernSelect({
+        label: 'Formato de Coordenadas',
+        value: currentFormat,
+        options: COORDINATE_FORMATS.map(f => ({ value: f.id, label: f.label })),
+        onChange: (formatId) => {
+            currentFormat = formatId;
+            tables.forEach(t => t.updateFormat(formatId));
+        }
+    });
+    container.appendChild(formatSelect);
+
+    if (isMerged) {
+        // Merged arrows: show per-branch vertex tables
+        const branches = feature.properties.branches;
+        branches.forEach((branch, idx) => {
+            const branchCoords = branch.baseCoordinates;
+            if (!Array.isArray(branchCoords) || branchCoords.length < 2) return;
+
+            const branchLabel = document.createElement('div');
+            branchLabel.className = 'azimutes-tab__section-label coords-table__branch-label';
+            branchLabel.textContent = `Ramo ${idx + 1}`;
+            container.appendChild(branchLabel);
+
+            const table = buildVertexTable(branchCoords, currentFormat);
+            tables.push(table);
+            container.appendChild(table.element);
+        });
+    } else {
+        const coords = extractVertexCoords(feature, featureType);
+        if (!coords) {
+            const emptyMsg = document.createElement('div');
+            emptyMsg.className = 'azimutes-tab__empty';
+            emptyMsg.textContent = 'Sem vértices suficientes para exibir coordenadas.';
+            container.appendChild(emptyMsg);
+            return;
+        }
+
+        const table = buildVertexTable(coords, currentFormat);
+        tables.push(table);
+        container.appendChild(table.element);
+    }
 }
 
 // ============================================================================
@@ -731,6 +866,15 @@ export async function createFeaturePanelContent({
                     }
                 } catch (error) {
                     console.error(`Error creating azimutes tab for ${featureType}:`, error);
+                }
+            }
+
+            // Inject coordinates content into Coordinates tab (for rectangle/arrow, single selection only)
+            if (featureTabs.coordinatesTab && isSingleSelection) {
+                try {
+                    buildCoordinatesTabContent(featureTabs.coordinatesTab, selectedFeatures[0], featureType);
+                } catch (error) {
+                    console.error(`Error creating coordinates tab for ${featureType}:`, error);
                 }
             }
         } else {

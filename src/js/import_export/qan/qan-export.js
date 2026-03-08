@@ -87,7 +87,6 @@ th { background: #2d3748; color: #fff; padding: 8px 10px; text-align: left; font
 td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; }
 tr:nth-child(even) { background: #f7fafc; }
 tr:hover { background: #edf2f7; }
-.footer { margin-top: 16px; font-size: 11px; color: #999; }
 @media print {
     body { margin: 0; }
     tr:hover { background: inherit; }
@@ -96,7 +95,7 @@ tr:hover { background: #edf2f7; }
 </head>
 <body>
 <h1>Quadro Auxiliar de Navega\u00e7\u00e3o - ${safeName}</h1>
-<div class="subtitle">Gerado em ${escapeHtml(timestamp)} &mdash; EBGeo Web</div>
+<div class="subtitle">Gerado em ${escapeHtml(timestamp)} &mdash; EBGeo</div>
 <table>
 <thead>
 <tr>
@@ -112,7 +111,6 @@ tr:hover { background: #edf2f7; }
 ${rows}
 </tbody>
 </table>
-<div class="footer">EBGeo Web &mdash; Ex\u00e9rcito Brasileiro</div>
 </body>
 </html>`;
 

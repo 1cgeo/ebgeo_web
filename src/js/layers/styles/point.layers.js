@@ -5,27 +5,21 @@ import {
     ensureSource,
     ensureLayer,
 } from './layer.helpers.js';
+import { LAYER_ADDITIONAL_FILTERS } from '../layer.constants.js';
+import { POINT_IMAGE_HALF_SIZE } from '../../draw_tools/point_tool/point-marker-symbols.js';
 
-/**
- * Filter for circle-type markers (default or explicit 'circle').
- */
+/** Filter for circle-type markers (default or explicit 'circle'). */
 const CIRCLE_MARKER_FILTER = [
     'all',
     ['!=', ['get', 'visivel'], false],
-    ['any',
-        ['!', ['has', 'markerSymbol']],
-        ['==', ['get', 'markerSymbol'], 'circle'],
-    ],
+    ...LAYER_ADDITIONAL_FILTERS['point-layer'],
 ];
 
-/**
- * Filter for non-circle symbol markers.
- */
-const SYMBOL_MARKER_FILTER = [
+/** Filter for non-circle markers rendered as per-feature images. */
+const MARKER_FILTER = [
     'all',
     ['!=', ['get', 'visivel'], false],
-    ['has', 'markerSymbol'],
-    ['!=', ['get', 'markerSymbol'], 'circle'],
+    ...LAYER_ADDITIONAL_FILTERS['point-marker-layer'],
 ];
 
 /**
@@ -43,7 +37,7 @@ export function setupPointLayers(features, mapInstance) {
         type: 'circle',
         source: 'points',
         paint: {
-            'circle-radius': ['get', 'size'],
+            'circle-radius': ['coalesce', ['get', 'calculatedSize'], ['get', 'size']],
             'circle-color': ['get', 'fillColor'],
             'circle-opacity': ['get', 'opacity'],
             'circle-stroke-color': ['coalesce', ['get', 'lineColor'], 'transparent'],
@@ -52,25 +46,19 @@ export function setupPointLayers(features, mapInstance) {
         filter: CIRCLE_MARKER_FILTER,
     });
 
-    // Symbol markers (non-circle shapes rendered as SDF icons)
+    // Per-feature image markers (shapes + icons with baked-in colors/borders)
     ensureLayer(mapInstance, {
-        id: 'point-symbol-layer',
+        id: 'point-marker-layer',
         type: 'symbol',
         source: 'points',
-        filter: SYMBOL_MARKER_FILTER,
+        filter: MARKER_FILTER,
         layout: {
-            'icon-image': ['concat', 'marker-', ['get', 'markerSymbol']],
-            'icon-size': [
-                'interpolate', ['linear'], ['coalesce', ['get', 'size'], 10],
-                6, 0.4,
-                10, 0.6,
-                20, 1.0,
-            ],
+            'icon-image': ['get', 'id'],
+            'icon-size': ['/', ['coalesce', ['get', 'calculatedSize'], ['get', 'size'], 10], POINT_IMAGE_HALF_SIZE],
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
         },
         paint: {
-            'icon-color': ['coalesce', ['get', 'fillColor'], '#3f4fb5'],
             'icon-opacity': ['coalesce', ['get', 'opacity'], 1],
         },
     });
@@ -94,10 +82,8 @@ export function setupPointLayers(features, mapInstance) {
         source: 'points',
         filter: [
             'all',
-            ['==', ['get', 'showLabel'], true],
             ['!=', ['get', 'visivel'], false],
-            ['has', 'labelText'],
-            ['!=', ['get', 'labelText'], ''],
+            ...LAYER_ADDITIONAL_FILTERS['point-label-layer'],
         ],
         layout: {
             'text-field': ['get', 'labelText'],

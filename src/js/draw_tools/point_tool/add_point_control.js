@@ -5,9 +5,68 @@ import { IDUtils } from '../../utilities';
 import { addPointAttributesToPanel } from './point_attributes_panel.js';
 import AddPointGeometry from './add_point_geometry.js';
 import { BaseControl } from '../../tool_manager';
-import { LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler } from '../../tool_manager/helpers/label-tab.helpers.js';
+import { LABEL_ZOOM_PROPERTIES, recalcLabelSize } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
-import { loadMarkerImages } from './point-marker-symbols.js';
+import { generatePointImage, needsPerFeatureImage } from './point-marker-symbols.js';
+
+/** Properties that trigger size recalculation when changed. */
+const SIZE_ZOOM_PROPERTIES = new Set(['sizeZoomCorrectionEnabled', 'sizeCreatedAtZoom', 'size']);
+
+/** Properties that require per-feature image regeneration. */
+const IMAGE_REGEN_PROPERTIES = new Set(['fillColor', 'lineColor', 'lineWidth', 'markerSymbol']);
+
+/**
+ * Recalculate calculatedSize based on current zoom and feature properties.
+ * @param {Object} sourceFeature - Feature from the map source (mutated)
+ * @param {Object} selectedFeature - Corresponding selected feature (mutated)
+ * @param {number} currentZoom - Current map zoom level
+ */
+function recalcPointSize(sourceFeature, selectedFeature, currentZoom) {
+    const size = sourceFeature.properties.size || 10;
+    let newCalc;
+    if (sourceFeature.properties.sizeZoomCorrectionEnabled === false) {
+        newCalc = size;
+    } else {
+        const diff = currentZoom - (sourceFeature.properties.sizeCreatedAtZoom || 0);
+        newCalc = size * Math.pow(2, diff);
+    }
+    sourceFeature.properties.calculatedSize = newCalc;
+    selectedFeature.properties.calculatedSize = newCalc;
+}
+
+/**
+ * Register a per-feature marker image in MapLibre.
+ * @param {Object} map - MapLibre map instance
+ * @param {string} featureId - Feature ID (used as image ID)
+ * @param {string} symbolId - Marker symbol identifier
+ * @param {string} fillColor - Fill color
+ * @param {string} lineColor - Border color
+ * @param {number} lineWidth - Border width in CSS pixels
+ */
+function registerFeatureImage(map, featureId, symbolId, fillColor, lineColor, lineWidth) {
+    const imageData = generatePointImage(symbolId, fillColor, lineColor, lineWidth);
+    if (map.hasImage(featureId)) {
+        map.removeImage(featureId);
+    }
+    map.addImage(featureId, imageData, { pixelRatio: 2 });
+}
+
+/**
+ * Register a per-feature image using feature properties with default fallbacks.
+ * @param {Object} map - MapLibre map instance
+ * @param {Object} props - Feature properties
+ */
+function registerImageFromProps(map, props) {
+    const defaults = AddPointControl.DEFAULT_PROPERTIES;
+    registerFeatureImage(
+        map,
+        props.id,
+        props.markerSymbol,
+        props.fillColor || defaults.fillColor,
+        props.lineColor || defaults.lineColor,
+        props.lineWidth || defaults.lineWidth,
+    );
+}
 
 class AddPointControl extends BaseControl {
     featureType = 'point';
@@ -40,26 +99,102 @@ class AddPointControl extends BaseControl {
         labelZoomCorrectionEnabled: true,
         // Marker symbol
         markerSymbol: 'circle',
+        // Size zoom correction
+        sizeZoomCorrectionEnabled: true,
+        sizeCreatedAtZoom: 0,
+        calculatedSize: 10,
     };
-
-    // ===== SINGLE SOURCE OF TRUTH =====
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
-    // ===== LABEL ZOOM CORRECTION =====
-    #labelZoom = createLabelZoomHandler(() => this.map, 'points');
+    // ===== ZOOM CORRECTION (size + label) =====
+    #zoomPending = false;
+    #zoomRafId = null;
+
+    #handleZoom = () => {
+        if (this.#zoomPending) return;
+        this.#zoomPending = true;
+        this.#zoomRafId = requestAnimationFrame(async () => {
+            const source = this.map?.getSource('points');
+            if (!source) { this.#zoomPending = false; return; }
+
+            const currentZoom = this.map.getZoom();
+            const data = await source.getData();
+            let hasChanges = false;
+
+            for (const feature of data.features) {
+                const props = feature.properties;
+
+                // Size zoom correction
+                const size = props.size || 10;
+                let newCalcSize;
+                if (props.sizeZoomCorrectionEnabled === false) {
+                    newCalcSize = size;
+                } else {
+                    const diff = currentZoom - (props.sizeCreatedAtZoom || 0);
+                    newCalcSize = size * Math.pow(2, diff);
+                }
+                if (props.calculatedSize !== newCalcSize) {
+                    props.calculatedSize = newCalcSize;
+                    hasChanges = true;
+                }
+
+                // Label zoom correction
+                if (props.showLabel) {
+                    if (!props.labelCreatedAtZoom) {
+                        props.labelCreatedAtZoom = currentZoom;
+                        hasChanges = true;
+                    }
+                    const labelSize = props.labelSize || 14;
+                    let newCalcLabel;
+                    if (props.labelZoomCorrectionEnabled === false) {
+                        newCalcLabel = labelSize;
+                    } else {
+                        const diff = currentZoom - props.labelCreatedAtZoom;
+                        newCalcLabel = labelSize * Math.pow(2, diff);
+                    }
+                    if (props.labelCalculatedSize !== newCalcLabel) {
+                        props.labelCalculatedSize = newCalcLabel;
+                        hasChanges = true;
+                    }
+                }
+            }
+
+            if (hasChanges) {
+                source.setData(data);
+
+                // Sync selected point features and refresh selection highlight
+                const selectedPoints = this.selectionManager?.getSelectedFeaturesByType?.('point');
+                if (selectedPoints?.length > 0) {
+                    for (const { id, feature: selFeature } of selectedPoints) {
+                        const srcFeature = data.features.find(f => String(f.properties.id) === String(id));
+                        if (srcFeature) {
+                            selFeature.properties.calculatedSize = srcFeature.properties.calculatedSize;
+                            if (srcFeature.properties.labelCalculatedSize !== undefined) {
+                                selFeature.properties.labelCalculatedSize = srcFeature.properties.labelCalculatedSize;
+                            }
+                        }
+                    }
+                    this.selectionManager.uiManager?.updateSelectionHighlight();
+                }
+            }
+            this.#zoomPending = false;
+        });
+    };
 
     onAdd = (map) => {
         this.map = map;
-        map.on('zoom', this.#labelZoom.handler);
-        loadMarkerImages(map);
+        map.on('zoom', this.#handleZoom);
     }
 
     onRemove = () => {
         if (this.map) {
-            this.map.off('zoom', this.#labelZoom.handler);
+            this.map.off('zoom', this.#handleZoom);
         }
-        this.#labelZoom.cleanup();
+        if (this.#zoomRafId) {
+            cancelAnimationFrame(this.#zoomRafId);
+            this.#zoomRafId = null;
+        }
         this.deactivate();
         this.removeAllEventListeners();
         this.map = undefined;
@@ -95,7 +230,9 @@ class AddPointControl extends BaseControl {
         try {
             const coordinates = feature.geometry.coordinates;
             const zoom = this.map.getZoom();
-            const paddingPixels = this.getSelectionBoxPadding();
+            const calcSize = feature?.properties?.calculatedSize || feature?.properties?.size || 10;
+            const lineWidth = feature?.properties?.lineWidth || 0;
+            const paddingPixels = this.getSelectionBoxPadding() + calcSize + lineWidth;
 
             return this.geometry.createSelectionBoxGeometry(coordinates, paddingPixels, zoom);
         } catch (error) {
@@ -113,7 +250,7 @@ class AddPointControl extends BaseControl {
     }
 
     getLayerIds() {
-        return ['point-layer', 'point-symbol-layer', 'point-label-layer'];
+        return ['point-layer', 'point-marker-layer', 'point-label-layer'];
     }
 
     getSourceNames() {
@@ -274,9 +411,24 @@ class AddPointControl extends BaseControl {
                 nome: featureName,
                 labelCreatedAtZoom: currentZoom,
                 labelCalculatedSize: AddPointControl.DEFAULT_PROPERTIES.labelSize,
+                sizeCreatedAtZoom: currentZoom,
+                calculatedSize: AddPointControl.DEFAULT_PROPERTIES.size,
             },
             geometry: this.geometry.generate(coordinates)
         };
+
+        // Register per-feature image if non-circle marker
+        const markerSymbol = feature.properties.markerSymbol;
+        if (needsPerFeatureImage(markerSymbol)) {
+            registerFeatureImage(
+                this.map,
+                featureId,
+                markerSymbol,
+                feature.properties.fillColor,
+                feature.properties.lineColor,
+                feature.properties.lineWidth,
+            );
+        }
 
         try {
             await addFeature('points', feature);
@@ -304,11 +456,32 @@ class AddPointControl extends BaseControl {
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
+                // Capture old marker symbol before mutation for image cleanup
+                const oldMarkerSymbol = property === 'markerSymbol'
+                    ? sourceFeature.properties.markerSymbol : undefined;
+
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
                 if (LABEL_ZOOM_PROPERTIES.has(property)) {
                     recalcLabelSize(sourceFeature, feature, this.map.getZoom());
+                }
+
+                if (SIZE_ZOOM_PROPERTIES.has(property)) {
+                    recalcPointSize(sourceFeature, feature, this.map.getZoom());
+                }
+
+                // Regenerate per-feature image when visual properties change
+                if (IMAGE_REGEN_PROPERTIES.has(property)) {
+                    const props = sourceFeature.properties;
+                    if (needsPerFeatureImage(props.markerSymbol)) {
+                        registerImageFromProps(this.map, props);
+                    } else if (property === 'markerSymbol' && needsPerFeatureImage(oldMarkerSymbol)) {
+                        // Switched from non-circle to circle — remove old image
+                        if (this.map.hasImage(props.id)) {
+                            this.map.removeImage(props.id);
+                        }
+                    }
                 }
             }
         }
@@ -343,24 +516,45 @@ class AddPointControl extends BaseControl {
             Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
         });
 
+        // Regenerate per-feature images after discarding changes
+        for (const feature of features) {
+            const props = feature.properties;
+            if (needsPerFeatureImage(props.markerSymbol)) {
+                registerImageFromProps(this.map, props);
+            } else if (this.map.hasImage(props.id)) {
+                // Restored to circle — remove orphaned image
+                this.map.removeImage(props.id);
+            }
+        }
+
         await this.updateFeatures(features, true, true);
     }
 
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
+        // Clean up per-feature images
+        for (const feature of features) {
+            const featureId = feature.properties.id;
+            if (this.map.hasImage(featureId)) {
+                this.map.removeImage(featureId);
+            }
+        }
+
+        // Remove from store
         for (const feature of features) {
             try {
-                const featureId = feature.properties.id;
-                await removeFeature('points', featureId);
-                const data = await this.map.getSource('points').getData();
-                const idsToDelete = new Set(features.map(f => String(f.properties.id)));
-                data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
-                this.map.getSource('points').setData(data);
+                await removeFeature('points', feature.properties.id);
             } catch (error) {
                 console.error(`Error removing point ${feature.properties.id}:`, error);
             }
         }
+
+        // Single source read/write
+        const data = await this.map.getSource('points').getData();
+        const idsToDelete = new Set(features.map(f => String(f.properties.id)));
+        data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
+        this.map.getSource('points').setData(data);
     }
 
     setDefaultProperties = (properties) => {
@@ -389,7 +583,9 @@ class AddPointControl extends BaseControl {
             props.labelOutlineWidth !== initialProperties.labelOutlineWidth ||
             props.labelZoomCorrectionEnabled !== initialProperties.labelZoomCorrectionEnabled ||
             props.labelCreatedAtZoom !== initialProperties.labelCreatedAtZoom ||
-            props.markerSymbol !== initialProperties.markerSymbol
+            props.markerSymbol !== initialProperties.markerSymbol ||
+            props.sizeZoomCorrectionEnabled !== initialProperties.sizeZoomCorrectionEnabled ||
+            props.sizeCreatedAtZoom !== initialProperties.sizeCreatedAtZoom
         );
     }
 
@@ -402,10 +598,14 @@ class AddPointControl extends BaseControl {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
                     } else {
-                        const prevCalcSize = data.features[featureIndex].properties.labelCalculatedSize;
+                        const prevLabelCalcSize = data.features[featureIndex].properties.labelCalculatedSize;
+                        const prevCalcSize = data.features[featureIndex].properties.calculatedSize;
                         data.features[featureIndex] = feature;
+                        if (prevLabelCalcSize !== undefined) {
+                            feature.properties.labelCalculatedSize = prevLabelCalcSize;
+                        }
                         if (prevCalcSize !== undefined) {
-                            feature.properties.labelCalculatedSize = prevCalcSize;
+                            feature.properties.calculatedSize = prevCalcSize;
                         }
                     }
 

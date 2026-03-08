@@ -18,6 +18,7 @@ import {
     buildLayerMappingForMove
 } from '../store';
 import { IDUtils, ToastService } from '../utilities';
+import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 
 class ClipboardManager {
     constructor(selectionManager, map) {
@@ -365,6 +366,23 @@ class ClipboardManager {
         }
 
         await Promise.allSettled(imagePromises);
+
+        // Register per-feature images for non-circle point markers
+        for (const feature of (newFeaturesByType.points || [])) {
+            const props = feature.properties;
+            if (needsPerFeatureImage(props.markerSymbol)) {
+                const imageData = generatePointImage(
+                    props.markerSymbol,
+                    props.fillColor || '#3f4fb5',
+                    props.lineColor || '#000000',
+                    props.lineWidth || 0,
+                );
+                if (this.map.hasImage(props.id)) {
+                    this.map.removeImage(props.id);
+                }
+                this.map.addImage(props.id, imageData, { pixelRatio: 2 });
+            }
+        }
     }
 
     /**

@@ -212,7 +212,7 @@ function createPolarSummary(props) {
     }
 
     if (props.legs && props.legs.length > 0) {
-        const total = calculateTotalDistance(props.legs, props.distanceUnit);
+        const total = calculateTotalDistance(props.legs);
         container.appendChild(createInfoRow('Dist\u00E2ncia Total', formatTotalDistance(total, props.distanceUnit)));
     }
 
