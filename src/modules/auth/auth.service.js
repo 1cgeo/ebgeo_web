@@ -167,13 +167,6 @@ export async function getMe(userId) {
 }
 
 /**
- * Hashes a password for storage.
- */
-export async function hashPassword(password) {
-  return bcrypt.hash(password, SALT_ROUNDS);
-}
-
-/**
  * Registers a new user (self-registration).
  */
 export async function register(data) {

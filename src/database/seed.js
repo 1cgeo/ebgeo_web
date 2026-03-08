@@ -20,8 +20,13 @@ async function seed(connectionString) {
   try {
     console.log('Starting seed...');
 
+    // Hash passwords in parallel
+    const [adminPassword, testPassword] = await Promise.all([
+      bcrypt.hash('admin123', SALT_ROUNDS),
+      bcrypt.hash('test123', SALT_ROUNDS),
+    ]);
+
     // Create admin user
-    const adminPassword = await bcrypt.hash('admin123', SALT_ROUNDS);
     const adminResult = await db.one(`
       INSERT INTO users (username, password_hash, nome, posto_graduacao, organizacao_militar, role)
       VALUES ('admin', $1, 'Administrador', 'Admin', 'EBGeo', 'admin')
@@ -32,7 +37,6 @@ async function seed(connectionString) {
     console.log(`  ✓ Admin user created/updated: ${adminResult.username}`);
 
     // Create test user
-    const testPassword = await bcrypt.hash('test123', SALT_ROUNDS);
     const testResult = await db.one(`
       INSERT INTO users (username, password_hash, nome, posto_graduacao, organizacao_militar)
       VALUES ('cap.silva', $1, 'João Silva', 'Cap', 'CIGEx')

@@ -109,18 +109,16 @@ export async function handleOperations(ws, data) {
     // Send batch ack to sender
     ws.send(JSON.stringify({
       type: 'ack_batch',
-      opIds: data.ops.map(op => op.id),
+      opIds: data.ops.map((op) => op.id),
       serverVersion: result.serverVersion,
     }));
 
-    // Broadcast operations to peers
-    for (const op of data.ops) {
-      broadcastToRoom(ws.atlasId, {
-        type: 'operation',
-        userId: ws.userId,
-        op,
-      }, ws);
-    }
+    // Broadcast all operations to peers in a single message
+    broadcastToRoom(ws.atlasId, {
+      type: 'operations',
+      userId: ws.userId,
+      ops: data.ops,
+    }, ws);
   } catch (err) {
     logger.error({ err, atlasId: ws.atlasId }, 'Failed to process operations batch');
     ws.send(JSON.stringify({

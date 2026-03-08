@@ -1,7 +1,7 @@
 // Path: src/crdt/merger.js
 // Document state merger for CRDT
 
-import { resolveLWW } from './resolver.js';
+import { resolveFieldConflict } from './resolver.js';
 
 /**
  * Merges changes from multiple operations into an existing entity state.
@@ -30,26 +30,17 @@ export function mergeChanges(existing, operations) {
       const previous = fieldHistory[field];
 
       if (!previous) {
-        // First update to this field
         fieldHistory[field] = {
           value,
           timestamp: op.timestamp,
           clientId: op.clientId,
         };
       } else {
-        // Resolve conflict
-        const winner = resolveLWW(previous, {
-          value,
-          timestamp: op.timestamp,
-          clientId: op.clientId,
-        });
+        const incoming = { value, timestamp: op.timestamp, clientId: op.clientId };
+        const result = resolveFieldConflict(previous, incoming);
 
-        if (winner.value === value) {
-          fieldHistory[field] = {
-            value,
-            timestamp: op.timestamp,
-            clientId: op.clientId,
-          };
+        if (result.applied) {
+          fieldHistory[field] = incoming;
         }
       }
     }

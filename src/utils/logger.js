@@ -1,12 +1,10 @@
 // Path: src/utils/logger.js
 import pino from 'pino';
-
-const isProduction = process.env.NODE_ENV === 'production';
-const isTest = process.env.NODE_ENV === 'test';
+import config from '../config.js';
 
 const logger = pino({
-  level: isTest ? 'silent' : (process.env.LOG_LEVEL || 'info'),
-  transport: isProduction
+  level: config.isTest ? 'silent' : config.logLevel,
+  transport: config.isProd
     ? undefined
     : {
         target: 'pino-pretty',

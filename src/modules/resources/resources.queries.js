@@ -44,9 +44,3 @@ export const SOFT_DELETE = `
   RETURNING *
 `;
 
-export const RESTORE = `
-  UPDATE resources
-  SET active = true, updated_at = NOW()
-  WHERE id = $1
-  RETURNING *
-`;

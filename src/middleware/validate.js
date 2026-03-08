@@ -1,5 +1,11 @@
 // Path: src/middleware/validate.js
-import { ValidationError } from '../utils/errors.js';
+
+const VALIDATION_OPTIONS = {
+  abortEarly: false,
+  stripUnknown: true,
+};
+
+const SOURCES = ['body', 'params', 'query'];
 
 /**
  * Creates middleware that validates request data against Joi schemas.
@@ -8,44 +14,16 @@ import { ValidationError } from '../utils/errors.js';
  */
 export function validate(schemas) {
   return (req, res, next) => {
-    const validationOptions = {
-      abortEarly: false, // Return all errors, not just the first one
-      stripUnknown: true, // Remove unknown keys from the validated data
-    };
+    for (const source of SOURCES) {
+      if (!schemas[source]) continue;
 
-    try {
-      if (schemas.body) {
-        const { error, value } = schemas.body.validate(req.body, validationOptions);
-        if (error) {
-          throw error;
-        }
-        req.body = value;
+      const { error, value } = schemas[source].validate(req[source], VALIDATION_OPTIONS);
+      if (error) {
+        return next(error);
       }
-
-      if (schemas.params) {
-        const { error, value } = schemas.params.validate(req.params, validationOptions);
-        if (error) {
-          throw error;
-        }
-        req.params = value;
-      }
-
-      if (schemas.query) {
-        const { error, value } = schemas.query.validate(req.query, validationOptions);
-        if (error) {
-          throw error;
-        }
-        req.query = value;
-      }
-
-      next();
-    } catch (error) {
-      if (error.isJoi) {
-        // Pass Joi error to error handler
-        next(error);
-      } else {
-        next(new ValidationError('Validation failed'));
-      }
+      req[source] = value;
     }
+
+    next();
   };
 }

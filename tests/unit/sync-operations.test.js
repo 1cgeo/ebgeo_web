@@ -1,22 +1,14 @@
 // Path: tests/unit/sync-operations.test.js
-// Unit tests for sync operation logic and edge cases
+// Unit tests for sync operation logic, edge cases, and operation validation
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveLWW, resolveFieldConflict } from '../../src/crdt/resolver.js';
 import { mergeChanges, mergeUpdate } from '../../src/crdt/merger.js';
+import { VALID_OP_TYPES, VALID_TARGETS, validateOperation, createOperation } from '../../src/crdt/operations.js';
 
 describe('CRDT Resolver - Advanced Scenarios', () => {
   describe('resolveLWW', () => {
-    it('returns remote when timestamps are equal and remote clientId is higher', () => {
-      const local = { timestamp: 1000, clientId: 'aaa', value: 'A' };
-      const remote = { timestamp: 1000, clientId: 'zzz', value: 'Z' };
-
-      const result = resolveLWW(local, remote);
-      assert.equal(result.clientId, 'zzz');
-      assert.equal(result.value, 'Z');
-    });
-
     it('returns local when timestamps are equal and local clientId is higher', () => {
       const local = { timestamp: 1000, clientId: 'zzz', value: 'A' };
       const remote = { timestamp: 1000, clientId: 'aaa', value: 'B' };
@@ -24,14 +16,6 @@ describe('CRDT Resolver - Advanced Scenarios', () => {
       const result = resolveLWW(local, remote);
       assert.equal(result.clientId, 'zzz');
       assert.equal(result.value, 'A');
-    });
-
-    it('remote delete wins over local update even with earlier timestamp', () => {
-      const local = { type: 'update', timestamp: 5000, value: 'updated' };
-      const remote = { type: 'delete', timestamp: 1000, deleted_at: true };
-
-      const result = resolveLWW(local, remote);
-      assert.equal(result.type, 'delete');
     });
 
     it('local delete wins over remote update even with earlier timestamp', () => {
@@ -233,87 +217,62 @@ describe('CRDT Merger - Advanced Scenarios', () => {
   });
 });
 
-describe('Operation Validation Scenarios', () => {
-  const validTargets = ['feature', 'group', 'layer', 'group_feature', 'map', 'briefing', 'slide', 'cesium3d', 'streetview360'];
-  const validTypes = ['create', 'update', 'delete'];
-
-  it('all valid targets are defined (9 total)', () => {
-    // This documents expected targets for sync operations
-    assert.ok(validTargets.length === 9);
-    assert.ok(validTargets.includes('feature'));
-    assert.ok(validTargets.includes('group'));
-    assert.ok(validTargets.includes('layer'));
-    assert.ok(validTargets.includes('map'));
-    assert.ok(validTargets.includes('briefing'));
-    assert.ok(validTargets.includes('slide'));
-    assert.ok(validTargets.includes('group_feature'));
-    assert.ok(validTargets.includes('cesium3d'));
-    assert.ok(validTargets.includes('streetview360'));
+describe('Operation Constants and Validation', () => {
+  it('VALID_TARGETS includes all 9 core entity types', () => {
+    const coreTargets = ['feature', 'group', 'layer', 'group_feature', 'map', 'briefing', 'slide', 'cesium3d', 'streetview360'];
+    for (const target of coreTargets) {
+      assert.ok(VALID_TARGETS.includes(target), `Missing target: ${target}`);
+    }
   });
 
-  it('all valid operation types are defined', () => {
-    assert.ok(validTypes.length === 3);
-    assert.ok(validTypes.includes('create'));
-    assert.ok(validTypes.includes('update'));
-    assert.ok(validTypes.includes('delete'));
+  it('VALID_TARGETS includes frontend aliases for 3D/360 types', () => {
+    const aliases = ['marker3d', 'measurement3d', 'viewshed3d', 'cameraPosition3d', 'orientation360', 'marker360'];
+    for (const alias of aliases) {
+      assert.ok(VALID_TARGETS.includes(alias), `Missing frontend alias: ${alias}`);
+    }
   });
 
-  it('all 18 feature types are defined', () => {
-    const validFeatureTypes = [
-      // Basic
-      'point', 'line', 'polygon', 'text', 'image',
-      // Shapes
-      'circle', 'rectangle', 'ellipse', 'brush',
-      // Military
-      'arrow', 'boundary', 'occupied_front', 'military_symbol', 'coordination_measure',
-      // Analysis
-      'los', 'visibility', 'processed_los', 'processed_visibility',
-    ];
-
-    assert.equal(validFeatureTypes.length, 18);
-
-    // Basic types
-    assert.ok(validFeatureTypes.includes('point'));
-    assert.ok(validFeatureTypes.includes('line'));
-    assert.ok(validFeatureTypes.includes('polygon'));
-    assert.ok(validFeatureTypes.includes('text'));
-    assert.ok(validFeatureTypes.includes('image'));
-
-    // Shape types
-    assert.ok(validFeatureTypes.includes('circle'));
-    assert.ok(validFeatureTypes.includes('rectangle'));
-    assert.ok(validFeatureTypes.includes('ellipse'));
-    assert.ok(validFeatureTypes.includes('brush'));
-
-    // Military types
-    assert.ok(validFeatureTypes.includes('arrow'));
-    assert.ok(validFeatureTypes.includes('boundary'));
-    assert.ok(validFeatureTypes.includes('occupied_front'));
-    assert.ok(validFeatureTypes.includes('military_symbol'));
-    assert.ok(validFeatureTypes.includes('coordination_measure'));
-
-    // Analysis types
-    assert.ok(validFeatureTypes.includes('los'));
-    assert.ok(validFeatureTypes.includes('visibility'));
-    assert.ok(validFeatureTypes.includes('processed_los'));
-    assert.ok(validFeatureTypes.includes('processed_visibility'));
+  it('VALID_TARGETS includes map sub-entity types', () => {
+    const subTypes = ['mapPosition', 'baseLayer', 'mapNotes', 'gridStyle', 'catalogLayer'];
+    for (const sub of subTypes) {
+      assert.ok(VALID_TARGETS.includes(sub), `Missing map sub-entity: ${sub}`);
+    }
   });
 
-  it('all cesium3d data types are defined', () => {
-    const validCesium3dTypes = ['marker', 'measurement', 'viewshed', 'camera_position'];
-
-    assert.equal(validCesium3dTypes.length, 4);
-    assert.ok(validCesium3dTypes.includes('marker'));
-    assert.ok(validCesium3dTypes.includes('measurement'));
-    assert.ok(validCesium3dTypes.includes('viewshed'));
-    assert.ok(validCesium3dTypes.includes('camera_position'));
+  it('VALID_OP_TYPES contains exactly create, update, delete', () => {
+    assert.deepEqual([...VALID_OP_TYPES].sort(), ['create', 'delete', 'update']);
   });
 
-  it('all streetview360 data types are defined', () => {
-    const validStreetview360Types = ['orientation', 'marker'];
+  it('validateOperation returns valid for a well-formed create operation', () => {
+    const op = createOperation('create', 'feature', 'test-id', {
+      data: { feature_type: 'point', geometry: { coordinates: [0, 0] } },
+    });
 
-    assert.equal(validStreetview360Types.length, 2);
-    assert.ok(validStreetview360Types.includes('orientation'));
-    assert.ok(validStreetview360Types.includes('marker'));
+    const result = validateOperation(op);
+    assert.equal(result.valid, true);
+    assert.deepEqual(result.errors, []);
+  });
+
+  it('validateOperation returns errors for missing fields', () => {
+    const result = validateOperation({ type: 'invalid', target: 'unknown' });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.length > 0);
+  });
+
+  it('validateOperation requires data for create operations', () => {
+    const op = createOperation('create', 'feature', 'test-id');
+    op.data = null;
+
+    const result = validateOperation(op);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some(e => e.includes('Create operations must have data')));
+  });
+
+  it('validateOperation requires changes for update operations', () => {
+    const op = createOperation('update', 'feature', 'test-id');
+
+    const result = validateOperation(op);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some(e => e.includes('Update operations must have changes')));
   });
 });

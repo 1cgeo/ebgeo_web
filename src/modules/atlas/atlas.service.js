@@ -1,7 +1,7 @@
 // Path: src/modules/atlas/atlas.service.js
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { query, tx, oneOrNone, any } from '../../database/index.js';
+import { query, tx } from '../../database/index.js';
 import { NotFoundError } from '../../utils/errors.js';
 import config from '../../config.js';
 import * as Q from './atlas.queries.js';
@@ -177,7 +177,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       const newMap = await t.one(
         `INSERT INTO maps (atlas_id, name, base_layer, center_lat, center_long, zoom, bearing, pitch, notes_title, notes_description, analysis_layers, catalog_layers, locked)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-         RETURNING *`,
+         RETURNING id`,
         [
           newAtlas.id,
           map.name,
@@ -197,38 +197,20 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       mapIdMapping[map.id] = newMap.id;
       newMapOrder.push(newMap.id);
 
-      // Clone features for this map
-      const features = await t.any(
-        `SELECT * FROM features WHERE map_id = $1 AND deleted_at IS NULL`,
-        [map.id]
-      );
-
-      for (const feature of features) {
-        await t.none(
-          `INSERT INTO features (map_id, feature_type, geometry, properties, layer_id)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [
-            mapIdMapping[map.id],
-            feature.feature_type,
-            JSON.stringify(feature.geometry),
-            JSON.stringify(feature.properties),
-            null, // layer_id will need separate handling if layers are cloned
-          ]
-        );
-      }
-
-      // Clone layers for this map
+      // Clone layers first (features reference layer_id)
       const layers = await t.any(
         `SELECT * FROM layers WHERE map_id = $1 AND deleted_at IS NULL`,
         [map.id]
       );
 
+      const layerIdMapping = {};
       for (const layer of layers) {
-        await t.none(
+        const newLayer = await t.one(
           `INSERT INTO layers (map_id, name, visible, locked, opacity, sort_order, style)
-           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+           RETURNING id`,
           [
-            mapIdMapping[map.id],
+            newMap.id,
             layer.name,
             layer.visible,
             layer.locked,
@@ -237,30 +219,88 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
             JSON.stringify(layer.style || {}),
           ]
         );
+        layerIdMapping[layer.id] = newLayer.id;
       }
 
-      // Clone groups for this map
+      // Clone groups (track ID mapping for parent_id remapping and group_features)
       const groups = await t.any(
         `SELECT * FROM groups WHERE map_id = $1 AND deleted_at IS NULL`,
         [map.id]
       );
 
+      const groupIdMapping = {};
       for (const group of groups) {
-        await t.none(
+        const newGroup = await t.one(
           `INSERT INTO groups (map_id, name, visible, locked, style, parent_id)
-           VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+           RETURNING id`,
           [
-            mapIdMapping[map.id],
+            newMap.id,
             group.name,
             group.visible,
             group.locked,
             JSON.stringify(group.style || {}),
-            group.parent_id || null,
+            null, // parent_id set in second pass after all groups exist
           ]
         );
+        groupIdMapping[group.id] = newGroup.id;
       }
 
-      // Clone Cesium 3D data for this map
+      // Second pass: fix parent_id references for hierarchical groups
+      for (const group of groups) {
+        if (group.parent_id && groupIdMapping[group.parent_id]) {
+          await t.none(
+            `UPDATE groups SET parent_id = $2 WHERE id = $1`,
+            [groupIdMapping[group.id], groupIdMapping[group.parent_id]]
+          );
+        }
+      }
+
+      // Clone features with remapped layer_id
+      const features = await t.any(
+        `SELECT * FROM features WHERE map_id = $1 AND deleted_at IS NULL`,
+        [map.id]
+      );
+
+      const featureIdMapping = {};
+      for (const feature of features) {
+        const newFeature = await t.one(
+          `INSERT INTO features (map_id, feature_type, geometry, properties, layer_id)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id`,
+          [
+            newMap.id,
+            feature.feature_type,
+            JSON.stringify(feature.geometry),
+            JSON.stringify(feature.properties),
+            feature.layer_id ? (layerIdMapping[feature.layer_id] || null) : null,
+          ]
+        );
+        featureIdMapping[feature.id] = newFeature.id;
+      }
+
+      // Clone group_features associations with remapped IDs
+      const groupFeatures = await t.any(
+        `SELECT gf.* FROM group_features gf
+         JOIN groups g ON g.id = gf.group_id
+         JOIN features f ON f.id = gf.feature_id
+         WHERE g.map_id = $1 AND g.deleted_at IS NULL AND f.deleted_at IS NULL`,
+        [map.id]
+      );
+
+      for (const gf of groupFeatures) {
+        const newGroupId = groupIdMapping[gf.group_id];
+        const newFeatureId = featureIdMapping[gf.feature_id];
+        if (newGroupId && newFeatureId) {
+          await t.none(
+            `INSERT INTO group_features (group_id, feature_id) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING`,
+            [newGroupId, newFeatureId]
+          );
+        }
+      }
+
+      // Clone Cesium 3D data
       const cesium3dData = await t.any(
         `SELECT * FROM cesium3d_data WHERE map_id = $1 AND deleted_at IS NULL`,
         [map.id]
@@ -271,7 +311,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
           `INSERT INTO cesium3d_data (map_id, data_type, tileset_id, data)
            VALUES ($1, $2, $3, $4::jsonb)`,
           [
-            mapIdMapping[map.id],
+            newMap.id,
             cesium3d.data_type,
             cesium3d.tileset_id,
             JSON.stringify(cesium3d.data || {}),
@@ -279,7 +319,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
         );
       }
 
-      // Clone StreetView 360 data for this map
+      // Clone StreetView 360 data
       const streetview360Data = await t.any(
         `SELECT * FROM streetview360_data WHERE map_id = $1 AND deleted_at IS NULL`,
         [map.id]
@@ -290,7 +330,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
           `INSERT INTO streetview360_data (map_id, data_type, photo_name, data)
            VALUES ($1, $2, $3, $4::jsonb)`,
           [
-            mapIdMapping[map.id],
+            newMap.id,
             sv360.data_type,
             sv360.photo_name,
             JSON.stringify(sv360.data || {}),
@@ -315,7 +355,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
       const newBriefing = await t.one(
         `INSERT INTO briefings (atlas_id, name, description, settings)
          VALUES ($1, $2, $3, $4::jsonb)
-         RETURNING *`,
+         RETURNING id`,
         [
           newAtlas.id,
           briefing.name,
@@ -335,7 +375,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
         const newSlide = await t.one(
           `INSERT INTO slides (briefing_id, title, content, mode, map_id, model_id, photo_id, position, orientation)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)
-           RETURNING *`,
+           RETURNING id`,
           [
             newBriefing.id,
             slide.title,

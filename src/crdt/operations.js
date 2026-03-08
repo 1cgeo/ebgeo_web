@@ -80,23 +80,4 @@ export function validateOperation(op) {
   };
 }
 
-/**
- * Checks if an operation is a delete operation.
- */
-export function isDeleteOperation(op) {
-  return op.type === 'delete';
-}
-
-/**
- * Checks if an operation is a create operation.
- */
-export function isCreateOperation(op) {
-  return op.type === 'create';
-}
-
-/**
- * Checks if an operation is an update operation.
- */
-export function isUpdateOperation(op) {
-  return op.type === 'update';
-}
+export { VALID_OP_TYPES, VALID_TARGETS };

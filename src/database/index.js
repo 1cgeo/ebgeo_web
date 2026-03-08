@@ -96,19 +96,5 @@ export function task(callback) {
   return db.task(callback);
 }
 
-/**
- * @deprecated Use tx() for transactions instead
- * Compatibility shim - returns object that mimics pg PoolClient
- * for gradual migration. Will be removed after full migration.
- */
-export async function getClient() {
-  logger.warn('getClient() is deprecated, use tx() for transactions');
-  // Return a compatibility wrapper
-  return {
-    query: (text, values) => db.any(text, values).then(rows => ({ rows, rowCount: rows.length })),
-    release: () => {}, // No-op, pg-promise manages connections
-  };
-}
-
 export { db, pgp };
 export default db;

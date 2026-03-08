@@ -8,15 +8,12 @@ import * as Q from './sync.queries.js';
  * Backend uses generic 'cesium3d' and 'streetview360' with data_type field.
  */
 const ENTITY_TYPE_MAP = {
-  // Cesium 3D types → cesium3d
   marker3d: { target: 'cesium3d', dataType: 'marker' },
   measurement3d: { target: 'cesium3d', dataType: 'measurement' },
   viewshed3d: { target: 'cesium3d', dataType: 'viewshed' },
   cameraPosition3d: { target: 'cesium3d', dataType: 'camera_position' },
-  // StreetView 360 types → streetview360
   orientation360: { target: 'streetview360', dataType: 'orientation' },
   marker360: { target: 'streetview360', dataType: 'marker' },
-  // Map sub-entity types → map (these are updates to specific map fields)
   mapPosition: { target: 'map', subType: 'position' },
   baseLayer: { target: 'map', subType: 'baseLayer' },
   mapNotes: { target: 'map', subType: 'notes' },
@@ -39,6 +36,60 @@ const REVERSE_ENTITY_TYPE_MAP = {
     marker: 'marker360',
   },
 };
+
+/**
+ * Builds a sync metadata object from a database row.
+ * Centralizes the repeated pattern of creating sync objects for snapshot responses.
+ */
+function buildSyncMetadata(row, ownerId = null) {
+  return {
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
+    version: row.version,
+    ownerId,
+    dirty: false,
+    deleted: false,
+  };
+}
+
+/**
+ * Builds a dynamic UPDATE query from a field specification and changes object.
+ * Eliminates the repeated pattern of building SET clauses field by field.
+ *
+ * @param {string} table - Table name
+ * @param {Object} changes - Changes object from the operation
+ * @param {Array<{column: string, source?: string, jsonb?: boolean}>} fields - Field specs
+ * @param {Array} whereValues - Values for WHERE clause (placed before SET values)
+ * @param {string} whereClause - WHERE clause (e.g. "id = $1 AND map_id = $2")
+ * @returns {{ sql: string, values: Array } | null} - Query object or null if no changes
+ */
+function buildDynamicUpdate(table, changes, fields, whereValues, whereClause) {
+  const setClauses = [];
+  const values = [...whereValues];
+  let paramIndex = whereValues.length + 1;
+
+  for (const field of fields) {
+    const sourceKey = field.source ?? field.column;
+    if (changes[sourceKey] === undefined) continue;
+
+    const value = field.jsonb
+      ? JSON.stringify(changes[sourceKey])
+      : changes[sourceKey];
+
+    const cast = field.jsonb ? '::jsonb' : '';
+    setClauses.push(`${field.column} = $${paramIndex}${cast}`);
+    values.push(value);
+    paramIndex++;
+  }
+
+  if (setClauses.length === 0) return null;
+
+  setClauses.push('updated_at = NOW()', 'version = version + 1');
+  return {
+    sql: `UPDATE ${table} SET ${setClauses.join(', ')} WHERE ${whereClause}`,
+    values,
+  };
+}
 
 /**
  * Normalizes operation field names from frontend format to internal format.
@@ -136,14 +187,7 @@ function transformCesium3dToFrontend(cesium3dData) {
       id: item.id,
       tilesetId: item.tileset_id,
       ...item.data,
-      sync: {
-        createdAt: new Date(item.created_at).getTime(),
-        updatedAt: new Date(item.updated_at).getTime(),
-        version: item.version,
-        ownerId: null,
-        dirty: false,
-        deleted: false,
-      },
+      sync: buildSyncMetadata(item),
     };
 
     switch (item.data_type) {
@@ -183,14 +227,7 @@ function transformStreetview360ToFrontend(streetview360Data) {
       id: item.id,
       photoName: item.photo_name,
       ...item.data,
-      sync: {
-        createdAt: new Date(item.created_at).getTime(),
-        updatedAt: new Date(item.updated_at).getTime(),
-        version: item.version,
-        ownerId: null,
-        dirty: false,
-        deleted: false,
-      },
+      sync: buildSyncMetadata(item),
     };
 
     switch (item.data_type) {
@@ -361,45 +398,22 @@ export async function getAtlasSnapshot(atlasId) {
           locked: group.locked,
           style: group.style,
           parent_id: group.parent_id,
-          features: groupFeatureRefs, // Frontend expects embedded features array
-          sync: {
-            createdAt: new Date(group.created_at).getTime(),
-            updatedAt: new Date(group.updated_at).getTime(),
-            version: group.version,
-            ownerId: null,
-            dirty: false,
-            deleted: false,
-          },
+          features: groupFeatureRefs,
+          sync: buildSyncMetadata(group),
         };
       });
 
       // Keep groupFeatures for backwards compatibility (optional)
       map.groupFeatures = groupFeatures;
 
-      // Add sync metadata to map
-      map.sync = {
-        createdAt: new Date(map.created_at).getTime(),
-        updatedAt: new Date(map.updated_at).getTime(),
-        version: map.version,
-        ownerId: null,
-        dirty: false,
-        deleted: false,
-      };
+      map.sync = buildSyncMetadata(map);
     }
 
     // Get all briefings with slides
     const briefings = await t.query(Q.GET_ATLAS_BRIEFINGS, [atlasId]);
     for (const briefing of briefings) {
       briefing.slides = await t.query(Q.GET_BRIEFING_SLIDES, [briefing.id]);
-      // Add sync metadata to briefing
-      briefing.sync = {
-        createdAt: new Date(briefing.created_at).getTime(),
-        updatedAt: new Date(briefing.updated_at).getTime(),
-        version: briefing.version,
-        ownerId: null,
-        dirty: false,
-        deleted: false,
-      };
+      briefing.sync = buildSyncMetadata(briefing);
     }
 
     return {
@@ -410,14 +424,7 @@ export async function getAtlasSnapshot(atlasId) {
         settings: atlas.settings,
         mapOrder: atlas.map_order,
         isPublic: atlas.is_public,
-        sync: {
-          createdAt: new Date(atlas.created_at).getTime(),
-          updatedAt: new Date(atlas.updated_at).getTime(),
-          version: atlas.version,
-          ownerId: atlas.owner_id,
-          dirty: false,
-          deleted: false,
-        },
+        sync: buildSyncMetadata(atlas, atlas.owner_id),
       },
       maps,
       briefings,
@@ -581,6 +588,223 @@ export async function getCleanupStats(atlasId) {
     oldestOperationVersion: oldestResult.rows[0]?.oldest_version ? parseInt(oldestResult.rows[0].oldest_version, 10) : null,
     totalOperations: parseInt(countResult.rows[0].total, 10),
   };
+}
+
+/**
+ * Field specs for each updatable entity type.
+ * Each entry defines: { column, source? (defaults to column), jsonb? }
+ */
+const UPDATE_FIELDS = {
+  feature: [
+    { column: 'geometry', jsonb: true },
+    { column: 'properties', jsonb: true },
+    { column: 'layer_id' },
+    { column: 'feature_type' },
+  ],
+  group: [
+    { column: 'name' },
+    { column: 'visible' },
+    { column: 'locked' },
+    { column: 'style', jsonb: true },
+    { column: 'parent_id' },
+  ],
+  layer: [
+    { column: 'name' },
+    { column: 'visible' },
+    { column: 'locked' },
+    { column: 'opacity' },
+    { column: 'sort_order' },
+    { column: 'style', jsonb: true },
+  ],
+  briefing: [
+    { column: 'name' },
+    { column: 'description' },
+    { column: 'settings', jsonb: true },
+    { column: 'slide_order' },
+  ],
+  slide: [
+    { column: 'title' },
+    { column: 'content' },
+    { column: 'mode' },
+    { column: 'map_id' },
+    { column: 'model_id' },
+    { column: 'photo_id' },
+    { column: 'position', jsonb: true },
+    { column: 'orientation', jsonb: true },
+    { column: 'is_broken' },
+    { column: 'broken_reason' },
+  ],
+  cesium3d: [
+    { column: 'data_type' },
+    { column: 'tileset_id' },
+    { column: 'data', jsonb: true },
+  ],
+  streetview360: [
+    { column: 'data_type' },
+    { column: 'photo_name' },
+    { column: 'data', jsonb: true },
+  ],
+};
+
+/**
+ * Map update fields are special: they accept both frontend and backend field names,
+ * and handle sub-entity updates (mapPosition, baseLayer, mapNotes, etc.).
+ */
+const MAP_UPDATE_FIELDS = [
+  { column: 'name' },
+  { column: 'base_layer' },
+  { column: 'center_lat' },
+  { column: 'center_long' },
+  { column: 'zoom' },
+  { column: 'bearing' },
+  { column: 'pitch' },
+  { column: 'notes_title' },
+  { column: 'notes_description' },
+  { column: 'analysis_layers', jsonb: true },
+  { column: 'catalog_layers', jsonb: true },
+  { column: 'locked' },
+];
+
+/**
+ * Normalizes map changes by resolving frontend/backend field name aliases.
+ * Uses nullish coalescing (??) to correctly handle empty string values.
+ */
+function normalizeMapChanges(changes) {
+  const normalized = { ...changes };
+
+  // base_layer / baseLayer
+  if (normalized.base_layer === undefined && normalized.baseLayer !== undefined) {
+    normalized.base_layer = normalized.baseLayer;
+  }
+
+  // notes_title / title
+  if (normalized.notes_title === undefined && normalized.title !== undefined) {
+    normalized.notes_title = normalized.title;
+  }
+
+  // notes_description / description (only for map context, not briefing)
+  if (normalized.notes_description === undefined && normalized.description !== undefined) {
+    normalized.notes_description = normalized.description;
+  }
+
+  return normalized;
+}
+
+/**
+ * Normalizes layer changes by resolving the order/sort_order alias.
+ */
+function normalizeLayerChanges(changes) {
+  const normalized = { ...changes };
+  if (normalized.sort_order === undefined && normalized.order !== undefined) {
+    normalized.sort_order = normalized.order;
+  }
+  return normalized;
+}
+
+/**
+ * Builds the UPDATE query for a given target and operation.
+ * Returns null if no changes apply.
+ */
+function buildUpdateQuery(target, op, atlasId) {
+  if (target === 'feature' && op.changes && op.mapId) {
+    return buildDynamicUpdate(
+      'features', op.changes, UPDATE_FIELDS.feature,
+      [op.targetId, op.mapId], 'id = $1 AND map_id = $2',
+    );
+  }
+
+  if (target === 'group' && op.changes && op.mapId) {
+    return buildDynamicUpdate(
+      'groups', op.changes, UPDATE_FIELDS.group,
+      [op.targetId, op.mapId], 'id = $1 AND map_id = $2',
+    );
+  }
+
+  if (target === 'layer' && op.changes && op.mapId) {
+    const changes = normalizeLayerChanges(op.changes);
+    return buildDynamicUpdate(
+      'layers', changes, UPDATE_FIELDS.layer,
+      [op.targetId, op.mapId], 'id = $1 AND map_id = $2',
+    );
+  }
+
+  if (target === 'map' && (op.changes || op.data)) {
+    // Sub-entity updates target the map via mapId; regular updates use targetId
+    const mapId = op._subType ? op.mapId : op.targetId;
+    if (!mapId) return null;
+
+    // Merge changes and data, then normalize frontend field aliases
+    const merged = { ...op.changes, ...op.data };
+    const changes = normalizeMapChanges(merged);
+    return buildDynamicUpdate(
+      'maps', changes, MAP_UPDATE_FIELDS,
+      [mapId, atlasId], 'id = $1 AND atlas_id = $2',
+    );
+  }
+
+  if (target === 'briefing' && op.changes) {
+    return buildDynamicUpdate(
+      'briefings', op.changes, UPDATE_FIELDS.briefing,
+      [op.targetId, atlasId], 'id = $1 AND atlas_id = $2',
+    );
+  }
+
+  if (target === 'slide' && op.changes) {
+    return buildDynamicUpdate(
+      'slides', op.changes, UPDATE_FIELDS.slide,
+      [op.targetId], 'id = $1',
+    );
+  }
+
+  if (target === 'cesium3d' && op.changes && op.mapId) {
+    return buildDynamicUpdate(
+      'cesium3d_data', op.changes, UPDATE_FIELDS.cesium3d,
+      [op.targetId, op.mapId], 'id = $1 AND map_id = $2',
+    );
+  }
+
+  if (target === 'streetview360' && op.changes && op.mapId) {
+    return buildDynamicUpdate(
+      'streetview360_data', op.changes, UPDATE_FIELDS.streetview360,
+      [op.targetId, op.mapId], 'id = $1 AND map_id = $2',
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Builds a soft-delete query for the given target entity.
+ * Returns null if the target does not support deletion or required fields are missing.
+ */
+function buildSoftDeleteQuery(table, target, op, atlasId) {
+  const SOFT_DELETE = 'SET deleted_at = NOW(), updated_at = NOW(), version = version + 1';
+
+  // Entities scoped by map_id
+  if (['feature', 'group', 'layer', 'cesium3d', 'streetview360'].includes(target) && op.mapId) {
+    return {
+      sql: `UPDATE ${table} ${SOFT_DELETE} WHERE id = $1 AND map_id = $2`,
+      values: [op.targetId, op.mapId],
+    };
+  }
+
+  // Entities scoped by atlas_id
+  if (target === 'map' || target === 'briefing') {
+    return {
+      sql: `UPDATE ${table} ${SOFT_DELETE} WHERE id = $1 AND atlas_id = $2`,
+      values: [op.targetId, atlasId],
+    };
+  }
+
+  // Entities with only id (slide)
+  if (target === 'slide') {
+    return {
+      sql: `UPDATE ${table} ${SOFT_DELETE} WHERE id = $1`,
+      values: [op.targetId],
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -751,414 +975,27 @@ async function applyOperation(t, atlasId, op) {
     }
 
     case 'update': {
-      if (target === 'feature' && op.changes && op.mapId) {
-        // Apply changes to feature
-        const changes = op.changes;
-        const setClauses = [];
-        const values = [op.targetId, op.mapId];
-        let paramIndex = 3;
-
-        if (changes.geometry !== undefined) {
-          setClauses.push(`geometry = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(changes.geometry));
-          paramIndex++;
-        }
-        if (changes.properties !== undefined) {
-          setClauses.push(`properties = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(changes.properties));
-          paramIndex++;
-        }
-        if (changes.layer_id !== undefined) {
-          setClauses.push(`layer_id = $${paramIndex}`);
-          values.push(changes.layer_id);
-          paramIndex++;
-        }
-        if (changes.feature_type !== undefined) {
-          setClauses.push(`feature_type = $${paramIndex}`);
-          values.push(changes.feature_type);
-          paramIndex++;
-        }
-
-        if (setClauses.length > 0) {
-          setClauses.push('updated_at = NOW()', 'version = version + 1');
-          await t.none(
-            `UPDATE features SET ${setClauses.join(', ')} WHERE id = $1 AND map_id = $2`,
-            values
-          );
-        }
-      } else if (target === 'group' && op.changes && op.mapId) {
-        const changes = op.changes;
-        const setClauses = [];
-        const values = [op.targetId, op.mapId];
-        let paramIndex = 3;
-
-        if (changes.name !== undefined) {
-          setClauses.push(`name = $${paramIndex}`);
-          values.push(changes.name);
-          paramIndex++;
-        }
-        if (changes.visible !== undefined) {
-          setClauses.push(`visible = $${paramIndex}`);
-          values.push(changes.visible);
-          paramIndex++;
-        }
-        if (changes.locked !== undefined) {
-          setClauses.push(`locked = $${paramIndex}`);
-          values.push(changes.locked);
-          paramIndex++;
-        }
-        if (changes.style !== undefined) {
-          setClauses.push(`style = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(changes.style));
-          paramIndex++;
-        }
-        if (changes.parent_id !== undefined) {
-          setClauses.push(`parent_id = $${paramIndex}`);
-          values.push(changes.parent_id);
-          paramIndex++;
-        }
-
-        if (setClauses.length > 0) {
-          setClauses.push('updated_at = NOW()', 'version = version + 1');
-          await t.none(
-            `UPDATE groups SET ${setClauses.join(', ')} WHERE id = $1 AND map_id = $2`,
-            values
-          );
-        }
-      } else if (target === 'layer' && op.changes && op.mapId) {
-        const changes = op.changes;
-        const setClauses = [];
-        const values = [op.targetId, op.mapId];
-        let paramIndex = 3;
-
-        if (changes.name !== undefined) {
-          setClauses.push(`name = $${paramIndex}`);
-          values.push(changes.name);
-          paramIndex++;
-        }
-        if (changes.visible !== undefined) {
-          setClauses.push(`visible = $${paramIndex}`);
-          values.push(changes.visible);
-          paramIndex++;
-        }
-        if (changes.locked !== undefined) {
-          setClauses.push(`locked = $${paramIndex}`);
-          values.push(changes.locked);
-          paramIndex++;
-        }
-        if (changes.opacity !== undefined) {
-          setClauses.push(`opacity = $${paramIndex}`);
-          values.push(changes.opacity);
-          paramIndex++;
-        }
-        // Accept both 'order' (frontend) and 'sort_order' (backend)
-        if (changes.sort_order !== undefined || changes.order !== undefined) {
-          setClauses.push(`sort_order = $${paramIndex}`);
-          values.push(changes.sort_order ?? changes.order);
-          paramIndex++;
-        }
-        if (changes.style !== undefined) {
-          setClauses.push(`style = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(changes.style));
-          paramIndex++;
-        }
-
-        if (setClauses.length > 0) {
-          setClauses.push('updated_at = NOW()', 'version = version + 1');
-          await t.none(
-            `UPDATE layers SET ${setClauses.join(', ')} WHERE id = $1 AND map_id = $2`,
-            values
-          );
-        }
-      } else if (target === 'map' && (op.changes || op.data)) {
-        // Handle both regular map updates and sub-entity updates (mapPosition, baseLayer, etc.)
-        // For sub-entity updates, the mapId is the target, for regular updates, targetId is the map
-        const mapId = op._subType ? op.mapId : op.targetId;
-        if (!mapId) break;
-
-        // Merge changes and data (sub-entity updates may use data instead of changes)
-        const changes = { ...op.changes, ...op.data };
-        const setClauses = [];
-        const values = [mapId, atlasId];
-        let paramIndex = 3;
-
-        // Regular map fields
-        if (changes.name !== undefined) {
-          setClauses.push(`name = $${paramIndex}`);
-          values.push(changes.name);
-          paramIndex++;
-        }
-        if (changes.base_layer !== undefined || changes.baseLayer !== undefined) {
-          setClauses.push(`base_layer = $${paramIndex}`);
-          values.push(changes.base_layer || changes.baseLayer);
-          paramIndex++;
-        }
-        if (changes.center_lat !== undefined) {
-          setClauses.push(`center_lat = $${paramIndex}`);
-          values.push(changes.center_lat);
-          paramIndex++;
-        }
-        if (changes.center_long !== undefined) {
-          setClauses.push(`center_long = $${paramIndex}`);
-          values.push(changes.center_long);
-          paramIndex++;
-        }
-        if (changes.zoom !== undefined) {
-          setClauses.push(`zoom = $${paramIndex}`);
-          values.push(changes.zoom);
-          paramIndex++;
-        }
-        if (changes.bearing !== undefined) {
-          setClauses.push(`bearing = $${paramIndex}`);
-          values.push(changes.bearing);
-          paramIndex++;
-        }
-        if (changes.pitch !== undefined) {
-          setClauses.push(`pitch = $${paramIndex}`);
-          values.push(changes.pitch);
-          paramIndex++;
-        }
-        // Notes fields (from mapNotes sub-entity or direct)
-        if (changes.notes_title !== undefined || changes.title !== undefined) {
-          setClauses.push(`notes_title = $${paramIndex}`);
-          values.push(changes.notes_title || changes.title);
-          paramIndex++;
-        }
-        if (changes.notes_description !== undefined || changes.description !== undefined) {
-          setClauses.push(`notes_description = $${paramIndex}`);
-          values.push(changes.notes_description || changes.description);
-          paramIndex++;
-        }
-        if (changes.analysis_layers !== undefined) {
-          setClauses.push(`analysis_layers = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(changes.analysis_layers));
-          paramIndex++;
-        }
-        if (changes.catalog_layers !== undefined) {
-          setClauses.push(`catalog_layers = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(changes.catalog_layers));
-          paramIndex++;
-        }
-        if (changes.locked !== undefined) {
-          setClauses.push(`locked = $${paramIndex}`);
-          values.push(changes.locked);
-          paramIndex++;
-        }
-
-        if (setClauses.length > 0) {
-          setClauses.push('updated_at = NOW()', 'version = version + 1');
-          await t.none(
-            `UPDATE maps SET ${setClauses.join(', ')} WHERE id = $1 AND atlas_id = $2`,
-            values
-          );
-        }
-      } else if (target === 'briefing' && op.changes) {
-        const changes = op.changes;
-        const setClauses = [];
-        const values = [op.targetId, atlasId];
-        let paramIndex = 3;
-
-        if (changes.name !== undefined) {
-          setClauses.push(`name = $${paramIndex}`);
-          values.push(changes.name);
-          paramIndex++;
-        }
-        if (changes.description !== undefined) {
-          setClauses.push(`description = $${paramIndex}`);
-          values.push(changes.description);
-          paramIndex++;
-        }
-        if (changes.settings !== undefined) {
-          setClauses.push(`settings = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(changes.settings));
-          paramIndex++;
-        }
-        if (changes.slide_order !== undefined) {
-          setClauses.push(`slide_order = $${paramIndex}`);
-          values.push(changes.slide_order);
-          paramIndex++;
-        }
-
-        if (setClauses.length > 0) {
-          setClauses.push('updated_at = NOW()', 'version = version + 1');
-          await t.none(
-            `UPDATE briefings SET ${setClauses.join(', ')} WHERE id = $1 AND atlas_id = $2`,
-            values
-          );
-        }
-      } else if (target === 'slide' && op.changes) {
-        const changes = op.changes;
-        const setClauses = [];
-        const values = [op.targetId];
-        let paramIndex = 2;
-
-        if (changes.title !== undefined) {
-          setClauses.push(`title = $${paramIndex}`);
-          values.push(changes.title);
-          paramIndex++;
-        }
-        if (changes.content !== undefined) {
-          setClauses.push(`content = $${paramIndex}`);
-          values.push(changes.content);
-          paramIndex++;
-        }
-        if (changes.mode !== undefined) {
-          setClauses.push(`mode = $${paramIndex}`);
-          values.push(changes.mode);
-          paramIndex++;
-        }
-        if (changes.map_id !== undefined) {
-          setClauses.push(`map_id = $${paramIndex}`);
-          values.push(changes.map_id);
-          paramIndex++;
-        }
-        if (changes.model_id !== undefined) {
-          setClauses.push(`model_id = $${paramIndex}`);
-          values.push(changes.model_id);
-          paramIndex++;
-        }
-        if (changes.photo_id !== undefined) {
-          setClauses.push(`photo_id = $${paramIndex}`);
-          values.push(changes.photo_id);
-          paramIndex++;
-        }
-        if (changes.position !== undefined) {
-          setClauses.push(`position = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(changes.position));
-          paramIndex++;
-        }
-        if (changes.orientation !== undefined) {
-          setClauses.push(`orientation = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(changes.orientation));
-          paramIndex++;
-        }
-        if (changes.is_broken !== undefined) {
-          setClauses.push(`is_broken = $${paramIndex}`);
-          values.push(changes.is_broken);
-          paramIndex++;
-        }
-        if (changes.broken_reason !== undefined) {
-          setClauses.push(`broken_reason = $${paramIndex}`);
-          values.push(changes.broken_reason);
-          paramIndex++;
-        }
-
-        if (setClauses.length > 0) {
-          setClauses.push('updated_at = NOW()', 'version = version + 1');
-          await t.none(
-            `UPDATE slides SET ${setClauses.join(', ')} WHERE id = $1`,
-            values
-          );
-        }
-      } else if (target === 'cesium3d' && op.changes && op.mapId) {
-        const changes = op.changes;
-        const setClauses = [];
-        const values = [op.targetId, op.mapId];
-        let paramIndex = 3;
-
-        if (changes.data_type !== undefined) {
-          setClauses.push(`data_type = $${paramIndex}`);
-          values.push(changes.data_type);
-          paramIndex++;
-        }
-        if (changes.tileset_id !== undefined) {
-          setClauses.push(`tileset_id = $${paramIndex}`);
-          values.push(changes.tileset_id);
-          paramIndex++;
-        }
-        if (changes.data !== undefined) {
-          setClauses.push(`data = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(changes.data));
-          paramIndex++;
-        }
-
-        if (setClauses.length > 0) {
-          setClauses.push('updated_at = NOW()', 'version = version + 1');
-          await t.none(
-            `UPDATE cesium3d_data SET ${setClauses.join(', ')} WHERE id = $1 AND map_id = $2`,
-            values
-          );
-        }
-      } else if (target === 'streetview360' && op.changes && op.mapId) {
-        const changes = op.changes;
-        const setClauses = [];
-        const values = [op.targetId, op.mapId];
-        let paramIndex = 3;
-
-        if (changes.data_type !== undefined) {
-          setClauses.push(`data_type = $${paramIndex}`);
-          values.push(changes.data_type);
-          paramIndex++;
-        }
-        if (changes.photo_name !== undefined) {
-          setClauses.push(`photo_name = $${paramIndex}`);
-          values.push(changes.photo_name);
-          paramIndex++;
-        }
-        if (changes.data !== undefined) {
-          setClauses.push(`data = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(changes.data));
-          paramIndex++;
-        }
-
-        if (setClauses.length > 0) {
-          setClauses.push('updated_at = NOW()', 'version = version + 1');
-          await t.none(
-            `UPDATE streetview360_data SET ${setClauses.join(', ')} WHERE id = $1 AND map_id = $2`,
-            values
-          );
-        }
+      const updateQuery = buildUpdateQuery(target, op, atlasId);
+      if (updateQuery) {
+        await t.none(updateQuery.sql, updateQuery.values);
       }
       break;
     }
 
     case 'delete': {
-      if (target === 'feature' && op.mapId) {
-        await t.none(
-          `UPDATE features SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND map_id = $2`,
-          [op.targetId, op.mapId]
-        );
-      } else if (target === 'group' && op.mapId) {
-        await t.none(
-          `UPDATE groups SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND map_id = $2`,
-          [op.targetId, op.mapId]
-        );
-      } else if (target === 'layer' && op.mapId) {
-        await t.none(
-          `UPDATE layers SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND map_id = $2`,
-          [op.targetId, op.mapId]
-        );
-      } else if (target === 'group_feature' && op.data) {
-        const data = op.data;
+      // group_feature is a hard delete (join table, no soft-delete)
+      if (target === 'group_feature' && op.data) {
         await t.none(
           `DELETE FROM group_features WHERE group_id = $1 AND feature_id = $2`,
-          [data.group_id, data.feature_id]
+          [op.data.group_id, op.data.feature_id]
         );
-      } else if (target === 'map') {
-        await t.none(
-          `UPDATE maps SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND atlas_id = $2`,
-          [op.targetId, atlasId]
-        );
-      } else if (target === 'briefing') {
-        await t.none(
-          `UPDATE briefings SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND atlas_id = $2`,
-          [op.targetId, atlasId]
-        );
-      } else if (target === 'slide') {
-        await t.none(
-          `UPDATE slides SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1`,
-          [op.targetId]
-        );
-      } else if (target === 'cesium3d' && op.mapId) {
-        await t.none(
-          `UPDATE cesium3d_data SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND map_id = $2`,
-          [op.targetId, op.mapId]
-        );
-      } else if (target === 'streetview360' && op.mapId) {
-        await t.none(
-          `UPDATE streetview360_data SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND map_id = $2`,
-          [op.targetId, op.mapId]
-        );
+        break;
+      }
+
+      // All other entities use soft-delete with the same pattern
+      const deleteQuery = buildSoftDeleteQuery(table, target, op, atlasId);
+      if (deleteQuery) {
+        await t.none(deleteQuery.sql, deleteQuery.values);
       }
       break;
     }

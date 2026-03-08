@@ -197,7 +197,7 @@ describe('Sync API', () => {
         })
         .expect(200);
 
-      assert.ok(res.body.data.acks.length, 1);
+      assert.equal(res.body.data.acks.length, 1);
 
       // Verify map was created
       const { rows } = await db.query('SELECT * FROM maps WHERE id = $1', [targetId]);

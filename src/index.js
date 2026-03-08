@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import app from './app.js';
 import config from './config.js';
 import logger from './utils/logger.js';
+import { pgp } from './database/index.js';
 import { attachWebSocket } from './modules/collab/index.js';
 
 const server = createServer(app);
@@ -15,12 +16,13 @@ server.listen(config.port, () => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  server.close(() => process.exit(0));
-});
+function shutdown(signal) {
+  logger.info(`${signal} received, shutting down gracefully`);
+  server.close(() => {
+    pgp.end();
+    process.exit(0);
+  });
+}
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  server.close(() => process.exit(0));
-});
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
