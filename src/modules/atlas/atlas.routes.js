@@ -31,6 +31,9 @@ router.patch('/:atlasId/settings', auth, requireAtlasPermission('owner'), valida
 // Clone
 router.post('/:atlasId/clone', auth, requireAtlasPermission('read'), validate({ body: schemas.cloneAtlasSchema }), ctrl.cloneAtlas);
 
+// Map operations
+router.post('/:atlasId/maps/:mapId/duplicate', auth, requireAtlasPermission('write'), ctrl.duplicateMap);
+
 // Mount nested routers
 router.use('/:atlasId/sharing', sharingRoutes);
 router.use('/:atlasId/images', imagesRoutes);

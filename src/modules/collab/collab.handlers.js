@@ -130,6 +130,30 @@ export async function handleOperations(ws, data) {
 }
 
 /**
+ * Handles briefing edit start awareness.
+ */
+export function handleBriefingEditStart(ws, data) {
+  broadcastToRoom(ws.atlasId, {
+    type: 'briefing_edit_started',
+    userId: ws.userId,
+    userName: ws.userName,
+    briefingId: data.briefingId,
+  }, ws);
+}
+
+/**
+ * Handles briefing edit end awareness.
+ */
+export function handleBriefingEditEnd(ws, data) {
+  broadcastToRoom(ws.atlasId, {
+    type: 'briefing_edit_ended',
+    userId: ws.userId,
+    userName: ws.userName,
+    briefingId: data.briefingId,
+  }, ws);
+}
+
+/**
  * Handles sync requests (pull operations since version).
  */
 export async function handleSyncRequest(ws, data) {

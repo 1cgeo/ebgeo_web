@@ -600,6 +600,7 @@ const UPDATE_FIELDS = {
     { column: 'properties', jsonb: true },
     { column: 'layer_id' },
     { column: 'feature_type' },
+    { column: 'map_id' },
   ],
   group: [
     { column: 'name' },

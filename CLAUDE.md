@@ -268,7 +268,11 @@ Administradores podem:
 - `ping`/`pong` - Heartbeat
 - `cursor`, `selection` - Presença
 - `operation`, `operations` - CRDT ops
+- `sync_request`/`sync_response` - Sync via WS
 - `user_joined`, `user_left` - Eventos de sala
+- `atlas_updated`, `atlas_deleted`, `atlas_settings_updated` - Mutações REST broadcast
+- `sharing_updated` - Alterações de compartilhamento broadcast
+- `briefing_edit_start`/`briefing_edit_end` → `briefing_edit_started`/`briefing_edit_ended` - Awareness
 
 ## CRDT
 
@@ -341,11 +345,12 @@ Administradores podem:
 | PATCH | `/api/v1/atlas/:atlasId/settings` | Atualizar configurações | Sim | Owner |
 | POST | `/api/v1/atlas/:atlasId/clone` | Clonar atlas | Sim | Read |
 
-### Maps (read-only, escrita via sync)
+### Maps
 | Método | Rota | Descrição | Auth | Permissão |
 |--------|------|-----------|------|-----------|
 | GET | `/api/v1/atlas/:atlasId/maps` | Listar mapas | Sim | Read |
 | GET | `/api/v1/atlas/:atlasId/maps/:mapId` | Obter mapa | Sim | Read |
+| POST | `/api/v1/atlas/:atlasId/maps/:mapId/duplicate` | Duplicar mapa | Sim | Write |
 
 ### Briefings (read-only, escrita via sync)
 | Método | Rota | Descrição | Auth | Permissão |
@@ -413,13 +418,13 @@ Administradores podem:
 
 ## Testes
 
-17 arquivos de teste organizados em 3 categorias:
+25 arquivos de teste organizados em 3 categorias:
 
 | Categoria | Arquivos | Comando |
 |-----------|----------|---------|
 | Unit (4) | crdt-merger, crdt-resolver, permission-resolver, sync-operations | `npm run test:unit` |
-| Integration (12) | atlas, atlas-import, auth, features, images, permissions, resources, sharing, sync, sync-3d-data, sync-advanced, users-admin | `npm run test:integration` |
-| WebSocket (1) | collab | `npm run test:ws` |
+| Integration (19) | atlas, atlas-import, auth, features, images, permissions, resources, sharing, sync, sync-3d-data, sync-advanced, sync-briefing-ops, sync-feature-map-move, sync-feature-ops, sync-frontend-format, sync-group-ops, sync-layer-ops, sync-map-ops, users-admin | `npm run test:integration` |
+| WebSocket (2) | collab, collab-broadcasts | `npm run test:ws` |
 
 ## Documentação Adicional
 
@@ -498,28 +503,18 @@ O snapshot retorna estrutura idêntica ao IndexedDB do frontend:
 
 ## Limitações Conhecidas e Gaps para Multiusuário
 
-Baseado na análise completa do documento `docs/acoes-interface-multiusuario.md` do frontend (277 ações em 28 seções da interface). O backend já suporta ~85% das funcionalidades multiusuário. Os gaps abaixo representam o que ainda falta implementar.
+Baseado na análise completa do documento `docs/acoes-interface-multiusuario.md` do frontend (277 ações em 28 seções da interface). O backend suporta ~97% das funcionalidades multiusuário.
 
-### P0 — Críticos para multiusuário funcionar
+### Resolvidos
 
-| Gap | Ref. Frontend | Descrição | Impacto |
-|-----|---------------|-----------|---------|
-| **Atlas delete não notifica WS** | §1 item 4 | `DELETE /atlas/:atlasId` faz soft-delete no banco mas não desconecta clientes WebSocket. Usuários conectados permanecem na sala de um atlas deletado. Frontend espera broadcast de desconexão + redirecionamento para tela de projetos. | Clientes ficam em estado inconsistente após deleção. |
-| **Mutações REST sem broadcast WS** | §1 items 5,7,11; §24 item 8 | Alterações feitas via REST (`PUT /atlas`, `PATCH /atlas/settings`, `POST/DELETE sharing`) não emitem eventos WebSocket. Outros clientes não recebem essas mudanças em tempo real. | Reorder de mapas, mudança de settings, compartilhamento, configurações (exagero de terreno) — nada é refletido em real-time para outros usuários. |
-
-### P1 — Funcionalidades necessárias
-
-| Gap | Ref. Frontend | Descrição | Impacto |
-|-----|---------------|-----------|---------|
-| **Mover feição entre mapas** | §14 item 7 | O sync update de feature não suporta alterar `map_id` (campo ausente em `UPDATE_FIELDS`). Workaround atual (create+delete) não é atômico. Frontend espera validação de permissões em ambos os mapas + broadcast em ambos. | "Mover para mapa" no menu de contexto não funciona de forma confiável. |
-| **Duplicar mapa individual** | §1 item 10 | Só existe clone de atlas inteiro (`POST /atlas/:atlasId/clone`). Não há endpoint para duplicar um mapa dentro do mesmo atlas. Frontend espera cópia com novos UUIDs + broadcast `MAP_CREATED`. | Item "Duplicar mapa" na sidebar fica sem backend. |
-| **Map reorder via WS** | §1 item 11 | `map_order` só é atualizado via `PUT /atlas/:atlasId` (REST), sem broadcast via WebSocket. | Reordenação de mapas por drag & drop não reflete em outros clientes. |
-
-### P2 — Melhorias de UX
-
-| Gap | Ref. Frontend | Descrição | Impacto |
-|-----|---------------|-----------|---------|
-| **Awareness de briefing** | §3 items 3,13; §22 item 13 | Não há mensagens WS `briefing_edit_started` / `briefing_edit_ended` para indicar quem está editando um briefing. Frontend espera broadcast ao abrir e fechar o editor. | Sem indicação visual de edição simultânea de briefing. |
+| Gap | Solução |
+|-----|---------|
+| **P0: Atlas delete notifica WS** | `closeRoom()` em `collab.rooms.js` — broadcast `atlas_deleted` + fecha conexões com code 4001 |
+| **P0: Mutações REST com broadcast WS** | `updateAtlas` → `atlas_updated`, `updateSettings` → `atlas_settings_updated`, sharing → `sharing_updated`, sync push → `operations` |
+| **P1: Mover feição entre mapas** | `map_id` adicionado a `UPDATE_FIELDS.feature` em `sync.service.js` |
+| **P1: Duplicar mapa individual** | `POST /atlas/:atlasId/maps/:mapId/duplicate` — clona mapa com sub-entidades (layers, groups, features, group_features, cesium3d, streetview360) |
+| **P1: Map reorder via WS** | Coberto por `atlas_updated` broadcast no `updateAtlas` (inclui `map_order`) |
+| **P2: Awareness de briefing** | Mensagens WS `briefing_edit_start`/`briefing_edit_end` → broadcast `briefing_edit_started`/`briefing_edit_ended` |
 
 ### P3 — Otimizações futuras
 

@@ -1,6 +1,7 @@
 // Path: src/modules/sync/sync.controller.js
 import { asyncHandler } from '../../utils/async-handler.js';
 import * as syncService from './sync.service.js';
+import { broadcastToRoom } from '../collab/collab.rooms.js';
 
 export const pushOperations = asyncHandler(async (req, res) => {
   const result = await syncService.pushOperations(
@@ -8,6 +9,15 @@ export const pushOperations = asyncHandler(async (req, res) => {
     req.body.operations,
     req.user.id
   );
+
+  // Broadcast to WS clients so they receive real-time updates
+  // Use result.applied (the server-acknowledged ops) rather than raw input
+  broadcastToRoom(req.atlasId, {
+    type: 'operations',
+    userId: req.user.id,
+    ops: result.applied || req.body.operations,
+  });
+
   res.json({ data: result });
 });
 

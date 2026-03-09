@@ -50,6 +50,26 @@ export function broadcastToRoom(atlasId, message, excludeWs = null) {
 }
 
 /**
+ * Broadcasts a message to all clients in a room, then closes all connections.
+ * Used when an atlas is deleted to notify and disconnect all users.
+ */
+export function closeRoom(atlasId, message) {
+  const room = rooms.get(atlasId);
+  if (!room) return;
+
+  const payload = typeof message === 'string' ? message : JSON.stringify(message);
+
+  for (const client of room) {
+    if (client.readyState === 1) {
+      client.send(payload);
+      client.close(4001, 'Atlas deleted');
+    }
+  }
+
+  rooms.delete(atlasId);
+}
+
+/**
  * Gets user info for all connected clients in a room.
  */
 export function getRoomUsers(atlasId) {

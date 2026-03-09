@@ -252,6 +252,33 @@ describe('Cesium3D Data via Sync API', () => {
     });
   });
 
+  describe('Batch delete all 3D entities of a tileset (§2 item 19)', () => {
+    it('deletes all markers, measurements, and viewsheds for a tileset in batch', async () => {
+      const tilesetId = 'TILESET_BATCH_DEL';
+      const marker = await createCesium3dData(db, map.id, { data_type: 'marker', tileset_id: tilesetId, data: { name: 'M1' } });
+      const measurement = await createCesium3dData(db, map.id, { data_type: 'measurement', tileset_id: tilesetId, data: { name: 'M2' } });
+      const viewshed = await createCesium3dData(db, map.id, { data_type: 'viewshed', tileset_id: tilesetId, data: { name: 'M3' } });
+      const now = Date.now();
+
+      await supertest(app)
+        .post(`/api/v1/atlas/${atlas.id}/sync`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          operations: [
+            { id: randomUUID(), type: 'delete', target: 'cesium3d', targetId: marker.id, mapId: map.id, timestamp: now, clientId: 'test-client' },
+            { id: randomUUID(), type: 'delete', target: 'cesium3d', targetId: measurement.id, mapId: map.id, timestamp: now + 1, clientId: 'test-client' },
+            { id: randomUUID(), type: 'delete', target: 'cesium3d', targetId: viewshed.id, mapId: map.id, timestamp: now + 2, clientId: 'test-client' },
+          ],
+        })
+        .expect(200);
+
+      for (const id of [marker.id, measurement.id, viewshed.id]) {
+        const { rows } = await db.query('SELECT * FROM cesium3d_data WHERE id = $1', [id]);
+        assert.ok(rows[0].deleted_at, `cesium3d entry ${id} should be soft-deleted`);
+      }
+    });
+  });
+
   describe('Cesium3D Data in Snapshot', () => {
     before(async () => {
       // Create some cesium3d data to be included in snapshot
@@ -494,6 +521,33 @@ describe('StreetView360 Data via Sync API', () => {
 
       const { rows } = await db.query('SELECT * FROM streetview360_data WHERE id = $1', [sv360.id]);
       assert.ok(rows[0].deleted_at);
+    });
+  });
+
+  describe('Batch delete all 360 entities of a photo (§2 item 23)', () => {
+    it('deletes all markers and orientation for a photo in batch', async () => {
+      const photoName = 'batch-del-photo';
+      const orientation = await createStreetview360Data(db, map.id, { data_type: 'orientation', photo_name: photoName, data: { heading: 0 } });
+      const marker1 = await createStreetview360Data(db, map.id, { data_type: 'marker', photo_name: photoName, data: { name: 'M1' } });
+      const marker2 = await createStreetview360Data(db, map.id, { data_type: 'marker', photo_name: photoName, data: { name: 'M2' } });
+      const now = Date.now();
+
+      await supertest(app)
+        .post(`/api/v1/atlas/${atlas.id}/sync`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          operations: [
+            { id: randomUUID(), type: 'delete', target: 'streetview360', targetId: orientation.id, mapId: map.id, timestamp: now, clientId: 'test-client' },
+            { id: randomUUID(), type: 'delete', target: 'streetview360', targetId: marker1.id, mapId: map.id, timestamp: now + 1, clientId: 'test-client' },
+            { id: randomUUID(), type: 'delete', target: 'streetview360', targetId: marker2.id, mapId: map.id, timestamp: now + 2, clientId: 'test-client' },
+          ],
+        })
+        .expect(200);
+
+      for (const id of [orientation.id, marker1.id, marker2.id]) {
+        const { rows } = await db.query('SELECT * FROM streetview360_data WHERE id = $1', [id]);
+        assert.ok(rows[0].deleted_at, `streetview360 entry ${id} should be soft-deleted`);
+      }
     });
   });
 

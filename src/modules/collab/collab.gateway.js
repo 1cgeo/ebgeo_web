@@ -233,6 +233,14 @@ function handleMessage(ws, data) {
       handlers.handleSyncRequest(ws, data);
       break;
 
+    case 'briefing_edit_start':
+      handlers.handleBriefingEditStart(ws, data);
+      break;
+
+    case 'briefing_edit_end':
+      handlers.handleBriefingEditEnd(ws, data);
+      break;
+
     default:
       logger.warn({ type: data.type, userId: ws.userId }, 'Unknown message type');
   }
