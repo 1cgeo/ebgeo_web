@@ -11,7 +11,9 @@ const LEGACY_ID_REGEX = /^\d{13}-[a-z0-9]{9}$/;
  * @returns {string} UUID in format xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
  */
 export function generateUUID() {
-    return crypto.randomUUID();
+    return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, c =>
+        (+c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> +c / 4).toString(16)
+    );
 }
 
 /**

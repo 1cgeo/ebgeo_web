@@ -336,10 +336,7 @@ export class BottomControlsControl {
             case 'toggleFullscreen':
                 this._toggleFullscreen();
                 break;
-            case 'geolocate':
-                this._geolocate();
-                break;
-            case 'resetNorth':
+case 'resetNorth':
                 this._resetNorth();
                 break;
         }
@@ -364,29 +361,6 @@ export class BottomControlsControl {
             } else if (document.webkitExitFullscreen) {
                 document.webkitExitFullscreen();
             }
-        }
-    }
-
-    /**
-     * Triggers geolocation.
-     * @private
-     */
-    _geolocate() {
-        if ('geolocation' in navigator) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    this._map.flyTo({
-                        center: [position.coords.longitude, position.coords.latitude],
-                        zoom: 15,
-                        duration: 1500
-                    });
-                },
-                (error) => {
-                    console.warn('Geolocation error:', error);
-                    // Could show toast notification here
-                },
-                { enableHighAccuracy: true }
-            );
         }
     }
 

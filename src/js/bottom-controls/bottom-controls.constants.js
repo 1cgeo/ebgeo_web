@@ -25,8 +25,6 @@ export const BOTTOM_CONTROL_ICONS = {
 
     fullscreenExit: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>`,
 
-    location: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4"/><path d="M12 18v4"/><path d="M2 12h4"/><path d="M18 12h4"/></svg>`,
-
     compass: `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
         <text x="12" y="5" text-anchor="middle" font-size="5" font-weight="bold" font-family="Arial, sans-serif">N</text>
         <path d="M12 6L16 21L12 17L8 21L12 6Z"/>
@@ -83,12 +81,6 @@ export const NAV_BUTTONS = {
         icon: BOTTOM_CONTROL_ICONS.fullscreen,
         iconActive: BOTTOM_CONTROL_ICONS.fullscreenExit,
         action: 'toggleFullscreen',
-    },
-    location: {
-        id: 'location',
-        label: 'Minha localização',
-        icon: BOTTOM_CONTROL_ICONS.location,
-        action: 'geolocate',
     },
     compass: {
         id: 'compass',

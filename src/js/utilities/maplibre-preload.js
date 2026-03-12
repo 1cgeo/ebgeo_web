@@ -366,7 +366,7 @@ export class MaplibrePreload {
      * @private
      */
     async _preloadViaFetch(tileRequests) {
-        const uuid = crypto.randomUUID();
+        const uuid = Math.random().toString(36).slice(2) + Date.now().toString(36);
         this.controller[uuid] = new AbortController();
 
         const timeoutId = setTimeout(() => {
