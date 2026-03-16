@@ -186,6 +186,7 @@ export class SearchBarComponent {
         // Show results if we have cached results
         if (this._input.value.length >= 2 && this._resultsDropdown.children.length > 0) {
             this._resultsDropdown.style.display = 'block';
+            this._container.classList.add('has-results');
         }
     }
 
