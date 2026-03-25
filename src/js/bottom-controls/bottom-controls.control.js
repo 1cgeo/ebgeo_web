@@ -136,8 +136,7 @@ export class BottomControlsControl {
             case 'panorama':
                 return config.features?.imagens_panoramicas !== false;
             case 'terrain':
-                // Terrain is always enabled if config exists
-                return true;
+                return config.map2d?.terrainSource != null;
             default:
                 return true;
         }
