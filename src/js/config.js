@@ -31,31 +31,31 @@ const config = {
     'carta-topografica': {
       enabled: true,
       name: 'Topográfica',
-      image: './images/layers/carta-topografica-thumb.png',  // Imagem opcional para o painel
+      image: './images/layers/carta-topografica-thumb.webp',  // Imagem opcional para o painel
       priority: 1
     },
     'carta-ortoimagem': {
       enabled: true,
       name: 'Ortoimagem',
-      image: './images/layers/carta-ortoimagem-thumb.png',   // Imagem opcional para o painel
+      image: './images/layers/carta-ortoimagem-thumb.webp',   // Imagem opcional para o painel
       priority: 2
     },
     'bdgex': {
       enabled: true,
       name: 'BDGEx',
-      image: './images/layers/bdgex-thumb.png',              // Imagem opcional para o painel
+      image: './images/layers/bdgex-thumb.webp',              // Imagem opcional para o painel
       priority: 3
     },
     'osm': {
       enabled: false,
       name: 'OSM',
-      // image: './images/layers/osm-thumb.png',             // Sem imagem - usa fallback
+      // image: './images/layers/osm-thumb.webp',             // Sem imagem - usa fallback
       priority: 4
     },
     'imagens': {
       enabled: false,
       name: 'Imagens',
-      // image: './images/layers/imagens-thumb.png',         // Sem imagem - usa fallback
+      // image: './images/layers/imagens-thumb.webp',         // Sem imagem - usa fallback
       priority: 5
     }
   },

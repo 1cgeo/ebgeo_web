@@ -10,24 +10,24 @@ const fs = require('fs');
 const path = require('path');
 
 // Configuração simplificada para GitHub Pages
-const GITHUB_PAGES_CONFIG = `// ===== CONFIGURAÇÃO AUTOMÁTICA PARA GITHUB PAGES =====
+const GITHUB_PAGES_CONFIG = `// Path: js/config.js
+// ===== CONFIGURAÇÃO AUTOMÁTICA PARA GITHUB PAGES =====
 // Este arquivo foi gerado automaticamente pelo script de deploy
 // NÃO EDITE MANUALMENTE - Use o config original para desenvolvimento
 
 const config = {
   // ===== CONFIGURAÇÕES GERAIS DA APLICAÇÃO =====
   app: {
-    title: "EBGeo",        // Título exibido na interface
-    subtitle: ""                // Subtítulo da aplicação
+    title: "EBGeo",
+    tutorialUrl: './docs/doc.html'
   },
 
   // ===== FEATURES DESABILITADAS PARA GITHUB PAGES =====
   features: {
-    imagens_panoramicas: false,    // Desabilitado (requer APIs)
-    vector_info: false,           // Desabilitado para simplicidade
-    map_3d: false,               // Desabilitado (sem modelos 3D)
+    imagens_panoramicas: false,
+    map_3d: false,
+    apisearch: false,
     grid: false,
-    frame: false,
   },
 
   // ===== SERVICES =====
@@ -37,14 +37,7 @@ const config = {
 
   // ===== BUSCA DESABILITADA =====
   search: {
-    enabled: false,              // Desabilitada (requer servidor)
-    apiUrl: ""                   // Vazio - não usado
-  },
-
-  // ===== EXPORT PDF DESABILITADO =====
-  export: {
-    enabled: false,              // Desabilitado (requer servidor)
-    pdfApiUrl: ""               // Vazio - não usado
+    apiUrl: ''
   },
 
   // ===== CONFIGURAÇÃO DE BASEMAPS - SOMENTE BDGEX =====
@@ -52,79 +45,71 @@ const config = {
     'bdgex': {
       enabled: true,
       name: 'BDGEx',
-      icon: './images/dsg_symbol.svg',
+      image: './images/layers/bdgex-thumb.webp',
       priority: 1
     },
-    // Todos os outros basemaps desabilitados para GitHub Pages
     'carta-topografica': {
       enabled: false,
       name: 'Topográfica',
-      icon: './images/dsg_symbol.svg',
+      image: './images/layers/carta-topografica-thumb.webp',
       priority: 2
     },
     'carta-ortoimagem': {
       enabled: false,
       name: 'Ortoimagem',
-      icon: './images/dsg_symbol.svg',
+      image: './images/layers/carta-ortoimagem-thumb.webp',
       priority: 3
     },
     'osm': {
-      enabled: false,
+      enabled: true,
       name: 'OSM',
-      icon: '',
+      image: './images/layers/osm-thumb.webp',
       priority: 4
     },
     'imagens': {
       enabled: false,
       name: 'Imagens',
-      icon: '',
       priority: 5
     }
   },
 
-  // ===== CONFIGURAÇÕES DO MAPA 2D =====
-  map2d: {
-    // ----- Configurações Básicas do Mapa -----
-    bounds: [
-      [-44.4633992903047, -22.46265178239199],   // [longitude_min, latitude_min]
-      [-44.439695820515325, -22.444666254876367] // [longitude_max, latitude_max]
-    ],
-    minZoom: 1,              // Zoom mínimo permitido
-    maxZoom: 17.9,           // Zoom máximo permitido
-    maxPitch: 65,            // Inclinação máxima da câmera (0-60 graus)
-
-    // Configurações avançadas de carregamento de tiles
-    sourceTileLodParams: [5, 6.0],  // [threshold, factor] para otimização de tiles
-
-    // ===== CONFIGURAÇÃO DO TERRAIN SOURCE =====
-    terrainSource: {
-    },
-
-    // ===== CONFIGURAÇÃO DO HILLSHADE SOURCE =====
-    hillshadeSource: {
-    },
-
-    // ===== CONFIGURAÇÃO DO TERRENO 3D =====
-    terrain: {
-    },
-
-    // ===== CONFIGURAÇÃO DO HILLSHADE =====
-    hillshade: {
-      enabled: false,
-      layer: {
-      },
-    },
-  },
-
   // ===== ANALYSIS LAYERS DESABILITADAS =====
   analysisLayers: {
-    enabled: false,              // Feature flag global desabilitado
-    layers: []                   // Array vazio - nenhuma layer de análise
+    enabled: false,
+    layers: []
+  },
+
+  // ===== DATA LAYERS DESABILITADAS =====
+  dataLayers: {
+    enabled: false,
+    layers: []
+  },
+
+  // ===== CONFIGURAÇÕES DO MAPA 2D =====
+  map2d: {
+    bounds: [
+      [-73.99, -33.75],
+      [-34.79, 5.27]
+    ],
+    minZoom: 1,
+    maxZoom: 17.9,
+    maxPitch: 65,
+    globe_projection: true,
+    sourceTileLodParams: [5, 6.0],
+
+    terrainSource: null,
+    hillshadeSource: null,
+    hillshade: {
+      enabled: false,
+      layer: {},
+    },
   },
 
   // ===== MAP3D COMPLETAMENTE DESABILITADO =====
   map3d: {
-    enabled: false,              // Modo 3D desabilitado
+    enabled: false,
+    bounds: { west: -73.99, south: -33.75, east: -34.79, north: 5.27 },
+    viewer: {},
     providers: {
       imagery: {
         enabled: false,
@@ -142,50 +127,17 @@ const config = {
   },
 
   // ===== TILESETS 3D REMOVIDOS =====
-  tilesets: []
-};
+  tilesets: [],
 
-// ===== FUNÇÕES AUXILIARES MANTIDAS =====
-
-// Verifica se há tilesets configurados (sempre false para GitHub Pages)
-config.hasTilesets = () => false;
-
-// Validação para não deixar todos os basemaps desabilitados
-config.validateBasemapsConfig = () => {
-  const enabled = Object.values(config.basemaps).filter(b => b.enabled);
-  if (enabled.length === 0) {
-    console.warn('Todos basemaps desabilitados! Habilitando bdgex como fallback');
-    config.basemaps['bdgex'].enabled = true;
+  // ===== STREETVIEW 360 DESABILITADO =====
+  streetView360: {
+    serviceUrl: '',
+    pointsSource: null,
+    pointsSourceLayer: '',
+    linesSource: null,
+    linesSourceLayer: '',
   }
 };
-
-// Obter basemaps habilitados ordenados por prioridade
-config.getEnabledBasemaps = () => {
-  return Object.entries(config.basemaps)
-    .filter(([id, basemapConfig]) => basemapConfig.enabled)
-    .sort(([,a], [,b]) => a.priority - b.priority);
-};
-
-// Determinar layout CSS baseado na quantidade de basemaps
-config.getBasemapLayoutClass = (count) => {
-  return 'base-layer-grid-1x1';
-};
-
-// Obter fallback válido para basemap
-config.getValidBasemapFallback = (currentBasemap = null) => {
-  const enabled = config.getEnabledBasemaps();
-  if (enabled.length === 0) return 'bdgex';
-
-  if (currentBasemap && config.basemaps[currentBasemap]?.enabled) {
-    return currentBasemap;
-  }
-
-  return enabled[0][0];
-};
-
-// Helpers para 3D desabilitados (retornam false/vazio)
-config.createImageryProvider = () => false;
-config.createTerrainProvider = () => ({ provider: 'EllipsoidTerrainProvider' });
 
 export default config;`;
 
@@ -279,9 +231,9 @@ function main() {
 
         // Resumo das alterações
         console.log('\nResumo das alterações:');
-        console.log('- Config modificado para GitHub Pages');
-        console.log('- Features desabilitadas: map_3d, street_view, vector_info, search, export_pdf');
-        console.log('- Basemaps: somente BDGEx habilitado');
+        console.log('- Config modificado para GitHub Pages (site estático)');
+        console.log('- Features desabilitadas: map_3d, street_view_360, busca geográfica');
+        console.log('- Basemaps habilitados: BDGEx, OSM');
         console.log('- O Vite fará o build para dist/');
 
         process.exit(0);
