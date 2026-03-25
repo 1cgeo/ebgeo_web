@@ -6,9 +6,9 @@
  */
 
 import { ModalBase } from './modal.base.js';
-import { addDomListener } from '../utilities/event-cleanup.js';
-import { escapeHtml } from '../utilities/html-escape.js';
-import { getAllMapNamesStore, getCurrentMapName } from '../store';
+import { addDomListener } from '@utils/event-cleanup.js';
+import { escapeHtml } from '@utils/html-escape.js';
+import { getAllMapNamesStore, getCurrentMapName } from '@store';
 
 /**
  * Icons used in the modal
@@ -93,7 +93,6 @@ export class ExportModal extends ModalBase {
                 </div>
 
                 <div class="export-maps-list" role="listbox" aria-label="Lista de mapas">
-                    <!-- Maps will be rendered here -->
                 </div>
 
                 <div class="export-modal-actions">

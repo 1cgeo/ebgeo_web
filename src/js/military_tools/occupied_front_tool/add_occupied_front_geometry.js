@@ -1,5 +1,5 @@
 // Path: js/military_tools/occupied_front_tool/add_occupied_front_geometry.js
-import { BaseGeometry } from '../../tool_manager';
+import { BaseGeometry } from '@tools';
 
 /**
  * Occupied Front Geometry Operations

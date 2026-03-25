@@ -5,7 +5,7 @@
  * Provides multiple fallback methods for different browser security contexts.
  */
 
-import { showError } from '../utilities/toast_service.js';
+import { showError } from '@utils/toast_service.js';
 
 class ScreenshotControl {
     constructor() {
@@ -41,7 +41,7 @@ class ScreenshotControl {
         return this.container;
     }
 
-    changeButtonColor = () => {
+    changeButtonColor() {
         const btn = document.getElementById('screenshot-tool');
         if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="./images/icon_screenshot_black.svg" alt="SCREENSHOT" />`;
     }
@@ -164,10 +164,7 @@ class ScreenshotControl {
             const tempMap = new maplibregl.Map({
                 container: tempContainer,
                 style: this.map.getStyle(),
-                center: center,
-                zoom: zoom,
-                bearing: bearing,
-                pitch: pitch,
+                center, zoom, bearing, pitch,
                 preserveDrawingBuffer: true,
                 interactive: false,
                 validateStyle: false
@@ -200,39 +197,36 @@ class ScreenshotControl {
         }
     }
 
+    /** @returns {string} Timestamped filename for the screenshot. */
+    _getScreenshotFilename() {
+        return `ebgeo-map-${new Date().toISOString().slice(0, 10)}.png`;
+    }
+
+    /** Triggers a download from a data URL. */
     downloadImageFromDataURL(dataURL) {
         try {
             const link = document.createElement('a');
-            link.download = `ebgeo-map-${new Date().toISOString().slice(0, 10)}.png`;
+            link.download = this._getScreenshotFilename();
             link.href = dataURL;
-
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-
         } catch (error) {
             console.error('Error downloading via dataURL:', error);
         }
     }
 
+    /** Triggers a download from a Blob, falling back to data URL on failure. */
     downloadImageFromBlob(blob) {
         try {
             const url = URL.createObjectURL(blob);
-
             const link = document.createElement('a');
-            link.download = `ebgeo-map-${new Date().toISOString().slice(0, 10)}.png`;
+            link.download = this._getScreenshotFilename();
             link.href = url;
-
-            link.addEventListener('click', () => {
-                setTimeout(() => {
-                    URL.revokeObjectURL(url);
-                }, 100);
-            });
-
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-
+            URL.revokeObjectURL(url);
         } catch (_error) {
             console.warn('Error with blob URL, converting to dataURL');
             const reader = new FileReader();
@@ -245,6 +239,104 @@ class ScreenshotControl {
             };
             reader.readAsDataURL(blob);
         }
+    }
+
+    /**
+     * Captures the map canvas and returns a data URL without downloading.
+     * Tries direct canvas capture first, then falls back to a hidden map
+     * with preserveDrawingBuffer. Used by PDF export and other programmatic consumers.
+     * @param {Object} map - MapLibre GL map instance
+     * @returns {Promise<string|null>} Data URL of the captured image, or null on failure
+     */
+    static async captureMapAsDataUrl(map) {
+        if (!map) return null;
+
+        // Wait for idle if not loaded
+        if (!map.loaded()) {
+            await new Promise(resolve => map.once('idle', resolve));
+        }
+
+        // Force repaint
+        map.triggerRepaint();
+        await new Promise(resolve => requestAnimationFrame(resolve));
+
+        const canvas = map.getCanvas();
+
+        // Try direct capture
+        try {
+            const dataUrl = canvas.toDataURL('image/png');
+            if (dataUrl.length > 200) {
+                // Verify canvas is not empty by sampling a pixel
+                const testCanvas = document.createElement('canvas');
+                testCanvas.width = 1;
+                testCanvas.height = 1;
+                const ctx = testCanvas.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(canvas, 0, 0, 1, 1);
+                const pixel = ctx.getImageData(0, 0, 1, 1).data;
+
+                if (pixel[0] !== 0 || pixel[1] !== 0 || pixel[2] !== 0 || pixel[3] !== 0) {
+                    return dataUrl;
+                }
+            }
+        } catch {
+            // Security error or empty canvas — fall through to hidden map
+        }
+
+        // Fallback: hidden map with preserveDrawingBuffer
+        return await ScreenshotControl._captureWithHiddenMap(map);
+    }
+
+    /**
+     * Creates a hidden map with preserveDrawingBuffer and captures its canvas.
+     * @param {Object} map - MapLibre GL map instance
+     * @returns {Promise<string|null>} Data URL or null
+     */
+    static _captureWithHiddenMap(map) {
+        return new Promise(resolve => {
+            let tempContainer;
+            let tempMap;
+
+            try {
+                tempContainer = document.createElement('div');
+                tempContainer.style.position = 'absolute';
+                tempContainer.style.left = '-9999px';
+                tempContainer.style.width = map.getCanvas().width + 'px';
+                tempContainer.style.height = map.getCanvas().height + 'px';
+                document.body.appendChild(tempContainer);
+
+                tempMap = new maplibregl.Map({
+                    container: tempContainer,
+                    style: map.getStyle(),
+                    center: map.getCenter(),
+                    zoom: map.getZoom(),
+                    bearing: map.getBearing(),
+                    pitch: map.getPitch(),
+                    preserveDrawingBuffer: true,
+                    interactive: false,
+                    validateStyle: false
+                });
+
+                tempMap.once('load', () => {
+                    tempMap.once('idle', () => {
+                        setTimeout(() => {
+                            try {
+                                const dataUrl = tempMap.getCanvas().toDataURL('image/png');
+                                resolve(dataUrl.length > 200 ? dataUrl : null);
+                            } catch {
+                                resolve(null);
+                            } finally {
+                                tempMap.remove();
+                                document.body.removeChild(tempContainer);
+                            }
+                        }, 500);
+                    });
+                });
+            } catch {
+                if (tempMap) tempMap.remove();
+                if (tempContainer?.parentNode) document.body.removeChild(tempContainer);
+                resolve(null);
+            }
+        });
     }
 
     onRemove() {

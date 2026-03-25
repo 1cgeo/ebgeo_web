@@ -129,8 +129,6 @@ export function createModernHatchControl(config) {
     const labelEl = document.createElement('label');
     labelEl.className = 'attr-modern-hatch-label';
     labelEl.textContent = label;
-    labelEl.style.marginBottom = '8px';
-    labelEl.style.display = 'block';
     container.appendChild(labelEl);
 
     // Patterns content (grid + sliders)
@@ -139,9 +137,6 @@ export function createModernHatchControl(config) {
     // Pattern grid
     const grid = document.createElement('div');
     grid.className = 'attr-modern-hatch-grid';
-
-    // Use fillColor for preview
-    const previewColor = fillColor;
 
     HATCH_PATTERNS.forEach(pattern => {
         const btn = document.createElement('button');
@@ -154,7 +149,7 @@ export function createModernHatchControl(config) {
 
         const preview = document.createElement('div');
         preview.className = 'attr-modern-hatch-preview';
-        preview.innerHTML = createHatchPreviewSVG(pattern, previewColor, 36);
+        preview.innerHTML = createHatchPreviewSVG(pattern, fillColor, 36);
         btn.appendChild(preview);
 
         btn.title = pattern.label;

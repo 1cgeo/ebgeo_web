@@ -8,3 +8,4 @@
 // Cada import abaixo executa registerAlgorithm() como side-effect
 import './buffer.algorithm.js';
 import './voronoi.algorithm.js';
+import './convex-hull.algorithm.js';

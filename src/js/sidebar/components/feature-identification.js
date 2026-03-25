@@ -5,8 +5,9 @@
  * Displays feature icon, name, type, layer information, and description.
  */
 
-import { getLayers, getFeatureIcon, getFeatureDisplayName, getFeatureById, updateFeature, getStorageTypeFromSource, isCurrentMapLockedSync } from '../../store/index.js';
-import { createFeatureOptionsButton } from '../../tool_manager/helpers/feature-header.helpers.js';
+import { getLayers, getFeatureIcon, getFeatureDisplayName, getFeatureById, updateFeature, getStorageTypeFromSource, isCurrentMapLockedSync } from '@store/index.js';
+import { createFeatureOptionsButton } from '@tools/helpers/feature-header.helpers.js';
+import { calculatePolygonMetrics } from '../../measurement_tool/measurement-geometry.js';
 
 /**
  * Feature type configuration with labels.
@@ -28,7 +29,8 @@ export const FEATURE_TYPE_CONFIG = {
     military_symbol: { label: 'Símbolo Militar' },
     coordination_measure: { label: 'Medida de Coordenação' },
     los: { label: 'Linha de Visada' },
-    visibility: { label: 'Visibilidade' }
+    visibility: { label: 'Visibilidade' },
+    magnetic_declination: { label: 'Declinação Magnética' },
 };
 
 /**
@@ -56,10 +58,11 @@ export function getFeatureTypeConfig(featureType) {
  * @param {Object} options.selectionManager - SelectionManager instance
  * @param {Object} options.uiManager - UIManager instance
  * @param {Function} [options.onNameChange] - Callback when name is changed
+ * @param {Function} [options.onDescriptionChange] - Callback when description is changed
  * @returns {HTMLElement} The identification section element
  */
 export async function createFeatureIdentification(options) {
-    const { feature, featureType, selectedFeatures, selectionManager, uiManager, onNameChange } = options;
+    const { feature, featureType, selectedFeatures, selectionManager, uiManager, onNameChange, onDescriptionChange } = options;
     const config = getFeatureTypeConfig(featureType);
 
     const container = document.createElement('div');
@@ -94,14 +97,12 @@ export async function createFeatureIdentification(options) {
 
         const nameInput = document.createElement('input');
         nameInput.type = 'text';
-        nameInput.className = 'feature-identification-name-input';
+        nameInput.className = 'feature-identification-name-input feature-identification-name-input--hidden';
         nameInput.value = feature.properties?.nome || '';
-        nameInput.style.display = 'none';
 
-        // Edit functionality
         nameDisplay.addEventListener('click', () => {
-            nameDisplay.style.display = 'none';
-            nameInput.style.display = 'block';
+            nameDisplay.classList.add('feature-identification-name--hidden');
+            nameInput.classList.remove('feature-identification-name-input--hidden');
             nameInput.focus();
             nameInput.select();
         });
@@ -109,8 +110,8 @@ export async function createFeatureIdentification(options) {
         const saveEdit = () => {
             const newName = nameInput.value.trim() || 'Sem nome';
             nameDisplay.textContent = newName;
-            nameDisplay.style.display = 'block';
-            nameInput.style.display = 'none';
+            nameDisplay.classList.remove('feature-identification-name--hidden');
+            nameInput.classList.add('feature-identification-name-input--hidden');
 
             if (onNameChange && newName !== feature.properties?.nome) {
                 onNameChange(newName);
@@ -124,8 +125,8 @@ export async function createFeatureIdentification(options) {
                 saveEdit();
             } else if (e.key === 'Escape') {
                 nameInput.value = feature.properties?.nome || '';
-                nameDisplay.style.display = 'block';
-                nameInput.style.display = 'none';
+                nameDisplay.classList.remove('feature-identification-name--hidden');
+                nameInput.classList.add('feature-identification-name-input--hidden');
             }
         });
 
@@ -157,12 +158,26 @@ export async function createFeatureIdentification(options) {
     const descriptionSection = await createDescriptionSection({
         featureId: feature.properties?.id,
         featureType,
-        initialDescription: feature.properties?.descricao || ''
+        initialDescription: feature.properties?.descricao || '',
+        onDescriptionChange
     });
 
     infoContainer.appendChild(nameContainer);
     infoContainer.appendChild(typeLabel);
     infoContainer.appendChild(layerLabel);
+
+    // Measurements section (circle-specific, computed from radius)
+    const measurementsSection = createMeasurementsSection(feature, featureType);
+    if (measurementsSection) {
+        infoContainer.appendChild(measurementsSection);
+    }
+
+    // Declination info section
+    const declinationSection = createDeclinationInfoSection(feature, featureType);
+    if (declinationSection) {
+        infoContainer.appendChild(declinationSection);
+    }
+
     infoContainer.appendChild(descriptionSection);
 
     container.appendChild(iconContainer);
@@ -254,16 +269,177 @@ export function createMultiSelectionHeader(options) {
 }
 
 /**
+ * Creates a declination info section for magnetic declination features.
+ * Shows declination angle and calculation date.
+ * @param {Object} feature - The selected feature
+ * @param {string} featureType - Feature type identifier
+ * @returns {HTMLElement|null} The declination info element, or null if not applicable
+ */
+function createDeclinationInfoSection(feature, featureType) {
+    if (featureType !== 'magnetic_declination') return null;
+
+    const dec = feature.properties?.declination;
+    if (dec == null) return null;
+
+    const absDec = Math.abs(dec).toFixed(1).replace('.', ',');
+    const dirLabel = dec >= 0 ? 'Leste' : 'Oeste';
+    const dateStr = feature.properties?.calculationDate || '—';
+
+    const container = document.createElement('div');
+    container.className = 'feature-identification-measurements';
+
+    const items = [
+        { label: 'Declinação', value: `${absDec}° ${dirLabel}` },
+        { label: 'Data do cálculo', value: dateStr },
+    ];
+
+    for (const item of items) {
+        const row = document.createElement('span');
+        row.className = 'feature-identification-measurement';
+        row.textContent = `${item.label}: ${item.value}`;
+        container.appendChild(row);
+    }
+
+    return container;
+}
+
+/**
+ * Format a metric value, switching to km/km² when large.
+ * @param {number} value
+ * @param {string} unitSmall - e.g. 'm'
+ * @param {string} unitLarge - e.g. 'km'
+ * @param {number} threshold - value at which to switch units
+ * @returns {string} Formatted string in pt-BR locale
+ */
+function formatMetric(value, unitSmall, unitLarge, threshold) {
+    if (value >= threshold) {
+        const converted = value / threshold;
+        return `${converted.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${unitLarge}`;
+    }
+    return `${value.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${unitSmall}`;
+}
+
+/**
+ * Creates a measurements section for feature types that have computed metrics.
+ * Currently supports circles (radius, area, perimeter).
+ * @param {Object} feature - The selected feature
+ * @param {string} featureType - Feature type identifier
+ * @returns {HTMLElement|null} The measurements element, or null if not applicable
+ */
+function createMeasurementsSection(feature, featureType) {
+    if (featureType === 'circle') {
+        const radius = feature.properties?.radius;
+        if (radius == null || radius <= 0) return null;
+
+        const area = Math.PI * radius * radius;
+        const perimeter = 2 * Math.PI * radius;
+
+        return _buildMeasurementsContainer([
+            { label: 'Raio', value: formatMetric(radius, 'm', 'km', 1000) },
+            { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
+            { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
+        ]);
+    }
+
+    if (featureType === 'polygon') {
+        const coords = feature.properties?.baseCoordinates || feature.geometry?.coordinates?.[0];
+        if (!coords || coords.length < 3) return null;
+
+        const ring = feature.properties?.baseCoordinates ? coords : coords.slice(0, -1);
+        const { area, perimeter } = calculatePolygonMetrics(ring);
+
+        return _buildMeasurementsContainer([
+            { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
+            { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
+        ]);
+    }
+
+    if (featureType === 'ellipse') {
+        const a = feature.properties?.majorRadius;
+        const b = feature.properties?.minorRadius;
+        if (a == null || b == null || a <= 0 || b <= 0) return null;
+
+        const area = Math.PI * a * b;
+        // Ramanujan approximation for ellipse perimeter
+        const h = Math.pow(a - b, 2) / Math.pow(a + b, 2);
+        const perimeter = Math.PI * (a + b) * (1 + (3 * h) / (10 + Math.sqrt(4 - 3 * h)));
+
+        return _buildMeasurementsContainer([
+            { label: 'Semi-eixo maior', value: formatMetric(a, 'm', 'km', 1000) },
+            { label: 'Semi-eixo menor', value: formatMetric(b, 'm', 'km', 1000) },
+            { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
+            { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
+        ]);
+    }
+
+    if (featureType === 'rectangle') {
+        const w = feature.properties?.width;
+        const h = feature.properties?.height;
+        if (w == null || h == null || w <= 0 || h <= 0) return null;
+
+        const area = w * h;
+        const perimeter = 2 * (w + h);
+
+        return _buildMeasurementsContainer([
+            { label: 'Largura', value: formatMetric(w, 'm', 'km', 1000) },
+            { label: 'Altura', value: formatMetric(h, 'm', 'km', 1000) },
+            { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
+            { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
+        ]);
+    }
+
+    if (featureType === 'sector') {
+        const radius = feature.properties?.radius;
+        const aperture = feature.properties?.aperture;
+        if (radius == null || radius <= 0) return null;
+
+        const apertureRad = (aperture || 60) * Math.PI / 180;
+        const area = 0.5 * radius * radius * apertureRad;
+        const arcLength = radius * apertureRad;
+        const perimeter = arcLength + 2 * radius;
+
+        return _buildMeasurementsContainer([
+            { label: 'Raio', value: formatMetric(radius, 'm', 'km', 1000) },
+            { label: 'Abertura', value: `${aperture || 60}°` },
+            { label: 'Área', value: formatMetric(area, 'm²', 'km²', 1_000_000) },
+            { label: 'Perímetro', value: formatMetric(perimeter, 'm', 'km', 1000) }
+        ]);
+    }
+
+    return null;
+}
+
+/**
+ * Builds a measurements container with label/value rows.
+ * @param {Array<{label: string, value: string}>} items - Measurement items
+ * @returns {HTMLElement} Container element
+ */
+function _buildMeasurementsContainer(items) {
+    const container = document.createElement('div');
+    container.className = 'feature-identification-measurements';
+
+    for (const item of items) {
+        const row = document.createElement('span');
+        row.className = 'feature-identification-measurement';
+        row.textContent = `${item.label}: ${item.value}`;
+        container.appendChild(row);
+    }
+
+    return container;
+}
+
+/**
  * Creates the description section with editable text.
  * Shows a button to add description when empty, or the description text when filled.
  * @param {Object} options - Configuration options
  * @param {string} options.featureId - Feature ID
  * @param {string} options.featureType - Feature type (source type)
  * @param {string} [options.initialDescription=''] - Initial description value
+ * @param {Function} [options.onDescriptionChange] - Callback to sync map source after save
  * @returns {Promise<HTMLElement>} The description section element
  */
 async function createDescriptionSection(options) {
-    const { featureId, featureType, initialDescription = '' } = options;
+    const { featureId, featureType, initialDescription = '', onDescriptionChange } = options;
 
     const container = document.createElement('div');
     container.className = 'feature-description-section';
@@ -289,8 +465,7 @@ async function createDescriptionSection(options) {
     displayContainer.className = 'feature-description-display';
 
     const editContainer = document.createElement('div');
-    editContainer.className = 'feature-description-edit';
-    editContainer.style.display = 'none';
+    editContainer.className = 'feature-description-edit feature-description-edit--hidden';
 
     /**
      * Renders the display state (button or text)
@@ -386,8 +561,8 @@ async function createDescriptionSection(options) {
      * Enters edit mode
      */
     function enterEditMode() {
-        displayContainer.style.display = 'none';
-        editContainer.style.display = 'block';
+        displayContainer.classList.add('feature-description-display--hidden');
+        editContainer.classList.remove('feature-description-edit--hidden');
         renderEdit();
     }
 
@@ -395,8 +570,8 @@ async function createDescriptionSection(options) {
      * Exits edit mode without saving
      */
     function exitEditMode() {
-        editContainer.style.display = 'none';
-        displayContainer.style.display = 'block';
+        editContainer.classList.add('feature-description-edit--hidden');
+        displayContainer.classList.remove('feature-description-display--hidden');
         renderDisplay();
     }
 
@@ -418,6 +593,11 @@ async function createDescriptionSection(options) {
             } catch (error) {
                 console.error('Error saving description:', error);
             }
+        }
+
+        // Sync description to map source so subsequent property edits don't overwrite it
+        if (onDescriptionChange) {
+            onDescriptionChange(trimmedValue);
         }
 
         exitEditMode();

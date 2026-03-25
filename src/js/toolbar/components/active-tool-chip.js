@@ -5,14 +5,14 @@
  * Shows current active tool with option to deactivate.
  */
 
-import { EventTypes } from '../../events/event_types.js';
+import { EventTypes } from '@events/event_types.js';
 import {
     setupCleanup,
     subscribe,
     addDomListener,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
+} from '@utils/event-cleanup.js';
 
 /**
  * Tool display names (Portuguese).
@@ -164,9 +164,6 @@ export class ActiveToolChip {
         const unsubscribe = this._stateManager.subscribe('activeTool.type', (toolType) => {
             this._onToolChange(toolType);
         });
-
-        // Store for cleanup
-        if (!this._unsubscribers) this._unsubscribers = [];
         this._unsubscribers.push(unsubscribe);
 
         // UI_LAYOUT_CHANGED covers all sidebar/panel state changes

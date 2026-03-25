@@ -39,9 +39,11 @@ export {
 // Re-export from memory-store.js for backward compatibility
 export { memoryStore, resetMemoryStore } from './memory-store.js';
 
-// Import constants for internal use
+// Import for internal use
 import {
     SCHEMA_VERSION,
+    MIN_SCHEMA_VERSION,
+    compareVersions,
     getEmptyMapData,
     getEmptyCesium3dData
 } from './repository.utils.js';
@@ -65,90 +67,80 @@ const briefingStore = localforage.createInstance({ name: 'ebgeo_briefings' });
 // ===== HELPER FUNCTIONS FOR INITIALIZATION =====
 
 /**
- * Compares two version strings (format X.Y).
- * @param {string} version1 - First version
- * @param {string} version2 - Second version
- * @returns {number} -1 if v1 < v2, 0 if equal, 1 if v1 > v2
+ * Clears all legacy stores and resets schema version.
  */
-function compareVersionsInternal(version1, version2) {
-    const v1Parts = version1.split('.').map(Number);
-    const v2Parts = version2.split('.').map(Number);
-
-    for (let i = 0; i < Math.max(v1Parts.length, v2Parts.length); i++) {
-        const v1Part = v1Parts[i] || 0;
-        const v2Part = v2Parts[i] || 0;
-
-        if (v1Part < v2Part) return -1;
-        if (v1Part > v2Part) return 1;
-    }
-    return 0;
+async function clearLegacyStores() {
+    await mapStore.clear();
+    await imageStore.clear();
+    await appStore.clear();
+    await groupStore.clear();
+    await layerStore.clear();
+    await appStore.setItem('schemaVersion', SCHEMA_VERSION);
 }
-
-const MIN_SCHEMA_VERSION_INTERNAL = '1.3';
 
 /**
  * Checks and cleans incompatible legacy data.
  */
-const checkAndCleanLegacyData = async () => {
+async function checkAndCleanLegacyData() {
     try {
         const currentSchemaVersion = await appStore.getItem('schemaVersion');
 
-        if (!currentSchemaVersion || compareVersionsInternal(currentSchemaVersion, MIN_SCHEMA_VERSION_INTERNAL) < 0) {
-            await mapStore.clear();
-            await imageStore.clear();
-            await appStore.clear();
-            await groupStore.clear();
-            await layerStore.clear();
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+        if (!currentSchemaVersion || compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) < 0) {
+            await clearLegacyStores();
         }
     } catch (error) {
         console.warn('Error checking schema version:', error);
         try {
-            await mapStore.clear();
-            await imageStore.clear();
-            await appStore.clear();
-            await groupStore.clear();
-            await layerStore.clear();
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+            await clearLegacyStores();
         } catch (cleanupError) {
             console.error('Critical error cleaning data:', cleanupError);
         }
     }
-};
+}
 
 // ===== LEGACY MIGRATION FUNCTIONS =====
 
-const migrateMapTo14 = async (mapName, mapData) => {
+/**
+ * Runs a per-map migration function on all maps and logs progress.
+ * @param {Function} migrateFn - async (mapName, mapData?) => boolean
+ * @param {string} label - Log label for the migration version
+ * @param {boolean} [needsData=true] - Whether the migration needs map data loaded
+ */
+async function runMigrationForAllMaps(migrateFn, label, needsData = true) {
+    const mapNames = await mapStore.keys();
+    let migratedCount = 0;
+
+    for (const mapName of mapNames) {
+        if (needsData) {
+            const mapData = await mapStore.getItem(mapName);
+            if (mapData) {
+                const wasMigrated = await migrateFn(mapName, mapData);
+                if (wasMigrated) migratedCount++;
+            }
+        } else {
+            const wasMigrated = await migrateFn(mapName);
+            if (wasMigrated) migratedCount++;
+        }
+    }
+
+    if (migratedCount > 0) {
+        console.log(`Migrated ${migratedCount} map(s) to ${label}`);
+    }
+}
+
+async function migrateMapTo14(mapName, mapData) {
     if (!mapData.features.coordination_measures) {
         mapData.features.coordination_measures = [];
         await mapStore.setItem(mapName, mapData);
         return true;
     }
     return false;
-};
+}
 
-const migrateAllMapsTo14 = async () => {
-    const mapNames = await mapStore.keys();
-    let migratedCount = 0;
-
-    for (const mapName of mapNames) {
-        const mapData = await mapStore.getItem(mapName);
-        if (mapData) {
-            const wasMigrated = await migrateMapTo14(mapName, mapData);
-            if (wasMigrated) migratedCount++;
-        }
-    }
-
-    if (migratedCount > 0) {
-        console.log(`Migrated ${migratedCount} map(s) to v1.4`);
-    }
-};
-
-const migrateMapTo15 = async (mapName, mapData) => {
+async function migrateMapTo15(mapName, mapData) {
     let modified = false;
-    const featureTypes = Object.keys(mapData.features);
 
-    for (const featureType of featureTypes) {
+    for (const featureType of Object.keys(mapData.features)) {
         const features = mapData.features[featureType];
         if (!Array.isArray(features)) continue;
 
@@ -164,34 +156,16 @@ const migrateMapTo15 = async (mapName, mapData) => {
         await mapStore.setItem(mapName, mapData);
     }
     return modified;
-};
+}
 
-const migrateAllMapsTo15 = async () => {
-    const mapNames = await mapStore.keys();
-    let migratedCount = 0;
-
-    for (const mapName of mapNames) {
-        const mapData = await mapStore.getItem(mapName);
-        if (mapData) {
-            const wasMigrated = await migrateMapTo15(mapName, mapData);
-            if (wasMigrated) migratedCount++;
-        }
-    }
-
-    if (migratedCount > 0) {
-        console.log(`Migrated ${migratedCount} map(s) to v1.5 (added layerId to features)`);
-    }
-};
-
-const migrateMapTo16 = async (mapName, mapData) => {
-    if (!mapData || !mapData.features) {
+async function migrateMapTo16(mapName, mapData) {
+    if (!mapData?.features) {
         return false;
     }
 
     let modified = false;
-    const featureTypes = Object.keys(mapData.features);
 
-    for (const featureType of featureTypes) {
+    for (const featureType of Object.keys(mapData.features)) {
         const features = mapData.features[featureType];
         if (!Array.isArray(features)) continue;
 
@@ -213,26 +187,9 @@ const migrateMapTo16 = async (mapName, mapData) => {
         await mapStore.setItem(mapName, mapData);
     }
     return modified;
-};
+}
 
-const migrateAllMapsTo16 = async () => {
-    const mapNames = await mapStore.keys();
-    let migratedCount = 0;
-
-    for (const mapName of mapNames) {
-        const mapData = await mapStore.getItem(mapName);
-        if (mapData) {
-            const wasMigrated = await migrateMapTo16(mapName, mapData);
-            if (wasMigrated) migratedCount++;
-        }
-    }
-
-    if (migratedCount > 0) {
-        console.log(`Migrated ${migratedCount} map(s) to v1.6 (added attributes and images to features)`);
-    }
-};
-
-const migrateMapTo17 = async (mapName) => {
+async function migrateMapTo17(mapName) {
     const key = `cesium3d_${mapName}`;
     const existingData = await cesium3dStore.getItem(key);
     if (!existingData || existingData.cameraPositions === undefined || existingData.markers === undefined) {
@@ -240,21 +197,39 @@ const migrateMapTo17 = async (mapName) => {
         return true;
     }
     return false;
-};
+}
 
-const migrateAllMapsTo17 = async () => {
-    const mapNames = await mapStore.keys();
-    let migratedCount = 0;
+/**
+ * Ordered legacy migrations with their per-map functions and log labels.
+ * Each entry: [migrateFn, label, needsData]
+ */
+const LEGACY_MIGRATIONS = [
+    { version: '1.3', fn: migrateMapTo14, label: 'v1.4' },
+    { version: '1.4', fn: migrateMapTo15, label: 'v1.5 (added layerId to features)' },
+    { version: '1.5', fn: migrateMapTo16, label: 'v1.6 (added attributes and images to features)' },
+    { version: '1.6', fn: migrateMapTo17, label: 'v1.7 (initialized cesium3d data)', needsData: false }
+];
 
-    for (const mapName of mapNames) {
-        const wasMigrated = await migrateMapTo17(mapName);
-        if (wasMigrated) migratedCount++;
+/**
+ * Runs all applicable legacy migrations from the given schema version.
+ * @param {string|null} currentVersion - Current schema version
+ */
+async function runLegacyMigrations(currentVersion) {
+    if (!currentVersion) {
+        await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+        return;
     }
 
-    if (migratedCount > 0) {
-        console.log(`Migrated ${migratedCount} map(s) to v1.7 (initialized cesium3d data)`);
+    const startIndex = LEGACY_MIGRATIONS.findIndex(m => m.version === currentVersion);
+    if (startIndex === -1) return;
+
+    for (let i = startIndex; i < LEGACY_MIGRATIONS.length; i++) {
+        const { fn, label, needsData } = LEGACY_MIGRATIONS[i];
+        await runMigrationForAllMaps(fn, label, needsData !== false);
     }
-};
+
+    await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+}
 
 // ===== INITIALIZATION =====
 
@@ -262,44 +237,22 @@ const migrateAllMapsTo17 = async () => {
  * Initializes the repository, runs migrations, and returns the last active map.
  * @returns {Promise<string>} Last active map name
  */
-export const initializeRepository = async () => {
+export async function initializeRepository() {
     try {
         await checkAndCleanLegacyData();
 
         const currentSchemaVersion = await appStore.getItem('schemaVersion');
-
-        // Run legacy migrations (v1.3 -> v1.7) if needed
-        if (currentSchemaVersion === '1.3') {
-            await migrateAllMapsTo14();
-            await migrateAllMapsTo15();
-            await migrateAllMapsTo16();
-            await migrateAllMapsTo17();
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-        } else if (currentSchemaVersion === '1.4') {
-            await migrateAllMapsTo15();
-            await migrateAllMapsTo16();
-            await migrateAllMapsTo17();
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-        } else if (currentSchemaVersion === '1.5') {
-            await migrateAllMapsTo16();
-            await migrateAllMapsTo17();
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-        } else if (currentSchemaVersion === '1.6') {
-            await migrateAllMapsTo17();
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-        } else if (!currentSchemaVersion) {
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-        }
+        await runLegacyMigrations(currentSchemaVersion);
 
         // Run v2.0 migration if needed (adds Atlas, sync metadata, etc.)
         const { needed } = await detectMigrationNeeded();
         if (needed) {
             console.log('Running v2.0 migration...');
             const result = await safelyMigrate();
-            if (!result.success) {
-                console.error('v2.0 migration failed:', result.error);
-            } else {
+            if (result.success) {
                 console.log('v2.0 migration completed successfully');
+            } else {
+                console.error('v2.0 migration failed:', result.error);
             }
         }
 
@@ -307,7 +260,6 @@ export const initializeRepository = async () => {
         if (allMapNames.length === 0) {
             const newMapData = getEmptyMapData();
 
-            // Add hillshade to catalog if available in config
             if (config.map2d?.hillshade?.enabled === true) {
                 newMapData.catalogLayers = [{
                     id: 'hillshade',
@@ -327,94 +279,94 @@ export const initializeRepository = async () => {
         }
 
         const lastActiveMap = await appStore.getItem('lastActiveMap');
-        if (lastActiveMap && allMapNames.includes(lastActiveMap)) {
-            memoryStore.currentMap = lastActiveMap;
-            return lastActiveMap;
-        } else {
-            const firstMap = allMapNames[0];
-            memoryStore.currentMap = firstMap;
-            return firstMap;
-        }
+        const activeMap = (lastActiveMap && allMapNames.includes(lastActiveMap))
+            ? lastActiveMap
+            : allMapNames[0];
+
+        memoryStore.currentMap = activeMap;
+        return activeMap;
     } catch (error) {
         console.error('Error initializing repository:', error);
         memoryStore.currentMap = DEFAULT_MAP_NAME;
         return DEFAULT_MAP_NAME;
     }
-};
+}
 
 // ===== BULK CLEAR OPERATIONS =====
 
 /**
  * Clears all map data.
  */
-export const clearAllMapData = async () => {
+export async function clearAllMapData() {
     await mapStore.clear();
-};
+}
 
 /**
  * Clears all image data.
  */
-export const clearAllImageData = async () => {
+export async function clearAllImageData() {
     await imageStore.clear();
-};
+}
 
 /**
  * Clears all group data.
  */
-export const clearAllGroupData = async () => {
+export async function clearAllGroupData() {
     await groupStore.clear();
-};
+}
 
 /**
  * Clears all layer data.
  */
-export const clearAllLayerData = async () => {
+export async function clearAllLayerData() {
     await layerStore.clear();
-};
+}
 
 /**
  * Clears all Cesium 3D data.
  */
-export const clearAllCesium3dData = async () => {
+export async function clearAllCesium3dData() {
     await cesium3dStore.clear();
-};
+}
 
 /**
  * Clears all Street View 360 data.
  */
-export const clearAllStreetview360Data = async () => {
+export async function clearAllStreetview360Data() {
     await streetview360Store.clear();
-};
+}
 
 /**
  * Clears all briefing data.
  */
-export const clearAllBriefingData = async () => {
+export async function clearAllBriefingData() {
     await briefingStore.clear();
-};
+}
 
 /**
  * Clears all app settings and associated per-map data.
  */
-export const clearAllAppSettings = async () => {
+export async function clearAllAppSettings() {
     const allMaps = await mapStore.keys();
     for (const mapName of allMaps) {
         try {
-            await appStore.removeItem(`color_usage_${mapName}`);
-            await appStore.removeItem(`map_notes_${mapName}`);
-            await appStore.removeItem(`gridStyle_${mapName}`);
-            await groupStore.removeItem(mapName);
-            await layerStore.removeItem(`layers_${mapName}`);
-            await layerStore.removeItem(`activeLayer_${mapName}`);
-            await cesium3dStore.removeItem(`cesium3d_${mapName}`);
-            await streetview360Store.removeItem(`streetview360_${mapName}`);
+            await Promise.all([
+                appStore.removeItem(`color_usage_${mapName}`),
+                appStore.removeItem(`map_notes_${mapName}`),
+                appStore.removeItem(`gridStyle_${mapName}`),
+                groupStore.removeItem(mapName),
+                layerStore.removeItem(`layers_${mapName}`),
+                layerStore.removeItem(`activeLayer_${mapName}`),
+                cesium3dStore.removeItem(`cesium3d_${mapName}`),
+                streetview360Store.removeItem(`streetview360_${mapName}`)
+            ]);
         } catch (error) {
             console.warn(`Error clearing data for map ${mapName}:`, error);
         }
     }
 
     await appStore.clear();
-};
+}
 
 // ===== APP SETTINGS (needed by store.js for setSchemaVersion) =====
 
@@ -423,18 +375,18 @@ export const clearAllAppSettings = async () => {
  * @param {string} key - Setting key
  * @param {any} value - Setting value
  */
-export const setAppSetting = async (key, value) => {
+export async function setAppSetting(key, value) {
     await appStore.setItem(key, value);
-};
+}
 
 /**
  * Gets an app setting.
  * @param {string} key - Setting key
  * @returns {Promise<any>} Setting value
  */
-export const getAppSetting = async (key) => {
-    return await appStore.getItem(key);
-};
+export async function getAppSetting(key) {
+    return appStore.getItem(key);
+}
 
 // ===== COLOR USAGE (needed by store.js for getColorUsage export) =====
 
@@ -443,26 +395,24 @@ export const getAppSetting = async (key) => {
  * @param {string} mapName - Map name
  * @returns {Promise<Object>} Color usage data
  */
-export const getColorUsage = async (mapName) => {
-    const key = `color_usage_${mapName}`;
-    return await appStore.getItem(key) || {};
-};
+export async function getColorUsage(mapName) {
+    const data = await appStore.getItem(`color_usage_${mapName}`);
+    return data || {};
+}
 
 /**
  * Sets color usage data for a map.
  * @param {string} mapName - Map name
  * @param {Object} colorUsageData - Color usage data
  */
-export const setColorUsage = async (mapName, colorUsageData) => {
-    const key = `color_usage_${mapName}`;
-    await appStore.setItem(key, colorUsageData);
-};
+export async function setColorUsage(mapName, colorUsageData) {
+    await appStore.setItem(`color_usage_${mapName}`, colorUsageData);
+}
 
 /**
  * Removes color usage data for a map.
  * @param {string} mapName - Map name
  */
-export const removeColorUsage = async (mapName) => {
-    const key = `color_usage_${mapName}`;
-    await appStore.removeItem(key);
-};
+export async function removeColorUsage(mapName) {
+    await appStore.removeItem(`color_usage_${mapName}`);
+}

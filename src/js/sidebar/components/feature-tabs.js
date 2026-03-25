@@ -2,18 +2,20 @@
 
 /**
  * @fileoverview Feature panel tabs component.
- * Manages Estilo (Style) and Atributos (Attributes) tabs.
+ * Manages Estilo (Style), Azimutes (line decomposition), and Atributos (Attributes) tabs.
  */
 
-import { getEventBus } from '../../store/index.js';
-import { EventTypes, FeatureUpdateProperty } from '../../events/index.js';
-import { renderAttributesContent } from '../../user_data/attributes_tab_renderer.js';
+import { getEventBus } from '@store/index.js';
+import { EventTypes, FeatureUpdateProperty } from '@events/index.js';
+import { renderAttributesContent } from '@js/user_data/attributes_tab_renderer.js';
 
 /**
  * Tab IDs for the feature panel.
  */
 export const FEATURE_TAB_IDS = {
     STYLE: 'estilo',
+    AZIMUTES: 'azimutes',
+    COORDINATES: 'coordenadas',
     PARAMETERS: 'parametros',
     ATTRIBUTES: 'atributos'
 };
@@ -44,6 +46,34 @@ const PARAMETERS_TAB_CONFIG = {
 };
 
 /**
+ * Azimutes tab configuration (line azimuth/distance decomposition).
+ */
+const AZIMUTES_TAB_CONFIG = {
+    id: FEATURE_TAB_IDS.AZIMUTES,
+    label: 'Azimutes',
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>`
+};
+
+/**
+ * Coordinates tab configuration (vertex coordinates for shapes without azimutes).
+ */
+const COORDINATES_TAB_CONFIG = {
+    id: FEATURE_TAB_IDS.COORDINATES,
+    label: 'Coordenadas',
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`
+};
+
+/**
+ * Feature types that should show the Azimutes tab.
+ */
+const FEATURE_TYPES_WITH_AZIMUTES = ['line', 'polygon'];
+
+/**
+ * Feature types that should show the Coordinates tab (no azimutes, just vertex coords).
+ */
+const FEATURE_TYPES_WITH_COORDINATES = ['rectangle', 'arrow'];
+
+/**
  * Feature types that should show the Parameters tab.
  */
 const FEATURE_TYPES_WITH_PARAMETERS = ['los', 'visibility'];
@@ -62,6 +92,22 @@ function getTabsConfig(featureType) {
             BASE_TABS_CONFIG[1]  // Attributes
         ];
     }
+    if (FEATURE_TYPES_WITH_AZIMUTES.includes(featureType)) {
+        // Insert Azimutes tab between Style and Attributes
+        return [
+            BASE_TABS_CONFIG[0], // Style
+            AZIMUTES_TAB_CONFIG, // Azimutes
+            BASE_TABS_CONFIG[1]  // Attributes
+        ];
+    }
+    if (FEATURE_TYPES_WITH_COORDINATES.includes(featureType)) {
+        // Insert Coordinates tab between Style and Attributes
+        return [
+            BASE_TABS_CONFIG[0], // Style
+            COORDINATES_TAB_CONFIG, // Coordinates
+            BASE_TABS_CONFIG[1]  // Attributes
+        ];
+    }
     return BASE_TABS_CONFIG;
 }
 
@@ -71,10 +117,11 @@ function getTabsConfig(featureType) {
  * @param {string} options.featureId - Feature ID
  * @param {string} options.featureType - Feature type
  * @param {boolean} [options.singleSelection=true] - Whether single feature is selected
+ * @param {string} [options.activeTab] - Tab ID to activate initially (for preserving tab across rebuilds)
  * @returns {Object} Object with container, styleTab, parametersTab, attributesTab, cleanup, switchTab
  */
 export function createFeatureTabs(options) {
-    const { featureId, featureType, singleSelection = true } = options;
+    const { featureId, featureType, singleSelection = true, activeTab } = options;
 
     const container = document.createElement('div');
     container.className = 'feature-tabs-container';
@@ -82,6 +129,8 @@ export function createFeatureTabs(options) {
     // Get tabs config based on feature type
     const tabsConfig = getTabsConfig(featureType);
     const hasParametersTab = FEATURE_TYPES_WITH_PARAMETERS.includes(featureType);
+    const hasAzimutesTab = FEATURE_TYPES_WITH_AZIMUTES.includes(featureType);
+    const hasCoordinatesTab = FEATURE_TYPES_WITH_COORDINATES.includes(featureType);
 
     // For multi-selection, return simple container without tabs
     if (!singleSelection) {
@@ -90,6 +139,8 @@ export function createFeatureTabs(options) {
         return {
             container: simpleContainer,
             styleTab: simpleContainer,
+            azimutesTab: null,
+            coordinatesTab: null,
             parametersTab: hasParametersTab ? simpleContainer : null,
             attributesTab: null,
             cleanup: () => {},
@@ -104,11 +155,19 @@ export function createFeatureTabs(options) {
     const tabContents = {};
     const tabButtons = {};
 
+    // Determine which tab should be initially active
+    const validTabIds = tabsConfig.map(t => t.id);
+    const initialTabId = activeTab && validTabIds.includes(activeTab)
+        ? activeTab
+        : tabsConfig[0].id;
+
     // Create tabs
-    tabsConfig.forEach((tab, index) => {
+    tabsConfig.forEach((tab) => {
+        const isActive = tab.id === initialTabId;
+
         // Button
         const btn = document.createElement('button');
-        btn.className = `feature-tab-btn${index === 0 ? ' active' : ''}`;
+        btn.className = `feature-tab-btn${isActive ? ' active' : ''}`;
         btn.innerHTML = `${tab.icon}<span>${tab.label}</span>`;
         btn.dataset.tabId = tab.id;
         btn.type = 'button';
@@ -117,7 +176,7 @@ export function createFeatureTabs(options) {
 
         // Content
         const content = document.createElement('div');
-        content.className = `feature-tab-content${index === 0 ? ' active' : ''}`;
+        content.className = `feature-tab-content${isActive ? ' active' : ''}`;
         content.dataset.tabId = tab.id;
         tabContents[tab.id] = content;
     });
@@ -183,6 +242,8 @@ export function createFeatureTabs(options) {
     return {
         container,
         styleTab: tabContents[FEATURE_TAB_IDS.STYLE],
+        azimutesTab: hasAzimutesTab ? tabContents[FEATURE_TAB_IDS.AZIMUTES] : null,
+        coordinatesTab: hasCoordinatesTab ? tabContents[FEATURE_TAB_IDS.COORDINATES] : null,
         parametersTab: tabContents[FEATURE_TAB_IDS.PARAMETERS] || null,
         attributesTab: tabContents[FEATURE_TAB_IDS.ATTRIBUTES],
         cleanup,

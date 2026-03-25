@@ -1,5 +1,4 @@
 // Path: js/utilities/debounced-persist.js
-
 /**
  * @module utilities/debounced-persist
  * @description Debounced persistence with retry and error propagation.
@@ -26,17 +25,9 @@
  * });
  */
 
-// ============================================================================
-// DEFAULTS
-// ============================================================================
-
 const DEFAULT_DELAY = 300;
 const DEFAULT_MAX_RETRIES = 3;
 const BASE_RETRY_DELAY = 1000;
-
-// ============================================================================
-// DEBOUNCED PERSIST CLASS
-// ============================================================================
 
 export class DebouncedPersist {
     /**
@@ -65,13 +56,8 @@ export class DebouncedPersist {
      * @param {Function} persistFn - Async function that performs the IndexedDB write
      */
     schedule(key, persistFn) {
-        // Cancel any existing timer for this key
-        const existing = this._pending.get(key);
-        if (existing) {
-            clearTimeout(existing.timerId);
-        }
+        this.cancel(key);
 
-        // Set new debounced timer — always captures the latest persistFn
         const timerId = setTimeout(() => {
             this._execute(key);
         }, this._delay);
@@ -87,17 +73,17 @@ export class DebouncedPersist {
      */
     cancel(key) {
         const existing = this._pending.get(key);
-        if (existing) {
-            clearTimeout(existing.timerId);
-            this._pending.delete(key);
-        }
+        if (!existing) return;
+
+        clearTimeout(existing.timerId);
+        this._pending.delete(key);
     }
 
     /**
      * Cancel all pending persists without executing.
      */
     cancelAll() {
-        for (const [_key, entry] of this._pending) {
+        for (const entry of this._pending.values()) {
             clearTimeout(entry.timerId);
         }
         this._pending.clear();
@@ -112,16 +98,12 @@ export class DebouncedPersist {
      * @returns {Promise<void>}
      */
     async flush(key) {
-        // If already flushing this key, wait for the existing flush
         const existingFlush = this._flushing.get(key);
-        if (existingFlush) {
-            return existingFlush;
-        }
+        if (existingFlush) return existingFlush;
 
         const entry = this._pending.get(key);
         if (!entry) return;
 
-        // Cancel the timer — we're executing now
         clearTimeout(entry.timerId);
         this._pending.delete(key);
 
@@ -152,10 +134,6 @@ export class DebouncedPersist {
         this._flushing.clear();
     }
 
-    // ========================================================================
-    // PRIVATE
-    // ========================================================================
-
     /**
      * Execute the pending persist for a key (called by debounce timer).
      * @private
@@ -179,18 +157,16 @@ export class DebouncedPersist {
         for (let attempt = 0; attempt <= this._maxRetries; attempt++) {
             try {
                 await persistFn();
-                return; // Success
+                return;
             } catch (error) {
                 if (attempt < this._maxRetries) {
-                    // Exponential backoff: 1s, 2s, 4s
-                    const backoff = BASE_RETRY_DELAY * Math.pow(2, attempt);
+                    const backoff = BASE_RETRY_DELAY * (2 ** attempt);
                     console.warn(
                         `[DebouncedPersist] Retry ${attempt + 1}/${this._maxRetries} for key "${key}" in ${backoff}ms:`,
                         error
                     );
-                    await this._sleep(backoff);
+                    await new Promise(resolve => setTimeout(resolve, backoff));
                 } else {
-                    // All retries exhausted
                     console.error(
                         `[DebouncedPersist] All ${this._maxRetries} retries failed for key "${key}":`,
                         error
@@ -201,15 +177,5 @@ export class DebouncedPersist {
                 }
             }
         }
-    }
-
-    /**
-     * Promise-based sleep.
-     * @private
-     * @param {number} ms
-     * @returns {Promise<void>}
-     */
-    _sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
     }
 }

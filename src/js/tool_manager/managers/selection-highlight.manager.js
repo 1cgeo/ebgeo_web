@@ -8,9 +8,9 @@
  * @module tool_manager/managers/selection-highlight.manager
  */
 
-import { getStateManager } from '../../store';
-import { pixelsToDegrees } from '../../utilities/geometry-utils.js';
-import { deepClone } from '../../utilities/deep-utils.js';
+import { getStateManager } from '@store';
+import { pixelsToDegrees } from '@utils/geometry-utils.js';
+import { deepClone } from '@utils/deep-utils.js';
 
 // ============================================================================
 // SELECTION HIGHLIGHT MANAGER
@@ -506,4 +506,3 @@ export class SelectionHighlightManager {
     }
 }
 
-export default SelectionHighlightManager;

@@ -1,11 +1,8 @@
 // Path: js/utilities/lru-cache.js
-
 /**
  * @fileoverview LRU (Least Recently Used) cache implementation.
  * Provides a memory-efficient cache with automatic eviction of oldest entries.
  * Supports optional dispose callbacks for proper resource cleanup (e.g., Three.js textures).
- *
- * @module utilities/lru-cache
  */
 
 /**
@@ -13,7 +10,6 @@
  * Maintains insertion order and evicts least recently used items when full.
  *
  * @example
- * // Basic usage
  * const cache = new LRUCache(100);
  * cache.set('key1', 'value1');
  * const value = cache.get('key1');
@@ -42,7 +38,7 @@ export class LRUCache {
 
     /**
      * Gets the current number of items in the cache.
-     * @returns {number} Current cache size
+     * @returns {number}
      */
     get size() {
         return this._cache.size;
@@ -50,7 +46,7 @@ export class LRUCache {
 
     /**
      * Gets the maximum capacity of the cache.
-     * @returns {number} Maximum cache size
+     * @returns {number}
      */
     get maxSize() {
         return this._maxSize;
@@ -59,8 +55,8 @@ export class LRUCache {
     /**
      * Checks if a key exists in the cache.
      * Does NOT update the item's position (use get() for that).
-     * @param {string} key - Cache key
-     * @returns {boolean} True if key exists
+     * @param {string} key
+     * @returns {boolean}
      */
     has(key) {
         return this._cache.has(key);
@@ -68,43 +64,36 @@ export class LRUCache {
 
     /**
      * Gets a value from the cache and marks it as recently used.
-     * @param {string} key - Cache key
+     * @param {string} key
      * @returns {*} Cached value or undefined if not found
      */
     get(key) {
-        if (!this._cache.has(key)) {
+        const value = this._cache.get(key);
+        if (value === undefined && !this._cache.has(key)) {
             return undefined;
         }
 
-        // Move to end (most recently used) by re-inserting
-        const value = this._cache.get(key);
         this._cache.delete(key);
         this._cache.set(key, value);
-
         return value;
     }
 
     /**
      * Sets a value in the cache.
      * If the cache is full, evicts the least recently used item.
-     * @param {string} key - Cache key
-     * @param {*} value - Value to cache
+     * @param {string} key
+     * @param {*} value
      * @returns {LRUCache} This cache instance for chaining
      */
     set(key, value) {
-        // If key exists, delete first to update position
         if (this._cache.has(key)) {
             const oldValue = this._cache.get(key);
             this._cache.delete(key);
 
-            // Dispose old value if different
             if (oldValue !== value && this._onDispose) {
                 this._onDispose(oldValue, key);
             }
-        }
-
-        // Evict oldest if at capacity
-        if (this._cache.size >= this._maxSize) {
+        } else if (this._cache.size >= this._maxSize) {
             this._evictOldest();
         }
 
@@ -114,15 +103,14 @@ export class LRUCache {
 
     /**
      * Deletes a key from the cache.
-     * @param {string} key - Cache key
+     * @param {string} key
      * @returns {boolean} True if key was deleted
      */
     delete(key) {
-        if (!this._cache.has(key)) {
+        const value = this._cache.get(key);
+        if (value === undefined && !this._cache.has(key)) {
             return false;
         }
-
-        const value = this._cache.get(key);
 
         if (this._onDispose) {
             this._onDispose(value, key);
@@ -147,7 +135,7 @@ export class LRUCache {
 
     /**
      * Gets all keys in the cache (oldest to newest).
-     * @returns {IterableIterator<string>} Iterator of keys
+     * @returns {IterableIterator<string>}
      */
     keys() {
         return this._cache.keys();
@@ -155,7 +143,7 @@ export class LRUCache {
 
     /**
      * Gets all values in the cache (oldest to newest).
-     * @returns {IterableIterator<*>} Iterator of values
+     * @returns {IterableIterator<*>}
      */
     values() {
         return this._cache.values();
@@ -163,7 +151,7 @@ export class LRUCache {
 
     /**
      * Gets all entries in the cache (oldest to newest).
-     * @returns {IterableIterator<[string, *]>} Iterator of [key, value] pairs
+     * @returns {IterableIterator<[string, *]>}
      */
     entries() {
         return this._cache.entries();
@@ -180,27 +168,8 @@ export class LRUCache {
     }
 
     /**
-     * Evicts the oldest (least recently used) item from the cache.
-     * @private
-     */
-    _evictOldest() {
-        // Map maintains insertion order, so first key is oldest
-        const oldestKey = this._cache.keys().next().value;
-
-        if (oldestKey !== undefined) {
-            const value = this._cache.get(oldestKey);
-
-            if (this._onDispose) {
-                this._onDispose(value, oldestKey);
-            }
-
-            this._cache.delete(oldestKey);
-        }
-    }
-
-    /**
      * Returns cache statistics for debugging.
-     * @returns {Object} Cache statistics
+     * @returns {{ size: number, maxSize: number, utilization: string }}
      */
     getStats() {
         return {
@@ -209,17 +178,19 @@ export class LRUCache {
             utilization: (this._cache.size / this._maxSize * 100).toFixed(1) + '%'
         };
     }
-}
 
-/**
- * Creates an LRU cache with the specified options.
- * Factory function for convenience.
- *
- * @param {Object} options - Cache options
- * @param {number} options.maxSize - Maximum number of items
- * @param {Function} [options.onDispose] - Dispose callback
- * @returns {LRUCache} New cache instance
- */
-export function createLRUCache(options) {
-    return new LRUCache(options.maxSize, options.onDispose);
+    /**
+     * Evicts the oldest (least recently used) item from the cache.
+     * @private
+     */
+    _evictOldest() {
+        const oldestKey = this._cache.keys().next().value;
+        const value = this._cache.get(oldestKey);
+
+        if (this._onDispose) {
+            this._onDispose(value, oldestKey);
+        }
+
+        this._cache.delete(oldestKey);
+    }
 }

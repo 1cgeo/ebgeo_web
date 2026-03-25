@@ -5,7 +5,7 @@
  * Provides a color picker with enable/disable toggle.
  */
 
-import { createModernColorPicker, createModernToggle } from '../../../tool_manager';
+import { createModernColorPicker, createModernToggle } from '@tools';
 
 /**
  * Creates a color control with checkbox toggle.
@@ -16,14 +16,31 @@ import { createModernColorPicker, createModernToggle } from '../../../tool_manag
  */
 export function createColorControlSection(currentValue, onChange, label) {
     const container = document.createElement('div');
-    container.className = 'color-control-container';
-    container.style.cssText = 'margin-bottom: 16px;';
+    container.className = 'coord-color-control';
 
     const labelElement = document.createElement('label');
     labelElement.textContent = label + ':';
-    labelElement.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
+    labelElement.className = 'coord-color-control__label';
 
-    let colorPickerContainer = null;
+    const colorPickerContainer = createModernColorPicker({
+        label: 'Cor',
+        value: currentValue || '#11FF00',
+        onChange: (color) => {
+            onChange(color);
+        }
+    });
+
+    /**
+     * Updates color control visual state.
+     * @param {string|null} color - Color value
+     */
+    function updateColorControlState(color) {
+        if (color) {
+            colorPickerContainer.classList.remove('coord-color-control__picker--disabled');
+        } else {
+            colorPickerContainer.classList.add('coord-color-control__picker--disabled');
+        }
+    }
 
     const toggle = createModernToggle({
         label: 'Usar cor personalizada',
@@ -41,25 +58,7 @@ export function createColorControlSection(currentValue, onChange, label) {
     });
 
     const controlsContainer = document.createElement('div');
-    controlsContainer.style.cssText = 'margin-top: 12px;';
-
-    colorPickerContainer = createModernColorPicker({
-        label: 'Cor',
-        value: currentValue || '#11FF00',
-        onChange: (color) => {
-            onChange(color);
-        }
-    });
-
-    /**
-     * Updates color control state.
-     * @param {string|null} color - Color value
-     */
-    function updateColorControlState(color) {
-        const isCustomColor = !!color;
-        colorPickerContainer.style.opacity = isCustomColor ? '1' : '0.5';
-        colorPickerContainer.style.pointerEvents = isCustomColor ? 'auto' : 'none';
-    }
+    controlsContainer.className = 'coord-color-control__picker-wrapper';
 
     updateColorControlState(currentValue);
 

@@ -32,39 +32,28 @@ export function createCoordinateEditor(feature, uiManager, onCoordinateChange, d
 
     const container = document.createElement('div');
     container.className = 'coordinate-editor-container';
-    container.style.cssText = 'margin-bottom: 10px;';
 
     const label = document.createElement('label');
     label.textContent = 'Coordenadas:';
-    label.style.cssText = 'display: block; font-weight: 500; color: #333; font-size: 13px; margin-bottom: 4px;';
+    label.className = 'coordinate-editor-label';
     container.appendChild(label);
 
     const displayRow = document.createElement('div');
-    displayRow.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+    displayRow.className = 'coordinate-editor-display';
 
     const coordsText = document.createElement('input');
     coordsText.type = 'text';
     coordsText.readOnly = true;
-    coordsText.style.cssText = `
-        flex-grow: 1;
-        padding: 6px 8px;
-        border: 1px solid #ccc;
-        border-radius: 3px;
-        font-size: 12px;
-        background: #f9f9f9;
-        font-family: monospace;
-        cursor: text;
-    `;
+    coordsText.className = 'coordinate-editor-input';
     coordsText.value = 'Carregando...';
     formatCoordinates(lat, lng, currentFormat).then(formatted => {
         coordsText.value = formatted;
     });
 
     const editButton = document.createElement('button');
-    editButton.className = 'tool-button';
+    editButton.className = 'tool-button coordinate-editor-btn';
     editButton.innerHTML = `<img src="./images/gear_icon.svg" alt="Editar" width="16" height="16" />`;
     editButton.title = 'Editar coordenadas';
-    editButton.style.cssText = 'padding: 6px 8px; min-width: auto;';
     editButton.disabled = disabled;
 
     displayRow.appendChild(coordsText);

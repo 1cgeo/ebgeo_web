@@ -6,10 +6,6 @@
  * @dependencies turf (global)
  */
 
-// ============================================================================
-// DISTANCE / LENGTH
-// ============================================================================
-
 /**
  * Calculates the total length of a polyline in meters.
  * @param {number[][]} coordinates - Array of [lng, lat] pairs
@@ -43,19 +39,14 @@ export function getSegmentMidpoint(from, to) {
     return mid.geometry.coordinates;
 }
 
-// ============================================================================
-// AREA / PERIMETER
-// ============================================================================
-
 /**
- * Calculates area and perimeter of a polygon in meters/meters².
+ * Calculates area and perimeter of a polygon in meters/meters squared.
  * @param {number[][]} coordinates - Array of [lng, lat] pairs (ring, first != last)
  * @returns {{ area: number, perimeter: number }}
  */
 export function calculatePolygonMetrics(coordinates) {
     if (!coordinates || coordinates.length < 3) return { area: 0, perimeter: 0 };
 
-    // Close the ring
     const ring = [...coordinates, coordinates[0]];
     const polygon = turf.polygon([ring]);
 
@@ -80,13 +71,8 @@ export function getPolygonCentroid(coordinates) {
     return centroid.geometry.coordinates;
 }
 
-// ============================================================================
-// ANGLE
-// ============================================================================
-
 /**
- * Calculates the angle at vertex P2 between rays P2→P1 and P2→P3.
- * Returns the interior angle in degrees (0-360).
+ * Calculates the angle at vertex P2 between rays P2->P1 and P2->P3.
  * @param {number[]} p1 - [lng, lat] first ray endpoint
  * @param {number[]} p2 - [lng, lat] vertex
  * @param {number[]} p3 - [lng, lat] second ray endpoint
@@ -112,17 +98,13 @@ export function calculateAngle(p1, p2, p3) {
  * @returns {number[][]} Array of [lng, lat] coords
  */
 export function generateArcCoordinates(center, bearing1, bearing2, radiusMeters, numPoints = 36) {
-    const startBearing = bearing1;
-    const endBearing = bearing2;
-
-    // Normalize to positive sweep
-    let sweep = endBearing - startBearing;
+    let sweep = bearing2 - bearing1;
     if (sweep < 0) sweep += 360;
 
     const coords = [];
     for (let i = 0; i <= numPoints; i++) {
         const fraction = i / numPoints;
-        const bearing = startBearing + sweep * fraction;
+        const bearing = bearing1 + sweep * fraction;
         const dest = turf.destination(turf.point(center), radiusMeters / 1000, bearing, { units: 'kilometers' });
         coords.push(dest.geometry.coordinates);
     }
@@ -140,15 +122,11 @@ export function getBearing(p1, p2) {
     return turf.bearing(turf.point(p1), turf.point(p2));
 }
 
-// ============================================================================
-// FORMATTING
-// ============================================================================
-
 /**
  * Formats a distance value with smart unit auto-switching.
  * Values < 1000m show in meters, >= 1000m show in km.
  * @param {number} meters - Distance in meters
- * @returns {string} Formatted string (e.g., "523.4 m" or "1.523 km")
+ * @returns {string} Formatted string (e.g., "523.4 m" or "1.52 km")
  */
 export function formatDistanceAuto(meters) {
     if (meters >= 1000) {
@@ -170,22 +148,22 @@ export function formatDistance(meters, unit) {
 
 /**
  * Formats an area value with smart unit auto-switching.
- * @param {number} sqMeters - Area in m²
+ * @param {number} sqMeters - Area in m2
  * @returns {string} Formatted string
  */
 export function formatAreaAuto(sqMeters) {
     if (sqMeters >= 1e6) {
-        return `${(sqMeters / 1e6).toFixed(3)} km²`;
+        return `${(sqMeters / 1e6).toFixed(3)} km\u00B2`;
     }
     if (sqMeters >= 10000) {
         return `${(sqMeters / 10000).toFixed(2)} ha`;
     }
-    return `${sqMeters.toFixed(1)} m²`;
+    return `${sqMeters.toFixed(1)} m\u00B2`;
 }
 
 /**
  * Formats an area in a specific unit.
- * @param {number} sqMeters - Area in m²
+ * @param {number} sqMeters - Area in m2
  * @param {Object} unit - Unit definition from AREA_UNITS
  * @returns {string} Formatted string
  */

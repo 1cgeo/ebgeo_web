@@ -51,12 +51,10 @@ vi.mock('../../src/js/store/store-errors.js', () => ({
 
 // Mock repositories to use in-memory map data
 vi.mock('../../src/js/store/repositories/index.js', () => ({
-    getMapDataCompat: vi.fn(async (mapId) => {
-        return mapDataStore.get(mapId) || null;
-    }),
-    updateMapDataCompat: vi.fn(async (mapId, data) => {
-        mapDataStore.set(mapId, data);
-    }),
+    getRepository: vi.fn(() => ({
+        getMap: vi.fn(async (mapId) => mapDataStore.get(mapId) || null),
+        saveMap: vi.fn(async (mapId, data) => { mapDataStore.set(mapId, data); }),
+    })),
 }));
 
 // Mock localRepository for briefing operations

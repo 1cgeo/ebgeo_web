@@ -37,7 +37,7 @@ export function validateBasemapsConfig() {
  */
 export function getEnabledBasemaps() {
     return Object.entries(config.basemaps)
-        .filter(([_id, basemapConfig]) => basemapConfig.enabled)
+        .filter(([, basemapConfig]) => basemapConfig.enabled)
         .sort(([, a], [, b]) => a.priority - b.priority);
 }
 

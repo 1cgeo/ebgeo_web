@@ -1,5 +1,4 @@
 // Path: js/utilities/quill-helpers.js
-
 /**
  * @fileoverview Quill.js helper utilities for rich text editing.
  * Provides HTML sanitization, content cleaning, and image compression
@@ -11,14 +10,7 @@
 import DOMPurify from 'dompurify';
 import { showError } from './toast_service.js';
 
-// ============================================================================
-// CONFIGURATION CONSTANTS
-// ============================================================================
-
-/**
- * DOMPurify configuration for Quill HTML content.
- * Allows only safe HTML tags used by Quill editor.
- */
+/** DOMPurify configuration allowing only Quill-safe HTML tags and attributes. */
 export const QUILL_DOMPURIFY_CONFIG = {
     ALLOWED_TAGS: [
         'p', 'br', 'strong', 'em', 'u', 's', 'sub', 'sup',
@@ -39,9 +31,7 @@ export const QUILL_DOMPURIFY_CONFIG = {
     FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover']
 };
 
-/**
- * Default configuration for Quill image compression.
- */
+/** Default Quill image compression settings. */
 export const QUILL_IMAGE_CONFIG = {
     maxWidth: 800,
     maxHeight: 600,
@@ -49,10 +39,7 @@ export const QUILL_IMAGE_CONFIG = {
     maxSizeMB: 5
 };
 
-/**
- * Default Quill toolbar configuration.
- * Provides standard formatting options suitable for most use cases.
- */
+/** Default Quill toolbar configuration with standard formatting options. */
 export const QUILL_TOOLBAR_CONFIG = [
     [{ 'header': [1, 2, 3, false] }],
     ['bold', 'italic', 'underline', 'strike'],
@@ -64,9 +51,16 @@ export const QUILL_TOOLBAR_CONFIG = [
     ['clean']
 ];
 
-// ============================================================================
-// HTML SANITIZATION
-// ============================================================================
+/**
+ * Extracts plain text from an HTML string using DOMParser (XSS-safe).
+ *
+ * @param {string} html - HTML string to parse
+ * @returns {string} Plain text content
+ */
+function extractTextContent(html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return doc.body.textContent || '';
+}
 
 /**
  * Sanitizes HTML content using DOMPurify with Quill-safe configuration.
@@ -80,13 +74,9 @@ export function sanitizeQuillHtml(html, config = QUILL_DOMPURIFY_CONFIG) {
     return DOMPurify.sanitize(html, config);
 }
 
-// ============================================================================
-// QUILL CONTENT UTILITIES
-// ============================================================================
-
 /**
- * Cleans Quill HTML content to avoid empty paragraphs.
- * Uses DOMParser instead of innerHTML to prevent XSS during parsing.
+ * Cleans Quill HTML content by sanitizing and removing empty paragraphs.
+ * Returns empty string when no meaningful text content remains.
  *
  * @param {string} html - HTML content from Quill editor
  * @returns {string} Cleaned and sanitized HTML content
@@ -94,46 +84,28 @@ export function sanitizeQuillHtml(html, config = QUILL_DOMPURIFY_CONFIG) {
 export function cleanQuillContent(html) {
     if (!html || html.trim() === '') return '';
 
-    // First sanitize the HTML
-    let cleaned = sanitizeQuillHtml(html);
+    const cleaned = sanitizeQuillHtml(html)
+        .replace(/<p><br><\/p>/g, '')
+        .replace(/<p>\s*<\/p>/g, '');
 
-    // Remove empty paragraphs
-    cleaned = cleaned.replace(/<p><br><\/p>/g, '');
-    cleaned = cleaned.replace(/<p>\s*<\/p>/g, '');
-
-    // Use DOMParser to safely extract text content (no script execution)
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(cleaned, 'text/html');
-    const textContent = doc.body.textContent || '';
-
-    if (textContent.trim() === '') {
-        return '';
-    }
+    if (extractTextContent(cleaned).trim() === '') return '';
 
     return cleaned;
 }
 
 /**
- * Strips HTML tags from content for simple text display.
- * Uses DOMParser instead of innerHTML to prevent XSS.
+ * Strips HTML tags from content for plain text display.
  *
  * @param {string} html - HTML string
  * @returns {string} Plain text
  */
 export function stripHtml(html) {
     if (!html) return '';
-    // DOMParser does not execute scripts, making it safe for parsing
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    return doc.body.textContent || '';
+    return extractTextContent(html);
 }
 
-// ============================================================================
-// IMAGE COMPRESSION
-// ============================================================================
-
 /**
- * Compresses image before embedding in Quill.
+ * Compresses an image file before embedding in Quill.
  *
  * @param {File} file - Image file to compress
  * @param {Object} [options] - Compression options
@@ -160,6 +132,7 @@ export function compressQuillImage(file, options = {}) {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
 
         img.onload = () => {
             let { width, height } = img;
@@ -178,22 +151,18 @@ export function compressQuillImage(file, options = {}) {
             canvas.height = height;
             ctx.drawImage(img, 0, 0, width, height);
 
-            const base64 = canvas.toDataURL('image/jpeg', quality);
-            URL.revokeObjectURL(img.src);
-            resolve(base64);
+            URL.revokeObjectURL(objectUrl);
+            resolve(canvas.toDataURL('image/jpeg', quality));
         };
 
         img.onerror = () => {
-            URL.revokeObjectURL(img.src);
+            URL.revokeObjectURL(objectUrl);
             reject(new Error('Error loading image'));
         };
-        img.src = URL.createObjectURL(file);
+
+        img.src = objectUrl;
     });
 }
-
-// ============================================================================
-// QUILL IMAGE UPLOAD HANDLER
-// ============================================================================
 
 /**
  * Handles image upload for Quill editor with compression.
@@ -203,29 +172,25 @@ export function compressQuillImage(file, options = {}) {
  */
 export function handleQuillImageUpload(quillInstance, options = {}) {
     const input = document.createElement('input');
-    input.setAttribute('type', 'file');
-    input.setAttribute('accept', 'image/png, image/gif, image/jpeg, image/webp');
+    input.type = 'file';
+    input.accept = 'image/png, image/gif, image/jpeg, image/webp';
     input.click();
 
     input.onchange = async () => {
         const file = input.files[0];
-        if (file) {
-            try {
-                const compressedBase64 = await compressQuillImage(file, options);
-                const range = quillInstance.getSelection(true);
-                quillInstance.insertEmbed(range.index, 'image', compressedBase64);
-                quillInstance.setSelection(range.index + 1);
-            } catch (error) {
-                console.error('Error processing image:', error);
-                showError('Erro ao adicionar imagem');
-            }
+        if (!file) return;
+
+        try {
+            const compressedBase64 = await compressQuillImage(file, options);
+            const range = quillInstance.getSelection(true);
+            quillInstance.insertEmbed(range.index, 'image', compressedBase64);
+            quillInstance.setSelection(range.index + 1);
+        } catch (error) {
+            console.error('Error processing image:', error);
+            showError('Erro ao adicionar imagem');
         }
     };
 }
-
-// ============================================================================
-// QUILL EDITOR FACTORY
-// ============================================================================
 
 /**
  * Creates a Quill editor instance with default configuration.
@@ -249,7 +214,6 @@ export async function createQuillEditor(container, options = {}) {
         imageCompressionOptions = {}
     } = options;
 
-    // Dynamic import Quill and its CSS
     const [{ default: Quill }] = await Promise.all([
         import('quill'),
         import('quill/dist/quill.snow.css')
@@ -258,12 +222,9 @@ export async function createQuillEditor(container, options = {}) {
     const quillInstance = new Quill(container, {
         theme,
         placeholder,
-        modules: {
-            toolbar
-        }
+        modules: { toolbar }
     });
 
-    // Setup image handler for compression if enabled
     if (enableImageCompression) {
         const toolbarModule = quillInstance.getModule('toolbar');
         toolbarModule.addHandler('image', () =>

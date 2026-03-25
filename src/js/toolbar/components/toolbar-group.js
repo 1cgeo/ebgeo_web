@@ -11,8 +11,9 @@ import {
     subscribe,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
-import { EventTypes } from '../../events/event_types.js';
+} from '@utils/event-cleanup.js';
+import { EventTypes } from '@events/event_types.js';
+import { showWarning } from '@utils/toast_service.js';
 
 /**
  * Toolbar group component.
@@ -167,9 +168,6 @@ export class ToolbarGroup {
         if (this._eventBus) {
             subscribe(this, this._eventBus, EventTypes.TOOLBAR_GROUP_OPENED,
                 (payload) => this._onToolbarGroupOpened(payload));
-
-            subscribe(this, this._eventBus, EventTypes.TOOLBAR_GROUP_CLOSED,
-                () => this._onToolbarGroupClosed());
         }
 
         // Listen for terrain changes
@@ -271,14 +269,6 @@ export class ToolbarGroup {
     }
 
     /**
-     * Handles toolbar group closed event.
-     * @private
-     */
-    _onToolbarGroupClosed() {
-        // StateManager handles the state update, this is for any additional cleanup
-    }
-
-    /**
      * Handles tool click.
      * @private
      * @param {Object} toolConfig - Tool configuration
@@ -292,7 +282,7 @@ export class ToolbarGroup {
 
         // Check terrain requirement
         if (toolConfig.requiresTerrain && this._map && !this._map.getTerrain()) {
-            console.warn(`Tool ${toolConfig.id} requires terrain`);
+            showWarning('Ative o terreno 3D para usar esta ferramenta');
             return;
         }
 
@@ -361,12 +351,13 @@ export class ToolbarGroup {
      */
     _updateTerrainTools() {
         const hasTerrain = this._map?.getTerrain() != null;
+        const reason = hasTerrain ? null : 'Ative o terreno 3D para usar esta ferramenta';
 
         this._config.tools.forEach(toolConfig => {
             if (toolConfig.requiresTerrain) {
                 const button = this._toolButtons.get(toolConfig.id);
                 if (button) {
-                    button.setDisabled(!hasTerrain);
+                    button.setDisabled(!hasTerrain, reason);
                 }
             }
         });
@@ -379,7 +370,8 @@ export class ToolbarGroup {
      */
     _updateToolTerrainState(toolButton) {
         const hasTerrain = this._map?.getTerrain() != null;
-        toolButton.setDisabled(!hasTerrain);
+        const reason = hasTerrain ? null : 'Ative o terreno 3D para usar esta ferramenta';
+        toolButton.setDisabled(!hasTerrain, reason);
     }
 
     /**

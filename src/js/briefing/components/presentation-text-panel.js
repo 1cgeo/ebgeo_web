@@ -26,8 +26,9 @@ import {
     addDomListener,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
-import { sanitizeQuillHtml } from '../../utilities/quill-helpers.js';
+} from '@utils/event-cleanup.js';
+import { sanitizeQuillHtml } from '@utils/quill-helpers.js';
+import { EBGEO_LOGO_BASE64 } from '@utils/logo-base64.js';
 
 // ============================================================================
 // CONSTANTS
@@ -367,6 +368,13 @@ export class PresentationTextPanel {
         controlsSection.appendChild(actionsRow);
 
         this._container.appendChild(controlsSection);
+
+        // EBGeo logo branding (bottom of panel)
+        const logoEl = document.createElement('img');
+        logoEl.className = 'briefing-text-panel__logo';
+        logoEl.src = EBGEO_LOGO_BASE64;
+        logoEl.alt = 'EBGeo';
+        this._container.appendChild(logoEl);
 
         // Render initial content
         this._renderContent();

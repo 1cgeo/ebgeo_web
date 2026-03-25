@@ -5,10 +5,12 @@ import {
     createModernColorPicker,
     createModernLineStyleSelect,
     createModernHatchControl,
-    createModernButtons,
     createSectionDivider,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
+    createInitialPropertiesMap,
+    createPanelHeader,
+    createActionButtons,
+    buildShapeTabsWithLabel,
+    createFillAreaButton,
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -27,156 +29,143 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
     }
 
     const feature = selectedFeatures[0];
+    const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
 
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
-
-    // Only show header if not hidden (for sidebar integration)
-    if (!options.hideHeader) {
-        if (selectedFeatures.length === 1) {
-            const headerComponent = createFeatureHeaderWithOptions(
-                feature.properties.nome,
-                (newName) => {
-                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                    uiManager.updateSelectionHighlight();
-                },
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-            panel.appendChild(headerComponent);
-        } else if (selectedFeatures.length > 1) {
-            const multiSelectHeader = document.createElement('div');
-            multiSelectHeader.className = 'feature-header-with-options';
-
-            const infoText = document.createElement('div');
-            infoText.className = 'feature-name-wrapper';
-
-            infoText.textContent = `${selectedFeatures.length} retângulos selecionados`;
-
-            const optionsButton = createFeatureOptionsButton(
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-
-            multiSelectHeader.appendChild(infoText);
-            multiSelectHeader.appendChild(optionsButton);
-            panel.appendChild(multiSelectHeader);
-        }
-    }
-
-    // Hatch control reference for color sync
-    let hatchControl = null;
-
-    // Fill color picker
-    panel.appendChild(createModernColorPicker({
-        label: 'Preenchimento',
-        value: feature.properties.fillColor,
-        onChange: (color) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
-            // Update hatch preview colors
-            if (hatchControl?.updatePreviewColor) {
-                hatchControl.updatePreviewColor(color);
-            }
-        }
-    }));
-
-    // Line color picker
-    panel.appendChild(createModernColorPicker({
-        label: 'Borda',
-        value: feature.properties.lineColor,
-        onChange: (color) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
-        }
-    }));
-
-    // Opacity slider
-    panel.appendChild(createModernSlider({
-        label: 'Opacidade do Preenchimento',
-        min: 0,
-        max: 100,
-        step: 1,
-        value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100),
-        unit: '%',
-        onChange: (newValue) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
-        }
-    }));
-
-    // Border width slider
-    panel.appendChild(createModernSlider({
-        label: 'Espessura da Borda',
-        min: 1,
-        max: 10,
-        step: 1,
-        value: feature.properties.lineWidth || 2,
-        unit: 'px',
-        onChange: (newValue) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
-        }
-    }));
-
-    // Line style selector
-    panel.appendChild(createModernLineStyleSelect({
-        value: feature.properties.lineStyle || 'solid',
-        onChange: (newValue) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
-        }
-    }));
-
-    // Geometry section
-    panel.appendChild(createSectionDivider('Geometria'));
-
-    // Border radius slider
-    panel.appendChild(createModernSlider({
-        label: 'Arredondamento',
-        min: 0,
-        max: 10,
-        step: 1,
-        value: feature.properties.borderRadius || 0,
-        unit: '',
-        onChange: (value) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'borderRadius', value);
-
-            selectedFeatures.forEach(f => {
-                const corner1 = rectangleControl.geometry.normalizeCorner(f.properties.corner1);
-                const corner2 = rectangleControl.geometry.normalizeCorner(f.properties.corner2);
-                f.geometry = rectangleControl.geometry.generate(corner1, corner2, value);
-            });
-
-            rectangleControl.updateFeatures(selectedFeatures, false, false);
-        }
-    }));
-
-    // Fill section
-    panel.appendChild(createSectionDivider('Preenchimento'));
-
-    // Hatch control (uses fillColor for hatch color)
-    hatchControl = createModernHatchControl({
-        hatchType: feature.properties.hatchType || 'none',
-        onTypeChange: (type) => {
-            rectangleControl.updateHatchType(selectedFeatures, type);
-        },
-        fillColor: feature.properties.fillColor,
-        hatchSpacing: feature.properties.hatchSpacing || 8,
-        onSpacingChange: (spacing) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);
-        },
-        hatchLineWidth: feature.properties.hatchLineWidth || 2,
-        onLineWidthChange: (width) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
-        }
+    createPanelHeader({
+        panel,
+        features: selectedFeatures,
+        featureType: 'rectangle',
+        control: rectangleControl,
+        selectionManager,
+        uiManager,
+        hideHeader: options.hideHeader
     });
-    panel.appendChild(hatchControl);
+
+    // Tabs (Símbolo / Etiqueta)
+    panel.appendChild(buildShapeTabsWithLabel({
+        styleLabel: 'Símbolo',
+        fillButton: selectedFeatures.length === 1 ? createFillAreaButton(() => {
+            const w = feature.properties.width;
+            const h = feature.properties.height;
+            return (w > 0 && h > 0) ? w * h : null;
+        }) : undefined,
+        buildStyleContent: (container) => {
+            let hatchControl = null;
+
+            // Fill color picker
+            container.appendChild(createModernColorPicker({
+                label: 'Preenchimento',
+                value: feature.properties.fillColor,
+                onChange: (color) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
+                    // Update hatch preview colors
+                    if (hatchControl?.updatePreviewColor) {
+                        hatchControl.updatePreviewColor(color);
+                    }
+                }
+            }));
+
+            // Line color picker
+            container.appendChild(createModernColorPicker({
+                label: 'Borda',
+                value: feature.properties.lineColor,
+                onChange: (color) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
+                }
+            }));
+
+            // Opacity slider
+            container.appendChild(createModernSlider({
+                label: 'Opacidade do Preenchimento',
+                min: 0,
+                max: 100,
+                step: 1,
+                value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100),
+                unit: '%',
+                onChange: (newValue) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
+                }
+            }));
+
+            // Border width slider
+            container.appendChild(createModernSlider({
+                label: 'Espessura da Borda',
+                min: 1,
+                max: 10,
+                step: 1,
+                value: feature.properties.lineWidth || 2,
+                unit: 'px',
+                onChange: (newValue) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
+                }
+            }));
+
+            // Line style selector
+            container.appendChild(createModernLineStyleSelect({
+                value: feature.properties.lineStyle || 'solid',
+                onChange: (newValue) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
+                }
+            }));
+
+            // Geometry section
+            container.appendChild(createSectionDivider('Geometria'));
+
+            // Border radius slider
+            container.appendChild(createModernSlider({
+                label: 'Arredondamento',
+                min: 0,
+                max: 10,
+                step: 1,
+                value: feature.properties.borderRadius || 0,
+                unit: '',
+                onChange: (value) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'borderRadius', value);
+
+                    selectedFeatures.forEach(f => {
+                        const corner1 = rectangleControl.geometry.normalizeCorner(f.properties.corner1);
+                        const corner2 = rectangleControl.geometry.normalizeCorner(f.properties.corner2);
+                        f.geometry = rectangleControl.geometry.generate(corner1, corner2, value);
+                    });
+
+                    rectangleControl.updateFeatures(selectedFeatures, false, false);
+                }
+            }));
+
+            // Fill section
+            container.appendChild(createSectionDivider('Preenchimento'));
+
+            // Hatch control (uses fillColor for hatch color)
+            hatchControl = createModernHatchControl({
+                hatchType: feature.properties.hatchType || 'none',
+                onTypeChange: (type) => {
+                    rectangleControl.updateHatchType(selectedFeatures, type);
+                },
+                fillColor: feature.properties.fillColor,
+                hatchSpacing: feature.properties.hatchSpacing || 8,
+                onSpacingChange: (spacing) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);
+                },
+                hatchLineWidth: feature.properties.hatchLineWidth || 2,
+                onLineWidthChange: (width) => {
+                    rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
+                }
+            });
+            container.appendChild(hatchControl);
+        },
+        selectedFeatures,
+        feature,
+        control: rectangleControl,
+    }));
 
     // Action buttons
-    panel.appendChild(createModernButtons({
-        selectedFeatures,
+    createActionButtons({
+        panel,
+        features: selectedFeatures,
         control: rectangleControl,
         selectionManager,
         initialPropertiesMap,
-        hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => rectangleControl.setDefaultProperties(feature.properties),
-        hidden: options.hideButtons
-    }));
+        hideButtons: options.hideButtons
+    });
 }
+

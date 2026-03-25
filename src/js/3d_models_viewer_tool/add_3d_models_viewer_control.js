@@ -6,10 +6,11 @@
  * @dependencies config, store, event_types
  */
 
-import config from '../config.js';
-import { getEventBus, getAllMarkers, getAllMeasurements, getAllViewsheds } from '../store';
-import { EventTypes } from '../events/event_types.js';
-import { setupCleanup, subscribe, addDomListener, trackTimer, cleanup } from '../utilities/event-cleanup.js';
+import config from '@js/config.js';
+import { getEventBus, getAllMarkers, getAllMeasurements, getAllViewsheds } from '@store/index.js';
+import { EventTypes } from '@events/event_types.js';
+import { setupCleanup, subscribe, addDomListener, trackTimer, cleanup } from '@utils/event-cleanup.js';
+import { showLoading3DScreen, hideLoading3DScreen } from '@ui/loading-screen-3d.js';
 
 // Global flag to prevent click propagation between overlapping marker layers
 // (3D models, street view, saved photos)
@@ -53,22 +54,8 @@ async function getFeatureCountsByTileset() {
             getAllViewsheds()
         ]);
 
-        // Count markers
-        for (const marker of (markers || [])) {
-            const current = counts.get(marker.tilesetId) || 0;
-            counts.set(marker.tilesetId, current + 1);
-        }
-
-        // Count measurements
-        for (const measurement of (measurements || [])) {
-            const current = counts.get(measurement.tilesetId) || 0;
-            counts.set(measurement.tilesetId, current + 1);
-        }
-
-        // Count viewsheds
-        for (const viewshed of (viewsheds || [])) {
-            const current = counts.get(viewshed.tilesetId) || 0;
-            counts.set(viewshed.tilesetId, current + 1);
+        for (const item of [...(markers || []), ...(measurements || []), ...(viewsheds || [])]) {
+            counts.set(item.tilesetId, (counts.get(item.tilesetId) || 0) + 1);
         }
     } catch (error) {
         console.warn('Error getting feature counts:', error);
@@ -159,32 +146,9 @@ class Add3DModelsViewerControl {
      * @private
      */
     async _updateBadgeCounts() {
-        const featureCounts = await getFeatureCountsByTileset();
-
-        const features = config.tilesets.map(tileset => ({
-            type: 'Feature',
-            geometry: {
-                type: 'Point',
-                coordinates: [tileset.locate.lon, tileset.locate.lat]
-            },
-            properties: {
-                tilesetId: tileset.id,
-                name: tileset.name,
-                dataCaptura: tileset.data_captura || null,
-                previewVideo: tileset.previewVideo || null,
-                previewThumbnail: tileset.previewThumbnail || null,
-                featureCount: featureCounts.get(tileset.id) || 0
-            }
-        }));
-
-        const geojson = {
-            type: 'FeatureCollection',
-            features: features
-        };
-
         const source = this.map.getSource(this.sourceId);
         if (source) {
-            source.setData(geojson);
+            source.setData(await this._buildGeoJSON());
         }
     }
 
@@ -284,32 +248,38 @@ class Add3DModelsViewerControl {
     }
 
     /**
+     * Builds GeoJSON FeatureCollection from config tilesets with feature counts.
+     * @returns {Promise<Object>} GeoJSON FeatureCollection
+     * @private
+     */
+    async _buildGeoJSON() {
+        const featureCounts = await getFeatureCountsByTileset();
+
+        return {
+            type: 'FeatureCollection',
+            features: config.tilesets.map(tileset => ({
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: [tileset.locate.lon, tileset.locate.lat]
+                },
+                properties: {
+                    tilesetId: tileset.id,
+                    name: tileset.name,
+                    dataCaptura: tileset.data_captura || null,
+                    previewVideo: tileset.previewVideo || null,
+                    previewThumbnail: tileset.previewThumbnail || null,
+                    featureCount: featureCounts.get(tileset.id) || 0
+                }
+            }))
+        };
+    }
+
+    /**
      * Load markers from config and create map layers with clustering
      */
     async loadMarkers() {
-        // Get feature counts for badges
-        const featureCounts = await getFeatureCountsByTileset();
-
-        const features = config.tilesets.map(tileset => ({
-            type: 'Feature',
-            geometry: {
-                type: 'Point',
-                coordinates: [tileset.locate.lon, tileset.locate.lat]
-            },
-            properties: {
-                tilesetId: tileset.id,
-                name: tileset.name,
-                dataCaptura: tileset.data_captura || null,
-                previewVideo: tileset.previewVideo || null,
-                previewThumbnail: tileset.previewThumbnail || null,
-                featureCount: featureCounts.get(tileset.id) || 0
-            }
-        }));
-
-        const geojson = {
-            type: 'FeatureCollection',
-            features: features
-        };
+        const geojson = await this._buildGeoJSON();
 
         if (!this.map.getSource(this.sourceId)) {
             // Add clustered GeoJSON source
@@ -458,6 +428,32 @@ class Add3DModelsViewerControl {
     }
 
     /**
+     * Gets all layer IDs managed by this control.
+     * @returns {string[]} Array of layer IDs
+     * @private
+     */
+    _getAllLayerIds() {
+        return [
+            this.clustersLayer, this.clusterCountLayer, this.markersLayer,
+            this.labelsLayer, this.badgeCircleLayer, this.badgeTextLayer
+        ];
+    }
+
+    /**
+     * Removes all map event listeners for cluster and marker interaction.
+     * Safe to call even if listeners are not registered.
+     * @private
+     */
+    _removeMapListeners() {
+        this.map.off('click', this.clustersLayer, this.handleClusterClick);
+        this.map.off('mouseenter', this.clustersLayer, this.showHoverCursor);
+        this.map.off('mouseleave', this.clustersLayer, this.hideHoverCursor);
+        this.map.off('click', this.markersLayer, this.handleMarkerClick);
+        this.map.off('mouseenter', this.markersLayer, this.showHoverCursor);
+        this.map.off('mouseleave', this.markersLayer, this.hideHoverCursor);
+    }
+
+    /**
      * Show markers and enable event listeners
      */
     showMarkers() {
@@ -466,32 +462,19 @@ class Add3DModelsViewerControl {
             return;
         }
 
-        // First remove any existing listeners to prevent duplicates
-        // (these calls are safe even if listeners don't exist)
-        this.map.off('click', this.clustersLayer, this.handleClusterClick);
-        this.map.off('mouseenter', this.clustersLayer, this.showHoverCursor);
-        this.map.off('mouseleave', this.clustersLayer, this.hideHoverCursor);
-        this.map.off('click', this.markersLayer, this.handleMarkerClick);
-        this.map.off('mouseenter', this.markersLayer, this.showHoverCursor);
-        this.map.off('mouseleave', this.markersLayer, this.hideHoverCursor);
+        // Remove existing listeners to prevent duplicates, then re-attach
+        this._removeMapListeners();
 
-        // Cluster events
         this.map.on('click', this.clustersLayer, this.handleClusterClick);
         this.map.on('mouseenter', this.clustersLayer, this.showHoverCursor);
         this.map.on('mouseleave', this.clustersLayer, this.hideHoverCursor);
-
-        // Individual marker events
         this.map.on('click', this.markersLayer, this.handleMarkerClick);
         this.map.on('mouseenter', this.markersLayer, this.showHoverCursor);
         this.map.on('mouseleave', this.markersLayer, this.hideHoverCursor);
 
-        // Set visibility
-        this.map.setLayoutProperty(this.clustersLayer, 'visibility', 'visible');
-        this.map.setLayoutProperty(this.clusterCountLayer, 'visibility', 'visible');
-        this.map.setLayoutProperty(this.markersLayer, 'visibility', 'visible');
-        this.map.setLayoutProperty(this.labelsLayer, 'visibility', 'visible');
-        this.map.setLayoutProperty(this.badgeCircleLayer, 'visibility', 'visible');
-        this.map.setLayoutProperty(this.badgeTextLayer, 'visibility', 'visible');
+        for (const layerId of this._getAllLayerIds()) {
+            this.map.setLayoutProperty(layerId, 'visibility', 'visible');
+        }
 
         this.markersVisible = true;
     }
@@ -500,25 +483,13 @@ class Add3DModelsViewerControl {
      * Hide markers and remove event listeners
      */
     hideMarkers() {
-        // Remove popup first
         this.removePreviewPopup();
+        this._removeMapListeners();
 
-        // Always remove event listeners (safe even if they don't exist)
-        this.map.off('click', this.clustersLayer, this.handleClusterClick);
-        this.map.off('mouseenter', this.clustersLayer, this.showHoverCursor);
-        this.map.off('mouseleave', this.clustersLayer, this.hideHoverCursor);
-        this.map.off('click', this.markersLayer, this.handleMarkerClick);
-        this.map.off('mouseenter', this.markersLayer, this.showHoverCursor);
-        this.map.off('mouseleave', this.markersLayer, this.hideHoverCursor);
-
-        // Only set visibility if layers exist
         if (this.map.getLayer(this.markersLayer)) {
-            this.map.setLayoutProperty(this.clustersLayer, 'visibility', 'none');
-            this.map.setLayoutProperty(this.clusterCountLayer, 'visibility', 'none');
-            this.map.setLayoutProperty(this.markersLayer, 'visibility', 'none');
-            this.map.setLayoutProperty(this.labelsLayer, 'visibility', 'none');
-            this.map.setLayoutProperty(this.badgeCircleLayer, 'visibility', 'none');
-            this.map.setLayoutProperty(this.badgeTextLayer, 'visibility', 'none');
+            for (const layerId of this._getAllLayerIds()) {
+                this.map.setLayoutProperty(layerId, 'visibility', 'none');
+            }
         }
 
         this.markersVisible = false;
@@ -794,13 +765,14 @@ class Add3DModelsViewerControl {
     /**
      * Open the 3D viewer for a specific tileset.
      * @param {string} tilesetId - ID of the tileset to view
-     * @param {Object} [options] - Options
-     * @param {boolean} [options.skipCameraAnimation=false] - Skip flyTo, position camera instantly
      */
-    async openViewer(tilesetId, options = {}) {
+    async openViewer(tilesetId) {
         try {
             this.removePreviewPopup();
             this.setFullMap(false);
+
+            // Show loading overlay while Cesium initializes (first open only)
+            showLoading3DScreen();
 
             const closeBtn = document.getElementById('close-3d-viewer-button');
             if (closeBtn) {
@@ -810,10 +782,11 @@ class Add3DModelsViewerControl {
             }
 
             const map3dModule = await import('./map_3d.js');
-            await map3dModule.openViewerWithTileset(tilesetId, options);
+            await map3dModule.openViewerWithTileset(tilesetId);
 
         } catch (error) {
             console.error('Error opening 3D viewer:', error);
+            hideLoading3DScreen();
             this.setFullMap(true);
             const closeBtn = document.getElementById('close-3d-viewer-button');
             if (closeBtn) closeBtn.style.display = 'none';

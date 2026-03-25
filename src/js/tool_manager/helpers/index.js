@@ -8,7 +8,6 @@
 // Common configuration
 export {
     DEFAULT_SLIDER_CONFIG,
-    COMPACT_STYLES,
     COMMON_CONFIGS,
     getCommonConfig
 } from './common-config.helpers.js';
@@ -57,8 +56,7 @@ export {
 
 // Text alignment
 export {
-    createModernTextAlignment,
-    getAlignments
+    createModernTextAlignment
 } from './text-alignment.helpers.js';
 
 // Coordinate editor
@@ -84,6 +82,39 @@ export {
     createInitialPropertiesMap,
     createPanelHeader,
     createActionButtons,
-    AttributePanelBuilder,
     getFeatureTypeDisplayName
 } from './base-attributes-panel.js';
+
+// Label tab helper for shapes
+export {
+    buildShapeTabsWithLabel,
+    LABEL_DEFAULT_PROPERTIES,
+    hasLabelChanged,
+    LABEL_ICON,
+    STYLE_ICON,
+    LABEL_ZOOM_PROPERTIES,
+    AREA_ICON,
+    recalcLabelSize,
+    createLabelZoomHandler,
+    createFillAreaButton,
+    syncLabelSource,
+    computeShapeCentroid,
+} from './label-tab.helpers.js';
+
+// Observations editor
+export {
+    createObservationsEditor,
+    createObservationsSection,
+} from './observations-editor.helpers.js';
+
+// Marker symbol picker
+export {
+    createMarkerSymbolPicker
+} from './marker-symbol-picker.helpers.js';
+
+// Zoom correction
+export {
+    applyZoomCorrections,
+    calculateZoomCorrectedValue,
+    syncZoomCorrectedProperty
+} from './zoom-correction.helpers.js';

@@ -1,5 +1,4 @@
 // Path: js/utilities/geometry-utils.js
-
 /**
  * @fileoverview Shared geometry utilities for map coordinate calculations.
  * Centralized functions for pixel-to-degree conversions and bounding box operations.
@@ -19,11 +18,41 @@
  */
 const EARTH_CIRCUMFERENCE_METERS = 40075017;
 
+/** @constant {number} */
+const DEG_TO_RAD = Math.PI / 180;
+
+/** @constant {number} */
+const RAD_TO_DEG = 180 / Math.PI;
+
+/** @constant {number} */
+const DEGREES_PER_METER = 360 / EARTH_CIRCUMFERENCE_METERS;
+
+/** @constant {number} */
+const METERS_PER_DEGREE = EARTH_CIRCUMFERENCE_METERS / 360;
+
 /**
- * Degrees per meter at the equator.
+ * Earth's mean radius in meters (used for Haversine formula).
  * @constant {number}
  */
-const DEGREES_PER_METER = 360 / EARTH_CIRCUMFERENCE_METERS;
+const EARTH_RADIUS_METERS = 6371000;
+
+// ============================================================================
+// INTERNAL HELPERS
+// ============================================================================
+
+/**
+ * Compute meters-per-pixel at a given latitude and zoom level.
+ * Formula: circumference * cos(lat) / 2^(zoom+8)
+ *
+ * @param {number} latitude - Latitude in degrees
+ * @param {number} zoom - Map zoom level
+ * @returns {number} Meters per pixel
+ */
+function metersPerPixel(latitude, zoom) {
+    return EARTH_CIRCUMFERENCE_METERS *
+        Math.cos(latitude * DEG_TO_RAD) /
+        (2 ** (zoom + 8));
+}
 
 // ============================================================================
 // COORDINATE CONVERSION FUNCTIONS
@@ -39,17 +68,10 @@ const DEGREES_PER_METER = 360 / EARTH_CIRCUMFERENCE_METERS;
  * @returns {number} Equivalent distance in degrees
  *
  * @example
- * // Convert 10 pixels to degrees at latitude -23.5 and zoom 15
  * const degrees = pixelsToDegrees(10, -23.5, 15);
  */
 export function pixelsToDegrees(pixels, latitude, zoom) {
-    // Meters per pixel at given latitude and zoom
-    // Formula: circumference * cos(lat) / 2^(zoom+8)
-    const metersPerPixel = EARTH_CIRCUMFERENCE_METERS *
-        Math.cos(latitude * Math.PI / 180) /
-        Math.pow(2, zoom + 8);
-
-    return pixels * metersPerPixel * DEGREES_PER_METER;
+    return pixels * metersPerPixel(latitude, zoom) * DEGREES_PER_METER;
 }
 
 /**
@@ -62,16 +84,10 @@ export function pixelsToDegrees(pixels, latitude, zoom) {
  * @returns {number} Equivalent distance in pixels
  *
  * @example
- * // Convert 0.001 degrees to pixels at latitude -23.5 and zoom 15
  * const pixels = degreesToPixels(0.001, -23.5, 15);
  */
 export function degreesToPixels(degrees, latitude, zoom) {
-    const metersPerPixel = EARTH_CIRCUMFERENCE_METERS *
-        Math.cos(latitude * Math.PI / 180) /
-        Math.pow(2, zoom + 8);
-
-    const metersPerDegree = 1 / DEGREES_PER_METER;
-    return (degrees * metersPerDegree) / metersPerPixel;
+    return (degrees * METERS_PER_DEGREE) / metersPerPixel(latitude, zoom);
 }
 
 // ============================================================================
@@ -88,13 +104,11 @@ export function degreesToPixels(degrees, latitude, zoom) {
  * @returns {Array<number>} Expanded bounding box [minX, minY, maxX, maxY]
  *
  * @example
- * const bbox = [lng1, lat1, lng2, lat2];
- * const expanded = expandBboxWithPadding(bbox, 5, map);
+ * const expanded = expandBboxWithPadding([lng1, lat1, lng2, lat2], 5, map);
  */
 export function expandBboxWithPadding(bbox, paddingPixels, map) {
     const centerLat = (bbox[1] + bbox[3]) / 2;
-    const zoom = map.getZoom();
-    const paddingDegrees = pixelsToDegrees(paddingPixels, centerLat, zoom);
+    const paddingDegrees = pixelsToDegrees(paddingPixels, centerLat, map.getZoom());
 
     return [
         bbox[0] - paddingDegrees,
@@ -116,17 +130,17 @@ export function expandBboxWithPadding(bbox, paddingPixels, map) {
  * const bbox = createPointBoundingBox([-43.2, -22.9], 10, 15);
  */
 export function createPointBoundingBox(coordinates, paddingPixels, zoom) {
-    const latitude = coordinates[1];
-    const paddingDegrees = pixelsToDegrees(paddingPixels, latitude, zoom);
+    const [lng, lat] = coordinates;
+    const pad = pixelsToDegrees(paddingPixels, lat, zoom);
 
     return {
         type: 'Polygon',
         coordinates: [[
-            [coordinates[0] - paddingDegrees, coordinates[1] - paddingDegrees],
-            [coordinates[0] + paddingDegrees, coordinates[1] - paddingDegrees],
-            [coordinates[0] + paddingDegrees, coordinates[1] + paddingDegrees],
-            [coordinates[0] - paddingDegrees, coordinates[1] + paddingDegrees],
-            [coordinates[0] - paddingDegrees, coordinates[1] - paddingDegrees]
+            [lng - pad, lat - pad],
+            [lng + pad, lat - pad],
+            [lng + pad, lat + pad],
+            [lng - pad, lat + pad],
+            [lng - pad, lat - pad]
         ]]
     };
 }
@@ -151,7 +165,7 @@ export function normalizeCoordinates(coordinates) {
     if (typeof coordinates === 'string') {
         try {
             coordinates = JSON.parse(coordinates);
-        } catch (_e) {
+        } catch {
             console.warn('Error parsing coordinates:', coordinates);
             return null;
         }
@@ -175,11 +189,10 @@ export function normalizeCoordinates(coordinates) {
  * const distance = calculateDistance([-43.2, -22.9], [-43.3, -22.95]);
  */
 export function calculateDistance(point1, point2) {
-    const R = 6371000; // Earth's radius in meters
-    const lat1Rad = point1[1] * Math.PI / 180;
-    const lat2Rad = point2[1] * Math.PI / 180;
-    const deltaLat = (point2[1] - point1[1]) * Math.PI / 180;
-    const deltaLng = (point2[0] - point1[0]) * Math.PI / 180;
+    const lat1Rad = point1[1] * DEG_TO_RAD;
+    const lat2Rad = point2[1] * DEG_TO_RAD;
+    const deltaLat = (point2[1] - point1[1]) * DEG_TO_RAD;
+    const deltaLng = (point2[0] - point1[0]) * DEG_TO_RAD;
 
     const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
         Math.cos(lat1Rad) * Math.cos(lat2Rad) *
@@ -187,7 +200,7 @@ export function calculateDistance(point1, point2) {
 
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-    return R * c;
+    return EARTH_RADIUS_METERS * c;
 }
 
 /**
@@ -202,14 +215,14 @@ export function calculateDistance(point1, point2) {
  * const bearing = calculateBearing([-43.2, -22.9], [-43.3, -22.95]);
  */
 export function calculateBearing(point1, point2) {
-    const lat1Rad = point1[1] * Math.PI / 180;
-    const lat2Rad = point2[1] * Math.PI / 180;
-    const deltaLng = (point2[0] - point1[0]) * Math.PI / 180;
+    const lat1Rad = point1[1] * DEG_TO_RAD;
+    const lat2Rad = point2[1] * DEG_TO_RAD;
+    const deltaLng = (point2[0] - point1[0]) * DEG_TO_RAD;
 
     const y = Math.sin(deltaLng) * Math.cos(lat2Rad);
     const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
         Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(deltaLng);
 
-    const bearing = Math.atan2(y, x) * 180 / Math.PI;
+    const bearing = Math.atan2(y, x) * RAD_TO_DEG;
     return (bearing + 360) % 360;
 }

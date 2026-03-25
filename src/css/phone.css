@@ -11,7 +11,8 @@
    At desktop/tablet sizes every phone element is display: none.
    ========================================================================= */
 
-@media (width <= 480px), (height <= 440px) and (pointer: coarse) {
+@media (width <=480px),
+(height <=440px) and (pointer: coarse) {
     /* =====================================================================
        FLOATING SEARCH BAR
        Fixed pill at the top of the viewport with safe-area inset.
@@ -142,7 +143,9 @@
         height: var(--touch-target-min);
         border: none;
         outline: none;
-        font-size: 16px; /* Prevents iOS zoom */
+        font-size: 16px;
+
+        /* Prevents iOS zoom */
         color: var(--gray-900);
         background: transparent;
     }
@@ -199,7 +202,7 @@
     .phone-search-overlay__section-title {
         padding: var(--space-4) var(--space-4) var(--space-2);
         font-size: var(--font-size-xs);
-        font-weight: 600;
+        font-weight: var(--font-weight-semibold);
         color: var(--gray-400);
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -232,7 +235,7 @@
         height: var(--phone-sheet-full);
         display: flex;
         flex-direction: column;
-        padding-bottom: var(--safe-area-bottom);
+        padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-bottom, 0px));
     }
 
     .phone-bottom-sheet--half {
@@ -506,7 +509,7 @@
 
     .phone-feature-detail__action-btn--primary {
         background: var(--primary-600);
-        color: var(--white);
+        color: white;
     }
 
     .phone-feature-detail__action-btn--primary:active {
@@ -556,7 +559,9 @@
         padding: var(--space-1) var(--space-2);
         border: 1px solid var(--gray-300);
         border-radius: var(--radius-sm);
-        font-size: 16px; /* Prevents iOS zoom */
+        font-size: 16px;
+
+        /* Prevents iOS zoom */
         color: var(--gray-800);
         background: var(--gray-50);
         text-align: right;
@@ -683,7 +688,9 @@
         padding: var(--space-3);
         border: 1px solid var(--gray-300);
         border-radius: var(--radius-md);
-        font-size: 16px; /* Prevents iOS zoom */
+        font-size: 16px;
+
+        /* Prevents iOS zoom */
         color: var(--gray-900);
         background: var(--gray-50);
         margin-bottom: var(--space-4);
@@ -746,9 +753,7 @@
     .phone-fab-container {
         position: fixed;
         right: var(--phone-spacing);
-        bottom: calc(
-            var(--phone-sheet-peek) + var(--safe-area-bottom) + var(--phone-spacing)
-        );
+        bottom: calc(var(--phone-sheet-peek) + var(--safe-area-bottom) + var(--phone-spacing));
         display: flex;
         flex-direction: column;
         gap: var(--space-3);
@@ -1118,7 +1123,7 @@
         flex: 1;
         text-align: left;
         font-size: var(--font-size-xs);
-        font-weight: 600;
+        font-weight: var(--font-weight-semibold);
         color: var(--gray-400);
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -1149,6 +1154,13 @@
         padding: var(--space-3) 0;
         color: var(--gray-400);
         font-size: var(--font-size-sm);
+    }
+
+    .phone-drawer__loading {
+        padding: var(--space-3) 0;
+        color: var(--gray-400);
+        font-size: var(--font-size-sm);
+        font-style: italic;
     }
 
     /* Map action buttons */
@@ -1359,7 +1371,7 @@
    Reduced height when phone is in landscape orientation.
    ===================================================================== */
 
-@media (orientation: landscape) and (height <= 440px) and (pointer: coarse) {
+@media (orientation: landscape) and (height <=440px) and (pointer: coarse) {
     .phone-bottom-sheet {
         height: 80vh;
     }
@@ -1379,7 +1391,7 @@
 }
 
 /* At desktop/tablet sizes, ensure all phone elements are hidden */
-@media (width > 480px) and ((height >= 441px) or (pointer: fine)) {
+@media (width > 480px) and ((height >=441px) or (pointer: fine)) {
     .phone-search-bar,
     .phone-search-overlay,
     .phone-bottom-sheet,

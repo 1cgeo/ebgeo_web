@@ -7,6 +7,7 @@
  */
 
 import { setupCleanup, addDomListener, cleanup, removeElement } from '@utils/event-cleanup.js';
+import { getFeatureIcon16 } from './phone-icons.constants.js';
 
 // ============================================================================
 // CONSTANTS
@@ -24,27 +25,6 @@ const Mode = Object.freeze({
  * @type {Set<string>}
  */
 const COLOR_PROPERTY_NAMES = new Set(['cor', 'color', 'cor_preenchimento', 'cor_borda']);
-
-/**
- * SVG icons for each feature type (16x16 viewBox).
- * Static markup — safe for innerHTML.
- * @type {Object<string, string>}
- */
-const FEATURE_TYPE_ICONS = Object.freeze({
-    point: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none"/></svg>',
-    line: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="13" x2="13" y2="3"/></svg>',
-    polygon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="8,2 14,6 12,13 4,13 2,6"/></svg>',
-    circle: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/></svg>',
-    ellipse: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="8" rx="6" ry="4"/></svg>',
-    rectangle: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="8" rx="1"/></svg>',
-    text: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="3" x2="12" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/><line x1="6" y1="13" x2="10" y2="13"/></svg>',
-    sector: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 8 L14 8 A6 6 0 0 0 8 2 Z"/></svg>',
-    brush: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 13 Q5 8 8 9 Q11 10 13 3"/></svg>',
-    image: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><circle cx="5.5" cy="6.5" r="1.5"/><path d="M2 11 L6 8 L9 10 L12 7 L14 9"/></svg>',
-});
-
-/** Default icon for feature types not in the map */
-const DEFAULT_FEATURE_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/></svg>';
 
 /** SVG icon for the edit button */
 const EDIT_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
@@ -89,15 +69,6 @@ function formatPropertyValue(value) {
         return value ? 'Sim' : 'N\u00e3o';
     }
     return String(value);
-}
-
-/**
- * Get the SVG icon markup for a feature type.
- * @param {string} type - Feature type string
- * @returns {string} SVG markup
- */
-function getFeatureTypeIcon(type) {
-    return FEATURE_TYPE_ICONS[type] || DEFAULT_FEATURE_ICON;
 }
 
 // ============================================================================
@@ -252,6 +223,14 @@ export class PhoneFeatureEditor {
         return this._container;
     }
 
+    /**
+     * Return the current feature data (read-only access for the orchestrator).
+     * @returns {Object|null}
+     */
+    getFeatureData() {
+        return this._featureData;
+    }
+
     // ========================================================================
     // RENDERING
     // ========================================================================
@@ -293,7 +272,7 @@ export class PhoneFeatureEditor {
         setupCleanup(this);
 
         if (this._container) {
-            this._container.innerHTML = '';
+            this._container.textContent = '';
         }
         this._headerEl = null;
         this._actionsEl = null;
@@ -318,7 +297,7 @@ export class PhoneFeatureEditor {
             iconEl.style.background = data.color;
             iconEl.style.color = 'white';
         }
-        iconEl.innerHTML = getFeatureTypeIcon(data.type);
+        iconEl.innerHTML = getFeatureIcon16(data.type);
 
         // Title / subtitle wrapper
         const textWrapper = document.createElement('div');

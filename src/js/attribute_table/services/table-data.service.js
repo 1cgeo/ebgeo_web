@@ -4,7 +4,7 @@
  * @fileoverview Service for fetching, filtering, and sorting attribute table data.
  */
 
-import { getLayerFeatures } from '../../store/feature.operations.js';
+import { getLayerFeatures } from '@store';
 import { EMPTY_CELL_PLACEHOLDER } from '../attribute-table.constants.js';
 
 /**

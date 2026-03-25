@@ -1,6 +1,6 @@
 // Path: js/3d_models_viewer_tool/tools/screenshot_tool.js
 
-import { showToast } from '../../utilities/index.js';
+import { showToast } from '@utils/index.js';
 
 let viewerInstance = null;
 
@@ -31,6 +31,63 @@ async function takeScreenshot(viewer) {
         console.error('Error capturing 3D screenshot:', error);
         showToast('Erro ao capturar screenshot 3D', 'error');
         return false;
+    }
+}
+
+/**
+ * Captures a screenshot from the Cesium viewer and returns it as a data URL.
+ * Unlike takeScreenshot(), this does not download the image — it returns
+ * the data URL for programmatic use (e.g. PDF export).
+ * @param {Cesium.Viewer} viewer - Cesium viewer instance
+ * @returns {Promise<string|null>} Data URL of the captured image, or null on failure
+ */
+async function captureScreenshotAsDataUrl(viewer) {
+    viewerInstance = viewer;
+
+    try {
+        if (!checkPreserveDrawingBuffer()) {
+            console.warn('preserveDrawingBuffer is not active, trying workaround...');
+        }
+
+        await ensureFullyRendered();
+
+        const canvas = viewerInstance.scene.canvas;
+
+        if (await isCanvasEmpty(canvas)) {
+            console.warn('Empty canvas detected, trying workaround for data URL capture...');
+            return await captureDataUrlWithWorkaround();
+        }
+
+        const dataUrl = canvas.toDataURL('image/png');
+        return dataUrl.length > 100 ? dataUrl : null;
+
+    } catch (error) {
+        console.error('Error capturing 3D screenshot as data URL:', error);
+        return null;
+    }
+}
+
+/**
+ * Workaround for data URL capture when canvas is initially empty.
+ * @returns {Promise<string|null>} Data URL or null
+ */
+async function captureDataUrlWithWorkaround() {
+    const scene = viewerInstance.scene;
+    const originalRequestRenderMode = scene.requestRenderMode;
+
+    try {
+        scene.requestRenderMode = false;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        for (let i = 0; i < 10; i++) {
+            viewerInstance.render();
+            await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+
+        const dataUrl = viewerInstance.scene.canvas.toDataURL('image/png');
+        return dataUrl.length > 100 ? dataUrl : null;
+    } finally {
+        scene.requestRenderMode = originalRequestRenderMode;
     }
 }
 
@@ -319,4 +376,4 @@ async function downloadImageFromDataURL(dataURL) {
     }
 }
 
-export { takeScreenshot };
+export { takeScreenshot, captureScreenshotAsDataUrl };

@@ -11,8 +11,8 @@ import { StreetViewProjector } from './projector.js';
 import { StreetViewRenderer } from './renderer.js';
 import { StreetViewHitTester } from './hit-tester.js';
 import { StreetViewMinimapSync } from './minimap-sync.js';
-import { getEventBus } from '../../store/services.js';
-import { EventTypes } from '../../events/event_types.js';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
 
 // Threshold in pixels to distinguish drag from click
 const DRAG_THRESHOLD = 5;
@@ -133,7 +133,6 @@ export class StreetViewNavigator {
                 cameraConfig.lat,
                 cameraConfig.heading
             );
-            this.minimapSync.setTargets(targets);
         }
     }
 
@@ -557,10 +556,6 @@ export class StreetViewNavigator {
                 container.classList.add('nav-hover');
             }
 
-            // Highlight on minimap
-            if (hit.type === 'navigation' && this.minimapSync) {
-                this.minimapSync.highlightTarget(hit.id);
-            }
         } else {
             this.renderer.setHoveredMarker(null);
 
@@ -568,14 +563,8 @@ export class StreetViewNavigator {
             if (container) {
                 container.classList.remove('nav-hover');
             }
-
-            if (this.minimapSync) {
-                this.minimapSync.clearHighlight();
-            }
         }
 
-        // Update ground cursor position on minimap
-        this.updateMinimapCursor();
     }
 
     /**
@@ -707,36 +696,6 @@ export class StreetViewNavigator {
         }
 
         return null;
-    }
-
-    /**
-     * Updates the cursor position on the minimap
-     * Uses current yaw/pitch/fov stored from last render call
-     */
-    updateMinimapCursor() {
-        if (!this.minimapSync || !this.cameraConfig) return;
-        if (this.currentYaw === undefined) return;
-
-        const ground = this.projector.screenToGround(
-            this.mousePosition.x,
-            this.mousePosition.y,
-            this.currentYaw,
-            this.currentPitch,
-            this.currentFov
-        );
-
-        if (ground) {
-            // Convert meters back to lon/lat (approximate)
-            const metersToDegreesLat = 1 / 111320;
-            const metersToDegreesLon = 1 / (111320 * Math.cos(this.cameraConfig.lat * Math.PI / 180));
-
-            const cursorLon = this.cameraConfig.lon + ground.x * metersToDegreesLon;
-            const cursorLat = this.cameraConfig.lat - ground.z * metersToDegreesLat;
-
-            this.minimapSync.setCursorPosition(cursorLon, cursorLat);
-        } else {
-            this.minimapSync.setCursorPosition(null, null);
-        }
     }
 
     /**

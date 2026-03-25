@@ -5,13 +5,13 @@
     display: none;
     position: fixed !important;
     top: 0 !important;
-    left: 56px !important;
+    left: var(--sidebar-collapsed-width) !important;
     right: 0 !important;
     bottom: 0 !important;
     width: auto !important;
     height: 100vh !important;
     overflow: hidden;
-    z-index: 200 !important;
+    z-index: var(--z-3d-viewer) !important;
     background: #000;
 
     /* Create isolated stacking context */
@@ -42,23 +42,23 @@ body.streetview-active .modal-overlay {
 #streetview-minimap-wrapper {
     display: none;
     position: fixed;
-    bottom: 16px;
-    left: 72px;
+    bottom: var(--space-4);
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
     width: 320px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: rgba(0, 0, 0, 0.55);
     border: 2px solid rgba(255, 255, 255, 0.25);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    z-index: 250;
+    z-index: var(--z-3d-controls);
     overflow: hidden;
 }
 
 /* ===== PHOTO INFO (header inside wrapper) ===== */
 #streetview-photo-info {
     display: none;
-    padding: 6px 10px;
+    padding: var(--space-1) 10px;
     color: rgba(255, 255, 255, 0.9);
-    font-size: 11px;
+    font-size: var(--font-size-xs);
     letter-spacing: 0.02em;
 }
 
@@ -72,32 +72,32 @@ body.streetview-active .modal-overlay {
 #toolbar-360 {
     position: fixed;
     top: 80px;
-    right: 16px;
+    right: var(--space-4);
     display: none;
     flex-direction: column;
-    gap: 8px;
-    z-index: 250;
+    gap: var(--space-2);
+    z-index: var(--z-3d-controls);
 }
 
 /* ===== 360 TOOL BUTTONS ===== */
 .button-tool-360 {
-    width: 44px;
-    height: 44px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
     border: none;
     background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-control);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--gray-600, #4b5563);
-    transition: all 0.2s ease;
+    color: var(--gray-600);
+    transition: all var(--transition-normal);
     position: relative;
 }
 
 .button-tool-360:hover {
-    background: var(--gray-50, #f9fafb);
+    background: var(--gray-50);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
@@ -116,7 +116,7 @@ body.streetview-active .modal-overlay {
     height: 22px;
     stroke: currentcolor;
     fill: none;
-    transition: all 0.2s ease;
+    transition: all var(--transition-normal);
 }
 
 .button-tool-360.active svg,
@@ -131,16 +131,16 @@ body.streetview-active .modal-overlay {
     top: 50%;
     right: calc(100% + 10px);
     transform: translateY(-50%);
-    background: var(--gray-900, #111827);
+    background: var(--gray-900);
     color: white;
-    padding: 6px 10px;
+    padding: var(--space-1) 10px;
     border-radius: 6px;
-    font-size: 12px;
-    font-weight: 500;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.2s ease;
+    transition: opacity var(--transition-normal);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
@@ -156,10 +156,10 @@ body.streetview-active .modal-overlay {
 
 /* ===== TOOLBAR SEPARATOR ===== */
 .toolbar-360-separator {
-    width: 32px;
+    width: var(--space-8);
     height: 1px;
-    background: var(--gray-300, #d1d5db);
-    margin: 4px auto;
+    background: var(--gray-300);
+    margin: var(--space-1) auto;
 }
 
 /* ===== ORIENTATION BUTTONS ===== */
@@ -183,27 +183,27 @@ body.streetview-active .modal-overlay {
 /* ===== CLOSE BUTTON ===== */
 #close-street-view-button {
     position: fixed;
-    top: 16px;
-    right: 16px;
+    top: var(--space-4);
+    right: var(--space-4);
     display: none;
     align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-4);
     background: var(--primary);
     border: 2px solid rgba(255, 255, 255, 0.3);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     box-shadow: 0 4px 16px rgba(80, 141, 78, 0.3);
     color: #fff;
     font-family: inherit;
-    font-size: 14px;
-    font-weight: 500;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
     cursor: pointer;
-    z-index: 250;
-    transition: all 0.2s ease;
+    z-index: var(--z-3d-controls);
+    transition: all var(--transition-normal);
 }
 
 #close-street-view-button:hover {
-    background: var(--primary-dark, #3d6e3b);
+    background: var(--primary-dark);
     box-shadow: 0 6px 20px rgba(80, 141, 78, 0.4);
     transform: translateY(-1px);
 }
@@ -218,8 +218,8 @@ body.streetview-active .modal-overlay {
 }
 
 #close-street-view-button svg {
-    width: 16px;
-    height: 16px;
+    width: var(--space-4);
+    height: var(--space-4);
     stroke: currentcolor;
     flex-shrink: 0;
 }
@@ -231,28 +231,28 @@ body.streetview-active .modal-overlay {
 /* ===== ACTIVE TOOL CHIP 360 ===== */
 .active-tool-chip-360 {
     position: fixed;
-    top: 16px;
+    top: var(--space-4);
     left: 50%;
     transform: translateX(-50%);
-    z-index: var(--z-3d-controls, 110);
+    z-index: var(--z-3d-controls);
     pointer-events: none;
 }
 
 .active-tool-chip-360-inner {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     background: var(--primary);
     color: white;
-    padding: 8px 16px;
-    border-radius: 9999px;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-full);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-    font-size: 14px;
+    font-size: var(--font-size-sm);
     white-space: nowrap;
     pointer-events: auto;
     opacity: 0;
     transform: translateY(-10px);
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    transition: opacity var(--transition-normal), transform var(--transition-normal);
 }
 
 .active-tool-chip-360.visible .active-tool-chip-360-inner {
@@ -261,28 +261,28 @@ body.streetview-active .modal-overlay {
 }
 
 .active-tool-chip-360-label {
-    font-weight: 400;
+    font-weight: var(--font-weight-normal);
     opacity: 0.9;
 }
 
 .active-tool-chip-360-name {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 .active-tool-chip-360-close {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
-    margin-left: 4px;
+    width: var(--space-6);
+    height: var(--space-6);
+    margin-left: var(--space-1);
     border: none;
     background: transparent;
     color: white;
-    border-radius: 9999px;
+    border-radius: var(--radius-full);
     cursor: pointer;
     opacity: 0.7;
-    transition: opacity 0.15s ease, background 0.15s ease;
+    transition: opacity var(--transition-fast), background var(--transition-fast);
 }
 
 .active-tool-chip-360-close:hover {
@@ -295,8 +295,8 @@ body.streetview-active .modal-overlay {
 }
 
 .active-tool-chip-360-close svg {
-    width: 16px;
-    height: 16px;
+    width: var(--space-4);
+    height: var(--space-4);
 }
 
 /* ===== NAVIGATION HELP POPUP ===== */
@@ -306,14 +306,14 @@ body.streetview-active .modal-overlay {
     right: 72px;
     width: 280px;
     background: white;
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
-    z-index: var(--z-3d-controls, 110);
+    z-index: var(--z-3d-controls);
     overflow: hidden;
     opacity: 0;
     visibility: hidden;
     transform: translateX(10px);
-    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+    transition: opacity var(--transition-normal), transform var(--transition-normal), visibility var(--transition-normal);
 }
 
 .nav-help-popup-360:not([hidden]) {
@@ -328,7 +328,7 @@ body.streetview-active .modal-overlay {
 
 .nav-help-tabs-360 {
     display: flex;
-    border-radius: 12px 12px 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     overflow: hidden;
 }
 
@@ -337,16 +337,16 @@ body.streetview-active .modal-overlay {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 10px 16px;
-    background: var(--gray-300, #d1d5db);
+    gap: var(--space-2);
+    padding: 10px var(--space-4);
+    background: var(--gray-300);
     border: none;
-    color: var(--gray-700, #374151);
+    color: var(--gray-700);
     font-family: inherit;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all var(--transition-normal);
 }
 
 .nav-help-tab-360.active {
@@ -362,7 +362,7 @@ body.streetview-active .modal-overlay {
 }
 
 .nav-help-content-360 {
-    padding: 8px 0;
+    padding: var(--space-2) 0;
 }
 
 .nav-help-panel-360 {
@@ -377,12 +377,12 @@ body.streetview-active .modal-overlay {
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 12px 16px;
-    transition: background 0.15s ease;
+    padding: var(--space-3) var(--space-4);
+    transition: background var(--transition-fast);
 }
 
 .nav-help-item-360:hover {
-    background: var(--gray-50, #f9fafb);
+    background: var(--gray-50);
 }
 
 .nav-help-icon-360 {
@@ -393,7 +393,7 @@ body.streetview-active .modal-overlay {
     align-items: center;
     justify-content: center;
     background: var(--primary);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: white;
 }
 
@@ -409,16 +409,16 @@ body.streetview-active .modal-overlay {
 
 .nav-help-text-360 strong {
     display: block;
-    color: var(--gray-900, #111827);
+    color: var(--gray-900);
     font-size: 13px;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     margin-bottom: 2px;
 }
 
 .nav-help-text-360 span {
     display: block;
-    color: var(--gray-500, #6b7280);
-    font-size: 12px;
+    color: var(--gray-500);
+    font-size: var(--font-size-xs);
     line-height: 1.4;
 }
 
@@ -430,7 +430,7 @@ body.streetview-active .modal-overlay {
     width: 100%;
     height: 100%;
     pointer-events: auto;
-    z-index: 10;
+    z-index: var(--z-dropdown);
 }
 
 /* ===== CURSOR STYLES FOR 360 VIEW ===== */
@@ -461,7 +461,7 @@ body.streetview-active .modal-overlay {
     }
 
     #streetview-minimap-wrapper {
-        left: 16px;
+        left: var(--space-4);
         width: 200px;
     }
 
@@ -471,15 +471,15 @@ body.streetview-active .modal-overlay {
 
     #toolbar-360 {
         top: auto;
-        bottom: 16px;
-        right: 16px;
+        bottom: var(--space-4);
+        right: var(--space-4);
         flex-direction: row;
     }
 
     .toolbar-360-separator {
         width: 1px;
-        height: 32px;
-        margin: 0 4px;
+        height: var(--space-8);
+        margin: 0 var(--space-1);
     }
 
     .button-tool-360::after {
@@ -490,7 +490,7 @@ body.streetview-active .modal-overlay {
     }
 
     #close-street-view-button {
-        padding: 8px 12px;
+        padding: var(--space-2) var(--space-3);
         font-size: 13px;
     }
 

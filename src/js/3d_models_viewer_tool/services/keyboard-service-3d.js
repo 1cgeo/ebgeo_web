@@ -10,8 +10,8 @@
  * @module 3d_models_viewer_tool/services/keyboard-service-3d
  */
 
-import { showConfirm } from '../../modals/index.js';
-import { isCurrentMapLockedSync } from '../../store/index.js';
+import { showConfirm } from '@modals/index.js';
+import { isCurrentMapLockedSync } from '@store/index.js';
 
 // =========================================================================
 // STATE

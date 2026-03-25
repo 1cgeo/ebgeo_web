@@ -1,12 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { runTransaction } from '../../src/js/store/store-transaction.js';
+import { flushPromises } from '../helpers/test-utils.js';
 
-// Mock the store-errors module to prevent EventBus dependency
+// ============================================================================
+// Mock store-errors
+// ============================================================================
+
 vi.mock('../../src/js/store/store-errors.js', () => ({
     StoreErrorEvents: { STORE_PERSIST_ERROR: 'store:persistError' },
     emitStoreError: vi.fn()
 }));
 
+import { runTransaction } from '../../src/js/store/store-transaction.js';
 import { emitStoreError } from '../../src/js/store/store-errors.js';
 
 beforeEach(() => {
@@ -14,190 +18,375 @@ beforeEach(() => {
 });
 
 // ============================================================================
-// Successful transactions
+// TESTS
 // ============================================================================
 
-describe('runTransaction - success path', () => {
-    it('executes persistence function', async () => {
-        const persistFn = vi.fn().mockResolvedValue(undefined);
+describe('Transaction integrity under failure', () => {
 
-        await runTransaction(async () => {
-            return persistFn;
+    // ========================================================================
+    // Persistence failure blocks all side effects
+    // ========================================================================
+
+    describe('persistence failure blocks all side effects', () => {
+        it('persistFn throws → deferSync never called, deferAsync never called', async () => {
+            const syncEffect = vi.fn();
+            const asyncEffect = vi.fn().mockResolvedValue(undefined);
+
+            await expect(
+                runTransaction(async (tx) => {
+                    tx.deferSync(syncEffect);
+                    tx.deferAsync(asyncEffect);
+
+                    return async () => {
+                        throw new Error('IndexedDB quota exceeded');
+                    };
+                })
+            ).rejects.toThrow('IndexedDB quota exceeded');
+
+            expect(syncEffect).not.toHaveBeenCalled();
+            expect(asyncEffect).not.toHaveBeenCalled();
         });
 
-        expect(persistFn).toHaveBeenCalledOnce();
-    });
+        it('STORE_PERSIST_ERROR emitted with operation context', async () => {
+            try {
+                await runTransaction(async () => {
+                    return async () => {
+                        throw new Error('disk full');
+                    };
+                });
+            } catch {
+                // Expected
+            }
 
-    it('runs deferred sync effects after persistence', async () => {
-        const order = [];
-
-        await runTransaction(async (tx) => {
-            tx.deferSync(() => order.push('sync-effect'));
-            return async () => { order.push('persist'); };
+            expect(emitStoreError).toHaveBeenCalledWith(
+                'store:persistError',
+                expect.objectContaining({
+                    operation: 'transaction',
+                    error: 'disk full',
+                    timestamp: expect.any(Number)
+                })
+            );
         });
 
-        expect(order).toEqual(['persist', 'sync-effect']);
+        it('error is re-thrown for caller to handle', async () => {
+            const error = new Error('write failure');
+            await expect(
+                runTransaction(async () => {
+                    return async () => { throw error; };
+                })
+            ).rejects.toThrow('write failure');
+        });
     });
 
-    it('runs deferred async effects after sync effects', async () => {
-        const order = [];
+    // ========================================================================
+    // Sync side effect failure is non-fatal
+    // ========================================================================
 
-        await runTransaction(async (tx) => {
-            tx.deferSync(() => order.push('sync'));
-            tx.deferAsync(async () => order.push('async'));
-            return async () => { order.push('persist'); };
+    describe('sync side effect failure is non-fatal', () => {
+        it('deferSync throws → warning logged → deferAsync still executes', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const asyncEffect = vi.fn().mockResolvedValue(undefined);
+            let persisted = false;
+
+            await runTransaction(async (tx) => {
+                tx.deferSync(() => {
+                    throw new Error('color tracking failed');
+                });
+                tx.deferAsync(asyncEffect);
+
+                return async () => { persisted = true; };
+            });
+
+            expect(persisted).toBe(true);
+            expect(warnSpy).toHaveBeenCalledWith(
+                'Sync side effect failed after persistence:',
+                expect.any(Error)
+            );
+            expect(asyncEffect).toHaveBeenCalled();
+
+            warnSpy.mockRestore();
         });
 
-        expect(order).toEqual(['persist', 'sync', 'async']);
+        it('multiple deferSync — one failing does not block others', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const order = [];
+
+            await runTransaction(async (tx) => {
+                tx.deferSync(() => { order.push('sync-1'); });
+                tx.deferSync(() => { throw new Error('sync-2 failed'); });
+                tx.deferSync(() => { order.push('sync-3'); });
+
+                return async () => {};
+            });
+
+            expect(order).toEqual(['sync-1', 'sync-3']);
+            warnSpy.mockRestore();
+        });
     });
 
-    it('runs multiple deferred effects in order', async () => {
-        const order = [];
+    // ========================================================================
+    // Async side effect failure is non-fatal
+    // ========================================================================
 
-        await runTransaction(async (tx) => {
-            tx.deferSync(() => order.push('s1'));
-            tx.deferSync(() => order.push('s2'));
-            tx.deferAsync(async () => order.push('a1'));
-            tx.deferAsync(async () => order.push('a2'));
-            return async () => { order.push('persist'); };
+    describe('async side effect failure is non-fatal', () => {
+        it('deferAsync rejects → warning logged, no throw', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            let persisted = false;
+
+            await runTransaction(async (tx) => {
+                tx.deferAsync(() => Promise.reject(new Error('sync queue down')));
+
+                return async () => { persisted = true; };
+            });
+
+            expect(persisted).toBe(true);
+            // The .catch() handler is fire-and-forget, so we need to flush microtasks
+            await flushPromises();
+            expect(warnSpy).toHaveBeenCalledWith(
+                'Async side effect failed after persistence:',
+                expect.any(Error)
+            );
+            warnSpy.mockRestore();
         });
 
-        expect(order).toEqual(['persist', 's1', 's2', 'a1', 'a2']);
-    });
-});
+        it('deferAsync that throws synchronously is caught', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-// ============================================================================
-// Failed transactions (persistence failure)
-// ============================================================================
+            await runTransaction(async (tx) => {
+                tx.deferAsync(() => { throw new Error('sync start failed'); });
 
-describe('runTransaction - failure path', () => {
-    it('does NOT run deferred effects when persistence fails', async () => {
-        const syncEffect = vi.fn();
-        const asyncEffect = vi.fn();
+                return async () => {};
+            });
 
-        await expect(runTransaction(async (tx) => {
-            tx.deferSync(syncEffect);
-            tx.deferAsync(asyncEffect);
-            return async () => { throw new Error('IndexedDB write failed'); };
-        })).rejects.toThrow('IndexedDB write failed');
-
-        expect(syncEffect).not.toHaveBeenCalled();
-        expect(asyncEffect).not.toHaveBeenCalled();
+            expect(warnSpy).toHaveBeenCalledWith(
+                'Async side effect failed to start:',
+                expect.any(Error)
+            );
+            warnSpy.mockRestore();
+        });
     });
 
-    it('emits STORE_PERSIST_ERROR on failure', async () => {
-        await expect(runTransaction(async () => {
-            return async () => { throw new Error('DB error'); };
-        })).rejects.toThrow('DB error');
+    // ========================================================================
+    // Side effect execution order
+    // ========================================================================
 
-        expect(emitStoreError).toHaveBeenCalledWith(
-            'store:persistError',
-            expect.objectContaining({
-                operation: 'transaction',
-                error: 'DB error'
-            })
-        );
-    });
+    describe('side effect execution order', () => {
+        it('deferSync runs in registration order, then deferAsync', async () => {
+            const order = [];
 
-    it('re-throws the original error', async () => {
-        const error = new Error('Specific error');
-        await expect(runTransaction(async () => {
-            return async () => { throw error; };
-        })).rejects.toBe(error);
-    });
+            await runTransaction(async (tx) => {
+                tx.deferSync(() => order.push('sync-1'));
+                tx.deferSync(() => order.push('sync-2'));
+                tx.deferAsync(() => {
+                    order.push('async-1');
+                    return Promise.resolve();
+                });
+                tx.deferAsync(() => {
+                    order.push('async-2');
+                    return Promise.resolve();
+                });
 
-    it('does NOT run effects when workFn throws', async () => {
-        const syncEffect = vi.fn();
+                return async () => order.push('persist');
+            });
 
-        await expect(runTransaction(async (tx) => {
-            tx.deferSync(syncEffect);
-            throw new Error('Preparation failed');
-        })).rejects.toThrow('Preparation failed');
-
-        expect(syncEffect).not.toHaveBeenCalled();
-    });
-});
-
-// ============================================================================
-// Transaction state invariants
-// ============================================================================
-
-describe('StoreTransaction state invariants', () => {
-    it('cannot defer to committed transaction', async () => {
-        let capturedTx;
-        await runTransaction(async (tx) => {
-            capturedTx = tx;
-            return async () => {};
+            expect(order).toEqual(['persist', 'sync-1', 'sync-2', 'async-1', 'async-2']);
         });
 
-        // Transaction is now committed — deferring should throw
-        expect(() => capturedTx.deferSync(() => {}))
-            .toThrow('Cannot defer to committed transaction');
+        it('persist runs before any side effects', async () => {
+            const order = [];
+
+            await runTransaction(async (tx) => {
+                tx.deferSync(() => order.push('side-effect'));
+
+                return async () => order.push('persist');
+            });
+
+            expect(order[0]).toBe('persist');
+            expect(order[1]).toBe('side-effect');
+        });
     });
 
-    it('cannot defer to rolled back transaction', async () => {
-        let capturedTx;
-        try {
+    // ========================================================================
+    // Concurrent transactions
+    // ========================================================================
+
+    describe('concurrent transactions', () => {
+        it('two runTransaction() calls complete independently', async () => {
+            const results = [];
+
+            const tx1 = runTransaction(async (tx) => {
+                tx.deferSync(() => results.push('tx1-sync'));
+                return async () => results.push('tx1-persist');
+            });
+
+            const tx2 = runTransaction(async (tx) => {
+                tx.deferSync(() => results.push('tx2-sync'));
+                return async () => results.push('tx2-persist');
+            });
+
+            await Promise.all([tx1, tx2]);
+
+            expect(results).toContain('tx1-persist');
+            expect(results).toContain('tx1-sync');
+            expect(results).toContain('tx2-persist');
+            expect(results).toContain('tx2-sync');
+        });
+
+        it('failure in one does not affect the other', async () => {
+            const results = [];
+
+            const tx1 = runTransaction(async () => {
+                return async () => { throw new Error('tx1 failed'); };
+            }).catch(() => results.push('tx1-failed'));
+
+            const tx2 = runTransaction(async (tx) => {
+                tx.deferSync(() => results.push('tx2-sync'));
+                return async () => results.push('tx2-persist');
+            });
+
+            await Promise.all([tx1, tx2]);
+
+            expect(results).toContain('tx1-failed');
+            expect(results).toContain('tx2-persist');
+            expect(results).toContain('tx2-sync');
+        });
+    });
+
+    // ========================================================================
+    // Re-entrancy guard (state machine)
+    // ========================================================================
+
+    describe('re-entrancy guard', () => {
+        it('deferSync to committed tx throws', async () => {
+            let capturedTx = null;
+
             await runTransaction(async (tx) => {
                 capturedTx = tx;
-                return async () => { throw new Error('fail'); };
+                return async () => {};
             });
-        } catch (_) { /* expected */ }
 
-        expect(() => capturedTx.deferSync(() => {}))
-            .toThrow('Cannot defer to rolled_back transaction');
-    });
-
-    it('sync effect failure does not prevent other effects', async () => {
-        const order = [];
-
-        await runTransaction(async (tx) => {
-            tx.deferSync(() => { throw new Error('effect 1 fails'); });
-            tx.deferSync(() => order.push('effect 2 runs'));
-            return async () => {};
+            // tx is now committed — attempting to defer should throw
+            expect(() => capturedTx.deferSync(() => {}))
+                .toThrow('Cannot defer to committed transaction');
         });
 
-        expect(order).toEqual(['effect 2 runs']);
-    });
-});
+        it('deferAsync to committed tx throws', async () => {
+            let capturedTx = null;
 
-// ============================================================================
-// Backend integration scenarios
-// ============================================================================
+            await runTransaction(async (tx) => {
+                capturedTx = tx;
+                return async () => {};
+            });
 
-describe('Transaction patterns for backend integration', () => {
-    it('simulates feature add: persist → color tracking → sync log', async () => {
-        const results = [];
-
-        await runTransaction(async (tx) => {
-            // Prepare data
-            const feature = { id: 'f1', type: 'Point', properties: { cor: '#ff0000' } };
-
-            // Defer side effects
-            tx.deferSync(() => results.push(`color:${feature.properties.cor}`));
-            tx.deferAsync(async () => results.push(`sync:CREATE:${feature.id}`));
-
-            // Return persistence function
-            return async () => {
-                results.push(`persist:${feature.id}`);
-            };
+            expect(() => capturedTx.deferAsync(() => {}))
+                .toThrow('Cannot defer to committed transaction');
         });
 
-        expect(results).toEqual([
-            'persist:f1',
-            'color:#ff0000',
-            'sync:CREATE:f1'
-        ]);
+        it('deferSync to rolled_back tx throws', async () => {
+            let capturedTx = null;
+
+            try {
+                await runTransaction(async (tx) => {
+                    capturedTx = tx;
+                    return async () => { throw new Error('fail'); };
+                });
+            } catch {
+                // Expected
+            }
+
+            expect(() => capturedTx.deferSync(() => {}))
+                .toThrow('Cannot defer to rolled_back transaction');
+        });
+
+        it('deferAsync to rolled_back tx throws', async () => {
+            let capturedTx = null;
+
+            try {
+                await runTransaction(async (tx) => {
+                    capturedTx = tx;
+                    return async () => { throw new Error('fail'); };
+                });
+            } catch {
+                // Expected
+            }
+
+            expect(() => capturedTx.deferAsync(() => {}))
+                .toThrow('Cannot defer to rolled_back transaction');
+        });
     });
 
-    it('simulates failed persist: no sync log emitted', async () => {
-        const syncLogs = [];
+    // ========================================================================
+    // Backend integration scenarios
+    // ========================================================================
 
-        await expect(runTransaction(async (tx) => {
-            tx.deferAsync(async () => syncLogs.push('logged'));
-            return async () => { throw new Error('disk full'); };
-        })).rejects.toThrow('disk full');
+    describe('backend integration scenarios', () => {
+        it('simulates feature add: persist → color tracking → sync log', async () => {
+            const results = [];
 
-        expect(syncLogs).toHaveLength(0);
+            await runTransaction(async (tx) => {
+                const feature = { id: 'f1', type: 'Point', properties: { cor: '#ff0000' } };
+
+                tx.deferSync(() => results.push(`color:${feature.properties.cor}`));
+                tx.deferAsync(async () => results.push(`sync:CREATE:${feature.id}`));
+
+                return async () => {
+                    results.push(`persist:${feature.id}`);
+                };
+            });
+
+            expect(results).toEqual([
+                'persist:f1',
+                'color:#ff0000',
+                'sync:CREATE:f1'
+            ]);
+        });
+
+        it('simulates failed persist: no sync log emitted', async () => {
+            const syncLogs = [];
+
+            await expect(runTransaction(async (tx) => {
+                tx.deferAsync(async () => syncLogs.push('logged'));
+                return async () => { throw new Error('disk full'); };
+            })).rejects.toThrow('disk full');
+
+            expect(syncLogs).toHaveLength(0);
+        });
+    });
+
+    // ========================================================================
+    // WorkFn failure (before persist function is returned)
+    // ========================================================================
+
+    describe('workFn failure', () => {
+        it('error in workFn itself rolls back and emits error', async () => {
+            const syncEffect = vi.fn();
+
+            await expect(
+                runTransaction(async (tx) => {
+                    tx.deferSync(syncEffect);
+                    throw new Error('data preparation failed');
+                })
+            ).rejects.toThrow('data preparation failed');
+
+            expect(syncEffect).not.toHaveBeenCalled();
+            expect(emitStoreError).toHaveBeenCalled();
+        });
+
+        it('workFn returning undefined causes TypeError (persistFn is not a function)', async () => {
+            await expect(
+                runTransaction(async () => {
+                    // Forgot to return a persist function
+                    return undefined;
+                })
+            ).rejects.toThrow();
+
+            expect(emitStoreError).toHaveBeenCalledWith(
+                'store:persistError',
+                expect.objectContaining({
+                    operation: 'transaction',
+                    timestamp: expect.any(Number)
+                })
+            );
+        });
     });
 });

@@ -1,6 +1,6 @@
 // Path: js/military_tools/arrow_tool/add_arrow_geometry.js
 
-import { BaseGeometry } from '../../tool_manager';
+import { BaseGeometry } from '@tools';
 
 /**
  * Arrow Geometry Operations
@@ -19,6 +19,21 @@ class AddArrowGeometry extends BaseGeometry {
      * @returns {Object} GeoJSON geometry (Polygon or MultiPolygon)
      */
     generate(baseCoordinates, properties = {}) {
+        // Merged arrow: generate union of all branch polygons
+        if (properties.isMerged && Array.isArray(properties.branches) && properties.branches.length > 1) {
+            return this.generateMergedGeometry(properties);
+        }
+
+        return this.generateSingleArrow(baseCoordinates, properties);
+    }
+
+    /**
+     * Generate a single (non-merged) arrow polygon
+     * @param {Array} baseCoordinates - Array of [lng, lat] coordinates
+     * @param {Object} properties - Arrow properties
+     * @returns {Object} GeoJSON geometry
+     */
+    generateSingleArrow(baseCoordinates, properties = {}) {
         const coords = this.normalizeBaseCoordinates(baseCoordinates);
         const width = properties.width || 1000;
         const headLengthRatio = properties.headLengthRatio || 1.5;
@@ -52,6 +67,50 @@ class AddArrowGeometry extends BaseGeometry {
                 type: 'LineString',
                 coordinates: coords
             };
+        }
+    }
+
+    /**
+     * Generate merged geometry by computing turf.union of all branch polygons
+     * @param {Object} properties - Merged arrow properties (must contain branches array)
+     * @returns {Object|null} GeoJSON geometry (Polygon or MultiPolygon)
+     */
+    generateMergedGeometry(properties) {
+        const branchFeatures = [];
+
+        for (const branch of properties.branches) {
+            const branchGeom = this.generateSingleArrow(branch.baseCoordinates, {
+                width: branch.width || properties.width || 1000,
+                headLengthRatio: branch.headLengthRatio || properties.headLengthRatio || 1.5,
+                showArrowHead: branch.showArrowHead !== false,
+                airmobile: branch.airmobile || false,
+                airmobilePosition: branch.airmobilePosition || 0.7
+            });
+
+            if (branchGeom && branchGeom.type !== 'LineString') {
+                branchFeatures.push(turf.feature(branchGeom));
+            }
+        }
+
+        if (branchFeatures.length === 0) return null;
+        if (branchFeatures.length === 1) return branchFeatures[0].geometry;
+
+        try {
+            let merged = branchFeatures[0];
+            for (let i = 1; i < branchFeatures.length; i++) {
+                merged = turf.union(
+                    turf.featureCollection([merged, branchFeatures[i]])
+                );
+            }
+            return merged.geometry;
+        } catch (error) {
+            console.warn('Error computing union for merged arrow:', error);
+            // Fallback: return MultiPolygon of all branches
+            const polygons = branchFeatures
+                .filter(f => f.geometry.type === 'Polygon')
+                .map(f => f.geometry.coordinates);
+            if (polygons.length === 0) return null;
+            return { type: 'MultiPolygon', coordinates: polygons };
         }
     }
 
@@ -231,8 +290,26 @@ class AddArrowGeometry extends BaseGeometry {
      * @returns {Array} Array of handle features
      */
     createHandles(feature) {
+        if (feature.properties.isMerged && Array.isArray(feature.properties.branches)) {
+            return this.createMergedHandles(feature);
+        }
+
+        return this.createSingleHandles(feature);
+    }
+
+    /**
+     * Create handles for a single (non-merged) arrow
+     * @param {Object} feature - Arrow feature
+     * @param {number|null} [branchIndex=null] - Branch index (for merged arrows)
+     * @returns {Array} Array of handle features
+     */
+    createSingleHandles(feature, branchIndex = null) {
         const handles = [];
-        const coords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+        const branchProps = branchIndex !== null && feature.properties.branches
+            ? feature.properties.branches[branchIndex]
+            : feature.properties;
+        const coords = this.normalizeBaseCoordinates(branchProps.baseCoordinates);
+        const prefix = branchIndex !== null ? `b${branchIndex}-` : '';
 
         if (coords.length < 2) {
             console.warn('Insufficient coordinates for handles:', coords);
@@ -242,13 +319,14 @@ class AddArrowGeometry extends BaseGeometry {
         coords.forEach((coord, index) => {
             handles.push({
                 type: 'Feature',
-                id: `arrow-handle-${feature.properties.id}-vertex-${index}`,
+                id: `arrow-handle-${feature.properties.id}-${prefix}vertex-${index}`,
                 geometry: { type: 'Point', coordinates: coord },
                 properties: {
                     role: 'handle',
                     handleType: 'vertex',
-                    handleId: `vertex-${index}`,
+                    handleId: `${prefix}vertex-${index}`,
                     index: index,
+                    branchIndex: branchIndex,
                     featureId: feature.properties.id,
                     mode: 'arrow_editing',
                     meta: 'vertex',
@@ -261,14 +339,15 @@ class AddArrowGeometry extends BaseGeometry {
             const midpoint = turf.midpoint(turf.point(coords[i]), turf.point(coords[i + 1]));
             handles.push({
                 type: 'Feature',
-                id: `arrow-handle-${feature.properties.id}-midpoint-${i}`,
+                id: `arrow-handle-${feature.properties.id}-${prefix}midpoint-${i}`,
                 geometry: midpoint.geometry,
                 properties: {
                     role: 'handle',
                     handleType: 'midpoint',
-                    handleId: `midpoint-${i}`,
-                    index: i, // Segment index for midpoint
-                    insertIndex: i + 1, // Where to insert new vertex (kept for backward compatibility)
+                    handleId: `${prefix}midpoint-${i}`,
+                    index: i,
+                    insertIndex: i + 1,
+                    branchIndex: branchIndex,
                     featureId: feature.properties.id,
                     mode: 'arrow_editing',
                     meta: 'vertex',
@@ -277,7 +356,7 @@ class AddArrowGeometry extends BaseGeometry {
             });
         }
 
-        const width = feature.properties.width;
+        const width = branchProps.width || feature.properties.width;
         const lastPoint = coords[coords.length - 1];
         const secondLastPoint = coords[coords.length - 2];
         const bearing = turf.bearing(secondLastPoint, lastPoint);
@@ -288,12 +367,13 @@ class AddArrowGeometry extends BaseGeometry {
 
         handles.push({
             type: 'Feature',
-            id: `arrow-handle-${feature.properties.id}-width`,
+            id: `arrow-handle-${feature.properties.id}-${prefix}width`,
             geometry: { type: 'Point', coordinates: widthHandlePoint.geometry.coordinates },
             properties: {
                 role: 'handle',
                 handleType: 'width',
-                handleId: 'width',
+                handleId: `${prefix}width`,
+                branchIndex: branchIndex,
                 featureId: feature.properties.id,
                 mode: 'arrow_editing',
                 meta: 'vertex',
@@ -301,20 +381,21 @@ class AddArrowGeometry extends BaseGeometry {
             }
         });
 
-        const showArrowHead = feature.properties.showArrowHead !== false;
+        const showArrowHead = branchProps.showArrowHead !== false;
         if (showArrowHead) {
-            const headLengthRatio = feature.properties.headLengthRatio || 1.5;
+            const headLengthRatio = branchProps.headLengthRatio || 1.5;
             const headLength = headBaseWidth * headLengthRatio;
             const headTipPoint = turf.destination(lastPoint, headLength, bearing, { units: 'meters' });
 
             handles.push({
                 type: 'Feature',
-                id: `arrow-handle-${feature.properties.id}-headlength`,
+                id: `arrow-handle-${feature.properties.id}-${prefix}headlength`,
                 geometry: { type: 'Point', coordinates: headTipPoint.geometry.coordinates },
                 properties: {
                     role: 'handle',
                     handleType: 'headLength',
-                    handleId: 'headLength',
+                    handleId: `${prefix}headLength`,
+                    branchIndex: branchIndex,
                     featureId: feature.properties.id,
                     mode: 'arrow_editing',
                     meta: 'vertex',
@@ -323,13 +404,34 @@ class AddArrowGeometry extends BaseGeometry {
             });
         }
 
-        const airmobile = feature.properties.airmobile || false;
+        const airmobile = branchProps.airmobile || false;
         if (airmobile) {
-            const airmobileHandle = this.createAirmobileHandle(feature, coords);
+            const airmobileFeature = branchIndex !== null
+                ? { properties: { ...feature.properties, ...branchProps, id: feature.properties.id } }
+                : feature;
+            const airmobileHandle = this.createAirmobileHandle(airmobileFeature, coords);
             if (airmobileHandle) {
+                airmobileHandle.properties.branchIndex = branchIndex;
+                airmobileHandle.id = `arrow-handle-${feature.properties.id}-${prefix}airmobile`;
+                airmobileHandle.properties.handleId = `${prefix}airmobile`;
                 handles.push(airmobileHandle);
             }
         }
+
+        return handles;
+    }
+
+    /**
+     * Create handles for all branches of a merged arrow
+     * @param {Object} feature - Merged arrow feature
+     * @returns {Array} Array of handle features for all branches
+     */
+    createMergedHandles(feature) {
+        const handles = [];
+
+        feature.properties.branches.forEach((_branch, branchIdx) => {
+            handles.push(...this.createSingleHandles(feature, branchIdx));
+        });
 
         return handles;
     }
@@ -398,14 +500,43 @@ class AddArrowGeometry extends BaseGeometry {
      * @param {Array} newPosition - New handle position [lng, lat]
      * @param {Object} feature - Arrow feature being edited
      * @param {number} handleIndex - Index of the handle being moved (for vertex/midpoint types)
+     * @param {number|null} branchIndex - Branch index for merged arrows
      * @returns {Object} Updated properties and geometry
      */
-    updateFromHandle(handleType, newPosition, feature, handleIndex = null) {
+    updateFromHandle(handleType, newPosition, feature, handleIndex = null, branchIndex = null) {
         if (!handleType) {
             console.warn('handleType is null or undefined');
             return null;
         }
 
+        const updatedProperties = { ...feature.properties };
+
+        // For merged arrows, update the specific branch
+        if (updatedProperties.isMerged && branchIndex !== null && Array.isArray(updatedProperties.branches)) {
+            updatedProperties.branches = updatedProperties.branches.map(b => ({ ...b }));
+            const branch = updatedProperties.branches[branchIndex];
+            if (!branch) return null;
+
+            const branchResult = this._updateBranchFromHandle(
+                handleType, newPosition, branch, handleIndex
+            );
+            if (!branchResult) return null;
+
+            updatedProperties.branches[branchIndex] = branchResult;
+
+            // Sync top-level compat props with first branch
+            if (branchIndex === 0) {
+                updatedProperties.baseCoordinates = branchResult.baseCoordinates;
+                updatedProperties.width = branchResult.width;
+                updatedProperties.headLengthRatio = branchResult.headLengthRatio;
+                updatedProperties.airmobilePosition = branchResult.airmobilePosition;
+            }
+
+            const newGeometry = this.generate(updatedProperties.baseCoordinates, updatedProperties);
+            return { properties: updatedProperties, geometry: newGeometry };
+        }
+
+        // Single arrow path
         let coords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         if (coords.length < 2) {
             console.warn('Insufficient coordinates to update geometry:', coords);
@@ -413,7 +544,6 @@ class AddArrowGeometry extends BaseGeometry {
         }
 
         coords = [...coords];
-        const updatedProperties = { ...feature.properties };
 
         // Support both formats: 'vertex'/'midpoint' with separate index, or legacy 'vertex-X'/'midpoint-X'
         if (handleType === 'vertex' && handleIndex !== null) {
@@ -422,66 +552,25 @@ class AddArrowGeometry extends BaseGeometry {
                 updatedProperties.baseCoordinates = coords;
             }
         } else if (handleType === 'midpoint' && handleIndex !== null) {
-            // For midpoint, index is the segment index, insert at index + 1
             const insertIndex = handleIndex + 1;
             if (handleIndex >= 0 && handleIndex < coords.length - 1) {
                 coords.splice(insertIndex, 0, newPosition);
                 updatedProperties.baseCoordinates = coords;
             }
         } else if (handleType.startsWith('vertex-')) {
-            // Legacy format support
             const index = parseInt(handleType.split('-')[1], 10);
             coords[index] = newPosition;
             updatedProperties.baseCoordinates = coords;
         } else if (handleType.startsWith('midpoint-')) {
-            // Legacy format support
             const insertIndex = parseInt(handleType.split('-')[1], 10) + 1;
             coords.splice(insertIndex, 0, newPosition);
             updatedProperties.baseCoordinates = coords;
         } else if (handleType === 'width') {
-            const lastPoint = coords[coords.length - 1];
-            const secondLastPoint = coords[coords.length - 2];
-            const line = turf.lineString([secondLastPoint, lastPoint]);
-
-            let newWidth = turf.pointToLineDistance(turf.point(newPosition), line, { units: 'meters' });
-
-            const x1 = secondLastPoint[0], y1 = secondLastPoint[1];
-            const x2 = lastPoint[0], y2 = lastPoint[1];
-            const x = newPosition[0], y = newPosition[1];
-            if ((x - x1) * (y2 - y1) - (y - y1) * (x2 - x1) > 0) {
-                newWidth = -newWidth;
-            }
-
-            updatedProperties.width = newWidth;
+            this._applyWidthFromHandle(updatedProperties, coords, newPosition);
         } else if (handleType === 'headLength') {
-            const lastPoint = coords[coords.length - 1];
-            const secondLastPoint = coords[coords.length - 2];
-            const bearing = turf.bearing(secondLastPoint, lastPoint);
-
-            const line = turf.lineString([lastPoint, newPosition]);
-            const distance = turf.length(line, { units: 'meters' });
-
-            const tipBearing = turf.bearing(lastPoint, newPosition);
-            const angleDiff = Math.abs(bearing - tipBearing);
-            const isForward = angleDiff < 90 || angleDiff > 270;
-
-            if (isForward && distance > 100) {
-                const width = updatedProperties.width || 500;
-                const headBaseWidth = Math.abs(width * 2.5);
-                const newHeadLengthRatio = Math.max(0.5, distance / headBaseWidth);
-                updatedProperties.headLengthRatio = newHeadLengthRatio;
-            }
+            this._applyHeadLengthFromHandle(updatedProperties, coords, newPosition);
         } else if (handleType === 'airmobile') {
-            const line = turf.lineString(coords);
-            const lineLength = turf.length(line, { units: 'meters' });
-
-            const snappedPoint = turf.nearestPointOnLine(line, turf.point(newPosition), { units: 'meters' });
-            const newDistance = snappedPoint.properties.location;
-
-            let newPositionNormalized = newDistance / lineLength;
-            newPositionNormalized = Math.max(0.01, Math.min(0.99, newPositionNormalized));
-
-            updatedProperties.airmobilePosition = newPositionNormalized;
+            this._applyAirmobileFromHandle(updatedProperties, coords, newPosition);
         }
 
         const newGeometry = this.generate(updatedProperties.baseCoordinates, updatedProperties);
@@ -493,15 +582,111 @@ class AddArrowGeometry extends BaseGeometry {
     }
 
     /**
+     * Update a single branch's properties from handle movement
+     * @param {string} handleType
+     * @param {Array} newPosition
+     * @param {Object} branch - Branch data object
+     * @param {number|null} handleIndex
+     * @returns {Object|null} Updated branch data
+     */
+    _updateBranchFromHandle(handleType, newPosition, branch, handleIndex) {
+        const updated = { ...branch };
+        let coords = this.normalizeBaseCoordinates(updated.baseCoordinates);
+        if (coords.length < 2) return null;
+        coords = [...coords];
+
+        if (handleType === 'vertex' && handleIndex !== null) {
+            if (handleIndex >= 0 && handleIndex < coords.length) {
+                coords[handleIndex] = newPosition;
+                updated.baseCoordinates = coords;
+            }
+        } else if (handleType === 'midpoint' && handleIndex !== null) {
+            const insertIndex = handleIndex + 1;
+            if (handleIndex >= 0 && handleIndex < coords.length - 1) {
+                coords.splice(insertIndex, 0, newPosition);
+                updated.baseCoordinates = coords;
+            }
+        } else if (handleType === 'width') {
+            this._applyWidthFromHandle(updated, coords, newPosition);
+        } else if (handleType === 'headLength') {
+            this._applyHeadLengthFromHandle(updated, coords, newPosition);
+        } else if (handleType === 'airmobile') {
+            this._applyAirmobileFromHandle(updated, coords, newPosition);
+        }
+
+        return updated;
+    }
+
+    /**
+     * Apply width change from handle position
+     */
+    _applyWidthFromHandle(props, coords, newPosition) {
+        const lastPoint = coords[coords.length - 1];
+        const secondLastPoint = coords[coords.length - 2];
+        const line = turf.lineString([secondLastPoint, lastPoint]);
+
+        let newWidth = turf.pointToLineDistance(turf.point(newPosition), line, { units: 'meters' });
+
+        const x1 = secondLastPoint[0], y1 = secondLastPoint[1];
+        const x2 = lastPoint[0], y2 = lastPoint[1];
+        const x = newPosition[0], y = newPosition[1];
+        if ((x - x1) * (y2 - y1) - (y - y1) * (x2 - x1) > 0) {
+            newWidth = -newWidth;
+        }
+
+        props.width = newWidth;
+    }
+
+    /**
+     * Apply head length change from handle position
+     */
+    _applyHeadLengthFromHandle(props, coords, newPosition) {
+        const lastPoint = coords[coords.length - 1];
+        const secondLastPoint = coords[coords.length - 2];
+        const bearing = turf.bearing(secondLastPoint, lastPoint);
+
+        const line = turf.lineString([lastPoint, newPosition]);
+        const distance = turf.length(line, { units: 'meters' });
+
+        const tipBearing = turf.bearing(lastPoint, newPosition);
+        const angleDiff = Math.abs(bearing - tipBearing);
+        const isForward = angleDiff < 90 || angleDiff > 270;
+
+        if (isForward && distance > 100) {
+            const width = props.width || 500;
+            const headBaseWidth = Math.abs(width * 2.5);
+            const newHeadLengthRatio = Math.max(0.5, distance / headBaseWidth);
+            props.headLengthRatio = newHeadLengthRatio;
+        }
+    }
+
+    /**
+     * Apply airmobile position change from handle position
+     */
+    _applyAirmobileFromHandle(props, coords, newPosition) {
+        const line = turf.lineString(coords);
+        const lineLength = turf.length(line, { units: 'meters' });
+
+        const snappedPoint = turf.nearestPointOnLine(line, turf.point(newPosition), { units: 'meters' });
+        const newDistance = snappedPoint.properties.location;
+
+        let newPositionNormalized = newDistance / lineLength;
+        newPositionNormalized = Math.max(0.01, Math.min(0.99, newPositionNormalized));
+
+        props.airmobilePosition = newPositionNormalized;
+    }
+
+    /**
      * Calculate preview geometry during handle dragging
      * @param {string} handleType - Type of handle being moved
      * @param {Array} newPosition - New handle position
      * @param {Object} feature - Arrow feature
      * @param {number} handleIndex - Index of the handle being moved
+     * @param {number|null} branchIndex - Branch index for merged arrows
      * @returns {Object|null} Preview geometry and handle positions or null if invalid
      */
-    calculatePreview(handleType, newPosition, feature, handleIndex = null) {
-        const result = this.updateFromHandle(handleType, newPosition, feature, handleIndex);
+    calculatePreview(handleType, newPosition, feature, handleIndex = null, branchIndex = null) {
+        const result = this.updateFromHandle(handleType, newPosition, feature, handleIndex, branchIndex);
         if (!result) return null;
 
         return {
@@ -620,6 +805,38 @@ class AddArrowGeometry extends BaseGeometry {
         }
 
         return newCoordinates;
+    }
+
+    /**
+     * Remove vertex in a specific branch of a merged arrow
+     * @param {Object} properties - Merged feature properties
+     * @param {number} branchIndex - Branch index
+     * @param {number} vertexIndex - Vertex index within the branch
+     * @returns {Object|null} Updated properties or null if invalid
+     */
+    removeVertexInBranch(properties, branchIndex, vertexIndex) {
+        if (!properties.isMerged || !Array.isArray(properties.branches)) return null;
+
+        const branch = properties.branches[branchIndex];
+        if (!branch) return null;
+
+        const coords = this.normalizeBaseCoordinates(branch.baseCoordinates);
+        const newCoords = this.removeVertexAtIndex(coords, vertexIndex);
+        if (!newCoords) return null;
+
+        const updatedProperties = { ...properties };
+        updatedProperties.branches = updatedProperties.branches.map(b => ({ ...b }));
+        updatedProperties.branches[branchIndex] = {
+            ...updatedProperties.branches[branchIndex],
+            baseCoordinates: newCoords
+        };
+
+        // Sync top-level compat props
+        if (branchIndex === 0) {
+            updatedProperties.baseCoordinates = newCoords;
+        }
+
+        return updatedProperties;
     }
 }
 

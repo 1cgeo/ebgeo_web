@@ -5,6 +5,7 @@
  */
 
 import { HatchPatternGenerator } from '../../tool_manager';
+import { syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 
 /**
  * Sets up polygon layers on the map.
@@ -13,19 +14,13 @@ import { HatchPatternGenerator } from '../../tool_manager';
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupPolygonLayers(features, mapInstance) {
+    const polygons = features.polygons || [];
+    const data = { type: 'FeatureCollection', features: polygons };
+
     if (!mapInstance.getSource('polygons')) {
-        mapInstance.addSource('polygons', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: features.polygons || []
-            }
-        });
+        mapInstance.addSource('polygons', { type: 'geojson', data });
     } else {
-        mapInstance.getSource('polygons').setData({
-            type: 'FeatureCollection',
-            features: features.polygons || []
-        });
+        mapInstance.getSource('polygons').setData(data);
     }
 
     if (!mapInstance.getSource('polygon-feedback')) {
@@ -42,8 +37,15 @@ export function setupPolygonLayers(features, mapInstance) {
         });
     }
 
+    if (!mapInstance.getSource('polygon-labels')) {
+        mapInstance.addSource('polygon-labels', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
     const hatchGenerator = new HatchPatternGenerator();
-    hatchGenerator.loadPatternsToMap(mapInstance, features.polygons || []);
+    hatchGenerator.loadPatternsToMap(mapInstance, polygons);
 
     if (!mapInstance.getLayer('polygon-fill-layer')) {
         mapInstance.addLayer({
@@ -119,6 +121,35 @@ export function setupPolygonLayers(features, mapInstance) {
         });
     }
 
+    if (!mapInstance.getLayer('polygon-label-layer')) {
+        mapInstance.addLayer({
+            id: 'polygon-label-layer',
+            type: 'symbol',
+            source: 'polygon-labels',
+            filter: [
+                'all',
+                ['==', ['get', 'showLabel'], true],
+                ['!=', ['get', 'visivel'], false],
+                ['has', 'labelText'],
+                ['!=', ['get', 'labelText'], ''],
+            ],
+            layout: {
+                'text-field': ['get', 'labelText'],
+                'text-size': ['coalesce', ['get', 'labelCalculatedSize'], 14],
+                'text-font': ['Noto Sans Bold'],
+                'text-anchor': 'center',
+                'text-allow-overlap': true,
+                'text-ignore-placement': true,
+            },
+            paint: {
+                'text-color': ['coalesce', ['get', 'labelColor'], '#ffffff'],
+                'text-halo-color': ['coalesce', ['get', 'labelOutlineColor'], '#000000'],
+                'text-halo-width': ['coalesce', ['get', 'labelOutlineWidth'], 2],
+                'text-opacity': 1,
+            },
+        });
+    }
+
     if (!mapInstance.getLayer('polygon-edit-handles-layer')) {
         mapInstance.addLayer({
             id: 'polygon-edit-handles-layer',
@@ -143,4 +174,7 @@ export function setupPolygonLayers(features, mapInstance) {
             filter: ['==', '$type', 'Point']
         });
     }
+
+    // Populate label source with centroids from initial features
+    syncLabelSource(mapInstance, 'polygon-labels', data);
 }

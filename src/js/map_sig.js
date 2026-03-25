@@ -69,7 +69,8 @@ import {
     AddCoordinationMeasureControl,
     AddArrowControl,
     AddBoundaryControl,
-    AddOccupiedFrontControl
+    AddOccupiedFrontControl,
+    AddDeclinationControl
 } from './military_tools/index.js';
 
 // Measurement tools (ephemeral distance/area/angle)
@@ -217,6 +218,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     const militarySymbolControl = new AddMilitarySymbolControl(toolManager);
     const brushControl = new AddBrushControl(toolManager);
     const coordinationMeasureControl = new AddCoordinationMeasureControl(toolManager);
+    const declinationControl = new AddDeclinationControl(toolManager);
     const azimuthDistanceControl = new AddAzimuthDistanceControl(toolManager);
     const sectorControl = new AddSectorControl(toolManager);
 
@@ -244,6 +246,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         ['military_symbol', militarySymbolControl],
         ['brush', brushControl],
         ['coordination_measure', coordinationMeasureControl],
+        ['magnetic_declination', declinationControl],
         ['azimuth_distance', azimuthDistanceControl],
         ['sector', sectorControl],
     ];
@@ -344,6 +347,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             rectangleSelectionControl,
             vectorTileInfoControl,
             coordinationMeasureControl,
+            declinationControl,
             azimuthDistanceControl,
             sectorControl,
             measureDistanceControl,
@@ -424,6 +428,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         occupiedFrontControl,
         militarySymbolControl,
         coordinationMeasureControl,
+        declinationControl,
         azimuthDistanceControl,
         sectorControl,
         losControl,
@@ -481,6 +486,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             brushControl,
             militarySymbolControl,
             coordinationMeasureControl,
+            declinationControl,
             arrowControl,
             boundaryControl,
             occupiedFrontControl,
@@ -585,6 +591,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         // Military tools
         ['AddMilitarySymbolControl', militarySymbolControl],
         ['AddCoordinationMeasureControl', coordinationMeasureControl],
+        ['AddDeclinationControl', declinationControl],
         ['AddArrowControl', arrowControl],
         ['AddBoundaryControl', boundaryControl],
         ['AddOccupiedFrontControl', occupiedFrontControl],
@@ -686,6 +693,17 @@ export function initializeApp(map, controlsPromise) {
         map.setSky(undefined);
 
         hideLoadingScreen();
+
+        // Handle deep link from URL hash (opens 360/3D viewer if hash present)
+        try {
+            const { handleDeepLink, initDeepLinkListener } = await import('./deep-link/deep-link.js');
+            await handleDeepLink();
+            // Start listening for future hash changes so pasting a shared URL
+            // into an already-open tab also opens the correct viewer.
+            initDeepLinkListener();
+        } catch (error) {
+            console.warn('[deep-link] Failed to handle deep link:', error);
+        }
     });
 }
 
@@ -706,7 +724,7 @@ export function setupCleanupHandlers(destroyables) {
         console.error('JavaScript error:', event.error);
     });
 
-    window.addEventListener('beforeunload', () => {
+    window.addEventListener('beforeunload', async () => {
         destroyables.keyboardShortcuts.destroy();
         destroyables.snappingService.destroy();
         destroyables.chipsComponent.destroy();
@@ -722,5 +740,9 @@ export function setupCleanupHandlers(destroyables) {
         destroyables.dragDropHandler.disable();
         destroyables.dragRotateHandler.disable();
         destroyables.phoneLayout.destroy();
+        try {
+            const { destroyDeepLinkListener } = await import('./deep-link/deep-link.js');
+            destroyDeepLinkListener();
+        } catch { /* ignore */ }
     });
 }

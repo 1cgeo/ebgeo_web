@@ -51,6 +51,42 @@ export function isOperationLoggingEnabled() {
     return enabled;
 }
 
+// ===== RETRY HELPER =====
+
+/**
+ * Handles a queue failure: increments circuit breaker, emits error event,
+ * and schedules a non-blocking retry if under the failure threshold.
+ *
+ * @param {string} label - Human-readable description for error event (e.g. "create feature")
+ * @param {string|null} entityId - Entity ID for error payload
+ * @param {Error} error - The original error
+ * @param {() => Promise<void>} retryFn - Function to call on retry
+ */
+function handleQueueFailure(label, entityId, error, retryFn) {
+    consecutiveFailures++;
+    console.warn('Failed to log operation:', error);
+
+    emitStoreError(StoreErrorEvents.STORE_SYNC_ERROR, {
+        operation: label,
+        entityId,
+        error: error.message || String(error),
+        consecutiveFailures
+    });
+
+    if (consecutiveFailures <= MAX_CONSECUTIVE_FAILURES) {
+        setTimeout(async () => {
+            try {
+                await retryFn();
+                consecutiveFailures = 0;
+            } catch (retryError) {
+                console.error('Sync retry also failed:', retryError);
+            }
+        }, RETRY_DELAY_MS);
+    }
+}
+
+// ===== CORE LOGGING =====
+
 /**
  * Logs a single operation to the queue.
  *
@@ -70,28 +106,15 @@ export async function logOperation(entityType, operationType, entityId, mapId, d
         await operationQueue.enqueue(operation);
         consecutiveFailures = 0;
     } catch (error) {
-        consecutiveFailures++;
-        console.warn('Failed to log operation:', error);
-
-        emitStoreError(StoreErrorEvents.STORE_SYNC_ERROR, {
-            operation: `${operationType} ${entityType}`,
+        handleQueueFailure(
+            `${operationType} ${entityType}`,
             entityId,
-            error: error.message || String(error),
-            consecutiveFailures
-        });
-
-        // Non-blocking retry once (unless circuit breaker tripped)
-        if (consecutiveFailures <= MAX_CONSECUTIVE_FAILURES) {
-            setTimeout(async () => {
-                try {
-                    const retryOp = createOperation(entityType, operationType, entityId, mapId, data, previousData);
-                    await operationQueue.enqueue(retryOp);
-                    consecutiveFailures = 0;
-                } catch (retryError) {
-                    console.error('Sync retry also failed:', retryError);
-                }
-            }, RETRY_DELAY_MS);
-        }
+            error,
+            async () => {
+                const retryOp = createOperation(entityType, operationType, entityId, mapId, data, previousData);
+                await operationQueue.enqueue(retryOp);
+            }
+        );
     }
 }
 
@@ -109,219 +132,96 @@ export async function logBatchOperations(operations) {
         await operationQueue.enqueueAll(created);
         consecutiveFailures = 0;
     } catch (error) {
-        consecutiveFailures++;
-        console.warn('Failed to log batch operations:', error);
-
-        emitStoreError(StoreErrorEvents.STORE_SYNC_ERROR, {
-            operation: `batch (${operations.length} ops)`,
-            entityId: null,
-            error: error.message || String(error),
-            consecutiveFailures
-        });
-
-        // Non-blocking retry once
-        if (consecutiveFailures <= MAX_CONSECUTIVE_FAILURES) {
-            setTimeout(async () => {
-                try {
-                    const retryCreated = createBatchOperations(operations);
-                    await operationQueue.enqueueAll(retryCreated);
-                    consecutiveFailures = 0;
-                } catch (retryError) {
-                    console.error('Sync batch retry also failed:', retryError);
-                }
-            }, RETRY_DELAY_MS);
-        }
+        handleQueueFailure(
+            `batch (${operations.length} ops)`,
+            null,
+            error,
+            async () => {
+                const retryCreated = createBatchOperations(operations);
+                await operationQueue.enqueueAll(retryCreated);
+            }
+        );
     }
 }
 
 // ===== CONVENIENCE METHODS =====
-// These provide type-safe helpers for common operations
+// Type-safe helpers that delegate to logOperation with the correct EntityType.
 
 /**
- * Logs a feature operation.
- * @param {string} opType - Operation type
- * @param {string} featureId - Feature ID
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Feature data
- * @param {Object|null} previousData - Previous feature data
+ * Creates a convenience logger for a given entity type.
+ * @param {string} entityType - EntityType constant
+ * @param {boolean} [atlasLevel=false] - If true, mapId is always null (atlas-level entity)
+ * @returns {function} Async logger function
  */
-export async function logFeatureOperation(opType, featureId, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.FEATURE, opType, featureId, mapId, data, previousData);
+function createEntityLogger(entityType, atlasLevel = false) {
+    if (atlasLevel) {
+        return async function (opType, entityId, data = null, previousData = null) {
+            await logOperation(entityType, opType, entityId, null, data, previousData);
+        };
+    }
+    return async function (opType, entityId, mapId, data = null, previousData = null) {
+        await logOperation(entityType, opType, entityId, mapId, data, previousData);
+    };
 }
 
 /**
- * Logs a layer operation.
- * @param {string} opType - Operation type
- * @param {string} layerId - Layer ID
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Layer data
- * @param {Object|null} previousData - Previous layer data
+ * Creates a convenience logger for map-scoped settings where entityId === mapId.
+ * @param {string} entityType - EntityType constant
+ * @returns {function} Async logger function
  */
-export async function logLayerOperation(opType, layerId, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.LAYER, opType, layerId, mapId, data, previousData);
+function createMapSettingLogger(entityType) {
+    return async function (opType, mapId, data = null, previousData = null) {
+        await logOperation(entityType, opType, mapId, mapId, data, previousData);
+    };
 }
 
-/**
- * Logs a group operation.
- * @param {string} opType - Operation type
- * @param {string} groupId - Group ID
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Group data
- * @param {Object|null} previousData - Previous group data
- */
-export async function logGroupOperation(opType, groupId, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.GROUP, opType, groupId, mapId, data, previousData);
-}
+/** Logs a feature operation. */
+export const logFeatureOperation = createEntityLogger(EntityType.FEATURE);
 
-/**
- * Logs a map operation.
- * @param {string} opType - Operation type
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Map data
- * @param {Object|null} previousData - Previous map data
- */
-export async function logMapOperation(opType, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.MAP, opType, mapId, null, data, previousData);
-}
+/** Logs a layer operation. */
+export const logLayerOperation = createEntityLogger(EntityType.LAYER);
 
-/**
- * Logs a 3D marker operation.
- * @param {string} opType - Operation type
- * @param {string} markerId - Marker ID
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Marker data
- * @param {Object|null} previousData - Previous marker data
- */
-export async function logMarker3dOperation(opType, markerId, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.MARKER_3D, opType, markerId, mapId, data, previousData);
-}
+/** Logs a group operation. */
+export const logGroupOperation = createEntityLogger(EntityType.GROUP);
 
-/**
- * Logs a 3D measurement operation.
- * @param {string} opType - Operation type
- * @param {string} measurementId - Measurement ID
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Measurement data
- * @param {Object|null} previousData - Previous measurement data
- */
-export async function logMeasurement3dOperation(opType, measurementId, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.MEASUREMENT_3D, opType, measurementId, mapId, data, previousData);
-}
+/** Logs a map operation (atlas-level, mapId is always null). */
+export const logMapOperation = createEntityLogger(EntityType.MAP, true);
 
-/**
- * Logs a 3D viewshed operation.
- * @param {string} opType - Operation type
- * @param {string} viewshedId - Viewshed ID
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Viewshed data
- * @param {Object|null} previousData - Previous viewshed data
- */
-export async function logViewshed3dOperation(opType, viewshedId, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.VIEWSHED_3D, opType, viewshedId, mapId, data, previousData);
-}
+/** Logs a 3D marker operation. */
+export const logMarker3dOperation = createEntityLogger(EntityType.MARKER_3D);
 
-/**
- * Logs a 360 orientation operation.
- * @param {string} opType - Operation type
- * @param {string} orientationId - Orientation ID
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Orientation data
- * @param {Object|null} previousData - Previous orientation data
- */
-export async function logOrientation360Operation(opType, orientationId, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.ORIENTATION_360, opType, orientationId, mapId, data, previousData);
-}
+/** Logs a 3D measurement operation. */
+export const logMeasurement3dOperation = createEntityLogger(EntityType.MEASUREMENT_3D);
 
-/**
- * Logs a 360 marker operation.
- * @param {string} opType - Operation type
- * @param {string} markerId - Marker ID
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Marker data
- * @param {Object|null} previousData - Previous marker data
- */
-export async function logMarker360Operation(opType, markerId, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.MARKER_360, opType, markerId, mapId, data, previousData);
-}
+/** Logs a 3D viewshed operation. */
+export const logViewshed3dOperation = createEntityLogger(EntityType.VIEWSHED_3D);
 
-/**
- * Logs a briefing operation.
- * @param {string} opType - Operation type
- * @param {string} briefingId - Briefing ID
- * @param {Object|null} data - Briefing data
- * @param {Object|null} previousData - Previous briefing data
- */
-export async function logBriefingOperation(opType, briefingId, data = null, previousData = null) {
-    await logOperation(EntityType.BRIEFING, opType, briefingId, null, data, previousData);
-}
+/** Logs a 360 orientation operation. */
+export const logOrientation360Operation = createEntityLogger(EntityType.ORIENTATION_360);
 
-/**
- * Logs a 3D camera position operation.
- * @param {string} opType - Operation type
- * @param {string} positionId - Position ID (typically tilesetId)
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Camera position data
- * @param {Object|null} previousData - Previous camera position data
- */
-export async function logCameraPosition3dOperation(opType, positionId, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.CAMERA_POSITION_3D, opType, positionId, mapId, data, previousData);
-}
+/** Logs a 360 marker operation. */
+export const logMarker360Operation = createEntityLogger(EntityType.MARKER_360);
 
-/**
- * Logs a map position operation.
- * @param {string} opType - Operation type
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Map position data
- * @param {Object|null} previousData - Previous map position data
- */
-export async function logMapPositionOperation(opType, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.MAP_POSITION, opType, mapId, mapId, data, previousData);
-}
+/** Logs a briefing operation (atlas-level, mapId is always null). */
+export const logBriefingOperation = createEntityLogger(EntityType.BRIEFING, true);
 
-/**
- * Logs a base layer change operation.
- * @param {string} opType - Operation type
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Base layer data
- * @param {Object|null} previousData - Previous base layer data
- */
-export async function logBaseLayerOperation(opType, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.BASE_LAYER, opType, mapId, mapId, data, previousData);
-}
+/** Logs a 3D camera position operation. */
+export const logCameraPosition3dOperation = createEntityLogger(EntityType.CAMERA_POSITION_3D);
 
-/**
- * Logs a map notes operation.
- * @param {string} opType - Operation type
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Notes data
- * @param {Object|null} previousData - Previous notes data
- */
-export async function logMapNotesOperation(opType, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.MAP_NOTES, opType, mapId, mapId, data, previousData);
-}
+/** Logs a catalog layer operation. */
+export const logCatalogLayerOperation = createEntityLogger(EntityType.CATALOG_LAYER);
 
-/**
- * Logs a catalog layer operation.
- * @param {string} opType - Operation type
- * @param {string} layerId - Catalog layer ID
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Catalog layer data
- * @param {Object|null} previousData - Previous catalog layer data
- */
-export async function logCatalogLayerOperation(opType, layerId, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.CATALOG_LAYER, opType, layerId, mapId, data, previousData);
-}
+/** Logs a map position operation (entityId === mapId). */
+export const logMapPositionOperation = createMapSettingLogger(EntityType.MAP_POSITION);
 
-/**
- * Logs a grid style operation.
- * @param {string} opType - Operation type
- * @param {string} mapId - Map ID
- * @param {Object|null} data - Grid style data
- * @param {Object|null} previousData - Previous grid style data
- */
-export async function logGridStyleOperation(opType, mapId, data = null, previousData = null) {
-    await logOperation(EntityType.GRID_STYLE, opType, mapId, mapId, data, previousData);
-}
+/** Logs a base layer change operation (entityId === mapId). */
+export const logBaseLayerOperation = createMapSettingLogger(EntityType.BASE_LAYER);
+
+/** Logs a map notes operation (entityId === mapId). */
+export const logMapNotesOperation = createMapSettingLogger(EntityType.MAP_NOTES);
+
+/** Logs a grid style operation (entityId === mapId). */
+export const logGridStyleOperation = createMapSettingLogger(EntityType.GRID_STYLE);
 
 // Re-export types and queue for external access
 export { EntityType, OperationType };

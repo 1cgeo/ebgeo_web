@@ -4,10 +4,21 @@
  * @fileoverview Layer visibility filter system for MapLibre.
  */
 
-import { FEATURE_LAYER_IDS, HATCH_PATTERN_LAYERS } from './layer.constants.js';
+import { FEATURE_LAYER_IDS, HATCH_PATTERN_LAYERS, LAYER_ADDITIONAL_FILTERS } from './layer.constants.js';
 import { getVisibleLayerIds } from '../store';
 
+const VISIBLE_FILTER = ['!=', ['get', 'visivel'], false];
+
 let cachedVisibleLayerIds = null;
+
+/**
+ * Builds the layer membership filter for a set of visible layer IDs.
+ * @param {string[]} visibleLayerIds
+ * @returns {Array} MapLibre expression
+ */
+function buildLayerFilter(visibleLayerIds) {
+    return ['in', ['coalesce', ['get', 'layerId'], 'default'], ['literal', visibleLayerIds]];
+}
 
 /**
  * Creates a visibility filter expression for MapLibre layers.
@@ -15,23 +26,12 @@ let cachedVisibleLayerIds = null;
  * @param {Array|null} [additionalFilters=null] - Additional filter expressions
  * @returns {Array} MapLibre filter expression
  */
-export function createLayerVisibilityFilter(visibleLayerIds, additionalFilters = null) {
-    const layerFilter = [
-        'in',
-        ['coalesce', ['get', 'layerId'], 'default'],
-        ['literal', visibleLayerIds]
-    ];
-
-    const baseFilters = [
-        ['!=', ['get', 'visivel'], false],
-        layerFilter
-    ];
-
+export function createLayerVisibilityFilter(visibleLayerIds, additionalFilters) {
+    const layerFilter = buildLayerFilter(visibleLayerIds);
     if (additionalFilters) {
-        return ['all', ...baseFilters, ...additionalFilters];
+        return ['all', VISIBLE_FILTER, layerFilter, ...additionalFilters];
     }
-
-    return ['all', ...baseFilters];
+    return ['all', VISIBLE_FILTER, layerFilter];
 }
 
 /**
@@ -41,28 +41,11 @@ export function createLayerVisibilityFilter(visibleLayerIds, additionalFilters =
  * @returns {Array} MapLibre filter expression
  */
 export function createHatchLayerFilter(visibleLayerIds, hatchEnabled) {
-    const layerFilter = [
-        'in',
-        ['coalesce', ['get', 'layerId'], 'default'],
-        ['literal', visibleLayerIds]
-    ];
+    const hatchFilters = hatchEnabled
+        ? [['==', ['get', 'hatchEnabled'], true], ['has', 'hatchPatternId']]
+        : [['!=', ['get', 'hatchEnabled'], true]];
 
-    if (hatchEnabled) {
-        return [
-            'all',
-            ['!=', ['get', 'visivel'], false],
-            layerFilter,
-            ['==', ['get', 'hatchEnabled'], true],
-            ['has', 'hatchPatternId']
-        ];
-    } else {
-        return [
-            'all',
-            ['!=', ['get', 'visivel'], false],
-            layerFilter,
-            ['!=', ['get', 'hatchEnabled'], true]
-        ];
-    }
+    return ['all', VISIBLE_FILTER, buildLayerFilter(visibleLayerIds), ...hatchFilters];
 }
 
 /**
@@ -77,17 +60,17 @@ export function updateAllLayerFilters(mapInstance) {
     if (cachedVisibleLayerIds === cacheKey) return;
     cachedVisibleLayerIds = cacheKey;
 
-    FEATURE_LAYER_IDS.forEach(layerId => {
+    FEATURE_LAYER_IDS.forEach(function (layerId) {
         if (!mapInstance.getLayer(layerId)) return;
 
         try {
-            let newFilter;
+            let filter;
             if (layerId in HATCH_PATTERN_LAYERS) {
-                newFilter = createHatchLayerFilter(visibleLayerIds, HATCH_PATTERN_LAYERS[layerId]);
+                filter = createHatchLayerFilter(visibleLayerIds, HATCH_PATTERN_LAYERS[layerId]);
             } else {
-                newFilter = createLayerVisibilityFilter(visibleLayerIds);
+                filter = createLayerVisibilityFilter(visibleLayerIds, LAYER_ADDITIONAL_FILTERS[layerId]);
             }
-            mapInstance.setFilter(layerId, newFilter);
+            mapInstance.setFilter(layerId, filter);
         } catch (error) {
             console.warn(`Error updating filter for ${layerId}:`, error);
         }
@@ -100,4 +83,24 @@ export function updateAllLayerFilters(mapInstance) {
  */
 export function invalidateFilterCache() {
     cachedVisibleLayerIds = null;
+}
+
+/**
+ * Updates visibility of DOM-based measurement labels to match layer visibility.
+ * Measurement labels are MapLibre Markers (DOM elements) that bypass layer filters.
+ * Reads layerId from data-layer-id attribute stored at label creation time.
+ */
+export function updateMeasurementLabelVisibility() {
+    const labels = document.querySelectorAll('.measurement-label[data-feature-id]');
+    if (labels.length === 0) return;
+
+    const visibleSet = new Set(getVisibleLayerIds());
+
+    for (const label of labels) {
+        const layerId = label.dataset.layerId || 'default';
+        const marker = label.closest('.maplibregl-marker');
+        if (!marker) continue;
+
+        marker.style.display = visibleSet.has(layerId) ? '' : 'none';
+    }
 }

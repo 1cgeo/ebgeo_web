@@ -9,7 +9,7 @@
 import { memoryStore } from './memory-store.js';
 import { getStreetview360Compat, setStreetview360Compat } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
-import { EventTypes } from '../events/event_types.js';
+import { EventTypes } from '../events';
 import { validateImageFile, processImageFile } from '../utilities/image_utils.js';
 import { createSyncMetadata, touchSyncMetadata, markDeleted, isActive } from './sync/sync-metadata.js';
 import { generateUUID } from '../utilities/uuid.js';
@@ -24,19 +24,65 @@ import { deepClone } from '../utilities/deep-utils.js';
 const getStreetview360Data = getStreetview360Compat;
 const setStreetview360Data = setStreetview360Compat;
 
+// ===== DEPENDENCY INJECTION =====
+
 /**
- * Module-level dependencies injected via setStreetview360Dependencies()
+ * Module-level dependencies
+ * @type {{ eventBus: import('../events/event_bus.js').EventBus | null }}
  */
 const deps = { eventBus: null };
 
 /**
  * Initialize streetview360 module with dependencies.
  * Must be called once at application startup.
- * @param {Object} dependencies - Dependencies object
- * @param {import('../events/event_bus.js').EventBus} dependencies.eventBus - Event bus instance
+ * @param {{ eventBus: import('../events/event_bus.js').EventBus }} dependencies
  */
 export function setStreetview360Dependencies({ eventBus }) {
     deps.eventBus = eventBus;
+}
+
+// ===== HELPER FUNCTIONS =====
+
+/**
+ * Gets current map name, using provided or falling back to current.
+ * @param {string|null} mapName - Map name or null for current
+ * @returns {string}
+ */
+function resolveMapName(mapName) {
+    return mapName || mapManager.getCurrentMapName();
+}
+
+/**
+ * Checks whether the memory cache holds data for the given map.
+ * @param {string} mapName - Map name to check
+ * @returns {boolean}
+ */
+function isCached(mapName) {
+    return memoryStore.streetview360._mapName === mapName;
+}
+
+/**
+ * Returns the cached markers array if the cache matches the map, otherwise null.
+ * @param {string} mapName - Map name
+ * @returns {Array|null}
+ */
+function getCachedMarkers(mapName) {
+    return isCached(mapName) ? memoryStore.streetview360.markers : null;
+}
+
+/**
+ * Filters an object's entries to only those with active sync metadata.
+ * @param {Object} entries - Object keyed by string with sync metadata values
+ * @returns {Object} Filtered entries
+ */
+function filterActiveEntries(entries) {
+    const result = {};
+    for (const [key, value] of Object.entries(entries)) {
+        if (isActive(value.sync)) {
+            result[key] = value;
+        }
+    }
+    return result;
 }
 
 // ===== DEFAULT STYLES =====
@@ -69,20 +115,19 @@ export const DEFAULT_MARKER_360_STYLE = {
  * @returns {Promise<void>}
  */
 export async function saveOrientation(photoName, orientation, mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
-    // Check if orientation already exists (update vs create)
-    const existingOrientation = data.orientations[photoName];
-    const isUpdate = !!existingOrientation?.sync;
-    const oldOrientation = existingOrientation ? { ...existingOrientation } : null;
+    const existing = data.orientations[photoName];
+    const isUpdate = !!existing?.sync;
+    const oldOrientation = existing ? { ...existing } : null;
 
-    const sync = existingOrientation?.sync
-        ? touchSyncMetadata(existingOrientation.sync)
+    const sync = existing?.sync
+        ? touchSyncMetadata(existing.sync)
         : createSyncMetadata(null);
 
     data.orientations[photoName] = {
-        id: existingOrientation?.id || generateUUID(),
+        id: existing?.id || generateUUID(),
         photoName,
         lon: orientation.lon,
         lat: orientation.lat,
@@ -93,20 +138,18 @@ export async function saveOrientation(photoName, orientation, mapName = null) {
 
     await setStreetview360Data(targetMap, data);
 
-    // Update memory cache if current map
-    if (memoryStore.streetview360._mapName === targetMap) {
+    if (isCached(targetMap)) {
         memoryStore.streetview360.orientations[photoName] = data.orientations[photoName];
     }
 
     deps.eventBus?.emit(EventTypes.ORIENTATION_360_SAVED, { photoName, mapName: targetMap });
 
-    // Log operation for sync
     const mapId = mapManager.getCurrentMapId();
-    const newOrientation = data.orientations[photoName];
+    const saved = data.orientations[photoName];
     if (isUpdate) {
-        logOrientation360Operation(OperationType.UPDATE, newOrientation.id, mapId, newOrientation, oldOrientation);
+        logOrientation360Operation(OperationType.UPDATE, saved.id, mapId, saved, oldOrientation);
     } else {
-        logOrientation360Operation(OperationType.CREATE, newOrientation.id, mapId, newOrientation);
+        logOrientation360Operation(OperationType.CREATE, saved.id, mapId, saved);
     }
 }
 
@@ -117,25 +160,16 @@ export async function saveOrientation(photoName, orientation, mapName = null) {
  * @returns {Promise<Object|null>} Orientation data or null if not found
  */
 export async function getOrientation(photoName, mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
 
-    // Check memory cache first
-    if (memoryStore.streetview360._mapName === targetMap) {
+    if (isCached(targetMap)) {
         const orientation = memoryStore.streetview360.orientations[photoName];
-        // Filter out deleted orientations
-        if (orientation && isActive(orientation.sync)) {
-            return orientation;
-        }
-        return null;
+        return orientation && isActive(orientation.sync) ? orientation : null;
     }
 
     const data = await getStreetview360Data(targetMap);
     const orientation = data.orientations[photoName];
-    // Filter out deleted orientations
-    if (orientation && isActive(orientation.sync)) {
-        return orientation;
-    }
-    return null;
+    return orientation && isActive(orientation.sync) ? orientation : null;
 }
 
 /**
@@ -156,7 +190,7 @@ export async function hasOrientation(photoName, mapName = null) {
  * @returns {Promise<boolean>} True if orientation was removed
  */
 export async function clearOrientation(photoName, mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
     const orientation = data.orientations[photoName];
@@ -164,21 +198,16 @@ export async function clearOrientation(photoName, mapName = null) {
         return false;
     }
 
-    // Capture old state for logging
     const oldOrientation = { ...orientation };
-
-    // Soft delete: mark as deleted instead of removing
     orientation.sync = markDeleted(orientation.sync);
     await setStreetview360Data(targetMap, data);
 
-    // Update memory cache if current map
-    if (memoryStore.streetview360._mapName === targetMap) {
+    if (isCached(targetMap)) {
         memoryStore.streetview360.orientations[photoName] = orientation;
     }
 
     deps.eventBus?.emit(EventTypes.ORIENTATION_360_CLEARED, { photoName, mapName: targetMap });
 
-    // Log operation for sync
     const mapId = mapManager.getCurrentMapId();
     logOrientation360Operation(OperationType.DELETE, orientation.id, mapId, null, oldOrientation);
 
@@ -191,25 +220,14 @@ export async function clearOrientation(photoName, mapName = null) {
  * @returns {Promise<Object>} Object with photoName keys and orientation values
  */
 export async function getAllOrientations(mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
 
-    let orientations;
-    // Check memory cache first
-    if (memoryStore.streetview360._mapName === targetMap) {
-        orientations = memoryStore.streetview360.orientations;
-    } else {
-        const data = await getStreetview360Data(targetMap);
-        orientations = data.orientations || {};
+    if (isCached(targetMap)) {
+        return filterActiveEntries(memoryStore.streetview360.orientations);
     }
 
-    // Filter out deleted orientations
-    const activeOrientations = {};
-    for (const [key, orientation] of Object.entries(orientations)) {
-        if (isActive(orientation.sync)) {
-            activeOrientations[key] = orientation;
-        }
-    }
-    return activeOrientations;
+    const data = await getStreetview360Data(targetMap);
+    return filterActiveEntries(data.orientations || {});
 }
 
 // ===== MARKER CRUD OPERATIONS =====
@@ -225,13 +243,11 @@ export async function getAllOrientations(mapName = null) {
  * @returns {Promise<Object>} Created marker
  */
 export async function addMarker360(photoName, markerData, mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
-    // Count existing active markers for this photo for auto-naming
     const existingCount = data.markers.filter(m => m.photoName === photoName && isActive(m.sync)).length;
 
-    // Load user default style from localStorage if available
     const savedDefaultStyle = localStorage.getItem('default_marker_360_style');
     const defaultStyle = savedDefaultStyle ? JSON.parse(savedDefaultStyle) : DEFAULT_MARKER_360_STYLE;
 
@@ -257,14 +273,12 @@ export async function addMarker360(photoName, markerData, mapName = null) {
     data.markers.push(marker);
     await setStreetview360Data(targetMap, data);
 
-    // Update memory cache if current map
-    if (memoryStore.streetview360._mapName === targetMap) {
+    if (isCached(targetMap)) {
         memoryStore.streetview360.markers.push(marker);
     }
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
 
-    // Log operation for sync
     const mapId = mapManager.getCurrentMapId();
     logMarker360Operation(OperationType.CREATE, marker.id, mapId, marker);
 
@@ -278,11 +292,11 @@ export async function addMarker360(photoName, markerData, mapName = null) {
  * @returns {Promise<Array>} Array of markers for the photo
  */
 export async function getMarkers360(photoName, mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
+    const cached = getCachedMarkers(targetMap);
 
-    // Check memory cache first
-    if (memoryStore.streetview360._mapName === targetMap) {
-        return memoryStore.streetview360.markers.filter(m => m.photoName === photoName && isActive(m.sync));
+    if (cached) {
+        return cached.filter(m => m.photoName === photoName && isActive(m.sync));
     }
 
     const data = await getStreetview360Data(targetMap);
@@ -295,11 +309,11 @@ export async function getMarkers360(photoName, mapName = null) {
  * @returns {Promise<Array>} Array of all markers
  */
 export async function getAllMarkers360(mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
+    const cached = getCachedMarkers(targetMap);
 
-    // Check memory cache first
-    if (memoryStore.streetview360._mapName === targetMap) {
-        return memoryStore.streetview360.markers.filter(m => isActive(m.sync));
+    if (cached) {
+        return cached.filter(m => isActive(m.sync));
     }
 
     const data = await getStreetview360Data(targetMap);
@@ -313,16 +327,10 @@ export async function getAllMarkers360(mapName = null) {
  * @returns {Promise<Object|null>} Marker or null if not found
  */
 export async function getMarker360ById(markerId, mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
-
-    // Check memory cache first
-    if (memoryStore.streetview360._mapName === targetMap) {
-        const marker = memoryStore.streetview360.markers.find(m => m.id === markerId);
-        return marker && isActive(marker.sync) ? marker : null;
-    }
-
-    const data = await getStreetview360Data(targetMap);
-    const marker = data.markers.find(m => m.id === markerId);
+    const targetMap = resolveMapName(mapName);
+    const cached = getCachedMarkers(targetMap);
+    const markers = cached || (await getStreetview360Data(targetMap)).markers;
+    const marker = markers.find(m => m.id === markerId);
     return marker && isActive(marker.sync) ? marker : null;
 }
 
@@ -337,25 +345,16 @@ export async function getMarker360ById(markerId, mapName = null) {
  * @returns {Promise<Object|null>} Updated marker or null if not found
  */
 export async function updateMarker360(markerId, updates, mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
-    const index = data.markers.findIndex(m => m.id === markerId);
-    if (index === -1) {
+    const marker = data.markers.find(m => m.id === markerId);
+    if (!marker || !isActive(marker.sync)) {
         return null;
     }
 
-    const marker = data.markers[index];
-
-    // Only update active markers
-    if (!isActive(marker.sync)) {
-        return null;
-    }
-
-    // Capture previous state for operation logging
     const previousData = deepClone(marker);
 
-    // Merge updates
     if (updates.properties) {
         marker.properties = { ...marker.properties, ...updates.properties };
     }
@@ -371,15 +370,13 @@ export async function updateMarker360(markerId, updates, mapName = null) {
 
     await setStreetview360Data(targetMap, data);
 
-    // Update memory cache if current map
-    if (memoryStore.streetview360._mapName === targetMap) {
+    if (isCached(targetMap)) {
         const memIndex = memoryStore.streetview360.markers.findIndex(m => m.id === markerId);
         if (memIndex !== -1) {
             memoryStore.streetview360.markers[memIndex] = marker;
         }
     }
 
-    // Log operation for sync
     await logMarker360Operation(OperationType.UPDATE, markerId, targetMap, marker, previousData);
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
@@ -387,43 +384,31 @@ export async function updateMarker360(markerId, updates, mapName = null) {
 }
 
 /**
- * Removes a marker.
+ * Removes a marker (soft delete).
  * @param {string} markerId - Marker ID
  * @param {string|null} mapName - Map name (uses current if null)
  * @returns {Promise<boolean>} True if marker was removed
  */
 export async function removeMarker360(markerId, mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
-    const index = data.markers.findIndex(m => m.id === markerId);
-    if (index === -1) {
+    const marker = data.markers.find(m => m.id === markerId);
+    if (!marker || !isActive(marker.sync)) {
         return false;
     }
 
-    const marker = data.markers[index];
-
-    // Only remove active markers
-    if (!isActive(marker.sync)) {
-        return false;
-    }
-
-    // Capture previous state for operation logging
     const previousData = deepClone(marker);
-
-    // Soft delete: mark as deleted instead of removing
     marker.sync = markDeleted(marker.sync);
     await setStreetview360Data(targetMap, data);
 
-    // Update memory cache if current map
-    if (memoryStore.streetview360._mapName === targetMap) {
+    if (isCached(targetMap)) {
         const memIndex = memoryStore.streetview360.markers.findIndex(m => m.id === markerId);
         if (memIndex !== -1) {
             memoryStore.streetview360.markers[memIndex] = marker;
         }
     }
 
-    // Log operation for sync
     await logMarker360Operation(OperationType.DELETE, markerId, targetMap, null, previousData);
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
@@ -431,16 +416,15 @@ export async function removeMarker360(markerId, mapName = null) {
 }
 
 /**
- * Removes all markers for a specific photo.
+ * Removes all markers for a specific photo (soft delete).
  * @param {string} photoName - Photo name/identifier
  * @param {string|null} mapName - Map name (uses current if null)
  * @returns {Promise<number>} Number of markers removed
  */
 export async function removeMarkers360ByPhoto(photoName, mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
-    // Soft delete: mark matching active markers as deleted
     let removedCount = 0;
     for (const marker of data.markers) {
         if (marker.photoName === photoName && isActive(marker.sync)) {
@@ -449,21 +433,21 @@ export async function removeMarkers360ByPhoto(photoName, mapName = null) {
         }
     }
 
-    if (removedCount > 0) {
-        await setStreetview360Data(targetMap, data);
-
-        // Update memory cache if current map
-        if (memoryStore.streetview360._mapName === targetMap) {
-            for (const marker of memoryStore.streetview360.markers) {
-                if (marker.photoName === photoName && isActive(marker.sync)) {
-                    marker.sync = markDeleted(marker.sync);
-                }
-            }
-        }
-
-        deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
+    if (removedCount === 0) {
+        return 0;
     }
 
+    await setStreetview360Data(targetMap, data);
+
+    if (isCached(targetMap)) {
+        for (const marker of memoryStore.streetview360.markers) {
+            if (marker.photoName === photoName && isActive(marker.sync)) {
+                marker.sync = markDeleted(marker.sync);
+            }
+        }
+    }
+
+    deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
     return removedCount;
 }
 
@@ -483,7 +467,7 @@ export async function addMarker360Image(markerId, file, mapName = null) {
         return null;
     }
 
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
     const marker = data.markers.find(m => m.id === markerId);
@@ -508,8 +492,7 @@ export async function addMarker360Image(markerId, file, mapName = null) {
 
     await setStreetview360Data(targetMap, data);
 
-    // Update memory cache if current map
-    if (memoryStore.streetview360._mapName === targetMap) {
+    if (isCached(targetMap)) {
         const memMarker = memoryStore.streetview360.markers.find(m => m.id === markerId);
         if (memMarker) {
             memMarker.images = marker.images;
@@ -541,7 +524,7 @@ export async function getMarker360Images(markerId, mapName = null) {
  * @returns {Promise<boolean>} True if image was removed
  */
 export async function removeMarker360Image(markerId, imageId, mapName = null) {
-    const targetMap = mapName || mapManager.getCurrentMapName();
+    const targetMap = resolveMapName(mapName);
     const data = await getStreetview360Data(targetMap);
 
     const marker = data.markers.find(m => m.id === markerId);
@@ -560,8 +543,7 @@ export async function removeMarker360Image(markerId, imageId, mapName = null) {
 
     await setStreetview360Data(targetMap, data);
 
-    // Update memory cache if current map
-    if (memoryStore.streetview360._mapName === targetMap) {
+    if (isCached(targetMap)) {
         const memMarker = memoryStore.streetview360.markers.find(m => m.id === markerId);
         if (memMarker) {
             memMarker.images = marker.images;
@@ -612,21 +594,11 @@ export function clearStreetview360Cache() {
 export async function getStreetview360DataForExport(mapName) {
     const data = await getStreetview360Data(mapName);
 
-    // Filter to only active orientations
-    const activeOrientations = {};
-    for (const [key, orientation] of Object.entries(data.orientations || {})) {
-        if (isActive(orientation.sync)) {
-            activeOrientations[key] = orientation;
-        }
-    }
-
-    // Filter to only active markers
+    const activeOrientations = filterActiveEntries(data.orientations || {});
     const activeMarkers = (data.markers || []).filter(m => isActive(m.sync));
 
-    const hasOrientations = Object.keys(activeOrientations).length > 0;
-    const hasMarkers = activeMarkers.length > 0;
-
-    if (!hasOrientations && !hasMarkers) {
+    const hasData = Object.keys(activeOrientations).length > 0 || activeMarkers.length > 0;
+    if (!hasData) {
         return null;
     }
 
@@ -665,7 +637,6 @@ export async function setStreetview360DataForImport(mapName, importData) {
         sync: marker.sync || createSyncMetadata(null)
     }));
 
-    // Only include active existing markers
     const activeExistingMarkers = existingData.markers.filter(m => isActive(m.sync));
     const mergedMarkers = [...activeExistingMarkers, ...newMarkers];
 
@@ -674,8 +645,7 @@ export async function setStreetview360DataForImport(mapName, importData) {
         markers: mergedMarkers
     });
 
-    // Update memory cache if this is the current map
-    if (memoryStore.streetview360._mapName === mapName) {
+    if (isCached(mapName)) {
         memoryStore.streetview360.orientations = mergedOrientations;
         memoryStore.streetview360.markers = mergedMarkers;
     }

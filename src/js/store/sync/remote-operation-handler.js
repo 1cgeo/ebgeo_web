@@ -5,22 +5,20 @@
  * Applies operations received from other clients to the local store.
  *
  * This handler is the inverse of operation logging:
- * - Logging: local change → create operation → queue
- * - Remote: receive operation → apply to local state → emit events
+ * - Logging: local change -> create operation -> queue
+ * - Remote: receive operation -> apply to local state -> emit events
  *
  * IMPORTANT: Remote operations MUST NOT:
  * - Check permissions (already validated by server)
  * - Log to operation queue (avoids feedback loop)
  * - Record undo actions (undo is per-user, local only)
- *
- * @dependencies store.constants.js, repositories, event_types.js
  */
 
-import { EntityType, OperationType } from './operation-types.js';
-import { getMapDataCompat, updateMapDataCompat } from '../repositories/index.js';
-import { getStorageTypeFromSource } from '../store.constants.js';
-import { localRepository } from '../repositories/local.repository.js';
 import { EventTypes } from '../../events/event_types.js';
+import { getRepository } from '../repositories/index.js';
+import { localRepository } from '../repositories/local.repository.js';
+import { getStorageTypeFromSource } from '../store.constants.js';
+import { EntityType, OperationType } from './operation-types.js';
 
 // ============================================================================
 // MODULE STATE
@@ -67,13 +65,13 @@ export async function applyRemoteOperation(operation) {
             await applyRemoteFeatureOp(operationType, entityId, mapId, data);
             break;
         case EntityType.LAYER:
-            await applyRemoteLayerOp(operationType, entityId, mapId, data);
+            applyRemoteLayerOp(operationType, entityId, mapId, data);
             break;
         case EntityType.MAP:
-            await applyRemoteMapOp(operationType, mapId, data);
+            applyRemoteMapOp(operationType, mapId, data);
             break;
         case EntityType.GROUP:
-            await applyRemoteGroupOp(operationType, entityId, mapId, data);
+            applyRemoteGroupOp(operationType, entityId, mapId, data);
             break;
         case EntityType.BRIEFING:
             await applyRemoteBriefingOp(operationType, entityId, data);
@@ -82,15 +80,23 @@ export async function applyRemoteOperation(operation) {
             console.warn(`Remote operation handler: unknown entity type "${entityType}"`);
     }
 
-    // Emit generic event for UI refresh
-    if (_eventBus) {
-        _eventBus.emit(EventTypes.REMOTE_OPERATION_APPLIED, { operation });
-    }
+    emit(EventTypes.REMOTE_OPERATION_APPLIED, { operation });
 }
 
 // ============================================================================
 // ENTITY-SPECIFIC HANDLERS
 // ============================================================================
+
+/**
+ * Finds a feature by ID within a storage type array.
+ *
+ * @param {Array} features - Feature array to search
+ * @param {string} featureId - Feature UUID
+ * @returns {number} Index of the feature, or -1 if not found
+ */
+function findFeatureIndex(features, featureId) {
+    return features.findIndex(f => f.properties?.id === featureId);
+}
 
 /**
  * Applies a remote feature operation.
@@ -101,13 +107,13 @@ export async function applyRemoteOperation(operation) {
  * @param {Object} data - Feature GeoJSON data
  */
 async function applyRemoteFeatureOp(opType, featureId, mapId, data) {
-    const mapData = await getMapDataCompat(mapId);
+    const repo = getRepository();
+    const mapData = await repo.getMap(mapId);
     if (!mapData) {
         console.warn(`Remote feature op: map "${mapId}" not found`);
         return;
     }
 
-    // Resolve storage type from feature data
     const sourceType = data?.properties?.source || 'point';
     const storageType = getStorageTypeFromSource(sourceType);
 
@@ -115,10 +121,12 @@ async function applyRemoteFeatureOp(opType, featureId, mapId, data) {
         mapData.features[storageType] = [];
     }
 
+    const features = mapData.features[storageType];
+
     switch (opType) {
         case OperationType.CREATE: {
-            mapData.features[storageType].push(data);
-            await updateMapDataCompat(mapId, mapData);
+            features.push(data);
+            await repo.saveMap(mapId, mapData);
 
             emit(EventTypes.FEATURE_CREATED, {
                 featureId, featureType: sourceType, mapId, feature: data
@@ -126,12 +134,11 @@ async function applyRemoteFeatureOp(opType, featureId, mapId, data) {
             break;
         }
         case OperationType.UPDATE: {
-            const features = mapData.features[storageType];
-            const index = features.findIndex(f => f.properties?.id === featureId);
+            const index = findFeatureIndex(features, featureId);
             if (index !== -1) {
                 const previousFeature = features[index];
                 features[index] = data;
-                await updateMapDataCompat(mapId, mapData);
+                await repo.saveMap(mapId, mapData);
 
                 emit(EventTypes.FEATURE_MODIFIED, {
                     featureId, featureType: sourceType, mapId,
@@ -141,11 +148,10 @@ async function applyRemoteFeatureOp(opType, featureId, mapId, data) {
             break;
         }
         case OperationType.DELETE: {
-            const features = mapData.features[storageType];
-            const index = features.findIndex(f => f.properties?.id === featureId);
+            const index = findFeatureIndex(features, featureId);
             if (index !== -1) {
                 features.splice(index, 1);
-                await updateMapDataCompat(mapId, mapData);
+                await repo.saveMap(mapId, mapData);
 
                 emit(EventTypes.FEATURE_DELETED, {
                     featureId, featureType: sourceType, mapId
@@ -155,14 +161,18 @@ async function applyRemoteFeatureOp(opType, featureId, mapId, data) {
         }
     }
 
-    // Always emit LAYERS_CHANGED so the feature list refreshes
     emit(EventTypes.LAYERS_CHANGED, { mapName: mapId });
 }
 
 /**
  * Applies a remote layer operation.
+ *
+ * @param {string} opType - Operation type
+ * @param {string} layerId - Layer UUID
+ * @param {string} mapId - Map UUID
+ * @param {Object} data - Layer data
  */
-async function applyRemoteLayerOp(opType, layerId, mapId, data) {
+function applyRemoteLayerOp(opType, layerId, mapId, data) {
     switch (opType) {
         case OperationType.CREATE:
             emit(EventTypes.LAYER_CREATED, { layerId, mapId, layer: data });
@@ -180,8 +190,12 @@ async function applyRemoteLayerOp(opType, layerId, mapId, data) {
 
 /**
  * Applies a remote map operation.
+ *
+ * @param {string} opType - Operation type
+ * @param {string} mapId - Map UUID
+ * @param {Object} data - Map data
  */
-async function applyRemoteMapOp(opType, mapId, data) {
+function applyRemoteMapOp(opType, mapId, data) {
     switch (opType) {
         case OperationType.CREATE:
             emit(EventTypes.MAP_CREATED, { mapId, map: data });
@@ -197,8 +211,13 @@ async function applyRemoteMapOp(opType, mapId, data) {
 
 /**
  * Applies a remote group operation.
+ *
+ * @param {string} opType - Operation type
+ * @param {string} groupId - Group UUID
+ * @param {string} mapId - Map UUID
+ * @param {Object} data - Group data
  */
-async function applyRemoteGroupOp(opType, groupId, mapId, data) {
+function applyRemoteGroupOp(opType, groupId, mapId, data) {
     switch (opType) {
         case OperationType.CREATE:
             emit(EventTypes.GROUP_CREATED, { groupId, mapId, group: data });
@@ -216,21 +235,24 @@ async function applyRemoteGroupOp(opType, groupId, mapId, data) {
 
 /**
  * Applies a remote briefing operation.
+ *
+ * @param {string} opType - Operation type
+ * @param {string} briefingId - Briefing UUID
+ * @param {Object} data - Briefing data
  */
 async function applyRemoteBriefingOp(opType, briefingId, data) {
     switch (opType) {
         case OperationType.CREATE:
+        case OperationType.UPDATE: {
             if (data) {
                 await localRepository.saveBriefing(briefingId, data);
             }
-            emit(EventTypes.BRIEFING_CREATED, { briefingId, briefing: data });
+            const eventType = opType === OperationType.CREATE
+                ? EventTypes.BRIEFING_CREATED
+                : EventTypes.BRIEFING_UPDATED;
+            emit(eventType, { briefingId, briefing: data });
             break;
-        case OperationType.UPDATE:
-            if (data) {
-                await localRepository.saveBriefing(briefingId, data);
-            }
-            emit(EventTypes.BRIEFING_UPDATED, { briefingId, briefing: data });
-            break;
+        }
         case OperationType.DELETE:
             await localRepository.deleteBriefing(briefingId);
             emit(EventTypes.BRIEFING_DELETED, { briefingId });
@@ -244,6 +266,7 @@ async function applyRemoteBriefingOp(opType, briefingId, data) {
 
 /**
  * Emits an event if EventBus is available.
+ *
  * @param {string} eventType
  * @param {Object} payload
  */

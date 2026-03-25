@@ -570,34 +570,3 @@ export function hasTextModifiers(symbolSetCode) {
     return !!TEXT_MODIFIERS_CATALOG[symbolSetCode];
 }
 
-/**
- * Get all text modifier field IDs for a symbol set
- * Useful for validation and property extraction
- * @param {string} symbolSetCode - Symbol set code
- * @returns {Array<string>} Array of field IDs
- */
-export function getTextModifierFieldIds(symbolSetCode) {
-    const config = TEXT_MODIFIERS_CATALOG[symbolSetCode];
-    return config ? config.fields.map(field => field.id) : [];
-}
-
-/**
- * Get all implemented symbol set codes
- * @returns {Array<string>} Array of symbol set codes
- */
-export function getImplementedSymbolSets() {
-    return Object.keys(TEXT_MODIFIERS_CATALOG);
-}
-
-/**
- * Get text modifier field by ID for a symbol set
- * @param {string} symbolSetCode - Symbol set code
- * @param {string} fieldId - Field ID to search for
- * @returns {Object|null} Field configuration or null if not found
- */
-export function getTextModifierField(symbolSetCode, fieldId) {
-    const config = TEXT_MODIFIERS_CATALOG[symbolSetCode];
-    if (!config) return null;
-
-    return config.fields.find(field => field.id === fieldId) || null;
-}

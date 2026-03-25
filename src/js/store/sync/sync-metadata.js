@@ -21,10 +21,6 @@
  * compensate for clock skew between clients.
  */
 
-// ============================================================================
-// SERVER TIME OFFSET
-// ============================================================================
-
 /**
  * Delta in ms between server time and local time (serverTime - localTime).
  * Set via setServerTimeOffset() when backend provides its timestamp.
@@ -51,10 +47,6 @@ export function setServerTimeOffset(offset) {
 export function getAdjustedTimestamp() {
     return Date.now() + _serverTimeOffset;
 }
-
-// ============================================================================
-// SYNC METADATA
-// ============================================================================
 
 /**
  * @typedef {Object} SyncMetadata
@@ -125,19 +117,8 @@ export function markSynced(sync) {
  * @returns {SyncMetadata} Updated sync metadata (new object)
  */
 export function markDeleted(sync) {
-    const now = getAdjustedTimestamp();
-    if (!sync) {
-        const freshSync = createSyncMetadata(null);
-        return { ...freshSync, deleted: true, deletedAt: now };
-    }
-    return {
-        ...sync,
-        updatedAt: now,
-        version: sync.version + 1,
-        dirty: true,
-        deleted: true,
-        deletedAt: now,
-    };
+    const base = sync ? touchSyncMetadata(sync) : createSyncMetadata(null);
+    return { ...base, deleted: true, deletedAt: base.updatedAt };
 }
 
 /**

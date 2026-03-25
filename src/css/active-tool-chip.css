@@ -15,10 +15,8 @@
     will-change: transform;
 }
 
-/* Adjust position when sidebar/panel is expanded */
 .active-tool-chip[data-sidebar-state="expanded"] {
-    /* Offset by half of panel width (320px / 2 = 160px) */
-    transform: translateX(calc(-50% + 160px));
+    transform: translateX(calc(-50% + var(--sidebar-panel-width) / 2));
 }
 
 /* =========================================================================
@@ -37,20 +35,16 @@
     font-size: var(--font-size-sm);
     white-space: nowrap;
     pointer-events: auto;
-
-    /* Animation states */
     opacity: 0;
     transform: translateY(-10px);
     transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
-/* Visible state */
 .active-tool-chip.visible .active-tool-chip-inner {
     opacity: 1;
     transform: translateY(0);
 }
 
-/* Hiding state (for animation out) */
 .active-tool-chip.hiding .active-tool-chip-inner {
     opacity: 0;
     transform: translateY(-10px);
@@ -61,12 +55,12 @@
    ========================================================================= */
 
 .active-tool-chip-label {
-    font-weight: 400;
+    font-weight: var(--font-weight-normal);
     opacity: 0.9;
 }
 
 .active-tool-chip-name {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 /* =========================================================================
@@ -77,8 +71,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: var(--space-6);
+    height: var(--space-6);
     margin-left: var(--space-1);
     border: none;
     background: transparent;
@@ -99,23 +93,20 @@
 }
 
 .active-tool-chip-close svg {
-    width: 16px;
-    height: 16px;
+    width: var(--space-4);
+    height: var(--space-4);
 }
 
 /* =========================================================================
    TABLET RESPONSIVE ADJUSTMENTS
    ========================================================================= */
 
-/* Touch device optimizations */
 @media (pointer: coarse) {
-    /* Taller chip for touch */
     .active-tool-chip-inner {
-        min-height: var(--touch-target-min, 44px);
+        min-height: var(--touch-target-min);
         padding: var(--space-2) var(--space-5);
     }
 
-    /* Larger close button for touch - always visible */
     .active-tool-chip-close {
         width: 36px;
         height: 36px;
@@ -124,35 +115,49 @@
     }
 
     .active-tool-chip-close svg {
-        width: 20px;
-        height: 20px;
+        width: var(--space-5);
+        height: var(--space-5);
     }
 
-    /* Better active state */
     .active-tool-chip-close:active {
         transform: scale(0.9);
     }
 }
 
-/* Tablet breakpoint */
 @media (width <= 1024px) {
-    /* Adjust offset for tablet panel width */
     .active-tool-chip[data-sidebar-state="expanded"] {
-        transform: translateX(calc(-50% + 140px));
+        transform: translateX(calc(-50% + var(--sidebar-panel-width-tablet) / 2));
     }
 }
 
-/* Small tablet breakpoint */
 @media (width <= 768px) {
-    /* Chip moves more to center */
     .active-tool-chip[data-sidebar-state="expanded"] {
-        transform: translateX(calc(-50% + 100px));
+        transform: translateX(calc(-50% + var(--sidebar-panel-width-tablet) / 2));
     }
 
-    /* Smaller font on small screens */
     .active-tool-chip-inner {
         font-size: var(--font-size-xs);
         padding: var(--space-2) var(--space-3);
     }
 }
 
+/* Phone breakpoint (<=480px)
+   The chip is hidden via responsive.css / body.phone-mode gate.
+   These rules handle the edge case where the chip appears during
+   a phone-to-tablet resize transition. */
+@media (width <= 480px) {
+    .active-tool-chip {
+        top: calc(var(--phone-search-height) + var(--safe-area-top) + var(--space-2));
+        transform: translateX(-50%);
+    }
+
+    .active-tool-chip[data-sidebar-state="expanded"] {
+        transform: translateX(-50%);
+    }
+
+    .active-tool-chip-inner {
+        font-size: var(--font-size-xs);
+        padding: var(--space-2) var(--space-3);
+        min-height: var(--toolbar-button-size);
+    }
+}

@@ -1,8 +1,14 @@
 /* Path: src/css/modals-redesign.css */
 
 /**
- * @fileoverview Modal styles for shortcuts and info modals.
- * Modern, accessible modal design matching new design system.
+ * @fileoverview Modal styles for shortcuts, info, prompt, confirm, export,
+ * combine-maps, symbol-selector, coordinate-edit, point-selector, and
+ * settings modals. Uses design tokens from design-tokens.css.
+ *
+ * Shared patterns:
+ *   - .modal-overlay / .modal-container / .modal-header / .modal-body
+ *   - Map-picker modals (export + combine-maps) share grouped selectors
+ *   - Small dialog modals (prompt + confirm) share grouped selectors
  */
 
 /* =========================================================================
@@ -51,7 +57,6 @@
     transform: translateY(0) scale(1);
 }
 
-/* Specific widths for different modal types */
 .shortcuts-modal-container {
     max-width: 720px;
 }
@@ -69,7 +74,7 @@
     align-items: center;
     justify-content: space-between;
     padding: var(--space-3) var(--space-5);
-    background: var(--sidebar-bg, #15803d);
+    background: var(--sidebar-bg);
     color: white;
     flex-shrink: 0;
 }
@@ -134,7 +139,7 @@
 }
 
 /* =========================================================================
-   SHORTCUTS MODAL SPECIFIC
+   SHORTCUTS MODAL
    ========================================================================= */
 
 .shortcuts-sections {
@@ -144,7 +149,7 @@
 }
 
 .shortcuts-section {
-    border: 1px solid var(--border-color);
+    border: var(--border-width) solid var(--border-color);
     border-radius: var(--radius-lg);
     overflow: hidden;
 }
@@ -155,7 +160,7 @@
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     background: var(--gray-50);
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: var(--border-width) solid var(--border-color);
 }
 
 .shortcuts-section-icon {
@@ -186,7 +191,7 @@
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: var(--border-width) solid var(--border-color);
 }
 
 .shortcut-item:last-child {
@@ -210,12 +215,12 @@
     height: 22px;
     padding: 0 6px;
     background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
-    border: 1px solid var(--gray-300);
+    border: var(--border-width) solid var(--gray-300);
     border-radius: var(--radius-sm);
     font-weight: var(--font-weight-semibold);
     font-size: 11px;
     color: var(--gray-700);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    box-shadow: var(--shadow-sm);
 }
 
 .key-separator {
@@ -251,7 +256,7 @@
 }
 
 /* =========================================================================
-   INFO MODAL SPECIFIC
+   INFO MODAL
    ========================================================================= */
 
 .info-sections {
@@ -299,7 +304,7 @@
     gap: var(--space-1);
     padding: var(--space-3) var(--space-4);
     background: var(--gray-50);
-    border: 1px solid var(--border-color);
+    border: var(--border-width) solid var(--border-color);
     border-radius: var(--radius-md);
     text-decoration: none;
     transition: all var(--transition-fast);
@@ -342,7 +347,7 @@
     gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
     background: var(--primary-50);
-    border: 1px solid var(--primary-200);
+    border: var(--border-width) solid var(--primary-200);
     border-radius: var(--radius-md);
 }
 
@@ -361,7 +366,7 @@
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     background: white;
-    border: 1px solid var(--primary-200);
+    border: var(--border-width) solid var(--primary-200);
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-medium);
@@ -380,206 +385,6 @@
     background: var(--color-success);
     color: white;
     border-color: var(--color-success);
-}
-
-/* =========================================================================
-   TABLET RESPONSIVE ADJUSTMENTS
-   ========================================================================= */
-
-/* Touch device optimizations */
-@media (pointer: coarse) {
-    /* Larger close button for touch */
-    .modal-close-btn {
-        width: var(--touch-target-min, 44px);
-        height: var(--touch-target-min, 44px);
-    }
-
-    .modal-close-btn svg {
-        width: 26px;
-        height: 26px;
-    }
-
-    /* Better touch feedback */
-    .modal-close-btn:active {
-        transform: scale(0.92);
-        background: rgba(255, 255, 255, 0.25);
-    }
-
-    /* Shortcut items taller */
-    .shortcut-item {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3) var(--space-4);
-    }
-
-    /* CGEO cards taller */
-    .cgeo-card {
-        min-height: 56px;
-        padding: var(--space-4);
-    }
-
-    /* Copy button larger */
-    .copy-btn {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3) var(--space-4);
-    }
-
-    /* Prompt modal buttons */
-    .prompt-modal-btn {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3) var(--space-4);
-    }
-
-    /* Scrolling optimization for modal body */
-    .modal-body {
-        -webkit-overflow-scrolling: touch;
-        overscroll-behavior: contain;
-    }
-
-    /* Use dynamic viewport height to handle virtual keyboard */
-    .modal-container {
-        max-height: 100dvh;
-    }
-}
-
-/* Tablet breakpoint */
-@media (width <= 1024px) {
-    /* Modal sizing */
-    .modal-container {
-        max-width: 90vw;
-        max-height: 90vh;
-    }
-
-    .shortcuts-modal-container {
-        max-width: 95vw;
-    }
-
-    .info-modal-container {
-        max-width: 90vw;
-    }
-
-    /* Shortcuts single column */
-    .shortcuts-sections {
-        grid-template-columns: 1fr;
-        gap: var(--space-3);
-    }
-
-    /* Modal body padding reduced */
-    .modal-body {
-        padding: var(--space-4);
-    }
-
-    /* Header padding reduced */
-    .modal-header {
-        padding: var(--space-3) var(--space-4);
-    }
-}
-
-/* Small tablet breakpoint */
-@media (width <= 768px) {
-    /* Full screen modals */
-    .modal-container {
-        max-width: 100vw;
-        max-height: 100vh;
-        height: 100vh;
-        width: 100vw;
-        border-radius: 0;
-        margin: 0;
-    }
-
-    .modal-overlay {
-        padding: 0;
-    }
-
-    /* Shortcuts and info modals full screen */
-    .shortcuts-modal-container,
-    .info-modal-container {
-        max-width: 100vw;
-        height: 100vh;
-        border-radius: 0;
-    }
-
-    /* Prompt modal stays floating */
-    .prompt-modal-container {
-        max-width: 90vw;
-        height: auto;
-        border-radius: var(--radius-xl);
-    }
-
-    /* Modal title smaller */
-    .modal-title {
-        font-size: var(--font-size-lg);
-    }
-
-    /* Shortcuts key badges smaller */
-    .shortcut-key span {
-        min-width: 20px;
-        height: 20px;
-        font-size: 10px;
-        padding: 0 4px;
-    }
-
-    /* CGEO cards stack better */
-    .cgeo-cards {
-        gap: var(--space-3);
-    }
-
-    /* Email box wraps */
-    .email-box {
-        flex-direction: column;
-        align-items: stretch;
-        gap: var(--space-3);
-    }
-
-    .email-display {
-        justify-content: center;
-    }
-
-    .copy-btn {
-        justify-content: center;
-    }
-
-    /* Modal body scrolling */
-    .modal-body {
-        padding: var(--space-3);
-        padding-bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
-    }
-}
-
-/* Landscape mode */
-@media (orientation: landscape) and (width <= 1024px) {
-    /* Modal not full height in landscape */
-    .modal-container {
-        max-height: 95vh;
-        height: auto;
-        border-radius: var(--radius-xl);
-    }
-
-    .shortcuts-modal-container,
-    .info-modal-container {
-        height: auto;
-        border-radius: var(--radius-xl);
-    }
-
-    .modal-overlay {
-        padding: var(--space-4);
-    }
-
-    /* Shortcuts back to 2 columns in landscape if space */
-    .shortcuts-sections {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-@media (orientation: landscape) and (width <= 768px) {
-    /* Keep modals contained in small landscape */
-    .modal-container {
-        max-height: 90vh;
-    }
-
-    /* Shortcuts single column in small landscape */
-    .shortcuts-sections {
-        grid-template-columns: 1fr;
-    }
 }
 
 /* =========================================================================
@@ -602,7 +407,8 @@
 }
 
 /* =========================================================================
-   PROMPT MODAL
+   SMALL DIALOG MODALS (Prompt + Confirm)
+   Grouped selectors for shared patterns.
    ========================================================================= */
 
 .prompt-modal-container {
@@ -610,96 +416,31 @@
     overflow: hidden;
 }
 
-.prompt-modal-container .modal-header {
-    display: none;
-}
-
-.prompt-modal-body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-4);
-}
-
-.prompt-modal-title {
-    margin: 0;
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-medium);
-    color: var(--gray-700);
-}
-
-.prompt-modal-input {
-    width: 100%;
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--font-size-sm);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    outline: none;
-    box-sizing: border-box;
-    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-}
-
-.prompt-modal-input:focus {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px var(--primary-100, rgba(21, 128, 61, 0.1));
-}
-
-.prompt-modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--space-2);
-    margin-top: var(--space-1);
-}
-
-.prompt-modal-btn {
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-}
-
-.prompt-modal-btn-cancel {
-    background: transparent;
-    border: 1px solid var(--border-color);
-    color: var(--gray-600);
-}
-
-.prompt-modal-btn-cancel:hover {
-    background: var(--gray-50);
-    border-color: var(--gray-300);
-}
-
-.prompt-modal-btn-confirm {
-    background: var(--primary, #15803d);
-    border: 1px solid var(--primary, #15803d);
-    color: white;
-}
-
-.prompt-modal-btn-confirm:hover {
-    background: var(--primary-600, #166534);
-    border-color: var(--primary-600, #166534);
-}
-
-/* =========================================================================
-   CONFIRM MODAL
-   ========================================================================= */
-
 .confirm-modal-container {
     max-width: 400px;
     overflow: hidden;
 }
 
+.prompt-modal-container .modal-header,
 .confirm-modal-container .modal-header {
     display: none;
 }
 
+/* Body layout */
+.prompt-modal-body,
 .confirm-modal-body {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
     padding: var(--space-4);
+}
+
+/* Title */
+.prompt-modal-title {
+    margin: 0;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
 }
 
 .confirm-modal-title {
@@ -712,16 +453,44 @@
 .confirm-modal-message {
     font-size: var(--font-size-sm);
     color: var(--gray-600);
-    line-height: 1.5;
+    line-height: var(--line-height-normal);
 }
 
+/* Prompt input */
+.prompt-modal-input {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-size-sm);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.prompt-modal-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+/* Actions row */
+.prompt-modal-actions,
 .confirm-modal-actions {
     display: flex;
     justify-content: flex-end;
     gap: var(--space-2);
+}
+
+.prompt-modal-actions {
+    margin-top: var(--space-1);
+}
+
+.confirm-modal-actions {
     margin-top: var(--space-2);
 }
 
+/* Shared button base */
+.prompt-modal-btn,
 .confirm-modal-btn {
     padding: var(--space-2) var(--space-3);
     font-size: var(--font-size-sm);
@@ -731,32 +500,38 @@
     transition: all var(--transition-fast);
 }
 
+/* Cancel variant */
+.prompt-modal-btn-cancel,
 .confirm-modal-btn-cancel {
     background: transparent;
-    border: 1px solid var(--border-color);
+    border: var(--border-width) solid var(--border-color);
     color: var(--gray-600);
 }
 
+.prompt-modal-btn-cancel:hover,
 .confirm-modal-btn-cancel:hover {
     background: var(--gray-50);
     border-color: var(--gray-300);
 }
 
+/* Confirm variant */
+.prompt-modal-btn-confirm,
 .confirm-modal-btn-confirm {
-    background: var(--primary, #15803d);
-    border: 1px solid var(--primary, #15803d);
+    background: var(--primary);
+    border: var(--border-width) solid var(--primary);
     color: white;
 }
 
+.prompt-modal-btn-confirm:hover,
 .confirm-modal-btn-confirm:hover {
-    background: var(--primary-600, #166534);
-    border-color: var(--primary-600, #166534);
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
 }
 
-/* Destructive variant (for delete actions) */
+/* Destructive variant (confirm modal only) */
 .confirm-modal-btn-destructive {
-    background: var(--color-error, #dc2626);
-    border: 1px solid var(--color-error, #dc2626);
+    background: var(--color-error);
+    border: var(--border-width) solid var(--color-error);
     color: white;
 }
 
@@ -765,92 +540,110 @@
     border-color: #b91c1c;
 }
 
-/* Focus states for accessibility */
+/* Focus rings */
 .confirm-modal-btn:focus {
-    outline: 2px solid var(--primary, #15803d);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
 .confirm-modal-btn-destructive:focus {
-    outline-color: var(--color-error, #dc2626);
-}
-
-/* Responsive adjustments */
-@media (width <= 480px) {
-    .confirm-modal-container {
-        max-width: 90vw;
-    }
-
-    .confirm-modal-btn {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3) var(--space-4);
-    }
+    outline-color: var(--color-error);
 }
 
 /* =========================================================================
-   EXPORT MODAL
+   MAP-PICKER MODALS (Export + Combine Maps)
+   Both modals share identical layout structure. Grouped selectors reduce
+   duplication while preserving each modal's distinct class names for JS.
    ========================================================================= */
 
-.export-modal-container {
+/* Container */
+.export-modal-container,
+.combine-maps-modal-container,
+.import-slides-modal-container {
     max-width: 480px;
 }
 
-.export-modal-content {
+/* Content layout */
+.export-modal-content,
+.combine-maps-modal-content,
+.import-slides-modal-content {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
 }
 
-.export-modal-description {
+/* Description text */
+.export-modal-description,
+.combine-maps-description,
+.import-slides-description {
     color: var(--gray-600);
     font-size: var(--font-size-sm);
-    line-height: 1.5;
+    line-height: var(--line-height-normal);
 }
 
-/* Selection Controls */
-.export-selection-controls {
+.combine-maps-description strong,
+.import-slides-description strong {
+    color: var(--gray-800);
+}
+
+/* Selection controls row */
+.export-selection-controls,
+.combine-maps-selection-controls,
+.import-slides-selection-controls {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     flex-wrap: wrap;
 }
 
-.export-select-btn {
+/* Select all / none buttons */
+.export-select-btn,
+.combine-maps-select-btn,
+.import-slides-select-btn {
     padding: var(--space-1) var(--space-2);
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-medium);
     color: var(--primary);
     background: var(--primary-50);
-    border: 1px solid var(--primary-200);
+    border: var(--border-width) solid var(--primary-200);
     border-radius: var(--radius-md);
     cursor: pointer;
     transition: all var(--transition-fast);
 }
 
-.export-select-btn:hover {
+.export-select-btn:hover,
+.combine-maps-select-btn:hover,
+.import-slides-select-btn:hover {
     background: var(--primary-100);
     border-color: var(--primary-300);
 }
 
-.export-selection-count {
+/* Selection count */
+.export-selection-count,
+.combine-maps-selection-count,
+.import-slides-selection-count {
     margin-left: auto;
     font-size: var(--font-size-xs);
     color: var(--gray-500);
 }
 
-.export-selection-count .count-value {
+.export-selection-count .count-value,
+.combine-maps-selection-count .count-value,
+.import-slides-selection-count .count-value {
     font-weight: var(--font-weight-semibold);
     color: var(--primary);
 }
 
-/* Maps List */
-.export-maps-list {
+/* Scrollable list */
+.export-maps-list,
+.combine-maps-list,
+.import-slides-list {
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
     max-height: 300px;
     overflow-y: auto;
-    border: 1px solid var(--border-color);
+    border: var(--border-width) solid var(--border-color);
     border-radius: var(--radius-lg);
     padding: var(--space-2);
     background: var(--gray-50);
@@ -859,50 +652,67 @@
     scrollbar-color: var(--primary) transparent;
 }
 
-.export-maps-list::-webkit-scrollbar {
+.export-maps-list::-webkit-scrollbar,
+.combine-maps-list::-webkit-scrollbar,
+.import-slides-list::-webkit-scrollbar {
     width: 6px;
 }
 
-.export-maps-list::-webkit-scrollbar-track {
+.export-maps-list::-webkit-scrollbar-track,
+.combine-maps-list::-webkit-scrollbar-track,
+.import-slides-list::-webkit-scrollbar-track {
     background: transparent;
 }
 
-.export-maps-list::-webkit-scrollbar-thumb {
+.export-maps-list::-webkit-scrollbar-thumb,
+.combine-maps-list::-webkit-scrollbar-thumb,
+.import-slides-list::-webkit-scrollbar-thumb {
     background-color: var(--primary);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
 }
 
-.export-maps-list::-webkit-scrollbar-thumb:hover {
-    background-color: var(--primary-700, #166534);
+.export-maps-list::-webkit-scrollbar-thumb:hover,
+.combine-maps-list::-webkit-scrollbar-thumb:hover,
+.import-slides-list::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-hover);
 }
 
-.export-maps-empty {
+/* Empty state */
+.export-maps-empty,
+.combine-maps-empty,
+.import-slides-empty {
     padding: var(--space-6);
     text-align: center;
     color: var(--gray-500);
     font-size: var(--font-size-sm);
 }
 
-/* Map Item */
-.export-map-item {
+/* Item row */
+.export-map-item,
+.combine-map-item,
+.import-slides-item {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     background: white;
-    border: 1px solid var(--border-color);
+    border: var(--border-width) solid var(--border-color);
     border-radius: var(--radius-md);
     cursor: pointer;
     transition: all var(--transition-fast);
     user-select: none;
 }
 
-.export-map-item:hover {
+.export-map-item:hover,
+.combine-map-item:hover,
+.import-slides-item:hover {
     border-color: var(--primary-300);
     background: var(--primary-50);
 }
 
-.export-map-item.selected {
+.export-map-item.selected,
+.combine-map-item.selected,
+.import-slides-item.selected {
     border-color: var(--primary);
     background: var(--primary-50);
 }
@@ -912,14 +722,17 @@
 }
 
 /* Hidden native checkbox */
-.export-map-checkbox {
+.export-map-checkbox,
+.combine-map-checkbox {
     position: absolute;
     opacity: 0;
     pointer-events: none;
 }
 
-/* Custom checkbox */
-.export-map-checkbox-custom {
+/* Custom checkbox indicator */
+.export-map-checkbox-custom,
+.combine-map-checkbox-custom,
+.import-slides-checkbox-custom {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -932,24 +745,30 @@
     transition: all var(--transition-fast);
 }
 
-.export-map-checkbox-custom svg {
+.export-map-checkbox-custom svg,
+.combine-map-checkbox-custom svg,
+.import-slides-checkbox-custom svg {
     opacity: 0;
     transform: scale(0.5);
     transition: all var(--transition-fast);
     color: white;
 }
 
-.export-map-item.selected .export-map-checkbox-custom {
+.export-map-item.selected .export-map-checkbox-custom,
+.combine-map-item.selected .combine-map-checkbox-custom,
+.import-slides-item.selected .import-slides-checkbox-custom {
     background: var(--primary);
     border-color: var(--primary);
 }
 
-.export-map-item.selected .export-map-checkbox-custom svg {
+.export-map-item.selected .export-map-checkbox-custom svg,
+.combine-map-item.selected .combine-map-checkbox-custom svg,
+.import-slides-item.selected .import-slides-checkbox-custom svg {
     opacity: 1;
     transform: scale(1);
 }
 
-/* Map icon */
+/* Map icon (export only) */
 .export-map-icon {
     display: flex;
     align-items: center;
@@ -961,8 +780,10 @@
     color: var(--primary);
 }
 
-/* Map name */
-.export-map-name {
+/* Name */
+.export-map-name,
+.combine-map-name,
+.import-slides-name {
     flex: 1;
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-medium);
@@ -972,7 +793,7 @@
     text-overflow: ellipsis;
 }
 
-/* Current map badge */
+/* Badges */
 .export-map-badge {
     padding: 2px 6px;
     font-size: 10px;
@@ -984,296 +805,8 @@
     border-radius: var(--radius-full);
 }
 
-/* Actions */
-.export-modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--space-2);
-    padding-top: var(--space-2);
-    border-top: 1px solid var(--border-color);
-}
-
-.export-modal-btn {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-4);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-}
-
-.export-modal-btn-cancel {
-    background: transparent;
-    border: 1px solid var(--border-color);
-    color: var(--gray-600);
-}
-
-.export-modal-btn-cancel:hover {
-    background: var(--gray-50);
-    border-color: var(--gray-300);
-}
-
-.export-modal-btn-confirm {
-    background: var(--primary);
-    border: 1px solid var(--primary);
-    color: white;
-}
-
-.export-modal-btn-confirm:hover:not(:disabled) {
-    background: var(--primary-600);
-    border-color: var(--primary-600);
-}
-
-.export-modal-btn-confirm:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.export-modal-btn-confirm svg {
-    width: 16px;
-    height: 16px;
-}
-
-/* =========================================================================
-   EXPORT MODAL - RESPONSIVE
-   ========================================================================= */
-
-@media (pointer: coarse) {
-    .export-map-item {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3);
-    }
-
-    .export-map-checkbox-custom {
-        width: 22px;
-        height: 22px;
-    }
-
-    .export-select-btn {
-        min-height: 36px;
-        padding: var(--space-2) var(--space-3);
-    }
-
-    .export-modal-btn {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3) var(--space-4);
-    }
-
-    .export-maps-list {
-        -webkit-overflow-scrolling: touch;
-    }
-}
-
-@media (width <= 768px) {
-    .export-modal-container {
-        max-width: 100vw;
-        max-height: 100vh;
-        height: 100vh;
-        width: 100vw;
-        border-radius: 0;
-    }
-
-    .export-maps-list {
-        max-height: none;
-        flex: 1;
-        min-height: 200px;
-    }
-
-    .export-modal-content {
-        height: 100%;
-    }
-
-    .export-selection-controls {
-        flex-wrap: wrap;
-    }
-
-    .export-selection-count {
-        width: 100%;
-        margin-left: 0;
-        margin-top: var(--space-1);
-    }
-}
-
-@media (orientation: landscape) and (width <= 1024px) {
-    .export-modal-container {
-        max-width: 90vw;
-        max-height: 95vh;
-        height: auto;
-        border-radius: var(--radius-xl);
-    }
-
-    .export-maps-list {
-        max-height: 200px;
-    }
-}
-
-/* =========================================================================
-   COMBINE MAPS MODAL
-   ========================================================================= */
-
-.combine-maps-modal-container {
-    max-width: 480px;
-}
-
-.combine-maps-modal-content {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-}
-
-.combine-maps-description {
-    color: var(--gray-600);
-    font-size: var(--font-size-sm);
-    line-height: 1.5;
-}
-
-.combine-maps-description strong {
-    color: var(--gray-800);
-}
-
-/* Selection Controls */
-.combine-maps-selection-controls {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-}
-
-.combine-maps-select-btn {
-    padding: var(--space-1) var(--space-2);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
-    color: var(--primary);
-    background: var(--primary-50);
-    border: 1px solid var(--primary-200);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-}
-
-.combine-maps-select-btn:hover {
-    background: var(--primary-100);
-    border-color: var(--primary-300);
-}
-
-.combine-maps-selection-count {
-    margin-left: auto;
-    font-size: var(--font-size-xs);
-    color: var(--gray-500);
-}
-
-.combine-maps-selection-count .count-value {
-    font-weight: var(--font-weight-semibold);
-    color: var(--primary);
-}
-
-/* Maps List */
-.combine-maps-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    max-height: 300px;
-    overflow-y: auto;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    padding: var(--space-2);
-    background: var(--gray-50);
-    scrollbar-gutter: stable;
-    scrollbar-width: thin;
-    scrollbar-color: var(--primary) transparent;
-}
-
-.combine-maps-list::-webkit-scrollbar {
-    width: 6px;
-}
-
-.combine-maps-list::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.combine-maps-list::-webkit-scrollbar-thumb {
-    background-color: var(--primary);
-    border-radius: 3px;
-}
-
-.combine-maps-list::-webkit-scrollbar-thumb:hover {
-    background-color: var(--primary-700, #166534);
-}
-
-.combine-maps-empty {
-    padding: var(--space-6);
-    text-align: center;
-    color: var(--gray-500);
-    font-size: var(--font-size-sm);
-}
-
-/* Map Item */
-.combine-map-item {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
-    background: white;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-    user-select: none;
-}
-
-.combine-map-item:hover {
-    border-color: var(--primary-300);
-    background: var(--primary-50);
-}
-
-.combine-map-item.selected {
-    border-color: var(--primary);
-    background: var(--primary-50);
-}
-
-/* Hidden native checkbox */
-.combine-map-checkbox {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-}
-
-/* Custom checkbox */
-.combine-map-checkbox-custom {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    border: 2px solid var(--gray-300);
-    border-radius: var(--radius-sm);
-    background: white;
-    flex-shrink: 0;
-    transition: all var(--transition-fast);
-}
-
-.combine-map-checkbox-custom svg {
-    opacity: 0;
-    transform: scale(0.5);
-    transition: all var(--transition-fast);
-    color: white;
-}
-
-.combine-map-item.selected .combine-map-checkbox-custom {
-    background: var(--primary);
-    border-color: var(--primary);
-}
-
-.combine-map-item.selected .combine-map-checkbox-custom svg {
-    opacity: 1;
-    transform: scale(1);
-}
-
-/* Map badge */
-.combine-map-badge {
+.combine-map-badge,
+.import-slides-badge {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1287,27 +820,29 @@
     flex-shrink: 0;
 }
 
-/* Map name */
-.combine-map-name {
-    flex: 1;
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    color: var(--gray-700);
+/* Slide count label */
+.import-slides-count {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    flex-shrink: 0;
 }
 
-/* Actions */
-.combine-maps-modal-actions {
+/* Action row */
+.export-modal-actions,
+.combine-maps-modal-actions,
+.import-slides-modal-actions {
     display: flex;
     justify-content: flex-end;
     gap: var(--space-2);
     padding-top: var(--space-2);
-    border-top: 1px solid var(--border-color);
+    border-top: var(--border-width) solid var(--border-color);
 }
 
-.combine-maps-modal-btn {
+/* Action buttons */
+.export-modal-btn,
+.combine-maps-modal-btn,
+.import-slides-modal-btn {
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -1319,106 +854,48 @@
     transition: all var(--transition-fast);
 }
 
-.combine-maps-modal-btn-cancel {
+.export-modal-btn-cancel,
+.combine-maps-modal-btn-cancel,
+.import-slides-modal-btn-cancel {
     background: transparent;
-    border: 1px solid var(--border-color);
+    border: var(--border-width) solid var(--border-color);
     color: var(--gray-600);
 }
 
-.combine-maps-modal-btn-cancel:hover {
+.export-modal-btn-cancel:hover,
+.combine-maps-modal-btn-cancel:hover,
+.import-slides-modal-btn-cancel:hover {
     background: var(--gray-50);
     border-color: var(--gray-300);
 }
 
-.combine-maps-modal-btn-confirm {
+.export-modal-btn-confirm,
+.combine-maps-modal-btn-confirm,
+.import-slides-modal-btn-confirm {
     background: var(--primary);
-    border: 1px solid var(--primary);
+    border: var(--border-width) solid var(--primary);
     color: white;
 }
 
-.combine-maps-modal-btn-confirm:hover:not(:disabled) {
+.export-modal-btn-confirm:hover:not(:disabled),
+.combine-maps-modal-btn-confirm:hover:not(:disabled),
+.import-slides-modal-btn-confirm:hover:not(:disabled) {
     background: var(--primary-600);
     border-color: var(--primary-600);
 }
 
-.combine-maps-modal-btn-confirm:disabled {
+.export-modal-btn-confirm:disabled,
+.combine-maps-modal-btn-confirm:disabled,
+.import-slides-modal-btn-confirm:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 
-.combine-maps-modal-btn-confirm svg {
+.export-modal-btn-confirm svg,
+.combine-maps-modal-btn-confirm svg,
+.import-slides-modal-btn-confirm svg {
     width: 16px;
     height: 16px;
-}
-
-/* Combine Maps Modal - Responsive */
-@media (pointer: coarse) {
-    .combine-map-item {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3);
-    }
-
-    .combine-map-checkbox-custom {
-        width: 22px;
-        height: 22px;
-    }
-
-    .combine-maps-select-btn {
-        min-height: 36px;
-        padding: var(--space-2) var(--space-3);
-    }
-
-    .combine-maps-modal-btn {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3) var(--space-4);
-    }
-
-    .combine-maps-list {
-        -webkit-overflow-scrolling: touch;
-    }
-}
-
-@media (width <= 768px) {
-    .combine-maps-modal-container {
-        max-width: 100vw;
-        max-height: 100vh;
-        height: 100vh;
-        width: 100vw;
-        border-radius: 0;
-    }
-
-    .combine-maps-list {
-        max-height: none;
-        flex: 1;
-        min-height: 200px;
-    }
-
-    .combine-maps-modal-content {
-        height: 100%;
-    }
-
-    .combine-maps-selection-controls {
-        flex-wrap: wrap;
-    }
-
-    .combine-maps-selection-count {
-        width: 100%;
-        margin-left: 0;
-        margin-top: var(--space-1);
-    }
-}
-
-@media (orientation: landscape) and (width <= 1024px) {
-    .combine-maps-modal-container {
-        max-width: 90vw;
-        max-height: 95vh;
-        height: auto;
-        border-radius: var(--radius-xl);
-    }
-
-    .combine-maps-list {
-        max-height: 200px;
-    }
 }
 
 /* =========================================================================
@@ -1434,6 +911,9 @@
 .symbol-selector-modal-container .modal-body {
     overflow: hidden;
     padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .symbol-selector-content {
@@ -1441,7 +921,8 @@
     flex-direction: column;
     gap: var(--space-3);
     overflow: hidden;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
 }
 
 .symbol-selector-main {
@@ -1458,8 +939,8 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    height: 600px;
-    overflow: hidden;
+    min-height: 0;
+    overflow-y: auto;
     padding-right: var(--space-3);
 }
 
@@ -1475,9 +956,9 @@
 
 .symbol-selector-preview-label {
     margin: 0 0 var(--space-3);
-    font-size: 16px;
+    font-size: var(--font-size-base);
     font-weight: var(--font-weight-semibold);
-    color: #333;
+    color: var(--gray-800);
     text-align: center;
 }
 
@@ -1528,19 +1009,19 @@
 .symbol-selector-sidc-input:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px var(--primary-100, rgba(21, 128, 61, 0.1));
+    box-shadow: 0 0 0 2px var(--primary-100);
 }
 
 .symbol-selector-sidc-input.warning {
-    border-color: #ffc107;
+    border-color: var(--color-warning);
 }
 
 .symbol-selector-sidc-input.success {
-    border-color: #28a745;
+    border-color: var(--color-success);
 }
 
 .symbol-selector-sidc-input.error {
-    border-color: #dc3545;
+    border-color: var(--color-error);
 }
 
 .symbol-selector-sidc-status {
@@ -1552,15 +1033,15 @@
 }
 
 .symbol-selector-sidc-status.warning {
-    color: #856404;
+    color: var(--color-warning);
 }
 
 .symbol-selector-sidc-status.success {
-    color: #155724;
+    color: var(--color-success);
 }
 
 .symbol-selector-sidc-status.error {
-    color: #721c24;
+    color: var(--color-error);
 }
 
 /* Gallery column */
@@ -1579,9 +1060,9 @@
 
 .symbol-selector-gallery h4 {
     margin: 0 0 var(--space-3);
-    font-size: 16px;
+    font-size: var(--font-size-base);
     font-weight: var(--font-weight-semibold);
-    color: #333;
+    color: var(--gray-800);
     text-align: center;
     flex-shrink: 0;
 }
@@ -1589,14 +1070,14 @@
 .symbol-gallery-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: var(--space-2);
     justify-items: center;
 }
 
 .symbol-gallery-scroll {
     flex: 1;
     overflow-y: auto;
-    padding-right: 4px;
+    padding-right: var(--space-1);
 }
 
 /* Actions */
@@ -1605,7 +1086,7 @@
     justify-content: center;
     gap: var(--space-3);
     padding-top: var(--space-3);
-    border-top: 1px solid var(--border-color);
+    border-top: var(--border-width) solid var(--border-color);
     flex-shrink: 0;
 }
 
@@ -1624,7 +1105,7 @@
 
 .symbol-selector-btn-cancel {
     background: var(--gray-100);
-    border: 1px solid var(--border-color);
+    border: var(--border-width) solid var(--border-color);
     color: var(--gray-700);
 }
 
@@ -1635,108 +1116,381 @@
 
 .symbol-selector-btn-apply {
     background: var(--primary);
-    border: 1px solid var(--primary);
+    border: var(--border-width) solid var(--primary);
     color: white;
 }
 
 .symbol-selector-btn-apply:hover {
-    background: var(--primary-600, #166534);
-    border-color: var(--primary-600, #166534);
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
 }
 
-/* Symbol Selector - Responsive */
-@media (width <= 1200px) {
-    .symbol-selector-main {
-        grid-template-columns: 1fr 200px 140px;
-    }
+/* ----- Tabs ----- */
 
-    .symbol-selector-gallery {
-        flex: 0 0 140px;
-        min-width: 140px;
-        max-width: 140px;
-    }
-
-    /* Single column gallery on tablets */
-    .symbol-gallery-grid {
-        grid-template-columns: 1fr;
-    }
+.symbol-selector-tabs {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
 }
 
-@media (width <= 1000px) {
-    .symbol-selector-main {
-        grid-template-columns: 1fr 200px;
-    }
-
-    .symbol-selector-gallery {
-        grid-column: 1 / -1;
-        flex: none;
-        min-width: auto;
-        max-width: none;
-        max-height: 200px;
-        border-left: none;
-        border-top: 2px solid var(--border-color);
-        padding-left: 0;
-        padding-top: var(--space-4);
-    }
-
-    /* Multi-column gallery when at bottom */
-    .symbol-gallery-grid {
-        grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
-    }
+.symbol-selector-tabs__buttons {
+    display: flex;
+    gap: 5px;
+    flex-shrink: 0;
 }
 
-@media (width <= 768px) {
-    .symbol-selector-modal-container {
-        max-width: 100vw;
-        max-height: 100vh;
-        height: 100vh;
-        width: 100vw;
-        border-radius: 0;
-    }
-
-    .symbol-selector-main {
-        grid-template-columns: 1fr;
-        gap: var(--space-4);
-    }
-
-    .symbol-selector-preview {
-        position: relative;
-        flex-direction: row;
-        gap: var(--space-4);
-    }
-
-    .symbol-selector-preview-container {
-        min-height: 150px;
-        flex: 1;
-    }
-
-    .symbol-selector-sidc {
-        flex: 1;
-        margin-top: 0;
-    }
-
-    .symbol-selector-gallery {
-        max-height: 250px;
-    }
-
-    .symbol-selector-actions {
-        flex-direction: column;
-    }
-
-    .symbol-selector-btn {
-        width: 100%;
-    }
+.symbol-selector-tabs__btn {
+    flex: 1;
+    padding: 12px 20px;
+    border: none;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    font-size: 15px;
+    font-weight: normal;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    background: var(--gray-100);
+    color: var(--gray-800);
 }
 
-@media (pointer: coarse) {
-    .symbol-selector-btn {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3) var(--space-5);
-    }
+.symbol-selector-tabs__btn.active {
+    background: var(--primary);
+    color: white;
+    font-weight: bold;
+}
 
-    .symbol-selector-sidc-input {
-        min-height: var(--touch-target-min, 44px);
-    }
+.symbol-selector-tabs__content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.symbol-selector-tabs__panel--simbolo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    width: 100%;
+    padding: 16px 0;
+}
+
+.symbol-selector-tabs__panel--texto,
+.symbol-selector-tabs__panel--engajamento {
+    display: none;
+}
+
+.symbol-selector-tabs__panel--engajamento {
+    padding: 16px 0;
+}
+
+/* ----- Form columns ----- */
+
+.symbol-selector-form-column {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+/* ----- Digital combobox ----- */
+
+.digital-combo {
+    margin-bottom: 12px;
+    position: relative;
+}
+
+.digital-combo__label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+}
+
+.digital-combo__select {
+    position: relative;
+}
+
+.digital-combo__display {
+    width: 100%;
+    padding: 10px 36px 10px 12px;
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    background: #fff;
+    cursor: pointer;
+    transition: border-color var(--transition-fast);
+    box-sizing: border-box;
+    position: relative;
+}
+
+.digital-combo__display-text {
+    flex: 1;
+    overflow: hidden;
+    word-wrap: break-word;
+    hyphens: auto;
+    pointer-events: none;
+}
+
+.digital-combo__arrow {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    pointer-events: none;
+    color: #000;
+}
+
+.digital-combo__dropdown {
+    position: fixed;
+    background: white;
+    border: 2px solid var(--primary);
+    border-radius: var(--radius-lg);
+    max-height: 250px;
+    overflow: hidden;
+    z-index: 20000;
+    display: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.digital-combo__search {
+    width: 100%;
+    padding: 10px 15px;
+    border: none;
+    border-bottom: 2px solid var(--gray-200);
+    font-size: var(--font-size-sm);
+    outline: none;
+    box-sizing: border-box;
+    background: var(--gray-50);
+}
+
+.digital-combo__options {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.digital-combo__option {
+    padding: 12px 15px;
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    transition: background-color 0.1s;
+    color: var(--gray-800);
+    user-select: none;
+}
+
+.digital-combo__option--selected {
+    background-color: var(--primary-100);
+    font-weight: var(--font-weight-semibold);
+}
+
+.digital-combo__option--highlighted {
+    background-color: var(--primary-100);
+    font-weight: var(--font-weight-semibold);
+}
+
+.digital-combo__no-results {
+    padding: 12px 15px;
+    font-size: var(--font-size-sm);
+    color: var(--gray-400);
+    font-style: italic;
+    text-align: center;
+}
+
+/* ----- Color control ----- */
+
+.color-control__label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+}
+
+.color-control__picker-wrapper {
+    margin-top: 12px;
+}
+
+.color-control__picker--disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* ----- Symbol form inputs ----- */
+
+.symbol-form__field {
+    margin-bottom: 12px;
+}
+
+.symbol-form__label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+}
+
+.symbol-form__input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    transition: border-color var(--transition-fast);
+    box-sizing: border-box;
+}
+
+.symbol-form__input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+    outline: none;
+}
+
+.symbol-form__input--valid {
+    border-color: var(--color-success);
+}
+
+.symbol-form__input--invalid {
+    border-color: var(--color-error);
+}
+
+/* ----- Gallery items ----- */
+
+.symbol-gallery__item {
+    width: 60px;
+    height: 60px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: white;
+}
+
+.symbol-gallery__item-image {
+    max-width: 50px;
+    max-height: 50px;
+}
+
+.symbol-gallery__empty {
+    color: var(--gray-400);
+    font-style: italic;
+    font-size: var(--font-size-sm);
+    text-align: center;
+    padding: 20px;
+    grid-column: 1 / -1;
+}
+
+/* ----- Text modifiers ----- */
+
+.text-modifiers-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding: 20px;
+}
+
+.text-modifiers__field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+
+.text-modifiers__label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+}
+
+.text-modifiers__input {
+    padding: 10px 12px;
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    transition: border-color var(--transition-fast);
+    font-family: inherit;
+}
+
+.text-modifiers__input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+    outline: none;
+}
+
+.text-modifiers__empty {
+    grid-column: 1 / -1;
+    padding: 30px;
+    text-align: center;
+    color: var(--gray-600);
+    background: white;
+    border-radius: var(--radius-lg);
+}
+
+.text-modifiers__empty-icon {
+    font-size: 48px;
+    margin-bottom: 15px;
+}
+
+.text-modifiers__empty-text {
+    margin: 0;
+    font-size: var(--font-size-base);
+}
+
+.text-modifiers__empty-subtext {
+    margin: 10px 0 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-400);
+}
+
+/* ----- Engagement bar ----- */
+
+.engagement-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 600px;
+}
+
+.engagement-bar__field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.engagement-bar__label {
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+}
+
+.engagement-bar__select {
+    padding: 10px 12px;
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+}
+
+.engagement-bar__checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.engagement-bar__checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.engagement-bar__checkbox-label {
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+    cursor: pointer;
+}
+
+/* ----- Configure symbol button ----- */
+
+.symbol-selector-configure-btn {
+    flex: 1;
 }
 
 /* =========================================================================
@@ -1769,7 +1523,7 @@
     width: 100%;
     padding: var(--space-2) var(--space-3);
     font-size: var(--font-size-sm);
-    border: 1px solid var(--border-color);
+    border: var(--border-width) solid var(--border-color);
     border-radius: var(--radius-md);
     background: white;
     cursor: pointer;
@@ -1779,7 +1533,7 @@
 .coordinate-edit-modal-select:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px var(--primary-100, rgba(21, 128, 61, 0.1));
+    box-shadow: 0 0 0 2px var(--primary-100);
 }
 
 .coordinate-edit-modal-input {
@@ -1787,7 +1541,7 @@
     padding: var(--space-2) var(--space-3);
     font-size: var(--font-size-sm);
     font-family: 'SF Mono', Monaco, Consolas, monospace;
-    border: 1px solid var(--border-color);
+    border: var(--border-width) solid var(--border-color);
     border-radius: var(--radius-md);
     box-sizing: border-box;
     transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
@@ -1796,12 +1550,12 @@
 .coordinate-edit-modal-input:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px var(--primary-100, rgba(21, 128, 61, 0.1));
+    box-shadow: 0 0 0 2px var(--primary-100);
 }
 
 .coordinate-edit-modal-input.input-error {
-    border-color: var(--color-error, #dc2626);
-    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.1);
+    border-color: var(--color-error);
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.1);
 }
 
 .coordinate-edit-validation-message {
@@ -1812,7 +1566,7 @@
 }
 
 .coordinate-edit-validation-message.error {
-    color: var(--color-error, #dc2626);
+    color: var(--color-error);
 }
 
 .coordinate-edit-modal-actions {
@@ -1820,7 +1574,7 @@
     justify-content: flex-end;
     gap: var(--space-2);
     padding-top: var(--space-2);
-    border-top: 1px solid var(--border-color);
+    border-top: var(--border-width) solid var(--border-color);
 }
 
 .coordinate-edit-modal-btn {
@@ -1837,7 +1591,7 @@
 
 .coordinate-edit-modal-btn-cancel {
     background: transparent;
-    border: 1px solid var(--border-color);
+    border: var(--border-width) solid var(--border-color);
     color: var(--gray-600);
 }
 
@@ -1848,35 +1602,13 @@
 
 .coordinate-edit-modal-btn-confirm {
     background: var(--primary);
-    border: 1px solid var(--primary);
+    border: var(--border-width) solid var(--primary);
     color: white;
 }
 
 .coordinate-edit-modal-btn-confirm:hover {
-    background: var(--primary-600, #166534);
-    border-color: var(--primary-600, #166534);
-}
-
-/* Coordinate Edit Modal - Responsive */
-@media (pointer: coarse) {
-    .coordinate-edit-modal-btn {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3) var(--space-4);
-    }
-
-    .coordinate-edit-modal-select,
-    .coordinate-edit-modal-input {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3);
-    }
-}
-
-@media (width <= 768px) {
-    .coordinate-edit-modal-container {
-        max-width: 90vw;
-        height: auto;
-        border-radius: var(--radius-xl);
-    }
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
 }
 
 /* =========================================================================
@@ -1926,7 +1658,7 @@
 /* Text modifiers */
 .point-selector-text-modifiers {
     padding-top: var(--space-3);
-    border-top: 1px solid var(--border-color);
+    border-top: var(--border-width) solid var(--border-color);
 }
 
 .point-selector-text-grid {
@@ -1980,7 +1712,7 @@
     justify-content: center;
     gap: var(--space-3);
     padding-top: var(--space-3);
-    border-top: 1px solid var(--border-color);
+    border-top: var(--border-width) solid var(--border-color);
 }
 
 .point-selector-btn {
@@ -1998,7 +1730,7 @@
 
 .point-selector-btn-cancel {
     background: var(--gray-100);
-    border: 1px solid var(--border-color);
+    border: var(--border-width) solid var(--border-color);
     color: var(--gray-700);
 }
 
@@ -2009,65 +1741,13 @@
 
 .point-selector-btn-apply {
     background: var(--primary);
-    border: 1px solid var(--primary);
+    border: var(--border-width) solid var(--primary);
     color: white;
 }
 
 .point-selector-btn-apply:hover {
-    background: var(--primary-600, #166534);
-    border-color: var(--primary-600, #166534);
-}
-
-/* Point Selector - Responsive */
-@media (width <= 768px) {
-    .point-selector-modal-container {
-        max-width: 100vw;
-        max-height: 100vh;
-        height: 100vh;
-        width: 100vw;
-        border-radius: 0;
-    }
-
-    .point-selector-main {
-        grid-template-columns: 1fr;
-        gap: var(--space-4);
-    }
-
-    .point-selector-controls {
-        max-height: none;
-        overflow-y: visible;
-    }
-
-    .point-selector-preview {
-        position: relative;
-    }
-
-    .point-selector-preview-container {
-        min-height: 180px;
-    }
-
-    .point-selector-text-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .point-selector-actions {
-        flex-direction: column;
-    }
-
-    .point-selector-btn {
-        width: 100%;
-    }
-}
-
-@media (pointer: coarse) {
-    .point-selector-btn {
-        min-height: var(--touch-target-min, 44px);
-        padding: var(--space-3) var(--space-5);
-    }
-
-    .point-selector-controls {
-        -webkit-overflow-scrolling: touch;
-    }
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
 }
 
 /* =========================================================================
@@ -2089,7 +1769,7 @@
     font-weight: var(--font-weight-semibold);
     color: var(--gray-800);
     padding-bottom: var(--space-2);
-    border-bottom: 1px solid var(--gray-200);
+    border-bottom: var(--border-width) solid var(--border-color);
 }
 
 .settings-field {
@@ -2134,7 +1814,7 @@
 .settings-slider__input {
     width: 64px;
     padding: var(--space-1) var(--space-2);
-    border: 1px solid var(--gray-300);
+    border: var(--border-width) solid var(--gray-300);
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
     text-align: center;
@@ -2146,10 +1826,10 @@
 .settings-slider__input:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(21, 128, 61, 0.15);
+    box-shadow: 0 0 0 2px var(--primary-100);
 }
 
-/* Remove number input spinners for cleaner look */
+/* Remove number input spinners */
 .settings-slider__input::-webkit-inner-spin-button,
 .settings-slider__input::-webkit-outer-spin-button {
     -webkit-appearance: none;
@@ -2160,19 +1840,702 @@
     -moz-appearance: textfield;
 }
 
-@media (width <= 480px) {
-    .settings-modal-container {
-        max-width: 100%;
-    }
-}
+/* =========================================================================
+   RESPONSIVE — TOUCH DEVICES
+   ========================================================================= */
 
 @media (pointer: coarse) {
+    /* Larger close button */
+    .modal-close-btn {
+        width: var(--touch-target-min);
+        height: var(--touch-target-min);
+    }
+
+    .modal-close-btn svg {
+        width: 26px;
+        height: 26px;
+    }
+
+    .modal-close-btn:active {
+        transform: scale(0.92);
+        background: rgba(255, 255, 255, 0.25);
+    }
+
+    /* Shortcut items */
+    .shortcut-item {
+        min-height: var(--touch-target-min);
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* CGEO cards */
+    .cgeo-card {
+        min-height: 56px;
+        padding: var(--space-4);
+    }
+
+    /* Copy button */
+    .copy-btn {
+        min-height: var(--touch-target-min);
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* Prompt / confirm buttons */
+    .prompt-modal-btn {
+        min-height: var(--touch-target-min);
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* Modal body scrolling */
+    .modal-body {
+        overscroll-behavior: contain;
+    }
+
+    /* Dynamic viewport height for virtual keyboard */
+    .modal-container {
+        max-height: 100dvh;
+    }
+
+    /* Map-picker items */
+    .export-map-item,
+    .combine-map-item,
+    .import-slides-item {
+        min-height: var(--touch-target-min);
+        padding: var(--space-3);
+    }
+
+    .export-map-checkbox-custom,
+    .combine-map-checkbox-custom,
+    .import-slides-checkbox-custom {
+        width: 22px;
+        height: 22px;
+    }
+
+    .export-select-btn,
+    .combine-maps-select-btn,
+    .import-slides-select-btn {
+        min-height: 36px;
+        padding: var(--space-2) var(--space-3);
+    }
+
+    .export-modal-btn,
+    .combine-maps-modal-btn,
+    .import-slides-modal-btn {
+        min-height: var(--touch-target-min);
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* Symbol selector */
+    .symbol-selector-btn {
+        min-height: var(--touch-target-min);
+        padding: var(--space-3) var(--space-5);
+    }
+
+    .symbol-selector-sidc-input {
+        min-height: var(--touch-target-min);
+    }
+
+    /* Coordinate edit */
+    .coordinate-edit-modal-btn {
+        min-height: var(--touch-target-min);
+        padding: var(--space-3) var(--space-4);
+    }
+
+    .coordinate-edit-modal-select,
+    .coordinate-edit-modal-input {
+        min-height: var(--touch-target-min);
+        padding: var(--space-3);
+    }
+
+    /* Point selector */
+    .point-selector-btn {
+        min-height: var(--touch-target-min);
+        padding: var(--space-3) var(--space-5);
+    }
+
+    /* Settings */
     .settings-slider {
         height: 32px;
     }
 
     .settings-slider__input {
-        min-height: var(--touch-target-min, 44px);
+        min-height: var(--touch-target-min);
         width: 72px;
     }
+}
+
+/* =========================================================================
+   RESPONSIVE — TABLET (<=1024px)
+   ========================================================================= */
+
+@media (width <= 1024px) {
+    .modal-container {
+        max-width: 90vw;
+        max-height: 90vh;
+    }
+
+    .shortcuts-modal-container {
+        max-width: 95vw;
+    }
+
+    .info-modal-container {
+        max-width: 90vw;
+    }
+
+    .shortcuts-sections {
+        grid-template-columns: 1fr;
+        gap: var(--space-3);
+    }
+
+    .modal-body {
+        padding: var(--space-4);
+    }
+
+    .modal-header {
+        padding: var(--space-3) var(--space-4);
+    }
+}
+
+/* =========================================================================
+   RESPONSIVE — SYMBOL SELECTOR (<=1200px)
+   ========================================================================= */
+
+@media (width <= 1200px) {
+    .symbol-selector-main {
+        grid-template-columns: 1fr 200px 140px;
+    }
+
+    .symbol-selector-gallery {
+        flex: 0 0 140px;
+        min-width: 140px;
+        max-width: 140px;
+    }
+
+    .symbol-gallery-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (width <= 1000px) {
+    .symbol-selector-main {
+        grid-template-columns: 1fr 200px;
+    }
+
+    .symbol-selector-gallery {
+        grid-column: 1 / -1;
+        flex: none;
+        min-width: auto;
+        max-width: none;
+        max-height: 200px;
+        border-left: none;
+        border-top: 2px solid var(--border-color);
+        padding-left: 0;
+        padding-top: var(--space-4);
+    }
+
+    .symbol-gallery-grid {
+        grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+    }
+}
+
+/* =========================================================================
+   RESPONSIVE — SMALL TABLET (<=768px)
+   ========================================================================= */
+
+@media (width <= 768px) {
+    /* Full-screen modals */
+    .modal-container {
+        max-width: 100vw;
+        max-height: 100vh;
+        height: 100vh;
+        width: 100vw;
+        border-radius: 0;
+        margin: 0;
+    }
+
+    .modal-overlay {
+        padding: 0;
+    }
+
+    .shortcuts-modal-container,
+    .info-modal-container {
+        max-width: 100vw;
+        height: 100vh;
+        border-radius: 0;
+    }
+
+    /* Prompt modal stays floating */
+    .prompt-modal-container {
+        max-width: 90vw;
+        height: auto;
+        border-radius: var(--radius-xl);
+    }
+
+    .modal-title {
+        font-size: var(--font-size-lg);
+    }
+
+    .shortcut-key span {
+        min-width: 20px;
+        height: 20px;
+        font-size: 10px;
+        padding: 0 4px;
+    }
+
+    .cgeo-cards {
+        gap: var(--space-3);
+    }
+
+    .email-box {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--space-3);
+    }
+
+    .email-display {
+        justify-content: center;
+    }
+
+    .copy-btn {
+        justify-content: center;
+    }
+
+    .modal-body {
+        padding: var(--space-3);
+        padding-bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
+    }
+
+    /* Map-picker modals full-screen */
+    .export-modal-container,
+    .combine-maps-modal-container,
+    .import-slides-modal-container {
+        max-width: 100vw;
+        max-height: 100vh;
+        height: 100vh;
+        width: 100vw;
+        border-radius: 0;
+    }
+
+    .export-maps-list,
+    .combine-maps-list,
+    .import-slides-list {
+        max-height: none;
+        flex: 1;
+        min-height: 200px;
+    }
+
+    .export-modal-content,
+    .combine-maps-modal-content,
+    .import-slides-modal-content {
+        height: 100%;
+    }
+
+    .export-selection-count,
+    .combine-maps-selection-count,
+    .import-slides-selection-count {
+        width: 100%;
+        margin-left: 0;
+        margin-top: var(--space-1);
+    }
+
+    /* Symbol selector full-screen */
+    .symbol-selector-modal-container {
+        max-width: 100vw;
+        max-height: 100vh;
+        height: 100vh;
+        width: 100vw;
+        border-radius: 0;
+    }
+
+    .symbol-selector-main {
+        grid-template-columns: 1fr;
+        gap: var(--space-4);
+    }
+
+    .symbol-selector-preview {
+        position: relative;
+        flex-direction: row;
+        gap: var(--space-4);
+    }
+
+    .symbol-selector-preview-container {
+        min-height: 150px;
+        flex: 1;
+    }
+
+    .symbol-selector-sidc {
+        flex: 1;
+        margin-top: 0;
+    }
+
+    .symbol-selector-gallery {
+        max-height: 250px;
+    }
+
+    .symbol-selector-actions {
+        flex-direction: column;
+    }
+
+    .symbol-selector-btn {
+        width: 100%;
+    }
+
+    /* Coordinate edit stays floating */
+    .coordinate-edit-modal-container {
+        max-width: 90vw;
+        height: auto;
+        border-radius: var(--radius-xl);
+    }
+
+    /* Point selector full-screen */
+    .point-selector-modal-container {
+        max-width: 100vw;
+        max-height: 100vh;
+        height: 100vh;
+        width: 100vw;
+        border-radius: 0;
+    }
+
+    .point-selector-main {
+        grid-template-columns: 1fr;
+        gap: var(--space-4);
+    }
+
+    .point-selector-controls {
+        max-height: none;
+        overflow-y: visible;
+    }
+
+    .point-selector-preview {
+        position: relative;
+    }
+
+    .point-selector-preview-container {
+        min-height: 180px;
+    }
+
+    .point-selector-text-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .point-selector-actions {
+        flex-direction: column;
+    }
+
+    .point-selector-btn {
+        width: 100%;
+    }
+}
+
+/* =========================================================================
+   RESPONSIVE — LANDSCAPE + TABLET
+   ========================================================================= */
+
+@media (orientation: landscape) and (width <= 1024px) {
+    .modal-container {
+        max-height: 95vh;
+        height: auto;
+        border-radius: var(--radius-xl);
+    }
+
+    .shortcuts-modal-container,
+    .info-modal-container {
+        height: auto;
+        border-radius: var(--radius-xl);
+    }
+
+    .modal-overlay {
+        padding: var(--space-4);
+    }
+
+    .shortcuts-sections {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    /* Map-picker modals */
+    .export-modal-container,
+    .combine-maps-modal-container,
+    .import-slides-modal-container {
+        max-width: 90vw;
+        max-height: 95vh;
+        height: auto;
+        border-radius: var(--radius-xl);
+    }
+
+    .export-maps-list,
+    .combine-maps-list,
+    .import-slides-list {
+        max-height: 200px;
+    }
+}
+
+@media (orientation: landscape) and (width <= 768px) {
+    .modal-container {
+        max-height: 90vh;
+    }
+
+    .shortcuts-sections {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* =========================================================================
+   RESPONSIVE — PHONE (<=480px)
+   Full-screen modals for small screens. Phone JS may also intercept via
+   phone-drawer.js, but CSS ensures correct sizing independently.
+   ========================================================================= */
+
+@media (width <= 480px) {
+    .modal-overlay {
+        padding: 0;
+        align-items: stretch;
+    }
+
+    /* All major modals become full-screen */
+    .modal-container,
+    .shortcuts-modal-container,
+    .info-modal-container,
+    .export-modal-container,
+    .combine-maps-modal-container,
+    .import-slides-modal-container,
+    .settings-modal-container {
+        max-width: 100vw !important;
+        width: 100vw;
+        height: 100dvh;
+        max-height: 100dvh;
+        border-radius: 0;
+        margin: 0;
+    }
+
+    /* Prompt and confirm modals stay floating */
+    .prompt-modal-container,
+    .confirm-modal-container {
+        max-width: 90vw !important;
+        width: 90vw;
+        height: auto;
+        max-height: 80dvh;
+        border-radius: var(--radius-xl);
+        margin: auto;
+    }
+
+    .export-maps-list {
+        max-height: calc(100dvh - 200px);
+    }
+
+    .confirm-modal-container {
+        max-width: 90vw;
+    }
+
+    .confirm-modal-btn {
+        min-height: var(--touch-target-min);
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* Prevent iOS zoom on inputs */
+    .modal-container input[type="text"],
+    .modal-container input[type="email"],
+    .modal-container input[type="number"],
+    .modal-container input[type="search"],
+    .modal-container textarea,
+    .modal-container select {
+        font-size: 16px;
+    }
+
+    .prompt-modal-input {
+        font-size: 16px;
+    }
+
+    /* Larger action buttons */
+    .prompt-modal-btn,
+    .confirm-modal-btn {
+        min-height: 48px;
+        padding: var(--space-3) var(--space-5);
+        font-size: var(--font-size-base);
+    }
+
+    /* Settings modal tabs */
+    .settings-tabs {
+        flex-wrap: wrap;
+    }
+
+    .settings-tab-btn {
+        flex: 1;
+        min-width: 80px;
+    }
+
+    .settings-modal-container {
+        max-width: 100%;
+    }
+}
+
+/* =========================================================================
+   BATCH POINTS MODAL
+   ========================================================================= */
+
+#batch-points-modal {
+    max-width: 560px;
+    width: 100%;
+}
+
+/* ===== BATCH POINTS PANEL (sidebar tool panel) ===== */
+
+.batch-points-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3) 0;
+}
+
+.batch-points-panel__format {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.batch-points-panel__format-label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-600);
+}
+
+.batch-points-panel__format-select {
+    width: 100%;
+    padding: var(--space-2);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.batch-points-panel__format-select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15);
+}
+
+.batch-points-panel__rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.batch-points-panel__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.batch-points-panel__badge {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.batch-points-panel__coord-input,
+.batch-points-panel__name-input {
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    color: var(--gray-700);
+    font-size: var(--font-size-xs);
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.batch-points-panel__coord-input {
+    flex: 2;
+    min-width: 0;
+}
+
+.batch-points-panel__name-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.batch-points-panel__coord-input:focus,
+.batch-points-panel__name-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15);
+}
+
+.batch-points-panel__coord-input::placeholder,
+.batch-points-panel__name-input::placeholder {
+    color: var(--gray-400);
+}
+
+.batch-points-panel__coord-input--error {
+    border-color: var(--color-error);
+}
+
+.batch-points-panel__remove-btn {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--gray-400);
+    font-size: 16px;
+    cursor: pointer;
+    transition: color var(--transition-fast);
+}
+
+.batch-points-panel__remove-btn:hover {
+    color: var(--color-error);
+}
+
+.batch-points-panel__add-btn {
+    align-self: flex-start;
+    padding: var(--space-1) var(--space-2);
+    border: 1px dashed var(--gray-300);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.batch-points-panel__add-btn:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+.batch-points-panel__create-btn {
+    width: 100%;
+    padding: var(--space-3);
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--primary);
+    color: #fff;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.batch-points-panel__create-btn:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.batch-points-panel__create-btn:active {
+    transform: translateY(0);
 }

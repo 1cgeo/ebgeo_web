@@ -333,8 +333,25 @@ describe('OperationQueue lifecycle', () => {
     });
 
     // ========================================================================
-    // Multiple entity compaction
+    // Key format
     // ========================================================================
+
+    describe('key format', () => {
+        it('key format enables chronological sorting', () => {
+            // Keys: op_{timestamp}_{id}
+            const keys = [
+                'op_1706123456789_aaa',
+                'op_1706123456790_bbb',
+                'op_1706123456788_ccc'
+            ];
+            const sorted = [...keys].sort();
+            expect(sorted).toEqual([
+                'op_1706123456788_ccc',
+                'op_1706123456789_aaa',
+                'op_1706123456790_bbb'
+            ]);
+        });
+    });
 
     // ========================================================================
     // _ensureIndex key parsing edge case

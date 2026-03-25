@@ -1,26 +1,15 @@
 // Path: js/store/atlas/atlas.entity.js
 
 /**
- * @fileoverview Atlas entity - wrapper for a project (collection of maps).
- *
- * The Atlas is the top-level container in EBGeo v2.0, equivalent to the .ebgeo file.
- * It contains metadata about the project and references to all maps within it.
- *
- * Key concepts:
- * - One Atlas = one project = one .ebgeo file
- * - Atlas contains mapOrder (list of map IDs)
- * - Atlas has its own sync metadata for future sharing
- * - In local mode, there's always exactly one "current" Atlas
+ * @fileoverview Atlas entity - top-level project container (one Atlas = one .ebgeo file).
+ * Contains metadata, map ordering, and sync data for a project.
  */
 
 import { createSyncMetadata, isValidSyncMetadata } from '../sync/sync-metadata.js';
 import { generateUUID } from '../../utilities/uuid.js';
 
-/**
- * Current Atlas schema version.
- * Increment this when making breaking changes to the Atlas structure.
- */
-export const ATLAS_SCHEMA_VERSION = '2.0';
+/** Current Atlas schema version. Increment on breaking changes to Atlas structure. */
+export const ATLAS_SCHEMA_VERSION = '2.1';
 
 /** @type {number} Default terrain exaggeration multiplier */
 export const DEFAULT_TERRAIN_EXAGGERATION = 1.5;
@@ -64,9 +53,12 @@ export function createAtlas(name = 'Meu Atlas') {
  * @returns {boolean} True if valid Atlas
  */
 export function isValidAtlas(atlas) {
+    if (!atlas || typeof atlas !== 'object') return false;
+
+    const hasValidSettings = atlas.settings === undefined ||
+        (typeof atlas.settings === 'object' && atlas.settings !== null);
+
     return (
-        atlas &&
-        typeof atlas === 'object' &&
         typeof atlas.id === 'string' &&
         typeof atlas.name === 'string' &&
         isValidSyncMetadata(atlas.sync) &&
@@ -74,7 +66,7 @@ export function isValidAtlas(atlas) {
         Array.isArray(atlas.mapOrder) &&
         atlas.mapOrder.every(id => typeof id === 'string') &&
         (atlas.lastActiveMapId === null || typeof atlas.lastActiveMapId === 'string') &&
-        (atlas.settings === undefined || (typeof atlas.settings === 'object' && atlas.settings !== null))
+        hasValidSettings
     );
 }
 
@@ -119,11 +111,10 @@ export function removeMapFromAtlas(atlas, mapId) {
  * @returns {Atlas} New Atlas object with reordered maps
  */
 export function reorderAtlasMaps(atlas, newOrder) {
-    // Validate that newOrder contains the same maps
     const currentSet = new Set(atlas.mapOrder);
-    const newSet = new Set(newOrder);
-    if (currentSet.size !== newSet.size ||
-        ![...currentSet].every(id => newSet.has(id))) {
+    const hasSameIds = newOrder.length === currentSet.size &&
+        newOrder.every(id => currentSet.has(id));
+    if (!hasSameIds) {
         throw new Error('New order must contain exactly the same map IDs');
     }
     return {

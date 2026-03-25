@@ -1,40 +1,24 @@
 // Path: js/processing/algorithms/buffer.algorithm.js
 
 /**
- * @fileoverview Algoritmo de Buffer (Zona de Influência).
- * Cria uma área de contorno ao redor das feições selecionadas.
- * @dependencies processing.constants, turf (global)
+ * @fileoverview Buffer algorithm (Zona de Influencia).
+ * Creates a contour area around selected features at a given distance.
  */
 
-import { registerAlgorithm } from '../processing.constants.js';
-import { getLayers, getActiveLayerIdSync } from '../../store/layer.operations.js';
+import { createModernNumericInput, createSectionDivider } from '@tools/helpers/index.js';
 import {
-    createModernSelect,
-    createModernToggle,
-    createModernNumericInput,
-    createSectionDivider,
-} from '../../tool_manager/helpers/index.js';
-import {
-    setupCleanup,
-    cleanup,
-} from '../../utilities/event-cleanup.js';
+    registerAlgorithm,
+    POLYGON_DEFAULTS,
+    SUPPORTED_GEOMETRY_TYPES,
+    extractBaseCoordinates,
+} from '../processing.constants.js';
+import { buildAlgorithmPanelScaffold } from './panel-builder.js';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
 const BUFFER_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="10" stroke-dasharray="4 2"/></svg>`;
-
-const SUPPORTED_TYPES = [
-    // Geometrias básicas
-    'point', 'line', 'polygon',
-    // Formas derivadas (armazenadas como Polygon)
-    'circle', 'rectangle', 'ellipse',
-    // Tipos ponto (tratados como Point pelo turf)
-    'text', 'image', 'military_symbol', 'coordination_measure',
-    // Tipos linha (tratados como LineString pelo turf)
-    'brush', 'arrow', 'boundary', 'occupied_front',
-];
 
 const DEFAULT_DISTANCE = 500;
 
@@ -43,19 +27,21 @@ const DEFAULT_DISTANCE = 500;
 // ============================================================================
 
 /**
- * Cria o formulário do algoritmo de buffer.
+ * Creates the buffer algorithm panel.
  * @param {import('./algorithm.interface.js').AlgorithmPanelDeps} deps
  * @returns {import('./algorithm.interface.js').AlgorithmPanelResult}
  */
 function createBufferPanel(deps) {
     const { stateManager } = deps;
-    const cleanupContext = {};
-    setupCleanup(cleanupContext);
 
-    const container = document.createElement('div');
-    container.className = 'processing-panel';
+    const scaffold = buildAlgorithmPanelScaffold({
+        stateManager,
+        defaultOutputPrefix: 'Zona de Influência',
+    });
 
-    // -- Ilustração --
+    const { container } = scaffold;
+
+    // -- Illustration --
     const illustration = document.createElement('div');
     illustration.className = 'processing-panel__illustration';
     illustration.innerHTML = `
@@ -68,88 +54,12 @@ function createBufferPanel(deps) {
     `;
     container.appendChild(illustration);
 
-    // -- Seção: Dados de Entrada --
-    container.appendChild(createSectionDivider('Dados de Entrada'));
+    // -- Input section (layer selector + toggle) --
+    scaffold.appendInputSection();
 
-    // -- Seletor de camada --
-    const layers = getLayers();
-    const activeLayerId = getActiveLayerIdSync();
-    const layerOptions = layers.map(l => ({
-        value: l.id,
-        label: l.name,
-    }));
-
-    let selectedLayerId = activeLayerId;
-
-    const layerSelect = createModernSelect({
-        label: 'Camada de origem',
-        value: activeLayerId,
-        options: layerOptions,
-        onChange: (value) => {
-            selectedLayerId = value;
-            _updateSelectionHint();
-            _updateOutputName();
-            _validateForm();
-        },
-    });
-    container.appendChild(layerSelect);
-
-    // -- Toggle feições selecionadas --
-    let useSelectedOnly = false;
-
-    const toggleContainer = document.createElement('div');
-    toggleContainer.className = 'processing-panel__toggle-section';
-
-    const toggle = createModernToggle({
-        label: 'Apenas feições selecionadas',
-        checked: false,
-        onChange: (checked) => {
-            useSelectedOnly = checked;
-            _validateForm();
-        },
-    });
-    toggleContainer.appendChild(toggle);
-
-    const selectionHint = document.createElement('div');
-    selectionHint.className = 'processing-panel__hint';
-    toggleContainer.appendChild(selectionHint);
-
-    // Count selected features filtered by the current source layer
-    function _getSelectedCountForLayer(layerId) {
-        const allSelected = stateManager ? stateManager.getSelectedFeatures() : [];
-        return allSelected.filter(item => {
-            const fLayerId = item.feature?.properties?.layerId || 'default';
-            return fLayerId === layerId;
-        }).length;
-    }
-
-    function _updateSelectionHint() {
-        const count = _getSelectedCountForLayer(selectedLayerId);
-        selectionHint.textContent = count > 0
-            ? `${count} ${count === 1 ? 'feição selecionada' : 'feições selecionadas'} na camada`
-            : 'Nenhuma feição selecionada na camada';
-
-        if (count === 0) {
-            toggle.classList.add('processing-panel__toggle--disabled');
-            if (useSelectedOnly) {
-                useSelectedOnly = false;
-                // Reset toggle visual state
-                const switchEl = toggle.querySelector('.attr-modern-toggle-switch');
-                if (switchEl) switchEl.classList.remove('active');
-            }
-        } else {
-            toggle.classList.remove('processing-panel__toggle--disabled');
-        }
-    }
-
-    _updateSelectionHint();
-
-    container.appendChild(toggleContainer);
-
-    // -- Seção: Parâmetros --
+    // -- Parameters section --
     container.appendChild(createSectionDivider('Parâmetros'));
 
-    // -- Distância --
     let distance = DEFAULT_DISTANCE;
 
     const distanceInput = createModernNumericInput({
@@ -166,67 +76,8 @@ function createBufferPanel(deps) {
     });
     container.appendChild(distanceInput);
 
-    // -- Seção: Resultado --
-    container.appendChild(createSectionDivider('Resultado'));
-
-    // -- Nome da camada de saída --
-    const outputNameContainer = document.createElement('div');
-    outputNameContainer.className = 'attr-modern-textarea';
-
-    const outputNameLabel = document.createElement('label');
-    outputNameLabel.className = 'attr-modern-textarea-label';
-    outputNameLabel.textContent = 'Nome da nova camada';
-    outputNameContainer.appendChild(outputNameLabel);
-
-    const outputNameInput = document.createElement('input');
-    outputNameInput.type = 'text';
-    outputNameInput.className = 'attr-modern-textarea-input';
-    outputNameInput.style.minHeight = 'auto';
-    outputNameInput.style.resize = 'none';
-
-    const _getDefaultOutputName = () => {
-        const layer = layers.find(l => l.id === selectedLayerId);
-        return `Zona de Influência - ${layer ? layer.name : 'Camada'}`;
-    };
-    outputNameInput.value = _getDefaultOutputName();
-
-    outputNameContainer.appendChild(outputNameInput);
-    container.appendChild(outputNameContainer);
-
-    function _updateOutputName() {
-        outputNameInput.value = _getDefaultOutputName();
-    }
-
-    // -- Botão Executar --
-    const executeBtn = document.createElement('button');
-    executeBtn.className = 'processing-panel__execute-btn';
-    executeBtn.textContent = 'EXECUTAR';
-    executeBtn.disabled = false;
-    container.appendChild(executeBtn);
-
-    // -- Progresso --
-    const progressContainer = document.createElement('div');
-    progressContainer.className = 'processing-panel__progress';
-    progressContainer.style.display = 'none';
-
-    const progressText = document.createElement('div');
-    progressText.className = 'processing-panel__progress-text';
-    progressContainer.appendChild(progressText);
-
-    const progressBar = document.createElement('div');
-    progressBar.className = 'processing-panel__progress-bar';
-    const progressFill = document.createElement('div');
-    progressFill.className = 'processing-panel__progress-fill';
-    progressBar.appendChild(progressFill);
-    progressContainer.appendChild(progressBar);
-
-    container.appendChild(progressContainer);
-
-    // -- Resultado --
-    const resultContainer = document.createElement('div');
-    resultContainer.className = 'processing-panel__result';
-    resultContainer.style.display = 'none';
-    container.appendChild(resultContainer);
+    // -- Output section (name + execute + progress + result) --
+    scaffold.appendOutputSection();
 
     // ========================================================================
     // VALIDATION
@@ -234,19 +85,19 @@ function createBufferPanel(deps) {
 
     function _validateForm() {
         const validation = validate();
-        executeBtn.disabled = !validation.valid;
+        scaffold.executeBtn.disabled = !validation.valid;
         return validation;
     }
 
+    // Re-validate when layer changes
+    scaffold.onLayerChangeCallbacks.push(_validateForm);
+
     function validate() {
-        if (!selectedLayerId) {
-            return { valid: false, message: 'Selecione uma camada' };
-        }
+        const baseValidation = scaffold.validateBase();
+        if (!baseValidation.valid) return baseValidation;
+
         if (distance <= 0) {
             return { valid: false, message: 'Distância deve ser maior que zero' };
-        }
-        if (useSelectedOnly && _getSelectedCountForLayer(selectedLayerId) === 0) {
-            return { valid: false, message: 'Nenhuma feição selecionada na camada' };
         }
         return { valid: true };
     }
@@ -260,29 +111,18 @@ function createBufferPanel(deps) {
 
         getParams() {
             return {
-                sourceLayerId: selectedLayerId,
-                useSelectedOnly,
+                sourceLayerId: scaffold.getSelectedLayerId(),
+                useSelectedOnly: scaffold.getUseSelectedOnly(),
                 distance,
-                outputLayerName: outputNameInput.value.trim() || _getDefaultOutputName(),
+                outputLayerName: scaffold.getOutputLayerName(),
             };
         },
 
         validate,
-
-        /**
-         * Referências para UI de progresso/resultado.
-         * Usadas pelo processing-panel.js para atualizar durante execução.
-         */
-        ui: {
-            executeBtn,
-            progressContainer,
-            progressText,
-            progressFill,
-            resultContainer,
-        },
+        ui: scaffold.ui,
 
         cleanup() {
-            cleanup(cleanupContext);
+            scaffold.cleanupFn();
         },
     };
 }
@@ -292,35 +132,14 @@ function createBufferPanel(deps) {
 // ============================================================================
 
 /**
- * Propriedades padrão para polígonos gerados pelo buffer.
- * Segue exatamente o padrão de AddPolygonControl.DEFAULT_PROPERTIES
- * e azimuth_distance_geometry.js (OUTPUT_MODE.AREA).
- */
-const POLYGON_DEFAULTS = {
-    fillColor: '#3f4fb5',
-    lineColor: '#3f4fb5',
-    lineWidth: 2,
-    opacity: 0.5,
-    lineStyle: 'solid',
-    measure: false,
-    hatchEnabled: false,
-    hatchType: 'none',
-    hatchColor: '#000000',
-    hatchSpacing: 8,
-    hatchLineWidth: 2,
-};
-
-/**
- * Executa o buffer nas feições fornecidas.
- * Função pura: recebe features, retorna features processadas.
- * Cada feature retornada segue a estrutura de polígono do EBGeo
- * (mesma de AddPolygonControl / azimute e distância).
+ * Executes the buffer on provided features.
+ * Pure function: receives features, returns processed features.
  *
- * @param {Object[]} features - Array de GeoJSON features
+ * @param {Object[]} features - Array of GeoJSON features
  * @param {Object} params
- * @param {number} params.distance - Distância do buffer em metros
+ * @param {number} params.distance - Buffer distance in meters
  * @param {Function} [params.onProgress] - Callback(current, total)
- * @returns {Object[]} Features com buffer aplicado (sempre polígonos)
+ * @returns {Object[]} Buffered features (always polygons)
  */
 function executeBuffer(features, params) {
     const { distance, onProgress } = params;
@@ -333,15 +152,8 @@ function executeBuffer(features, params) {
             const buffered = window.turf.buffer(feature, distance, { units: 'meters' });
 
             if (buffered && buffered.geometry) {
-                // Extrai coordenadas do anel externo (sem ponto de fechamento)
-                const coords = buffered.geometry.coordinates[0];
-                const baseCoordinates = (coords && coords.length > 1 &&
-                    coords[0][0] === coords[coords.length - 1][0] &&
-                    coords[0][1] === coords[coords.length - 1][1])
-                    ? coords.slice(0, -1)
-                    : coords;
+                const baseCoordinates = extractBaseCoordinates(buffered.geometry.coordinates[0]);
 
-                // Propriedades: defaults de polígono + dados preservados do original
                 const props = {
                     ...POLYGON_DEFAULTS,
                     source: 'polygon',
@@ -352,7 +164,6 @@ function executeBuffer(features, params) {
                     baseCoordinates,
                 };
 
-                // Preserva atributos do usuário (somente se existirem)
                 if (feature.properties?.attributes) {
                     props.attributes = structuredClone(feature.properties.attributes);
                 }
@@ -360,16 +171,14 @@ function executeBuffer(features, params) {
                     props.images = structuredClone(feature.properties.images);
                 }
 
-                // Constrói feature limpa (sem metadata do turf como bbox)
-                const cleanFeature = {
+                results.push({
                     type: 'Feature',
                     properties: props,
                     geometry: {
                         type: buffered.geometry.type,
                         coordinates: buffered.geometry.coordinates,
                     },
-                };
-                results.push(cleanFeature);
+                });
             }
         } catch (error) {
             console.warn(`Buffer falhou para feição ${feature.properties?.id}:`, error);
@@ -393,7 +202,7 @@ registerAlgorithm({
     description: 'Cria uma área ao redor de um ponto, linha ou polígono a uma distância determinada, representando uma faixa de abrangência em torno da feição original.',
     icon: BUFFER_ICON,
     category: 'geometry',
-    supportedGeometryTypes: SUPPORTED_TYPES,
+    supportedGeometryTypes: SUPPORTED_GEOMETRY_TYPES,
     createPanel: createBufferPanel,
     execute: executeBuffer,
 });

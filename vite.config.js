@@ -1,7 +1,10 @@
 // vite.config.js
 import { defineConfig } from 'vite';
 import legacy from '@vitejs/plugin-legacy';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode: _mode }) => ({
   // ===== ROOT E ESTRUTURA =====
@@ -78,6 +81,11 @@ export default defineConfig(({ mode: _mode }) => ({
             return 'street-view';
           }
           // Import/export tools
+          // export-utils.js is shared between import_export (import-export chunk)
+          // and briefing/export (core chunk). Placing it in core breaks the cycle.
+          if (id.includes('import_export/export-utils')) {
+            return 'core';
+          }
           if (id.includes('import_export')) {
             return 'import-export';
           }
@@ -91,6 +99,13 @@ export default defineConfig(({ mode: _mode }) => ({
           // Analysis tools (LOS and visibility)
           if (id.includes('analysis_tools')) {
              return 'analysis-tools';
+          }
+          // point-marker-symbols.js is a leaf module (symbol definitions +
+          // canvas helpers, zero draw_tools imports). It lives under draw_tools/
+          // but is consumed by tool_manager/helpers/marker-symbol-picker (core).
+          // Routing it to core breaks the draw-tools <-> core cycle.
+          if (id.includes('draw_tools/point_tool/point-marker-symbols')) {
+            return 'core';
           }
           // Drawing tools
           if (id.includes('draw_tools')) {

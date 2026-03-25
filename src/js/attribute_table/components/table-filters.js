@@ -5,7 +5,7 @@
  */
 
 import { ATTRIBUTE_TABLE, ATTRIBUTE_TABLE_ICONS } from '../attribute-table.constants.js';
-import { FEATURE_DISPLAY_NAMES } from '../../store/store.constants.js';
+import { FEATURE_DISPLAY_NAMES } from '@store';
 
 /**
  * @typedef {Object} FilterState
@@ -82,13 +82,13 @@ function createSearchInput(initialValue, onChange) {
     clearBtn.className = 'attribute-table-search-clear';
     clearBtn.innerHTML = ATTRIBUTE_TABLE_ICONS.CLEAR;
     clearBtn.title = 'Limpar busca';
-    clearBtn.style.display = initialValue ? 'flex' : 'none';
+    clearBtn.classList.toggle('attribute-table-search-clear--hidden', !initialValue);
 
     // Debounce timer
     let debounceTimer = null;
 
     input.addEventListener('input', () => {
-        clearBtn.style.display = input.value ? 'flex' : 'none';
+        clearBtn.classList.toggle('attribute-table-search-clear--hidden', !input.value);
 
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
@@ -99,7 +99,7 @@ function createSearchInput(initialValue, onChange) {
     clearBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         input.value = '';
-        clearBtn.style.display = 'none';
+        clearBtn.classList.add('attribute-table-search-clear--hidden');
         clearTimeout(debounceTimer);
         onChange('');
         input.focus();
@@ -234,7 +234,7 @@ export function setSearchValue(filtersContainer, value) {
     }
 
     if (clearBtn) {
-        clearBtn.style.display = value ? 'flex' : 'none';
+        clearBtn.classList.toggle('attribute-table-search-clear--hidden', !value);
     }
 }
 

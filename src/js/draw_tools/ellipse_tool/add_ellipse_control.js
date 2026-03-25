@@ -6,9 +6,11 @@ import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addEllipseAttributesToPanel } from './ellipse_attributes_panel.js';
 import AddEllipseGeometry from './add_ellipse_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
+import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddEllipseControl extends BaseControl {
+    featureType = 'ellipse';
     constructor(toolManager) {
         super(toolManager);
 
@@ -47,38 +49,26 @@ class AddEllipseControl extends BaseControl {
         hatchType: 'none',
         hatchColor: '#000000',
         hatchSpacing: 8,
-        hatchLineWidth: 2
+        hatchLineWidth: 2,
+        ...LABEL_DEFAULT_PROPERTIES,
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
-
-    /**
-     * Get currently selected ellipse feature from SelectionManager
-     * @returns {Object|null} Selected ellipse feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('ellipse');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected ellipse features from SelectionManager
-     * @returns {Array} Array of selected ellipse features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('ellipse')
-            .map(item => item.feature);
-    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
     onAdd = (map) => {
         this.map = map;
+        map.on('zoom', this._onZoomForLabels);
     }
 
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
+        if (this.map) {
+            this.map.off('zoom', this._onZoomForLabels);
+        }
+        this.#labelZoom.cleanup();
         this.map = undefined;
     }
 
@@ -128,7 +118,7 @@ class AddEllipseControl extends BaseControl {
     }
 
     getLayerIds() {
-        return ['ellipse-fill-layer', 'ellipse-layer'];
+        return ['ellipse-fill-layer', 'ellipse-layer', 'ellipse-label-layer'];
     }
 
     getSourceNames() {
@@ -428,7 +418,8 @@ class AddEllipseControl extends BaseControl {
                 minorRadius: minorRadius,
                 bearing: bearing,
                 id: featureId,
-                nome: featureName
+                nome: featureName,
+                labelCreatedAtZoom: this.map.getZoom(),
             },
             geometry: this.geometry.generate(center, majorRadius, minorRadius, bearing)
         };
@@ -443,6 +434,7 @@ class AddEllipseControl extends BaseControl {
                 this.updateHatchPatterns(data);
             }
             this.map.getSource('ellipses').setData(data);
+            syncLabelSource(this.map, 'ellipse-labels', data);
 
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
@@ -610,7 +602,7 @@ class AddEllipseControl extends BaseControl {
         }
     }
 
-    _onEditPointerUp(_e) {
+    async _onEditPointerUp(_e) {
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -644,11 +636,11 @@ class AddEllipseControl extends BaseControl {
                     geometry: result.geometry
                 };
 
-                this.forceUpdateMainSource(updatedFeature);
+                await this.forceUpdateMainSource(updatedFeature);
                 this.updateSelectionManagerFeature(updatedFeature);
                 this.createEditHandles(updatedFeature);
                 this.updateUIAfterEdit();
-                this.saveFeatureChanges(updatedFeature);
+                await this.saveFeatureChanges(updatedFeature);
             }
         }
 
@@ -768,6 +760,10 @@ class AddEllipseControl extends BaseControl {
         );
     }
 
+    // ===== LABEL ZOOM CORRECTION =====
+    #labelZoom = createLabelZoomHandler(() => this.map, 'ellipses', 'ellipse-labels');
+    _onZoomForLabels = this.#labelZoom.handler;
+
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = async (features, property, value) => {
@@ -790,6 +786,10 @@ class AddEllipseControl extends BaseControl {
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
+
+                if (LABEL_ZOOM_PROPERTIES.has(property)) {
+                    recalcLabelSize(sourceFeature, feature, this.map.getZoom());
+                }
             }
         }
 
@@ -799,6 +799,7 @@ class AddEllipseControl extends BaseControl {
         }
 
         this.map.getSource('ellipses').setData(data);
+        syncLabelSource(this.map, 'ellipse-labels', data);
 
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -815,7 +816,6 @@ class AddEllipseControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('ellipses').getData();
-        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
@@ -823,7 +823,6 @@ class AddEllipseControl extends BaseControl {
 
                 if (currentFeature) {
                     await updateFeature('ellipses', currentFeature);
-                    _hasChanges = true;
                 }
             }
         }
@@ -851,6 +850,7 @@ class AddEllipseControl extends BaseControl {
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('ellipses').setData(data);
+                syncLabelSource(this.map, 'ellipse-labels', data);
             } catch (error) {
                 console.error(`Error removing ellipse ${feature.properties.id}:`, error);
             }
@@ -896,6 +896,7 @@ class AddEllipseControl extends BaseControl {
         }
 
         this.map.getSource('ellipses').setData(data);
+        syncLabelSource(this.map, 'ellipse-labels', data);
 
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
@@ -933,6 +934,7 @@ class AddEllipseControl extends BaseControl {
             feature.properties.hatchColor !== initialProperties.hatchColor ||
             feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
             feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
+            hasLabelChanged(feature, initialProperties) ||
             JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
         );
     }
@@ -946,7 +948,11 @@ class AddEllipseControl extends BaseControl {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
                     } else {
+                        const prevCalcSize = data.features[featureIndex].properties.labelCalculatedSize;
                         data.features[featureIndex] = feature;
+                        if (prevCalcSize !== undefined) {
+                            feature.properties.labelCalculatedSize = prevCalcSize;
+                        }
                     }
 
                     if (save) {
@@ -958,12 +964,10 @@ class AddEllipseControl extends BaseControl {
             }
 
             this.map.getSource('ellipses').setData(data);
+            syncLabelSource(this.map, 'ellipse-labels', data);
             this.updateSelectionManagerFeatures(features);
         }
     }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     /**
      * Update SelectionManager with current feature data
      * @param {Object} feature - Feature to update in SelectionManager
@@ -1009,12 +1013,10 @@ class AddEllipseControl extends BaseControl {
         const data = await this.map.getSource('ellipses').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
-            sourceFeature.properties = {
-                ...feature.properties,
-                center: feature.properties.center
-            };
+            sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('ellipses').setData(data);
+            syncLabelSource(this.map, 'ellipse-labels', data);
         }
     }
 

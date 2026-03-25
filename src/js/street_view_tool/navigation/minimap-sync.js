@@ -54,26 +54,6 @@ export class StreetViewMinimapSync {
     }
 
     /**
-     * No-op: cursor overlay removed to avoid duplicating vector tile points
-     */
-    setCursorPosition() {}
-
-    /**
-     * No-op: target overlay removed to avoid duplicating vector tile points
-     */
-    setTargets() {}
-
-    /**
-     * No-op: highlighting removed with target overlay
-     */
-    highlightTarget() {}
-
-    /**
-     * No-op: highlighting removed with target overlay
-     */
-    clearHighlight() {}
-
-    /**
      * Clears all minimap overlays
      */
     clear() {

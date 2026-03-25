@@ -1,4 +1,4 @@
-// Path: src/js/phone/phone-search-overlay.js
+// Path: js/phone/phone-search-overlay.js
 
 /**
  * @fileoverview Phone search overlay component.
@@ -33,14 +33,7 @@ const DEBOUNCE_DELAY_MS = 300;
  * Phone search overlay with floating pill and full-screen search mode.
  */
 export class PhoneSearchOverlay {
-    /**
-     * @param {Object} options
-     * @param {import('maplibre-gl').Map} options.map - MapLibre map instance
-     */
-    constructor({ map }) {
-        /** @private */
-        this._map = map;
-
+    constructor() {
         setupCleanup(this);
 
         /** @private @type {HTMLElement|null} */

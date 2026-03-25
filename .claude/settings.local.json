@@ -32,7 +32,15 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(node node_modules/vite/bin/vite.js build:*)",
       "Bash(node node_modules/eslint/bin/eslint.js:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(xargs grep -l \"glTF\\\\|GLB\\\\|gltf\\\\|glb\")",
+      "WebFetch(domain:www.esri.com)",
+      "WebFetch(domain:www.scitepress.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:orbat-mapper.app)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:docs.orbat-mapper.app)",
+      "WebFetch(domain:deepwiki.com)"
     ],
     "deny": [],
     "ask": []

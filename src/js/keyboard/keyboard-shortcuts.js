@@ -9,10 +9,10 @@
  * Both services disable this handler when active and re-enable when closed.
  */
 
-import { undoLastAction, redoLastAction, getStateManager, isCurrentMapLockedSync } from '../store';
-import { showConfirm } from '../modals/index.js';
-import { showInChannel } from '../utilities/toast_service.js';
-import { describeUndoRedoAction } from '../store/undo-redo-messages.js';
+import { undoLastAction, redoLastAction, getStateManager, isCurrentMapLockedSync } from '@store';
+import { showConfirm } from '@modals/index.js';
+import { showInChannel, showWarning } from '@utils/toast_service.js';
+import { describeUndoRedoAction } from '@store/undo-redo-messages.js';
 
 /**
  * Keyboard shortcuts manager for the SIG map
@@ -255,25 +255,30 @@ class KeyboardShortcuts {
             'b': this.controls.brushControl,
             'k': this.controls.coordinationMeasureControl,
             'z': this.controls.azimuthDistanceControl,
-            'u': this.controls.sectorControl
+            'u': this.controls.sectorControl,
+            'w': this.controls.declinationControl
         };
 
         const locked = isCurrentMapLockedSync();
 
         if (key === 'v') {
             if (locked) return;
+            e.preventDefault();
             if (this.map.getTerrain()) {
-                e.preventDefault();
                 this.toolManager.setActiveTool(this.controls.visibilityControl);
+            } else {
+                showWarning('Ative o terreno 3D para usar esta ferramenta');
             }
             return;
         }
 
         if (key === 'o') {
             if (locked) return;
+            e.preventDefault();
             if (this.map.getTerrain()) {
-                e.preventDefault();
                 this.toolManager.setActiveTool(this.controls.losControl);
+            } else {
+                showWarning('Ative o terreno 3D para usar esta ferramenta');
             }
             return;
         }

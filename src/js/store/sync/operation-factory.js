@@ -8,10 +8,12 @@
 import { generateUUID } from '../../utilities/uuid.js';
 import { isValidEntityType, isValidOperationType } from './operation-types.js';
 
+// ===== CLIENT IDENTITY =====
+
 /**
  * Client ID for this browser session.
  * Persisted to localStorage for consistency across page reloads.
- * @type {string}
+ * @type {string|null}
  */
 let clientId = null;
 
@@ -20,20 +22,13 @@ let clientId = null;
  * @returns {string} Client ID
  */
 export function getClientId() {
-    if (clientId) {
-        return clientId;
-    }
+    if (clientId) return clientId;
 
-    // Try to get from localStorage
-    const stored = localStorage.getItem('ebgeo_client_id');
-    if (stored) {
-        clientId = stored;
-        return clientId;
+    clientId = localStorage.getItem('ebgeo_client_id');
+    if (!clientId) {
+        clientId = generateUUID();
+        localStorage.setItem('ebgeo_client_id', clientId);
     }
-
-    // Generate new client ID
-    clientId = generateUUID();
-    localStorage.setItem('ebgeo_client_id', clientId);
     return clientId;
 }
 
@@ -45,9 +40,7 @@ export function resetClientId() {
     localStorage.removeItem('ebgeo_client_id');
 }
 
-// ============================================================================
-// LAMPORT CLOCK
-// ============================================================================
+// ===== LAMPORT CLOCK =====
 
 /**
  * Logical clock for causal ordering of operations across clients.
@@ -55,14 +48,14 @@ export function resetClientId() {
  * call advanceLamportClock(remoteTimestamp) to synchronize.
  * @type {number}
  */
-let _lamportClock = 0;
+let lamportClock = 0;
 
 /**
  * Gets the current Lamport clock value (without incrementing).
  * @returns {number} Current clock value
  */
 export function getLamportClock() {
-    return _lamportClock;
+    return lamportClock;
 }
 
 /**
@@ -71,8 +64,10 @@ export function getLamportClock() {
  * @param {number} remoteTimestamp - Lamport timestamp from the remote operation
  */
 export function advanceLamportClock(remoteTimestamp) {
-    _lamportClock = Math.max(_lamportClock, remoteTimestamp) + 1;
+    lamportClock = Math.max(lamportClock, remoteTimestamp) + 1;
 }
+
+// ===== OPERATION CREATION =====
 
 /**
  * @typedef {Object} Operation
@@ -120,13 +115,13 @@ export function createOperation(entityType, operationType, entityId, mapId, data
         data,
         previousData,
         timestamp: Date.now(),
-        lamportTimestamp: ++_lamportClock,
+        lamportTimestamp: ++lamportClock,
         clientId: getClientId()
     };
 }
 
 /**
- * Creates a batch of operations.
+ * Creates a batch of operations sharing the same batchId and wall-clock timestamp.
  *
  * @param {Array<{entityType: string, operationType: string, entityId: string, mapId?: string, data?: Object, previousData?: Object}>} operations - Operations to create
  * @returns {Operation[]} Array of created operations
@@ -145,7 +140,7 @@ export function createBatchOperations(operations) {
         data: op.data || null,
         previousData: op.previousData || null,
         timestamp,
-        lamportTimestamp: ++_lamportClock,
+        lamportTimestamp: ++lamportClock,
         clientId: client,
         batchId,
         batchIndex: index

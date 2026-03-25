@@ -5,11 +5,11 @@
  * Displays feature images in a grid with add button.
  */
 
-import userDataManager from '../../user_data/user_data_manager.js';
-import { getEventBus, isCurrentMapLockedSync } from '../../store/index.js';
-import { EventTypes, FeatureUpdateProperty } from '../../events/index.js';
-import { showConfirm } from '../../modals/index.js';
-import { showWarning } from '../../utilities';
+import userDataManager from '@js/user_data/user_data_manager.js';
+import { getEventBus, isCurrentMapLockedSync } from '@store/index.js';
+import { EventTypes, FeatureUpdateProperty } from '@events/index.js';
+import { showConfirm } from '@modals/index.js';
+import { showWarning } from '@utils/index.js';
 
 /** @type {Array<Object>|null} Current gallery images for viewer navigation */
 let _viewerImages = null;
@@ -70,7 +70,7 @@ export async function createPhotoGallery(options) {
     fileInput.type = 'file';
     fileInput.accept = 'image/jpeg,image/png,image/gif,image/webp';
     fileInput.multiple = true;
-    fileInput.style.display = 'none';
+    fileInput.className = 'feature-photo-gallery__file-input';
     container.appendChild(fileInput);
 
     /**
@@ -289,9 +289,9 @@ function openImageViewer(imageData, allImages = []) {
     function updateCounter() {
         if (_viewerImages) {
             counterLabel.textContent = `${currentIndex + 1} / ${_viewerImages.length}`;
-            counterLabel.style.display = '';
+            counterLabel.classList.remove('feature-photo-viewer-counter--hidden');
         } else {
-            counterLabel.style.display = 'none';
+            counterLabel.classList.add('feature-photo-viewer-counter--hidden');
         }
     }
 

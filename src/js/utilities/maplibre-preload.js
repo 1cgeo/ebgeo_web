@@ -1,3 +1,4 @@
+// Path: js/utilities/maplibre-preload.js
 /**
  * @module utilities/maplibre-preload
  * @description MapLibre tile preloading plugin.
@@ -9,10 +10,6 @@
  *
  * @dependencies maplibre-gl
  */
-
-// ============================================================================
-// MAPLIBRE PRELOAD
-// ============================================================================
 
 const PATCHED_METHODS = ['flyTo', 'panTo', 'easeTo', 'zoomTo'];
 
@@ -47,25 +44,17 @@ export class MaplibrePreload {
         }
     }
 
-    // =========================================================================
-    // PATCHING
-    // =========================================================================
-
     /**
      * Patches map movement methods to inject tile preloading.
      * Saves original references for unpatch().
      * @private
      */
     _patchMoveMethods() {
-        PATCHED_METHODS.forEach(method => {
+        for (const method of PATCHED_METHODS) {
             this._originals[method] = this.map[method].bind(this.map);
 
             this.map[method] = async (options) => {
-                // Cancel any pending preload requests from a previous movement
-                Object.keys(this.controller).forEach(a => {
-                    this.controller[a].abort('cancelling due to new movement');
-                    delete this.controller[a];
-                });
+                this._abortAllControllers('cancelling due to new movement');
 
                 if (this.async) {
                     await this._preloadTilesForMove(method, options);
@@ -75,7 +64,7 @@ export class MaplibrePreload {
 
                 return this._originals[method](options);
             };
-        });
+        }
     }
 
     /**
@@ -83,21 +72,15 @@ export class MaplibrePreload {
      * Call this when tile preloading is no longer needed.
      */
     unpatch() {
-        // Restore original movement methods
-        PATCHED_METHODS.forEach(method => {
+        for (const method of PATCHED_METHODS) {
             if (this._originals[method]) {
                 this.map[method] = this._originals[method];
             }
-        });
+        }
         this._originals = {};
 
-        // Cancel any pending preload requests
-        Object.keys(this.controller).forEach(a => {
-            this.controller[a].abort('unpatching');
-            delete this.controller[a];
-        });
+        this._abortAllControllers('unpatching');
 
-        // Remove sourcedata listener if still active
         if (this.map._captureTileClass) {
             this.map.off('sourcedata', this.map._captureTileClass);
             delete this.map._captureTileClass;
@@ -106,9 +89,17 @@ export class MaplibrePreload {
         this.map = null;
     }
 
-    // =========================================================================
-    // TILE CLASS CAPTURE
-    // =========================================================================
+    /**
+     * Aborts all pending preload requests and clears the controller map.
+     * @private
+     * @param {string} reason - Abort reason for diagnostics
+     */
+    _abortAllControllers(reason) {
+        for (const [key, ctrl] of Object.entries(this.controller)) {
+            ctrl.abort(reason);
+            delete this.controller[key];
+        }
+    }
 
     /**
      * Captures the internal Tile and OverscaledTileID constructors.
@@ -118,7 +109,6 @@ export class MaplibrePreload {
      * @private
      */
     _captureTileClass() {
-        // Try immediate capture from existing tiles
         for (const sourceId in this.map.style.sourceCaches) {
             const sourceCache = this.map.style.sourceCaches[sourceId];
             const tileKeys = Object.keys(sourceCache._tiles || {});
@@ -132,8 +122,7 @@ export class MaplibrePreload {
             }
         }
 
-        // Fallback: capture from the next sourcedata event
-        this.map._captureTileClass = e => {
+        this.map._captureTileClass = (e) => {
             if (e.tile && e.tile.tileID) {
                 e.target.Tile = e.tile.constructor;
                 e.target.OverscaledTileID = e.tile.tileID.constructor;
@@ -142,10 +131,6 @@ export class MaplibrePreload {
         };
         this.map.on('sourcedata', this.map._captureTileClass);
     }
-
-    // =========================================================================
-    // PRELOADING
-    // =========================================================================
 
     /**
      * Main preload entry point for a movement method call.
@@ -175,26 +160,14 @@ export class MaplibrePreload {
             pitch: options.pitch !== undefined ? options.pitch : start.pitch
         };
 
-        // Sample animation path frames
-        let samples;
-        if (method === 'flyTo') {
-            samples = this._sampleFlyToPath(start, end, options);
-        } else if (method === 'panTo') {
-            samples = this._samplePanToPath(start, end, options);
-        } else if (method === 'easeTo') {
-            samples = this._sampleEaseToPath(start, end, options);
-        } else if (method === 'zoomTo') {
-            samples = this._sampleZoomToPath(start, end, options);
-        } else {
-            samples = [end];
-        }
+        const samples = this._samplePath(method, start, end, options);
 
         // Preload final destination tiles first (highest priority)
         const endRequests = {};
         const endPerSource = this._getVisibleTilesPerSource(end, 0);
         for (const [sourceId, tiles] of Object.entries(endPerSource)) {
             if (!endRequests[sourceId]) endRequests[sourceId] = new Set();
-            tiles.forEach(t => endRequests[sourceId].add(t));
+            for (const t of tiles) endRequests[sourceId].add(t);
         }
         await this._preloadTilesInternal(endRequests);
 
@@ -221,23 +194,33 @@ export class MaplibrePreload {
 
             for (const [sourceId, tiles] of Object.entries(perSource)) {
                 if (!tileRequests[sourceId]) tileRequests[sourceId] = new Set();
-                tiles.forEach(t => tileRequests[sourceId].add(t));
+                for (const t of tiles) tileRequests[sourceId].add(t);
             }
         }
         await this._preloadTilesInternal(tileRequests);
     }
 
-    // =========================================================================
-    // PATH SAMPLING
-    // =========================================================================
-
-    /** @private */
-    _sampleFlyToPath(_start, _end, options) {
-        return this._flyToFrames(options);
+    /**
+     * Dispatches to the appropriate path sampling method.
+     * @private
+     * @param {string} method - Movement method name
+     * @param {Object} start - Start camera state
+     * @param {Object} end - End camera state
+     * @param {Object} options - Original movement options
+     * @returns {Object[]} Sampled camera frames
+     */
+    _samplePath(method, start, end, options) {
+        switch (method) {
+            case 'flyTo':  return this._flyToFrames(options);
+            case 'panTo':  return this._samplePanToPath(start, end);
+            case 'easeTo': return this._sampleEaseToPath(start, end);
+            case 'zoomTo': return this._sampleZoomToPath(start, end);
+            default:       return [end];
+        }
     }
 
     /** @private */
-    _samplePanToPath(start, end, _options) {
+    _samplePanToPath(start, end) {
         const totalFrames = Math.ceil((this.duration / 1000) * this.fps);
         const samples = [end];
         for (let i = 1; i < totalFrames; i++) {
@@ -253,7 +236,7 @@ export class MaplibrePreload {
     }
 
     /** @private */
-    _sampleEaseToPath(start, end, _options) {
+    _sampleEaseToPath(start, end) {
         const totalFrames = Math.ceil((this.duration / 1000) * this.fps);
         const samples = [end];
         for (let i = 1; i < totalFrames; i++) {
@@ -269,7 +252,7 @@ export class MaplibrePreload {
     }
 
     /** @private */
-    _sampleZoomToPath(start, end, _options) {
+    _sampleZoomToPath(start, end) {
         const totalFrames = Math.ceil((this.duration / 1000) * this.fps);
         const samples = [end];
         for (let i = 1; i < totalFrames; i++) {
@@ -284,16 +267,12 @@ export class MaplibrePreload {
         return samples;
     }
 
-    // =========================================================================
-    // TILE CALCULATION
-    // =========================================================================
-
     /**
      * Gets visible tiles per source for a given camera state.
      * @private
      * @param {Object} state - Camera state { center, zoom, bearing, pitch }
      * @param {number} [factor=0] - Viewport shrink factor (0 = full, >0 = smaller)
-     * @returns {Object<string, string[]>} Map of sourceId → tile keys ("z|x|y")
+     * @returns {Object<string, string[]>} Map of sourceId to tile keys ("z|x|y")
      */
     _getVisibleTilesPerSource({ center, zoom, bearing, pitch }, factor = 0) {
         const perSource = {};
@@ -314,13 +293,6 @@ export class MaplibrePreload {
      * @private
      */
     _getVisibleTileRange(source, { zoom, pitch }, factor) {
-        function lngLatToTile(lng, lat, z) {
-            const z2 = Math.pow(2, z);
-            const x = z2 * ((lng + 180) / 360);
-            const y = z2 * (1 - (Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) / Math.PI)) / 2;
-            return [x, y];
-        }
-
         const tr = this.map.transform;
         const width = tr.width;
         const height = tr.height;
@@ -333,10 +305,10 @@ export class MaplibrePreload {
             [width * factor, height * (1 - factor)]
         ];
 
-        const cornerLngLat = cornerPoints.map(
-            p => this.map.transform.screenPointToLocation({ x: p[0], y: p[1] })
-        );
         const floorZoom = Math.floor(zoom);
+        const cornerLngLat = cornerPoints.map(
+            p => tr.screenPointToLocation({ x: p[0], y: p[1] })
+        );
         const tileCoords = cornerLngLat.map(c => lngLatToTile(c.lng, c.lat, floorZoom));
         const xs = tileCoords.map(([x]) => x);
         const ys = tileCoords.map(([, y]) => y);
@@ -356,14 +328,10 @@ export class MaplibrePreload {
         return tiles;
     }
 
-    // =========================================================================
-    // TILE LOADING
-    // =========================================================================
-
     /**
      * Preloads tiles using either MapLibre internal loading or HTTP fetch.
      * @private
-     * @param {Object<string, Set<string>>} tileRequests - sourceId → Set of "z|x|y" keys
+     * @param {Object<string, Set<string>>} tileRequests - sourceId to Set of "z|x|y" keys
      */
     async _preloadTilesInternal(tileRequests) {
         if (this.useTile) {
@@ -377,21 +345,20 @@ export class MaplibrePreload {
      * @private
      */
     async _preloadViaTileClass(tileRequests) {
-        // Tile class not captured yet — skip silently
         if (!this.map.Tile || !this.map.OverscaledTileID) return;
 
-        const tileArray = [];
+        const tilePromises = [];
         for (const [sourceId, tileSet] of Object.entries(tileRequests)) {
             const source = this.map.getSource(sourceId);
-            const tileSize = source.tileSize;
-            for (const t of [...tileSet]) {
+            const { tileSize } = source;
+            for (const t of tileSet) {
                 const [z, x, y] = t.split('|');
                 const tileID = new this.map.OverscaledTileID(z, 0, z, x, y);
                 const tile = new this.map.Tile(tileID, tileSize);
-                tileArray.push(source.loadTile(tile));
+                tilePromises.push(source.loadTile(tile));
             }
         }
-        return Promise.allSettled(tileArray);
+        return Promise.allSettled(tilePromises);
     }
 
     /**
@@ -399,29 +366,24 @@ export class MaplibrePreload {
      * @private
      */
     async _preloadViaFetch(tileRequests) {
-        const uuid = this._uuid();
+        const uuid = Math.random().toString(36).slice(2) + Date.now().toString(36);
         this.controller[uuid] = new AbortController();
 
         const timeoutId = setTimeout(() => {
             this.controller[uuid]?.abort('timeout');
         }, this.duration * 5);
 
-        const cleanup = () => {
-            delete this.controller[uuid];
-            clearTimeout(timeoutId);
-        };
-
-        const fetchArray = [];
+        const fetchPromises = [];
         for (const [sourceId, tileSet] of Object.entries(tileRequests)) {
             const source = this.map.getSource(sourceId);
-            for (const tile of [...tileSet]) {
+            for (const tile of tileSet) {
                 const [z, x, y] = tile.split('|');
                 const url = source.tiles[0]
                     .replace('{z}', z)
                     .replace('{x}', x)
                     .replace('{y}', y);
                 try {
-                    fetchArray.push(
+                    fetchPromises.push(
                         fetch(url, { signal: this.controller[uuid].signal })
                     );
                 } catch (e) {
@@ -431,10 +393,10 @@ export class MaplibrePreload {
         }
 
         try {
-            const responses = await Promise.allSettled(fetchArray);
+            const responses = await Promise.allSettled(fetchPromises);
             let loaded = 0;
             let failed = 0;
-            responses.forEach(r => {
+            for (const r of responses) {
                 if (r.status !== 'fulfilled' || !r.value?.ok) {
                     failed++;
                 } else {
@@ -443,21 +405,18 @@ export class MaplibrePreload {
                 if (this.progressCallback) {
                     this.progressCallback({
                         loaded,
-                        total: fetchArray.length,
+                        total: fetchPromises.length,
                         failed
                     });
                 }
-            });
+            }
         } catch (e) {
             console.warn('Tile fetch error:', e);
         }
 
-        cleanup();
+        delete this.controller[uuid];
+        clearTimeout(timeoutId);
     }
-
-    // =========================================================================
-    // FLYTO FRAME CALCULATION
-    // =========================================================================
 
     /**
      * Calculates intermediate frames for a flyTo animation.
@@ -551,10 +510,6 @@ export class MaplibrePreload {
         return frames;
     }
 
-    // =========================================================================
-    // UTILITIES
-    // =========================================================================
-
     /** @private */
     _interpolateLinear(a, b, t) {
         return a + (b - a) * t;
@@ -567,20 +522,18 @@ export class MaplibrePreload {
             lat: this._interpolateLinear(a.lat, b.lat, t)
         };
     }
+}
 
-    /** @private */
-    _uuid() {
-        const lut = [];
-        const d0 = Math.random() * 0xffffffff | 0;
-        const d1 = Math.random() * 0xffffffff | 0;
-        const d2 = Math.random() * 0xffffffff | 0;
-        const d3 = Math.random() * 0xffffffff | 0;
-        for (let i = 0; i < 256; i++) {
-            lut[i] = (i < 16 ? '0' : '') + i.toString(16);
-        }
-        return lut[d0 & 0xff] + lut[d0 >> 8 & 0xff] + lut[d0 >> 16 & 0xff] + lut[d0 >> 24 & 0xff] + '-' +
-            lut[d1 & 0xff] + lut[d1 >> 8 & 0xff] + '-' + lut[d1 >> 16 & 0x0f | 0x40] + lut[d1 >> 24 & 0xff] + '-' +
-            lut[d2 & 0x3f | 0x80] + lut[d2 >> 8 & 0xff] + '-' + lut[d2 >> 16 & 0xff] + lut[d2 >> 24 & 0xff] +
-            lut[d3 & 0xff] + lut[d3 >> 8 & 0xff] + lut[d3 >> 16 & 0xff] + lut[d3 >> 24 & 0xff];
-    }
+/**
+ * Converts lng/lat to tile coordinates at a given zoom level.
+ * @param {number} lng - Longitude
+ * @param {number} lat - Latitude
+ * @param {number} z - Zoom level
+ * @returns {number[]} [x, y] tile coordinates (fractional)
+ */
+function lngLatToTile(lng, lat, z) {
+    const z2 = Math.pow(2, z);
+    const x = z2 * ((lng + 180) / 360);
+    const y = z2 * (1 - (Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) / Math.PI)) / 2;
+    return [x, y];
 }

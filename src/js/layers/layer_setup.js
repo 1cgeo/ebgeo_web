@@ -10,7 +10,8 @@ import { initGridLayers } from '../grid/index.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
 
-import { updateAllLayerFilters, invalidateFilterCache } from './visibility-filter.js';
+import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
+import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
 import {
     setupPointLayers,
     setupLineLayers,
@@ -25,6 +26,7 @@ import {
     setupArrowLayers,
     setupMilitarySymbolsLayers,
     setupCoordinationMeasureLayers,
+    setupDeclinationLayers,
     setupBoundaryLayers,
     setupOccupiedFrontLayers,
     setupLOSLayers,
@@ -80,6 +82,22 @@ function createErrorImage() {
 }
 
 /**
+ * Adds an error placeholder image to the map if the image ID is not already registered.
+ * @param {string} imageId - Image ID
+ * @param {Object} mapInstance - MapLibre map instance
+ */
+async function addErrorImageIfNeeded(imageId, mapInstance) {
+    try {
+        const errorImage = await createErrorImage();
+        if (!mapInstance.hasImage(imageId)) {
+            mapInstance.addImage(imageId, errorImage);
+        }
+    } catch (err) {
+        console.error(`Erro ao criar imagem de erro para ${imageId}:`, err);
+    }
+}
+
+/**
  * Loads a single image to the map.
  * @param {string} imageId - Image ID
  * @param {Object} mapInstance - MapLibre map instance
@@ -90,80 +108,45 @@ async function loadSingleImage(imageId, mapInstance) {
 
         if (!blob) {
             console.warn(`Imagem ${imageId} não encontrada no store, usando imagem de erro`);
-            try {
-                const errorImage = await createErrorImage();
-                if (!mapInstance.hasImage(imageId)) {
-                    mapInstance.addImage(imageId, errorImage);
-                }
-                return;
-            } catch (errorImageError) {
-                console.error(`Erro ao criar imagem de erro para ${imageId}:`, errorImageError);
-                return;
-            }
+            await addErrorImageIfNeeded(imageId, mapInstance);
+            return;
         }
 
         const url = URL.createObjectURL(blob);
 
         return new Promise((resolve, reject) => {
             const image = new Image();
+            let settled = false;
 
-            image.onload = () => {
-                try {
-                    if (!mapInstance.hasImage(imageId)) {
-                        mapInstance.addImage(imageId, image);
-                    }
-                    URL.revokeObjectURL(url);
-                    resolve();
-                } catch (error) {
-                    reject(error);
+            function settle(fn) {
+                if (settled) return;
+                settled = true;
+                URL.revokeObjectURL(url);
+                fn();
+            }
+
+            image.onload = () => settle(() => {
+                if (!mapInstance.hasImage(imageId)) {
+                    mapInstance.addImage(imageId, image);
                 }
-            };
+                resolve();
+            });
 
-            image.onerror = () => {
-                URL.revokeObjectURL(url);
+            image.onerror = () => settle(() => {
                 console.warn(`Falha ao carregar imagem ${imageId}, usando imagem de erro`);
-                createErrorImage()
-                    .then(errorImage => {
-                        if (!mapInstance.hasImage(imageId)) {
-                            mapInstance.addImage(imageId, errorImage);
-                        }
-                        resolve();
-                    })
-                    .catch(errorImageError => {
-                        console.error(`Erro ao criar imagem de erro para ${imageId}:`, errorImageError);
-                        reject(new Error(`Falha ao carregar imagem ${imageId}`));
-                    });
-            };
+                addErrorImageIfNeeded(imageId, mapInstance).then(resolve, reject);
+            });
 
-            setTimeout(() => {
-                URL.revokeObjectURL(url);
-                // console.warn(`Timeout ao carregar imagem ${imageId}, usando imagem de erro`);
-                createErrorImage()
-                    .then(errorImage => {
-                        if (!mapInstance.hasImage(imageId)) {
-                            mapInstance.addImage(imageId, errorImage);
-                        }
-                        resolve();
-                    })
-                    .catch(errorImageError => {
-                        console.error(`Erro ao criar imagem de erro para ${imageId}:`, errorImageError);
-                        reject(new Error(`Timeout ao carregar imagem ${imageId}`));
-                    });
-            }, 10000);
+            setTimeout(() => settle(() => {
+                addErrorImageIfNeeded(imageId, mapInstance).then(resolve, reject);
+            }), 10000);
 
             image.src = url;
         });
 
     } catch (error) {
         console.warn(`Erro ao processar imagem ${imageId}:`, error);
-        try {
-            const errorImage = await createErrorImage();
-            if (!mapInstance.hasImage(imageId)) {
-                mapInstance.addImage(imageId, errorImage);
-            }
-        } catch (errorImageError) {
-            console.error(`Erro ao criar imagem de erro para ${imageId}:`, errorImageError);
-        }
+        await addErrorImageIfNeeded(imageId, mapInstance);
     }
 }
 
@@ -173,25 +156,37 @@ async function loadSingleImage(imageId, mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 async function setImages(features, mapInstance) {
-    const imagePromises = [];
-
     const allImageFeatures = [
-        ...(features.images),
-        ...(features.military_symbols),
-        ...(features.coordination_measures || [])
+        ...features.images,
+        ...features.military_symbols,
+        ...(features.coordination_measures || []),
+        ...(features.magnetic_declinations || [])
     ];
+
+    const imagePromises = [];
 
     for (const feature of allImageFeatures) {
         const imageId = feature.properties.id;
-        if (!imageId) continue;
-
-        if (mapInstance.hasImage(imageId)) continue;
-
-        const imagePromise = loadSingleImage(imageId, mapInstance);
-        imagePromises.push(imagePromise);
+        if (!imageId || mapInstance.hasImage(imageId)) continue;
+        imagePromises.push(loadSingleImage(imageId, mapInstance));
     }
 
     await Promise.allSettled(imagePromises);
+
+    // Generate per-feature canvas images for non-circle point markers
+    for (const feature of (features.points || [])) {
+        const props = feature.properties;
+        if (!needsPerFeatureImage(props.markerSymbol)) continue;
+        if (mapInstance.hasImage(props.id)) continue;
+
+        const imageData = generatePointImage(
+            props.markerSymbol,
+            props.fillColor || '#3f4fb5',
+            props.lineColor || '#000000',
+            props.lineWidth || 0,
+        );
+        mapInstance.addImage(props.id, imageData, { pixelRatio: 2 });
+    }
 }
 
 /**
@@ -199,18 +194,13 @@ async function setImages(features, mapInstance) {
  * Hillshade is restored via catalog layers.
  * @param {Object} mapInstance - MapLibre map instance
  */
-async function restoreTerrainState(_mapInstance) {
+async function restoreTerrainState() {
     try {
         const terrainControl = getControl('TerrainControl');
 
-        if (!terrainControl) {
-            return;
-        }
-
-        if (terrainControl.terrainConfig) {
+        if (terrainControl?.terrainConfig) {
             await terrainControl._setupTerrainSources();
         }
-
     } catch (error) {
         console.warn('Error restoring terrain state:', error);
     }
@@ -227,27 +217,15 @@ async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLaye
     try {
         const catalogLayers = await getCatalogLayers();
 
-        if (!catalogLayers || catalogLayers.length === 0) {
-            return;
-        }
+        if (!catalogLayers?.length) return;
 
         const terrainControl = getControl('TerrainControl');
 
         for (const layer of catalogLayers) {
-            // Skip unavailable layers
-            if (layer.status === 'unavailable') {
-                continue;
-            }
-
-            // Only restore if layer was visible
-            if (!layer.visible) {
-                continue;
-            }
+            if (layer.status === 'unavailable' || !layer.visible) continue;
 
             if (layer.type === CATALOG_ITEM_TYPES.HILLSHADE) {
-                if (terrainControl?.setHillshadeVisibility) {
-                    terrainControl.setHillshadeVisibility(true);
-                }
+                terrainControl?.setHillshadeVisibility?.(true);
             } else if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
                 await analysisLayersManager.toggleLayer(layer.config?.id, true);
             } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
@@ -263,55 +241,38 @@ async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLaye
  * Clears all measurement labels from the map.
  */
 function clearAllMeasurements() {
-    try {
-        const measurementLabels = document.querySelectorAll('.measurement-label');
-        measurementLabels.forEach(label => {
-            const parentMarker = label.closest('.maplibregl-marker');
-            if (parentMarker) {
-                parentMarker.remove();
-            } else {
-                label.remove();
-            }
-        });
-
-    } catch (error) {
-        console.warn('Error clearing old measurements:', error);
-    }
+    const measurementLabels = document.querySelectorAll('.measurement-label');
+    measurementLabels.forEach(label => {
+        const parentMarker = label.closest('.maplibregl-marker');
+        if (parentMarker) {
+            parentMarker.remove();
+        } else {
+            label.remove();
+        }
+    });
 }
 
 /**
  * Restores measurements for features.
  * @param {Object} features - Feature collection
- * @param {Object} mapInstance - MapLibre map instance
  */
-function restoreMeasurements(features, _mapInstance) {
+function restoreMeasurements(features) {
     try {
-        const lineControl = getControl('AddLineControl');
-        const polygonControl = getControl('AddPolygonControl');
-        const losControl = getControl('AddLOSControl');
+        const controlFeaturePairs = [
+            ['AddLineControl', features.lines],
+            ['AddPolygonControl', features.polygons],
+            ['AddLOSControl', features.los],
+        ];
 
-        if (lineControl && features.lines) {
-            features.lines.forEach(feature => {
-                if (feature.properties?.measure) {
-                    lineControl.updateFeatureMeasurement(feature);
-                }
-            });
-        }
+        for (const [controlName, featureList] of controlFeaturePairs) {
+            const control = getControl(controlName);
+            if (!control || !featureList) continue;
 
-        if (polygonControl && features.polygons) {
-            features.polygons.forEach(feature => {
+            for (const feature of featureList) {
                 if (feature.properties?.measure) {
-                    polygonControl.updateFeatureMeasurement(feature);
+                    control.updateFeatureMeasurement(feature);
                 }
-            });
-        }
-
-        if (losControl) {
-            features.los.forEach(feature => {
-                if (feature.properties?.measure) {
-                    losControl.updateFeatureMeasurement(feature);
-                }
-            });
+            }
         }
     } catch (error) {
         console.warn('Error restoring measurements:', error);
@@ -326,20 +287,13 @@ function restoreMeasurements(features, _mapInstance) {
 function restoreBoundaryDependentFeatures(features, mapInstance) {
     try {
         const boundaryControl = getControl('AddBoundaryControl');
+        const emptyCollection = { type: 'FeatureCollection', features: [] };
 
         // Clear existing circles and texts before restoring (fixes persistence bug on map switch)
-        const circlesSource = mapInstance.getSource('boundary-circles');
-        const textsSource = mapInstance.getSource('boundary-texts');
-        if (circlesSource) {
-            circlesSource.setData({ type: 'FeatureCollection', features: [] });
-        }
-        if (textsSource) {
-            textsSource.setData({ type: 'FeatureCollection', features: [] });
-        }
+        mapInstance.getSource('boundary-circles')?.setData(emptyCollection);
+        mapInstance.getSource('boundary-texts')?.setData(emptyCollection);
 
-        if (!boundaryControl || !features.boundarys?.length) {
-            return;
-        }
+        if (!boundaryControl || !features.boundarys?.length) return;
 
         features.boundarys.forEach((boundaryFeature, index) => {
             try {
@@ -379,7 +333,6 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
                 }
 
                 boundaryFeature.properties.baseCoordinates = validCoords;
-
                 boundaryControl.updateDependentFeatures(boundaryFeature);
 
             } catch (featureError) {
@@ -400,30 +353,18 @@ async function setupGridLayers(mapInstance) {
     initGridLayers(mapInstance);
     try {
         const mouseCoordinatesControl = getControl('MouseCoordinatesControl');
-
-        if (!mouseCoordinatesControl) {
-            console.warn('MouseCoordinatesControl not found');
-            return;
-        }
-
-        const gridControl = mouseCoordinatesControl.gridControl;
+        const gridControl = mouseCoordinatesControl?.gridControl;
 
         if (!gridControl) {
             console.warn('Grid control not found');
             return;
         }
+
         const mapName = getCurrentMapNameSync();
         const savedGrid = await getGridStyle(mapName);
+        const format = savedGrid?.format ?? 'latlong';
+        const visible = savedGrid?.visible ?? false;
 
-        let format = 'latlong';
-        let visible = false;
-
-        if (savedGrid) {
-            format = savedGrid.format ?? 'latlong';
-            visible = savedGrid.visible ?? false;
-        }
-
-        // Sync internal state before applying visibility
         gridControl.syncState(format, visible);
         gridControl._getGrid(format, visible, false);
         gridControl._updateButtonState(visible);
@@ -440,11 +381,11 @@ async function setupGridLayers(mapInstance) {
  * @returns {Function} Unsubscribe function
  */
 function setupLayerVisibilityListener(mapInstance, eventBus) {
-    const handler = () => {
+    return eventBus.on(EventTypes.LAYERS_CHANGED, () => {
         invalidateFilterCache();
         updateAllLayerFilters(mapInstance);
-    };
-    return eventBus.on(EventTypes.LAYERS_CHANGED, handler);
+        updateMeasurementLabelVisibility();
+    });
 }
 
 /**
@@ -460,12 +401,11 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
 
         setupLayerSeparators(mapInstance);
 
-        await restoreTerrainState(mapInstance);
+        await restoreTerrainState();
 
         await analysisLayersManager.setupAnalysisLayers();
         await dataLayersManager.setupDataLayers();
 
-        // Restore catalog layers (hillshade, analysis, data) from saved state
         await restoreCatalogLayers(mapInstance, analysisLayersManager, dataLayersManager);
 
         const features = await getCurrentMapFeatures();
@@ -487,12 +427,13 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         setupPointLayers(features, mapInstance);
         setupMilitarySymbolsLayers(features, mapInstance);
         setupCoordinationMeasureLayers(features, mapInstance);
+        setupDeclinationLayers(features, mapInstance);
         setupTextLayers(features, mapInstance);
         setupAuxiliaryLayers(mapInstance);
         setupMeasurementLayers(mapInstance);
 
         if (config.features.grid) {
-            setupGridLayers(mapInstance);
+            await setupGridLayers(mapInstance);
         }
 
         setupLayerVisibilityListener(mapInstance, eventBus);
@@ -500,7 +441,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
 
         requestAnimationFrame(() => {
             clearAllMeasurements();
-            restoreMeasurements(features, mapInstance);
+            restoreMeasurements(features);
             restoreBoundaryDependentFeatures(features, mapInstance);
         });
     } catch (error) {

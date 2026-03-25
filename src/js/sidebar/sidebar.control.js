@@ -15,18 +15,17 @@ import { LayersTab } from './tabs/layers.tab.js';
 import { BriefingsTab } from './tabs/briefings.tab.js';
 import { ImportTab } from './tabs/import.tab.js';
 import { ExportTab } from './tabs/export.tab.js';
-import { ProcessingTab, createProcessingPanel, getAlgorithm } from '../processing/index.js';
-import { EventTypes } from '../events/event_types.js';
+import { ProcessingTab, createProcessingPanel, getAlgorithm } from '@js/processing/index.js';
+import { EventTypes } from '@events/event_types.js';
 import {
     setupCleanup,
     subscribe,
-    addDomListener as _addDomListener,
+    addDomListener,
     cleanup,
     removeElement
-} from '../utilities/event-cleanup.js';
-import { isTouchDevice } from '../utilities/pointer-utils.js';
-import { injectTabbedPanelStyles } from '../tool_manager/tabbed_attribute_panel.js';
-import { renderAttributesContent as _renderAttributesContent } from '../user_data/attributes_tab_renderer.js';
+} from '@utils/event-cleanup.js';
+import { isTouchDevice } from '@utils/pointer-utils.js';
+import { injectTabbedPanelStyles } from '@tools/tabbed_attribute_panel.js';
 import {
     setCurrentMap,
     getCurrentMapName,
@@ -34,13 +33,10 @@ import {
     getMapOrder,
     getAllMapBadgeColors,
     getControl
-} from '../store/index.js';
-// Extracted panel modules
+} from '@store/index.js';
 import { createNotesPanelContent } from './panels/notes-panel.js';
 import { createVectorInfoPanelContent } from './panels/vector-info-panel.js';
 import { createFeaturePanelContent } from './panels/feature-panel-content.js';
-
-// Extracted 3D/360 handlers
 import {
     handleMarker3dClick,
     handleMarker3dDeselect,
@@ -180,7 +176,7 @@ export class SidebarControl {
         this._backdrop = document.createElement('div');
         this._backdrop.className = 'sidebar-backdrop';
         document.body.appendChild(this._backdrop);
-        _addDomListener(this, this._backdrop, 'click', () => {
+        addDomListener(this, this._backdrop, 'click', () => {
             this._stateManager.collapseSidebar();
         });
 
@@ -231,9 +227,9 @@ export class SidebarControl {
             isDragging = false;
         };
 
-        _addDomListener(this, panel, 'touchstart', onTouchStart, { passive: true });
-        _addDomListener(this, panel, 'touchmove', onTouchMove, { passive: true });
-        _addDomListener(this, panel, 'touchend', onTouchEnd);
+        addDomListener(this, panel, 'touchstart', onTouchStart, { passive: true });
+        addDomListener(this, panel, 'touchmove', onTouchMove, { passive: true });
+        addDomListener(this, panel, 'touchend', onTouchEnd);
     }
 
     /**
@@ -547,7 +543,7 @@ export class SidebarControl {
         this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
             sidebarExpanded: false,
             featurePanelOpen: true,
-            contentLeftOffset: 376
+            contentLeftOffset: SIDEBAR_DIMENSIONS.TOTAL_EXPANDED_WIDTH
         });
 
         // Cleanup previous content
@@ -757,7 +753,7 @@ export class SidebarControl {
         this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
             sidebarExpanded: false,
             featurePanelOpen: true,
-            contentLeftOffset: 376
+            contentLeftOffset: SIDEBAR_DIMENSIONS.TOTAL_EXPANDED_WIDTH
         });
 
         // Cleanup previous content
@@ -776,6 +772,10 @@ export class SidebarControl {
     async _showFeatureContent(featureId, featureType) {
         // Increment version to invalidate any in-flight async render
         const version = ++this._featureContentVersion;
+
+        // Preserve the currently active tab so we can restore it after rebuild
+        const previousActiveTab = this._featurePanel.getContentContainer()
+            ?.querySelector('.feature-tab-btn.active')?.dataset?.tabId || null;
 
         // Save pending changes from previous feature before replacing content
         this._featurePanel._triggerSave();
@@ -797,7 +797,8 @@ export class SidebarControl {
                     featureType,
                     selectionManager: this._selectionManager,
                     uiManager: this._uiManager,
-                    map: this._mapManager?.map
+                    map: this._mapManager?.map,
+                    activeTab: previousActiveTab
                 });
 
                 // Discard if a newer selection happened while awaiting
@@ -967,6 +968,20 @@ export class SidebarControl {
                         console.warn('Briefing presenter control not found');
                     }
                 });
+                // Wire up PDF export callback
+                component.setOnExportPdf(async (briefingId) => {
+                    const map = this._mapManager?.map;
+                    if (!map) {
+                        console.warn('Map not available for PDF export');
+                        return;
+                    }
+                    // Collapse sidebar before export (modal covers screen)
+                    this._stateManager.collapseSidebar();
+                    const { exportBriefingToPdf } = await import(
+                        '../briefing/export/briefing-pdf-export.js'
+                    );
+                    await exportBriefingToPdf(briefingId, map);
+                });
                 break;
 
             case SIDEBAR_TABS.PROCESSAMENTO:
@@ -991,6 +1006,7 @@ export class SidebarControl {
 
             case SIDEBAR_TABS.EXPORTAR:
                 component = new ExportTab({
+                    map: this._mapManager?.map,
                     pdfExportTab: this._pdfExportTab,
                     screenshotControl: this._screenshotControl,
                     exportImportService: this._exportImportService,
@@ -1029,7 +1045,7 @@ export class SidebarControl {
         const container = document.createElement('div');
         container.className = 'sidebar-tab-content';
         container.innerHTML = `
-            <div style="padding: 20px; text-align: center; color: #666;">
+            <div class="sidebar-tab-placeholder">
                 <p>Tab "${tabNames[tabId] || tabId}" será implementado na próxima fase</p>
             </div>
         `;
@@ -1157,7 +1173,7 @@ export class SidebarControl {
         this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
             sidebarExpanded: false,
             featurePanelOpen: true,
-            contentLeftOffset: 376
+            contentLeftOffset: SIDEBAR_DIMENSIONS.TOTAL_EXPANDED_WIDTH
         });
 
         // Cleanup previous content

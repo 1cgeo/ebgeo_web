@@ -17,6 +17,7 @@ import { CATALOG_CHIP_CONFIG } from '@catalog/catalog.constants.js';
 
 const CLOSE_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 
+/** Drawer uses a 16x16 chevron (slightly larger than the bottom sheet's 14x14) */
 const CHEVRON_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>';
 
 const EYE_OPEN_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -419,6 +420,12 @@ export class PhoneDrawer {
         actions.appendChild(deleteBtn);
         content.appendChild(actions);
 
+        // Show loading placeholder until updateMaps() provides real data
+        const loading = document.createElement('div');
+        loading.className = 'phone-drawer__loading';
+        loading.textContent = 'Carregando mapas...';
+        content.appendChild(loading);
+
         // Map items will be rendered below the actions row
         this._renderMapsContent();
     }
@@ -427,11 +434,26 @@ export class PhoneDrawer {
     _renderMapsContent() {
         if (!this._mapsContainer) return;
 
-        // Remove old map items (keep the actions row)
+        // Remove loading placeholder and old map items (keep the actions row)
+        const loading = this._mapsContainer.querySelector('.phone-drawer__loading');
+        if (loading) loading.remove();
+
         const oldItems = this._mapsContainer.querySelectorAll('.phone-drawer__map-item');
         for (const item of oldItems) {
             item.remove();
         }
+
+        if (this._maps.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'phone-drawer__empty';
+            empty.textContent = 'Nenhum mapa';
+            this._mapsContainer.appendChild(empty);
+            return;
+        }
+
+        // Remove empty state if it exists
+        const emptyEl = this._mapsContainer.querySelector('.phone-drawer__empty');
+        if (emptyEl) emptyEl.remove();
 
         for (const map of this._maps) {
             const item = document.createElement('button');
@@ -453,12 +475,23 @@ export class PhoneDrawer {
     _buildLayersSection() {
         const { content } = this._createCollapsibleSection('layers', 'Camadas');
         this._layersContainer = content;
+
+        // Show loading placeholder until updateLayers() provides real data
+        const loading = document.createElement('div');
+        loading.className = 'phone-drawer__loading';
+        loading.textContent = 'Carregando camadas...';
+        content.appendChild(loading);
+
         this._renderLayersContent();
     }
 
     /** @private */
     _renderLayersContent() {
         if (!this._layersContainer) return;
+
+        // Remove loading placeholder
+        const loading = this._layersContainer.querySelector('.phone-drawer__loading');
+        if (loading) loading.remove();
 
         // Remove old layer items
         const oldItems = this._layersContainer.querySelectorAll('.phone-drawer__layer-item');
@@ -521,31 +554,26 @@ export class PhoneDrawer {
         const grid = document.createElement('div');
         grid.className = 'phone-drawer__tool-grid';
 
-        try {
-            const groups = Object.values(TOOL_GROUPS);
-            for (const group of groups) {
-                if (!group.tools) continue;
-                for (const tool of group.tools) {
-                    const btn = document.createElement('button');
-                    btn.className = 'phone-drawer__tool-btn';
-                    btn.dataset.toolId = tool.id;
-                    btn.dataset.controlKey = tool.controlKey || tool.id;
+        for (const group of Object.values(TOOL_GROUPS)) {
+            if (!group.tools) continue;
+            for (const tool of group.tools) {
+                const btn = document.createElement('button');
+                btn.className = 'phone-drawer__tool-btn';
+                btn.dataset.toolId = tool.id;
+                btn.dataset.controlKey = tool.controlKey || tool.id;
 
-                    const iconEl = document.createElement('div');
-                    iconEl.className = 'phone-drawer__tool-icon';
-                    if (tool.icon) iconEl.innerHTML = tool.icon;
+                const iconEl = document.createElement('div');
+                iconEl.className = 'phone-drawer__tool-icon';
+                if (tool.icon) iconEl.innerHTML = tool.icon;
 
-                    const label = document.createElement('span');
-                    label.className = 'phone-drawer__tool-label';
-                    label.textContent = tool.label || tool.id;
+                const label = document.createElement('span');
+                label.className = 'phone-drawer__tool-label';
+                label.textContent = tool.label || tool.id;
 
-                    btn.appendChild(iconEl);
-                    btn.appendChild(label);
-                    grid.appendChild(btn);
-                }
+                btn.appendChild(iconEl);
+                btn.appendChild(label);
+                grid.appendChild(btn);
             }
-        } catch (_e) {
-            // Toolbar constants may not be available
         }
 
         content.appendChild(grid);

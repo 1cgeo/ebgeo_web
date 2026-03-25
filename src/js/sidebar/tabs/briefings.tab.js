@@ -11,8 +11,8 @@ import {
     subscribe,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
-import { escapeHtml } from '../../utilities/html-escape.js';
+} from '@utils/event-cleanup.js';
+import { escapeHtml } from '@utils/html-escape.js';
 import {
     getAllBriefings,
     deleteBriefing,
@@ -20,10 +20,10 @@ import {
     generateUniqueBriefingName,
     createEmptySlide,
     addSlide
-} from '../../store/index.js';
-import { EventTypes } from '../../events/event_types.js';
-import { showSuccess, showError } from '../../utilities/index.js';
-import { showConfirm } from '../../modals/index.js';
+} from '@store/index.js';
+import { EventTypes } from '@events/event_types.js';
+import { showSuccess, showError } from '@utils/index.js';
+import { showConfirm } from '@modals/index.js';
 
 /**
  * Icons specific to briefings tab.
@@ -40,6 +40,8 @@ const BRIEFINGS_ICONS = {
     presentation: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
 
     slides: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
+
+    pdf: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
 };
 
 /**
@@ -59,9 +61,10 @@ export class BriefingsTab {
         this._briefingsList = null;
         this._isLoadingBriefings = false;
 
-        // Callbacks for editor and presenter (to be set externally)
+        // Callbacks for editor, presenter, and PDF export (to be set externally)
         this._onEditBriefing = null;
         this._onPresentBriefing = null;
+        this._onExportPdf = null;
 
         setupCleanup(this);
     }
@@ -80,6 +83,14 @@ export class BriefingsTab {
      */
     setOnPresentBriefing(callback) {
         this._onPresentBriefing = callback;
+    }
+
+    /**
+     * Sets the callback for exporting a briefing as PDF.
+     * @param {Function} callback - Callback function(briefingId)
+     */
+    setOnExportPdf(callback) {
+        this._onExportPdf = callback;
     }
 
     /**
@@ -235,6 +246,9 @@ export class BriefingsTab {
                 ${briefing.description ? `<div class="briefing-card-description">${escapeHtml(this._truncateText(briefing.description, 60))}</div>` : ''}
             </div>
             <div class="briefing-card-actions">
+                <button class="briefing-action-btn pdf-btn" title="Exportar PDF" data-action="pdf">
+                    ${BRIEFINGS_ICONS.pdf}
+                </button>
                 <button class="briefing-action-btn edit-btn" title="Editar" data-action="edit">
                     ${BRIEFINGS_ICONS.edit}
                 </button>
@@ -245,8 +259,14 @@ export class BriefingsTab {
         `;
 
         // Action button handlers
+        const pdfBtn = card.querySelector('.pdf-btn');
         const editBtn = card.querySelector('.edit-btn');
         const deleteBtn = card.querySelector('.delete-btn');
+
+        addDomListener(this, pdfBtn, 'click', (e) => {
+            e.stopPropagation();
+            this._handleExportPdf(briefing.id);
+        });
 
         addDomListener(this, editBtn, 'click', (e) => {
             e.stopPropagation();
@@ -319,6 +339,19 @@ export class BriefingsTab {
             this._onPresentBriefing(briefingId);
         } else {
             console.warn('No present callback set for BriefingsTab');
+        }
+    }
+
+    /**
+     * Handles exporting a briefing as PDF.
+     * @private
+     * @param {string} briefingId - Briefing ID
+     */
+    _handleExportPdf(briefingId) {
+        if (this._onExportPdf) {
+            this._onExportPdf(briefingId);
+        } else {
+            console.warn('No PDF export callback set for BriefingsTab');
         }
     }
 

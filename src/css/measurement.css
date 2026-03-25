@@ -9,7 +9,7 @@
 
 .measurement-results-panel__header {
     font-size: var(--font-size-base);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-800);
     padding-bottom: var(--space-2);
     border-bottom: 1px solid var(--border-color);
@@ -23,13 +23,13 @@
 
 .measurement-results-panel__total {
     font-size: var(--font-size-lg);
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
     color: var(--primary);
 }
 
 .measurement-results-panel__value {
     font-size: var(--font-size-base);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-800);
 }
 
@@ -72,7 +72,7 @@
 
 .measurement-results-panel__angle-value {
     font-size: var(--font-size-base);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--gray-800);
 }
 
@@ -90,10 +90,10 @@
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     cursor: pointer;
     border: 1px solid var(--border-color);
-    transition: background-color 0.15s ease;
+    transition: background-color var(--transition-fast);
 }
 
 .measurement-results-panel__save-btn {

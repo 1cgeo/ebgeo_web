@@ -2,18 +2,12 @@
 
 /**
  * @fileoverview Sidepanel content builders for search results.
- * Extracted from search-bar.component.js for better organization.
- * @module search/search-bar.sidepanel-content
  */
 
 import { SEARCH_ICONS } from './search-bar.icons.js';
-import { formatCoordinates, COORDINATE_FORMATS } from '../utilities/coordinate_converter.js';
-import { escapeHtml } from '../utilities/html-escape.js';
-import { isCurrentMapLockedSync } from '../store/store.js';
-
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
+import { formatCoordinates, COORDINATE_FORMATS } from '@utils/coordinate_converter.js';
+import { escapeHtml } from '@utils/html-escape.js';
+import { isCurrentMapLockedSync } from '@store/store.js';
 
 /**
  * Copies text to clipboard and shows feedback.
@@ -37,10 +31,6 @@ async function copyToClipboard(text, button) {
         console.warn('[SidepanelContent] Failed to copy to clipboard:', error);
     }
 }
-
-// ============================================================================
-// COORDINATE RESULT CONTENT
-// ============================================================================
 
 /**
  * Populates the conversion list with all coordinate formats.
@@ -157,7 +147,6 @@ export function createCoordinateResultContent(result, callbacks) {
     conversionSection.appendChild(conversionList);
     container.appendChild(conversionSection);
 
-    // Create feature section
     // Create feature section (hidden when map is locked)
     if (!isCurrentMapLockedSync()) {
         const createSection = document.createElement('div');
@@ -201,10 +190,6 @@ export function createCoordinateResultContent(result, callbacks) {
 
     return container;
 }
-
-// ============================================================================
-// API RESULT CONTENT
-// ============================================================================
 
 /**
  * Creates sidepanel content for API search results.

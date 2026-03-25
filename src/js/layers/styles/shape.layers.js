@@ -1,10 +1,170 @@
 // Path: js/layers/styles/shape.layers.js
 
 /**
- * @fileoverview Shape layer styles (circle, rectangle, ellipse).
+ * @fileoverview Shape layer styles (circle, rectangle, ellipse, sector).
  */
 
 import { HatchPatternGenerator } from '../../tool_manager';
+import { syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
+import {
+    setOrCreateSource,
+    ensureSource,
+    ensureLayer,
+    LINE_STYLE_DASHARRAY,
+    VISIBLE_FILTER,
+    SOLID_FILL_FILTER,
+    HATCH_FILL_FILTER,
+    POINT_TYPE_FILTER,
+} from './layer.helpers.js';
+
+// --- Edit-handle paint expressions -----------------------------------------------
+
+const SIMPLE_HANDLE_PAINT = {
+    'circle-radius': 8,
+    'circle-color': '#ff0000',
+    'circle-stroke-color': '#ffffff',
+    'circle-stroke-width': 2,
+};
+
+const TYPED_HANDLE_PAINT = {
+    'circle-radius': 8,
+    'circle-color': [
+        'case',
+        ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+        ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',
+        '#ffffff',
+    ],
+    'circle-stroke-color': '#ffffff',
+    'circle-stroke-width': 2,
+};
+
+// --- Core shape setup ---------------------------------------------------------------
+
+/**
+ * Shared logic for all shape types (circle, rectangle, ellipse, sector).
+ * Creates sources + feedback/fill/outline/edit-handle layers for a shape.
+ * @param {Object} map - MapLibre map instance
+ * @param {Object} config - Shape-specific configuration
+ * @param {string} config.sourceId - Main GeoJSON source ID
+ * @param {string} config.prefix - Layer ID prefix (e.g. "circle", "rectangle")
+ * @param {Array} config.features - Feature array for the main source
+ * @param {Object} config.handlePaint - Paint expression for edit-handle layer
+ * @param {string} [config.outlineLayerId] - Override for the outline layer ID
+ * @param {string[]} [config.extraSources] - Additional empty sources to create
+ */
+function setupShapeType(map, config) {
+    const {
+        sourceId,
+        prefix,
+        features,
+        handlePaint,
+        outlineLayerId,
+        extraSources,
+    } = config;
+
+    setOrCreateSource(map, sourceId, features);
+
+    ensureSource(map, `${prefix}-feedback`);
+    ensureSource(map, `${prefix}-edit-handles`);
+    ensureSource(map, `${prefix}-labels`);
+
+    if (extraSources) {
+        for (const id of extraSources) {
+            ensureSource(map, id);
+        }
+    }
+
+    const hatch = new HatchPatternGenerator();
+    hatch.loadPatternsToMap(map, features || []);
+
+    ensureLayer(map, {
+        id: `${prefix}-feedback-layer`,
+        type: 'line',
+        source: `${prefix}-feedback`,
+        paint: {
+            'line-color': '#ff0000',
+            'line-width': 3,
+            'line-dasharray': [2, 2],
+            'line-opacity': 0.8,
+        },
+    });
+
+    ensureLayer(map, {
+        id: `${prefix}-fill-layer`,
+        type: 'fill',
+        source: sourceId,
+        paint: {
+            'fill-color': ['get', 'fillColor'],
+            'fill-opacity': ['get', 'opacity'],
+        },
+        filter: SOLID_FILL_FILTER,
+    });
+
+    ensureLayer(map, {
+        id: `${prefix}-fill-pattern-layer`,
+        type: 'fill',
+        source: sourceId,
+        paint: {
+            'fill-opacity': ['get', 'opacity'],
+            'fill-pattern': ['get', 'hatchPatternId'],
+        },
+        filter: HATCH_FILL_FILTER,
+    });
+
+    ensureLayer(map, {
+        id: outlineLayerId || `${prefix}-layer`,
+        type: 'line',
+        source: sourceId,
+        paint: {
+            'line-color': ['get', 'lineColor'],
+            'line-width': ['get', 'lineWidth'],
+            'line-opacity': 1,
+            'line-dasharray': LINE_STYLE_DASHARRAY,
+        },
+        filter: VISIBLE_FILTER,
+    });
+
+    // Label layer (reads from separate point source to avoid tile duplication)
+    ensureLayer(map, {
+        id: `${prefix}-label-layer`,
+        type: 'symbol',
+        source: `${prefix}-labels`,
+        filter: [
+            'all',
+            ['==', ['get', 'showLabel'], true],
+            ['!=', ['get', 'visivel'], false],
+            ['has', 'labelText'],
+            ['!=', ['get', 'labelText'], ''],
+        ],
+        layout: {
+            'text-field': ['get', 'labelText'],
+            'text-size': ['coalesce', ['get', 'labelCalculatedSize'], 14],
+            'text-font': ['Noto Sans Bold'],
+            'text-anchor': 'center',
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+        },
+        paint: {
+            'text-color': ['coalesce', ['get', 'labelColor'], '#ffffff'],
+            'text-halo-color': ['coalesce', ['get', 'labelOutlineColor'], '#000000'],
+            'text-halo-width': ['coalesce', ['get', 'labelOutlineWidth'], 2],
+            'text-opacity': 1,
+        },
+    });
+
+    ensureLayer(map, {
+        id: `${prefix}-edit-handles-layer`,
+        type: 'circle',
+        source: `${prefix}-edit-handles`,
+        paint: handlePaint,
+        filter: POINT_TYPE_FILTER,
+    });
+
+    // Populate label source with centroids from initial features
+    syncLabelSource(map, `${prefix}-labels`, { type: 'FeatureCollection', features: features || [] });
+}
+
+// --- Public API -------------------------------------------------------------------
 
 /**
  * Sets up circle layers on the map.
@@ -12,133 +172,13 @@ import { HatchPatternGenerator } from '../../tool_manager';
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupCircleLayers(features, mapInstance) {
-    if (!mapInstance.getSource('circles')) {
-        mapInstance.addSource('circles', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: features.circles
-            }
-        });
-    } else {
-        mapInstance.getSource('circles').setData({
-            type: 'FeatureCollection',
-            features: features.circles
-        });
-    }
-
-    if (!mapInstance.getSource('circle-feedback')) {
-        mapInstance.addSource('circle-feedback', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    if (!mapInstance.getSource('circle-edit-handles')) {
-        mapInstance.addSource('circle-edit-handles', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    if (!mapInstance.getSource('circle-x-marks')) {
-        mapInstance.addSource('circle-x-marks', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    const hatchGeneratorCircle = new HatchPatternGenerator();
-    hatchGeneratorCircle.loadPatternsToMap(mapInstance, features.circles || []);
-
-    if (!mapInstance.getLayer('circle-feedback-layer')) {
-        mapInstance.addLayer({
-            id: 'circle-feedback-layer',
-            type: 'line',
-            source: 'circle-feedback',
-            paint: {
-                'line-color': '#ff0000',
-                'line-width': 3,
-                'line-dasharray': [2, 2],
-                'line-opacity': 0.8
-            }
-        });
-    }
-
-    if (!mapInstance.getLayer('circle-fill-layer')) {
-        mapInstance.addLayer({
-            id: 'circle-fill-layer',
-            type: 'fill',
-            source: 'circles',
-            paint: {
-                'fill-color': ['get', 'fillColor'],
-                'fill-opacity': ['get', 'opacity']
-            },
-            filter: [
-                'all',
-                ['!=', ['get', 'visivel'], false],
-                ['!=', ['get', 'hatchEnabled'], true]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('circle-fill-pattern-layer')) {
-        mapInstance.addLayer({
-            id: 'circle-fill-pattern-layer',
-            type: 'fill',
-            source: 'circles',
-            paint: {
-                'fill-opacity': ['get', 'opacity'],
-                'fill-pattern': ['get', 'hatchPatternId']
-            },
-            filter: [
-                'all',
-                ['!=', ['get', 'visivel'], false],
-                ['==', ['get', 'hatchEnabled'], true],
-                ['has', 'hatchPatternId']
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('circle-layer')) {
-        mapInstance.addLayer({
-            id: 'circle-layer',
-            type: 'line',
-            source: 'circles',
-            paint: {
-                'line-color': ['get', 'lineColor'],
-                'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1,
-                'line-dasharray': [
-                    'match',
-                    ['get', 'lineStyle'],
-                    'dashed', ['literal', [8, 4]],
-                    'dotted', ['literal', [2, 3]],
-                    'dash-dot', ['literal', [8, 4, 2, 4]],
-                    'long-dash', ['literal', [16, 6]],
-                    'short-dash', ['literal', [4, 4]],
-                    'dot-dot-dash', ['literal', [2, 2, 2, 2, 8, 2]],
-                    ['literal', [1, 0]]
-                ]
-            },
-            filter: ['!=', ['get', 'visivel'], false]
-        });
-    }
-
-    if (!mapInstance.getLayer('circle-edit-handles-layer')) {
-        mapInstance.addLayer({
-            id: 'circle-edit-handles-layer',
-            type: 'circle',
-            source: 'circle-edit-handles',
-            paint: {
-                'circle-radius': 8,
-                'circle-color': '#ff0000',
-                'circle-stroke-color': '#ffffff',
-                'circle-stroke-width': 2
-            },
-            filter: ['==', '$type', 'Point']
-        });
-    }
+    setupShapeType(mapInstance, {
+        sourceId: 'circles',
+        prefix: 'circle',
+        features: features.circles,
+        handlePaint: SIMPLE_HANDLE_PAINT,
+        extraSources: ['circle-x-marks'],
+    });
 }
 
 /**
@@ -147,131 +187,12 @@ export function setupCircleLayers(features, mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupRectangleLayers(features, mapInstance) {
-    if (!mapInstance.getSource('rectangles')) {
-        mapInstance.addSource('rectangles', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: features.rectangles
-            }
-        });
-    } else {
-        mapInstance.getSource('rectangles').setData({
-            type: 'FeatureCollection',
-            features: features.rectangles
-        });
-    }
-
-    if (!mapInstance.getSource('rectangle-feedback')) {
-        mapInstance.addSource('rectangle-feedback', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    if (!mapInstance.getSource('rectangle-edit-handles')) {
-        mapInstance.addSource('rectangle-edit-handles', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    const hatchGenerator = new HatchPatternGenerator();
-    hatchGenerator.loadPatternsToMap(mapInstance, features.rectangles || []);
-
-    if (!mapInstance.getLayer('rectangle-feedback-layer')) {
-        mapInstance.addLayer({
-            id: 'rectangle-feedback-layer',
-            type: 'line',
-            source: 'rectangle-feedback',
-            paint: {
-                'line-color': '#ff0000',
-                'line-width': 3,
-                'line-dasharray': [2, 2],
-                'line-opacity': 0.8
-            }
-        });
-    }
-
-    if (!mapInstance.getLayer('rectangle-fill-layer')) {
-        mapInstance.addLayer({
-            id: 'rectangle-fill-layer',
-            type: 'fill',
-            source: 'rectangles',
-            paint: {
-                'fill-color': ['get', 'fillColor'],
-                'fill-opacity': ['get', 'opacity']
-            },
-            filter: [
-                'all',
-                ['!=', ['get', 'visivel'], false],
-                ['!=', ['get', 'hatchEnabled'], true]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('rectangle-fill-pattern-layer')) {
-        mapInstance.addLayer({
-            id: 'rectangle-fill-pattern-layer',
-            type: 'fill',
-            source: 'rectangles',
-            paint: {
-                'fill-opacity': ['get', 'opacity'],
-                'fill-pattern': ['get', 'hatchPatternId']
-            },
-            filter: [
-                'all',
-                ['!=', ['get', 'visivel'], false],
-                ['==', ['get', 'hatchEnabled'], true],
-                ['has', 'hatchPatternId']
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('rectangle-layer')) {
-        mapInstance.addLayer({
-            id: 'rectangle-layer',
-            type: 'line',
-            source: 'rectangles',
-            paint: {
-                'line-color': ['get', 'lineColor'],
-                'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1,
-                'line-dasharray': [
-                    'match',
-                    ['get', 'lineStyle'],
-                    'dashed', ['literal', [8, 4]],
-                    'dotted', ['literal', [2, 3]],
-                    'dash-dot', ['literal', [8, 4, 2, 4]],
-                    'long-dash', ['literal', [16, 6]],
-                    'short-dash', ['literal', [4, 4]],
-                    'dot-dot-dash', ['literal', [2, 2, 2, 2, 8, 2]],
-                    ['literal', [1, 0]]
-                ]
-            },
-            filter: ['!=', ['get', 'visivel'], false]
-        });
-    }
-
-    if (!mapInstance.getLayer('rectangle-edit-handles-layer')) {
-        mapInstance.addLayer({
-            id: 'rectangle-edit-handles-layer',
-            type: 'circle',
-            source: 'rectangle-edit-handles',
-            paint: {
-                'circle-radius': 8,
-                'circle-color': [
-                    'case',
-                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
-                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',
-                    '#ffffff'
-                ],
-                'circle-stroke-color': '#ffffff',
-                'circle-stroke-width': 2
-            },
-            filter: ['==', '$type', 'Point']
-        });
-    }
+    setupShapeType(mapInstance, {
+        sourceId: 'rectangles',
+        prefix: 'rectangle',
+        features: features.rectangles,
+        handlePaint: TYPED_HANDLE_PAINT,
+    });
 }
 
 /**
@@ -280,131 +201,13 @@ export function setupRectangleLayers(features, mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupSectorLayers(features, mapInstance) {
-    if (!mapInstance.getSource('setores')) {
-        mapInstance.addSource('setores', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: features.setores
-            }
-        });
-    } else {
-        mapInstance.getSource('setores').setData({
-            type: 'FeatureCollection',
-            features: features.setores
-        });
-    }
-
-    if (!mapInstance.getSource('sector-feedback')) {
-        mapInstance.addSource('sector-feedback', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    if (!mapInstance.getSource('sector-edit-handles')) {
-        mapInstance.addSource('sector-edit-handles', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    const hatchGeneratorSector = new HatchPatternGenerator();
-    hatchGeneratorSector.loadPatternsToMap(mapInstance, features.setores || []);
-
-    if (!mapInstance.getLayer('sector-feedback-layer')) {
-        mapInstance.addLayer({
-            id: 'sector-feedback-layer',
-            type: 'line',
-            source: 'sector-feedback',
-            paint: {
-                'line-color': '#ff0000',
-                'line-width': 3,
-                'line-dasharray': [2, 2],
-                'line-opacity': 0.8
-            }
-        });
-    }
-
-    if (!mapInstance.getLayer('sector-fill-layer')) {
-        mapInstance.addLayer({
-            id: 'sector-fill-layer',
-            type: 'fill',
-            source: 'setores',
-            paint: {
-                'fill-color': ['get', 'fillColor'],
-                'fill-opacity': ['get', 'opacity']
-            },
-            filter: [
-                'all',
-                ['!=', ['get', 'visivel'], false],
-                ['!=', ['get', 'hatchEnabled'], true]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('sector-fill-pattern-layer')) {
-        mapInstance.addLayer({
-            id: 'sector-fill-pattern-layer',
-            type: 'fill',
-            source: 'setores',
-            paint: {
-                'fill-opacity': ['get', 'opacity'],
-                'fill-pattern': ['get', 'hatchPatternId']
-            },
-            filter: [
-                'all',
-                ['!=', ['get', 'visivel'], false],
-                ['==', ['get', 'hatchEnabled'], true],
-                ['has', 'hatchPatternId']
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('sectors-layer')) {
-        mapInstance.addLayer({
-            id: 'sectors-layer',
-            type: 'line',
-            source: 'setores',
-            paint: {
-                'line-color': ['get', 'lineColor'],
-                'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1,
-                'line-dasharray': [
-                    'match',
-                    ['get', 'lineStyle'],
-                    'dashed', ['literal', [8, 4]],
-                    'dotted', ['literal', [2, 3]],
-                    'dash-dot', ['literal', [8, 4, 2, 4]],
-                    'long-dash', ['literal', [16, 6]],
-                    'short-dash', ['literal', [4, 4]],
-                    'dot-dot-dash', ['literal', [2, 2, 2, 2, 8, 2]],
-                    ['literal', [1, 0]]
-                ]
-            },
-            filter: ['!=', ['get', 'visivel'], false]
-        });
-    }
-
-    if (!mapInstance.getLayer('sector-edit-handles-layer')) {
-        mapInstance.addLayer({
-            id: 'sector-edit-handles-layer',
-            type: 'circle',
-            source: 'sector-edit-handles',
-            paint: {
-                'circle-radius': 8,
-                'circle-color': [
-                    'case',
-                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
-                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',
-                    '#ffffff'
-                ],
-                'circle-stroke-color': '#ffffff',
-                'circle-stroke-width': 2
-            },
-            filter: ['==', '$type', 'Point']
-        });
-    }
+    setupShapeType(mapInstance, {
+        sourceId: 'setores',
+        prefix: 'sector',
+        features: features.setores,
+        handlePaint: TYPED_HANDLE_PAINT,
+        outlineLayerId: 'sectors-layer',
+    });
 }
 
 /**
@@ -413,129 +216,10 @@ export function setupSectorLayers(features, mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupEllipseLayers(features, mapInstance) {
-    if (!mapInstance.getSource('ellipses')) {
-        mapInstance.addSource('ellipses', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: features.ellipses
-            }
-        });
-    } else {
-        mapInstance.getSource('ellipses').setData({
-            type: 'FeatureCollection',
-            features: features.ellipses
-        });
-    }
-
-    if (!mapInstance.getSource('ellipse-feedback')) {
-        mapInstance.addSource('ellipse-feedback', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    if (!mapInstance.getSource('ellipse-edit-handles')) {
-        mapInstance.addSource('ellipse-edit-handles', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    const hatchGeneratorEllipse = new HatchPatternGenerator();
-    hatchGeneratorEllipse.loadPatternsToMap(mapInstance, features.ellipses || []);
-
-    if (!mapInstance.getLayer('ellipse-feedback-layer')) {
-        mapInstance.addLayer({
-            id: 'ellipse-feedback-layer',
-            type: 'line',
-            source: 'ellipse-feedback',
-            paint: {
-                'line-color': '#ff0000',
-                'line-width': 3,
-                'line-dasharray': [2, 2],
-                'line-opacity': 0.8
-            }
-        });
-    }
-
-    if (!mapInstance.getLayer('ellipse-fill-layer')) {
-        mapInstance.addLayer({
-            id: 'ellipse-fill-layer',
-            type: 'fill',
-            source: 'ellipses',
-            paint: {
-                'fill-color': ['get', 'fillColor'],
-                'fill-opacity': ['get', 'opacity']
-            },
-            filter: [
-                'all',
-                ['!=', ['get', 'visivel'], false],
-                ['!=', ['get', 'hatchEnabled'], true]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('ellipse-fill-pattern-layer')) {
-        mapInstance.addLayer({
-            id: 'ellipse-fill-pattern-layer',
-            type: 'fill',
-            source: 'ellipses',
-            paint: {
-                'fill-opacity': ['get', 'opacity'],
-                'fill-pattern': ['get', 'hatchPatternId']
-            },
-            filter: [
-                'all',
-                ['!=', ['get', 'visivel'], false],
-                ['==', ['get', 'hatchEnabled'], true],
-                ['has', 'hatchPatternId']
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('ellipse-layer')) {
-        mapInstance.addLayer({
-            id: 'ellipse-layer',
-            type: 'line',
-            source: 'ellipses',
-            paint: {
-                'line-color': ['get', 'lineColor'],
-                'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1,
-                'line-dasharray': [
-                    'match',
-                    ['get', 'lineStyle'],
-                    'dashed', ['literal', [8, 4]],
-                    'dotted', ['literal', [2, 3]],
-                    'dash-dot', ['literal', [8, 4, 2, 4]],
-                    'long-dash', ['literal', [16, 6]],
-                    'short-dash', ['literal', [4, 4]],
-                    'dot-dot-dash', ['literal', [2, 2, 2, 2, 8, 2]],
-                    ['literal', [1, 0]]
-                ]
-            },
-            filter: ['!=', ['get', 'visivel'], false]
-        });
-    }
-
-    if (!mapInstance.getLayer('ellipse-edit-handles-layer')) {
-        mapInstance.addLayer({
-            id: 'ellipse-edit-handles-layer',
-            type: 'circle',
-            source: 'ellipse-edit-handles',
-            paint: {
-                'circle-radius': 8,
-                'circle-color': [
-                    'case',
-                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
-                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',
-                    '#ffffff'
-                ],
-                'circle-stroke-color': '#ffffff',
-                'circle-stroke-width': 2
-            },
-            filter: ['==', '$type', 'Point']
-        });
-    }
+    setupShapeType(mapInstance, {
+        sourceId: 'ellipses',
+        prefix: 'ellipse',
+        features: features.ellipses,
+        handlePaint: TYPED_HANDLE_PAINT,
+    });
 }

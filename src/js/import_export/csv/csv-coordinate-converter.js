@@ -162,7 +162,7 @@ function _parseMGRS(row, mapping) {
         const cleaned = mgrsStr.replace(/\s+/g, '');
         const result = mgrs.toPoint(cleaned);
         return { lng: result[0], lat: result[1] };
-    } catch (_e) {
+    } catch {
         return null;
     }
 }
@@ -197,7 +197,7 @@ function _parseUTM(row, mapping, fixedValues) {
         const wgs84 = '+proj=longlat +datum=WGS84 +no_defs';
         const result = proj4(utmProjection, wgs84, [easting, northing]);
         return { lng: result[0], lat: result[1] };
-    } catch (_e) {
+    } catch {
         return null;
     }
 }
@@ -235,21 +235,21 @@ function _parseSingleDMS(value, axis) {
     const dmsPattern = /^(-?)(\d+)[º°]\s*(\d+)['′]\s*(\d+(?:[.,]\d+)?)["\u2033]?\s*([NSLOEW])?$/i;
     let match = trimmed.match(dmsPattern);
     if (match) {
-        return _computeDMS(match[1], match[2], match[3], match[4], match[5], axis);
+        return _computeDMS(match[1], match[2], match[3], match[4], match[5]);
     }
 
     // DM (degrees + minutes, no seconds) with symbols
     const dmPattern = /^(-?)(\d+)[º°]\s*(\d+(?:[.,]\d+)?)['′]\s*([NSLOEW])?$/i;
     match = trimmed.match(dmPattern);
     if (match) {
-        return _computeDMS(match[1], match[2], match[3], '0', match[4], axis);
+        return _computeDMS(match[1], match[2], match[3], '0', match[4]);
     }
 
     // Space-separated: "30 07 56.8 S"
     const spacePattern = /^(-?)(\d+)\s+(\d+)\s+(\d+(?:[.,]\d+)?)\s*([NSLOEW])?$/i;
     match = trimmed.match(spacePattern);
     if (match) {
-        return _computeDMS(match[1], match[2], match[3], match[4], match[5], axis);
+        return _computeDMS(match[1], match[2], match[3], match[4], match[5]);
     }
 
     // Fallback: try as plain decimal number
@@ -265,7 +265,7 @@ function _parseSingleDMS(value, axis) {
 /**
  * Computes decimal degrees from DMS components.
  */
-function _computeDMS(signStr, degStr, minStr, secStr, dirStr, _axis) {
+function _computeDMS(signStr, degStr, minStr, secStr, dirStr) {
     const deg = parseInt(degStr, 10);
     const min = parseFloat(String(minStr).replace(',', '.'));
     const sec = parseFloat(String(secStr).replace(',', '.')) || 0;
@@ -304,17 +304,18 @@ function _parseUTMZone(zoneStr) {
     const zone = parseInt(match[1], 10);
     if (zone < 1 || zone > 60) return null;
 
-    // Determine hemisphere from letter
+    // Determine hemisphere from letter.
+    // MGRS band letters: C-M = South, N-X = North.
+    // Explicit 'S' is treated as South (band S is North, but user likely
+    // means hemisphere in "23S" notation — Brazil-centric default).
     let hemisphere = 'S'; // Default to South (Brazil-centric)
     if (match[2]) {
         const letter = match[2].toUpperCase();
-        // MGRS band letters: N and above = North hemisphere
-        if (letter === 'N' || letter >= 'N') {
+        if (letter === 'S') {
+            hemisphere = 'S';
+        } else if (letter >= 'N') {
             hemisphere = 'N';
         }
-        // Explicit N/S takes priority
-        if (letter === 'N') hemisphere = 'N';
-        if (letter === 'S') hemisphere = 'S';
     }
 
     return { zone, hemisphere };

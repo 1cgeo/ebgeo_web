@@ -12,26 +12,15 @@ import { EventTypes } from '../events';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 
-// Alias for backward compatibility during migration
-const setLayersRepo = setLayersCompat;
-const setActiveLayerIdRepo = setActiveLayerIdCompat;
-
 // ===== DEPENDENCY INJECTION =====
 
-/**
- * Module-level dependencies
- * @type {import('./store.types.js').StoreDependencies}
- */
-const deps = {
-    eventBus: null,
-    groupManager: null,
-    layerManager: null
-};
+/** @type {import('./store.types.js').StoreDependencies} */
+const deps = { eventBus: null, groupManager: null, layerManager: null };
 
 /**
  * Sets dependencies for layer operations.
  *
- * @param {import('./store.types.js').StoreDependencies} dependencies - Dependencies object
+ * @param {import('./store.types.js').StoreDependencies} dependencies
  */
 export function setLayerDependencies(dependencies) {
     Object.assign(deps, dependencies);
@@ -45,9 +34,9 @@ export function setLayerDependencies(dependencies) {
  * @param {string} [mapName=null] - Map name (null = current)
  * @returns {import('./store.types.js').Layer[]} Array of layers
  */
-export const getLayers = (mapName = null) => {
+export function getLayers(mapName = null) {
     return deps.layerManager.getLayers(mapName);
-};
+}
 
 /**
  * Gets a layer by ID.
@@ -56,28 +45,28 @@ export const getLayers = (mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {import('./store.types.js').Layer|null} Layer or null
  */
-export const getLayerById = (layerId, mapName = null) => {
+export function getLayerById(layerId, mapName = null) {
     return deps.layerManager.getLayerById(layerId, mapName);
-};
+}
 
 /**
  * Gets the active layer ID synchronously.
  *
  * @returns {string} Active layer ID
  */
-export const getActiveLayerIdSync = () => {
+export function getActiveLayerIdSync() {
     return deps.layerManager.getActiveLayerIdSync();
-};
+}
 
 /**
- * Gets the active layer ID (async - for compatibility).
+ * Gets the active layer ID (async, for compatibility).
  *
- * @param {string} [mapName=null] - Map name
+ * @param {string} [_mapName=null] - Map name (unused, kept for API compatibility)
  * @returns {Promise<string>} Active layer ID
  */
-export const getActiveLayerId = async (_mapName = null) => {
+export async function getActiveLayerId(_mapName = null) {
     return deps.layerManager.getActiveLayerIdSync();
-};
+}
 
 /**
  * Gets visible layer IDs.
@@ -85,9 +74,9 @@ export const getActiveLayerId = async (_mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {string[]} Array of visible layer IDs
  */
-export const getVisibleLayerIds = (mapName = null) => {
+export function getVisibleLayerIds(mapName = null) {
     return deps.layerManager.getVisibleLayerIds(mapName);
-};
+}
 
 // ===== CREATE OPERATIONS =====
 
@@ -96,9 +85,9 @@ export const getVisibleLayerIds = (mapName = null) => {
  *
  * @param {string} [name='Nova Camada'] - Layer name
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Layer} Created layer
+ * @returns {import('./store.types.js').Layer|null} Created layer or null if blocked
  */
-export const createLayer = (name = 'Nova Camada', mapName = null) => {
+export function createLayer(name = 'Nova Camada', mapName = null) {
     const perm = checkPermission(GuardAction.CREATE_LAYER);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createLayer', reason: perm.reason });
@@ -110,7 +99,7 @@ export const createLayer = (name = 'Nova Camada', mapName = null) => {
         return null;
     }
     return deps.layerManager.createLayer(name, mapName);
-};
+}
 
 /**
  * Creates a new layer for import (no event emission).
@@ -119,9 +108,9 @@ export const createLayer = (name = 'Nova Camada', mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {import('./store.types.js').Layer} Created layer
  */
-export const createLayerForImport = (name = 'Importação', mapName = null) => {
+export function createLayerForImport(name = 'Importação', mapName = null) {
     return deps.layerManager.createLayerForImport(name, mapName);
-};
+}
 
 // ===== UPDATE OPERATIONS =====
 
@@ -132,9 +121,9 @@ export const createLayerForImport = (name = 'Importação', mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {import('./store.types.js').Layer} Activated layer
  */
-export const setActiveLayer = (layerId, mapName = null) => {
+export function setActiveLayer(layerId, mapName = null) {
     return deps.layerManager.setActiveLayer(layerId, mapName);
-};
+}
 
 /**
  * Sets the active layer ID (for compatibility).
@@ -143,9 +132,9 @@ export const setActiveLayer = (layerId, mapName = null) => {
  * @param {string} layerId - Layer ID
  * @returns {Promise<import('./store.types.js').Layer>}
  */
-export const setActiveLayerId = async (mapName, layerId) => {
+export async function setActiveLayerId(mapName, layerId) {
     return deps.layerManager.setActiveLayer(layerId, mapName);
-};
+}
 
 /**
  * Renames a layer.
@@ -153,9 +142,9 @@ export const setActiveLayerId = async (mapName, layerId) => {
  * @param {string} layerId - Layer ID
  * @param {string} newName - New layer name
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Layer} Renamed layer
+ * @returns {import('./store.types.js').Layer|null} Renamed layer or null if blocked
  */
-export const renameLayer = (layerId, newName, mapName = null) => {
+export function renameLayer(layerId, newName, mapName = null) {
     const perm = checkPermission(GuardAction.UPDATE_LAYER);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'renameLayer', reason: perm.reason });
@@ -167,7 +156,7 @@ export const renameLayer = (layerId, newName, mapName = null) => {
         return null;
     }
     return deps.layerManager.renameLayer(layerId, newName, mapName);
-};
+}
 
 /**
  * Sets layer visibility.
@@ -177,9 +166,9 @@ export const renameLayer = (layerId, newName, mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {import('./store.types.js').Layer} Updated layer
  */
-export const setLayerVisibility = (layerId, visible, mapName = null) => {
+export function setLayerVisibility(layerId, visible, mapName = null) {
     return deps.layerManager.setLayerVisibility(layerId, visible, mapName);
-};
+}
 
 /**
  * Sets layer lock state.
@@ -189,9 +178,9 @@ export const setLayerVisibility = (layerId, visible, mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {import('./store.types.js').Layer} Updated layer
  */
-export const setLayerLocked = (layerId, locked, mapName = null) => {
+export function setLayerLocked(layerId, locked, mapName = null) {
     return deps.layerManager.setLayerLocked(layerId, locked, mapName);
-};
+}
 
 /**
  * Reorders layers.
@@ -199,7 +188,7 @@ export const setLayerLocked = (layerId, locked, mapName = null) => {
  * @param {string[]} orderedLayerIds - Array of layer IDs in new order
  * @param {string} [mapName=null] - Map name
  */
-export const reorderLayers = (orderedLayerIds, mapName = null) => {
+export function reorderLayers(orderedLayerIds, mapName = null) {
     const perm = checkPermission(GuardAction.UPDATE_LAYER);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'reorderLayers', reason: perm.reason });
@@ -211,20 +200,19 @@ export const reorderLayers = (orderedLayerIds, mapName = null) => {
         return;
     }
     return deps.layerManager.reorderLayers(orderedLayerIds, mapName);
-};
+}
 
 // ===== DELETE OPERATIONS =====
 
 /**
- * Deletes a layer.
- * Note: This only deletes the layer, not its features.
+ * Deletes a layer (without its features).
  * Feature deletion should be handled separately.
  *
  * @param {string} layerId - Layer ID to delete
  * @param {string} [mapName=null] - Map name
  * @returns {Object} Deletion result
  */
-export const deleteLayerOnly = (layerId, mapName = null) => {
+export function deleteLayerOnly(layerId, mapName = null) {
     const perm = checkPermission(GuardAction.DELETE_LAYER);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'deleteLayerOnly', reason: perm.reason });
@@ -236,7 +224,7 @@ export const deleteLayerOnly = (layerId, mapName = null) => {
         return { success: false, reason: 'MAP_LOCKED' };
     }
     return deps.layerManager.deleteLayer(layerId, mapName);
-};
+}
 
 // ===== MEMORY OPERATIONS =====
 
@@ -246,16 +234,16 @@ export const deleteLayerOnly = (layerId, mapName = null) => {
  * @param {string} mapName - Map name
  * @returns {Promise<void>}
  */
-export const loadLayersToMemory = async (mapName) => {
+export async function loadLayersToMemory(mapName) {
     return deps.layerManager.loadLayersToMemory(mapName);
-};
+}
 
 /**
  * Clears layers cache.
  */
-export const clearLayersCache = () => {
+export function clearLayersCache() {
     deps.layerManager.clearLayersCache();
-};
+}
 
 // ===== IMPORT OPERATIONS =====
 
@@ -266,12 +254,12 @@ export const clearLayersCache = () => {
  * @param {Object} layersData - Layers data with layers and activeLayerId
  * @returns {Promise<void>}
  */
-export const setMapLayers = async (mapName, layersData) => {
+export async function setMapLayers(mapName, layersData) {
     if (layersData.layers) {
-        await setLayersRepo(mapName, layersData.layers);
+        await setLayersCompat(mapName, layersData.layers);
     }
     if (layersData.activeLayerId) {
-        await setActiveLayerIdRepo(mapName, layersData.activeLayerId);
+        await setActiveLayerIdCompat(mapName, layersData.activeLayerId);
     }
 
     // Reload to memory if current map
@@ -279,4 +267,4 @@ export const setMapLayers = async (mapName, layersData) => {
         await deps.layerManager.loadLayersToMemory(mapName);
         deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName });
     }
-};
+}

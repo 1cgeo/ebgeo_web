@@ -1,12 +1,12 @@
 // Path: js/analysis_tools/visibility_tool/add_visibility_control.js
 
-import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures, getActiveLayerIdSync } from '../../store';
-import { IDUtils } from '../../utilities';
-import { getPointerPosition } from '../../utilities/pointer-utils';
+import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures, getActiveLayerIdSync } from '@store';
+import { IDUtils } from '@utils';
+import { getPointerPosition } from '@utils/pointer-utils';
 import { addVisibilityAttributesToPanel, addVisibilityParametersToPanel } from './visibility_attributes_panel.js';
 import AddVisibilityGeometry from './add_visibility_geometry.js';
-import { BaseControl } from '../../tool_manager';
-import { getSnappingService } from '../../snapping';
+import { BaseControl } from '@tools';
+import { getSnappingService } from '@js/snapping';
 
 /**
  * Visibility (Viewshed) analysis tool control.
@@ -16,6 +16,7 @@ import { getSnappingService } from '../../snapping';
  * After handle edit, full viewshed recalculation runs with progress modal.
  */
 class AddVisibilityControl extends BaseControl {
+    featureType = 'visibility';
     constructor(toolManager) {
         super(toolManager);
 
@@ -45,7 +46,6 @@ class AddVisibilityControl extends BaseControl {
         this.progressText = null;
         this.progressPercentage = null;
 
-        // Bind pointer event handlers
         this._onEditPointerDown = this._onEditPointerDown.bind(this);
         this._onEditPointerMove = this._onEditPointerMove.bind(this);
         this._onEditPointerUp = this._onEditPointerUp.bind(this);
@@ -65,19 +65,6 @@ class AddVisibilityControl extends BaseControl {
         bloqueado: false
     };
 
-    // ===== SINGLE SOURCE OF TRUTH =====
-
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('visibility');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('visibility')
-            .map(item => item.feature);
-    }
-
-    // ===== MAPBOX CONTROL INTERFACE =====
 
     onAdd = (map) => {
         this.map = map;
@@ -96,7 +83,6 @@ class AddVisibilityControl extends BaseControl {
         this.map = undefined;
     }
 
-    // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
 
     hasAttributePanel() {
         return true;
@@ -217,7 +203,6 @@ class AddVisibilityControl extends BaseControl {
         return !feature.properties?.bloqueado && this.geometry.isTerrainAvailable(this.map);
     }
 
-    // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
         if (!this.geometry.isTerrainAvailable(this.map)) {
@@ -238,7 +223,6 @@ class AddVisibilityControl extends BaseControl {
         this.clearPreview();
     }
 
-    // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
         this.selectFeature(feature);
@@ -274,14 +258,12 @@ class AddVisibilityControl extends BaseControl {
         });
     }
 
-    // ===== EDIT HANDLES SYSTEM =====
 
     selectFeature = (feature) => {
         this.setupHoverListeners();
 
         if (this._mapLocked) return;
 
-        // Only show edit handles when terrain is available
         if (!this.geometry.isTerrainAvailable(this.map)) return;
 
         this.createEditHandles(feature);
@@ -352,7 +334,6 @@ class AddVisibilityControl extends BaseControl {
     _onEditPointerDown(e) {
         if (!e.isPrimary) return;
 
-        // Block handle editing when terrain is off
         if (!this.geometry.isTerrainAvailable(this.map)) return;
 
         const selectedFeature = this.getSelectedFeature();
@@ -440,14 +421,12 @@ class AddVisibilityControl extends BaseControl {
             if (result) {
                 const center = this.geometry.normalizeCenter(selectedFeature.properties.center);
 
-                // Persist all three geometry params to the map source before recalculation
                 selectedFeature.properties.radius = result.radius;
                 selectedFeature.properties.bearing = result.bearing;
                 selectedFeature.properties.aperture = result.aperture;
 
                 this.updateHandlePropertiesToSource(selectedFeature, result);
 
-                // Trigger full viewshed recalculation
                 this.recalculateQueue = this.recalculateQueue.then(async () => {
                     await this.recalculateAfterParameterChange([selectedFeature], center);
                 });
@@ -472,7 +451,6 @@ class AddVisibilityControl extends BaseControl {
         const preview = this.geometry.calculatePreview(this.activeHandleId, newPosition, normalizedFeature);
         if (!preview) return;
 
-        // Update directly — already inside RAF via performPreviewUpdate
         this.map.getSource('visibility-feedback').setData({
             type: 'FeatureCollection',
             features: [{
@@ -520,7 +498,6 @@ class AddVisibilityControl extends BaseControl {
         });
     }
 
-    // ===== HOVER SYSTEM =====
 
     setupHoverListeners = () => {
         this.map.on('mousemove', this.onHoverMove);
@@ -551,9 +528,7 @@ class AddVisibilityControl extends BaseControl {
         }
     }
 
-    // ===== DRAWING SYSTEM =====
 
-    // Show snap indicator before the first click so the user knows snap is active
     _onPreClickMouseMove = (e) => {
         const snapping = getSnappingService();
         const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
@@ -616,7 +591,6 @@ class AddVisibilityControl extends BaseControl {
         if (this.isDraggingHandle && selectedFeature) {
             this.updateHandlePreview(this.lastPreviewPosition);
         } else if (this.startPoint && this.lastPreviewCenter) {
-            // Update directly — already inside RAF
             const aperture = AddVisibilityControl.DEFAULT_PROPERTIES.aperture;
             const previewCoordinates = this.geometry.calculateSectorPreview(
                 this.lastPreviewCenter, this.lastPreviewPosition, aperture
@@ -710,21 +684,17 @@ class AddVisibilityControl extends BaseControl {
         }
     }
 
-    // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = (features, property, value) => {
         const recalcProperties = ['observerHeight', 'targetHeight', 'radius', 'aperture'];
 
         if (recalcProperties.includes(property)) {
-            // Update UI immediately
             this.updatePropertyImmediately(features, property, value);
 
-            // For geometry properties, also update sector outline + handles
             if (property === 'radius' || property === 'aperture') {
                 this.updateSectorOutlineFromProperty(features, property, value);
             }
 
-            // Debounce full recalculation
             if (this.parameterDebounceTimer) {
                 clearTimeout(this.parameterDebounceTimer);
             }
@@ -762,7 +732,6 @@ class AddVisibilityControl extends BaseControl {
             }]
         });
 
-        // Update handle positions
         const normalizedFeature = { ...feature, properties: props };
         const handles = this.geometry.createHandles(normalizedFeature);
         if (handles) {
@@ -820,7 +789,6 @@ class AddVisibilityControl extends BaseControl {
         this.updateSelectionManagerFeatures(freshFeatures);
     }
 
-    // ===== RECALCULATION =====
 
     /**
      * Recalculate viewshed after parameter change (height, divisions, radius, aperture).
@@ -866,8 +834,7 @@ class AddVisibilityControl extends BaseControl {
 
                     await batchUpdateVisibilityFeatures(sourceFeature, newProcessedFeatures);
 
-                    // Update processed source
-                    processedData.features = processedData.features.filter(f =>
+                            processedData.features = processedData.features.filter(f =>
                         !f.properties.id.startsWith(feature.properties.id + '-')
                     );
                     newProcessedFeatures.forEach(pf => processedData.features.push(pf));
@@ -883,7 +850,6 @@ class AddVisibilityControl extends BaseControl {
             this.map.getSource('visibility').setData(data);
             this.map.getSource('processed-visibility').setData(processedData);
 
-            // Clear temporary sector outline from slider interaction
             this.map.getSource('visibility-feedback').setData({
                 type: 'FeatureCollection',
                 features: []
@@ -895,7 +861,6 @@ class AddVisibilityControl extends BaseControl {
             });
             this.updateSelectionManagerFeatures(freshFeatures);
 
-            // Refresh edit handles
             const selectedFeature = this.getSelectedFeature();
             if (selectedFeature) {
                 this.createEditHandles(selectedFeature);
@@ -955,7 +920,6 @@ class AddVisibilityControl extends BaseControl {
 
                     await this.updateProcessedFeaturesAfterMove(movedFeature, newProcessedFeatures);
 
-                    // Refresh edit handles
                     const selectedFeature = this.getSelectedFeature();
                     if (selectedFeature && selectedFeature.properties.id === movedFeature.properties.id) {
                         this.createEditHandles(movedFeature);
@@ -986,7 +950,6 @@ class AddVisibilityControl extends BaseControl {
         this.map.getSource('processed-visibility').setData(processedData);
     }
 
-    // ===== SAVE / DISCARD / DELETE =====
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('visibility').getData();
@@ -1123,7 +1086,6 @@ class AddVisibilityControl extends BaseControl {
         this.updateSelectionManagerFeatures(features);
     }
 
-    // ===== PROGRESS MODAL SYSTEM =====
 
     createProgressModal = () => {
         this.progressModal = document.createElement('div');
@@ -1178,7 +1140,6 @@ class AddVisibilityControl extends BaseControl {
         this.updateProgress(0, 'Analisando terreno...');
     }
 
-    // ===== TERRAIN INTEGRATION =====
 
     setupBaseEventListeners = () => {
         this.map.on('terrain', this._onTerrainChange);
@@ -1188,12 +1149,10 @@ class AddVisibilityControl extends BaseControl {
     _onTerrainChange = () => {
         const terrainAvailable = this.geometry.isTerrainAvailable(this.map);
 
-        // If tool is active and terrain is off, deactivate tool
         if (this.isActive && !terrainAvailable) {
             this.toolManager.deactivateCurrentTool();
         }
 
-        // Reactively show/hide handles based on terrain state
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature) {
             if (terrainAvailable) {
@@ -1206,7 +1165,6 @@ class AddVisibilityControl extends BaseControl {
         }
     }
 
-    // ===== SELECTION MANAGER INTEGRATION =====
 
     updateSelectionManagerFeature(feature) {
         this.selectionManager.updateSelectedFeature('visibility', feature.properties.id, feature);
@@ -1220,7 +1178,6 @@ class AddVisibilityControl extends BaseControl {
         });
     }
 
-    // ===== UTILITY METHODS =====
 
     cancelPendingUpdates = () => {
         if (this.previewRafId) {

@@ -3,14 +3,15 @@
 import {
     createModernSlider,
     createModernColorPicker,
-    createModernButtons,
     createModernToggle,
     createModernTextarea,
     createSectionDivider,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
+    createInitialPropertiesMap,
+    createPanelHeader,
+    createActionButtons,
+    createMarkerSymbolPicker
 } from '../../tool_manager/helpers/index.js';
-import { formatCoordinates } from '../../utilities/coordinate_converter.js';
+import { formatCoordinates } from '@utils/coordinate_converter.js';
 
 // ============================================================================
 // CONSTANTS
@@ -42,67 +43,30 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
     }
 
     const feature = selectedFeatures[0];
+    const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
 
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
-
-    // Header
-    if (!options.hideHeader) {
-        _buildHeader(panel, selectedFeatures, feature, pointControl, selectionManager, uiManager);
-    }
+    createPanelHeader({
+        panel,
+        features: selectedFeatures,
+        featureType: 'point',
+        control: pointControl,
+        selectionManager,
+        uiManager,
+        hideHeader: options.hideHeader
+    });
 
     // Tabs (Marcador / Etiqueta)
     _buildStyleTabs(panel, selectedFeatures, feature, pointControl);
 
     // Action buttons (below tabs)
-    panel.appendChild(createModernButtons({
-        selectedFeatures,
+    createActionButtons({
+        panel,
+        features: selectedFeatures,
         control: pointControl,
         selectionManager,
         initialPropertiesMap,
-        hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => pointControl.setDefaultProperties(feature.properties),
-        hidden: options.hideButtons
-    }));
-}
-
-// ============================================================================
-// PRIVATE: HEADER
-// ============================================================================
-
-/**
- * Builds the header section (single or multi-selection).
- */
-function _buildHeader(panel, selectedFeatures, feature, pointControl, selectionManager, uiManager) {
-    if (selectedFeatures.length === 1) {
-        const headerComponent = createFeatureHeaderWithOptions(
-            feature.properties.nome,
-            (newName) => {
-                pointControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                uiManager.updateSelectionHighlight();
-            },
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
-        panel.appendChild(headerComponent);
-    } else if (selectedFeatures.length > 1) {
-        const multiSelectHeader = document.createElement('div');
-        multiSelectHeader.className = 'feature-header-with-options';
-
-        const infoText = document.createElement('div');
-        infoText.className = 'feature-name-wrapper';
-        infoText.textContent = `${selectedFeatures.length} pontos selecionados`;
-
-        const optionsButton = createFeatureOptionsButton(
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
-
-        multiSelectHeader.appendChild(infoText);
-        multiSelectHeader.appendChild(optionsButton);
-        panel.appendChild(multiSelectHeader);
-    }
+        hideButtons: options.hideButtons
+    });
 }
 
 // ============================================================================
@@ -178,7 +142,15 @@ function _buildStyleTabs(panel, selectedFeatures, feature, pointControl) {
  * Builds the Marcador (marker style) tab content.
  */
 function _buildMarkerTab(container, selectedFeatures, feature, pointControl) {
-    // Color picker
+    // Marker symbol picker
+    container.appendChild(createMarkerSymbolPicker({
+        value: feature.properties.markerSymbol || 'circle',
+        onChange: (symbolId) => {
+            pointControl.updateFeaturesProperty(selectedFeatures, 'markerSymbol', symbolId);
+        }
+    }));
+
+    // Fill color picker
     container.appendChild(createModernColorPicker({
         label: 'Cor',
         value: feature.properties.fillColor,
@@ -187,11 +159,33 @@ function _buildMarkerTab(container, selectedFeatures, feature, pointControl) {
         }
     }));
 
+    // Border color picker
+    container.appendChild(createModernColorPicker({
+        label: 'Borda',
+        value: feature.properties.lineColor || '#000000',
+        onChange: (color) => {
+            pointControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
+        }
+    }));
+
+    // Border width slider
+    container.appendChild(createModernSlider({
+        label: 'Espessura da Borda',
+        min: 0,
+        max: 5,
+        step: 1,
+        value: feature.properties.lineWidth ?? 0,
+        unit: 'px',
+        onChange: (value) => {
+            pointControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
+        }
+    }));
+
     // Size slider
     container.appendChild(createModernSlider({
         label: 'Tamanho',
         min: 6,
-        max: 20,
+        max: 50,
         step: 1,
         value: feature.properties.size || 10,
         unit: 'px',
@@ -199,6 +193,36 @@ function _buildMarkerTab(container, selectedFeatures, feature, pointControl) {
             pointControl.updateFeaturesProperty(selectedFeatures, 'size', newValue);
         }
     }));
+
+    // Size zoom correction toggle
+    container.appendChild(createModernToggle({
+        label: 'Correção de Zoom',
+        checked: feature.properties.sizeZoomCorrectionEnabled !== false,
+        onChange: (enabled) => {
+            pointControl.updateFeaturesProperty(selectedFeatures, 'sizeZoomCorrectionEnabled', enabled);
+            sizeZoomSlider.style.display = enabled ? '' : 'none';
+        }
+    }));
+
+    // Size reference zoom slider
+    const sizeZoomSlider = createModernSlider({
+        label: 'Zoom de Referência',
+        min: 1,
+        max: 21,
+        step: 0.1,
+        value: Math.round((feature.properties.sizeCreatedAtZoom || 0) * 10) / 10,
+        unit: '',
+        onChange: (value) => {
+            const roundedValue = Math.round(parseFloat(value) * 10) / 10;
+            pointControl.updateFeaturesProperty(selectedFeatures, 'sizeCreatedAtZoom', roundedValue);
+        }
+    });
+
+    if (feature.properties.sizeZoomCorrectionEnabled === false) {
+        sizeZoomSlider.style.display = 'none';
+    }
+
+    container.appendChild(sizeZoomSlider);
 
     // Opacity slider
     container.appendChild(createModernSlider({
@@ -245,8 +269,7 @@ function _buildLabelTab(container, selectedFeatures, feature, pointControl) {
     });
     // Single-line style
     const textarea = textField.getTextarea();
-    textarea.style.minHeight = '38px';
-    textarea.style.resize = 'none';
+    textarea.classList.add('attr-modern-textarea-input--single-line');
     container.appendChild(textField);
 
     // Fill with coordinates button

@@ -1,8 +1,8 @@
 // Path: js/utilities/deep-utils.js
 
 /**
- * @fileoverview Utilitários de manipulação profunda de objetos.
- * Funções puras para clone, comparação e navegação em objetos aninhados.
+ * @fileoverview Deep object manipulation utilities.
+ * Pure functions for cloning, comparison, and path-based navigation.
  * @module utilities/deep-utils
  */
 
@@ -19,15 +19,13 @@
 export function deepClone(obj) {
     if (obj === null || typeof obj !== 'object') return obj;
     if (obj instanceof Date) return new Date(obj);
-    if (obj instanceof Array) return obj.map(item => deepClone(item));
-    if (obj instanceof Object) {
-        const copy = {};
-        Object.keys(obj).forEach(key => {
-            copy[key] = deepClone(obj[key]);
-        });
-        return copy;
+    if (Array.isArray(obj)) return obj.map(deepClone);
+
+    const copy = {};
+    for (const key of Object.keys(obj)) {
+        copy[key] = deepClone(obj[key]);
     }
-    return obj;
+    return copy;
 }
 
 // ============================================================================

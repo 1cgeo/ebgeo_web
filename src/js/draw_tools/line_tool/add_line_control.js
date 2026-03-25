@@ -25,6 +25,8 @@ import {
 import { calculateProfile } from './line_profile.js';
 
 class AddLineControl extends BaseControl {
+    featureType = 'line';
+
     constructor(toolManager) {
         super(toolManager);
 
@@ -63,30 +65,11 @@ class AddLineControl extends BaseControl {
         nome: '',
         descricao: '',
         visivel: true,
-        bloqueado: false
+        bloqueado: false,
+        observations: []
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
-
-    /**
-     * Get currently selected line feature from SelectionManager
-     * @param {void}
-     * @returns {Object|null} Selected line feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('line');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected line features from SelectionManager
-     * @param {void}
-     * @returns {Array} Array of selected line features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('line')
-            .map(item => item.feature);
-    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -792,7 +775,7 @@ class AddLineControl extends BaseControl {
 
                     this.updateUIAfterEdit();
 
-                    this.saveFeatureChanges(updatedFeature);
+                    await this.saveFeatureChanges(updatedFeature);
                     this.updateFeatureMeasurement(updatedFeature);
                 }
             } catch (error) {
@@ -930,7 +913,7 @@ class AddLineControl extends BaseControl {
         this.updateSelectionManagerFeature(updatedFeature);
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
-        this.saveFeatureChanges(updatedFeature);
+        await this.saveFeatureChanges(updatedFeature);
         this.updateFeatureMeasurement(updatedFeature);
     }
 
@@ -1046,7 +1029,7 @@ class AddLineControl extends BaseControl {
         this.updateSelectionManagerFeature(updatedFeature);
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
-        this.saveFeatureChanges(updatedFeature);
+        await this.saveFeatureChanges(updatedFeature);
         this.updateFeatureMeasurement(updatedFeature);
     }
 
@@ -1251,6 +1234,7 @@ class AddLineControl extends BaseControl {
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
             feature.properties.bloqueado !== initialProperties.bloqueado ||
+            JSON.stringify(feature.properties.observations) !== JSON.stringify(initialProperties.observations) ||
             JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
         );
     }

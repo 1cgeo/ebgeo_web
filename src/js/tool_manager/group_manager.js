@@ -460,6 +460,33 @@ class GroupManager {
     }
 
     /**
+     * Import groups into a map from external data.
+     * Replaces existing groups if `replace` is true; otherwise merges.
+     * Syncs memory cache for the current map and persists to IndexedDB.
+     *
+     * @param {string} mapName - Target map name
+     * @param {Object} groupsData - Plain object keyed by group ID
+     * @param {Object} [options] - Import options
+     * @param {boolean} [options.replace=false] - Replace all groups instead of merging
+     */
+    async importMapGroups(mapName, groupsData, options = {}) {
+        const { replace = false } = options;
+
+        this._ensureMapGroupsExist(mapName);
+
+        if (replace) {
+            this.memoryStore.groups[mapName] = {};
+        }
+
+        const cache = this.memoryStore.groups[mapName];
+        for (const [groupId, groupData] of Object.entries(groupsData)) {
+            cache[groupId] = groupData;
+        }
+
+        this._saveGroupsToDBAsync(mapName);
+    }
+
+    /**
      * Remove feature from all groups (when feature is deleted)
      */
     removeFeatureFromAllGroups(type, featureId, mapName = null) {
@@ -522,7 +549,6 @@ class GroupManager {
         setTimeout(async () => {
             try {
                 const groupsCache = this.memoryStore.groups[mapName];
-                // groupsCache is now a plain object, no need for Object.fromEntries
                 await setMapGroups(mapName, groupsCache);
             } catch (error) {
                 console.error(`Erro ao salvar grupos do mapa ${mapName}:`, error);

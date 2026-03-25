@@ -1,8 +1,8 @@
 // Path: js/tool_manager/tabbed_attribute_panel.js
 
 /**
- * @fileoverview TabbedAttributePanel - Componente de painel com abas.
- * Gerencia a estrutura de tabs (Propriedades, Atributos, Imagens) de forma centralizada.
+ * @fileoverview TabbedAttributePanel - Tabbed panel component.
+ * Manages the tab structure (Properties, Attributes, Images) centrally.
  */
 
 import { getEventBus } from '../store';
@@ -10,22 +10,22 @@ import { EventTypes, FeatureUpdateProperty } from '../events';
 
 /**
  * @typedef {Object} TabbedPanelConfig
- * @property {string} featureId - ID da feature selecionada
- * @property {string} featureType - Tipo da feature ('polygon', 'point', etc.)
- * @property {Object} control - Instância do controle da ferramenta
- * @property {boolean} [singleSelection=true] - Se é seleção única (habilita tabs)
+ * @property {string} featureId - ID of the selected feature
+ * @property {string} featureType - Feature type ('polygon', 'point', etc.)
+ * @property {Object} control - Tool control instance
+ * @property {boolean} [singleSelection=true] - Whether single selection (enables tabs)
  */
 
 /**
  * @typedef {Object} TabbedPanelInstance
- * @property {HTMLElement} container - Container principal do painel
- * @property {HTMLElement} propertiesTab - Container da tab de propriedades
- * @property {Function} cleanup - Função de cleanup
- * @property {Function} switchTab - Função para trocar de tab
+ * @property {HTMLElement} container - Main panel container
+ * @property {HTMLElement} propertiesTab - Properties tab container
+ * @property {Function} cleanup - Cleanup function
+ * @property {Function} switchTab - Tab switching function
  */
 
 /**
- * IDs das tabs disponíveis.
+ * Available tab IDs.
  * @readonly
  * @enum {string}
  */
@@ -42,12 +42,12 @@ const TABS_CONFIG = [
 ];
 
 /**
- * Cria um painel de atributos com sistema de tabs.
+ * Create an attribute panel with tab system.
  *
- * @param {TabbedPanelConfig} config - Configuração do painel
- * @param {Function} renderAttributesContent - Função para renderizar tab de atributos
- * @param {Function} renderImagesContent - Função para renderizar tab de imagens
- * @returns {TabbedPanelInstance} Instância do painel com tabs
+ * @param {TabbedPanelConfig} config - Panel configuration
+ * @param {Function} renderAttributesContent - Render function for attributes tab
+ * @param {Function} renderImagesContent - Render function for images tab
+ * @returns {TabbedPanelInstance} Tabbed panel instance
  */
 export function createTabbedAttributePanel(config, renderAttributesContent, renderImagesContent) {
     const { featureId, featureType, singleSelection = true } = config;
@@ -55,7 +55,7 @@ export function createTabbedAttributePanel(config, renderAttributesContent, rend
     const container = document.createElement('div');
     container.className = 'tabbed-attribute-panel';
 
-    // Se multi-seleção, retorna container simples sem tabs
+    // For multi-selection, return a simple container without tabs
     if (!singleSelection) {
         return {
             container,
@@ -65,7 +65,7 @@ export function createTabbedAttributePanel(config, renderAttributesContent, rend
         };
     }
 
-    // Criar estrutura de tabs
+    // Create tab structure
     const tabButtonsContainer = document.createElement('div');
     tabButtonsContainer.className = 'tabbed-panel-buttons';
 
@@ -90,7 +90,7 @@ export function createTabbedAttributePanel(config, renderAttributesContent, rend
     container.appendChild(tabButtonsContainer);
     Object.values(tabContents).forEach(content => container.appendChild(content));
 
-    // Lógica de troca de tabs
+    // Tab switching logic
     function switchTab(tabId) {
         Object.entries(tabButtons).forEach(([id, btn]) => {
             btn.classList.toggle('active', id === tabId);
@@ -105,10 +105,10 @@ export function createTabbedAttributePanel(config, renderAttributesContent, rend
         if (btn) switchTab(btn.dataset.tabId);
     });
 
-    // Estado interno
+    // Internal state
     let eventUnsubscribe = null;
 
-    // Renderização inicial das tabs de user data
+    // Initial render of user data tabs
     async function renderUserDataTabs() {
         if (renderAttributesContent) {
             await renderAttributesContent(
@@ -128,7 +128,7 @@ export function createTabbedAttributePanel(config, renderAttributesContent, rend
 
     renderUserDataTabs();
 
-    // Subscrever a eventos de atualização
+    // Subscribe to update events
     try {
         const eventBus = getEventBus();
         eventUnsubscribe = eventBus.on(EventTypes.FEATURE_UPDATED, (payload) => {
@@ -157,8 +157,8 @@ export function createTabbedAttributePanel(config, renderAttributesContent, rend
 }
 
 /**
- * Injeta estilos CSS do TabbedAttributePanel.
- * Chamar uma vez na inicialização.
+ * Inject TabbedAttributePanel CSS styles.
+ * Call once during initialization.
  */
 export function injectTabbedPanelStyles() {
     if (document.getElementById('tabbed-panel-styles')) return;

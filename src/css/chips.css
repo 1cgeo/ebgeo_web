@@ -13,7 +13,7 @@
     position: fixed;
     top: calc(var(--space-3) + var(--search-bar-height) + var(--space-1));
     left: calc(var(--sidebar-collapsed-width) + var(--space-4));
-    z-index: var(--z-search);
+    z-index: var(--z-panel);
     display: flex;
     gap: var(--space-2);
     width: var(--search-bar-width);
@@ -73,54 +73,46 @@
 }
 
 /* =========================================================================
-   TABLET RESPONSIVE ADJUSTMENTS
+   RESPONSIVE ADJUSTMENTS
    ========================================================================= */
 
-/* Touch device optimizations */
 @media (pointer: coarse) {
-    /* Taller chips for touch */
     .chip-btn {
-        min-height: var(--touch-target-min, 44px);
+        min-height: var(--touch-target-min);
         padding: 0 var(--space-3);
     }
 
-    /* Larger icons */
     .chip-btn svg {
         width: 18px;
         height: 18px;
     }
 
-    /* Better active state */
     .chip-btn:active {
         transform: scale(0.95);
         background: var(--gray-100);
     }
 
-    /* Remove sticky hover */
+    /* Reset hover on touch devices to prevent sticky state */
     .chip-btn:hover {
         background: white;
         box-shadow: var(--shadow-control);
     }
 }
 
-/* Tablet breakpoint */
 @media (width <= 1024px) {
-    /* Match search bar width - icon only chips */
     .chips-container {
         width: auto;
-        gap: var(--space-2);
     }
 
-    /* Adjust position for tablet sidebar */
     .chips-container[data-sidebar-state="expanded"] {
-        transform: translateX(var(--sidebar-panel-width-tablet, 340px));
+        transform: translateX(var(--sidebar-panel-width-tablet));
     }
 
-    /* Icon-only chips when search bar narrows */
+    /* Icon-only mode */
     .chip-btn {
         flex: none;
-        width: var(--touch-target-min, 44px);
-        height: var(--touch-target-min, 44px);
+        width: var(--touch-target-min);
+        height: var(--touch-target-min);
         padding: 0;
         border-radius: var(--radius-md);
     }
@@ -135,22 +127,19 @@
     }
 }
 
-/* Small tablet breakpoint */
 @media (width <= 768px) {
-    /* Smaller gap + position closer to sidebar */
     .chips-container {
         gap: var(--space-1);
         left: calc(var(--sidebar-collapsed-width) + var(--space-3));
     }
 
     .chips-container[data-sidebar-state="expanded"] {
-        transform: translateX(min(100vw - var(--sidebar-collapsed-width), 400px));
+        transform: translateX(min(100vw - var(--sidebar-collapsed-width), var(--sidebar-panel-width)));
     }
 }
 
-/* Landscape mode */
+/* Restore default gap in landscape to avoid overly cramped layout */
 @media (orientation: landscape) and (width <= 768px) {
-    /* Keep icon-only chips in landscape too */
     .chips-container {
         gap: var(--space-2);
     }

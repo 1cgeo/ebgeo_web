@@ -7,8 +7,8 @@
  * @module briefing/validation/reference-validator
  */
 
-import { SlideMode, getAllMapNamesStore } from '../../store/index.js';
-import config from '../../config.js';
+import { SlideMode, getAllMapNamesStore } from '@store/index.js';
+import config from '@js/config.js';
 
 // ============================================================================
 // VALIDATION ERROR TYPES
@@ -112,6 +112,7 @@ export class ValidationResult {
 
     /**
      * Checks if the briefing is valid (no errors).
+     * Presentation can proceed with warnings but not errors.
      * @returns {boolean}
      */
     isValid() {
@@ -119,11 +120,11 @@ export class ValidationResult {
     }
 
     /**
-     * Checks if the briefing can be presented (may have warnings but no errors).
+     * Alias for isValid() -- briefing can be presented if there are no errors.
      * @returns {boolean}
      */
     canPresent() {
-        return this.errors.length === 0;
+        return this.isValid();
     }
 
     /**
@@ -294,7 +295,7 @@ export class ReferenceValidator {
                     // Not in local project cache — validate via API (covers non-entry photos)
                     try {
                         const { validatePhoto } = await import(
-                            '../../street_view_tool/streetview-api.service.js'
+                            '@js/street_view_tool/streetview-api.service.js'
                         );
                         const exists = await validatePhoto(slide.photoId);
                         if (!exists) {
@@ -396,7 +397,7 @@ export class ReferenceValidator {
 
         try {
             const { getCachedProjects } = await import(
-                '../../street_view_tool/streetview-api.service.js'
+                '@js/street_view_tool/streetview-api.service.js'
             );
             const projects = getCachedProjects();
             if (projects && Array.isArray(projects)) {

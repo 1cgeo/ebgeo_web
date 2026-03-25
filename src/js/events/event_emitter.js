@@ -23,26 +23,11 @@ const DEFAULT_WARNING_THRESHOLD = 50;
  */
 export class EventEmitter {
     constructor() {
-        /**
-         * Map of event names to listener arrays.
-         * Each listener is {callback, once}.
-         * @type {Map<string, Array<{callback: Function, once: boolean}>>}
-         * @private
-         */
+        /** @type {Map<string, Array<{callback: Function, once: boolean}>>} */
         this._listeners = new Map();
-
-        /**
-         * Threshold for listener count warning per event.
-         * @type {number}
-         * @private
-         */
+        /** @type {number} */
         this._warningThreshold = DEFAULT_WARNING_THRESHOLD;
-
-        /**
-         * Events that have already triggered a warning (to avoid spam).
-         * @type {Set<string>}
-         * @private
-         */
+        /** @type {Set<string>} */
         this._warnedEvents = new Set();
     }
 
@@ -53,32 +38,25 @@ export class EventEmitter {
      * @param {Object} [options={}] - Options
      * @param {boolean} [options.once=false] - Remove after first call
      * @returns {Function} Unsubscribe function
-     * @throws {TypeError} If callback is not a function
-     *
-     * @example
-     * const unsub = emitter.on('event', (payload) => console.log(payload));
-     * // Later: unsub();
+     * @throws {TypeError} If callback is not a function or event is not a non-empty string
      */
     on(event, callback, options = {}) {
-        const { once = false } = options;
-
+        if (typeof event !== 'string' || event.trim() === '') {
+            throw new TypeError('EventEmitter.on: event must be a non-empty string');
+        }
         if (typeof callback !== 'function') {
             throw new TypeError('EventEmitter.on: callback must be a function');
         }
 
-        if (typeof event !== 'string' || event.trim() === '') {
-            throw new TypeError('EventEmitter.on: event must be a non-empty string');
-        }
+        const { once = false } = options;
 
         if (!this._listeners.has(event)) {
             this._listeners.set(event, []);
         }
 
-        const listener = { callback, once };
         const listeners = this._listeners.get(event);
-        listeners.push(listener);
+        listeners.push({ callback, once });
 
-        // Warn on possible listener leak (once per event, resets when count drops)
         if (listeners.length > this._warningThreshold && !this._warnedEvents.has(event)) {
             this._warnedEvents.add(event);
             console.warn(
@@ -86,7 +64,6 @@ export class EventEmitter {
             );
         }
 
-        // Return unsubscribe function for cleanup
         return () => this.off(event, callback);
     }
 
@@ -112,22 +89,19 @@ export class EventEmitter {
         if (!listeners) return false;
 
         const index = listeners.findIndex(l => l.callback === callback);
-        if (index !== -1) {
-            listeners.splice(index, 1);
+        if (index === -1) return false;
 
-            // Reset warned state if count dropped below threshold
-            if (this._warnedEvents.has(event) && listeners.length <= this._warningThreshold) {
-                this._warnedEvents.delete(event);
-            }
+        listeners.splice(index, 1);
 
-            // Cleanup empty arrays to prevent unbounded Map growth
-            if (listeners.length === 0) {
-                this._listeners.delete(event);
-            }
-
-            return true;
+        if (this._warnedEvents.has(event) && listeners.length <= this._warningThreshold) {
+            this._warnedEvents.delete(event);
         }
-        return false;
+
+        if (listeners.length === 0) {
+            this._listeners.delete(event);
+        }
+
+        return true;
     }
 
     /**
@@ -137,8 +111,10 @@ export class EventEmitter {
     offAll(event) {
         if (event) {
             this._listeners.delete(event);
+            this._warnedEvents.delete(event);
         } else {
             this._listeners.clear();
+            this._warnedEvents.clear();
         }
     }
 
@@ -154,26 +130,23 @@ export class EventEmitter {
         const listeners = this._listeners.get(event);
         if (!listeners || listeners.length === 0) return false;
 
-        // Copy array to avoid issues if listeners modify the array during iteration
-        const listenersCopy = [...listeners];
-        const toRemove = [];
+        // Snapshot to avoid issues if listeners modify the array during iteration
+        const snapshot = [...listeners];
 
-        for (const listener of listenersCopy) {
+        for (const listener of snapshot) {
             try {
                 listener.callback(payload);
-
-                if (listener.once) {
-                    toRemove.push(listener);
-                }
             } catch (error) {
-                // Isolate errors - one failing handler should not break others
                 console.error(`[EventEmitter] Error in listener for "${event}":`, error);
             }
         }
 
-        // Remove one-time listeners after all have been called
-        for (const listener of toRemove) {
-            this.off(event, listener.callback);
+        // Batch-remove once-listeners by filtering instead of repeated findIndex scans
+        const remaining = listeners.filter(l => !l.once);
+        if (remaining.length === 0) {
+            this._listeners.delete(event);
+        } else if (remaining.length < listeners.length) {
+            this._listeners.set(event, remaining);
         }
 
         return true;
@@ -181,36 +154,22 @@ export class EventEmitter {
 
     /**
      * Wait for an event using Promise.
-     * Useful for async/await patterns.
      * @param {string} event - Event name
      * @param {number} [timeout=30000] - Timeout in ms. Defaults to 30s to prevent memory leaks.
      * @returns {Promise<*>} Resolves with event payload
      * @throws {Error} If timeout is reached
-     *
-     * @example
-     * const payload = await emitter.waitFor('ready', 5000);
      */
     waitFor(event, timeout = DEFAULT_WAIT_TIMEOUT_MS) {
         return new Promise((resolve, reject) => {
-            let timeoutId = null;
-            let unsubscribe = null;
-
-            const cleanup = () => {
-                if (timeoutId) {
-                    clearTimeout(timeoutId);
-                    timeoutId = null;
-                }
-            };
-
-            unsubscribe = this.once(event, (payload) => {
-                cleanup();
-                resolve(payload);
-            });
-
-            timeoutId = setTimeout(() => {
+            const timeoutId = setTimeout(() => {
                 unsubscribe();
                 reject(new Error(`Timeout waiting for event "${event}" after ${timeout}ms`));
             }, timeout);
+
+            const unsubscribe = this.once(event, (payload) => {
+                clearTimeout(timeoutId);
+                resolve(payload);
+            });
         });
     }
 
@@ -220,8 +179,7 @@ export class EventEmitter {
      * @returns {boolean} True if event has listeners
      */
     hasListeners(event) {
-        const listeners = this._listeners.get(event);
-        return listeners !== undefined && listeners.length > 0;
+        return this._listeners.has(event);
     }
 
     /**
@@ -230,8 +188,7 @@ export class EventEmitter {
      * @returns {number} Listener count
      */
     listenerCount(event) {
-        const listeners = this._listeners.get(event);
-        return listeners ? listeners.length : 0;
+        return this._listeners.get(event)?.length ?? 0;
     }
 
     /**
@@ -239,7 +196,7 @@ export class EventEmitter {
      * @returns {string[]} Array of event names
      */
     eventNames() {
-        return Array.from(this._listeners.keys());
+        return [...this._listeners.keys()];
     }
 
     /**

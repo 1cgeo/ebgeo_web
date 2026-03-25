@@ -28,3 +28,8 @@ export { addBoundaryAttributesToPanel } from './boundary_tool/boundary_attribute
 export { default as AddOccupiedFrontControl } from './occupied_front_tool/add_occupied_front_control.js';
 export { default as AddOccupiedFrontGeometry } from './occupied_front_tool/add_occupied_front_geometry.js';
 export { addOccupiedFrontAttributesToPanel } from './occupied_front_tool/occupied_front_attributes_panel.js';
+
+// Declination Diagram tool
+export { default as AddDeclinationControl } from './declination_tool/add_declination_control.js';
+export { default as AddDeclinationGeometry } from './declination_tool/add_declination_geometry.js';
+export { addDeclinationAttributesToPanel } from './declination_tool/declination_attributes_panel.js';

@@ -13,6 +13,9 @@ export {
     PROCESSING_ICONS,
     ALGORITHM_CATEGORIES,
     CATEGORY_LABELS,
+    POLYGON_DEFAULTS,
+    SUPPORTED_GEOMETRY_TYPES,
+    extractBaseCoordinates,
 } from './processing.constants.js';
 
 // Tab component

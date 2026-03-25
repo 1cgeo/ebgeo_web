@@ -14,6 +14,7 @@ import { getSnappingService } from '../../snapping/snapping.service.js';
  * Manages drawing, editing, and interaction for boundary line features with echelon symbols
  */
 class AddBoundaryControl extends BaseControl {
+    featureType = 'boundary';
     // ===== SYMBOL SIZE CONSTANTS =====
     static SYMBOL_SIZE_CONSTANTS = {
         MIN_SIZE_KM: 0.05,          // Minimum symbol size (50 meters)
@@ -88,26 +89,6 @@ class AddBoundaryControl extends BaseControl {
             console.warn('Error calculating zoom-adaptive size, using default:', error);
             return DEFAULT_SIZE_KM;
         }
-    }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
-    /**
-     * Get currently selected boundary feature from SelectionManager
-     * @returns {Object|null} Selected boundary feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('boundary');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected boundary features from SelectionManager
-     * @returns {Array} Array of selected boundary features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('boundary')
-            .map(item => item.feature);
     }
 
     // ===== MAPBOX CONTROL INTERFACE =====
@@ -747,7 +728,7 @@ class AddBoundaryControl extends BaseControl {
                 await this.updateDependentFeatures(updatedFeature);
                 this.createEditHandles(updatedFeature);
                 this.updateUIAfterEdit();
-                this.saveFeatureChanges(updatedFeature);
+                await this.saveFeatureChanges(updatedFeature);
             }
         }
 
@@ -882,7 +863,7 @@ class AddBoundaryControl extends BaseControl {
         await this.updateDependentFeatures(updatedFeature);
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
-        this.saveFeatureChanges(updatedFeature);
+        await this.saveFeatureChanges(updatedFeature);
     }
 
     /**
@@ -979,12 +960,12 @@ class AddBoundaryControl extends BaseControl {
         await this.updateBoundaryTexts(boundaryFeature);
     }
 
-    updateDependentFeaturesFromMovedFeatures = (movedFeatures) => {
-        movedFeatures.forEach(feature => {
+    updateDependentFeaturesFromMovedFeatures = async (movedFeatures) => {
+        for (const feature of movedFeatures) {
             if (feature.properties.source === 'boundary') {
-                this.updateDependentFeatures(feature);
+                await this.updateDependentFeatures(feature);
             }
-        });
+        }
     }
 
     updateBoundaryCircles = async (boundaryFeature) => {

@@ -53,8 +53,6 @@ export class HatchPatternGenerator {
             case 'dots':
                 this.drawDots(ctx, size, lineWidth, color);
                 break;
-            default:
-                break;
         }
 
         const imageData = ctx.getImageData(0, 0, size, size);
@@ -138,14 +136,23 @@ export class HatchPatternGenerator {
         return `hatch_${config.type}_${config.spacing}_${config.lineWidth}_${colorHex}`;
     }
 
-    getPatternId(feature) {
-        const config = {
-            type: feature.properties.hatchType || 'diagonal-right',
-            spacing: feature.properties.hatchSpacing || 8,
-            lineWidth: feature.properties.hatchLineWidth || 2,
-            // Use fillColor for hatch color (fallback to hatchColor for backwards compatibility)
-            color: feature.properties.fillColor || feature.properties.hatchColor || '#000000'
+    /**
+     * Extract hatch config from feature properties.
+     * Uses fillColor with hatchColor fallback for backwards compatibility.
+     * @param {Object} properties - Feature properties
+     * @returns {Object} Hatch configuration
+     */
+    getConfigFromProperties(properties) {
+        return {
+            type: properties.hatchType || 'diagonal-right',
+            spacing: properties.hatchSpacing || 8,
+            lineWidth: properties.hatchLineWidth || 2,
+            color: properties.fillColor || properties.hatchColor || '#000000'
         };
+    }
+
+    getPatternId(feature) {
+        const config = this.getConfigFromProperties(feature.properties);
         return this.getCacheKey(config);
     }
 
@@ -155,21 +162,12 @@ export class HatchPatternGenerator {
         }
 
         const uniquePatterns = new Map();
-        const currentPatternIds = new Set();
 
         features.forEach(feature => {
             if (feature.properties.hatchEnabled) {
-                const config = {
-                    type: feature.properties.hatchType || 'diagonal-right',
-                    spacing: feature.properties.hatchSpacing || 8,
-                    lineWidth: feature.properties.hatchLineWidth || 2,
-                    // Use fillColor for hatch color (fallback to hatchColor for backwards compatibility)
-                    color: feature.properties.fillColor || feature.properties.hatchColor || '#000000'
-                };
-
+                const config = this.getConfigFromProperties(feature.properties);
                 const patternId = this.getCacheKey(config);
                 feature.properties.hatchPatternId = patternId;
-                currentPatternIds.add(patternId);
 
                 if (!uniquePatterns.has(patternId)) {
                     uniquePatterns.set(patternId, config);

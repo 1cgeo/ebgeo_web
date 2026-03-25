@@ -6,13 +6,13 @@
  */
 
 import { ModalBase } from './modal.base.js';
-import { addDomListener } from '../utilities/event-cleanup.js';
+import { addDomListener } from '@utils/event-cleanup.js';
 import {
     COORDINATE_FORMATS,
     getPlaceholderForFormat,
     parseCoordinates,
     formatCoordinates
-} from '../utilities';
+} from '@utils';
 
 /**
  * Icons used in the modal.

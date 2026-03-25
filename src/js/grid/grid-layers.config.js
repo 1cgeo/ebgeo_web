@@ -1,940 +1,179 @@
 // Path: js/grid/grid-layers.config.js
-export const GRID_LAYERS = {
-  latlong: [
-    'grid_vertical_4326_25k',
-    'grid_label_vertical_25k',
-    'grid_horizontal_4326_25k',
-    'grid_label_horizontal_25k',
-    'grid_vertical_4326_50k',
-    'grid_label_vertical_50k',
-    'grid_horizontal_4326_50k',
-    'grid_label_horizontal_50k',
-    'grid_vertical_4326_100k',
-    'grid_label_vertical_100k',
-    'grid_horizontal_4326_100k',
-    'grid_label_horizontal_100k',
-    'grid_vertical_4326_250k',
-    'grid_label_vertical_250k',
-    'grid_horizontal_4326_250k',
-    'grid_label_horizontal_250k'
-  ],
-  utm: [
-    'grid_vertical_utm_25k',
-    'grid_label_vertical_utm_25k',
-    'grid_horizontal_utm_25k',
-    'grid_label_horizontal_utm_25k',
-    'grid_vertical_utm_50k',
-    'grid_label_vertical_utm_50k',
-    'grid_horizontal_utm_50k',
-    'grid_label_horizontal_utm_50k',
-    'grid_vertical_utm_100k',
-    'grid_label_vertical_utm_100k',
-    'grid_horizontal_utm_100k',
-    'grid_label_horizontal_utm_100k',
-    'grid_vertical_utm_250k',
-    'grid_label_vertical_utm_250k',
-    'grid_horizontal_utm_250k',
-    'grid_label_horizontal_utm_250k'
-  ]
+import config from '../config.js';
+
+/**
+ * Scale definitions: [suffix, minzoom, maxzoom]
+ */
+const SCALES = [
+    ['25k', 14, 17],
+    ['50k', 13, 14],
+    ['100k', 12, 13],
+    ['250k', 8, 12],
+];
+
+/**
+ * Coordinate system definitions.
+ * @property {string} key - Key used in GRID_LAYERS lookup ('latlong' | 'utm')
+ * @property {string} prefix - Used in source/source-layer names ('4326' | 'utm')
+ * @property {boolean} labelIncludesPrefix - Whether label layer IDs include the prefix
+ */
+const COORD_SYSTEMS = [
+    { key: 'latlong', prefix: '4326', labelIncludesPrefix: false },
+    { key: 'utm', prefix: 'utm', labelIncludesPrefix: true },
+];
+
+const DIRECTIONS = ['vertical', 'horizontal'];
+
+const LINE_PAINT = {
+    'line-color': '#241f21',
+    'line-width': 1.5,
+};
+
+const LABEL_PAINT = {
+    'text-color': 'rgba(0, 0, 0, 1)',
+    'text-halo-color': 'rgba(255, 255, 255, 0.8)',
+    'text-halo-width': 7.5,
+    'text-halo-blur': 1.5,
 };
 
 /**
- * Initializes all grid layers and sources on the map
+ * Derives the line layer ID.
+ * latlong: grid_vertical_4326_25k | utm: grid_vertical_utm_25k
+ */
+function lineLayerId(prefix, dir, scale) {
+    return `grid_${dir}_${prefix}_${scale}`;
+}
+
+/**
+ * Derives the label layer ID.
+ * latlong: grid_label_vertical_25k (no '4326')
+ * utm:     grid_label_vertical_utm_25k
+ */
+function labelLayerId(prefix, dir, scale, includePrefix) {
+    if (includePrefix) {
+        return `grid_label_${dir}_${prefix}_${scale}`;
+    }
+    return `grid_label_${dir}_${scale}`;
+}
+
+/**
+ * Builds the GRID_LAYERS lookup: { latlong: [...layerIds], utm: [...layerIds] }
+ */
+function buildGridLayers() {
+    const result = { latlong: [], utm: [] };
+
+    for (const sys of COORD_SYSTEMS) {
+        for (const [scale] of SCALES) {
+            for (const dir of DIRECTIONS) {
+                result[sys.key].push(
+                    lineLayerId(sys.prefix, dir, scale),
+                    labelLayerId(sys.prefix, dir, scale, sys.labelIncludesPrefix),
+                );
+            }
+        }
+    }
+
+    return result;
+}
+
+export const GRID_LAYERS = buildGridLayers();
+
+/**
+ * Builds label layout properties for a direction.
+ * @param {string} direction - 'vertical' or 'horizontal'
+ * @returns {Object} MapLibre layout properties
+ */
+function buildLabelLayout(direction) {
+    return {
+        'text-field': direction === 'vertical' ? '{right}' : '{top}',
+        'symbol-placement': 'line',
+        'symbol-spacing': direction === 'vertical' ? 700 : 750,
+        'text-font': ['Noto Sans Bold'],
+        'text-size': 16,
+        'symbol-avoid-edges': true,
+        'text-rotation-alignment': 'map',
+        'text-letter-spacing': 0.15,
+        'text-keep-upright': true,
+        'visibility': 'none',
+    };
+}
+
+/**
+ * Adds a line + label layer pair to the map if not already present.
+ * @param {Object} map - MapLibre map instance
+ * @param {Object} params
+ */
+function addGridLayerPair(map, { lineId, labelId, source, sourceLayer, direction, minzoom, maxzoom }) {
+    if (!map.getLayer(lineId)) {
+        map.addLayer({
+            id: lineId,
+            type: 'line',
+            source,
+            'source-layer': sourceLayer,
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round',
+                'visibility': 'none',
+            },
+            paint: LINE_PAINT,
+            minzoom,
+            maxzoom,
+        });
+    }
+
+    if (!map.getLayer(labelId)) {
+        map.addLayer({
+            id: labelId,
+            type: 'symbol',
+            metadata: { 'IHM:overlay': true },
+            source,
+            'source-layer': sourceLayer,
+            layout: buildLabelLayout(direction),
+            paint: LABEL_PAINT,
+            minzoom,
+            maxzoom,
+        });
+    }
+}
+
+/**
+ * Initializes all grid sources and layers on the map.
  * @param {Object} map - MapLibre map instance
  */
 export function initGridLayers(map) {
+    const baseUrl = config.services.tileServerUrl;
 
-    if(!map.getSource('grid_4326_25k')){
-    map.addSource('grid_4326_25k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_4326_25k'
-    });
-    }
-
-    if(!map.getSource('grid_utm_25k')){
-    map.addSource('grid_utm_25k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_utm_25k'
-    });
-    }
-
-    if(!map.getSource('grid_4326_50k')){
-    map.addSource('grid_4326_50k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_4326_50k'
-    });
+    // Add vector tile sources
+    for (const sys of COORD_SYSTEMS) {
+        for (const [scale] of SCALES) {
+            const sourceName = `grid_${sys.prefix}_${scale}`;
+            if (!map.getSource(sourceName)) {
+                map.addSource(sourceName, {
+                    type: 'vector',
+                    url: `${baseUrl}/${sourceName}`,
+                });
+            }
+        }
     }
 
-    if(!map.getSource('grid_utm_50k')){
-    map.addSource('grid_utm_50k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_utm_50k'
-    });
-    }
+    // Add line + label layer pairs
+    for (const sys of COORD_SYSTEMS) {
+        for (const [scale, minzoom, maxzoom] of SCALES) {
+            const source = `grid_${sys.prefix}_${scale}`;
 
-    if(!map.getSource('grid_4326_100k')){
-    map.addSource('grid_4326_100k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_4326_100k'
-    });
-    }
+            for (const dir of DIRECTIONS) {
+                const sourceLayer = `grid_linha_${sys.prefix}_${dir}_${scale}`;
 
-    if(!map.getSource('grid_utm_100k')){
-    map.addSource('grid_utm_100k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_utm_100k'
-    });
-    }
-
-    if(!map.getSource('grid_4326_250k')){
-    map.addSource('grid_4326_250k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_4326_250k'
-    });
-    }
-
-    if(!map.getSource('grid_utm_250k')){
-    map.addSource('grid_utm_250k', {
-        type: 'vector',
-        url: 'http://IP:PORT/grid_utm_250k'
-    });
-    }
-
-
-    // Grid 4326 (latlong)
-    if (!map.getLayer("grid_vertical_4326_25k")){
-    map.addLayer({
-        "id": "grid_vertical_4326_25k",
-        "type": "line",
-        "source": "grid_4326_25k",
-        "source-layer": "grid_linha_4326_vertical_25k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 14,
-        "maxzoom": 17
-    });
-    }
-
-    if (!map.getLayer("grid_label_vertical_25k")){
-    map.addLayer({
-        "id": "grid_label_vertical_25k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_4326_25k",
-        "source-layer": "grid_linha_4326_vertical_25k",
-        "layout": {
-            "text-field": "{right}",
-            "symbol-placement": "line",
-            "symbol-spacing": 700,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 14,
-        "maxzoom": 17
-    });
-    }
-
-    if (!map.getLayer("grid_horizontal_4326_25k")){
-    map.addLayer({
-        "id": "grid_horizontal_4326_25k",
-        "type": "line",
-        "source": "grid_4326_25k",
-        "source-layer": "grid_linha_4326_horizontal_25k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 14,
-        "maxzoom": 17
-    });
-    }
-
-    if (!map.getLayer("grid_label_horizontal_25k")){
-    map.addLayer({
-        "id": "grid_label_horizontal_25k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_4326_25k",
-        "source-layer": "grid_linha_4326_horizontal_25k",
-        "layout": {
-            "text-field": "{top}",
-            "symbol-placement": "line",
-            "symbol-spacing": 750,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 14,
-        "maxzoom": 17
-    });
-
-    }
-    // Grid UTM
-    if (!map.getLayer("grid_vertical_utm_25k")){
-    map.addLayer({
-        "id": "grid_vertical_utm_25k",
-        "type": "line",
-        "source": "grid_utm_25k",
-        "source-layer": "grid_linha_utm_vertical_25k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 14,
-        "maxzoom": 17
-    });
-    }
-
-    if (!map.getLayer("grid_label_vertical_utm_25k")){
-    map.addLayer({
-        "id": "grid_label_vertical_utm_25k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_utm_25k",
-        "source-layer": "grid_linha_utm_vertical_25k",
-        "layout": {
-            "text-field": "{right}",
-            "symbol-placement": "line",
-            "symbol-spacing": 700,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 14,
-        "maxzoom": 17
-    });
-    }
-
-    if (!map.getLayer("grid_horizontal_utm_25k")){
-    map.addLayer({
-        "id": "grid_horizontal_utm_25k",
-        "type": "line",
-        "source": "grid_utm_25k",
-        "source-layer": "grid_linha_utm_horizontal_25k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 14,
-        "maxzoom": 17
-    });
-    }
-
-    if (!map.getLayer("grid_label_horizontal_utm_25k")){
-    map.addLayer({
-        "id": "grid_label_horizontal_utm_25k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_utm_25k",
-        "source-layer": "grid_linha_utm_horizontal_25k",
-        "layout": {
-            "text-field": "{top}",
-            "symbol-placement": "line",
-            "symbol-spacing": 750,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 14,
-        "maxzoom": 17
-    });
-    }
-    // Grid 4326 (latlong)
-    if (!map.getLayer("grid_vertical_4326_50k")){
-    map.addLayer({
-        "id": "grid_vertical_4326_50k",
-        "type": "line",
-        "source": "grid_4326_50k",
-        "source-layer": "grid_linha_4326_vertical_50k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 13,
-        "maxzoom": 14
-    });
-    }
-
-    if (!map.getLayer("grid_label_vertical_50k")){
-    map.addLayer({
-        "id": "grid_label_vertical_50k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_4326_50k",
-        "source-layer": "grid_linha_4326_vertical_50k",
-        "layout": {
-            "text-field": "{right}",
-            "symbol-placement": "line",
-            "symbol-spacing": 700,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 13,
-        "maxzoom": 14
-    });
-    }
-
-    if (!map.getLayer("grid_horizontal_4326_50k")){
-    map.addLayer({
-        "id": "grid_horizontal_4326_50k",
-        "type": "line",
-        "source": "grid_4326_50k",
-        "source-layer": "grid_linha_4326_horizontal_50k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 13,
-        "maxzoom": 14
-    });
-    }
-
-    if (!map.getLayer("grid_label_horizontal_50k")){
-    map.addLayer({
-        "id": "grid_label_horizontal_50k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_4326_50k",
-        "source-layer": "grid_linha_4326_horizontal_50k",
-        "layout": {
-            "text-field": "{top}",
-            "symbol-placement": "line",
-            "symbol-spacing": 750,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 13,
-        "maxzoom": 14
-    });
-
-    }
-    // Grid UTM
-    if (!map.getLayer("grid_vertical_utm_50k")){
-    map.addLayer({
-        "id": "grid_vertical_utm_50k",
-        "type": "line",
-        "source": "grid_utm_50k",
-        "source-layer": "grid_linha_utm_vertical_50k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 13,
-        "maxzoom": 14
-    });
-    }
-
-    if (!map.getLayer("grid_label_vertical_utm_50k")){
-    map.addLayer({
-        "id": "grid_label_vertical_utm_50k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_utm_50k",
-        "source-layer": "grid_linha_utm_vertical_50k",
-        "layout": {
-            "text-field": "{right}",
-            "symbol-placement": "line",
-            "symbol-spacing": 700,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 13,
-        "maxzoom": 14
-    });
-    }
-
-    if (!map.getLayer("grid_horizontal_utm_50k")){
-    map.addLayer({
-        "id": "grid_horizontal_utm_50k",
-        "type": "line",
-        "source": "grid_utm_50k",
-        "source-layer": "grid_linha_utm_horizontal_50k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 13,
-        "maxzoom": 14
-    });
-    }
-
-    if (!map.getLayer("grid_label_horizontal_utm_50k")){
-    map.addLayer({
-        "id": "grid_label_horizontal_utm_50k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_utm_50k",
-        "source-layer": "grid_linha_utm_horizontal_50k",
-        "layout": {
-            "text-field": "{top}",
-            "symbol-placement": "line",
-            "symbol-spacing": 750,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 13,
-        "maxzoom": 14
-    });
-    }
-    // Grid 4326 (latlong)
-    if (!map.getLayer("grid_vertical_4326_100k")){
-    map.addLayer({
-        "id": "grid_vertical_4326_100k",
-        "type": "line",
-        "source": "grid_4326_100k",
-        "source-layer": "grid_linha_4326_vertical_100k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 12,
-        "maxzoom": 13
-    });
-    }
-
-    if (!map.getLayer("grid_label_vertical_100k")){
-    map.addLayer({
-        "id": "grid_label_vertical_100k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_4326_100k",
-        "source-layer": "grid_linha_4326_vertical_100k",
-        "layout": {
-            "text-field": "{right}",
-            "symbol-placement": "line",
-            "symbol-spacing": 700,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 12,
-        "maxzoom": 13
-    });
-    }
-
-    if (!map.getLayer("grid_horizontal_4326_100k")){
-    map.addLayer({
-        "id": "grid_horizontal_4326_100k",
-        "type": "line",
-        "source": "grid_4326_100k",
-        "source-layer": "grid_linha_4326_horizontal_100k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 12,
-        "maxzoom": 13
-    });
-    }
-
-    if (!map.getLayer("grid_label_horizontal_100k")){
-    map.addLayer({
-        "id": "grid_label_horizontal_100k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_4326_100k",
-        "source-layer": "grid_linha_4326_horizontal_100k",
-        "layout": {
-            "text-field": "{top}",
-            "symbol-placement": "line",
-            "symbol-spacing": 750,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 12,
-        "maxzoom": 13
-    });
-
-    }
-    // Grid UTM
-    if (!map.getLayer("grid_vertical_utm_100k")){
-    map.addLayer({
-        "id": "grid_vertical_utm_100k",
-        "type": "line",
-        "source": "grid_utm_100k",
-        "source-layer": "grid_linha_utm_vertical_100k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 12,
-        "maxzoom": 13
-    });
-    }
-
-    if (!map.getLayer("grid_label_vertical_utm_100k")){
-    map.addLayer({
-        "id": "grid_label_vertical_utm_100k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_utm_100k",
-        "source-layer": "grid_linha_utm_vertical_100k",
-        "layout": {
-            "text-field": "{right}",
-            "symbol-placement": "line",
-            "symbol-spacing": 700,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 12,
-        "maxzoom": 13
-    });
-    }
-
-    if (!map.getLayer("grid_horizontal_utm_100k")){
-    map.addLayer({
-        "id": "grid_horizontal_utm_100k",
-        "type": "line",
-        "source": "grid_utm_100k",
-        "source-layer": "grid_linha_utm_horizontal_100k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 12,
-        "maxzoom": 13
-    });
-    }
-
-    if (!map.getLayer("grid_label_horizontal_utm_100k")){
-    map.addLayer({
-        "id": "grid_label_horizontal_utm_100k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_utm_100k",
-        "source-layer": "grid_linha_utm_horizontal_100k",
-        "layout": {
-            "text-field": "{top}",
-            "symbol-placement": "line",
-            "symbol-spacing": 750,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 12,
-        "maxzoom": 13
-    });
-    }
-    // Grid 4326 (latlong)
-    if (!map.getLayer("grid_vertical_4326_250k")){
-    map.addLayer({
-        "id": "grid_vertical_4326_250k",
-        "type": "line",
-        "source": "grid_4326_250k",
-        "source-layer": "grid_linha_4326_vertical_250k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 8,
-        "maxzoom": 12
-    });
-    }
-
-    if (!map.getLayer("grid_label_vertical_250k")){
-    map.addLayer({
-        "id": "grid_label_vertical_250k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_4326_250k",
-        "source-layer": "grid_linha_4326_vertical_250k",
-        "layout": {
-            "text-field": "{right}",
-            "symbol-placement": "line",
-            "symbol-spacing": 700,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 8,
-        "maxzoom": 12
-    });
-    }
-
-    if (!map.getLayer("grid_horizontal_4326_250k")){
-    map.addLayer({
-        "id": "grid_horizontal_4326_250k",
-        "type": "line",
-        "source": "grid_4326_250k",
-        "source-layer": "grid_linha_4326_horizontal_250k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 8,
-        "maxzoom": 12
-    });
-    }
-
-    if (!map.getLayer("grid_label_horizontal_250k")){
-    map.addLayer({
-        "id": "grid_label_horizontal_250k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_4326_250k",
-        "source-layer": "grid_linha_4326_horizontal_250k",
-        "layout": {
-            "text-field": "{top}",
-            "symbol-placement": "line",
-            "symbol-spacing": 750,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 8,
-        "maxzoom": 12
-    });
-
-    }
-    // Grid UTM
-    if (!map.getLayer("grid_vertical_utm_250k")){
-    map.addLayer({
-        "id": "grid_vertical_utm_250k",
-        "type": "line",
-        "source": "grid_utm_250k",
-        "source-layer": "grid_linha_utm_vertical_250k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 8,
-        "maxzoom": 12
-    });
-    }
-
-    if (!map.getLayer("grid_label_vertical_utm_250k")){
-    map.addLayer({
-        "id": "grid_label_vertical_utm_250k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_utm_250k",
-        "source-layer": "grid_linha_utm_vertical_250k",
-        "layout": {
-            "text-field": "{right}",
-            "symbol-placement": "line",
-            "symbol-spacing": 700,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 8,
-        "maxzoom": 12
-    });
-    }
-
-    if (!map.getLayer("grid_horizontal_utm_250k")){
-    map.addLayer({
-        "id": "grid_horizontal_utm_250k",
-        "type": "line",
-        "source": "grid_utm_250k",
-        "source-layer": "grid_linha_utm_horizontal_250k",
-        "layout": {
-            "line-cap": "round",
-            "line-join": "round",
-            "visibility": "none"
-        },
-        "paint": {
-            "line-color": "#241f21",
-            "line-width": 1.5
-        },
-        "minzoom": 8,
-        "maxzoom": 12
-    });
-    }
-
-    if (!map.getLayer("grid_label_horizontal_utm_250k")){
-    map.addLayer({
-        "id": "grid_label_horizontal_utm_250k",
-        "type": "symbol",
-        "metadata": {
-            "IHM:overlay": true
-        },
-        "source": "grid_utm_250k",
-        "source-layer": "grid_linha_utm_horizontal_250k",
-        "layout": {
-            "text-field": "{top}",
-            "symbol-placement": "line",
-            "symbol-spacing": 750,
-            "text-font": ["Noto Sans Bold"],
-            "text-size": 16,
-            "symbol-avoid-edges": true,
-            "text-rotation-alignment": "map",
-            "text-letter-spacing": 0.15,
-            "text-keep-upright": true,
-            "visibility": "none"
-        },
-        "paint": {
-            "text-color": "rgba(0, 0, 0, 1)",
-            "text-halo-color": "rgba(255, 255, 255, 0.8)",
-            "text-halo-width": 7.5,
-            "text-halo-blur": 1.5
-        },
-        "minzoom": 8,
-        "maxzoom": 12
-    });
+                addGridLayerPair(map, {
+                    lineId: lineLayerId(sys.prefix, dir, scale),
+                    labelId: labelLayerId(sys.prefix, dir, scale, sys.labelIncludesPrefix),
+                    source,
+                    sourceLayer,
+                    direction: dir,
+                    minzoom,
+                    maxzoom,
+                });
+            }
+        }
     }
 }

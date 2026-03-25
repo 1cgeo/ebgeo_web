@@ -127,10 +127,9 @@ class AddTextGeometry extends BaseGeometry {
         const HANDLE_PADDING_PX = 12;
         const offsetPixels = (width / 2) + HANDLE_PADDING_PX;
 
-        // Use createdAtZoom for zoom-corrected text, current zoom otherwise
-        const zoom = feature.properties.zoomCorrectionEnabled !== false
-            ? feature.properties.createdAtZoom
-            : (mapZoom || feature.properties.createdAtZoom);
+        // Always use current map zoom — the handle is a screen-space UI element
+        // that must stay at a fixed pixel distance from the text center
+        const zoom = mapZoom || feature.properties.createdAtZoom;
 
         const latitude = coordinates[1];
         const offsetDegrees = pixelsToDegrees(offsetPixels, latitude, zoom);
@@ -239,30 +238,6 @@ class AddTextGeometry extends BaseGeometry {
         );
 
         return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
-    }
-
-    /**
-     * Create selection box polygon from degree measurements
-     * @param {Array} coordinates - Center coordinates [lng, lat]
-     * @param {number} widthDegrees - Width in degrees
-     * @param {number} heightDegrees - Height in degrees
-     * @returns {Object} GeoJSON Polygon geometry
-     */
-    createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees) {
-        const [lng, lat] = coordinates;
-        const halfWidth = widthDegrees / 2;
-        const halfHeight = heightDegrees / 2;
-
-        return {
-            type: 'Polygon',
-            coordinates: [[
-                [lng - halfWidth, lat - halfHeight],
-                [lng + halfWidth, lat - halfHeight],
-                [lng + halfWidth, lat + halfHeight],
-                [lng - halfWidth, lat + halfHeight],
-                [lng - halfWidth, lat - halfHeight]
-            ]]
-        };
     }
 
     /**

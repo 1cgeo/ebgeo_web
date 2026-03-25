@@ -6,7 +6,7 @@
  */
 
 /* =========================================================================
-   BOTTOM RIGHT - FEATURE TOGGLES (Modelos 3D, Imagens 360°, Terreno)
+   BOTTOM LEFT - FEATURE TOGGLES (Modelos 3D, Imagens 360, Terreno)
    Positioned to the left of navigation controls
    ========================================================================= */
 
@@ -54,7 +54,6 @@
     transform: scale(0.98);
 }
 
-/* Active state */
 .feature-toggle-btn[data-active="true"] {
     background: var(--primary);
     color: white;
@@ -64,7 +63,6 @@
     background: var(--primary-hover);
 }
 
-/* Disabled state */
 .feature-toggle-btn:disabled,
 .feature-toggle-btn.disabled {
     opacity: 0.5;
@@ -138,7 +136,6 @@
     height: 18px;
 }
 
-/* Active state (for fullscreen) */
 .nav-btn[data-active="true"] {
     background: var(--primary-100);
     color: var(--primary);
@@ -171,49 +168,7 @@
     border-top: 1px solid var(--border-color);
 }
 
-/* =========================================================================
-   CONTROL BUTTON (Square) - Legacy support
-   ========================================================================= */
-
-.control-btn {
-    width: var(--control-button-size);
-    height: var(--control-button-size);
-    border: none;
-    background: white;
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-control);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--gray-600);
-    transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.control-btn:hover {
-    background: var(--gray-50);
-}
-
-.control-btn[data-active="true"] {
-    background: var(--primary);
-    color: white;
-}
-
-.control-btn svg {
-    width: 20px;
-    height: 20px;
-}
-
-/* Compass specific styles */
-.control-btn.compass-btn {
-    position: relative;
-}
-
-.control-btn.compass-btn svg {
-    transition: transform var(--transition-normal);
-}
-
-/* Compass button - nav-btn variant */
+/* Compass button SVG rotation */
 #nav-btn-compass svg {
     transition: transform var(--transition-normal);
     width: 32px;
@@ -221,104 +176,14 @@
 }
 
 /* =========================================================================
-   ZOOM CONTROLS - Legacy support
-   ========================================================================= */
-
-.zoom-controls {
-    display: flex;
-    flex-direction: column;
-    background: white;
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-control);
-    overflow: hidden;
-}
-
-.zoom-btn {
-    width: var(--control-button-size);
-    height: var(--control-button-size);
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--gray-600);
-    transition: background var(--transition-fast);
-}
-
-.zoom-btn:hover {
-    background: var(--gray-100);
-}
-
-.zoom-btn:active {
-    background: var(--gray-200);
-}
-
-.zoom-btn svg {
-    width: 20px;
-    height: 20px;
-}
-
-.zoom-divider {
-    height: 1px;
-    background: var(--gray-200);
-}
-
-/* =========================================================================
-   TOGGLE BUTTON (Wide) - Legacy support
-   ========================================================================= */
-
-.toggle-btn-wide {
-    width: var(--toggle-button-width);
-    height: var(--control-button-size);
-    padding: 0 var(--space-3);
-    border: none;
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-control);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.toggle-btn-wide[data-active="false"] {
-    background: white;
-    color: var(--gray-600);
-}
-
-.toggle-btn-wide[data-active="false"]:hover {
-    background: var(--gray-50);
-}
-
-.toggle-btn-wide[data-active="true"] {
-    background: var(--primary);
-    color: white;
-}
-
-.toggle-btn-wide[data-active="true"]:hover {
-    background: var(--primary-hover);
-}
-
-.toggle-btn-wide svg {
-    width: 18px;
-    height: 18px;
-    flex-shrink: 0;
-}
-
-/* =========================================================================
-   TABLET RESPONSIVE ADJUSTMENTS
+   RESPONSIVE ADJUSTMENTS
    ========================================================================= */
 
 /* Touch device optimizations */
 @media (pointer: coarse) {
-    /* Navigation buttons larger for touch */
     .nav-btn {
-        width: var(--touch-target-comfortable, 48px);
-        height: var(--touch-target-comfortable, 48px);
+        width: var(--touch-target-comfortable);
+        height: var(--touch-target-comfortable);
     }
 
     .nav-btn svg {
@@ -326,13 +191,11 @@
         height: 22px;
     }
 
-    /* Feature toggle buttons taller */
     .feature-toggle-btn {
-        height: var(--touch-target-comfortable, 48px);
+        height: var(--touch-target-comfortable);
         padding: 0 var(--space-4);
     }
 
-    /* Better touch feedback */
     .nav-btn:active {
         transform: scale(0.90);
     }
@@ -340,44 +203,19 @@
     .feature-toggle-btn:active:not(:disabled) {
         transform: scale(0.95);
     }
-
-    /* Control button (square) larger */
-    .control-btn {
-        width: var(--touch-target-comfortable, 48px);
-        height: var(--touch-target-comfortable, 48px);
-    }
-
-    .control-btn svg {
-        width: 24px;
-        height: 24px;
-    }
-
-    /* Zoom buttons */
-    .zoom-btn {
-        width: var(--touch-target-comfortable, 48px);
-        height: var(--touch-target-comfortable, 48px);
-    }
-
-    /* Toggle wide button */
-    .toggle-btn-wide {
-        height: var(--touch-target-comfortable, 48px);
-    }
 }
 
 /* Tablet breakpoint */
 @media (width <= 1024px) {
-    /* Adjust positioning for larger controls */
     .bottom-controls-left {
-        right: calc(var(--touch-target-comfortable, 48px) + var(--space-4) + var(--space-4));
+        right: calc(var(--touch-target-comfortable) + var(--space-4) + var(--space-4));
     }
 
-    /* Gap between controls */
     .bottom-controls-left,
     .bottom-controls-right {
         gap: var(--space-3);
     }
 
-    /* Feature toggle button width */
     .feature-toggle-btn {
         width: 140px;
     }
@@ -385,23 +223,22 @@
 
 /* Small tablet breakpoint */
 @media (width <= 768px) {
-    /* Closer to edges */
     .bottom-controls-right {
         right: var(--space-3);
         bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
     }
 
     .bottom-controls-left {
-        right: calc(var(--touch-target-comfortable, 48px) + var(--space-3) + var(--space-3));
+        right: calc(var(--touch-target-comfortable) + var(--space-3) + var(--space-3));
         bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
     }
 
-    /* Icon-only toggle buttons in small tablet */
+    /* Icon-only toggle buttons */
     .feature-toggle-btn {
-        width: 48px;
-        height: 48px;
-        min-width: 48px;
-        max-width: 48px;
+        width: var(--touch-target-comfortable);
+        height: var(--touch-target-comfortable);
+        min-width: var(--touch-target-comfortable);
+        max-width: var(--touch-target-comfortable);
         padding: 0;
         border-radius: var(--radius-md);
         justify-content: center;
@@ -425,65 +262,23 @@
 
 /* Landscape mode on tablets */
 @media (orientation: landscape) and (width <= 1024px) {
-    /* Keep controls in corners */
-    .bottom-controls-right {
-        bottom: var(--space-4);
-    }
-
+    .bottom-controls-right,
     .bottom-controls-left {
         bottom: var(--space-4);
     }
 }
 
-/* Small landscape - controls repositioned */
+/* Small landscape - feature toggles repositioned to left side */
 @media (orientation: landscape) and (width <= 768px) {
-    /* Feature toggles move to left side, horizontal */
     .bottom-controls-left {
         flex-direction: row;
         bottom: var(--space-3);
         right: auto;
-        left: calc(var(--sidebar-collapsed-width, 56px) + var(--space-3));
+        left: calc(var(--sidebar-collapsed-width) + var(--space-3));
     }
 
-    /* Icon-only toggles in small landscape */
-    .feature-toggle-btn {
-        width: 48px;
-        height: 48px;
-        min-width: 48px;
-        max-width: 48px;
-        padding: 0;
-        border-radius: var(--radius-md);
-        justify-content: center;
-        gap: 0;
-    }
-
-    .feature-toggle-label {
-        display: none;
-    }
-
-    .feature-toggle-icon {
-        width: 24px;
-        height: 24px;
-    }
-
-    .feature-toggle-icon svg {
-        width: 24px;
-        height: 24px;
-    }
-
-    /* Navigation controls stay on right */
     .bottom-controls-right {
         bottom: var(--space-3);
         right: var(--space-3);
     }
 }
-
-/* Portrait mode specific */
-@media (orientation: portrait) and (width <= 768px) {
-    /* More bottom padding for safe area */
-    .bottom-controls-right,
-    .bottom-controls-left {
-        bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
-    }
-}
-

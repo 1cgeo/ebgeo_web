@@ -13,25 +13,13 @@
 
 import { getClientId } from './operation-factory.js';
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-/**
- * Session modes.
- * @readonly
- * @enum {string}
- */
+/** @readonly @enum {string} */
 export const SessionMode = Object.freeze({
     OFFLINE: 'offline',
     ONLINE: 'online'
 });
 
-/**
- * User roles for permission checking.
- * @readonly
- * @enum {string}
- */
+/** @readonly @enum {string} */
 export const UserRole = Object.freeze({
     OWNER: 'owner',
     ADMIN: 'admin',
@@ -39,11 +27,7 @@ export const UserRole = Object.freeze({
     VIEWER: 'viewer'
 });
 
-/**
- * Permission action names used by PermissionGuard.
- * @readonly
- * @enum {string}
- */
+/** @readonly @enum {string} */
 export const PermissionAction = Object.freeze({
     EDIT: 'canEdit',
     DELETE: 'canDelete',
@@ -51,23 +35,21 @@ export const PermissionAction = Object.freeze({
     LOCK_MAPS: 'canLockMaps'
 });
 
+/** Full-control permissions shared by Owner, Admin, and offline mode. */
+const FULL_PERMISSIONS = Object.freeze({
+    canEdit: true,
+    canDelete: true,
+    canManageUsers: true,
+    canLockMaps: true
+});
+
 /**
  * Default permissions for each role.
  * @type {Object.<string, Object>}
  */
 const ROLE_PERMISSIONS = Object.freeze({
-    [UserRole.OWNER]: Object.freeze({
-        canEdit: true,
-        canDelete: true,
-        canManageUsers: true,
-        canLockMaps: true
-    }),
-    [UserRole.ADMIN]: Object.freeze({
-        canEdit: true,
-        canDelete: true,
-        canManageUsers: true,
-        canLockMaps: true
-    }),
+    [UserRole.OWNER]: FULL_PERMISSIONS,
+    [UserRole.ADMIN]: FULL_PERMISSIONS,
     [UserRole.EDITOR]: Object.freeze({
         canEdit: true,
         canDelete: true,
@@ -81,21 +63,6 @@ const ROLE_PERMISSIONS = Object.freeze({
         canLockMaps: false
     })
 });
-
-/**
- * Offline permissions — full control.
- * @type {Object}
- */
-const OFFLINE_PERMISSIONS = Object.freeze({
-    canEdit: true,
-    canDelete: true,
-    canManageUsers: true,
-    canLockMaps: true
-});
-
-// ============================================================================
-// SESSION CONTEXT CLASS
-// ============================================================================
 
 /**
  * Manages the current user session context.
@@ -114,13 +81,11 @@ class SessionContext {
         this._role = null;
 
         /** @type {Object} */
-        this._permissions = { ...OFFLINE_PERMISSIONS };
+        this._permissions = { ...FULL_PERMISSIONS };
 
         /** @type {Set<Function>} */
         this._listeners = new Set();
     }
-
-    // ===== GETTERS =====
 
     /**
      * Current session mode.
@@ -162,8 +127,6 @@ class SessionContext {
         return this._permissions;
     }
 
-    // ===== IDENTITY =====
-
     /**
      * Returns the effective user identifier.
      * Online: returns userId. Offline: returns clientId as fallback.
@@ -189,8 +152,6 @@ class SessionContext {
         return this._mode === SessionMode.OFFLINE;
     }
 
-    // ===== PERMISSIONS =====
-
     /**
      * Checks if the current user can perform a given action.
      * Offline users always have full permissions.
@@ -203,8 +164,6 @@ class SessionContext {
         }
         return this._permissions[action] === true;
     }
-
-    // ===== SESSION MANAGEMENT =====
 
     /**
      * Sets an authenticated session.
@@ -237,12 +196,10 @@ class SessionContext {
         this._mode = SessionMode.OFFLINE;
         this._userId = null;
         this._role = null;
-        this._permissions = { ...OFFLINE_PERMISSIONS };
+        this._permissions = { ...FULL_PERMISSIONS };
 
         this._notifyListeners();
     }
-
-    // ===== OBSERVER PATTERN =====
 
     /**
      * Subscribes to session changes (login/logout).
@@ -271,8 +228,6 @@ class SessionContext {
         };
     }
 
-    // ===== INTERNAL =====
-
     /** @private */
     _notifyListeners() {
         const snapshot = this.getSnapshot();
@@ -292,20 +247,12 @@ class SessionContext {
         this._mode = SessionMode.OFFLINE;
         this._userId = null;
         this._role = null;
-        this._permissions = { ...OFFLINE_PERMISSIONS };
+        this._permissions = { ...FULL_PERMISSIONS };
         this._listeners.clear();
     }
 }
 
-// ============================================================================
-// SINGLETON
-// ============================================================================
-
-/**
- * Singleton SessionContext instance.
- * @type {SessionContext}
- */
+/** @type {SessionContext} */
 export const sessionContext = new SessionContext();
 
-// Export class for testing
 export { SessionContext };

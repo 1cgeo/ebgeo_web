@@ -1,29 +1,26 @@
 // Path: js/search/search-bar.component.js
 
 /**
- * @fileoverview Redesigned search bar component (Google Maps style).
- * Always visible input with dynamic positioning based on sidebar state.
+ * @fileoverview Search bar component with dynamic positioning.
  * API results open in the sidebar feature panel with a "Save as Feature" button.
- *
- * @module search/search-bar.component
  */
 
-import { EventTypes } from '../events/event_types.js';
-import config from '../config.js';
+import { EventTypes } from '@events/event_types.js';
+import config from '@js/config.js';
 import {
     setupCleanup,
     subscribe,
     addDomListener,
     cleanup,
     removeElement
-} from '../utilities/event-cleanup.js';
-import { addFeature, getActiveLayerIdSync } from '../store/store.js';
-import { FeatureNavigationUtils } from '../utilities/feature_navigation_utils.js';
-import { IDUtils } from '../utilities/id_utils.js';
-import { showError } from '../utilities';
-import { escapeHtml } from '../utilities/html-escape.js';
-import { getEventBus } from '../store/services.js';
-import { getControl } from '../store/control.registry.js';
+} from '@utils/event-cleanup.js';
+import { addFeature, getActiveLayerIdSync, setCurrentMap, getCurrentMapNameSync } from '@store/store.js';
+import { zoomToFeature, zoomAndSelectFeature } from '@utils/feature_navigation_utils.js';
+import { IDUtils } from '@utils/id_utils.js';
+import { showError } from '@utils';
+import { escapeHtml } from '@utils/html-escape.js';
+import { getEventBus } from '@store/services.js';
+import { getControl } from '@store/control.registry.js';
 
 // Extracted modules
 import { SEARCH_ICONS } from './search-bar.icons.js';
@@ -38,10 +35,6 @@ import {
     createCoordinateResultContent,
     createApiResultContent
 } from './search-bar.sidepanel-content.js';
-
-// ============================================================================
-// SEARCH BAR COMPONENT
-// ============================================================================
 
 /**
  * Redesigned search bar component.
@@ -78,10 +71,6 @@ export class SearchBarComponent {
 
         setupCleanup(this);
     }
-
-    // ========================================================================
-    // INITIALIZATION
-    // ========================================================================
 
     /**
      * Initializes and attaches the search bar to DOM.
@@ -164,10 +153,6 @@ export class SearchBarComponent {
         subscribe(this, this._eventBus, EventTypes.FEATURE_PANEL_CLOSED, () => this._onFeaturePanelClosed());
     }
 
-    // ========================================================================
-    // INPUT HANDLERS
-    // ========================================================================
-
     /**
      * Handles input change with debounce.
      * @private
@@ -201,6 +186,7 @@ export class SearchBarComponent {
         // Show results if we have cached results
         if (this._input.value.length >= 2 && this._resultsDropdown.children.length > 0) {
             this._resultsDropdown.style.display = 'block';
+            this._container.classList.add('has-results');
         }
     }
 
@@ -228,10 +214,6 @@ export class SearchBarComponent {
             this._input.blur();
         }
     }
-
-    // ========================================================================
-    // SEARCH LOGIC
-    // ========================================================================
 
     /**
      * Performs the search with progressive results display.
@@ -319,10 +301,6 @@ export class SearchBarComponent {
         }
     }
 
-    // ========================================================================
-    // RESULTS DISPLAY
-    // ========================================================================
-
     /**
      * Shows loading state in results dropdown.
      * @private
@@ -409,10 +387,6 @@ export class SearchBarComponent {
         this._resultsDropdown.style.display = 'none';
         this._container.classList.remove('has-results');
     }
-
-    // ========================================================================
-    // RESULT SELECTION
-    // ========================================================================
 
     /**
      * Selects a search result.
@@ -502,6 +476,7 @@ export class SearchBarComponent {
 
     /**
      * Selects a local feature: zoom to it and open attributes panel.
+     * If the feature is from another map, switches to that map first.
      * @private
      * @param {Object} result - Search result with feature data
      */
@@ -522,7 +497,12 @@ export class SearchBarComponent {
         }
 
         try {
-            await FeatureNavigationUtils.zoomAndSelectFeature(
+            // Switch map if the feature is from another map
+            if (result.mapName && result.mapName !== getCurrentMapNameSync()) {
+                await this._switchToMap(result.mapName);
+            }
+
+            await zoomAndSelectFeature(
                 feature,
                 this._map,
                 this._selectionManager,
@@ -532,14 +512,28 @@ export class SearchBarComponent {
         } catch (error) {
             console.warn('[SearchBar] Error selecting feature:', error);
             if (result.coordinates) {
-                await FeatureNavigationUtils.zoomToFeature(feature, this._map);
+                await zoomToFeature(feature, this._map);
             }
         }
     }
 
-    // ========================================================================
-    // SIDEPANEL INTEGRATION
-    // ========================================================================
+    /**
+     * Switches to a different map and reloads the view.
+     * Mirrors sidebar._handleRecentMapClick flow.
+     * @private
+     * @param {string} mapName - Target map name
+     */
+    async _switchToMap(mapName) {
+        await setCurrentMap(mapName);
+
+        const baseLayerControl = getControl('BaseLayerControl');
+        if (baseLayerControl) {
+            await baseLayerControl.switchMap();
+        }
+
+        // Notify sidebar and other UI components about the map switch
+        this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
+    }
 
     /**
      * Opens the API search result in the sidebar feature panel.
@@ -596,10 +590,6 @@ export class SearchBarComponent {
             this._currentApiResult = null;
         }
     }
-
-    // ========================================================================
-    // FEATURE CREATION
-    // ========================================================================
 
     /**
      * Creates a point at the coordinate result location.
@@ -743,10 +733,6 @@ export class SearchBarComponent {
             showError('Erro ao salvar feição. Tente novamente.');
         }
     }
-
-    // ========================================================================
-    // UTILITY METHODS
-    // ========================================================================
 
     /**
      * Closes the coordinate panel and cleans up.

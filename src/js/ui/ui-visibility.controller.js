@@ -10,7 +10,7 @@
  * @module ui/ui-visibility.controller
  */
 
-import { getEventBus } from '../store/services.js';
+import { getEventBus } from '@store/services.js';
 
 // ============================================================================
 // ENUMS
@@ -471,6 +471,7 @@ let instance = null;
 
 /**
  * Gets the singleton UIVisibilityController instance.
+ * Creates it on first access (lazy initialization).
  * @returns {UIVisibilityController}
  */
 export function getUIVisibilityController() {
@@ -481,15 +482,10 @@ export function getUIVisibilityController() {
 }
 
 /**
- * Creates the UIVisibilityController instance.
- * Should be called during service initialization.
+ * Alias for getUIVisibilityController.
+ * Kept for backward compatibility with service initialization code.
  * @returns {UIVisibilityController}
  */
-export function createUIVisibilityController() {
-    if (!instance) {
-        instance = new UIVisibilityController();
-    }
-    return instance;
-}
+export const createUIVisibilityController = getUIVisibilityController;
 
 export default UIVisibilityController;

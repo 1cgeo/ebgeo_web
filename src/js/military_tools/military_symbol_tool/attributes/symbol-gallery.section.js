@@ -6,44 +6,23 @@
  */
 
 /**
- * @typedef {Object} GallerySymbol
- * @property {Object} properties - Feature properties
- * @property {string} properties.id - Feature ID
- * @property {string} properties.sidc - Symbol SIDC code
- * @property {string} [properties.nome] - Symbol name
- * @property {number} usageCount - Number of times this symbol is used
- */
-
-/**
  * Creates a gallery item element.
  *
- * @param {GallerySymbol} feature - Symbol feature
+ * @param {Object} feature - Symbol feature with properties
  * @param {string} dataURL - Symbol preview image data URL
  * @param {Function} onSymbolClick - Callback when symbol is clicked
  * @returns {HTMLElement} Gallery item element
  */
 function createGalleryItem(feature, dataURL, onSymbolClick) {
     const item = document.createElement('div');
-    item.style.cssText = `
-        width: 60px;
-        height: 60px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: white;
-    `;
+    item.className = 'symbol-gallery__item';
 
     const img = document.createElement('img');
+    img.className = 'symbol-gallery__item-image';
     img.src = dataURL;
-    img.style.cssText = 'max-width: 50px; max-height: 50px;';
     img.title = `${feature.properties.nome || 'Símbolo'} (${feature.usageCount}x)`;
 
-    item.onclick = () => {
-        onSymbolClick(feature.properties.sidc);
-    };
+    item.onclick = () => onSymbolClick(feature.properties.sidc);
 
     item.appendChild(img);
     return item;
@@ -65,27 +44,16 @@ export async function createSymbolGallery(militarySymbolControl, onSymbolClick) 
 
     const scrollContainer = document.createElement('div');
     scrollContainer.className = 'symbol-gallery-scroll';
-    scrollContainer.style.cssText = `
-        max-height: 500px;
-        overflow-y: auto;
-        padding-right: 4px;
-    `;
 
     const gallery = document.createElement('div');
     gallery.className = 'symbol-gallery-grid';
-    gallery.style.cssText = `
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        justify-items: center;
-    `;
 
     const distinctSymbols = await militarySymbolControl.getDistinctSymbolsByUsage();
 
     if (distinctSymbols.length === 0) {
         const emptyMessage = document.createElement('div');
+        emptyMessage.className = 'symbol-gallery__empty';
         emptyMessage.textContent = 'Nenhum símbolo no mapa';
-        emptyMessage.style.cssText = 'color: #999; font-style: italic; font-size: 14px; text-align: center; padding: 20px; grid-column: 1 / -1;';
         gallery.appendChild(emptyMessage);
     } else {
         for (const feature of distinctSymbols) {
@@ -94,8 +62,7 @@ export async function createSymbolGallery(militarySymbolControl, onSymbolClick) 
                 const dataURL = await militarySymbolControl.symbolGenerator.generatePreviewDataURL(sidc, 60);
 
                 if (dataURL) {
-                    const item = createGalleryItem(feature, dataURL, onSymbolClick);
-                    gallery.appendChild(item);
+                    gallery.appendChild(createGalleryItem(feature, dataURL, onSymbolClick));
                 }
             } catch (error) {
                 console.warn(`Error generating symbol ${feature.properties.id}:`, error);

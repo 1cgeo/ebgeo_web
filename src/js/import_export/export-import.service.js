@@ -16,48 +16,42 @@ import {
     getColorUsage,
     getMapNotes,
     getMapGroups,
-    // Layer imports
     getLayers,
     setMapLayers,
-    // Position and order imports
     getMapPosition,
     getMapOrder,
     setMapOrder,
-    // Catalog imports
     processCatalogLayersOnImport,
     getCatalogLayers,
-    // Cesium 3D imports
     getCesium3dDataForExport,
     setCesium3dDataForImport,
-    // Street View 360 imports
     getStreetview360DataForExport,
     setStreetview360DataForImport,
-    // Briefing imports
     getBriefingsForExport,
     importBriefings,
     getGroupManager,
-} from '../store';
+} from '@store';
 
-import { IDUtils, showToast, showSuccess, showError, showWarning, generateUUID } from '../utilities';
-import { createSyncMetadata } from '../store/sync/sync-metadata.js';
-import { ATLAS_SCHEMA_VERSION } from '../store/atlas/atlas.entity.js';
+import { IDUtils } from '@utils/id_utils.js';
+import { generateUUID } from '@utils/uuid.js';
+import { showToast, showSuccess, showError, showWarning } from '@utils/toast_service.js';
+import { createSyncMetadata } from '@store/sync/sync-metadata.js';
+import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
+import { EventTypes } from '@events/event_types.js';
+import { showExportModal } from '@modals/export.modal.js';
 import JSZip from 'jszip';
-import config from '../config.js';
-import { showExportModal } from '../modals/export.modal.js';
-import { EventTypes } from '../events/event_types.js';
+import config from '@js/config.js';
 
 /**
  * Checks if import data is in v1.x format (pre-v2.0).
  * @param {Object} data - Import data
  * @returns {boolean} True if v1.x format
  */
-const isV1Format = (data) => {
-    // v2.0 files will have atlas property or schemaVersion >= 2.0
+function isV1Format(data) {
     if (data.atlas) return false;
     if (data.schemaVersion && compareVersions(data.schemaVersion, '2.0') >= 0) return false;
-    // v1.x files use 'version' property with values like '1.7'
     return data.version && compareVersions(data.version, '2.0') < 0;
-};
+}
 
 /**
  * Migrates import data from v1.x to v2.0 format.
@@ -65,7 +59,7 @@ const isV1Format = (data) => {
  * @param {Object} data - v1.x format import data
  * @returns {Object} Migrated data in v2.0 format
  */
-const migrateImportDataToV2 = (data) => {
+function migrateImportDataToV2(data) {
     const migrated = { ...data };
 
     // Update version
@@ -123,16 +117,16 @@ const migrateImportDataToV2 = (data) => {
     }
 
     return migrated;
-};
+}
 
 /**
- * Normalizes mapData structure to current version
- * Ensures coordination_measures exists (added in v1.4)
- * Validates catalog layers availability (added for unavailable layer support)
+ * Normalizes mapData structure to current version.
+ * Ensures coordination_measures exists (added in v1.4).
+ * Validates catalog layers availability.
  * @param {Object} mapData - Map data to normalize
  * @returns {{ mapData: Object, unavailableCatalogLayersCount: number }} Normalized map data and count of unavailable layers
  */
-const normalizeMapDataForCurrentVersion = (mapData) => {
+function normalizeMapDataForCurrentVersion(mapData) {
     // Ensure coordination_measures exists (v1.4)
     if (!mapData.features.coordination_measures) {
         mapData.features.coordination_measures = [];
@@ -157,7 +151,7 @@ const normalizeMapDataForCurrentVersion = (mapData) => {
     }
 
     return { mapData, unavailableCatalogLayersCount };
-};
+}
 
 export class ExportImportService {
     constructor(baseLayerControl, toolManager, mapManager, eventBus = null) {
@@ -168,19 +162,15 @@ export class ExportImportService {
     }
 
     /**
-     * Rounds coordinates to 1 meter precision (6 decimal places)
+     * Rounds coordinates to 1 meter precision (6 decimal places).
      * @param {Array} coords - Coordinate array to round
      * @returns {Array} Rounded coordinates
      */
     roundCoordinates(coords) {
-        const precision = 6;
-        const factor = Math.pow(10, precision);
-
         if (Array.isArray(coords[0])) {
             return coords.map(coord => this.roundCoordinates(coord));
-        } else {
-            return coords.map(coord => Math.round(coord * factor) / factor);
         }
+        return coords.map(coord => Math.round(coord * 1e6) / 1e6);
     }
 
     /**
@@ -370,17 +360,15 @@ export class ExportImportService {
                 briefings: [],
             };
 
-            // Export map data with optimization
+            // Export map data with optimization, collecting image IDs in the same pass
+            const usedImages = new Set();
+
             for (const mapName of mapsToExport) {
                 const mapData = await getCurrentMapFeatures(mapName);
                 if (mapData) {
-                    // Get saved map position
                     const position = await getMapPosition(mapName);
-
-                    // Get catalog layers (analysis, data, hillshade)
                     const catalogLayers = await getCatalogLayers(mapName);
 
-                    // Rebuild complete map structure with actual position
                     const fullMapData = {
                         baseLayer: await getCurrentBaseLayer(mapName),
                         hillshadeEnabled: true,
@@ -395,102 +383,35 @@ export class ExportImportService {
                     };
 
                     data.maps[mapName] = this.optimizeMapData(fullMapData);
+
+                    // Collect image IDs from features in this pass
+                    for (const features of Object.values(mapData)) {
+                        if (!Array.isArray(features)) continue;
+                        for (const feature of features) {
+                            if (feature.properties?.id) {
+                                usedImages.add(feature.properties.id);
+                            }
+                        }
+                    }
                 }
 
-                // Export color usage data
-                try {
-                    const colorData = await getColorUsage(mapName);
-                    if (colorData && Object.keys(colorData).length > 0) {
-                        data.colorUsage[mapName] = colorData;
-                    }
-                } catch (error) {
-                    console.warn(`Could not export colors from map ${mapName}:`, error);
-                }
-
-                // Export map notes
-                try {
-                    const notesData = await getMapNotes(mapName);
-                    if (notesData && (notesData.title || notesData.description)) {
-                        data.mapNotes[mapName] = notesData;
-                    }
-                } catch (error) {
-                    console.warn(`Could not export notes from map ${mapName}:`, error);
-                }
-
-                // Export map groups
-                try {
-                    const groupsMap = getMapGroups(mapName);
-                    if (groupsMap && groupsMap.size > 0) {
-                        data.groups[mapName] = Object.fromEntries(groupsMap);
-                    }
-                } catch (error) {
-                    console.warn(`Could not export groups from map ${mapName}:`, error);
-                }
-
-                // Export map layers
-                try {
-                    const layersData = await getLayers(mapName);
-                    if (layersData && layersData.length > 0) {
-                        data.layers[mapName] = layersData;
-                    }
-                } catch (error) {
-                    console.warn(`Could not export layers from map ${mapName}:`, error);
-                }
-
-                // Export cesium 3D data (camera positions and markers)
-                try {
-                    const cesium3dData = await getCesium3dDataForExport(mapName);
-                    if (cesium3dData) {
-                        data.cesium3d[mapName] = cesium3dData;
-                    }
-                } catch (error) {
-                    console.warn(`Could not export 3D data from map ${mapName}:`, error);
-                }
-
-                // Export street view 360 data (orientations and markers)
-                try {
-                    const streetview360Data = await getStreetview360DataForExport(mapName);
-                    if (streetview360Data) {
-                        data.streetview360[mapName] = streetview360Data;
-                    }
-                } catch (error) {
-                    console.warn(`Could not export 360 data from map ${mapName}:`, error);
-                }
+                await this._exportOptionalMapData(data, mapName);
             }
 
-            // Export briefings (not map-specific, global)
+            // Export briefings (global, not map-specific)
             try {
                 const briefings = await getBriefingsForExport();
-                if (briefings && briefings.length > 0) {
+                if (briefings?.length > 0) {
                     data.briefings = briefings;
                 }
             } catch (error) {
                 console.warn('Could not export briefings:', error);
             }
 
-            // Add data.json to ZIP without indentation and with maximum compression
-            const jsonString = JSON.stringify(data);
-            zip.file('data.json', jsonString, {
+            zip.file('data.json', JSON.stringify(data), {
                 compression: 'DEFLATE',
                 compressionOptions: { level: 9 }
             });
-
-            // Collect and export used images
-            const usedImages = new Set();
-            for (const mapName of mapsToExport) {
-                const mapData = await getCurrentMapFeatures(mapName);
-                if (mapData) {
-                    for (const [_category, features] of Object.entries(mapData)) {
-                        if (Array.isArray(features)) {
-                            features.forEach(feature => {
-                                if (feature.properties && feature.properties.id) {
-                                    usedImages.add(feature.properties.id);
-                                }
-                            });
-                        }
-                    }
-                }
-            }
 
             // Add images to ZIP with correct extension based on MIME type
             for (const imageId of usedImages) {
@@ -598,15 +519,11 @@ export class ExportImportService {
             }
 
             // Check version compatibility (after potential migration)
-            // Accept v1.3+ and v2.0+
-            const effectiveMinVersion = MIN_SCHEMA_VERSION;
-            const effectiveMaxVersion = ATLAS_SCHEMA_VERSION; // v2.0 is now max
-
-            if (compareVersions(data.version, effectiveMinVersion) < 0) {
-                throw new Error(`Arquivo .ebgeo incompatível. Versão do arquivo: ${data.version}, versão mínima aceita: ${effectiveMinVersion}`);
+            if (compareVersions(data.version, MIN_SCHEMA_VERSION) < 0) {
+                throw new Error(`Arquivo .ebgeo incompatível. Versão do arquivo: ${data.version}, versão mínima aceita: ${MIN_SCHEMA_VERSION}`);
             }
-            if (compareVersions(data.version, effectiveMaxVersion) > 0) {
-                throw new Error(`Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${data.version}, versão máxima aceita: ${effectiveMaxVersion}. Atualize a aplicação para usar este arquivo.`);
+            if (compareVersions(data.version, ATLAS_SCHEMA_VERSION) > 0) {
+                throw new Error(`Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${data.version}, versão máxima aceita: ${ATLAS_SCHEMA_VERSION}. Atualize a aplicação para usar este arquivo.`);
             }
 
             await setSchemaVersion(ATLAS_SCHEMA_VERSION);
@@ -677,13 +594,13 @@ export class ExportImportService {
                 await this.importLayersAdditively(data.layers, mapNameMapping, newlyCreatedMaps);
 
                 // Import cesium 3D data additively
-                await this.importCesium3dAdditively(data.cesium3d, mapNameMapping);
+                await this._importMappedData(data.cesium3d, setCesium3dDataForImport, mapNameMapping, 'cesium 3D data');
 
                 // Import street view 360 data additively
-                await this.importStreetview360Additively(data.streetview360, mapNameMapping);
+                await this._importMappedData(data.streetview360, setStreetview360DataForImport, mapNameMapping, '360 data');
 
                 // Import briefings (additive import - no overwrite)
-                await this.importBriefingsAdditively(data.briefings);
+                await this._importBriefings(data.briefings, false);
 
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
@@ -697,7 +614,7 @@ export class ExportImportService {
                     importedMapsCount++;
                 }
 
-                setCurrentMap(data.currentMap);
+                await setCurrentMap(data.currentMap);
 
                 // Import groups directly (normal import)
                 await this.importGroupsDirectly(data.groups);
@@ -706,13 +623,13 @@ export class ExportImportService {
                 await this.importLayersDirectly(data.layers);
 
                 // Import cesium 3D data directly (normal import)
-                await this.importCesium3dDirectly(data.cesium3d);
+                await this._importMappedData(data.cesium3d, setCesium3dDataForImport, null, 'cesium 3D data');
 
                 // Import street view 360 data directly (normal import)
-                await this.importStreetview360Directly(data.streetview360);
+                await this._importMappedData(data.streetview360, setStreetview360DataForImport, null, '360 data');
 
                 // Import briefings (normal import - overwrite if same ID)
-                await this.importBriefingsDirectly(data.briefings);
+                await this._importBriefings(data.briefings, true);
 
                 // Restore map order if available
                 if (data.mapOrder && Array.isArray(data.mapOrder) && data.mapOrder.length > 0) {
@@ -734,7 +651,7 @@ export class ExportImportService {
 
             const validBaseLayer = config.getValidBasemapFallback(currentBaseLayer);
 
-            setBaseLayer(validBaseLayer);
+            await setBaseLayer(validBaseLayer);
 
             await this.baseLayerControl.switchMap();
 
@@ -766,21 +683,9 @@ export class ExportImportService {
         try {
             for (const [mapName, mapGroups] of Object.entries(groupsData)) {
                 if (mapGroups && Object.keys(mapGroups).length > 0) {
-                    await getGroupManager().clearMapGroups(mapName);
-
-                    const currentMapName = await getCurrentMapName();
-                    if (mapName === currentMapName) {
-                        const groupsMap = new Map();
-                        Object.entries(mapGroups).forEach(([groupId, groupData]) => {
-                            groupsMap.set(groupId, groupData);
-                        });
-                        getGroupManager().memoryStore.groups[mapName] = groupsMap;
-                    }
-
-                    await getGroupManager()._saveGroupsToDBAsync(mapName);
+                    await getGroupManager().importMapGroups(mapName, mapGroups, { replace: true });
                 }
             }
-
         } catch (error) {
             console.error('Error importing groups directly:', error);
         }
@@ -806,22 +711,8 @@ export class ExportImportService {
                 }
 
                 const processedGroups = await this.processGroupsForAdditiveImport(mapGroups, finalMapName);
-
-                const currentMapName = await getCurrentMapName();
-                if (finalMapName === currentMapName) {
-                    if (!getGroupManager().memoryStore.groups[finalMapName]) {
-                        getGroupManager().memoryStore.groups[finalMapName] = new Map();
-                    }
-
-                    const groupsCache = getGroupManager().memoryStore.groups[finalMapName];
-                    Object.entries(processedGroups).forEach(([groupId, groupData]) => {
-                        groupsCache.set(groupId, groupData);
-                    });
-                }
-
-                await getGroupManager()._saveGroupsToDBAsync(finalMapName);
+                await getGroupManager().importMapGroups(finalMapName, processedGroups);
             }
-
         } catch (error) {
             console.error('Error importing groups additively:', error);
         }
@@ -963,98 +854,32 @@ export class ExportImportService {
     }
 
     /**
-     * Imports cesium 3D data directly (normal import - replaces everything)
-     * @param {Object} cesium3dData - Cesium 3D data to import
+     * Imports per-map data using a setter function.
+     * Handles both direct (no mapping) and additive (with map name mapping) modes.
+     * @param {Object} dataByMap - Data keyed by original map name
+     * @param {Function} setter - Async function(mapName, data) to persist each entry
+     * @param {Map|null} mapNameMapping - If provided, resolves original → final map names
+     * @param {string} label - Human-readable label for error logging
+     * @private
      */
-    async importCesium3dDirectly(cesium3dData) {
-        if (!cesium3dData || Object.keys(cesium3dData).length === 0) {
-            return;
-        }
+    async _importMappedData(dataByMap, setter, mapNameMapping, label) {
+        if (!dataByMap || Object.keys(dataByMap).length === 0) return;
 
         try {
-            for (const [mapName, data] of Object.entries(cesium3dData)) {
-                if (data) {
-                    await setCesium3dDataForImport(mapName, data);
-                }
-            }
-        } catch (error) {
-            console.error('Error importing cesium 3D data directly:', error);
-        }
-    }
+            for (const [originalMapName, data] of Object.entries(dataByMap)) {
+                if (!data) continue;
 
-    /**
-     * Imports cesium 3D data additively (additive import - with map name mapping)
-     * @param {Object} cesium3dData - Cesium 3D data to import
-     * @param {Map} mapNameMapping - Mapping of original to final map names
-     */
-    async importCesium3dAdditively(cesium3dData, mapNameMapping) {
-        if (!cesium3dData || Object.keys(cesium3dData).length === 0) {
-            return;
-        }
-
-        try {
-            for (const [originalMapName, data] of Object.entries(cesium3dData)) {
-                const mappingEntry = mapNameMapping.get(originalMapName);
-                const finalMapName = mappingEntry?.finalMapName || mappingEntry;
-
-                if (!finalMapName || !data) {
-                    continue;
+                let mapName = originalMapName;
+                if (mapNameMapping) {
+                    const entry = mapNameMapping.get(originalMapName);
+                    mapName = entry?.finalMapName || entry;
+                    if (!mapName) continue;
                 }
 
-                // For additive import, we just set the data with the new map name
-                // since the map was just created and has no existing 3D data
-                await setCesium3dDataForImport(finalMapName, data);
+                await setter(mapName, data);
             }
         } catch (error) {
-            console.error('Error importing cesium 3D data additively:', error);
-        }
-    }
-
-    /**
-     * Imports street view 360 data directly (normal import - replaces everything)
-     * @param {Object} streetview360Data - Street view 360 data to import
-     */
-    async importStreetview360Directly(streetview360Data) {
-        if (!streetview360Data || Object.keys(streetview360Data).length === 0) {
-            return;
-        }
-
-        try {
-            for (const [mapName, data] of Object.entries(streetview360Data)) {
-                if (data) {
-                    await setStreetview360DataForImport(mapName, data);
-                }
-            }
-        } catch (error) {
-            console.error('Error importing street view 360 data directly:', error);
-        }
-    }
-
-    /**
-     * Imports street view 360 data additively (additive import - with map name mapping)
-     * @param {Object} streetview360Data - Street view 360 data to import
-     * @param {Map} mapNameMapping - Mapping of original to final map names
-     */
-    async importStreetview360Additively(streetview360Data, mapNameMapping) {
-        if (!streetview360Data || Object.keys(streetview360Data).length === 0) {
-            return;
-        }
-
-        try {
-            for (const [originalMapName, data] of Object.entries(streetview360Data)) {
-                const mappingEntry = mapNameMapping.get(originalMapName);
-                const finalMapName = mappingEntry?.finalMapName || mappingEntry;
-
-                if (!finalMapName || !data) {
-                    continue;
-                }
-
-                // For additive import, we just set the data with the new map name
-                // since the map was just created and has no existing 360 data
-                await setStreetview360DataForImport(finalMapName, data);
-            }
-        } catch (error) {
-            console.error('Error importing street view 360 data additively:', error);
+            console.error(`Error importing ${label}:`, error);
         }
     }
 
@@ -1080,25 +905,34 @@ export class ExportImportService {
     }
 
     /**
+     * Flashes a success indicator on a button and shows a toast.
+     * @param {string} btnSelector - CSS selector for the button to flash
+     * @param {string} message - Success toast message
+     * @private
+     */
+    _showButtonSuccess(btnSelector, message) {
+        const btn = document.querySelector(btnSelector);
+        if (btn) {
+            const originalContent = btn.innerHTML;
+            btn.classList.add('success');
+            btn.innerHTML = '<img src="./images/icon_check_green.svg" alt="SUCCESS" />';
+
+            setTimeout(() => {
+                btn.classList.remove('success');
+                btn.innerHTML = originalContent;
+            }, 1500);
+        }
+
+        showSuccess(message);
+    }
+
+    /**
      * Shows save success feedback
      * @param {number} mapCount - Number of maps saved
      */
     showSaveSuccess(mapCount) {
-        const saveBtn = document.querySelector('.save-action');
-        if (saveBtn) {
-            const originalContent = saveBtn.innerHTML;
-
-            saveBtn.classList.add('success');
-            saveBtn.innerHTML = '<img src="./images/icon_check_green.svg" alt="SUCCESS" />';
-
-            setTimeout(() => {
-                saveBtn.classList.remove('success');
-                saveBtn.innerHTML = originalContent;
-            }, 1500);
-        }
-
         const message = mapCount === 1 ? '1 mapa exportado!' : `${mapCount} mapas exportados!`;
-        showSuccess(message);
+        this._showButtonSuccess('.save-action', message);
     }
 
     /**
@@ -1107,21 +941,8 @@ export class ExportImportService {
      * @param {string} importType - Type of import ('adicionados' or 'carregados')
      */
     showLoadSuccess(mapCount, importType) {
-        const loadBtn = document.querySelector('.load-action');
-        if (loadBtn) {
-            const originalContent = loadBtn.innerHTML;
-
-            loadBtn.classList.add('success');
-            loadBtn.innerHTML = '<img src="./images/icon_check_green.svg" alt="SUCCESS" />';
-
-            setTimeout(() => {
-                loadBtn.classList.remove('success');
-                loadBtn.innerHTML = originalContent;
-            }, 1500);
-        }
-
         const message = mapCount === 1 ? `1 mapa ${importType}!` : `${mapCount} mapas ${importType}!`;
-        showSuccess(message);
+        this._showButtonSuccess('.load-action', message);
     }
 
     /**
@@ -1139,45 +960,56 @@ export class ExportImportService {
     }
 
     /**
-     * Imports briefings directly (normal import - overwrites if same ID)
+     * Imports briefings with the given overwrite strategy.
      * @param {Array} briefingsData - Briefings data to import
+     * @param {boolean} overwrite - Whether to overwrite existing briefings with the same ID
+     * @private
      */
-    async importBriefingsDirectly(briefingsData) {
-        if (!briefingsData || !Array.isArray(briefingsData) || briefingsData.length === 0) {
-            return;
-        }
+    async _importBriefings(briefingsData, overwrite) {
+        if (!Array.isArray(briefingsData) || briefingsData.length === 0) return;
 
         try {
-            const result = await importBriefings(briefingsData, { overwrite: true });
+            const result = await importBriefings(briefingsData, { overwrite });
             if (result.imported > 0) {
-                console.log(`Imported ${result.imported} briefing(s), skipped ${result.skipped}`);
+                const mode = overwrite ? '' : ' additively';
+                console.log(`Imported ${result.imported} briefing(s)${mode}, skipped ${result.skipped}`);
             }
         } catch (error) {
-            console.error('Error importing briefings directly:', error);
+            console.error('Error importing briefings:', error);
         }
     }
 
     /**
-     * Imports briefings additively (additive import - no overwrite)
-     * @param {Array} briefingsData - Briefings data to import
+     * Exports optional per-map data (colors, notes, groups, layers, 3D, 360).
+     * Each getter is wrapped in try/catch so one failure does not abort the export.
+     * @param {Object} data - The export data object being built
+     * @param {string} mapName - Map name to export
+     * @private
      */
-    async importBriefingsAdditively(briefingsData) {
-        if (!briefingsData || !Array.isArray(briefingsData) || briefingsData.length === 0) {
-            return;
-        }
+    async _exportOptionalMapData(data, mapName) {
+        const tasks = [
+            { key: 'colorUsage', fn: () => getColorUsage(mapName), check: (v) => v && Object.keys(v).length > 0 },
+            { key: 'mapNotes', fn: () => getMapNotes(mapName), check: (v) => v && (v.title || v.description) },
+            { key: 'groups', fn: () => getMapGroups(mapName), check: (v) => v?.size > 0, transform: (v) => Object.fromEntries(v) },
+            { key: 'layers', fn: () => getLayers(mapName), check: (v) => v?.length > 0 },
+            { key: 'cesium3d', fn: () => getCesium3dDataForExport(mapName), check: (v) => !!v },
+            { key: 'streetview360', fn: () => getStreetview360DataForExport(mapName), check: (v) => !!v },
+        ];
 
-        try {
-            const result = await importBriefings(briefingsData, { overwrite: false });
-            if (result.imported > 0) {
-                console.log(`Imported ${result.imported} briefing(s) additively, skipped ${result.skipped}`);
+        for (const { key, fn, check, transform } of tasks) {
+            try {
+                const value = await fn();
+                if (check(value)) {
+                    data[key][mapName] = transform ? transform(value) : value;
+                }
+            } catch (error) {
+                console.warn(`Could not export ${key} from map ${mapName}:`, error);
             }
-        } catch (error) {
-            console.error('Error importing briefings additively:', error);
         }
     }
 
     /**
-     * Processes .ebgeo file directly (for drag & drop)
+     * Processes .ebgeo file directly (for drag & drop).
      * @param {File} file - .ebgeo file to process
      * @param {boolean} isAdditiveImport - Whether to add to current project
      */

@@ -11,8 +11,8 @@ import {
     getCurrentMapNameSync,
     getStorageTypeFromSource,
     getFeatureIconFromStorage,
-} from '../store';
-import { FeatureNavigationUtils } from '../utilities';
+} from '@store';
+import { zoomToFeature } from '@utils';
 
 /**
  * @typedef {Object} GroupItemCallbacks
@@ -91,6 +91,11 @@ function createGroupHeader(groupData, featureCount, isSplit, totalInGroup, callb
         header.classList.add('group-locked');
     }
 
+    const dragHandle = document.createElement('div');
+    dragHandle.className = 'feature-drag-handle';
+    dragHandle.title = 'Arrastar grupo para outra camada';
+    dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="2"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/><circle cx="15" cy="18" r="2"/></svg>';
+
     const expandIcon = document.createElement('div');
     expandIcon.className = 'group-expand-icon expanded';
     expandIcon.innerHTML = FEATURES_TAB_ICONS.EXPAND;
@@ -114,6 +119,7 @@ function createGroupHeader(groupData, featureCount, isSplit, totalInGroup, callb
 
     const groupControls = createGroupControls(groupData, callbacks);
 
+    header.appendChild(dragHandle);
     header.appendChild(expandIcon);
     header.appendChild(groupIcon);
     header.appendChild(groupName);
@@ -242,11 +248,11 @@ function createGroupFeatureItem(feature, groupData, callbacks) {
 export async function handleGroupFeatureClick(feature, groupData, map, selectionManager) {
     try {
         if (groupData.locked) {
-            await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, map);
+            await zoomToFeature(feature.rawFeature, map);
             return;
         }
 
-        await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, map);
+        await zoomToFeature(feature.rawFeature, map);
 
         if (selectionManager) {
             selectionManager.deselectAllFeatures();
@@ -272,7 +278,7 @@ export async function handleGroupFeatureClick(feature, groupData, map, selection
         console.error('Error navigating to group feature:', error);
 
         try {
-            await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, map);
+            await zoomToFeature(feature.rawFeature, map);
         } catch (fallbackError) {
             console.error('Error in zoom fallback:', fallbackError);
         }
@@ -326,7 +332,8 @@ export async function toggleGroupVisibility(
         updateGroupProperty(groupId, 'visible', newVisibility);
 
         const currentMapName = getCurrentMapNameSync();
-        const group = getMapGroups(currentMapName).get(groupId);
+        const groups = getMapGroups(currentMapName);
+        const group = groups[groupId];
         if (group) {
             for (const featureRef of group.features) {
                 const storageType = getStorageTypeFromSource(featureRef.type);
@@ -366,7 +373,8 @@ export async function toggleGroupLock(
         updateGroupProperty(groupId, 'locked', newLockState);
 
         const currentMapName = getCurrentMapNameSync();
-        const group = getMapGroups(currentMapName).get(groupId);
+        const groups = getMapGroups(currentMapName);
+        const group = groups[groupId];
         if (group) {
             for (const featureRef of group.features) {
                 const storageType = getStorageTypeFromSource(featureRef.type);
@@ -454,11 +462,5 @@ export function updateGroupLockState(container, groupId, locked) {
         ? FEATURES_TAB_ICONS.LOCK_LOCKED
         : FEATURES_TAB_ICONS.LOCK_UNLOCKED;
     lockBtn.title = locked ? 'Desbloquear grupo' : 'Bloquear grupo';
-
-    const svg = lockBtn.querySelector('svg');
-    if (svg && locked) {
-        svg.style.color = '#dc3545';
-    } else if (svg) {
-        svg.style.color = '';
-    }
+    lockBtn.classList.toggle('lock-toggle--active', locked);
 }

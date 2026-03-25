@@ -6,9 +6,9 @@
  * Based on the 3D viewer toolbar pattern from map_3d.js.
  */
 
-import { isCurrentMapLockedSync } from '../../store/index.js';
-import { getEventBus } from '../../store/services.js';
-import { EventTypes } from '../../events/event_types.js';
+import { isCurrentMapLockedSync } from '@store/index.js';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
 
 // =========================================================================
 // STATE

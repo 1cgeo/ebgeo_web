@@ -1,20 +1,19 @@
 // Path: js/utilities/uuid.js
-
 /**
  * @fileoverview UUID generation and validation utilities.
- * Uses crypto.getRandomValues() for broad browser/Node compatibility.
  */
 
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LEGACY_ID_REGEX = /^\d{13}-[a-z0-9]{9}$/;
+
 /**
- * Generates a UUID v4 using crypto.getRandomValues().
+ * Generates a UUID v4.
  * @returns {string} UUID in format xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
  */
 export function generateUUID() {
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
-    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
-    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10
-    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, c =>
+        (+c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> +c / 4).toString(16)
+    );
 }
 
 /**
@@ -24,23 +23,18 @@ export function generateUUID() {
  */
 export function isValidUUID(id) {
     if (typeof id !== 'string') return false;
-    // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
-    // where y is one of 8, 9, a, or b
-    const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    return uuidV4Regex.test(id);
+    return UUID_V4_REGEX.test(id);
 }
 
 /**
  * Detects if an ID is in legacy format (timestamp-random).
- * Legacy format: 13-digit timestamp + hyphen + 9 alphanumeric chars
  * Example: 1706123456789-abc45xy90
  * @param {string} id - ID to check
  * @returns {boolean} True if legacy format
  */
 export function isLegacyId(id) {
     if (typeof id !== 'string') return false;
-    // Format: 13-digit timestamp (milliseconds since epoch) + '-' + 9 alphanumeric chars
-    return /^\d{13}-[a-z0-9]{9}$/.test(id);
+    return LEGACY_ID_REGEX.test(id);
 }
 
 /**

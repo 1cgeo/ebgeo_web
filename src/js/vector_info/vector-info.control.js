@@ -1,6 +1,6 @@
 // Path: js/vector_info/vector-info.control.js
-import config from '../config.js';
-import { setupCleanup, addDomListener, cleanup } from '../utilities/event-cleanup.js';
+import config from '@js/config.js';
+import { setupCleanup, addDomListener, cleanup } from '@utils/event-cleanup.js';
 
 class VectorTileInfoControl {
     constructor(toolManager, uiManager) {
@@ -144,65 +144,21 @@ class VectorTileInfoControl {
         const menu = document.createElement('div');
         menu.className = 'vector-tile-selection-menu';
 
-        menu.style.cssText = `
-            position: fixed !important;
-            background: white !important;
-            border: 1px solid #ccc !important;
-            border-radius: 6px !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-            z-index: 999999 !important;
-            min-width: 200px !important;
-            max-height: 300px !important;
-            overflow-y: auto !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-            font-size: 14px !important;
-            line-height: 1.4 !important;
-            display: block !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            pointer-events: auto !important;
-        `;
-
+        // Position is dynamic (based on click coordinates)
         const x = Math.min(e.originalEvent.clientX, window.innerWidth - 220);
         const y = Math.min(e.originalEvent.clientY, window.innerHeight - 50);
         menu.style.left = `${x}px`;
         menu.style.top = `${y}px`;
 
         const header = document.createElement('div');
+        header.className = 'vector-tile-selection-menu__header';
         header.textContent = `Selecionar camada (${features.length})`;
-        header.style.cssText = `
-            padding: 8px 12px !important;
-            background: #f5f5f5 !important;
-            color: #666 !important;
-            border-bottom: 1px solid #ddd !important;
-            font-weight: bold !important;
-            font-size: 12px !important;
-            margin: 0 !important;
-        `;
         menu.appendChild(header);
 
-        features.forEach((feature, index) => {
+        features.forEach((feature) => {
             const item = document.createElement('div');
-            const featureName = this._getVectorTileFeatureName(feature);
-            item.textContent = featureName;
-
-            item.style.cssText = `
-                padding: 10px 12px !important;
-                cursor: pointer !important;
-                border-bottom: ${index < features.length - 1 ? '1px solid #eee' : 'none'} !important;
-                transition: background-color 0.2s !important;
-                background: white !important;
-                color: black !important;
-                font-size: 14px !important;
-                margin: 0 !important;
-            `;
-
-            item.addEventListener('mouseenter', () => {
-                item.style.backgroundColor = '#f0f8ff !important';
-            });
-            item.addEventListener('mouseleave', () => {
-                item.style.backgroundColor = 'white !important';
-            });
+            item.className = 'vector-tile-selection-menu__item';
+            item.textContent = this._getVectorTileFeatureName(feature);
 
             item.addEventListener('click', (evt) => {
                 evt.stopPropagation();

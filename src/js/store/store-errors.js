@@ -12,45 +12,21 @@
  * | Background non-critical           | console.warn (no change)             |
  * | Possible data loss (IndexedDB)    | throw + emit STORE_PERSIST_ERROR     |
  * | Sync queue failure                | emit STORE_SYNC_ERROR + retry        |
- *
- * @dependencies events/event_bus (injected via setStoreErrorEventBus)
  */
 
-// ============================================================================
-// ERROR EVENT TYPES
-// ============================================================================
-
-/**
- * Store error event constants.
- * These are also mirrored in EventTypes for discoverability.
- * @readonly
- * @enum {string}
- */
+/** Canonical store error event constants (not duplicated in EventTypes). */
 export const StoreErrorEvents = Object.freeze({
-    /**
-     * IndexedDB write failure (data may not be saved).
-     * Payload: { operation: string, error: string, timestamp: number }
-     */
+    /** IndexedDB write failure. Payload: { operation, error, timestamp } */
     STORE_PERSIST_ERROR: 'store:persistError',
 
-    /**
-     * Sync queue write failure (operation may not sync to backend).
-     * Payload: { operation: string, entityId: string, error: string, consecutiveFailures: number }
-     */
+    /** Sync queue write failure. Payload: { operation, entityId, error, consecutiveFailures } */
     STORE_SYNC_ERROR: 'store:syncError',
 
-    /**
-     * Operation blocked by locked map.
-     * Payload: { operation: string, mapName: string }
-     */
+    /** Operation blocked by locked map. Payload: { operation, mapName } */
     STORE_OPERATION_BLOCKED: 'store:operationBlocked',
 });
 
-// ============================================================================
-// EVENT BUS INJECTION
-// ============================================================================
-
-/** @type {import('../events/event_bus.js').EventBus|null} */
+/** @type {import('../events/event_bus.js').EventBus | null} */
 let _eventBus = null;
 
 /**
@@ -62,14 +38,9 @@ export function setStoreErrorEventBus(eventBus) {
     _eventBus = eventBus;
 }
 
-// ============================================================================
-// EMIT HELPER
-// ============================================================================
-
 /**
  * Emits a store error event for UI notification.
- * Safe to call even before EventBus is initialized (falls back to console).
- *
+ * Falls back to console if EventBus is not yet initialized.
  * @param {string} eventType - One of StoreErrorEvents values
  * @param {Object} payload - Event-specific data
  */

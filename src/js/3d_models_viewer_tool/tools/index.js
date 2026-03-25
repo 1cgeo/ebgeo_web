@@ -7,6 +7,9 @@
  *
  * Tools available (import dynamically):
  * - mouse_coordinates_3d.js: initMouseCoordinates3D, cleanupMouseCoordinates3D
- * - screenshot_tool.js: takeScreenshot
- * - viewshed.js: addViewField, clearAllViewField
+ * - screenshot_tool.js: takeScreenshot, captureScreenshotAsDataUrl
+ * - marker_tool_3d.js: marker placement and persistence
+ * - measurement_tool_3d.js: distance/area measurements and persistence
+ * - viewshed_tool_3d.js: viewshed analysis and persistence
+ * - viewshed.js: (deprecated) legacy viewshed - use viewshed_tool_3d.js
  */

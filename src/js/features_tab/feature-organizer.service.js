@@ -11,7 +11,7 @@ import {
     getAllStorageTypes,
     getLayers,
     getActiveLayerIdSync,
-} from '../store';
+} from '@store';
 import { FEATURE_SOURCES, getFeatureDisplayName } from './features_tab.constants.js';
 
 /**

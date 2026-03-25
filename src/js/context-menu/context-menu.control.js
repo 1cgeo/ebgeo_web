@@ -1,6 +1,6 @@
 // Path: js/context-menu/context-menu.control.js
-import { formatCoordinates, showSuccess, showWarning, showError, escapeHtml } from '../utilities';
-import { createLongPressHandler, isTouchDevice } from '../utilities/pointer-utils';
+import { formatCoordinates, showSuccess, showWarning, showError, escapeHtml } from '@utils';
+import { createLongPressHandler, isTouchDevice } from '@utils/pointer-utils';
 import {
     getFeatureGroup,
     createGroup,
@@ -15,9 +15,21 @@ import {
     getControl,
     isCurrentMapLockedSync,
     isMapLocked
-} from '../store';
-import { EventTypes } from '../events';
-import { fitBounds, ANIMATION_DURATION } from '../map/animation.service.js';
+} from '@store';
+import { EventTypes } from '@events';
+import { fitBounds, ANIMATION_DURATION } from '@js/map/animation.service.js';
+import { canMergeArrows, canSplitArrows, mergeArrows, splitArrows } from '@js/military_tools/arrow_tool/arrow-merge.js';
+
+/** Pure property check for line split eligibility (no heavy imports) */
+function canSplitLineCheck(selectedFeatures) {
+    if (!selectedFeatures || selectedFeatures.length !== 1) return { canSplit: false };
+    const f = selectedFeatures[0];
+    return {
+        canSplit: f.properties?.source === 'line' &&
+                  f.geometry?.coordinates?.length >= 2 &&
+                  !f.properties?.bloqueado
+    };
+}
 
 class ContextMenuControl {
     constructor(mouseCoordinatesControl, toolManager, selectionManager) {
@@ -44,14 +56,14 @@ class ContextMenuControl {
         this._map.on('click', this._onMapClick);
         document.addEventListener('click', this._onDocumentClick);
 
-        // Long-press para touch (substitui right-click em dispositivos touch)
+        // Long-press for touch (replaces right-click on touch devices)
         this._setupLongPress();
 
         return document.createElement('div');
     }
 
     /**
-     * Configura long-press para abrir context menu em dispositivos touch
+     * Sets up long-press to open context menu on touch devices.
      */
     _setupLongPress() {
         const canvas = this._map.getCanvasContainer();
@@ -64,17 +76,17 @@ class ContextMenuControl {
     }
 
     /**
-     * Handler para long-press - abre context menu
-     * @param {TouchEvent} e - Evento touch original
-     * @param {Object} position - Posição {x, y} do toque
+     * Handler for long-press - opens context menu.
+     * @param {TouchEvent} e - Original touch event
+     * @param {Object} position - Touch position {x, y}
      */
     async _onLongPress(e, position) {
-        // Não abre menu se há ferramenta ativa
+        // Do not open menu if a tool is active
         if (this._toolManager && this._toolManager.hasActiveTool()) {
             return;
         }
 
-        // Calcula coordenadas do mapa
+        // Calculate map coordinates
         const rect = this._map.getCanvasContainer().getBoundingClientRect();
         const point = {
             x: position.x - rect.left,
@@ -83,7 +95,7 @@ class ContextMenuControl {
         const coordinates = this._map.unproject([point.x, point.y]);
         this._lastCoordinates = { lat: coordinates.lat, lng: coordinates.lng };
 
-        // Reconstrói e mostra o menu
+        // Rebuild and show the menu
         await this._rebuildContextMenu();
         this._showMenu(position.x, position.y);
     }
@@ -111,18 +123,10 @@ class ContextMenuControl {
     _createContextMenu() {
         this._contextMenu = document.createElement('div');
         this._contextMenu.className = 'context-menu';
-        this._contextMenu.style.cssText = `
-            position: absolute;
-            background: white;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            padding: 8px 0;
-            z-index: 10000;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            min-width: 150px;
-            display: none;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        `;
+
+        if (isTouchDevice()) {
+            this._contextMenu.classList.add('context-menu--touch');
+        }
 
         document.body.appendChild(this._contextMenu);
     }
@@ -150,11 +154,36 @@ class ContextMenuControl {
             this._contextMenu.appendChild(separator);
         }
 
+        // Arrow merge/split options
+        if (hasSelectedFeatures && !locked) {
+            const arrowMergeAdded = this._addArrowMergeOptions(groupingAnalysis.selectedFeatures);
+            if (arrowMergeAdded) {
+                const separator = this._createSeparator();
+                this._contextMenu.appendChild(separator);
+            }
+        }
+
+        // Line split option
+        if (hasSelectedFeatures && !locked) {
+            const lineSplitAdded = this._addLineSplitOption(groupingAnalysis.selectedFeatures);
+            if (lineSplitAdded) {
+                this._contextMenu.appendChild(this._createSeparator());
+            }
+        }
+
+        // QAN export option (lines and polygons)
+        if (hasSelectedFeatures) {
+            const qanAdded = this._addQANExportOption(groupingAnalysis.selectedFeatures);
+            if (qanAdded) {
+                this._contextMenu.appendChild(this._createSeparator());
+            }
+        }
+
         if (hasSelectedFeatures && !locked) {
             const layerOptionsAdded = await this._addLayerMoveOptions(groupingAnalysis.selectedFeatures);
             const mapOptionsAdded = await this._addMapMoveOptions(groupingAnalysis.selectedFeatures);
 
-            // Só adiciona separador se algo foi realmente adicionado
+            // Only add separator if something was actually added
             if (layerOptionsAdded || mapOptionsAdded) {
                 const separator = this._createSeparator();
                 this._contextMenu.appendChild(separator);
@@ -197,6 +226,111 @@ class ContextMenuControl {
         }
     }
 
+    /**
+     * Add arrow merge/split options to context menu
+     * @param {Array} selectedFeatures - Currently selected features
+     * @returns {boolean} Whether any option was added
+     */
+    _addArrowMergeOptions(selectedFeatures) {
+        let added = false;
+
+        const mergeCheck = canMergeArrows(selectedFeatures);
+        if (mergeCheck.canMerge) {
+            const mergeItem = this._createMenuItem(
+                'Combinar Setas',
+                () => this._handleMergeArrows(selectedFeatures)
+            );
+            this._contextMenu.appendChild(mergeItem);
+            added = true;
+        }
+
+        const splitCheck = canSplitArrows(selectedFeatures);
+        if (splitCheck.canSplit) {
+            const splitItem = this._createMenuItem(
+                'Separar Setas',
+                () => this._handleSplitArrows(selectedFeatures[0])
+            );
+            this._contextMenu.appendChild(splitItem);
+            added = true;
+        }
+
+        return added;
+    }
+
+    async _handleMergeArrows(features) {
+        try {
+            await mergeArrows(features, this._map, this._selectionManager);
+        } catch (error) {
+            console.error('Error merging arrows:', error);
+            showError('Erro ao combinar setas');
+        }
+    }
+
+    async _handleSplitArrows(mergedFeature) {
+        try {
+            await splitArrows(mergedFeature, this._map, this._selectionManager);
+        } catch (error) {
+            console.error('Error splitting arrows:', error);
+            showError('Erro ao separar setas');
+        }
+    }
+
+    /**
+     * Add line split option to context menu
+     * @param {Array} selectedFeatures - Currently selected features
+     * @returns {boolean} Whether the option was added
+     */
+    _addLineSplitOption(selectedFeatures) {
+        const check = canSplitLineCheck(selectedFeatures);
+        if (!check.canSplit) return false;
+
+        const splitItem = this._createMenuItem(
+            'Cortar Linha',
+            () => this._handleSplitLine(selectedFeatures[0])
+        );
+        this._contextMenu.appendChild(splitItem);
+        return true;
+    }
+
+    async _handleSplitLine(lineFeature) {
+        try {
+            const { activateSplitMode } = await import('@js/draw_tools/line_tool/line-split.js');
+            await activateSplitMode(lineFeature, this._map, this._selectionManager);
+        } catch (error) {
+            console.error('Error splitting line:', error);
+            showError('Erro ao cortar linha');
+        }
+    }
+
+    /**
+     * Add QAN export option for line/polygon features.
+     * @param {Array} selectedFeatures - Currently selected features
+     * @returns {boolean} Whether the option was added
+     */
+    _addQANExportOption(selectedFeatures) {
+        if (selectedFeatures.length !== 1) return false;
+        const source = selectedFeatures[0].properties?.source;
+        if (source !== 'line' && source !== 'polygon') return false;
+
+        const item = this._createMenuItem(
+            'Exportar QAN',
+            () => this._handleQANExport(selectedFeatures[0])
+        );
+        this._contextMenu.appendChild(item);
+        return true;
+    }
+
+    async _handleQANExport(feature) {
+        try {
+            const { generateQAN, downloadQANAsHTML } = await import('@js/import_export/qan/index.js');
+            const qanData = await generateQAN(feature);
+            downloadQANAsHTML(qanData, feature.properties.nome);
+        } catch (error) {
+            console.error('Error exporting QAN:', error);
+            showError('Erro ao exportar QAN');
+        }
+    }
+
     async _addLayerMoveOptions(selectedFeatures) {
         const layers = await getLayers();
         const activeLayerId = getActiveLayerIdSync();
@@ -211,48 +345,16 @@ class ContextMenuControl {
 
         const submenuContainer = document.createElement('div');
         submenuContainer.className = 'context-menu-submenu-container';
-        submenuContainer.style.cssText = `
-            position: relative;
-        `;
-
-        const isTouch = isTouchDevice();
-        const itemPadding = isTouch ? '12px 16px' : '8px 16px';
-        const itemFontSize = isTouch ? '15px' : '13px';
-        const itemMinHeight = isTouch ? 'min-height: 44px;' : '';
 
         const moveToLayerItem = document.createElement('div');
-        moveToLayerItem.className = 'context-menu-item';
+        moveToLayerItem.className = 'context-menu-item context-menu-submenu-trigger';
         moveToLayerItem.innerHTML = `
             <span>Mover para camada</span>
-            <span style="float: right; margin-left: 8px;">▶</span>
-        `;
-        moveToLayerItem.style.cssText = `
-            padding: ${itemPadding};
-            cursor: pointer;
-            font-size: ${itemFontSize};
-            user-select: none;
-            transition: background-color 0.2s;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            ${itemMinHeight}
+            <span class="context-menu-submenu-arrow">▶</span>
         `;
 
         const submenu = document.createElement('div');
         submenu.className = 'context-submenu';
-        submenu.style.cssText = `
-            position: absolute;
-            left: 100%;
-            top: -8px;
-            background: white;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            padding: 8px 0;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            min-width: 150px;
-            display: none;
-            z-index: 10001;
-        `;
 
         availableLayers.forEach(layer => {
             const layerItem = document.createElement('div');
@@ -264,22 +366,6 @@ class ContextMenuControl {
             }
 
             layerItem.textContent = displayName;
-            layerItem.style.cssText = `
-                padding: ${itemPadding};
-                cursor: pointer;
-                font-size: ${itemFontSize};
-                user-select: none;
-                transition: background-color 0.2s;
-                ${itemMinHeight}
-            `;
-
-            layerItem.addEventListener('mouseenter', () => {
-                layerItem.style.backgroundColor = '#f5f5f5';
-            });
-
-            layerItem.addEventListener('mouseleave', () => {
-                layerItem.style.backgroundColor = '';
-            });
 
             layerItem.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -291,7 +377,6 @@ class ContextMenuControl {
         });
 
         moveToLayerItem.addEventListener('mouseenter', () => {
-            moveToLayerItem.style.backgroundColor = '#f5f5f5';
             submenu.style.display = 'block';
 
             const rect = submenu.getBoundingClientRect();
@@ -303,7 +388,6 @@ class ContextMenuControl {
         });
 
         submenuContainer.addEventListener('mouseleave', () => {
-            moveToLayerItem.style.backgroundColor = '';
             submenu.style.display = 'none';
         });
 
@@ -374,50 +458,16 @@ class ContextMenuControl {
 
         const submenuContainer = document.createElement('div');
         submenuContainer.className = 'context-menu-submenu-container';
-        submenuContainer.style.cssText = `
-            position: relative;
-        `;
-
-        const isTouch2 = isTouchDevice();
-        const mapItemPadding = isTouch2 ? '12px 16px' : '8px 16px';
-        const mapItemFontSize = isTouch2 ? '15px' : '13px';
-        const mapItemMinHeight = isTouch2 ? 'min-height: 44px;' : '';
 
         const moveToMapItem = document.createElement('div');
-        moveToMapItem.className = 'context-menu-item';
+        moveToMapItem.className = 'context-menu-item context-menu-submenu-trigger';
         moveToMapItem.innerHTML = `
             <span>Mover para mapa</span>
-            <span style="float: right; margin-left: 8px;">▶</span>
-        `;
-        moveToMapItem.style.cssText = `
-            padding: ${mapItemPadding};
-            cursor: pointer;
-            font-size: ${mapItemFontSize};
-            user-select: none;
-            transition: background-color 0.2s;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            ${mapItemMinHeight}
+            <span class="context-menu-submenu-arrow">▶</span>
         `;
 
         const submenu = document.createElement('div');
-        submenu.className = 'context-submenu';
-        submenu.style.cssText = `
-            position: absolute;
-            left: 100%;
-            top: -8px;
-            background: white;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            padding: 8px 0;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            min-width: 150px;
-            display: none;
-            z-index: 10001;
-            max-height: 300px;
-            overflow-y: auto;
-        `;
+        submenu.className = 'context-submenu context-submenu--scrollable';
 
         availableMaps.forEach(mapName => {
             const mapItem = document.createElement('div');
@@ -425,38 +475,9 @@ class ContextMenuControl {
 
             const initial = mapName.charAt(0).toUpperCase();
             mapItem.innerHTML = `
-                <span style="
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    width: 20px;
-                    height: 20px;
-                    border-radius: 4px;
-                    background: #e0e0e0;
-                    font-size: 11px;
-                    font-weight: 600;
-                    margin-right: 8px;
-                ">${initial}</span>
+                <span class="context-menu-map-initial">${initial}</span>
                 <span>${escapeHtml(mapName)}</span>
             `;
-            mapItem.style.cssText = `
-                padding: ${mapItemPadding};
-                cursor: pointer;
-                font-size: ${mapItemFontSize};
-                user-select: none;
-                transition: background-color 0.2s;
-                display: flex;
-                align-items: center;
-                ${mapItemMinHeight}
-            `;
-
-            mapItem.addEventListener('mouseenter', () => {
-                mapItem.style.backgroundColor = '#f5f5f5';
-            });
-
-            mapItem.addEventListener('mouseleave', () => {
-                mapItem.style.backgroundColor = '';
-            });
 
             mapItem.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -468,7 +489,6 @@ class ContextMenuControl {
         });
 
         moveToMapItem.addEventListener('mouseenter', () => {
-            moveToMapItem.style.backgroundColor = '#f5f5f5';
             submenu.style.display = 'block';
 
             const rect = submenu.getBoundingClientRect();
@@ -480,7 +500,6 @@ class ContextMenuControl {
         });
 
         submenuContainer.addEventListener('mouseleave', () => {
-            moveToMapItem.style.backgroundColor = '';
             submenu.style.display = 'none';
         });
 
@@ -559,23 +578,6 @@ class ContextMenuControl {
         const item = document.createElement('div');
         item.className = 'context-menu-item';
         item.textContent = text;
-        const isTouch = isTouchDevice();
-        item.style.cssText = `
-            padding: ${isTouch ? '12px 16px' : '8px 16px'};
-            cursor: pointer;
-            font-size: ${isTouch ? '15px' : '13px'};
-            user-select: none;
-            transition: background-color 0.2s;
-            ${isTouch ? 'min-height: 44px; display: flex; align-items: center;' : ''}
-        `;
-
-        item.addEventListener('mouseenter', () => {
-            item.style.backgroundColor = '#f5f5f5';
-        });
-
-        item.addEventListener('mouseleave', () => {
-            item.style.backgroundColor = '';
-        });
 
         item.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -593,11 +595,7 @@ class ContextMenuControl {
 
     _createSeparator() {
         const separator = document.createElement('div');
-        separator.style.cssText = `
-            height: 1px;
-            background: #e0e0e0;
-            margin: 4px 0;
-        `;
+        separator.className = 'context-menu-separator';
         return separator;
     }
 
@@ -606,15 +604,6 @@ class ContextMenuControl {
         item.className = 'context-menu-item disabled';
         item.textContent = text;
         item.title = tooltip;
-        const isTouch = isTouchDevice();
-        item.style.cssText = `
-            padding: ${isTouch ? '12px 16px' : '8px 16px'};
-            cursor: not-allowed;
-            font-size: ${isTouch ? '15px' : '13px'};
-            user-select: none;
-            color: #999;
-            ${isTouch ? 'min-height: 44px; display: flex; align-items: center;' : ''}
-        `;
         return item;
     }
 
@@ -644,16 +633,16 @@ class ContextMenuControl {
             }
         });
 
-        // Verificar se todas as features selecionadas pertencem à mesma camada
+        // Check if all selected features belong to the same layer
         const allSameLayer = this._allFeaturesInSameLayer(selected);
 
-        // Mostrar opção desabilitada se há 2+ features não agrupadas mas em camadas diferentes
+        // Show disabled option if 2+ ungrouped features are in different layers
         const showDisabledCreateGroup = ungroupedFeatures.length > 1 && !allSameLayer;
 
         return {
-            // Só pode criar grupo se todas estiverem na mesma camada
+            // Can only create group if all features are in the same layer
             canCreateGroup: ungroupedFeatures.length > 1 && allSameLayer,
-            // Só pode combinar grupos se todas estiverem na mesma camada
+            // Can only combine groups if all features are in the same layer
             canCombineGroups: groups.size > 0 && (groups.size > 1 || ungroupedFeatures.length > 0) && allSameLayer,
             canUngroup: groups.size === 1 && ungroupedFeatures.length === 0,
             showDisabledCreateGroup,

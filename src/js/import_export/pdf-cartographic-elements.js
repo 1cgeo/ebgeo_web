@@ -11,6 +11,9 @@
  */
 
 import proj4 from 'proj4';
+import { GRID_MARGIN_MM, UTM_MAX_SCALE_DENOM, parseScaleDenom } from './pdf-export.constants.js';
+// Re-exported so pdf-export.tab.js can dynamically import it alongside composeLayout.
+export { loadLogoImage } from '@utils/logo-base64.js';
 
 // ============================================================================
 // CONSTANTS
@@ -21,10 +24,8 @@ const LEGEND_ROW_HEIGHT = 28;
 const LEGEND_PADDING = 20;
 const SCALE_BAR_HEIGHT = 60;
 const NORTH_ARROW_SIZE = 90;
+const LOGO_SIZE = 90;
 const FONT_FAMILY = 'Arial, Helvetica, sans-serif';
-
-/** Margin added around the map for grid labels (mm). Must match _gridMarginMM in pdf-export.tab.js */
-const GRID_MARGIN_MM = 5;
 
 /** Number of sample points for drawing curved grid lines */
 const GRID_LINE_SAMPLES = 80;
@@ -70,11 +71,16 @@ export function composeLayout(mapCanvas, options) {
         mapBounds,
         projectionFn,
         dpi = 300,
+        logoImage,
     } = options;
 
     const mapW = mapCanvas.width;
     const mapH = mapCanvas.height;
-    const hasGrids = showLatLongGrid || showUTMGrid;
+    const scaleDenom = parseScaleDenom(scale || '1:25000');
+
+    // UTM grid is not meaningful at very small scales (1:2.500.000+)
+    const utmAllowed = showUTMGrid && scaleDenom < UTM_MAX_SCALE_DENOM;
+    const hasGrids = showLatLongGrid || utmAllowed;
 
     // When grids are on, add margin bands for labels
     const marginPx = hasGrids ? Math.round(GRID_MARGIN_MM * (dpi / 25.4)) : 0;
@@ -104,8 +110,6 @@ export function composeLayout(mapCanvas, options) {
         }
         : projectionFn;
 
-    const scaleDenom = scale ? parseInt(scale.split(':')[1], 10) : 25000;
-
     // Scale factor for overlay elements. At 200 DPI the constant pixel sizes
     // produce correctly proportioned output; scale proportionally for other DPIs.
     // Canvas scaling is applied around each element so internal drawing code
@@ -113,9 +117,9 @@ export function composeLayout(mapCanvas, options) {
     const uiScale = dpi / 200;
 
     // Draw UTM grid first (black, heavier), then lat/long (blue, lighter) on top
-    const hasBothGrids = showUTMGrid && showLatLongGrid;
-    if (showUTMGrid && mapBounds && adjProjFn) {
-        _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, hasBothGrids, uiScale);
+    const hasBothGrids = utmAllowed && showLatLongGrid;
+    if (utmAllowed && mapBounds && adjProjFn) {
+        _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, uiScale);
     }
     if (showLatLongGrid && mapBounds && adjProjFn) {
         _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, adjProjFn, scaleDenom, hasBothGrids, uiScale);
@@ -170,6 +174,14 @@ export function composeLayout(mapCanvas, options) {
         ctx.restore();
     }
 
+    // EBGeo logo (top-left of map area)
+    if (logoImage) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawLogo(ctx, logoImage, marginPx / uiScale, marginPx / uiScale);
+        ctx.restore();
+    }
+
     return canvas;
 }
 
@@ -204,7 +216,6 @@ function _drawTitle(ctx, title, width, marginPx = 0) {
     ctx.lineWidth = 1;
     _roundRect(ctx, bgX, bgY, bgWidth, bgHeight, 6);
     ctx.fill();
-    _roundRect(ctx, bgX, bgY, bgWidth, bgHeight, 6);
     ctx.stroke();
 
     // Title text (clipped to background width)
@@ -214,7 +225,6 @@ function _drawTitle(ctx, title, width, marginPx = 0) {
     ctx.clip();
 
     ctx.fillStyle = '#1a1a1a';
-    ctx.font = `bold 36px ${FONT_FAMILY}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(title, width / 2, bgY + bgHeight / 2 + paddingY / 4);
@@ -285,7 +295,7 @@ function _drawNorthArrow(ctx, x, y, bearing) {
  * Draws a scale bar at the given position with labels at each division.
  */
 function _drawScaleBar(ctx, x, y, scale, canvasWidth, dpi = 300) {
-    const denominator = parseInt(scale.split(':')[1], 10);
+    const denominator = parseScaleDenom(scale);
 
     // Calculate a "nice" distance for the scale bar (roughly 1/5 of map width)
     const mapWidthMM = canvasWidth / (dpi / 25.4);
@@ -407,9 +417,44 @@ function _drawLegend(ctx, canvasWidth, mapBottom, legendEntries) {
     }
 }
 
+/**
+ * Draws the EBGeo logo at the top-left corner of the map area.
+ * Discrete with a subtle white background for readability.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {HTMLImageElement} logoImage - Pre-loaded logo image
+ * @param {number} mapLeft - Left X coordinate of map area
+ * @param {number} mapTop - Top Y coordinate of map area
+ */
+function _drawLogo(ctx, logoImage, mapLeft, mapTop) {
+    const size = LOGO_SIZE;
+    const padding = 10;
+    const x = mapLeft + padding;
+    const y = mapTop + padding;
+
+    ctx.drawImage(logoImage, x, y, size, size);
+}
+
 // ============================================================================
 // GRID DRAWING FUNCTIONS
 // ============================================================================
+
+/**
+ * Grid spacing per scale denominator (~4-5 cm on paper).
+ * Each scale has its own unique UTM and degree interval.
+ */
+const GRID_SPACING = {
+    1000: { utmMeters: 50, degreesInterval: 0.0005 },
+    5000: { utmMeters: 200, degreesInterval: 0.002 },
+    10000: { utmMeters: 500, degreesInterval: 0.005 },
+    25000: { utmMeters: 1000, degreesInterval: 0.01 },
+    50000: { utmMeters: 2000, degreesInterval: 0.025 },
+    100000: { utmMeters: 5000, degreesInterval: 0.05 },
+    250000: { utmMeters: 10000, degreesInterval: 0.1 },
+    500000: { utmMeters: 20000, degreesInterval: 0.25 },
+    1000000: { utmMeters: 50000, degreesInterval: 0.5 },
+    2500000: { utmMeters: 100000, degreesInterval: 1.0 },
+    5000000: { utmMeters: 200000, degreesInterval: 2.0 },
+};
 
 /**
  * Returns grid spacing for a given scale denominator.
@@ -417,11 +462,7 @@ function _drawLegend(ctx, canvasWidth, mapBottom, legendEntries) {
  * @returns {{ utmMeters: number, degreesInterval: number }}
  */
 function _getGridSpacing(scaleDenom) {
-    if (scaleDenom <= 5000) return { utmMeters: 100, degreesInterval: 0.001 };
-    if (scaleDenom <= 25000) return { utmMeters: 1000, degreesInterval: 0.01 };
-    if (scaleDenom <= 100000) return { utmMeters: 5000, degreesInterval: 0.05 };
-    if (scaleDenom <= 1000000) return { utmMeters: 10000, degreesInterval: 0.1 };
-    return { utmMeters: 50000, degreesInterval: 0.5 };
+    return GRID_SPACING[scaleDenom] || GRID_SPACING[25000];
 }
 
 /**
@@ -440,7 +481,7 @@ function _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDen
     const mapBottom = marginPx + mapH;
 
     // Label offset from map frame — close when alone, farther when UTM labels are closer
-    const labelOffset = (hasBothGrids ? 28 : 6) * uiScale;
+    const labelOffset = (hasBothGrids ? 24 : 6) * uiScale;
     const fontSize = Math.round(13 * uiScale);
 
     ctx.save();
@@ -527,9 +568,8 @@ function _drawLatLongGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDen
  * Lines are black and solid. Labels show full easting/northing with units.
  * Handles multiple UTM zones when the map spans a zone boundary.
  * Side labels are rotated vertically.
- * @param {boolean} hasBothGrids - When true, labels always sit close to frame
  */
-function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, _hasBothGrids, uiScale = 1) {
+function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, uiScale = 1) {
     const { utmMeters } = _getGridSpacing(scaleDenom);
     const { west, east, south, north } = mapBounds;
 
@@ -655,7 +695,7 @@ function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, 
             }
         }
 
-        // Zone boundary lines with heavier stroke
+        // Zone boundary lines with heavier stroke + zone labels
         if (zone < eastZone) {
             const boundaryLng = zone * 6 - 180;
             const latRange = north - south;
@@ -671,6 +711,28 @@ function _drawUTMGrid(ctx, mapBounds, mapW, mapH, marginPx, projFn, scaleDenom, 
             ctx.setLineDash([10 * uiScale, 5 * uiScale]);
             _drawClippedPolyline(ctx, points, mapLeft, mapTop, mapRight, mapBottom);
             ctx.restore();
+
+            // Zone indicator labels at top and bottom of the boundary
+            const topPt = _findEdgeIntersection(points, mapTop, 'top', mapLeft, mapRight);
+            const bottomPt = _findEdgeIntersection(points, mapBottom, 'bottom', mapLeft, mapRight);
+            const zoneGap = 6 * uiScale;
+
+            if (topPt) {
+                ctx.textBaseline = 'bottom';
+                const topY = mapTop - labelOffset;
+                ctx.textAlign = 'right';
+                ctx.fillText(`Fuso ${zone}`, topPt.x - zoneGap, topY);
+                ctx.textAlign = 'left';
+                ctx.fillText(`Fuso ${zone + 1}`, topPt.x + zoneGap, topY);
+            }
+            if (bottomPt) {
+                ctx.textBaseline = 'top';
+                const bottomY = mapBottom + labelOffset;
+                ctx.textAlign = 'right';
+                ctx.fillText(`Fuso ${zone}`, bottomPt.x - zoneGap, bottomY);
+                ctx.textAlign = 'left';
+                ctx.fillText(`Fuso ${zone + 1}`, bottomPt.x + zoneGap, bottomY);
+            }
         }
     }
 

@@ -6,13 +6,12 @@
  * direct access to specific photos without needing to click on the line layer.
  */
 
-import { getAllOrientations, getAllMarkers360 } from '../store/streetview360.operations.js';
-import { getEventBus } from '../store/services.js';
-import { EventTypes } from '../events/event_types.js';
+import { getAllOrientations, getAllMarkers360 } from '@store/streetview360.operations.js';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
 
 // Primary color for saved photo markers (blue to differentiate from orange streetview markers)
 const SAVED_PHOTO_MARKER_COLOR = '#3b82f6';
-
 
 /**
  * Manages markers for 360 photos with saved data on the main map.

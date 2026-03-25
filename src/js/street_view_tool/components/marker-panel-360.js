@@ -19,16 +19,17 @@ import {
     addMarker360Image,
     getMarker360Images,
     removeMarker360Image
-} from '../../store/index.js';
-import { showSuccess, showToast, showWarning } from '../../utilities/index.js';
-import { showConfirm } from '../../modals/index.js';
+} from '@store/index.js';
+import { showSuccess, showToast, showWarning } from '@utils/index.js';
+import { showConfirm } from '@modals/index.js';
+import { deepClone } from '@utils/deep-utils.js';
 import {
     createModernSlider,
     createModernColorPicker,
     createModernToggle,
     createModernTextarea,
     createSectionDivider
-} from '../../tool_manager/helpers/index.js';
+} from '@tools/helpers/index.js';
 
 /**
  * Icons used in the component.
@@ -55,8 +56,8 @@ export function createMarkerPanel360Content(marker, photoName, onClose) {
     container.className = 'marker-360-panel-content';
 
     // Store initial properties for discard functionality
-    const initialProperties = JSON.parse(JSON.stringify(marker.properties || {}));
-    const initialStyle = JSON.parse(JSON.stringify(marker.style || DEFAULT_MARKER_360_STYLE));
+    const initialProperties = deepClone(marker.properties || {});
+    const initialStyle = deepClone(marker.style || DEFAULT_MARKER_360_STYLE);
 
     // Current marker state with style defaults
     const currentMarker = {
@@ -79,7 +80,7 @@ export function createMarkerPanel360Content(marker, photoName, onClose) {
     const photoGalleryPlaceholder = document.createElement('div');
     photoGalleryPlaceholder.className = 'photo-gallery-placeholder';
     container.appendChild(photoGalleryPlaceholder);
-    buildPhotoGallerySection(photoGalleryPlaceholder, currentMarker.id, cleanupFunctions);
+    buildPhotoGallerySection(photoGalleryPlaceholder, currentMarker.id);
 
     // 3. Style tabs (Marcador / Etiqueta)
     buildStyleTabs(container, currentMarker, async (styleUpdates) => {
@@ -319,7 +320,7 @@ function createDescriptionSection(marker, onUpdate) {
 /**
  * Builds the photo gallery section for 360 markers.
  */
-async function buildPhotoGallerySection(placeholder, markerId, cleanupFunctions) {
+async function buildPhotoGallerySection(placeholder, markerId) {
     const container = document.createElement('div');
     container.className = 'feature-photo-gallery';
 
@@ -410,8 +411,6 @@ async function buildPhotoGallerySection(placeholder, markerId, cleanupFunctions)
 
     placeholder.innerHTML = '';
     placeholder.appendChild(container);
-
-    cleanupFunctions.push(() => {});
 }
 
 /**
@@ -872,11 +871,3 @@ function buildDeleteButton(container, marker, onClose) {
     container.appendChild(section);
 }
 
-/**
- * Injects marker panel 360 styles into the document.
- * Uses existing feature panel styles from tabbed_attribute_panel.
- */
-export function injectMarkerPanel360Styles() {
-    // Marker 360 panel uses existing styles from feature panel
-    // No additional injection needed
-}

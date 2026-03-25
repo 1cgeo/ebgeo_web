@@ -1,25 +1,20 @@
 /* Path: css/base.css */
 
-/* ===== CSS VARIABLES ===== */
+/*
+ * Legacy color overrides for design-tokens.css.
+ * These intentionally override the design-tokens defaults to preserve
+ * the original EBGeo palette used across sidebar, panels, and coordinates.
+ */
 :root {
   --primary-color: #508D4E;
   --primary-light: #B4E380;
   --primary-dark: #427842;
-  --background-light: #fbfbfa;
-  --border-color: #EEE;
-  --text-color: #000;
+  --border-color: #eee;
   --success-color: #28a745;
   --error-color: #dc3545;
-  --warning-color: #ffc107;
-  --info-color: #17a2b8;
-  --ebgeo-primary: #315730;
-  --ebgeo-main: #508D4E;
-  --ebgeo-dark: #1d361c;
-  --ebgeo-light: #69bd66;
-  --ebgeo-contrast: #fff;
 }
 
-/* ===== RESET AND BASE ELEMENTS ===== */
+/* ===== RESET ===== */
 body,
 html {
   margin: 0;
@@ -29,7 +24,7 @@ html {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-family-base);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   overscroll-behavior: none;
@@ -52,10 +47,12 @@ h3 {
   margin: 0;
 }
 
-/* ===== UTILITY CLASSES ===== */
+/* ===== LOADING SCREEN =====
+ * Also defined inline in index.html for pre-CSS display.
+ * These declarations ensure consistent behavior after CSS loads. */
 .loading-background {
   position: fixed;
-  background-color: #508D4E;
+  background-color: var(--primary-color);
   width: 100vw;
   height: 100vh;
   z-index: 9999; /* Must cover all UI including modals (--z-toast: 70) */
@@ -68,39 +65,37 @@ h3 {
 
 .loading-hidden {
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity var(--transition-slow);
 }
 
 .loading-hidden.loaded {
   opacity: 1;
 }
 
-/* Hides file inputs used by ExportImportService buttons */
+/* ===== HIDDEN FILE INPUT =====
+ * Visually hides file inputs created by ExportImportService. */
 .hidden-file-input {
   display: none !important;
-  position: absolute !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-  z-index: -1 !important;
 }
 
-/* Measurement labels shared across LOS, line, and polygon tools */
+/* ===== MEASUREMENT LABELS =====
+ * Shared across LOS, line, and polygon tools (MapLibre marker overlays). */
 .measurement-label {
   background-color: rgba(255, 255, 255, 0.9);
-  border: 2px solid #508D4E;
+  border: 2px solid var(--primary-color);
   border-radius: 6px;
   padding: 6px 10px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 12px;
-  font-weight: bold;
-  color: #333;
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  color: var(--gray-700);
   text-align: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-control);
   white-space: nowrap;
   pointer-events: none;
   user-select: none;
   transform: translate(-50%, -50%);
-  z-index: var(--z-floating);
+  z-index: var(--z-dropdown);
 }
 
 .measurement-label.selected {

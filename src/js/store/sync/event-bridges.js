@@ -5,17 +5,11 @@
  * SessionContext and ConnectionState use internal observer patterns.
  * This module subscribes to them and re-emits events on the EventBus
  * so that any component can react via the standard event system.
- *
- * @dependencies session-context.js, connection-state.js, services.js
  */
 
 import { sessionContext } from './session-context.js';
 import { connectionState } from './connection-state.js';
 import { EventTypes } from '../../events/event_types.js';
-
-// ============================================================================
-// SESSION EVENT BRIDGE
-// ============================================================================
 
 /**
  * Bridges SessionContext observer to EventBus.
@@ -28,10 +22,6 @@ export function initSessionEventBridge(eventBus) {
         eventBus.emit(EventTypes.SESSION_CHANGED, snapshot);
     });
 }
-
-// ============================================================================
-// CONNECTION EVENT BRIDGE
-// ============================================================================
 
 /**
  * Bridges ConnectionState observer to EventBus.

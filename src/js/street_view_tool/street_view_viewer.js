@@ -7,18 +7,18 @@
  */
 
 import * as THREE from '../../vendor/three/three.module.js';
-import { getEventBus } from '../store/services.js';
-import { EventTypes } from '../events/event_types.js';
+import config from '../config.js';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
+import { getOrientation, saveOrientation, clearOrientation, getMarkers360 } from '@store';
+import { showSuccess } from '@utils/toast_service.js';
+import { LRUCache } from '@utils/lru-cache.js';
 import { NAV_CONSTANTS } from './navigation/constants.js';
-import { getOrientation, saveOrientation, clearOrientation, getMarkers360 } from '../store';
-import { showSuccess } from '../utilities/toast_service.js';
-import { LRUCache } from '../utilities/lru-cache.js';
 import {
     activateKeyboardService360,
     deactivateKeyboardService360,
     setKeyboardCallbacks
 } from './services/keyboard_service_360.js';
-import config from '../config.js';
 
 // ===== CONFIGURATION =====
 
@@ -1038,6 +1038,22 @@ async function handleClearOrientation() {
 }
 
 /**
+ * Handles share button click: builds a deep link URL and copies to clipboard.
+ */
+async function handleShare360Click(e) {
+    e.stopPropagation();
+
+    const photoName = streetViewState.currentPhotoName;
+    if (!photoName) return;
+
+    const { buildShareUrl360, copyShareUrl } = await import(
+        '../deep-link/deep-link.js'
+    );
+    const url = buildShareUrl360(photoName, lon, lat, streetViewState.camera?.fov || 75);
+    await copyShareUrl(url);
+}
+
+/**
  * Hides the active tool chip
  */
 function hideActiveToolChip360() {
@@ -1091,9 +1107,8 @@ export async function deactivateCurrentTool360() {
         if (isMarkerToolActive()) {
             deactivateMarkerTool();
         }
-    } catch (_error) {
-        // Tool module not loaded, ignore
-        console.warn('[street-view-viewer] Tool module not loaded during deactivation:', _error);
+    } catch (error) {
+        console.warn('[street-view-viewer] Tool module not loaded during deactivation:', error);
     }
 }
 
@@ -1173,6 +1188,13 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
         activateKeyboardService360();
     } catch (error) {
         console.warn('Could not activate keyboard service:', error);
+    }
+
+    // Initialize share button
+    const shareBtn360 = document.getElementById('share-360');
+    if (shareBtn360) {
+        shareBtn360.removeEventListener('click', handleShare360Click);
+        shareBtn360.addEventListener('click', handleShare360Click);
     }
 
     // Register event listeners for 360 features
@@ -1286,6 +1308,12 @@ export async function closeViewer360() {
     const closeBtn = document.getElementById('close-street-view-button');
     if (closeBtn) {
         closeBtn.removeEventListener('click', closeViewer360);
+    }
+
+    // Remove share button listener
+    const shareBtn360 = document.getElementById('share-360');
+    if (shareBtn360) {
+        shareBtn360.removeEventListener('click', handleShare360Click);
     }
 
     // Update UI

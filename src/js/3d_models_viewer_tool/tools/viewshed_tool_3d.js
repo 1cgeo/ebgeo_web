@@ -12,9 +12,9 @@ import {
     updateViewshed,
     removeViewshed,
     getViewshedById as getViewshedByIdStore
-} from '../../store/index.js';
-import { getEventBus } from '../../store/services.js';
-import { EventTypes } from '../../events/event_types.js';
+} from '@store/index.js';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
 
 // ===== MODULE STATE =====
 

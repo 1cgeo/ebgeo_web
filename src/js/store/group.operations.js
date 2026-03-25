@@ -11,10 +11,7 @@ import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 
 // ===== DEPENDENCY INJECTION =====
 
-/**
- * Module-level dependencies
- * @type {import('./store.types.js').StoreDependencies}
- */
+/** @type {import('./store.types.js').StoreDependencies} */
 const deps = {
     eventBus: null,
     groupManager: null,
@@ -24,10 +21,34 @@ const deps = {
 /**
  * Sets dependencies for group operations.
  *
- * @param {import('./store.types.js').StoreDependencies} dependencies - Dependencies object
+ * @param {import('./store.types.js').StoreDependencies} dependencies
  */
 export function setGroupDependencies(dependencies) {
     Object.assign(deps, dependencies);
+}
+
+// ===== GUARD HELPER =====
+
+/**
+ * Checks permission and map lock before a mutating operation.
+ *
+ * @param {string} action - GuardAction constant
+ * @param {string} operation - Operation name for error reporting
+ * @returns {{ blocked: boolean }} Whether the operation is blocked
+ */
+function guardMutation(action, operation) {
+    const perm = checkPermission(action);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation, reason: perm.reason });
+        return { blocked: true };
+    }
+
+    if (isCurrentMapLockedSync()) {
+        console.warn(`Map is locked. Cannot ${operation}.`);
+        return { blocked: true };
+    }
+
+    return { blocked: false };
 }
 
 // ===== CREATE OPERATIONS =====
@@ -37,21 +58,12 @@ export function setGroupDependencies(dependencies) {
  *
  * @param {Array} features - Features to group
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Group} Created group
+ * @returns {import('./store.types.js').Group|null} Created group
  */
-export const createGroup = (features, mapName = null) => {
-    const perm = checkPermission(GuardAction.CREATE_GROUP);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'createGroup', reason: perm.reason });
-        return null;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot create group.');
-        return null;
-    }
+export function createGroup(features, mapName = null) {
+    if (guardMutation(GuardAction.CREATE_GROUP, 'createGroup').blocked) return null;
     return deps.groupManager.createGroup(features, mapName);
-};
+}
 
 /**
  * Combines multiple groups into one.
@@ -59,21 +71,12 @@ export const createGroup = (features, mapName = null) => {
  * @param {string[]} groupIds - Group IDs to combine
  * @param {Array} [selectedFeatures=[]] - Additional selected features
  * @param {string} [mapName=null] - Map name
- * @returns {import('./store.types.js').Group} Combined group
+ * @returns {import('./store.types.js').Group|null} Combined group
  */
-export const combineGroups = (groupIds, selectedFeatures = [], mapName = null) => {
-    const perm = checkPermission(GuardAction.UPDATE_GROUP);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'combineGroups', reason: perm.reason });
-        return null;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot combine groups.');
-        return null;
-    }
+export function combineGroups(groupIds, selectedFeatures = [], mapName = null) {
+    if (guardMutation(GuardAction.UPDATE_GROUP, 'combineGroups').blocked) return null;
     return deps.groupManager.combineGroups(groupIds, selectedFeatures, mapName);
-};
+}
 
 // ===== READ OPERATIONS =====
 
@@ -83,9 +86,9 @@ export const combineGroups = (groupIds, selectedFeatures = [], mapName = null) =
  * @param {string} [mapName=null] - Map name
  * @returns {import('./store.types.js').Group[]} Array of groups
  */
-export const getMapGroups = (mapName = null) => {
+export function getMapGroups(mapName = null) {
     return deps.groupManager.getMapGroups(mapName);
-};
+}
 
 /**
  * Gets a group by ID.
@@ -94,9 +97,9 @@ export const getMapGroups = (mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {import('./store.types.js').Group|null} Group or null
  */
-export const getGroupById = (groupId, mapName = null) => {
+export function getGroupById(groupId, mapName = null) {
     return deps.groupManager.getGroupById(groupId, mapName);
-};
+}
 
 /**
  * Gets the group a feature belongs to.
@@ -106,9 +109,9 @@ export const getGroupById = (groupId, mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {import('./store.types.js').Group|null} Group or null
  */
-export const getFeatureGroup = (type, featureId, mapName = null) => {
+export function getFeatureGroup(type, featureId, mapName = null) {
     return deps.groupManager.getFeatureGroup(type, featureId, mapName);
-};
+}
 
 /**
  * Gets all features in a group.
@@ -117,9 +120,9 @@ export const getFeatureGroup = (type, featureId, mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {Array} Array of feature references
  */
-export const getGroupFeatures = (groupId, mapName = null) => {
+export function getGroupFeatures(groupId, mapName = null) {
     return deps.groupManager.getGroupFeatures(groupId, mapName);
-};
+}
 
 /**
  * Checks if a feature is in a group.
@@ -129,9 +132,9 @@ export const getGroupFeatures = (groupId, mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {boolean} True if feature is grouped
  */
-export const isFeatureGrouped = (type, featureId, mapName = null) => {
+export function isFeatureGrouped(type, featureId, mapName = null) {
     return deps.groupManager.isFeatureGrouped(type, featureId, mapName);
-};
+}
 
 // ===== UPDATE OPERATIONS =====
 
@@ -144,19 +147,10 @@ export const isFeatureGrouped = (type, featureId, mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {boolean} Whether update was successful
  */
-export const updateGroupProperty = (groupId, property, value, mapName = null) => {
-    const perm = checkPermission(GuardAction.UPDATE_GROUP);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateGroupProperty', reason: perm.reason });
-        return false;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot update group property.');
-        return false;
-    }
+export function updateGroupProperty(groupId, property, value, mapName = null) {
+    if (guardMutation(GuardAction.UPDATE_GROUP, 'updateGroupProperty').blocked) return false;
     return deps.groupManager.updateGroupProperty(groupId, property, value, mapName);
-};
+}
 
 // ===== DELETE OPERATIONS =====
 
@@ -167,19 +161,10 @@ export const updateGroupProperty = (groupId, property, value, mapName = null) =>
  * @param {string} [mapName=null] - Map name
  * @returns {boolean} Whether ungroup was successful
  */
-export const ungroupFeatures = (groupId, mapName = null) => {
-    const perm = checkPermission(GuardAction.DELETE_GROUP);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'ungroupFeatures', reason: perm.reason });
-        return false;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot ungroup features.');
-        return false;
-    }
+export function ungroupFeatures(groupId, mapName = null) {
+    if (guardMutation(GuardAction.DELETE_GROUP, 'ungroupFeatures').blocked) return false;
     return deps.groupManager.ungroupFeatures(groupId, mapName);
-};
+}
 
 /**
  * Removes a feature from all groups.
@@ -189,6 +174,6 @@ export const ungroupFeatures = (groupId, mapName = null) => {
  * @param {string} [mapName=null] - Map name
  * @returns {boolean} Whether removal was successful
  */
-export const removeFeatureFromAllGroups = (type, featureId, mapName = null) => {
+export function removeFeatureFromAllGroups(type, featureId, mapName = null) {
     return deps.groupManager.removeFeatureFromAllGroups(type, featureId, mapName);
-};
+}

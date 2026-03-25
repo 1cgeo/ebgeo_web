@@ -109,6 +109,23 @@
     color: var(--gray-700);
 }
 
+.filter-count {
+    margin-left: auto;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-400);
+    min-width: 18px;
+    text-align: center;
+}
+
+.filter-count:empty {
+    display: none;
+}
+
+.catalog-filter-btn[data-active="true"] .filter-count {
+    color: var(--filter-color);
+}
+
 /* ==========================================================================
    MAIN AREA
    ========================================================================== */
@@ -347,10 +364,8 @@
    ========================================================================== */
 
 .catalog-layers-section {
-    background: var(--white);
+    background: white;
 }
-
-/* Inherit sidebar-section-header style - no overrides needed */
 
 .catalog-layers-list {
     display: flex;
@@ -401,7 +416,8 @@
     flex-shrink: 0;
 }
 
-.catalog-layer-btn {
+.catalog-layer-btn,
+.catalog-layer-info-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -411,9 +427,12 @@
     background: transparent;
     border: none;
     border-radius: var(--radius-sm);
-    color: var(--gray-500);
     cursor: pointer;
     transition: all var(--transition-fast);
+}
+
+.catalog-layer-btn {
+    color: var(--gray-500);
 }
 
 .catalog-layer-btn:hover {
@@ -473,18 +492,7 @@
 }
 
 .catalog-layer-info-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-sm);
     color: var(--color-error);
-    cursor: pointer;
-    transition: all var(--transition-fast);
 }
 
 .catalog-layer-info-btn:hover {
@@ -593,13 +601,13 @@
     font-size: var(--font-size-xs);
 }
 
-.popover-hint {
+.popover-body .popover-hint {
     padding: var(--space-3);
     margin: var(--space-3) calc(-1 * var(--space-4)) 0;
     background: var(--gray-50);
     border-top: 1px solid var(--border-color);
-    font-size: var(--font-size-xs) !important;
-    color: var(--gray-500) !important;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
 }
 
 .popover-retry-btn {
@@ -635,97 +643,79 @@
    TABLET RESPONSIVE ADJUSTMENTS
    ========================================================================= */
 
-/* Touch device optimizations */
 @media (pointer: coarse) {
-    /* Filter buttons larger */
     .catalog-filter-btn {
         min-height: var(--touch-target-min, 44px);
         padding: var(--space-3) var(--space-4);
     }
 
-    /* Search input larger */
     .catalog-search-input {
         min-height: var(--touch-target-min, 44px);
         font-size: 16px; /* Prevents iOS zoom */
     }
 
-    /* Card buttons larger */
     .catalog-card-btn {
         min-height: var(--touch-target-min, 44px);
         padding: var(--space-3);
     }
 
-    /* Layer action buttons */
     .catalog-layer-btn,
     .catalog-layer-info-btn {
         width: 36px;
         height: 36px;
     }
 
-    /* Popover close */
     .popover-close {
         width: 32px;
         height: 32px;
     }
 
-    /* Retry button */
     .popover-retry-btn {
         min-height: var(--touch-target-min, 44px);
     }
 
-    /* Better touch feedback for cards */
     .catalog-card:active {
         transform: scale(0.98);
     }
 
-    /* Scrolling optimization */
     .catalog-grid-wrapper {
         -webkit-overflow-scrolling: touch;
         overscroll-behavior: contain;
     }
 }
 
-/* Tablet breakpoint */
 @media (width <= 1024px) {
-    /* Modal sizing */
     .catalog-modal-container {
         width: 98vw;
         height: 90vh;
     }
 
-    /* Narrower filters sidebar */
     .catalog-filters {
         width: 160px;
         padding: var(--space-3);
     }
 
-    /* Grid with smaller cards */
     .catalog-grid {
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
         gap: var(--space-3);
     }
 
-    /* Card content padding */
     .catalog-card-content {
         padding: var(--space-2);
     }
 
-    /* Search header padding */
     .catalog-header {
         padding: var(--space-3);
     }
 }
 
-/* Small tablet breakpoint */
 @media (width <= 768px) {
-    /* Full screen catalog */
     .catalog-modal-container {
         width: 100vw;
         height: 100vh;
         border-radius: 0;
     }
 
-    /* Filters become horizontal scrollable bar */
     .catalog-layout {
         flex-direction: column;
     }
@@ -738,7 +728,7 @@
         border-right: none;
         border-bottom: 1px solid var(--border-color);
         gap: var(--space-2);
-        scrollbar-width: none; /* Hide scrollbar */
+        scrollbar-width: none;
         -ms-overflow-style: none;
     }
 
@@ -762,33 +752,27 @@
         padding: var(--space-2) var(--space-3);
     }
 
-    /* Grid 2 columns */
     .catalog-grid {
         grid-template-columns: repeat(2, 1fr);
         gap: var(--space-3);
     }
 
-    /* Grid wrapper padding */
     .catalog-grid-wrapper {
         padding: var(--space-3);
         padding-bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
     }
 
-    /* Larger thumbnail for touch */
     .catalog-card-thumbnail {
         aspect-ratio: 4 / 3;
     }
 
-    /* Layer items in sidepanel */
     .catalog-layer-item {
         min-height: 52px;
         padding: var(--space-3) var(--space-4);
     }
 }
 
-/* Landscape mode */
 @media (orientation: landscape) and (width <= 1024px) {
-    /* Keep sidebar layout in landscape */
     .catalog-layout {
         flex-direction: row;
     }
@@ -809,14 +793,12 @@
         flex-direction: column;
     }
 
-    /* Grid back to auto-fill */
     .catalog-grid {
         grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     }
 }
 
 @media (orientation: landscape) and (width <= 768px) {
-    /* Compact filters in small landscape */
     .catalog-filters {
         width: 120px;
         padding: var(--space-2);
@@ -830,7 +812,6 @@
         font-size: var(--font-size-xs);
     }
 
-    /* Grid 3 columns */
     .catalog-grid {
         grid-template-columns: repeat(3, 1fr);
     }

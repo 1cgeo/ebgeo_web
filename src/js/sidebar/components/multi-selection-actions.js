@@ -5,7 +5,7 @@
  * @module sidebar/components/multi-selection-actions
  */
 
-import { updateFeatureProperty, getStorageTypeFromSource } from '../../store/index.js';
+import { updateFeatureProperty, getStorageTypeFromSource } from '@store/index.js';
 
 // ============================================================================
 // SVG ICONS

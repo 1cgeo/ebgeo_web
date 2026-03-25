@@ -1,17 +1,21 @@
 // Path: js/utilities/event-cleanup.js
-
 /**
  * @fileoverview Event listener cleanup utility.
- * Provides a consistent pattern for managing event subscriptions and DOM listeners.
- *
- * This module offers two usage patterns:
- * 1. Standalone functions for composition-style usage
- * 2. Mixin class for inheritance-based components
+ * Provides composition-style functions for managing event subscriptions,
+ * DOM listeners, and timers with automatic cleanup.
  */
 
-// ============================================================================
-// STANDALONE FUNCTIONS
-// ============================================================================
+/**
+ * Ensure cleanup arrays exist on instance, warning if setupCleanup was missed.
+ * @param {Object} instance - The component instance
+ * @param {string} callerName - Name of the calling function for the warning
+ */
+function ensureSetup(instance, callerName) {
+    if (!instance._unsubscribers) {
+        console.warn(`${callerName} called without setupCleanup. Call setupCleanup first.`);
+        setupCleanup(instance);
+    }
+}
 
 /**
  * Initialize cleanup tracking arrays on an instance.
@@ -43,10 +47,7 @@ export function setupCleanup(instance) {
  * subscribe(this, eventBus, EventTypes.UI_LAYOUT_CHANGED, this._handleLayoutChanged.bind(this));
  */
 export function subscribe(instance, eventBus, eventType, handler) {
-    if (!instance._unsubscribers) {
-        console.warn('subscribe called without setupCleanup. Call setupCleanup first.');
-        setupCleanup(instance);
-    }
+    ensureSetup(instance, 'subscribe');
     const unsubscribe = eventBus.on(eventType, handler);
     instance._unsubscribers.push(unsubscribe);
 }
@@ -68,11 +69,7 @@ export function addDomListener(instance, element, event, handler, options = {}) 
         return;
     }
 
-    if (!instance._domListeners) {
-        console.warn('addDomListener called without setupCleanup. Call setupCleanup first.');
-        setupCleanup(instance);
-    }
-
+    ensureSetup(instance, 'addDomListener');
     element.addEventListener(event, handler, options);
     instance._domListeners.push({ element, event, handler, options });
 }
@@ -88,10 +85,7 @@ export function addDomListener(instance, element, event, handler, options = {}) 
  * trackTimer(this, timerId, 'timeout');
  */
 export function trackTimer(instance, timerId, type = 'timeout') {
-    if (!instance._timers) {
-        console.warn('trackTimer called without setupCleanup. Call setupCleanup first.');
-        setupCleanup(instance);
-    }
+    ensureSetup(instance, 'trackTimer');
     instance._timers.push({ id: timerId, type });
 }
 
@@ -107,35 +101,30 @@ export function trackTimer(instance, timerId, type = 'timeout') {
  * }
  */
 export function cleanup(instance) {
-    // Cleanup EventBus subscriptions
     if (instance._unsubscribers) {
-        instance._unsubscribers.forEach(unsub => {
+        for (const unsub of instance._unsubscribers) {
             if (typeof unsub === 'function') {
                 unsub();
             }
-        });
+        }
         instance._unsubscribers = [];
     }
 
-    // Cleanup DOM listeners
     if (instance._domListeners) {
-        instance._domListeners.forEach(({ element, event, handler, options }) => {
-            if (element && typeof element.removeEventListener === 'function') {
-                element.removeEventListener(event, handler, options);
-            }
-        });
+        for (const { element, event, handler, options } of instance._domListeners) {
+            element?.removeEventListener(event, handler, options);
+        }
         instance._domListeners = [];
     }
 
-    // Cleanup timers
     if (instance._timers) {
-        instance._timers.forEach(({ id, type }) => {
+        for (const { id, type } of instance._timers) {
             if (type === 'interval') {
                 clearInterval(id);
             } else {
                 clearTimeout(id);
             }
-        });
+        }
         instance._timers = [];
     }
 }
@@ -145,8 +134,5 @@ export function cleanup(instance) {
  * @param {HTMLElement} element - Element to remove
  */
 export function removeElement(element) {
-    if (element && element.parentNode) {
-        element.parentNode.removeChild(element);
-    }
+    element?.remove();
 }
-

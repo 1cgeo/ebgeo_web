@@ -3,22 +3,19 @@
 /**
  * @fileoverview Migration orchestration service.
  *
- * This service handles detection and execution of schema migrations.
+ * Handles detection and execution of schema migrations.
  * If migration fails, an error is thrown and the application aborts.
  */
 
 import localforage from 'localforage';
 import { ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
 import { migrateToV2 } from './v1-to-v2.migration.js';
+import { migrateToV2_1 } from './v2-to-v2.1.migration.js';
 
-// App settings store
 const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
 const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
 
-/**
- * Minimum schema version supported for migration.
- * Versions below this will have data cleared (too old to migrate).
- */
+/** Versions below this will have data cleared (too old to migrate). */
 const MIN_MIGRATABLE_VERSION = '1.3';
 
 /**
@@ -30,8 +27,9 @@ const MIN_MIGRATABLE_VERSION = '1.3';
 function compareVersions(v1, v2) {
     const parts1 = (v1 || '0').split('.').map(Number);
     const parts2 = (v2 || '0').split('.').map(Number);
+    const maxLen = Math.max(parts1.length, parts2.length);
 
-    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    for (let i = 0; i < maxLen; i++) {
         const p1 = parts1[i] || 0;
         const p2 = parts2[i] || 0;
         if (p1 < p2) return -1;
@@ -48,27 +46,13 @@ export async function detectMigrationNeeded() {
     const currentVersion = await appStore.getItem('schemaVersion');
     const atlas = await atlasStore.getItem('current_atlas');
 
-    // If Atlas already exists with correct version, no migration needed
-    if (atlas && atlas.schemaVersion === ATLAS_SCHEMA_VERSION) {
-        return {
-            needed: false,
-            currentVersion: ATLAS_SCHEMA_VERSION,
-            targetVersion: ATLAS_SCHEMA_VERSION
-        };
-    }
-
-    // If no version or old version, migration is needed
-    if (!currentVersion || compareVersions(currentVersion, ATLAS_SCHEMA_VERSION) < 0) {
-        return {
-            needed: true,
-            currentVersion,
-            targetVersion: ATLAS_SCHEMA_VERSION
-        };
-    }
+    const atlasCurrent = atlas && atlas.schemaVersion === ATLAS_SCHEMA_VERSION;
+    const versionCurrent = currentVersion && compareVersions(currentVersion, ATLAS_SCHEMA_VERSION) >= 0;
+    const needed = !atlasCurrent && !versionCurrent;
 
     return {
-        needed: false,
-        currentVersion,
+        needed,
+        currentVersion: atlasCurrent ? ATLAS_SCHEMA_VERSION : currentVersion,
         targetVersion: ATLAS_SCHEMA_VERSION
     };
 }
@@ -76,16 +60,16 @@ export async function detectMigrationNeeded() {
 /**
  * Checks if the current version is too old to migrate.
  * @param {string|null} currentVersion - Current schema version
- * @returns {boolean} True if version is too old
+ * @returns {boolean} True if version is too old (null means fresh install, not too old)
  */
 export function isTooOldToMigrate(currentVersion) {
-    if (!currentVersion) return false; // No version = fresh install
+    if (!currentVersion) return false;
     return compareVersions(currentVersion, MIN_MIGRATABLE_VERSION) < 0;
 }
 
 /**
  * Executes migration. If migration fails, throws an error.
- * @returns {Promise<{success: boolean, error?: string}>}
+ * @returns {Promise<{success: boolean}>}
  * @throws {Error} If migration fails
  */
 export async function safelyMigrate() {
@@ -96,7 +80,6 @@ export async function safelyMigrate() {
         return { success: true };
     }
 
-    // Check if version is too old
     if (isTooOldToMigrate(currentVersion)) {
         console.warn(`Version ${currentVersion} is too old to migrate. Data will be cleared.`);
         return { success: true };
@@ -105,13 +88,19 @@ export async function safelyMigrate() {
     console.log(`Migration needed: ${currentVersion} -> ${ATLAS_SCHEMA_VERSION}`);
 
     try {
-        console.log('Executing migration...');
-        await migrateToV2();
+        if (compareVersions(currentVersion, '2.0') < 0) {
+            await migrateToV2();
+        }
+        if (compareVersions(currentVersion, '2.1') < 0) {
+            await migrateToV2_1();
+        }
         console.log('Migration completed successfully');
         return { success: true };
     } catch (error) {
         console.error('Migration failed:', error);
-        throw new Error(`Falha na migração para v2.0: ${error.message}. Por favor, exporte seus dados e limpe o armazenamento local.`);
+        throw new Error(
+            `Falha na migração para ${ATLAS_SCHEMA_VERSION}: ${error.message}. Por favor, exporte seus dados e limpe o armazenamento local.`
+        );
     }
 }
 

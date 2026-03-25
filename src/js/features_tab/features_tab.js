@@ -46,7 +46,7 @@ import {
 } from './group-item.component.js';
 import { getCollapseStateManager } from './collapse-state.manager.js';
 import { getFeaturesFromMapSources, organizeFeaturesByLayers } from './feature-organizer.service.js';
-import { initLayerSortable, destroySortable } from './sortable.handler.js';
+import { initLayerSortable, initFeatureSortable, destroySortable } from './sortable.handler.js';
 import {
     createLayerContainer,
     applyLayerCollapseState,
@@ -63,12 +63,15 @@ import {
     getCurrentMapNameSync,
     isCurrentMapLockedSync,
     getSourceTypeFromStorage,
-} from '../store';
-import { EventTypes } from '../events';
-import { showConfirm } from '../modals/index.js';
-import { isViewer3DOpen } from '../utilities/viewer3d-state.js';
-import { showError } from '../utilities/toast_service.js';
-import { isStreetView360Open } from '../utilities/streetview360-state.js';
+    getStorageTypeFromSource,
+    getStateManager,
+    moveFeaturesToLayer,
+} from '@store';
+import { EventTypes } from '@events';
+import { showConfirm } from '@modals';
+import { isViewer3DOpen } from '@utils/viewer3d-state.js';
+import { showError } from '@utils';
+import { isStreetView360Open } from '@utils/streetview360-state.js';
 
 /**
  * FeaturesTab class - Main orchestrator for the features panel.
@@ -100,6 +103,7 @@ export class FeaturesTab {
         this._suppressLayersChangedRefresh = false;
 
         this._sortableInstance = null;
+        this._featureSortableInstances = [];
         this._unsubscribers = [];
         this._collapseManager = getCollapseStateManager();
         this._catalogLayerUnsubscriber = null;
@@ -248,6 +252,8 @@ export class FeaturesTab {
         clearTimeout(this._debounceTimer);
         destroySortable(this._sortableInstance);
         this._sortableInstance = null;
+        this._featureSortableInstances.forEach(s => destroySortable(s));
+        this._featureSortableInstances = [];
 
         // Cleanup catalog layer listener
         if (this._catalogLayerUnsubscriber) {
@@ -584,14 +590,7 @@ export class FeaturesTab {
     _renderErrorMessage() {
         const featuresList = this.container.querySelector('.features-list');
         featuresList.innerHTML = `
-            <div class="features-error" style="
-                padding: 20px;
-                text-align: center;
-                color: #dc3545;
-                font-size: 14px;
-                background-color: #ffffff;
-                border-radius: 4px;
-            ">
+            <div class="features-error">
                 Erro ao carregar feições
             </div>
         `;
@@ -604,15 +603,6 @@ export class FeaturesTab {
     _renderEmptyMessage(container) {
         const emptyMessage = document.createElement('div');
         emptyMessage.className = 'features-empty-message';
-        emptyMessage.style.cssText = `
-            padding: 20px;
-            text-align: center;
-            color: #666;
-            font-size: 14px;
-            font-style: italic;
-            background-color: #ffffff;
-            border-radius: 4px;
-        `;
         emptyMessage.textContent = 'Sem feições no mapa';
         container.appendChild(emptyMessage);
     }
@@ -653,6 +643,15 @@ export class FeaturesTab {
         // Initialize sortable for layer reordering
         destroySortable(this._sortableInstance);
         this._sortableInstance = initLayerSortable(featuresList);
+
+        // Initialize feature sortable for cross-layer drag
+        this._featureSortableInstances.forEach(s => destroySortable(s));
+        this._featureSortableInstances = [];
+        const onMoveFeatures = (refs, layerId) => this._handleMoveFeatures(refs, layerId);
+        featuresList.querySelectorAll('.layer-content').forEach(content => {
+            const instance = initFeatureSortable(content, onMoveFeatures);
+            if (instance) this._featureSortableInstances.push(instance);
+        });
 
         // Highlight currently selected features
         this._highlightSelectedFeatures();
@@ -715,6 +714,31 @@ export class FeaturesTab {
     // =========================================================================
     // PRIVATE - DATA SYNC
     // =========================================================================
+
+    /**
+     * Handles moving features to another layer (drag-and-drop).
+     * Persists to IndexedDB, propagates layerId to MapLibre sources, and refreshes UI.
+     * @param {Array<{type: string, id: string}>} featureRefs - Features to move (source types)
+     * @param {string} targetLayerId - Destination layer ID
+     */
+    async _handleMoveFeatures(featureRefs, targetLayerId) {
+        // Suppress the LAYERS_CHANGED event that moveFeaturesToLayer emits internally,
+        // because MapLibre sources are not yet updated at that point.
+        this._suppressLayersChangedRefresh = true;
+
+        await moveFeaturesToLayer(featureRefs, targetLayerId);
+
+        // Propagate layerId to MapLibre sources using the proven pattern
+        for (const ref of featureRefs) {
+            const storageType = getStorageTypeFromSource(ref.type);
+            await this._propagateFeaturePropertyToSource(
+                storageType, ref.id, 'layerId', targetLayerId
+            );
+        }
+
+        this._suppressLayersChangedRefresh = false;
+        this._emitLayersChanged();
+    }
 
     /**
      * Syncs MapLibre sources after deleting features from a layer.
@@ -846,7 +870,7 @@ export class FeaturesTab {
     _highlightSelectedFeatures() {
         if (!this.container || !this.selectionManager) return;
 
-        const allItems = this.container.querySelectorAll('.feature-item[data-feature-id]');
+        const allItems = this.container.querySelectorAll('[data-feature-id][data-feature-type]');
         for (const item of allItems) {
             const featureId = item.dataset.featureId;
             const storageType = item.dataset.featureType;
@@ -922,14 +946,16 @@ export class FeaturesTab {
             this._eventBus.on(EventTypes.STREETVIEW_360_CLOSED, this._viewer360ClosedHandler)
         );
 
-        // Listen for selection changes to highlight features in the layers panel
-        this._selectionHighlightHandler = () => this._highlightSelectedFeatures();
-        this._unsubscribers.push(
-            this._eventBus.on(EventTypes.FEATURE_PANEL_OPENED, this._selectionHighlightHandler)
-        );
-        this._unsubscribers.push(
-            this._eventBus.on(EventTypes.FEATURE_PANEL_CLOSED, this._selectionHighlightHandler)
-        );
+        // Subscribe to selection state changes to highlight features in the layers panel.
+        // Using StateManager subscription instead of FEATURE_PANEL events ensures
+        // the highlight updates even when the sidebar is already open during deselection.
+        try {
+            this._unsubscribers.push(
+                getStateManager().subscribe('selection.features', () => this._highlightSelectedFeatures())
+            );
+        } catch (_e) {
+            // StateManager not available yet
+        }
     }
 
     /**
@@ -1053,14 +1079,6 @@ export class FeaturesTab {
                 }
             }
         }
-    }
-
-    /**
-     * @deprecated Use _updateViewerModeUI instead
-     * @private
-     */
-    _update3DViewerModeUI() {
-        this._updateViewerModeUI();
     }
 
     /**

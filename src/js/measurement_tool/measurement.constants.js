@@ -5,10 +5,6 @@
  * @description Constants for ephemeral measurement tools (distance, area, angle).
  */
 
-// ============================================================================
-// SOURCE & LAYER NAMES
-// ============================================================================
-
 export const MEASUREMENT_SOURCES = {
     PREVIEW_LINE: 'measurement-preview-line',
     PREVIEW_FILL: 'measurement-preview-fill',
@@ -26,10 +22,6 @@ export const MEASUREMENT_LAYERS = {
     ANGLE_ARC: 'measurement-angle-arc-layer',
     ANGLE_RAYS: 'measurement-angle-rays-layer',
 };
-
-// ============================================================================
-// STYLING
-// ============================================================================
 
 export const MEASUREMENT_STYLE = {
     lineColor: '#ff6600',
@@ -49,21 +41,14 @@ export const MEASUREMENT_STYLE = {
     angleArcWidth: 2,
 };
 
-// ============================================================================
-// DISTANCE UNITS
-// ============================================================================
-
 export const DISTANCE_UNITS = [
     { id: 'meters', label: 'Metros (m)', factor: 1, suffix: 'm', decimals: 1 },
     { id: 'kilometers', label: 'Quilômetros (km)', factor: 0.001, suffix: 'km', decimals: 3 },
     { id: 'nautical_miles', label: 'Milhas Náuticas (NM)', factor: 1 / 1852, suffix: 'NM', decimals: 3 },
+    { id: 'feet', label: 'Pés (ft)', factor: 1 / 0.3048, suffix: 'ft', decimals: 1 },
 ];
 
 export const DEFAULT_DISTANCE_UNIT = 'meters';
-
-// ============================================================================
-// AREA UNITS
-// ============================================================================
 
 export const AREA_UNITS = [
     { id: 'sqmeters', label: 'Metros² (m²)', factor: 1, suffix: 'm²', decimals: 1 },
@@ -73,14 +58,8 @@ export const AREA_UNITS = [
 
 export const DEFAULT_AREA_UNIT = 'sqmeters';
 
-// ============================================================================
-// ANGLE UNITS
-// ============================================================================
-
 export const ANGLE_UNITS = [
     { id: 'degrees', label: 'Graus (°)', factor: 1, suffix: '°', decimals: 2 },
     { id: 'mils', label: 'Milésimos (mil)', factor: 6400 / 360, suffix: 'mil', decimals: 0 },
     { id: 'gradians', label: 'Grados (gon)', factor: 400 / 360, suffix: 'gon', decimals: 2 },
 ];
-
-export const DEFAULT_ANGLE_UNIT = 'degrees';

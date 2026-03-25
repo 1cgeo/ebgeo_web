@@ -7,12 +7,17 @@ import {
   storeImage,
   getActiveLayerIdSync
 } from "../../store";
-import { IDUtils, showError } from "../../utilities";
+import { IDUtils, showError, loadImageToMap as utilLoadImageToMap } from "../../utilities";
 import { addImageAttributesToPanel } from "./image_attributes_panel.js";
 import AddImageGeometry from "./add_image_geometry.js";
 import { BaseControl } from "../../tool_manager";
+import {
+    applyZoomCorrections as applyZoomCorrectionsUtil,
+    calculateZoomCorrectedValue,
+} from '../../tool_manager/helpers/zoom-correction.helpers.js';
 
 class AddImageControl extends BaseControl {
+    featureType = 'image';
   constructor(toolManager) {
     super(toolManager);
 
@@ -42,26 +47,6 @@ class AddImageControl extends BaseControl {
   static IMAGE_QUALITY = 0.7;
 
   // ===== SINGLE SOURCE OF TRUTH =====
-
-  /**
-   * Get currently selected image feature from SelectionManager
-   * @returns {Object|null} Selected image feature or null
-   */
-  getSelectedFeature() {
-    const selectedItems =
-      this.selectionManager.getSelectedFeaturesByType("image");
-    return selectedItems.length > 0 ? selectedItems[0].feature : null;
-  }
-
-  /**
-   * Get all selected image features from SelectionManager
-   * @returns {Array} Array of selected image features
-   */
-  getSelectedFeatures() {
-    return this.selectionManager
-      .getSelectedFeaturesByType("image")
-      .map((item) => item.feature);
-  }
 
   // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -212,7 +197,7 @@ class AddImageControl extends BaseControl {
       effectiveZoom
     );
 
-    const updatedFeature = {
+    return {
       ...feature,
       geometry: this.geometry.generate(newCoordinates),
       properties: {
@@ -220,8 +205,6 @@ class AddImageControl extends BaseControl {
         selectionBox: newSelectionBox,
       },
     };
-
-    return updatedFeature;
   }
 
   canMove(feature) {
@@ -341,13 +324,13 @@ class AddImageControl extends BaseControl {
           this.map
         );
 
+        await this.loadImageToMap(imageId, blob);
+
         await addFeature("images", feature);
 
         const data = await this.map.getSource("images").getData();
         data.features.push(feature);
         this.map.getSource("images").setData(data);
-
-        await this.loadImageToMap(imageId, blob);
 
         await this.selectionManager.toggleFeatureSelection("image", imageId, feature);
         this.selectionManager.updateUI();
@@ -421,35 +404,7 @@ class AddImageControl extends BaseControl {
   // ===== BLOB STORAGE METHODS =====
 
   async loadImageToMap(imageId, blob) {
-    const url = URL.createObjectURL(blob);
-
-    return new Promise((resolve, reject) => {
-      const image = new Image();
-
-      image.onload = () => {
-        try {
-          if (!this.map.hasImage(imageId)) {
-            this.map.addImage(imageId, image);
-          }
-          URL.revokeObjectURL(url);
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      };
-
-      image.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error(`Failed to load image ${imageId}`));
-      };
-
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-        reject(new Error(`Timeout loading image ${imageId}`));
-      }, 10000);
-
-      image.src = url;
-    });
+    return utilLoadImageToMap(this.map, imageId, blob);
   }
 
   // ===== ZOOM-INVARIANT SYSTEM =====
@@ -466,34 +421,10 @@ class AddImageControl extends BaseControl {
   };
 
   applyZoomCorrections = (features) => {
-    const currentZoom = this.map.getZoom();
-    return features.map((feature) => {
-      const isEnabled = feature.properties.zoomCorrectionEnabled !== false;
-
-      if (!isEnabled) {
-        return {
-          ...feature,
-          properties: {
-            ...feature.properties,
-            calculatedSize: feature.properties.size
-          }
-        };
-      }
-
-      const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-      const scaleFactor = Math.pow(2, zoomDifference);
-      const newCalculatedSize = Math.min(
-        feature.properties.size * scaleFactor,
-        10
-      );
-
-      return {
-        ...feature,
-        properties: {
-          ...feature.properties,
-          calculatedSize: newCalculatedSize
-        }
-      };
+    return applyZoomCorrectionsUtil(features, this.map.getZoom(), {
+      sourceProperty: 'size',
+      calculatedProperty: 'calculatedSize',
+      maxValue: 10,
     });
   };
 
@@ -613,58 +544,20 @@ class AddImageControl extends BaseControl {
         sourceFeature.properties[property] = value;
         feature.properties[property] = value;
 
-        if (property === "zoomCorrectionEnabled") {
-          let newCalculatedSize;
-          if (value === false) {
-            newCalculatedSize = sourceFeature.properties.size;
-          } else {
-            const currentZoom = this.map.getZoom();
-            const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 10);
-          }
-          sourceFeature.properties.calculatedSize = newCalculatedSize;
-          feature.properties.calculatedSize = newCalculatedSize;
-
-          this.ensureFeatureConsistency(sourceFeature, null, true);
-          feature.properties.selectionBox = sourceFeature.properties.selectionBox;
-        } else if (property === "createdAtZoom") {
+        // Round createdAtZoom to 1 decimal
+        if (property === 'createdAtZoom') {
           const roundedValue = Math.round(value * 10) / 10;
           sourceFeature.properties[property] = roundedValue;
           feature.properties[property] = roundedValue;
-
-          // Only recalculate if zoom correction is enabled
-          if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
-            const currentZoom = this.map.getZoom();
-            const zoomDifference = currentZoom - roundedValue;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            const newCalculatedSize = Math.min(
-              sourceFeature.properties.size * scaleFactor,
-              10
-            );
-            sourceFeature.properties.calculatedSize = newCalculatedSize;
-            feature.properties.calculatedSize = newCalculatedSize;
-          }
-
-          this.ensureFeatureConsistency(sourceFeature, null, true);
-          feature.properties.selectionBox =
-            sourceFeature.properties.selectionBox;
-        } else {
-          const shouldRecalculateSelectionBox = ["size", "rotation"].includes(
-            property
-          );
-
-          this.ensureFeatureConsistency(
-            sourceFeature,
-            null,
-            shouldRecalculateSelectionBox
-          );
-
-          feature.properties.calculatedSize =
-            sourceFeature.properties.calculatedSize;
-          feature.properties.selectionBox =
-            sourceFeature.properties.selectionBox;
         }
+
+        const shouldRecalculateSelectionBox =
+          ['size', 'rotation', 'zoomCorrectionEnabled', 'createdAtZoom'].includes(property);
+
+        this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
+
+        feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
+        feature.properties.selectionBox = sourceFeature.properties.selectionBox;
       }
     }
 
@@ -679,16 +572,10 @@ class AddImageControl extends BaseControl {
   ) => {
     const zoom = currentZoom || this.map.getZoom();
 
-    if (feature.properties.zoomCorrectionEnabled === false) {
-      feature.properties.calculatedSize = feature.properties.size;
-    } else {
-      const zoomDifference = zoom - feature.properties.createdAtZoom;
-      const scaleFactor = Math.pow(2, zoomDifference);
-      feature.properties.calculatedSize = Math.min(
-        feature.properties.size * scaleFactor,
-        10
-      );
-    }
+    feature.properties.calculatedSize = calculateZoomCorrectedValue(
+      feature.properties, zoom,
+      { sourceProperty: 'size', maxValue: 10 }
+    );
 
     if (forceRecalculateSelectionBox || !feature.properties.selectionBox) {
       const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? zoom : null;
@@ -821,9 +708,6 @@ class AddImageControl extends BaseControl {
       this.updateSelectionManagerFeatures(features);
     }
   };
-
-  // ===== SELECTION MANAGER INTEGRATION =====
-
   /**
    * Update SelectionManager with current feature data
    * @param {Object} feature - Feature to update in SelectionManager

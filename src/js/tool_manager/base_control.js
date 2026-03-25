@@ -8,11 +8,7 @@
  * @module tool_manager/base_control
  */
 
-import {
-    pixelsToDegrees,
-    expandBboxWithPadding,
-    normalizeCoordinates
-} from '../utilities/geometry-utils.js';
+import { expandBboxWithPadding } from '../utilities/geometry-utils.js';
 import { deepClone } from '../utilities/deep-utils.js';
 
 /**
@@ -395,19 +391,6 @@ class BaseControl {
     // ===== UTILITY METHODS =====
 
     /**
-     * Convert pixels to degrees at given latitude and zoom.
-     * Delegates to shared geometry utility function.
-     *
-     * @param {number} pixels - Pixels
-     * @param {number} latitude - Latitude
-     * @param {number} zoom - Zoom level
-     * @returns {number} Degrees
-     */
-    pixelsToDegrees(pixels, latitude, zoom) {
-        return pixelsToDegrees(pixels, latitude, zoom);
-    }
-
-    /**
      * Get layer IDs this tool handles
      * @returns {Array} Array of layer IDs
      */
@@ -431,16 +414,6 @@ class BaseControl {
         return null;
     }
 
-    /**
-     * Normalize coordinates from various formats.
-     * Delegates to shared geometry utility function.
-     *
-     * @param {string|Array} coordinates - Coordinates to normalize
-     * @returns {Array|null} Normalized coordinates or null if invalid
-     */
-    normalizeCoordinates(coordinates) {
-        return normalizeCoordinates(coordinates);
-    }
 }
 
 export default BaseControl;

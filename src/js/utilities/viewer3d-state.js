@@ -1,16 +1,13 @@
 // Path: js/utilities/viewer3d-state.js
-
 /**
- * @fileoverview Lightweight utility for checking 3D viewer state via DOM.
- * This avoids importing the full map_3d.js module which causes circular dependencies.
+ * @fileoverview Lightweight DOM-based check for 3D viewer visibility.
+ * Avoids importing map_3d.js which would cause circular dependencies.
  */
 
 /**
- * Checks if the 3D viewer is currently visible/open.
- * Uses DOM-based check to avoid circular dependency with map_3d.js
- * @returns {boolean} True if viewer is visible
+ * @returns {boolean} True if the 3D viewer is currently visible
  */
 export function isViewer3DOpen() {
-    const map3dContainer = document.getElementById('map-3d-container');
-    return map3dContainer && map3dContainer.style.display !== 'none';
+    const container = document.getElementById('map-3d-container');
+    return container !== null && container.style.display !== 'none';
 }

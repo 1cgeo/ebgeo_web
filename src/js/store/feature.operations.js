@@ -15,6 +15,7 @@ import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
 import { deepClone, deepEqual } from '../utilities/deep-utils.js';
+import { EventTypes } from '../events';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -23,7 +24,7 @@ import { deepClone, deepEqual } from '../utilities/deep-utils.js';
  * @param {Object} feature - Feature to timestamp
  * @returns {Object} Feature with createdAt, updatedAt, and version in properties
  */
-const addCreatedTimestamp = (feature) => {
+function addCreatedTimestamp(feature) {
     if (!feature || !feature.properties) return feature;
     if (!feature.properties.createdAt) {
         feature.properties.createdAt = Date.now();
@@ -31,25 +32,23 @@ const addCreatedTimestamp = (feature) => {
     if (!feature.properties.updatedAt) {
         feature.properties.updatedAt = feature.properties.createdAt;
     }
-    // Initialize version for new features
     if (feature.properties.version === undefined) {
         feature.properties.version = 1;
     }
     return feature;
-};
+}
 
 /**
  * Updates the updatedAt timestamp and increments version on a feature.
  * @param {Object} feature - Feature to update
  * @returns {Object} Feature with updated timestamp and version
  */
-const touchUpdatedTimestamp = (feature) => {
+function touchUpdatedTimestamp(feature) {
     if (!feature || !feature.properties) return feature;
     feature.properties.updatedAt = Date.now();
-    // Increment version on update
     feature.properties.version = (feature.properties.version || 0) + 1;
     return feature;
-};
+}
 
 /**
  * Compares two features ignoring auto-managed metadata (updatedAt, version).
@@ -71,11 +70,6 @@ function isFeatureEqual(a, b) {
     return deepEqual(propsA, propsB);
 }
 
-// Alias for backward compatibility during migration
-const getMapData = getMapDataCompat;
-const updateMapData = updateMapDataCompat;
-const getLayersRepo = getLayersCompat;
-
 // ===== DEPENDENCY INJECTION =====
 
 /** @type {import('./store.types.js').StoreDependencies} */
@@ -91,30 +85,128 @@ export function setFeatureDependencies(dependencies) {
 
 // ===== INTERNAL HELPERS =====
 
-const getFeatureType = (feature) => {
-    const source = feature.properties?.source;
-    return FEATURE_TYPE_MAPPINGS[source];
-};
+/**
+ * Returns the storage type for a feature based on its source property.
+ * @param {Object} feature
+ * @returns {string|undefined}
+ */
+function getFeatureType(feature) {
+    return FEATURE_TYPE_MAPPINGS[feature.properties?.source];
+}
 
-const findRelatedProcessedFeatures = (type, featureId, mapData) => {
-    if (type === 'los') {
-        return mapData.features.processed_los.filter(pf =>
-            pf.properties.id.startsWith(featureId + '-')
-        );
-    } else if (type === 'visibility') {
-        return mapData.features.processed_visibility.filter(pf =>
-            pf.properties.id.startsWith(featureId + '-')
-        );
+/**
+ * Returns the processed storage type key for analysis features.
+ * @param {string} type - 'los' or 'visibility'
+ * @returns {string|null}
+ */
+function getProcessedType(type) {
+    if (type === 'los') return 'processed_los';
+    if (type === 'visibility') return 'processed_visibility';
+    return null;
+}
+
+/**
+ * Resolves the target map name, defaulting to the current map.
+ * @param {string|null} mapName
+ * @returns {string}
+ */
+function resolveMap(mapName) {
+    return mapName || mapManager.getCurrentMapName();
+}
+
+/**
+ * Checks permission and map lock for a write operation.
+ * Returns an object with `blocked` flag. If blocked, emits the appropriate error.
+ * Uses isCurrentMapLockedSync for current-map operations (includes briefing lock override),
+ * and memoryStore.lockedMaps for explicit cross-map operations.
+ * @param {string} guardAction - GuardAction constant
+ * @param {string} operationName - Name for error reporting
+ * @param {string} [targetMap] - Map name to check lock against
+ * @returns {{ blocked: boolean }}
+ */
+function guardWrite(guardAction, operationName, targetMap) {
+    const perm = checkPermission(guardAction);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: operationName, reason: perm.reason });
+        return { blocked: true };
     }
-    return [];
-};
+    if (targetMap) {
+        const isCurrentMap = targetMap === mapManager.getCurrentMapName();
+        const isLocked = isCurrentMap
+            ? isCurrentMapLockedSync()
+            : memoryStore.lockedMaps.has(targetMap);
+        if (isLocked) {
+            emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: operationName, reason: 'map_locked' });
+            return { blocked: true };
+        }
+    }
+    return { blocked: false };
+}
 
-const removeProcessedFeaturesFromData = (processedType, processedFeatures, mapData) => {
+/**
+ * Returns whether undo should be recorded for this operation.
+ * Undo is recorded when the operation targets the current map.
+ * @param {string|null} mapName - Explicit map name (null means current)
+ * @returns {boolean}
+ */
+function shouldRecordUndo(mapName) {
+    return !mapName || mapName === mapManager.getCurrentMapName();
+}
+
+function findRelatedProcessedFeatures(type, featureId, mapData) {
+    const processedType = getProcessedType(type);
+    if (!processedType) return [];
+    return mapData.features[processedType].filter(pf =>
+        pf.properties.id.startsWith(featureId + '-')
+    );
+}
+
+function removeProcessedFeaturesFromData(processedType, processedFeatures, mapData) {
     if (!processedType || !processedFeatures.length) return;
     const processedIds = new Set(processedFeatures.map(pf => pf.properties.id));
     mapData.features[processedType] = mapData.features[processedType]
         .filter(pf => !processedIds.has(pf.properties.id));
-};
+}
+
+/**
+ * Preserves user-managed data from oldFeature onto cleanedFeature.
+ * Images, attributes, and description are managed separately by userDataManager
+ * and should not be overwritten by MapLibre source updates.
+ * @param {Object} oldFeature - Stored feature
+ * @param {Object} cleanedFeature - Incoming cleaned feature
+ */
+function preserveUserData(oldFeature, cleanedFeature) {
+    const oldProps = oldFeature.properties;
+    const newProps = cleanedFeature.properties;
+
+    if (Array.isArray(oldProps.images) && oldProps.images.length > 0 &&
+        (!Array.isArray(newProps.images) || newProps.images.length === 0)) {
+        newProps.images = oldProps.images;
+    }
+
+    if (oldProps.attributes && Object.keys(oldProps.attributes).length > 0 &&
+        (!newProps.attributes || Object.keys(newProps.attributes).length === 0)) {
+        newProps.attributes = oldProps.attributes;
+    }
+
+    if (oldProps.descricao && !newProps.descricao) {
+        newProps.descricao = oldProps.descricao;
+    }
+}
+
+/**
+ * Preserves sync metadata (createdAt, version) from the stored feature.
+ * @param {Object} oldFeature - Stored feature
+ * @param {Object} cleanedFeature - Incoming cleaned feature
+ */
+function preserveSyncMetadata(oldFeature, cleanedFeature) {
+    if (oldFeature.properties.createdAt) {
+        cleanedFeature.properties.createdAt = oldFeature.properties.createdAt;
+    }
+    if (oldFeature.properties.version !== undefined) {
+        cleanedFeature.properties.version = oldFeature.properties.version;
+    }
+}
 
 // ===== CRUD OPERATIONS =====
 
@@ -123,19 +215,11 @@ const removeProcessedFeaturesFromData = (processedType, processedFeatures, mapDa
  * @param {string} type - Storage type (e.g., 'points')
  * @param {Object} feature - GeoJSON feature to add
  * @param {string} [mapName=null] - Target map name
+ * @returns {Promise<Object|undefined>} Cleaned feature or undefined if blocked
  */
-export const addFeature = async (type, feature, mapName = null) => {
-    const perm = checkPermission(GuardAction.CREATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'addFeature', reason: perm.reason });
-        return;
-    }
-
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    if (memoryStore.lockedMaps.has(targetMap)) {
-        console.warn('Map is locked. Cannot add feature.');
-        return;
-    }
+export async function addFeature(type, feature, mapName = null) {
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.CREATE_FEATURE, 'addFeature', targetMap).blocked) return;
 
     const cleanedFeature = cleanFeature(feature);
     if (!cleanedFeature) {
@@ -146,10 +230,12 @@ export const addFeature = async (type, feature, mapName = null) => {
     addCreatedTimestamp(cleanedFeature);
 
     await runTransaction(async (tx) => {
-        const currentMapData = await getMapData(targetMap);
+        const currentMapData = await getMapDataCompat(targetMap);
+        if (!currentMapData.features[type]) {
+            currentMapData.features[type] = [];
+        }
         currentMapData.features[type].push(cleanedFeature);
 
-        // Defer color tracking until persistence succeeds
         const colors = mapManager.getFeatureColors(cleanedFeature);
         tx.deferSync(() => {
             for (const color of colors) {
@@ -157,8 +243,7 @@ export const addFeature = async (type, feature, mapName = null) => {
             }
         });
 
-        // Defer undo recording
-        if (!mapName || mapName === mapManager.getCurrentMapName()) {
+        if (shouldRecordUndo(mapName)) {
             tx.deferSync(() => {
                 mapManager.recordAction({
                     type: 'add',
@@ -168,15 +253,16 @@ export const addFeature = async (type, feature, mapName = null) => {
             });
         }
 
-        // Defer sync logging
         tx.deferAsync(() => {
             const mapId = mapManager.getCurrentMapId();
             return logFeatureOperation(OperationType.CREATE, cleanedFeature.properties.id, mapId, cleanedFeature);
         });
 
-        return () => updateMapData(targetMap, currentMapData);
+        return () => updateMapDataCompat(targetMap, currentMapData);
     });
-};
+
+    return cleanedFeature;
+}
 
 /**
  * Updates an existing feature.
@@ -184,17 +270,9 @@ export const addFeature = async (type, feature, mapName = null) => {
  * @param {Object} feature - Feature with updated properties
  * @param {string} [mapName=null] - Target map name
  */
-export const updateFeature = async (type, feature, mapName = null) => {
-    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateFeature', reason: perm.reason });
-        return;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot update feature.');
-        return;
-    }
+export async function updateFeature(type, feature, mapName = null) {
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.UPDATE_FEATURE, 'updateFeature', targetMap).blocked) return;
 
     const cleanedFeature = cleanFeature(feature);
     if (!cleanedFeature) {
@@ -202,83 +280,47 @@ export const updateFeature = async (type, feature, mapName = null) => {
         return;
     }
 
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    const currentMapData = await getMapData(targetMap);
+    const currentMapData = await getMapDataCompat(targetMap);
     const index = currentMapData.features[type].findIndex(f => f.properties.id === cleanedFeature.properties.id);
+    if (index === -1) return;
 
-    if (index !== -1) {
-        const oldFeature = currentMapData.features[type][index];
+    const oldFeature = currentMapData.features[type][index];
+    const oldColor = mapManager.getFeatureColor(oldFeature);
 
-        // Compute color diff before mutation but defer the actual update
-        const oldColor = mapManager.getFeatureColor(oldFeature);
+    preserveUserData(oldFeature, cleanedFeature);
+    preserveSyncMetadata(oldFeature, cleanedFeature);
 
-        // Preserve user data (images, attributes, descricao) from the stored feature
-        // These are managed separately by userDataManager and should not be overwritten
-        // by updates from the MapLibre source (which doesn't have these properties)
-        const oldImages = oldFeature.properties.images;
-        const newImages = cleanedFeature.properties.images;
-        if (Array.isArray(oldImages) && oldImages.length > 0 &&
-            (!Array.isArray(newImages) || newImages.length === 0)) {
-            cleanedFeature.properties.images = oldImages;
+    if (isFeatureEqual(oldFeature, cleanedFeature)) return;
+
+    touchUpdatedTimestamp(cleanedFeature);
+
+    await runTransaction(async (tx) => {
+        currentMapData.features[type][index] = cleanedFeature;
+
+        const newColor = mapManager.getFeatureColor(cleanedFeature);
+        if (oldColor !== newColor) {
+            tx.deferSync(() => mapManager.updateColorUsage(oldColor, newColor, targetMap));
         }
 
-        const oldAttributes = oldFeature.properties.attributes;
-        const newAttributes = cleanedFeature.properties.attributes;
-        if (oldAttributes && Object.keys(oldAttributes).length > 0 &&
-            (!newAttributes || Object.keys(newAttributes).length === 0)) {
-            cleanedFeature.properties.attributes = oldAttributes;
-        }
-
-        // Preserve description (descricao) from the stored feature
-        const oldDescricao = oldFeature.properties.descricao;
-        const newDescricao = cleanedFeature.properties.descricao;
-        if (oldDescricao && !newDescricao) {
-            cleanedFeature.properties.descricao = oldDescricao;
-        }
-
-        // Preserve createdAt and version from old feature, then update
-        if (oldFeature.properties.createdAt) {
-            cleanedFeature.properties.createdAt = oldFeature.properties.createdAt;
-        }
-        if (oldFeature.properties.version !== undefined) {
-            cleanedFeature.properties.version = oldFeature.properties.version;
-        }
-        // Skip no-op updates (compare before touching timestamps)
-        if (isFeatureEqual(oldFeature, cleanedFeature)) return;
-
-        touchUpdatedTimestamp(cleanedFeature);
-
-        await runTransaction(async (tx) => {
-            currentMapData.features[type][index] = cleanedFeature;
-
-            // Defer color tracking until persistence succeeds
-            const newColor = mapManager.getFeatureColor(cleanedFeature);
-            if (oldColor !== newColor) {
-                tx.deferSync(() => mapManager.updateColorUsage(oldColor, newColor, targetMap));
-            }
-
-            // Defer undo recording
-            if (!mapName || mapName === mapManager.getCurrentMapName()) {
-                tx.deferSync(() => {
-                    mapManager.recordAction({
-                        type: 'update',
-                        featureType: type,
-                        oldFeature: deepClone(oldFeature),
-                        newFeature: deepClone(cleanedFeature)
-                    });
+        if (shouldRecordUndo(mapName)) {
+            tx.deferSync(() => {
+                mapManager.recordAction({
+                    type: 'update',
+                    featureType: type,
+                    oldFeature: deepClone(oldFeature),
+                    newFeature: deepClone(cleanedFeature)
                 });
-            }
-
-            // Defer sync logging
-            tx.deferAsync(() => {
-                const mapId = mapManager.getCurrentMapId();
-                return logFeatureOperation(OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature);
             });
+        }
 
-            return () => updateMapData(targetMap, currentMapData);
+        tx.deferAsync(() => {
+            const mapId = mapManager.getCurrentMapId();
+            return logFeatureOperation(OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature);
         });
-    }
-};
+
+        return () => updateMapDataCompat(targetMap, currentMapData);
+    });
+}
 
 /**
  * Removes a feature from a map.
@@ -286,48 +328,32 @@ export const updateFeature = async (type, feature, mapName = null) => {
  * @param {string} id - Feature ID to remove
  * @param {string} [mapName=null] - Target map name
  */
-export const removeFeature = async (type, id, mapName = null) => {
-    const perm = checkPermission(GuardAction.DELETE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'removeFeature', reason: perm.reason });
-        return;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot remove feature.');
-        return;
-    }
-
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    const currentMapData = await getMapData(targetMap);
+export async function removeFeature(type, id, mapName = null) {
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.DELETE_FEATURE, 'removeFeature', targetMap).blocked) return;
+    const currentMapData = await getMapDataCompat(targetMap);
     const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id === id);
-
     if (featureIndex === -1) return;
 
-    // Prepare data mutations before transaction
     const mainFeature = currentMapData.features[type].splice(featureIndex, 1)[0];
     const processedFeatures = findRelatedProcessedFeatures(type, id, currentMapData);
-    const processedType = type === 'los' ? 'processed_los' :
-        type === 'visibility' ? 'processed_visibility' : null;
+    const processedType = getProcessedType(type);
 
     if (processedType && processedFeatures.length > 0) {
         removeProcessedFeaturesFromData(processedType, processedFeatures, currentMapData);
     }
 
     await runTransaction(async (tx) => {
-        // Defer color cleanup
         const color = mapManager.getFeatureColor(mainFeature);
         if (color) {
             tx.deferSync(() => mapManager.updateColorUsage(color, null, targetMap));
         }
 
-        // Defer group cleanup (runs after persistence — if persistence fails, groups stay intact)
         tx.deferSync(() => {
             deps.groupManager.removeFeatureFromAllGroups(mainFeature.properties.source, id, targetMap);
         });
 
-        // Defer undo recording
-        if (!mapName || mapName === mapManager.getCurrentMapName()) {
+        if (shouldRecordUndo(mapName)) {
             tx.deferSync(() => {
                 mapManager.recordAction({
                     type: 'removeWithProcessed',
@@ -341,25 +367,25 @@ export const removeFeature = async (type, id, mapName = null) => {
             });
         }
 
-        // Defer sync logging
         tx.deferAsync(() => {
             const mapId = mapManager.getCurrentMapId();
             return logFeatureOperation(OperationType.DELETE, id, mapId, null, mainFeature);
         });
 
-        return () => updateMapData(targetMap, currentMapData);
+        return () => updateMapDataCompat(targetMap, currentMapData);
     });
-};
+}
 
 /**
  * Adds a feature to a specific map.
  * @param {string} type - Storage type
  * @param {Object} feature - Feature to add
  * @param {string} mapName - Target map name
+ * @returns {Promise<Object|undefined>} Cleaned feature or undefined
  */
-export const addFeatureToMap = async (type, feature, mapName) => {
+export async function addFeatureToMap(type, feature, mapName) {
     return await addFeature(type, feature, mapName);
-};
+}
 
 /**
  * Removes a feature from a specific map and returns removed data.
@@ -368,16 +394,14 @@ export const addFeatureToMap = async (type, feature, mapName) => {
  * @param {string} mapName - Target map name
  * @returns {Promise<Object|null>} Removed feature data
  */
-export const removeFeatureFromMap = async (type, id, mapName) => {
-    const mapData = await getMapData(mapName);
+export async function removeFeatureFromMap(type, id, mapName) {
+    const mapData = await getMapDataCompat(mapName);
     const featureIndex = mapData.features[type].findIndex(f => f.properties.id === id);
     if (featureIndex === -1) return null;
 
-    // Prepare data mutations before transaction
     const mainFeature = mapData.features[type].splice(featureIndex, 1)[0];
     const processedFeatures = findRelatedProcessedFeatures(type, id, mapData);
-    const processedType = type === 'los' ? 'processed_los' :
-        type === 'visibility' ? 'processed_visibility' : null;
+    const processedType = getProcessedType(type);
 
     if (processedType && processedFeatures.length > 0) {
         removeProcessedFeaturesFromData(processedType, processedFeatures, mapData);
@@ -401,11 +425,11 @@ export const removeFeatureFromMap = async (type, id, mapName) => {
             deps.groupManager.removeFeatureFromAllGroups(mainFeature.properties.source, id, mapName);
         });
 
-        return () => updateMapData(mapName, mapData);
+        return () => updateMapDataCompat(mapName, mapData);
     });
 
     return result;
-};
+}
 
 /**
  * Adds a feature without recording undo action.
@@ -413,18 +437,17 @@ export const removeFeatureFromMap = async (type, id, mapName) => {
  * @param {Object} feature - Feature to add
  * @param {string} [mapName=null] - Target map name
  */
-export const addFeatureSilent = async (type, feature, mapName = null) => {
+export async function addFeatureSilent(type, feature, mapName = null) {
     const cleanedFeature = cleanFeature(feature);
     if (!cleanedFeature) return;
 
-    // Add creation timestamp
     addCreatedTimestamp(cleanedFeature);
 
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    const currentMapData = await getMapData(targetMap);
+    const targetMap = resolveMap(mapName);
+    const currentMapData = await getMapDataCompat(targetMap);
     currentMapData.features[type].push(cleanedFeature);
-    await updateMapData(targetMap, currentMapData);
-};
+    await updateMapDataCompat(targetMap, currentMapData);
+}
 
 /**
  * Removes a feature without recording undo action.
@@ -432,60 +455,45 @@ export const addFeatureSilent = async (type, feature, mapName = null) => {
  * @param {string} id - Feature ID
  * @param {string} [mapName=null] - Target map name
  */
-export const removeFeatureSilent = async (type, id, mapName = null) => {
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    const currentMapData = await getMapData(targetMap);
+export async function removeFeatureSilent(type, id, mapName = null) {
+    const targetMap = resolveMap(mapName);
+    const currentMapData = await getMapDataCompat(targetMap);
     const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id === id);
-    if (featureIndex !== -1) {
-        currentMapData.features[type].splice(featureIndex, 1);
-        await updateMapData(targetMap, currentMapData);
-    }
-};
+    if (featureIndex === -1) return;
+
+    currentMapData.features[type].splice(featureIndex, 1);
+    await updateMapDataCompat(targetMap, currentMapData);
+}
 
 /**
  * Adds multiple features at once.
  * @param {Object<string, Array>} featuresMap - Map of type to features array
  * @param {string} [mapName=null] - Target map name
  */
-export const addFeatures = async (featuresMap, mapName = null) => {
-    const perm = checkPermission(GuardAction.CREATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'addFeatures', reason: perm.reason });
-        return;
-    }
+export async function addFeatures(featuresMap, mapName = null) {
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.CREATE_FEATURE, 'addFeatures', targetMap).blocked) return;
 
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    if (memoryStore.lockedMaps.has(targetMap)) {
-        console.warn('Map is locked. Cannot add features.');
-        return;
-    }
-
-    const currentMapData = await getMapData(targetMap);
+    const currentMapData = await getMapDataCompat(targetMap);
     const action = { type: 'addMultiple', features: {} };
-
-    // Collect all cleaned features per type for deferred color tracking
     const colorDeferrals = [];
 
-    Object.keys(featuresMap).forEach(type => {
+    for (const type of Object.keys(featuresMap)) {
         const features = featuresMap[type] || [];
-        if (features.length > 0) {
-            const cleanedFeatures = features.map(cleanFeature).filter(Boolean);
-            cleanedFeatures.forEach(addCreatedTimestamp);
-            currentMapData.features[type].push(...cleanedFeatures);
-            action.features[type] = deepClone(cleanedFeatures);
+        if (features.length === 0) continue;
 
-            // Collect color updates for deferral
-            cleanedFeatures.forEach(feature => {
-                const color = mapManager.getFeatureColor(feature);
-                if (color) {
-                    colorDeferrals.push(color);
-                }
-            });
+        const cleanedFeatures = features.map(cleanFeature).filter(Boolean);
+        cleanedFeatures.forEach(addCreatedTimestamp);
+        currentMapData.features[type].push(...cleanedFeatures);
+        action.features[type] = deepClone(cleanedFeatures);
+
+        for (const feat of cleanedFeatures) {
+            const color = mapManager.getFeatureColor(feat);
+            if (color) colorDeferrals.push(color);
         }
-    });
+    }
 
     await runTransaction(async (tx) => {
-        // Defer color tracking until persistence succeeds
         if (colorDeferrals.length > 0) {
             tx.deferSync(() => {
                 for (const color of colorDeferrals) {
@@ -494,14 +502,13 @@ export const addFeatures = async (featuresMap, mapName = null) => {
             });
         }
 
-        // Defer undo recording
-        if (Object.keys(action.features).length > 0 && (!mapName || mapName === mapManager.getCurrentMapName())) {
+        if (Object.keys(action.features).length > 0 && shouldRecordUndo(mapName)) {
             tx.deferSync(() => mapManager.recordAction(action));
         }
 
-        return () => updateMapData(targetMap, currentMapData);
+        return () => updateMapDataCompat(targetMap, currentMapData);
     });
-};
+}
 
 // ===== READ OPERATIONS =====
 
@@ -510,11 +517,11 @@ export const addFeatures = async (featuresMap, mapName = null) => {
  * @param {string} [mapName=null] - Target map name
  * @returns {Promise<Object>} Features collection
  */
-export const getCurrentMapFeatures = async (mapName = null) => {
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    const currentMapData = await getMapData(targetMap);
+export async function getCurrentMapFeatures(mapName = null) {
+    const targetMap = resolveMap(mapName);
+    const currentMapData = await getMapDataCompat(targetMap);
     return deepClone(currentMapData.features);
-};
+}
 
 /**
  * Gets a feature by ID.
@@ -523,11 +530,11 @@ export const getCurrentMapFeatures = async (mapName = null) => {
  * @param {string} [mapName=null] - Target map name
  * @returns {Promise<Object|undefined>} Feature or undefined
  */
-export const getFeatureById = async (featureType, featureId, mapName = null) => {
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    const currentMapData = await getMapData(targetMap);
+export async function getFeatureById(featureType, featureId, mapName = null) {
+    const targetMap = resolveMap(mapName);
+    const currentMapData = await getMapDataCompat(targetMap);
     return currentMapData.features[featureType].find(f => f.properties.id === featureId);
-};
+}
 
 /**
  * Updates a single property on a feature.
@@ -538,20 +545,10 @@ export const getFeatureById = async (featureType, featureId, mapName = null) => 
  * @param {string} [mapName=null] - Target map name
  * @returns {Promise<boolean>} Whether update was successful
  */
-export const updateFeatureProperty = async (featureType, featureId, property, value, mapName = null) => {
-    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'updateFeatureProperty', reason: perm.reason });
-        return false;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot update feature property.');
-        return false;
-    }
-
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    const currentMapData = await getMapData(targetMap);
+export async function updateFeatureProperty(featureType, featureId, property, value, mapName = null) {
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.UPDATE_FEATURE, 'updateFeatureProperty', targetMap).blocked) return false;
+    const currentMapData = await getMapDataCompat(targetMap);
     const feature = currentMapData.features[featureType].find(f => f.properties.id === featureId);
 
     if (!feature) {
@@ -559,21 +556,16 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
         return false;
     }
 
-    // Capture old state for logging
     const oldFeature = deepClone(feature);
 
-    // Compute color diff before mutation but defer the actual update
-    const isColorProperty = ['color', 'fillColor', 'lineColor', 'outlinecolor', 'backgroundColor'].includes(property);
-    let oldColor = null;
-    if (isColorProperty) {
-        oldColor = mapManager.getFeatureColor(feature);
-    }
+    const COLOR_PROPERTIES = ['color', 'fillColor', 'lineColor', 'outlinecolor', 'backgroundColor'];
+    const isColorProperty = COLOR_PROPERTIES.includes(property);
+    const oldColor = isColorProperty ? mapManager.getFeatureColor(feature) : null;
 
     feature.properties[property] = value;
     touchUpdatedTimestamp(feature);
 
     await runTransaction(async (tx) => {
-        // Defer color tracking until persistence succeeds
         if (isColorProperty) {
             const newColor = mapManager.getFeatureColor(feature);
             if (oldColor !== newColor) {
@@ -581,17 +573,16 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
             }
         }
 
-        // Defer sync logging
         tx.deferAsync(() => {
             const mapId = mapManager.getCurrentMapId();
             return logFeatureOperation(OperationType.UPDATE, featureId, mapId, feature, oldFeature);
         });
 
-        return () => updateMapData(targetMap, currentMapData);
+        return () => updateMapDataCompat(targetMap, currentMapData);
     });
 
     return true;
-};
+}
 
 // ===== MOVE OPERATIONS =====
 
@@ -600,37 +591,25 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
  * @param {Array} features - Features to move
  * @param {string} targetMapName - Target map name
  */
-export const moveFeaturesToMap = async (features, targetMapName) => {
+export async function moveFeaturesToMap(features, targetMapName) {
     if (!features || features.length === 0) return;
 
-    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'moveFeaturesToMap', reason: perm.reason });
-        return;
-    }
-
-    // Guard: cannot move out of or into a locked map
-    if (isCurrentMapLockedSync()) {
-        console.warn('Source map is locked. Cannot move features.');
-        return;
-    }
-    if (memoryStore.lockedMaps.has(targetMapName)) {
-        console.warn('Target map is locked. Cannot move features.');
-        return;
-    }
-
     const sourceMapName = mapManager.getCurrentMapName();
+    if (guardWrite(GuardAction.UPDATE_FEATURE, 'moveFeaturesToMap', sourceMapName).blocked) return;
+    if (memoryStore.lockedMaps.has(targetMapName)) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'moveFeaturesToMap', reason: 'target_map_locked' });
+        return;
+    }
     if (sourceMapName === targetMapName) {
         console.warn('Attempt to move features to the same map');
         return;
     }
 
-    const targetMapData = await getMapData(targetMapName);
+    const targetMapData = await getMapDataCompat(targetMapName);
     if (!targetMapData || Object.keys(targetMapData).length === 0) {
         throw new Error(`Target map "${targetMapName}" not found`);
     }
 
-    // Build layer ID mapping for features being moved
     const layerIdMapping = await buildLayerMappingForMove(features, sourceMapName, targetMapName);
 
     const featuresByType = features.reduce((acc, feature) => {
@@ -653,36 +632,26 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
 
             for (const feature of featuresOfType) {
                 const removedData = await removeFeatureFromMap(type, feature.properties.id, sourceMapName);
-                if (removedData) {
-                    // Update layerId if mapping exists
-                    const oldLayerId = feature.properties.layerId || 'default';
-                    const newLayerId = layerIdMapping.get(oldLayerId);
-                    if (newLayerId && newLayerId !== oldLayerId) {
-                        feature.properties.layerId = newLayerId;
+                if (!removedData) continue;
+
+                updateLayerId(feature, layerIdMapping);
+                const addedFeature = await addFeatureToMap(type, feature, targetMapName);
+                if (!addedFeature) continue;
+
+                typeOperations.mainFeatures.push({
+                    feature: deepClone(addedFeature),
+                    removedData: {
+                        mainFeature: deepClone(removedData.mainFeature),
+                        processedFeatures: removedData.processedFeatures
+                            ? deepClone(removedData.processedFeatures)
+                            : null
                     }
+                });
 
-                    const addedFeature = await addFeatureToMap(type, feature, targetMapName);
-                    if (addedFeature) {
-                        typeOperations.mainFeatures.push({
-                            feature: deepClone(addedFeature),
-                            removedData: {
-                                mainFeature: deepClone(removedData.mainFeature),
-                                processedFeatures: removedData.processedFeatures ?
-                                    deepClone(removedData.processedFeatures) : null
-                            }
-                        });
-
-                        if (removedData.processedFeatures) {
-                            for (const pf of removedData.processedFeatures.features) {
-                                // Update layerId for processed features too
-                                const pfOldLayerId = pf.properties.layerId || 'default';
-                                const pfNewLayerId = layerIdMapping.get(pfOldLayerId);
-                                if (pfNewLayerId && pfNewLayerId !== pfOldLayerId) {
-                                    pf.properties.layerId = pfNewLayerId;
-                                }
-                                await addFeatureToMap(removedData.processedFeatures.type, pf, targetMapName);
-                            }
-                        }
+                if (removedData.processedFeatures) {
+                    for (const pf of removedData.processedFeatures.features) {
+                        updateLayerId(pf, layerIdMapping);
+                        await addFeatureToMap(removedData.processedFeatures.type, pf, targetMapName);
                     }
                 }
             }
@@ -699,7 +668,20 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
         console.error('Error moving features:', error);
         throw error;
     }
-};
+}
+
+/**
+ * Updates a feature's layerId based on the layer mapping.
+ * @param {Object} feature
+ * @param {Map} layerIdMapping
+ */
+function updateLayerId(feature, layerIdMapping) {
+    const oldLayerId = feature.properties.layerId || 'default';
+    const newLayerId = layerIdMapping.get(oldLayerId);
+    if (newLayerId && newLayerId !== oldLayerId) {
+        feature.properties.layerId = newLayerId;
+    }
+}
 
 /**
  * Builds layer ID mapping for moving features between maps.
@@ -707,34 +689,29 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
  * @param {Array} features - Features being moved
  * @param {string} sourceMapName - Source map name
  * @param {string} targetMapName - Target map name
- * @returns {Map} Mapping of source layerId to target layerId
+ * @returns {Promise<Map>} Mapping of source layerId to target layerId
  */
-async function buildLayerMappingForMove(features, sourceMapName, targetMapName) {
+export async function buildLayerMappingForMove(features, sourceMapName, targetMapName) {
     const layerIdMapping = new Map();
 
     if (!deps.layerManager) {
-        // Fallback: map everything to default
         layerIdMapping.set('default', 'default');
         return layerIdMapping;
     }
 
     try {
-        // Get unique layer IDs from features
-        const sourceLayerIds = new Set();
-        for (const feature of features) {
-            const layerId = feature.properties?.layerId || 'default';
-            sourceLayerIds.add(layerId);
-        }
+        const sourceLayerIds = new Set(
+            features.map(f => f.properties?.layerId || 'default')
+        );
 
-        // Get source layers info (need to load from repository for non-current map)
-        const sourceLayers = await getLayersRepo(sourceMapName);
+        const sourceLayers = await getLayersCompat(sourceMapName);
         const sourceLayersById = new Map(sourceLayers.map(l => [l.id, l]));
 
-        // Get target layers
-        const targetLayers = deps.layerManager.getLayers(targetMapName);
+        const targetLayers = await getLayersCompat(targetMapName);
         const targetLayersByName = new Map(targetLayers.map(l => [l.name, l.id]));
 
-        // For each source layer ID used by features, find or create target layer
+        let createdNewLayers = false;
+
         for (const sourceLayerId of sourceLayerIds) {
             if (sourceLayerId === 'default') {
                 layerIdMapping.set('default', 'default');
@@ -743,26 +720,27 @@ async function buildLayerMappingForMove(features, sourceMapName, targetMapName) 
 
             const sourceLayer = sourceLayersById.get(sourceLayerId);
             if (!sourceLayer) {
-                // Layer not found in source, map to default
                 layerIdMapping.set(sourceLayerId, 'default');
                 continue;
             }
 
-            // Check if target has layer with same name
             const existingTargetLayerId = targetLayersByName.get(sourceLayer.name);
             if (existingTargetLayerId) {
-                // Reuse existing layer
                 layerIdMapping.set(sourceLayerId, existingTargetLayerId);
             } else {
-                // Create new layer in target with same name
                 const newLayer = deps.layerManager.createLayerForImport(sourceLayer.name, targetMapName);
                 layerIdMapping.set(sourceLayerId, newLayer.id);
                 targetLayersByName.set(newLayer.name, newLayer.id);
+                createdNewLayers = true;
             }
+        }
+
+        // Notify visibility system so new layers appear in the visible set
+        if (createdNewLayers && deps.eventBus) {
+            deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: targetMapName });
         }
     } catch (error) {
         console.warn('Error building layer mapping for move:', error);
-        // Fallback: map everything to default
         layerIdMapping.set('default', 'default');
     }
 
@@ -772,70 +750,75 @@ async function buildLayerMappingForMove(features, sourceMapName, targetMapName) 
 // ===== BATCH OPERATIONS FOR LOS/VISIBILITY =====
 
 /**
- * Batch updates LOS feature and its processed features.
- * @param {Object} losFeature - LOS feature
- * @param {Array} processedFeatures - Processed LOS features
- * @param {string} [mapName=null] - Target map name
+ * Shared implementation for batch-updating an analysis feature and its processed results.
+ * @param {string} mainType - 'los' or 'visibility'
+ * @param {Object} mainFeature - The analysis feature
+ * @param {Array} processedFeatures - Processed result features
+ * @param {string|null} mapName - Target map name
  */
-export const batchUpdateLOSFeatures = async (losFeature, processedFeatures, mapName = null) => {
-    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'batchUpdateLOSFeatures', reason: perm.reason });
-        return;
-    }
+async function batchUpdateAnalysisFeatures(mainType, mainFeature, processedFeatures, mapName) {
+    const operationName = `batchUpdate${mainType.charAt(0).toUpperCase() + mainType.slice(1)}Features`;
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.UPDATE_FEATURE, operationName, targetMap).blocked) return;
 
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot update LOS features.');
-        return;
-    }
+    const processedType = getProcessedType(mainType);
+    const currentMapData = await getMapDataCompat(targetMap);
 
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    const currentMapData = await getMapData(targetMap);
+    const mainIndex = currentMapData.features[mainType].findIndex(
+        f => f.properties.id === mainFeature.properties.id
+    );
+    if (mainIndex === -1) return;
 
-    const losIndex = currentMapData.features.los.findIndex(f => f.properties.id === losFeature.properties.id);
-    if (losIndex === -1) return;
+    const oldFeature = currentMapData.features[mainType][mainIndex];
+    const cleanedMain = cleanFeature(mainFeature);
+    currentMapData.features[mainType][mainIndex] = cleanedMain;
 
-    const oldFeature = currentMapData.features.los[losIndex];
-    const cleanedLos = cleanFeature(losFeature);
-    currentMapData.features.los[losIndex] = cleanedLos;
+    const featureIdPrefix = mainFeature.properties.id + '-';
 
-    // Capture old processed features before replacing (needed for undo)
-    const oldProcessedFeatures = currentMapData.features.processed_los.filter(f =>
-        f.properties.id === losFeature.properties.id + '-visible' ||
-        f.properties.id === losFeature.properties.id + '-obstructed'
+    const oldProcessedFeatures = currentMapData.features[processedType].filter(f =>
+        f.properties.id.startsWith(featureIdPrefix)
     );
 
-    currentMapData.features.processed_los = currentMapData.features.processed_los.filter(f =>
-        f.properties.id !== losFeature.properties.id + '-visible' &&
-        f.properties.id !== losFeature.properties.id + '-obstructed'
+    currentMapData.features[processedType] = currentMapData.features[processedType].filter(f =>
+        !f.properties.id.startsWith(featureIdPrefix)
     );
 
     const cleanedProcessed = processedFeatures.map(cleanFeature).filter(Boolean);
-    currentMapData.features.processed_los.push(...cleanedProcessed);
+    currentMapData.features[processedType].push(...cleanedProcessed);
 
     await runTransaction(async (tx) => {
-        if (!mapName || mapName === mapManager.getCurrentMapName()) {
+        if (shouldRecordUndo(mapName)) {
             tx.deferSync(() => {
                 mapManager.recordAction({
                     type: 'updateWithProcessed',
-                    mainFeatureType: 'los',
+                    mainFeatureType: mainType,
                     oldFeature: deepClone(oldFeature),
-                    newFeature: deepClone(cleanedLos),
+                    newFeature: deepClone(cleanedMain),
                     oldProcessedFeatures: {
-                        type: 'processed_los',
+                        type: processedType,
                         features: deepClone(oldProcessedFeatures)
                     },
                     newProcessedFeatures: {
-                        type: 'processed_los',
+                        type: processedType,
                         features: deepClone(cleanedProcessed)
                     }
                 });
             });
         }
 
-        return () => updateMapData(targetMap, currentMapData);
+        return () => updateMapDataCompat(targetMap, currentMapData);
     });
-};
+}
+
+/**
+ * Batch updates LOS feature and its processed features.
+ * @param {Object} losFeature - LOS feature
+ * @param {Array} processedFeatures - Processed LOS features
+ * @param {string} [mapName=null] - Target map name
+ */
+export async function batchUpdateLOSFeatures(losFeature, processedFeatures, mapName = null) {
+    return batchUpdateAnalysisFeatures('los', losFeature, processedFeatures, mapName);
+}
 
 /**
  * Batch updates visibility feature and its processed features.
@@ -843,63 +826,9 @@ export const batchUpdateLOSFeatures = async (losFeature, processedFeatures, mapN
  * @param {Array} processedFeatures - Processed visibility features
  * @param {string} [mapName=null] - Target map name
  */
-export const batchUpdateVisibilityFeatures = async (visibilityFeature, processedFeatures, mapName = null) => {
-    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'batchUpdateVisibilityFeatures', reason: perm.reason });
-        return;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot update visibility features.');
-        return;
-    }
-
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    const currentMapData = await getMapData(targetMap);
-
-    const visIndex = currentMapData.features.visibility.findIndex(f => f.properties.id === visibilityFeature.properties.id);
-    if (visIndex === -1) return;
-
-    const oldFeature = currentMapData.features.visibility[visIndex];
-    const cleanedVis = cleanFeature(visibilityFeature);
-    currentMapData.features.visibility[visIndex] = cleanedVis;
-
-    // Capture old processed features before replacing (needed for undo)
-    const oldProcessedFeatures = currentMapData.features.processed_visibility.filter(f =>
-        f.properties.id.startsWith(visibilityFeature.properties.id + '-')
-    );
-
-    currentMapData.features.processed_visibility = currentMapData.features.processed_visibility.filter(f =>
-        !f.properties.id.startsWith(visibilityFeature.properties.id + '-')
-    );
-
-    const cleanedProcessed = processedFeatures.map(cleanFeature).filter(Boolean);
-    currentMapData.features.processed_visibility.push(...cleanedProcessed);
-
-    await runTransaction(async (tx) => {
-        if (!mapName || mapName === mapManager.getCurrentMapName()) {
-            tx.deferSync(() => {
-                mapManager.recordAction({
-                    type: 'updateWithProcessed',
-                    mainFeatureType: 'visibility',
-                    oldFeature: deepClone(oldFeature),
-                    newFeature: deepClone(cleanedVis),
-                    oldProcessedFeatures: {
-                        type: 'processed_visibility',
-                        features: deepClone(oldProcessedFeatures)
-                    },
-                    newProcessedFeatures: {
-                        type: 'processed_visibility',
-                        features: deepClone(cleanedProcessed)
-                    }
-                });
-            });
-        }
-
-        return () => updateMapData(targetMap, currentMapData);
-    });
-};
+export async function batchUpdateVisibilityFeatures(visibilityFeature, processedFeatures, mapName = null) {
+    return batchUpdateAnalysisFeatures('visibility', visibilityFeature, processedFeatures, mapName);
+}
 
 // ===== LAYER-FEATURE OPERATIONS =====
 
@@ -909,18 +838,11 @@ export const batchUpdateVisibilityFeatures = async (visibilityFeature, processed
  * @param {string} [mapName=null] - Target map name
  * @returns {Promise<boolean>} Whether any features were deleted
  */
-export const deleteLayerFeatures = async (layerId, mapName = null) => {
-    const perm = checkPermission(GuardAction.DELETE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'deleteLayerFeatures', reason: perm.reason });
-        return false;
-    }
-
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    const currentMapData = await getMapData(targetMap);
+export async function deleteLayerFeatures(layerId, mapName = null) {
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.DELETE_FEATURE, 'deleteLayerFeatures', targetMap).blocked) return false;
+    const currentMapData = await getMapDataCompat(targetMap);
     let modified = false;
-
-    // Collect group cleanup operations for deferral
     const groupCleanups = [];
 
     for (const storageType of getAllStorageTypes()) {
@@ -939,14 +861,13 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
             return true;
         });
 
-        if (initialLength - currentMapData.features[storageType].length > 0) {
+        if (currentMapData.features[storageType].length < initialLength) {
             modified = true;
         }
     }
 
     if (modified) {
         await runTransaction(async (tx) => {
-            // Defer group cleanup until persistence succeeds
             if (groupCleanups.length > 0) {
                 tx.deferSync(() => {
                     for (const { storageType, featureId } of groupCleanups) {
@@ -955,11 +876,11 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
                 });
             }
 
-            return () => updateMapData(targetMap, currentMapData);
+            return () => updateMapDataCompat(targetMap, currentMapData);
         });
     }
     return modified;
-};
+}
 
 /**
  * Gets features from a specific layer.
@@ -967,7 +888,7 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
  * @param {string} [mapName=null] - Target map name
  * @returns {Promise<Array>} Array of features
  */
-export const getLayerFeatures = async (layerId, mapName = null) => {
+export async function getLayerFeatures(layerId, mapName = null) {
     const features = await getCurrentMapFeatures(mapName);
     const result = [];
 
@@ -981,7 +902,7 @@ export const getLayerFeatures = async (layerId, mapName = null) => {
         }
     }
     return result;
-};
+}
 
 /**
  * Moves features to another layer.
@@ -990,24 +911,13 @@ export const getLayerFeatures = async (layerId, mapName = null) => {
  * @param {string} [mapName=null] - Target map name
  * @returns {Promise<boolean>} Whether any features were moved
  */
-export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = null) => {
-    const perm = checkPermission(GuardAction.UPDATE_FEATURE);
-    if (!perm.allowed) {
-        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'moveFeaturesToLayer', reason: perm.reason });
-        return false;
-    }
-
-    if (isCurrentMapLockedSync()) {
-        console.warn('Map is locked. Cannot move features to layer.');
-        return false;
-    }
-
-    const targetMap = mapName || mapManager.getCurrentMapName();
-    const currentMapData = await getMapData(targetMap);
-    let modified = false;
-
+export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = null) {
     if (featureRefs.length === 0) return false;
 
+    const targetMap = resolveMap(mapName);
+    if (guardWrite(GuardAction.UPDATE_FEATURE, 'moveFeaturesToLayer', targetMap).blocked) return false;
+    const currentMapData = await getMapDataCompat(targetMap);
+    let modified = false;
     const isLayerIdArray = typeof featureRefs[0] === 'string';
 
     for (const storageType of getAllStorageTypes()) {
@@ -1019,7 +929,6 @@ export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = 
                 shouldMove = featureRefs.includes(featureLayerId);
             } else {
                 shouldMove = featureRefs.some(ref => {
-                    // ref.type is source type (e.g., 'point'), storageType is storage type (e.g., 'points')
                     const refStorageType = getStorageTypeFromSource(ref.type);
                     return refStorageType === storageType && ref.id === feature.properties?.id;
                 });
@@ -1033,10 +942,10 @@ export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = 
     }
 
     if (modified) {
-        await updateMapData(targetMap, currentMapData);
+        await updateMapDataCompat(targetMap, currentMapData);
     }
     return modified;
-};
+}
 
 // ===== VISIBILITY/LOCK CHECKS =====
 
@@ -1045,16 +954,16 @@ export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = 
  * @param {Object} feature - Feature to check
  * @returns {boolean} True if visible
  */
-export const isFeatureEffectivelyVisible = (feature) => {
+export function isFeatureEffectivelyVisible(feature) {
     return deps.layerManager.isFeatureEffectivelyVisible(feature);
-};
+}
 
 /**
  * Checks if a feature is effectively locked.
  * @param {Object} feature - Feature to check
  * @returns {boolean} True if locked
  */
-export const isFeatureEffectivelyLocked = (feature) => {
+export function isFeatureEffectivelyLocked(feature) {
     if (!feature || !feature.properties) return false;
 
     if (deps.layerManager.isFeatureEffectivelyLocked(feature)) return true;
@@ -1066,4 +975,4 @@ export const isFeatureEffectivelyLocked = (feature) => {
         if (group && group.locked === true) return true;
     }
     return false;
-};
+}

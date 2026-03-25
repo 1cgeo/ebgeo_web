@@ -3,12 +3,12 @@ import {
     COORDINATE_FORMATS,
     formatCoordinates,
     getDisplayFormat
-} from '../utilities';
-import { getTerrainElevation } from '../terrain';
-import { GridControl } from '../grid';
-import config from '../config.js';
-import { getStateManager } from '../store';
-import { setupCleanup, addDomListener, cleanup, removeElement } from '../utilities/event-cleanup.js';
+} from '@utils';
+import { getTerrainElevation } from '@js/terrain';
+import { GridControl } from '@js/grid';
+import config from '@js/config.js';
+import { getStateManager } from '@store';
+import { setupCleanup, addDomListener, cleanup, removeElement } from '@utils/event-cleanup.js';
 
 /** Throttle interval for coordinate updates (50ms = ~20 FPS, sufficient for display) */
 const COORDINATE_UPDATE_THROTTLE_MS = 50;
@@ -202,15 +202,7 @@ class MouseCoordinatesControl {
         if (!this._formatSelector) return;
 
         this._formatSelector.querySelectorAll('.coordinates-format-option').forEach(opt => {
-            if (opt.dataset.format === format) {
-                opt.classList.add('active');
-                opt.style.backgroundColor = '#f0f0f0';
-                opt.style.fontWeight = 'bold';
-            } else {
-                opt.classList.remove('active');
-                opt.style.backgroundColor = '';
-                opt.style.fontWeight = '';
-            }
+            opt.classList.toggle('active', opt.dataset.format === format);
         });
 
         // Also update coordinates display if map is available
@@ -273,16 +265,6 @@ class MouseCoordinatesControl {
                 this._formatSelector.style.display = 'none';
                 e.stopPropagation();
             });
-            option.addEventListener('mouseenter', () => {
-                if (format.id !== this._currentFormat) {
-                    option.style.backgroundColor = '#f0f0f0';
-                }
-            });
-            option.addEventListener('mouseleave', () => {
-                if (format.id !== this._currentFormat) {
-                    option.style.backgroundColor = '';
-                }
-            });
 
             this._formatSelector.appendChild(option);
         });
@@ -310,20 +292,17 @@ class MouseCoordinatesControl {
         return this._container;
     }
 
-    async _checkTerrainAvailability() {
+    _checkTerrainAvailability() {
         this._map.on('terrain', this._onTerrainChangeBound);
         this._onTerrainChange();
     }
 
     _onTerrainChange() {
         const terrainEnabled = this._map.getTerrain() !== null;
-
         this._terrainAvailable = terrainEnabled;
+        this._elevationEnabled = terrainEnabled;
 
-        if (terrainEnabled) {
-            this._elevationEnabled = true;
-        } else {
-            this._elevationEnabled = false;
+        if (!terrainEnabled) {
             this._currentElevation = null;
         }
 

@@ -88,26 +88,12 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * Normalize center coordinates (for backward compatibility)
+     * Normalize center coordinates (delegates to normalizeCorner)
      * @param {string|Array} center - Center coordinates
      * @returns {Array|null} Normalized center or null if invalid
      */
     normalizeCenter(center) {
-        if (typeof center === 'string') {
-            try {
-                center = JSON.parse(center);
-            } catch (e) {
-                console.error('Error parsing center:', center, e);
-                return null;
-            }
-        }
-
-        if (!Array.isArray(center) || center.length < 2) {
-            console.error('Invalid center:', center);
-            return null;
-        }
-
-        return center;
+        return this.normalizeCorner(center);
     }
 
     /**
@@ -289,7 +275,6 @@ class AddRectangleGeometry extends BaseGeometry {
     generateRoundedRectangleGeometry(minLng, minLat, maxLng, maxLat, borderRadius) {
         const segmentsPerCorner = 8;
 
-        const _centerLat = (minLat + maxLat) / 2;
         const rectWidth = maxLng - minLng;
         const rectHeight = maxLat - minLat;
 

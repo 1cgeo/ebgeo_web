@@ -5,7 +5,7 @@
  */
 
 import { ATTRIBUTE_TABLE_ICONS } from '../attribute-table.constants.js';
-import { showConfirm } from '../../modals/index.js';
+import { showConfirm } from '@modals';
 
 /**
  * @typedef {Object} ContextMenuCallbacks

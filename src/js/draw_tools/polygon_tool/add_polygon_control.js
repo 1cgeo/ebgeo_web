@@ -7,9 +7,11 @@ import { DrawingFinishButton, setupVertexRemoveLongPress } from '../drawing-touc
 import { addPolygonAttributesToPanel } from './polygon_attributes_panel.js';
 import AddPolygonGeometry from './add_polygon_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
+import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddPolygonControl extends BaseControl {
+    featureType = 'polygon';
     constructor(toolManager) {
         super(toolManager);
 
@@ -42,7 +44,6 @@ class AddPolygonControl extends BaseControl {
         lineWidth: 2,
         opacity: 0.5,
         lineStyle: 'solid',
-        measure: false,
         source: 'polygon',
         nome: '',
         descricao: '',
@@ -52,38 +53,27 @@ class AddPolygonControl extends BaseControl {
         hatchType: 'none',
         hatchColor: '#000000',
         hatchSpacing: 8,
-        hatchLineWidth: 2
+        hatchLineWidth: 2,
+        ...LABEL_DEFAULT_PROPERTIES,
+        observations: [],
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
-
-    /**
-     * Get currently selected polygon feature from SelectionManager
-     * @returns {Object|null} Selected polygon feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('polygon');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected polygon features from SelectionManager
-     * @returns {Array} Array of selected polygon features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('polygon')
-            .map(item => item.feature);
-    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
     onAdd = (map) => {
         this.map = map;
+        map.on('zoom', this._onZoomForLabels);
     }
 
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
+        if (this.map) {
+            this.map.off('zoom', this._onZoomForLabels);
+        }
+        this.#labelZoom.cleanup();
         this.map = undefined;
     }
 
@@ -133,7 +123,7 @@ class AddPolygonControl extends BaseControl {
     }
 
     getLayerIds() {
-        return ['polygon-fill-layer', 'polygon-fill-pattern-layer', 'polygon-layer'];
+        return ['polygon-fill-layer', 'polygon-fill-pattern-layer', 'polygon-layer', 'polygon-label-layer'];
     }
 
     getSourceNames() {
@@ -510,7 +500,8 @@ class AddPolygonControl extends BaseControl {
                 layerId: getActiveLayerIdSync(),
                 id: featureId,
                 nome: featureName,
-                baseCoordinates: coordinates
+                baseCoordinates: coordinates,
+                labelCreatedAtZoom: this.map.getZoom(),
             },
             geometry: this.geometry.generate(coordinates)
         };
@@ -525,13 +516,13 @@ class AddPolygonControl extends BaseControl {
                 this.updateHatchPatterns(data);
             }
             this.map.getSource('polygons').setData(data);
+            syncLabelSource(this.map, 'polygon-labels', data);
 
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
             await this.selectionManager.toggleFeatureSelection('polygon', featureId, feature);
             this.selectionManager.updateUI();
 
-            this.updateFeatureMeasurement(feature);
         } catch (error) {
             console.error('Error creating polygon:', error);
         }
@@ -693,8 +684,7 @@ class AddPolygonControl extends BaseControl {
                 this.updateSelectionManagerFeature(updatedFeature);
                 this.createEditHandles(updatedFeature);
                 this.updateUIAfterEdit();
-                this.saveFeatureChanges(updatedFeature);
-                this.updateFeatureMeasurement(updatedFeature);
+                await this.saveFeatureChanges(updatedFeature);
             }
         }
 
@@ -820,7 +810,7 @@ class AddPolygonControl extends BaseControl {
         this.updateSelectionManagerFeature(updatedFeature);
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
-        this.saveFeatureChanges(updatedFeature);
+        await this.saveFeatureChanges(updatedFeature);
         this.updateFeatureMeasurement(updatedFeature);
     }
 
@@ -828,55 +818,7 @@ class AddPolygonControl extends BaseControl {
      * Show warning when vertex cannot be removed
      */
     showVertexRemovalWarning() {
-        // Remove existing warning if any
-        const existingWarning = document.querySelector('.vertex-removal-warning');
-        if (existingWarning) {
-            existingWarning.remove();
-        }
-
-        const warning = document.createElement('div');
-        warning.className = 'vertex-removal-warning';
-        warning.textContent = 'Polígono deve ter no mínimo 3 vértices';
-        warning.style.cssText = `
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: #f44336;
-            color: white;
-            padding: 12px 24px;
-            border-radius: 4px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 14px;
-            font-weight: 500;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            z-index: 10000;
-            animation: fadeInOut 2s ease-in-out forwards;
-        `;
-
-        // Add animation style if not exists
-        if (!document.querySelector('#vertex-warning-style')) {
-            const style = document.createElement('style');
-            style.id = 'vertex-warning-style';
-            style.textContent = `
-                @keyframes fadeInOut {
-                    0% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
-                    15% { opacity: 1; transform: translateX(-50%) translateY(0); }
-                    85% { opacity: 1; transform: translateX(-50%) translateY(0); }
-                    100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
-                }
-            `;
-            document.head.appendChild(style);
-        }
-
-        document.body.appendChild(warning);
-
-        // Remove after animation
-        setTimeout(() => {
-            if (warning.parentNode) {
-                warning.remove();
-            }
-        }, 2000);
+        showWarning('Polígono deve ter no mínimo 3 vértices');
     }
 
     /**
@@ -926,7 +868,7 @@ class AddPolygonControl extends BaseControl {
         this.updateSelectionManagerFeature(updatedFeature);
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
-        this.saveFeatureChanges(updatedFeature);
+        await this.saveFeatureChanges(updatedFeature);
         this.updateFeatureMeasurement(updatedFeature);
     }
 
@@ -963,47 +905,9 @@ class AddPolygonControl extends BaseControl {
         );
     }
 
-    // ===== MEASUREMENT SYSTEM =====
-
-    updateFeatureMeasurement = (feature) => {
-        this.removeFeatureMeasurement(feature.properties.id);
-
-        if (feature.properties.measure) {
-            const coordinates = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
-            if (coordinates) {
-                const area = this.geometry.calculateArea(coordinates);
-                const areaFormatted = this.geometry.formatArea(area);
-                const centroid = this.geometry.calculateCentroid(coordinates);
-
-                if (centroid) {
-                    this.displayMeasurement(centroid, areaFormatted, feature.properties.id);
-                }
-            }
-        }
-    }
-
-    removeFeatureMeasurement = (featureId) => {
-        const measurementLabel = document.querySelector(`.measurement-label[data-feature-id="${featureId}"]`);
-        if (measurementLabel) {
-            measurementLabel.remove();
-        }
-    }
-
-    displayMeasurement = (coordinates, measurement, featureId) => {
-        const markerElement = this.createMeasurementLabel(measurement, featureId);
-        new maplibregl.Marker({ element: markerElement })
-            .setLngLat(coordinates)
-            .addTo(this.map);
-    }
-
-    createMeasurementLabel = (measurement, featureId) => {
-        const label = document.createElement('div');
-        label.className = 'measurement-label';
-        label.innerText = measurement;
-        label.dataset.featureId = featureId;
-
-        return label;
-    }
+    // ===== LABEL ZOOM CORRECTION =====
+    #labelZoom = createLabelZoomHandler(() => this.map, 'polygons', 'polygon-labels');
+    _onZoomForLabels = this.#labelZoom.handler;
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
@@ -1022,6 +926,10 @@ class AddPolygonControl extends BaseControl {
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
+
+                if (LABEL_ZOOM_PROPERTIES.has(property)) {
+                    recalcLabelSize(sourceFeature, feature, this.map.getZoom());
+                }
             }
         }
 
@@ -1030,17 +938,7 @@ class AddPolygonControl extends BaseControl {
             this.updateHatchPatterns(data);
         }
         this.map.getSource('polygons').setData(data);
-
-        // Update measurement if property changed
-        if (property === 'measure') {
-            features.forEach(f => {
-                if (value) {
-                    this.updateFeatureMeasurement(f);
-                } else {
-                    this.removeFeatureMeasurement(f.properties.id);
-                }
-            });
-        }
+        syncLabelSource(this.map, 'polygon-labels', data);
 
         // Update SelectionManager with fresh features
         const freshFeatures = features.map(feature => {
@@ -1094,6 +992,7 @@ class AddPolygonControl extends BaseControl {
         }
 
         this.map.getSource('polygons').setData(data);
+        syncLabelSource(this.map, 'polygon-labels', data);
 
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
@@ -1103,7 +1002,6 @@ class AddPolygonControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('polygons').getData();
-        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
@@ -1111,7 +1009,6 @@ class AddPolygonControl extends BaseControl {
 
                 if (currentFeature) {
                     await updateFeature('polygons', currentFeature);
-                    _hasChanges = true;
                 }
             }
         }
@@ -1134,14 +1031,12 @@ class AddPolygonControl extends BaseControl {
             try {
                 const featureId = feature.properties.id;
 
-                // Remove measurement label
-                this.removeFeatureMeasurement(featureId);
-
                 await removeFeature('polygons', featureId);
                 const data = await this.map.getSource('polygons').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('polygons').setData(data);
+                syncLabelSource(this.map, 'polygon-labels', data);
             } catch (error) {
                 console.error(`Error removing polygon ${feature.properties.id}:`, error);
             }
@@ -1161,7 +1056,6 @@ class AddPolygonControl extends BaseControl {
             feature.properties.lineWidth !== initialProperties.lineWidth ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.lineStyle !== initialProperties.lineStyle ||
-            feature.properties.measure !== initialProperties.measure ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
@@ -1171,6 +1065,8 @@ class AddPolygonControl extends BaseControl {
             feature.properties.hatchColor !== initialProperties.hatchColor ||
             feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
             feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
+            hasLabelChanged(feature, initialProperties) ||
+            JSON.stringify(feature.properties.observations) !== JSON.stringify(initialProperties.observations) ||
             JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
         );
     }
@@ -1184,7 +1080,11 @@ class AddPolygonControl extends BaseControl {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
                     } else {
+                        const prevCalcSize = data.features[featureIndex].properties.labelCalculatedSize;
                         data.features[featureIndex] = feature;
+                        if (prevCalcSize !== undefined) {
+                            feature.properties.labelCalculatedSize = prevCalcSize;
+                        }
                     }
 
                     if (save) {
@@ -1196,12 +1096,10 @@ class AddPolygonControl extends BaseControl {
             }
 
             this.map.getSource('polygons').setData(data);
+            syncLabelSource(this.map, 'polygon-labels', data);
             this.updateSelectionManagerFeatures(features);
         }
     }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     updateSelectionManagerFeature(feature) {
         this.selectionManager.updateSelectedFeature('polygon', feature.properties.id, feature);
     }
@@ -1250,6 +1148,7 @@ class AddPolygonControl extends BaseControl {
             };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('polygons').setData(data);
+            syncLabelSource(this.map, 'polygon-labels', data);
         }
     }
 
@@ -1268,7 +1167,6 @@ class AddPolygonControl extends BaseControl {
     }
 
     setupBaseEventListeners = () => {
-        // Base listeners setup if needed
     }
 
     removeAllEventListeners = () => {

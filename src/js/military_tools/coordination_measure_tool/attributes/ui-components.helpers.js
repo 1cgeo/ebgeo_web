@@ -178,6 +178,40 @@ export function getEchelonSubtypeOptions(echelonType) {
 }
 
 /**
+ * Positions dropdown relative to its trigger element.
+ * @param {HTMLElement} dropdown - Dropdown element
+ * @param {HTMLElement} trigger - Trigger element
+ */
+function positionDropdown(dropdown, trigger) {
+    const rect = trigger.getBoundingClientRect();
+    dropdown.style.top = (rect.bottom + 5) + 'px';
+    dropdown.style.left = rect.left + 'px';
+    dropdown.style.width = rect.width + 'px';
+}
+
+/**
+ * Creates cleanup function for a combo box.
+ * @param {HTMLElement} dropdown - Dropdown element
+ * @param {Function} closeHandler - Document click handler
+ * @param {DropdownState} dropdownState - Dropdown state manager
+ * @returns {Function} Cleanup function
+ */
+function createComboCleanup(dropdown, closeHandler, dropdownState) {
+    return () => {
+        document.removeEventListener('click', closeHandler);
+        if (dropdownState) {
+            const index = dropdownState.openDropdowns.indexOf(dropdown);
+            if (index > -1) {
+                dropdownState.openDropdowns.splice(index, 1);
+            }
+        }
+        if (dropdown.parentNode) {
+            dropdown.parentNode.removeChild(dropdown);
+        }
+    };
+}
+
+/**
  * Creates a digital combo box with thumbnail previews.
  * @param {Array} options - Array of option objects
  * @param {string} currentValue - Current selected value
@@ -189,83 +223,38 @@ export function getEchelonSubtypeOptions(echelonType) {
  */
 export function createDigitalComboBoxWithThumbnails(options, currentValue, onChange, label, generateThumbnail, dropdownState) {
     const container = document.createElement('div');
-    container.style.cssText = 'margin-bottom: 20px; position: relative;';
+    container.className = 'coord-combo';
 
     const labelElement = document.createElement('label');
     labelElement.textContent = label + ':';
-    labelElement.style.cssText = `
-        display: block;
-        margin-bottom: 8px;
-        font-weight: bold;
-        font-size: 15px;
-        color: #333;
-    `;
+    labelElement.className = 'coord-combo__label';
 
     const selectContainer = document.createElement('div');
-    selectContainer.style.cssText = 'position: relative;';
+    selectContainer.className = 'coord-combo__select-wrapper';
 
     const selectDisplay = document.createElement('div');
-    selectDisplay.style.cssText = `
-        width: 100%;
-        padding: 15px 40px 15px 15px;
-        border: 2px solid #ddd;
-        border-radius: 8px;
-        font-size: 15px;
-        background: #fff;
-        cursor: pointer;
-        transition: border-color 0.2s;
-        box-sizing: border-box;
-        position: relative;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        min-height: 50px;
-    `;
+    selectDisplay.className = 'coord-combo__display';
 
     const displayContent = document.createElement('div');
-    displayContent.style.cssText = 'display: flex; align-items: center; gap: 10px; flex: 1;';
+    displayContent.className = 'coord-combo__display-content';
 
     const displayThumbnail = document.createElement('img');
-    displayThumbnail.style.cssText = `
-        width: 30px;
-        height: 30px;
-        object-fit: contain;
-        flex-shrink: 0;
-    `;
+    displayThumbnail.className = 'coord-combo__display-thumbnail';
 
     const displayText = document.createElement('span');
-    displayText.style.cssText = 'flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+    displayText.className = 'coord-combo__display-text';
 
     displayContent.appendChild(displayThumbnail);
     displayContent.appendChild(displayText);
     selectDisplay.appendChild(displayContent);
 
     const dropdownIcon = document.createElement('span');
-    dropdownIcon.innerHTML = '\u25BC';
-    dropdownIcon.style.cssText = `
-        position: absolute;
-        right: 12px;
-        top: 50%;
-        transform: translateY(-50%);
-        font-size: 15px;
-        pointer-events: none;
-        color: #000;
-    `;
+    dropdownIcon.textContent = '\u25BC';
+    dropdownIcon.className = 'coord-combo__arrow';
     selectDisplay.appendChild(dropdownIcon);
 
     const dropdown = document.createElement('div');
-    dropdown.style.cssText = `
-        position: fixed;
-        max-height: 400px;
-        overflow-y: auto;
-        background: white;
-        border: 2px solid #ddd;
-        border-radius: 8px;
-        z-index: 10001;
-        display: none;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        min-width: 300px;
-    `;
+    dropdown.className = 'coord-combo__dropdown';
 
     if (dropdownState) {
         registerDropdown(dropdownState, dropdown);
@@ -301,28 +290,17 @@ export function createDigitalComboBoxWithThumbnails(options, currentValue, onCha
 
     options.forEach(option => {
         const optionElement = document.createElement('div');
-        optionElement.style.cssText = `
-            padding: 12px 15px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background-color 0.2s;
-            border-bottom: 1px solid #f0f0f0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        `;
+        optionElement.className = 'coord-combo__option';
+        if (option.value === currentValue) {
+            optionElement.classList.add('coord-combo__option--selected');
+        }
 
         const optionThumbnail = document.createElement('img');
-        optionThumbnail.style.cssText = `
-            width: 25px;
-            height: 25px;
-            object-fit: contain;
-            flex-shrink: 0;
-        `;
+        optionThumbnail.className = 'coord-combo__option-thumbnail';
 
         const optionText = document.createElement('span');
         optionText.textContent = option.label;
-        optionText.style.cssText = 'flex: 1;';
+        optionText.className = 'coord-combo__option-text';
 
         if (option.iconCode && generateThumbnail) {
             generateThumbnail(option.iconCode, option.defaultEchelonCode)
@@ -335,10 +313,6 @@ export function createDigitalComboBoxWithThumbnails(options, currentValue, onCha
         }
 
         optionElement.appendChild(optionText);
-
-        if (option.value === currentValue) {
-            optionElement.style.backgroundColor = '#e9ecef';
-        }
 
         optionElement.onmouseenter = () => { optionElement.style.backgroundColor = '#f8f9fa'; };
         optionElement.onmouseleave = () => {
@@ -353,9 +327,11 @@ export function createDigitalComboBoxWithThumbnails(options, currentValue, onCha
                 closeAllDropdowns(dropdownState);
             }
 
-            dropdown.querySelectorAll('div').forEach(div => {
+            dropdown.querySelectorAll('.coord-combo__option').forEach(div => {
+                div.classList.remove('coord-combo__option--selected');
                 div.style.backgroundColor = 'transparent';
             });
+            optionElement.classList.add('coord-combo__option--selected');
             optionElement.style.backgroundColor = '#e9ecef';
         };
 
@@ -370,35 +346,21 @@ export function createDigitalComboBoxWithThumbnails(options, currentValue, onCha
         }
 
         if (!isOpen) {
-            const rect = selectDisplay.getBoundingClientRect();
-            dropdown.style.top = (rect.bottom + 5) + 'px';
-            dropdown.style.left = rect.left + 'px';
-            dropdown.style.width = rect.width + 'px';
+            positionDropdown(dropdown, selectDisplay);
             dropdown.style.display = 'block';
-            selectDisplay.style.borderColor = '#007bff';
+            selectDisplay.classList.add('coord-combo__display--open');
         } else {
             dropdown.style.display = 'none';
-            selectDisplay.style.borderColor = '#ddd';
+            selectDisplay.classList.remove('coord-combo__display--open');
         }
     };
 
     const closeDropdown = () => {
         dropdown.style.display = 'none';
-        selectDisplay.style.borderColor = '#ddd';
+        selectDisplay.classList.remove('coord-combo__display--open');
     };
 
-    container._cleanup = () => {
-        document.removeEventListener('click', closeDropdown);
-        if (dropdownState) {
-            const index = dropdownState.openDropdowns.indexOf(dropdown);
-            if (index > -1) {
-                dropdownState.openDropdowns.splice(index, 1);
-            }
-        }
-        if (dropdown.parentNode) {
-            dropdown.parentNode.removeChild(dropdown);
-        }
-    };
+    container._cleanup = createComboCleanup(dropdown, closeDropdown, dropdownState);
 
     document.addEventListener('click', closeDropdown);
 
@@ -423,73 +385,29 @@ export function createDigitalComboBoxWithThumbnails(options, currentValue, onCha
  */
 export function createDigitalComboBox(options, currentValue, onChange, label, dropdownState) {
     const container = document.createElement('div');
-    container.style.cssText = 'margin-bottom: 20px; position: relative;';
+    container.className = 'coord-combo';
 
     const labelElement = document.createElement('label');
     labelElement.textContent = label + ':';
-    labelElement.style.cssText = `
-        display: block;
-        margin-bottom: 8px;
-        font-weight: bold;
-        font-size: 15px;
-        color: #333;
-    `;
+    labelElement.className = 'coord-combo__label';
 
     const selectContainer = document.createElement('div');
-    selectContainer.style.cssText = 'position: relative;';
+    selectContainer.className = 'coord-combo__select-wrapper';
 
     const selectDisplay = document.createElement('div');
-    selectDisplay.style.cssText = `
-        width: 100%;
-        padding: 15px 40px 15px 15px;
-        border: 2px solid #ddd;
-        border-radius: 8px;
-        font-size: 15px;
-        background: #fff;
-        cursor: pointer;
-        transition: border-color 0.2s;
-        box-sizing: border-box;
-        position: relative;
-        min-height: 50px;
-        display: flex;
-        align-items: center;
-    `;
+    selectDisplay.className = 'coord-combo__display';
 
     const textContainer = document.createElement('div');
-    textContainer.style.cssText = `
-        flex: 1;
-        overflow: hidden;
-        word-wrap: break-word;
-        pointer-events: none;
-    `;
+    textContainer.className = 'coord-combo__display-text--simple';
     selectDisplay.appendChild(textContainer);
 
     const dropdownIcon = document.createElement('span');
-    dropdownIcon.innerHTML = '\u25BC';
-    dropdownIcon.style.cssText = `
-        position: absolute;
-        right: 12px;
-        top: 50%;
-        transform: translateY(-50%);
-        font-size: 15px;
-        pointer-events: none;
-        color: #000;
-    `;
+    dropdownIcon.textContent = '\u25BC';
+    dropdownIcon.className = 'coord-combo__arrow';
     selectDisplay.appendChild(dropdownIcon);
 
     const dropdown = document.createElement('div');
-    dropdown.style.cssText = `
-        position: fixed;
-        max-height: 300px;
-        overflow-y: auto;
-        background: white;
-        border: 2px solid #ddd;
-        border-radius: 8px;
-        z-index: 10001;
-        display: none;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        min-width: 200px;
-    `;
+    dropdown.className = 'coord-combo__dropdown coord-combo__dropdown--simple';
 
     if (dropdownState) {
         registerDropdown(dropdownState, dropdown);
@@ -504,19 +422,12 @@ export function createDigitalComboBox(options, currentValue, onChange, label, dr
 
     options.forEach(option => {
         const item = document.createElement('div');
-        item.style.cssText = `
-            padding: 12px 15px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background-color 0.2s;
-            border-bottom: 1px solid #f0f0f0;
-        `;
+        item.className = 'coord-combo__option';
+        if (option.value === currentValue) {
+            item.classList.add('coord-combo__option--selected');
+        }
 
         item.textContent = option.label;
-
-        if (option.value === currentValue) {
-            item.style.backgroundColor = '#e9ecef';
-        }
 
         item.onmouseenter = () => { item.style.backgroundColor = '#f8f9fa'; };
         item.onmouseleave = () => {
@@ -543,35 +454,21 @@ export function createDigitalComboBox(options, currentValue, onChange, label, dr
         }
 
         if (!isOpen) {
-            const rect = selectDisplay.getBoundingClientRect();
-            dropdown.style.top = (rect.bottom + 5) + 'px';
-            dropdown.style.left = rect.left + 'px';
-            dropdown.style.width = rect.width + 'px';
+            positionDropdown(dropdown, selectDisplay);
             dropdown.style.display = 'block';
-            selectDisplay.style.borderColor = '#007bff';
+            selectDisplay.classList.add('coord-combo__display--open');
         } else {
             dropdown.style.display = 'none';
-            selectDisplay.style.borderColor = '#ddd';
+            selectDisplay.classList.remove('coord-combo__display--open');
         }
     };
 
     const closeDropdown = () => {
         dropdown.style.display = 'none';
-        selectDisplay.style.borderColor = '#ddd';
+        selectDisplay.classList.remove('coord-combo__display--open');
     };
 
-    container._cleanup = () => {
-        document.removeEventListener('click', closeDropdown);
-        if (dropdownState) {
-            const index = dropdownState.openDropdowns.indexOf(dropdown);
-            if (index > -1) {
-                dropdownState.openDropdowns.splice(index, 1);
-            }
-        }
-        if (dropdown.parentNode) {
-            dropdown.parentNode.removeChild(dropdown);
-        }
-    };
+    container._cleanup = createComboCleanup(dropdown, closeDropdown, dropdownState);
 
     document.addEventListener('click', closeDropdown);
 

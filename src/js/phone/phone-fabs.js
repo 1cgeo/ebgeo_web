@@ -13,38 +13,16 @@
 import { setupCleanup, addDomListener, cleanup, removeElement } from '@utils/event-cleanup.js';
 
 // -------------------------------------------------------------------------
-// SVG icon helpers (static markup, safe for innerHTML)
+// SVG icons (static markup, safe for innerHTML)
 // -------------------------------------------------------------------------
 
-/** @returns {string} */
-function layersIconSvg() {
-    return `<svg class="phone-fab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="12 2 2 7 12 12 22 7 12 2"/>
-        <polyline points="2 17 12 22 22 17"/>
-        <polyline points="2 12 12 17 22 12"/>
-    </svg>`;
-}
+const LAYERS_ICON_SVG = '<svg class="phone-fab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>';
 
-/** @returns {string} */
-function zoomInIconSvg() {
-    return `<svg class="phone-fab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-    </svg>`;
-}
+const ZOOM_IN_ICON_SVG = '<svg class="phone-fab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
 
-/** @returns {string} */
-function zoomOutIconSvg() {
-    return `<svg class="phone-fab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="5" y1="12" x2="19" y2="12"/>
-    </svg>`;
-}
+const ZOOM_OUT_ICON_SVG = '<svg class="phone-fab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>';
 
-/** @returns {string} */
-function compassIconSvg() {
-    return `<svg class="phone-fab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="12,2 15,14 12,22 9,14"/><line x1="12" y1="2" x2="12" y2="6" stroke="red" stroke-width="2.5"/>
-    </svg>`;
-}
+const COMPASS_ICON_SVG = '<svg class="phone-fab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 15,14 12,22 9,14"/><line x1="12" y1="2" x2="12" y2="6" stroke="red" stroke-width="2.5"/></svg>';
 
 /** Bearing threshold below which the compass hides (degrees). */
 const COMPASS_HIDE_THRESHOLD = 1;
@@ -69,10 +47,6 @@ export class PhoneFabs {
         /** @private */
         this._baseLayerTapCallback = null;
         /** @private */
-        this._baseLayerNames = [];
-        /** @private */
-        this._currentBaseLayerIndex = 0;
-        /** @private */
         this._rotateHandler = null;
 
         setupCleanup(this);
@@ -87,7 +61,7 @@ export class PhoneFabs {
         this._container.className = 'phone-fab-container';
 
         // 1. Compass FAB (hidden by default when bearing ≈ 0)
-        this._compassBtn = this._createFab('compass', 'Redefinir norte', compassIconSvg());
+        this._compassBtn = this._createFab('compass', 'Redefinir norte', COMPASS_ICON_SVG);
         this._compassBtn.classList.add('phone-fab--compass', 'phone-fab--compass-hidden');
         this._container.appendChild(this._compassBtn);
 
@@ -99,8 +73,8 @@ export class PhoneFabs {
         const zoomGroup = document.createElement('div');
         zoomGroup.className = 'phone-fab-group';
 
-        const zoomInBtn = this._createFab('zoom-in', 'Aproximar', zoomInIconSvg());
-        const zoomOutBtn = this._createFab('zoom-out', 'Afastar', zoomOutIconSvg());
+        const zoomInBtn = this._createFab('zoom-in', 'Aproximar', ZOOM_IN_ICON_SVG);
+        const zoomOutBtn = this._createFab('zoom-out', 'Afastar', ZOOM_OUT_ICON_SVG);
         zoomGroup.appendChild(zoomInBtn);
         zoomGroup.appendChild(zoomOutBtn);
         this._container.appendChild(zoomGroup);
@@ -109,13 +83,11 @@ export class PhoneFabs {
         addDomListener(this, zoomOutBtn, 'click', () => this._map.zoomOut());
 
         // 3. Base Layer FAB
-        this._baseLayerBtn = this._createFab('baselayer', 'Camada base', layersIconSvg());
+        this._baseLayerBtn = this._createFab('baselayer', 'Camada base', LAYERS_ICON_SVG);
         this._container.appendChild(this._baseLayerBtn);
 
         addDomListener(this, this._baseLayerBtn, 'click', () => {
-            if (typeof this._baseLayerTapCallback === 'function') {
-                this._baseLayerTapCallback();
-            }
+            this._baseLayerTapCallback?.();
         });
 
         // Listen to map rotation to show/hide + rotate compass
@@ -182,23 +154,6 @@ export class PhoneFabs {
         if (this._container) {
             this._container.classList.remove('phone-fab-container--hidden');
         }
-    }
-
-    /**
-     * Set the list of base layer display names for reference.
-     * @param {string[]} names
-     */
-    setBaseLayerNames(names) {
-        this._baseLayerNames = names;
-        this._currentBaseLayerIndex = 0;
-    }
-
-    /**
-     * Update the active base layer index (called by orchestrator after selection).
-     * @param {number} index
-     */
-    setActiveBaseLayerIndex(index) {
-        this._currentBaseLayerIndex = index;
     }
 
     // -------------------------------------------------------------------------

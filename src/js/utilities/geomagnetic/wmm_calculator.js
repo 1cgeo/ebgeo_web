@@ -3,10 +3,9 @@
  * @fileoverview Magnetic declination calculator using the geomagnetism npm package.
  * Wraps the WMM (World Magnetic Model) implementation for use in EBGeo.
  *
- * Uses WMM2025 coefficients (valid 2025.0–2030.0) via the geomagnetism library.
+ * Uses WMM2025 coefficients (valid 2025.0-2030.0) via the geomagnetism library.
  *
  * @module utilities/geomagnetic/wmm_calculator
- * @dependencies geomagnetism
  */
 
 import geomagnetism from 'geomagnetism';
@@ -18,30 +17,31 @@ import geomagnetism from 'geomagnetism';
 const WMM_EPOCH = 2025.0;
 const WMM_EXPIRY = 2030.0;
 const WMM_MODEL_NAME = 'WMM2025';
+const MS_PER_DAY = 86_400_000;
 
 // ============================================================================
 // PUBLIC API
 // ============================================================================
 
 /**
- * Calcula a declinação magnética para uma posição e data usando WMM2025.
+ * Computes magnetic declination for a position and date using WMM2025.
  *
- * @param {number} lat - Latitude em graus decimais (-90 a 90)
- * @param {number} lng - Longitude em graus decimais (-180 a 180)
- * @param {number} [altitudeKm=0] - Altitude em km acima do elipsoide WGS84
- * @param {Date} [date=new Date()] - Data do cálculo
+ * @param {number} lat - Latitude in decimal degrees (-90 to 90)
+ * @param {number} lng - Longitude in decimal degrees (-180 to 180)
+ * @param {number} [altitudeKm=0] - Altitude in km above the WGS84 ellipsoid
+ * @param {Date} [date=new Date()] - Calculation date
  * @returns {{ declination: number, inclination: number, intensity: number, warning: string|null }|null}
- *   - declination: em graus, positivo=Leste, negativo=Oeste
- *   - inclination: inclinação magnética em graus
- *   - intensity: intensidade total em nT
- *   - warning: string se data fora da validade, null caso contrário
+ *   - declination: degrees, positive=East, negative=West
+ *   - inclination: magnetic dip in degrees
+ *   - intensity: total field intensity in nT
+ *   - warning: string if date is outside model validity, null otherwise
  */
 export function calculateMagneticDeclination(lat, lng, altitudeKm = 0, date = new Date()) {
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
         return null;
     }
 
-    if (altitudeKm < 0) altitudeKm = 0;
+    const clampedAltitude = Math.max(0, altitudeKm);
 
     let warning = null;
     const validity = checkWMMValidity(date);
@@ -51,20 +51,20 @@ export function calculateMagneticDeclination(lat, lng, altitudeKm = 0, date = ne
     }
 
     const model = geomagnetism.model(date, { allowOutOfBoundsModel: true });
-    const result = model.point([lat, lng, altitudeKm]);
+    const result = model.point([lat, lng, clampedAltitude]);
 
     return {
-        declination: parseFloat(result.decl.toFixed(2)),
-        inclination: parseFloat(result.incl.toFixed(2)),
-        intensity: parseFloat(result.f.toFixed(1)),
+        declination: roundTo(result.decl, 2),
+        inclination: roundTo(result.incl, 2),
+        intensity: roundTo(result.f, 1),
         warning
     };
 }
 
 /**
- * Verifica se os coeficientes WMM ainda estão dentro da validade.
+ * Checks whether WMM coefficients are still within their validity period.
  *
- * @param {Date} [date=new Date()] - Data a verificar
+ * @param {Date} [date=new Date()] - Date to check
  * @returns {{ valid: boolean, message: string|null }}
  */
 export function checkWMMValidity(date = new Date()) {
@@ -92,14 +92,28 @@ export function checkWMMValidity(date = new Date()) {
 // ============================================================================
 
 /**
+ * Rounds a number to the specified number of decimal places.
+ *
+ * @param {number} value
+ * @param {number} decimals
+ * @returns {number}
+ */
+function roundTo(value, decimals) {
+    const factor = 10 ** decimals;
+    return Math.round(value * factor) / factor;
+}
+
+/**
+ * Converts a Date to a decimal year representation.
+ *
  * @param {Date} date
- * @returns {number} Decimal year
+ * @returns {number}
  */
 function dateToDecimalYear(date) {
     const year = date.getFullYear();
     const startOfYear = new Date(year, 0, 1);
     const startOfNext = new Date(year + 1, 0, 1);
-    const daysInYear = (startOfNext - startOfYear) / (24 * 60 * 60 * 1000);
-    const dayOfYear = (date - startOfYear) / (24 * 60 * 60 * 1000);
+    const daysInYear = (startOfNext - startOfYear) / MS_PER_DAY;
+    const dayOfYear = (date - startOfYear) / MS_PER_DAY;
     return year + dayOfYear / daysInYear;
 }

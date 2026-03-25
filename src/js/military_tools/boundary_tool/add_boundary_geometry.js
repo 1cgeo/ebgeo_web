@@ -1,6 +1,6 @@
 // Path: js/military_tools/boundary_tool/add_boundary_geometry.js
 
-import { BaseGeometry } from '../../tool_manager';
+import { BaseGeometry } from '@tools';
 
 /**
  * Boundary Geometry Operations

@@ -27,7 +27,7 @@ export {
 } from './coordinate_converter.js';
 
 // Feature navigation utilities
-export { FeatureNavigationUtils } from './feature_navigation_utils.js';
+export { zoomToFeature, zoomAndSelectFeature } from './feature_navigation_utils.js';
 
 // Toast service
 export {
@@ -71,8 +71,7 @@ export {
 
 // LRU cache utility
 export {
-    LRUCache,
-    createLRUCache
+    LRUCache
 } from './lru-cache.js';
 
 // Deep object utilities
@@ -90,15 +89,9 @@ export { escapeHtml } from './html-escape.js';
 // Debounced persistence utility
 export { DebouncedPersist } from './debounced-persist.js';
 
-// Quill.js helpers
-export {
-    QUILL_DOMPURIFY_CONFIG,
-    QUILL_IMAGE_CONFIG,
-    QUILL_TOOLBAR_CONFIG,
-    sanitizeQuillHtml,
-    cleanQuillContent,
-    stripHtml,
-    compressQuillImage,
-    handleQuillImageUpload,
-    createQuillEditor
-} from './quill-helpers.js';
+// Map image loader
+export { loadImageToMap } from './map-image-loader.js';
+
+// Quill.js helpers are NOT re-exported here to avoid pulling
+// dompurify into the core chunk. Import directly from
+// '@utils/quill-helpers.js' when needed.

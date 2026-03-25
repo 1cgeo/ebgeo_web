@@ -15,14 +15,14 @@
     top: 0;
     right: 0;
     bottom: 0;
-    width: 520px;
+    width: var(--briefing-panel-width);
     background: white;
-    z-index: var(--z-modal, 1000);
+    z-index: var(--z-modal);
     display: flex;
     flex-direction: column;
     overflow: hidden;
     border-left: 1px solid var(--border-color);
-    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--shadow-lg);
 }
 
 /* =========================================================================
@@ -97,7 +97,7 @@
 }
 
 .briefing-editor-save-btn:hover {
-    background: var(--primary-700, #166534);
+    background: var(--primary-hover);
 }
 
 .briefing-editor-save-btn svg {
@@ -114,7 +114,7 @@
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: thin;
-    scrollbar-color: var(--primary-600, #16a34a) transparent;
+    scrollbar-color: var(--primary-600) transparent;
 }
 
 .briefing-editor-scrollable::-webkit-scrollbar {
@@ -126,12 +126,12 @@
 }
 
 .briefing-editor-scrollable::-webkit-scrollbar-thumb {
-    background-color: var(--primary-600, #16a34a);
+    background-color: var(--primary-600);
     border-radius: 3px;
 }
 
 .briefing-editor-scrollable::-webkit-scrollbar-thumb:hover {
-    background-color: var(--primary-700, #15803d);
+    background-color: var(--primary-700);
 }
 
 /* =========================================================================
@@ -158,6 +158,12 @@
     border-bottom: 1px solid var(--border-color);
 }
 
+.briefing-editor-slide-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
 .briefing-editor-add-slide-btn {
     width: 28px;
     height: 28px;
@@ -174,7 +180,7 @@
 }
 
 .briefing-editor-add-slide-btn:hover {
-    background: var(--primary-700, #166534);
+    background: var(--primary-hover);
     transform: scale(1.05);
 }
 
@@ -218,7 +224,7 @@
 }
 
 .briefing-editor-slide-card[data-selected="true"] {
-    background: var(--primary-50, #f0fdf4);
+    background: var(--primary-50);
     border-color: var(--primary);
 }
 
@@ -279,7 +285,7 @@
 }
 
 .briefing-editor-slide-warning {
-    color: var(--color-warning, #f59e0b);
+    color: var(--color-warning);
     display: flex;
     align-items: center;
 }
@@ -355,8 +361,6 @@
 .briefing-editor-description-input,
 .briefing-editor-slide-title-input {
     width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
     padding: var(--space-2) var(--space-3);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
@@ -408,6 +412,7 @@
 
 /* Position Display */
 .briefing-editor-position-wrapper {
+    position: relative;
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -431,7 +436,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    color: var(--color-warning, #f59e0b);
+    color: var(--color-warning);
 }
 
 .briefing-editor-position-warning svg {
@@ -443,13 +448,13 @@
     font-size: var(--font-size-xs);
     color: var(--color-error);
     padding: var(--space-1) var(--space-2);
-    background: rgba(220, 53, 69, 0.08);
+    background: #fee2e2;
     border-radius: var(--radius-sm);
     margin-top: var(--space-1);
 }
 
 /* Capture/Save position button (inline) */
-.briefing-editor-position-wrapper .briefing-editor-capture-btn {
+.briefing-editor-capture-btn {
     display: flex;
     align-items: center;
     gap: var(--space-1);
@@ -465,16 +470,16 @@
     white-space: nowrap;
 }
 
-.briefing-editor-position-wrapper .briefing-editor-capture-btn:hover:not(:disabled) {
+.briefing-editor-capture-btn:hover:not(:disabled) {
     background: var(--gray-800);
 }
 
-.briefing-editor-position-wrapper .briefing-editor-capture-btn:disabled {
+.briefing-editor-capture-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
 }
 
-.briefing-editor-position-wrapper .briefing-editor-capture-btn svg {
+.briefing-editor-capture-btn svg {
     width: 14px;
     height: 14px;
 }
@@ -509,7 +514,7 @@
 
 .briefing-editor-import-notes-btn:hover {
     color: var(--primary);
-    background: var(--primary-50, #f0fdf4);
+    background: var(--primary-50);
 }
 
 .briefing-editor-import-notes-btn svg {
@@ -549,7 +554,7 @@
     position: absolute;
     top: 100%;
     right: 0;
-    z-index: var(--z-dropdown, 100);
+    z-index: var(--z-dropdown);
     margin-top: var(--space-1);
     min-width: 220px;
     max-width: 320px;
@@ -558,7 +563,7 @@
     background: white;
     border: 1px solid var(--gray-200);
     border-radius: var(--radius-md);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--shadow-lg);
     padding: var(--space-1);
 }
 
@@ -567,7 +572,7 @@
     align-items: center;
     gap: var(--space-2);
     width: 100%;
-    padding: var(--space-2) var(--space-2);
+    padding: var(--space-2);
     border: none;
     background: transparent;
     border-radius: var(--radius-sm);
@@ -675,7 +680,7 @@
 
 /* Slide card error warning (red instead of yellow) */
 .briefing-editor-slide-warning--error {
-    color: #dc2626;
+    color: var(--color-error);
 }
 
 /* =========================================================================
@@ -687,10 +692,10 @@
     align-items: center;
     gap: var(--space-1);
     padding: 2px var(--space-2);
-    background: var(--primary-50, #f0fdf4);
-    border: 1px solid var(--primary-200, #bbf7d0);
+    background: var(--primary-50);
+    border: 1px solid var(--primary-200);
     border-radius: var(--radius-sm);
-    color: var(--primary-700, #15803d);
+    color: var(--primary-700);
     flex-shrink: 0;
 }
 
@@ -720,18 +725,17 @@ body.briefing-panel-active .chips-container {
     display: none !important;
 }
 
-/* Shift right-side controls left so they stay within the map area
-   (520px = briefing panel width) */
+/* Shift right-side controls left so they stay within the map area */
 body.briefing-panel-active .toolbar-container {
-    right: calc(520px + var(--space-4));
+    right: calc(var(--briefing-panel-width) + var(--space-4));
 }
 
 body.briefing-panel-active .bottom-controls-right {
-    right: calc(520px + var(--space-4));
+    right: calc(var(--briefing-panel-width) + var(--space-4));
 }
 
 body.briefing-panel-active .bottom-controls-left {
-    right: calc(520px + var(--control-button-size) + var(--space-4) + var(--space-3));
+    right: calc(var(--briefing-panel-width) + var(--control-button-size) + var(--space-4) + var(--space-3));
 }
 
 /* Feature panel repositions to left edge (sidebar collapsed bar is gone).
@@ -758,10 +762,10 @@ body.briefing-panel-active .search-bar-container[data-sidebar-state="expanded"] 
 /* Center coordinates on the visible map area instead of the full viewport */
 body.briefing-panel-active .coordinates-control,
 body.briefing-panel-active .coordinates-control-3d {
-    left: calc((100% - 520px) / 2) !important;
+    left: calc((100% - var(--briefing-panel-width)) / 2) !important;
 }
 
-/* Map: absolute positioning within body to respect right:520px */
+/* Map: absolute positioning within body to respect briefing panel */
 body.briefing-panel-active {
     position: relative;
 }
@@ -770,7 +774,7 @@ body.briefing-panel-active #map-sig {
     position: absolute !important;
     top: 0 !important;
     left: 0 !important;
-    right: 520px !important;
+    right: var(--briefing-panel-width) !important;
     bottom: 0 !important;
     width: auto !important;
     height: auto !important;
@@ -778,46 +782,46 @@ body.briefing-panel-active #map-sig {
 
 body.briefing-panel-active #map-3d-container {
     left: 0 !important;
-    right: 520px !important;
+    right: var(--briefing-panel-width) !important;
 }
 
 body.briefing-panel-active #street-view-container {
     left: 0 !important;
-    right: 520px !important;
+    right: var(--briefing-panel-width) !important;
 }
 
 /* 3D viewer controls: shift into the map area */
 body.briefing-panel-active #close-3d-viewer-button,
 body.briefing-panel-active #toolbar-3d {
-    right: calc(520px + 16px);
+    right: calc(var(--briefing-panel-width) + var(--space-4));
 }
 
 body.briefing-panel-active .nav-help-popup {
-    right: calc(520px + 72px);
+    right: calc(var(--briefing-panel-width) + 72px);
 }
 
 body.briefing-panel-active .active-tool-chip-3d {
-    left: calc((100% - 520px) / 2);
+    left: calc((100% - var(--briefing-panel-width)) / 2);
 }
 
 /* 360 viewer controls: shift into the map area */
 body.briefing-panel-active #close-street-view-button,
 body.briefing-panel-active #toolbar-360 {
-    right: calc(520px + 16px);
+    right: calc(var(--briefing-panel-width) + var(--space-4));
 }
 
 body.briefing-panel-active .active-tool-chip-360 {
-    left: calc((100% - 520px) / 2);
+    left: calc((100% - var(--briefing-panel-width)) / 2);
 }
 
 /* 360 minimap: sidebar collapsed bar is hidden, move to left edge */
 body.briefing-panel-active #streetview-minimap-wrapper {
-    left: 16px;
+    left: var(--space-4);
 }
 
 /* Profile panel (line profile + LOS): shift into the map area */
 body.briefing-panel-active .profile-panel {
-    right: calc(520px + 20px);
+    right: calc(var(--briefing-panel-width) + var(--space-5));
 }
 
 /* =========================================================================

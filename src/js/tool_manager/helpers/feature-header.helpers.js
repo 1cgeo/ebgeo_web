@@ -4,8 +4,38 @@
  * @fileoverview Feature header components for attribute panels.
  */
 
-import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, updateFeature, storeImage, getGroupManager } from '../../store';
+import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, updateFeature, storeImage, getGroupManager, getControl } from '../../store';
 import { IDUtils } from '../../utilities';
+
+// ── Arrow merge/split helpers ─────────────────────────────────────────────────
+// These inline checks avoid a static import from military_tools (which would
+// create a military-tools ↔ core circular chunk).  The actual merge/split
+// operations are loaded lazily via dynamic import only when the user executes
+// the action.
+
+/** Pure property check — no heavy imports needed */
+function canMergeArrows(selectedFeatures) {
+    if (!selectedFeatures || selectedFeatures.length < 2) {
+        return { canMerge: false, reason: 'Selecione pelo menos 2 setas' };
+    }
+    const allArrows = selectedFeatures.every(f => f.properties?.source === 'arrow');
+    if (!allArrows) return { canMerge: false, reason: 'Todas as feições devem ser setas' };
+    const layerIds = new Set(selectedFeatures.map(f => f.properties?.layerId || 'default'));
+    if (layerIds.size > 1) return { canMerge: false, reason: 'Setas devem estar na mesma camada' };
+    return { canMerge: true };
+}
+
+/** Pure property check — no heavy imports needed */
+function canSplitArrows(selectedFeatures) {
+    if (!selectedFeatures || selectedFeatures.length !== 1) return { canSplit: false };
+    const f = selectedFeatures[0];
+    return {
+        canSplit: f.properties?.source === 'arrow' &&
+            f.properties?.isMerged === true &&
+            Array.isArray(f.properties?.branches) &&
+            f.properties.branches.length > 1
+    };
+}
 
 /**
  * Creates an editable feature name component.
@@ -27,11 +57,10 @@ export function createEditableFeatureName(initialName, onNameChange) {
     nameInput.type = 'text';
     nameInput.className = 'feature-name-input';
     nameInput.value = initialName || '';
-    nameInput.style.cssText = 'display: none; width: 100%; font-size: 16px; font-weight: bold; padding: 6px; border: 1px solid #007bff; border-radius: 4px;';
 
     nameDisplay.onclick = () => {
-        nameDisplay.style.display = 'none';
-        nameInput.style.display = 'block';
+        nameDisplay.classList.add('hidden');
+        nameInput.classList.add('editing');
         nameInput.focus();
         nameInput.select();
     };
@@ -44,8 +73,8 @@ export function createEditableFeatureName(initialName, onNameChange) {
         }
 
         nameDisplay.textContent = newName;
-        nameDisplay.style.display = 'block';
-        nameInput.style.display = 'none';
+        nameDisplay.classList.remove('hidden');
+        nameInput.classList.remove('editing');
 
         if (newName !== initialName) {
             onNameChange(newName);
@@ -54,8 +83,8 @@ export function createEditableFeatureName(initialName, onNameChange) {
 
     const cancelEdit = () => {
         nameInput.value = initialName || '';
-        nameDisplay.style.display = 'block';
-        nameInput.style.display = 'none';
+        nameDisplay.classList.remove('hidden');
+        nameInput.classList.remove('editing');
     };
 
     nameInput.onblur = saveEdit;
@@ -221,7 +250,7 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
 
     if (currentLayer) {
         const separator1 = document.createElement('div');
-        separator1.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        separator1.className = 'feature-menu-separator';
         dropdown.appendChild(separator1);
 
         const selectAllLayerButton = document.createElement('button');
@@ -256,7 +285,7 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
     // Add conversion options for line features (single selection only)
     if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'line') {
         const separator2 = document.createElement('div');
-        separator2.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        separator2.className = 'feature-menu-separator';
         dropdown.appendChild(separator2);
 
         const convertToArrowButton = document.createElement('button');
@@ -282,12 +311,25 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
             closeAllFeatureDropdowns(true);
         });
         dropdown.appendChild(convertToBoundaryButton);
+
+        const splitLineButton = document.createElement('button');
+        splitLineButton.className = 'feature-menu-button';
+        splitLineButton.textContent = 'Cortar Linha';
+
+        splitLineButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeAllFeatureDropdowns(true);
+            const { activateSplitMode } = await import('../../draw_tools/line_tool/line-split.js');
+            await activateSplitMode(currentFeature, selectionManager.map, selectionManager);
+        });
+        dropdown.appendChild(splitLineButton);
     }
 
     // Add reverse option for arrow features (single selection only)
     if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'arrow') {
         const separator3 = document.createElement('div');
-        separator3.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        separator3.className = 'feature-menu-separator';
         dropdown.appendChild(separator3);
 
         const reverseArrowButton = document.createElement('button');
@@ -303,10 +345,80 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
         dropdown.appendChild(reverseArrowButton);
     }
 
+    // Add merge/split options for arrow features
+    const allArrows = selectedFeatures.every(f => f.properties?.source === 'arrow');
+    if (allArrows) {
+        const mergeCheck = canMergeArrows(selectedFeatures);
+        const splitCheck = canSplitArrows(selectedFeatures);
+
+        if (mergeCheck.canMerge || splitCheck.canSplit) {
+            const separatorMerge = document.createElement('div');
+            separatorMerge.className = 'feature-menu-separator';
+            dropdown.appendChild(separatorMerge);
+
+            if (mergeCheck.canMerge) {
+                const mergeButton = document.createElement('button');
+                mergeButton.className = 'feature-menu-button';
+                mergeButton.textContent = 'Combinar Setas';
+
+                mergeButton.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const map = selectionManager.map;
+                    const { mergeArrows } = await import('../../military_tools/arrow_tool/arrow-merge.js');
+                    await mergeArrows(selectedFeatures, map, selectionManager);
+                    closeAllFeatureDropdowns(true);
+                    uiManager.updatePanels();
+                });
+                dropdown.appendChild(mergeButton);
+            }
+
+            if (splitCheck.canSplit) {
+                const splitButton = document.createElement('button');
+                splitButton.className = 'feature-menu-button';
+                splitButton.textContent = 'Separar Setas';
+
+                splitButton.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const map = selectionManager.map;
+                    const { splitArrows } = await import('../../military_tools/arrow_tool/arrow-merge.js');
+                    await splitArrows(currentFeature, map, selectionManager);
+                    closeAllFeatureDropdowns(true);
+                    uiManager.updatePanels();
+                });
+                dropdown.appendChild(splitButton);
+            }
+        }
+    }
+
+    // Add recalculate option for magnetic declination features (single selection only)
+    if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'magnetic_declination') {
+        const separatorDecl = document.createElement('div');
+        separatorDecl.className = 'feature-menu-separator';
+        dropdown.appendChild(separatorDecl);
+
+        const recalcButton = document.createElement('button');
+        recalcButton.className = 'feature-menu-button';
+        recalcButton.textContent = 'Recalcular Declinação';
+
+        recalcButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const control = getControl('AddDeclinationControl');
+            if (control) {
+                await control.recalculateDeclination(currentFeature);
+                uiManager.updatePanels();
+            }
+            closeAllFeatureDropdowns(true);
+        });
+        dropdown.appendChild(recalcButton);
+    }
+
     // Add conversion options for point features (single selection only)
     if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'point') {
         const separatorPoint = document.createElement('div');
-        separatorPoint.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        separatorPoint.className = 'feature-menu-separator';
         dropdown.appendChild(separatorPoint);
 
         const convertToMilSymButton = document.createElement('button');
@@ -364,6 +476,7 @@ function getFeatureTypeName(featureType) {
         'occupied_front': 'Frentes Ocupadas',
         'military_symbol': 'Símbolos Militares',
         'coordination_measure': 'Medidas de Coordenação',
+        'magnetic_declination': 'Declinações Magnéticas',
         'los': 'Linhas de Visada',
         'visibility': 'Visibilidade',
         'sector': 'Setores'
@@ -669,21 +782,21 @@ function closeAllFeatureDropdowns(animated = false) {
  * Only visual appearance properties - excludes metadata, content, geometry, and state.
  */
 const STYLE_KEYS_BY_TYPE = {
-    point:               ['fillColor', 'size', 'opacity'],
-    line:                ['lineColor', 'lineWidth', 'opacity', 'lineStyle'],
-    polygon:             ['fillColor', 'lineColor', 'lineWidth', 'opacity', 'lineStyle', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
-    circle:              ['fillColor', 'lineColor', 'lineWidth', 'lineStyle', 'opacity', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
-    ellipse:             ['fillColor', 'lineColor', 'lineWidth', 'lineStyle', 'opacity', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
-    rectangle:           ['fillColor', 'lineColor', 'lineWidth', 'lineStyle', 'opacity', 'borderRadius', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
-    text:                ['size', 'color', 'textHaloWidth', 'justify', 'showBackground', 'backgroundFillColor', 'backgroundFillOpacity', 'backgroundBorderColor', 'backgroundBorderOpacity', 'backgroundBorderWidth'],
-    brush:               ['lineColor', 'lineWidth'],
-    image:               ['size', 'opacity'],
-    arrow:               ['width', 'fillColor', 'lineColor', 'lineWidth', 'fillOpacity', 'lineOpacity', 'headLengthRatio', 'showArrowHead'],
-    boundary:            ['color', 'lineWidth', 'opacity', 'echelon', 'symbol_size', 'text_size'],
-    occupied_front:      ['color', 'lineWidth', 'opacity'],
-    los:                 ['opacity', 'width'],
-    visibility:          ['opacity'],
-    military_symbol:     ['size', 'opacity', 'fillColor'],
+    point: ['fillColor', 'size', 'opacity'],
+    line: ['lineColor', 'lineWidth', 'opacity', 'lineStyle'],
+    polygon: ['fillColor', 'lineColor', 'lineWidth', 'opacity', 'lineStyle', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
+    circle: ['fillColor', 'lineColor', 'lineWidth', 'lineStyle', 'opacity', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
+    ellipse: ['fillColor', 'lineColor', 'lineWidth', 'lineStyle', 'opacity', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
+    rectangle: ['fillColor', 'lineColor', 'lineWidth', 'lineStyle', 'opacity', 'borderRadius', 'hatchEnabled', 'hatchType', 'hatchColor', 'hatchSpacing', 'hatchLineWidth'],
+    text: ['size', 'color', 'textHaloWidth', 'justify', 'showBackground', 'backgroundFillColor', 'backgroundFillOpacity', 'backgroundBorderColor', 'backgroundBorderOpacity', 'backgroundBorderWidth'],
+    brush: ['lineColor', 'lineWidth'],
+    image: ['size', 'opacity'],
+    arrow: ['width', 'fillColor', 'lineColor', 'lineWidth', 'fillOpacity', 'lineOpacity', 'headLengthRatio', 'showArrowHead'],
+    boundary: ['color', 'lineWidth', 'opacity', 'echelon', 'symbol_size', 'text_size'],
+    occupied_front: ['color', 'lineWidth', 'opacity'],
+    los: ['opacity', 'width'],
+    visibility: ['opacity'],
+    military_symbol: ['size', 'opacity', 'fillColor'],
     coordination_measure: ['size', 'opacity']
 };
 

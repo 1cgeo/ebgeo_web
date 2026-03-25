@@ -152,6 +152,16 @@ export const DEFAULT_PROPERTIES = {
 // ============================================================================
 
 /**
+ * Create a default empty leg object.
+ * Use a factory to ensure each leg is a fresh, independent object.
+ *
+ * @returns {{ azimuth: string, distance: string, observation: string }}
+ */
+export function createDefaultLeg() {
+    return { azimuth: '', distance: '', observation: '' };
+}
+
+/**
  * Validation limits
  */
 export const VALIDATION = {

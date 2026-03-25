@@ -16,9 +16,9 @@ const config = {
     grid: false,                  // Habilita/desabilita grid
   },
 
-  url_paths: {
-    url: 'IP:PORT', // endereço da aplicação. Colocar porta se necessário
-    prefix_name: '' // nome da aplicação na url, como aman, arandu, etc. Deixar vazio para testes locais
+  // ===== SERVICES =====
+  services: {
+    tileServerUrl: ''  // URL do servidor de tiles vetoriais (ex: 'http://10.0.0.5:7800')
   },
 
   // ===== SEARCH SETTINGS =====
@@ -101,7 +101,7 @@ const config = {
       //   description: 'Malha rodoviária federal',
       //   source: {
       //     type: 'vector',
-      //     url: 'http://IP:PORT/rodovias'
+      //     url: 'http://TILE_SERVER/rodovias'
       //   },
       //   sourceLayer: 'rodovias',
       //   minzoom: 4,
@@ -130,7 +130,7 @@ const config = {
       //   description: 'Divisão político-administrativa municipal',
       //   source: {
       //     type: 'vector',
-      //     url: 'http://IP:PORT/limites_municipais'
+      //     url: 'http://TILE_SERVER/limites_municipais'
       //   },
       //   sourceLayer: 'municipios',
       //   minzoom: 4,
@@ -162,13 +162,13 @@ const config = {
       //   thumbnail: null,  // Usa thumbnail padrão
       //   source: {
       //     type: 'vector',
-      //     url: 'http://IP:PORT/moldura_25k'
+      //     url: 'http://TILE_SERVER/moldura_25k'
       //   },
       //   sourceLayer: 'situacao_25k',
       //   // labelSource é OPCIONAL - se omitido, usa o mesmo source principal
       //   labelSource: {
       //     type: 'vector',
-      //     url: 'http://IP:PORT/moldura_ponto_25k'
+      //     url: 'http://TILE_SERVER/moldura_ponto_25k'
       //   },
       //   labelSourceLayer: 'situacao_ponto_25k',
       //   minzoom: 5,
@@ -224,15 +224,15 @@ const config = {
   // ===== CONFIGURAÇÕES DO MAPA 2D =====
   map2d: {
     bounds: [
-      [-58.1,-33.4], // [longitude_min, latitude_min]
-      [-48.7,-27.1] // [longitude_max, latitude_max]
+      [-58.1, -33.4], // [longitude_min, latitude_min]
+      [-48.7, -27.1] // [longitude_max, latitude_max]
     ],
     minZoom: 1,              // Zoom mínimo permitido
     maxZoom: 17.9,           // Zoom máximo permitido
     maxPitch: 65,            // Inclinação máxima da câmera (0-60 graus)
 
     // Modo Globo
-    globe_projection:true,
+    globe_projection: true,
 
     // Configurações avançadas de carregamento de tiles
     sourceTileLodParams: [5, 6.0],  // [threshold, factor] para otimização de tiles
@@ -343,7 +343,10 @@ const config = {
     }
   },
 
-  // ===== 3D TILESETS =====
+  // ===== 3D TILESETS & MODELS =====
+  // Supported types: '3dtiles' (default) and 'glb'
+  // 3D Tiles entries use: url (tileset.json), heightOffset
+  // GLB entries use: url (.glb), position, heightOffset, rotation, scale
   tilesets: [
     {
       url: "/3d/PCL/tileset.json",
@@ -351,14 +354,45 @@ const config = {
       id: "PCL",
       name: "Posto de Comando Logístico",
       description: "Modelo 3D do Posto de Comando Logístico capturado por drone",
+      keywords: ["PCL", "posto comando", "logística", "drone"],  // Optional: extra searchable terms
       data_captura: "15/03/2024",
       local: "Resende, RJ",
       previewVideo: "/3d/videos/preview.webm",
       previewThumbnail: "/3d/videos/thumbnail.jpg",
+      // maximumScreenSpaceError: 16,  // Qualidade do modelo (menor = mais detalhado, default: 16)
       locate: {
         lon: -44.47332385414955,
         lat: -22.43976556982974,
         height: 1000
+      }
+    },
+    // ===== GLB MODEL EXAMPLE =====
+    {
+      type: 'glb',                              // Required for GLB models
+      id: "hangar-01",
+      name: "Hangar Principal",
+      description: "Modelo 3D do hangar",
+      // keywords: ["TGL", "hangar"],           // Optional: extra searchable terms
+      url: "/3d/models/TGL.glb",             // Path to .glb file
+      position: {                                // Where to place the model
+        lon: -44.42332,
+        lat: -22.43976
+      },
+      heightOffset: 10,                           // Meters above ellipsoid
+      rotation: {                                // Rotation in degrees
+        heading: 180,                              // 0-360 compass bearing
+        pitch: 0,                                // -90 to 90
+        roll: 0                                  // -180 to 180
+      },
+      scale: 1.0,                                // Uniform scale factor
+      maximumScale: 20000,                       // Max scale (optional)
+      data_captura: "20/01/2025",
+      local: "Resende, RJ",
+      // previewThumbnail: "/3d/models/hangar-thumb.jpg",
+      locate: {                                  // Camera fly-to position
+        lon: -44.42332,
+        lat: -22.43976,
+        height: 500
       }
     }
   ],

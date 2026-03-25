@@ -5,32 +5,13 @@ import { createModernSlider, createModernColorPicker } from './helpers/index.js'
 export function openHatchConfigModal(feature, selectedFeatures, control) {
     const modal = document.createElement('div');
     modal.className = 'hatch-config-modal';
-    modal.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10000;
-    `;
 
     const content = document.createElement('div');
-    content.style.cssText = `
-        background: white;
-        border-radius: 8px;
-        padding: 20px;
-        min-width: 320px;
-        max-width: 400px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    `;
+    content.className = 'hatch-config-modal__content';
 
     const title = document.createElement('h3');
     title.textContent = 'Configurações de Hachura';
-    title.style.cssText = 'margin: 0 0 20px 0; font-size: 16px;';
+    title.className = 'hatch-config-modal__title';
     content.appendChild(title);
 
     const typeSelect = createHatchTypeSelect(
@@ -77,8 +58,7 @@ export function openHatchConfigModal(feature, selectedFeatures, control) {
 
     const closeButton = document.createElement('button');
     closeButton.textContent = 'Fechar';
-    closeButton.className = 'tool-button pure-material-tool-button-contained';
-    closeButton.style.cssText = 'width: 100%; margin-top: 20px;';
+    closeButton.className = 'tool-button pure-material-tool-button-contained hatch-config-modal__close-btn';
     closeButton.onclick = () => {
         document.body.removeChild(modal);
     };
@@ -97,12 +77,11 @@ export function openHatchConfigModal(feature, selectedFeatures, control) {
 
 function createAttributeRowSimple(labelText, inputElement) {
     const container = document.createElement('div');
-    container.className = 'attr-container-row';
-    container.style.cssText = 'display: flex; align-items: center; margin-bottom: 12px;';
+    container.className = 'hatch-config-modal__type-row';
 
     const label = document.createElement('label');
     label.textContent = labelText;
-    label.style.cssText = 'min-width: 100px; font-size: 13px;';
+    label.className = 'hatch-config-modal__type-label';
 
     container.appendChild(label);
     container.appendChild(inputElement);
@@ -112,8 +91,7 @@ function createAttributeRowSimple(labelText, inputElement) {
 
 function createHatchTypeSelect(value, onChange) {
     const select = document.createElement('select');
-    select.className = 'tool-select';
-    select.style.cssText = 'width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 3px;';
+    select.className = 'tool-select hatch-config-modal__select';
 
     const options = [
         { value: 'diagonal-right', label: 'Diagonal /' },

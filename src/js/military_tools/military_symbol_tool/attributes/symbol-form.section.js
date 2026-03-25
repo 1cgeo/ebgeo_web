@@ -17,7 +17,7 @@ import {
     isModifier2Applicable
 } from '../military_constants.js';
 
-import { createModernToggle } from '../../../tool_manager';
+import { createModernToggle } from '@tools';
 
 import {
     createDigitalComboBox,
@@ -30,7 +30,6 @@ import {
  * @typedef {Object} SymbolFormConfig
  * @property {Object} tempProperties - Temporary properties object
  * @property {Function} updatePreview - Callback to update preview
- * @property {boolean} isUpdatingFromSIDC - Flag indicating SIDC update in progress
  */
 
 /**
@@ -41,6 +40,7 @@ import {
  * @property {Function} reloadDependentComboboxes - Function to reload dependent combos
  * @property {Function} updateAllComboboxValues - Function to update all combo values
  * @property {Object} dropdownState - Shared dropdown state
+ * @property {Function} setUpdatingFromSIDC - Sets the SIDC update flag
  */
 
 /**
@@ -52,56 +52,46 @@ import {
  * @returns {HTMLElement} Direction input container
  */
 function createDirectionInput(tempProperties, updatePreview, flags) {
-    const directionContainer = document.createElement('div');
-    directionContainer.style.cssText = 'margin-bottom: 12px;';
+    const container = document.createElement('div');
+    container.className = 'symbol-form__field';
 
-    const directionLabel = document.createElement('label');
-    directionLabel.textContent = 'Direção:';
-    directionLabel.style.cssText = 'display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; color: #333;';
+    const label = document.createElement('label');
+    label.className = 'symbol-form__label';
+    label.textContent = 'Direção:';
 
-    const directionInput = document.createElement('input');
-    directionInput.type = 'text';
-    directionInput.placeholder = 'Azimute em graus';
-    directionInput.value = tempProperties.direction || '';
-    directionInput.style.cssText = `
-        width: 100%;
-        padding: 10px 12px;
-        border: 2px solid #ddd;
-        border-radius: 6px;
-        font-size: 14px;
-        transition: border-color 0.2s;
-        box-sizing: border-box;
-    `;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'symbol-form__input';
+    input.placeholder = 'Azimute em graus';
+    input.value = tempProperties.direction || '';
 
-    directionInput.addEventListener('input', (e) => {
-        let value = e.target.value;
-        value = value.replace(/[^0-9.]/g, '');
+    input.addEventListener('input', (e) => {
+        const value = e.target.value.replace(/[^0-9.]/g, '');
         e.target.value = value;
 
         const numValue = parseFloat(value);
+        input.classList.remove('symbol-form__input--valid', 'symbol-form__input--invalid');
+
         if (!isNaN(numValue)) {
             if (numValue < 0 || numValue > 360) {
-                e.target.style.borderColor = '#dc3545';
+                input.classList.add('symbol-form__input--invalid');
             } else {
-                e.target.style.borderColor = '#28a745';
+                input.classList.add('symbol-form__input--valid');
                 if (!flags.isUpdatingFromSIDC) {
                     tempProperties.direction = value;
                     updatePreview();
                 }
             }
-        } else if (value === '') {
-            e.target.style.borderColor = '#ddd';
-            if (!flags.isUpdatingFromSIDC) {
-                tempProperties.direction = '';
-                updatePreview();
-            }
+        } else if (value === '' && !flags.isUpdatingFromSIDC) {
+            tempProperties.direction = '';
+            updatePreview();
         }
     });
 
-    directionContainer.appendChild(directionLabel);
-    directionContainer.appendChild(directionInput);
+    container.appendChild(label);
+    container.appendChild(input);
 
-    return directionContainer;
+    return container;
 }
 
 /**
@@ -113,14 +103,12 @@ function createDirectionInput(tempProperties, updatePreview, flags) {
  * @returns {Object} Container and update function
  */
 function createCommandCheckbox(tempProperties, updatePreview, flags) {
-    const commandCheckboxContainer = document.createElement('div');
-    commandCheckboxContainer.style.cssText = 'margin-bottom: 12px;';
+    const container = document.createElement('div');
+    container.className = 'symbol-form__field';
 
-    const commandLabel = document.createElement('label');
-    commandLabel.textContent = 'Elemento de Comando:';
-    commandLabel.style.cssText = 'display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; color: #333;';
-
-    let toggleElement = null;
+    const label = document.createElement('label');
+    label.className = 'symbol-form__label';
+    label.textContent = 'Elemento de Comando:';
 
     const toggle = createModernToggle({
         label: 'Esta unidade é um elemento de Comando',
@@ -133,20 +121,62 @@ function createCommandCheckbox(tempProperties, updatePreview, flags) {
         }
     });
 
-    toggleElement = toggle;
-
-    commandCheckboxContainer.appendChild(commandLabel);
-    commandCheckboxContainer.appendChild(toggle);
+    container.appendChild(label);
+    container.appendChild(toggle);
 
     return {
-        container: commandCheckboxContainer,
+        container,
         updateValue: (newValue) => {
-            const checkbox = toggleElement?.querySelector('input[type="checkbox"]');
+            const checkbox = toggle.querySelector('input[type="checkbox"]');
             if (checkbox) {
                 checkbox.checked = !!newValue;
             }
         }
     };
+}
+
+/**
+ * Resets all text modifier properties on tempProperties.
+ * @param {Object} tempProperties - Temporary properties
+ */
+function resetTextModifiers(tempProperties) {
+    tempProperties.mainIcon = "000000";
+    tempProperties.modifier1 = "00";
+    tempProperties.modifier2 = "00";
+    tempProperties.echelon = "00";
+    tempProperties.specialModifier = "0";
+
+    tempProperties.mainIconExtension = null;
+    tempProperties.modifier1Extension = null;
+    tempProperties.modifier2Extension = null;
+
+    tempProperties.uniqueDesignation = '';
+    tempProperties.higherFormation = '';
+    tempProperties.reinforcedReduced = '';
+    tempProperties.additionalInformation = '';
+    tempProperties.credibility = '';
+    tempProperties.location = '';
+    tempProperties.dateTimeGroup = '';
+    tempProperties.altitudeDepth = '';
+    tempProperties.speed = '';
+    tempProperties.specialHeadquarters = '';
+    tempProperties.type = '';
+    tempProperties.iffSif = '';
+    tempProperties.equipmentTeardownTime = '';
+    tempProperties.quantity = '';
+    tempProperties.direction = '';
+}
+
+/**
+ * Removes a combobox element from DOM and nulls it.
+ * @param {Object} comboboxes - Comboboxes object
+ * @param {string} key - Combobox key
+ */
+function removeCombobox(comboboxes, key) {
+    if (comboboxes[key]?.parentNode) {
+        comboboxes[key].remove();
+        comboboxes[key] = null;
+    }
 }
 
 /**
@@ -162,10 +192,10 @@ export function createSymbolFormColumns(config) {
     const dropdownState = createDropdownState();
 
     const column1 = document.createElement('div');
-    column1.style.cssText = 'display: flex; flex-direction: column; gap: 0;';
+    column1.className = 'symbol-selector-form-column';
 
     const column2 = document.createElement('div');
-    column2.style.cssText = 'display: flex; flex-direction: column; gap: 0;';
+    column2.className = 'symbol-selector-form-column';
 
     const comboboxes = {};
 
@@ -174,66 +204,42 @@ export function createSymbolFormColumns(config) {
     comboboxes.isCommand = commandControl;
 
     /**
+     * Wraps an onChange callback to guard against SIDC updates.
+     * @param {Function} handler - Change handler
+     * @returns {Function} Guarded handler
+     */
+    function guardedChange(handler) {
+        return (...args) => {
+            if (!flags.isUpdatingFromSIDC) {
+                handler(...args);
+            }
+        };
+    }
+
+    /**
      * Reloads dependent comboboxes when symbol set changes.
      * @param {string} symbolSetCode - New symbol set code
      */
     function reloadDependentComboboxes(symbolSetCode) {
-        if (comboboxes.echelon && comboboxes.echelon.parentNode) {
-            comboboxes.echelon.remove();
-            comboboxes.echelon = null;
+        const dependentKeys = ['echelon', 'directionContainer', 'specialModifier', 'mainIcon', 'modifier1', 'modifier2', 'colorControl'];
+        for (const key of dependentKeys) {
+            removeCombobox(comboboxes, key);
         }
-
-        if (comboboxes.directionContainer && comboboxes.directionContainer.parentNode) {
-            comboboxes.directionContainer.remove();
-            comboboxes.directionContainer = null;
-        }
-
-        if (comboboxes.specialModifier && comboboxes.specialModifier.parentNode) {
-            comboboxes.specialModifier.remove();
-            comboboxes.specialModifier = null;
-        }
-        if (commandCheckboxContainer && commandCheckboxContainer.parentNode) {
+        if (commandCheckboxContainer.parentNode) {
             commandCheckboxContainer.remove();
-        }
-        if (comboboxes.mainIcon && comboboxes.mainIcon.parentNode) {
-            comboboxes.mainIcon.remove();
-            comboboxes.mainIcon = null;
-        }
-        if (comboboxes.modifier1 && comboboxes.modifier1.parentNode) {
-            comboboxes.modifier1.remove();
-            comboboxes.modifier1 = null;
-        }
-        if (comboboxes.modifier2 && comboboxes.modifier2.parentNode) {
-            comboboxes.modifier2.remove();
-            comboboxes.modifier2 = null;
-        }
-        if (comboboxes.colorControl && comboboxes.colorControl.parentNode) {
-            comboboxes.colorControl.remove();
-            comboboxes.colorControl = null;
         }
 
         const echelonData = getEchelonData(symbolSetCode);
         if (echelonData.applicable) {
             comboboxes.echelon = createDigitalComboBox(
-                echelonData.data,
-                tempProperties.echelon || "00",
-                (value) => {
-                    if (!flags.isUpdatingFromSIDC) {
-                        tempProperties.echelon = value;
-                        updatePreview();
-                    }
-                },
-                echelonData.label,
-                false,
-                'modifier',
-                false,
-                dropdownState
+                echelonData.data, tempProperties.echelon || "00",
+                guardedChange((value) => { tempProperties.echelon = value; updatePreview(); }),
+                echelonData.label, false, 'modifier', false, dropdownState
             );
             column1.appendChild(comboboxes.echelon);
         }
 
-        const directionApplicable = !['20', '40'].includes(symbolSetCode);
-        if (directionApplicable) {
+        if (!['20', '40'].includes(symbolSetCode)) {
             const directionContainer = createDirectionInput(tempProperties, updatePreview, flags);
             column1.appendChild(directionContainer);
             comboboxes.directionContainer = directionContainer;
@@ -242,19 +248,9 @@ export function createSymbolFormColumns(config) {
         const specialModData = getSpecialModifierData(symbolSetCode);
         if (specialModData.applicable) {
             comboboxes.specialModifier = createDigitalComboBox(
-                specialModData.data,
-                tempProperties.specialModifier || "0",
-                (value) => {
-                    if (!flags.isUpdatingFromSIDC) {
-                        tempProperties.specialModifier = value;
-                        updatePreview();
-                    }
-                },
-                'Modificador Transversal',
-                false,
-                'modifier',
-                false,
-                dropdownState
+                specialModData.data, tempProperties.specialModifier || "0",
+                guardedChange((value) => { tempProperties.specialModifier = value; updatePreview(); }),
+                'Modificador Transversal', false, 'modifier', false, dropdownState
             );
             column2.appendChild(comboboxes.specialModifier);
         }
@@ -263,220 +259,112 @@ export function createSymbolFormColumns(config) {
             column2.appendChild(commandCheckboxContainer);
         }
 
-        const mainIconsData = getMainIcons(symbolSetCode);
         comboboxes.mainIcon = createDigitalComboBox(
-            mainIconsData,
-            tempProperties.mainIcon || "000000",
-            (value, selectedOption) => {
-                if (!flags.isUpdatingFromSIDC) {
-                    tempProperties.mainIcon = value;
-                    tempProperties.mainIconExtension = selectedOption?.extension || 0;
-                    updatePreview();
-                }
-            },
-            'Ícone Principal',
-            false,
-            'mainIcon',
-            false,
-            dropdownState
+            getMainIcons(symbolSetCode), tempProperties.mainIcon || "000000",
+            guardedChange((value, selectedOption) => {
+                tempProperties.mainIcon = value;
+                tempProperties.mainIconExtension = selectedOption?.extension || 0;
+                updatePreview();
+            }),
+            'Ícone Principal', false, 'mainIcon', false, dropdownState
         );
         column2.appendChild(comboboxes.mainIcon);
 
         if (isModifier1Applicable(symbolSetCode)) {
-            const modifier1Data = getModifier1(symbolSetCode);
             comboboxes.modifier1 = createDigitalComboBox(
-                modifier1Data,
-                tempProperties.modifier1 || "00",
-                (value, selectedOption) => {
-                    if (!flags.isUpdatingFromSIDC) {
-                        tempProperties.modifier1 = value;
-                        tempProperties.modifier1Extension = selectedOption?.extension || 0;
-                        updatePreview();
-                    }
-                },
-                'Modificador 1',
-                true,
-                'modifier',
-                false,
-                dropdownState
+                getModifier1(symbolSetCode), tempProperties.modifier1 || "00",
+                guardedChange((value, selectedOption) => {
+                    tempProperties.modifier1 = value;
+                    tempProperties.modifier1Extension = selectedOption?.extension || 0;
+                    updatePreview();
+                }),
+                'Modificador 1', true, 'modifier', false, dropdownState
             );
             column2.appendChild(comboboxes.modifier1);
         }
 
         if (isModifier2Applicable(symbolSetCode)) {
-            const modifier2Data = getModifier2(symbolSetCode);
             comboboxes.modifier2 = createDigitalComboBox(
-                modifier2Data,
-                tempProperties.modifier2 || "00",
-                (value, selectedOption) => {
-                    if (!flags.isUpdatingFromSIDC) {
-                        tempProperties.modifier2 = value;
-                        tempProperties.modifier2Extension = selectedOption?.extension || 0;
-                        updatePreview();
-                    }
-                },
-                'Modificador 2',
-                true,
-                'modifier',
-                false,
-                dropdownState
+                getModifier2(symbolSetCode), tempProperties.modifier2 || "00",
+                guardedChange((value, selectedOption) => {
+                    tempProperties.modifier2 = value;
+                    tempProperties.modifier2Extension = selectedOption?.extension || 0;
+                    updatePreview();
+                }),
+                'Modificador 2', true, 'modifier', false, dropdownState
             );
             column2.appendChild(comboboxes.modifier2);
         }
 
         comboboxes.colorControl = createColorControl(
             tempProperties.fillColor,
-            (color) => {
-                tempProperties.fillColor = color;
-                updatePreview();
-            },
+            (color) => { tempProperties.fillColor = color; updatePreview(); },
             'Cor do Símbolo'
         );
         column2.appendChild(comboboxes.colorControl);
     }
 
+    // --- Build initial column1 controls ---
+
     comboboxes.symbolSet = createDigitalComboBox(
-        MILITARY_DATA.symbolSets,
-        tempProperties.symbolSet || "10",
-        (value) => {
-            if (!flags.isUpdatingFromSIDC) {
-                tempProperties.symbolSet = value;
-
-                tempProperties.mainIcon = "000000";
-                tempProperties.modifier1 = "00";
-                tempProperties.modifier2 = "00";
-                tempProperties.echelon = "00";
-                tempProperties.specialModifier = "0";
-
-                tempProperties.mainIconExtension = null;
-                tempProperties.modifier1Extension = null;
-                tempProperties.modifier2Extension = null;
-
-                tempProperties.uniqueDesignation = '';
-                tempProperties.higherFormation = '';
-                tempProperties.reinforcedReduced = '';
-                tempProperties.additionalInformation = '';
-                tempProperties.credibility = '';
-                tempProperties.location = '';
-                tempProperties.dateTimeGroup = '';
-                tempProperties.altitudeDepth = '';
-                tempProperties.speed = '';
-                tempProperties.specialHeadquarters = '';
-                tempProperties.type = '';
-                tempProperties.iffSif = '';
-                tempProperties.equipmentTeardownTime = '';
-                tempProperties.quantity = '';
-                tempProperties.direction = '';
-
-                reloadDependentComboboxes(value);
-                updatePreview();
-            }
-        },
-        'Dimensão',
-        false,
-        'modifier',
-        true,
-        dropdownState
+        MILITARY_DATA.symbolSets, tempProperties.symbolSet || "10",
+        guardedChange((value) => {
+            tempProperties.symbolSet = value;
+            resetTextModifiers(tempProperties);
+            reloadDependentComboboxes(value);
+            updatePreview();
+        }),
+        'Dimensão', false, 'modifier', true, dropdownState
     );
     column1.appendChild(comboboxes.symbolSet);
 
     comboboxes.standardIdentity = createDigitalComboBox(
-        MILITARY_DATA.standardIdentity,
-        tempProperties.standardIdentity || "3",
-        (value) => {
-            if (!flags.isUpdatingFromSIDC) {
-                tempProperties.standardIdentity = value;
-                updatePreview();
-            }
-        },
-        'Hostilidade',
-        false,
-        'modifier',
-        false,
-        dropdownState
+        MILITARY_DATA.standardIdentity, tempProperties.standardIdentity || "3",
+        guardedChange((value) => { tempProperties.standardIdentity = value; updatePreview(); }),
+        'Hostilidade', false, 'modifier', false, dropdownState
     );
     column1.appendChild(comboboxes.standardIdentity);
 
     comboboxes.status = createDigitalComboBox(
-        MILITARY_DATA.status,
-        tempProperties.status || "0",
-        (value) => {
-            if (!flags.isUpdatingFromSIDC) {
-                tempProperties.status = value;
-                updatePreview();
-            }
-        },
-        'Situação e Condição Operacional',
-        false,
-        'modifier',
-        false,
-        dropdownState
+        MILITARY_DATA.status, tempProperties.status || "0",
+        guardedChange((value) => { tempProperties.status = value; updatePreview(); }),
+        'Situação e Condição Operacional', false, 'modifier', false, dropdownState
     );
     column1.appendChild(comboboxes.status);
 
     comboboxes.hqTfDummy = createDigitalComboBox(
-        MILITARY_DATA.hqTfDummy,
-        tempProperties.hqTfDummy || "0",
-        (value) => {
-            if (!flags.isUpdatingFromSIDC) {
-                tempProperties.hqTfDummy = value;
-                updatePreview();
-            }
-        },
-        'Forca-Tarefa/Posto de Comando',
-        false,
-        'modifier',
-        false,
-        dropdownState
+        MILITARY_DATA.hqTfDummy, tempProperties.hqTfDummy || "0",
+        guardedChange((value) => { tempProperties.hqTfDummy = value; updatePreview(); }),
+        'Forca-Tarefa/Posto de Comando', false, 'modifier', false, dropdownState
     );
     column1.appendChild(comboboxes.hqTfDummy);
 
-    const initialSymbolSet = tempProperties.symbolSet || "10";
-    const initialEchelonData = getEchelonData(initialSymbolSet);
+    // --- Build initial dependent controls ---
 
+    const initialSymbolSet = tempProperties.symbolSet || "10";
+
+    const initialEchelonData = getEchelonData(initialSymbolSet);
     if (initialEchelonData.applicable) {
         comboboxes.echelon = createDigitalComboBox(
-            initialEchelonData.data,
-            tempProperties.echelon || "00",
-            (value) => {
-                if (!flags.isUpdatingFromSIDC) {
-                    tempProperties.echelon = value;
-                    updatePreview();
-                }
-            },
-            initialEchelonData.label,
-            false,
-            'modifier',
-            false,
-            dropdownState
+            initialEchelonData.data, tempProperties.echelon || "00",
+            guardedChange((value) => { tempProperties.echelon = value; updatePreview(); }),
+            initialEchelonData.label, false, 'modifier', false, dropdownState
         );
         column1.appendChild(comboboxes.echelon);
     }
 
-    const initialDirectionApplicable = !['20', '40'].includes(initialSymbolSet);
-    if (initialDirectionApplicable) {
+    if (!['20', '40'].includes(initialSymbolSet)) {
         const directionContainer = createDirectionInput(tempProperties, updatePreview, flags);
         column1.appendChild(directionContainer);
         comboboxes.directionContainer = directionContainer;
     }
 
     const initialSpecialModData = getSpecialModifierData(initialSymbolSet);
-
     if (initialSpecialModData.applicable) {
         comboboxes.specialModifier = createDigitalComboBox(
-            initialSpecialModData.data,
-            tempProperties.specialModifier || "0",
-            (value) => {
-                if (!flags.isUpdatingFromSIDC) {
-                    tempProperties.specialModifier = value;
-                    updatePreview();
-                }
-            },
-            'Modificador Transversal',
-            false,
-            'modifier',
-            false,
-            dropdownState
+            initialSpecialModData.data, tempProperties.specialModifier || "0",
+            guardedChange((value) => { tempProperties.specialModifier = value; updatePreview(); }),
+            'Modificador Transversal', false, 'modifier', false, dropdownState
         );
         column2.appendChild(comboboxes.specialModifier);
     }
@@ -486,69 +374,45 @@ export function createSymbolFormColumns(config) {
     }
 
     comboboxes.mainIcon = createDigitalComboBox(
-        getMainIcons(initialSymbolSet),
-        tempProperties.mainIcon || "000000",
-        (value, selectedOption) => {
-            if (!flags.isUpdatingFromSIDC) {
-                tempProperties.mainIcon = value;
-                tempProperties.mainIconExtension = selectedOption?.extension || null;
-                updatePreview();
-            }
-        },
-        'Ícone Principal',
-        false,
-        'mainIcon',
-        false,
-        dropdownState
+        getMainIcons(initialSymbolSet), tempProperties.mainIcon || "000000",
+        guardedChange((value, selectedOption) => {
+            tempProperties.mainIcon = value;
+            tempProperties.mainIconExtension = selectedOption?.extension || null;
+            updatePreview();
+        }),
+        'Ícone Principal', false, 'mainIcon', false, dropdownState
     );
     column2.appendChild(comboboxes.mainIcon);
 
     if (isModifier1Applicable(initialSymbolSet)) {
         comboboxes.modifier1 = createDigitalComboBox(
-            getModifier1(initialSymbolSet),
-            tempProperties.modifier1 || "00",
-            (value, selectedOption) => {
-                if (!flags.isUpdatingFromSIDC) {
-                    tempProperties.modifier1 = value;
-                    tempProperties.modifier1Extension = selectedOption?.extension || null;
-                    updatePreview();
-                }
-            },
-            'Modificador 1',
-            true,
-            'modifier',
-            false,
-            dropdownState
+            getModifier1(initialSymbolSet), tempProperties.modifier1 || "00",
+            guardedChange((value, selectedOption) => {
+                tempProperties.modifier1 = value;
+                tempProperties.modifier1Extension = selectedOption?.extension || null;
+                updatePreview();
+            }),
+            'Modificador 1', true, 'modifier', false, dropdownState
         );
         column2.appendChild(comboboxes.modifier1);
     }
 
     if (isModifier2Applicable(initialSymbolSet)) {
         comboboxes.modifier2 = createDigitalComboBox(
-            getModifier2(initialSymbolSet),
-            tempProperties.modifier2 || "00",
-            (value, selectedOption) => {
-                if (!flags.isUpdatingFromSIDC) {
-                    tempProperties.modifier2 = value;
-                    tempProperties.modifier2Extension = selectedOption?.extension || null;
-                    updatePreview();
-                }
-            },
-            'Modificador 2',
-            true,
-            'modifier',
-            false,
-            dropdownState
+            getModifier2(initialSymbolSet), tempProperties.modifier2 || "00",
+            guardedChange((value, selectedOption) => {
+                tempProperties.modifier2 = value;
+                tempProperties.modifier2Extension = selectedOption?.extension || null;
+                updatePreview();
+            }),
+            'Modificador 2', true, 'modifier', false, dropdownState
         );
         column2.appendChild(comboboxes.modifier2);
     }
 
     comboboxes.colorControl = createColorControl(
         tempProperties.fillColor,
-        (color) => {
-            tempProperties.fillColor = color;
-            updatePreview();
-        },
+        (color) => { tempProperties.fillColor = color; updatePreview(); },
         'Cor do Símbolo'
     );
     column2.appendChild(comboboxes.colorControl);
@@ -557,49 +421,24 @@ export function createSymbolFormColumns(config) {
      * Updates all combobox visual values.
      */
     function updateAllComboboxValues() {
-        if (comboboxes.symbolSet && comboboxes.symbolSet.updateValue) {
-            comboboxes.symbolSet.updateValue(tempProperties.symbolSet);
+        const valueMap = {
+            symbolSet: tempProperties.symbolSet,
+            standardIdentity: tempProperties.standardIdentity,
+            status: tempProperties.status,
+            hqTfDummy: tempProperties.hqTfDummy,
+            echelon: tempProperties.echelon,
+            specialModifier: tempProperties.specialModifier,
+            mainIcon: tempProperties.mainIcon,
+            modifier1: tempProperties.modifier1,
+            modifier2: tempProperties.modifier2
+        };
+
+        for (const [key, value] of Object.entries(valueMap)) {
+            comboboxes[key]?.updateValue?.(value);
         }
 
-        if (comboboxes.standardIdentity && comboboxes.standardIdentity.updateValue) {
-            comboboxes.standardIdentity.updateValue(tempProperties.standardIdentity);
-        }
-
-        if (comboboxes.status && comboboxes.status.updateValue) {
-            comboboxes.status.updateValue(tempProperties.status);
-        }
-
-        if (comboboxes.hqTfDummy && comboboxes.hqTfDummy.updateValue) {
-            comboboxes.hqTfDummy.updateValue(tempProperties.hqTfDummy);
-        }
-
-        if (comboboxes.echelon && comboboxes.echelon.updateValue) {
-            comboboxes.echelon.updateValue(tempProperties.echelon);
-        }
-
-        if (comboboxes.specialModifier && comboboxes.specialModifier.updateValue) {
-            comboboxes.specialModifier.updateValue(tempProperties.specialModifier);
-        }
-
-        if (comboboxes.isCommand && comboboxes.isCommand.updateValue) {
-            comboboxes.isCommand.updateValue(tempProperties.isCommand);
-        }
-
-        if (comboboxes.mainIcon && comboboxes.mainIcon.updateValue) {
-            comboboxes.mainIcon.updateValue(tempProperties.mainIcon);
-        }
-
-        if (comboboxes.modifier1 && comboboxes.modifier1.updateValue) {
-            comboboxes.modifier1.updateValue(tempProperties.modifier1);
-        }
-
-        if (comboboxes.modifier2 && comboboxes.modifier2.updateValue) {
-            comboboxes.modifier2.updateValue(tempProperties.modifier2);
-        }
-
-        if (comboboxes.colorControl && comboboxes.colorControl.updateValue) {
-            comboboxes.colorControl.updateValue(tempProperties.fillColor);
-        }
+        comboboxes.isCommand?.updateValue?.(tempProperties.isCommand);
+        comboboxes.colorControl?.updateValue?.(tempProperties.fillColor);
     }
 
     /**

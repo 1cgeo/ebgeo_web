@@ -2,20 +2,15 @@
 
 /**
  * @fileoverview Search providers for the search bar.
- * Extracted from search-bar.component.js for better organization.
  * Each provider handles a specific search source.
- * @module search/search-bar.search-providers
  */
 
-import config from '../config.js';
-import { getCurrentMapFeatures } from '../store/feature.operations.js';
-import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '../store/store.constants.js';
-import { tryParseCoordinates, formatCoordinates } from '../utilities/coordinate_converter.js';
+import config from '@js/config.js';
+import { getCurrentMapFeatures } from '@store/feature.operations.js';
+import { getAllMapNamesStore, getCurrentMapNameSync } from '@store/map.operations.js';
+import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '@store/store.constants.js';
+import { tryParseCoordinates, formatCoordinates } from '@utils/coordinate_converter.js';
 import { MAX_RESULTS } from './search-bar.icons.js';
-
-// ============================================================================
-// COORDINATE SEARCH
-// ============================================================================
 
 /**
  * Searches for coordinates in the query string.
@@ -50,10 +45,6 @@ export async function searchCoordinates(query) {
     }
     return [];
 }
-
-// ============================================================================
-// LOCAL FEATURES SEARCH
-// ============================================================================
 
 /**
  * Checks if a feature matches the search query.
@@ -118,51 +109,96 @@ function getFeatureCenter(feature) {
 }
 
 /**
- * Searches local features from the store.
- * @param {string} query - Search query
+ * Searches features in a single map.
+ * @param {string} mapName - Map name to search
+ * @param {string} normalizedQuery - Lowercase search query
+ * @param {boolean} isCurrentMap - Whether this is the active map
+ * @param {number} maxResults - Maximum results to collect
  * @returns {Promise<Array>} Search results
  */
-export async function searchLocalFeatures(query) {
+async function searchFeaturesInMap(mapName, normalizedQuery, isCurrentMap, maxResults) {
     const results = [];
-    const normalizedQuery = query.toLowerCase();
+    const allFeatures = await getCurrentMapFeatures(mapName);
+    const storageTypes = getAllStorageTypes();
 
-    try {
-        const allFeatures = await getCurrentMapFeatures();
-        const storageTypes = getAllStorageTypes();
+    for (const storageType of storageTypes) {
+        const features = allFeatures[storageType] || [];
 
-        for (const storageType of storageTypes) {
-            const features = allFeatures[storageType] || [];
+        for (const feature of features) {
+            const matchInfo = featureMatchesQuery(feature, normalizedQuery);
+            if (matchInfo) {
+                const name = feature.properties?.name || feature.properties?.nome || 'Sem nome';
+                const typeLabel = getFeatureDisplayNameFromStorage(storageType);
 
-            for (const feature of features) {
-                const matchInfo = featureMatchesQuery(feature, normalizedQuery);
-                if (matchInfo) {
-                    const name = feature.properties?.name || feature.properties?.nome || 'Sem nome';
-                    results.push({
-                        type: 'feature',
-                        subtype: storageType,
-                        name: name,
-                        layer: getFeatureDisplayNameFromStorage(storageType),
-                        matchedField: matchInfo.field,
-                        coordinates: getFeatureCenter(feature),
-                        feature: feature,
-                    });
+                results.push({
+                    type: 'feature',
+                    subtype: storageType,
+                    name: name,
+                    layer: isCurrentMap ? typeLabel : `${typeLabel} · ${mapName}`,
+                    matchedField: matchInfo.field,
+                    coordinates: getFeatureCenter(feature),
+                    feature: feature,
+                    mapName: isCurrentMap ? null : mapName,
+                });
 
-                    if (results.length >= MAX_RESULTS.features) {
-                        return results;
-                    }
+                if (results.length >= maxResults) {
+                    return results;
                 }
             }
         }
-    } catch (error) {
-        console.warn('[SearchProviders] Error searching local features:', error);
     }
 
     return results;
 }
 
-// ============================================================================
-// 3D MODELS SEARCH
-// ============================================================================
+/**
+ * Searches local features from the store across all maps.
+ * Current map results appear first, followed by other maps.
+ * @param {string} query - Search query
+ * @returns {Promise<Array>} Search results
+ */
+export async function searchLocalFeatures(query) {
+    const normalizedQuery = query.toLowerCase();
+    const maxTotal = MAX_RESULTS.features;
+
+    // Search current map first (priority)
+    let results = [];
+    try {
+        results = await searchFeaturesInMap(
+            getCurrentMapNameSync(), normalizedQuery, true, maxTotal
+        );
+    } catch (error) {
+        console.warn('[SearchProviders] Error searching current map features:', error);
+    }
+
+    if (results.length >= maxTotal) {
+        return results;
+    }
+
+    // Search remaining maps
+    try {
+        const allMapNames = await getAllMapNamesStore();
+        const currentMap = getCurrentMapNameSync();
+
+        for (const mapName of allMapNames) {
+            if (mapName === currentMap) continue;
+
+            const remaining = maxTotal - results.length;
+            const mapResults = await searchFeaturesInMap(
+                mapName, normalizedQuery, false, remaining
+            );
+            results.push(...mapResults);
+
+            if (results.length >= maxTotal) {
+                return results.slice(0, maxTotal);
+            }
+        }
+    } catch (error) {
+        console.warn('[SearchProviders] Error searching other maps:', error);
+    }
+
+    return results;
+}
 
 /**
  * Searches 3D models from config.
@@ -177,7 +213,10 @@ export function search3DModels(query) {
     const normalizedQuery = query.toLowerCase();
 
     return config.tilesets
-        .filter(tileset => tileset.name?.toLowerCase().includes(normalizedQuery))
+        .filter(tileset =>
+            tileset.name?.toLowerCase().includes(normalizedQuery) ||
+            tileset.keywords?.some(kw => kw.toLowerCase().includes(normalizedQuery))
+        )
         .slice(0, MAX_RESULTS.models3d)
         .map(tileset => ({
             type: '3d-model',
@@ -187,10 +226,6 @@ export function search3DModels(query) {
             dataCaptura: tileset.data_captura,
         }));
 }
-
-// ============================================================================
-// STREETVIEW MARKERS SEARCH
-// ============================================================================
 
 /**
  * Searches streetview projects from the API service cache.
@@ -208,7 +243,10 @@ export async function searchStreetViewMarkers(query) {
         const normalizedQuery = query.toLowerCase();
 
         return projects
-            .filter(p => p.name?.toLowerCase().includes(normalizedQuery))
+            .filter(p =>
+                p.name?.toLowerCase().includes(normalizedQuery) ||
+                p.keywords?.some(kw => kw.toLowerCase().includes(normalizedQuery))
+            )
             .slice(0, MAX_RESULTS.streetview)
             .map(p => ({
                 type: 'streetview-marker',
@@ -221,10 +259,6 @@ export async function searchStreetViewMarkers(query) {
         return [];
     }
 }
-
-// ============================================================================
-// API SEARCH
-// ============================================================================
 
 /**
  * Searches external API.

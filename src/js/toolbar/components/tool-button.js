@@ -9,7 +9,7 @@ import {
     addDomListener,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
+} from '@utils/event-cleanup.js';
 
 /**
  * Tool button component.
@@ -88,12 +88,16 @@ export class ToolButton {
     /**
      * Sets the disabled state.
      * @param {boolean} disabled
+     * @param {string|null} [reason] - Tooltip reason shown when disabled
      */
-    setDisabled(disabled) {
+    setDisabled(disabled, reason = null) {
         this._isDisabled = disabled;
         if (this._button) {
             this._button.disabled = disabled;
             this._button.classList.toggle('disabled', disabled);
+            this._button.title = disabled && reason
+                ? reason
+                : `${this._config.label} (${this._config.shortcut})`;
         }
     }
 

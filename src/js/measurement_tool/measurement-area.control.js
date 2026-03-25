@@ -10,6 +10,8 @@
 
 import {
     calculatePolygonMetrics,
+    calculateSegmentDistance,
+    getSegmentMidpoint,
     getPolygonCentroid,
     formatAreaAuto,
     formatDistanceAuto,
@@ -23,12 +25,8 @@ import {
     clearAllSources,
 } from './measurement-labels.js';
 import { createAreaResultsPanel } from './measurement-results-panel.js';
-import { addFeature, getActiveLayerIdSync, getControl } from '@store';
-import { IDUtils } from '@utils';
-
-// ============================================================================
-// CONTROL CLASS
-// ============================================================================
+import { addFeature, getActiveLayerIdSync, getControl, isCurrentMapLockedSync } from '@store';
+import { IDUtils, showToast } from '@utils';
 
 export class MeasurementAreaControl {
     constructor(toolManager) {
@@ -38,11 +36,11 @@ export class MeasurementAreaControl {
 
         /** @type {number[][]} Collected vertex coordinates [lng, lat] */
         this._vertices = [];
-        /** @type {number[]|null} Current cursor position */
+        /** @type {number[]|null} */
         this._cursorPos = null;
-        /** @type {HTMLElement|null} Results panel DOM element */
+        /** @type {HTMLElement|null} */
         this._resultsPanel = null;
-        /** @type {boolean} Whether measurement has been finalized (awaiting new click to restart) */
+        /** @type {boolean} Whether measurement has been finalized */
         this._finalized = false;
 
         this._onMapClick = this._onMapClick.bind(this);
@@ -50,8 +48,6 @@ export class MeasurementAreaControl {
         this._onContextMenu = this._onContextMenu.bind(this);
         this._onDblClick = this._onDblClick.bind(this);
     }
-
-    // --- MapLibre IControl interface ---
 
     onAdd(map) {
         this.map = map;
@@ -63,8 +59,6 @@ export class MeasurementAreaControl {
         this.deactivate();
         this.map = null;
     }
-
-    // --- Tool activation ---
 
     activate() {
         if (!this.map || this.isActive) return;
@@ -98,12 +92,9 @@ export class MeasurementAreaControl {
         this._removeResultsPanel();
     }
 
-    // --- Event handlers ---
-
     _onMapClick(e) {
         if (!this.isActive) return;
 
-        // Clicking after finalize restarts a new measurement
         if (this._finalized) {
             this._restart();
         }
@@ -123,7 +114,7 @@ export class MeasurementAreaControl {
     _onContextMenu(e) {
         e.preventDefault();
         if (this._finalized) return;
-        // Include right-click position as final vertex before finalizing
+
         const coord = [e.lngLat.lng, e.lngLat.lat];
         this._vertices.push(coord);
         this._finalize();
@@ -138,8 +129,6 @@ export class MeasurementAreaControl {
         this._finalize();
     }
 
-    // --- Visualization ---
-
     _updateVisualization() {
         if (!this.map) return;
 
@@ -148,24 +137,32 @@ export class MeasurementAreaControl {
             coords.push(this._cursorPos);
         }
 
-        // Update vertices
         updateVertices(this.map, this._vertices);
 
         if (coords.length >= 3) {
-            // Show polygon fill + outline
             updatePreviewFill(this.map, coords);
-            // Closed ring for outline
             updatePreviewLine(this.map, [...coords, coords[0]]);
 
-            // Area label at centroid
             const { area, perimeter } = calculatePolygonMetrics(coords);
             const centroid = getPolygonCentroid(coords);
-            updateLabels(this.map, [{
+
+            // Area/perimeter label at centroid
+            const labels = [{
                 coordinates: centroid,
-                text: `${formatAreaAuto(area)}\n⌀ ${formatDistanceAuto(perimeter)}`,
-            }]);
+                text: `${formatAreaAuto(area)}\n\u2300 ${formatDistanceAuto(perimeter)}`,
+                labelType: 'segment',
+            }];
+
+            // Side length labels at each segment midpoint
+            const closedCoords = [...coords, coords[0]];
+            for (let i = 0; i < closedCoords.length - 1; i++) {
+                const dist = calculateSegmentDistance(closedCoords[i], closedCoords[i + 1]);
+                const mid = getSegmentMidpoint(closedCoords[i], closedCoords[i + 1]);
+                labels.push({ coordinates: mid, text: formatDistanceAuto(dist), labelType: 'segment' });
+            }
+
+            updateLabels(this.map, labels);
         } else if (coords.length === 2) {
-            // Just show line between first two points
             updatePreviewLine(this.map, coords);
             updatePreviewFill(this.map, []);
             updateLabels(this.map, []);
@@ -176,8 +173,6 @@ export class MeasurementAreaControl {
         }
     }
 
-    // --- Finalize ---
-
     _finalize() {
         if (this._vertices.length < 3) {
             this.deactivate();
@@ -187,22 +182,15 @@ export class MeasurementAreaControl {
 
         this._finalized = true;
 
-        // Stop rubber-band but keep click listener for restart
         this.map.off('mousemove', this._onMouseMove);
         this.map.getCanvas().style.cursor = '';
         this._cursorPos = null;
 
-        // Final static visualization
         this._updateVisualization();
 
-        // Compute final values
         const { area, perimeter } = calculatePolygonMetrics(this._vertices);
-
-        // Show results panel
         this._showResultsPanel(area, perimeter);
     }
-
-    // --- Restart (new measurement, keeping tool active) ---
 
     _restart() {
         this._finalized = false;
@@ -211,11 +199,8 @@ export class MeasurementAreaControl {
         clearAllSources(this.map);
         this._removeResultsPanel();
         this.map.getCanvas().style.cursor = 'crosshair';
-        // Re-add mousemove for rubber-band
         this.map.on('mousemove', this._onMouseMove);
     }
-
-    // --- Results panel ---
 
     _showResultsPanel(area, perimeter) {
         this._removeResultsPanel();
@@ -225,7 +210,7 @@ export class MeasurementAreaControl {
         this._resultsPanel = createAreaResultsPanel({
             area,
             perimeter,
-            onSave: () => this._saveAsFeature(vertices),
+            onSave: isCurrentMapLockedSync() ? null : () => this._saveAsFeature(vertices),
             onClear: () => {
                 this.deactivate();
                 this.toolManager.deactivateCurrentTool();
@@ -233,7 +218,6 @@ export class MeasurementAreaControl {
             onUnitChange: ({ areaUnit }) => this._updateMapLabels(areaUnit, area, perimeter),
         });
 
-        // Use sidebar's showToolPanel API for proper panel display
         const sidebarControl = getControl('sidebarControl');
         if (sidebarControl?.showToolPanel) {
             sidebarControl.showToolPanel(
@@ -258,27 +242,41 @@ export class MeasurementAreaControl {
         }
     }
 
-    // --- Map label update on unit change ---
-
     /**
      * Redraws the map label using the selected area unit.
      * @param {Object} areaUnit - Area unit definition
-     * @param {number} area - Area in m²
+     * @param {number} area - Area in m2
      * @param {number} perimeter - Perimeter in meters
      */
     _updateMapLabels(areaUnit, area, perimeter) {
         if (!this.map || this._vertices.length < 3) return;
 
         const centroid = getPolygonCentroid(this._vertices);
-        updateLabels(this.map, [{
+
+        const labels = [{
             coordinates: centroid,
-            text: `${formatArea(area, areaUnit)}\n⌀ ${formatDistanceAuto(perimeter)}`,
-        }]);
+            text: `${formatArea(area, areaUnit)}\n\u2300 ${formatDistanceAuto(perimeter)}`,
+            labelType: 'segment',
+        }];
+
+        // Side length labels
+        const closedCoords = [...this._vertices, this._vertices[0]];
+        for (let i = 0; i < closedCoords.length - 1; i++) {
+            const dist = calculateSegmentDistance(closedCoords[i], closedCoords[i + 1]);
+            const mid = getSegmentMidpoint(closedCoords[i], closedCoords[i + 1]);
+            labels.push({ coordinates: mid, text: formatDistanceAuto(dist), labelType: 'segment' });
+        }
+
+        updateLabels(this.map, labels);
     }
 
-    // --- Save as feature ---
-
+    /** @param {number[][]} coordinates */
     async _saveAsFeature(coordinates) {
+        if (isCurrentMapLockedSync()) {
+            showToast('Mapa bloqueado. Desbloqueie para salvar a medição.', 'warning');
+            return;
+        }
+
         const layerId = getActiveLayerIdSync();
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const { area } = calculatePolygonMetrics(coordinates);
@@ -311,7 +309,6 @@ export class MeasurementAreaControl {
 
         await addFeature('polygons', feature);
 
-        // Push to MapLibre source for immediate rendering
         const data = await this.map.getSource('polygons').getData();
         data.features.push(feature);
         this.map.getSource('polygons').setData(data);

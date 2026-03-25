@@ -29,7 +29,7 @@ import {
     cleanup,
     removeElement,
     trackTimer
-} from '../../utilities/event-cleanup.js';
+} from '@utils/event-cleanup.js';
 import {
     getBriefingById,
     updateBriefing,
@@ -38,28 +38,30 @@ import {
     reorderSlides,
     createEmptySlide,
     SlideMode,
+    getAllBriefings,
     getAllMapNamesStore,
     setCurrentMap,
     getCurrentMapNameSync,
     setBriefingLockOverride,
     getControl,
+    getEventBus,
     getMapNotes,
     hasMapNotes,
     getMapPosition,
     getAllCameraPositions,
     getAllOrientations
-} from '../../store/index.js';
-import { createQuillEditor } from '../../utilities/quill-helpers.js';
-import { EventTypes } from '../../events/event_types.js';
-import { getEventBus } from '../../store/services.js';
-import { showSuccess, showError, showWarning } from '../../utilities/index.js';
-
-import { showConfirm } from '../../modals/index.js';
-import { getApplicationModeManager, ApplicationMode } from '../../mode/application-mode.manager.js';
-import { getUIVisibilityController, VisibilityProfile } from '../../ui/ui-visibility.controller.js';
-import { isViewer3DOpen } from '../../utilities/viewer3d-state.js';
-import { isStreetView360Open } from '../../utilities/streetview360-state.js';
-import config from '../../config.js';
+} from '@store/index.js';
+import { deepClone } from '@utils/deep-utils.js';
+import { generateUUID } from '@utils/uuid.js';
+import { createQuillEditor } from '@utils/quill-helpers.js';
+import { EventTypes } from '@events/event_types.js';
+import { showSuccess, showError, showWarning } from '@utils/index.js';
+import { showConfirm, showImportSlidesModal } from '@modals/index.js';
+import { getApplicationModeManager, ApplicationMode } from '@js/mode/application-mode.manager.js';
+import { getUIVisibilityController, VisibilityProfile } from '@ui/ui-visibility.controller.js';
+import { isViewer3DOpen } from '@utils/viewer3d-state.js';
+import { isStreetView360Open } from '@utils/streetview360-state.js';
+import config from '@js/config.js';
 import { createTransitionService } from '../presentation/transition.service.js';
 
 // ============================================================================
@@ -102,6 +104,8 @@ const EDITOR_ICONS = {
     savedOrientations: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`,
 
     chevronDown: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
+
+    importSlides: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
 };
 
 /**
@@ -339,9 +343,9 @@ export class BriefingEditorControl {
                 } else {
                     // Fallback: hide container directly
                     const container = document.getElementById('map-3d-container');
-                    if (container) container.style.display = 'none';
+                    if (container) container.classList.add('hidden');
                     const mapSig = document.getElementById('map-sig');
-                    if (mapSig) mapSig.style.display = 'block';
+                    if (mapSig) mapSig.classList.remove('hidden');
                 }
             }
         } catch (error) {
@@ -350,7 +354,7 @@ export class BriefingEditorControl {
 
         try {
             if (isStreetView360Open()) {
-                const { closeViewer360 } = await import('../../street_view_tool/street_view_viewer.js');
+                const { closeViewer360 } = await import('@js/street_view_tool/street_view_viewer.js');
                 await closeViewer360();
             }
         } catch (error) {
@@ -392,12 +396,24 @@ export class BriefingEditorControl {
         slidesTitle.textContent = 'Slides';
         slidesHeader.appendChild(slidesTitle);
 
+        const slidesActions = document.createElement('div');
+        slidesActions.className = 'briefing-editor-slide-actions';
+
+        const importSlidesBtn = document.createElement('button');
+        importSlidesBtn.className = 'briefing-editor-add-slide-btn';
+        importSlidesBtn.innerHTML = EDITOR_ICONS.importSlides;
+        importSlidesBtn.title = 'Importar slides de outros briefings';
+        addDomListener(this, importSlidesBtn, 'click', () => this._handleImportSlides());
+        slidesActions.appendChild(importSlidesBtn);
+
         const addSlideBtn = document.createElement('button');
         addSlideBtn.className = 'briefing-editor-add-slide-btn';
         addSlideBtn.innerHTML = EDITOR_ICONS.plus;
         addSlideBtn.title = 'Adicionar slide';
         addDomListener(this, addSlideBtn, 'click', () => this._handleAddSlide());
-        slidesHeader.appendChild(addSlideBtn);
+        slidesActions.appendChild(addSlideBtn);
+
+        slidesHeader.appendChild(slidesActions);
 
         slidesSection.appendChild(slidesHeader);
 
@@ -843,7 +859,7 @@ export class BriefingEditorControl {
             // (3D markers/measurements/viewsheds are stored per-map)
             if (isViewer3DOpen()) {
                 try {
-                    const viewer3d = await import('../../3d_models_viewer_tool/map_3d.js');
+                    const viewer3d = await import('@js/3d_models_viewer_tool/map_3d.js');
                     const cesiumViewer = viewer3d.getCesiumViewer?.();
                     const tilesetId = viewer3d.getCurrentTilesetId?.();
                     if (cesiumViewer && tilesetId) {
@@ -876,12 +892,16 @@ export class BriefingEditorControl {
                 placeholder: 'Digite o conte\u00FAdo do slide...',
                 theme: 'snow',
                 toolbar: [
-                    ['bold', 'italic', 'underline'],
+                    [{ 'header': [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline', 'strike'],
+                    [{ 'color': [] }, { 'background': [] }],
                     [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-                    ['link'],
+                    [{ 'indent': '-1' }, { 'indent': '+1' }],
+                    [{ 'align': [] }],
+                    ['link', 'image'],
                     ['clean']
                 ],
-                enableImageCompression: false
+                enableImageCompression: true
             });
 
             if (slide.content) {
@@ -898,8 +918,7 @@ export class BriefingEditorControl {
             const errorMsg = document.createElement('p');
             errorMsg.className = 'briefing-editor-quill-error';
             errorMsg.textContent = 'Erro ao carregar editor';
-            container.innerHTML = '';
-            container.appendChild(errorMsg);
+            container.replaceChildren(errorMsg);
         }
     }
 
@@ -966,20 +985,7 @@ export class BriefingEditorControl {
                 : slide;
 
             await this._transitionService.transitionToSlideInstant(transitionSlide);
-
-            // Update visibility profile based on the effective viewer mode
-            const visController = getUIVisibilityController();
-            switch (effectiveMode) {
-                case SlideMode.VIEWER_3D:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_3D);
-                    break;
-                case SlideMode.VIEWER_360:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_360);
-                    break;
-                default:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_2D);
-                    break;
-            }
+            this._applyLockedVisibilityProfile(effectiveMode);
         }
     }
 
@@ -1014,6 +1020,27 @@ export class BriefingEditorControl {
         return slide.mode || SlideMode.MAP_2D;
     }
 
+    /**
+     * Applies the locked visibility profile matching the given viewer mode.
+     * @private
+     * @param {string} mode - Effective SlideMode
+     */
+    _applyLockedVisibilityProfile(mode) {
+        const visController = getUIVisibilityController();
+
+        switch (mode) {
+            case SlideMode.VIEWER_3D:
+                visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_3D);
+                break;
+            case SlideMode.VIEWER_360:
+                visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_360);
+                break;
+            default:
+                visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_2D);
+                break;
+        }
+    }
+
     // =========================================================================
     // POSITION CAPTURE (auto-detects active viewer)
     // =========================================================================
@@ -1040,7 +1067,7 @@ export class BriefingEditorControl {
                     getCameraRotation,
                     getCameraFOV,
                     getCurrentPhotoName
-                } = await import('../../street_view_tool/street_view_viewer.js');
+                } = await import('@js/street_view_tool/street_view_viewer.js');
 
                 const geoPos = await getCurrentPhotoGeoPosition();
                 slide.position = {
@@ -1068,7 +1095,7 @@ export class BriefingEditorControl {
                 // Capture from live Cesium 3D viewer camera
                 slide.mode = SlideMode.VIEWER_3D;
 
-                const { getCesiumViewer, getCurrentTilesetId } = await import('../../3d_models_viewer_tool/map_3d.js');
+                const { getCesiumViewer, getCurrentTilesetId } = await import('@js/3d_models_viewer_tool/map_3d.js');
                 const viewer = getCesiumViewer();
 
                 if (viewer) {
@@ -1242,7 +1269,6 @@ export class BriefingEditorControl {
             // Position dropdown below the anchor button
             const wrapper = anchorEl.closest('.briefing-editor-position-wrapper');
             if (wrapper) {
-                wrapper.style.position = 'relative';
                 wrapper.appendChild(dropdown);
             }
 
@@ -1366,7 +1392,7 @@ export class BriefingEditorControl {
                 const {
                     fetchPhotoMetadata,
                     getPhotoDisplayName
-                } = await import('../../street_view_tool/streetview-api.service.js');
+                } = await import('@js/street_view_tool/streetview-api.service.js');
 
                 for (const photoName of photoNames) {
                     const ori = orientations[photoName];
@@ -1449,19 +1475,7 @@ export class BriefingEditorControl {
                 : slide;
 
             await this._transitionService.transitionToSlideInstant(transitionSlide);
-
-            const visController = getUIVisibilityController();
-            switch (effectiveMode) {
-                case SlideMode.VIEWER_3D:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_3D);
-                    break;
-                case SlideMode.VIEWER_360:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_360);
-                    break;
-                default:
-                    visController.applyProfile(VisibilityProfile.BRIEFING_LOCKED_2D);
-                    break;
-            }
+            this._applyLockedVisibilityProfile(effectiveMode);
         }
 
         showSuccess('Orientação aplicada');
@@ -1556,6 +1570,86 @@ export class BriefingEditorControl {
         } catch (error) {
             console.error('Error deleting slide:', error);
             showError('Erro ao excluir slide');
+        }
+    }
+
+    /**
+     * Opens modal to import slides from other briefings.
+     * @private
+     */
+    async _handleImportSlides() {
+        try {
+            await this._flushAutosave();
+
+            const allBriefings = await getAllBriefings();
+            const availableBriefings = allBriefings
+                .filter(b => b.id !== this._briefing.id)
+                .map(b => ({
+                    id: b.id,
+                    name: b.name,
+                    slideCount: b.slides?.length || 0
+                }));
+
+            if (availableBriefings.length === 0) {
+                showWarning('Não há outros briefings para importar slides');
+                return;
+            }
+
+            showImportSlidesModal(
+                this._briefing.name,
+                availableBriefings,
+                (selectedIds) => this._importSlidesFromBriefings(selectedIds)
+            );
+        } catch (error) {
+            console.error('Error opening import slides modal:', error);
+            showError('Erro ao abrir importação de slides');
+        }
+    }
+
+    /**
+     * Copies slides from selected source briefings into the current one.
+     * @private
+     * @param {string[]} briefingIds - Source briefing IDs
+     */
+    async _importSlidesFromBriefings(briefingIds) {
+        try {
+            const sourceBriefings = await Promise.all(
+                briefingIds.map(id => getBriefingById(id))
+            );
+
+            const newSlides = [];
+            for (const sourceBriefing of sourceBriefings) {
+                if (!sourceBriefing?.slides?.length) continue;
+
+                for (const sourceSlide of sourceBriefing.slides) {
+                    const cloned = deepClone(sourceSlide);
+                    cloned.id = generateUUID();
+                    delete cloned.sync;
+                    delete cloned.order;
+                    newSlides.push(cloned);
+                }
+            }
+
+            if (newSlides.length === 0) {
+                showWarning('Nenhum slide encontrado nos briefings selecionados');
+                return;
+            }
+
+            const existingSlides = this._briefing.slides.map(s => ({ ...s }));
+            const allSlides = [...existingSlides, ...newSlides];
+            for (let i = 0; i < allSlides.length; i++) {
+                allSlides[i].order = i;
+            }
+
+            await updateBriefing(this._briefing.id, { slides: allSlides });
+
+            this._briefing = await getBriefingById(this._briefing.id);
+            this._renderSlideList();
+
+            showSuccess(`${newSlides.length} slide(s) importado(s)`);
+        } catch (error) {
+            console.error('Error importing slides:', error);
+            showError('Erro ao importar slides');
         }
     }
 

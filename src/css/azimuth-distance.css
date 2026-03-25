@@ -25,7 +25,7 @@
 }
 
 /* ===== SECTION LABELS ===== */
-.section-label {
+.azd-section-label {
     font-size: 9px;
     font-weight: 700;
     color: var(--gray-400, #9ca3af);
@@ -54,7 +54,7 @@
     font-size: 12px;
     font-weight: 500;
     color: var(--gray-700, #374151);
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
 }
 
 .azd-unit-toggle:hover {
@@ -85,10 +85,10 @@
     gap: 4px;
     padding: 10px 8px;
     border: 2px solid var(--gray-200, #e5e7eb);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: white;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
 }
 
 .azd-mode-btn:hover:not(.active) {
@@ -151,13 +151,13 @@
 .azd-north-btn {
     padding: 5px 12px;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: transparent;
     cursor: pointer;
     font-size: 11px;
     font-weight: 700;
     font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
     color: var(--gray-500, #6b7280);
 }
 
@@ -198,7 +198,7 @@
     width: 68px;
     padding: 5px 6px;
     border: 1px solid var(--gray-300, #d1d5db);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-size: 12px;
     font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
     text-align: right;
@@ -235,6 +235,45 @@
     font-weight: 600;
 }
 
+/* ===== AUTO DECLINATION BUTTON ===== */
+.azd-auto-decl-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    margin-left: 4px;
+    border: 1px solid var(--gray-300, #d1d5db);
+    border-radius: 6px;
+    background: white;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.azd-auto-decl-btn:hover:not(:disabled) {
+    border-color: var(--primary-600, #16a34a);
+    background: var(--primary-50, #f0fdf4);
+}
+
+.azd-auto-decl-btn:disabled {
+    border-color: var(--gray-200, #e5e7eb);
+    background: var(--gray-50, #f9fafb);
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
+/* ===== AUTO DECLINATION INFO ===== */
+.azd-auto-decl-info {
+    font-size: 11px;
+    color: var(--gray-500, #6b7280);
+}
+
+.azd-auto-decl-info--warning {
+    color: var(--amber-600, #d97706);
+}
+
 /* ===== COMPASS SECTION ===== */
 .azd-compass {
     display: flex;
@@ -244,32 +283,34 @@
 
 /* ===== QUICK AZIMUTH BUTTONS ===== */
 .azd-quick-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    justify-content: center;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
 }
 
 .azd-quick-btn {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 1px;
-    padding: 5px 9px;
+    justify-content: center;
+    gap: 2px;
+    padding: 10px 8px;
     border: 1px solid var(--gray-300, #d1d5db);
-    border-radius: 4px;
+    border-radius: 6px;
     background: white;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.15s;
+    min-height: 50px;
 }
 
 .azd-quick-btn:hover {
-    border-color: var(--primary-400, #4ade80);
+    border-color: var(--primary-600, #16a34a);
     background: var(--primary-50, #f0fdf4);
 }
 
 .azd-quick-btn.north {
-    border-color: var(--red-300, #fca5a5);
+    border-color: var(--red-600, #dc2626);
+    background: var(--red-50, #fef2f2);
 }
 
 .azd-quick-btn.north:hover {
@@ -277,7 +318,7 @@
 }
 
 .azd-quick-label {
-    font-size: 10px;
+    font-size: 14px;
     font-weight: 700;
     color: var(--gray-700, #374151);
 }
@@ -287,9 +328,9 @@
 }
 
 .azd-quick-value {
-    font-size: 8px;
+    font-size: 11px;
     font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
-    color: var(--gray-400, #9ca3af);
+    color: var(--gray-500, #6b7280);
 }
 
 /* ===== SUMMARY BAR ===== */
@@ -329,7 +370,7 @@
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast);
 }
 
 .azd-btn-cancel {
@@ -364,9 +405,231 @@
     flex-direction: column;
 }
 
-/* ===== REFERENCE POINT ===== */
-.azimuth-distance-reference-point {
-    /* Container for the reference point component */
+/* ===== LEGS TABLE HEADER ===== */
+.azd-legs-header {
+    display: flex;
+    align-items: center;
+    padding: 8px 0 4px;
+    gap: 6px;
+    border-bottom: 1px solid var(--gray-200, #e5e7eb);
+}
+
+.azd-legs-header__spacer {
+    width: 28px;
+    flex-shrink: 0;
+}
+
+.azd-legs-header__label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--gray-400, #9ca3af);
+    text-transform: uppercase;
+    text-align: center;
+    letter-spacing: 0.5px;
+    flex: 1 1 0;
+}
+
+/* ===== LEGS LIST ===== */
+.azd-legs-list {
+    max-height: 220px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* ===== LEG ROW ===== */
+.azd-leg-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--gray-100, #f3f4f6);
+    border-radius: 4px;
+    background: transparent;
+    transition: background 0.15s;
+    cursor: pointer;
+}
+
+.azd-leg-row--active {
+    background: rgba(22, 163, 74, 0.05);
+}
+
+/* ===== LEG BADGE ===== */
+.azd-leg-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    background: var(--gray-200, #e5e7eb);
+    color: var(--gray-500, #6b7280);
+}
+
+.azd-leg-row--active .azd-leg-badge {
+    background: var(--primary-600, #16a34a);
+    color: white;
+}
+
+/* ===== LEG INPUT CONTAINER ===== */
+.azd-leg-input-group {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex: 1 1 0;
+}
+
+/* ===== LEG INPUT ===== */
+.azd-leg-input {
+    width: 100%;
+    padding: 8px 6px;
+    border: 1px solid var(--gray-300, #d1d5db);
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    text-align: right;
+    outline: none;
+    background: white;
+    color: var(--gray-900, #111827);
+}
+
+.azd-leg-input:focus {
+    border-color: var(--primary-500, #22c55e);
+    box-shadow: 0 0 0 2px var(--primary-100, #dcfce7);
+}
+
+/* ===== LEG UNIT SUFFIX ===== */
+.azd-leg-suffix {
+    font-size: 12px;
+    color: var(--gray-500, #6b7280);
+    flex-shrink: 0;
+    text-align: left;
+}
+
+.azd-leg-suffix--az {
+    width: 14px;
+}
+
+.azd-leg-suffix--dist {
+    width: 20px;
+}
+
+/* ===== LEG OBSERVATION INPUT ===== */
+.azd-leg-obs-input {
+    width: 60px;
+    min-width: 50px;
+    flex-shrink: 0;
+    padding: 6px;
+    border: 1px solid var(--gray-300, #d1d5db);
+    border-radius: 4px;
+    font-size: 11px;
+    outline: none;
+    background: white;
+    color: var(--gray-900, #111827);
+}
+
+.azd-leg-obs-input:focus {
+    border-color: var(--primary-500, #22c55e);
+    box-shadow: 0 0 0 2px var(--primary-100, #dcfce7);
+}
+
+.azd-leg-obs-input::placeholder {
+    color: var(--gray-400, #9ca3af);
+}
+
+/* ===== LEG HEADER OBS LABEL ===== */
+.azd-legs-header__label--obs {
+    width: 60px;
+    min-width: 50px;
+    flex: none;
+}
+
+/* ===== CONTRA-AZIMUTH BUTTON ===== */
+.azd-flip-btn {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--gray-300, #d1d5db);
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 14px;
+    color: var(--gray-500, #6b7280);
+    padding: 0;
+    line-height: 1;
+    transition: all 0.15s;
+}
+
+.azd-flip-btn:hover {
+    border-color: var(--primary-600, #16a34a);
+    color: var(--primary-600, #16a34a);
+}
+
+/* ===== REMOVE LEG BUTTON ===== */
+.azd-remove-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 4px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+    line-height: 1;
+    transition: all 0.15s;
+}
+
+.azd-remove-btn--enabled {
+    background: var(--red-100, #fee2e2);
+    color: var(--red-600, #dc2626);
+    cursor: pointer;
+}
+
+.azd-remove-btn--enabled:hover {
+    background: var(--red-200, #fecaca);
+}
+
+.azd-remove-btn--disabled {
+    background: transparent;
+    color: var(--gray-300, #d1d5db);
+    cursor: default;
+}
+
+/* ===== ADD LEG BUTTON ===== */
+.azd-add-leg-btn {
+    width: 100%;
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px dashed var(--gray-300, #d1d5db);
+    background: white;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--gray-500, #6b7280);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-weight: 500;
+    transition: all 0.15s;
+    margin-top: 10px;
+}
+
+.azd-add-leg-btn:hover {
+    border-color: var(--primary-600, #16a34a);
+    color: var(--primary-600, #16a34a);
+}
+
+.azd-add-leg-btn__icon {
+    font-size: 18px;
+    line-height: 1;
 }
 
 /* ===== COMPASS CONTAINER ===== */
@@ -374,9 +637,199 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 10px;
+    padding: 14px;
     background: white;
+    border-radius: 12px;
+    border: 1px solid var(--gray-200, #e5e7eb);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* ===== GEOMETRY PREVIEW SVG ===== */
+.azd-geometry-preview {
+    background: var(--gray-50, #f9fafb);
     border-radius: 8px;
     border: 1px solid var(--gray-200, #e5e7eb);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    display: block;
+}
+
+/* ===== GEOMETRY PREVIEW CONTAINER ===== */
+.azimuth-distance-preview-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 14px;
+    background: white;
+    border-radius: 12px;
+    border: 1px solid var(--gray-200, #e5e7eb);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    flex: 1;
+    min-width: 200px;
+}
+
+/* ===== REFERENCE POINT ===== */
+.azd-ref-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.azd-ref-box--empty {
+    background: var(--red-50, #fef2f2);
+    border: 1px dashed #fca5a5;
+}
+
+.azd-ref-box--set {
+    background: var(--primary-50, #f0fdf4);
+    border: 1px solid var(--primary-600, #16a34a);
+}
+
+.azd-ref-box--set:hover {
+    background: rgba(22, 163, 74, 0.12);
+    border-color: var(--primary-700, #15803d);
+}
+
+.azd-ref-text {
+    font-size: 11.5px;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    font-weight: 500;
+    flex: 1;
+}
+
+.azd-ref-text--empty {
+    color: var(--red-600, #dc2626);
+}
+
+.azd-ref-text--set {
+    color: var(--primary-700, #15803d);
+}
+
+.azd-ref-buttons {
+    display: flex;
+    gap: 4px;
+}
+
+.azd-ref-action-btn {
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-500, #6b7280);
+    transition: all 0.15s;
+    border-radius: 4px;
+}
+
+.azd-ref-action-btn--edit:hover {
+    color: var(--primary-600, #16a34a);
+    background: rgba(22, 163, 74, 0.1);
+}
+
+.azd-ref-action-btn--reset:hover {
+    color: var(--amber-600, #d97706);
+    background: rgba(245, 158, 11, 0.1);
+}
+
+/* ===== REFERENCE MARKER (on map) ===== */
+.azd-reference-marker {
+    width: 24px;
+    height: 24px;
+    background: var(--primary-600, #16a34a);
+    border: 3px solid white;
+    border-radius: 50%;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+    position: relative;
+}
+
+.azd-reference-marker__crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 8px;
+    height: 8px;
+    border: 2px solid white;
+    border-radius: 50%;
+}
+
+/* ===== ATTRIBUTES PANEL (read-only summary) ===== */
+.azd-polar-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    background: var(--gray-50, #f9fafb);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.azd-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.azd-info-row__label {
+    color: var(--gray-600, #4b5563);
+    font-weight: 500;
+}
+
+.azd-info-row__value {
+    color: var(--gray-900, #111827);
+    font-weight: 600;
+}
+
+/* ===== ATTRIBUTES PANEL - LEGS READ-ONLY ===== */
+.azd-legs-readonly {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.azd-legs-readonly__row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--gray-50, #f9fafb);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.azd-legs-readonly__badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: var(--primary-600, #16a34a);
+    color: white;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.azd-legs-readonly__text {
+    flex: 1;
+    color: var(--gray-700, #374151);
+}
+
+.azd-legs-readonly__obs {
+    padding: 2px 6px;
+    background: var(--amber-100, #fef3c7);
+    color: var(--amber-600, #d97706);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
 }

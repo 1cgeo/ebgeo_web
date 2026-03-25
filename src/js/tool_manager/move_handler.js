@@ -241,16 +241,7 @@ class MoveHandler {
      */
     _onMouseMove(e) {
         if (!this.isDragging || !this.initialCoordinates) return;
-
-        this.cachedPosition.lng = e.lngLat.lng;
-        this.cachedPosition.lat = e.lngLat.lat;
-        this.cachedDelta.dx = this.cachedPosition.lng - this.initialCoordinates.lng;
-        this.cachedDelta.dy = this.cachedPosition.lat - this.initialCoordinates.lat;
-
-        if (!this.pendingUpdate) {
-            this.pendingUpdate = true;
-            this.rafId = requestAnimationFrame(this._performDragUpdate.bind(this));
-        }
+        this._scheduleDragUpdate(e.lngLat);
     }
 
     /**
@@ -332,15 +323,7 @@ class MoveHandler {
         };
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        this.cachedPosition.lng = lngLat.lng;
-        this.cachedPosition.lat = lngLat.lat;
-        this.cachedDelta.dx = this.cachedPosition.lng - this.initialCoordinates.lng;
-        this.cachedDelta.dy = this.cachedPosition.lat - this.initialCoordinates.lat;
-
-        if (!this.pendingUpdate) {
-            this.pendingUpdate = true;
-            this.rafId = requestAnimationFrame(this._performDragUpdate.bind(this));
-        }
+        this._scheduleDragUpdate(lngLat);
 
         e.preventDefault();
     }
@@ -465,6 +448,24 @@ class MoveHandler {
     }
 
     /**
+     * Update cached position/delta and schedule a rAF drag update.
+     * Shared by mouse and touch move handlers.
+     * @param {Object} lngLat - { lng, lat } position
+     * @private
+     */
+    _scheduleDragUpdate(lngLat) {
+        this.cachedPosition.lng = lngLat.lng;
+        this.cachedPosition.lat = lngLat.lat;
+        this.cachedDelta.dx = this.cachedPosition.lng - this.initialCoordinates.lng;
+        this.cachedDelta.dy = this.cachedPosition.lat - this.initialCoordinates.lat;
+
+        if (!this.pendingUpdate) {
+            this.pendingUpdate = true;
+            this.rafId = requestAnimationFrame(this._performDragUpdate.bind(this));
+        }
+    }
+
+    /**
      * Perform drag update in animation frame.
      * @private
      */
@@ -516,7 +517,7 @@ class MoveHandler {
             await this.selectionManager.updateSelectedFeatures();
 
             this.selectionManager.updateProfile();
-            this._syncEditHandlesForMovedFeatures(updatedFeatures);
+            await this._syncEditHandlesForMovedFeatures(updatedFeatures);
             this._updateMeasurementsForMovedFeatures(updatedFeatures);
 
             this.uiManager.updatePanels();
@@ -575,9 +576,9 @@ class MoveHandler {
                 const offset = control.calculateMoveOffset(feature, referencePoint);
 
                 offsets.set(featureId, {
-                    feature: feature,
+                    feature,
                     source: feature.properties.source,
-                    offset: offset
+                    offset
                 });
             }
         }
@@ -654,27 +655,18 @@ class MoveHandler {
 
     /**
      * Update measurements for moved features.
+     * Only line, polygon, and los types support measurements.
      * @private
      */
     _updateMeasurementsForMovedFeatures(updatedFeatures) {
+        const measurableTypes = ['line', 'polygon', 'los'];
+
         for (const feature of updatedFeatures) {
             const type = feature.properties.source;
 
-            if (type === 'line' && feature.properties.measure) {
-                const lineControl = this.getControl('line');
-                if (lineControl?.updateFeatureMeasurement) {
-                    lineControl.updateFeatureMeasurement(feature);
-                }
-            } else if (type === 'polygon' && feature.properties.measure) {
-                const polygonControl = this.getControl('polygon');
-                if (polygonControl?.updateFeatureMeasurement) {
-                    polygonControl.updateFeatureMeasurement(feature);
-                }
-            } else if (type === 'los' && feature.properties.measure) {
-                const losControl = this.getControl('los');
-                if (losControl?.updateFeatureMeasurement) {
-                    losControl.updateFeatureMeasurement(feature);
-                }
+            if (measurableTypes.includes(type) && feature.properties.measure) {
+                const control = this.getControl(type);
+                control?.updateFeatureMeasurement?.(feature);
             }
         }
     }
@@ -683,7 +675,7 @@ class MoveHandler {
      * Sync edit handles using tool-centric approach.
      * @private
      */
-    _syncEditHandlesForMovedFeatures(updatedFeatures) {
+    async _syncEditHandlesForMovedFeatures(updatedFeatures) {
         const featuresByType = new Map();
 
         for (const feature of updatedFeatures) {
@@ -694,15 +686,15 @@ class MoveHandler {
             featuresByType.get(type).push(feature);
         }
 
-        featuresByType.forEach((features, type) => {
+        for (const [type, features] of featuresByType) {
             const control = this.getControl(type);
 
             if (control && typeof control.syncEditHandlesAfterDrag === 'function') {
-                control.syncEditHandlesAfterDrag(features);
+                await control.syncEditHandlesAfterDrag(features);
             } else if (control) {
                 console.warn(`Tool ${type} does not implement syncEditHandlesAfterDrag interface`);
             }
-        });
+        }
     }
 
     // =========================================================================

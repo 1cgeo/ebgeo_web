@@ -4,12 +4,11 @@
  * @fileoverview Layer constants and configuration for MapLibre layers.
  */
 
-/**
- * MapLibre layer IDs that receive visibility filters by layerId.
- * @constant {string[]}
- */
+/** MapLibre layer IDs that receive visibility filters by layerId. */
 export const FEATURE_LAYER_IDS = [
     'point-layer',
+    'point-marker-layer',
+    'point-label-layer',
     'line-layer',
     'brush-layer',
     'polygon-fill-layer',
@@ -27,6 +26,11 @@ export const FEATURE_LAYER_IDS = [
     'sector-fill-layer',
     'sector-fill-pattern-layer',
     'sectors-layer',
+    'polygon-label-layer',
+    'circle-label-layer',
+    'ellipse-label-layer',
+    'rectangle-label-layer',
+    'sector-label-layer',
     'arrow-fill-layer',
     'arrow-layer',
     'text-layer',
@@ -46,27 +50,36 @@ export const FEATURE_LAYER_IDS = [
 ];
 
 /**
- * Mapping of layer IDs to whether they use hatch pattern filter.
- * true = uses hatch pattern, false = uses solid fill
- * @constant {Object<string, boolean>}
+ * Additional filter expressions per layer, merged with visibility filters
+ * by updateAllLayerFilters(). Prevents visibility updates from overwriting
+ * layer-specific filters (e.g. markerSymbol routing, label visibility).
  */
-export const HATCH_PATTERN_LAYERS = {
-    'polygon-fill-layer': false,
-    'polygon-fill-pattern-layer': true,
-    'rectangle-fill-layer': false,
-    'rectangle-fill-pattern-layer': true,
-    'circle-fill-layer': false,
-    'circle-fill-pattern-layer': true,
-    'ellipse-fill-layer': false,
-    'ellipse-fill-pattern-layer': true,
-    'sector-fill-layer': false,
-    'sector-fill-pattern-layer': true
+export const LAYER_ADDITIONAL_FILTERS = {
+    'point-layer': [
+        ['any', ['!', ['has', 'markerSymbol']], ['==', ['get', 'markerSymbol'], 'circle']],
+    ],
+    'point-marker-layer': [
+        ['has', 'markerSymbol'],
+        ['!=', ['get', 'markerSymbol'], 'circle'],
+    ],
+    'point-label-layer': [
+        ['==', ['get', 'showLabel'], true],
+        ['has', 'labelText'],
+        ['!=', ['get', 'labelText'], ''],
+    ],
 };
 
-/**
- * Source names for features.
- * @constant {Object<string, string>}
- */
+/** Fill layer IDs mapped to whether they use hatch pattern (true) or solid fill (false). */
+const FILL_SHAPES = ['polygon', 'rectangle', 'circle', 'ellipse', 'sector'];
+
+export const HATCH_PATTERN_LAYERS = Object.fromEntries(
+    FILL_SHAPES.flatMap(shape => [
+        [`${shape}-fill-layer`, false],
+        [`${shape}-fill-pattern-layer`, true]
+    ])
+);
+
+/** Source names for features. */
 export const FEATURE_SOURCES = {
     POINTS: 'points',
     LINES: 'lines',

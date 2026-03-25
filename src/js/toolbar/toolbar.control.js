@@ -13,9 +13,9 @@ import {
     subscribe,
     cleanup,
     removeElement
-} from '../utilities/event-cleanup.js';
-import { EventTypes } from '../events/event_types.js';
-import { isCurrentMapLockedSync } from '../store/index.js';
+} from '@utils/event-cleanup.js';
+import { EventTypes } from '@events/event_types.js';
+import { isCurrentMapLockedSync } from '@store/index.js';
 
 /**
  * Main toolbar controller.
@@ -66,21 +66,17 @@ export class ToolbarControl {
             this._groups.set(groupConfig.id, group);
         });
 
-        // Create standalone buttons (if any)
-        if (STANDALONE_TOOLS.length > 0) {
-            STANDALONE_TOOLS.forEach(toolConfig => {
-                const button = this._createStandaloneButton(toolConfig);
-                this._container.appendChild(button);
-            });
-        }
+        // Create standalone buttons
+        STANDALONE_TOOLS.forEach(toolConfig => {
+            const button = this._createStandaloneButton(toolConfig);
+            this._container.appendChild(button);
+        });
 
         // Create toggle buttons (state-driven, not tool-driven)
-        if (TOGGLE_TOOLS.length > 0) {
-            TOGGLE_TOOLS.forEach(toolConfig => {
-                const button = this._createToggleButton(toolConfig);
-                this._container.appendChild(button);
-            });
-        }
+        TOGGLE_TOOLS.forEach(toolConfig => {
+            const button = this._createToggleButton(toolConfig);
+            this._container.appendChild(button);
+        });
 
         parentElement.appendChild(this._container);
 
@@ -140,12 +136,10 @@ export class ToolbarControl {
         });
 
         // Subscribe to state changes to keep button visual in sync
-        if (this._stateManager) {
-            const unsubscribe = this._stateManager.subscribe(toolConfig.statePath, (enabled) => {
-                button.dataset.active = String(!!enabled);
-            });
-            this._unsubscribers.push(unsubscribe);
-        }
+        const unsubscribe = this._stateManager.subscribe(toolConfig.statePath, (enabled) => {
+            button.dataset.active = String(!!enabled);
+        });
+        this._unsubscribers.push(unsubscribe);
 
         this._standaloneButtons.set(toolConfig.id, button);
         return button;
@@ -157,12 +151,10 @@ export class ToolbarControl {
      */
     _setupEventListeners() {
         // Listen for active tool changes via StateManager
-        if (this._stateManager) {
-            const unsubscribe = this._stateManager.subscribe('activeTool.type', (activeToolType) => {
-                this._updateStandaloneButtonStates(activeToolType);
-            });
-            this._unsubscribers.push(unsubscribe);
-        }
+        const unsubscribe = this._stateManager.subscribe('activeTool.type', (activeToolType) => {
+            this._updateStandaloneButtonStates(activeToolType);
+        });
+        this._unsubscribers.push(unsubscribe);
 
         // Listen for map lock changes
         subscribe(this, this._eventBus, EventTypes.MAP_LOCK_CHANGED,

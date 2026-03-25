@@ -44,7 +44,7 @@ export function parseCSV(text, separator) {
     const rows = [];
     for (let i = 1; i < lines.length; i++) {
         const values = _parseLine(lines[i], separator);
-        if (values.length === 0 || values.every(v => v.trim() === '')) continue;
+        if (_isEmptyLine(values)) continue;
 
         const row = {};
         for (let j = 0; j < headers.length; j++) {
@@ -79,7 +79,7 @@ export function parseCSVPreview(text, separator) {
 
     for (let i = 1; i < lines.length; i++) {
         const values = _parseLine(lines[i], separator);
-        if (values.length === 0 || values.every(v => v.trim() === '')) continue;
+        if (_isEmptyLine(values)) continue;
 
         totalRows++;
         if (previewRows.length < MAX_PREVIEW_ROWS) {
@@ -129,6 +129,15 @@ export function detectSeparator(text) {
 // ============================================================================
 // PRIVATE
 // ============================================================================
+
+/**
+ * Checks if a parsed line is effectively empty (no fields or all blank).
+ * @param {string[]} values - Parsed field values
+ * @returns {boolean}
+ */
+function _isEmptyLine(values) {
+    return values.length === 0 || values.every(v => v.trim() === '');
+}
 
 /**
  * Splits text into lines, handling mixed line endings.

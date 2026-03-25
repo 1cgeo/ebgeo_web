@@ -11,7 +11,7 @@ import {
     createModernButtons,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
-} from '../../../tool_manager/helpers/index.js';
+} from '@tools';
 
 import { openPointModal } from './point-selector.modal.js';
 
@@ -44,7 +44,6 @@ export function addCoordinationMeasureAttributesToPanel(
         selectedFeatures.map(f => [f.properties.id, { ...f.properties }])
     );
 
-    // Only show header if not hidden (for sidebar integration)
     if (!options.hideHeader) {
         if (selectedFeatures.length === 1) {
             const headerComponent = createFeatureHeaderWithOptions(
@@ -79,14 +78,12 @@ export function addCoordinationMeasureAttributesToPanel(
         }
     }
 
-    // Configure point button (single selection only)
     if (selectedFeatures.length === 1) {
         const pointButtonContainer = document.createElement('div');
         pointButtonContainer.className = 'attr-modern-button-row';
 
         const pointButton = document.createElement('button');
-        pointButton.className = 'attr-modern-btn attr-modern-btn-primary';
-        pointButton.style.flex = '1';
+        pointButton.className = 'attr-modern-btn attr-modern-btn-primary coord-point-btn';
         pointButton.textContent = 'Configurar Símbolo';
         pointButton.onclick = () => openPointModal({
             feature,
@@ -100,7 +97,6 @@ export function addCoordinationMeasureAttributesToPanel(
         panel.appendChild(pointButtonContainer);
     }
 
-    // Size slider
     panel.appendChild(createModernSlider({
         label: 'Tamanho',
         min: 0.5,
@@ -113,7 +109,6 @@ export function addCoordinationMeasureAttributesToPanel(
         }
     }));
 
-    // Zoom correction toggle
     panel.appendChild(createModernToggle({
         label: 'Correção de Zoom',
         checked: feature.properties.zoomCorrectionEnabled !== false,
@@ -123,7 +118,6 @@ export function addCoordinationMeasureAttributesToPanel(
         }
     }));
 
-    // Reference zoom slider
     const zoomSlider = createModernSlider({
         label: 'Zoom de Referência',
         min: 1,
@@ -143,7 +137,6 @@ export function addCoordinationMeasureAttributesToPanel(
 
     panel.appendChild(zoomSlider);
 
-    // Opacity slider
     panel.appendChild(createModernSlider({
         label: 'Opacidade',
         min: 0,
@@ -156,7 +149,6 @@ export function addCoordinationMeasureAttributesToPanel(
         }
     }));
 
-    // Rotation slider
     panel.appendChild(createModernSlider({
         label: 'Rotação',
         min: -180,
@@ -169,7 +161,6 @@ export function addCoordinationMeasureAttributesToPanel(
         }
     }));
 
-    // Action buttons
     panel.appendChild(createModernButtons({
         selectedFeatures,
         control: coordinationMeasureControl,

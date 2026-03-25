@@ -1,3 +1,4 @@
+// Path: js/briefing/presentation/tile-preloader.js
 /**
  * @module briefing/presentation/tile-preloader
  * @description Tile preloader for briefing presentations.
@@ -7,7 +8,7 @@
  * @dependencies utilities/maplibre-preload
  */
 
-import { MaplibrePreload } from '../../utilities/maplibre-preload.js';
+import { MaplibrePreload } from '@utils/maplibre-preload.js';
 
 // ============================================================================
 // TILE PRELOADER

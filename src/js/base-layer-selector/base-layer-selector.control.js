@@ -6,16 +6,16 @@
  */
 
 import { LAYER_THUMBNAILS } from './base-layer-selector.constants.js';
-import { EventTypes } from '../events/event_types.js';
-import config from '../config.js';
+import { EventTypes } from '@events/event_types.js';
+import config from '@js/config.js';
 import {
     setupCleanup,
     subscribe,
     addDomListener,
     cleanup,
     removeElement
-} from '../utilities/event-cleanup.js';
-import { isCurrentMapLockedSync } from '../store/index.js';
+} from '@utils/event-cleanup.js';
+import { isCurrentMapLockedSync } from '@store/index.js';
 
 /**
  * Base layer selector control.

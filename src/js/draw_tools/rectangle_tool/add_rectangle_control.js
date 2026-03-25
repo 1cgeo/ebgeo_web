@@ -6,9 +6,11 @@ import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addRectangleAttributesToPanel } from './rectangle_attributes_panel.js';
 import AddRectangleGeometry from './add_rectangle_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
+import { LABEL_DEFAULT_PROPERTIES, hasLabelChanged, LABEL_ZOOM_PROPERTIES, recalcLabelSize, createLabelZoomHandler, syncLabelSource } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddRectangleControl extends BaseControl {
+    featureType = 'rectangle';
     constructor(toolManager) {
         super(toolManager);
 
@@ -54,38 +56,23 @@ class AddRectangleControl extends BaseControl {
         hatchType: 'none',
         hatchColor: '#000000',
         hatchSpacing: 8,
-        hatchLineWidth: 2
+        hatchLineWidth: 2,
+        ...LABEL_DEFAULT_PROPERTIES,
     };
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
-    /**
-     * Get currently selected rectangle feature from SelectionManager
-     * @returns {Object|null} Selected rectangle feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('rectangle');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected rectangle features from SelectionManager
-     * @returns {Array} Array of selected rectangle features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('rectangle')
-            .map(item => item.feature);
-    }
-
     // ===== MAPBOX CONTROL INTERFACE =====
 
     onAdd = (map) => {
         this.map = map;
+        map.on('zoom', this._onZoomForLabels);
     }
 
     onRemove = () => {
         this.deactivate();
         this.removeAllEventListeners();
+        if (this.map) {
+            this.map.off('zoom', this._onZoomForLabels);
+        }
+        this.#labelZoom.cleanup();
         this.map = undefined;
     }
 
@@ -135,7 +122,7 @@ class AddRectangleControl extends BaseControl {
     }
 
     getLayerIds() {
-        return ['rectangle-fill-layer', 'rectangle-layer'];
+        return ['rectangle-fill-layer', 'rectangle-layer', 'rectangle-label-layer'];
     }
 
     getSourceNames() {
@@ -550,7 +537,8 @@ class AddRectangleControl extends BaseControl {
                 width: finalWidth,
                 height: finalHeight,
                 id: featureId,
-                nome: featureName
+                nome: featureName,
+                labelCreatedAtZoom: this.map.getZoom(),
             },
             geometry: geometry
         };
@@ -565,6 +553,7 @@ class AddRectangleControl extends BaseControl {
                 this.updateHatchPatterns(data);
             }
             this.map.getSource('rectangles').setData(data);
+            syncLabelSource(this.map, 'rectangle-labels', data);
 
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
@@ -795,7 +784,7 @@ class AddRectangleControl extends BaseControl {
                     }, 10);
 
                     this.updateUIAfterEdit();
-                    this.saveFeatureChanges(updatedFeature);
+                    await this.saveFeatureChanges(updatedFeature);
                 }
             }
         }
@@ -804,7 +793,6 @@ class AddRectangleControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandleType = null;
         this.currentMousePosition = null;
-        this.hatchGenerator = new HatchPatternGenerator();
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
     }
@@ -936,6 +924,10 @@ class AddRectangleControl extends BaseControl {
         );
     }
 
+    // ===== LABEL ZOOM CORRECTION =====
+    #labelZoom = createLabelZoomHandler(() => this.map, 'rectangles', 'rectangle-labels');
+    _onZoomForLabels = this.#labelZoom.handler;
+
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = async (features, property, value) => {
@@ -990,6 +982,10 @@ class AddRectangleControl extends BaseControl {
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
+
+                if (LABEL_ZOOM_PROPERTIES.has(property)) {
+                    recalcLabelSize(sourceFeature, feature, this.map.getZoom());
+                }
             }
         }
 
@@ -1000,6 +996,7 @@ class AddRectangleControl extends BaseControl {
 
         // Then update the map source
         this.map.getSource('rectangles').setData(data);
+        syncLabelSource(this.map, 'rectangle-labels', data);
 
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
@@ -1010,9 +1007,7 @@ class AddRectangleControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        // Always get fresh feature data from map source before saving
         const currentData = await this.map.getSource('rectangles').getData();
-        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
@@ -1020,7 +1015,6 @@ class AddRectangleControl extends BaseControl {
 
                 if (currentFeature) {
                     await updateFeature('rectangles', currentFeature);
-                    _hasChanges = true;
                 }
             }
         }
@@ -1054,6 +1048,7 @@ class AddRectangleControl extends BaseControl {
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('rectangles').setData(data);
+                syncLabelSource(this.map, 'rectangle-labels', data);
             } catch (error) {
                 console.error(`Error removing rectangle ${feature.properties.id}:`, error);
             }
@@ -1098,6 +1093,7 @@ class AddRectangleControl extends BaseControl {
         }
 
         this.map.getSource('rectangles').setData(data);
+        syncLabelSource(this.map, 'rectangle-labels', data);
 
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
@@ -1132,6 +1128,7 @@ class AddRectangleControl extends BaseControl {
             feature.properties.hatchColor !== initialProperties.hatchColor ||
             feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
             feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
+            hasLabelChanged(feature, initialProperties) ||
             JSON.stringify(feature.properties.corner1) !== JSON.stringify(initialProperties.corner1) ||
             JSON.stringify(feature.properties.corner2) !== JSON.stringify(initialProperties.corner2)
         );
@@ -1146,7 +1143,11 @@ class AddRectangleControl extends BaseControl {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
                     } else {
+                        const prevCalcSize = data.features[featureIndex].properties.labelCalculatedSize;
                         data.features[featureIndex] = feature;
+                        if (prevCalcSize !== undefined) {
+                            feature.properties.labelCalculatedSize = prevCalcSize;
+                        }
                     }
 
                     if (save) {
@@ -1158,13 +1159,11 @@ class AddRectangleControl extends BaseControl {
             }
 
             this.map.getSource('rectangles').setData(data);
+            syncLabelSource(this.map, 'rectangle-labels', data);
 
             this.updateSelectionManagerFeatures(features);
         }
     }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     /**
      * Update SelectionManager with current feature data
      */
@@ -1195,7 +1194,6 @@ class AddRectangleControl extends BaseControl {
         this.lastPreviewCenter = null;
         this.activeHandleType = null;
         this.currentMousePosition = null;
-        this.hatchGenerator = new HatchPatternGenerator();
 
         if (this.geometryDebounceTimer) {
             clearTimeout(this.geometryDebounceTimer);
@@ -1211,14 +1209,10 @@ class AddRectangleControl extends BaseControl {
         const data = await this.map.getSource('rectangles').getData();
         const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
-            sourceFeature.properties = {
-                ...feature.properties,
-                corner1: feature.properties.corner1,
-                corner2: feature.properties.corner2,
-                center: feature.properties.center
-            };
+            sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('rectangles').setData(data);
+            syncLabelSource(this.map, 'rectangle-labels', data);
         }
     }
 

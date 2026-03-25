@@ -1,5 +1,4 @@
 // Path: js/utilities/html-escape.js
-
 /**
  * @fileoverview HTML escape utility for XSS prevention.
  * Used when dynamic data (map names, feature names, imported data)
@@ -10,10 +9,13 @@
 
 /**
  * Escapes HTML special characters in a string.
- * Uses the browser's native textContent → innerHTML conversion
+ * Uses the browser's native textContent -> innerHTML conversion
  * to properly escape &, <, >, ", and ' characters.
  *
- * @param {string} str - String to escape
+ * Returns an empty string for null/undefined. Other non-string
+ * values (numbers, booleans) are coerced via String().
+ *
+ * @param {string|number|null|undefined} str - Value to escape
  * @returns {string} HTML-escaped string safe for innerHTML interpolation
  *
  * @example
@@ -24,8 +26,10 @@
  * element.innerHTML = `<span>${escapeHtml(userInput)}</span>`;
  */
 export function escapeHtml(str) {
-    if (!str) return '';
+    if (str == null) return '';
+    const text = typeof str === 'string' ? str : String(str);
+    if (text === '') return '';
     const div = document.createElement('div');
-    div.textContent = str;
+    div.textContent = text;
     return div.innerHTML;
 }

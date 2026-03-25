@@ -6,8 +6,13 @@ import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addTextAttributesToPanel } from './text_attributes_panel.js';
 import AddTextGeometry from './add_text_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import {
+    applyZoomCorrections as applyZoomCorrectionsUtil,
+    syncZoomCorrectedProperty,
+} from '../../tool_manager/helpers/zoom-correction.helpers.js';
 
 class AddTextControl extends BaseControl {
+    featureType = 'text';
     constructor(toolManager) {
         super(toolManager);
 
@@ -58,24 +63,6 @@ class AddTextControl extends BaseControl {
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
-
-    /**
-     * Get currently selected text feature from SelectionManager
-     * @returns {Object|null} Selected text feature or null
-     */
-    getSelectedFeature() {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType('text');
-        return selectedItems.length > 0 ? selectedItems[0].feature : null;
-    }
-
-    /**
-     * Get all selected text features from SelectionManager
-     * @returns {Array} Array of selected text features
-     */
-    getSelectedFeatures() {
-        return this.selectionManager.getSelectedFeaturesByType('text')
-            .map(item => item.feature);
-    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -281,9 +268,9 @@ class AddTextControl extends BaseControl {
         return selectedFeature && selectedFeature.properties.id === featureId;
     }
 
-    syncEditHandlesAfterDrag = (movedFeatures) => {
-        this.updateSelectionBoxesForFeatures(movedFeatures);
-        this.updateTextBackgroundsSource();
+    syncEditHandlesAfterDrag = async (movedFeatures) => {
+        await this.updateSelectionBoxesForFeatures(movedFeatures);
+        await this.updateTextBackgroundsSource();
 
         // Refresh rotation handle position after drag
         const selectedFeature = this.getSelectedFeature();
@@ -450,31 +437,10 @@ class AddTextControl extends BaseControl {
     }
 
     applyZoomCorrections = (features) => {
-        const currentZoom = this.map.getZoom();
-        return features.map(feature => {
-            const isEnabled = feature.properties.zoomCorrectionEnabled !== false;
-
-            if (!isEnabled) {
-                return {
-                    ...feature,
-                    properties: {
-                        ...feature.properties,
-                        calculatedSize: feature.properties.size
-                    }
-                };
-            }
-
-            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            const newCalculatedSize = Math.min(feature.properties.size * scaleFactor, 255);
-
-            return {
-                ...feature,
-                properties: {
-                    ...feature.properties,
-                    calculatedSize: newCalculatedSize
-                }
-            };
+        return applyZoomCorrectionsUtil(features, this.map.getZoom(), {
+            sourceProperty: 'size',
+            calculatedProperty: 'calculatedSize',
+            maxValue: 255,
         });
     }
 
@@ -545,6 +511,14 @@ class AddTextControl extends BaseControl {
                     if (this.selectionManager.uiManager.updateSelectionHighlight) {
                         this.selectionManager.uiManager.updateSelectionHighlight();
                     }
+                }
+            }
+
+            // Refresh rotation handle position on zoom (handle uses screen-space offset)
+            if (!this.isDraggingHandle) {
+                const selectedFeature = this.getSelectedFeature();
+                if (selectedFeature) {
+                    this.createEditHandles(selectedFeature);
                 }
             }
         }
@@ -663,45 +637,10 @@ class AddTextControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                if (property === 'zoomCorrectionEnabled') {
-                    let newCalculatedSize;
-                    if (value === false) {
-                        newCalculatedSize = sourceFeature.properties.size;
-                    } else {
-                        const currentZoom = this.map.getZoom();
-                        const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-                        const scaleFactor = Math.pow(2, zoomDifference);
-                        newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
-                    }
-                    sourceFeature.properties.calculatedSize = newCalculatedSize;
-                    feature.properties.calculatedSize = newCalculatedSize;
-                } else if (property === 'createdAtZoom') {
-                    const roundedValue = Math.round(value * 10) / 10;
-                    sourceFeature.properties[property] = roundedValue;
-                    feature.properties[property] = roundedValue;
-
-                    // Only recalculate if zoom correction is enabled
-                    if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
-                        const currentZoom = this.map.getZoom();
-                        const zoomDifference = currentZoom - roundedValue;
-                        const scaleFactor = Math.pow(2, zoomDifference);
-                        const newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
-                        sourceFeature.properties.calculatedSize = newCalculatedSize;
-                        feature.properties.calculatedSize = newCalculatedSize;
-                    }
-                } else {
-                    // For other properties, recalculate only if zoom correction is enabled
-                    if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
-                        const currentZoom = this.map.getZoom();
-                        const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-                        const scaleFactor = Math.pow(2, zoomDifference);
-                        sourceFeature.properties.calculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
-                        feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
-                    } else {
-                        sourceFeature.properties.calculatedSize = sourceFeature.properties.size;
-                        feature.properties.calculatedSize = sourceFeature.properties.size;
-                    }
-                }
+                syncZoomCorrectedProperty(
+                    sourceFeature, feature, property, value, this.map.getZoom(),
+                    { sourceProperty: 'size', calculatedProperty: 'calculatedSize', maxValue: 255 }
+                );
 
                 const visualProperties = ['text', 'size', 'rotation', 'showBackground', 'backgroundBorderWidth', 'zoomCorrectionEnabled'];
                 if (visualProperties.includes(property) || property === 'createdAtZoom') {
@@ -805,7 +744,6 @@ class AddTextControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('texts').getData();
-        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
@@ -813,7 +751,6 @@ class AddTextControl extends BaseControl {
 
                 if (currentFeature) {
                     await updateFeature('texts', currentFeature);
-                    _hasChanges = true;
                 }
             }
         }
@@ -916,9 +853,6 @@ class AddTextControl extends BaseControl {
             this.updateSelectionManagerFeatures(features);
         }
     }
-
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     /**
      * Update SelectionManager with current feature data
      * @param {Object} feature - Feature to update in SelectionManager
@@ -1067,7 +1001,7 @@ class AddTextControl extends BaseControl {
      * Handle pointer up — finalize rotation drag
      * @param {PointerEvent} _e
      */
-    _onEditPointerUp(_e) {
+    async _onEditPointerUp(_e) {
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -1094,7 +1028,7 @@ class AddTextControl extends BaseControl {
             this.updateUIAfterEdit();
 
             // Persist changes
-            this.saveFeatureChanges(selectedFeature);
+            await this.saveFeatureChanges(selectedFeature);
         }
 
         this.isDraggingHandle = false;

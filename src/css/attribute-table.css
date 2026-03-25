@@ -12,12 +12,11 @@
     background: white;
     border-top: 1px solid var(--border-color, #e5e7eb);
     box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
-    z-index: 48;
+    z-index: var(--z-floating, 45);
     display: flex;
     flex-direction: column;
     transform: translateY(100%);
     transition: transform var(--transition-panel, 300ms ease), height var(--transition-normal, 200ms ease);
-    contain: layout style;
 }
 
 .attribute-table-panel[data-state="minimized"] {
@@ -29,7 +28,6 @@
     transform: translateY(0);
 }
 
-/* Default height when expanded */
 .attribute-table-panel[data-state="expanded"]:not([style*="height"]) {
     height: 35vh;
 }
@@ -38,7 +36,6 @@
     transform: translateY(100%);
 }
 
-/* Adjust for sidebar expanded state */
 .sidebar-container[data-expanded="true"] ~ .attribute-table-panel {
     left: calc(var(--sidebar-collapsed-width, 56px) + var(--sidebar-panel-width, 400px));
 }
@@ -250,8 +247,6 @@
     flex: 1;
     overflow: auto;
     position: relative;
-
-    /* Custom scrollbar */
     scrollbar-width: thin;
     scrollbar-color: var(--primary-600, #16a34a) transparent;
 }
@@ -284,7 +279,6 @@
     position: sticky;
     top: 0;
     z-index: 1;
-    background: var(--gray-100, #f3f4f6);
 }
 
 .attribute-table-head th {
@@ -353,7 +347,7 @@
    ========================================================================= */
 
 .attribute-table-body tr {
-    border-bottom: 1px solid var(--border-color-light, #f0f0f0);
+    border-bottom: 1px solid var(--gray-100, #f3f4f6);
     transition: background-color var(--transition-fast, 150ms ease);
 }
 
@@ -375,7 +369,7 @@
 }
 
 .attribute-table-body tr[data-hovered="true"] {
-    background: #fff3cd;
+    background: color-mix(in srgb, var(--color-warning, #f59e0b) 15%, white);
 }
 
 .attribute-table-body td {
@@ -435,10 +429,6 @@
 /* =========================================================================
    ACTION BUTTONS
    ========================================================================= */
-
-.attribute-table-cell-actions {
-    text-align: center;
-}
 
 .attribute-table-zoom-btn {
     display: inline-flex;
@@ -519,7 +509,7 @@
     border: 1px solid var(--border-color, #e5e7eb);
     border-radius: var(--radius-md, 8px);
     box-shadow: var(--shadow-lg, 0 10px 15px rgba(0, 0, 0, 0.1));
-    z-index: 60;
+    z-index: var(--z-modal, 60);
     min-width: 150px;
     padding: var(--space-2, 8px) 0;
 }
@@ -584,24 +574,20 @@
    ========================================================================= */
 
 @media (pointer: coarse) {
-    /* Larger resize handle for touch dragging */
     .attribute-table-resize-handle {
         height: 16px;
         top: -8px;
     }
 
-    /* Toolbar buttons meet touch target minimums */
     .attribute-table-toolbar button {
         min-height: var(--touch-target-min, 44px);
     }
 
-    /* Toolbar taller for touch */
     .attribute-table-toolbar {
         min-height: var(--touch-target-min, 44px);
         padding: var(--space-2, 8px) var(--space-3, 12px);
     }
 
-    /* Minimize/close buttons larger */
     .attribute-table-minimize-btn,
     .attribute-table-close-btn {
         min-width: 36px;

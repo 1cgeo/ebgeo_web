@@ -6,13 +6,11 @@
  * allowing navigation to features in 360 viewer.
  */
 
-import { getAllMarkers360, getAllOrientations, getControl, removeMarkers360ByPhoto, clearOrientation } from '../store';
-import { getStateManager, getEventBus } from '../store/services.js';
-import { EventTypes } from '../events/index.js';
-import config from '../config.js';
-import { showConfirm } from '../modals/confirm.modal.js';
-import { showSuccess, showError } from '../utilities/toast_service.js';
-import { escapeHtml } from '../utilities/html-escape.js';
+import { getAllMarkers360, getAllOrientations, getControl, removeMarkers360ByPhoto, clearOrientation, getStateManager, getEventBus } from '@store';
+import { EventTypes } from '@events';
+import config from '@js/config.js';
+import { showConfirm } from '@modals';
+import { showSuccess, showError, escapeHtml } from '@utils';
 
 /**
  * Icons used in the component.
@@ -80,7 +78,7 @@ export async function renderStreetview360Section(container, eventBus) {
     if (isStreetviewAvailable) {
         try {
             const { getPhotoDisplayName } = await import(
-                '../street_view_tool/streetview-api.service.js'
+                '@js/street_view_tool/streetview-api.service.js'
             );
             const entries = await Promise.all(
                 Object.keys(featuresByPhoto).map(async (photoId) => [
@@ -504,7 +502,7 @@ async function openPhotoInViewer(photoName, targetOrientation = null) {
         collapseSidebar();
 
         // Import and use the correct function from street_view_viewer
-        const { openViewer360WithPhoto, isStreetView360Open, navigateToTarget } = await import('../street_view_tool/street_view_viewer.js');
+        const { openViewer360WithPhoto, isStreetView360Open, navigateToTarget } = await import('@js/street_view_tool/street_view_viewer.js');
 
         if (isStreetView360Open()) {
             // If already open, navigate to the photo

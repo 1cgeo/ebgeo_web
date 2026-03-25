@@ -5,17 +5,17 @@
  * Main orchestrator for the symbol configuration modal.
  */
 
-import { ModalBase } from '../../../modals/modal.base.js';
-import { addDomListener } from '../../../utilities/event-cleanup.js';
+import { ModalBase } from '@modals/modal.base.js';
+import { addDomListener } from '@utils/event-cleanup.js';
 
 import {
     normalizeSIDC,
     BrazilianSIDCExtension
 } from '../brazilian_sidc_extension.js';
 import { checkCatalogWarnings } from '../brazilian_svg_postprocessing.js';
-import { isEngagementBarApplicable, getTextModifiersConfig as _getTextModifiersConfig } from '../military_constants.js';
+import { isEngagementBarApplicable } from '../military_constants.js';
 
-import { createTabsContainer, switchTab, closeAllDropdowns as _closeAllDropdowns } from './ui-components.helpers.js';
+import { createTabsContainer, switchTab } from './ui-components.helpers.js';
 import { createSymbolGallery } from './symbol-gallery.section.js';
 import { createTextFieldsContainer } from './text-modifiers.section.js';
 import { createEngagementBarContent } from './engagement-bar.section.js';
@@ -46,10 +46,9 @@ const ICONS = {
  *
  * @param {Object} militarySymbolControl - Control instance
  * @param {Object} properties - Symbol properties
- * @param {number} [size=80] - Preview size
  * @returns {Promise<string|null>} Data URL or null
  */
-async function generatePreviewWithTextModifiers(militarySymbolControl, properties, _size = 80) {
+async function generatePreviewWithTextModifiers(militarySymbolControl, properties) {
     try {
         const result = await militarySymbolControl.symbolGenerator.generateSymbolBlob(properties);
 
@@ -63,6 +62,24 @@ async function generatePreviewWithTextModifiers(militarySymbolControl, propertie
         return null;
     }
 }
+
+/** Text modifier property keys to clear when changing symbols. */
+const TEXT_MODIFIER_KEYS = [
+    'uniqueDesignation', 'higherFormation', 'reinforcedReduced',
+    'additionalInformation', 'credibility', 'location', 'dateTimeGroup',
+    'altitudeDepth', 'speed', 'specialHeadquarters', 'type', 'iffSif',
+    'equipmentTeardownTime', 'quantity', 'direction'
+];
+
+/** Properties to copy when applying changes. */
+const PROPERTIES_TO_UPDATE = [
+    'standardIdentity', 'symbolSet', 'status', 'hqTfDummy', 'echelon',
+    'mainIcon', 'modifier1', 'modifier2', 'specialModifier', 'isCommand',
+    'mainIconExtension', 'modifier1Extension', 'modifier2Extension',
+    'sidc', 'fillColor',
+    ...TEXT_MODIFIER_KEYS,
+    'engagementBar'
+];
 
 /**
  * Symbol selector modal class.
@@ -125,7 +142,6 @@ export class SymbolSelectorModal extends ModalBase {
         const content = document.createElement('div');
         content.className = 'symbol-selector-content';
 
-        // Main layout: controls + preview + gallery
         const mainLayout = document.createElement('div');
         mainLayout.className = 'symbol-selector-main';
 
@@ -147,9 +163,8 @@ export class SymbolSelectorModal extends ModalBase {
             updatePreview: () => this._updatePreviewFromComboboxes()
         });
 
-        const { column1, column2 } = this._formColumns;
-        simboloTab.appendChild(column1);
-        simboloTab.appendChild(column2);
+        simboloTab.appendChild(this._formColumns.column1);
+        simboloTab.appendChild(this._formColumns.column2);
 
         // Text modifiers tab
         this._textFieldsContainer = createTextFieldsContainer(
@@ -188,9 +203,7 @@ export class SymbolSelectorModal extends ModalBase {
         previewContainer.appendChild(this._previewImage);
         previewColumn.appendChild(previewContainer);
 
-        // SIDC input
-        const sidcSection = this._createSidcInput();
-        previewColumn.appendChild(sidcSection);
+        previewColumn.appendChild(this._createSidcInput());
 
         // Gallery column (placeholder, filled async)
         this._galleryColumn = document.createElement('div');
@@ -260,7 +273,6 @@ export class SymbolSelectorModal extends ModalBase {
      * @private
      */
     _setupListeners() {
-        // Tab buttons
         addDomListener(this, this._tabButtons.simbolo, 'click', () => {
             switchTab('simbolo', this._tabButtons);
         });
@@ -273,11 +285,9 @@ export class SymbolSelectorModal extends ModalBase {
             switchTab('engajamento', this._tabButtons);
         });
 
-        // SIDC input
         addDomListener(this, this._sidcInput, 'input', (e) => this._handleSidcInput(e));
         addDomListener(this, this._sidcInput, 'paste', () => this._handleSidcPaste());
 
-        // Action buttons
         addDomListener(this, this._cancelBtn, 'click', () => this.hide());
         addDomListener(this, this._applyBtn, 'click', () => this._handleApply());
     }
@@ -291,9 +301,7 @@ export class SymbolSelectorModal extends ModalBase {
             const onSymbolClick = (sidc) => {
                 this._updateComboboxesFromSIDC(sidc);
                 this._clearTextModifiers();
-                if (this._engagementBarContainer && this._engagementBarContainer.updateFromProperties) {
-                    this._engagementBarContainer.updateFromProperties(this._tempProperties);
-                }
+                this._engagementBarContainer?.updateFromProperties?.(this._tempProperties);
                 this._updatePreview();
             };
 
@@ -313,21 +321,9 @@ export class SymbolSelectorModal extends ModalBase {
      * @private
      */
     _clearTextModifiers() {
-        this._tempProperties.uniqueDesignation = '';
-        this._tempProperties.higherFormation = '';
-        this._tempProperties.reinforcedReduced = '';
-        this._tempProperties.additionalInformation = '';
-        this._tempProperties.credibility = '';
-        this._tempProperties.location = '';
-        this._tempProperties.dateTimeGroup = '';
-        this._tempProperties.altitudeDepth = '';
-        this._tempProperties.speed = '';
-        this._tempProperties.specialHeadquarters = '';
-        this._tempProperties.type = '';
-        this._tempProperties.iffSif = '';
-        this._tempProperties.equipmentTeardownTime = '';
-        this._tempProperties.quantity = '';
-        this._tempProperties.direction = '';
+        for (const key of TEXT_MODIFIER_KEYS) {
+            this._tempProperties[key] = '';
+        }
         this._tempProperties.engagementBar = null;
     }
 
@@ -354,8 +350,7 @@ export class SymbolSelectorModal extends ModalBase {
         if (cleanSIDC.length === 20) {
             const normalized = normalizeSIDC(cleanSIDC);
             this._sidcInput.value = normalized;
-            cleanSIDC = normalized;
-            this._updateComboboxesFromSIDC(cleanSIDC);
+            this._updateComboboxesFromSIDC(normalized);
             this._updatePreview();
         } else if (cleanSIDC.length === 30) {
             this._updateComboboxesFromSIDC(cleanSIDC);
@@ -418,10 +413,7 @@ export class SymbolSelectorModal extends ModalBase {
             }
 
             const parsed = parseResult.properties;
-
-            const oldSymbolSet = this._tempProperties.symbolSet;
-            const newSymbolSet = parsed.symbolSet;
-            const dimensionChanged = oldSymbolSet !== newSymbolSet;
+            const dimensionChanged = this._tempProperties.symbolSet !== parsed.symbolSet;
 
             this._tempProperties.standardIdentity = parsed.standardIdentity;
             this._tempProperties.symbolSet = parsed.symbolSet;
@@ -441,7 +433,7 @@ export class SymbolSelectorModal extends ModalBase {
             this._tempProperties.sidc = normalizedSIDC;
 
             if (dimensionChanged) {
-                this._wrappedReloadDependentComboboxes(newSymbolSet);
+                this._wrappedReloadDependentComboboxes(parsed.symbolSet);
             }
 
             this._formColumns.updateAllComboboxValues();
@@ -485,10 +477,7 @@ export class SymbolSelectorModal extends ModalBase {
 
         this._clearTextModifiers();
 
-        while (this._textoTab.firstChild) {
-            this._textoTab.removeChild(this._textoTab.firstChild);
-        }
-
+        this._textoTab.replaceChildren();
         this._textFieldsContainer = createTextFieldsContainer(
             symbolSetCode,
             this._tempProperties,
@@ -497,9 +486,7 @@ export class SymbolSelectorModal extends ModalBase {
         this._textoTab.appendChild(this._textFieldsContainer);
 
         this._tempProperties.engagementBar = null;
-        while (this._engajamentoTab.firstChild) {
-            this._engajamentoTab.removeChild(this._engajamentoTab.firstChild);
-        }
+        this._engajamentoTab.replaceChildren();
         this._engagementBarContainer = createEngagementBarContent(
             this._tempProperties,
             () => this._updatePreviewFromComboboxes()
@@ -547,8 +534,7 @@ export class SymbolSelectorModal extends ModalBase {
 
             const previewDataURL = await generatePreviewWithTextModifiers(
                 this._militarySymbolControl,
-                this._tempProperties,
-                80
+                this._tempProperties
             );
 
             if (previewDataURL) {
@@ -570,18 +556,6 @@ export class SymbolSelectorModal extends ModalBase {
      * @private
      */
     async _handleApply() {
-        const propertiesToUpdate = [
-            'standardIdentity', 'symbolSet', 'status', 'hqTfDummy', 'echelon',
-            'mainIcon', 'modifier1', 'modifier2', 'specialModifier', 'isCommand',
-            'mainIconExtension', 'modifier1Extension', 'modifier2Extension',
-            'sidc', 'fillColor',
-            'uniqueDesignation', 'higherFormation', 'reinforcedReduced',
-            'additionalInformation', 'credibility', 'location', 'dateTimeGroup',
-            'altitudeDepth', 'speed', 'specialHeadquarters', 'type', 'iffSif',
-            'equipmentTeardownTime', 'quantity', 'direction',
-            'engagementBar'
-        ];
-
         const data = await this._militarySymbolControl.map.getSource("military_symbols").getData();
         let needsRegeneration = false;
 
@@ -591,7 +565,7 @@ export class SymbolSelectorModal extends ModalBase {
             );
 
             if (sourceFeature) {
-                for (const key of propertiesToUpdate) {
+                for (const key of PROPERTIES_TO_UPDATE) {
                     if (Object.prototype.hasOwnProperty.call(this._tempProperties, key)) {
                         sourceFeature.properties[key] = this._tempProperties[key];
                         feat.properties[key] = this._tempProperties[key];
@@ -626,7 +600,7 @@ export class SymbolSelectorModal extends ModalBase {
             }
         }
 
-        this._militarySymbolControl.saveFeatures(this._selectedFeatures, this._initialPropertiesMap);
+        await this._militarySymbolControl.saveFeatures(this._selectedFeatures, this._initialPropertiesMap);
         this.hide();
         this._selectionManager.deselectAllFeatures();
     }
@@ -636,15 +610,13 @@ export class SymbolSelectorModal extends ModalBase {
      * @override
      */
     hide() {
-        // Cleanup comboboxes
         if (this._formColumns) {
             const { column1, column2 } = this._formColumns;
-            const comboBoxes = [column1, column2].flatMap(col => Array.from(col.children));
-            comboBoxes.forEach(combo => {
-                if (combo._cleanup) {
-                    combo._cleanup();
+            for (const col of [column1, column2]) {
+                for (const child of Array.from(col.children)) {
+                    child._cleanup?.();
                 }
-            });
+            }
         }
 
         super.hide();
@@ -655,6 +627,7 @@ export class SymbolSelectorModal extends ModalBase {
  * Opens the symbol configuration modal.
  *
  * @param {SymbolModalConfig} config - Modal configuration
+ * @returns {SymbolSelectorModal} Modal instance
  */
 export function openSymbolModal(config) {
     const modal = new SymbolSelectorModal(config);

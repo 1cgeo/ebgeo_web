@@ -6,8 +6,8 @@
  */
 
 import { ModalBase } from './modal.base.js';
-import { addDomListener } from '../utilities/event-cleanup.js';
-import { escapeHtml } from '../utilities/html-escape.js';
+import { addDomListener } from '@utils/event-cleanup.js';
+import { escapeHtml } from '@utils/html-escape.js';
 
 /**
  * Icons used in the modal.

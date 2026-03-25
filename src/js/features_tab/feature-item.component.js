@@ -9,8 +9,9 @@ import {
     updateFeatureProperty,
     getFeatureById,
     getFeatureIconFromStorage,
-} from '../store';
-import { FeatureNavigationUtils, escapeHtml } from '../utilities';
+    getSourceTypeFromStorage,
+} from '@store';
+import { zoomToFeature, zoomAndSelectFeature, escapeHtml } from '@utils';
 
 /**
  * @typedef {Object} FeatureItemCallbacks
@@ -45,6 +46,9 @@ export function createFeatureItem(feature, callbacks) {
     const lockTitle = feature.locked ? 'Desbloquear' : 'Bloquear';
 
     item.innerHTML = `
+        <div class="feature-drag-handle" title="Arrastar para outra camada">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="2"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/><circle cx="15" cy="18" r="2"/></svg>
+        </div>
         <div class="feature-main">
             <img class="feature-type-icon" src="${typeIconPath}" alt="${typeIconAlt}" />
             <div class="feature-name">${escapeHtml(feature.name)}</div>
@@ -97,11 +101,11 @@ export async function handleFeatureClick(feature, map, selectionManager) {
         const isLocked = currentFeature?.properties?.bloqueado ?? false;
 
         if (isLocked) {
-            await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, map);
+            await zoomToFeature(feature.rawFeature, map);
             return;
         }
 
-        await FeatureNavigationUtils.zoomAndSelectFeature(
+        await zoomAndSelectFeature(
             feature.rawFeature,
             map,
             selectionManager,
@@ -112,7 +116,7 @@ export async function handleFeatureClick(feature, map, selectionManager) {
         console.error('Error navigating to feature:', error);
 
         try {
-            await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, map);
+            await zoomToFeature(feature.rawFeature, map);
         } catch (fallbackError) {
             console.error('Error in zoom fallback:', fallbackError);
         }
@@ -151,7 +155,7 @@ export async function toggleFeatureVisibility(
     updateItemVisualState(featureId, newVisibility, feature.properties.bloqueado ?? false);
 
     if (!newVisibility && selectionManager?.isFeatureSelected) {
-        const selectionManagerType = FeatureNavigationUtils.mapFeatureType(featureType);
+        const selectionManagerType = getSourceTypeFromStorage(featureType);
         const isSelected = selectionManager.isFeatureSelected(selectionManagerType, featureId);
 
         if (isSelected && selectionManager.deselectFeature) {
@@ -192,7 +196,7 @@ export async function toggleFeatureLock(
     updateItemVisualState(featureId, feature.properties.visivel ?? true, newLockState);
 
     if (newLockState && selectionManager?.isFeatureSelected) {
-        const selectionManagerType = FeatureNavigationUtils.mapFeatureType(featureType);
+        const selectionManagerType = getSourceTypeFromStorage(featureType);
         const isSelected = selectionManager.isFeatureSelected(selectionManagerType, featureId);
 
         if (isSelected && selectionManager.deselectFeature) {
@@ -232,13 +236,7 @@ export function updateLockButton(container, featureId, locked) {
         const title = locked ? 'Desbloquear' : 'Bloquear';
         btn.innerHTML = icon;
         btn.title = title;
-
-        const svg = btn.querySelector('svg');
-        if (svg && locked) {
-            svg.style.color = '#dc3545';
-        } else if (svg) {
-            svg.style.color = '';
-        }
+        btn.classList.toggle('lock-toggle--active', locked);
     }
 }
 

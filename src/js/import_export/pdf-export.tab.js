@@ -1,8 +1,13 @@
 // Path: js/import_export/pdf-export.tab.js
 /* global initGdalJs */
-import config from '../config.js'
-import { showError } from '../utilities/toast_service.js'
-import { deepClone } from '../utilities/deep-utils.js'
+import { showError } from '@utils/toast_service.js'
+import {
+    correctZoomInvariantFeatures,
+    transferMapImages,
+    createExportProgressModal,
+    getCleanMapStyle,
+} from './export-utils.js'
+import { GRID_MARGIN_MM, UTM_MAX_SCALE_DENOM, parseScaleDenom } from './pdf-export.constants.js'
 
 export default class PDFExportTab {
     constructor(map) {
@@ -26,7 +31,7 @@ export default class PDFExportTab {
         this.showUTMGrid = false;
 
         // Extra margin (mm) for grid labels. Added to marginMM when any grid is on.
-        this._gridMarginMM = 5;
+        this._gridMarginMM = GRID_MARGIN_MM;
 
         // DPI quality option
         this.dpi = 300;
@@ -163,6 +168,7 @@ export default class PDFExportTab {
 
     hide() {
         this.isVisible = false;
+        clearTimeout(this.updateTimeout);
         this.hidePreview();
         this.detachEventListeners();
 
@@ -181,9 +187,9 @@ export default class PDFExportTab {
         }
 
         const orientationInputs = document.querySelectorAll('input[name="pdf-orientation"]');
-        orientationInputs.forEach(input => {
+        for (const input of orientationInputs) {
             input.addEventListener('change', this.onOrientationChange);
-        });
+        }
 
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) {
@@ -206,9 +212,9 @@ export default class PDFExportTab {
         }
 
         const orientationInputs = document.querySelectorAll('input[name="pdf-orientation"]');
-        orientationInputs.forEach(input => {
+        for (const input of orientationInputs) {
             input.removeEventListener('change', this.onOrientationChange);
-        });
+        }
 
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) {
@@ -266,6 +272,8 @@ export default class PDFExportTab {
             });
         }
 
+        // Enforce UTM availability for the initial scale
+        this._enforceUTMGridAvailability();
     }
 
     onDPIChange(event) {
@@ -274,8 +282,26 @@ export default class PDFExportTab {
 
     onScaleChange(event) {
         this.scale = event.target.value;
+        this._enforceUTMGridAvailability();
         this.updateBounds();
         this.zoomToPreviewArea();
+    }
+
+    /**
+     * Disables UTM grid option for scales where UTM is not meaningful
+     * (1:2.500.000 and 1:5.000.000).
+     */
+    _enforceUTMGridAvailability() {
+        const scaleDenom = this._parseScaleDenom();
+        const utmCheckbox = document.getElementById('pdf-show-utm-grid');
+        if (!utmCheckbox) return;
+
+        const utmDisabled = scaleDenom >= UTM_MAX_SCALE_DENOM;
+        utmCheckbox.disabled = utmDisabled;
+        if (utmDisabled && utmCheckbox.checked) {
+            utmCheckbox.checked = false;
+            this.showUTMGrid = false;
+        }
     }
 
     onOrientationChange(event) {
@@ -321,20 +347,9 @@ export default class PDFExportTab {
         if (this.isVisible) {
             clearTimeout(this.updateTimeout);
             this.updateTimeout = setTimeout(() => {
-                this.updateBoundsOnly();
+                this.updateBounds();
             }, 100);
         }
-    }
-
-    updateBoundsOnly() {
-        // Reuse updateBounds which now delegates to updateBoundsAtCenter
-        this.updateBounds();
-    }
-
-    calculateBoundsFromScale(scale, orientation) {
-        // Use visible center that accounts for sidebar offset
-        const center = this.getVisibleCenter();
-        return this.calculateBoundsFromScaleAtCenter(scale, orientation, center);
     }
 
     /**
@@ -345,17 +360,12 @@ export default class PDFExportTab {
      * @returns {Object} Object with paper and usable bounds
      */
     calculateBoundsFromScaleAtCenter(scale, orientation, center) {
-        const denominator = parseInt(scale.split(':')[1], 10);
+        const denominator = this._parseScaleDenom(scale);
 
-        let realWidthMeters, realHeightMeters;
-
-        if (orientation === 'landscape') {
-            realWidthMeters = (297 / 1000) * denominator;
-            realHeightMeters = (210 / 1000) * denominator;
-        } else {
-            realWidthMeters = (210 / 1000) * denominator;
-            realHeightMeters = (297 / 1000) * denominator;
-        }
+        const isLandscape = orientation === 'landscape';
+        const [longSide, shortSide] = [297, 210];
+        const realWidthMeters = ((isLandscape ? longSide : shortSide) / 1000) * denominator;
+        const realHeightMeters = ((isLandscape ? shortSide : longSide) / 1000) * denominator;
 
         const latCorrection = Math.cos(center.lat * Math.PI / 180);
 
@@ -385,7 +395,7 @@ export default class PDFExportTab {
     }
 
     convertMMToMapUnitsFromScale(marginMM, scale) {
-        const denominator = parseInt(scale.split(':')[1], 10);
+        const denominator = this._parseScaleDenom(scale);
         const marginMeters = (marginMM / 1000) * denominator;
         return marginMeters / 111320;
     }
@@ -544,11 +554,11 @@ export default class PDFExportTab {
             'pdf-export-usable-stroke'
         ];
 
-        layerIds.forEach(layerId => {
+        for (const layerId of layerIds) {
             if (this.map.getLayer(layerId)) {
                 this.map.removeLayer(layerId);
             }
-        });
+        }
 
         if (this.map.getSource('pdf-export-preview')) {
             this.map.removeSource('pdf-export-preview');
@@ -557,188 +567,34 @@ export default class PDFExportTab {
 
     getCleanStyle() {
         try {
-            const currentStyle = this.map.getStyle();
-
-            if (!currentStyle) {
-                throw new Error('Map style not available');
-            }
-
-            const cleanStyle = deepClone(currentStyle);
-
-            const previewLayerIds = [
-                'pdf-export-preview-fill',
-                'pdf-export-preview-stroke',
-                'pdf-export-usable-stroke'
-            ];
-
-            cleanStyle.layers = cleanStyle.layers.filter(layer =>
-                !previewLayerIds.includes(layer.id)
-            );
-
-            if (cleanStyle.sources && cleanStyle.sources['pdf-export-preview']) {
-                delete cleanStyle.sources['pdf-export-preview'];
-            }
-
-            return cleanStyle;
-
+            return getCleanMapStyle(this.map);
         } catch (error) {
             console.error('Error creating clean style:', error);
             return this.map.getStyle();
         }
     }
 
-    async correctZoomInvariantFeatures(hiddenMap, finalZoom) {
-        const zoomInvariantSources = [
-            {
-                sourceName: 'texts',
-                property: 'calculatedSize',
-                baseProperty: 'size',
-                maxValue: 255
-            },
-            {
-                sourceName: 'brushes',
-                property: 'calculatedLineWidth',
-                baseProperty: 'lineWidth',
-                maxValue: Infinity
-            },
-            {
-                sourceName: 'images',
-                property: 'calculatedSize',
-                baseProperty: 'size',
-                maxValue: 10
-            },
-            {
-                sourceName: 'military_symbols',
-                property: 'calculatedSize',
-                baseProperty: 'size',
-                maxValue: 10
-            },
-            {
-                sourceName: 'coordination-measures-source',
-                property: 'calculatedSize',
-                baseProperty: 'size',
-                maxValue: 10
-            }
-        ];
-
-        let anyChanges = false;
-
-        for (const sourceConfig of zoomInvariantSources) {
-            const sourceHasChanges = await this.correctSourceFeatures(hiddenMap, sourceConfig, finalZoom);
-            if (sourceHasChanges) {
-                anyChanges = true;
-            }
-        }
-
-        return anyChanges;
-    }
-
-    async correctSourceFeatures(hiddenMap, sourceConfig, finalZoom) {
-        try {
-            const source = hiddenMap.getSource(sourceConfig.sourceName);
-            if (!source) {
-                // Source doesn't exist - this is expected if user hasn't created features of this type
-                return false;
-            }
-
-            const data = await source.getData();
-            if (!data?.features?.length) return false;
-
-            let hasChanges = false;
-
-            data.features.forEach(feature => {
-                if (!feature?.properties) return;
-                if (typeof feature.properties.createdAtZoom !== 'number') return;
-                if (typeof feature.properties[sourceConfig.baseProperty] !== 'number') return;
-
-                const zoomDifference = finalZoom - feature.properties.createdAtZoom;
-                const scaleFactor = Math.pow(2, zoomDifference);
-                const baseValue = feature.properties[sourceConfig.baseProperty];
-
-                if (baseValue <= 0) return;
-
-                const newValue = Math.min(baseValue * scaleFactor, sourceConfig.maxValue);
-
-                if (Math.abs(feature.properties[sourceConfig.property] - newValue) > 0.001) {
-                    feature.properties[sourceConfig.property] = newValue;
-                    hasChanges = true;
-                }
-            });
-
-            if (hasChanges) {
-                source.setData(data);
-            }
-
-            return hasChanges;
-
-        } catch (error) {
-            console.error(`Error correcting features from source ${sourceConfig.sourceName}:`, error);
-            return false;
-        }
-    }
-
     showExportModal() {
         this._exportCancelled = false;
-
-        const modal = document.createElement('div');
-        modal.id = 'pdf-export-modal';
-        modal.className = 'pdf-export-modal';
-
-        const content = document.createElement('div');
-        content.className = 'pdf-export-modal__content';
-
-        const title = document.createElement('div');
-        title.className = 'pdf-export-modal__title';
-        title.textContent = 'Exportando mapa...';
-
-        const progressText = document.createElement('div');
-        progressText.id = 'export-progress-text';
-        progressText.className = 'pdf-export-modal__progress-text';
-        progressText.textContent = 'Preparando...';
-
-        const barContainer = document.createElement('div');
-        barContainer.className = 'pdf-export-modal__bar-container';
-
-        const bar = document.createElement('div');
-        bar.id = 'export-progress-bar';
-        bar.className = 'pdf-export-modal__bar';
-        barContainer.appendChild(bar);
-
-        const hint = document.createElement('div');
-        hint.className = 'pdf-export-modal__hint';
-        hint.textContent = 'Isso pode levar alguns segundos...';
-
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className = 'pdf-export-modal__cancel-btn';
-        cancelBtn.textContent = 'Cancelar';
-        cancelBtn.addEventListener('click', () => {
-            this._exportCancelled = true;
-            if (modal.parentNode) {
-                document.body.removeChild(modal);
-            }
+        this._progress = createExportProgressModal({
+            title: 'Exportando mapa...',
+            onCancel: () => { this._exportCancelled = true; },
         });
-
-        content.appendChild(title);
-        content.appendChild(progressText);
-        content.appendChild(barContainer);
-        content.appendChild(hint);
-        content.appendChild(cancelBtn);
-        modal.appendChild(content);
-
-        document.body.appendChild(modal);
-        return modal;
+        return this._progress;
     }
 
     updateProgress(percent, text) {
-        const progressBar = document.getElementById('export-progress-bar');
-        const progressText = document.getElementById('export-progress-text');
+        if (this._progress) {
+            this._progress.updateProgress(percent, text);
+        }
+    }
 
-        if (progressBar) {
-            progressBar.style.width = percent + '%';
-        }
-        if (progressText) {
-            progressText.textContent = text;
-        }
+    /**
+     * Whether UTM grid is effectively enabled (disabled at scales >= 1:2.500.000).
+     * @returns {boolean}
+     */
+    get isUTMGridAllowed() {
+        return this.showUTMGrid && this._parseScaleDenom() < UTM_MAX_SCALE_DENOM;
     }
 
     /**
@@ -746,7 +602,7 @@ export default class PDFExportTab {
      * @returns {number}
      */
     get effectiveMarginMM() {
-        return (this.showLatLongGrid || this.showUTMGrid)
+        return (this.showLatLongGrid || this.isUTMGridAllowed)
             ? this.marginMM + this._gridMarginMM
             : this.marginMM;
     }
@@ -756,7 +612,7 @@ export default class PDFExportTab {
      * @returns {boolean}
      */
     get hasGrids() {
-        return this.showLatLongGrid || this.showUTMGrid;
+        return this.showLatLongGrid || this.isUTMGridAllowed;
     }
 
     calculateA4PixelSize() {
@@ -770,14 +626,9 @@ export default class PDFExportTab {
         // composeLayout() bakes these margins into the canvas, so GDAL MARGIN=0.
         const marginMM = this.effectiveMarginMM;
 
-        let usableWidthMM, usableHeightMM;
-        if (this.orientation === 'landscape') {
-            usableWidthMM = 297 - (2 * marginMM);
-            usableHeightMM = 210 - (2 * marginMM);
-        } else {
-            usableWidthMM = 210 - (2 * marginMM);
-            usableHeightMM = 297 - (2 * marginMM);
-        }
+        const isLandscape = this.orientation === 'landscape';
+        const usableWidthMM = (isLandscape ? 297 : 210) - (2 * marginMM);
+        const usableHeightMM = (isLandscape ? 210 : 297) - (2 * marginMM);
 
         const usableWidthInches = usableWidthMM / 25.4;
         const usableHeightInches = usableHeightMM / 25.4;
@@ -804,12 +655,11 @@ export default class PDFExportTab {
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) exportBtn.disabled = true;
 
-        let modal;
         let hiddenMapContainer;
         let hiddenMap;
 
         try {
-            modal = this.showExportModal();
+            this.showExportModal();
             this.updateProgress(10, 'Inicializando...');
 
             const Gdal = await initGdalJs({ path: this._getGdalPath(), useWorker: false })
@@ -846,13 +696,7 @@ export default class PDFExportTab {
 
             this.updateProgress(40, 'Transferindo recursos...');
 
-            const loadedImages = this.map.listImages();
-            for (const id of loadedImages) {
-                const image = this.map.getImage(id);
-                if (image) {
-                    hiddenMap.addImage(id, image.data, { sdf: image.sdf });
-                }
-            }
+            transferMapImages(this.map, hiddenMap);
 
             if (this._exportCancelled) return;
 
@@ -880,7 +724,7 @@ export default class PDFExportTab {
             this.updateProgress(70, 'Corrigindo feições...');
 
             const finalZoom = hiddenMap.getZoom();
-            const hadChanges = await this.correctZoomInvariantFeatures(hiddenMap, finalZoom);
+            const hadChanges = await correctZoomInvariantFeatures(hiddenMap, finalZoom);
 
             if (hadChanges) {
                 await new Promise(resolve => hiddenMap.once('idle', resolve));
@@ -891,7 +735,8 @@ export default class PDFExportTab {
             // Always compose cartographic layout (at minimum draws map border)
             let exportCanvas = hiddenMap.getCanvas();
             {
-                const { composeLayout } = await import('./pdf-cartographic-elements.js');
+                const { composeLayout, loadLogoImage } = await import('./pdf-cartographic-elements.js');
+                const logoImage = await loadLogoImage();
                 exportCanvas = composeLayout(exportCanvas, {
                     title: this.showTitle ? this.mapTitle : null,
                     showLegend: this.showLegend,
@@ -914,6 +759,7 @@ export default class PDFExportTab {
                         const pt = hiddenMap.project(lngLat);
                         return { x: pt.x * canvasSize.pixelRatio, y: pt.y * canvasSize.pixelRatio };
                     },
+                    logoImage,
                 });
             }
 
@@ -977,20 +823,14 @@ export default class PDFExportTab {
             Gdal.close(rasterDataset);
             Gdal.close(outputDataset);
 
-            setTimeout(() => {
-                if (modal && modal.parentNode) {
-                    document.body.removeChild(modal);
-                }
-            }, 800);
+            setTimeout(() => this._progress?.remove(), 800);
 
         } catch (error) {
             if (!this._exportCancelled) {
                 console.error('Error exporting PDF:', error);
                 showError('Não foi possível exportar o PDF: ' + error.message);
             }
-            if (modal && modal.parentNode) {
-                document.body.removeChild(modal);
-            }
+            this._progress?.remove();
         } finally {
             this._exporting = false;
             this._exportCancelled = false;
@@ -1000,25 +840,18 @@ export default class PDFExportTab {
             if (hiddenMap) {
                 hiddenMap.remove();
             }
-            if (hiddenMapContainer && hiddenMapContainer.parentNode) {
-                document.body.removeChild(hiddenMapContainer);
-            }
+            hiddenMapContainer?.remove();
         }
     }
 
     /**
      * Builds the base path for GDAL WASM files.
+     * Uses Vite's BASE_URL to resolve the correct path in any deployment.
      * @returns {string} GDAL directory path
      */
     _getGdalPath() {
-        let gdalBasePath;
-        if (config.url_paths.url && config.url_paths.url !== 'IP:PORT') {
-            const protocol = window.location.protocol;
-            gdalBasePath = `${protocol}//${config.url_paths.url}${config.url_paths.prefix_name ? `/${config.url_paths.prefix_name}` : ''}`;
-        } else {
-            gdalBasePath = window.location.origin;
-        }
-        return `${gdalBasePath}/vendors/gdal`;
+        const base = import.meta.env.BASE_URL || '/';
+        return `${window.location.origin}${base}vendors/gdal`;
     }
 
     /**
@@ -1034,6 +867,15 @@ export default class PDFExportTab {
             // Reset flag so it can be retried on next show()
             this._gdalPreInitStarted = false;
         });
+    }
+
+    /**
+     * Extracts the denominator from a scale string like "1:25000".
+     * @param {string} [scale] - Scale string (defaults to this.scale)
+     * @returns {number} Scale denominator
+     */
+    _parseScaleDenom(scale = this.scale) {
+        return parseScaleDenom(scale);
     }
 
     /**

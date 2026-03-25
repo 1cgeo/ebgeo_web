@@ -4,6 +4,44 @@ import { generateUUID } from './uuid.js';
 import { deepClone } from './deep-utils.js';
 
 /**
+ * Find the next available numbered name given a base name and existing names.
+ * Returns baseName if unused, otherwise "baseName #N" where N is the lowest
+ * available integer >= 2.
+ *
+ * @param {string[]} existingNames - Names already in use
+ * @param {string} baseName - Base name to derive from
+ * @returns {string} Unique name
+ */
+function findNextAvailableName(existingNames, baseName) {
+    if (!existingNames || existingNames.length === 0) {
+        return baseName;
+    }
+
+    const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`^${escaped}(?: #(\\d+))?$`);
+    const usedNumbers = new Set();
+
+    for (const name of existingNames) {
+        const match = name.match(pattern);
+        if (match) {
+            const num = match[1] ? parseInt(match[1], 10) : 1;
+            usedNumbers.add(num);
+        }
+    }
+
+    if (!usedNumbers.has(1)) {
+        return baseName;
+    }
+
+    let nextNumber = 2;
+    while (usedNumbers.has(nextNumber)) {
+        nextNumber++;
+    }
+
+    return `${baseName} #${nextNumber}`;
+}
+
+/**
  * Utilities for generating unique IDs and feature names
  */
 export class IDUtils {
@@ -21,99 +59,34 @@ export class IDUtils {
      * - `id`: UUID v4 for properties.id (primary identifier for sync/backend)
      * - `geoJsonId`: Timestamp-based for GeoJSON id field (MapLibre compatibility)
      *
-     * Usage:
-     * ```javascript
-     * const { id, geoJsonId } = IDUtils.generateFeatureIds();
-     * const feature = {
-     *     type: 'Feature',
-     *     id: geoJsonId,
-     *     properties: { id, nome: 'My Feature' }
-     * };
-     * ```
-     *
      * @returns {{id: string, geoJsonId: number}} Object with both IDs
      */
     static generateFeatureIds() {
         return {
             id: generateUUID(),
-            geoJsonId: Date.now() + Math.floor(Math.random() * 10000)
+            geoJsonId: this.generateGeoJSONId()
         };
     }
 
     /**
      * Generate unique layer name based on existing layers
-     * @param {Array} existingLayers - Array of existing layer objects with 'name' property
+     * @param {Array<{name: string}>} existingLayers - Array of existing layer objects with 'name' property
      * @param {string} baseName - Base name for the layer (default: 'Nova Camada')
      * @returns {string} Unique layer name (e.g., 'Nova Camada #2')
      */
     static generateUniqueLayerName(existingLayers = [], baseName = 'Nova Camada') {
-        if (!existingLayers || existingLayers.length === 0) {
-            return baseName;
-        }
-
-        // Extract numbers from existing layer names that match the pattern
-        const pattern = new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: #(\\d+))?$`);
-        const usedNumbers = new Set();
-
-        existingLayers.forEach(layer => {
-            const match = layer.name.match(pattern);
-            if (match) {
-                // If match[1] is undefined, it's the base name without number (treat as #1)
-                const num = match[1] ? parseInt(match[1], 10) : 1;
-                usedNumbers.add(num);
-            }
-        });
-
-        // If base name is not used, return it
-        if (!usedNumbers.has(1)) {
-            return baseName;
-        }
-
-        // Find the next available number
-        let nextNumber = 2;
-        while (usedNumbers.has(nextNumber)) {
-            nextNumber++;
-        }
-
-        return `${baseName} #${nextNumber}`;
+        const names = (existingLayers || []).map(layer => layer.name);
+        return findNextAvailableName(names, baseName);
     }
 
     /**
      * Generate unique map name based on existing maps
-     * @param {Array} existingMapNames - Array of existing map names
+     * @param {string[]} existingMapNames - Array of existing map names
      * @param {string} baseName - Base name for the map (default: 'Novo Mapa')
      * @returns {string} Unique map name (e.g., 'Novo Mapa #2')
      */
     static generateUniqueMapName(existingMapNames = [], baseName = 'Novo Mapa') {
-        if (!existingMapNames || existingMapNames.length === 0) {
-            return baseName;
-        }
-
-        // Extract numbers from existing map names that match the pattern
-        const pattern = new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: #(\\d+))?$`);
-        const usedNumbers = new Set();
-
-        existingMapNames.forEach(mapName => {
-            const match = mapName.match(pattern);
-            if (match) {
-                // If match[1] is undefined, it's the base name without number (treat as #1)
-                const num = match[1] ? parseInt(match[1], 10) : 1;
-                usedNumbers.add(num);
-            }
-        });
-
-        // If base name is not used, return it
-        if (!usedNumbers.has(1)) {
-            return baseName;
-        }
-
-        // Find the next available number
-        let nextNumber = 2;
-        while (usedNumbers.has(nextNumber)) {
-            nextNumber++;
-        }
-
-        return `${baseName} #${nextNumber}`;
+        return findNextAvailableName(existingMapNames || [], baseName);
     }
 
     /**
@@ -123,40 +96,27 @@ export class IDUtils {
      * @returns {Promise<string>} Generated name ('Circle #3', 'Arrow #1', etc.)
      */
     static async generateFeatureName(source, map) {
-        try {
-            const displayName = getFeatureDisplayName(source);
-            const mapSourceName = getStorageTypeFromSource(source);
+        const displayName = getFeatureDisplayName(source);
+        const mapSourceName = getStorageTypeFromSource(source);
 
-            let featureCount = 0;
+        const mapSource = mapSourceName ? map.getSource(mapSourceName) : null;
+        const data = mapSource ? await mapSource.getData() : null;
+        const featureCount = data?.features?.length ?? 0;
 
-            if (mapSourceName) {
-                const mapSource = map.getSource(mapSourceName);
-                if (mapSource) {
-                    const data = await mapSource.getData();
-                    if (data && data.features) {
-                        featureCount = data.features.length;
-                    }
-                }
-            }
-
-            const nextNumber = featureCount + 1;
-
-            return `${displayName} #${nextNumber}`;
-
-        } catch (error) {
-            console.warn('Error generating feature name:', error);
-            return `Feição #1`;
-        }
+        return `${displayName} #${featureCount + 1}`;
     }
 
     /**
-     * Regenerate IDs for all features in mapData and duplicate resources
-     * Phase separation to avoid timing conflicts
+     * Regenerate IDs for all features in mapData and duplicate resources.
+     * Uses phase separation to avoid timing conflicts:
+     *   Phase 1 - Collect ID mappings and resource operations
+     *   Phase 2 - Duplicate resources using original IDs
+     *   Phase 3 - Apply new IDs and update layerId references
      *
      * @param {Object} mapData - Map data object
      * @param {string} mapName - New map name
      * @param {Map} [layerIdMapping=null] - Optional layer ID mapping (oldLayerId -> newLayerId)
-     * @returns {Object} Object containing newMapData and idMapping
+     * @returns {Promise<{newMapData: Object, idMapping: Map}>}
      */
     static async regenerateMapIds(mapData, mapName, layerIdMapping = null) {
         const idMapping = new Map();
@@ -170,46 +130,35 @@ export class IDUtils {
 
             for (const feature of features) {
                 const oldId = feature.properties.id;
-                const newId = this.generateUniqueId();
+                const newId = generateUUID();
 
                 idMapping.set(oldId, newId);
 
                 if (this.hasImageResource(featureType)) {
-                    resourceOperations.push({
-                        oldId,
-                        newId,
-                        featureType
-                    });
+                    resourceOperations.push({ oldId, newId, featureType });
                 }
             }
         }
 
         // PHASE 2: Duplicate resources using original IDs
-        for (const operation of resourceOperations) {
-            await this.duplicateImageResource(
-                operation.oldId,
-                operation.newId,
-                operation.featureType
-            );
+        for (const { oldId, newId, featureType } of resourceOperations) {
+            await this.duplicateImageResource(oldId, newId, featureType);
         }
 
         // PHASE 3: Apply new IDs to features and update layerId if mapping provided
-        for (const [_featureType, features] of Object.entries(newMapData.features)) {
+        for (const features of Object.values(newMapData.features)) {
             if (!Array.isArray(features)) continue;
 
             for (const feature of features) {
-                const oldId = feature.properties.id;
-                const newId = idMapping.get(oldId);
+                const newId = idMapping.get(feature.properties.id);
 
                 if (newId) {
                     feature.properties.id = newId;
                     feature.id = this.generateGeoJSONId();
                 }
 
-                // Update layerId if mapping is provided
                 if (layerIdMapping && feature.properties.layerId) {
-                    const oldLayerId = feature.properties.layerId;
-                    const newLayerId = layerIdMapping.get(oldLayerId);
+                    const newLayerId = layerIdMapping.get(feature.properties.layerId);
                     if (newLayerId) {
                         feature.properties.layerId = newLayerId;
                     }
@@ -218,12 +167,14 @@ export class IDUtils {
         }
 
         newMapData.nome = mapName;
+        newMapData.name = mapName;
+        newMapData.id = null;
 
         return { newMapData, idMapping };
     }
 
     /**
-     * Generate unique ID for GeoJSON features (integers only)
+     * Generate unique ID for GeoJSON features (timestamp-based integers for MapLibre)
      * @returns {number} Unique integer ID
      */
     static generateGeoJSONId() {
@@ -231,7 +182,8 @@ export class IDUtils {
     }
 
     /**
-     * Check if feature type has associated image resources
+     * Check if feature type has associated image resources.
+     * Handles plural storage type keys (e.g., 'images' -> 'image').
      * @param {string} featureType - Feature type to check
      * @returns {boolean} True if feature has image resources
      */
@@ -244,7 +196,7 @@ export class IDUtils {
      * Duplicate image resource in imageStore
      * @param {string} oldId - Original resource ID
      * @param {string} newId - New resource ID
-     * @param {string} featureType - Feature type
+     * @param {string} featureType - Feature type (for logging only)
      */
     static async duplicateImageResource(oldId, newId, featureType) {
         try {
@@ -257,47 +209,5 @@ export class IDUtils {
         } catch (error) {
             console.error(`Error duplicating resource ${oldId}:`, error);
         }
-    }
-
-    /**
-     * Convert coordinates from string to array if necessary
-     * @param {string|Array} coordinates - Coordinates to normalize
-     * @returns {Array} Normalized coordinates array
-     */
-    static normalizeCoordinates(coordinates) {
-        if (typeof coordinates === 'string') {
-            try {
-                return JSON.parse(coordinates);
-            } catch (_e) {
-                console.warn('Error parsing coordinates:', coordinates);
-                return [];
-            }
-        }
-        return Array.isArray(coordinates) ? coordinates : [];
-    }
-
-    /**
-     * Validate if coordinates are valid
-     * @param {Array} coord - Coordinate to validate
-     * @returns {boolean} True if coordinate is valid
-     */
-    static isValidCoordinate(coord) {
-        return Array.isArray(coord) &&
-            coord.length >= 2 &&
-            typeof coord[0] === 'number' &&
-            typeof coord[1] === 'number' &&
-            !isNaN(coord[0]) &&
-            !isNaN(coord[1]);
-    }
-
-    /**
-     * Filter valid coordinates from an array
-     * @param {Array} coordinates - Coordinates array to filter
-     * @returns {Array} Filtered array of valid coordinates
-     */
-    static filterValidCoordinates(coordinates) {
-        if (!Array.isArray(coordinates)) return [];
-
-        return coordinates.filter(coord => this.isValidCoordinate(coord));
     }
 }

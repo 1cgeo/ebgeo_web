@@ -6,7 +6,7 @@
  * Disables global keyboard shortcuts when active and re-enables them when deactivated.
  */
 
-import { isCurrentMapLockedSync } from '../../store/index.js';
+import { isCurrentMapLockedSync } from '@store/index.js';
 
 // Dynamic imports to avoid static import conflict with viewer's dynamic import
 let sidebarModule = null;

@@ -7,6 +7,85 @@
 import { DEFAULT_SLIDER_CONFIG } from './common-config.helpers.js';
 
 /**
+ * Returns the number of decimal places in a number.
+ * @param {number} num
+ * @returns {number}
+ */
+function getDecimalPlaces(num) {
+    const str = String(num);
+    const decimalIndex = str.indexOf('.');
+    return decimalIndex === -1 ? 0 : str.length - decimalIndex - 1;
+}
+
+/**
+ * Creates value-processing helpers scoped to a slider/input configuration.
+ *
+ * @param {number} min - Minimum allowed value
+ * @param {number} max - Maximum allowed value
+ * @param {number} step - Step increment
+ * @returns {{ roundToStep: Function, clampValue: Function, parseValue: Function }}
+ */
+function createValueHelpers(min, max, step) {
+    const decimalPlaces = getDecimalPlaces(step);
+
+    const roundToStep = (val) => {
+        const result = Math.round(val / step) * step;
+        return Number(result.toFixed(decimalPlaces));
+    };
+    const clampValue = (val) => Math.max(min, Math.min(max, val));
+    const parseValue = (val) => step < 1 ? parseFloat(val) : parseInt(val, 10);
+
+    return { roundToStep, clampValue, parseValue };
+}
+
+/**
+ * Validates and normalizes a raw input value, applying clamping and rounding.
+ *
+ * @param {string} rawValue - Raw string value from the input element
+ * @param {number} fallback - Fallback value when input is NaN
+ * @param {{ roundToStep: Function, clampValue: Function, parseValue: Function }} helpers
+ * @returns {number} Validated and normalized value
+ */
+function normalizeInputValue(rawValue, fallback, helpers) {
+    const val = helpers.parseValue(rawValue);
+    if (isNaN(val)) return fallback;
+    return helpers.roundToStep(helpers.clampValue(val));
+}
+
+/**
+ * Attaches debounced input + blur handlers to a numeric input element.
+ *
+ * @param {HTMLInputElement} input - The numeric input element
+ * @param {Object} options
+ * @param {number} options.fallback - Fallback value when input is NaN
+ * @param {number} [options.debounceMs] - Debounce delay in ms
+ * @param {Function} options.onChange - Callback with the validated value
+ * @param {{ roundToStep: Function, clampValue: Function, parseValue: Function }} options.helpers
+ * @param {HTMLInputElement} [options.syncSlider] - Optional slider element to keep in sync
+ */
+function attachNumericInputHandlers(input, { fallback, debounceMs, onChange, helpers, syncSlider }) {
+    let debounceTimer = null;
+
+    input.addEventListener('input', (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            const val = normalizeInputValue(e.target.value, fallback, helpers);
+            input.value = val;
+            if (syncSlider) syncSlider.value = val;
+            onChange(val);
+        }, debounceMs || DEFAULT_SLIDER_CONFIG.debounceMs);
+    });
+
+    input.addEventListener('blur', (e) => {
+        clearTimeout(debounceTimer);
+        const val = normalizeInputValue(e.target.value, fallback, helpers);
+        input.value = val;
+        if (syncSlider) syncSlider.value = val;
+        onChange(val);
+    });
+}
+
+/**
  * Creates a modern slider with label above and input to the right.
  *
  * @param {Object} config - Configuration object
@@ -37,6 +116,8 @@ export function createModernSlider(config) {
         disabled = false,
         disabledMessage
     } = config;
+
+    const helpers = createValueHelpers(min, max, step);
 
     const container = document.createElement('div');
     container.className = 'attr-modern-slider';
@@ -101,26 +182,9 @@ export function createModernSlider(config) {
         }
     }
 
-    // Helper functions
-    const getDecimalPlaces = (num) => {
-        const str = String(num);
-        const decimalIndex = str.indexOf('.');
-        return decimalIndex === -1 ? 0 : str.length - decimalIndex - 1;
-    };
-    const decimalPlaces = getDecimalPlaces(step);
-    const roundToStep = (val, s) => {
-        const result = Math.round(val / s) * s;
-        return Number(result.toFixed(decimalPlaces));
-    };
-    const clampValue = (val) => Math.max(min, Math.min(max, val));
-    const parseValue = (val) => step < 1 ? parseFloat(val) : parseInt(val, 10);
-
-    let debounceTimer = null;
-
     // Slider input handler
     slider.addEventListener('input', (e) => {
-        const rawValue = parseValue(e.target.value);
-        const newValue = roundToStep(rawValue, step);
+        const newValue = helpers.roundToStep(helpers.parseValue(e.target.value));
         if (numericInput) {
             numericInput.value = newValue;
         }
@@ -129,32 +193,12 @@ export function createModernSlider(config) {
 
     // Numeric input handlers
     if (numericInput) {
-        numericInput.addEventListener('input', (e) => {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-                let val = parseValue(e.target.value);
-                if (isNaN(val)) {
-                    val = value;
-                } else {
-                    val = roundToStep(clampValue(val), step);
-                }
-                slider.value = val;
-                numericInput.value = val;
-                onChange(val);
-            }, debounceMs || DEFAULT_SLIDER_CONFIG.debounceMs);
-        });
-
-        numericInput.addEventListener('blur', (e) => {
-            clearTimeout(debounceTimer);
-            let val = parseValue(e.target.value);
-            if (isNaN(val)) {
-                val = value;
-            } else {
-                val = roundToStep(clampValue(val), step);
-            }
-            numericInput.value = val;
-            slider.value = val;
-            onChange(val);
+        attachNumericInputHandlers(numericInput, {
+            fallback: value,
+            debounceMs,
+            onChange,
+            helpers,
+            syncSlider: slider
         });
     }
 
@@ -206,6 +250,8 @@ export function createModernNumericInput(config) {
         debounceMs
     } = config;
 
+    const helpers = createValueHelpers(min, max, step);
+
     const container = document.createElement('div');
     container.className = 'attr-modern-numeric';
 
@@ -236,48 +282,12 @@ export function createModernNumericInput(config) {
 
     container.appendChild(inputWrapper);
 
-    // Helper functions
-    const getDecimalPlaces = (num) => {
-        const str = String(num);
-        const decimalIndex = str.indexOf('.');
-        return decimalIndex === -1 ? 0 : str.length - decimalIndex - 1;
-    };
-    const decimalPlaces = getDecimalPlaces(step);
-    const roundToStep = (val, s) => {
-        const result = Math.round(val / s) * s;
-        return Number(result.toFixed(decimalPlaces));
-    };
-    const clampValue = (val) => Math.max(min, Math.min(max, val));
-    const parseValue = (val) => step < 1 ? parseFloat(val) : parseInt(val, 10);
-
-    let debounceTimer = null;
-
-    input.addEventListener('input', (e) => {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-            let val = parseValue(e.target.value);
-            if (isNaN(val)) {
-                val = value;
-            } else {
-                val = roundToStep(clampValue(val), step);
-            }
-            input.value = val;
-            onChange(val);
-        }, debounceMs || DEFAULT_SLIDER_CONFIG.debounceMs);
-    });
-
-    input.addEventListener('blur', (e) => {
-        clearTimeout(debounceTimer);
-        let val = parseValue(e.target.value);
-        if (isNaN(val)) {
-            val = value;
-        } else {
-            val = roundToStep(clampValue(val), step);
-        }
-        input.value = val;
-        onChange(val);
+    attachNumericInputHandlers(input, {
+        fallback: value,
+        debounceMs,
+        onChange,
+        helpers
     });
 
     return container;
 }
-

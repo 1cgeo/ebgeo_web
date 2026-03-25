@@ -13,13 +13,13 @@
  */
 
 import { SIDEBAR_ICONS } from '../sidebar.constants.js';
-import { escapeHtml } from '../../utilities/html-escape.js';
+import { escapeHtml } from '@utils/html-escape.js';
 import {
     setupCleanup,
     addDomListener,
     cleanup,
     removeElement
-} from '../../utilities/event-cleanup.js';
+} from '@utils/event-cleanup.js';
 
 /**
  * Feature panel component for displaying selected feature attributes in sidebar.

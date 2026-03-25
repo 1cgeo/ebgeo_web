@@ -7,7 +7,8 @@
  * @module sidebar/handlers/feature-3d-handlers
  */
 
-import { isCurrentMapLockedSync } from '../../store/index.js';
+import { isCurrentMapLockedSync } from '@store/index.js';
+import { SIDEBAR_DIMENSIONS } from '../sidebar.constants.js';
 
 // ============================================================================
 // LAZY-LOADED MODULES
@@ -286,7 +287,6 @@ export async function handleMarker360Click({
     // Load marker panel module lazily
     if (!markerPanel360Module) {
         markerPanel360Module = await import('../../street_view_tool/components/marker-panel-360.js');
-        markerPanel360Module.injectMarkerPanel360Styles();
     }
 
     // Cleanup previous content
@@ -368,7 +368,7 @@ export function closeAny3dPanel({ stateManager, hidePanel, cleanupContent, event
         eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
             sidebarExpanded: false,
             featurePanelOpen: false,
-            contentLeftOffset: 56
+            contentLeftOffset: SIDEBAR_DIMENSIONS.COLLAPSED_WIDTH
         });
 
         return true;

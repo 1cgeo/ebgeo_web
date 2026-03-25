@@ -8,7 +8,7 @@
  * @module mode/application-mode.manager
  */
 
-import { getEventBus } from '../store/services.js';
+import { getEventBus } from '@store/services.js';
 
 // ============================================================================
 // ENUMS

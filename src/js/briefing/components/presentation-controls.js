@@ -21,7 +21,7 @@ import {
     cleanup,
     removeElement,
     trackTimer
-} from '../../utilities/event-cleanup.js';
+} from '@utils/event-cleanup.js';
 
 // ============================================================================
 // CONSTANTS

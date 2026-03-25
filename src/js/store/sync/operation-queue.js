@@ -6,14 +6,14 @@
  *
  * Features:
  * - Configurable max queue size with automatic compaction
- * - In-memory reverse index (opId → key) for O(1) dequeue
+ * - In-memory reverse index (opId -> key) for O(1) dequeue
  * - Compaction merges redundant operations (multiple UPDATEs, CREATE+DELETE)
  */
 
 import localforage from 'localforage';
 import { OperationType } from './operation-types.js';
 
-// Dedicated store for operation queue
+/** Dedicated IndexedDB store for operation queue */
 const queueStore = localforage.createInstance({
     name: 'ebgeo',
     storeName: 'operation_queue'
@@ -38,7 +38,7 @@ const MAX_QUEUE_SIZE = 10000;
 class OperationQueue {
     constructor() {
         /**
-         * Reverse index: opId → IndexedDB key.
+         * Reverse index: opId -> IndexedDB key.
          * Built lazily on first use, kept in sync on enqueue/dequeue/clear.
          * @type {Map<string, string>|null}
          * @private
@@ -68,11 +68,20 @@ class OperationQueue {
         const keys = await queueStore.keys();
         for (const key of keys) {
             if (!key.startsWith(KEY_PREFIX)) continue;
-            // Extract opId: last segment after last underscore
             const lastUnderscore = key.lastIndexOf('_');
             const opId = key.substring(lastUnderscore + 1);
             this._index.set(opId, key);
         }
+    }
+
+    /**
+     * Builds the storage key for an operation.
+     * @private
+     * @param {import('./operation-factory.js').Operation} operation
+     * @returns {string}
+     */
+    _buildKey(operation) {
+        return `${KEY_PREFIX}${operation.timestamp}_${operation.id}`;
     }
 
     // ===== CORE OPERATIONS =====
@@ -86,11 +95,10 @@ class OperationQueue {
     async enqueue(operation) {
         await this._ensureIndex();
 
-        const key = `${KEY_PREFIX}${operation.timestamp}_${operation.id}`;
+        const key = this._buildKey(operation);
         await queueStore.setItem(key, operation);
         this._index.set(operation.id, key);
 
-        // Check if compaction is needed
         if (this._index.size > MAX_QUEUE_SIZE && !this._compacting) {
             await this._compact();
         }
@@ -102,15 +110,15 @@ class OperationQueue {
      * @returns {Promise<void>}
      */
     async enqueueAll(operations) {
+        await this._ensureIndex();
+
         for (const operation of operations) {
-            await this._ensureIndex();
-            const key = `${KEY_PREFIX}${operation.timestamp}_${operation.id}`;
+            const key = this._buildKey(operation);
             await queueStore.setItem(key, operation);
             this._index.set(operation.id, key);
         }
 
-        // Check compaction after all enqueued
-        if (this._index && this._index.size > MAX_QUEUE_SIZE && !this._compacting) {
+        if (this._index.size > MAX_QUEUE_SIZE && !this._compacting) {
             await this._compact();
         }
     }
@@ -121,17 +129,8 @@ class OperationQueue {
      * @returns {Promise<import('./operation-factory.js').Operation[]>} Operations
      */
     async peek(count = 10) {
-        const keys = await this.getOrderedKeys();
-        const limited = keys.slice(0, count);
-
-        const operations = [];
-        for (const key of limited) {
-            const op = await queueStore.getItem(key);
-            if (op) {
-                operations.push(op);
-            }
-        }
-        return operations;
+        const keys = await this._getOrderedKeys();
+        return this._loadOperations(keys.slice(0, count));
     }
 
     /**
@@ -174,7 +173,6 @@ class OperationQueue {
 
     /**
      * Clears all operations from the queue.
-     * Use with caution - typically for testing or reset.
      * @returns {Promise<void>}
      */
     async clear() {
@@ -184,25 +182,16 @@ class OperationQueue {
                 await queueStore.removeItem(key);
             }
         }
-        // Reset index
         this._index = new Map();
     }
 
     /**
-     * Gets all pending operations.
+     * Gets all pending operations in chronological order.
      * @returns {Promise<import('./operation-factory.js').Operation[]>} All operations
      */
     async getAll() {
-        const keys = await this.getOrderedKeys();
-        const operations = [];
-
-        for (const key of keys) {
-            const op = await queueStore.getItem(key);
-            if (op) {
-                operations.push(op);
-            }
-        }
-        return operations;
+        const keys = await this._getOrderedKeys();
+        return this._loadOperations(keys);
     }
 
     /**
@@ -225,16 +214,33 @@ class OperationQueue {
         return all.filter(op => op.mapId === mapId);
     }
 
+    // ===== PRIVATE HELPERS =====
+
     /**
      * Gets queue keys in chronological order.
      * @private
      * @returns {Promise<string[]>} Ordered keys
      */
-    async getOrderedKeys() {
+    async _getOrderedKeys() {
         const keys = await queueStore.keys();
         return keys
             .filter(k => k.startsWith(KEY_PREFIX))
             .sort(); // Lexicographic sort works since keys are timestamp-prefixed
+    }
+
+    /**
+     * Loads operations from IndexedDB by their keys, skipping nulls.
+     * @private
+     * @param {string[]} keys - IndexedDB keys to load
+     * @returns {Promise<import('./operation-factory.js').Operation[]>}
+     */
+    async _loadOperations(keys) {
+        const operations = [];
+        for (const key of keys) {
+            const op = await queueStore.getItem(key);
+            if (op) operations.push(op);
+        }
+        return operations;
     }
 
     // ===== COMPACTION =====
@@ -243,10 +249,10 @@ class OperationQueue {
      * Compacts the queue by merging redundant operations for the same entity.
      *
      * Rules:
-     * - Multiple UPDATEs for the same entity → keep only the last one
-     * - CREATE followed by UPDATEs → merge into single CREATE with latest data
-     * - CREATE followed by DELETE → remove both (entity never needs to sync)
-     * - UPDATE followed by DELETE → keep only DELETE
+     * - Multiple UPDATEs for the same entity -> keep only the last one
+     * - CREATE followed by UPDATEs -> merge into single CREATE with latest data
+     * - CREATE followed by DELETE -> remove both (entity never needs to sync)
+     * - UPDATE followed by DELETE -> keep only DELETE
      *
      * @private
      * @returns {Promise<void>}
@@ -270,43 +276,33 @@ class OperationQueue {
                 groups.get(groupKey).push(op);
             }
 
-            /** @type {string[]} keysToRemove */
+            /** @type {string[]} */
             const keysToRemove = [];
-            /** @type {Array<{key: string, op: import('./operation-factory.js').Operation}>} opsToUpdate */
+            /** @type {Array<{key: string, op: import('./operation-factory.js').Operation}>} */
             const opsToUpdate = [];
 
             for (const [, ops] of groups) {
-                if (ops.length <= 1) continue; // Nothing to compact
+                if (ops.length <= 1) continue;
 
                 const compacted = this._compactEntityOps(ops);
-
-                // Find ops to remove (all original ops except the ones we keep)
                 const keptIds = new Set(compacted.map(op => op.id));
 
                 for (const op of ops) {
                     if (!keptIds.has(op.id)) {
                         const key = this._index.get(op.id);
-                        if (key) {
-                            keysToRemove.push(key);
-                        }
+                        if (key) keysToRemove.push(key);
                     }
                 }
 
-                // Update surviving ops that had their data merged
                 for (const op of compacted) {
                     const key = this._index.get(op.id);
-                    if (key) {
-                        opsToUpdate.push({ key, op });
-                    }
+                    if (key) opsToUpdate.push({ key, op });
                 }
             }
 
-            // Apply removals
             for (const key of keysToRemove) {
                 await queueStore.removeItem(key);
             }
-
-            // Apply updates (merged data)
             for (const { key, op } of opsToUpdate) {
                 await queueStore.setItem(key, op);
             }
@@ -317,6 +313,40 @@ class OperationQueue {
         } finally {
             this._compacting = false;
         }
+    }
+
+    /**
+     * Compacts operations for a single entity.
+     * @private
+     * @param {import('./operation-factory.js').Operation[]} ops - Chronologically ordered ops for one entity
+     * @returns {import('./operation-factory.js').Operation[]} Compacted ops
+     */
+    _compactEntityOps(ops) {
+        if (ops.length === 0) return ops;
+
+        const firstOp = ops[0];
+        const lastOp = ops[ops.length - 1];
+
+        // CREATE + ... + DELETE -> remove all (entity was created and deleted locally)
+        if (firstOp.operationType === OperationType.CREATE && lastOp.operationType === OperationType.DELETE) {
+            return [];
+        }
+
+        // CREATE + UPDATEs -> merge into single CREATE with latest data
+        if (firstOp.operationType === OperationType.CREATE) {
+            const mergedCreate = { ...firstOp };
+            for (let i = ops.length - 1; i > 0; i--) {
+                if (ops[i].data) {
+                    mergedCreate.data = ops[i].data;
+                    break;
+                }
+            }
+            return [mergedCreate];
+        }
+
+        // UPDATEs + DELETE -> keep only DELETE
+        // Multiple UPDATEs -> keep only the last one
+        return [lastOp];
     }
 
     // ===== AUTO-PURGE =====
@@ -331,18 +361,13 @@ class OperationQueue {
         await this._ensureIndex();
         const cutoff = Date.now() - maxAgeMs;
         const allOps = await this.getAll();
-        const toPurge = [];
-
-        for (const op of allOps) {
-            if (op.timestamp < cutoff) {
-                toPurge.push(op.id);
-            }
-        }
+        const toPurge = allOps
+            .filter(op => op.timestamp < cutoff)
+            .map(op => op.id);
 
         if (toPurge.length > 0) {
             await this.dequeue(toPurge);
         }
-
         return toPurge.length;
     }
 
@@ -353,7 +378,6 @@ class OperationQueue {
     startAutoPurge() {
         if (this._purgeInterval) return;
 
-        // Run purge every 6 hours
         const SIX_HOURS = 6 * 60 * 60 * 1000;
         this._purgeInterval = setInterval(async () => {
             try {
@@ -376,51 +400,9 @@ class OperationQueue {
             this._purgeInterval = null;
         }
     }
-
-    /**
-     * Compacts operations for a single entity.
-     * @private
-     * @param {import('./operation-factory.js').Operation[]} ops - Chronologically ordered ops for one entity
-     * @returns {import('./operation-factory.js').Operation[]} Compacted ops
-     */
-    _compactEntityOps(ops) {
-        if (ops.length === 0) return ops;
-
-        // Find first CREATE and last DELETE
-        const firstOp = ops[0];
-        const lastOp = ops[ops.length - 1];
-
-        // CREATE + ... + DELETE → remove all (entity was created and deleted locally)
-        if (firstOp.operationType === OperationType.CREATE && lastOp.operationType === OperationType.DELETE) {
-            return [];
-        }
-
-        // CREATE + UPDATEs → merge into single CREATE with latest data
-        if (firstOp.operationType === OperationType.CREATE) {
-            const mergedCreate = { ...firstOp };
-            // Apply data from the last UPDATE
-            for (let i = ops.length - 1; i > 0; i--) {
-                if (ops[i].data) {
-                    mergedCreate.data = ops[i].data;
-                    break;
-                }
-            }
-            return [mergedCreate];
-        }
-
-        // UPDATEs + DELETE → keep only DELETE
-        if (lastOp.operationType === OperationType.DELETE) {
-            return [lastOp];
-        }
-
-        // Multiple UPDATEs → keep only the last one
-        return [lastOp];
-    }
 }
 
-/**
- * Singleton operation queue instance.
- */
+/** Singleton operation queue instance. */
 export const operationQueue = new OperationQueue();
 
 // Export class for testing

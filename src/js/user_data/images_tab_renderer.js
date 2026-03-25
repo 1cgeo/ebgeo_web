@@ -5,10 +5,9 @@
  */
 
 import userDataManager from './user_data_manager.js';
-import { showConfirm } from '../modals/index.js';
-import { isCurrentMapLockedSync } from '../store/index.js';
-import { showWarning } from '../utilities';
-import { escapeHtml } from '../utilities/html-escape.js';
+import { showConfirm } from '@modals/index.js';
+import { isCurrentMapLockedSync } from '@store/index.js';
+import { showWarning } from '@utils';
 
 /**
  * Renderiza o conteúdo da tab de Imagens.
@@ -163,16 +162,25 @@ function openImageViewer(imageData) {
     const overlay = document.createElement('div');
     overlay.className = 'user-data-image-viewer-overlay';
 
-    overlay.innerHTML = `
-        <div class="user-data-image-viewer">
-            <img src="${imageData.data}" alt="${escapeHtml(imageData.name || 'Imagem')}">
-            <button class="user-data-viewer-close" title="Fechar">✕</button>
-        </div>
-    `;
+    const viewer = document.createElement('div');
+    viewer.className = 'user-data-image-viewer';
+
+    const img = document.createElement('img');
+    img.src = imageData.data;
+    img.alt = imageData.name || 'Imagem';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'user-data-viewer-close';
+    closeBtn.title = 'Fechar';
+    closeBtn.textContent = '\u2715';
+
+    viewer.appendChild(img);
+    viewer.appendChild(closeBtn);
+    overlay.appendChild(viewer);
 
     const closeViewer = () => overlay.remove();
 
-    overlay.querySelector('.user-data-viewer-close').addEventListener('click', closeViewer);
+    closeBtn.addEventListener('click', closeViewer);
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay) closeViewer();
     });

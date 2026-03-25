@@ -83,8 +83,8 @@ export function createModernButtons(config) {
     discardButton.textContent = 'Descartar';
     discardButton.className = 'attr-modern-btn-discard';
     discardButton.type = 'button';
-    discardButton.addEventListener('click', () => {
-        control.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
+    discardButton.addEventListener('click', async () => {
+        await control.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         // skipSave: discard reverted changes — nothing to save
         selectionManager.deselectAllFeatures({ skipSave: true });
     });

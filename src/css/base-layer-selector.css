@@ -10,6 +10,10 @@
    ========================================================================= */
 
 .base-layer-selector {
+    --_thumb-size: 80px;
+    --_thumb-height-ratio: 0.75;
+    --_border-active: 3px;
+
     position: fixed;
     bottom: var(--space-6);
     left: calc(var(--sidebar-collapsed-width) + var(--space-4));
@@ -18,12 +22,10 @@
     will-change: transform;
 }
 
-/* Position when sidebar collapsed */
 .base-layer-selector[data-sidebar-state="collapsed"] {
     transform: translateX(0);
 }
 
-/* Position when sidebar expanded */
 .base-layer-selector[data-sidebar-state="expanded"] {
     transform: translateX(calc(var(--sidebar-panel-width) + var(--space-1)));
 }
@@ -33,21 +35,20 @@
    ========================================================================= */
 
 .base-layer-collapsed {
-    width: 80px;
+    width: var(--_thumb-size);
     cursor: pointer;
 }
 
 .base-layer-thumbnail {
-    width: 80px;
-    height: 80px;
+    width: var(--_thumb-size);
+    height: var(--_thumb-size);
     border-radius: var(--radius-lg);
     overflow: hidden;
     box-shadow: var(--shadow-lg);
-    border: 3px solid white;
+    border: var(--_border-active) solid white;
     transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
-/* Gradient fallback only when no image */
 .base-layer-thumbnail:has(img:not([src])),
 .base-layer-thumbnail:has(img[src=""]) {
     background: linear-gradient(135deg, #f5f5dc 0%, #ddd8c4 100%);
@@ -79,7 +80,6 @@
         0 0 8px rgba(0, 0, 0, 0.6);
 }
 
-/* Hide collapsed when expanded */
 .base-layer-selector[data-expanded="true"] .base-layer-collapsed {
     display: none;
 }
@@ -134,18 +134,14 @@
     transform: scale(1.02);
 }
 
-.base-layer-option:focus {
-    outline: none;
-}
-
-.base-layer-option:focus .base-layer-option-thumb {
+.base-layer-option:focus-visible .base-layer-option-thumb {
     border-color: var(--primary);
     box-shadow: 0 0 0 2px var(--primary-100);
 }
 
 .base-layer-option-thumb {
-    width: 80px;
-    height: 60px;
+    width: var(--_thumb-size);
+    height: calc(var(--_thumb-size) * var(--_thumb-height-ratio));
     border-radius: var(--radius-md);
     overflow: hidden;
     border: 2px solid var(--gray-200);
@@ -153,7 +149,6 @@
     margin-bottom: var(--space-1);
 }
 
-/* Gradient fallback only when no image */
 .base-layer-option-thumb:has(img:not([src])),
 .base-layer-option-thumb:has(img[src=""]) {
     background: linear-gradient(135deg, #ccc 0%, #999 100%);
@@ -163,10 +158,9 @@
     border-color: var(--gray-400);
 }
 
-/* Selected state */
 .base-layer-option[data-selected="true"] .base-layer-option-thumb {
     border-color: var(--primary);
-    border-width: 3px;
+    border-width: var(--_border-active);
     box-shadow: 0 0 0 2px var(--primary-100);
 }
 
@@ -179,7 +173,7 @@
 .base-layer-option-name {
     font-size: var(--font-size-xs);
     color: var(--gray-600);
-    line-height: 1.2;
+    line-height: var(--line-height-tight);
 }
 
 .base-layer-option[data-selected="true"] .base-layer-option-name {
@@ -200,49 +194,30 @@
    TABLET RESPONSIVE ADJUSTMENTS
    ========================================================================= */
 
-/* Touch device optimizations */
 @media (pointer: coarse) {
-    /* Larger thumbnail for touch */
-    .base-layer-thumbnail {
-        width: 88px;
-        height: 88px;
+    .base-layer-selector {
+        --_thumb-size: 88px;
     }
 
-    .base-layer-collapsed {
-        width: 88px;
-    }
-
-    /* Better touch feedback */
     .base-layer-thumbnail:active {
         transform: scale(0.95);
     }
 
-    /* Larger option thumbnails */
-    .base-layer-option-thumb {
-        width: 88px;
-        height: 66px;
-    }
-
-    /* Better active state */
     .base-layer-option:active {
         transform: scale(0.95);
     }
 
-    /* Remove sticky hover */
     .base-layer-thumbnail:hover,
     .base-layer-option:hover {
         transform: none;
     }
 }
 
-/* Tablet breakpoint */
 @media (width <= 1024px) {
-    /* Adjust position for tablet sidebar */
     .base-layer-selector[data-sidebar-state="expanded"] {
         transform: translateX(var(--sidebar-panel-width-tablet, 340px));
     }
 
-    /* Slightly larger expanded panel */
     .base-layer-expanded {
         min-width: 200px;
         padding: var(--space-4);
@@ -253,9 +228,7 @@
     }
 }
 
-/* Small tablet breakpoint */
 @media (width <= 768px) {
-    /* Position closer to sidebar + respect safe area at bottom */
     .base-layer-selector {
         left: calc(var(--sidebar-collapsed-width) + var(--space-3));
         bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
@@ -266,20 +239,8 @@
     }
 }
 
-/* Landscape mode */
 @media (orientation: landscape) and (width <= 768px) {
-    /* Keep selector compact in small landscape */
-    .base-layer-thumbnail {
-        width: 72px;
-        height: 72px;
-    }
-
-    .base-layer-collapsed {
-        width: 72px;
-    }
-
-    .base-layer-option-thumb {
-        width: 72px;
-        height: 54px;
+    .base-layer-selector {
+        --_thumb-size: 72px;
     }
 }
