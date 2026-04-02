@@ -7,7 +7,7 @@ import {
     clearCameraPosition,
     isCurrentMapLockedSync
 } from '@store/index.js';
-import { showSuccess } from '@utils/index.js';
+import { showSuccess, showError } from '@utils/index.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import {
@@ -29,7 +29,6 @@ let cesiumState = {
     isPaused: false,
     loadPromise: null,
     viewer: null,
-    loadedTilesets: {},
     resizeObserver: null,
     modules: {},
     currentTilesetId: null,  // Track currently active tileset
@@ -249,29 +248,11 @@ async function initCesiumMap() {
 
     cesiumState.viewer = viewer;
 
-    await loadTilesets(viewer);
     await setupTools(viewer);
 
     return viewer;
 }
 
-async function loadTilesets(viewer) {
-    for (const tilesetConfig of config.tilesets) {
-        try {
-            const isGlb = tilesetConfig.type === 'glb';
-            const primitive = isGlb
-                ? await createGlbModel(viewer, tilesetConfig)
-                : await createOptimizedTileset(viewer, tilesetConfig);
-
-            cesiumState.loadedTilesets[tilesetConfig.id.toLowerCase()] = {
-                tileset: primitive,
-                location: tilesetConfig.locate
-            };
-        } catch (error) {
-            console.warn(`Failed to load ${tilesetConfig.type || '3dtiles'} ${tilesetConfig.id}:`, error);
-        }
-    }
-}
 
 async function createOptimizedTileset(viewer, tilesetConfig) {
     // Cesium 1.107+ uses fromUrl() instead of constructor + readyPromise
@@ -492,12 +473,6 @@ export function cleanup3DFeatures() {
     if (cesiumState.viewer && !cesiumState.viewer.isDestroyed()) {
         const scene = cesiumState.viewer.scene;
 
-        Object.values(cesiumState.loadedTilesets).forEach(({ tileset }) => {
-            if (tileset && !tileset.isDestroyed()) {
-                scene.primitives.remove(tileset);
-            }
-        });
-
         cesiumState.viewer.entities.removeAll();
         cesiumState.viewer.dataSources.removeAll();
         scene.primitives.removeAll();
@@ -527,7 +502,6 @@ export function cleanup3DFeatures() {
         isPaused: false,
         loadPromise: null,
         viewer: null,
-        loadedTilesets: {},
         resizeObserver: null,
         modules: {},
         currentTilesetId: null,
@@ -669,26 +643,6 @@ function deactivateAllToolButtons() {
     buttons.forEach(btn => btn.classList.remove('active'));
 }
 
-function handleClickGoTo() {
-    const targetId = this.id;
-    if (!targetId || !cesiumState.viewer) return;
-
-    removeAllTools();
-
-    const tilesetData = cesiumState.loadedTilesets[targetId];
-    if (tilesetData) {
-        const { location } = tilesetData;
-        cesiumState.viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(
-                location.lon,
-                location.lat,
-                location.height
-            ),
-            duration: 2.0
-        });
-    }
-}
-
 // ===== UTILITIES =====
 
 /**
@@ -753,9 +707,6 @@ export async function take3DScreenshot() {
 }
 
 // ===== EVENT HANDLERS =====
-document.querySelectorAll('#locate-3d-container button').forEach(btn => {
-    btn.addEventListener('click', handleClickGoTo);
-});
 
 function initCesiumEventHandlers() {
     if (typeof Cesium !== 'undefined' && cesiumState.viewer) {
@@ -989,18 +940,6 @@ export async function reloadFeaturesForTileset(viewer, tilesetId) {
 async function loadCesiumAndInitWithTileset(tilesetId) {
     if (!cesiumState.viewer) {
         await loadCesiumAndInit();
-
-        const primitives = cesiumState.viewer.scene.primitives;
-        for (let i = primitives.length - 1; i >= 0; i--) {
-            const primitive = primitives.get(i);
-            if (primitive instanceof Cesium.Cesium3DTileset ||
-                primitive instanceof Cesium.Model) {
-                primitives.remove(primitive);
-                if (!primitive.isDestroyed()) {
-                    primitive.destroy();
-                }
-            }
-        }
     }
 
     await loadSingleTileset(cesiumState.viewer, tilesetId);
@@ -1264,15 +1203,21 @@ export async function openViewerWithTileset(tilesetId) {
         console.warn('Could not clear selection:', error);
     }
 
-    const viewerExists = cesiumState.viewer && !cesiumState.viewer.isDestroyed();
+    try {
+        const viewerExists = cesiumState.viewer && !cesiumState.viewer.isDestroyed();
 
-    if (viewerExists) {
-        await switchTileset(tilesetId);
+        if (viewerExists) {
+            await switchTileset(tilesetId);
+        } else {
+            await loadCesiumAndInitWithTileset(tilesetId);
+            init3DFeatures();
+        }
         resumeRendering();
-    } else {
-        await loadCesiumAndInitWithTileset(tilesetId);
-        init3DFeatures();
-        resumeRendering();
+    } catch (error) {
+        console.error(`Error loading 3D model "${tilesetId}":`, error);
+        hideLoading3DScreen();
+        showError('Erro ao carregar modelo 3D');
+        throw error;
     }
 
     registerToolEventListeners();
