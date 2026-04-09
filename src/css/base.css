@@ -55,7 +55,7 @@ h3 {
   background-color: var(--primary-color);
   width: 100vw;
   height: 100vh;
-  z-index: 9999; /* Must cover all UI including modals (--z-toast: 70) */
+  z-index: 9999; /* Must cover all UI including modals (--z-toast: 220) */
   display: flex;
   align-items: center;
   justify-content: center;

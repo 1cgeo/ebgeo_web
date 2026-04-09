@@ -29,6 +29,10 @@ const PHOTO_PROPERTY = 'photo_uuid';
 const TEXTURE_CACHE_MAX_SIZE = 30;  // Max textures to keep in memory (~30-50MB depending on resolution)
 const METADATA_CACHE_MAX_SIZE = 100; // Metadata is small, can keep more
 
+// Retry config for image fetches (mitigates HTTP/2 proxy errors)
+const FETCH_MAX_RETRIES = 3;
+const FETCH_RETRY_DELAY_MS = 500;
+
 // ===== GLOBAL STATE MANAGEMENT =====
 const streetViewState = {
     isLoaded: false,
@@ -265,6 +269,36 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
 let activeTextureAbort = null;
 
 /**
+ * Fetches a URL as a Blob with retry logic to handle transient HTTP/2 proxy errors.
+ * Validates Content-Length to detect truncated responses from proxy issues.
+ * @param {string} url - URL to fetch
+ * @param {object} options - fetch options (may include signal for abort)
+ * @param {number} [retries=FETCH_MAX_RETRIES] - remaining retry attempts
+ * @returns {Promise<Blob>}
+ */
+async function fetchBlobWithRetry(url, options, retries = FETCH_MAX_RETRIES) {
+    try {
+        const response = await fetch(url, options);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const blob = await response.blob();
+        const expectedLength = response.headers.get('Content-Length');
+        if (expectedLength && blob.size !== parseInt(expectedLength, 10)) {
+            throw new Error(`Truncated response: got ${blob.size}/${expectedLength} bytes`);
+        }
+        return blob;
+    } catch (error) {
+        if (error.name === 'AbortError') throw error;
+        if (retries <= 0) throw error;
+        if (options?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        console.warn(`[street-view-viewer] Fetch failed (${retries} retries left): ${error.message}`);
+        await new Promise(r => setTimeout(r, FETCH_RETRY_DELAY_MS));
+        return fetchBlobWithRetry(url, options, retries - 1);
+    }
+}
+
+/**
  * Creates a Three.js texture from a fetched Blob.
  */
 async function blobToTexture(blob) {
@@ -318,28 +352,22 @@ async function loadTexture(data) {
     const controller = new AbortController();
     activeTextureAbort = controller;
 
+    const { getPhotoImageUrl } = await import('./streetview-api.service.js');
+
     // Phase 1: Load preview for instant feedback
     try {
         if (streetViewState.textureCache.has(previewCacheKey)) {
             applyTexture(streetViewState.textureCache.get(previewCacheKey), data);
         } else {
-            const { getPhotoImageUrl } = await import('./streetview-api.service.js');
             const previewUrl = getPhotoImageUrl(photoId, 'preview');
-            const previewResponse = await fetch(previewUrl, { signal: controller.signal });
+            const previewBlob = await fetchBlobWithRetry(previewUrl, { signal: controller.signal });
             if (activeTextureAbort !== controller) return;
 
-            if (!previewResponse.ok) {
-                console.warn(`[street-view-viewer] Preview fetch failed: HTTP ${previewResponse.status} for ${photoId}`);
-            } else {
-                const previewBlob = await previewResponse.blob();
-                if (activeTextureAbort !== controller) return;
+            const previewTexture = await blobToTexture(previewBlob);
+            streetViewState.textureCache.set(previewCacheKey, previewTexture);
 
-                const previewTexture = await blobToTexture(previewBlob);
-                streetViewState.textureCache.set(previewCacheKey, previewTexture);
-
-                if (activeTextureAbort === controller) {
-                    applyTexture(previewTexture, data);
-                }
+            if (activeTextureAbort === controller) {
+                applyTexture(previewTexture, data);
             }
         }
     } catch (error) {
@@ -350,21 +378,14 @@ async function loadTexture(data) {
 
     // Phase 2: Load full-resolution image
     try {
-        const { getPhotoImageUrl } = await import('./streetview-api.service.js');
         const fullUrl = getPhotoImageUrl(photoId, 'full');
-
-        const response = await fetch(fullUrl, { signal: controller.signal });
-
-        if (!response.ok) {
-            throw new Error(`Full-res fetch failed: HTTP ${response.status} for ${photoId}`);
-        }
-
-        const blob = await response.blob();
+        const blob = await fetchBlobWithRetry(fullUrl, { signal: controller.signal });
 
         if (activeTextureAbort !== controller) return;
         activeTextureAbort = null;
 
         const fullTexture = await blobToTexture(blob);
+        if (activeTextureAbort !== controller) return;
         streetViewState.textureCache.set(fullCacheKey, fullTexture);
         applyTexture(fullTexture, data);
 
@@ -394,9 +415,8 @@ async function prefetchTargetPreviews(targets) {
         const cacheKey = `preview:${targetId}`;
         if (streetViewState.textureCache.has(cacheKey)) continue;
 
-        // Low-priority background fetch
-        fetch(getPhotoImageUrl(targetId, 'preview'), { priority: 'low' })
-            .then(r => r.blob())
+        // Low-priority background fetch with retry
+        fetchBlobWithRetry(getPhotoImageUrl(targetId, 'preview'), { priority: 'low' }, 1)
             .then(blob => blobToTexture(blob))
             .then(tex => {
                 // Only cache if not already cached (another navigation may have loaded it)
