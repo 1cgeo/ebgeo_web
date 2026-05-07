@@ -145,6 +145,47 @@ class AnalysisLayersManager {
         return `analysis-${layerId}-layer`;
     }
 
+    /**
+     * Returns the default raster paint properties from the layer's config.
+     * Used as the baseline when applying style overrides or resetting to default.
+     * @param {string} layerId
+     * @returns {Object}
+     */
+    getDefaultStyle(layerId) {
+        const layerConfig = this.getLayerConfig(layerId);
+        if (!layerConfig) return {};
+
+        const paint = layerConfig.paint || {};
+        return {
+            'raster-opacity': layerConfig.opacity ?? paint['raster-opacity'] ?? 1,
+            'raster-brightness-min': paint['raster-brightness-min'] ?? 0,
+            'raster-brightness-max': paint['raster-brightness-max'] ?? 1,
+            'raster-contrast': paint['raster-contrast'] ?? 0,
+            'raster-saturation': paint['raster-saturation'] ?? 0,
+            'raster-hue-rotate': paint['raster-hue-rotate'] ?? 0
+        };
+    }
+
+    /**
+     * Applies user style overrides to a raster analysis layer.
+     * Missing properties fall back to the layer's config defaults.
+     * @param {string} layerId
+     * @param {Object} overrides - Map of MapLibre paint property → value
+     */
+    applyStyleOverrides(layerId, overrides) {
+        const mapLayerId = this._mapLayerId(layerId);
+        if (!this.map.getLayer(mapLayerId)) return;
+
+        const merged = { ...this.getDefaultStyle(layerId), ...(overrides || {}) };
+        for (const [prop, value] of Object.entries(merged)) {
+            try {
+                this.map.setPaintProperty(mapLayerId, prop, value);
+            } catch (error) {
+                console.warn(`Error setting paint ${prop} on ${mapLayerId}:`, error);
+            }
+        }
+    }
+
     /** Validates analysis layers configuration at initialization */
     _validateLayersConfig() {
         if (!config.analysisLayers?.enabled) return;

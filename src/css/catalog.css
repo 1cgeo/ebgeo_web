@@ -445,6 +445,11 @@
     color: var(--primary);
 }
 
+.catalog-layer-settings:hover {
+    background: var(--primary-50);
+    color: var(--primary);
+}
+
 .catalog-layer-remove:hover {
     background: var(--color-error);
     color: white;

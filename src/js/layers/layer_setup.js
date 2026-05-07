@@ -225,12 +225,19 @@ async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLaye
         for (const layer of catalogLayers) {
             if (layer.status === 'unavailable' || !layer.visible) continue;
 
+            const innerId = layer.config?.id;
             if (layer.type === CATALOG_ITEM_TYPES.HILLSHADE) {
                 terrainControl?.setHillshadeVisibility?.(true);
             } else if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
-                await analysisLayersManager.toggleLayer(layer.config?.id, true);
+                await analysisLayersManager.toggleLayer(innerId, true);
+                if (layer.styleOverrides) {
+                    analysisLayersManager.applyStyleOverrides(innerId, layer.styleOverrides);
+                }
             } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
-                await dataLayersManager.toggleLayer(layer.config?.id, true);
+                await dataLayersManager.toggleLayer(innerId, true);
+                if (layer.styleOverrides) {
+                    dataLayersManager.applyStyleOverrides(innerId, layer.styleOverrides);
+                }
             }
         }
     } catch (error) {
