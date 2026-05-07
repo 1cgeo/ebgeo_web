@@ -183,6 +183,28 @@ export function setLayerLocked(layerId, locked, mapName = null) {
 }
 
 /**
+ * Sets layer opacity (0..1).
+ *
+ * @param {string} layerId - Layer ID
+ * @param {number} opacity - Opacity multiplier
+ * @param {string} [mapName=null] - Map name
+ * @returns {import('./store.types.js').Layer|null} Updated layer or null if blocked
+ */
+export function setLayerOpacity(layerId, opacity, mapName = null) {
+    const perm = checkPermission(GuardAction.UPDATE_LAYER);
+    if (!perm.allowed) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: 'setLayerOpacity', reason: perm.reason });
+        return null;
+    }
+
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot change layer opacity.');
+        return null;
+    }
+    return deps.layerManager.setLayerOpacity(layerId, opacity, mapName);
+}
+
+/**
  * Reorders layers.
  *
  * @param {string[]} orderedLayerIds - Array of layer IDs in new order

@@ -52,6 +52,7 @@
  * @property {string} name - Layer display name
  * @property {boolean} visible - Visibility state
  * @property {boolean} locked - Lock state
+ * @property {number} [opacity=1] - Layer opacity multiplier (0-1)
  * @property {number} order - Sort order
  */
 

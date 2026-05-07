@@ -44,11 +44,13 @@ export {
 // Components (re-exports for convenience)
 export {
     createLayerHeader,
+    createLayerOpacityRow,
     handleSetActiveLayer,
     handleAddLayer,
     updateActiveLayerIndicators,
     updateLayerVisibilityIndicator,
     updateLayerLockIndicator,
+    updateLayerOpacityIndicator,
 } from './layer-list.component.js';
 export {
     createFeatureItem,

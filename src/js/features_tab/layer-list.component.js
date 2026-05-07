@@ -11,6 +11,7 @@ import {
     setActiveLayer,
     setLayerVisibility,
     setLayerLocked,
+    setLayerOpacity,
     deleteLayer,
     renameLayer,
 } from '@store';
@@ -138,6 +139,76 @@ function createLayerControls(layer, callbacks) {
     controls.appendChild(deleteBtn);
 
     return controls;
+}
+
+/**
+ * Creates an inline opacity row for a layer (visible without expanding).
+ *
+ * @param {Object} layer - Layer data object
+ * @returns {HTMLElement} Opacity row element
+ */
+export function createLayerOpacityRow(layer) {
+    const row = document.createElement('div');
+    row.className = 'layer-opacity-row';
+    row.dataset.layerId = layer.id;
+    row.onclick = (e) => e.stopPropagation();
+
+    const label = document.createElement('span');
+    label.className = 'layer-opacity-label';
+    label.textContent = 'Opacidade';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'layer-opacity-slider';
+    slider.min = '0';
+    slider.max = '100';
+    slider.step = '1';
+    const initialPercent = Math.round((typeof layer.opacity === 'number' ? layer.opacity : 1) * 100);
+    slider.value = String(initialPercent);
+    slider.title = 'Opacidade da camada';
+    slider.setAttribute('aria-label', `Opacidade da camada ${layer.name}`);
+
+    const valueLabel = document.createElement('span');
+    valueLabel.className = 'layer-opacity-value';
+    valueLabel.textContent = `${initialPercent}%`;
+
+    slider.addEventListener('input', () => {
+        const percent = Number(slider.value);
+        valueLabel.textContent = `${percent}%`;
+        setLayerOpacity(layer.id, percent / 100);
+    });
+
+    row.appendChild(label);
+    row.appendChild(slider);
+    row.appendChild(valueLabel);
+
+    return row;
+}
+
+/**
+ * Updates the opacity slider/value for a layer without re-rendering.
+ *
+ * @param {HTMLElement} container - Container element holding layer list
+ * @param {string} layerId - Layer ID
+ * @param {number} opacity - New opacity (0-1)
+ */
+export function updateLayerOpacityIndicator(container, layerId, opacity) {
+    if (!container) return;
+
+    const row = container.querySelector(
+        `.layer-opacity-row[data-layer-id="${layerId}"]`
+    );
+    if (!row) return;
+
+    const percent = Math.round(opacity * 100);
+    const slider = row.querySelector('.layer-opacity-slider');
+    const value = row.querySelector('.layer-opacity-value');
+    if (slider && document.activeElement !== slider) {
+        slider.value = String(percent);
+    }
+    if (value) {
+        value.textContent = `${percent}%`;
+    }
 }
 
 /**

@@ -12,6 +12,7 @@ import { EventTypes } from '../events';
 
 import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
+import { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
 import {
     setupPointLayers,
     setupLineLayers,
@@ -385,6 +386,7 @@ function setupLayerVisibilityListener(mapInstance, eventBus) {
         invalidateFilterCache();
         updateAllLayerFilters(mapInstance);
         updateMeasurementLabelVisibility();
+        applyLayerOpacities(mapInstance);
     });
 }
 
@@ -398,6 +400,7 @@ function setupLayerVisibilityListener(mapInstance, eventBus) {
 export async function setupMapFeatures(mapInstance, analysisLayersManager, dataLayersManager, eventBus) {
     try {
         invalidateFilterCache();
+        invalidateOpacityCache();
 
         setupLayerSeparators(mapInstance);
 
@@ -438,6 +441,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
 
         setupLayerVisibilityListener(mapInstance, eventBus);
         updateAllLayerFilters(mapInstance);
+        applyLayerOpacities(mapInstance);
 
         requestAnimationFrame(() => {
             clearAllMeasurements();
@@ -450,4 +454,5 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
 }
 
 export { updateAllLayerFilters, invalidateFilterCache } from './visibility-filter.js';
+export { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
 export { FEATURE_LAYER_IDS, HATCH_PATTERN_LAYERS, FEATURE_SOURCES } from './layer.constants.js';

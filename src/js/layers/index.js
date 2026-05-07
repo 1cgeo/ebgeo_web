@@ -7,7 +7,9 @@
 export {
     setupMapFeatures,
     updateAllLayerFilters,
-    invalidateFilterCache
+    invalidateFilterCache,
+    applyLayerOpacities,
+    invalidateOpacityCache
 } from './layer_setup.js';
 
 export {

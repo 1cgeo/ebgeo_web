@@ -260,6 +260,18 @@ class LayerManager {
     }
 
     /**
+     * Set layer opacity (clamped to 0..1).
+     * @param {string} layerId
+     * @param {number} opacity
+     * @param {string} mapName
+     * @returns {Object} Updated layer
+     */
+    setLayerOpacity(layerId, opacity, mapName = null) {
+        const clamped = Math.max(0, Math.min(1, Number(opacity)));
+        return this._updateLayerProperty(layerId, mapName, { opacity: clamped });
+    }
+
+    /**
      * Reorder layers based on array of IDs.
      * @param {string[]} orderedLayerIds
      * @param {string} mapName
@@ -296,6 +308,9 @@ class LayerManager {
             layersArray.forEach((layer, index) => {
                 if (layer.order === undefined) {
                     layer.order = index;
+                }
+                if (typeof layer.opacity !== 'number') {
+                    layer.opacity = 1;
                 }
                 layersMap.set(layer.id, layer);
             });
@@ -415,6 +430,7 @@ class LayerManager {
             name: layerName,
             visible: true,
             locked: false,
+            opacity: 1,
             order: this._getNextLayerOrder(targetMap),
             createdAt: now,
             updatedAt: now,
