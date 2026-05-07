@@ -268,6 +268,8 @@ class LayerManager {
      */
     setLayerOpacity(layerId, opacity, mapName = null) {
         const clamped = Math.max(0, Math.min(1, Number(opacity)));
+        const layer = this.getLayerById(layerId, mapName);
+        if (layer && layer.opacity === clamped) return layer;
         return this._updateLayerProperty(layerId, mapName, { opacity: clamped });
     }
 

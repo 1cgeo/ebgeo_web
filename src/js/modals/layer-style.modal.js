@@ -12,10 +12,11 @@ import {
     cleanup,
     removeElement
 } from '@utils/event-cleanup.js';
+import { DebouncedPersist } from '@utils/debounced-persist.js';
 import { CATALOG_ITEM_TYPES } from '@catalog/catalog.constants.js';
 import { updateCatalogLayer } from '@store';
 
-const PERSIST_DEBOUNCE_MS = 300;
+const PERSIST_KEY = 'layer-style';
 
 /**
  * Field definitions per layer type. Each defines how to render and persist
@@ -92,7 +93,7 @@ export class LayerStyleModal {
         this._overlay = null;
         this._container = null;
         this._previousActiveElement = null;
-        this._persistTimer = null;
+        this._persist = new DebouncedPersist({ delay: 300 });
 
         this._overrides = { ...(this._layer.styleOverrides || {}) };
         this._defaults = this._loadDefaults();
@@ -359,17 +360,10 @@ export class LayerStyleModal {
 
     /** @private */
     _schedulePersist() {
-        if (this._persistTimer) clearTimeout(this._persistTimer);
-        this._persistTimer = setTimeout(() => this._persist(), PERSIST_DEBOUNCE_MS);
-    }
-
-    /** @private */
-    async _persist() {
-        try {
-            await updateCatalogLayer(this._layer.id, { styleOverrides: { ...this._overrides } });
-        } catch (error) {
-            console.warn('Failed to persist layer style overrides:', error);
-        }
+        const snapshot = { ...this._overrides };
+        this._persist.schedule(PERSIST_KEY, () =>
+            updateCatalogLayer(this._layer.id, { styleOverrides: snapshot })
+        );
     }
 
     /** Resets all fields to defaults and persists. @private */
@@ -415,11 +409,7 @@ export class LayerStyleModal {
     /** @private */
     _close() {
         // Flush pending persist before closing.
-        if (this._persistTimer) {
-            clearTimeout(this._persistTimer);
-            this._persistTimer = null;
-            this._persist();
-        }
+        this._persist.flush(PERSIST_KEY);
 
         this._overlay.dataset.visible = 'false';
 
@@ -436,6 +426,7 @@ export class LayerStyleModal {
 
     /** @private */
     _destroy() {
+        this._persist.destroy();
         cleanup(this);
         removeElement(this._overlay);
         this._overlay = null;

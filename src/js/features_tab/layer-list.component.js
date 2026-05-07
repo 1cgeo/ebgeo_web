@@ -186,32 +186,6 @@ export function createLayerOpacityRow(layer) {
 }
 
 /**
- * Updates the opacity slider/value for a layer without re-rendering.
- *
- * @param {HTMLElement} container - Container element holding layer list
- * @param {string} layerId - Layer ID
- * @param {number} opacity - New opacity (0-1)
- */
-export function updateLayerOpacityIndicator(container, layerId, opacity) {
-    if (!container) return;
-
-    const row = container.querySelector(
-        `.layer-opacity-row[data-layer-id="${layerId}"]`
-    );
-    if (!row) return;
-
-    const percent = Math.round(opacity * 100);
-    const slider = row.querySelector('.layer-opacity-slider');
-    const value = row.querySelector('.layer-opacity-value');
-    if (slider && document.activeElement !== slider) {
-        slider.value = String(percent);
-    }
-    if (value) {
-        value.textContent = `${percent}%`;
-    }
-}
-
-/**
  * Starts inline editing of layer name.
  *
  * @param {string} layerId - Layer ID

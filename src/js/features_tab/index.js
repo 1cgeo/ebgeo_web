@@ -50,7 +50,6 @@ export {
     updateActiveLayerIndicators,
     updateLayerVisibilityIndicator,
     updateLayerLockIndicator,
-    updateLayerOpacityIndicator,
 } from './layer-list.component.js';
 export {
     createFeatureItem,

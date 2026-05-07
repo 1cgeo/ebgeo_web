@@ -214,6 +214,25 @@ async function restoreTerrainState() {
  * @param {Object} analysisLayersManager - Analysis layers manager
  * @param {Object} dataLayersManager - Data layers manager
  */
+async function restoreCatalogLayer(layer, terrainControl, analysisLayersManager, dataLayersManager) {
+    const innerId = layer.config?.id;
+
+    if (layer.type === CATALOG_ITEM_TYPES.HILLSHADE) {
+        terrainControl?.setHillshadeVisibility?.(true);
+        return;
+    }
+
+    const manager = layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER ? analysisLayersManager
+        : layer.type === CATALOG_ITEM_TYPES.DATA_LAYER ? dataLayersManager
+        : null;
+    if (!manager || !innerId) return;
+
+    await manager.toggleLayer(innerId, true);
+    if (layer.styleOverrides) {
+        manager.applyStyleOverrides(innerId, layer.styleOverrides);
+    }
+}
+
 async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLayersManager) {
     try {
         const catalogLayers = await getCatalogLayers();
@@ -222,24 +241,11 @@ async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLaye
 
         const terrainControl = getControl('TerrainControl');
 
-        for (const layer of catalogLayers) {
-            if (layer.status === 'unavailable' || !layer.visible) continue;
+        const restorations = catalogLayers
+            .filter(layer => layer.status !== 'unavailable' && layer.visible)
+            .map(layer => restoreCatalogLayer(layer, terrainControl, analysisLayersManager, dataLayersManager));
 
-            const innerId = layer.config?.id;
-            if (layer.type === CATALOG_ITEM_TYPES.HILLSHADE) {
-                terrainControl?.setHillshadeVisibility?.(true);
-            } else if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
-                await analysisLayersManager.toggleLayer(innerId, true);
-                if (layer.styleOverrides) {
-                    analysisLayersManager.applyStyleOverrides(innerId, layer.styleOverrides);
-                }
-            } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
-                await dataLayersManager.toggleLayer(innerId, true);
-                if (layer.styleOverrides) {
-                    dataLayersManager.applyStyleOverrides(innerId, layer.styleOverrides);
-                }
-            }
-        }
+        await Promise.all(restorations);
     } catch (error) {
         console.warn('Error restoring catalog layers:', error);
     }
