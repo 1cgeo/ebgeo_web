@@ -33,7 +33,6 @@ import {
 } from '@store';
 
 import { IDUtils } from '@utils/id_utils.js';
-import { generateUUID } from '@utils/uuid.js';
 import { showToast, showSuccess, showError, showWarning } from '@utils/toast_service.js';
 import { createSyncMetadata } from '@store/sync/sync-metadata.js';
 import { ATLAS_SCHEMA_VERSION } from '@store/atlas/atlas.entity.js';
@@ -73,10 +72,10 @@ function migrateImportDataToV2(data) {
                 mapData.sync = createSyncMetadata(null);
             }
 
-            // Add ID if missing
-            if (!mapData.id) {
-                mapData.id = generateUUID();
-            }
+            // NOTE: map ids are intentionally NOT generated here. Maps are keyed by
+            // name in storage; assigning a UUID id makes addMap register a name->id
+            // resolver mapping that diverges from the actual (name) storage key, which
+            // later duplicates the map under the UUID (phantom map). See addMap().
 
             // Migrate features
             if (mapData.features) {
@@ -137,10 +136,10 @@ function normalizeMapDataForCurrentVersion(mapData) {
         mapData.sync = createSyncMetadata(null);
     }
 
-    // Add ID if missing (v2.0)
-    if (!mapData.id) {
-        mapData.id = generateUUID();
-    }
+    // NOTE: map ids are intentionally NOT generated here. Maps are keyed by name in
+    // storage; assigning a UUID id makes addMap register a name->id resolver mapping
+    // that diverges from the actual (name) storage key, later duplicating the map
+    // under the UUID (phantom map on additive import). See addMap().
 
     // Validate catalog layers availability
     let unavailableCatalogLayersCount = 0;
