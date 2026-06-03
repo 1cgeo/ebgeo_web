@@ -226,7 +226,19 @@ export async function splitLineAtPoint(lineFeature, clickLngLat, map, selectionM
  * @param {Object} selectionManager - SelectionManager instance
  * @returns {Promise<{ success: boolean }>}
  */
+// Cancels the in-progress split session, if any. Set while split mode is active so
+// a new activation (or an abandoned session via tool switch) tears down the prior
+// map-click / document-keydown listeners instead of leaking them.
+let activeSplitCleanup = null;
+
 export function activateSplitMode(lineFeature, map, selectionManager) {
+    // A prior split mode may have been entered and then abandoned (e.g. the user
+    // switched tools without clicking the map or pressing Esc). Settle and clean it
+    // up before starting a new one.
+    if (activeSplitCleanup) {
+        activeSplitCleanup();
+    }
+
     return new Promise((resolve) => {
         showToast('Clique na linha para cortar. Pressione Esc para cancelar.', 'info');
 
@@ -237,7 +249,15 @@ export function activateSplitMode(lineFeature, map, selectionManager) {
             map.getCanvas().style.cursor = originalCursor;
             map.off('click', onMapClick);
             document.removeEventListener('keydown', onKeyDown);
+            if (activeSplitCleanup === cancelActive) activeSplitCleanup = null;
         }
+
+        // Tears down listeners AND settles the promise as cancelled; registered as
+        // the global active-cleanup so a re-entry or external teardown can call it.
+        const cancelActive = () => {
+            cleanup();
+            resolve({ success: false, cancelled: true });
+        };
 
         async function onMapClick(e) {
             cleanup();
@@ -252,6 +272,8 @@ export function activateSplitMode(lineFeature, map, selectionManager) {
                 resolve({ success: false, cancelled: true });
             }
         }
+
+        activeSplitCleanup = cancelActive;
 
         // Defer listener registration to avoid capturing the triggering click
         requestAnimationFrame(() => {

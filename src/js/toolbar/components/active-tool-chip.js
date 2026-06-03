@@ -10,6 +10,7 @@ import {
     setupCleanup,
     subscribe,
     addDomListener,
+    trackTimer,
     cleanup,
     removeElement
 } from '@utils/event-cleanup.js';
@@ -215,13 +216,16 @@ export class ActiveToolChip {
             this._container.classList.remove('visible');
             this._container.classList.add('hiding');
 
-            // Remove from DOM after animation
-            setTimeout(() => {
+            // Remove from DOM after animation. Track the timer so cleanup() clears
+            // it, and guard against the chip being destroyed within the 200ms window.
+            const timerId = setTimeout(() => {
+                if (!this._container) return;
                 if (!this._currentTool || !this._isToolbarTool(this._currentTool)) {
                     this._container.style.display = 'none';
                     this._container.classList.remove('hiding');
                 }
             }, 200);
+            trackTimer(this, timerId);
         }
     }
 

@@ -30,7 +30,10 @@ class MouseCoordinatesControl {
         // Note: _elevationEnabled and _currentElevation now delegated to StateManager
         this._terrainAvailable = false;
         this._debounceTimer = null;
-        this._elevationAbortController = null;
+        // Monotonic id used to ignore stale elevation results. getTerrainElevation /
+        // queryTerrainElevation accept no AbortSignal, so an AbortController was a
+        // no-op; a generation token actually discards superseded results.
+        this._elevationRequestId = 0;
 
         this.gridControl = null;
         this._name = 'MouseCoordinatesControl';
@@ -314,19 +317,18 @@ class MouseCoordinatesControl {
             clearTimeout(this._debounceTimer);
 
             this._debounceTimer = setTimeout(async () => {
-                if (this._elevationAbortController) {
-                    this._elevationAbortController.abort();
-                }
-
-                this._elevationAbortController = new AbortController();
+                const requestId = ++this._elevationRequestId;
 
                 try {
                     const elevation = await getTerrainElevation(this._map, [lng, lat]);
+                    // Discard the result if a newer request (or onRemove) superseded it.
+                    if (this._elevationRequestId !== requestId) {
+                        resolve(null);
+                        return;
+                    }
                     resolve(elevation);
                 } catch (error) {
-                    if (error.name !== 'AbortError') {
-                        console.warn('Failed to get elevation:', error);
-                    }
+                    console.warn('Failed to get elevation:', error);
                     resolve(null);
                 }
             }, 50);
@@ -558,9 +560,8 @@ class MouseCoordinatesControl {
             clearTimeout(this._coordinateThrottleTimeout);
             this._coordinateThrottleTimeout = null;
         }
-        if (this._elevationAbortController) {
-            this._elevationAbortController.abort();
-        }
+        // Invalidate any in-flight elevation query so its late result is ignored.
+        this._elevationRequestId++;
 
         // Clear cached references
         this._stateManagerRef = null;

@@ -380,6 +380,11 @@ async function setupGridLayers(mapInstance) {
  * @param {import('../events/event_bus.js').EventBus} eventBus - Event bus instance
  * @returns {Function} Unsubscribe function
  */
+// Holds the active LAYERS_CHANGED unsubscribe so it can be detached before a
+// re-subscribe. setupMapFeatures() runs on every map/base-layer switch; without
+// this, the anonymous listener accumulated unbounded on the session-lived eventBus.
+let layerVisibilityUnsub = null;
+
 function setupLayerVisibilityListener(mapInstance, eventBus) {
     return eventBus.on(EventTypes.LAYERS_CHANGED, () => {
         invalidateFilterCache();
@@ -436,7 +441,8 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
             await setupGridLayers(mapInstance);
         }
 
-        setupLayerVisibilityListener(mapInstance, eventBus);
+        if (layerVisibilityUnsub) layerVisibilityUnsub();
+        layerVisibilityUnsub = setupLayerVisibilityListener(mapInstance, eventBus);
         updateAllLayerFilters(mapInstance);
 
         requestAnimationFrame(() => {

@@ -10,6 +10,8 @@ import { SIDEBAR_ICONS } from '../sidebar.constants.js';
 import {
     setupCleanup,
     addDomListener,
+    addScopedDomListener,
+    clearScopedListeners,
     subscribe,
     cleanup,
     removeElement
@@ -384,6 +386,7 @@ export class MapsTab {
      * @param {string[]} mapNames - Array of map names
      */
     async _renderMapsList(mapNames) {
+        clearScopedListeners(this, 'rows');
         this._mapsList.innerHTML = '';
 
         // Get map order
@@ -480,7 +483,7 @@ export class MapsTab {
         if (hasSavedPosition) {
             const posIndicator = item.querySelector('.map-position-indicator');
             if (posIndicator) {
-                addDomListener(this, posIndicator, 'click', (e) => {
+                addScopedDomListener(this, 'rows',posIndicator, 'click', (e) => {
                     e.stopPropagation();
                     this._handleRestorePosition(mapName);
                 });
@@ -488,7 +491,7 @@ export class MapsTab {
         }
 
         // Click to select
-        addDomListener(this, item, 'click', (e) => {
+        addScopedDomListener(this, 'rows',item, 'click', (e) => {
             if (!e.target.closest('.map-list-action-btn') && !e.target.closest('.map-list-drag-handle') && !e.target.closest('.map-position-indicator')) {
                 this._handleSelectMap(mapName);
             }
@@ -496,7 +499,7 @@ export class MapsTab {
 
         // Menu button
         const menuBtn = item.querySelector('.menu-btn');
-        addDomListener(this, menuBtn, 'click', (e) => {
+        addScopedDomListener(this, 'rows',menuBtn, 'click', (e) => {
             e.stopPropagation();
             this._showMapContextMenu(mapName, menuBtn, hasSavedPosition);
         });
@@ -1111,6 +1114,7 @@ export class MapsTab {
      */
     destroy() {
         this._closeContextMenu();
+        // Row-scoped listeners are flushed by cleanup(this) below.
 
         if (this._sortableInstance) {
             this._sortableInstance.destroy();

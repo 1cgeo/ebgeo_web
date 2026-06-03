@@ -458,7 +458,7 @@ describe('removeFeature', () => {
     });
 
     it('cleans up color tracking on remove', async () => {
-        mockMapManager.getFeatureColor.mockReturnValue('#ff0000');
+        mockMapManager.getFeatureColors.mockReturnValue(['#ff0000']);
         const feature = makeFeature('f1');
         mockMapData.value.features.points.push(feature);
 

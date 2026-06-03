@@ -190,8 +190,13 @@ function createInputGroup(opts) {
         if (val === '' || val === '-') {
             onChange(index, field, '');
         } else {
-            const n = parseFloat(val);
-            if (!isNaN(n)) onChange(index, field, n);
+            let n = parseFloat(val);
+            if (!isNaN(n)) {
+                // Clamp on every keystroke too (mirrors the 'change' handler), so an
+                // out-of-range azimuth never reaches the live compass/preview.
+                n = Math.max(0, clampMax != null ? Math.min(clampMax, n) : n);
+                onChange(index, field, n);
+            }
         }
     });
 

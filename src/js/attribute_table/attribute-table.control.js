@@ -104,9 +104,15 @@ export class AttributeTableControl {
             return;
         }
 
-        // Close existing if different layer
+        // Close existing if different layer. Remove the old listeners too —
+        // otherwise _setupEventListeners() below stacks duplicate LAYERS_CHANGED /
+        // FEATURE_UPDATED subscriptions on every layer switch (handler leak).
         if (this._isOpen) {
+            this._removeEventListeners();
             this._removePanel();
+            // Reset user-added columns — they are per-layer and must not leak into
+            // the layer we are switching to.
+            this._extraColumns?.clear();
         }
 
         this._currentLayerId = layerId;
@@ -156,6 +162,7 @@ export class AttributeTableControl {
         this._allFeatures = [];
         this._filteredFeatures = [];
         this._attributeColumns = [];
+        this._extraColumns?.clear();
         this._selectedIds.clear();
 
         this._filterState = {
@@ -319,6 +326,20 @@ export class AttributeTableControl {
 
         // Get attribute columns
         this._attributeColumns = tableDataService.getAttributeColumns(this._allFeatures);
+
+        // Merge user-added columns that no feature carries a value for yet, so a
+        // refresh (LAYERS_CHANGED/FEATURE_UPDATED) does not silently drop a freshly
+        // added empty column before the user types a value into it.
+        if (this._extraColumns && this._extraColumns.size > 0) {
+            for (const key of this._extraColumns) {
+                if (!this._attributeColumns.includes(key)) {
+                    this._attributeColumns.push(key);
+                }
+            }
+            this._attributeColumns.sort((a, b) =>
+                a.localeCompare(b, 'pt-BR', { sensitivity: 'base' })
+            );
+        }
 
         // Apply filters and sort
         this._applyFiltersAndSort();
@@ -741,8 +762,11 @@ export class AttributeTableControl {
             return;
         }
 
-        // Add column (it will appear once any feature has this attribute)
-        // For now, just refresh to update columns
+        // Track as a user-added column so it survives refreshes until a value is
+        // entered (columns are otherwise recomputed from feature data each load).
+        if (!this._extraColumns) this._extraColumns = new Set();
+        this._extraColumns.add(key);
+
         this._attributeColumns.push(key);
         this._attributeColumns.sort((a, b) =>
             a.localeCompare(b, 'pt-BR', { sensitivity: 'base' })

@@ -6,7 +6,8 @@
 
 import { cleanFeature } from './repository.utils.js';
 import { getMapDataCompat, updateMapDataCompat, getLayersCompat } from './repositories/index.js';
-import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes, getStorageTypeFromSource } from './store.constants.js';
+import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes, getStorageTypeFromSource, IMAGE_RESOURCE_FEATURE_TYPES } from './store.constants.js';
+import { removeImage } from './settings.operations.js';
 import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
 import { isCurrentMapLockedSync } from './map.operations.js';
@@ -344,9 +345,13 @@ export async function removeFeature(type, id, mapName = null) {
     }
 
     await runTransaction(async (tx) => {
-        const color = mapManager.getFeatureColor(mainFeature);
-        if (color) {
-            tx.deferSync(() => mapManager.updateColorUsage(color, null, targetMap));
+        const colors = mapManager.getFeatureColors(mainFeature);
+        if (colors.length > 0) {
+            tx.deferSync(() => {
+                // Decrement ALL color props (matching addFeature/addFeatures), so a
+                // multi-color feature's usage counts don't drift on create/delete.
+                for (const color of colors) mapManager.updateColorUsage(color, null, targetMap);
+            });
         }
 
         tx.deferSync(() => {
@@ -416,9 +421,11 @@ export async function removeFeatureFromMap(type, id, mapName) {
     };
 
     await runTransaction(async (tx) => {
-        const color = mapManager.getFeatureColor(mainFeature);
-        if (color) {
-            tx.deferSync(() => mapManager.updateColorUsage(color, null, mapName));
+        const colors = mapManager.getFeatureColors(mainFeature);
+        if (colors.length > 0) {
+            tx.deferSync(() => {
+                for (const color of colors) mapManager.updateColorUsage(color, null, mapName);
+            });
         }
 
         tx.deferSync(() => {
@@ -484,12 +491,20 @@ export async function addFeatures(featuresMap, mapName = null) {
 
         const cleanedFeatures = features.map(cleanFeature).filter(Boolean);
         cleanedFeatures.forEach(addCreatedTimestamp);
+        // Defensive init: maps loaded from older .ebgeo files may lack a newer
+        // storage-type array. Mirror the guard in addFeature() so a batch add of
+        // such a type cannot throw on push.
+        if (!currentMapData.features[type]) {
+            currentMapData.features[type] = [];
+        }
         currentMapData.features[type].push(...cleanedFeatures);
         action.features[type] = deepClone(cleanedFeatures);
 
         for (const feat of cleanedFeatures) {
-            const color = mapManager.getFeatureColor(feat);
-            if (color) colorDeferrals.push(color);
+            // Track ALL color properties (getFeatureColors), matching addFeature();
+            // getFeatureColor (singular) would miss e.g. a polygon's lineColor.
+            const colors = mapManager.getFeatureColors(feat);
+            for (const color of colors) colorDeferrals.push(color);
         }
     }
 
@@ -631,12 +646,18 @@ export async function moveFeaturesToMap(features, targetMapName) {
             const typeOperations = { mainFeatures: [], processedFeatures: [] };
 
             for (const feature of featuresOfType) {
-                const removedData = await removeFeatureFromMap(type, feature.properties.id, sourceMapName);
-                if (!removedData) continue;
-
+                // Add to the target map FIRST. If the add fails (persist error or
+                // cleanFeature rejects it), we leave the source untouched, so the
+                // feature is never lost — worst case is a recoverable duplicate.
                 updateLayerId(feature, layerIdMapping);
                 const addedFeature = await addFeatureToMap(type, feature, targetMapName);
                 if (!addedFeature) continue;
+
+                // Only after the target add succeeded do we remove from the source.
+                // removeFeatureFromMap also strips and returns related processed
+                // (LOS/visibility) children so they can be moved too.
+                const removedData = await removeFeatureFromMap(type, feature.properties.id, sourceMapName);
+                if (!removedData) continue;
 
                 typeOperations.mainFeatures.push({
                     feature: deepClone(addedFeature),
@@ -764,6 +785,10 @@ async function batchUpdateAnalysisFeatures(mainType, mainFeature, processedFeatu
     const processedType = getProcessedType(mainType);
     const currentMapData = await getMapDataCompat(targetMap);
 
+    // Defensive init: older/imported maps may predate these arrays.
+    if (!currentMapData.features[mainType]) currentMapData.features[mainType] = [];
+    if (!currentMapData.features[processedType]) currentMapData.features[processedType] = [];
+
     const mainIndex = currentMapData.features[mainType].findIndex(
         f => f.properties.id === mainFeature.properties.id
     );
@@ -844,6 +869,7 @@ export async function deleteLayerFeatures(layerId, mapName = null) {
     const currentMapData = await getMapDataCompat(targetMap);
     let modified = false;
     const groupCleanups = [];
+    const imageCleanups = [];
 
     for (const storageType of getAllStorageTypes()) {
         const typeFeatures = currentMapData.features[storageType] || [];
@@ -855,6 +881,11 @@ export async function deleteLayerFeatures(layerId, mapName = null) {
                 const featureId = feature.properties?.id;
                 if (featureId) {
                     groupCleanups.push({ storageType, featureId });
+                    // Deleting a whole layer bypasses the per-tool deleteFeatures,
+                    // so release the image blob here for image-bearing feature types.
+                    if (IMAGE_RESOURCE_FEATURE_TYPES.includes(feature.properties?.source)) {
+                        imageCleanups.push(featureId);
+                    }
                 }
                 return false;
             }
@@ -872,6 +903,14 @@ export async function deleteLayerFeatures(layerId, mapName = null) {
                 tx.deferSync(() => {
                     for (const { storageType, featureId } of groupCleanups) {
                         deps.groupManager.removeFeatureFromAllGroups(storageType, featureId, targetMap);
+                    }
+                });
+            }
+
+            if (imageCleanups.length > 0) {
+                tx.deferAsync(async () => {
+                    for (const featureId of imageCleanups) {
+                        await removeImage(featureId);
                     }
                 });
             }

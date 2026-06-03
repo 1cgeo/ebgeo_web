@@ -126,6 +126,11 @@ function migrateImportDataToV2(data) {
  * @returns {{ mapData: Object, unavailableCatalogLayersCount: number }} Normalized map data and count of unavailable layers
  */
 function normalizeMapDataForCurrentVersion(mapData) {
+    // Defensive: a malformed/hand-edited or legacy .ebgeo may omit the features
+    // object entirely. Guard before dereferencing it (avoids a throw mid-import).
+    if (!mapData.features) {
+        mapData.features = {};
+    }
     // Ensure coordination_measures exists (v1.4)
     if (!mapData.features.coordination_measures) {
         mapData.features.coordination_measures = [];
@@ -495,10 +500,6 @@ export class ExportImportService {
 
             const zip = await JSZip.loadAsync(zipData);
 
-            if (!isAdditiveImport) {
-                await clearAllDataStore();
-            }
-
             const dataFile = zip.file('data.json');
             if (!dataFile) {
                 throw new Error('Arquivo data.json não encontrado no .ebgeo');
@@ -523,6 +524,14 @@ export class ExportImportService {
             }
             if (compareVersions(data.version, ATLAS_SCHEMA_VERSION) > 0) {
                 throw new Error(`Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${data.version}, versão máxima aceita: ${ATLAS_SCHEMA_VERSION}. Atualize a aplicação para usar este arquivo.`);
+            }
+
+            // Non-additive import replaces the whole project. Clear ONLY after the
+            // archive has been parsed and the version validated above, so a corrupt
+            // or incompatible file can no longer wipe the current project before we
+            // know it is loadable.
+            if (!isAdditiveImport) {
+                await clearAllDataStore();
             }
 
             await setSchemaVersion(ATLAS_SCHEMA_VERSION);

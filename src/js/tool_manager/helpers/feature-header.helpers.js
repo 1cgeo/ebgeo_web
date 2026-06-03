@@ -4,7 +4,7 @@
  * @fileoverview Feature header components for attribute panels.
  */
 
-import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, updateFeature, storeImage, getGroupManager, getControl } from '../../store';
+import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, removeImage, updateFeature, storeImage, getGroupManager, getControl, startBatchUndo, commitBatchUndo } from '../../store';
 import { IDUtils } from '../../utilities';
 
 // ── Arrow merge/split helpers ─────────────────────────────────────────────────
@@ -1076,20 +1076,28 @@ async function convertLineToArrow(lineFeature, selectionManager, uiManager) {
         // Deselect current line
         selectionManager.deselectAllFeatures();
 
-        // Remove line from store and map source
         const lineId = lineFeature.properties.id;
-        await removeFeature('lines', lineId);
 
-        const lineData = await map.getSource('lines').getData();
-        lineData.features = lineData.features.filter(f => f.properties.id !== lineId);
-        map.getSource('lines').setData(lineData);
+        // Batch the add+remove so a single Ctrl+Z undoes the whole conversion
+        // as one unit (avoids the partial-undo inconsistency of two records).
+        startBatchUndo();
+        try {
+            // Add the arrow FIRST so a persist failure cannot lose the source line.
+            await addFeature('arrows', arrowFeature);
 
-        // Add arrow to store and map source
-        await addFeature('arrows', arrowFeature);
+            const arrowData = await map.getSource('arrows').getData();
+            arrowData.features.push(arrowFeature);
+            map.getSource('arrows').setData(arrowData);
 
-        const arrowData = await map.getSource('arrows').getData();
-        arrowData.features.push(arrowFeature);
-        map.getSource('arrows').setData(arrowData);
+            // Only after the add succeeded do we remove the line.
+            await removeFeature('lines', lineId);
+
+            const lineData = await map.getSource('lines').getData();
+            lineData.features = lineData.features.filter(f => f.properties.id !== lineId);
+            map.getSource('lines').setData(lineData);
+        } finally {
+            commitBatchUndo();
+        }
 
         // Select the new arrow
         await selectionManager.toggleFeatureSelection('arrow', featureId, arrowFeature);
@@ -1168,23 +1176,30 @@ async function convertLineToBoundary(lineFeature, selectionManager, uiManager) {
         // Deselect current line
         selectionManager.deselectAllFeatures();
 
-        // Remove line from store and map source
         const lineId = lineFeature.properties.id;
-        await removeFeature('lines', lineId);
 
-        const lineData = await map.getSource('lines').getData();
-        lineData.features = lineData.features.filter(f => f.properties.id !== lineId);
-        map.getSource('lines').setData(lineData);
+        // Batch the add+remove so a single Ctrl+Z undoes the whole conversion.
+        startBatchUndo();
+        try {
+            // Add the boundary FIRST so a persist failure cannot lose the source line.
+            await addFeature('boundarys', boundaryFeature);
 
-        // Add boundary to store and map source
-        await addFeature('boundarys', boundaryFeature);
+            const boundaryData = await map.getSource('boundarys').getData();
+            boundaryData.features.push(boundaryFeature);
+            map.getSource('boundarys').setData(boundaryData);
 
-        const boundaryData = await map.getSource('boundarys').getData();
-        boundaryData.features.push(boundaryFeature);
-        map.getSource('boundarys').setData(boundaryData);
+            // Update dependent features (circles and texts)
+            await boundaryControl.updateDependentFeatures(boundaryFeature);
 
-        // Update dependent features (circles and texts)
-        await boundaryControl.updateDependentFeatures(boundaryFeature);
+            // Only after the add succeeded do we remove the line.
+            await removeFeature('lines', lineId);
+
+            const lineData = await map.getSource('lines').getData();
+            lineData.features = lineData.features.filter(f => f.properties.id !== lineId);
+            map.getSource('lines').setData(lineData);
+        } finally {
+            commitBatchUndo();
+        }
 
         // Select the new boundary
         await selectionManager.toggleFeatureSelection('boundary', featureId, boundaryFeature);
@@ -1282,6 +1297,8 @@ async function reverseArrow(arrowFeature, selectionManager, uiManager) {
  * @param {Object} uiManager - UIManager instance
  */
 async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiManager) {
+    let conversionFeatureId = null;
+    let symbolAdded = false;
     try {
         const map = selectionManager.map;
         const milSymControl = selectionManager.controls.get('military_symbol');
@@ -1357,26 +1374,36 @@ async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiMa
             uiManager
         );
 
+        conversionFeatureId = featureId;
         await storeImage(featureId, result.blob);
 
-        // Deselect and remove point
+        // Deselect current point
         selectionManager.deselectAllFeatures();
 
         const pointId = pointFeature.properties.id;
-        await removeFeature('points', pointId);
 
-        const pointData = await map.getSource('points').getData();
-        pointData.features = pointData.features.filter(f => f.properties.id !== pointId);
-        map.getSource('points').setData(pointData);
+        // Batch add+remove so a single Ctrl+Z undoes the whole conversion.
+        startBatchUndo();
+        try {
+            // Add the military symbol FIRST so a persist failure cannot lose the point.
+            await addFeature('military_symbols', feature);
+            symbolAdded = true;
 
-        // Add military symbol
-        await addFeature('military_symbols', feature);
+            const milSymData = await map.getSource('military_symbols').getData();
+            milSymData.features.push(feature);
+            map.getSource('military_symbols').setData(milSymData);
 
-        const milSymData = await map.getSource('military_symbols').getData();
-        milSymData.features.push(feature);
-        map.getSource('military_symbols').setData(milSymData);
+            await milSymControl.loadSymbolToMap(featureId, result.blob);
 
-        await milSymControl.loadSymbolToMap(featureId, result.blob);
+            // Only after the add succeeded do we remove the source point.
+            await removeFeature('points', pointId);
+
+            const pointData = await map.getSource('points').getData();
+            pointData.features = pointData.features.filter(f => f.properties.id !== pointId);
+            map.getSource('points').setData(pointData);
+        } finally {
+            commitBatchUndo();
+        }
 
         // Select the new feature
         await selectionManager.toggleFeatureSelection('military_symbol', featureId, feature);
@@ -1385,6 +1412,10 @@ async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiMa
         uiManager.updatePanels();
     } catch (error) {
         console.error('Error converting point to military symbol:', error);
+        // If the symbol was never created, release its now-orphaned image blob.
+        if (conversionFeatureId && !symbolAdded) {
+            try { await removeImage(conversionFeatureId); } catch (_e) { /* best effort */ }
+        }
     }
 }
 
@@ -1397,6 +1428,8 @@ async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiMa
  * @param {Object} uiManager - UIManager instance
  */
 async function convertPointToCoordinationMeasure(pointFeature, selectionManager, uiManager) {
+    let conversionFeatureId = null;
+    let symbolAdded = false;
     try {
         const map = selectionManager.map;
         const coordControl = selectionManager.controls.get('coordination_measure');
@@ -1474,26 +1507,36 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
             result.anchor
         );
 
+        conversionFeatureId = featureId;
         await storeImage(featureId, result.blob);
 
-        // Deselect and remove point
+        // Deselect current point
         selectionManager.deselectAllFeatures();
 
         const pointId = pointFeature.properties.id;
-        await removeFeature('points', pointId);
 
-        const pointData = await map.getSource('points').getData();
-        pointData.features = pointData.features.filter(f => f.properties.id !== pointId);
-        map.getSource('points').setData(pointData);
+        // Batch add+remove so a single Ctrl+Z undoes the whole conversion.
+        startBatchUndo();
+        try {
+            // Add the coordination measure FIRST so a persist failure cannot lose the point.
+            await addFeature('coordination_measures', feature);
+            symbolAdded = true;
 
-        // Add coordination measure
-        await addFeature('coordination_measures', feature);
+            const coordData = await map.getSource('coordination_measures').getData();
+            coordData.features.push(feature);
+            map.getSource('coordination_measures').setData(coordData);
 
-        const coordData = await map.getSource('coordination_measures').getData();
-        coordData.features.push(feature);
-        map.getSource('coordination_measures').setData(coordData);
+            await coordControl.loadSymbolToMap(featureId, result.blob);
 
-        await coordControl.loadSymbolToMap(featureId, result.blob);
+            // Only after the add succeeded do we remove the source point.
+            await removeFeature('points', pointId);
+
+            const pointData = await map.getSource('points').getData();
+            pointData.features = pointData.features.filter(f => f.properties.id !== pointId);
+            map.getSource('points').setData(pointData);
+        } finally {
+            commitBatchUndo();
+        }
 
         // Select the new feature
         await selectionManager.toggleFeatureSelection('coordination_measure', featureId, feature);
@@ -1502,6 +1545,10 @@ async function convertPointToCoordinationMeasure(pointFeature, selectionManager,
         uiManager.updatePanels();
     } catch (error) {
         console.error('Error converting point to coordination measure:', error);
+        // If the measure was never created, release its now-orphaned image blob.
+        if (conversionFeatureId && !symbolAdded) {
+            try { await removeImage(conversionFeatureId); } catch (_e) { /* best effort */ }
+        }
     }
 }
 

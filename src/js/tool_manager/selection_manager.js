@@ -922,7 +922,10 @@ class SelectionManager {
             }
             if (needsBatch) commitBatchUndo();
         } catch (error) {
-            if (needsBatch) discardBatchUndo();
+            // Commit (not discard): some features may have already been deleted and
+            // persisted; discarding would drop their undo records, making the
+            // already-committed deletions impossible to undo with Ctrl+Z.
+            if (needsBatch) commitBatchUndo();
             console.error('Error during batch delete:', error);
         }
 

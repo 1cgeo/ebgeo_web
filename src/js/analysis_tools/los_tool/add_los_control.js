@@ -870,6 +870,15 @@ class AddLOSControl extends BaseControl {
     }
 
     removeFeatureMeasurement = (featureId) => {
+        // Marker.addTo() registers map listeners that only Marker.remove() detaches;
+        // removing just the DOM element leaks them. Track and remove the marker.
+        if (!this._measurementMarkers) this._measurementMarkers = new Map();
+        const marker = this._measurementMarkers.get(featureId);
+        if (marker) {
+            marker.remove();
+            this._measurementMarkers.delete(featureId);
+            return;
+        }
         const measurementLabel = document.querySelector(`.measurement-label[data-feature-id="${featureId}"]`);
         if (measurementLabel) {
             measurementLabel.remove();
@@ -877,10 +886,17 @@ class AddLOSControl extends BaseControl {
     }
 
     displayMeasurement = (coordinates, measurement, featureId, layerId) => {
+        if (!this._measurementMarkers) this._measurementMarkers = new Map();
+        const existing = this._measurementMarkers.get(featureId);
+        if (existing) {
+            existing.remove();
+            this._measurementMarkers.delete(featureId);
+        }
         const markerElement = this.createMeasurementLabel(measurement, featureId, layerId);
-        new maplibregl.Marker({ element: markerElement })
+        const marker = new maplibregl.Marker({ element: markerElement })
             .setLngLat(coordinates)
             .addTo(this.map);
+        this._measurementMarkers.set(featureId, marker);
     }
 
     createMeasurementLabel = (measurement, featureId, layerId) => {

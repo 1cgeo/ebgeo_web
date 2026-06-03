@@ -18,6 +18,21 @@ import { showCoordinateEditModal } from '@modals/coordinate-edit.modal.js';
 import { showConfirm } from '@modals/confirm.modal.js';
 
 /**
+ * Azimuth/distance features store their origin geometry kind in properties.source
+ * as a SINGULAR value ('point'/'line'/'polygon'), but the MapLibre sources and
+ * store collections are PLURAL ('points'/'lines'/'polygons'). Resolving to the
+ * plural collection makes getSource()/updateFeature()/removeFeature() target the
+ * real source instead of silently no-op'ing on an undefined source (which dropped
+ * every edit, save and delete of these features).
+ */
+const SOURCE_TO_COLLECTION = { point: 'points', line: 'lines', polygon: 'polygons' };
+
+function resolveAzimuthCollection(feature) {
+    const source = feature?.properties?.source;
+    return SOURCE_TO_COLLECTION[source] || source || 'lines';
+}
+
+/**
  * Azimuth and Distance Tool Control.
  * Extends BaseControl to manage polar construction of geometries.
  */
@@ -604,7 +619,7 @@ class AddAzimuthDistanceControl extends BaseControl {
 
     async updateFeaturesProperty(features, property, value) {
         for (const feature of features) {
-            const sourceName = feature.properties.source || 'lines';
+            const sourceName = resolveAzimuthCollection(feature);
             const source = this.map.getSource(sourceName);
 
             if (source) {
@@ -675,7 +690,7 @@ class AddAzimuthDistanceControl extends BaseControl {
 
     async saveFeatures(features) {
         for (const feature of features) {
-            const sourceName = feature.properties.source || 'lines';
+            const sourceName = resolveAzimuthCollection(feature);
             const source = this.map.getSource(sourceName);
 
             if (source) {
@@ -702,7 +717,7 @@ class AddAzimuthDistanceControl extends BaseControl {
 
     async deleteFeatures(features) {
         for (const feature of features) {
-            const sourceName = feature.properties.source || 'lines';
+            const sourceName = resolveAzimuthCollection(feature);
 
             try {
                 await removeFeature(sourceName, feature.properties.id);
@@ -740,7 +755,7 @@ class AddAzimuthDistanceControl extends BaseControl {
 
     async updateFeatures(features, save = false, onlyUpdateProperties = false) {
         for (const feature of features) {
-            const sourceName = feature.properties.source || 'lines';
+            const sourceName = resolveAzimuthCollection(feature);
             const source = this.map.getSource(sourceName);
 
             if (source) {
@@ -767,7 +782,10 @@ class AddAzimuthDistanceControl extends BaseControl {
     }
 
     updateSelectionManagerFeature(feature) {
-        const featureType = this._getFeatureTypeFromSource(feature.properties.source || 'lines');
+        // Resolve via the plural collection: properties.source is singular
+        // ('point'/'line'/'polygon') and _getFeatureTypeFromSource keys on the plural
+        // names, so passing source directly would mis-map point/polygon to 'line'.
+        const featureType = this._getFeatureTypeFromSource(resolveAzimuthCollection(feature));
         this.selectionManager.updateSelectedFeature(featureType, feature.properties.id, feature);
     }
 

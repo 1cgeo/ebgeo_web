@@ -22,6 +22,7 @@ import {
     CATALOG_TYPE_CONFIG
 } from '@catalog/catalog.constants.js';
 import { showSuccess, showToast } from '@utils';
+import { escapeHtml } from '@utils/html-escape.js';
 
 /**
  * Icons used in the component.
@@ -165,7 +166,7 @@ function createActiveLayerHTML(layer) {
     return `
         <div class="catalog-layer-info">
             <span class="catalog-layer-icon">${icon}</span>
-            <span class="catalog-layer-name" title="${layer.name}">${layer.name}</span>
+            <span class="catalog-layer-name" title="${escapeHtml(layer.name)}">${escapeHtml(layer.name)}</span>
         </div>
         <div class="catalog-layer-actions">
             ${hasLegend ? `
@@ -198,7 +199,7 @@ function createUnavailableLayerHTML(layer) {
         <div class="catalog-layer-info">
             <span class="catalog-layer-icon catalog-layer-icon-warning">${ICONS.WARNING}</span>
             <div class="catalog-layer-details">
-                <span class="catalog-layer-name" title="${layer.name}">${layer.name}</span>
+                <span class="catalog-layer-name" title="${escapeHtml(layer.name)}">${escapeHtml(layer.name)}</span>
                 <span class="catalog-layer-status-text">Indisponível</span>
             </div>
         </div>
@@ -409,7 +410,7 @@ function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analys
                 <dt>Tipo:</dt>
                 <dd>${typeLabel}</dd>
                 <dt>ID Original:</dt>
-                <dd><code>${layer.originalId || layer.config?.id || layer.id}</code></dd>
+                <dd><code>${escapeHtml(layer.originalId || layer.config?.id || layer.id)}</code></dd>
             </dl>
             <p class="popover-hint">
                 Para utilizar esta camada, verifique se o config.js inclui a configuração necessária.
@@ -426,10 +427,22 @@ function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analys
     // Position popover near anchor
     positionPopover(popover, anchorElement);
 
+    // Shared teardown: removes the popover AND its document click listener so the
+    // listener is not orphaned when closing via the X button or a successful retry.
+    const closeOnClickOutside = (e) => {
+        if (!popover.contains(e.target) && !anchorElement.contains(e.target)) {
+            removePopover();
+        }
+    };
+    const removePopover = () => {
+        popover.remove();
+        document.removeEventListener('click', closeOnClickOutside);
+    };
+
     // Close button event
     const closeBtn = popover.querySelector('.popover-close');
     closeBtn.addEventListener('click', () => {
-        popover.remove();
+        removePopover();
     });
 
     // Retry button event
@@ -461,21 +474,15 @@ function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analys
             // Show success message
             showSuccess(`Camada "${layer.name}" carregada com sucesso!`);
 
-            popover.remove();
+            removePopover();
         } else {
             // Show warning
             showToast('Camada ainda não está disponível no config.', 'warning');
         }
     });
 
-    // Close on click outside
+    // Close on click outside (registered async so the opening click doesn't close it)
     setTimeout(() => {
-        const closeOnClickOutside = (e) => {
-            if (!popover.contains(e.target) && !anchorElement.contains(e.target)) {
-                popover.remove();
-                document.removeEventListener('click', closeOnClickOutside);
-            }
-        };
         document.addEventListener('click', closeOnClickOutside);
     }, 0);
 }
@@ -573,7 +580,7 @@ function toggleLegendPanel(layer, layerItem) {
             ${legend.items.map(item => `
                 <div class="legend-item">
                     <span class="legend-symbol">${createLegendSymbol(item)}</span>
-                    <span class="legend-label">${item.label}</span>
+                    <span class="legend-label">${escapeHtml(item.label)}</span>
                 </div>
             `).join('')}
         </div>

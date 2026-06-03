@@ -333,6 +333,9 @@ class AddImportControl {
         if (geometry.type === 'GeometryCollection') {
             const features = [];
             for (const geom of geometry.geometries) {
+                // A GeometryCollection may legally contain a null geometry member;
+                // skip it instead of throwing on geom.type (which aborted the import).
+                if (!geom?.type) continue;
                 const subFeature = { type: 'Feature', properties: { ...properties }, geometry: geom };
                 if (geom.type.startsWith('Multi') || geom.type === 'GeometryCollection') {
                     features.push(...this.decomposeMultiGeometry(subFeature));

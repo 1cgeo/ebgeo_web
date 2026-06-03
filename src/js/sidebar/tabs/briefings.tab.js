@@ -8,6 +8,8 @@
 import {
     setupCleanup,
     addDomListener,
+    addScopedDomListener,
+    clearScopedListeners,
     subscribe,
     cleanup,
     removeElement
@@ -190,6 +192,7 @@ export class BriefingsTab {
      * @param {Array} briefings - Array of briefing objects
      */
     _renderBriefingsList(briefings) {
+        clearScopedListeners(this, 'rows');
         this._briefingsList.innerHTML = '';
 
         if (!briefings || briefings.length === 0) {
@@ -263,23 +266,23 @@ export class BriefingsTab {
         const editBtn = card.querySelector('.edit-btn');
         const deleteBtn = card.querySelector('.delete-btn');
 
-        addDomListener(this, pdfBtn, 'click', (e) => {
+        addScopedDomListener(this, 'rows',pdfBtn, 'click', (e) => {
             e.stopPropagation();
             this._handleExportPdf(briefing.id);
         });
 
-        addDomListener(this, editBtn, 'click', (e) => {
+        addScopedDomListener(this, 'rows',editBtn, 'click', (e) => {
             e.stopPropagation();
             this._handleEditBriefing(briefing.id);
         });
 
-        addDomListener(this, deleteBtn, 'click', (e) => {
+        addScopedDomListener(this, 'rows',deleteBtn, 'click', (e) => {
             e.stopPropagation();
             this._handleDeleteBriefing(briefing.id, briefing.name);
         });
 
         // Card click opens presentation mode
-        addDomListener(this, card, 'click', () => {
+        addScopedDomListener(this, 'rows',card, 'click', () => {
             this._handlePresentBriefing(briefing.id);
         });
 
@@ -458,6 +461,7 @@ export class BriefingsTab {
      * Destroys the component.
      */
     destroy() {
+        // Row-scoped listeners are flushed by cleanup(this).
         cleanup(this);
         removeElement(this._container);
         this._container = null;

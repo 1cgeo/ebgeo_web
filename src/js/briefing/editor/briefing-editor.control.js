@@ -937,16 +937,24 @@ export class BriefingEditorControl {
                 handle: '.briefing-editor-slide-handle',
                 ghostClass: 'sortable-ghost',
                 onEnd: async () => {
-                    await this._flushAutosave();
+                    try {
+                        await this._flushAutosave();
+                        // The editor may have been closed mid-drag (close() nulls
+                        // this._briefing); bail out instead of dereferencing null.
+                        if (!this._briefing) return;
 
-                    const newOrder = Array.from(this._slideListEl.children)
-                        .map(el => el.dataset.slideId)
-                        .filter(Boolean);
+                        const newOrder = Array.from(this._slideListEl.children)
+                            .map(el => el.dataset.slideId)
+                            .filter(Boolean);
 
-                    await reorderSlides(this._briefing.id, newOrder);
+                        await reorderSlides(this._briefing.id, newOrder);
+                        if (!this._briefing) return;
 
-                    this._briefing = await getBriefingById(this._briefing.id);
-                    this._renderSlideList();
+                        this._briefing = await getBriefingById(this._briefing.id);
+                        this._renderSlideList();
+                    } catch (error) {
+                        console.error('Error reordering slides:', error);
+                    }
                 }
             });
         });
@@ -1517,11 +1525,13 @@ export class BriefingEditorControl {
             // Flush pending autosave so addSlide() reads up-to-date data from IndexedDB
             // (prevents losing position changes on the current slide)
             await this._flushAutosave();
+            if (!this._briefing) return; // editor closed during the await
 
             const emptySlide = createEmptySlide();
             // Pre-select the current map so the slide is ready for position capture
             emptySlide.mapId = getCurrentMapNameSync();
             const newSlide = await addSlide(this._briefing.id, emptySlide);
+            if (!this._briefing) return;
 
             this._briefing = await getBriefingById(this._briefing.id);
             this._renderSlideList();
@@ -1549,10 +1559,13 @@ export class BriefingEditorControl {
         );
 
         if (!confirmed) return;
+        if (!this._briefing) return; // editor closed during the confirm dialog
 
         try {
             await this._flushAutosave();
+            if (!this._briefing) return;
             await removeSlide(this._briefing.id, slideId);
+            if (!this._briefing) return;
 
             this._briefing = await getBriefingById(this._briefing.id);
             this._renderSlideList();
@@ -1635,6 +1648,7 @@ export class BriefingEditorControl {
                 return;
             }
 
+            if (!this._briefing) return; // editor closed during the await above
             const existingSlides = this._briefing.slides.map(s => ({ ...s }));
             const allSlides = [...existingSlides, ...newSlides];
             for (let i = 0; i < allSlides.length; i++) {
@@ -1642,6 +1656,7 @@ export class BriefingEditorControl {
             }
 
             await updateBriefing(this._briefing.id, { slides: allSlides });
+            if (!this._briefing) return;
 
             this._briefing = await getBriefingById(this._briefing.id);
             this._renderSlideList();

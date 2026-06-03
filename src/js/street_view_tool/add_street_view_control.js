@@ -311,8 +311,14 @@ class AddStreetViewControl {
     }
 
     showPhotos = async () => {
-        // Bind click/hover to the wider invisible hit layer for easier interaction
+        // Bind click/hover to the wider invisible hit layer for easier interaction.
         const hitLayerId = this.streetViewLinesHitLayer['id'];
+        // Remove first (idempotent): reload() on a base-layer change calls showPhotos
+        // again without hidePhotos(), and MapLibre's .on() does not dedupe, so the
+        // same loadPoint would fire multiple times per click (double viewer open).
+        this.map.off('click', hitLayerId, this.loadPoint);
+        this.map.off('mouseenter', hitLayerId, this.showHoverCursor);
+        this.map.off('mouseleave', hitLayerId, this.hideHoverCursor);
         this.map.on('click', hitLayerId, this.loadPoint);
         this.map.on('mouseenter', hitLayerId, this.showHoverCursor);
         this.map.on('mouseleave', hitLayerId, this.hideHoverCursor);

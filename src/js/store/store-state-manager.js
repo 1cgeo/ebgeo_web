@@ -14,6 +14,7 @@ import { getGroupManager } from './services.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import { logOperation, EntityType, OperationType, sessionContext } from './sync/index.js';
 import { LRUCache } from '../utilities/lru-cache.js';
+import { IMAGE_RESOURCE_FEATURE_TYPES } from './store.constants.js';
 
 /** @type {string[]} All feature properties that hold color values */
 const COLOR_PROPERTIES = [
@@ -318,6 +319,11 @@ class MapManager {
                 adjustColorCount(this.memoryStore.colorUsageCache, newColor, 1);
             }
             setTimeout(() => this.saveColorUsageToDB(targetMap), 100);
+        } else {
+            // colorUsageCache holds the CURRENT map's counts; for another map we
+            // accumulate the deltas and flush them in a SINGLE read-modify-write,
+            // avoiding lost updates and N IndexedDB round-trips on batch cross-map ops.
+            this._scheduleColorPersist(targetMap, oldColor, newColor);
         }
 
         if (oldColor) {
@@ -325,6 +331,54 @@ class MapManager {
         }
         if (newColor) {
             adjustColorCount(this.projectColorCache, newColor, 1);
+        }
+    }
+
+    /**
+     * Accumulates a color-usage delta for a NON-current map and debounces a single
+     * read-modify-write flush per map. Coalescing a burst (e.g. moving N colored
+     * features) into one flush avoids the lost-update race of independent timers.
+     * @param {string} mapName - Target map name
+     * @param {string|null} oldColor - Color being removed (or null)
+     * @param {string|null} newColor - Color being added (or null)
+     */
+    _scheduleColorPersist(mapName, oldColor, newColor) {
+        if (!this._pendingColorDeltas) this._pendingColorDeltas = new Map();
+        if (!this._colorPersistTimers) this._colorPersistTimers = new Map();
+
+        let deltas = this._pendingColorDeltas.get(mapName);
+        if (!deltas) {
+            deltas = new Map();
+            this._pendingColorDeltas.set(mapName, deltas);
+        }
+        if (oldColor) deltas.set(oldColor, (deltas.get(oldColor) || 0) - 1);
+        if (newColor) deltas.set(newColor, (deltas.get(newColor) || 0) + 1);
+
+        if (this._colorPersistTimers.has(mapName)) return; // flush already scheduled
+        const timer = setTimeout(() => {
+            this._colorPersistTimers.delete(mapName);
+            this._flushColorDeltas(mapName);
+        }, 100);
+        this._colorPersistTimers.set(mapName, timer);
+    }
+
+    /**
+     * Applies the accumulated color deltas for a non-current map in one
+     * read-modify-write. Fire-and-forget.
+     * @param {string} mapName - Target map name
+     */
+    async _flushColorDeltas(mapName) {
+        const deltas = this._pendingColorDeltas?.get(mapName);
+        this._pendingColorDeltas?.delete(mapName);
+        if (!deltas || deltas.size === 0) return;
+        try {
+            const colorMap = colorDataToMap(await getColorUsage(mapName));
+            for (const [color, delta] of deltas) {
+                adjustColorCount(colorMap, color, delta);
+            }
+            await setColorUsage(mapName, Object.fromEntries(colorMap));
+        } catch (error) {
+            console.warn(`Error flushing persisted colors for map ${mapName}:`, error);
         }
     }
 
@@ -411,6 +465,42 @@ class MapManager {
         return this._getStack('redoStacks');
     }
 
+    /**
+     * Releases image blobs for delete actions that have been evicted from undo
+     * history (so the deletion is now permanent). Handles single 'removeWithProcessed'
+     * actions and 'batch' wrappers. Best-effort and async — never throws into
+     * recordAction, and only targets image-bearing feature types.
+     * @param {Array} actions - Actions evicted from the undo stack
+     * @private
+     */
+    _purgeOrphanedImageBlobs(actions) {
+        const ids = [];
+        const collect = (list) => {
+            for (const action of list) {
+                if (!action) continue;
+                if (action.type === 'batch' && Array.isArray(action.operations)) {
+                    collect(action.operations);
+                } else if (action.type === 'removeWithProcessed' && action.mainFeature) {
+                    const source = action.mainFeature.properties?.source;
+                    if (IMAGE_RESOURCE_FEATURE_TYPES.includes(source)) {
+                        ids.push(action.mainFeature.properties.id);
+                    }
+                }
+            }
+        };
+        collect(actions);
+        if (ids.length === 0) return;
+
+        // Dynamic import avoids a static store ↔ state-manager import cycle.
+        import('./settings.operations.js')
+            .then(({ removeImage }) => {
+                for (const id of ids) {
+                    Promise.resolve(removeImage(id)).catch(() => { /* best effort */ });
+                }
+            })
+            .catch(() => { /* best effort */ });
+    }
+
     recordAction(action) {
         if (this.memoryStore.isUndoing || this.memoryStore.isRedoing) return;
 
@@ -423,7 +513,11 @@ class MapManager {
         undoStack.push(action);
         const excess = undoStack.length - MapManager.MAX_UNDO_HISTORY;
         if (excess > 0) {
-            undoStack.splice(0, excess);
+            // Evicted delete actions are now beyond undo, so the deletion is
+            // permanent — release any image blobs they reference (deferred cleanup
+            // that keeps blobs restorable while the delete is still undoable).
+            const evicted = undoStack.splice(0, excess);
+            this._purgeOrphanedImageBlobs(evicted);
         }
         // Clear redo on new action (fork)
         const mapState = this.memoryStore.maps[this.memoryStore.currentMap];

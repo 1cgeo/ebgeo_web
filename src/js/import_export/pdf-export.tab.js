@@ -63,15 +63,19 @@ export default class PDFExportTab {
         this.onDPIChange = this.onDPIChange.bind(this);
         this.onExportClick = this.onExportClick.bind(this);
         this.onMapMove = this.onMapMove.bind(this);
+        this._onStyleData = this._onStyleData.bind(this);
+    }
 
-        // Auto-recover preview after base layer changes.
-        // setStyle() destroys all custom sources/layers; this re-adds them.
-        this.map.on('styledata', () => {
-            if (this.isVisible && !this.map.getSource('pdf-export-preview')) {
-                this.showPreview();
-                this.updateBounds();
-            }
-        });
+    /**
+     * Re-adds the preview after a base-layer change. setStyle() destroys all custom
+     * sources/layers; this restores them while the tab is open. Registered in show()
+     * and removed in hide() so the listener stays detachable (no app-lifetime leak).
+     */
+    _onStyleData() {
+        if (this.isVisible && !this.map.getSource('pdf-export-preview')) {
+            this.showPreview();
+            this.updateBounds();
+        }
     }
 
     createUI() {
@@ -161,6 +165,7 @@ export default class PDFExportTab {
         this.zoomToPreviewArea();
 
         this.map.on('move', this.onMapMove);
+        this.map.on('styledata', this._onStyleData);
 
         // Pre-initialize GDAL WASM in background so it's ready when user clicks export
         this._preInitGdal();
@@ -173,6 +178,7 @@ export default class PDFExportTab {
         this.detachEventListeners();
 
         this.map.off('move', this.onMapMove);
+        this.map.off('styledata', this._onStyleData);
     }
 
     attachEventListeners() {
@@ -657,12 +663,15 @@ export default class PDFExportTab {
 
         let hiddenMapContainer;
         let hiddenMap;
+        let Gdal = null;
+        let rasterDataset = null;
+        let outputDataset = null;
 
         try {
             this.showExportModal();
             this.updateProgress(10, 'Inicializando...');
 
-            const Gdal = await initGdalJs({ path: this._getGdalPath(), useWorker: false })
+            Gdal = await initGdalJs({ path: this._getGdalPath(), useWorker: false })
 
             if (this._exportCancelled) return;
 
@@ -775,7 +784,7 @@ export default class PDFExportTab {
             this.updateProgress(90, 'Gerando PDF...');
 
             const result = await Gdal.open([new File([pngBlob], 'input.png', { type: 'image/png' })]);
-            const rasterDataset = result.datasets[0];
+            rasterDataset = result.datasets[0];
             const bounds = hiddenMap.getBounds();
             let minX = bounds.getWest();
             let minY = bounds.getSouth();
@@ -805,7 +814,7 @@ export default class PDFExportTab {
                 '-co', `DPI=${this.dpi}`,
                 '-co', `MARGIN=${marginPoints}`,
             ];
-            const outputDataset = await Gdal.gdal_translate(rasterDataset, translateOptions);
+            outputDataset = await Gdal.gdal_translate(rasterDataset, translateOptions);
 
             this.updateProgress(100, 'Fazendo download...');
 
@@ -820,9 +829,6 @@ export default class PDFExportTab {
             a.click();
             URL.revokeObjectURL(url);
 
-            Gdal.close(rasterDataset);
-            Gdal.close(outputDataset);
-
             setTimeout(() => this._progress?.remove(), 800);
 
         } catch (error) {
@@ -832,6 +838,11 @@ export default class PDFExportTab {
             }
             this._progress?.remove();
         } finally {
+            // Free GDAL WASM datasets on every path (including errors); leaving them
+            // open grows the WASM heap unboundedly across repeated/failed exports.
+            if (Gdal && rasterDataset) Gdal.close(rasterDataset);
+            if (Gdal && outputDataset) Gdal.close(outputDataset);
+
             this._exporting = false;
             this._exportCancelled = false;
             const btn = document.getElementById('pdf-export-btn');

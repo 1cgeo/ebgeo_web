@@ -214,6 +214,9 @@ async function initNavigator(container) {
  * @param {number|null} [prevWorldHeading=null] - Previous world heading in degrees to preserve viewing direction
  */
 async function loadPhoto(photoName, prevWorldHeading = null) {
+    // Capture the photo we are navigating FROM before overwriting currentPhotoName,
+    // so the STREETVIEW_360_PHOTO_CHANGED payload carries a real previousPhoto.
+    const previousPhotoName = streetViewState.currentPhotoName;
     const data = await loadMetadataWithCache(photoName);
     streetViewState.currentInfo = data;
     streetViewState.currentPhotoName = photoName;
@@ -257,7 +260,7 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
 
     // Emit photo changed event
     getEventBus().emit(EventTypes.STREETVIEW_360_PHOTO_CHANGED, {
-        previousPhoto: streetViewState.currentPhotoName,
+        previousPhoto: previousPhotoName,
         currentPhoto: photoName
     });
 }
@@ -716,6 +719,9 @@ function onPointerUp(event) {
 }
 
 function onPointerMoveGlobal(_event) {
+    // This document-level listener is not removed on close (the scene is kept for
+    // resume). Guard so it does no work app-wide once the viewer is hidden.
+    if (!streetViewState.isVisible) return;
     updateCurrentHeading();
 }
 
@@ -1296,8 +1302,13 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
             retryOnLoad();
             if (streetViewState.miniMap.getLayer('selected')) {
                 streetViewState.miniMap.off('sourcedata', onSourceData);
+                streetViewState.miniMapSourceDataHandler = null;
             }
         };
+        // Track the handler so closeViewer360 can detach it if the 'selected' layer
+        // never gets created (e.g. viewer closed before tiles load) — otherwise it
+        // keeps firing on the persistent minimap for the rest of the session.
+        streetViewState.miniMapSourceDataHandler = onSourceData;
         streetViewState.miniMap.on('sourcedata', onSourceData);
         // Also try on idle (when map is fully done)
         streetViewState.miniMap.once('idle', retryOnLoad);
@@ -1323,6 +1334,12 @@ export async function closeViewer360() {
 
     // Pause rendering
     pauseRendering();
+
+    // Detach the deep-link minimap retry listener if it never self-removed.
+    if (streetViewState.miniMap && streetViewState.miniMapSourceDataHandler) {
+        streetViewState.miniMap.off('sourcedata', streetViewState.miniMapSourceDataHandler);
+        streetViewState.miniMapSourceDataHandler = null;
+    }
 
     // Remove close button listener
     const closeBtn = document.getElementById('close-street-view-button');

@@ -221,9 +221,9 @@ function createAttributeRow(key, value, featureId, featureType, parentContainer)
                         input.focus();
                         return;
                     }
-                    // Renomear atributo: remove o antigo e adiciona com novo nome
-                    await userDataManager.removeAttribute(featureId, featureType, key);
-                    await userDataManager.setAttribute(featureId, featureType, newKey, value);
+                    // Renomear atributo em uma única escrita (delete + set atômico),
+                    // evitando perda de dados se a app fechar entre as duas operações.
+                    await userDataManager.renameAttribute(featureId, featureType, key, newKey, value);
                     return; // Re-render acontecerá via evento
                 }
             }

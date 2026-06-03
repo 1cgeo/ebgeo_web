@@ -281,7 +281,11 @@ export async function searchAPI(query, map, signal) {
     if (!Array.isArray(data)) return [];
 
     return data
-        .filter(item => item.nome && item.longitude && item.latitude)
+        .filter(item =>
+            item.nome &&
+            item.longitude != null && item.longitude !== '' && !isNaN(item.longitude) &&
+            item.latitude != null && item.latitude !== '' && !isNaN(item.latitude)
+        )
         .slice(0, MAX_RESULTS.places)
         .map(item => ({
             type: 'place',

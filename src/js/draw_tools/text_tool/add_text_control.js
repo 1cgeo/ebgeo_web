@@ -986,15 +986,47 @@ class AddTextControl extends BaseControl {
         const result = this.geometry.updateFromHandle(this.activeHandleType, newPosition, selectedFeature);
         if (result === null) return;
 
-        // Update rotation on all selected features in real time
+        // Update rotation on all selected features in real time. Serialize these
+        // async source read-modify-writes (coalescing to the latest value) so the
+        // many pointermove updates can't run concurrently and settle out of order
+        // (flicker / a stale rotation winning).
         const selectedFeatures = this.getSelectedFeatures();
-        this.updateFeaturesProperty(selectedFeatures, 'rotation', result.rotation);
+        this._queueRotationUpdate(selectedFeatures, result.rotation);
 
         // Refresh handle position during drag (updateFeaturesProperty skips this when isDraggingHandle)
         const freshFeature = this.getSelectedFeature();
         if (freshFeature) {
             this.createEditHandles(freshFeature);
         }
+    }
+
+    /**
+     * Serializes rotation updates during a handle drag so overlapping async
+     * updateFeaturesProperty calls cannot interleave. Always applies the most
+     * recent rotation; intermediate values are coalesced.
+     * @param {Array<Object>} features
+     * @param {number} rotation
+     */
+    _queueRotationUpdate(features, rotation) {
+        this._pendingRotation = { features, rotation };
+        if (this._rotationUpdateInFlight) return;
+
+        this._rotationUpdateInFlight = (async () => {
+            try {
+                while (this._pendingRotation) {
+                    const { features: f, rotation: r } = this._pendingRotation;
+                    this._pendingRotation = null;
+                    await this.updateFeaturesProperty(f, 'rotation', r);
+                }
+            } catch (error) {
+                // e.g. the 'texts' source is briefly gone during a style reload.
+                // Swallow so this fire-and-forget chain never becomes an unhandled rejection.
+                console.error('Error applying text rotation update:', error);
+                this._pendingRotation = null;
+            } finally {
+                this._rotationUpdateInFlight = null;
+            }
+        })();
     }
 
     /**
@@ -1023,6 +1055,10 @@ class AddTextControl extends BaseControl {
         if (this.isDraggingHandle && selectedFeature) {
             // Recreate handles at final position
             this.createEditHandles(selectedFeature);
+
+            // Drain any in-flight coalesced rotation update so the final value is
+            // applied to the feature before we persist it.
+            if (this._rotationUpdateInFlight) await this._rotationUpdateInFlight;
 
             // Rebuild attribute panel to sync slider with final rotation value
             this.updateUIAfterEdit();

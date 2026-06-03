@@ -811,7 +811,6 @@ class AddPolygonControl extends BaseControl {
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
         await this.saveFeatureChanges(updatedFeature);
-        this.updateFeatureMeasurement(updatedFeature);
     }
 
     /**
@@ -869,7 +868,6 @@ class AddPolygonControl extends BaseControl {
         this.createEditHandles(updatedFeature);
         this.updateUIAfterEdit();
         await this.saveFeatureChanges(updatedFeature);
-        this.updateFeatureMeasurement(updatedFeature);
     }
 
     onHoverMove = (e) => {
@@ -1021,7 +1019,9 @@ class AddPolygonControl extends BaseControl {
             f.geometry = this.geometry.generate(coordinates);
         });
 
-        await this.updateFeatures(features, true, true);
+        // Full update (onlyUpdateProperties=false) so the reverted GEOMETRY is written,
+        // not just properties — the onlyUpdateProperties path drops the regenerated geometry.
+        await this.updateFeatures(features, true, false);
     }
 
     deleteFeatures = async (features) => {

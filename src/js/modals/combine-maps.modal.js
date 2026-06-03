@@ -43,7 +43,8 @@ export class CombineMapsModal extends ModalBase {
         super({
             id: 'combine-maps-modal',
             title: 'Puxar Mapas',
-            icon: ICONS.merge
+            icon: ICONS.merge,
+            destroyOnHide: true
         });
 
         this._targetMapName = options.targetMapName || '';

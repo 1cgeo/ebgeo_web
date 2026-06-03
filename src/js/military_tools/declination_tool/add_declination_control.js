@@ -8,6 +8,7 @@
 import {
     addFeature,
     updateFeature,
+    removeFeature,
     storeImage,
     getActiveLayerIdSync
 } from '@store';
@@ -538,6 +539,19 @@ class AddDeclinationControl extends BaseControl {
 
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
+
+        // Persist the deletion to the store, not just the in-memory source —
+        // otherwise the diagram reappears from IndexedDB on the next load. The
+        // rasterized PNG blob is released later, on undo-history eviction, so an
+        // Undo can still restore the diagram.
+        for (const feature of features) {
+            const featureId = feature.properties.id;
+            try {
+                await removeFeature('magnetic_declinations', featureId);
+            } catch (error) {
+                console.error('Error removing declination feature:', error);
+            }
+        }
 
         const data = await this.map.getSource('magnetic_declinations').getData();
         const idsToDelete = new Set(features.map(f => f.properties.id));

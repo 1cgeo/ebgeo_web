@@ -40,7 +40,8 @@ export class CoordinateEditModal extends ModalBase {
         super({
             id: 'coordinate-edit-modal',
             title: 'Editar Coordenadas',
-            icon: ICONS.edit
+            icon: ICONS.edit,
+            destroyOnHide: true
         });
 
         this._lat = options.lat ?? 0;

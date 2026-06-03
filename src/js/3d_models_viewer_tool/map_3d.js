@@ -464,6 +464,12 @@ export function cleanup3DFeatures() {
         console.warn('Error cleaning modules:', error);
     }
 
+    // Detach the toolbar map-lock listener
+    if (mapLockUnsub) {
+        mapLockUnsub();
+        mapLockUnsub = null;
+    }
+
     // Cleanup ScreenSpaceEventHandler
     if (cesiumState.screenSpaceHandler) {
         cesiumState.screenSpaceHandler.destroy();
@@ -947,6 +953,9 @@ async function loadCesiumAndInitWithTileset(tilesetId) {
     return cesiumState.viewer;
 }
 
+// Active MAP_LOCK_CHANGED unsubscribe for the 3D toolbar (see registerToolEventListeners).
+let mapLockUnsub = null;
+
 function registerToolEventListeners() {
     setTimeout(() => {
         const buttons = document.querySelectorAll('.button-tool-3d');
@@ -976,7 +985,11 @@ function registerToolEventListeners() {
             toolbar3d.classList.toggle('map-locked', isCurrentMapLockedSync());
             try {
                 const eventBus = getEventBus();
-                eventBus.on(EventTypes.MAP_LOCK_CHANGED, () => {
+                // Detach any previous subscription first: this runs on every viewer
+                // open and closeViewer() does not tear it down, so without this the
+                // MAP_LOCK_CHANGED listener accumulated one per open.
+                if (mapLockUnsub) mapLockUnsub();
+                mapLockUnsub = eventBus.on(EventTypes.MAP_LOCK_CHANGED, () => {
                     toolbar3d.classList.toggle('map-locked', isCurrentMapLockedSync());
                 });
             } catch { /* EventBus not available */ }

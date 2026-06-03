@@ -47,11 +47,24 @@ export function createMeasurementLabel(measurement, featureId, layerId) {
  * @param {string} featureId - Feature ID for tracking
  * @param {string} [layerId] - Layer ID for visibility tracking
  */
+// Active markers keyed by featureId. Marker.addTo() registers several map
+// listeners that only Marker.remove() detaches — removing just the DOM element
+// (as before) orphaned those listeners and leaked the Marker on every update.
+const activeMeasurementMarkers = new Map();
+
 export function displayMeasurement(map, coordinates, measurement, featureId, layerId) {
+    // Drop any existing marker for this feature so it is not orphaned.
+    const existing = activeMeasurementMarkers.get(featureId);
+    if (existing) {
+        existing.remove();
+        activeMeasurementMarkers.delete(featureId);
+    }
+
     const markerElement = createMeasurementLabel(measurement, featureId, layerId);
-    new maplibregl.Marker({ element: markerElement })
+    const marker = new maplibregl.Marker({ element: markerElement })
         .setLngLat(coordinates)
         .addTo(map);
+    activeMeasurementMarkers.set(featureId, marker);
 }
 
 /**
@@ -60,6 +73,13 @@ export function displayMeasurement(map, coordinates, measurement, featureId, lay
  * @param {string} featureId - Feature ID to remove measurement for
  */
 export function removeMeasurement(featureId) {
+    const marker = activeMeasurementMarkers.get(featureId);
+    if (marker) {
+        marker.remove();
+        activeMeasurementMarkers.delete(featureId);
+        return;
+    }
+    // Fallback: remove any stray label element not tracked as a marker.
     const measurementLabel = document.querySelector(
         `.measurement-label[data-feature-id="${featureId}"]`
     );

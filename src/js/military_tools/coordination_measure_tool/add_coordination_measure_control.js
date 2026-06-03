@@ -5,7 +5,6 @@ import {
   updateFeature,
   removeFeature,
   storeImage,
-  removeImage,
   getActiveLayerIdSync
 } from "../../store";
 import { CoordinationMeasureGenerator } from './coordination_measure_generator.js';
@@ -989,9 +988,9 @@ class AddCoordinationMeasureControl extends BaseControl {
       try {
         const featureId = feature.properties.id;
 
+        // The rasterized blob is released later, on undo-history eviction, so an
+        // Undo can still restore the measure image.
         await removeFeature("coordination_measures", featureId);
-
-        await removeImage(featureId);
 
         const data = await this.map.getSource("coordination_measures").getData();
         const idsToDelete = new Set(

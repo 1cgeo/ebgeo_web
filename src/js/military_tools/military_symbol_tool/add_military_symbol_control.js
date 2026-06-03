@@ -931,7 +931,8 @@ class AddMilitarySymbolControl extends BaseControl {
       try {
         const featureId = feature.properties.id;
 
-        // Remove from storage
+        // Remove from storage (the rasterized PNG blob is released later, on
+        // undo-history eviction, so an Undo can still restore the symbol image).
         await removeFeature("military_symbols", featureId);
 
         // Update map source
