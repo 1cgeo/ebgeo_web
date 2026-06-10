@@ -385,10 +385,10 @@ async function loadTexture(data) {
         const blob = await fetchBlobWithRetry(fullUrl, { signal: controller.signal });
 
         if (activeTextureAbort !== controller) return;
-        activeTextureAbort = null;
 
         const fullTexture = await blobToTexture(blob);
         if (activeTextureAbort !== controller) return;
+        activeTextureAbort = null;
         streetViewState.textureCache.set(fullCacheKey, fullTexture);
         applyTexture(fullTexture, data);
 

@@ -521,9 +521,10 @@ class AddPointControl extends BaseControl {
      * Create point at specific coordinates
      * @param {number} lng - Longitude
      * @param {number} lat - Latitude
+     * @param {Object} [propertyOverrides] - Property overrides merged over defaults (e.g. nome, fillColor, size, attributes)
      * @returns {Promise<Object|null>} Created feature or null if error
      */
-    createPointAtCoordinates = async (lng, lat) => {
+    createPointAtCoordinates = async (lng, lat, propertyOverrides = {}) => {
         const coordinates = [lng, lat];
 
         if (!this.geometry.validate(coordinates)) {
@@ -532,30 +533,31 @@ class AddPointControl extends BaseControl {
         }
 
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const featureName = await IDUtils.generateFeatureName('point', this.map);
+        const featureName = propertyOverrides.nome
+            || await IDUtils.generateFeatureName('point', this.map);
 
         const currentZoom = this.map.getZoom();
-        const defaults = AddPointControl.DEFAULT_PROPERTIES;
+        const baseProps = { ...AddPointControl.DEFAULT_PROPERTIES, ...propertyOverrides };
         const feature = {
             type: 'Feature',
             id: geoJsonId,
             properties: {
-                ...defaults,
+                ...baseProps,
                 layerId: getActiveLayerIdSync(),
                 id: featureId,
                 nome: featureName,
                 labelCreatedAtZoom: currentZoom,
-                labelCalculatedSize: defaults.labelSize,
+                labelCalculatedSize: baseProps.labelSize,
                 sizeCreatedAtZoom: currentZoom,
-                calculatedSize: defaults.size,
+                calculatedSize: baseProps.size,
             },
             geometry: this.geometry.generate(coordinates)
         };
 
         feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
             coordinates,
-            defaults.size,
-            defaults.lineWidth,
+            baseProps.size,
+            baseProps.lineWidth,
             currentZoom
         );
 
