@@ -1,9 +1,14 @@
 // Path: js/military_tools/declination_tool/declination_svg_generator.js
 
 /**
- * @fileoverview Generates SVG diagrams for magnetic declination (G-M angle).
- * Shows Grid North (NQ) and Magnetic North (NM) with the correct angle.
+ * @fileoverview Generates SVG diagrams of the three norths:
+ * True North (NV), Grid North (NQ) and Magnetic North (NM).
+ * Reference north (vertical) is NV, matching the Web Mercator map vertical
+ * at the diagram location. Shows magnetic declination (NV→NM) and meridian
+ * convergence (NV→NQ).
  */
+
+import { formatSignedDegrees } from '@utils/angle-format.js';
 
 const SVG_WIDTH = 400;
 const SVG_HEIGHT = 500;
@@ -26,159 +31,142 @@ const ARROW_HEAD_SIZE = 12;
 /** Base line half-width */
 const BASE_LINE_HALF = 80;
 
+/** Arc radii (px): convergence inner, declination outer (avoid overlap). */
+const ARC_RADIUS_CONV = 48;
+const ARC_RADIUS_DECL = 80;
+
 /**
- * Generates an SVG string for a magnetic declination diagram.
+ * Below this convergence magnitude (deg) the NV and NQ arrows are nearly
+ * collinear, so their tip labels would overlap — nudge them apart horizontally.
+ */
+const LABEL_SEPARATION_DEG = 8;
+/** Horizontal nudge (px) applied to each of NV/NQ when they are too close. */
+const LABEL_NUDGE = 18;
+
+/**
+ * Generates an SVG string for the three-norths declination diagram.
  *
- * @param {number} declinationDeg - Declination in degrees (positive=East, negative=West)
+ * @param {number} declinationDeg - Magnetic declination (+East, −West), NV→NM
+ * @param {number} [convergenceDeg=0] - Meridian convergence (+East, −West), NV→NQ
  * @returns {string} SVG markup string
  */
-export function generateDeclinationSvg(declinationDeg) {
-    const absAngle = Math.abs(declinationDeg);
-    const isEast = declinationDeg >= 0;
-    const direction = isEast ? 'E' : 'W';
+export function generateDeclinationSvg(declinationDeg, convergenceDeg = 0) {
+    const nv = endpointFor(0);
+    const nq = endpointFor(convergenceDeg);
+    const nm = endpointFor(declinationDeg);
 
-    // Grid North (NQ) is always vertical (straight up)
-    const nqEndX = ORIGIN_X;
-    const nqEndY = ORIGIN_Y - ARROW_LENGTH;
-
-    // Magnetic North (NM) is rotated by declination from vertical
-    // East declination = clockwise rotation (positive angle from NQ)
-    // West declination = counter-clockwise rotation (negative angle from NQ)
-    const angleRad = (declinationDeg * Math.PI) / 180;
-    const nmEndX = ORIGIN_X + Math.sin(angleRad) * ARROW_LENGTH;
-    const nmEndY = ORIGIN_Y - Math.cos(angleRad) * ARROW_LENGTH;
-
-    // Build SVG parts
-    const baseLines = buildBaseLines();
-    const nqArrow = buildArrow(ORIGIN_X, ORIGIN_Y, nqEndX, nqEndY, 'nq');
-    const nmArrow = buildArrow(ORIGIN_X, ORIGIN_Y, nmEndX, nmEndY, 'nm');
-    const arc = buildAngleArc(declinationDeg);
-    const labels = buildLabels(nqEndX, nqEndY, nmEndX, nmEndY, absAngle, direction, declinationDeg);
+    // When convergence is small, NV (vertical) and NQ nearly coincide; push their
+    // labels to opposite sides (NV away from the side NQ leans) so they stay legible.
+    let nvDx = 0;
+    let nqDx = 0;
+    if (Math.abs(convergenceDeg) < LABEL_SEPARATION_DEG) {
+        const nqLeansEast = convergenceDeg >= 0;
+        nvDx = nqLeansEast ? -LABEL_NUDGE : LABEL_NUDGE;
+        nqDx = nqLeansEast ? LABEL_NUDGE : -LABEL_NUDGE;
+    }
 
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_WIDTH}" height="${SVG_HEIGHT}" viewBox="0 0 ${SVG_WIDTH} ${SVG_HEIGHT}">
   <defs>
-    <marker id="arrowHead-nq" markerWidth="${ARROW_HEAD_SIZE}" markerHeight="${ARROW_HEAD_SIZE}" refX="${ARROW_HEAD_SIZE / 2}" refY="${ARROW_HEAD_SIZE / 2}" orient="auto-start-reverse">
-      <polygon points="0,0 ${ARROW_HEAD_SIZE},${ARROW_HEAD_SIZE / 2} 0,${ARROW_HEAD_SIZE}" fill="${LINE_COLOR}"/>
-    </marker>
-    <marker id="arrowHead-nm" markerWidth="${ARROW_HEAD_SIZE}" markerHeight="${ARROW_HEAD_SIZE}" refX="${ARROW_HEAD_SIZE / 2}" refY="${ARROW_HEAD_SIZE / 2}" orient="auto-start-reverse">
+    <marker id="arrowHead" markerWidth="${ARROW_HEAD_SIZE}" markerHeight="${ARROW_HEAD_SIZE}" refX="${ARROW_HEAD_SIZE / 2}" refY="${ARROW_HEAD_SIZE / 2}" orient="auto-start-reverse">
       <polygon points="0,0 ${ARROW_HEAD_SIZE},${ARROW_HEAD_SIZE / 2} 0,${ARROW_HEAD_SIZE}" fill="${LINE_COLOR}"/>
     </marker>
   </defs>
-  ${baseLines}
-  ${nqArrow}
-  ${nmArrow}
-  ${arc}
-  ${labels}
+  ${buildBaseLines()}
+  ${buildArrow(nv.x, nv.y)}
+  ${buildArrow(nq.x, nq.y)}
+  ${buildArrow(nm.x, nm.y)}
+  ${buildAngleArc(convergenceDeg, ARC_RADIUS_CONV)}
+  ${buildAngleArc(declinationDeg, ARC_RADIUS_DECL)}
+  ${buildTipLabel(nv, 'NV', nvDx)}
+  ${buildTipLabel(nq, 'NQ', nqDx)}
+  ${buildTipLabel(nm, 'NM')}
+  ${buildLegend(declinationDeg, convergenceDeg)}
 </svg>`;
 }
 
 /**
- * Builds horizontal reference lines at the origin.
- * @returns {string} SVG lines
+ * Computes an arrow tip endpoint for an angle measured clockwise from vertical (NV).
+ * @param {number} angleDeg - Angle in degrees (clockwise positive = East)
+ * @returns {{ x: number, y: number, sinA: number, cosA: number }}
+ */
+function endpointFor(angleDeg) {
+    const a = (angleDeg * Math.PI) / 180;
+    const sinA = Math.sin(a);
+    const cosA = Math.cos(a);
+    return {
+        x: ORIGIN_X + sinA * ARROW_LENGTH,
+        y: ORIGIN_Y - cosA * ARROW_LENGTH,
+        sinA,
+        cosA,
+    };
+}
+
+/**
+ * Builds the dashed horizontal reference line at the origin.
+ * @returns {string} SVG line
  */
 function buildBaseLines() {
     const y = ORIGIN_Y;
-    const leftX = ORIGIN_X - BASE_LINE_HALF;
-    const rightX = ORIGIN_X + BASE_LINE_HALF;
-
-    return `<line x1="${leftX}" y1="${y}" x2="${rightX}" y2="${y}" stroke="${LINE_COLOR}" stroke-width="1.5" stroke-dasharray="6,3"/>`;
+    return `<line x1="${ORIGIN_X - BASE_LINE_HALF}" y1="${y}" x2="${ORIGIN_X + BASE_LINE_HALF}" y2="${y}" stroke="${LINE_COLOR}" stroke-width="1.5" stroke-dasharray="6,3"/>`;
 }
 
 /**
- * Builds an arrow line with arrowhead marker.
- * @param {number} x1 - Start X
- * @param {number} y1 - Start Y
- * @param {number} x2 - End X
- * @param {number} y2 - End Y
- * @param {string} id - Arrow identifier for marker reference
+ * Builds an arrow line from the origin to a tip, with arrowhead marker.
+ * @param {number} x2 - Tip X
+ * @param {number} y2 - Tip Y
  * @returns {string} SVG line with marker
  */
-function buildArrow(x1, y1, x2, y2, id) {
-    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${LINE_COLOR}" stroke-width="2" marker-end="url(#arrowHead-${id})"/>`;
+function buildArrow(x2, y2) {
+    return `<line x1="${ORIGIN_X}" y1="${ORIGIN_Y}" x2="${x2}" y2="${y2}" stroke="${LINE_COLOR}" stroke-width="2" marker-end="url(#arrowHead)"/>`;
 }
 
 /**
- * Builds an arc between Grid North and Magnetic North.
- * @param {number} declinationDeg - Declination angle in degrees
- * @returns {string} SVG arc path
+ * Builds a small arc from vertical (NV) to the given angle.
+ * @param {number} angleDeg - Angle in degrees (clockwise positive = East)
+ * @param {number} arcRadius - Arc radius in pixels
+ * @returns {string} SVG arc path (empty when angle is negligible)
  */
-function buildAngleArc(declinationDeg) {
-    if (Math.abs(declinationDeg) < 0.1) return '';
+function buildAngleArc(angleDeg, arcRadius) {
+    if (Math.abs(angleDeg) < 0.1) return '';
 
-    const arcRadius = 70;
-    const startAngleRad = -Math.PI / 2; // vertical up
-    const endAngleRad = startAngleRad + (declinationDeg * Math.PI) / 180;
+    const startRad = -Math.PI / 2; // vertical up
+    const endRad = startRad + (angleDeg * Math.PI) / 180;
 
-    const startX = ORIGIN_X + Math.cos(startAngleRad) * arcRadius;
-    const startY = ORIGIN_Y + Math.sin(startAngleRad) * arcRadius;
-    const endX = ORIGIN_X + Math.cos(endAngleRad) * arcRadius;
-    const endY = ORIGIN_Y + Math.sin(endAngleRad) * arcRadius;
+    const sx = ORIGIN_X + Math.cos(startRad) * arcRadius;
+    const sy = ORIGIN_Y + Math.sin(startRad) * arcRadius;
+    const ex = ORIGIN_X + Math.cos(endRad) * arcRadius;
+    const ey = ORIGIN_Y + Math.sin(endRad) * arcRadius;
 
-    const largeArc = Math.abs(declinationDeg) > 180 ? 1 : 0;
-    const sweep = declinationDeg > 0 ? 1 : 0;
+    const largeArc = Math.abs(angleDeg) > 180 ? 1 : 0;
+    const sweep = angleDeg > 0 ? 1 : 0;
 
-    return `<path d="M ${startX} ${startY} A ${arcRadius} ${arcRadius} 0 ${largeArc} ${sweep} ${endX} ${endY}" fill="none" stroke="${ARC_COLOR}" stroke-width="1.5"/>`;
+    return `<path d="M ${sx} ${sy} A ${arcRadius} ${arcRadius} 0 ${largeArc} ${sweep} ${ex} ${ey}" fill="none" stroke="${ARC_COLOR}" stroke-width="1.5"/>`;
 }
 
 /**
- * Builds text labels for the diagram (NQ, NM, and angle value).
- * @param {number} nqX - Grid North arrow end X
- * @param {number} nqY - Grid North arrow end Y
- * @param {number} nmX - Magnetic North arrow end X
- * @param {number} nmY - Magnetic North arrow end Y
- * @param {number} absAngle - Absolute declination angle
- * @param {string} direction - 'E' or 'W'
- * @param {number} declinationDeg - Raw declination value
+ * Builds a two-letter label just beyond an arrow tip, offset radially outward.
+ * @param {{ x: number, y: number, sinA: number, cosA: number }} tip - Arrow tip endpoint
+ * @param {string} text - Label text (e.g., 'NV')
+ * @param {number} [dx=0] - Horizontal nudge (px) to separate near-collinear labels
+ * @returns {string} SVG text element
+ */
+function buildTipLabel(tip, text, dx = 0) {
+    const off = 22;
+    const x = tip.x + tip.sinA * off + dx;
+    const y = tip.y - tip.cosA * off + 8;
+    return `<text x="${x}" y="${y}" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="${TEXT_COLOR}" text-anchor="middle">${text}</text>`;
+}
+
+/**
+ * Builds an always-legible textual legend at the top of the diagram.
+ * @param {number} declinationDeg - Magnetic declination
+ * @param {number} convergenceDeg - Meridian convergence
  * @returns {string} SVG text elements
  */
-function buildLabels(nqX, nqY, nmX, nmY, absAngle, direction, declinationDeg) {
-    const fontSize = 24;
-    const labelOffset = 20;
-
-    // NQ label (opposite side of NM arrow)
-    const nqSide = declinationDeg >= 0 ? -1 : 1;
-    const nqLabelX = nqX + nqSide * labelOffset;
-    const nqLabelY = nqY + 30;
-    const nqAnchor = declinationDeg >= 0 ? 'end' : 'start';
-
-    // NM label (to the side of the Magnetic North arrow tip)
-    const nmSide = declinationDeg >= 0 ? 1 : -1;
-    const nmLabelX = nmX + nmSide * labelOffset;
-    const nmLabelY = nmY + 30;
-    const nmAnchor = declinationDeg >= 0 ? 'start' : 'end';
-
-    let labels = '';
-
-    // NQ short label
-    labels += `<text x="${nqLabelX}" y="${nqLabelY}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${TEXT_COLOR}" text-anchor="${nqAnchor}">NQ</text>`;
-
-    // NM short label
-    labels += `<text x="${nmLabelX}" y="${nmLabelY}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${TEXT_COLOR}" text-anchor="${nmAnchor}">NM</text>`;
-
-    // Angle value placed outside the arc, away from the arrows
-    // Positive (East) declination → label to the LEFT (outside the arc)
-    // Negative (West) declination → label to the RIGHT (outside the arc)
-    if (Math.abs(declinationDeg) >= 0.1) {
-        const angleText = absAngle.toFixed(1).replace('.', ',') + '° ' + direction;
-        const arcRadius = 70;
-        // Position at the arc height, pushed well to the outside
-        const angleLabelY = ORIGIN_Y - arcRadius + 10;
-        const sideOffset = 10;
-        let angleLabelX;
-        let anchor;
-
-        if (declinationDeg >= 0) {
-            // East: NM is to the right, label goes LEFT
-            angleLabelX = ORIGIN_X - sideOffset;
-            anchor = 'end';
-        } else {
-            // West: NM is to the left, label goes RIGHT
-            angleLabelX = ORIGIN_X + sideOffset;
-            anchor = 'start';
-        }
-
-        labels += `<text x="${angleLabelX}" y="${angleLabelY}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${TEXT_COLOR}" text-anchor="${anchor}" dominant-baseline="middle">${angleText}</text>`;
-    }
-
-    return labels;
+function buildLegend(declinationDeg, convergenceDeg) {
+    const fontSize = 20;
+    const x = 20;
+    return `
+  <text x="${x}" y="34" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${TEXT_COLOR}">Decl. (NV-NM): ${formatSignedDegrees(declinationDeg)}</text>
+  <text x="${x}" y="62" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${TEXT_COLOR}">Conv. (NV-NQ): ${formatSignedDegrees(convergenceDeg)}</text>`;
 }

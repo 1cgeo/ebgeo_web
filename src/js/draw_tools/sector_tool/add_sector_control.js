@@ -55,6 +55,7 @@ class AddSectorControl extends BaseControl {
         hatchSpacing: 8,
         hatchLineWidth: 2,
         aperture: 60,
+        bearing: 0,
         ...LABEL_DEFAULT_PROPERTIES,
     };
     // ===== MAPBOX CONTROL INTERFACE =====

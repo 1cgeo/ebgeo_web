@@ -8,9 +8,11 @@ import {
     createModernSlider,
     createModernToggle,
     createModernButtons,
+    createModernInfoBox,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton,
 } from '@tools';
+import { formatSignedDegrees } from '@utils/angle-format.js';
 
 /**
  * Adds declination diagram attributes to the panel.
@@ -60,6 +62,24 @@ export function addDeclinationAttributesToPanel(panel, selectedFeatures, declina
             multiSelectHeader.appendChild(optionsButton);
             panel.appendChild(multiSelectHeader);
         }
+    }
+
+    // Three-norths values (read-only)
+    if (selectedFeatures.length === 1) {
+        const decl = feature.properties.declination ?? 0;
+        const conv = feature.properties.convergence ?? 0;
+        const grid = decl - conv; // grid angle (NQ→NM)
+        const fmt = (v) => formatSignedDegrees(v, { long: true });
+
+        panel.appendChild(createModernInfoBox({
+            title: 'Diagrama de Nortes',
+            rows: [
+                { text: `Declinação magnética (NV-NM): ${fmt(decl)}` },
+                { text: `Convergência meridiana (NV-NQ): ${fmt(conv)}` },
+                { text: `Ângulo de quadrícula (NQ-NM): ${fmt(grid)}` },
+                { text: `WMM2025 · ${feature.properties.calculationDate || ''}` },
+            ],
+        }));
     }
 
     // Size slider
