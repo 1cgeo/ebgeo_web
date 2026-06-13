@@ -23,6 +23,16 @@ export default defineConfig({
     test: {
         include: ['tests/**/*.test.js'],
         environment: 'node',
-        globals: true
+        globals: true,
+        coverage: {
+            provider: 'v8',
+            reporter: ['text', 'html', 'lcov'],
+            reportsDirectory: './coverage',
+            include: ['src/js/**/*.js'],
+            // Report-only baseline (no thresholds yet — see TESTING.md).
+            // `all: true` counts untested files so the report shows the real gap.
+            all: true,
+            exclude: ['src/js/**/index.js']
+        }
     }
 });
