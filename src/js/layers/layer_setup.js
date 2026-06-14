@@ -11,6 +11,7 @@ import config from '../config.js';
 import { EventTypes } from '../events';
 
 import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
+import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
 import {
     setupPointLayers,
@@ -173,11 +174,20 @@ async function setImages(features, mapInstance) {
 
     await Promise.allSettled(imagePromises);
 
-    // Generate per-feature canvas images for non-circle point markers
+    // Generate per-feature canvas images for non-circle point markers.
+    // Custom icons (uploaded images) register asynchronously from stored blobs;
+    // built-in shapes/icons bake a per-feature canvas image synchronously.
+    const customIconPromises = [];
     for (const feature of (features.points || [])) {
         const props = feature.properties;
         if (!needsPerFeatureImage(props.markerSymbol)) continue;
         if (mapInstance.hasImage(props.id)) continue;
+
+        const iconId = parseCustomMarker(props.markerSymbol);
+        if (iconId) {
+            customIconPromises.push(registerCustomFeatureImage(mapInstance, props.id, iconId));
+            continue;
+        }
 
         const imageData = generatePointImage(
             props.markerSymbol,
@@ -187,6 +197,7 @@ async function setImages(features, mapInstance) {
         );
         mapInstance.addImage(props.id, imageData, { pixelRatio: 2 });
     }
+    await Promise.allSettled(customIconPromises);
 }
 
 /**

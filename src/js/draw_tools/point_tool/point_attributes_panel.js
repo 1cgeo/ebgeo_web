@@ -12,6 +12,7 @@ import {
     createMarkerSymbolPicker
 } from '../../tool_manager/helpers/index.js';
 import { formatCoordinates } from '@utils/coordinate_converter.js';
+import { parseCustomMarker } from './point-custom-icons.js';
 
 // ============================================================================
 // CONSTANTS
@@ -142,34 +143,43 @@ function _buildStyleTabs(panel, selectedFeatures, feature, pointControl) {
  * Builds the Marcador (marker style) tab content.
  */
 function _buildMarkerTab(container, selectedFeatures, feature, pointControl) {
+    // Color/border controls do not apply to custom (uploaded) icons, which are
+    // rendered as-is. Keep refs so the picker can hide them for custom markers.
+    const colorOnlyControls = [];
+
     // Marker symbol picker
     container.appendChild(createMarkerSymbolPicker({
         value: feature.properties.markerSymbol || 'circle',
         onChange: (symbolId) => {
             pointControl.updateFeaturesProperty(selectedFeatures, 'markerSymbol', symbolId);
+            setColorControlsVisible(!parseCustomMarker(symbolId));
         }
     }));
 
     // Fill color picker
-    container.appendChild(createModernColorPicker({
+    const fillPicker = createModernColorPicker({
         label: 'Cor',
         value: feature.properties.fillColor,
         onChange: (color) => {
             pointControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
         }
-    }));
+    });
+    container.appendChild(fillPicker);
+    colorOnlyControls.push(fillPicker);
 
     // Border color picker
-    container.appendChild(createModernColorPicker({
+    const borderPicker = createModernColorPicker({
         label: 'Borda',
         value: feature.properties.lineColor || '#000000',
         onChange: (color) => {
             pointControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
         }
-    }));
+    });
+    container.appendChild(borderPicker);
+    colorOnlyControls.push(borderPicker);
 
     // Border width slider
-    container.appendChild(createModernSlider({
+    const borderWidthSlider = createModernSlider({
         label: 'Espessura da Borda',
         min: 0,
         max: 5,
@@ -179,7 +189,16 @@ function _buildMarkerTab(container, selectedFeatures, feature, pointControl) {
         onChange: (value) => {
             pointControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
         }
-    }));
+    });
+    container.appendChild(borderWidthSlider);
+    colorOnlyControls.push(borderWidthSlider);
+
+    function setColorControlsVisible(visible) {
+        colorOnlyControls.forEach((el) => { el.style.display = visible ? '' : 'none'; });
+    }
+
+    // Hide color/border for custom icons on initial render
+    setColorControlsVisible(!parseCustomMarker(feature.properties.markerSymbol));
 
     // Size slider
     container.appendChild(createModernSlider({

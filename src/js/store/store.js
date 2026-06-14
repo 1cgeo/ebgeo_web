@@ -389,6 +389,17 @@ export {
     removeImage
 } from './settings.operations.js';
 
+// ===== RE-EXPORTS FROM CUSTOM ICON OPERATIONS =====
+
+export {
+    getCustomIcons,
+    addCustomIcon,
+    removeCustomIcon,
+    getCustomIconBlob,
+    getCustomIconsForExport,
+    restoreCustomIconsFromImport
+} from './customIcons.operations.js';
+
 // ===== RE-EXPORTS FROM CATALOG OPERATIONS =====
 
 export {

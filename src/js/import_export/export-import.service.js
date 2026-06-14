@@ -29,6 +29,8 @@ import {
     setStreetview360DataForImport,
     getBriefingsForExport,
     importBriefings,
+    getCustomIconsForExport,
+    restoreCustomIconsFromImport,
     getGroupManager,
 } from '@store';
 
@@ -412,6 +414,15 @@ export class ExportImportService {
                 console.warn('Could not export briefings:', error);
             }
 
+            // Custom point icons: metadata travels in data.json, blobs in images/.
+            const customIcons = await getCustomIconsForExport();
+            if (customIcons.length > 0) {
+                data.customIcons = customIcons;
+                for (const icon of customIcons) {
+                    usedImages.add(icon.id);
+                }
+            }
+
             zip.file('data.json', JSON.stringify(data), {
                 compression: 'DEFLATE',
                 compressionOptions: { level: 9 }
@@ -647,6 +658,11 @@ export class ExportImportService {
                 // Load images after processing maps (normal import)
                 await this.loadImagesFromZip(zip);
             }
+
+            // Restore custom point-icon registry (blobs already restored above).
+            // Non-additive import replaces the project, so replace the registry;
+            // additive import merges into the existing one.
+            await restoreCustomIconsFromImport(data.customIcons, { replace: !isAdditiveImport });
 
             // Notify about unavailable catalog layers
             if (totalUnavailableCatalogLayers > 0) {
