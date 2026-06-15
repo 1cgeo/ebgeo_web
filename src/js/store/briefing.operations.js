@@ -86,7 +86,11 @@ export function createEmptySlide(order = 0) {
             fov: null
         },
         modelId: null,
-        photoId: null
+        photoId: null,
+        // Temporal timeline cursor (epoch ms) captured for 2D slides when the
+        // map's temporal control is enabled; null when temporal is off or for
+        // non-2D slides. Older slides lack this field and are treated as null.
+        temporalCursor: null
     };
 }
 

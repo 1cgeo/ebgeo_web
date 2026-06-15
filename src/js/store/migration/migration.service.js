@@ -11,6 +11,7 @@ import localforage from 'localforage';
 import { ATLAS_SCHEMA_VERSION } from '../atlas/atlas.entity.js';
 import { migrateToV2 } from './v1-to-v2.migration.js';
 import { migrateToV2_1 } from './v2-to-v2.1.migration.js';
+import { migrateToV2_2 } from './v2.1-to-v2.2.migration.js';
 
 const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
 const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
@@ -93,6 +94,9 @@ export async function safelyMigrate() {
         }
         if (compareVersions(currentVersion, '2.1') < 0) {
             await migrateToV2_1();
+        }
+        if (compareVersions(currentVersion, '2.2') < 0) {
+            await migrateToV2_2();
         }
         console.log('Migration completed successfully');
         return { success: true };

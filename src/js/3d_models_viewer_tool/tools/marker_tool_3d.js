@@ -11,10 +11,13 @@ import {
     getMarkers,
     updateMarker,
     removeMarker,
-    DEFAULT_MARKER_STYLE
+    DEFAULT_MARKER_STYLE,
+    isMapTemporalEnabledSync,
+    getControl
 } from '@store/index.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
+import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
 import { hexToCesiumColor } from '../services/cesium-color.js';
 
 // ===== MODULE STATE =====
@@ -26,7 +29,72 @@ let clickHandler = null;
 const markerEntities = new Map(); // markerId -> Cesium.Entity
 let selectedMarkerId = null;
 
+// Markers loaded for the current tileset (kept so temporal cursor/toggle changes
+// can re-filter without re-reading the store). markerId -> marker data.
+const loadedMarkers = new Map();
+// Unsubscribe callbacks for the module-level event listeners (paired in cleanup).
+const temporalUnsubscribers = [];
+
 // ===== MARKER VISUALIZATION =====
+
+/**
+ * Resolves the active temporal cursor for the current map.
+ * @returns {number} Epoch ms, or NaN when temporal control is off/unknown.
+ */
+function getTemporalCursor() {
+    return getControl('TemporalControl')?.getCursor?.() ?? NaN;
+}
+
+/**
+ * Decides whether a marker should be visible under the current temporal state.
+ * When the active map has temporal disabled, every marker is visible. Otherwise
+ * a marker is shown only when the cursor falls inside its validity window.
+ * @param {Object} marker - Marker data
+ * @returns {boolean}
+ */
+function isMarkerTemporallyVisible(marker) {
+    if (!isMapTemporalEnabledSync()) return true;
+    return isTemporallyVisible(marker.properties, getTemporalCursor());
+}
+
+/**
+ * Renders a single marker entity when temporally visible, tracking it in
+ * markerEntities. Hidden markers are skipped (no entity created).
+ * @param {Object} marker - Marker data
+ */
+function renderMarkerIfVisible(marker) {
+    if (!isMarkerTemporallyVisible(marker)) return;
+    const entity = createMarkerEntity(marker);
+    if (entity) {
+        markerEntities.set(marker.id, entity);
+    }
+}
+
+/**
+ * Re-applies temporal visibility to the currently loaded markers: removes
+ * entities for markers that are now hidden and (re)creates entities for markers
+ * that are now valid. Called when the temporal cursor moves or temporal toggles.
+ */
+function refreshMarkerTemporalVisibility() {
+    if (!currentViewer) return;
+
+    for (const marker of loadedMarkers.values()) {
+        const shouldShow = isMarkerTemporallyVisible(marker);
+        const hasEntity = markerEntities.has(marker.id);
+
+        if (shouldShow && !hasEntity) {
+            const entity = createMarkerEntity(marker);
+            if (entity) markerEntities.set(marker.id, entity);
+        } else if (!shouldShow && hasEntity) {
+            // Drop selection if the now-hidden marker was selected.
+            if (selectedMarkerId === marker.id) {
+                selectedMarkerId = null;
+                emitMarkerDeselected();
+            }
+            removeMarkerEntity(marker.id);
+        }
+    }
+}
 
 /**
  * Creates a Cesium entity for a marker.
@@ -132,6 +200,7 @@ function clearAllMarkerEntities() {
         currentViewer.entities.remove(entity);
     }
     markerEntities.clear();
+    loadedMarkers.clear();
 }
 
 /**
@@ -312,6 +381,9 @@ async function createNewMarker(position) {
 
     const marker = await addMarker(currentTilesetId, markerData);
 
+    // Track for temporal re-filtering
+    loadedMarkers.set(marker.id, marker);
+
     // Create visual entity
     const entity = createMarkerEntity(marker);
     if (entity) {
@@ -343,17 +415,17 @@ async function createNewMarker(position) {
 
 /**
  * Loads and renders markers for current tileset.
+ * Markers outside the active temporal window are loaded but not rendered.
  */
 async function loadAndRenderMarkers() {
     if (!currentTilesetId) return;
 
     const markers = await getMarkers(currentTilesetId);
 
+    loadedMarkers.clear();
     for (const marker of markers) {
-        const entity = createMarkerEntity(marker);
-        if (entity) {
-            markerEntities.set(marker.id, entity);
-        }
+        loadedMarkers.set(marker.id, marker);
+        renderMarkerIfVisible(marker);
     }
 }
 
@@ -431,13 +503,12 @@ export async function renderMarkersForTileset(viewer, tilesetId) {
     // Clear any existing markers
     clearAllMarkerEntities();
 
-    // Load and render
+    // Load and render (respecting the active temporal window)
     const markers = await getMarkers(tilesetId);
+    loadedMarkers.clear();
     for (const marker of markers) {
-        const entity = createMarkerEntity(marker);
-        if (entity) {
-            markerEntities.set(marker.id, entity);
-        }
+        loadedMarkers.set(marker.id, marker);
+        renderMarkerIfVisible(marker);
     }
 
     // Set up click handler for selecting markers (even when tool not active)
@@ -507,8 +578,23 @@ export async function updateMarkerProperties(markerId, updates) {
     const updatedMarker = await updateMarker(markerId, updates);
 
     if (updatedMarker) {
-        // Update visual representation
-        updateMarkerEntityVisuals(markerId, updatedMarker);
+        // Keep the loaded copy in sync for temporal re-filtering.
+        loadedMarkers.set(markerId, updatedMarker);
+
+        // A change to the temporal window may flip this marker's visibility.
+        // Re-apply temporal filtering before touching visuals so a now-hidden
+        // marker is removed instead of restyled.
+        if (!isMarkerTemporallyVisible(updatedMarker)) {
+            refreshMarkerTemporalVisibility();
+        } else {
+            // Ensure an entity exists (it may have been hidden previously) and
+            // then update its visual representation.
+            if (!markerEntities.has(markerId)) {
+                const entity = createMarkerEntity(updatedMarker);
+                if (entity) markerEntities.set(markerId, entity);
+            }
+            updateMarkerEntityVisuals(markerId, updatedMarker);
+        }
     }
 
     return updatedMarker;
@@ -523,6 +609,7 @@ export async function deleteMarker(markerId) {
 
     if (result) {
         removeMarkerEntity(markerId);
+        loadedMarkers.delete(markerId);
         if (selectedMarkerId === markerId) {
             selectedMarkerId = null;
         }
@@ -577,6 +664,12 @@ export function cleanupMarkerTool() {
         currentViewer._markerSelectionHandler = null;
     }
 
+    // Unsubscribe the module-level event listeners (paired with on() in init).
+    for (const off of temporalUnsubscribers) {
+        if (typeof off === 'function') off();
+    }
+    temporalUnsubscribers.length = 0;
+
     currentViewer = null;
     currentTilesetId = null;
 }
@@ -625,13 +718,32 @@ export function initMarkerToolListeners() {
     const eventBus = getEventBus();
     if (!eventBus) return;
 
+    // Avoid double registration if called more than once.
+    if (temporalUnsubscribers.length > 0) return;
+
     // Listen for map changes to refresh markers
-    eventBus.on(EventTypes.LAYERS_CHANGED, () => {
+    const offLayers = eventBus.on(EventTypes.LAYERS_CHANGED, () => {
         // Only refresh if viewer is active
         if (currentViewer && currentTilesetId) {
             refreshMarkersForCurrentTileset();
         }
     });
+
+    // Re-filter markers when the temporal cursor moves.
+    const offCursor = eventBus.on(EventTypes.TEMPORAL_CURSOR_CHANGED, () => {
+        if (currentViewer && currentTilesetId) {
+            refreshMarkerTemporalVisibility();
+        }
+    });
+
+    // Re-filter when temporal is toggled/reconfigured for the active map.
+    const offTemporal = eventBus.on(EventTypes.MAP_TEMPORAL_CHANGED, () => {
+        if (currentViewer && currentTilesetId) {
+            refreshMarkerTemporalVisibility();
+        }
+    });
+
+    temporalUnsubscribers.push(offLayers, offCursor, offTemporal);
 }
 
 /**

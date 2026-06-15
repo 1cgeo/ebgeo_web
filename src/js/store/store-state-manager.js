@@ -159,6 +159,14 @@ class MapManager {
             this.memoryStore.lockedMaps.delete(mapName);
         }
 
+        // Load temporal config into the sync cache for the active map.
+        const temporalCfg = await getSettingCompat(`temporal_${mapName}`);
+        if (temporalCfg) {
+            this.memoryStore.temporalConfigs.set(mapName, temporalCfg);
+        } else {
+            this.memoryStore.temporalConfigs.delete(mapName);
+        }
+
         logOperation(
             EntityType.SETTING,
             OperationType.UPDATE,

@@ -1,0 +1,207 @@
+// Path: js/temporal/temporal.utils.js
+
+/**
+ * @fileoverview Pure helpers for the Temporal Module: unit math, cursor
+ * snapping/clamping, scrubber ticks, datetime-local conversion, flexible
+ * timestamp parsing (for imports) and pt-BR formatting. No DOM/store deps.
+ */
+
+import { TEMPORAL_UNITS, DEFAULT_TEMPORAL_UNIT, MAX_TIMELINE_TICKS } from './temporal.constants.js';
+
+/**
+ * Length of a division unit in milliseconds.
+ * @param {string} unidade - One of MINUTO | HORA | DIA | SEMANA.
+ * @returns {number} Milliseconds per unit (falls back to the default unit).
+ */
+export function unitToMs(unidade) {
+    return (TEMPORAL_UNITS[unidade] || TEMPORAL_UNITS[DEFAULT_TEMPORAL_UNIT]).ms;
+}
+
+/**
+ * Clamps a cursor to the [inicio, fim] timeline bounds (each optional).
+ * @param {number} cursor - Cursor to clamp (epoch ms).
+ * @param {number|null} inicio - Lower bound or null.
+ * @param {number|null} fim - Upper bound or null.
+ * @returns {number} Clamped cursor.
+ */
+export function clampCursor(cursor, inicio, fim) {
+    let c = cursor;
+    if (Number.isFinite(inicio) && c < inicio) c = inicio;
+    if (Number.isFinite(fim) && c > fim) c = fim;
+    return c;
+}
+
+/**
+ * Builds evenly-spaced tick timestamps across [inicio, fim], capped in density.
+ * @param {number} inicio - Range start (epoch ms).
+ * @param {number} fim - Range end (epoch ms).
+ * @param {string} unidade - Division unit.
+ * @param {number} [maxTicks=MAX_TIMELINE_TICKS] - Density cap.
+ * @returns {number[]} Tick timestamps (empty for invalid ranges).
+ */
+export function buildTicks(inicio, fim, unidade, maxTicks = MAX_TIMELINE_TICKS) {
+    if (!Number.isFinite(inicio) || !Number.isFinite(fim) || fim <= inicio) return [];
+    const step = unitToMs(unidade);
+    if (step <= 0) return [];
+
+    const count = Math.floor((fim - inicio) / step);
+    const stride = Math.max(1, Math.ceil((count + 1) / Math.max(1, maxTicks)));
+    const ticks = [];
+    for (let i = 0; i <= count; i += stride) {
+        ticks.push(inicio + i * step);
+    }
+    return ticks;
+}
+
+/**
+ * Fraction (0..1) of `cursor` along the [inicio, fim] range.
+ * @param {number} cursor - Cursor (epoch ms).
+ * @param {number} inicio - Range start.
+ * @param {number} fim - Range end.
+ * @returns {number} Clamped fraction in [0, 1]; 0 for a degenerate range.
+ */
+export function cursorToFraction(cursor, inicio, fim) {
+    if (!Number.isFinite(cursor) || !Number.isFinite(inicio) || !Number.isFinite(fim) || fim <= inicio) {
+        return 0;
+    }
+    const f = (cursor - inicio) / (fim - inicio);
+    return f < 0 ? 0 : f > 1 ? 1 : f;
+}
+
+/**
+ * Maps a fraction (0..1) back to a timestamp in [inicio, fim].
+ * @param {number} fraction - Position fraction.
+ * @param {number} inicio - Range start.
+ * @param {number} fim - Range end.
+ * @returns {number} Timestamp (epoch ms).
+ */
+export function fractionToCursor(fraction, inicio, fim) {
+    if (!Number.isFinite(inicio) || !Number.isFinite(fim)) return inicio;
+    const f = Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : 0;
+    return inicio + (fim - inicio) * f;
+}
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
+/**
+ * Converts an epoch timestamp to a `YYYY-MM-DDTHH:mm` string for
+ * `<input type="datetime-local">` (interpreted in the browser's local zone).
+ * @param {number} epoch - Timestamp (epoch ms).
+ * @returns {string} datetime-local value, or '' when non-finite.
+ */
+export function epochToDatetimeLocal(epoch) {
+    if (!Number.isFinite(epoch)) return '';
+    const d = new Date(epoch);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/**
+ * Parses a `datetime-local` input value into an epoch timestamp.
+ * @param {string} value - datetime-local string.
+ * @returns {number|null} Epoch ms, or null when empty/invalid.
+ */
+export function datetimeLocalToEpoch(value) {
+    if (!value) return null;
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Flexible timestamp parser for imports. Accepts numbers (canonical epoch ms),
+ * Date objects, and ISO-8601 / parseable date strings.
+ *
+ * Bare numbers (and bare-integer strings) are interpreted as epoch
+ * MILLISECONDS — the module's canonical unit — with no seconds/ms guessing: a
+ * seconds-vs-ms heuristic silently corrupts any pre-2001 millisecond timestamp
+ * (and historical/negative dates), so EBGeo's own ms exports round-trip exactly.
+ * @param {(number|string|Date|null|undefined)} value
+ * @returns {number|null} Epoch ms, or null when unparseable.
+ */
+export function toEpoch(value) {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (value instanceof Date) {
+        const t = value.getTime();
+        return Number.isFinite(t) ? t : null;
+    }
+    const str = String(value).trim();
+    if (str === '') return null;
+
+    // Bare integer string → epoch ms (canonical unit, no unit guessing).
+    if (/^-?\d+$/.test(str)) {
+        const n = Number(str);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    const ms = Date.parse(str);
+    return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Formats an instant for display, with granularity matching the unit.
+ * @param {number} epoch - Timestamp (epoch ms).
+ * @param {string} [unidade=DEFAULT_TEMPORAL_UNIT] - Division unit.
+ * @returns {string} pt-BR formatted string (em-dash for non-finite).
+ */
+export function formatInstant(epoch, unidade = DEFAULT_TEMPORAL_UNIT) {
+    if (!Number.isFinite(epoch)) return '—';
+    const d = new Date(epoch);
+    const date = `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+    const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    return unidade === 'DIA' || unidade === 'SEMANA' ? date : `${date} ${time}`;
+}
+
+/**
+ * Scans features for the min/max temporal extent (temporalInicio/Fim + trajectory).
+ * @param {Array<Object>} featureList - GeoJSON features (or bare property objects).
+ * @returns {{min: number, max: number}|null} Extent, or null when no temporal data.
+ */
+export function computeTemporalExtent(featureList) {
+    let min = Infinity;
+    let max = -Infinity;
+    const consider = (v) => {
+        if (Number.isFinite(v)) {
+            if (v < min) min = v;
+            if (v > max) max = v;
+        }
+    };
+
+    const features = Array.isArray(featureList) ? featureList : [];
+    for (const f of features) {
+        const p = (f && f.properties) || f;
+        if (!p) continue;
+        consider(p.temporalInicio);
+        consider(p.temporalFim);
+        const traj = Array.isArray(p.trajetoria) ? p.trajetoria : [];
+        for (const kp of traj) consider(kp && kp.t);
+    }
+
+    if (min === Infinity || max === -Infinity) return null;
+    return { min, max };
+}
+
+/**
+ * Resolves the effective [inicio, fim] timeline bounds for a map: explicit
+ * config bounds win; otherwise fall back to the features' extent (padded by one unit).
+ * @param {{inicio: (number|null), fim: (number|null), unidade: string}} config
+ * @param {Array<Object>} features - Features to derive a fallback extent from.
+ * @returns {{inicio: number, fim: number}|null} Bounds, or null when undeterminable.
+ */
+export function resolveTimelineBounds(config, features) {
+    const cfg = config || {};
+    let inicio = Number.isFinite(cfg.inicio) ? cfg.inicio : null;
+    let fim = Number.isFinite(cfg.fim) ? cfg.fim : null;
+
+    if (inicio === null || fim === null) {
+        const extent = computeTemporalExtent(features);
+        if (extent) {
+            const step = unitToMs(cfg.unidade);
+            if (inicio === null) inicio = extent.min;
+            if (fim === null) fim = extent.max + step;
+        }
+    }
+
+    if (!Number.isFinite(inicio) || !Number.isFinite(fim)) return null;
+    if (fim <= inicio) fim = inicio + unitToMs(cfg.unidade);
+    return { inicio, fim };
+}

@@ -465,6 +465,10 @@ export async function getMarkerById(markerId, mapName = null) {
 /**
  * Updates a marker's properties, style, or position.
  *
+ * Temporal validity (optional, additive) lives on `properties.temporalInicio`
+ * and `properties.temporalFim` (epoch ms); pass them inside `updates.properties`
+ * to persist a marker's visibility window.
+ *
  * @param {string} markerId - Marker ID
  * @param {Object} updates - Properties to update { properties, style, position }
  * @param {string|null} mapName - Map name (null = current)

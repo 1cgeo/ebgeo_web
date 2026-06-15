@@ -1098,6 +1098,8 @@ export class BriefingEditorControl {
 
                 slide.photoId = getCurrentPhotoName();
                 slide.modelId = null;
+                // Temporal cursor only applies to 2D slides.
+                slide.temporalCursor = null;
 
             } else if (isViewer3DOpen()) {
                 // Capture from live Cesium 3D viewer camera
@@ -1128,6 +1130,8 @@ export class BriefingEditorControl {
 
                 slide.modelId = getCurrentTilesetId() || slide.modelId;
                 slide.photoId = null;
+                // Temporal cursor only applies to 2D slides.
+                slide.temporalCursor = null;
 
             } else {
                 // Capture from 2D map
@@ -1156,6 +1160,16 @@ export class BriefingEditorControl {
 
                 slide.modelId = null;
                 slide.photoId = null;
+
+                // Capture the temporal timeline cursor when the active map's
+                // temporal control is enabled; otherwise mark as absent (null).
+                // getCursor() can return NaN when off/unbounded, so store only
+                // finite values (null = permanent / no remembered cursor).
+                const temporalControl = getControl('TemporalControl');
+                const cursor = (temporalControl && temporalControl.isEnabled())
+                    ? temporalControl.getCursor()
+                    : NaN;
+                slide.temporalCursor = Number.isFinite(cursor) ? cursor : null;
             }
 
             // Auto-capture current map

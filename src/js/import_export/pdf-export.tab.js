@@ -8,6 +8,8 @@ import {
     getCleanMapStyle,
 } from './export-utils.js'
 import { GRID_MARGIN_MM, UTM_MAX_SCALE_DENOM, parseScaleDenom } from './pdf-export.constants.js'
+import { isMapTemporalEnabledSync, getControl } from '@store'
+import { isTemporallyVisible } from '@js/temporal/temporal-model.js'
 
 export default class PDFExportTab {
     constructor(map) {
@@ -981,6 +983,12 @@ export default class PDFExportTab {
             los: 'los', visibility: 'visibility', setores: 'sector',
         };
 
+        // When temporal control is active, exclude features hidden at the current
+        // cursor so the legend mirrors what is actually rendered. NaN cursor (off)
+        // makes isTemporallyVisible() return true for everything.
+        const temporalActive = isMapTemporalEnabledSync();
+        const cursor = temporalActive ? getControl('TemporalControl')?.getCursor() : NaN;
+
         for (const sourceName of sourceTypes) {
             try {
                 const source = this.map.getSource(sourceName);
@@ -992,6 +1000,11 @@ export default class PDFExportTab {
                 let representativeColor = null;
 
                 for (const feature of data.features) {
+                    // Skip features hidden by the active temporal cursor.
+                    if (temporalActive && !isTemporallyVisible(feature.properties, cursor)) {
+                        continue;
+                    }
+
                     const inBounds = boundsPolygon
                         ? this._featureIntersectsBounds(feature, boundsPolygon)
                         : true;

@@ -8,6 +8,7 @@
 
 import { parseCSV } from './csv-parser.js';
 import { convertRowToLatLng } from './csv-coordinate-converter.js';
+import { toEpoch } from '@js/temporal/temporal.utils.js';
 
 // ============================================================================
 // CONSTANTS
@@ -27,6 +28,8 @@ const MAX_FEATURES = 1000;
  * @param {string} config.coordinateFormat - Format ID from CSV_COORDINATE_FORMATS
  * @param {Object} config.columnMapping - Maps format fields to CSV column names
  * @param {Object} [config.fixedValues] - Fixed values (e.g., { zone: '23S' })
+ * @param {Object} [config.temporalMapping] - Optional { inicio?: columnName, fim?: columnName }
+ *   mapping CSV columns to the temporal validity window (parsed via toEpoch).
  * @returns {{ geoJSON: Object, errors: Array<{row: number, message: string}>, skippedCount: number }}
  */
 export function csvToGeoJSON(config) {
@@ -36,6 +39,7 @@ export function csvToGeoJSON(config) {
         coordinateFormat,
         columnMapping,
         fixedValues = {},
+        temporalMapping = {},
     } = config;
 
     const { headers, rows, totalRows } = parseCSV(csvText, separator);
@@ -50,6 +54,14 @@ export function csvToGeoJSON(config) {
 
     // Determine which columns hold coordinate data (exclude from attributes)
     const coordinateColumns = new Set(Object.values(columnMapping));
+
+    // Temporal columns are consumed into temporalInicio/temporalFim and must
+    // never also leak into the feature's user attributes.
+    const temporalInicioCol = temporalMapping.inicio || null;
+    const temporalFimCol = temporalMapping.fim || null;
+    const reservedColumns = new Set(coordinateColumns);
+    if (temporalInicioCol) reservedColumns.add(temporalInicioCol);
+    if (temporalFimCol) reservedColumns.add(temporalFimCol);
 
     const features = [];
     const errors = [];
@@ -67,15 +79,25 @@ export function csvToGeoJSON(config) {
             continue;
         }
 
-        // Build properties from non-coordinate columns
+        // Build properties from non-coordinate, non-temporal columns
         const properties = {};
         for (const header of headers) {
-            if (!coordinateColumns.has(header)) {
+            if (!reservedColumns.has(header)) {
                 const value = row[header];
                 if (value !== undefined && value !== '') {
                     properties[header] = value;
                 }
             }
+        }
+
+        // Apply temporal validity (epoch ms) from the mapped columns, if any.
+        if (temporalInicioCol) {
+            const ms = toEpoch(row[temporalInicioCol]);
+            if (ms !== null) properties.temporalInicio = ms;
+        }
+        if (temporalFimCol) {
+            const ms = toEpoch(row[temporalFimCol]);
+            if (ms !== null) properties.temporalFim = ms;
         }
 
         features.push({

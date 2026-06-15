@@ -16,6 +16,7 @@ import { createGroupTypeSelector } from '../components/group-type-selector.js';
 import { createMultiSelectionActions } from '../components/multi-selection-actions.js';
 import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo } from '@store/index.js';
 import { renderReadOnlyAttributesSection } from '@js/user_data/attributes_tab_renderer.js';
+import { createTemporalAttributesSection, createTrajectorySection } from '@js/temporal/temporal-attributes-section.js';
 import { COORDINATE_FORMATS, formatCoordinates } from '@utils/index.js';
 import { createModernSelect, createObservationsSection } from '@tools/helpers/index.js';
 import {
@@ -958,6 +959,16 @@ export async function createFeaturePanelContent({
             uiManager
         });
         container.appendChild(locationSection);
+    }
+
+    // 5b. Temporal sections (single selection, editable map): validity window for
+    // all types + trajectory editor for point / military_symbol / coordination_measure.
+    if (isSingleSelection && !mapLocked) {
+        container.appendChild(
+            createTemporalAttributesSection({ feature, featureType, selectedFeatures, control })
+        );
+        const trajectorySection = createTrajectorySection({ feature, featureType, map });
+        if (trajectorySection) container.appendChild(trajectorySection);
     }
 
     // 6. Delete button (hidden when map locked)

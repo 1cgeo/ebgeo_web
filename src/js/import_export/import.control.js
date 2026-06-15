@@ -8,6 +8,7 @@ import { showSuccess, showError } from '@utils/toast_service.js';
 import { getTerrainElevation } from '@js/terrain';
 import { EventTypes } from '@events';
 import { userDataManager } from '@js/user_data';
+import { extractTemporalProperties, buildTrajectoryFromGpxFeature, extractGpxTimes } from '@js/temporal/temporal-import.js';
 
 /** Maps source type to Portuguese display name for imported features. */
 const TYPE_DISPLAY_NAMES = {
@@ -311,10 +312,58 @@ class AddImportControl {
             'text',
             (content) => {
                 const gpxDoc = new DOMParser().parseFromString(content, 'text/xml');
-                return toGeoJSON.gpx(gpxDoc);
+                const geoJSON = toGeoJSON.gpx(gpxDoc);
+                return this._convertGpxTracksToMovingPoints(geoJSON);
             },
             'Arquivo GPX inválido'
         );
+    }
+
+    /**
+     * Converts GPX track features that carry per-vertex timestamps into single
+     * MOVING POINT features: the trajectory drives an animated marker on the
+     * timeline, and the feature is windowed to the track's first/last instant.
+     * Tracks WITHOUT times keep their original (LineString) geometry so the
+     * existing import path is untouched.
+     * @param {Object} geoJSON - FeatureCollection from togeojson.gpx().
+     * @returns {Object} FeatureCollection with timed tracks turned into points.
+     * @private
+     */
+    _convertGpxTracksToMovingPoints(geoJSON) {
+        if (!geoJSON?.features || !Array.isArray(geoJSON.features)) {
+            return geoJSON;
+        }
+
+        geoJSON.features = geoJSON.features.map((feature) => {
+            const geomType = feature?.geometry?.type;
+            const isTrack = geomType === 'LineString' || geomType === 'MultiLineString';
+            if (!isTrack) return feature;
+
+            const times = extractGpxTimes(feature);
+            if (!Array.isArray(times) || times.length === 0) return feature;
+
+            const trajetoria = buildTrajectoryFromGpxFeature(feature);
+            if (trajetoria.length === 0) return feature;
+
+            const first = trajetoria[0];
+            const last = trajetoria[trajetoria.length - 1];
+
+            return {
+                ...feature,
+                geometry: {
+                    type: 'Point',
+                    coordinates: [first.lng, first.lat],
+                },
+                properties: {
+                    ...feature.properties,
+                    trajetoria,
+                    temporalInicio: first.t,
+                    temporalFim: last.t,
+                },
+            };
+        });
+
+        return geoJSON;
     }
 
     decomposeMultiGeometry(feature) {
@@ -460,6 +509,23 @@ class AddImportControl {
     }
 
     /**
+     * Flattens nested temporal containers produced by some readers so the shared
+     * extractTemporalProperties helper (which scans top-level keys) can read them.
+     * @tmcw/togeojson emits KML <TimeSpan> as `timespan: { begin, end }`.
+     * @param {Object} props - Raw imported feature properties.
+     * @returns {Object} A shallow copy with `timespan.begin/end` promoted to top level.
+     * @private
+     */
+    _flattenTemporalSource(props) {
+        if (!props || typeof props !== 'object') return {};
+        const ts = props.timespan;
+        if (ts && typeof ts === 'object') {
+            return { ...props, begin: ts.begin, end: ts.end };
+        }
+        return props;
+    }
+
+    /**
      * Prepares feature for import with all necessary attributes
      * @param {Object} feature - GeoJSON feature
      * @param {string} targetType - Target type (points, lines, polygons)
@@ -476,6 +542,14 @@ class AddImportControl {
             feature.properties
         );
 
+        // Extract temporal validity (epoch-ms) from the raw imported properties.
+        // @tmcw/togeojson emits KML <TimeSpan> as a nested `timespan: { begin, end }`
+        // object and KML <TimeStamp> as a top-level `timestamp` string; flatten the
+        // nested begin/end here so extractTemporalProperties (which scans top-level
+        // keys) catches them without weakening the shared helper.
+        const temporalSource = this._flattenTemporalSource(feature.properties);
+        const temporal = extractTemporalProperties(temporalSource);
+
         const baseProperties = {
             ...this.getDefaultProperties(targetType),
             // Note: We no longer spread feature.properties here to avoid mixing
@@ -489,6 +563,21 @@ class AddImportControl {
             attributes: extractedAttributes,
             images: [],
         };
+
+        // Copy temporal validity onto the feature when found. Absent fields stay
+        // absent so the feature remains permanent (visible at any cursor).
+        if (temporal.temporalInicio !== undefined) {
+            baseProperties.temporalInicio = temporal.temporalInicio;
+        }
+        if (temporal.temporalFim !== undefined) {
+            baseProperties.temporalFim = temporal.temporalFim;
+        }
+
+        // A GPX track carried over as a moving point exposes its trajectory and
+        // window via the feature properties (see readGPX). Carry them through.
+        if (Array.isArray(feature.properties?.trajetoria) && feature.properties.trajetoria.length > 0) {
+            baseProperties.trajetoria = feature.properties.trajetoria;
+        }
 
         switch (targetType) {
             case 'lines':

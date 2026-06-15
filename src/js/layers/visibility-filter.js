@@ -12,6 +12,49 @@ const VISIBLE_FILTER = ['!=', ['get', 'visivel'], false];
 let cachedVisibleLayerIds = null;
 
 /**
+ * Active temporal cursor (epoch ms) or null when temporal control is off.
+ * When set, every feature layer also filters by temporal validity window.
+ * @type {number|null}
+ */
+let activeTemporalCursor = null;
+
+/**
+ * Sets (or clears) the temporal cursor used by the layer filters.
+ * Pass null to disable temporal filtering. Caller must follow with
+ * invalidateFilterCache() + updateAllLayerFilters() to take effect.
+ * @param {number|null} cursor - Epoch ms, or null to disable.
+ */
+export function setTemporalCursor(cursor) {
+    activeTemporalCursor = Number.isFinite(cursor) ? cursor : null;
+}
+
+/** Sentinels at the edges of the JS Date range (used as "no bound"). */
+const MIN_TS = -8.64e15;
+const MAX_TS = 8.64e15;
+
+/**
+ * Builds a MapLibre predicate that keeps a feature only when the cursor falls
+ * within its [temporalInicio, temporalFim] window. Missing/null bounds coalesce
+ * to the date-range sentinels, so a feature without temporal data is permanent.
+ * @param {number} cursor - Epoch ms.
+ * @returns {Array} MapLibre filter expression.
+ */
+function buildTemporalFilter(cursor) {
+    return [
+        'all',
+        ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], cursor],
+        ['>=', ['coalesce', ['get', 'temporalFim'], MAX_TS], cursor],
+    ];
+}
+
+/**
+ * @returns {Array<Array>} Temporal clause(s) to append to a layer filter ([] when off).
+ */
+function temporalClauses() {
+    return activeTemporalCursor === null ? [] : [buildTemporalFilter(activeTemporalCursor)];
+}
+
+/**
  * Builds the layer membership filter for a set of visible layer IDs.
  * @param {string[]} visibleLayerIds
  * @returns {Array} MapLibre expression
@@ -28,8 +71,9 @@ function buildLayerFilter(visibleLayerIds) {
  */
 export function createLayerVisibilityFilter(visibleLayerIds, additionalFilters) {
     const layerFilter = buildLayerFilter(visibleLayerIds);
-    if (additionalFilters) {
-        return ['all', VISIBLE_FILTER, layerFilter, ...additionalFilters];
+    const extra = [...(additionalFilters || []), ...temporalClauses()];
+    if (extra.length) {
+        return ['all', VISIBLE_FILTER, layerFilter, ...extra];
     }
     return ['all', VISIBLE_FILTER, layerFilter];
 }
@@ -45,7 +89,7 @@ export function createHatchLayerFilter(visibleLayerIds, hatchEnabled) {
         ? [['==', ['get', 'hatchEnabled'], true], ['has', 'hatchPatternId']]
         : [['!=', ['get', 'hatchEnabled'], true]];
 
-    return ['all', VISIBLE_FILTER, buildLayerFilter(visibleLayerIds), ...hatchFilters];
+    return ['all', VISIBLE_FILTER, buildLayerFilter(visibleLayerIds), ...hatchFilters, ...temporalClauses()];
 }
 
 /**
@@ -56,7 +100,7 @@ export function updateAllLayerFilters(mapInstance) {
     if (!mapInstance) return;
 
     const visibleLayerIds = getVisibleLayerIds();
-    const cacheKey = JSON.stringify(visibleLayerIds);
+    const cacheKey = `${activeTemporalCursor}|${JSON.stringify(visibleLayerIds)}`;
     if (cachedVisibleLayerIds === cacheKey) return;
     cachedVisibleLayerIds = cacheKey;
 

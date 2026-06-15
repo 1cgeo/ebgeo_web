@@ -31,6 +31,8 @@ import { BaseLayerSelectorControl } from './base-layer-selector';
 import { MouseCoordinatesControl } from './coordinates';
 import { TerrainControl, AnalysisLayersManager, DataLayersManager } from './terrain';
 import { BottomControlsControl } from './bottom-controls';
+import { createTemporalController } from './temporal/temporal-controller.js';
+import { createTrajectoryEditControl } from './temporal/trajectory-tool/trajectory-edit-control.js';
 import config from './config.js';
 import { getRepository } from './store/repositories/index.js';
 import { getAtlasTerrainExaggeration } from './store/atlas/atlas.entity.js';
@@ -564,6 +566,13 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     });
     bottomControlsControl.init(document.body);
 
+    // ===== TEMPORAL CONTROL (per-map timeline bar at top of map) =====
+    const temporalController = createTemporalController(
+        { map: map, eventBus: getEventBus() },
+        document.body
+    );
+    const trajectoryEditControl = createTrajectoryEditControl(map);
+
     // ===== BASE LAYER SELECTOR (Thumbnail-based layer switcher) =====
     const baseLayerSelectorControl = new BaseLayerSelectorControl({
         baseLayerControl: baseLayerControl,
@@ -646,6 +655,8 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
             activeToolChip,
             searchBarComponent,
             bottomControlsControl,
+            temporalController,
+            trajectoryEditControl,
             baseLayerSelectorControl,
             attributeTableControl,
             moveHandler,
@@ -733,6 +744,8 @@ export function setupCleanupHandlers(destroyables) {
         destroyables.activeToolChip.destroy();
         destroyables.searchBarComponent.destroy();
         destroyables.bottomControlsControl.destroy();
+        destroyables.temporalController.destroy();
+        destroyables.trajectoryEditControl.destroy();
         destroyables.baseLayerSelectorControl.destroy();
         destroyables.attributeTableControl.destroy();
         destroyables.moveHandler.destroy();

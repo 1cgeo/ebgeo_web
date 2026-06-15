@@ -389,6 +389,17 @@ export {
     removeImage
 } from './settings.operations.js';
 
+// ===== RE-EXPORTS FROM TEMPORAL OPERATIONS =====
+
+export {
+    getMapTemporalConfig,
+    getMapTemporalConfigSync,
+    isMapTemporalEnabled,
+    isMapTemporalEnabledSync,
+    setMapTemporalConfig,
+    toggleMapTemporal
+} from './temporal.operations.js';
+
 // ===== RE-EXPORTS FROM CUSTOM ICON OPERATIONS =====
 
 export {

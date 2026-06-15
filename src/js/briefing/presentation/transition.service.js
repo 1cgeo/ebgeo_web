@@ -237,6 +237,9 @@ class TransitionService {
                 this._currentModelId = null;
             }
 
+            // Restore the slide's remembered temporal cursor (2D slides only).
+            this._restoreTemporalCursor(slide);
+
             return true;
 
         } catch (error) {
@@ -400,6 +403,21 @@ class TransitionService {
         } catch (error) {
             console.warn('Failed to reload 3D features after map change:', error);
         }
+    }
+
+    /**
+     * Restores the temporal timeline cursor saved on a 2D slide.
+     * No-op for non-2D slides or slides without a finite saved cursor.
+     * The TemporalControl shows/hides itself based on the active map's config;
+     * here we only move the cursor to the slide's remembered position.
+     * @private
+     * @param {Object} slide - Target slide
+     */
+    _restoreTemporalCursor(slide) {
+        if ((slide.mode || SlideMode.MAP_2D) !== SlideMode.MAP_2D) return;
+        if (!Number.isFinite(slide.temporalCursor)) return;
+
+        getControl('TemporalControl')?.setCursor(slide.temporalCursor);
     }
 
     /**
@@ -734,6 +752,9 @@ class TransitionService {
             } else {
                 this._currentModelId = null;
             }
+
+            // Restore the slide's remembered temporal cursor (2D slides only).
+            this._restoreTemporalCursor(slide);
 
             return true;
 

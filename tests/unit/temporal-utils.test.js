@@ -1,0 +1,178 @@
+import { describe, it, expect } from 'vitest';
+import fc from 'fast-check';
+import {
+    unitToMs,
+    clampCursor,
+    buildTicks,
+    cursorToFraction,
+    fractionToCursor,
+    epochToDatetimeLocal,
+    datetimeLocalToEpoch,
+    toEpoch,
+    formatInstant,
+    computeTemporalExtent,
+    resolveTimelineBounds,
+} from '../../src/js/temporal/temporal.utils.js';
+
+describe('unitToMs', () => {
+    it('maps known units', () => {
+        expect(unitToMs('MINUTO')).toBe(60_000);
+        expect(unitToMs('HORA')).toBe(3_600_000);
+        expect(unitToMs('DIA')).toBe(86_400_000);
+        expect(unitToMs('SEMANA')).toBe(604_800_000);
+    });
+    it('falls back to HORA for unknown units', () => {
+        expect(unitToMs('XYZ')).toBe(3_600_000);
+        expect(unitToMs(undefined)).toBe(3_600_000);
+    });
+});
+
+describe('clampCursor', () => {
+    it('clamps to bounds', () => {
+        expect(clampCursor(50, 100, 200)).toBe(100);
+        expect(clampCursor(250, 100, 200)).toBe(200);
+        expect(clampCursor(150, 100, 200)).toBe(150);
+    });
+    it('ignores null bounds', () => {
+        expect(clampCursor(50, null, null)).toBe(50);
+        expect(clampCursor(50, null, 40)).toBe(40);
+        expect(clampCursor(50, 60, null)).toBe(60);
+    });
+    it('property: result is always within finite bounds', () => {
+        fc.assert(
+            fc.property(
+                fc.integer({ min: -1000, max: 1000 }),
+                fc.integer({ min: -1000, max: 0 }),
+                fc.integer({ min: 0, max: 1000 }),
+                (cursor, lo, hi) => {
+                    const r = clampCursor(cursor, lo, hi);
+                    return r >= lo && r <= hi;
+                }
+            )
+        );
+    });
+});
+
+describe('buildTicks', () => {
+    it('returns evenly spaced ticks', () => {
+        const ticks = buildTicks(0, 3 * 3_600_000, 'HORA');
+        expect(ticks).toEqual([0, 3_600_000, 7_200_000, 10_800_000]);
+    });
+    it('returns [] for invalid ranges', () => {
+        expect(buildTicks(100, 100, 'HORA')).toEqual([]);
+        expect(buildTicks(200, 100, 'HORA')).toEqual([]);
+        expect(buildTicks(NaN, 100, 'HORA')).toEqual([]);
+    });
+    it('caps tick density', () => {
+        const ticks = buildTicks(0, 100_000 * 60_000, 'MINUTO', 50);
+        expect(ticks.length).toBeLessThanOrEqual(51);
+    });
+});
+
+describe('cursorToFraction / fractionToCursor', () => {
+    it('round-trips through the [inicio,fim] range', () => {
+        const inicio = 1000;
+        const fim = 5000;
+        for (const c of [1000, 2000, 3000, 5000]) {
+            const f = cursorToFraction(c, inicio, fim);
+            expect(fractionToCursor(f, inicio, fim)).toBeCloseTo(c, 6);
+        }
+    });
+    it('clamps fractions to [0,1]', () => {
+        expect(cursorToFraction(-100, 0, 100)).toBe(0);
+        expect(cursorToFraction(500, 0, 100)).toBe(1);
+    });
+    it('handles degenerate ranges', () => {
+        expect(cursorToFraction(50, 100, 100)).toBe(0);
+    });
+});
+
+describe('epochToDatetimeLocal / datetimeLocalToEpoch', () => {
+    it('round-trips at minute precision (local zone)', () => {
+        // Pick an epoch truncated to the minute to avoid sub-minute loss.
+        const epoch = Math.floor(Date.now() / 60000) * 60000;
+        const str = epochToDatetimeLocal(epoch);
+        expect(str).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+        expect(datetimeLocalToEpoch(str)).toBe(epoch);
+    });
+    it('returns empty/null on invalid input', () => {
+        expect(epochToDatetimeLocal(NaN)).toBe('');
+        expect(datetimeLocalToEpoch('')).toBeNull();
+        expect(datetimeLocalToEpoch('not-a-date')).toBeNull();
+    });
+});
+
+describe('toEpoch', () => {
+    it('passes through finite numbers (epoch ms)', () => {
+        expect(toEpoch(1_700_000_000_000)).toBe(1_700_000_000_000);
+    });
+    it('treats bare integer strings as canonical epoch ms (no seconds guessing)', () => {
+        expect(toEpoch('1700000000000')).toBe(1_700_000_000_000);
+        // A pre-2001 ms timestamp must NOT be rescaled (regression: < 1e12 heuristic).
+        expect(toEpoch('500000000000')).toBe(500_000_000_000);
+        expect(toEpoch('-700000000000')).toBe(-700_000_000_000);
+    });
+    it('parses ISO-8601 strings', () => {
+        expect(toEpoch('2024-01-01T00:00:00Z')).toBe(Date.parse('2024-01-01T00:00:00Z'));
+    });
+    it('parses Date objects', () => {
+        const d = new Date('2024-06-15T12:00:00Z');
+        expect(toEpoch(d)).toBe(d.getTime());
+    });
+    it('returns null on empty/unparseable', () => {
+        expect(toEpoch('')).toBeNull();
+        expect(toEpoch(null)).toBeNull();
+        expect(toEpoch(undefined)).toBeNull();
+        expect(toEpoch('garbage')).toBeNull();
+        expect(toEpoch(NaN)).toBeNull();
+    });
+});
+
+describe('formatInstant', () => {
+    it('returns em-dash for non-finite', () => {
+        expect(formatInstant(NaN)).toBe('—');
+        expect(formatInstant(null)).toBe('—');
+    });
+    it('omits time for coarse units', () => {
+        const epoch = new Date(2024, 0, 15, 14, 30).getTime();
+        expect(formatInstant(epoch, 'DIA')).toBe('15/01/2024');
+        expect(formatInstant(epoch, 'HORA')).toBe('15/01/2024 14:30');
+    });
+});
+
+describe('computeTemporalExtent', () => {
+    it('returns null with no temporal data', () => {
+        expect(computeTemporalExtent([{ properties: { nome: 'x' } }])).toBeNull();
+        expect(computeTemporalExtent([])).toBeNull();
+        expect(computeTemporalExtent(null)).toBeNull();
+    });
+    it('spans temporalInicio/Fim and trajectory keypoints', () => {
+        const features = [
+            { properties: { temporalInicio: 100, temporalFim: 500 } },
+            { properties: { trajetoria: [{ t: 50, lng: 0, lat: 0 }, { t: 900, lng: 1, lat: 1 }] } },
+        ];
+        expect(computeTemporalExtent(features)).toEqual({ min: 50, max: 900 });
+    });
+    it('accepts bare property objects', () => {
+        expect(computeTemporalExtent([{ temporalInicio: 10, temporalFim: 20 }])).toEqual({ min: 10, max: 20 });
+    });
+});
+
+describe('resolveTimelineBounds', () => {
+    it('uses explicit config bounds when present', () => {
+        expect(resolveTimelineBounds({ inicio: 0, fim: 1000, unidade: 'HORA' }, [])).toEqual({ inicio: 0, fim: 1000 });
+    });
+    it('derives missing bounds from feature extent (padded by one unit)', () => {
+        const features = [{ properties: { temporalInicio: 100, temporalFim: 200 } }];
+        const r = resolveTimelineBounds({ inicio: null, fim: null, unidade: 'MINUTO' }, features);
+        expect(r.inicio).toBe(100);
+        expect(r.fim).toBe(200 + 60_000);
+    });
+    it('returns null when undeterminable', () => {
+        expect(resolveTimelineBounds({ inicio: null, fim: null, unidade: 'HORA' }, [])).toBeNull();
+    });
+    it('guarantees fim > inicio', () => {
+        const r = resolveTimelineBounds({ inicio: 500, fim: 500, unidade: 'HORA' }, []);
+        expect(r.fim).toBeGreaterThan(r.inicio);
+    });
+});

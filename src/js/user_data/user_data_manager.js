@@ -88,6 +88,12 @@ const SYSTEM_PROPERTIES = new Set([
     // User data fields (to avoid recursion)
     'attributes', 'images',
 
+    // Temporal module — validity window, trajectory, and the import-source
+    // attribute names that map to them (kept out of user attributes).
+    'temporalInicio', 'temporalFim', 'temporalinicio', 'temporalfim',
+    'temporal_inicio', 'temporal_fim', 'trajetoria',
+    'begin', 'end', 'when', 'timespan', 'timestamp',
+
     // GeoJSON standard
     'type', 'geometry', 'properties', 'features', 'bbox',
 

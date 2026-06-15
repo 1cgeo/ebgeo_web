@@ -10,7 +10,15 @@ import * as THREE from '../../vendor/three/three.module.js';
 import config from '../config.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
-import { getOrientation, saveOrientation, clearOrientation, getMarkers360 } from '@store';
+import {
+    getOrientation,
+    saveOrientation,
+    clearOrientation,
+    getMarkers360,
+    isMapTemporalEnabledSync,
+    getControl
+} from '@store';
+import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
 import { showSuccess } from '@utils/toast_service.js';
 import { LRUCache } from '@utils/lru-cache.js';
 import { NAV_CONSTANTS } from './navigation/constants.js';
@@ -988,16 +996,62 @@ async function handleMarkerPositionClicked(data) {
 }
 
 /**
- * Loads and displays markers for the current photo
+ * Filters 360 markers by temporal validity when the active map has the temporal
+ * module enabled. When temporal is off (or the cursor is unavailable/NaN) every
+ * marker is returned unchanged.
+ * @param {Array} markers - Markers for the current photo.
+ * @returns {Array} Markers visible at the current temporal cursor.
  */
+function filterMarkersByTemporal(markers) {
+    if (!isMapTemporalEnabledSync()) return markers;
+
+    const cursor = getControl('TemporalControl')?.getCursor();
+    if (!Number.isFinite(cursor)) return markers;
+
+    return markers.filter(marker => isTemporallyVisible(marker.properties, cursor));
+}
+
+/**
+ * Loads and displays markers for the current photo, applying the temporal
+ * visibility filter. Re-running this (e.g. on cursor change) replaces the
+ * navigator POI set, so markers that fall outside the active temporal window
+ * are removed from the panorama.
+ */
+// Signature (visible marker ids) of the POI set currently applied to the
+// navigator, so temporal refreshes can skip rebuilds when nothing changed.
+let lastTemporalPoiSignature = null;
+
 async function loadMarkersForCurrentPhoto() {
     if (!streetViewState.navigator || !streetViewState.currentPhotoName) return;
 
     try {
         const markers = await getMarkers360(streetViewState.currentPhotoName);
-        streetViewState.navigator.setPOIs(markers);
+        const visible = filterMarkersByTemporal(markers);
+        lastTemporalPoiSignature = visible.map(m => m.id).join(',');
+        streetViewState.navigator.setPOIs(visible);
     } catch (error) {
         console.error('Failed to load markers:', error);
+    }
+}
+
+/**
+ * Re-applies the temporal filter to the current photo's markers when the
+ * timeline cursor moves or the map temporal config changes. TEMPORAL_CURSOR_CHANGED
+ * fires every animation frame during playback, so the POI set is rebuilt only
+ * when the set of visible markers actually changes.
+ */
+async function handleTemporalRefresh() {
+    if (!streetViewState.isVisible || !streetViewState.navigator || !streetViewState.currentPhotoName) return;
+
+    try {
+        const markers = await getMarkers360(streetViewState.currentPhotoName);
+        const visible = filterMarkersByTemporal(markers);
+        const signature = visible.map(m => m.id).join(',');
+        if (signature === lastTemporalPoiSignature) return;
+        lastTemporalPoiSignature = signature;
+        streetViewState.navigator.setPOIs(visible);
+    } catch (error) {
+        console.error('Failed to refresh 360 markers:', error);
     }
 }
 
@@ -1235,6 +1289,12 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
     eventBus.off(EventTypes.LAYERS_CHANGED, handleLayersChanged);
     eventBus.on(EventTypes.LAYERS_CHANGED, handleLayersChanged);
 
+    eventBus.off(EventTypes.TEMPORAL_CURSOR_CHANGED, handleTemporalRefresh);
+    eventBus.on(EventTypes.TEMPORAL_CURSOR_CHANGED, handleTemporalRefresh);
+
+    eventBus.off(EventTypes.MAP_TEMPORAL_CHANGED, handleTemporalRefresh);
+    eventBus.on(EventTypes.MAP_TEMPORAL_CHANGED, handleTemporalRefresh);
+
     // Mark as visible BEFORE init/load so closeViewer360 can always work.
     // resumeRendering() also sets this, but we need it as early as possible
     // to guarantee the close button is functional even if loading fails.
@@ -1371,6 +1431,8 @@ export async function closeViewer360() {
     eventBus.off(EventTypes.MARKER_360_POSITION_CLICKED, handleMarkerPositionClicked);
     eventBus.off(EventTypes.MARKERS_360_CHANGED, loadMarkersForCurrentPhoto);
     eventBus.off(EventTypes.LAYERS_CHANGED, handleLayersChanged);
+    eventBus.off(EventTypes.TEMPORAL_CURSOR_CHANGED, handleTemporalRefresh);
+    eventBus.off(EventTypes.MAP_TEMPORAL_CHANGED, handleTemporalRefresh);
 
     // Emit event
     eventBus.emit(EventTypes.STREETVIEW_360_CLOSED, {});
