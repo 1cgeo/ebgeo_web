@@ -14,7 +14,7 @@ import { createFeatureTabs } from '../components/feature-tabs.js';
 import { createLocationSection } from '../components/feature-location-section.js';
 import { createGroupTypeSelector } from '../components/group-type-selector.js';
 import { createMultiSelectionActions } from '../components/multi-selection-actions.js';
-import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo } from '@store/index.js';
+import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo, getControl } from '@store/index.js';
 import { renderReadOnlyAttributesSection } from '@js/user_data/attributes_tab_renderer.js';
 import { createTemporalAttributesSection, createTrajectorySection } from '@js/temporal/temporal-attributes-section.js';
 import { COORDINATE_FORMATS, formatCoordinates } from '@utils/index.js';
@@ -963,6 +963,9 @@ export async function createFeaturePanelContent({
 
     // 5b. Temporal sections (single selection, editable map): validity window for
     // all types + trajectory editor for point / military_symbol / coordination_measure.
+    // Clear any previously-shown trajectory first; the section re-shows it for
+    // trajectory features (so selecting a non-trajectory feature hides it).
+    getControl('TrajectoryEditControl')?.hide();
     if (isSingleSelection && !mapLocked) {
         container.appendChild(
             createTemporalAttributesSection({ feature, featureType, selectedFeatures, control })

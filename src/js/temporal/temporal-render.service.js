@@ -13,11 +13,84 @@
 
 import {
     setTemporalCursor,
+    setRevealMode,
     invalidateFilterCache,
     updateAllLayerFilters,
 } from '../layers/visibility-filter.js';
+import { FEATURE_LAYER_IDS } from '../layers/layer.constants.js';
+import { getStateManager } from '../store';
 import { TRAJECTORY_SOURCE_IDS } from './temporal.constants.js';
 import { normalizeTrajectory, resolveTrajectoryTarget } from './temporal-model.js';
+
+/** Sentinels at the edges of the JS Date range (used as "no bound"). */
+const MIN_TS = -8.64e15;
+const MAX_TS = 8.64e15;
+/** Opacity multiplier applied to temporally out-of-window features in reveal mode. */
+const REVEAL_DIM = 0.4;
+/** Opacity paint properties to dim, by MapLibre layer type. */
+const OPACITY_PROPS_BY_TYPE = {
+    circle: ['circle-opacity', 'circle-stroke-opacity'],
+    fill: ['fill-opacity'],
+    line: ['line-opacity'],
+    symbol: ['icon-opacity', 'text-opacity'],
+    'fill-extrusion': ['fill-extrusion-opacity'],
+};
+/** Cache of each layer's original opacity paint value (`${layerId}|${prop}`). */
+const originalOpacity = new Map();
+
+/**
+ * Reveal mode: instead of hiding out-of-window features, render them dimmed so
+ * they remain editable while it stays clear they are temporally hidden. Restores
+ * the original opacity paint when reveal is off.
+ * @param {Object} map - MapLibre map instance.
+ * @param {number|null} cursor - Cursor (epoch ms).
+ * @param {boolean} reveal - Whether reveal mode is active.
+ */
+export function applyRevealDim(map, cursor, reveal) {
+    if (!map) return;
+    const dimCase =
+        reveal && Number.isFinite(cursor)
+            ? [
+                'case',
+                [
+                    'all',
+                    ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], cursor],
+                    ['>=', ['coalesce', ['get', 'temporalFim'], MAX_TS], cursor],
+                ],
+                1,
+                REVEAL_DIM,
+            ]
+            : null;
+
+    for (const layerId of FEATURE_LAYER_IDS) {
+        let layer;
+        try {
+            layer = map.getLayer(layerId);
+        } catch {
+            layer = null;
+        }
+        if (!layer) continue;
+        const props = OPACITY_PROPS_BY_TYPE[layer.type];
+        if (!props) continue;
+
+        for (const prop of props) {
+            const key = `${layerId}|${prop}`;
+            if (!originalOpacity.has(key)) {
+                originalOpacity.set(key, map.getPaintProperty(layerId, prop));
+            }
+            const orig = originalOpacity.get(key);
+            try {
+                if (dimCase) {
+                    map.setPaintProperty(layerId, prop, ['*', orig == null ? 1 : orig, dimCase]);
+                } else {
+                    map.setPaintProperty(layerId, prop, orig == null ? undefined : orig);
+                }
+            } catch {
+                /* layer may not support this paint property — ignore */
+            }
+        }
+    }
+}
 
 /**
  * Recomputes displayed coordinates for trajectory features in the moving
@@ -29,6 +102,8 @@ import { normalizeTrajectory, resolveTrajectoryTarget } from './temporal-model.j
  */
 export async function updateTrajectoryPositions(map, cursor) {
     if (!map) return;
+
+    const displaced = new Map(); // featureId -> [lng, lat] for selection-box sync
 
     for (const sourceId of TRAJECTORY_SOURCE_IDS) {
         let source;
@@ -67,12 +142,42 @@ export async function updateTrajectoryPositions(map, cursor) {
             const cur = feature.geometry.coordinates;
             if (!cur || cur[0] !== target[0] || cur[1] !== target[1]) {
                 feature.geometry.coordinates = [target[0], target[1]];
+                if (props.id != null) displaced.set(String(props.id), [target[0], target[1]]);
                 changed = true;
             }
         }
 
         if (changed) {
             source.setData(data);
+        }
+    }
+
+    syncSelectionGeometry(displaced);
+}
+
+/**
+ * Keeps selected trajectory features' selection boxes aligned with their
+ * displaced position: updates the selected feature objects' geometry and clears
+ * their cached selectionBox so the highlight recomputes at the new location.
+ * The highlight refresh itself is triggered by the controller (which holds uiManager).
+ * @param {Map<string, [number, number]>} displaced
+ */
+function syncSelectionGeometry(displaced) {
+    if (displaced.size === 0) return;
+    let sm;
+    try {
+        sm = getStateManager();
+    } catch {
+        sm = null;
+    }
+    const items = sm?.getUnsafe?.('selection.features') || [];
+    for (const item of items) {
+        const feature = item?.feature;
+        const id = feature?.properties?.id;
+        const pos = id != null ? displaced.get(String(id)) : null;
+        if (pos && feature.geometry?.type === 'Point') {
+            feature.geometry.coordinates = [pos[0], pos[1]];
+            feature.properties.selectionBox = null; // force recompute at the new position
         }
     }
 }
@@ -115,12 +220,17 @@ export async function updateSourceFeatureProperty(map, sourceId, featureId, key,
  * @param {{enabled: boolean, cursor: number}} state - Temporal state.
  * @returns {Promise<void>}
  */
-export async function applyTemporalState(map, { enabled, cursor }) {
+export async function applyTemporalState(map, { enabled, cursor, reveal = false }) {
     if (!map) return;
 
     const effectiveCursor = enabled ? cursor : null;
+    const revealOn = enabled && reveal;
     setTemporalCursor(effectiveCursor);
+    // In reveal mode the hide-filter is suppressed and out-of-window features are
+    // dimmed instead (so they stay visible/editable but clearly hidden).
+    setRevealMode(revealOn);
     invalidateFilterCache();
     updateAllLayerFilters(map);
     await updateTrajectoryPositions(map, effectiveCursor);
+    applyRevealDim(map, effectiveCursor, revealOn);
 }

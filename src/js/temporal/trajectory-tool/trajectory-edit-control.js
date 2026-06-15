@@ -1,37 +1,50 @@
 // Path: js/temporal/trajectory-tool/trajectory-edit-control.js
 
 /**
- * @fileoverview Interactive map tool to author a feature's trajectory.
+ * @fileoverview Trajectory editor for the selected feature.
  *
- * Activated for a single point / military_symbol / coordination_measure feature.
- * Each map click adds a keypoint at the clicked position, timestamped with the
- * current timeline cursor (so the workflow is: scrub the bar to a time, click
- * the map to set the position at that time). Right-click removes the last
- * keypoint; Enter commits; Esc cancels.
+ * When a trajectory-capable feature (point / military_symbol /
+ * coordination_measure) is selected, its trajectory is shown on the map: a
+ * connecting path plus a numbered, DRAGGABLE marker per keypoint (drag to move a
+ * point's position). "Adicionar no mapa" enters add mode — each map click
+ * appends a keypoint at the current timeline instant, with an on-screen
+ * Concluir/Cancelar toolbar. Per-point time editing and the waypoint list live
+ * in the feature's attribute panel (the `onChange` callback keeps it in sync).
  */
 
 import { showToast, showSuccess } from '@utils/index.js';
 import { deepClone } from '@utils/deep-utils.js';
-import { registerControl, getControl, updateFeatureProperty, getMapTemporalConfigSync } from '@store';
+import {
+    registerControl,
+    getControl,
+    getEventBus,
+    updateFeatureProperty,
+    getMapTemporalConfigSync,
+} from '@store';
+import { EventTypes } from '@events/event_types.js';
 import { normalizeTrajectory } from '../temporal-model.js';
 import { unitToMs } from '../temporal.utils.js';
 import { TRAJECTORY_TYPE_TO_SOURCE } from '../temporal.constants.js';
 import { updateSourceFeatureProperty } from '../temporal-render.service.js';
-import { buildPreviewCollection, appendKeypoint, removeLastKeypoint } from './trajectory-edit-geometry.js';
+import { buildPathCollection } from './trajectory-edit-geometry.js';
 
-const PREVIEW_SOURCE = 'trajectory-edit-preview';
-const PATH_LAYER = 'trajectory-edit-path';
-const POINTS_LAYER = 'trajectory-edit-points';
-const LABELS_LAYER = 'trajectory-edit-labels';
+const PATH_SOURCE = 'trajectory-edit-path';
+const PATH_LAYER = 'trajectory-edit-path-layer';
 
 export class TrajectoryEditControl {
     constructor() {
         this._map = null;
-        this._active = false;
         this._feature = null;
         this._featureType = null;
-        this._keypoints = [];
-        this._original = [];
+        this._onChange = null;
+
+        this._markers = [];
+        this._adding = false;
+        this._addSnapshot = null;
+        this._lastAdded = null;
+        this._toolbar = null;
+        this._countEl = null;
+        this._unsubscribers = [];
 
         this._onClick = this._onClick.bind(this);
         this._onContextMenu = this._onContextMenu.bind(this);
@@ -40,138 +53,221 @@ export class TrajectoryEditControl {
 
     onAdd(map) {
         this._map = map;
+        const bus = getEventBus();
+        if (bus) {
+            // Clear the trajectory display when the feature panel closes (deselect).
+            this._unsubscribers.push(bus.on(EventTypes.FEATURE_PANEL_CLOSED, () => this.hide()));
+        }
         return null;
     }
 
     onRemove() {
-        if (this._active) this.finish(false);
+        this.hide();
+        this._unsubscribers.forEach((off) => off && off());
+        this._unsubscribers = [];
         this._map = null;
     }
 
-    /** @returns {boolean} */
-    isActive() {
-        return this._active;
+    /** @returns {boolean} Whether add mode is active. */
+    isAdding() {
+        return this._adding;
     }
 
+    // ===== Display (shown while the feature is selected) =====
+
     /**
-     * Enters trajectory edit mode for a feature.
-     * @param {Object} feature - The feature to edit.
+     * Shows the trajectory of a feature (path + draggable markers). Replaces any
+     * previously shown feature.
+     * @param {Object} feature - The selected trajectory feature.
+     * @param {{onChange?: function}} [options] - onChange fires after edits (panel sync).
      */
-    start(feature) {
-        if (!this._map || !feature) return;
-        if (this._active) this.finish(false);
+    show(feature, options = {}) {
+        if (!this._map || !feature?.properties) return;
 
+        if (typeof options.onChange === 'function') this._onChange = options.onChange;
+
+        if (this._feature && this._feature.properties?.id !== feature.properties.id) {
+            this._exitAdding(false);
+        }
         this._feature = feature;
-        this._featureType = feature.properties?.source;
-        this._keypoints = normalizeTrajectory(deepClone(feature.properties?.trajetoria || []));
-        this._original = deepClone(feature.properties?.trajetoria || []);
-        this._active = true;
+        this._featureType = feature.properties.source;
 
-        this._addPreviewLayers();
-        this._renderPreview();
+        this._ensurePathLayer();
+        this._renderAll();
+    }
 
+    /** Re-renders the path + markers for the currently shown feature (after a panel edit). */
+    refreshDisplay() {
+        if (this._feature) this._renderAll();
+    }
+
+    /** Clears the trajectory display and exits add mode. */
+    hide() {
+        this._exitAdding(false);
+        this._clearMarkers();
+        this._removePathLayer();
+        this._feature = null;
+        this._featureType = null;
+        this._onChange = null;
+    }
+
+    // ===== Add mode (point by point) =====
+
+    /** Enters add mode for the currently-shown feature. */
+    startAdding() {
+        if (!this._feature || this._adding) return;
+        this._adding = true;
+        this._addSnapshot = deepClone(this._feature.properties?.trajetoria || []);
+        this._lastAdded = null;
+
+        this._buildToolbar();
         this._map.on('click', this._onClick);
         this._map.on('contextmenu', this._onContextMenu);
         document.addEventListener('keydown', this._onKeyDown, true);
         this._map.getCanvas().style.cursor = 'crosshair';
-
-        getControl('TemporalControl')?.focusFeature(feature);
-        showToast('Trajetória: clique no mapa para adicionar pontos no instante atual. Enter conclui, Esc cancela, botão direito remove o último.', 'info');
+        showToast('Clique no mapa para adicionar pontos à trajetória. "Concluir" salva.', 'info');
     }
 
     _onClick(e) {
-        const controller = getControl('TemporalControl');
-        let t = controller?.getCursor?.();
-        if (!Number.isFinite(t)) {
-            const step = unitToMs(getMapTemporalConfigSync().unidade);
-            const last = this._keypoints[this._keypoints.length - 1];
-            t = last ? last.t + step : Date.now();
-        }
-        this._keypoints = appendKeypoint(this._keypoints, t, e.lngLat.lng, e.lngLat.lat);
-        this._syncFocusedFeature();
-        this._renderPreview();
+        const arr = this._ensureArray();
+        const kp = { t: this._currentCursorTime(), lng: e.lngLat.lng, lat: e.lngLat.lat };
+        arr.push(kp);
+        this._lastAdded = kp;
+        this._normalizeInPlace();
+        this._renderAll();
+        this._updateCount();
+        this._onChange?.();
     }
 
     _onContextMenu(e) {
-        if (e?.preventDefault) e.preventDefault();
-        this._keypoints = removeLastKeypoint(this._keypoints);
-        this._syncFocusedFeature();
-        this._renderPreview();
+        e?.preventDefault?.();
+        const arr = this._feature?.properties?.trajetoria;
+        if (!Array.isArray(arr) || arr.length === 0) return;
+        const i = this._lastAdded ? arr.indexOf(this._lastAdded) : arr.length - 1;
+        if (i >= 0) arr.splice(i, 1);
+        this._lastAdded = null;
+        this._renderAll();
+        this._updateCount();
+        this._onChange?.();
     }
 
     _onKeyDown(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
-            this.finish(true);
+            this._exitAdding(true);
         } else if (e.key === 'Escape') {
             e.preventDefault();
-            this.finish(false);
+            this._exitAdding(false);
         }
     }
 
-    /** Keeps the focused feature + bar pins in sync while authoring. */
-    _syncFocusedFeature() {
-        if (this._feature?.properties) {
-            this._feature.properties.trajetoria = this._keypoints;
-        }
-        getControl('TemporalControl')?.focusFeature(this._feature);
-    }
-
-    /**
-     * Finishes editing.
-     * @param {boolean} commit - True to persist; false to revert.
-     */
-    finish(commit) {
-        if (!this._active) return;
-        this._active = false;
+    _exitAdding(commit) {
+        if (!this._adding) return;
+        this._adding = false;
 
         this._map.off('click', this._onClick);
         this._map.off('contextmenu', this._onContextMenu);
         document.removeEventListener('keydown', this._onKeyDown, true);
         this._map.getCanvas().style.cursor = '';
-        this._removePreviewLayers();
+        this._removeToolbar();
 
-        const props = this._feature?.properties;
-        if (props) {
-            const finalTrajectory = commit ? normalizeTrajectory(this._keypoints) : normalizeTrajectory(this._original);
-            props.trajetoria = finalTrajectory;
+        if (!commit && this._addSnapshot && this._feature?.properties) {
+            const arr = this._ensureArray();
+            arr.length = 0;
+            arr.push(...this._addSnapshot.map((k) => ({ ...k })));
+        }
+        this._normalizeInPlace();
+        this._renderAll();
+        this._persist();
 
-            if (commit) {
-                const sourceId = TRAJECTORY_TYPE_TO_SOURCE[this._featureType];
-                if (sourceId) {
-                    updateSourceFeatureProperty(this._map, sourceId, props.id, 'trajetoria', finalTrajectory);
-                }
-                updateFeatureProperty(this._featureType, props.id, 'trajetoria', finalTrajectory);
-                showSuccess(`Trajetória salva (${finalTrajectory.length} ponto${finalTrajectory.length === 1 ? '' : 's'})`);
-            }
-
-            const controller = getControl('TemporalControl');
-            controller?.focusFeature(commit ? this._feature : null);
-            controller?.sync();
+        if (commit) {
+            const n = (this._feature?.properties?.trajetoria || []).length;
+            showSuccess(`Trajetória salva (${n} ponto${n === 1 ? '' : 's'})`);
         }
 
-        this._feature = null;
-        this._featureType = null;
-        this._keypoints = [];
-        this._original = [];
+        this._addSnapshot = null;
+        this._lastAdded = null;
+        this._onChange?.();
     }
 
-    // ===== Preview rendering =====
+    _currentCursorTime() {
+        const t = getControl('TemporalControl')?.getCursor?.();
+        if (Number.isFinite(t)) return t;
+        const step = unitToMs(getMapTemporalConfigSync().unidade);
+        const arr = this._feature?.properties?.trajetoria || [];
+        const last = arr[arr.length - 1];
+        return last ? last.t + step : Date.now();
+    }
 
-    _addPreviewLayers() {
-        const map = this._map;
-        if (!map.getSource(PREVIEW_SOURCE)) {
-            map.addSource(PREVIEW_SOURCE, {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] },
+    // ===== Rendering =====
+
+    _ensureArray() {
+        if (!Array.isArray(this._feature.properties.trajetoria)) {
+            this._feature.properties.trajetoria = [];
+        }
+        return this._feature.properties.trajetoria;
+    }
+
+    /** Sorts/validates the live array in place, preserving its reference. */
+    _normalizeInPlace() {
+        const arr = this._feature?.properties?.trajetoria;
+        if (!Array.isArray(arr)) return;
+        const sorted = normalizeTrajectory(arr);
+        arr.length = 0;
+        arr.push(...sorted);
+    }
+
+    _renderAll() {
+        this._renderPath();
+        this._renderMarkers();
+    }
+
+    _renderPath() {
+        const source = this._map?.getSource(PATH_SOURCE);
+        if (source) source.setData(buildPathCollection(this._feature?.properties?.trajetoria));
+    }
+
+    _renderMarkers() {
+        this._clearMarkers();
+        const waypoints = normalizeTrajectory(this._feature?.properties?.trajetoria);
+        waypoints.forEach((kp, index) => {
+            const el = document.createElement('div');
+            el.className = 'trajectory-point-marker';
+            el.textContent = String(index + 1);
+
+            const marker = new maplibregl.Marker({ element: el, draggable: true, anchor: 'center' })
+                .setLngLat([kp.lng, kp.lat])
+                .addTo(this._map);
+
+            marker.on('drag', () => {
+                const ll = marker.getLngLat();
+                kp.lng = ll.lng;
+                kp.lat = ll.lat;
+                this._renderPath();
             });
+            marker.on('dragend', () => {
+                this._persist();
+                this._onChange?.();
+            });
+            this._markers.push(marker);
+        });
+    }
+
+    _clearMarkers() {
+        this._markers.forEach((m) => m.remove());
+        this._markers = [];
+    }
+
+    _ensurePathLayer() {
+        const map = this._map;
+        if (!map.getSource(PATH_SOURCE)) {
+            map.addSource(PATH_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         }
         if (!map.getLayer(PATH_LAYER)) {
             map.addLayer({
                 id: PATH_LAYER,
                 type: 'line',
-                source: PREVIEW_SOURCE,
-                filter: ['==', ['get', 'kind'], 'path'],
+                source: PATH_SOURCE,
                 paint: {
                     'line-color': '#16a34a',
                     'line-width': 2,
@@ -179,52 +275,66 @@ export class TrajectoryEditControl {
                 },
             });
         }
-        if (!map.getLayer(POINTS_LAYER)) {
-            map.addLayer({
-                id: POINTS_LAYER,
-                type: 'circle',
-                source: PREVIEW_SOURCE,
-                filter: ['==', ['geometry-type'], 'Point'],
-                paint: {
-                    'circle-radius': 9,
-                    'circle-color': '#ffffff',
-                    'circle-stroke-color': '#16a34a',
-                    'circle-stroke-width': 2,
-                },
-            });
-        }
-        if (!map.getLayer(LABELS_LAYER)) {
-            map.addLayer({
-                id: LABELS_LAYER,
-                type: 'symbol',
-                source: PREVIEW_SOURCE,
-                filter: ['==', ['geometry-type'], 'Point'],
-                layout: {
-                    'text-field': ['get', 'label'],
-                    'text-size': 11,
-                    'text-allow-overlap': true,
-                },
-                paint: { 'text-color': '#15803d' },
-            });
-        }
     }
 
-    _removePreviewLayers() {
+    _removePathLayer() {
         const map = this._map;
         if (!map) return;
-        for (const id of [LABELS_LAYER, POINTS_LAYER, PATH_LAYER]) {
-            if (map.getLayer(id)) map.removeLayer(id);
-        }
-        if (map.getSource(PREVIEW_SOURCE)) map.removeSource(PREVIEW_SOURCE);
+        if (map.getLayer(PATH_LAYER)) map.removeLayer(PATH_LAYER);
+        if (map.getSource(PATH_SOURCE)) map.removeSource(PATH_SOURCE);
     }
 
-    _renderPreview() {
-        const source = this._map?.getSource(PREVIEW_SOURCE);
-        if (source) source.setData(buildPreviewCollection(this._keypoints));
+    // ===== Persistence =====
+
+    _persist() {
+        const props = this._feature?.properties;
+        if (!props) return;
+        const sorted = normalizeTrajectory(props.trajetoria);
+        const sourceId = TRAJECTORY_TYPE_TO_SOURCE[this._featureType];
+        if (sourceId) {
+            updateSourceFeatureProperty(this._map, sourceId, props.id, 'trajetoria', sorted);
+        }
+        updateFeatureProperty(this._featureType, props.id, 'trajetoria', sorted);
+        getControl('TemporalControl')?.sync();
+    }
+
+    // ===== On-screen add toolbar =====
+
+    _buildToolbar() {
+        this._removeToolbar();
+        const bar = document.createElement('div');
+        bar.className = 'trajectory-edit-toolbar';
+        bar.innerHTML = `
+            <span class="trajectory-edit-toolbar__hint">Clique no mapa para adicionar pontos à trajetória</span>
+            <span class="trajectory-edit-toolbar__count"></span>
+            <button type="button" class="trajectory-edit-toolbar__btn trajectory-edit-toolbar__cancel">Cancelar</button>
+            <button type="button" class="trajectory-edit-toolbar__btn trajectory-edit-toolbar__done">Concluir</button>
+        `;
+        document.body.appendChild(bar);
+        this._toolbar = bar;
+        this._countEl = bar.querySelector('.trajectory-edit-toolbar__count');
+
+        bar.querySelector('.trajectory-edit-toolbar__cancel').addEventListener('click', () => this._exitAdding(false));
+        bar.querySelector('.trajectory-edit-toolbar__done').addEventListener('click', () => this._exitAdding(true));
+        this._updateCount();
+    }
+
+    _updateCount() {
+        if (!this._countEl) return;
+        const n = (this._feature?.properties?.trajetoria || []).length;
+        this._countEl.textContent = `${n} ponto${n === 1 ? '' : 's'}`;
+    }
+
+    _removeToolbar() {
+        if (this._toolbar) {
+            this._toolbar.remove();
+            this._toolbar = null;
+            this._countEl = null;
+        }
     }
 
     destroy() {
-        if (this._active) this.finish(false);
+        this.onRemove();
     }
 }
 

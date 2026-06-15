@@ -4,19 +4,27 @@
 
 .temporal-bar {
     position: fixed;
-    top: calc(var(--space-4) + var(--search-bar-height) + var(--space-3));
-    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
-    right: calc(var(--toolbar-button-size) + var(--space-6));
-    z-index: var(--z-controls);
+    top: var(--space-4);
+
+    /* Sit beside the search-bar group, above the toolbar row. */
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4) + var(--search-bar-width) + var(--space-3));
+    right: var(--space-4);
+    max-width: 600px;
+    z-index: var(--z-search);
     display: flex;
     align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-2) var(--space-3);
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
     background: var(--surface, #fff);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
-    transition: opacity var(--transition-fast);
+    transition: left var(--transition-panel), opacity var(--transition-fast);
+}
+
+/* Shift right with the search bar when the sidebar/feature panel opens. */
+.temporal-bar[data-sidebar-state="expanded"] {
+    left: calc(var(--sidebar-panel-width) + var(--sidebar-collapsed-width) + var(--space-4) + var(--search-bar-width) + var(--space-3));
 }
 
 .temporal-bar[data-hidden="true"] {
@@ -32,8 +40,8 @@
 }
 
 .temporal-bar__btn {
-    width: 36px;
-    height: 36px;
+    width: 30px;
+    height: 30px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -43,6 +51,11 @@
     color: var(--gray-700);
     cursor: pointer;
     transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.temporal-bar__btn svg {
+    width: 16px;
+    height: 16px;
 }
 
 .temporal-bar__btn:hover {
@@ -58,14 +71,19 @@
     background: var(--primary-hover);
 }
 
+.temporal-bar__reveal[data-active="true"] {
+    background: var(--color-warning);
+    color: #fff;
+}
+
 .temporal-bar__speed {
-    height: 36px;
-    padding: 0 var(--space-2);
+    height: 30px;
+    padding: 0 var(--space-1);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     background: var(--gray-50);
     color: var(--gray-800);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     cursor: pointer;
 }
 
@@ -74,20 +92,20 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
 }
 
 .temporal-bar__time {
-    font-size: 0.8rem;
+    font-size: 0.72rem;
     font-weight: 600;
     color: var(--gray-800);
     text-align: center;
     font-variant-numeric: tabular-nums;
+    line-height: 1.2;
 }
 
 .temporal-bar__track {
     position: relative;
-    height: 18px;
+    height: 16px;
     cursor: pointer;
     touch-action: none;
 }
@@ -132,26 +150,6 @@
     background: var(--gray-300);
 }
 
-.temporal-bar__keypoints {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-}
-
-.temporal-bar__keypoint {
-    position: absolute;
-    top: 50%;
-    width: 12px;
-    height: 12px;
-    transform: translate(-50%, -50%) rotate(45deg);
-    background: var(--color-warning);
-    border: 1px solid #fff;
-    border-radius: 2px;
-    cursor: ew-resize;
-    pointer-events: auto;
-    box-shadow: var(--shadow-sm);
-}
-
 .temporal-bar__handle {
     position: absolute;
     top: 50%;
@@ -169,9 +167,10 @@
 .temporal-bar__range {
     display: flex;
     justify-content: space-between;
-    font-size: 0.7rem;
+    font-size: 0.62rem;
     color: var(--gray-500);
     font-variant-numeric: tabular-nums;
+    line-height: 1.1;
 }
 
 /* ===== Attribute-panel temporal sections ===== */
@@ -254,17 +253,182 @@
     background: var(--primary-hover);
 }
 
+.temporal-attr-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ===== Trajectory waypoint list (feature panel) ===== */
+
+.temporal-trajectory-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-2);
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.temporal-trajectory-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.temporal-trajectory-row__badge {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-full);
+    background: var(--primary);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.temporal-trajectory-row__fields {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.temporal-trajectory-row__time {
+    height: 30px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    color: var(--gray-800);
+    font-size: 0.75rem;
+}
+
+.temporal-trajectory-row__coord {
+    font-size: 0.68rem;
+    color: var(--gray-500);
+    font-variant-numeric: tabular-nums;
+}
+
+.temporal-trajectory-row__delete {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: var(--gray-500);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+}
+
+.temporal-trajectory-row__delete:hover {
+    background: var(--gray-200);
+    color: var(--color-error);
+}
+
+/* ===== Trajectory point markers (draggable, on map) ===== */
+
+.trajectory-point-marker {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-full);
+    background: #16a34a;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    border: 2px solid #fff;
+    box-shadow: var(--shadow-sm);
+    cursor: grab;
+}
+
+.trajectory-point-marker:active {
+    cursor: grabbing;
+}
+
+/* ===== Trajectory map editor — on-screen toolbar ===== */
+
+.trajectory-edit-toolbar {
+    position: fixed;
+    bottom: calc(var(--space-6) + var(--safe-area-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--z-floating);
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: var(--surface, #fff);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+.trajectory-edit-toolbar__hint {
+    font-size: 0.8rem;
+    color: var(--gray-700);
+}
+
+.trajectory-edit-toolbar__count {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.trajectory-edit-toolbar__btn {
+    height: 34px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: #fff;
+    color: var(--gray-700);
+    cursor: pointer;
+    font-size: 0.82rem;
+}
+
+.trajectory-edit-toolbar__cancel:hover {
+    background: var(--gray-100);
+}
+
+.trajectory-edit-toolbar__done {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    font-weight: 600;
+}
+
+.trajectory-edit-toolbar__done:hover {
+    background: var(--primary-hover);
+}
+
 /* ===== Per-map settings modal ===== */
+
+.temporal-settings-container {
+    display: flex;
+    flex-direction: column;
+    max-height: 85vh;
+}
 
 .temporal-settings-body {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+    flex: 1 1 auto;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .temporal-settings__select,
 .temporal-settings__datetime {
+    box-sizing: border-box;
     width: 100%;
+    max-width: 100%;
     height: 38px;
     padding: 0 var(--space-3);
     border: 1px solid var(--border-color);
@@ -272,6 +436,45 @@
     background: var(--gray-50);
     color: var(--gray-800);
     font-size: 0.85rem;
+}
+
+.temporal-settings-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    flex-shrink: 0;
+    padding: var(--space-4) var(--space-5);
+    border-top: 1px solid var(--border-color);
+}
+
+.temporal-settings-btn {
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.temporal-settings-btn--cancel {
+    background: transparent;
+    color: var(--gray-600);
+}
+
+.temporal-settings-btn--cancel:hover {
+    background: var(--gray-50);
+    border-color: var(--gray-300);
+}
+
+.temporal-settings-btn--save {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
+.temporal-settings-btn--save:hover {
+    background: var(--primary-hover);
 }
 
 /* ===== Map card temporal toggle (next to lock) ===== */
@@ -314,7 +517,8 @@
 /* ===== Responsive ===== */
 
 @media (width <= 768px) {
-    .temporal-bar {
+    .temporal-bar,
+    .temporal-bar[data-sidebar-state="expanded"] {
         left: var(--space-2);
         right: var(--space-2);
         top: calc(var(--space-3) + var(--search-bar-height) + var(--space-2));

@@ -21,12 +21,11 @@ import {
     getCurrentMapNameSync,
     getCurrentMapFeatures,
     getMapTemporalConfig,
-    updateFeatureProperty,
+    getStateManager,
 } from '../store';
-import { DEFAULT_TEMPORAL_SPEED, TRAJECTORY_TYPE_TO_SOURCE } from './temporal.constants.js';
+import { DEFAULT_TEMPORAL_SPEED } from './temporal.constants.js';
 import { resolveTimelineBounds, clampCursor, unitToMs } from './temporal.utils.js';
-import { normalizeTrajectory } from './temporal-model.js';
-import { applyTemporalState, updateSourceFeatureProperty } from './temporal-render.service.js';
+import { applyTemporalState } from './temporal-render.service.js';
 import { TemporalTimelineBar } from './temporal-timeline-bar.js';
 
 /** Max frame delta (s) applied during playback, so a backgrounded/refocused tab
@@ -39,9 +38,10 @@ export class TemporalController {
      * @param {Object} deps.map - MapLibre map instance.
      * @param {Object} deps.eventBus - Event bus.
      */
-    constructor({ map, eventBus }) {
+    constructor({ map, eventBus, uiManager }) {
         this._map = map;
         this._eventBus = eventBus;
+        this._uiManager = uiManager || null;
 
         this._mapName = null;
         this._enabled = false;
@@ -55,7 +55,7 @@ export class TemporalController {
         this._applyRafId = null;
         this._destroyed = false;
         this._syncToken = 0;
-        this._focused = null;
+        this._revealHidden = false;
 
         this._frameBound = this._frame.bind(this);
 
@@ -64,8 +64,7 @@ export class TemporalController {
             onPlayToggle: () => this.togglePlay(),
             onSpeedChange: (speed) => this.setSpeed(speed),
             onOpenSettings: () => this._openSettings(),
-            onKeypointDrag: (i, cursor) => this._onKeypointDrag(i, cursor),
-            onKeypointCommit: (i, cursor) => this._onKeypointCommit(i, cursor),
+            onToggleReveal: () => this.toggleReveal(),
         });
 
         setupCleanup(this);
@@ -85,7 +84,10 @@ export class TemporalController {
             if (!mapName || mapName === getCurrentMapNameSync()) this._syncForActiveMap();
         });
         subscribe(this, this._eventBus, EventTypes.LAYERS_CHANGED, () => this._syncForActiveMap());
+        // Keep the bar beside the search bar as the sidebar/feature panel opens.
+        subscribe(this, this._eventBus, EventTypes.UI_LAYOUT_CHANGED, () => this._updateSidebarState());
 
+        this._updateSidebarState();
         this._syncForActiveMap();
         return this;
     }
@@ -110,15 +112,6 @@ export class TemporalController {
     /** Re-reads config/features for the active map and re-applies render state. */
     sync() {
         return this._syncForActiveMap();
-    }
-
-    /**
-     * Updates the bar's keypoint pins for an externally-edited focused feature.
-     * @param {Object|null} feature - The trajectory feature being edited, or null.
-     */
-    focusFeature(feature) {
-        this._focused = feature || null;
-        this._renderPins();
     }
 
     /**
@@ -152,9 +145,9 @@ export class TemporalController {
 
         if (!this._enabled) {
             this._stopPlayback();
+            this._revealHidden = false;
+            this._bar.setReveal(false);
             this._bar.setVisible(false);
-            this._focused = null;
-            this._renderPins();
             await applyTemporalState(this._map, { enabled: false, cursor: this._cursor });
             return;
         }
@@ -187,9 +180,10 @@ export class TemporalController {
         this._bar.setBounds(bounds.inicio, bounds.fim, config.unidade);
         this._bar.setCursor(this._cursor);
         this._bar.setSpeed(this._speed);
+        this._bar.setReveal(this._revealHidden);
         this._bar.setVisible(true);
-        this._renderPins();
-        await applyTemporalState(this._map, { enabled: true, cursor: this._cursor });
+        await applyTemporalState(this._map, { enabled: true, cursor: this._cursor, reveal: this._revealHidden });
+        this._uiManager?.updateSelectionHighlight();
         // Announce the (now-resolved) cursor so other views — e.g. open 3D/360
         // marker viewers — filter with the real cursor. On enable, MAP_TEMPORAL_CHANGED
         // fires before this async sync sets the cursor, so without this they would
@@ -204,9 +198,23 @@ export class TemporalController {
         this._applyRafId = requestAnimationFrame(() => {
             this._applyRafId = null;
             if (this._destroyed) return;
-            applyTemporalState(this._map, { enabled: this._enabled, cursor: this._cursor });
+            applyTemporalState(this._map, { enabled: this._enabled, cursor: this._cursor, reveal: this._revealHidden })
+                .then(() => this._uiManager?.updateSelectionHighlight());
             this._eventBus.emit(EventTypes.TEMPORAL_CURSOR_CHANGED, { cursor: this._cursor });
         });
+    }
+
+    /** Toggles "reveal hidden" mode: out-of-window features render dimmed but editable. */
+    toggleReveal() {
+        this._revealHidden = !this._revealHidden;
+        this._bar.setReveal(this._revealHidden);
+        this._scheduleApply();
+    }
+
+    _updateSidebarState() {
+        const sm = getStateManager();
+        const expanded = !!(sm?.getUnsafe?.('sidebar.expanded') || sm?.getUnsafe?.('ui.featurePanelOpen'));
+        this._bar.setSidebarState(expanded);
     }
 
     // ===== Playback =====
@@ -266,47 +274,6 @@ export class TemporalController {
     async _openSettings() {
         const { showTemporalSettingsModal } = await import('./temporal-settings.modal.js');
         showTemporalSettingsModal(this._mapName, this._eventBus);
-    }
-
-    // ===== Trajectory keypoint pins =====
-
-    _renderPins() {
-        if (!this._focused || !this._enabled) {
-            this._bar.setKeypoints(null);
-            return;
-        }
-        const traj = normalizeTrajectory(this._focused.properties?.trajetoria);
-        // Keep the live array in the same sorted order the pins are rendered in,
-        // so a pin's dataset index aligns with props.trajetoria[index].
-        if (this._focused.properties) this._focused.properties.trajetoria = traj;
-        this._bar.setKeypoints(traj.length ? traj : null);
-    }
-
-    _onKeypointDrag(index, cursor) {
-        const traj = this._focused?.properties?.trajetoria;
-        if (!Array.isArray(traj) || !traj[index] || !this._bounds) return;
-        traj[index].t = clampCursor(cursor, this._bounds.inicio, this._bounds.fim);
-        // Move only the dragged pin; do NOT re-sort/re-render mid-gesture, which
-        // would reorder pins and make `index` point at a different keypoint.
-        this._bar.moveKeypoint(index, traj[index].t);
-    }
-
-    _onKeypointCommit(index, cursor) {
-        this._onKeypointDrag(index, cursor);
-        const props = this._focused?.properties;
-        if (!props) return;
-
-        const sorted = normalizeTrajectory(props.trajetoria);
-        props.trajetoria = sorted;
-        this._renderPins();
-
-        const sourceId = TRAJECTORY_TYPE_TO_SOURCE[props.source];
-        if (sourceId) {
-            updateSourceFeatureProperty(this._map, sourceId, props.id, 'trajetoria', sorted).then(() =>
-                applyTemporalState(this._map, { enabled: this._enabled, cursor: this._cursor })
-            );
-        }
-        updateFeatureProperty(props.source, props.id, 'trajetoria', sorted);
     }
 
     destroy() {

@@ -29,6 +29,8 @@ const ICONS = {
     pause: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>',
     settings:
         '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.2.61.78 1.05 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+    eye: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>',
+    eyeOff: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>',
 };
 
 export class TemporalTimelineBar {
@@ -61,7 +63,6 @@ export class TemporalTimelineBar {
         this._cursor = 0;
 
         this._dragging = false;        // scrubbing the cursor
-        this._draggingPin = -1;        // index of pin being dragged (-1 = none)
 
         setupCleanup(this);
     }
@@ -89,7 +90,6 @@ export class TemporalTimelineBar {
                 <div class="temporal-bar__track" tabindex="0" role="slider" aria-label="Cursor temporal">
                     <div class="temporal-bar__ticks"></div>
                     <div class="temporal-bar__progress"></div>
-                    <div class="temporal-bar__keypoints"></div>
                     <div class="temporal-bar__handle"></div>
                 </div>
                 <div class="temporal-bar__range">
@@ -98,6 +98,7 @@ export class TemporalTimelineBar {
                 </div>
             </div>
             <div class="temporal-bar__actions">
+                <button type="button" class="temporal-bar__btn temporal-bar__reveal" title="Mostrar feições ocultas (edição)" aria-label="Mostrar feições ocultas" aria-pressed="false">${ICONS.eyeOff}</button>
                 <button type="button" class="temporal-bar__btn temporal-bar__settings" title="Configurações temporais" aria-label="Configurações temporais">${ICONS.settings}</button>
             </div>
         `;
@@ -107,7 +108,6 @@ export class TemporalTimelineBar {
         this._progress = root.querySelector('.temporal-bar__progress');
         this._handle = root.querySelector('.temporal-bar__handle');
         this._ticksEl = root.querySelector('.temporal-bar__ticks');
-        this._keypointsEl = root.querySelector('.temporal-bar__keypoints');
         this._timeLabel = root.querySelector('.temporal-bar__time');
         this._rangeStart = root.querySelector('.temporal-bar__range-start');
         this._rangeEnd = root.querySelector('.temporal-bar__range-end');
@@ -127,6 +127,9 @@ export class TemporalTimelineBar {
         addDomListener(this, this._root.querySelector('.temporal-bar__settings'), 'click', () =>
             this._cb.onOpenSettings?.()
         );
+        addDomListener(this, this._root.querySelector('.temporal-bar__reveal'), 'click', () =>
+            this._cb.onToggleReveal?.()
+        );
 
         // Scrubbing (pointer events cover mouse + touch).
         addDomListener(this, this._track, 'pointerdown', (e) => this._onTrackPointerDown(e));
@@ -138,13 +141,6 @@ export class TemporalTimelineBar {
     }
 
     _onTrackPointerDown(e) {
-        const pin = e.target.closest('.temporal-bar__keypoint');
-        if (pin) {
-            this._draggingPin = Number(pin.dataset.index);
-            this._track.setPointerCapture?.(e.pointerId);
-            e.preventDefault();
-            return;
-        }
         this._dragging = true;
         this._track.setPointerCapture?.(e.pointerId);
         this._scrubToClientX(e.clientX, true);
@@ -152,18 +148,10 @@ export class TemporalTimelineBar {
     }
 
     _onPointerMove(e) {
-        if (this._draggingPin >= 0) {
-            this._cb.onKeypointDrag?.(this._draggingPin, this._clientXToCursor(e.clientX));
-        } else if (this._dragging) {
-            this._scrubToClientX(e.clientX, true);
-        }
+        if (this._dragging) this._scrubToClientX(e.clientX, true);
     }
 
-    _onPointerUp(e) {
-        if (this._draggingPin >= 0) {
-            this._cb.onKeypointCommit?.(this._draggingPin, this._clientXToCursor(e.clientX));
-            this._draggingPin = -1;
-        }
+    _onPointerUp() {
         this._dragging = false;
     }
 
@@ -195,6 +183,21 @@ export class TemporalTimelineBar {
     /** Shows or hides the entire bar. */
     setVisible(visible) {
         if (this._root) this._root.dataset.hidden = visible ? 'false' : 'true';
+    }
+
+    /** Shifts the bar to stay beside the search bar when the sidebar/panel opens. */
+    setSidebarState(expanded) {
+        if (this._root) this._root.dataset.sidebarState = expanded ? 'expanded' : 'collapsed';
+    }
+
+    /** Reflects reveal-hidden mode on the eye button. */
+    setReveal(on) {
+        const btn = this._root?.querySelector('.temporal-bar__reveal');
+        if (!btn) return;
+        btn.dataset.active = on ? 'true' : 'false';
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btn.innerHTML = on ? ICONS.eye : ICONS.eyeOff;
+        btn.title = on ? 'Ocultar feições fora do intervalo' : 'Mostrar feições ocultas (edição)';
     }
 
     /** Sets the timeline range + unit and redraws ticks/labels. */
@@ -233,43 +236,6 @@ export class TemporalTimelineBar {
     /** Reflects the selected playback speed. */
     setSpeed(speed) {
         if (this._speedSelect) this._speedSelect.value = String(speed);
-    }
-
-    /**
-     * Renders trajectory keypoint pins on the track (or clears them).
-     * @param {Array<{t:number}>|null} keypoints - Normalized keypoints, or null.
-     */
-    setKeypoints(keypoints) {
-        if (!this._keypointsEl) return;
-        this._keypointsEl.textContent = '';
-        if (!Array.isArray(keypoints) || keypoints.length === 0) return;
-
-        const frag = document.createDocumentFragment();
-        keypoints.forEach((kp, index) => {
-            const pin = document.createElement('div');
-            pin.className = 'temporal-bar__keypoint';
-            pin.dataset.index = String(index);
-            pin.title = `Keypoint ${index + 1}: ${formatInstant(kp.t, this._unidade)}`;
-            const frac = cursorToFraction(kp.t, this._inicio, this._fim);
-            pin.style.left = `${(frac * 100).toFixed(3)}%`;
-            frag.appendChild(pin);
-        });
-        this._keypointsEl.appendChild(frag);
-    }
-
-    /**
-     * Repositions a single keypoint pin in time without rebuilding the pin set
-     * (so its index stays stable during a drag gesture).
-     * @param {number} index - Pin index.
-     * @param {number} cursor - New time (epoch ms).
-     */
-    moveKeypoint(index, cursor) {
-        if (!this._keypointsEl) return;
-        const pin = this._keypointsEl.querySelector(`.temporal-bar__keypoint[data-index="${index}"]`);
-        if (!pin) return;
-        const frac = cursorToFraction(cursor, this._inicio, this._fim);
-        pin.style.left = `${(frac * 100).toFixed(3)}%`;
-        pin.title = `Keypoint ${index + 1}: ${formatInstant(cursor, this._unidade)}`;
     }
 
     _renderTicks() {

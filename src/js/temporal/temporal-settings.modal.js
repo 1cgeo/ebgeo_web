@@ -2,9 +2,9 @@
 
 /**
  * @fileoverview Per-map temporal settings modal: division unit (MINUTO / HORA /
- * DIA / SEMANA) and the map-wide timeline start/end. Persists through
- * setMapTemporalConfig, which emits TEMPORAL_CONFIG_CHANGED so the controller
- * re-syncs the timeline bar live.
+ * DIA / SEMANA) and the map-wide timeline start/end. Edits are buffered and only
+ * committed on "Salvar" (via setMapTemporalConfig, which emits
+ * TEMPORAL_CONFIG_CHANGED so the controller re-syncs); "Cancelar" discards them.
  */
 
 import {
@@ -22,11 +22,13 @@ class TemporalSettingsModal {
         this._mapName = mapName;
         this._overlay = null;
         this._previousActiveElement = null;
+        this._pending = null;
         setupCleanup(this);
     }
 
     async show() {
-        this._config = await getMapTemporalConfig(this._mapName);
+        const config = await getMapTemporalConfig(this._mapName);
+        this._pending = { ...config };
         this._previousActiveElement = document.activeElement;
         this._render();
         document.body.appendChild(this._overlay);
@@ -45,6 +47,7 @@ class TemporalSettingsModal {
         const container = document.createElement('div');
         container.className = 'modal-container temporal-settings-container';
 
+        // Header
         const header = document.createElement('div');
         header.className = 'modal-header';
         const title = document.createElement('h2');
@@ -61,10 +64,10 @@ class TemporalSettingsModal {
         header.appendChild(closeBtn);
         container.appendChild(header);
 
+        // Body (scrollable)
         const body = document.createElement('div');
         body.className = 'modal-body temporal-settings-body';
 
-        // Division unit
         body.appendChild(
             this._field(
                 'Unidade de divisão',
@@ -73,19 +76,41 @@ class TemporalSettingsModal {
             )
         );
 
-        // Map start
-        this._startInput = this._datetimeInput(this._config.inicio);
+        this._startInput = this._datetimeInput(this._pending.inicio, (epoch) => {
+            this._pending.inicio = epoch;
+        });
         body.appendChild(
             this._field('Início do mapa', 'Deixe em branco para usar o início automático das feições.', this._startInput)
         );
 
-        // Map end
-        this._endInput = this._datetimeInput(this._config.fim);
+        this._endInput = this._datetimeInput(this._pending.fim, (epoch) => {
+            this._pending.fim = epoch;
+        });
         body.appendChild(
             this._field('Fim do mapa', 'Deixe em branco para usar o fim automático das feições.', this._endInput)
         );
 
         container.appendChild(body);
+
+        // Footer
+        const footer = document.createElement('div');
+        footer.className = 'modal-footer temporal-settings-footer';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'temporal-settings-btn temporal-settings-btn--cancel';
+        cancelBtn.textContent = 'Cancelar';
+        addDomListener(this, cancelBtn, 'click', () => this._close());
+        footer.appendChild(cancelBtn);
+
+        const saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
+        saveBtn.className = 'temporal-settings-btn temporal-settings-btn--save';
+        saveBtn.textContent = 'Salvar';
+        addDomListener(this, saveBtn, 'click', () => this._save());
+        footer.appendChild(saveBtn);
+
+        container.appendChild(footer);
         this._overlay.appendChild(container);
 
         addDomListener(this, this._overlay, 'click', (e) => {
@@ -121,35 +146,35 @@ class TemporalSettingsModal {
             const opt = document.createElement('option');
             opt.value = key;
             opt.textContent = TEMPORAL_UNITS[key].label;
-            if (key === this._config.unidade) opt.selected = true;
+            if (key === this._pending.unidade) opt.selected = true;
             select.appendChild(opt);
         }
-        addDomListener(this, select, 'change', () => this._persist({ unidade: select.value }));
+        addDomListener(this, select, 'change', () => {
+            this._pending.unidade = select.value;
+        });
         return select;
     }
 
-    _datetimeInput(epoch) {
+    _datetimeInput(epoch, onChange) {
         const input = document.createElement('input');
         input.type = 'datetime-local';
         input.className = 'temporal-settings__datetime';
         input.value = Number.isFinite(epoch) ? epochToDatetimeLocal(epoch) : '';
-        addDomListener(this, input, 'change', () => this._onRangeChange());
+        addDomListener(this, input, 'change', () => onChange(datetimeLocalToEpoch(input.value)));
         return input;
     }
 
-    _onRangeChange() {
-        this._persist({
-            inicio: datetimeLocalToEpoch(this._startInput.value),
-            fim: datetimeLocalToEpoch(this._endInput.value),
-        });
-    }
-
-    async _persist(patch) {
+    async _save() {
         try {
-            this._config = await setMapTemporalConfig(this._mapName, patch);
+            await setMapTemporalConfig(this._mapName, {
+                unidade: this._pending.unidade,
+                inicio: this._pending.inicio,
+                fim: this._pending.fim,
+            });
         } catch (error) {
             console.warn('Failed to persist temporal settings:', error);
         }
+        this._close();
     }
 
     _close() {

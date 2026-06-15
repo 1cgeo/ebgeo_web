@@ -19,6 +19,13 @@ let cachedVisibleLayerIds = null;
 let activeTemporalCursor = null;
 
 /**
+ * Reveal mode: when true the temporal hide-clause is suppressed so all features
+ * stay rendered (out-of-window ones are dimmed elsewhere, not hidden).
+ * @type {boolean}
+ */
+let revealMode = false;
+
+/**
  * Sets (or clears) the temporal cursor used by the layer filters.
  * Pass null to disable temporal filtering. Caller must follow with
  * invalidateFilterCache() + updateAllLayerFilters() to take effect.
@@ -26,6 +33,14 @@ let activeTemporalCursor = null;
  */
 export function setTemporalCursor(cursor) {
     activeTemporalCursor = Number.isFinite(cursor) ? cursor : null;
+}
+
+/**
+ * Enables/disables reveal mode (suppresses temporal hiding).
+ * @param {boolean} on
+ */
+export function setRevealMode(on) {
+    revealMode = !!on;
 }
 
 /** Sentinels at the edges of the JS Date range (used as "no bound"). */
@@ -51,7 +66,8 @@ function buildTemporalFilter(cursor) {
  * @returns {Array<Array>} Temporal clause(s) to append to a layer filter ([] when off).
  */
 function temporalClauses() {
-    return activeTemporalCursor === null ? [] : [buildTemporalFilter(activeTemporalCursor)];
+    if (activeTemporalCursor === null || revealMode) return [];
+    return [buildTemporalFilter(activeTemporalCursor)];
 }
 
 /**
@@ -100,7 +116,7 @@ export function updateAllLayerFilters(mapInstance) {
     if (!mapInstance) return;
 
     const visibleLayerIds = getVisibleLayerIds();
-    const cacheKey = `${activeTemporalCursor}|${JSON.stringify(visibleLayerIds)}`;
+    const cacheKey = `${activeTemporalCursor}|${revealMode}|${JSON.stringify(visibleLayerIds)}`;
     if (cachedVisibleLayerIds === cacheKey) return;
     cachedVisibleLayerIds = cacheKey;
 

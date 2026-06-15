@@ -568,7 +568,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
 
     // ===== TEMPORAL CONTROL (per-map timeline bar at top of map) =====
     const temporalController = createTemporalController(
-        { map: map, eventBus: getEventBus() },
+        { map: map, eventBus: getEventBus(), uiManager: uiManager },
         document.body
     );
     const trajectoryEditControl = createTrajectoryEditControl(map);
