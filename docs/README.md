@@ -19,6 +19,7 @@ Os documentos estão organizados em ordem de implementação recomendada:
 | 07 | [Compartilhamento](./07-compartilhamento.md) | Links públicos, sharing com usuários | ~450 |
 | 08 | [Offline e Import](./08-offline-import.md) | Modo offline, reconexão, upload de atlas | ~500 |
 | 09 | [Administração](./09-admin.md) | Gerenciamento de usuários e resources | ~550 |
+| 10 | [Configuração (config.js)](./10-config.md) | Cobertura do `config.js` do frontend pelo backend (basemaps, tilesets, config global) | ~280 |
 
 ---
 
