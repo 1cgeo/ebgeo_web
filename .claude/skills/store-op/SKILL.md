@@ -86,17 +86,18 @@ Initialize in `store.js` facade via `setWidgetDependencies()`.
 
 ## Metadata
 
-All features auto-track timestamps:
+Feature mutations auto-track sync metadata via the **private** helpers
+`addCreatedTimestamp()` / `touchUpdatedTimestamp()` inside `feature.operations.js`.
+They are NOT exported — do not import them from another module:
 
 ```javascript
-import { addCreatedTimestamp, touchUpdatedTimestamp } from './feature.operations.js';
-
-// On create:
-addCreatedTimestamp(feature);  // sets createdAt, updatedAt, version: 1
-
-// On update:
+// Inside feature.operations.js only:
+addCreatedTimestamp(feature);    // sets createdAt, updatedAt, version: 1
 touchUpdatedTimestamp(feature);  // bumps updatedAt, version++
 ```
+
+For a new entity type, set the same fields (`createdAt`, `updatedAt`, `version`)
+in your own operation file rather than importing these helpers.
 
 ## Export Checklist
 
@@ -109,7 +110,7 @@ touchUpdatedTimestamp(feature);  // bumps updatedAt, version++
 
 - [ ] Uses `runTransaction` for all mutations
 - [ ] `throw` for invalid args, `return + emit` for expected failures
-- [ ] Timestamps via `addCreatedTimestamp` / `touchUpdatedTimestamp`
+- [ ] Sync metadata set (`createdAt` / `updatedAt` / `version`)
 - [ ] Exported from `store.js` facade
 - [ ] New EventTypes defined in `event_types.js`
 - [ ] Dependencies injected, not imported directly from singletons

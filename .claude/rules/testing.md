@@ -26,5 +26,6 @@ Full guide: `TESTING.md` (root). Quick rules for working in this repo:
 ## Before claiming done
 - Run `npm run lint` and `npm test` (per CLAUDE.md, that is the only verification
   — do NOT use preview tools). Never commit.
-- There is **no GitHub CI and no git hooks** — tests are run manually. Coverage
-  is `npm run test:coverage` (report-only, no blocking threshold).
+- There is **no test CI and no git hooks** — tests are run manually. (The only
+  GitHub workflow, `.github/workflows/deploy.yml`, deploys GitHub Pages; it does
+  not run tests.) Coverage is `npm run test:coverage` (report-only, no threshold).
