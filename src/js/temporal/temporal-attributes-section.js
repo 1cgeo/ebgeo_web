@@ -7,15 +7,48 @@
  *  - a "Trajetória" section (launch the map editor + clear) only for
  *    point / military_symbol / coordination_measure.
  *
+ * Times are entered as an exact date (datetime-local) OR as a unit offset. In
+ * relative mode the input is always an offset (D+N); in absolute mode each field
+ * has a ⇄ toggle between exact date and offset. Either way the stored value is an
+ * epoch ms (offsets are resolved against the active time context's anchor).
+ *
  * Both self-persist on change (live source via the control, store via
  * updateFeatureProperty) and ask the TemporalController to re-apply render.
  */
 
-import { getControl, updateFeatureProperty } from '@store';
-import { epochToDatetimeLocal, datetimeLocalToEpoch } from './temporal.utils.js';
+import { getControl, updateFeatureProperty, getMapTemporalConfigSync } from '@store';
+import {
+    epochToDatetimeLocal,
+    datetimeLocalToEpoch,
+    epochToOffset,
+    offsetToEpoch,
+    unitLetter,
+} from './temporal.utils.js';
 import { normalizeTrajectory } from './temporal-model.js';
-import { TRAJECTORY_FEATURE_TYPES, TRAJECTORY_TYPE_TO_SOURCE } from './temporal.constants.js';
+import {
+    TRAJECTORY_FEATURE_TYPES,
+    TRAJECTORY_TYPE_TO_SOURCE,
+    TEMPORAL_MODES,
+} from './temporal.constants.js';
 import { updateSourceFeatureProperty } from './temporal-render.service.js';
+
+/**
+ * Resolves the active map's time context for input rendering/conversion.
+ * `anchor` is the epoch that offset 0 maps to: the relative origin (D) in
+ * relative mode, otherwise the resolved timeline start (for absolute offsets).
+ * @returns {{modo: string, origem: (number|null), unidade: string, anchor: (number|null)}}
+ */
+export function getActiveTimeContext() {
+    const cfg = getMapTemporalConfigSync();
+    const bounds = getControl('TemporalControl')?.getBounds?.() || null;
+    const startAnchor = bounds && Number.isFinite(bounds.inicio)
+        ? bounds.inicio
+        : (Number.isFinite(cfg.inicio) ? cfg.inicio : null);
+    const anchor = cfg.modo === TEMPORAL_MODES.RELATIVO
+        ? (Number.isFinite(cfg.origem) ? cfg.origem : startAnchor)
+        : startAnchor;
+    return { modo: cfg.modo, origem: cfg.origem, unidade: cfg.unidade, anchor };
+}
 
 /**
  * Builds the temporal validity section (start/end datetime).
@@ -41,15 +74,19 @@ export function createTemporalAttributesSection({ feature, featureType, selected
 
 /**
  * Presentation-only "Validade temporal" section (title + hint + start/end
- * datetime-local rows). Shared by the 2D feature panel and the 3D/360 marker
- * panels — each supplies only its own persistence callback.
+ * rows). Shared by the 2D feature panel and the 3D/360 marker panels — each
+ * supplies only its own persistence callback. The time context defaults to the
+ * active map (so 3D/360 callers need no extra wiring).
  * @param {Object} opts
  * @param {number} [opts.inicio] - Current temporalInicio (epoch ms).
  * @param {number} [opts.fim] - Current temporalFim (epoch ms).
  * @param {(prop: ('temporalInicio'|'temporalFim'), epoch: (number|null)) => void} opts.onChange
+ * @param {Object} [opts.timeContext] - Override the active time context (testing).
  * @returns {HTMLElement}
  */
-export function createTemporalValiditySection({ inicio, fim, onChange }) {
+export function createTemporalValiditySection({ inicio, fim, onChange, timeContext }) {
+    const ctx = timeContext || getActiveTimeContext();
+
     const section = document.createElement('div');
     section.className = 'temporal-attr-section';
 
@@ -63,28 +100,124 @@ export function createTemporalValiditySection({ inicio, fim, onChange }) {
     hint.textContent = 'Em branco = permanente (visível em qualquer instante).';
     section.appendChild(hint);
 
-    section.appendChild(buildDateRow('Início', inicio, (epoch) => onChange('temporalInicio', epoch)));
-    section.appendChild(buildDateRow('Fim', fim, (epoch) => onChange('temporalFim', epoch)));
+    section.appendChild(
+        buildTimeRow({ labelText: 'Início', epoch: inicio, timeContext: ctx, onChange: (epoch) => onChange('temporalInicio', epoch) })
+    );
+    section.appendChild(
+        buildTimeRow({ labelText: 'Fim', epoch: fim, timeContext: ctx, onChange: (epoch) => onChange('temporalFim', epoch) })
+    );
     return section;
 }
 
-function buildDateRow(labelText, epoch, onChange) {
+/**
+ * A labelled time row (label + swappable date/offset field).
+ * @param {{labelText: string, epoch: (number|undefined), onChange: (epoch:(number|null))=>void, timeContext: Object}} opts
+ * @returns {HTMLElement}
+ */
+function buildTimeRow({ labelText, epoch, onChange, timeContext }) {
     const row = document.createElement('div');
     row.className = 'temporal-attr-row';
 
     const label = document.createElement('label');
     label.className = 'temporal-attr-row__label';
     label.textContent = labelText;
+    row.appendChild(label);
 
+    row.appendChild(buildTimeField({ epoch, onChange, timeContext }));
+    return row;
+}
+
+/**
+ * The swappable time field. Relative mode: offset input only. Absolute mode:
+ * datetime-local by default with a ⇄ toggle to a unit-offset input (when an
+ * anchor exists). Always emits an epoch ms (or null) through onChange.
+ * @param {{epoch: (number|undefined), onChange: (epoch:(number|null))=>void, timeContext: Object}} opts
+ * @returns {HTMLElement}
+ */
+function buildTimeField({ epoch, onChange, timeContext }) {
+    const ctx = timeContext || {};
+    const isRelative = ctx.modo === TEMPORAL_MODES.RELATIVO;
+    const canOffset = Number.isFinite(ctx.anchor);
+
+    let current = Number.isFinite(epoch) ? epoch : null;
+    let offsetView = isRelative;
+
+    const field = document.createElement('div');
+    field.className = 'temporal-attr-row__field';
+
+    const emit = (value) => {
+        current = Number.isFinite(value) ? value : null;
+        onChange(current);
+    };
+
+    const render = () => {
+        field.replaceChildren();
+        field.appendChild(
+            offsetView ? buildOffsetInput(current, ctx, emit) : buildDatetimeInput(current, emit)
+        );
+        // Toggle only in absolute mode and only when offsets can be resolved.
+        if (!isRelative && canOffset) {
+            field.appendChild(
+                buildSwapBtn(offsetView, () => {
+                    offsetView = !offsetView;
+                    render();
+                })
+            );
+        }
+    };
+
+    render();
+    return field;
+}
+
+function buildDatetimeInput(epoch, emit) {
     const input = document.createElement('input');
     input.type = 'datetime-local';
     input.className = 'temporal-attr-row__input';
     input.value = Number.isFinite(epoch) ? epochToDatetimeLocal(epoch) : '';
-    input.addEventListener('change', () => onChange(datetimeLocalToEpoch(input.value)));
+    input.addEventListener('change', () => emit(datetimeLocalToEpoch(input.value)));
+    return input;
+}
 
-    row.appendChild(label);
-    row.appendChild(input);
-    return row;
+function buildOffsetInput(epoch, ctx, emit) {
+    const { unidade, anchor } = ctx;
+    const wrap = document.createElement('div');
+    wrap.className = 'temporal-attr-offset';
+
+    const prefix = document.createElement('span');
+    prefix.className = 'temporal-attr-offset__prefix';
+    prefix.textContent = `${unitLetter(unidade)}+`;
+    wrap.appendChild(prefix);
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = 'any';
+    input.className = 'temporal-attr-row__input temporal-attr-offset__input';
+    input.title = `Offset em ${unitLetter(unidade)} a partir da origem (use negativo para antes)`;
+    const off = epochToOffset(epoch, anchor, unidade);
+    input.value = off === null ? '' : String(Math.round(off * 100) / 100);
+    input.addEventListener('change', () => {
+        const raw = input.value.trim();
+        if (raw === '') {
+            emit(null);
+            return;
+        }
+        const n = Number(raw.replace(',', '.'));
+        emit(Number.isFinite(n) ? offsetToEpoch(n, anchor, unidade) : null);
+    });
+    wrap.appendChild(input);
+    return wrap;
+}
+
+function buildSwapBtn(offsetView, onToggle) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'temporal-attr-row__swap';
+    btn.textContent = '⇄';
+    btn.title = offsetView ? 'Usar data exata' : 'Usar offset na unidade';
+    btn.setAttribute('aria-label', btn.title);
+    btn.addEventListener('click', onToggle);
+    return btn;
 }
 
 /**
@@ -100,6 +233,8 @@ function buildDateRow(labelText, epoch, onChange) {
  */
 export function createTrajectorySection({ feature, featureType, map }) {
     if (!TRAJECTORY_FEATURE_TYPES.includes(featureType)) return null;
+
+    const timeContext = getActiveTimeContext();
 
     const section = document.createElement('div');
     section.className = 'temporal-attr-section';
@@ -158,18 +293,17 @@ export function createTrajectorySection({ feature, featureType, map }) {
         const fields = document.createElement('div');
         fields.className = 'temporal-trajectory-row__fields';
 
-        const timeInput = document.createElement('input');
-        timeInput.type = 'datetime-local';
-        timeInput.className = 'temporal-trajectory-row__time';
-        timeInput.value = Number.isFinite(kp.t) ? epochToDatetimeLocal(kp.t) : '';
-        timeInput.addEventListener('change', () => {
-            const epoch = datetimeLocalToEpoch(timeInput.value);
-            if (epoch === null) return;
-            kp.t = epoch; // mutate the shared keypoint object
-            persist();
-            renderList();
+        const timeField = buildTimeField({
+            epoch: kp.t,
+            timeContext,
+            onChange: (epoch) => {
+                if (epoch === null) return;
+                kp.t = epoch; // mutate the shared keypoint object
+                persist();
+                renderList();
+            },
         });
-        fields.appendChild(timeInput);
+        fields.appendChild(timeField);
 
         const coord = document.createElement('span');
         coord.className = 'temporal-trajectory-row__coord';

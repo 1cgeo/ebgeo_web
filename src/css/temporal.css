@@ -1,33 +1,50 @@
 /* Temporal Module — timeline bar + per-map settings modal */
 
-/* ===== Timeline bar (top of map) ===== */
+/* ===== Timeline bar (bottom of map — unified with the coordinates readout) ===== */
 
 .temporal-bar {
     position: fixed;
-    top: var(--space-4);
+    bottom: var(--space-3);
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(720px, calc(100vw - 2 * var(--space-4)));
 
-    /* Sit beside the search-bar group, above the toolbar row. */
-    left: calc(var(--sidebar-collapsed-width) + var(--space-4) + var(--search-bar-width) + var(--space-3));
-    right: var(--space-4);
-    max-width: 600px;
-    z-index: var(--z-search);
+    /* Below the sidebar (--z-sidebar: 30) and feature panel (--z-panel: 35) so an
+       open sidebar covers the bar, but above the map and toolbar. */
+    z-index: var(--z-controls);
     display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-1) var(--space-2);
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
     background: var(--surface, #fff);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
-    transition: left var(--transition-panel), opacity var(--transition-fast);
-}
-
-/* Shift right with the search bar when the sidebar/feature panel opens. */
-.temporal-bar[data-sidebar-state="expanded"] {
-    left: calc(var(--sidebar-panel-width) + var(--sidebar-collapsed-width) + var(--space-4) + var(--search-bar-width) + var(--space-3));
 }
 
 .temporal-bar[data-hidden="true"] {
+    display: none;
+}
+
+/* Top row: playback controls + timeline scrubber + actions. */
+.temporal-bar__main {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+}
+
+/* Bottom row: hosts the docked mouse-coordinates readout
+   (see .coordinates-control--embedded). Hidden when nothing is docked. */
+.temporal-bar__coords {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: var(--space-1);
+    border-top: 1px solid var(--border-color);
+}
+
+.temporal-bar__coords:empty {
     display: none;
 }
 
@@ -164,6 +181,24 @@
     pointer-events: none;
 }
 
+/* Sparse labels for interior ticks (unit value / relative offset). */
+.temporal-bar__axis {
+    position: relative;
+    height: 12px;
+}
+
+.temporal-bar__axis-label {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    font-size: 0.58rem;
+    line-height: 1;
+    color: var(--gray-500);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
 .temporal-bar__range {
     display: flex;
     justify-content: space-between;
@@ -220,6 +255,44 @@
     background: #fff;
     color: var(--gray-800);
     font-size: 0.78rem;
+}
+
+/* Swappable date/offset field (date input or offset input + ⇄ toggle). */
+.temporal-attr-row__field,
+.temporal-attr-offset {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.temporal-attr-offset__prefix {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--gray-700);
+    font-variant-numeric: tabular-nums;
+}
+
+.temporal-attr-row__swap {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background var(--transition-fast);
+}
+
+.temporal-attr-row__swap:hover {
+    background: var(--gray-200);
 }
 
 .temporal-attr-actions {
@@ -297,16 +370,6 @@
     gap: 2px;
 }
 
-.temporal-trajectory-row__time {
-    height: 30px;
-    padding: 0 var(--space-2);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    background: #fff;
-    color: var(--gray-800);
-    font-size: 0.75rem;
-}
-
 .temporal-trajectory-row__coord {
     font-size: 0.68rem;
     color: var(--gray-500);
@@ -355,7 +418,10 @@
 
 .trajectory-edit-toolbar {
     position: fixed;
-    bottom: calc(var(--space-6) + var(--safe-area-bottom, 0px));
+
+    /* Stack above the temporal bar (which publishes its height as a CSS var
+       while shown); falls back to the original offset when temporal is off. */
+    bottom: calc(var(--space-6) + var(--temporal-bar-height, 0px) + var(--safe-area-bottom, 0px));
     left: 50%;
     transform: translateX(-50%);
     z-index: var(--z-floating);
@@ -438,6 +504,30 @@
     font-size: 0.85rem;
 }
 
+/* Mode-conditional field groups (absolute dates vs relative offsets). */
+.temporal-settings-group {
+    display: none;
+}
+
+.temporal-settings-body[data-mode="absoluto"] .temporal-settings-group[data-when="absoluto"],
+.temporal-settings-body[data-mode="relativo"] .temporal-settings-group[data-when="relativo"] {
+    display: contents;
+}
+
+.temporal-settings__offset {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.temporal-settings__offset-prefix {
+    flex-shrink: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--gray-700);
+    font-variant-numeric: tabular-nums;
+}
+
 .temporal-settings-footer {
     display: flex;
     justify-content: flex-end;
@@ -517,13 +607,6 @@
 /* ===== Responsive ===== */
 
 @media (width <= 768px) {
-    .temporal-bar,
-    .temporal-bar[data-sidebar-state="expanded"] {
-        left: var(--space-2);
-        right: var(--space-2);
-        top: calc(var(--space-3) + var(--search-bar-height) + var(--space-2));
-    }
-
     .temporal-bar__speed {
         display: none;
     }

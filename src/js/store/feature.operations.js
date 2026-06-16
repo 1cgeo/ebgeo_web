@@ -599,6 +599,48 @@ export async function updateFeatureProperty(featureType, featureId, property, va
     return true;
 }
 
+/**
+ * Shifts every temporal timestamp on a map's features by `deltaMs`:
+ * `temporalInicio`, `temporalFim`, and each trajectory keypoint's `t`. Used when
+ * the relative-mode origin (D-Day) changes so features keep their D+N offset.
+ * Atomic (one transaction, one persist). Not undoable and not logged to the sync
+ * queue (offline no-op today); reverse it by re-setting the origin.
+ * @param {string|null} mapName - Target map (null = current).
+ * @param {number} deltaMs - Amount to add to each temporal timestamp.
+ * @returns {Promise<number>} Number of features changed.
+ */
+export async function shiftMapTemporalTimes(mapName, deltaMs) {
+    const targetMap = resolveMap(mapName);
+    if (!Number.isFinite(deltaMs) || deltaMs === 0) return 0;
+    if (guardWrite(GuardAction.UPDATE_FEATURE, 'shiftMapTemporalTimes', targetMap).blocked) return 0;
+
+    const currentMapData = await getMapDataCompat(targetMap);
+    let changed = 0;
+    for (const type of Object.keys(currentMapData.features)) {
+        for (const feature of currentMapData.features[type]) {
+            const p = feature.properties;
+            if (!p) continue;
+            let touched = false;
+            if (Number.isFinite(p.temporalInicio)) { p.temporalInicio += deltaMs; touched = true; }
+            if (Number.isFinite(p.temporalFim)) { p.temporalFim += deltaMs; touched = true; }
+            if (Array.isArray(p.trajetoria)) {
+                for (const kp of p.trajetoria) {
+                    if (kp && Number.isFinite(kp.t)) { kp.t += deltaMs; touched = true; }
+                }
+            }
+            if (touched) {
+                touchUpdatedTimestamp(feature);
+                changed++;
+            }
+        }
+    }
+
+    if (changed === 0) return 0;
+
+    await runTransaction(async () => () => updateMapDataCompat(targetMap, currentMapData));
+    return changed;
+}
+
 // ===== MOVE OPERATIONS =====
 
 /**

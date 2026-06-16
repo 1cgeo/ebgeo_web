@@ -13,6 +13,7 @@ export {
     createTemporalAttributesSection,
     createTemporalValiditySection,
     createTrajectorySection,
+    getActiveTimeContext,
 } from './temporal-attributes-section.js';
 export { createTrajectoryEditControl } from './trajectory-tool/trajectory-edit-control.js';
 export {

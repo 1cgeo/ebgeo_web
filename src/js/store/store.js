@@ -308,6 +308,7 @@ export {
     getCurrentMapFeatures,
     getFeatureById,
     updateFeatureProperty,
+    shiftMapTemporalTimes,
     moveFeaturesToMap,
     batchUpdateLOSFeatures,
     batchUpdateVisibilityFeatures,

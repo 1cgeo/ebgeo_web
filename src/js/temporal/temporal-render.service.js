@@ -17,7 +17,7 @@ import {
     invalidateFilterCache,
     updateAllLayerFilters,
 } from '../layers/visibility-filter.js';
-import { FEATURE_LAYER_IDS } from '../layers/layer.constants.js';
+import { FEATURE_LAYER_IDS, FEATURE_SOURCES } from '../layers/layer.constants.js';
 import { getStateManager } from '../store';
 import { TRAJECTORY_SOURCE_IDS } from './temporal.constants.js';
 import { normalizeTrajectory, resolveTrajectoryTarget } from './temporal-model.js';
@@ -210,6 +210,51 @@ export async function updateSourceFeatureProperty(map, sourceId, featureId, key,
     if (!feature) return;
     feature.properties[key] = value;
     source.setData(data);
+}
+
+/**
+ * Shifts every temporal timestamp on the live feature sources by `deltaMs`
+ * (`temporalInicio`, `temporalFim`, trajectory keypoint `t`), mirroring the store
+ * shift so the map reflects a changed relative origin without a full reload.
+ * @param {Object} map - MapLibre map instance.
+ * @param {number} deltaMs - Amount to add to each temporal timestamp.
+ * @returns {Promise<void>}
+ */
+export async function shiftSourcesTemporal(map, deltaMs) {
+    if (!map || !Number.isFinite(deltaMs) || deltaMs === 0) return;
+
+    for (const sourceId of Object.values(FEATURE_SOURCES)) {
+        let source;
+        try {
+            source = map.getSource(sourceId);
+        } catch {
+            source = null;
+        }
+        if (!source || typeof source.getData !== 'function') continue;
+
+        let data;
+        try {
+            data = await source.getData();
+        } catch {
+            continue;
+        }
+        if (!data || !Array.isArray(data.features) || data.features.length === 0) continue;
+
+        let changed = false;
+        for (const feature of data.features) {
+            const p = feature.properties;
+            if (!p) continue;
+            if (Number.isFinite(p.temporalInicio)) { p.temporalInicio += deltaMs; changed = true; }
+            if (Number.isFinite(p.temporalFim)) { p.temporalFim += deltaMs; changed = true; }
+            if (Array.isArray(p.trajetoria)) {
+                for (const kp of p.trajetoria) {
+                    if (kp && Number.isFinite(kp.t)) { kp.t += deltaMs; changed = true; }
+                }
+            }
+        }
+
+        if (changed) source.setData(data);
+    }
 }
 
 /**

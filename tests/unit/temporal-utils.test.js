@@ -12,7 +12,13 @@ import {
     formatInstant,
     computeTemporalExtent,
     resolveTimelineBounds,
+    unitLetter,
+    epochToOffset,
+    offsetToEpoch,
+    formatRelative,
+    formatTimelineLabel,
 } from '../../src/js/temporal/temporal.utils.js';
+import { TEMPORAL_MODES } from '../../src/js/temporal/temporal.constants.js';
 
 describe('unitToMs', () => {
     it('maps known units', () => {
@@ -155,6 +161,71 @@ describe('computeTemporalExtent', () => {
     });
     it('accepts bare property objects', () => {
         expect(computeTemporalExtent([{ temporalInicio: 10, temporalFim: 20 }])).toEqual({ min: 10, max: 20 });
+    });
+});
+
+describe('unitLetter', () => {
+    it('maps each unit to its military letter', () => {
+        expect(unitLetter('MINUTO')).toBe('M');
+        expect(unitLetter('HORA')).toBe('H');
+        expect(unitLetter('DIA')).toBe('D');
+        expect(unitLetter('SEMANA')).toBe('S');
+    });
+    it('falls back to HORA letter for unknown units', () => {
+        expect(unitLetter('XYZ')).toBe('H');
+        expect(unitLetter(undefined)).toBe('H');
+    });
+});
+
+describe('epochToOffset / offsetToEpoch', () => {
+    it('round-trips through an origin + unit', () => {
+        const origem = 1_700_000_000_000;
+        for (const n of [-3, 0, 5, 300, 5.3]) {
+            const epoch = offsetToEpoch(n, origem, 'HORA');
+            expect(epochToOffset(epoch, origem, 'HORA')).toBeCloseTo(n, 6);
+        }
+    });
+    it('computes offsets in the chosen unit', () => {
+        expect(offsetToEpoch(2, 0, 'DIA')).toBe(2 * 86_400_000);
+        expect(epochToOffset(2 * 86_400_000, 0, 'DIA')).toBe(2);
+    });
+    it('returns null on non-finite inputs', () => {
+        expect(epochToOffset(NaN, 0, 'HORA')).toBeNull();
+        expect(epochToOffset(100, null, 'HORA')).toBeNull();
+        expect(offsetToEpoch(NaN, 0, 'HORA')).toBeNull();
+        expect(offsetToEpoch(5, null, 'HORA')).toBeNull();
+    });
+});
+
+describe('formatRelative', () => {
+    it('formats offset 0 as the bare unit letter', () => {
+        expect(formatRelative(0, 0, 'DIA')).toBe('D');
+    });
+    it('formats positive/negative integer offsets', () => {
+        expect(formatRelative(300 * 86_400_000, 0, 'DIA')).toBe('D+300');
+        expect(formatRelative(-2 * 86_400_000, 0, 'DIA')).toBe('D-2');
+        expect(formatRelative(2 * 3_600_000, 0, 'HORA')).toBe('H+2');
+    });
+    it('formats fractional offsets with a pt-BR comma', () => {
+        expect(formatRelative(5.3 * 3_600_000, 0, 'HORA')).toBe('H+5,3');
+    });
+    it('returns em-dash when undeterminable', () => {
+        expect(formatRelative(NaN, 0, 'HORA')).toBe('—');
+        expect(formatRelative(100, null, 'HORA')).toBe('—');
+    });
+});
+
+describe('formatTimelineLabel', () => {
+    const epoch = new Date(2024, 0, 15, 14, 30).getTime();
+    it('uses relative offsets in relative mode with a finite origin', () => {
+        const origem = new Date(2024, 0, 10, 14, 30).getTime();
+        expect(formatTimelineLabel(epoch, { modo: TEMPORAL_MODES.RELATIVO, origem, unidade: 'DIA' })).toBe('D+5');
+    });
+    it('falls back to the absolute date in absolute mode', () => {
+        expect(formatTimelineLabel(epoch, { modo: TEMPORAL_MODES.ABSOLUTO, origem: null, unidade: 'DIA' })).toBe('15/01/2024');
+    });
+    it('falls back to absolute when relative origin is missing', () => {
+        expect(formatTimelineLabel(epoch, { modo: TEMPORAL_MODES.RELATIVO, origem: null, unidade: 'DIA' })).toBe('15/01/2024');
     });
 });
 

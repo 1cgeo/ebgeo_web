@@ -6,7 +6,13 @@
  * timestamp parsing (for imports) and pt-BR formatting. No DOM/store deps.
  */
 
-import { TEMPORAL_UNITS, DEFAULT_TEMPORAL_UNIT, MAX_TIMELINE_TICKS } from './temporal.constants.js';
+import {
+    TEMPORAL_UNITS,
+    TEMPORAL_UNIT_LETTERS,
+    TEMPORAL_MODES,
+    DEFAULT_TEMPORAL_UNIT,
+    MAX_TIMELINE_TICKS,
+} from './temporal.constants.js';
 
 /**
  * Length of a division unit in milliseconds.
@@ -149,6 +155,75 @@ export function formatInstant(epoch, unidade = DEFAULT_TEMPORAL_UNIT) {
     const date = `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
     const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
     return unidade === 'DIA' || unidade === 'SEMANA' ? date : `${date} ${time}`;
+}
+
+// ===== Relative-time (military D+N) display & conversion =====
+
+/**
+ * Letter prefix for a unit in relative mode (D/H/S/M). Falls back to the default unit.
+ * @param {string} unidade - Division unit.
+ * @returns {string}
+ */
+export function unitLetter(unidade) {
+    return TEMPORAL_UNIT_LETTERS[unidade] || TEMPORAL_UNIT_LETTERS[DEFAULT_TEMPORAL_UNIT];
+}
+
+/**
+ * Converts an epoch to a unit offset from an origin (`(epoch - origem) / unitMs`).
+ * @param {number} epoch - Timestamp (epoch ms).
+ * @param {number} origem - Origin/anchor (epoch ms).
+ * @param {string} unidade - Division unit.
+ * @returns {number|null} Offset in units, or null when either input is non-finite.
+ */
+export function epochToOffset(epoch, origem, unidade) {
+    if (!Number.isFinite(epoch) || !Number.isFinite(origem)) return null;
+    return (epoch - origem) / unitToMs(unidade);
+}
+
+/**
+ * Converts a unit offset back to an epoch (`origem + n * unitMs`).
+ * @param {number} n - Offset in units.
+ * @param {number} origem - Origin/anchor (epoch ms).
+ * @param {string} unidade - Division unit.
+ * @returns {number|null} Epoch ms, or null when either input is non-finite.
+ */
+export function offsetToEpoch(n, origem, unidade) {
+    if (!Number.isFinite(n) || !Number.isFinite(origem)) return null;
+    return origem + n * unitToMs(unidade);
+}
+
+/**
+ * Formats an instant as a relative military offset: "D", "D+5", "D-2", "D+5,3"
+ * (integer when whole; up to 2 decimals with pt-BR comma).
+ * @param {number} epoch - Timestamp (epoch ms).
+ * @param {number} origem - Origin/anchor (epoch ms, offset 0).
+ * @param {string} unidade - Division unit.
+ * @returns {string} pt-BR offset label (em-dash when undeterminable).
+ */
+export function formatRelative(epoch, origem, unidade) {
+    const raw = epochToOffset(epoch, origem, unidade);
+    if (raw === null) return '—';
+    const n = Math.round(raw * 100) / 100;
+    const letter = unitLetter(unidade);
+    if (n === 0) return letter;
+    const abs = Math.abs(n);
+    const num = Number.isInteger(abs) ? String(abs) : String(abs).replace('.', ',');
+    return `${letter}${n > 0 ? '+' : '-'}${num}`;
+}
+
+/**
+ * Formats a timeline instant for the active mode: relative offset (D+N) when the
+ * map is in relative mode with a finite origin, otherwise the absolute date/time.
+ * @param {number} epoch - Timestamp (epoch ms).
+ * @param {{modo: string, origem: (number|null), unidade: string}} ctx - Time context.
+ * @returns {string}
+ */
+export function formatTimelineLabel(epoch, ctx = {}) {
+    const { modo, origem, unidade } = ctx;
+    if (modo === TEMPORAL_MODES.RELATIVO && Number.isFinite(origem)) {
+        return formatRelative(epoch, origem, unidade);
+    }
+    return formatInstant(epoch, unidade);
 }
 
 /**

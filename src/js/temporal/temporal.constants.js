@@ -21,19 +21,38 @@ export const TEMPORAL_UNITS = {
 /** Ordered unit keys (coarsest navigation in the settings dropdown). */
 export const TEMPORAL_UNIT_KEYS = ['MINUTO', 'HORA', 'DIA', 'SEMANA'];
 
+/**
+ * Letter prefix for each unit in relative (military) mode: D-Day, H-Hour, etc.
+ * (e.g. DIA → "D" → D+5; HORA → "H" → H+2).
+ * @type {Object<string, string>}
+ */
+export const TEMPORAL_UNIT_LETTERS = {
+    MINUTO: 'M',
+    HORA: 'H',
+    DIA: 'D',
+    SEMANA: 'S',
+};
+
 /** Default division unit when a map enables temporal control. */
 export const DEFAULT_TEMPORAL_UNIT = 'HORA';
+
+/** Timeline reference modes: real calendar dates vs military relative offsets (D+N). */
+export const TEMPORAL_MODES = Object.freeze({ ABSOLUTO: 'absoluto', RELATIVO: 'relativo' });
 
 /**
  * Default per-map temporal configuration (stored in appStore as `temporal_<map>`).
  * `inicio`/`fim` are epoch ms bounds of the whole map timeline (null = auto from features).
- * @type {{ativo: boolean, unidade: string, inicio: (number|null), fim: (number|null)}}
+ * `modo` selects absolute (real dates) vs relative (D+N) display/entry; `origem` is the
+ * relative anchor (epoch of "D", offset 0), null until set.
+ * @type {{ativo: boolean, unidade: string, inicio: (number|null), fim: (number|null), modo: string, origem: (number|null)}}
  */
 export const DEFAULT_TEMPORAL_CONFIG = Object.freeze({
     ativo: false,
     unidade: DEFAULT_TEMPORAL_UNIT,
     inicio: null,
     fim: null,
+    modo: TEMPORAL_MODES.ABSOLUTO,
+    origem: null,
 });
 
 /** Feature types that support a movement trajectory (interpolated keypoints). */

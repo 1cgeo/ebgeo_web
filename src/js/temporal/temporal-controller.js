@@ -21,11 +21,11 @@ import {
     getCurrentMapNameSync,
     getCurrentMapFeatures,
     getMapTemporalConfig,
-    getStateManager,
+    shiftMapTemporalTimes,
 } from '../store';
 import { DEFAULT_TEMPORAL_SPEED } from './temporal.constants.js';
 import { resolveTimelineBounds, clampCursor, unitToMs } from './temporal.utils.js';
-import { applyTemporalState } from './temporal-render.service.js';
+import { applyTemporalState, shiftSourcesTemporal } from './temporal-render.service.js';
 import { TemporalTimelineBar } from './temporal-timeline-bar.js';
 
 /** Max frame delta (s) applied during playback, so a backgrounded/refocused tab
@@ -37,11 +37,16 @@ export class TemporalController {
      * @param {Object} deps
      * @param {Object} deps.map - MapLibre map instance.
      * @param {Object} deps.eventBus - Event bus.
+     * @param {Object} [deps.uiManager] - UI manager (selection highlight refresh).
+     * @param {Object} [deps.coordinatesControl] - MouseCoordinatesControl to dock into the bar.
      */
-    constructor({ map, eventBus, uiManager }) {
+    constructor({ map, eventBus, uiManager, coordinatesControl }) {
         this._map = map;
         this._eventBus = eventBus;
         this._uiManager = uiManager || null;
+        // The mouse-coordinates readout is docked into the bar while temporal is
+        // enabled, so the bar replaces the floating coordinates panel.
+        this._coordinatesControl = coordinatesControl || null;
 
         this._mapName = null;
         this._enabled = false;
@@ -84,10 +89,7 @@ export class TemporalController {
             if (!mapName || mapName === getCurrentMapNameSync()) this._syncForActiveMap();
         });
         subscribe(this, this._eventBus, EventTypes.LAYERS_CHANGED, () => this._syncForActiveMap());
-        // Keep the bar beside the search bar as the sidebar/feature panel opens.
-        subscribe(this, this._eventBus, EventTypes.UI_LAYOUT_CHANGED, () => this._updateSidebarState());
 
-        this._updateSidebarState();
         this._syncForActiveMap();
         return this;
     }
@@ -112,6 +114,19 @@ export class TemporalController {
     /** Re-reads config/features for the active map and re-applies render state. */
     sync() {
         return this._syncForActiveMap();
+    }
+
+    /**
+     * Shifts all feature temporal timestamps (store + live sources) by `deltaMs`,
+     * keeping their relative offset when the relative origin (D-Day) changes. Does
+     * NOT re-sync — the caller persists the new config right after, which triggers
+     * a single authoritative sync with the shifted data and new bounds.
+     * @param {number} deltaMs
+     */
+    async shiftFeatureTimes(deltaMs) {
+        if (!Number.isFinite(deltaMs) || deltaMs === 0) return;
+        await shiftMapTemporalTimes(this._mapName, deltaMs);
+        await shiftSourcesTemporal(this._map, deltaMs);
     }
 
     /**
@@ -147,6 +162,8 @@ export class TemporalController {
             this._stopPlayback();
             this._revealHidden = false;
             this._bar.setReveal(false);
+            // Return the coordinates readout to its floating position, then hide the bar.
+            this._dockCoordinates(false);
             this._bar.setVisible(false);
             await applyTemporalState(this._map, { enabled: false, cursor: this._cursor });
             return;
@@ -177,10 +194,17 @@ export class TemporalController {
             bounds.fim
         );
 
+        // Relative mode anchors offsets at `origem`; fall back to the timeline
+        // start when no D-Day is set yet, so labels still read D+N.
+        const origem = Number.isFinite(config.origem) ? config.origem : bounds.inicio;
+        this._bar.setTimeContext({ modo: config.modo, origem });
         this._bar.setBounds(bounds.inicio, bounds.fim, config.unidade);
         this._bar.setCursor(this._cursor);
         this._bar.setSpeed(this._speed);
         this._bar.setReveal(this._revealHidden);
+        // Dock the coordinates readout (replacing the floating panel) BEFORE
+        // showing the bar, so its measured height includes the coords row.
+        this._dockCoordinates(true);
         this._bar.setVisible(true);
         await applyTemporalState(this._map, { enabled: true, cursor: this._cursor, reveal: this._revealHidden });
         this._uiManager?.updateSelectionHighlight();
@@ -211,10 +235,16 @@ export class TemporalController {
         this._scheduleApply();
     }
 
-    _updateSidebarState() {
-        const sm = getStateManager();
-        const expanded = !!(sm?.getUnsafe?.('sidebar.expanded') || sm?.getUnsafe?.('ui.featurePanelOpen'));
-        this._bar.setSidebarState(expanded);
+    /**
+     * Docks the mouse-coordinates readout into the bar's bottom row (so the bar
+     * replaces the floating coordinates panel) or returns it to floating.
+     * @param {boolean} dock
+     */
+    _dockCoordinates(dock) {
+        const ctrl = this._coordinatesControl;
+        if (!ctrl) return;
+        if (dock) ctrl.attachTo?.(this._bar.getCoordsSlot());
+        else ctrl.detach?.();
     }
 
     // ===== Playback =====
@@ -283,6 +313,9 @@ export class TemporalController {
             cancelAnimationFrame(this._applyRafId);
             this._applyRafId = null;
         }
+        // Detach the coordinates readout before destroying the bar, otherwise it
+        // would be torn down together with the bar's DOM subtree.
+        this._dockCoordinates(false);
         cleanup(this);
         this._bar.destroy();
     }

@@ -16,12 +16,14 @@ import {
 import {
     TEMPORAL_SPEED_OPTIONS,
     TEMPORAL_UNITS,
+    TEMPORAL_MODES,
 } from './temporal.constants.js';
 import {
-    formatInstant,
     cursorToFraction,
     fractionToCursor,
     buildTicks,
+    formatTimelineLabel,
+    formatRelative,
 } from './temporal.utils.js';
 
 const ICONS = {
@@ -46,10 +48,12 @@ export class TemporalTimelineBar {
     constructor(callbacks = {}) {
         this._cb = callbacks;
         this._root = null;
+        this._coordsSlot = null;
         this._track = null;
         this._progress = null;
         this._handle = null;
         this._ticksEl = null;
+        this._axisEl = null;
         this._keypointsEl = null;
         this._timeLabel = null;
         this._rangeStart = null;
@@ -61,6 +65,8 @@ export class TemporalTimelineBar {
         this._fim = 1;
         this._unidade = 'HORA';
         this._cursor = 0;
+        this._modo = TEMPORAL_MODES.ABSOLUTO;
+        this._origem = null;
 
         this._dragging = false;        // scrubbing the cursor
 
@@ -79,35 +85,41 @@ export class TemporalTimelineBar {
         root.setAttribute('aria-label', 'Controle de linha do tempo');
 
         root.innerHTML = `
-            <div class="temporal-bar__controls">
-                <button type="button" class="temporal-bar__btn temporal-bar__play" title="Reproduzir" aria-label="Reproduzir">${ICONS.play}</button>
-                <select class="temporal-bar__speed" title="Velocidade de reprodução" aria-label="Velocidade de reprodução">
-                    ${TEMPORAL_SPEED_OPTIONS.map((s) => `<option value="${s}">${s}x</option>`).join('')}
-                </select>
-            </div>
-            <div class="temporal-bar__timeline">
-                <div class="temporal-bar__time" aria-live="polite">—</div>
-                <div class="temporal-bar__track" tabindex="0" role="slider" aria-label="Cursor temporal">
-                    <div class="temporal-bar__ticks"></div>
-                    <div class="temporal-bar__progress"></div>
-                    <div class="temporal-bar__handle"></div>
+            <div class="temporal-bar__main">
+                <div class="temporal-bar__controls">
+                    <button type="button" class="temporal-bar__btn temporal-bar__play" title="Reproduzir" aria-label="Reproduzir">${ICONS.play}</button>
+                    <select class="temporal-bar__speed" title="Velocidade de reprodução" aria-label="Velocidade de reprodução">
+                        ${TEMPORAL_SPEED_OPTIONS.map((s) => `<option value="${s}">${s}x</option>`).join('')}
+                    </select>
                 </div>
-                <div class="temporal-bar__range">
-                    <span class="temporal-bar__range-start">—</span>
-                    <span class="temporal-bar__range-end">—</span>
+                <div class="temporal-bar__timeline">
+                    <div class="temporal-bar__time" aria-live="polite">—</div>
+                    <div class="temporal-bar__track" tabindex="0" role="slider" aria-label="Cursor temporal">
+                        <div class="temporal-bar__ticks"></div>
+                        <div class="temporal-bar__progress"></div>
+                        <div class="temporal-bar__handle"></div>
+                    </div>
+                    <div class="temporal-bar__axis"></div>
+                    <div class="temporal-bar__range">
+                        <span class="temporal-bar__range-start">—</span>
+                        <span class="temporal-bar__range-end">—</span>
+                    </div>
+                </div>
+                <div class="temporal-bar__actions">
+                    <button type="button" class="temporal-bar__btn temporal-bar__reveal" title="Mostrar feições ocultas (edição)" aria-label="Mostrar feições ocultas" aria-pressed="false">${ICONS.eyeOff}</button>
+                    <button type="button" class="temporal-bar__btn temporal-bar__settings" title="Configurações temporais" aria-label="Configurações temporais">${ICONS.settings}</button>
                 </div>
             </div>
-            <div class="temporal-bar__actions">
-                <button type="button" class="temporal-bar__btn temporal-bar__reveal" title="Mostrar feições ocultas (edição)" aria-label="Mostrar feições ocultas" aria-pressed="false">${ICONS.eyeOff}</button>
-                <button type="button" class="temporal-bar__btn temporal-bar__settings" title="Configurações temporais" aria-label="Configurações temporais">${ICONS.settings}</button>
-            </div>
+            <div class="temporal-bar__coords"></div>
         `;
 
         this._root = root;
+        this._coordsSlot = root.querySelector('.temporal-bar__coords');
         this._track = root.querySelector('.temporal-bar__track');
         this._progress = root.querySelector('.temporal-bar__progress');
         this._handle = root.querySelector('.temporal-bar__handle');
         this._ticksEl = root.querySelector('.temporal-bar__ticks');
+        this._axisEl = root.querySelector('.temporal-bar__axis');
         this._timeLabel = root.querySelector('.temporal-bar__time');
         this._rangeStart = root.querySelector('.temporal-bar__range-start');
         this._rangeEnd = root.querySelector('.temporal-bar__range-end');
@@ -182,12 +194,23 @@ export class TemporalTimelineBar {
 
     /** Shows or hides the entire bar. */
     setVisible(visible) {
-        if (this._root) this._root.dataset.hidden = visible ? 'false' : 'true';
+        if (!this._root) return;
+        const wasVisible = this._root.dataset.hidden === 'false';
+        this._root.dataset.hidden = visible ? 'false' : 'true';
+        // Publish the bar's measured height so bottom-anchored overlays (the
+        // trajectory edit toolbar) can stack above it. Only on the actual
+        // visibility transition, to avoid forced reflows on every sync.
+        if (visible && !wasVisible) {
+            const h = Math.round(this._root.getBoundingClientRect().height);
+            document.documentElement.style.setProperty('--temporal-bar-height', `${h}px`);
+        } else if (!visible && wasVisible) {
+            document.documentElement.style.removeProperty('--temporal-bar-height');
+        }
     }
 
-    /** Shifts the bar to stay beside the search bar when the sidebar/panel opens. */
-    setSidebarState(expanded) {
-        if (this._root) this._root.dataset.sidebarState = expanded ? 'expanded' : 'collapsed';
+    /** @returns {HTMLElement|null} The bottom-row slot that hosts the docked coordinates readout. */
+    getCoordsSlot() {
+        return this._coordsSlot;
     }
 
     /** Reflects reveal-hidden mode on the eye button. */
@@ -200,15 +223,37 @@ export class TemporalTimelineBar {
         btn.title = on ? 'Ocultar feições fora do intervalo' : 'Mostrar feições ocultas (edição)';
     }
 
+    /**
+     * Sets the display mode: absolute real dates vs relative military offsets
+     * (D+N). Re-renders the labels/ticks with the new context.
+     * @param {{modo: string, origem: (number|null)}} ctx
+     */
+    setTimeContext({ modo, origem } = {}) {
+        this._modo = modo || TEMPORAL_MODES.ABSOLUTO;
+        this._origem = origem;
+        this._renderLabels();
+    }
+
+    /** @returns {{modo: string, origem: (number|null), unidade: string}} */
+    _ctx() {
+        return { modo: this._modo, origem: this._origem, unidade: this._unidade };
+    }
+
+    /** Re-renders range/axis/cursor labels for the current bounds + context. */
+    _renderLabels() {
+        const ctx = this._ctx();
+        this._renderTicks();
+        if (this._rangeStart) this._rangeStart.textContent = formatTimelineLabel(this._inicio, ctx);
+        if (this._rangeEnd) this._rangeEnd.textContent = formatTimelineLabel(this._fim, ctx);
+        this.setCursor(this._cursor);
+    }
+
     /** Sets the timeline range + unit and redraws ticks/labels. */
     setBounds(inicio, fim, unidade) {
         this._inicio = inicio;
         this._fim = fim;
         this._unidade = unidade;
-        this._renderTicks();
-        if (this._rangeStart) this._rangeStart.textContent = formatInstant(inicio, unidade);
-        if (this._rangeEnd) this._rangeEnd.textContent = formatInstant(fim, unidade);
-        this.setCursor(this._cursor);
+        this._renderLabels();
     }
 
     /** Positions the handle/progress and updates the time label. */
@@ -218,10 +263,11 @@ export class TemporalTimelineBar {
         const pct = `${(frac * 100).toFixed(3)}%`;
         if (this._handle) this._handle.style.left = pct;
         if (this._progress) this._progress.style.width = pct;
-        if (this._timeLabel) this._timeLabel.textContent = formatInstant(cursor, this._unidade);
+        const label = formatTimelineLabel(cursor, this._ctx());
+        if (this._timeLabel) this._timeLabel.textContent = label;
         if (this._track) {
             this._track.setAttribute('aria-valuenow', String(Math.round(cursor)));
-            this._track.setAttribute('aria-valuetext', formatInstant(cursor, this._unidade));
+            this._track.setAttribute('aria-valuetext', label);
         }
     }
 
@@ -241,6 +287,7 @@ export class TemporalTimelineBar {
     _renderTicks() {
         if (!this._ticksEl) return;
         this._ticksEl.textContent = '';
+        if (this._axisEl) this._axisEl.textContent = '';
         const ticks = buildTicks(this._inicio, this._fim, this._unidade);
         if (ticks.length === 0) return;
 
@@ -253,10 +300,44 @@ export class TemporalTimelineBar {
             frag.appendChild(mark);
         }
         this._ticksEl.appendChild(frag);
+
+        this._renderAxisLabels(ticks);
+    }
+
+    /** Labels a sparse subset of interior ticks so the unit/offset is readable. */
+    _renderAxisLabels(ticks) {
+        if (!this._axisEl || ticks.length === 0) return;
+        const stride = Math.max(2, Math.ceil(ticks.length / 7));
+        const frag = document.createDocumentFragment();
+        // Skip first/last — the range row already shows the exact bounds.
+        for (let i = stride; i < ticks.length - 1; i += stride) {
+            const t = ticks[i];
+            const label = document.createElement('div');
+            label.className = 'temporal-bar__axis-label';
+            const frac = cursorToFraction(t, this._inicio, this._fim);
+            label.style.left = `${(frac * 100).toFixed(3)}%`;
+            label.textContent = this._tickText(t);
+            frag.appendChild(label);
+        }
+        this._axisEl.appendChild(frag);
+    }
+
+    /** Compact tick label: relative offset (D+5) or a short absolute time/date. */
+    _tickText(epoch) {
+        if (this._modo === TEMPORAL_MODES.RELATIVO && Number.isFinite(this._origem)) {
+            return formatRelative(epoch, this._origem, this._unidade);
+        }
+        const d = new Date(epoch);
+        const p = (n) => String(n).padStart(2, '0');
+        if (this._unidade === 'DIA' || this._unidade === 'SEMANA') {
+            return `${p(d.getDate())}/${p(d.getMonth() + 1)}`;
+        }
+        return `${p(d.getHours())}:${p(d.getMinutes())}`;
     }
 
     destroy() {
         cleanup(this);
+        document.documentElement.style.removeProperty('--temporal-bar-height');
         removeElement(this._root);
         this._root = null;
     }

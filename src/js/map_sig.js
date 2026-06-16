@@ -566,9 +566,16 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     });
     bottomControlsControl.init(document.body);
 
-    // ===== TEMPORAL CONTROL (per-map timeline bar at top of map) =====
+    // ===== TEMPORAL CONTROL (per-map timeline bar at bottom of map) =====
+    // Docks the mouse-coordinates readout into itself while enabled, replacing
+    // the floating coordinates panel.
     const temporalController = createTemporalController(
-        { map: map, eventBus: getEventBus(), uiManager: uiManager },
+        {
+            map: map,
+            eventBus: getEventBus(),
+            uiManager: uiManager,
+            coordinatesControl: mouseCoordinatesControl,
+        },
         document.body
     );
     const trajectoryEditControl = createTrajectoryEditControl(map);

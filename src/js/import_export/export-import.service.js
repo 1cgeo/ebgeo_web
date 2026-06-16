@@ -27,6 +27,8 @@ import {
     setCesium3dDataForImport,
     getStreetview360DataForExport,
     setStreetview360DataForImport,
+    getMapTemporalConfig,
+    setMapTemporalConfig,
     getBriefingsForExport,
     importBriefings,
     getCustomIconsForExport,
@@ -363,6 +365,7 @@ export class ExportImportService {
                 layers: {},
                 cesium3d: {},
                 streetview360: {},
+                temporal: {},
                 briefings: [],
             };
 
@@ -618,6 +621,9 @@ export class ExportImportService {
                 // Import street view 360 data additively
                 await this._importMappedData(data.streetview360, setStreetview360DataForImport, mapNameMapping, '360 data');
 
+                // Import per-map temporal config additively
+                await this._importMappedData(data.temporal, setMapTemporalConfig, mapNameMapping, 'temporal config');
+
                 // Import briefings (additive import - no overwrite)
                 await this._importBriefings(data.briefings, false);
 
@@ -646,6 +652,9 @@ export class ExportImportService {
 
                 // Import street view 360 data directly (normal import)
                 await this._importMappedData(data.streetview360, setStreetview360DataForImport, null, '360 data');
+
+                // Import per-map temporal config directly (normal import)
+                await this._importMappedData(data.temporal, setMapTemporalConfig, null, 'temporal config');
 
                 // Import briefings (normal import - overwrite if same ID)
                 await this._importBriefings(data.briefings, true);
@@ -1018,6 +1027,8 @@ export class ExportImportService {
             { key: 'layers', fn: () => getLayers(mapName), check: (v) => v?.length > 0 },
             { key: 'cesium3d', fn: () => getCesium3dDataForExport(mapName), check: (v) => !!v },
             { key: 'streetview360', fn: () => getStreetview360DataForExport(mapName), check: (v) => !!v },
+            // Per-map temporal config (modo/origem/unidade/bounds) so relative-time maps round-trip.
+            { key: 'temporal', fn: () => getMapTemporalConfig(mapName), check: (v) => v && v.ativo === true },
         ];
 
         for (const { key, fn, check, transform } of tasks) {
