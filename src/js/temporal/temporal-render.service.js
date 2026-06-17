@@ -37,6 +37,8 @@ const OPACITY_PROPS_BY_TYPE = {
 };
 /** Cache of each layer's original opacity paint value (`${layerId}|${prop}`). */
 const originalOpacity = new Map();
+/** Whether the dim paint override is currently applied to the layers. */
+let dimApplied = false;
 
 /**
  * Reveal mode: instead of hiding out-of-window features, render them dimmed so
@@ -48,19 +50,24 @@ const originalOpacity = new Map();
  */
 export function applyRevealDim(map, cursor, reveal) {
     if (!map) return;
-    const dimCase =
-        reveal && Number.isFinite(cursor)
-            ? [
-                'case',
-                [
-                    'all',
-                    ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], cursor],
-                    ['>=', ['coalesce', ['get', 'temporalFim'], MAX_TS], cursor],
-                ],
-                1,
-                REVEAL_DIM,
-            ]
-            : null;
+    const wantDim = reveal && Number.isFinite(cursor);
+    // Hot-path guard: reveal mode is off (the playback default) and nothing is
+    // currently dimmed, so there is nothing to restore — skip the full layer
+    // sweep that would otherwise run get/setPaintProperty on every frame.
+    if (!wantDim && !dimApplied) return;
+
+    const dimCase = wantDim
+        ? [
+            'case',
+            [
+                'all',
+                ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], cursor],
+                ['>=', ['coalesce', ['get', 'temporalFim'], MAX_TS], cursor],
+            ],
+            1,
+            REVEAL_DIM,
+        ]
+        : null;
 
     for (const layerId of FEATURE_LAYER_IDS) {
         let layer;
@@ -90,11 +97,36 @@ export function applyRevealDim(map, cursor, reveal) {
             }
         }
     }
+    dimApplied = wantDim;
+}
+
+/**
+ * Source IDs known to currently hold ≥1 trajectory-capable feature. While this
+ * is non-null, playback frames only query these sources instead of every moving
+ * source. `null` means "unknown" — the next pass rescans all sources and rebuilds
+ * the list. Reset via resetTrajectoryCache() whenever the feature set may have
+ * changed (map switch, config change, trajectory edit — all of which resync).
+ * @type {string[]|null}
+ */
+let activeTrajectorySources = null;
+
+/**
+ * Forces the next updateTrajectoryPositions() to rescan every moving source and
+ * rebuild the active-source list. Called by the controller on every resync, so
+ * newly added/removed trajectories are picked up.
+ */
+export function resetTrajectoryCache() {
+    activeTrajectorySources = null;
 }
 
 /**
  * Recomputes displayed coordinates for trajectory features in the moving
  * sources (points / military_symbols / coordination_measures).
+ *
+ * During playback this runs every frame, so it avoids the expensive async
+ * `source.getData()` round-trip for sources with no trajectory features: a full
+ * rescan records which sources actually carry trajectories, and subsequent
+ * frames touch only those (commonly none → the loop is a no-op).
  *
  * @param {Object} map - MapLibre map instance.
  * @param {number|null} cursor - Cursor (epoch ms), or null to restore home positions.
@@ -103,9 +135,14 @@ export function applyRevealDim(map, cursor, reveal) {
 export async function updateTrajectoryPositions(map, cursor) {
     if (!map) return;
 
-    const displaced = new Map(); // featureId -> [lng, lat] for selection-box sync
+    const rescan = activeTrajectorySources === null;
+    const sourceIds = rescan ? TRAJECTORY_SOURCE_IDS : activeTrajectorySources;
+    if (sourceIds.length === 0) return; // no moving features — nothing to recompute
 
-    for (const sourceId of TRAJECTORY_SOURCE_IDS) {
+    const displaced = new Map(); // featureId -> [lng, lat] for selection-box sync
+    const nextActive = rescan ? [] : null;
+
+    for (const sourceId of sourceIds) {
         let source;
         try {
             source = map.getSource(sourceId);
@@ -123,12 +160,14 @@ export async function updateTrajectoryPositions(map, cursor) {
         if (!data || !Array.isArray(data.features) || data.features.length === 0) continue;
 
         let changed = false;
+        let hasTrajectory = false;
         for (const feature of data.features) {
             const props = feature.properties;
             if (!props || feature.geometry?.type !== 'Point') continue;
 
             // Stash the authoring (home) position the first time we displace a feature.
             const hasUsableTrajectory = normalizeTrajectory(props.trajetoria).length >= 2;
+            if (hasUsableTrajectory) hasTrajectory = true;
             if (hasUsableTrajectory && !Array.isArray(props._temporalHome) && Array.isArray(feature.geometry.coordinates)) {
                 props._temporalHome = feature.geometry.coordinates.slice();
             }
@@ -147,10 +186,13 @@ export async function updateTrajectoryPositions(map, cursor) {
             }
         }
 
+        if (rescan && hasTrajectory) nextActive.push(sourceId);
         if (changed) {
             source.setData(data);
         }
     }
+
+    if (rescan) activeTrajectorySources = nextActive;
 
     syncSelectionGeometry(displaced);
 }

@@ -25,7 +25,7 @@ import {
 } from '../store';
 import { DEFAULT_TEMPORAL_SPEED } from './temporal.constants.js';
 import { resolveTimelineBounds, clampCursor, unitToMs } from './temporal.utils.js';
-import { applyTemporalState, shiftSourcesTemporal } from './temporal-render.service.js';
+import { applyTemporalState, shiftSourcesTemporal, resetTrajectoryCache } from './temporal-render.service.js';
 import { TemporalTimelineBar } from './temporal-timeline-bar.js';
 
 /** Max frame delta (s) applied during playback, so a backgrounded/refocused tab
@@ -58,6 +58,10 @@ export class TemporalController {
         this._rafId = null;
         this._lastFrameTs = null;
         this._applyRafId = null;
+        // Guards against stacking async applies: while one apply is in flight,
+        // later frames set _applyPending instead of starting a concurrent apply.
+        this._applyInFlight = false;
+        this._applyPending = false;
         this._destroyed = false;
         this._syncToken = 0;
         this._revealHidden = false;
@@ -152,6 +156,10 @@ export class TemporalController {
         const token = ++this._syncToken;
         const mapName = getCurrentMapNameSync();
         this._mapName = mapName;
+        // The feature set may have changed (map switch, config change, trajectory
+        // edit) — force the next render pass to rescan which sources actually
+        // carry trajectories before playback starts reusing the cached list.
+        resetTrajectoryCache();
 
         const config = await getMapTemporalConfig(mapName);
         if (token !== this._syncToken) return;
@@ -218,14 +226,37 @@ export class TemporalController {
     // ===== Render scheduling (coalesced to one apply per frame) =====
 
     _scheduleApply() {
-        if (this._applyRafId || this._destroyed) return;
+        if (this._destroyed) return;
+        // An apply is mid-flight (its async getData/setData hasn't settled): record
+        // that another is wanted and let the in-flight one re-run on completion with
+        // the latest cursor, rather than stacking concurrent applies on the sources.
+        if (this._applyInFlight) {
+            this._applyPending = true;
+            return;
+        }
+        if (this._applyRafId) return;
         this._applyRafId = requestAnimationFrame(() => {
             this._applyRafId = null;
-            if (this._destroyed) return;
-            applyTemporalState(this._map, { enabled: this._enabled, cursor: this._cursor, reveal: this._revealHidden })
-                .then(() => this._uiManager?.updateSelectionHighlight());
-            this._eventBus.emit(EventTypes.TEMPORAL_CURSOR_CHANGED, { cursor: this._cursor });
+            this._runApply();
         });
+    }
+
+    /** Runs one temporal apply, then re-runs once if a frame arrived meanwhile. */
+    _runApply() {
+        if (this._destroyed) return;
+        this._applyInFlight = true;
+        this._applyPending = false;
+        const cursor = this._cursor;
+        applyTemporalState(this._map, { enabled: this._enabled, cursor, reveal: this._revealHidden })
+            .then(() => this._uiManager?.updateSelectionHighlight())
+            .finally(() => {
+                this._applyInFlight = false;
+                if (this._destroyed) return;
+                // Trailing edge: coalesce all frames that landed during the apply
+                // into a single follow-up at the newest cursor.
+                if (this._applyPending) this._runApply();
+            });
+        this._eventBus.emit(EventTypes.TEMPORAL_CURSOR_CHANGED, { cursor });
     }
 
     /** Toggles "reveal hidden" mode: out-of-window features render dimmed but editable. */
