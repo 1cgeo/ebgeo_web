@@ -23,7 +23,7 @@ import {
     getMapTemporalConfig,
     shiftMapTemporalTimes,
 } from '../store';
-import { DEFAULT_TEMPORAL_SPEED } from './temporal.constants.js';
+import { DEFAULT_TEMPORAL_SPEED, TEMPORAL_RENDER_SUBSTEPS } from './temporal.constants.js';
 import { resolveTimelineBounds, clampCursor, unitToMs, quantizeCursor } from './temporal.utils.js';
 import { applyTemporalState, shiftSourcesTemporal, resetTrajectoryCache } from './temporal-render.service.js';
 import { TemporalTimelineBar } from './temporal-timeline-bar.js';
@@ -260,7 +260,8 @@ export class TemporalController {
     _filterWindow(cursor) {
         if (!this._bounds || !this._config) return { start: cursor, end: cursor };
         if (cursor >= this._bounds.fim) return { start: this._bounds.fim, end: this._bounds.fim };
-        const step = unitToMs(this._config.unidade);
+        const substeps = TEMPORAL_RENDER_SUBSTEPS > 0 ? TEMPORAL_RENDER_SUBSTEPS : 1;
+        const step = unitToMs(this._config.unidade) / substeps;
         const start = quantizeCursor(cursor, step, this._bounds.inicio);
         return { start, end: start + step };
     }

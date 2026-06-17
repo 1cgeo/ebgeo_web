@@ -79,3 +79,14 @@ export const DEFAULT_TEMPORAL_SPEED = 1;
 
 /** Max number of tick marks rendered on the scrubber (density cap). */
 export const MAX_TIMELINE_TICKS = 240;
+
+/**
+ * How many show/hide steps each timeline unit is divided into during playback.
+ * Show/hide (the layer visibility filters) only recomputes when the cursor
+ * crosses one of these sub-steps, so this trades update granularity for cost:
+ * 1 = step by whole unit (coarsest, cheapest); 2 = half-unit steps (features
+ * appear/disappear within half a unit of their real time, ~2 filter rebuilds per
+ * unit at speed 1). Trajectory movement always uses the raw continuous cursor and
+ * is unaffected. Must be a positive integer.
+ */
+export const TEMPORAL_RENDER_SUBSTEPS = 2;
