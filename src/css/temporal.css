@@ -340,6 +340,21 @@
     margin-bottom: var(--space-2);
 }
 
+.temporal-auto-binding {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.78rem;
+    color: var(--gray-700);
+    padding: 2px 0;
+    cursor: pointer;
+}
+
+.temporal-auto-binding input {
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
 .temporal-trajectory-list {
     display: flex;
     flex-direction: column;

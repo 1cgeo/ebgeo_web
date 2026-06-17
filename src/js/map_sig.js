@@ -33,6 +33,7 @@ import { TerrainControl, AnalysisLayersManager, DataLayersManager } from './terr
 import { BottomControlsControl } from './bottom-controls';
 import { createTemporalController } from './temporal/temporal-controller.js';
 import { createTrajectoryEditControl } from './temporal/trajectory-tool/trajectory-edit-control.js';
+import { createTemporalDerivationService } from './temporal/temporal-derivation.service.js';
 import config from './config.js';
 import { getRepository } from './store/repositories/index.js';
 import { getAtlasTerrainExaggeration } from './store/atlas/atlas.entity.js';
@@ -579,6 +580,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         document.body
     );
     const trajectoryEditControl = createTrajectoryEditControl(map, toolManager);
+    createTemporalDerivationService({ map, eventBus: getEventBus() });
 
     // ===== BASE LAYER SELECTOR (Thumbnail-based layer switcher) =====
     const baseLayerSelectorControl = new BaseLayerSelectorControl({

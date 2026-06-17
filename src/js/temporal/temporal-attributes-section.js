@@ -24,6 +24,7 @@ import {
     offsetToEpoch,
     unitLetter,
     formatTimelineLabel,
+    formatDTG,
 } from './temporal.utils.js';
 import { normalizeTrajectory, trajectoryStats } from './temporal-model.js';
 import {
@@ -68,6 +69,9 @@ export function createTemporalAttributesSection({ feature, featureType, selected
             const value = Number.isFinite(epoch) ? epoch : null;
             control?.updateFeaturesProperty?.(selectedFeatures, prop, value);
             updateFeatureProperty(featureType, feature.properties.id, prop, value);
+            if (feature.properties) feature.properties[prop] = value;
+            // Keep a linked DTG/GDH amplifier in sync with the temporal window.
+            deriveDtgFields(feature, featureType);
             getControl('TemporalControl')?.sync();
         },
     });
@@ -234,6 +238,92 @@ function formatSpeed(meters, durationMs) {
     if (!(durationMs > 0) || !(meters > 0)) return null;
     const kmh = (meters / (durationMs / 1000)) * 3.6;
     return `${kmh.toFixed(1).replace('.', ',')} km/h`;
+}
+
+/** Registry name of the symbol control that owns each trajectory-capable type. */
+const SYMBOL_CONTROL_BY_TYPE = {
+    military_symbol: 'AddMilitarySymbolControl',
+    coordination_measure: 'AddCoordinationMeasureControl',
+};
+
+/** Writes a property to the live symbol source (regenerating) and the store. */
+function persistSymbolProperty(feature, featureType, prop, value) {
+    getControl(SYMBOL_CONTROL_BY_TYPE[featureType])?.updateFeaturesProperty?.([feature], prop, value);
+    updateFeatureProperty(featureType, feature.properties.id, prop, value);
+}
+
+/**
+ * Derives the DTG / GDH amplifier(s) from the feature's temporal window when the
+ * `autoDtg` binding is on: military `dateTimeGroup`, or coordination `gdhIni`/`gdhFim`.
+ */
+function deriveDtgFields(feature, featureType) {
+    const p = feature.properties || {};
+    if (p.autoDtg !== true) return;
+    if (featureType === 'military_symbol') {
+        if (Number.isFinite(p.temporalInicio)) {
+            persistSymbolProperty(feature, featureType, 'dateTimeGroup', formatDTG(p.temporalInicio, 'military'));
+        }
+    } else if (featureType === 'coordination_measure') {
+        if (Number.isFinite(p.temporalInicio)) {
+            persistSymbolProperty(feature, featureType, 'gdhIni', formatDTG(p.temporalInicio, 'coordination'));
+        }
+        if (Number.isFinite(p.temporalFim)) {
+            persistSymbolProperty(feature, featureType, 'gdhFim', formatDTG(p.temporalFim, 'coordination'));
+        }
+    }
+}
+
+/**
+ * Builds the "Vínculos automáticos" toggles for symbol types: opt-in derivation of
+ * direction/speed (dynamic, from the trajectory at the cursor) and DTG/GDH (from the
+ * temporal window). Non-destructive — off by default.
+ * @returns {HTMLElement|null}
+ */
+function buildAutoBindings(feature, featureType) {
+    const defs = featureType === 'military_symbol'
+        ? [
+            ['autoDirection', 'Direção automática (azimute da trajetória)'],
+            ['autoSpeed', 'Velocidade automática (da trajetória)'],
+            ['autoDtg', 'GDH automático (da validade temporal)'],
+        ]
+        : featureType === 'coordination_measure'
+            ? [['autoDtg', 'GDH Início/Fim automático (da validade temporal)']]
+            : [];
+    if (defs.length === 0) return null;
+
+    const section = document.createElement('div');
+    section.className = 'temporal-attr-section';
+
+    const title = document.createElement('div');
+    title.className = 'temporal-attr-section__title';
+    title.textContent = 'Vínculos automáticos';
+    section.appendChild(title);
+
+    const hint = document.createElement('div');
+    hint.className = 'temporal-attr-section__hint';
+    hint.textContent = 'Derivados da trajetória/tempo durante a reprodução. Editar o campo manualmente substitui o valor.';
+    section.appendChild(hint);
+
+    for (const [key, label] of defs) {
+        const row = document.createElement('label');
+        row.className = 'temporal-auto-binding';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = feature.properties?.[key] === true;
+        cb.addEventListener('change', () => {
+            persistSymbolProperty(feature, featureType, key, cb.checked);
+            if (key === 'autoDtg' && cb.checked) deriveDtgFields(feature, featureType);
+            getControl('TemporalDerivation')?.refreshEnabled?.();
+        });
+
+        const span = document.createElement('span');
+        span.textContent = label;
+
+        row.append(cb, span);
+        section.appendChild(row);
+    }
+    return section;
 }
 
 /**
@@ -408,6 +498,10 @@ export function createTrajectorySection({ feature, featureType, map }) {
     // Show this feature's trajectory on the map (path + draggable point markers)
     // while it's selected, with the list as the onChange target.
     getControl('TrajectoryEditControl')?.show(feature, { onChange: renderList });
+
+    // Auto-binding toggles (direction/speed/DTG) for symbol types.
+    const bindings = buildAutoBindings(feature, featureType);
+    if (bindings) section.appendChild(bindings);
 
     return section;
 }
