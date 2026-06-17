@@ -53,6 +53,7 @@ const VERTEX_LABEL_LAYER = 'trajectory-edit-vertex-label-layer';
 export class TrajectoryEditControl {
     constructor() {
         this._map = null;
+        this._toolManager = null;
         this._feature = null;
         this._featureType = null;
         this._onChange = null;
@@ -86,12 +87,24 @@ export class TrajectoryEditControl {
         this._performPreview = this._performPreview.bind(this);
     }
 
-    onAdd(map) {
+    onAdd(map, toolManager = null) {
         this._map = map;
+        this._toolManager = toolManager;
         const bus = getEventBus();
         if (bus) {
             // Clear the trajectory display when the feature panel closes (deselect).
             this._unsubscribers.push(bus.on(EventTypes.FEATURE_PANEL_CLOSED, () => this.hide()));
+        }
+        // Mutual exclusivity with tools: activating any tool/viewer stops trajectory
+        // editing (and entering add mode deactivates the active tool — see startAdding).
+        if (toolManager?.on) {
+            const onToolActivated = () => this.hide();
+            toolManager.on('toolActivated', onToolActivated);
+            toolManager.on('viewerActivated', onToolActivated);
+            this._unsubscribers.push(() => {
+                toolManager.off('toolActivated', onToolActivated);
+                toolManager.off('viewerActivated', onToolActivated);
+            });
         }
         return null;
     }
@@ -170,6 +183,8 @@ export class TrajectoryEditControl {
     /** Enters append mode for the currently-shown feature. */
     startAdding() {
         if (!this._feature || this._adding) return;
+        // Trajectory editing and tools are mutually exclusive: turn off any active tool.
+        this._toolManager?.deactivateCurrentTool?.();
         this._adding = true;
         this._addSnapshot = deepClone(this._feature.properties?.trajetoria || []);
         this._lastAdded = null;
@@ -639,11 +654,12 @@ export class TrajectoryEditControl {
 /**
  * Creates, attaches and registers the trajectory edit control.
  * @param {Object} map - MapLibre map instance.
+ * @param {Object} [toolManager] - ToolManager, for mutual exclusivity with tools.
  * @returns {TrajectoryEditControl}
  */
-export function createTrajectoryEditControl(map) {
+export function createTrajectoryEditControl(map, toolManager) {
     const control = new TrajectoryEditControl();
-    control.onAdd(map);
+    control.onAdd(map, toolManager);
     registerControl('TrajectoryEditControl', control);
     return control;
 }

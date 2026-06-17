@@ -578,7 +578,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         },
         document.body
     );
-    const trajectoryEditControl = createTrajectoryEditControl(map);
+    const trajectoryEditControl = createTrajectoryEditControl(map, toolManager);
 
     // ===== BASE LAYER SELECTOR (Thumbnail-based layer switcher) =====
     const baseLayerSelectorControl = new BaseLayerSelectorControl({
