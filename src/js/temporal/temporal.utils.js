@@ -246,6 +246,30 @@ export function formatTimelineLabel(epoch, ctx = {}) {
     return formatInstant(epoch, unidade);
 }
 
+/** pt-BR 3-letter uppercase month abbreviations for DTG formatting. */
+const DTG_MONTHS_PT = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+
+/**
+ * Formats an epoch as a military Date-Time Group (GDH) in Zulu (UTC), for the
+ * auto-fill of symbol DTG amplifiers from the temporal window.
+ *  - 'military' style → `DDHHMM<MON><YY>`   e.g. `201400NOV24` (dateTimeGroup / W)
+ *  - 'coordination' style → `DDHHMMZ <MON>`  e.g. `121400Z JUN` (gdhIni/gdhFim / W,W1)
+ * @param {number} epoch - Timestamp (epoch ms).
+ * @param {('military'|'coordination')} [style='military'] - Output format.
+ * @returns {string} GDH string (UTC), or '' when the epoch is non-finite.
+ */
+export function formatDTG(epoch, style = 'military') {
+    if (!Number.isFinite(epoch)) return '';
+    const d = new Date(epoch);
+    const p2 = (n) => String(n).padStart(2, '0');
+    const dd = p2(d.getUTCDate());
+    const hh = p2(d.getUTCHours());
+    const mm = p2(d.getUTCMinutes());
+    const mon = DTG_MONTHS_PT[d.getUTCMonth()];
+    if (style === 'coordination') return `${dd}${hh}${mm}Z ${mon}`;
+    return `${dd}${hh}${mm}${mon}${p2(d.getUTCFullYear() % 100)}`;
+}
+
 /**
  * Scans features for the min/max temporal extent (temporalInicio/Fim + trajectory).
  * @param {Array<Object>} featureList - GeoJSON features (or bare property objects).

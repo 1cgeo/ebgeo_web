@@ -8,6 +8,9 @@ import {
     resolveTrajectoryTarget,
     mergeTemporalWindows,
     trajectoryStats,
+    headingAt,
+    speedAt,
+    averageSpeed,
 } from '../../src/js/temporal/temporal-model.js';
 
 // ============================================================================
@@ -195,6 +198,70 @@ describe('trajectoryStats', () => {
             { t: 1, lng: 0, lat: 1 },
         ]);
         expect(stats.distanceMeters).toBeCloseTo(111195, -2); // within ~100 m
+    });
+});
+
+// ============================================================================
+// headingAt / speedAt / averageSpeed
+// ============================================================================
+
+describe('headingAt', () => {
+    it('returns null for fewer than 2 keypoints', () => {
+        expect(headingAt([], 0)).toBeNull();
+        expect(headingAt([{ t: 0, lng: 0, lat: 0 }], 0)).toBeNull();
+    });
+
+    it('reads due-north and due-east segment bearings', () => {
+        expect(headingAt([{ t: 0, lng: 0, lat: 0 }, { t: 100, lng: 0, lat: 1 }], 50)).toBeCloseTo(0, 5);
+        expect(headingAt([{ t: 0, lng: 0, lat: 0 }, { t: 100, lng: 1, lat: 0 }], 50)).toBeCloseTo(90, 1);
+    });
+
+    it('uses the segment the cursor falls in on a multi-segment path', () => {
+        const traj = [
+            { t: 0, lng: 0, lat: 0 },
+            { t: 100, lng: 0, lat: 1 },   // north
+            { t: 200, lng: 1, lat: 1 },   // east
+        ];
+        expect(headingAt(traj, 50)).toBeCloseTo(0, 5);    // first segment → north
+        expect(headingAt(traj, 150)).toBeCloseTo(90, 1);  // second segment → east
+    });
+
+    it('clamps to the first/last segment outside the time span', () => {
+        const traj = [{ t: 100, lng: 0, lat: 0 }, { t: 200, lng: 0, lat: 1 }];
+        expect(headingAt(traj, 0)).toBeCloseTo(0, 5);   // before first → first segment
+        expect(headingAt(traj, 999)).toBeCloseTo(0, 5); // after last → last segment
+    });
+});
+
+describe('speedAt', () => {
+    it('returns null for fewer than 2 keypoints', () => {
+        expect(speedAt([{ t: 0, lng: 0, lat: 0 }], 0)).toBeNull();
+    });
+
+    it('computes the bracketing segment speed (m/s)', () => {
+        // 1° latitude (~111195 m) over 1000 ms = 1 s → ~111195 m/s.
+        expect(speedAt([{ t: 0, lng: 0, lat: 0 }, { t: 1000, lng: 0, lat: 1 }], 500)).toBeCloseTo(111195, -2);
+    });
+
+    it('returns 0 for a zero-duration segment (no divide-by-zero)', () => {
+        expect(speedAt([{ t: 100, lng: 0, lat: 0 }, { t: 100, lng: 0, lat: 1 }], 100)).toBe(0);
+    });
+});
+
+describe('averageSpeed', () => {
+    it('is total distance / total duration', () => {
+        const traj = [
+            { t: 0, lng: 0, lat: 0 },
+            { t: 1000, lng: 0, lat: 1 },
+            { t: 3000, lng: 0, lat: 2 },
+        ];
+        // ~222390 m over 3 s.
+        expect(averageSpeed(traj)).toBeCloseTo(222390 / 3, -1);
+    });
+
+    it('is 0 for a degenerate trajectory', () => {
+        expect(averageSpeed([])).toBe(0);
+        expect(averageSpeed([{ t: 5, lng: 0, lat: 0 }, { t: 5, lng: 0, lat: 1 }])).toBe(0);
     });
 });
 

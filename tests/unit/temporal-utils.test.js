@@ -18,8 +18,33 @@ import {
     offsetToEpoch,
     formatRelative,
     formatTimelineLabel,
+    formatDTG,
 } from '../../src/js/temporal/temporal.utils.js';
 import { TEMPORAL_MODES } from '../../src/js/temporal/temporal.constants.js';
+
+describe('formatDTG', () => {
+    it('formats a military GDH in Zulu (DDHHMM<MON><YY>)', () => {
+        const epoch = Date.UTC(2024, 10, 20, 14, 0); // 2024-11-20 14:00 UTC
+        expect(formatDTG(epoch, 'military')).toBe('201400NOV24');
+        expect(formatDTG(epoch)).toBe('201400NOV24'); // military is the default
+    });
+
+    it('formats a coordination GDH (DDHHMMZ <MON>)', () => {
+        const epoch = Date.UTC(2024, 5, 12, 14, 0); // 2024-06-12 14:00 UTC
+        expect(formatDTG(epoch, 'coordination')).toBe('121400Z JUN');
+    });
+
+    it('uses UTC, not local time', () => {
+        // 23:30Z on the 1st stays the 1st/23:30 regardless of the test runner zone.
+        const epoch = Date.UTC(2024, 0, 1, 23, 30);
+        expect(formatDTG(epoch, 'military')).toBe('012330JAN24');
+    });
+
+    it('returns empty string for a non-finite epoch', () => {
+        expect(formatDTG(NaN)).toBe('');
+        expect(formatDTG(undefined)).toBe('');
+    });
+});
 
 describe('unitToMs', () => {
     it('maps known units', () => {

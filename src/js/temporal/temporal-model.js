@@ -116,6 +116,80 @@ export function trajectoryStats(keypoints) {
     return { count, durationMs: pts[count - 1].t - pts[0].t, distanceMeters };
 }
 
+/** Bearing (azimuth degrees, 0–360) from keypoint a to b ({lng,lat}). */
+function segmentBearing(a, b) {
+    const toRad = (d) => (d * Math.PI) / 180;
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const y = Math.sin(dLng) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/** Index of the segment [i, i+1] whose span brackets the cursor (sorted pts), or -1. */
+function segmentIndexAt(pts, cursor) {
+    if (pts.length < 2) return -1;
+    if (!Number.isFinite(cursor) || cursor <= pts[0].t) return 0;
+    if (cursor >= pts[pts.length - 1].t) return pts.length - 2;
+    let lo = 0;
+    let hi = pts.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (pts[mid].t <= cursor) lo = mid;
+        else hi = mid - 1;
+    }
+    return Math.min(lo, pts.length - 2);
+}
+
+/**
+ * Heading (azimuth 0–360) of travel along the trajectory at the cursor: the
+ * bearing of the segment the cursor falls in (clamped to the first/last segment
+ * outside the span). Null when there are fewer than 2 valid keypoints. Used to
+ * auto-drive a moving symbol's direction-of-movement modifier.
+ *
+ * @param {Array<{t:number, lng:number, lat:number}>} trajetoria
+ * @param {number} cursor - Timeline cursor (epoch ms).
+ * @returns {number|null} Azimuth in degrees [0, 360), or null.
+ */
+export function headingAt(trajetoria, cursor) {
+    const pts = normalizeTrajectory(trajetoria);
+    const i = segmentIndexAt(pts, cursor);
+    if (i < 0) return null;
+    return segmentBearing(pts[i], pts[i + 1]);
+}
+
+/**
+ * Speed (metres per second) along the trajectory at the cursor: the bracketing
+ * segment's length / its duration. 0 for a zero-duration segment; null when there
+ * are fewer than 2 valid keypoints.
+ *
+ * @param {Array<{t:number, lng:number, lat:number}>} trajetoria
+ * @param {number} cursor - Timeline cursor (epoch ms).
+ * @returns {number|null} Speed in m/s, or null.
+ */
+export function speedAt(trajetoria, cursor) {
+    const pts = normalizeTrajectory(trajetoria);
+    const i = segmentIndexAt(pts, cursor);
+    if (i < 0) return null;
+    const dtSec = (pts[i + 1].t - pts[i].t) / 1000;
+    if (!(dtSec > 0)) return 0;
+    return haversineMeters(pts[i], pts[i + 1]) / dtSec;
+}
+
+/**
+ * Average speed (m/s) over the whole trajectory (total distance / total duration).
+ * 0 when the trajectory has no duration or fewer than 2 keypoints.
+ *
+ * @param {Array<{t:number, lng:number, lat:number}>} trajetoria
+ * @returns {number} Speed in m/s.
+ */
+export function averageSpeed(trajetoria) {
+    const s = trajectoryStats(trajetoria);
+    if (!(s.durationMs > 0)) return 0;
+    return s.distanceMeters / (s.durationMs / 1000);
+}
+
 /**
  * Thins a trajectory so consecutive keypoints are at least `resolutionMs` apart in
  * time, always keeping the first and last keypoint. Used on import to drop
