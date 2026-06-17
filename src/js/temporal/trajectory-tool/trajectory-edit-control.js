@@ -1,15 +1,18 @@
 // Path: js/temporal/trajectory-tool/trajectory-edit-control.js
 
 /**
- * @fileoverview Trajectory editor for the selected feature.
+ * @fileoverview Trajectory editor for the selected feature, modelled on the line
+ * tool's vertex editing.
  *
  * When a trajectory-capable feature (point / military_symbol /
- * coordination_measure) is selected, its trajectory is shown on the map: a
- * connecting path plus a numbered, DRAGGABLE marker per keypoint (drag to move a
- * point's position). "Adicionar no mapa" enters add mode — each map click
- * appends a keypoint at the current timeline instant, with an on-screen
- * Concluir/Cancelar toolbar. Per-point time editing and the waypoint list live
- * in the feature's attribute panel (the `onChange` callback keeps it in sync).
+ * coordination_measure) is selected, its trajectory is shown as a connecting path
+ * plus edit handles in a GeoJSON layer: a numbered VERTEX handle per keypoint and
+ * a MIDPOINT handle per segment. Drag a vertex to move it (keeps its time); drag a
+ * midpoint to INSERT a keypoint (time = average of its neighbours); right-click or
+ * long-press a vertex to remove it. "Adicionar no mapa" enters append mode — each
+ * map click appends a keypoint at the current timeline instant. Per-point time
+ * editing and the waypoint list live in the feature's attribute panel (the
+ * `onChange` callback keeps it in sync).
  */
 
 import { showToast, showSuccess } from '@utils/index.js';
@@ -22,14 +25,27 @@ import {
     getMapTemporalConfigSync,
 } from '@store';
 import { EventTypes } from '@events/event_types.js';
+import { getSnappingService } from '@js/snapping/snapping.service.js';
+import { isTouchDevice } from '@utils/pointer-utils.js';
+import { setupVertexRemoveLongPress } from '@js/draw_tools/drawing-touch-helpers.js';
 import { normalizeTrajectory } from '../temporal-model.js';
 import { unitToMs } from '../temporal.utils.js';
 import { TRAJECTORY_TYPE_TO_SOURCE } from '../temporal.constants.js';
 import { updateSourceFeatureProperty } from '../temporal-render.service.js';
-import { buildPathCollection } from './trajectory-edit-geometry.js';
+import {
+    buildPathCollection,
+    buildHandleCollection,
+    moveKeypoint,
+    insertKeypointAtSegment,
+    removeKeypoint,
+} from './trajectory-edit-geometry.js';
 
 const PATH_SOURCE = 'trajectory-edit-path';
+const HANDLE_SOURCE = 'trajectory-edit-handles';
 const PATH_LAYER = 'trajectory-edit-path-layer';
+const MIDPOINT_LAYER = 'trajectory-edit-midpoint-layer';
+const VERTEX_LAYER = 'trajectory-edit-vertex-layer';
+const VERTEX_LABEL_LAYER = 'trajectory-edit-vertex-label-layer';
 
 export class TrajectoryEditControl {
     constructor() {
@@ -38,7 +54,6 @@ export class TrajectoryEditControl {
         this._featureType = null;
         this._onChange = null;
 
-        this._markers = [];
         this._adding = false;
         this._addSnapshot = null;
         this._lastAdded = null;
@@ -46,9 +61,25 @@ export class TrajectoryEditControl {
         this._countEl = null;
         this._unsubscribers = [];
 
+        // Handle drag state (vertex move / midpoint insert).
+        this._editing = false;
+        this._dragType = null;   // 'vertex' | 'midpoint'
+        this._dragIndex = null;
+        this._dragMoved = false;
+        this._previewPos = null; // [lng, lat]
+        this._rafId = null;
+        this._pendingPreview = false;
+        this._cleanupLongPress = null;
+
         this._onClick = this._onClick.bind(this);
-        this._onContextMenu = this._onContextMenu.bind(this);
         this._onKeyDown = this._onKeyDown.bind(this);
+        this._onEditMouseDown = this._onEditMouseDown.bind(this);
+        this._onEditMouseMove = this._onEditMouseMove.bind(this);
+        this._onEditMouseUp = this._onEditMouseUp.bind(this);
+        this._onHandleEnter = this._onHandleEnter.bind(this);
+        this._onHandleLeave = this._onHandleLeave.bind(this);
+        this._onCanvasContextMenu = this._onCanvasContextMenu.bind(this);
+        this._performPreview = this._performPreview.bind(this);
     }
 
     onAdd(map) {
@@ -68,7 +99,7 @@ export class TrajectoryEditControl {
         this._map = null;
     }
 
-    /** @returns {boolean} Whether add mode is active. */
+    /** @returns {boolean} Whether append mode is active. */
     isAdding() {
         return this._adding;
     }
@@ -76,7 +107,7 @@ export class TrajectoryEditControl {
     // ===== Display (shown while the feature is selected) =====
 
     /**
-     * Shows the trajectory of a feature (path + draggable markers). Replaces any
+     * Shows the trajectory of a feature (path + edit handles). Replaces any
      * previously shown feature.
      * @param {Object} feature - The selected trajectory feature.
      * @param {{onChange?: function}} [options] - onChange fires after edits (panel sync).
@@ -92,28 +123,29 @@ export class TrajectoryEditControl {
         this._feature = feature;
         this._featureType = feature.properties.source;
 
-        this._ensurePathLayer();
+        this._ensureLayers();
         this._renderAll();
+        this._setupEditListeners();
     }
 
-    /** Re-renders the path + markers for the currently shown feature (after a panel edit). */
+    /** Re-renders the path + handles for the currently shown feature (after a panel edit). */
     refreshDisplay() {
         if (this._feature) this._renderAll();
     }
 
-    /** Clears the trajectory display and exits add mode. */
+    /** Clears the trajectory display and exits add/edit mode. */
     hide() {
         this._exitAdding(false);
-        this._clearMarkers();
-        this._removePathLayer();
+        this._teardownEditListeners();
+        this._removeLayers();
         this._feature = null;
         this._featureType = null;
         this._onChange = null;
     }
 
-    // ===== Add mode (point by point) =====
+    // ===== Append mode (point by point at the end) =====
 
-    /** Enters add mode for the currently-shown feature. */
+    /** Enters append mode for the currently-shown feature. */
     startAdding() {
         if (!this._feature || this._adding) return;
         this._adding = true;
@@ -122,7 +154,6 @@ export class TrajectoryEditControl {
 
         this._buildToolbar();
         this._map.on('click', this._onClick);
-        this._map.on('contextmenu', this._onContextMenu);
         document.addEventListener('keydown', this._onKeyDown, true);
         this._map.getCanvas().style.cursor = 'crosshair';
         showToast('Clique no mapa para adicionar pontos à trajetória. "Concluir" salva.', 'info');
@@ -139,8 +170,8 @@ export class TrajectoryEditControl {
         this._onChange?.();
     }
 
-    _onContextMenu(e) {
-        e?.preventDefault?.();
+    /** Removes the most recently appended keypoint (append mode right-click / undo). */
+    _removeLastAdded() {
         const arr = this._feature?.properties?.trajetoria;
         if (!Array.isArray(arr) || arr.length === 0) return;
         const i = this._lastAdded ? arr.indexOf(this._lastAdded) : arr.length - 1;
@@ -166,7 +197,6 @@ export class TrajectoryEditControl {
         this._adding = false;
 
         this._map.off('click', this._onClick);
-        this._map.off('contextmenu', this._onContextMenu);
         document.removeEventListener('keydown', this._onKeyDown, true);
         this._map.getCanvas().style.cursor = '';
         this._removeToolbar();
@@ -199,13 +229,205 @@ export class TrajectoryEditControl {
         return last ? last.t + step : Date.now();
     }
 
-    // ===== Rendering =====
+    // ===== Handle editing (move / insert / remove) =====
+
+    _setupEditListeners() {
+        const map = this._map;
+        if (!map) return;
+        map.on('mousedown', this._onEditMouseDown);
+        map.on('mousemove', this._onEditMouseMove);
+        map.on('mouseup', this._onEditMouseUp);
+        map.on('mouseenter', VERTEX_LAYER, this._onHandleEnter);
+        map.on('mouseenter', MIDPOINT_LAYER, this._onHandleEnter);
+        map.on('mouseleave', VERTEX_LAYER, this._onHandleLeave);
+        map.on('mouseleave', MIDPOINT_LAYER, this._onHandleLeave);
+        map.getCanvas().addEventListener('contextmenu', this._onCanvasContextMenu, true);
+
+        if (isTouchDevice()) {
+            this._cleanupLongPress = setupVertexRemoveLongPress(map, {
+                handleLayerId: VERTEX_LAYER,
+                onVertexRemove: (handle) => this._commitRemove(handle?.properties?.index),
+            });
+        }
+    }
+
+    _teardownEditListeners() {
+        const map = this._map;
+        this._cancelPreview();
+        if (!map) return;
+        map.off('mousedown', this._onEditMouseDown);
+        map.off('mousemove', this._onEditMouseMove);
+        map.off('mouseup', this._onEditMouseUp);
+        map.off('mouseenter', VERTEX_LAYER, this._onHandleEnter);
+        map.off('mouseenter', MIDPOINT_LAYER, this._onHandleEnter);
+        map.off('mouseleave', VERTEX_LAYER, this._onHandleLeave);
+        map.off('mouseleave', MIDPOINT_LAYER, this._onHandleLeave);
+        map.getCanvas().removeEventListener('contextmenu', this._onCanvasContextMenu, true);
+        map.dragPan.enable();
+        map.getCanvas().style.cursor = '';
+        if (this._cleanupLongPress) {
+            this._cleanupLongPress();
+            this._cleanupLongPress = null;
+        }
+        this._resetDrag();
+    }
+
+    _onHandleEnter() {
+        if (this._adding || this._editing) return;
+        this._map.getCanvas().style.cursor = 'pointer';
+    }
+
+    _onHandleLeave() {
+        if (this._adding || this._editing) return;
+        this._map.getCanvas().style.cursor = '';
+    }
+
+    _onEditMouseDown(e) {
+        if (this._adding) return;
+        if (e.originalEvent && e.originalEvent.button === 2) return; // right-click → contextmenu
+
+        const handle = this._queryHandle(e.point);
+        if (!handle) return;
+
+        this._editing = true;
+        this._dragType = handle.properties.handleType;
+        this._dragIndex = handle.properties.index;
+        this._dragMoved = false;
+        this._previewPos = handle.geometry.coordinates.slice();
+        this._map.dragPan.disable();
+        this._map.getCanvas().style.cursor = 'grabbing';
+        e.preventDefault();
+    }
+
+    _onEditMouseMove(e) {
+        if (!this._editing) return;
+        const excludeId = this._feature?.properties?.id;
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this._map, e.point, e.lngLat, excludeId) ?? e.lngLat;
+        this._previewPos = [snap.lng, snap.lat];
+        this._dragMoved = true;
+
+        if (snap.snapped) snapping.showIndicator(this._map, snap, snap.snapType);
+        else snapping?.hideIndicator(this._map);
+
+        if (!this._pendingPreview) {
+            this._pendingPreview = true;
+            this._rafId = requestAnimationFrame(this._performPreview);
+        }
+    }
+
+    _performPreview() {
+        this._pendingPreview = false;
+        this._rafId = null;
+        if (!this._editing || !this._previewPos) return;
+        const preview = this._applyDrag(this._dragType, this._dragIndex, this._previewPos);
+        if (!preview) return;
+        this._map.getSource(PATH_SOURCE)?.setData(buildPathCollection(preview));
+        this._map.getSource(HANDLE_SOURCE)?.setData(buildHandleCollection(preview));
+    }
+
+    _onEditMouseUp() {
+        if (!this._editing) return;
+        const type = this._dragType;
+        const index = this._dragIndex;
+        const pos = this._previewPos;
+        const moved = this._dragMoved;
+
+        getSnappingService()?.hideIndicator(this._map);
+        this._map.dragPan.enable();
+        this._map.getCanvas().style.cursor = '';
+        this._resetDrag();
+
+        if (!pos) return;
+        // A vertex needs an actual drag to move; a midpoint commits on click or drag
+        // (clicking a midpoint splits the segment at its centre).
+        if (type === 'vertex' && !moved) {
+            this._renderAll(); // discard any preview, restore the real positions
+            return;
+        }
+        const next = this._applyDrag(type, index, pos);
+        if (!next) {
+            this._renderAll();
+            return;
+        }
+        this._setTrajectory(next);
+        this._renderAll();
+        this._persist();
+        this._onChange?.();
+    }
+
+    /** Pure preview/commit transform for a drag (no side effects). */
+    _applyDrag(type, index, [lng, lat]) {
+        const traj = this._feature?.properties?.trajetoria;
+        return type === 'midpoint'
+            ? insertKeypointAtSegment(traj, index, lng, lat)
+            : moveKeypoint(traj, index, lng, lat);
+    }
+
+    /** Removes the keypoint at `index` (right-click / long-press), then persists. */
+    _commitRemove(index) {
+        const next = removeKeypoint(this._feature?.properties?.trajetoria, index);
+        if (!next) return;
+        this._setTrajectory(next);
+        this._renderAll();
+        this._persist();
+        this._onChange?.();
+    }
+
+    _onCanvasContextMenu(e) {
+        if (!this._feature) return;
+        if (this._adding) {
+            e.preventDefault();
+            this._removeLastAdded();
+            return;
+        }
+        const canvas = this._map.getCanvas();
+        const rect = canvas.getBoundingClientRect();
+        const point = [e.clientX - rect.left, e.clientY - rect.top];
+        const handles = this._map.queryRenderedFeatures(point, { layers: [VERTEX_LAYER] });
+        const vertex = handles.find((f) => f.properties?.handleType === 'vertex');
+        if (!vertex) return; // let the app context menu show
+        e.preventDefault();
+        e.stopPropagation();
+        this._commitRemove(vertex.properties.index);
+    }
+
+    _queryHandle(point) {
+        // Vertex layer sits above the midpoint layer, so an overlapping vertex wins.
+        const handles = this._map.queryRenderedFeatures(point, { layers: [VERTEX_LAYER, MIDPOINT_LAYER] });
+        return handles.find((f) => f.properties?.role === 'handle') || null;
+    }
+
+    _resetDrag() {
+        this._editing = false;
+        this._dragType = null;
+        this._dragIndex = null;
+        this._dragMoved = false;
+        this._previewPos = null;
+    }
+
+    _cancelPreview() {
+        if (this._rafId) {
+            cancelAnimationFrame(this._rafId);
+            this._rafId = null;
+        }
+        this._pendingPreview = false;
+    }
+
+    // ===== Trajectory array (kept by reference so the panel list stays in sync) =====
 
     _ensureArray() {
         if (!Array.isArray(this._feature.properties.trajetoria)) {
             this._feature.properties.trajetoria = [];
         }
         return this._feature.properties.trajetoria;
+    }
+
+    /** Replaces the live array's contents in place, preserving its reference. */
+    _setTrajectory(next) {
+        const arr = this._ensureArray();
+        arr.length = 0;
+        arr.push(...next);
     }
 
     /** Sorts/validates the live array in place, preserving its reference. */
@@ -217,70 +439,83 @@ export class TrajectoryEditControl {
         arr.push(...sorted);
     }
 
+    // ===== Rendering =====
+
     _renderAll() {
-        this._renderPath();
-        this._renderMarkers();
+        const traj = this._feature?.properties?.trajetoria;
+        this._map?.getSource(PATH_SOURCE)?.setData(buildPathCollection(traj));
+        this._map?.getSource(HANDLE_SOURCE)?.setData(buildHandleCollection(traj));
     }
 
-    _renderPath() {
-        const source = this._map?.getSource(PATH_SOURCE);
-        if (source) source.setData(buildPathCollection(this._feature?.properties?.trajetoria));
-    }
-
-    _renderMarkers() {
-        this._clearMarkers();
-        const waypoints = normalizeTrajectory(this._feature?.properties?.trajetoria);
-        waypoints.forEach((kp, index) => {
-            const el = document.createElement('div');
-            el.className = 'trajectory-point-marker';
-            el.textContent = String(index + 1);
-
-            const marker = new maplibregl.Marker({ element: el, draggable: true, anchor: 'center' })
-                .setLngLat([kp.lng, kp.lat])
-                .addTo(this._map);
-
-            marker.on('drag', () => {
-                const ll = marker.getLngLat();
-                kp.lng = ll.lng;
-                kp.lat = ll.lat;
-                this._renderPath();
-            });
-            marker.on('dragend', () => {
-                this._persist();
-                this._onChange?.();
-            });
-            this._markers.push(marker);
-        });
-    }
-
-    _clearMarkers() {
-        this._markers.forEach((m) => m.remove());
-        this._markers = [];
-    }
-
-    _ensurePathLayer() {
+    _ensureLayers() {
         const map = this._map;
         if (!map.getSource(PATH_SOURCE)) {
             map.addSource(PATH_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        }
+        if (!map.getSource(HANDLE_SOURCE)) {
+            map.addSource(HANDLE_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         }
         if (!map.getLayer(PATH_LAYER)) {
             map.addLayer({
                 id: PATH_LAYER,
                 type: 'line',
                 source: PATH_SOURCE,
+                paint: { 'line-color': '#16a34a', 'line-width': 2, 'line-dasharray': [2, 1.5] },
+            });
+        }
+        if (!map.getLayer(MIDPOINT_LAYER)) {
+            map.addLayer({
+                id: MIDPOINT_LAYER,
+                type: 'circle',
+                source: HANDLE_SOURCE,
+                filter: ['==', ['get', 'handleType'], 'midpoint'],
                 paint: {
-                    'line-color': '#16a34a',
-                    'line-width': 2,
-                    'line-dasharray': [2, 1.5],
+                    'circle-radius': 4,
+                    'circle-color': '#ffffff',
+                    'circle-opacity': 0.9,
+                    'circle-stroke-color': '#16a34a',
+                    'circle-stroke-width': 1.5,
                 },
+            });
+        }
+        if (!map.getLayer(VERTEX_LAYER)) {
+            map.addLayer({
+                id: VERTEX_LAYER,
+                type: 'circle',
+                source: HANDLE_SOURCE,
+                filter: ['==', ['get', 'handleType'], 'vertex'],
+                paint: {
+                    'circle-radius': 7,
+                    'circle-color': '#16a34a',
+                    'circle-stroke-color': '#ffffff',
+                    'circle-stroke-width': 2,
+                },
+            });
+        }
+        if (!map.getLayer(VERTEX_LABEL_LAYER)) {
+            map.addLayer({
+                id: VERTEX_LABEL_LAYER,
+                type: 'symbol',
+                source: HANDLE_SOURCE,
+                filter: ['==', ['get', 'handleType'], 'vertex'],
+                layout: {
+                    'text-field': ['get', 'label'],
+                    'text-size': 10,
+                    'text-allow-overlap': true,
+                    'text-ignore-placement': true,
+                },
+                paint: { 'text-color': '#ffffff' },
             });
         }
     }
 
-    _removePathLayer() {
+    _removeLayers() {
         const map = this._map;
         if (!map) return;
-        if (map.getLayer(PATH_LAYER)) map.removeLayer(PATH_LAYER);
+        for (const id of [VERTEX_LABEL_LAYER, VERTEX_LAYER, MIDPOINT_LAYER, PATH_LAYER]) {
+            if (map.getLayer(id)) map.removeLayer(id);
+        }
+        if (map.getSource(HANDLE_SOURCE)) map.removeSource(HANDLE_SOURCE);
         if (map.getSource(PATH_SOURCE)) map.removeSource(PATH_SOURCE);
     }
 
@@ -298,7 +533,7 @@ export class TrajectoryEditControl {
         getControl('TemporalControl')?.sync();
     }
 
-    // ===== On-screen add toolbar =====
+    // ===== On-screen append toolbar =====
 
     _buildToolbar() {
         this._removeToolbar();

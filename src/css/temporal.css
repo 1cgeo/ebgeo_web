@@ -392,28 +392,6 @@
     color: var(--color-error);
 }
 
-/* ===== Trajectory point markers (draggable, on map) ===== */
-
-.trajectory-point-marker {
-    width: 22px;
-    height: 22px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-full);
-    background: #16a34a;
-    color: #fff;
-    font-size: 0.7rem;
-    font-weight: 700;
-    border: 2px solid #fff;
-    box-shadow: var(--shadow-sm);
-    cursor: grab;
-}
-
-.trajectory-point-marker:active {
-    cursor: grabbing;
-}
-
 /* ===== Trajectory map editor — on-screen toolbar ===== */
 
 .trajectory-edit-toolbar {
