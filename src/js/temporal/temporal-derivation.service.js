@@ -24,7 +24,7 @@ import { setupCleanup, subscribe, cleanup } from '../utilities/event-cleanup.js'
 import { EventTypes } from '../events';
 import { getControl, registerControl } from '../store';
 import { loadImageToMap } from '@utils';
-import { normalizeTrajectory, headingAt, speedAt } from './temporal-model.js';
+import { normalizeTrajectory, headingAtSorted, speedAtSorted } from './temporal-model.js';
 
 /** Heading quantization (degrees): the symbol re-renders only when it turns this much. */
 const DIRECTION_STEP_DEG = 5;
@@ -109,7 +109,7 @@ export class TemporalDerivationService {
         if (!p?.id || (p.autoDirection !== true && p.autoSpeed !== true)) return;
         const traj = normalizeTrajectory(p.trajetoria);
         if (traj.length < 2) return;
-        const heading = headingAt(traj, cursor);
+        const heading = headingAtSorted(traj, cursor);
         if (heading === null) return;
 
         const last = this._applied.get(p.id) || {};
@@ -118,7 +118,7 @@ export class TemporalDerivationService {
             overrides.direction = String((Math.round(heading / DIRECTION_STEP_DEG) * DIRECTION_STEP_DEG) % 360);
         }
         if (p.autoSpeed === true) {
-            overrides.speed = formatSpeedAmplifier(speedAt(traj, cursor));
+            overrides.speed = formatSpeedAmplifier(speedAtSorted(traj, cursor));
         }
 
         const dirChanged = 'direction' in overrides && overrides.direction !== last.direction;

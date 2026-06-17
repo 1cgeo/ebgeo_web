@@ -10,6 +10,13 @@
  * - A trajectory keypoint is `{ t: epochMs, lng: number, lat: number }`.
  */
 
+import { calculateDistance, calculateBearing } from '@utils/geometry-utils.js';
+
+/** Great-circle distance (m) between two `{lng, lat}` keypoints. */
+const distM = (a, b) => calculateDistance([a.lng, a.lat], [b.lng, b.lat]);
+/** Bearing (azimuth degrees, 0–360) from keypoint a to b. */
+const bearingDeg = (a, b) => calculateBearing([a.lng, a.lat], [b.lng, b.lat]);
+
 /**
  * Decides whether a feature is visible at the given timeline cursor.
  * Permanent (no `temporalInicio`/`temporalFim`) features are always visible.
@@ -84,18 +91,6 @@ export function normalizeTrajectory(trajetoria) {
         .sort((a, b) => a.t - b.t);
 }
 
-/** Great-circle distance in metres between two `{lng, lat}` points (haversine). */
-function haversineMeters(a, b) {
-    const R = 6371000;
-    const toRad = (d) => (d * Math.PI) / 180;
-    const dLat = toRad(b.lat - a.lat);
-    const dLng = toRad(b.lng - a.lng);
-    const h =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
 /**
  * Summary statistics for a trajectory, for the feature panel: keypoint count,
  * total wall-clock duration (last − first time), and total path length in metres
@@ -111,20 +106,9 @@ export function trajectoryStats(keypoints) {
 
     let distanceMeters = 0;
     for (let i = 0; i < count - 1; i++) {
-        distanceMeters += haversineMeters(pts[i], pts[i + 1]);
+        distanceMeters += distM(pts[i], pts[i + 1]);
     }
     return { count, durationMs: pts[count - 1].t - pts[0].t, distanceMeters };
-}
-
-/** Bearing (azimuth degrees, 0–360) from keypoint a to b ({lng,lat}). */
-function segmentBearing(a, b) {
-    const toRad = (d) => (d * Math.PI) / 180;
-    const lat1 = toRad(a.lat);
-    const lat2 = toRad(b.lat);
-    const dLng = toRad(b.lng - a.lng);
-    const y = Math.sin(dLng) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
 /** Index of the segment [i, i+1] whose span brackets the cursor (sorted pts), or -1. */
@@ -142,6 +126,12 @@ function segmentIndexAt(pts, cursor) {
     return Math.min(lo, pts.length - 2);
 }
 
+/** Heading at the cursor for an ALREADY-NORMALIZED trajectory (hot path). */
+export function headingAtSorted(pts, cursor) {
+    const i = segmentIndexAt(pts, cursor);
+    return i < 0 ? null : bearingDeg(pts[i], pts[i + 1]);
+}
+
 /**
  * Heading (azimuth 0–360) of travel along the trajectory at the cursor: the
  * bearing of the segment the cursor falls in (clamped to the first/last segment
@@ -153,10 +143,16 @@ function segmentIndexAt(pts, cursor) {
  * @returns {number|null} Azimuth in degrees [0, 360), or null.
  */
 export function headingAt(trajetoria, cursor) {
-    const pts = normalizeTrajectory(trajetoria);
+    return headingAtSorted(normalizeTrajectory(trajetoria), cursor);
+}
+
+/** Speed at the cursor (m/s) for an ALREADY-NORMALIZED trajectory (hot path). */
+export function speedAtSorted(pts, cursor) {
     const i = segmentIndexAt(pts, cursor);
     if (i < 0) return null;
-    return segmentBearing(pts[i], pts[i + 1]);
+    const dtSec = (pts[i + 1].t - pts[i].t) / 1000;
+    if (!(dtSec > 0)) return 0;
+    return distM(pts[i], pts[i + 1]) / dtSec;
 }
 
 /**
@@ -169,25 +165,7 @@ export function headingAt(trajetoria, cursor) {
  * @returns {number|null} Speed in m/s, or null.
  */
 export function speedAt(trajetoria, cursor) {
-    const pts = normalizeTrajectory(trajetoria);
-    const i = segmentIndexAt(pts, cursor);
-    if (i < 0) return null;
-    const dtSec = (pts[i + 1].t - pts[i].t) / 1000;
-    if (!(dtSec > 0)) return 0;
-    return haversineMeters(pts[i], pts[i + 1]) / dtSec;
-}
-
-/**
- * Average speed (m/s) over the whole trajectory (total distance / total duration).
- * 0 when the trajectory has no duration or fewer than 2 keypoints.
- *
- * @param {Array<{t:number, lng:number, lat:number}>} trajetoria
- * @returns {number} Speed in m/s.
- */
-export function averageSpeed(trajetoria) {
-    const s = trajectoryStats(trajetoria);
-    if (!(s.durationMs > 0)) return 0;
-    return s.distanceMeters / (s.durationMs / 1000);
+    return speedAtSorted(normalizeTrajectory(trajetoria), cursor);
 }
 
 /**
@@ -238,15 +216,8 @@ function interpolateNormalized(pts, cursor) {
     if (!Number.isFinite(cursor) || cursor <= first.t) return [first.lng, first.lat];
     if (cursor >= last.t) return [last.lng, last.lat];
 
-    // Largest index whose time is <= cursor; cursor is strictly inside the span,
-    // so this lands on a real segment [lo, lo + 1].
-    let lo = 0;
-    let hi = pts.length - 1;
-    while (lo < hi) {
-        const mid = (lo + hi + 1) >> 1;
-        if (pts[mid].t <= cursor) lo = mid;
-        else hi = mid - 1;
-    }
+    // Cursor is strictly inside the span, so this lands on a real segment [lo, lo+1].
+    const lo = segmentIndexAt(pts, cursor);
     const a = pts[lo];
     const b = pts[lo + 1];
     const span = b.t - a.t;

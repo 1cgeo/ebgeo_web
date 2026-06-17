@@ -10,7 +10,6 @@ import {
     trajectoryStats,
     headingAt,
     speedAt,
-    averageSpeed,
 } from '../../src/js/temporal/temporal-model.js';
 
 // ============================================================================
@@ -245,23 +244,6 @@ describe('speedAt', () => {
 
     it('returns 0 for a zero-duration segment (no divide-by-zero)', () => {
         expect(speedAt([{ t: 100, lng: 0, lat: 0 }, { t: 100, lng: 0, lat: 1 }], 100)).toBe(0);
-    });
-});
-
-describe('averageSpeed', () => {
-    it('is total distance / total duration', () => {
-        const traj = [
-            { t: 0, lng: 0, lat: 0 },
-            { t: 1000, lng: 0, lat: 1 },
-            { t: 3000, lng: 0, lat: 2 },
-        ];
-        // ~222390 m over 3 s.
-        expect(averageSpeed(traj)).toBeCloseTo(222390 / 3, -1);
-    });
-
-    it('is 0 for a degenerate trajectory', () => {
-        expect(averageSpeed([])).toBe(0);
-        expect(averageSpeed([{ t: 5, lng: 0, lat: 0 }, { t: 5, lng: 0, lat: 1 }])).toBe(0);
     });
 });
 
