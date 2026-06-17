@@ -53,15 +53,44 @@ export function normalizeTrajectory(trajetoria) {
 }
 
 /**
- * Linearly interpolates a position along a trajectory at the cursor time.
- * Clamps to the first/last keypoint outside the trajectory's time span.
+ * Thins a trajectory so consecutive keypoints are at least `resolutionMs` apart in
+ * time, always keeping the first and last keypoint. Used on import to drop
+ * sub-resolution detail (e.g. 1 Hz GPS fixes) the timeline can never distinguish —
+ * the finest timeline unit is one minute — without capping the keypoint count.
+ * Lossy but shape-preserving at the resolution. Input is normalized (sorted,
+ * validated) first.
  *
  * @param {Array<{t:number, lng:number, lat:number}>} trajetoria
- * @param {number} cursor - Timeline cursor (epoch ms).
- * @returns {[number, number]|null} `[lng, lat]`, or null when there are no valid keypoints.
+ * @param {number} resolutionMs - Minimum time gap between kept keypoints (ms).
+ * @returns {Array<{t:number, lng:number, lat:number}>} Thinned, normalized trajectory.
  */
-export function interpolatePosition(trajetoria, cursor) {
+export function decimateTrajectory(trajetoria, resolutionMs) {
     const pts = normalizeTrajectory(trajetoria);
+    if (pts.length <= 2 || !(resolutionMs > 0)) return pts;
+
+    const out = [pts[0]];
+    let lastKeptT = pts[0].t;
+    for (let i = 1; i < pts.length - 1; i++) {
+        if (pts[i].t - lastKeptT >= resolutionMs) {
+            out.push(pts[i]);
+            lastKeptT = pts[i].t;
+        }
+    }
+    out.push(pts[pts.length - 1]); // always keep the last keypoint (exact end time)
+    return out;
+}
+
+/**
+ * Linearly interpolates a position along an ALREADY-NORMALIZED trajectory. Kept
+ * internal so the per-frame render path can normalize once and reuse it (the
+ * public interpolatePosition / resolveTrajectoryTarget normalize then delegate).
+ * Binary-searches the containing segment so it scales to long (e.g. GPX) tracks.
+ *
+ * @param {Array<{t:number, lng:number, lat:number}>} pts - Normalized keypoints.
+ * @param {number} cursor - Timeline cursor (epoch ms).
+ * @returns {[number, number]|null} `[lng, lat]`, or null when there are no keypoints.
+ */
+function interpolateNormalized(pts, cursor) {
     if (pts.length === 0) return null;
     if (pts.length === 1) return [pts[0].lng, pts[0].lat];
 
@@ -71,17 +100,32 @@ export function interpolatePosition(trajetoria, cursor) {
     if (!Number.isFinite(cursor) || cursor <= first.t) return [first.lng, first.lat];
     if (cursor >= last.t) return [last.lng, last.lat];
 
-    for (let i = 0; i < pts.length - 1; i++) {
-        const a = pts[i];
-        const b = pts[i + 1];
-        if (cursor >= a.t && cursor <= b.t) {
-            const span = b.t - a.t;
-            const frac = span === 0 ? 0 : (cursor - a.t) / span;
-            return [a.lng + (b.lng - a.lng) * frac, a.lat + (b.lat - a.lat) * frac];
-        }
+    // Largest index whose time is <= cursor; cursor is strictly inside the span,
+    // so this lands on a real segment [lo, lo + 1].
+    let lo = 0;
+    let hi = pts.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (pts[mid].t <= cursor) lo = mid;
+        else hi = mid - 1;
     }
-    // Unreachable for sorted input, but stay defensive.
-    return [last.lng, last.lat];
+    const a = pts[lo];
+    const b = pts[lo + 1];
+    const span = b.t - a.t;
+    const frac = span === 0 ? 0 : (cursor - a.t) / span;
+    return [a.lng + (b.lng - a.lng) * frac, a.lat + (b.lat - a.lat) * frac];
+}
+
+/**
+ * Linearly interpolates a position along a trajectory at the cursor time.
+ * Clamps to the first/last keypoint outside the trajectory's time span.
+ *
+ * @param {Array<{t:number, lng:number, lat:number}>} trajetoria
+ * @param {number} cursor - Timeline cursor (epoch ms).
+ * @returns {[number, number]|null} `[lng, lat]`, or null when there are no valid keypoints.
+ */
+export function interpolatePosition(trajetoria, cursor) {
+    return interpolateNormalized(normalizeTrajectory(trajetoria), cursor);
 }
 
 /**
@@ -99,12 +143,26 @@ export function interpolatePosition(trajetoria, cursor) {
  * @returns {{target: ([number, number]|null), keepHome: boolean}}
  */
 export function resolveTrajectoryTarget(trajetoria, home, cursor) {
-    const usable = normalizeTrajectory(trajetoria).length >= 2;
+    return resolveTrajectoryTargetNormalized(normalizeTrajectory(trajetoria), home, cursor);
+}
+
+/**
+ * Like resolveTrajectoryTarget but takes an ALREADY-NORMALIZED trajectory, so the
+ * per-frame render path can normalize once and skip the redundant re-sorts (it
+ * previously normalized three times per feature per frame).
+ *
+ * @param {Array<{t:number, lng:number, lat:number}>} pts - Normalized keypoints.
+ * @param {[number, number]|null|undefined} home - Stashed home coords (or null/absent).
+ * @param {number|null} cursor - Timeline cursor (epoch ms), or null when temporal is off.
+ * @returns {{target: ([number, number]|null), keepHome: boolean}}
+ */
+export function resolveTrajectoryTargetNormalized(pts, home, cursor) {
+    const usable = pts.length >= 2;
     const hasHome = Array.isArray(home);
 
     if (!usable && !hasHome) return { target: null, keepHome: false };
     if (!usable || cursor === null) return { target: hasHome ? home : null, keepHome: false };
 
-    const interpolated = interpolatePosition(trajetoria, cursor);
+    const interpolated = interpolateNormalized(pts, cursor);
     return { target: interpolated || (hasHome ? home : null), keepHome: true };
 }

@@ -3,6 +3,7 @@ import fc from 'fast-check';
 import {
     isTemporallyVisible,
     normalizeTrajectory,
+    decimateTrajectory,
     interpolatePosition,
     resolveTrajectoryTarget,
 } from '../../src/js/temporal/temporal-model.js';
@@ -116,6 +117,64 @@ describe('normalizeTrajectory', () => {
 });
 
 // ============================================================================
+// decimateTrajectory
+// ============================================================================
+
+describe('decimateTrajectory', () => {
+    const at = (t) => ({ t, lng: t, lat: t });
+
+    it('leaves trajectories of 2 or fewer keypoints untouched', () => {
+        expect(decimateTrajectory([], 60_000)).toEqual([]);
+        expect(decimateTrajectory([at(0)], 60_000)).toEqual([at(0)]);
+        expect(decimateTrajectory([at(0), at(1000)], 60_000)).toEqual([at(0), at(1000)]);
+    });
+
+    it('drops keypoints closer than the resolution, keeping first and last', () => {
+        // 1 Hz-ish fixes over ~2 min → only the minute boundaries + endpoints survive.
+        const traj = [0, 10_000, 20_000, 30_000, 40_000, 60_000, 70_000, 120_000].map(at);
+        const out = decimateTrajectory(traj, 60_000);
+        expect(out.map((k) => k.t)).toEqual([0, 60_000, 120_000]);
+    });
+
+    it('always keeps the last keypoint even if within one resolution of the previous kept', () => {
+        const out = decimateTrajectory([at(0), at(1000), at(2000)], 60_000);
+        expect(out.map((k) => k.t)).toEqual([0, 2000]); // middle dropped, last preserved
+    });
+
+    it('normalizes (sorts + drops invalid) before thinning', () => {
+        const traj = [at(120_000), { t: NaN, lng: 1, lat: 2 }, at(0), at(30_000)];
+        const out = decimateTrajectory(traj, 60_000);
+        expect(out.map((k) => k.t)).toEqual([0, 120_000]);
+    });
+
+    it('returns the normalized trajectory unchanged for a non-positive resolution', () => {
+        const traj = [at(0), at(10), at(20)];
+        expect(decimateTrajectory(traj, 0)).toEqual(traj);
+        expect(decimateTrajectory(traj, -5)).toEqual(traj);
+    });
+
+    it('property: kept keypoints are a subset, sorted, with endpoints preserved', () => {
+        const kp = fc.record({
+            t: fc.integer({ min: 0, max: 1_000_000 }),
+            lng: fc.double({ min: -180, max: 180, noNaN: true }),
+            lat: fc.double({ min: -90, max: 90, noNaN: true }),
+        });
+        fc.assert(
+            fc.property(fc.array(kp, { minLength: 1, maxLength: 50 }), fc.integer({ min: 1, max: 100_000 }), (traj, res) => {
+                const norm = normalizeTrajectory(traj);
+                const out = decimateTrajectory(traj, res);
+                if (norm.length === 0) return out.length === 0;
+                // endpoints preserved, monotonic, no two kept points closer than res (except the forced last).
+                const sameEnds = out[0].t === norm[0].t && out[out.length - 1].t === norm[norm.length - 1].t;
+                let monotonic = true;
+                for (let i = 1; i < out.length; i++) if (out[i].t < out[i - 1].t) monotonic = false;
+                return sameEnds && monotonic && out.length <= norm.length;
+            })
+        );
+    });
+});
+
+// ============================================================================
 // interpolatePosition
 // ============================================================================
 
@@ -159,6 +218,15 @@ describe('interpolatePosition', () => {
             { t: 200, lng: 10, lat: 10 },
         ];
         expect(interpolatePosition(traj, 150)).toEqual([10, 5]);
+    });
+
+    it('finds the right segment in a long trajectory (binary search)', () => {
+        // 1000 keypoints, lng === lat === t; interpolation is the identity in t.
+        const traj = Array.from({ length: 1000 }, (_, i) => ({ t: i * 10, lng: i * 10, lat: i * 10 }));
+        expect(interpolatePosition(traj, 4235)).toEqual([4235, 4235]);
+        expect(interpolatePosition(traj, 0)).toEqual([0, 0]);
+        expect(interpolatePosition(traj, 9990)).toEqual([9990, 9990]);
+        expect(interpolatePosition(traj, 99999)).toEqual([9990, 9990]); // clamps past last
     });
 
     it('handles unsorted input (normalizes first)', () => {

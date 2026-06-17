@@ -9,7 +9,15 @@
  */
 
 import { toEpoch } from './temporal.utils.js';
-import { normalizeTrajectory } from './temporal-model.js';
+import { decimateTrajectory } from './temporal-model.js';
+import { TEMPORAL_UNITS, TEMPORAL_UNIT_KEYS } from './temporal.constants.js';
+
+/**
+ * Finest timeline unit (currently 1 minute). GPX trackpoints recorded more often
+ * than this carry detail the cursor can never resolve, so we decimate imported
+ * trajectories down to this resolution (one keypoint per minute, no count cap).
+ */
+const GPX_TIME_RESOLUTION_MS = TEMPORAL_UNITS[TEMPORAL_UNIT_KEYS[0]].ms;
 
 const START_KEYS = new Set([
     'temporalinicio', 'temporal_inicio', 'begin', 'start', 'starttime', 'start_time',
@@ -95,5 +103,7 @@ export function buildTrajectoryFromGpxFeature(feature) {
             traj.push({ t, lng: c[0], lat: c[1] });
         }
     }
-    return normalizeTrajectory(traj);
+    // Decimate to the finest timeline unit (1 min): sub-minute GPS fixes can't be
+    // distinguished by the cursor and only bloat the trajectory + per-frame cost.
+    return decimateTrajectory(traj, GPX_TIME_RESOLUTION_MS);
 }

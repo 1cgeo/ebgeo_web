@@ -19,7 +19,7 @@ import {
 import { FEATURE_LAYER_IDS, FEATURE_SOURCES } from '../layers/layer.constants.js';
 import { getStateManager } from '../store';
 import { TRAJECTORY_SOURCE_IDS } from './temporal.constants.js';
-import { normalizeTrajectory, resolveTrajectoryTarget } from './temporal-model.js';
+import { normalizeTrajectory, resolveTrajectoryTargetNormalized } from './temporal-model.js';
 
 /** Sentinels at the edges of the JS Date range (used as "no bound"). */
 const MIN_TS = -8.64e15;
@@ -164,14 +164,18 @@ export async function updateTrajectoryPositions(map, cursor) {
             const props = feature.properties;
             if (!props || feature.geometry?.type !== 'Point') continue;
 
+            // Normalize once per feature per frame and reuse for both the usable
+            // check and the interpolation (was normalized three times — costly for
+            // long GPX tracks).
+            const traj = normalizeTrajectory(props.trajetoria);
             // Stash the authoring (home) position the first time we displace a feature.
-            const hasUsableTrajectory = normalizeTrajectory(props.trajetoria).length >= 2;
+            const hasUsableTrajectory = traj.length >= 2;
             if (hasUsableTrajectory) hasTrajectory = true;
             if (hasUsableTrajectory && !Array.isArray(props._temporalHome) && Array.isArray(feature.geometry.coordinates)) {
                 props._temporalHome = feature.geometry.coordinates.slice();
             }
 
-            const { target, keepHome } = resolveTrajectoryTarget(props.trajetoria, props._temporalHome, cursor);
+            const { target, keepHome } = resolveTrajectoryTargetNormalized(traj, props._temporalHome, cursor);
             // Drop the stash once we've snapped back home, so a re-added/re-moved
             // trajectory re-stashes a fresh home on the next pass.
             if (!keepHome) delete props._temporalHome;

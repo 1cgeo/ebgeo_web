@@ -91,4 +91,20 @@ describe('buildTrajectoryFromGpxFeature', () => {
         expect(buildTrajectoryFromGpxFeature({ geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} })).toEqual([]);
         expect(buildTrajectoryFromGpxFeature({})).toEqual([]);
     });
+
+    it('decimates sub-minute trackpoints to one-minute resolution (keeps endpoints)', () => {
+        // Six fixes at 0s, 10s, 20s, 30s, 60s, 120s — finer than the 1-min cursor.
+        const secs = [0, 10, 20, 30, 60, 120];
+        const feature = {
+            geometry: { type: 'LineString', coordinates: secs.map((_, i) => [i, i]) },
+            properties: {
+                coordinateProperties: {
+                    times: secs.map((s) => new Date(s * 1000).toISOString()),
+                },
+            },
+        };
+        const traj = buildTrajectoryFromGpxFeature(feature);
+        // 0s and 60s and the forced last (120s) survive; the in-between fixes are dropped.
+        expect(traj.map((k) => k.t)).toEqual([0, 60_000, 120_000]);
+    });
 });
