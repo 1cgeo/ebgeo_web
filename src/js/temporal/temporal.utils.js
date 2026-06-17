@@ -24,6 +24,26 @@ export function unitToMs(unidade) {
 }
 
 /**
+ * Snaps a cursor down to the start of its step cell, measured from `origin`.
+ * Used to drive the show/hide layer filters at the timeline's unit granularity:
+ * within a step cell the snapped value is constant, so the filters rebuild only
+ * when the cursor crosses into the next cell (instead of every animation frame).
+ * Trajectory interpolation keeps using the raw cursor, so movement stays smooth.
+ *
+ * Falls back to the raw cursor when the step is non-positive or the cursor is
+ * non-finite, so callers can pass it unconditionally.
+ * @param {number} cursor - Cursor (epoch ms).
+ * @param {number} step - Step length (ms); a non-positive step disables snapping.
+ * @param {number} [origin=0] - Grid origin the cells are measured from (e.g. timeline start).
+ * @returns {number} Cursor snapped to the cell start, or the raw cursor.
+ */
+export function quantizeCursor(cursor, step, origin = 0) {
+    if (!Number.isFinite(cursor) || !(step > 0)) return cursor;
+    const base = Number.isFinite(origin) ? origin : 0;
+    return base + Math.floor((cursor - base) / step) * step;
+}
+
+/**
  * Clamps a cursor to the [inicio, fim] timeline bounds (each optional).
  * @param {number} cursor - Cursor to clamp (epoch ms).
  * @param {number|null} inicio - Lower bound or null.

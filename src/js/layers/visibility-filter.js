@@ -12,11 +12,15 @@ const VISIBLE_FILTER = ['!=', ['get', 'visivel'], false];
 let cachedVisibleLayerIds = null;
 
 /**
- * Active temporal cursor (epoch ms) or null when temporal control is off.
- * When set, every feature layer also filters by temporal validity window.
+ * Active temporal window [start, end] (epoch ms), or null when temporal control
+ * is off. A feature passes when its [temporalInicio, temporalFim] validity
+ * overlaps this window. During playback the window spans one timeline step, so
+ * the filters only change on step boundaries while the cursor advances smoothly.
+ * For an instantaneous test, end === start.
  * @type {number|null}
  */
 let activeTemporalCursor = null;
+let activeTemporalCursorEnd = null;
 
 /**
  * Reveal mode: when true the temporal hide-clause is suppressed so all features
@@ -26,13 +30,20 @@ let activeTemporalCursor = null;
 let revealMode = false;
 
 /**
- * Sets (or clears) the temporal cursor used by the layer filters.
- * Pass null to disable temporal filtering. Caller must follow with
- * invalidateFilterCache() + updateAllLayerFilters() to take effect.
- * @param {number|null} cursor - Epoch ms, or null to disable.
+ * Sets (or clears) the temporal window used by the layer filters. A feature is
+ * kept when its validity overlaps [cursor, cursorEnd]; with the default
+ * `cursorEnd === cursor` this is the classic instantaneous test. Pass a wider
+ * window (one timeline step) to keep features valid anywhere within the current
+ * step visible for the whole step. Pass a null/non-finite `cursor` to disable
+ * temporal filtering. Caller must follow with updateAllLayerFilters() to take effect.
+ * @param {number|null} cursor - Window start (epoch ms), or null to disable.
+ * @param {number} [cursorEnd=cursor] - Window end (epoch ms).
  */
-export function setTemporalCursor(cursor) {
+export function setTemporalCursor(cursor, cursorEnd = cursor) {
     activeTemporalCursor = Number.isFinite(cursor) ? cursor : null;
+    activeTemporalCursorEnd =
+        activeTemporalCursor === null ? null
+            : Number.isFinite(cursorEnd) ? Math.max(cursorEnd, activeTemporalCursor) : activeTemporalCursor;
 }
 
 /**
@@ -48,17 +59,20 @@ const MIN_TS = -8.64e15;
 const MAX_TS = 8.64e15;
 
 /**
- * Builds a MapLibre predicate that keeps a feature only when the cursor falls
- * within its [temporalInicio, temporalFim] window. Missing/null bounds coalesce
- * to the date-range sentinels, so a feature without temporal data is permanent.
- * @param {number} cursor - Epoch ms.
+ * Builds a MapLibre predicate that keeps a feature only when its
+ * [temporalInicio, temporalFim] window overlaps [windowStart, windowEnd].
+ * Missing/null bounds coalesce to the date-range sentinels, so a feature without
+ * temporal data is permanent. With windowEnd === windowStart this is the classic
+ * "cursor inside the feature window" instantaneous test.
+ * @param {number} windowStart - Window start (epoch ms).
+ * @param {number} windowEnd - Window end (epoch ms).
  * @returns {Array} MapLibre filter expression.
  */
-function buildTemporalFilter(cursor) {
+function buildTemporalFilter(windowStart, windowEnd) {
     return [
         'all',
-        ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], cursor],
-        ['>=', ['coalesce', ['get', 'temporalFim'], MAX_TS], cursor],
+        ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], windowEnd],
+        ['>=', ['coalesce', ['get', 'temporalFim'], MAX_TS], windowStart],
     ];
 }
 
@@ -67,7 +81,7 @@ function buildTemporalFilter(cursor) {
  */
 function temporalClauses() {
     if (activeTemporalCursor === null || revealMode) return [];
-    return [buildTemporalFilter(activeTemporalCursor)];
+    return [buildTemporalFilter(activeTemporalCursor, activeTemporalCursorEnd ?? activeTemporalCursor)];
 }
 
 /**
@@ -116,7 +130,7 @@ export function updateAllLayerFilters(mapInstance) {
     if (!mapInstance) return;
 
     const visibleLayerIds = getVisibleLayerIds();
-    const cacheKey = `${activeTemporalCursor}|${revealMode}|${JSON.stringify(visibleLayerIds)}`;
+    const cacheKey = `${activeTemporalCursor}|${activeTemporalCursorEnd}|${revealMode}|${JSON.stringify(visibleLayerIds)}`;
     if (cachedVisibleLayerIds === cacheKey) return;
     cachedVisibleLayerIds = cacheKey;
 

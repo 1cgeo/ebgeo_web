@@ -3,6 +3,7 @@ import fc from 'fast-check';
 import {
     unitToMs,
     clampCursor,
+    quantizeCursor,
     buildTicks,
     cursorToFraction,
     fractionToCursor,
@@ -53,6 +54,56 @@ describe('clampCursor', () => {
                 (cursor, lo, hi) => {
                     const r = clampCursor(cursor, lo, hi);
                     return r >= lo && r <= hi;
+                }
+            )
+        );
+    });
+});
+
+describe('quantizeCursor', () => {
+    const DAY = 86_400_000;
+
+    it('snaps down to the cell start, measured from origin', () => {
+        // origin 1000, day-sized cells: anything in [1000, 1000+DAY) → 1000.
+        expect(quantizeCursor(1000, DAY, 1000)).toBe(1000);
+        expect(quantizeCursor(1000 + DAY / 2, DAY, 1000)).toBe(1000);
+        expect(quantizeCursor(1000 + DAY, DAY, 1000)).toBe(1000 + DAY);
+        expect(quantizeCursor(1000 + DAY + 1, DAY, 1000)).toBe(1000 + DAY);
+    });
+
+    it('defaults origin to 0', () => {
+        expect(quantizeCursor(DAY + 5, DAY)).toBe(DAY);
+        expect(quantizeCursor(DAY - 5, DAY)).toBe(0);
+    });
+
+    it('handles cursors before the origin (floors toward -∞)', () => {
+        expect(quantizeCursor(-1, DAY, 0)).toBe(-DAY);
+        expect(quantizeCursor(-DAY, DAY, 0)).toBe(-DAY);
+        expect(quantizeCursor(-DAY - 1, DAY, 0)).toBe(-2 * DAY);
+    });
+
+    it('returns the raw cursor when snapping is disabled or inputs are non-finite', () => {
+        expect(quantizeCursor(1234, 0, 0)).toBe(1234);
+        expect(quantizeCursor(1234, -DAY, 0)).toBe(1234);
+        expect(quantizeCursor(NaN, DAY, 0)).toBeNaN();
+        expect(quantizeCursor(Infinity, DAY, 0)).toBe(Infinity);
+        // Non-finite origin falls back to a 0 grid rather than producing NaN.
+        expect(quantizeCursor(DAY + 5, DAY, NaN)).toBe(DAY);
+    });
+
+    it('property: result is a cell boundary ≤ cursor and within one step of it', () => {
+        fc.assert(
+            fc.property(
+                fc.integer({ min: -1_000_000, max: 1_000_000 }),
+                fc.integer({ min: 1, max: 100_000 }),
+                fc.integer({ min: -1_000_000, max: 1_000_000 }),
+                (cursor, step, origin) => {
+                    const q = quantizeCursor(cursor, step, origin);
+                    return (
+                        q <= cursor &&
+                        cursor - q < step &&
+                        Number.isInteger((q - origin) / step)
+                    );
                 }
             )
         );

@@ -24,7 +24,7 @@ import {
     shiftMapTemporalTimes,
 } from '../store';
 import { DEFAULT_TEMPORAL_SPEED } from './temporal.constants.js';
-import { resolveTimelineBounds, clampCursor, unitToMs } from './temporal.utils.js';
+import { resolveTimelineBounds, clampCursor, unitToMs, quantizeCursor } from './temporal.utils.js';
 import { applyTemporalState, shiftSourcesTemporal, resetTrajectoryCache } from './temporal-render.service.js';
 import { TemporalTimelineBar } from './temporal-timeline-bar.js';
 
@@ -214,7 +214,14 @@ export class TemporalController {
         // showing the bar, so its measured height includes the coords row.
         this._dockCoordinates(true);
         this._bar.setVisible(true);
-        await applyTemporalState(this._map, { enabled: true, cursor: this._cursor, reveal: this._revealHidden });
+        const syncWin = this._filterWindow(this._cursor);
+        await applyTemporalState(this._map, {
+            enabled: true,
+            cursor: this._cursor,
+            filterStart: syncWin.start,
+            filterEnd: syncWin.end,
+            reveal: this._revealHidden,
+        });
         this._uiManager?.updateSelectionHighlight();
         // Announce the (now-resolved) cursor so other views — e.g. open 3D/360
         // marker viewers — filter with the real cursor. On enable, MAP_TEMPORAL_CHANGED
@@ -241,13 +248,37 @@ export class TemporalController {
         });
     }
 
+    /**
+     * The current timeline step-cell [start, end] used to drive show/hide.
+     * Features appear/disappear on step boundaries (matching the unit shown on the
+     * bar): a feature is visible whenever its validity overlaps the cell, and the
+     * filters rebuild once per step instead of every frame. The end instant of the
+     * range collapses to a point so the final state renders fully before looping.
+     * @param {number} cursor - Raw cursor (epoch ms).
+     * @returns {{start: number, end: number}} Window for the visibility filters.
+     */
+    _filterWindow(cursor) {
+        if (!this._bounds || !this._config) return { start: cursor, end: cursor };
+        if (cursor >= this._bounds.fim) return { start: this._bounds.fim, end: this._bounds.fim };
+        const step = unitToMs(this._config.unidade);
+        const start = quantizeCursor(cursor, step, this._bounds.inicio);
+        return { start, end: start + step };
+    }
+
     /** Runs one temporal apply, then re-runs once if a frame arrived meanwhile. */
     _runApply() {
         if (this._destroyed) return;
         this._applyInFlight = true;
         this._applyPending = false;
         const cursor = this._cursor;
-        applyTemporalState(this._map, { enabled: this._enabled, cursor, reveal: this._revealHidden })
+        const win = this._filterWindow(cursor);
+        applyTemporalState(this._map, {
+            enabled: this._enabled,
+            cursor,
+            filterStart: win.start,
+            filterEnd: win.end,
+            reveal: this._revealHidden,
+        })
             .then(() => this._uiManager?.updateSelectionHighlight())
             .finally(() => {
                 this._applyInFlight = false;

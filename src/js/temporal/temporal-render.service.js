@@ -14,7 +14,6 @@
 import {
     setTemporalCursor,
     setRevealMode,
-    invalidateFilterCache,
     updateAllLayerFilters,
 } from '../layers/visibility-filter.js';
 import { FEATURE_LAYER_IDS, FEATURE_SOURCES } from '../layers/layer.constants.js';
@@ -303,20 +302,31 @@ export async function shiftSourcesTemporal(map, deltaMs) {
  * Applies the full temporal state to the map: visibility filters + trajectory
  * positions. Disabling clears the temporal clause and restores home positions.
  *
+ * Show/hide and movement run at independent cadences: the `[filterStart, filterEnd]`
+ * window (one timeline step, snapped to the step grid) drives the layer visibility
+ * filters, so they only rebuild when the cursor crosses a step boundary — the
+ * filter cache absorbs every intra-step frame. The raw `cursor` drives trajectory
+ * interpolation, so moving features stay smooth even while show/hide steps by whole
+ * units. When the window is omitted it falls back to the raw cursor (instantaneous).
+ *
  * @param {Object} map - MapLibre map instance.
- * @param {{enabled: boolean, cursor: number}} state - Temporal state.
+ * @param {{enabled: boolean, cursor: number, filterStart?: number, filterEnd?: number, reveal?: boolean}} state
  * @returns {Promise<void>}
  */
-export async function applyTemporalState(map, { enabled, cursor, reveal = false }) {
+export async function applyTemporalState(map, { enabled, cursor, filterStart, filterEnd, reveal = false }) {
     if (!map) return;
 
     const effectiveCursor = enabled ? cursor : null;
+    const winStart = enabled ? (Number.isFinite(filterStart) ? filterStart : cursor) : null;
+    const winEnd = enabled ? (Number.isFinite(filterEnd) ? filterEnd : winStart) : null;
     const revealOn = enabled && reveal;
-    setTemporalCursor(effectiveCursor);
+    setTemporalCursor(winStart, winEnd);
     // In reveal mode the hide-filter is suppressed and out-of-window features are
     // dimmed instead (so they stay visible/editable but clearly hidden).
     setRevealMode(revealOn);
-    invalidateFilterCache();
+    // No invalidateFilterCache() here: the filter cache keys off the (quantized)
+    // window + reveal + visible-layer set, so it rebuilds exactly when one of
+    // those changes and short-circuits the per-frame intra-step calls.
     updateAllLayerFilters(map);
     await updateTrajectoryPositions(map, effectiveCursor);
     applyRevealDim(map, effectiveCursor, revealOn);
