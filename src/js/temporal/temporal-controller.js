@@ -121,10 +121,11 @@ export class TemporalController {
     }
 
     /**
-     * Shifts all feature temporal timestamps (store + live sources) by `deltaMs`,
-     * keeping their relative offset when the relative origin (D-Day) changes. Does
-     * NOT re-sync — the caller persists the new config right after, which triggers
-     * a single authoritative sync with the shifted data and new bounds.
+     * Shifts all feature temporal timestamps (store + live sources) by `deltaMs`.
+     * Used by the explicit "Reagendar" action to move the whole exercise to a new
+     * real D-Day while keeping the D+N offsets. Does NOT re-sync — the caller
+     * persists the new config right after, which triggers a single authoritative
+     * sync with the shifted data and new bounds.
      * @param {number} deltaMs
      */
     async shiftFeatureTimes(deltaMs) {

@@ -601,10 +601,11 @@ export async function updateFeatureProperty(featureType, featureId, property, va
 
 /**
  * Shifts every temporal timestamp on a map's features by `deltaMs`:
- * `temporalInicio`, `temporalFim`, and each trajectory keypoint's `t`. Used when
- * the relative-mode origin (D-Day) changes so features keep their D+N offset.
- * Atomic (one transaction, one persist). Not undoable and not logged to the sync
- * queue (offline no-op today); reverse it by re-setting the origin.
+ * `temporalInicio`, `temporalFim`, and each trajectory keypoint's `t`. Driven by
+ * the explicit "Reagendar" action (move the whole exercise to a new real D-Day,
+ * keeping the D+N offsets). Atomic (one transaction, one persist). Not undoable
+ * and not logged to the sync queue (offline no-op today); reverse it by
+ * rescheduling back.
  * @param {string|null} mapName - Target map (null = current).
  * @param {number} deltaMs - Amount to add to each temporal timestamp.
  * @returns {Promise<number>} Number of features changed.

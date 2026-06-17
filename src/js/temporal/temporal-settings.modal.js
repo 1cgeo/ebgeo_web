@@ -7,8 +7,14 @@
  * start/end datetimes; in relative mode they are unit offsets (Início/Fim) around
  * an optional "Data de D" origin. Edits are buffered and committed on "Salvar"
  * (via setMapTemporalConfig, which emits TEMPORAL_CONFIG_CHANGED so the controller
- * re-syncs); "Cancelar" discards them. Changing D within relative mode shifts all
- * features so they keep their D+N offset.
+ * re-syncs); "Cancelar" discards them.
+ *
+ * Canonical model: feature times are absolute epoch ms; `modo`, `unidade` and
+ * `origem` are pure display lenses that NEVER mutate feature data. The map bounds
+ * are stored absolute, so changing the unit or the D-origin only re-labels the
+ * D+N axis (the offset inputs recompute) — it does not move features or rescale
+ * the absolute window. Moving features in time is a separate, explicit action:
+ * "Reagendar" shifts every feature/trajectory by a deliberate delta (confirmed).
  */
 
 import {
@@ -18,8 +24,17 @@ import {
     removeElement,
 } from '../utilities/event-cleanup.js';
 import { getMapTemporalConfig, setMapTemporalConfig, getControl } from '../store';
+import { showConfirm } from '../modals/index.js';
+import { showSuccess, showWarning, showToast } from '../utilities/index.js';
 import { TEMPORAL_UNIT_KEYS, TEMPORAL_UNITS, TEMPORAL_MODES } from './temporal.constants.js';
-import { epochToDatetimeLocal, datetimeLocalToEpoch, unitToMs, unitLetter } from './temporal.utils.js';
+import {
+    epochToDatetimeLocal,
+    datetimeLocalToEpoch,
+    unitToMs,
+    unitLetter,
+    epochToOffset,
+    offsetToEpoch,
+} from './temporal.utils.js';
 
 class TemporalSettingsModal {
     constructor(mapName) {
@@ -35,20 +50,16 @@ class TemporalSettingsModal {
 
     async show() {
         const config = await getMapTemporalConfig(this._mapName);
-        const unitMs = unitToMs(config.unidade);
         const origem = Number.isFinite(config.origem) ? config.origem : null;
-        const isRelative = config.modo === TEMPORAL_MODES.RELATIVO && Number.isFinite(origem);
 
         this._pending = {
             modo: config.modo || TEMPORAL_MODES.ABSOLUTO,
             unidade: config.unidade,
-            // Absolute bounds (epoch ms).
+            // Absolute bounds (epoch ms) are the source of truth in both modes; the
+            // relative offset inputs are just a lens derived from these + dDate.
             inicio: config.inicio,
             fim: config.fim,
-            // Relative working values (unit offsets + optional D-Day epoch).
-            startOffset: isRelative && Number.isFinite(config.inicio) ? (config.inicio - origem) / unitMs : 0,
-            endOffset: isRelative && Number.isFinite(config.fim) ? (config.fim - origem) / unitMs : 30,
-            dDate: origem,
+            dDate: origem, // display anchor (D); null until set
         };
         this._original = { modo: config.modo, origem };
 
@@ -123,24 +134,23 @@ class TemporalSettingsModal {
         relGroup.className = 'temporal-settings-group';
         relGroup.dataset.when = TEMPORAL_MODES.RELATIVO;
         relGroup.appendChild(
-            this._field('Início', 'Offset da origem (normalmente 0 = D).', this._offsetInput(this._pending.startOffset, (n) => {
-                this._pending.startOffset = n;
-            }))
+            this._field('Início', 'Offset da origem (normalmente 0 = D).', this._relativeOffsetField('inicio'))
         );
         relGroup.appendChild(
-            this._field('Fim', 'Ex.: 300 para D+300.', this._offsetInput(this._pending.endOffset, (n) => {
-                this._pending.endOffset = n;
-            }))
+            this._field('Fim', 'Ex.: 300 para D+300.', this._relativeOffsetField('fim'))
         );
         relGroup.appendChild(
             this._field(
-                'Data de D (opcional)',
-                'Define a data real de D. Alterá-la desloca as feições junto (mantém o offset).',
+                'Data de D (origem)',
+                'Apenas a referência de exibição do D+N. NÃO move as feições — só rotula a régua. Para mover, use "Reagendar".',
                 this._datetimeInput(this._pending.dDate, (epoch) => {
+                    // Pure lens: keep the absolute bounds, just re-label the D+N axis.
                     this._pending.dDate = epoch;
+                    this._refreshOffsetInputs();
                 })
             )
         );
+        relGroup.appendChild(this._rescheduleField());
         body.appendChild(relGroup);
 
         container.appendChild(body);
@@ -209,6 +219,9 @@ class TemporalSettingsModal {
         addDomListener(this, select, 'change', () => {
             this._pending.modo = select.value;
             if (this._body) this._body.dataset.mode = select.value;
+            // Re-sync the now-visible group's inputs with the shared absolute bounds.
+            if (select.value === TEMPORAL_MODES.RELATIVO) this._refreshOffsetInputs();
+            else this._refreshAbsoluteInputs();
         });
         return select;
     }
@@ -229,6 +242,8 @@ class TemporalSettingsModal {
             this._prefixSpans.forEach((span) => {
                 span.textContent = `${letter}+`;
             });
+            // Unit is a display lens too: keep the absolute bounds, relabel the offsets.
+            this._refreshOffsetInputs();
         });
         return select;
     }
@@ -242,7 +257,46 @@ class TemporalSettingsModal {
         return input;
     }
 
-    _offsetInput(value, onChange) {
+    /** Anchor used to convert between absolute bounds and displayed D+N offsets. */
+    _effectiveAnchor() {
+        return Number.isFinite(this._pending.dDate) ? this._pending.dDate : this._defaultOrigin();
+    }
+
+    /** Current offset (in units) shown for a bound, derived from the absolute value. */
+    _offsetDisplay(which) {
+        const anchor = this._effectiveAnchor();
+        const abs = which === 'inicio'
+            ? (Number.isFinite(this._pending.inicio) ? this._pending.inicio : anchor)
+            : (Number.isFinite(this._pending.fim) ? this._pending.fim : anchor + 30 * unitToMs(this._pending.unidade));
+        const n = epochToOffset(abs, anchor, this._pending.unidade);
+        return n === null ? '' : String(Math.round(n * 100) / 100);
+    }
+
+    /** Writes an edited offset back to the absolute bound (offset is just the lens). */
+    _setOffset(which, n) {
+        const abs = offsetToEpoch(n, this._effectiveAnchor(), this._pending.unidade);
+        if (abs === null) return;
+        if (which === 'inicio') this._pending.inicio = abs;
+        else this._pending.fim = abs;
+    }
+
+    /** Re-renders both offset inputs from the (unchanged) absolute bounds. */
+    _refreshOffsetInputs() {
+        if (this._startOffsetInput) this._startOffsetInput.value = this._offsetDisplay('inicio');
+        if (this._endOffsetInput) this._endOffsetInput.value = this._offsetDisplay('fim');
+    }
+
+    /** Re-renders the absolute datetime inputs from the shared absolute bounds. */
+    _refreshAbsoluteInputs() {
+        if (this._startInput) {
+            this._startInput.value = Number.isFinite(this._pending.inicio) ? epochToDatetimeLocal(this._pending.inicio) : '';
+        }
+        if (this._endInput) {
+            this._endInput.value = Number.isFinite(this._pending.fim) ? epochToDatetimeLocal(this._pending.fim) : '';
+        }
+    }
+
+    _relativeOffsetField(which) {
         const wrap = document.createElement('div');
         wrap.className = 'temporal-settings__offset';
 
@@ -256,13 +310,95 @@ class TemporalSettingsModal {
         input.type = 'number';
         input.step = 'any';
         input.className = 'temporal-settings__datetime temporal-settings__offset-input';
-        input.value = Number.isFinite(value) ? String(value) : '';
+        input.value = this._offsetDisplay(which);
         addDomListener(this, input, 'change', () => {
             const raw = input.value.trim().replace(',', '.');
-            onChange(raw === '' ? null : Number(raw));
+            this._setOffset(which, raw === '' ? null : Number(raw));
         });
         wrap.appendChild(input);
+
+        if (which === 'inicio') this._startOffsetInput = input;
+        else this._endOffsetInput = input;
         return wrap;
+    }
+
+    /** Builds the explicit "Reagendar" action (deliberate bulk time shift). */
+    _rescheduleField() {
+        const field = document.createElement('div');
+        field.className = 'settings-field temporal-settings-field';
+
+        const label = document.createElement('div');
+        label.className = 'settings-field__label';
+        label.textContent = 'Reagendar feições';
+        field.appendChild(label);
+
+        const desc = document.createElement('div');
+        desc.className = 'settings-field__description';
+        desc.textContent =
+            'Move todas as feições e trajetórias no tempo para que o Dia D caia em outra data real, mantendo os offsets D+N. Use ao reprogramar a operação.';
+        field.appendChild(desc);
+
+        const row = document.createElement('div');
+        row.className = 'temporal-settings-reschedule__row';
+
+        const input = document.createElement('input');
+        input.type = 'datetime-local';
+        input.className = 'temporal-settings__datetime';
+        input.value = Number.isFinite(this._pending.dDate) ? epochToDatetimeLocal(this._pending.dDate) : '';
+        row.appendChild(input);
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'temporal-settings-btn temporal-settings-btn--save';
+        btn.textContent = 'Reagendar';
+        addDomListener(this, btn, 'click', () => this._rescheduleFeatures(datetimeLocalToEpoch(input.value)));
+        row.appendChild(btn);
+
+        field.appendChild(row);
+        return field;
+    }
+
+    /**
+     * Deliberately shifts every feature/trajectory in time so D falls on `newD`,
+     * keeping their D+N offsets (the absolute dates move). Confirmed; not undoable.
+     * @param {number|null} newD - New real date for D (epoch ms).
+     */
+    async _rescheduleFeatures(newD) {
+        if (!Number.isFinite(newD)) {
+            showWarning('Informe a nova data do Dia D para reagendar.');
+            return;
+        }
+        const cfg = await getMapTemporalConfig(this._mapName);
+        const refD = Number.isFinite(cfg.origem) ? cfg.origem : this._defaultOrigin();
+        const delta = newD - refD;
+        if (delta === 0) {
+            showToast('A data do Dia D não mudou — nada a reagendar.', 'info');
+            return;
+        }
+
+        const confirmed = await showConfirm('Reagendar todas as feições?', {
+            message:
+                'As feições temporais e trajetórias serão deslocadas no tempo para o novo Dia D.\n' +
+                'Os offsets D+N são mantidos; as datas reais mudam. Esta ação não pode ser desfeita.',
+            confirmText: 'Reagendar',
+        });
+        if (!confirmed) return;
+
+        try {
+            // Shift features (store + live), then persist the moved origin/bounds so
+            // the D+N picture is identical and the controller re-syncs once.
+            await getControl('TemporalControl')?.shiftFeatureTimes(delta);
+            await setMapTemporalConfig(this._mapName, {
+                origem: newD,
+                inicio: Number.isFinite(cfg.inicio) ? cfg.inicio + delta : cfg.inicio,
+                fim: Number.isFinite(cfg.fim) ? cfg.fim + delta : cfg.fim,
+            });
+            showSuccess('Feições reagendadas para o novo Dia D.');
+        } catch (error) {
+            console.warn('Failed to reschedule features:', error);
+            showWarning('Falha ao reagendar as feições.');
+        }
+        this._close();
     }
 
     /** Default relative origin when none is set: resolved timeline start, else today 00:00. */
@@ -280,31 +416,22 @@ class TemporalSettingsModal {
 
         if (p.modo === TEMPORAL_MODES.RELATIVO) {
             const unitMs = unitToMs(p.unidade);
-            const origemNew = Number.isFinite(p.dDate)
+            const origem = Number.isFinite(p.dDate)
                 ? p.dDate
                 : (Number.isFinite(this._original.origem) ? this._original.origem : this._defaultOrigin());
-            const start = Number.isFinite(p.startOffset) ? p.startOffset : 0;
-            let end = Number.isFinite(p.endOffset) ? p.endOffset : start + 1;
-            if (end <= start) end = start + 1;
-
-            // Keep existing features' D+N offset when D moves (only within relative mode).
-            if (this._original.modo === TEMPORAL_MODES.RELATIVO && Number.isFinite(this._original.origem)) {
-                const delta = origemNew - this._original.origem;
-                if (delta !== 0) {
-                    try {
-                        await getControl('TemporalControl')?.shiftFeatureTimes(delta);
-                    } catch (error) {
-                        console.warn('Failed to shift feature times:', error);
-                    }
-                }
-            }
+            // Bounds are absolute (offset edits already wrote them); default a window
+            // when unset. Changing the origin/unit is a PURE LENS here — features are
+            // never shifted. Use the explicit "Reagendar" action to move them in time.
+            const inicio = Number.isFinite(p.inicio) ? p.inicio : origem;
+            let fim = Number.isFinite(p.fim) ? p.fim : origem + 30 * unitMs;
+            if (fim <= inicio) fim = inicio + unitMs;
 
             patch = {
                 modo: TEMPORAL_MODES.RELATIVO,
                 unidade: p.unidade,
-                inicio: origemNew + start * unitMs,
-                fim: origemNew + end * unitMs,
-                origem: origemNew,
+                inicio,
+                fim,
+                origem,
             };
         } else {
             patch = {

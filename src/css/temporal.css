@@ -528,6 +528,16 @@
     font-variant-numeric: tabular-nums;
 }
 
+.temporal-settings-reschedule__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.temporal-settings-reschedule__row .temporal-settings__datetime {
+    flex: 1;
+}
+
 .temporal-settings-footer {
     display: flex;
     justify-content: flex-end;
