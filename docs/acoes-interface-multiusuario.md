@@ -491,6 +491,50 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 
 ---
 
+## 29. Módulo Temporal (Linha do Tempo)
+
+Controle temporal por mapa: feições ganham uma **validade temporal**
+(`temporalInicio`/`temporalFim`) e pontos/símbolos militares/medidas de coordenação
+ganham uma **trajetória** (lista de keypoints `{t, lng, lat}`). A configuração é
+escopo de mapa, persistida em `temporal_<mapa>` (espelhando o padrão do bloqueio de
+mapa) com o formato `{ ativo, modo, unidade, inicio, fim, origem }`.
+
+**Princípio:** o *flag* `ativo` e a configuração são **estado compartilhado do mapa**
+(broadcast + last-write-wins), mas **cursor, reprodução, velocidade e modo revelar são
+estado de visualização local por usuário** — cada usuário navega sua própria linha do
+tempo sem afetar os demais (análogo a pan/zoom). Awareness opcional pode expor o
+instante/reprodução de cada usuário.
+
+| # | Ação | Impacto Multiusuário |
+|---|------|---------------------|
+| 1 | **Ativar/desativar controle temporal do mapa** | 🟡 Config escopo de mapa (`ativo`), compartilhada. Broadcast `MAP_TEMPORAL_CHANGED` + `TEMPORAL_CONFIG_CHANGED`. Last-write-wins. Ao receber, clientes mostram/ocultam a barra e aplicam os filtros temporais. |
+| 2 | **Reproduzir / Pausar** (play/pause) | 🟢 Estado de reprodução local por usuário. Cada um reproduz sua própria linha do tempo. Awareness opcional ("Usuário X está em D+3"). |
+| 3 | **Arrastar cursor** (scrub no track — mouse/touch) | 🟢 Posição do cursor é local por usuário. Awareness opcional. |
+| 4 | **Navegar cursor pelo teclado** (←/→, um passo de unidade) | 🟢 Navegação local. |
+| 5 | **Velocidade de reprodução** (seletor Nx) | 🟢 Preferência local de reprodução. |
+| 6 | **Modo revelar** (olho — mostrar feições fora do intervalo para edição) | 🟢 Modo de visualização local. Não altera dados (apenas suprime o ocultamento temporal e esmaece). |
+| 7 | **Abrir configurações temporais** (engrenagem) | 🟢 Abre modal local. |
+| 8 | **Configurar unidade de divisão** (MINUTO / HORA / DIA / SEMANA) | 🟡 Config escopo de mapa. Broadcast `TEMPORAL_CONFIG_CHANGED`. Last-write-wins. É lente de exibição — não move feições. |
+| 9 | **Configurar modo** (absoluto = datas reais / relativo = D+N) | 🟡 Idem. Lente de exibição; não move feições. |
+| 10 | **Configurar limites do mapa** (início / fim, absoluto ou offset) | 🟡 Idem. Limites são absolutos (epoch ms). Last-write-wins. |
+| 11 | **Configurar Data de D (origem)** | 🟡 Idem. Apenas rotula o eixo D+N — NÃO move as feições. |
+| 12 | **Reagendar feições** (mover o Dia D para outra data real) | 🔴🔒 Operação destrutiva em massa: desloca `temporalInicio`/`temporalFim` + todos os keypoints de trajetória de **todas** as feições do mapa, mais os limites/origem do mapa. Não desfazível. Servidor executa atômico e faz broadcast em batch (`FEATURE_MODIFIED` para todas as feições afetadas + config do mapa). Re-deriva os amplificadores DTG/GDH vinculados (`autoDtg`). Permissão de editor. Confirmação antes. |
+| 13 | **Editar validade temporal da feição** (Início/Fim no painel — datetime ou offset) | 🟡 Broadcast `FEATURE_MODIFIED`. Last-write-wins. Em branco = permanente (visível em qualquer instante). Se `autoDtg` ativo, atualiza o DTG/GDH derivado junto. |
+| 14 | **Editar trajetória — adicionar pontos no mapa** (modo append) | 🟡 Broadcast `FEATURE_MODIFIED` ao concluir. Last-write-wins para a trajetória inteira. Mutuamente exclusivo com as ferramentas de desenho (local). |
+| 15 | **Editar trajetória — mover / inserir / remover keypoint** (handles no mapa) | 🟡 Broadcast `FEATURE_MODIFIED`. Last-write-wins para a trajetória inteira. |
+| 16 | **Arrastar keypoint na barra** (pins da linha do tempo — retemporizar) | 🟡 Broadcast `FEATURE_MODIFIED`. Last-write-wins. |
+| 17 | **Limpar trajetória** | 🟡 Broadcast `FEATURE_MODIFIED`. Last-write-wins. |
+| 18 | **Vínculo automático: direção** (`autoDirection` — símbolo militar) | 🟡 O *flag* persiste e é sincronizado (`FEATURE_MODIFIED`). A direção derivada é **somente exibição local** (regeneração da imagem do símbolo durante a reprodução de cada usuário) — NÃO é persistida nem broadcast. |
+| 19 | **Vínculo automático: velocidade** (`autoSpeed` — símbolo militar) | 🟡 Igual ao item 18: *flag* persiste; o amplificador de velocidade derivado é exibição local, não persistido. |
+| 20 | **Vínculo automático: GDH/DTG** (`autoDtg` — símbolo militar / medida de coordenação) | 🟡 O *flag* persiste **e** deriva valores canônicos (`dateTimeGroup` no símbolo; `gdhIni`/`gdhFim` na medida de coordenação) a partir da janela temporal. Broadcast `FEATURE_MODIFIED`. Last-write-wins. |
+
+> **Importação:** os dados temporais/trajetória (`temporalInicio`, `temporalFim`,
+> `trajetoria`) viajam como propriedades comuns da feição — são cobertos pelos
+> `FEATURE_CREATED` em batch da Aba Importar (seção 5) e pelo round-trip `.ebgeo`,
+> sem evento dedicado. Tracks com tempo de KML/KMZ/GPX viram pontos móveis na importação.
+
+---
+
 # Resumo de Requisitos para Sistema Multiusuário
 
 ## Infraestrutura Necessária
@@ -516,6 +560,9 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | Geometria (coordenadas) | Last-write-wins — broadcast ao salvar, sem lock |
 | Texto rico (notas, descrições, briefing) | Last-write-wins por entidade (mapa, feição, slide) |
 | Listas ordenadas (slides, camadas, mapas) | Last-write-wins para ordem inteira |
+| Validade temporal / trajetória da feição | Last-write-wins (trajetória inteira por feição) — broadcast ao salvar, sem lock |
+| Config temporal do mapa (`ativo`, modo, unidade, limites, origem) | Escopo de mapa, last-write-wins. Cursor/reprodução são locais por usuário |
+| Reagendamento (shift temporal em massa) | Operação atômica no servidor + broadcast em batch (não desfazível) |
 | Operações destrutivas (delete) | Soft-delete + broadcast |
 
 ### 4. Awareness (Presença) — Opcional
@@ -523,6 +570,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 - Lista de usuários online no projeto
 - Indicador de mapa ativo de cada usuário
 - Indicador de quem está editando um briefing
+- Instante temporal / estado de reprodução de cada usuário (linha do tempo é local por usuário)
 
 ### 5. Operações Offline
 - Queue de operações local (já implementada em `operation-queue.js`)
@@ -563,10 +611,11 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | Grade UTM | 3 | 3 | 0 | 0 |
 | Deep-link / URL | 4 | 4 | 0 | 0 |
 | Layout Mobile | 14 | 6 | 7 | 1 |
-| **TOTAL** | **~277** | **~137 (49%)** | **~125 (45%)** | **~15 (6%)** |
+| Módulo Temporal | 20 | 6 | 13 | 1 |
+| **TOTAL** | **~297** | **~143 (48%)** | **~138 (46%)** | **~16 (5%)** |
 
-**~49% das ações são puramente locais** — sem necessidade de sync.
-**~45% precisam de sync simples** — broadcast + last-write-wins, sem locks.
-**~6% são operações destrutivas** — soft-delete + permissão + broadcast.
+**~48% das ações são puramente locais** — sem necessidade de sync.
+**~46% precisam de sync simples** — broadcast + last-write-wins, sem locks.
+**~5% são operações destrutivas** — soft-delete + permissão + broadcast.
 
 **Nenhuma ação requer lock.** Toda resolução de conflito é last-write-wins com timestamp do servidor.
