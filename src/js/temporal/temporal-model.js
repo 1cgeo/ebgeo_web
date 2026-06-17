@@ -84,6 +84,38 @@ export function normalizeTrajectory(trajetoria) {
         .sort((a, b) => a.t - b.t);
 }
 
+/** Great-circle distance in metres between two `{lng, lat}` points (haversine). */
+function haversineMeters(a, b) {
+    const R = 6371000;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const h =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * Summary statistics for a trajectory, for the feature panel: keypoint count,
+ * total wall-clock duration (last − first time), and total path length in metres
+ * (sum of great-circle segments). Pure.
+ *
+ * @param {Array<{t:number, lng:number, lat:number}>} keypoints
+ * @returns {{count: number, durationMs: number, distanceMeters: number}}
+ */
+export function trajectoryStats(keypoints) {
+    const pts = normalizeTrajectory(keypoints);
+    const count = pts.length;
+    if (count < 2) return { count, durationMs: 0, distanceMeters: 0 };
+
+    let distanceMeters = 0;
+    for (let i = 0; i < count - 1; i++) {
+        distanceMeters += haversineMeters(pts[i], pts[i + 1]);
+    }
+    return { count, durationMs: pts[count - 1].t - pts[0].t, distanceMeters };
+}
+
 /**
  * Thins a trajectory so consecutive keypoints are at least `resolutionMs` apart in
  * time, always keeping the first and last keypoint. Used on import to drop

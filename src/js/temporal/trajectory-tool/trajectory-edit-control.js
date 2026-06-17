@@ -42,8 +42,10 @@ import {
 
 const PATH_SOURCE = 'trajectory-edit-path';
 const HANDLE_SOURCE = 'trajectory-edit-handles';
+const HIGHLIGHT_SOURCE = 'trajectory-edit-highlight';
 const PATH_LAYER = 'trajectory-edit-path-layer';
 const MIDPOINT_LAYER = 'trajectory-edit-midpoint-layer';
+const HIGHLIGHT_LAYER = 'trajectory-edit-highlight-layer';
 const VERTEX_LAYER = 'trajectory-edit-vertex-layer';
 const VERTEX_LABEL_LAYER = 'trajectory-edit-vertex-label-layer';
 
@@ -131,6 +133,24 @@ export class TrajectoryEditControl {
     /** Re-renders the path + handles for the currently shown feature (after a panel edit). */
     refreshDisplay() {
         if (this._feature) this._renderAll();
+    }
+
+    /**
+     * Emphasises the vertex at `index` with a halo (driven by the panel's waypoint
+     * list on hover). Pass a non-index (e.g. null) to clear the highlight.
+     * @param {number|null} index - Keypoint index (time-ordered), or null to clear.
+     */
+    highlightVertex(index) {
+        const source = this._map?.getSource(HIGHLIGHT_SOURCE);
+        if (!source) return;
+        const pts = normalizeTrajectory(this._feature?.properties?.trajetoria);
+        const kp = Number.isInteger(index) && index >= 0 && index < pts.length ? pts[index] : null;
+        source.setData({
+            type: 'FeatureCollection',
+            features: kp
+                ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [kp.lng, kp.lat] }, properties: {} }]
+                : [],
+        });
     }
 
     /** Clears the trajectory display and exits add/edit mode. */
@@ -455,6 +475,9 @@ export class TrajectoryEditControl {
         if (!map.getSource(HANDLE_SOURCE)) {
             map.addSource(HANDLE_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         }
+        if (!map.getSource(HIGHLIGHT_SOURCE)) {
+            map.addSource(HIGHLIGHT_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        }
         if (!map.getLayer(PATH_LAYER)) {
             map.addLayer({
                 id: PATH_LAYER,
@@ -475,6 +498,19 @@ export class TrajectoryEditControl {
                     'circle-opacity': 0.9,
                     'circle-stroke-color': '#16a34a',
                     'circle-stroke-width': 1.5,
+                },
+            });
+        }
+        if (!map.getLayer(HIGHLIGHT_LAYER)) {
+            map.addLayer({
+                id: HIGHLIGHT_LAYER,
+                type: 'circle',
+                source: HIGHLIGHT_SOURCE,
+                paint: {
+                    'circle-radius': 11,
+                    'circle-opacity': 0,
+                    'circle-stroke-color': '#f59e0b',
+                    'circle-stroke-width': 3,
                 },
             });
         }
@@ -512,9 +548,10 @@ export class TrajectoryEditControl {
     _removeLayers() {
         const map = this._map;
         if (!map) return;
-        for (const id of [VERTEX_LABEL_LAYER, VERTEX_LAYER, MIDPOINT_LAYER, PATH_LAYER]) {
+        for (const id of [VERTEX_LABEL_LAYER, VERTEX_LAYER, HIGHLIGHT_LAYER, MIDPOINT_LAYER, PATH_LAYER]) {
             if (map.getLayer(id)) map.removeLayer(id);
         }
+        if (map.getSource(HIGHLIGHT_SOURCE)) map.removeSource(HIGHLIGHT_SOURCE);
         if (map.getSource(HANDLE_SOURCE)) map.removeSource(HANDLE_SOURCE);
         if (map.getSource(PATH_SOURCE)) map.removeSource(PATH_SOURCE);
     }

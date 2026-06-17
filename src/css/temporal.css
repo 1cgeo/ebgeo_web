@@ -333,6 +333,13 @@
 
 /* ===== Trajectory waypoint list (feature panel) ===== */
 
+.temporal-trajectory-stats {
+    font-size: 0.72rem;
+    color: var(--gray-600);
+    font-variant-numeric: tabular-nums;
+    margin-bottom: var(--space-2);
+}
+
 .temporal-trajectory-list {
     display: flex;
     flex-direction: column;
@@ -346,6 +353,13 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+    transition: background var(--transition-fast);
+}
+
+.temporal-trajectory-row:hover {
+    background: var(--gray-100);
 }
 
 .temporal-trajectory-row__badge {
@@ -355,11 +369,20 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    border: none;
+    padding: 0;
     border-radius: var(--radius-full);
     background: var(--primary);
     color: #fff;
     font-size: 0.7rem;
     font-weight: 600;
+    cursor: pointer;
+    transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.temporal-trajectory-row__badge:hover {
+    box-shadow: 0 0 0 2px var(--primary-light, rgba(63, 79, 181, 0.35));
+    transform: scale(1.1);
 }
 
 .temporal-trajectory-row__fields {

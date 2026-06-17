@@ -7,6 +7,7 @@ import {
     interpolatePosition,
     resolveTrajectoryTarget,
     mergeTemporalWindows,
+    trajectoryStats,
 } from '../../src/js/temporal/temporal-model.js';
 
 // ============================================================================
@@ -165,6 +166,35 @@ describe('mergeTemporalWindows', () => {
     it('ignores NaN/Infinity bounds (treated as unbounded)', () => {
         expect(mergeTemporalWindows([{ temporalInicio: NaN, temporalFim: 200 }])).toEqual({ temporalFim: 200 });
         expect(mergeTemporalWindows([{ temporalInicio: 100, temporalFim: Infinity }])).toEqual({ temporalInicio: 100 });
+    });
+});
+
+// ============================================================================
+// trajectoryStats
+// ============================================================================
+
+describe('trajectoryStats', () => {
+    it('reports zeros for fewer than 2 keypoints', () => {
+        expect(trajectoryStats([])).toEqual({ count: 0, durationMs: 0, distanceMeters: 0 });
+        expect(trajectoryStats([{ t: 1, lng: 0, lat: 0 }])).toEqual({ count: 1, durationMs: 0, distanceMeters: 0 });
+    });
+
+    it('computes count and total duration (last − first)', () => {
+        const stats = trajectoryStats([
+            { t: 1000, lng: 0, lat: 0 },
+            { t: 5000, lng: 0, lat: 0 },
+            { t: 3000, lng: 0, lat: 0 },
+        ]);
+        expect(stats.count).toBe(3);
+        expect(stats.durationMs).toBe(4000); // 5000 − 1000
+    });
+
+    it('sums great-circle segment lengths (~111 km per degree of latitude)', () => {
+        const stats = trajectoryStats([
+            { t: 0, lng: 0, lat: 0 },
+            { t: 1, lng: 0, lat: 1 },
+        ]);
+        expect(stats.distanceMeters).toBeCloseTo(111195, -2); // within ~100 m
     });
 });
 

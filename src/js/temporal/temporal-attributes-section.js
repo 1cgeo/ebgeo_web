@@ -23,8 +23,9 @@ import {
     epochToOffset,
     offsetToEpoch,
     unitLetter,
+    formatTimelineLabel,
 } from './temporal.utils.js';
-import { normalizeTrajectory } from './temporal-model.js';
+import { normalizeTrajectory, trajectoryStats } from './temporal-model.js';
 import {
     TRAJECTORY_FEATURE_TYPES,
     TRAJECTORY_TYPE_TO_SOURCE,
@@ -220,11 +221,27 @@ function buildSwapBtn(offsetView, onToggle) {
     return btn;
 }
 
+/** Formats a path length: metres under 1 km, otherwise km (pt-BR comma). */
+function formatDistance(meters) {
+    if (!Number.isFinite(meters) || meters <= 0) return '0 m';
+    if (meters < 1000) return `${Math.round(meters)} m`;
+    const km = meters / 1000;
+    return `${km.toFixed(km < 10 ? 2 : 1).replace('.', ',')} km`;
+}
+
+/** Average speed (km/h, pt-BR comma), or null when undefined (no duration/distance). */
+function formatSpeed(meters, durationMs) {
+    if (!(durationMs > 0) || !(meters > 0)) return null;
+    const kmh = (meters / (durationMs / 1000)) * 3.6;
+    return `${kmh.toFixed(1).replace('.', ',')} km/h`;
+}
+
 /**
- * Builds the trajectory section for trajectory-capable features: a waypoint list
- * (per-point time editing + delete), an "Adicionar no mapa" action that launches
- * the point-by-point map editor, and a "Limpar" action. The list refreshes live
- * while the map editor adds points (via its onChange callback).
+ * Builds the trajectory section for trajectory-capable features: a stats line, a
+ * waypoint list (per-point time editing, jump-to-instant, hover-to-highlight,
+ * delete), an "Adicionar no mapa" action that launches the map editor, and a
+ * "Limpar" action. The list refreshes live while the map editor edits points (via
+ * its onChange callback).
  * @param {Object} opts
  * @param {Object} opts.feature - The single selected feature.
  * @param {string} opts.featureType - Feature type (source string).
@@ -247,6 +264,11 @@ export function createTrajectorySection({ feature, featureType, map }) {
     const info = document.createElement('div');
     info.className = 'temporal-attr-section__hint';
     section.appendChild(info);
+
+    const stats = document.createElement('div');
+    stats.className = 'temporal-trajectory-stats';
+    stats.hidden = true;
+    section.appendChild(stats);
 
     const list = document.createElement('div');
     list.className = 'temporal-trajectory-list';
@@ -274,20 +296,45 @@ export function createTrajectorySection({ feature, featureType, map }) {
         // mutating a keypoint's time / splicing by reference updates the source array.
         const waypoints = normalizeTrajectory(feature.properties?.trajetoria);
         info.textContent = waypoints.length === 0
-            ? 'Sem trajetória (mudança instantânea). Use "Adicionar no mapa" para criar.'
-            : `${waypoints.length} ponto(s) — edite o instante aqui; arraste os pontos no mapa para reposicionar.`;
+            ? 'Sem trajetória (mudança instantânea). Crie com "Adicionar no mapa" ou arrastando um ponto médio da linha no mapa.'
+            : `${waypoints.length} ponto(s) — clique no nº para ir ao instante; arraste, insira (ponto médio) ou remova (botão direito) vértices no mapa.`;
+        renderStats(waypoints);
         clearBtn.disabled = waypoints.length === 0;
 
         waypoints.forEach((kp, index) => list.appendChild(buildWaypointRow(kp, index)));
     };
 
+    /** Compact stats line: time span · total distance · average speed. */
+    const renderStats = (waypoints) => {
+        const s = trajectoryStats(waypoints);
+        if (s.count < 2) {
+            stats.hidden = true;
+            stats.textContent = '';
+            return;
+        }
+        const span = `${formatTimelineLabel(waypoints[0].t, timeContext)} → ${formatTimelineLabel(waypoints[s.count - 1].t, timeContext)}`;
+        const parts = [span, formatDistance(s.distanceMeters)];
+        const speed = formatSpeed(s.distanceMeters, s.durationMs);
+        if (speed) parts.push(speed);
+        stats.textContent = parts.join(' · ');
+        stats.hidden = false;
+    };
+
     function buildWaypointRow(kp, index) {
         const row = document.createElement('div');
         row.className = 'temporal-trajectory-row';
+        // Hovering a row haloes the matching vertex on the map (panel ↔ map link).
+        row.addEventListener('mouseenter', () => getControl('TrajectoryEditControl')?.highlightVertex(index));
+        row.addEventListener('mouseleave', () => getControl('TrajectoryEditControl')?.highlightVertex(null));
 
-        const badge = document.createElement('span');
+        const badge = document.createElement('button');
+        badge.type = 'button';
         badge.className = 'temporal-trajectory-row__badge';
         badge.textContent = String(index + 1);
+        badge.title = 'Ir para este instante na linha do tempo';
+        badge.setAttribute('aria-label', `Ir para o ponto ${index + 1} na linha do tempo`);
+        // Move the timeline cursor to this keypoint's instant (feature jumps there).
+        badge.addEventListener('click', () => getControl('TemporalControl')?.setCursor(kp.t));
         row.appendChild(badge);
 
         const fields = document.createElement('div');
