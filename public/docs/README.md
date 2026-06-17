@@ -64,6 +64,7 @@ No canto inferior esquerdo há um seletor de mapa de fundo. Clique para expandir
         <li><strong>Mapas:</strong> ficam centralizadas as opções de importação.</li>
         <li><strong>Camadas:</strong> onde ficam armazenados as camadas.</li>
         <li><strong>Briefings:</strong> onde ficam as apresentações (story maps).</li>
+        <li><strong>Análise:</strong> onde ficam ferramentas para análises geoespaciais.</li>
         <li><strong>Importar:</strong> onde é possível importar arquivos.</li>
         <li><strong>Exportar:</strong> onde é possível exportar produtos finais.</li>
         <li>Uma aba de acesso rápido, que permite ciclar entre os mapas.</li>
@@ -84,6 +85,7 @@ No canto inferior esquerdo há um seletor de mapa de fundo. Clique para expandir
 <img src="./images/notas.png" alt="Painel Notas" width="30%"/>
 
 - É possível adicionar notas a um mapa, com título e informações relevantes que ficam armazenadas no .ebgeo.
+- É possível travar o mapa, impedindo a realização de alterações.
 
 <img src="./images/notas_edicao.png" alt="Painel Edição Notas" width="30%"/>
 
@@ -93,7 +95,6 @@ No canto inferior esquerdo há um seletor de mapa de fundo. Clique para expandir
 - Duplicar: duplicar o mapa atual, para edição em outro mapa com as informações do mapa anterior.
 - Renomear: alterar o nome do mapa atual.
 - Puxar outros mapas: puxa as camadas de outro mapa para o mapa atual, permitindo a mescla de dois mapas distintos.
-- Travar: bloqueia a edição de um mapa, impedindo alterações acidentais.
 - Reordenar: arraste os mapas na lista para mudar a ordem.
 - Deletar: deleta o mapa atual.
 
@@ -125,7 +126,7 @@ A aba Briefings reúne as apresentações (story maps) do projeto. Cada briefing
 
 <img src="./images/importar.png" alt="Importar Geometrias" width="30%"/>
 
-É possível importar dados geoespaciais de outras fontes para dentro do EBGeo: GeoJSON, Shapefile, KML/KMZ, GPX e CSV.
+É possível importar dados geoespaciais de outras fontes para dentro do EBGeo: GeoJSON, Shapefile, KML/KMZ, GPX, CSV e Pontos por Coordenadas.
 
 No caso de arquivos CSV (planilhas de coordenadas), o EBGeo detecta o separador automaticamente e permite escolher o formato das coordenadas (Lat/Long, Long/Lat, GMS, MGRS, UTM ou decimal) e mapear as demais colunas como atributos das feições.
 
@@ -141,9 +142,9 @@ Existe um limitador da quantidade de feições que podem ser importadas de uma �
 
 Além da exportação no formato .ebgeo, que permite compartilhar os mapas com outros usuários, é possível também exportar produtos finais.
 
-- Exportar imagem: tira uma captura de tela do EBGeo e salva no formato de imagem, é ideal para ser utilizado em apresentações de slides. Quando os visualizadores 3D ou 360° estão abertos, a captura é feita da cena correspondente.
 - Exportar PDF: é possível exportar um arquivo .pdf com todas as feições criadas, o tamanho da folha é padrão (A4) mas a escala é configurável (de 1:1.000 a 1:1.000.000). É possível escolher a qualidade (DPI 150/200/300), a orientação e os elementos cartográficos exibidos (título, legenda, barra de escala, seta norte, grade Lat/Long e grade UTM), com pré-visualização no mapa. Além disso, o .pdf gerado já é georreferenciado, o que permite sua utiliação em aplicativos como o Avenza Maps.
 - Exportar Garmin (KMZ): gera um mapa raster compatível com GPS Garmin de mão. Defina a área desejada com dois cliques no mapa.
+- Exportar imagem: tira uma captura de tela do EBGeo e salva no formato de imagem, é ideal para ser utilizado em apresentações de slides. Quando os visualizadores 3D ou 360° estão abertos, a captura é feita da cena correspondente.
 
 <video src="./images/Exportar.mp4" controls width="60%"></video>
 
@@ -163,7 +164,7 @@ A busca por coordenadas aceita vários formatos: Lat/Long, Long/Lat, GMS (graus,
 
 <img src="./images/catalogo.png" alt="Catálogo" width="50%"/>
 
-Na aba Catálogo, o operador pode verificar quais produtos especiais foram construídos, dentre eles: Modelos 3D, Imagens 360°, Streetview e Camadas de Análise (declividade, trafegabilidade). É possível filtrar por categoria, pesquisar pelo nome e, ao clicar em um item, a camada é ativada no mapa com enquadramento automático.
+Na aba Catálogo, o operador pode verificar quais produtos especiais foram construídos, dentre eles: Modelos 3D, Imagens 360°, Streetview, Camadas de Análise (declividade, trafegabilidade) e Dados das cartas prontas nas diversas escalas. É possível filtrar por categoria, pesquisar pelo nome e, ao clicar em um item, a camada é ativada no mapa com enquadramento automático.
 
 #### Tutorial
 
@@ -185,7 +186,7 @@ A maioria das ferramentas de desenho do EBGeo possuem atalhos no teclado para me
 | --- | --- |
 | P | Ponto |
 | L | Linha |
-| A | Área (polígono) |
+| A | Área (polígono) (Desenho) e Medir Área (Visualizador 3D) |
 | R | Retângulo |
 | C | Círculo |
 | E | Elipse |
@@ -193,10 +194,10 @@ A maioria das ferramentas de desenho do EBGeo possuem atalhos no teclado para me
 | T | Texto |
 | I | Imagem |
 | B | Pincel |
-| M | Simbologia Militar |
+| M | Simbologia Militar (Militar) e Adicionar marcador (Visualizador 3D) |
 | K | Medida de Coordenação |
 | S | Seta |
-| D | Linha de Limite |
+| D | Linha de Limite (Militar) e Medir distância (Visualizador 3D) |
 | F | Frente Ocupada |
 | W | Declinação Magnética |
 | Z | Azimute e Distância |
@@ -212,6 +213,8 @@ A maioria das ferramentas de desenho do EBGeo possuem atalhos no teclado para me
 | Ctrl+C / Ctrl+V | Copiar / Colar |
 | Delete / Backspace | Excluir seleção |
 | Esc | Cancelar seleção / desativar ferramenta |
+| Ctrl + Arrastar | Inclinar e rotacionar o mapa|
+| Scroll | Zoom in / Zoom out |
 
 ### Módulo 4: Painel de Desenho
 
@@ -311,6 +314,10 @@ No painel é possível configurar:
 
 Setas podem ser **combinadas** em um único traçado: selecione duas ou mais setas compatíveis e use "Combinar Setas" no menu de contexto; o botão "Separar" desfaz a combinação.
 
+##### Ferramenta de Snap (Atalho "G")
+
+A ferramenta de Snap permite ajustar automaticamente a posição de feições ao desenhar ou editar elementos no mapa, garatindo que vértices, segmentos ou pontos coincidam com outras feições existentes. Ao ativar a ferramenta, aproxime o cursor de uma feição compatível para que o encaixe seja realizado automaticamente. No painel, é possível configurar as camadas de referência, o tipo de snap (vértice, segmneto ou ambos) e a tolerância de captura. Esse recurso aumenta a precisão da edição e evita sobreposições, lacunas ou desalinhamentos entre feições.
+
 ##### Linha de Limite (Atalho "D")
 
 A Linha de Limite demarca a separação entre unidades (por exemplo, o limite entre dois batalhões). Desenhe clicando em sucessivos vértices e finalize com o botão direito. Ao longo do traçado são desenhados, em intervalos, os **símbolos de escalão**:
@@ -328,6 +335,35 @@ A Frente Ocupada representa uma posição defensiva ocupada, no formato de dois 
 
 Insere um diagrama de declinação no mapa, com as setas do norte magnético e do norte geográfico e o ângulo entre eles. O ângulo de declinação, a cor e o tamanho são configuráveis no painel. Útil como elemento de orientação em produtos cartográficos.
 
+#### Azimute e Distância (Atalho "Z")
+
+Funciona como uma caderneta de campanha digital. No painel, defina um ponto de referência (clicando no mapa ou digitando as coordenadas) e preencha uma tabela de pernas (azimute + distância). É possível escolher as unidades (graus ou milésimos; metros ou quilômetros), aplicar a declinação magnética (automática, pelo modelo WMM, ou manual) e escolher o modo de saída: **Rota** (gera um polígono com todas as pernas) ou **Ponto** (apenas o ponto final). A feição gerada fica salva no mapa.
+
+#### Medição de Ângulo (Atalho "X")
+
+Permite medir ângulos diretamente no mapa por meio de três cliques sucessivos (extremidade inicial, vértice e extremidade final). O resultado é exibido automaticamente, possibilitando a análise precisa da abertura entre duas direções ou segmentos. A ferramenta permite selecionar a unidade de medida desejada, entre graus, milésimos ou grados, facilitando sua utilização em diferentes contextos cartográficos, topográficos e militares.
+
+#### Informação de vetor (Atalho "N")
+
+Permite identificar feições do mapa base (EDGV). Ative a ferramenta e clique sobre um elemento do mapa para ver suas propriedades. Quando houver sobreposição, um menu permite escolher qual feição inspecionar.
+
+#### Menu de contexto (clique direito)
+
+Além de "Copiar coordenadas" e "Orientar para o norte", o clique direito oferece, conforme a seleção, várias ações:
+
+- Criar grupo, combinar grupos e desagrupar feições.
+- Combinar setas e dividir seta.
+- Cortar uma linha em duas no ponto clicado.
+- Exportar para QAN (Quadro Auxiliar de Navegação).
+- Mover as feições para outra camada ou para outro mapa.
+- Dar zoom para a seleção e duplicar a seleção.
+
+Em dispositivos de toque, pressione e segure (long-press) para abrir o menu de contexto.
+
+#### Uso em dispositivos móveis
+
+O EBGeo também se adapta a celulares e telas pequenas, com uma interface própria: painel inferior deslizável, gaveta lateral, botões flutuantes (bússola, zoom e camada base), editor de feições adaptado e busca em tela cheia. Os gestos de toque substituem as ações de mouse (toque e arraste para mover, pinça para zoom, long-press para o menu de contexto).
+
 ### Módulo 5: Painel Auxiliar Direito
 
 <img src="./images/lateral_inf_direito.png" alt="Lateral Inferior Direito" width="50%"/>
@@ -335,7 +371,6 @@ Insere um diagrama de declinação no mapa, com as setas do norte magnético e d
 - +: aumenta o zoom no mapa, também pode ser feito com o scroll do mouse.
 - -: reduz o zoom no mapa, também pode ser feito com o scroll do mouse.
 - Habilitar tela cheia
-- Ir para minha localização: necessita de autorização para uso da localização do GPS da máquina
 - Orientar para o norte: reseta a orientação do mapa para o norte, sem inclinação.
 - Modelos 3D: habilita no mapa os marcadores 3D, que ao serem clicados abrem um preview e a possibilidade de visualizar o 3D.
 
@@ -362,16 +397,11 @@ Calcula, a partir de um observador, qual a área visível dentro de um setor. Cl
 
 São medições rápidas que não ficam salvas no mapa — mas podem ser convertidas em feição pelo botão "Salvar como feição".
 
-- **Distância (Atalho "J")**: clique para marcar pontos sucessivos; o botão direito finaliza. Mostra a distância de cada trecho e o total. Unidades: metros, quilômetros, milhas náuticas ou pés.
-- **Área (Atalho "H")**: desenhe um polígono; mostra a área e o perímetro. Unidades: m², hectares ou km².
-- **Ângulo (Atalho "X")**: três cliques (extremidade, vértice, extremidade) medem um ângulo. Unidades: graus, milésimos ou grados.
+- **Distância (Atalho "D")**: clique para marcar pontos sucessivos; o botão direito finaliza. Mostra a distância de cada trecho e o total. Unidades: metros, quilômetros, milhas náuticas ou pés.
+- **Área (Atalho "A")**: desenhe um polígono; mostra a área e o perímetro. Unidades: m², hectares ou km².
 
 <video src="./images/Distance_cliques.mp4" controls width="49%"></video>
 <video src="./images/Area_cliques.mp4" controls width="49%"></video>
-
-#### Azimute e Distância (Atalho "Z")
-
-Funciona como uma caderneta de campanha digital. No painel, defina um ponto de referência (clicando no mapa ou digitando as coordenadas) e preencha uma tabela de pernas (azimute + distância). É possível escolher as unidades (graus ou milésimos; metros ou quilômetros), aplicar a declinação magnética (automática, pelo modelo WMM, ou manual) e escolher o modo de saída: **Rota** (gera um polígono com todas as pernas) ou **Ponto** (apenas o ponto final). A feição gerada fica salva no mapa.
 
 ### Módulo 6: Painel Inferior de Coordenadas
 
@@ -396,14 +426,14 @@ Ative "Imagens 360°" no painel auxiliar direito para exibir os marcadores das f
 
 #### Navegação dentro da cena
 
-- **Mouse**: clique e arraste para girar a vista; Ctrl+arraste para inclinar.
-- **Teclado**: setas para olhar ao redor; W/A/S/D para deslocar; +/− para aproximar/afastar (zoom/FOV); R para recentralizar.
+- **Mouse**: clique e arraste para girar a vista.
+- **Teclado**: setas para olhar ao redor; W/A/S/D para deslocar; +/− para aproximar/afastar (zoom/FOV).
 - Os marcadores brancos próximos representam outras fotos: clique para "andar" até elas.
 - Um **mini-mapa** sincronizado mostra sua posição e permite navegar clicando nele.
 
 #### Marcadores e ferramentas na cena
 
-É possível adicionar marcadores (pontos de interesse) dentro da imagem 360°. Cada marcador tem nome, descrição, estilo (cor, tamanho, etiqueta) e fotos associadas. A orientação da câmera é salva automaticamente ao sair, e restaurada ao retornar à mesma foto. Há também um botão para capturar uma imagem (screenshot) da cena.
+É possível adicionar marcadores (pontos de interesse) dentro da imagem 360°. Cada marcador tem nome, descrição, estilo (cor, tamanho, etiqueta) e fotos associadas. A orientação da câmera é salva automaticamente ao sair, e restaurada ao retornar à mesma foto. Há também um botão para capturar uma imagem (screenshot) da cena em Exportar Imagem.
 
 ### Módulo 8: Uso de Ferramentas no Mapeamento 3D
 
@@ -422,6 +452,8 @@ Os marcadores, medições e viewsheds criados no 3D também aparecem no mapa 2D,
 ### Módulo 9: Briefings (Apresentações)
 
 O Briefing permite montar apresentações navegáveis (story maps) combinando mapa 2D, modelos 3D e imagens 360°.
+
+<img src="./images/painel_briefings.png" alt="Barra de Desenho" width="30%"/>
 
 #### Criar e editar
 
@@ -448,6 +480,8 @@ Um briefing também pode ser exportado como PDF (com capa e um slide por página
 
 ### Módulo 10: Processamento e Recursos Avançados
 
+<img src="./images/painel_analise.png" alt="Barra de Desenho" width="30%"/>
+
 #### Processamento geoespacial
 
 O EBGeo inclui algoritmos de análise que recebem as feições selecionadas (ou de uma camada) e geram um novo polígono de resultado:
@@ -455,24 +489,3 @@ O EBGeo inclui algoritmos de análise que recebem as feições selecionadas (ou 
 - **Buffer (Zona de Influência)**: cria uma área a uma distância (em metros) ao redor das feições.
 - **Voronoi (Proximidade)**: gera as regiões de proximidade a partir de pontos.
 - **Envoltória Convexa (Convex Hull)**: gera o menor polígono que envolve as feições.
-
-#### Menu de contexto (clique direito)
-
-Além de "Copiar coordenadas" e "Orientar para o norte", o clique direito oferece, conforme a seleção, várias ações:
-
-- Criar grupo, combinar grupos e desagrupar feições.
-- Combinar setas e dividir seta.
-- Cortar uma linha em duas no ponto clicado.
-- Exportar para QAN (Quadro Auxiliar de Navegação).
-- Mover as feições para outra camada ou para outro mapa.
-- Dar zoom para a seleção e duplicar a seleção.
-
-Em dispositivos de toque, pressione e segure (long-press) para abrir o menu de contexto.
-
-#### Informação de vetor (Atalho "N")
-
-Permite identificar feições do mapa base (EDGV). Ative a ferramenta e clique sobre um elemento do mapa para ver suas propriedades. Quando houver sobreposição, um menu permite escolher qual feição inspecionar.
-
-#### Uso em dispositivos móveis
-
-O EBGeo também se adapta a celulares e telas pequenas, com uma interface própria: painel inferior deslizável, gaveta lateral, botões flutuantes (bússola, zoom e camada base), editor de feições adaptado e busca em tela cheia. Os gestos de toque substituem as ações de mouse (toque e arraste para mover, pinça para zoom, long-press para o menu de contexto).
