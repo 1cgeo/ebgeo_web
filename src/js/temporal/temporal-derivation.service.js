@@ -56,8 +56,16 @@ export class TemporalDerivationService {
         subscribe(this, this._eventBus, EventTypes.TEMPORAL_CURSOR_CHANGED, ({ cursor }) => this._onCursor(cursor));
         subscribe(this, this._eventBus, EventTypes.LAYERS_CHANGED, () => this._refreshEnabled());
         subscribe(this, this._eventBus, EventTypes.MAP_TEMPORAL_CHANGED, ({ enabled }) => {
+            if (!enabled) {
+                // Close the gate synchronously BEFORE restoring, so a cursor event
+                // can't slip in and re-derive over the just-restored canonical image
+                // (_refreshEnabled is async and would re-open the gate — features
+                // still carry autoDirection/autoSpeed when temporal is merely off).
+                this._enabled = false;
+                this._restoreAll();
+                return;
+            }
             this._refreshEnabled();
-            if (!enabled) this._restoreAll();
         });
         this._refreshEnabled();
         return this;

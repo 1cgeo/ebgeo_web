@@ -142,6 +142,9 @@ export class TrajectoryEditControl {
 
         this._ensureLayers();
         this._renderAll();
+        // Re-show for the same feature must not stack listeners: tear down first so
+        // _setupEditListeners is idempotent (avoids duplicate map.on / long-press leak).
+        this._teardownEditListeners();
         this._setupEditListeners();
     }
 

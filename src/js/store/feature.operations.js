@@ -17,6 +17,7 @@ import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
 import { deepClone, deepEqual } from '../utilities/deep-utils.js';
 import { EventTypes } from '../events';
+import { formatDTG } from '../temporal/temporal.utils.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -600,6 +601,24 @@ export async function updateFeatureProperty(featureType, featureId, property, va
 }
 
 /**
+ * Re-derives the auto DTG/GDH amplifiers for a feature whose temporal window just
+ * shifted, so a `dateTimeGroup` / `gdhIni` / `gdhFim` bound to the timeline (the
+ * `autoDtg` opt-in) does not go stale after "Reagendar". No-op unless `autoDtg` is
+ * on. Mirrors deriveDtgFields in temporal-attributes-section.js (canonical values only).
+ * @param {string} type - Storage feature type (military_symbol / coordination_measure).
+ * @param {Object} p - Feature properties (already shifted in place).
+ */
+function rederiveAutoDtg(type, p) {
+    if (p.autoDtg !== true) return;
+    if (type === 'military_symbol') {
+        if (Number.isFinite(p.temporalInicio)) p.dateTimeGroup = formatDTG(p.temporalInicio, 'military');
+    } else if (type === 'coordination_measure') {
+        if (Number.isFinite(p.temporalInicio)) p.gdhIni = formatDTG(p.temporalInicio, 'coordination');
+        if (Number.isFinite(p.temporalFim)) p.gdhFim = formatDTG(p.temporalFim, 'coordination');
+    }
+}
+
+/**
  * Shifts every temporal timestamp on a map's features by `deltaMs`:
  * `temporalInicio`, `temporalFim`, and each trajectory keypoint's `t`. Driven by
  * the explicit "Reagendar" action (move the whole exercise to a new real D-Day,
@@ -630,6 +649,7 @@ export async function shiftMapTemporalTimes(mapName, deltaMs) {
                 }
             }
             if (touched) {
+                rederiveAutoDtg(type, p); // keep auto DTG/GDH amplifiers in sync with the shifted window
                 touchUpdatedTimestamp(feature);
                 changed++;
             }
