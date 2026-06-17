@@ -14,11 +14,12 @@
 ## Working with Features
 
 ```javascript
-import { addFeature, getFeatureById, updateFeature, deleteFeature } from '@store';
+import { addFeature, getFeatureById, updateFeature, removeFeature } from '@store';
 
-await addFeature('polygon', featureData, layerId);
+await addFeature('polygon', feature, mapName);  // 3rd arg = mapName (optional); active layer resolved internally
 const feature = await getFeatureById('polygon', featureId);
-await updateFeature('polygon', featureId, newData);
+await updateFeature('polygon', feature);         // pass the full feature object (3rd arg mapName, optional)
+await removeFeature('polygon', featureId);       // delete by id (NOT "deleteFeature")
 ```
 
 ## Adding a New Event
@@ -42,7 +43,7 @@ await updateFeature('polygon', featureId, newData);
 
 1. Create `store/migration/v<from>-to-v<to>.migration.js` exporting
    `migrateToV<to>()` (e.g. `v2-to-v3.migration.js` → `migrateToV3()`). Existing
-   migrations: `v1-to-v2`, `v2-to-v2.1`.
+   migrations: `v1-to-v2`, `v2-to-v2.1`, `v2.1-to-v2.2` (current target: v2.2).
 2. In `migration.service.js`, import it and add a version-conditional call inside
    `safelyMigrate()`: `if (compareVersions(currentVersion, '<to>') < 0) await migrateToV<to>();`.
    Migrations are chained by version number, not a registry.

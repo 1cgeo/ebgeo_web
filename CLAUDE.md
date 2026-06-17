@@ -15,7 +15,7 @@ Detailed references live in `.claude/rules/` (`architecture.md`, `common-tasks.m
 ```bash
 npm run dev          # Dev server (port 3000)
 npm run build        # Production build (deploy/deploy.sh)
-npm run lint         # ESLint + Stylelint (--max-warnings 0)
+npm run lint         # ESLint (--max-warnings 0) + Stylelint
 npm run lint:fix     # Auto-fix lint issues
 npm test             # Vitest (single run)
 npm run test:watch   # Vitest watch mode

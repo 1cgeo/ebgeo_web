@@ -128,7 +128,7 @@ A aba Briefings reúne as apresentações (story maps) do projeto. Cada briefing
 
 É possível importar dados geoespaciais de outras fontes para dentro do EBGeo: GeoJSON, Shapefile, KML/KMZ, GPX e CSV.
 
-No caso de arquivos CSV (planilhas de coordenadas), o EBGeo detecta o separador automaticamente e permite escolher o formato das coordenadas (Lat/Long, Long/Lat, GMS, MGRS, UTM ou decimal) e mapear as demais colunas como atributos das feições.
+No caso de arquivos CSV (planilhas de coordenadas), o EBGeo detecta o separador automaticamente e permite escolher o formato das coordenadas (Lat/Long em grau decimal, Lat/Long em GMS, MGRS ou UTM) e mapear as demais colunas como atributos das feições.
 
 Também é possível importar simplesmente arrastando o arquivo e soltando sobre a tela do mapa.
 
@@ -143,7 +143,7 @@ Existe um limitador da quantidade de feições que podem ser importadas de uma �
 Além da exportação no formato .ebgeo, que permite compartilhar os mapas com outros usuários, é possível também exportar produtos finais.
 
 - Exportar imagem: tira uma captura de tela do EBGeo e salva no formato de imagem, é ideal para ser utilizado em apresentações de slides. Quando os visualizadores 3D ou 360° estão abertos, a captura é feita da cena correspondente.
-- Exportar PDF: é possível exportar um arquivo .pdf com todas as feições criadas, o tamanho da folha é padrão (A4) mas a escala é configurável (de 1:1.000 a 1:1.000.000). É possível escolher a qualidade (DPI 150/200/300), a orientação e os elementos cartográficos exibidos (título, legenda, barra de escala, seta norte, grade Lat/Long e grade UTM), com pré-visualização no mapa. Além disso, o .pdf gerado já é georreferenciado, o que permite sua utiliação em aplicativos como o Avenza Maps.
+- Exportar PDF: é possível exportar um arquivo .pdf com todas as feições criadas, o tamanho da folha é padrão (A4) mas a escala é configurável (de 1:1.000 a 1:5.000.000). É possível escolher a qualidade (DPI 150/200/300), a orientação e os elementos cartográficos exibidos (título, legenda, barra de escala, seta norte, grade Lat/Long e grade UTM), com pré-visualização no mapa. Além disso, o .pdf gerado já é georreferenciado, o que permite sua utiliação em aplicativos como o Avenza Maps.
 - Exportar Garmin (KMZ): gera um mapa raster compatível com GPS Garmin de mão. Defina a área desejada com dois cliques no mapa.
 
 <video src="./images/Exportar.mp4" controls width="60%"></video>
@@ -397,8 +397,8 @@ Ative "Imagens 360°" no painel auxiliar direito para exibir os marcadores das f
 
 #### Navegação dentro da cena
 
-- **Mouse**: clique e arraste para girar a vista; Ctrl+arraste para inclinar.
-- **Teclado**: setas para olhar ao redor; W/A/S/D para deslocar; +/− para aproximar/afastar (zoom/FOV); R para recentralizar.
+- **Mouse**: clique e arraste para girar a vista livremente (horizontal e vertical).
+- **Teclado**: setas ou W/A/S/D para olhar ao redor; +/− para aproximar/afastar (zoom/FOV); M ativa/desativa a ferramenta de marcador e O salva a orientação atual.
 - Os marcadores brancos próximos representam outras fotos: clique para "andar" até elas.
 - Um **mini-mapa** sincronizado mostra sua posição e permite navegar clicando nele.
 

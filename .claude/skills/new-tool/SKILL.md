@@ -21,7 +21,7 @@ src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
 
 1. **Create control** extending `BaseControl`:
    ```javascript
-   import { BaseControl } from '@tools/base_control.js';
+   import { BaseControl } from '@tools';   // base classes are re-exported from the @tools barrel
    import { Add<Name>Geometry } from './add_<name>_geometry.js';
    import { addFeature, updateFeature } from '@store';
    import { getEventBus } from '@store/services.js';
@@ -45,7 +45,7 @@ src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
 
 2. **Create geometry** extending `BaseGeometry`:
    ```javascript
-   import { BaseGeometry } from '@tools/base_geometry.js';
+   import { BaseGeometry } from '@tools';
 
    export default class Add<Name>Geometry extends BaseGeometry {
      generate(coordinates) { /* Return GeoJSON geometry */ }
@@ -55,11 +55,10 @@ src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
    }
    ```
 
-3. **Create attributes panel** (export named function):
+3. **Create attributes panel** (export named function — note the `add` prefix and 6-arg signature):
    ```javascript
-   export function <name>AttributesToPanel(feature, options) {
-     // Build panel using helpers from @tools/helpers/
-     // Use color-picker, slider, text-input helpers
+   export function add<Name>AttributesToPanel(panel, selectedFeatures, <name>Control, selectionManager, uiManager, options = {}) {
+     // Build panel using helpers from @tools/helpers/ (color-picker, slider, text-input)
    }
    ```
 
@@ -67,12 +66,12 @@ src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
    ```javascript
    export { default as Add<Name>Control } from './add_<name>_control.js';
    export { default as Add<Name>Geometry } from './add_<name>_geometry.js';
-   export { <name>AttributesToPanel } from './<name>_attributes_panel.js';
+   export { add<Name>AttributesToPanel } from './<name>_attributes_panel.js';
    ```
 
-5. **Register in `toolbar/toolbar.constants.js`** — add icon SVG entry.
+5. **Register in `toolbar/toolbar.constants.js`** — add the icon SVG to `TOOLBAR_ICONS` AND a tool-button entry in the group's `tools` array: `{ id, label (pt-BR), icon, shortcut, controlKey }`. The `controlKey` must match the key used in the `controls:` object in step 6.
 
-6. **Register in `map_sig.js`** — instantiate and add via `registerControl()`.
+6. **Wire up in `map_sig.js`** — `registerControl()` alone does NOT make a toolbar button work. Instantiate (`new Add<Name>Control(toolManager)`), then add the instance to: `SELECTION_CONTROLS` (→ `selectionManager.registerControl`), `CONTROL_REGISTRY` (keyed by class name, e.g. `'Add<Name>Control'`), and the `controls:` object passed to both `ToolbarControl` and `KeyboardShortcuts` (keyed by `controlKey`, e.g. `<name>Control`). The toolbar resolves its button via `controlKey` against that `controls` map.
 
 7. **Add feature type** to `store` if new type (feature.operations.js mappings).
 

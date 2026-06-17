@@ -60,11 +60,15 @@ export async function createWidget(data, layerId) {
 | Data loss risk (IndexedDB) | `throw` + emit `STORE_PERSIST_ERROR` | DB write failure |
 | Non-critical background | `console.warn()` only | Side effect warning |
 
+Store-error events (`STORE_OPERATION_BLOCKED`, `STORE_PERSIST_ERROR`, `STORE_SYNC_ERROR`) are NOT in `event_types.js`. They live in `StoreErrorEvents` (`store/store-errors.js`) and are emitted with the `emitStoreError` helper:
+
 ```javascript
 // Expected failure example
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
+
 if (isMapLocked(mapName)) {
-    getEventBus().emit(EventTypes.STORE_OPERATION_BLOCKED, {
-        operation: 'createWidget', mapName
+    emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+        operation: 'createWidget', reason: 'map_locked'
     });
     return;
 }

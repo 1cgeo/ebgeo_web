@@ -32,7 +32,7 @@ src/js/
 │   ├── atlas/               # Atlas entity (top-level project container)
 │   ├── repositories/        # Repository abstraction (interface, local, factory)
 │   ├── services/             # map-resolver.service.js (name↔UUID with LRU)
-│   ├── migration/            # Schema migrations (v1→v2, v2→v2.1; auto, version-conditional on startup)
+│   ├── migration/            # Schema migrations (v1→v2, v2→v2.1, v2.1→v2.2; auto, version-conditional on startup)
 │   └── sync/                 # Operation queue, Lamport clock, future WebSocket infra (no-op offline)
 │
 ├── events/                  # event_bus.js, event_types.js, event_emitter.js
@@ -94,15 +94,15 @@ src/js/
 
 - **StateManager** enforces mutual exclusivity: sidebar and feature panel cannot both be open
 - UI components subscribe to `UI_LAYOUT_CHANGED` for position updates
-- `selectFeature()` saves inline + clears selection without closing panel (avoids bounce)
+- `selectFeature()` (`state_manager.js`) replaces the active selection set; the feature panel opens/closes via `FEATURE_PANEL_OPENED/CLOSED`, not by `selectFeature` itself
 
 ## Measurement Tools
 
 Ephemeral (non-persistent) tools that do NOT follow the 3-file tool pattern. Shared modules: `measurement-geometry.js` (calculations), `measurement-labels.js` (MapLibre layers), `measurement-results-panel.js` (UI). Shortcuts: J (distance), H (area), X (angle). Distance/area can "Salvar como feicao" to persist.
 
-## Point Callout Mode
+## Point Label
 
-Points support `pointMode`: `'marker'` | `'callout'`. Callout properties: `labelText`, `labelOffsetX/Y`, `labelFontSize`, `labelColor`, `showLeaderLine`, `leaderLineColor`. Rendered via `point-callout-label-layer` + `point-callout-leader-layer`. Leader geometry computed in `add_point_control.js` → `updateCalloutSources()`.
+Points can render a text label (`showLabel`) with props `labelText`, `labelColor`, `labelSize`, `labelOutlineColor`, `labelOutlineWidth`, plus zoom-correction props (`labelZoomCorrectionEnabled`, `labelCreatedAtZoom`, `labelCalculatedSize`) that keep the label a constant visual size across zoom. Rendered via `point-label-layer` (alongside `point-layer` + `point-marker-layer`); the panel "Etiqueta" tab is built with `tool_manager/helpers/label-tab.helpers.js`.
 
 ## Sync Infrastructure
 
