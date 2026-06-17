@@ -12,6 +12,7 @@ import {
     extractBaseCoordinates,
 } from '../processing.constants.js';
 import { buildAlgorithmPanelScaffold } from './panel-builder.js';
+import { mergeTemporalWindows } from '@js/temporal/temporal-model.js';
 
 // ============================================================================
 // CONSTANTS
@@ -157,6 +158,9 @@ function executeConvexHull(features, params) {
             coordinates: hull.geometry.coordinates,
         },
     };
+
+    // N:1 → the hull is valid over the UNION of its inputs' validity windows.
+    Object.assign(cleanFeature.properties, mergeTemporalWindows(features.map((f) => f.properties)));
 
     if (onProgress) onProgress(3, 3);
 

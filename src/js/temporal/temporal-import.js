@@ -4,8 +4,10 @@
  * @fileoverview Pure helpers for reading temporal data during import.
  *  - extractTemporalProperties: normalizes assorted temporal attribute names
  *    (GeoJSON/CSV/KML) into { temporalInicio, temporalFim } (epoch ms);
- *  - buildTrajectoryFromGpxFeature: turns a GPX track (coordinates + per-point
- *    times) into a trajectory keypoint array.
+ *  - buildTrajectoryFromGpxFeature: turns a GPX/KML timed track (coordinates +
+ *    per-point times) into a trajectory keypoint array;
+ *  - sanitizeImportedTrajectory: cleans a trajectory carried in on a GeoJSON/.ebgeo
+ *    import (coerce times, drop invalid, decimate).
  */
 
 import { toEpoch } from './temporal.utils.js';
@@ -13,11 +15,11 @@ import { decimateTrajectory } from './temporal-model.js';
 import { TEMPORAL_UNITS, TEMPORAL_UNIT_KEYS } from './temporal.constants.js';
 
 /**
- * Finest timeline unit (currently 1 minute). GPX trackpoints recorded more often
- * than this carry detail the cursor can never resolve, so we decimate imported
- * trajectories down to this resolution (one keypoint per minute, no count cap).
+ * Finest timeline unit (currently 1 minute). Trackpoints recorded more often than
+ * this carry detail the cursor can never resolve, so imported trajectories are
+ * decimated down to this resolution (one keypoint per minute, no count cap).
  */
-const GPX_TIME_RESOLUTION_MS = TEMPORAL_UNITS[TEMPORAL_UNIT_KEYS[0]].ms;
+const TRAJECTORY_TIME_RESOLUTION_MS = TEMPORAL_UNITS[TEMPORAL_UNIT_KEYS[0]].ms;
 
 const START_KEYS = new Set([
     'temporalinicio', 'temporal_inicio', 'begin', 'start', 'starttime', 'start_time',
@@ -105,5 +107,24 @@ export function buildTrajectoryFromGpxFeature(feature) {
     }
     // Decimate to the finest timeline unit (1 min): sub-minute GPS fixes can't be
     // distinguished by the cursor and only bloat the trajectory + per-frame cost.
-    return decimateTrajectory(traj, GPX_TIME_RESOLUTION_MS);
+    return decimateTrajectory(traj, TRAJECTORY_TIME_RESOLUTION_MS);
+}
+
+/**
+ * Sanitizes a trajectory carried in on a GeoJSON/.ebgeo-style import: coerces each
+ * keypoint's `t` via toEpoch (tolerates ISO strings / Date / number), drops invalid
+ * keypoints, and decimates to the finest timeline unit — the same treatment a GPX
+ * track gets — so a foreign or hand-authored `trajetoria` can't bloat or break the
+ * render path. Idempotent on an already-clean numeric trajectory.
+ * @param {Array} trajetoria - Raw imported trajectory keypoints.
+ * @returns {Array<{t:number, lng:number, lat:number}>} Clean, decimated trajectory.
+ */
+export function sanitizeImportedTrajectory(trajetoria) {
+    if (!Array.isArray(trajetoria)) return [];
+    const coerced = trajetoria.map((kp) => ({
+        t: toEpoch(kp?.t),
+        lng: Number(kp?.lng),
+        lat: Number(kp?.lat),
+    }));
+    return decimateTrajectory(coerced, TRAJECTORY_TIME_RESOLUTION_MS);
 }

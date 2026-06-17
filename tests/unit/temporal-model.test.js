@@ -6,6 +6,7 @@ import {
     decimateTrajectory,
     interpolatePosition,
     resolveTrajectoryTarget,
+    mergeTemporalWindows,
 } from '../../src/js/temporal/temporal-model.js';
 
 // ============================================================================
@@ -113,6 +114,57 @@ describe('normalizeTrajectory', () => {
         const out = normalizeTrajectory(traj);
         expect(out.map((k) => k.t)).toEqual([1, 2, 3]);
         expect(traj.map((k) => k.t)).toEqual([3, 1, 2]); // original untouched
+    });
+});
+
+// ============================================================================
+// mergeTemporalWindows
+// ============================================================================
+
+describe('mergeTemporalWindows', () => {
+    it('returns {} for an empty list or all-permanent inputs', () => {
+        expect(mergeTemporalWindows([])).toEqual({});
+        expect(mergeTemporalWindows(null)).toEqual({});
+        expect(mergeTemporalWindows([{}, { nome: 'x' }])).toEqual({});
+    });
+
+    it('copies a single feature\'s window (1:1 inherit)', () => {
+        expect(mergeTemporalWindows([{ temporalInicio: 100, temporalFim: 200 }])).toEqual({
+            temporalInicio: 100,
+            temporalFim: 200,
+        });
+    });
+
+    it('keeps only the bounds that are present', () => {
+        expect(mergeTemporalWindows([{ temporalInicio: 100 }])).toEqual({ temporalInicio: 100 });
+        expect(mergeTemporalWindows([{ temporalFim: 200 }])).toEqual({ temporalFim: 200 });
+    });
+
+    it('unions windows: min start, max end', () => {
+        const out = mergeTemporalWindows([
+            { temporalInicio: 300, temporalFim: 400 },
+            { temporalInicio: 100, temporalFim: 250 },
+            { temporalInicio: 200, temporalFim: 500 },
+        ]);
+        expect(out).toEqual({ temporalInicio: 100, temporalFim: 500 });
+    });
+
+    it('treats a missing bound as unbounded → omits that side of the union', () => {
+        // One input is permanent on the start side → union has no lower bound.
+        expect(mergeTemporalWindows([
+            { temporalInicio: 100, temporalFim: 200 },
+            { temporalFim: 500 }, // no inicio → unbounded start
+        ])).toEqual({ temporalFim: 500 });
+        // One input permanent on the end side → no upper bound.
+        expect(mergeTemporalWindows([
+            { temporalInicio: 100, temporalFim: 200 },
+            { temporalInicio: 50 }, // no fim → unbounded end
+        ])).toEqual({ temporalInicio: 50 });
+    });
+
+    it('ignores NaN/Infinity bounds (treated as unbounded)', () => {
+        expect(mergeTemporalWindows([{ temporalInicio: NaN, temporalFim: 200 }])).toEqual({ temporalFim: 200 });
+        expect(mergeTemporalWindows([{ temporalInicio: 100, temporalFim: Infinity }])).toEqual({ temporalInicio: 100 });
     });
 });
 

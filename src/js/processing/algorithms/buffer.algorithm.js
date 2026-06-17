@@ -13,6 +13,7 @@ import {
     extractBaseCoordinates,
 } from '../processing.constants.js';
 import { buildAlgorithmPanelScaffold } from './panel-builder.js';
+import { mergeTemporalWindows } from '@js/temporal/temporal-model.js';
 
 // ============================================================================
 // CONSTANTS
@@ -185,6 +186,9 @@ function executeBuffer(features, params) {
                     if (feature.properties?.images) {
                         props.images = structuredClone(feature.properties.images);
                     }
+                    // Inherit the source feature's temporal validity, else the buffer
+                    // would be silently permanent (shown at every cursor during playback).
+                    Object.assign(props, mergeTemporalWindows([feature.properties]));
 
                     results.push({
                         type: 'Feature',

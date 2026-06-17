@@ -14,6 +14,7 @@ import {
     extractBaseCoordinates,
 } from '../processing.constants.js';
 import { buildAlgorithmPanelScaffold } from './panel-builder.js';
+import { mergeTemporalWindows } from '@js/temporal/temporal-model.js';
 
 // ============================================================================
 // CONSTANTS
@@ -418,6 +419,8 @@ function executeVoronoi(features, params) {
             if (pointSources[i]?.properties?.images) {
                 props.images = structuredClone(pointSources[i].properties.images);
             }
+            // Inherit the generator point's temporal validity (1:1 cell → point).
+            Object.assign(props, mergeTemporalWindows([pointSources[i]?.properties]));
 
             results.push({
                 type: 'Feature',

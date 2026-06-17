@@ -8,7 +8,7 @@ import { showSuccess, showError } from '@utils/toast_service.js';
 import { getTerrainElevation } from '@js/terrain';
 import { EventTypes } from '@events';
 import { userDataManager } from '@js/user_data';
-import { extractTemporalProperties, buildTrajectoryFromGpxFeature, extractGpxTimes } from '@js/temporal/temporal-import.js';
+import { extractTemporalProperties, buildTrajectoryFromGpxFeature, extractGpxTimes, sanitizeImportedTrajectory } from '@js/temporal/temporal-import.js';
 
 /** Maps source type to Portuguese display name for imported features. */
 const TYPE_DISPLAY_NAMES = {
@@ -280,7 +280,9 @@ class AddImportControl {
             'text',
             (content) => {
                 const kmlDoc = new DOMParser().parseFromString(content, 'text/xml');
-                return toGeoJSON.kml(kmlDoc);
+                // KML gx:Track carries per-vertex times like GPX → turn timed tracks
+                // into moving points too (no-op for untimed KML geometry).
+                return this._convertTimedTracksToMovingPoints(toGeoJSON.kml(kmlDoc));
             },
             'Arquivo KML inválido'
         );
@@ -300,7 +302,7 @@ class AddImportControl {
 
                 const kmlContent = await kmlFile.async('string');
                 const kmlDoc = new DOMParser().parseFromString(kmlContent, 'text/xml');
-                return toGeoJSON.kml(kmlDoc);
+                return this._convertTimedTracksToMovingPoints(toGeoJSON.kml(kmlDoc));
             },
             'Arquivo KMZ inválido'
         );
@@ -313,23 +315,23 @@ class AddImportControl {
             (content) => {
                 const gpxDoc = new DOMParser().parseFromString(content, 'text/xml');
                 const geoJSON = toGeoJSON.gpx(gpxDoc);
-                return this._convertGpxTracksToMovingPoints(geoJSON);
+                return this._convertTimedTracksToMovingPoints(geoJSON);
             },
             'Arquivo GPX inválido'
         );
     }
 
     /**
-     * Converts GPX track features that carry per-vertex timestamps into single
-     * MOVING POINT features: the trajectory drives an animated marker on the
-     * timeline, and the feature is windowed to the track's first/last instant.
-     * Tracks WITHOUT times keep their original (LineString) geometry so the
-     * existing import path is untouched.
-     * @param {Object} geoJSON - FeatureCollection from togeojson.gpx().
+     * Converts timed track features (GPX `<time>` tracks, KML `gx:Track`) that carry
+     * per-vertex timestamps into single MOVING POINT features: the trajectory drives
+     * an animated marker on the timeline, and the feature is windowed to the track's
+     * first/last instant. Tracks WITHOUT times keep their original (LineString)
+     * geometry so the existing import path is untouched.
+     * @param {Object} geoJSON - FeatureCollection from togeojson.gpx()/.kml().
      * @returns {Object} FeatureCollection with timed tracks turned into points.
      * @private
      */
-    _convertGpxTracksToMovingPoints(geoJSON) {
+    _convertTimedTracksToMovingPoints(geoJSON) {
         if (!geoJSON?.features || !Array.isArray(geoJSON.features)) {
             return geoJSON;
         }
@@ -573,10 +575,13 @@ class AddImportControl {
             baseProperties.temporalFim = temporal.temporalFim;
         }
 
-        // A GPX track carried over as a moving point exposes its trajectory and
-        // window via the feature properties (see readGPX). Carry them through.
-        if (Array.isArray(feature.properties?.trajetoria) && feature.properties.trajetoria.length > 0) {
-            baseProperties.trajetoria = feature.properties.trajetoria;
+        // A timed track (GPX/KML) carried over as a moving point — or any imported
+        // GeoJSON that already has a `trajetoria` — exposes its trajectory via the
+        // properties. Sanitize it (coerce keypoint times, drop invalid, decimate to
+        // 1 min) so a foreign/hand-authored trajectory can't bloat or break rendering.
+        const cleanTrajectory = sanitizeImportedTrajectory(feature.properties?.trajetoria);
+        if (cleanTrajectory.length > 0) {
+            baseProperties.trajetoria = cleanTrajectory;
         }
 
         switch (targetType) {

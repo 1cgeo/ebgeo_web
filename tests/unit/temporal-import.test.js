@@ -3,6 +3,7 @@ import {
     extractTemporalProperties,
     extractGpxTimes,
     buildTrajectoryFromGpxFeature,
+    sanitizeImportedTrajectory,
 } from '../../src/js/temporal/temporal-import.js';
 
 describe('extractTemporalProperties', () => {
@@ -106,5 +107,47 @@ describe('buildTrajectoryFromGpxFeature', () => {
         const traj = buildTrajectoryFromGpxFeature(feature);
         // 0s and 60s and the forced last (120s) survive; the in-between fixes are dropped.
         expect(traj.map((k) => k.t)).toEqual([0, 60_000, 120_000]);
+    });
+});
+
+describe('sanitizeImportedTrajectory', () => {
+    it('returns [] for non-arrays', () => {
+        expect(sanitizeImportedTrajectory(null)).toEqual([]);
+        expect(sanitizeImportedTrajectory(undefined)).toEqual([]);
+        expect(sanitizeImportedTrajectory('x')).toEqual([]);
+    });
+
+    it('passes a clean numeric trajectory through (idempotent)', () => {
+        const traj = [
+            { t: 0, lng: 1, lat: 2 },
+            { t: 120_000, lng: 3, lat: 4 },
+        ];
+        expect(sanitizeImportedTrajectory(traj)).toEqual(traj);
+    });
+
+    it('coerces ISO-string / numeric-string keypoint times and coords', () => {
+        const out = sanitizeImportedTrajectory([
+            { t: '2024-01-01T00:00:00Z', lng: '10', lat: '20' },
+            { t: '2024-01-01T00:02:00Z', lng: 11, lat: 21 },
+        ]);
+        expect(out).toEqual([
+            { t: Date.parse('2024-01-01T00:00:00Z'), lng: 10, lat: 20 },
+            { t: Date.parse('2024-01-01T00:02:00Z'), lng: 11, lat: 21 },
+        ]);
+    });
+
+    it('drops keypoints with invalid time/coords', () => {
+        const out = sanitizeImportedTrajectory([
+            { t: 0, lng: 1, lat: 2 },
+            { t: 'not-a-date', lng: 5, lat: 6 },
+            { t: 60_000, lng: NaN, lat: 6 },
+            { t: 120_000, lng: 7, lat: 8 },
+        ]);
+        expect(out.map((k) => k.t)).toEqual([0, 120_000]);
+    });
+
+    it('decimates sub-minute keypoints to one-minute resolution', () => {
+        const traj = [0, 10_000, 20_000, 60_000, 120_000].map((t) => ({ t, lng: t, lat: t }));
+        expect(sanitizeImportedTrajectory(traj).map((k) => k.t)).toEqual([0, 60_000, 120_000]);
     });
 });

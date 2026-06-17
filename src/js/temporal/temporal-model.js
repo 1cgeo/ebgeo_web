@@ -32,6 +32,38 @@ export function isTemporallyVisible(props, cursor) {
 }
 
 /**
+ * Merges a list of feature property bags into the UNION of their temporal
+ * validity windows: `[min(temporalInicio), max(temporalFim)]`. A missing bound
+ * means "unbounded" on that side, so if any input is unbounded the union is
+ * unbounded there and that key is omitted (the result stays permanent on that
+ * side). Used to give a processing output (e.g. a convex hull of N features, or a
+ * 1:1 buffer of one feature) a sensible validity instead of silently permanent.
+ *
+ * @param {Array<Object>} propsList - Feature property objects (temporalInicio/Fim).
+ * @returns {{temporalInicio?: number, temporalFim?: number}} Only the finite bounds.
+ */
+export function mergeTemporalWindows(propsList) {
+    let minInicio = Infinity;
+    let maxFim = -Infinity;
+    let inicioUnbounded = false;
+    let fimUnbounded = false;
+
+    for (const p of propsList || []) {
+        const i = p?.temporalInicio;
+        const f = p?.temporalFim;
+        if (Number.isFinite(i)) minInicio = Math.min(minInicio, i);
+        else inicioUnbounded = true;
+        if (Number.isFinite(f)) maxFim = Math.max(maxFim, f);
+        else fimUnbounded = true;
+    }
+
+    const out = {};
+    if (!inicioUnbounded && minInicio !== Infinity) out.temporalInicio = minInicio;
+    if (!fimUnbounded && maxFim !== -Infinity) out.temporalFim = maxFim;
+    return out;
+}
+
+/**
  * Returns a defensive, validated, chronologically-sorted copy of a trajectory.
  * Invalid keypoints (missing/NaN fields) are dropped.
  *

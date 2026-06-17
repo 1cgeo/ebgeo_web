@@ -93,6 +93,9 @@ export class TemporalController {
             if (!mapName || mapName === getCurrentMapNameSync()) this._syncForActiveMap();
         });
         subscribe(this, this._eventBus, EventTypes.LAYERS_CHANGED, () => this._syncForActiveMap());
+        // Freeze the timeline when a briefing presentation begins: each slide pins its
+        // own cursor, so leaving playback running would drift the cursor between slides.
+        subscribe(this, this._eventBus, EventTypes.BRIEFING_PRESENT_STARTED, () => this._stopPlayback());
 
         this._syncForActiveMap();
         return this;
