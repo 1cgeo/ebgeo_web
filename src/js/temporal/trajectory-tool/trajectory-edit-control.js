@@ -21,6 +21,7 @@ import {
     registerControl,
     getControl,
     getEventBus,
+    getStateManager,
     updateFeatureProperty,
     getMapTemporalConfigSync,
 } from '@store';
@@ -61,6 +62,7 @@ export class TrajectoryEditControl {
         this._lastAdded = null;
         this._toolbar = null;
         this._countEl = null;
+        this._toolbarLayoutUnsub = null;
         this._unsubscribers = [];
 
         // Handle drag state (vertex move / midpoint insert).
@@ -589,6 +591,26 @@ export class TrajectoryEditControl {
         bar.querySelector('.trajectory-edit-toolbar__cancel').addEventListener('click', () => this._exitAdding(false));
         bar.querySelector('.trajectory-edit-toolbar__done').addEventListener('click', () => this._exitAdding(true));
         this._updateCount();
+
+        // Keep the bar aligned with the active-tool chip slot: shift with the
+        // sidebar / feature panel exactly like the chip does (via data-sidebar-state).
+        this._updateToolbarSidebarState();
+        this._toolbarLayoutUnsub = getEventBus()?.on(
+            EventTypes.UI_LAYOUT_CHANGED,
+            () => this._updateToolbarSidebarState()
+        );
+    }
+
+    _updateToolbarSidebarState() {
+        if (!this._toolbar) return;
+        let sm;
+        try {
+            sm = getStateManager();
+        } catch {
+            sm = null;
+        }
+        const expanded = sm?.getUnsafe?.('sidebar.expanded') || sm?.getUnsafe?.('ui.featurePanelOpen') || false;
+        this._toolbar.dataset.sidebarState = expanded ? 'expanded' : 'collapsed';
     }
 
     _updateCount() {
@@ -598,6 +620,10 @@ export class TrajectoryEditControl {
     }
 
     _removeToolbar() {
+        if (this._toolbarLayoutUnsub) {
+            this._toolbarLayoutUnsub();
+            this._toolbarLayoutUnsub = null;
+        }
         if (this._toolbar) {
             this._toolbar.remove();
             this._toolbar = null;

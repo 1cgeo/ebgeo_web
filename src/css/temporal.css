@@ -420,11 +420,12 @@
 .trajectory-edit-toolbar {
     position: fixed;
 
-    /* Stack above the temporal bar (which publishes its height as a CSS var
-       while shown); falls back to the original offset when temporal is off. */
-    bottom: calc(var(--space-6) + var(--temporal-bar-height, 0px) + var(--safe-area-bottom, 0px));
+    /* Top-center, matching the active-tool chip's slot (the "operation cards"
+       position). Shifts with the sidebar/feature panel like the chip, below. */
+    top: var(--space-4);
     left: 50%;
     transform: translateX(-50%);
+    transition: transform var(--transition-normal);
     z-index: var(--z-floating);
     display: flex;
     align-items: center;
@@ -434,6 +435,11 @@
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
+}
+
+/* Shift with the sidebar/feature panel, exactly like .active-tool-chip. */
+.trajectory-edit-toolbar[data-sidebar-state="expanded"] {
+    transform: translateX(calc(-50% + var(--sidebar-panel-width) / 2));
 }
 
 .trajectory-edit-toolbar__hint {
