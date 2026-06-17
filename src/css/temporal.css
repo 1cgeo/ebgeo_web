@@ -10,8 +10,9 @@
     width: min(720px, calc(100vw - 2 * var(--space-4)));
 
     /* Below the sidebar (--z-sidebar: 30) and feature panel (--z-panel: 35) so an
-       open sidebar covers the bar, but above the map and toolbar. */
-    z-index: var(--z-controls);
+       open sidebar covers the bar, but above the map, toolbar, and the bottom-left
+       base-layer selector (--z-controls) where they meet at the bottom. */
+    z-index: calc(var(--z-controls) + 1);
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
@@ -355,6 +356,15 @@
     cursor: pointer;
 }
 
+.temporal-auto-binding--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.temporal-auto-binding--disabled input {
+    cursor: not-allowed;
+}
+
 .temporal-trajectory-list {
     display: flex;
     flex-direction: column;
@@ -430,14 +440,27 @@
     color: var(--color-error);
 }
 
+/* Fixed anchor marker shown in place of the delete button on the first keypoint. */
+.temporal-trajectory-row__anchor {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-400);
+    font-size: 0.8rem;
+}
+
 /* ===== Trajectory map editor — on-screen toolbar ===== */
 
 .trajectory-edit-toolbar {
     position: fixed;
 
-    /* Top-center, matching the active-tool chip's slot (the "operation cards"
-       position). Shifts with the sidebar/feature panel like the chip, below. */
-    top: var(--space-4);
+    /* Bottom-center, stacked just above the temporal bar. Its measured height is
+       published as --temporal-bar-height while the bar is visible (falls back to 0
+       when hidden). Shifts with the sidebar/feature panel like the active-tool chip. */
+    bottom: calc(var(--space-3) + var(--temporal-bar-height, 0px) + var(--space-2));
     left: 50%;
     transform: translateX(-50%);
     transition: transform var(--transition-normal);

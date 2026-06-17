@@ -34,10 +34,17 @@ const MIL_CONTROL = 'AddMilitarySymbolControl';
  *  lock toggles), so coalesce them into one getData scan instead of one per event. */
 const GATE_REFRESH_DEBOUNCE_MS = 150;
 
-/** Formats a m/s speed as the Z amplifier string (rounded km/h), or '' when undefined. */
+/**
+ * Formats a m/s speed as the Z amplifier string, or '' when undefined. Adaptive
+ * precision so slow movers don't render as "0 km/h": whole km/h at speed, one or
+ * two decimals below 10 km/h.
+ */
 function formatSpeedAmplifier(mps) {
     if (!Number.isFinite(mps) || mps <= 0) return '';
-    return `${Math.round(mps * 3.6)} km/h`;
+    const kmh = mps * 3.6;
+    if (kmh >= 10) return `${Math.round(kmh)} km/h`;
+    if (kmh >= 1) return `${kmh.toFixed(1)} km/h`;
+    return `${kmh.toFixed(2)} km/h`;
 }
 
 export class TemporalDerivationService {
@@ -78,6 +85,47 @@ export class TemporalDerivationService {
     /** Public: re-evaluate the auto gate (called when a binding toggle changes). */
     refreshEnabled() {
         return this._refreshEnabled();
+    }
+
+    /**
+     * Re-syncs one symbol's image after its auto bindings change: repaints from the
+     * canonical (authored) properties — clearing any stale derived direction/speed —
+     * then re-derives whichever bindings are still enabled at the current cursor.
+     * Without this, turning a binding OFF would leave its last derived modifier baked
+     * into the image until temporal is disabled. Image-only, like the playback path.
+     * @param {string} featureId
+     * @returns {Promise<void>}
+     */
+    async reapplyFeature(featureId) {
+        if (!featureId) return;
+        const gen = getControl(MIL_CONTROL)?.symbolGenerator;
+        const source = this._safeSource();
+        if (!gen || !source) return;
+
+        let feature;
+        try {
+            const data = await source.getData();
+            feature = (data?.features || []).find((f) => f.properties?.id === featureId);
+        } catch {
+            return;
+        }
+        if (!feature) return;
+
+        // Drop the throttle/restore record and repaint from canonical props.
+        this._applied.delete(featureId);
+        try {
+            const result = await gen.generateSymbolBlob(feature.properties);
+            await loadImageToMap(this._map, featureId, result.blob, { replaceExisting: true });
+        } catch {
+            return;
+        }
+
+        // Re-open the gate, then re-apply any still-enabled binding at the current cursor.
+        await this._refreshEnabled();
+        const cursor = getControl('TemporalControl')?.getCursor?.();
+        if (this._enabled && Number.isFinite(cursor)) {
+            await this._deriveSymbol(gen, feature, cursor);
+        }
     }
 
     /** Coalesces bursty LAYERS_CHANGED events into a single debounced gate rescan. */

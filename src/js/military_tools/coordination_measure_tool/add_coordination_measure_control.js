@@ -123,7 +123,10 @@ class AddCoordinationMeasureControl extends BaseControl {
   }
 
   createSelectionBox(feature) {
-    if (feature.properties.selectionBox) {
+    // A moving (trajectory) measure is displaced from its authored position, so the
+    // stored box (computed at home) no longer matches — recompute from live coords.
+    const moving = Array.isArray(feature.properties.trajetoria) && feature.properties.trajetoria.length >= 2;
+    if (feature.properties.selectionBox && !moving) {
       return { geometry: feature.properties.selectionBox };
     }
 

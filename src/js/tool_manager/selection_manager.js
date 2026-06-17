@@ -12,6 +12,7 @@ import {
     isFeatureEffectivelyLocked,
     isCurrentMapLockedSync,
     getStateManager,
+    getControl,
     startBatchUndo,
     commitBatchUndo,
     discardBatchUndo,
@@ -432,6 +433,10 @@ class SelectionManager {
         // Skip if special tools are active
         if (this.vectorTileInfoControl?.isActive) return;
         if (this.rectangleSelectionControl?.isActive) return;
+        // Skip while the trajectory editor is appending keypoints: those map clicks
+        // add waypoints to the selected feature and must not deselect it (which would
+        // close the panel and tear down the editor).
+        if (getControl('TrajectoryEditControl')?.isAdding?.()) return;
 
         // Skip if click is on viewer layers (3D Models, Street View)
         // These have their own click handlers and should not trigger feature selection

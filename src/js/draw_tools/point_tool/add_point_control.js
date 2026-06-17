@@ -289,7 +289,11 @@ class AddPointControl extends BaseControl {
     }
 
     createSelectionBox(feature) {
-        if (feature.properties.selectionBox) {
+        // A moving (trajectory) feature is displaced from its authored position, so
+        // the stored selectionBox (computed at home) no longer matches — recompute
+        // from the current displayed coordinates instead.
+        const moving = Array.isArray(feature.properties.trajetoria) && feature.properties.trajetoria.length >= 2;
+        if (feature.properties.selectionBox && !moving) {
             return { geometry: feature.properties.selectionBox };
         }
 

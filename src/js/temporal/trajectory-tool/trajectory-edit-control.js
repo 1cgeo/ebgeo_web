@@ -192,6 +192,10 @@ export class TrajectoryEditControl {
         this._addSnapshot = deepClone(this._feature.properties?.trajetoria || []);
         this._lastAdded = null;
 
+        // Seed the anchor (point 0) at the feature's established position when the
+        // trajectory is empty, so the path always starts where the feature already is.
+        this._ensureAnchorPoint();
+
         this._buildToolbar();
         this._map.on('click', this._onClick);
         document.addEventListener('keydown', this._onKeyDown, true);
@@ -215,7 +219,10 @@ export class TrajectoryEditControl {
         const arr = this._feature?.properties?.trajetoria;
         if (!Array.isArray(arr) || arr.length === 0) return;
         const i = this._lastAdded ? arr.indexOf(this._lastAdded) : arr.length - 1;
-        if (i >= 0) arr.splice(i, 1);
+        if (i < 0) return;
+        // Never undo away the anchor (earliest keypoint = the feature's start position).
+        if (arr[i] === normalizeTrajectory(arr)[0]) return;
+        arr.splice(i, 1);
         this._lastAdded = null;
         this._renderAll();
         this._updateCount();
@@ -267,6 +274,45 @@ export class TrajectoryEditControl {
         const arr = this._feature?.properties?.trajetoria || [];
         const last = arr[arr.length - 1];
         return last ? last.t + step : Date.now();
+    }
+
+    /**
+     * Seeds keypoint 0 at the feature's established position when the trajectory is
+     * empty, timed at the earliest timeline instant so it sorts first and stays the
+     * undeletable anchor (the start of the movement path).
+     */
+    _ensureAnchorPoint() {
+        const arr = this._ensureArray();
+        if (arr.length > 0) return;
+        const home = this._featureHomeCoords();
+        if (!home) return;
+        arr.push({ t: this._anchorTime(), lng: home[0], lat: home[1] });
+        this._renderAll();
+        this._onChange?.();
+    }
+
+    /** The feature's home (authored, non-displaced) coordinates, or null. */
+    _featureHomeCoords() {
+        const props = this._feature?.properties;
+        if (Array.isArray(props?._temporalHome) && props._temporalHome.length >= 2) {
+            return props._temporalHome;
+        }
+        const coords = this._feature?.geometry?.coordinates;
+        return Array.isArray(coords) && coords.length >= 2 ? coords : null;
+    }
+
+    /** Earliest sensible instant for the anchor: timeline start, else feature start, else cursor. */
+    _anchorTime() {
+        const bounds = getControl('TemporalControl')?.getBounds?.();
+        if (bounds && Number.isFinite(bounds.inicio)) return bounds.inicio;
+        const inicio = this._feature?.properties?.temporalInicio;
+        if (Number.isFinite(inicio)) return inicio;
+        return this._currentCursorTime();
+    }
+
+    /** @returns {boolean} Whether `index` is the undeletable anchor (earliest keypoint). */
+    _isAnchorIndex(index) {
+        return index === 0;
     }
 
     // ===== Handle editing (move / insert / remove) =====
@@ -406,6 +452,11 @@ export class TrajectoryEditControl {
 
     /** Removes the keypoint at `index` (right-click / long-press), then persists. */
     _commitRemove(index) {
+        // The first keypoint anchors the feature's start position and is fixed.
+        if (this._isAnchorIndex(index)) {
+            showToast('O ponto inicial (posição da feição) não pode ser removido.', 'info');
+            return;
+        }
         const next = removeKeypoint(this._feature?.properties?.trajetoria, index);
         if (!next) return;
         this._setTrajectory(next);

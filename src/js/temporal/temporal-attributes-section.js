@@ -16,7 +16,8 @@
  * updateFeatureProperty) and ask the TemporalController to re-apply render.
  */
 
-import { getControl, updateFeatureProperty, getMapTemporalConfigSync } from '@store';
+import { getControl, getEventBus, updateFeatureProperty, getMapTemporalConfigSync } from '@store';
+import { EventTypes } from '@events/event_types.js';
 import {
     epochToDatetimeLocal,
     datetimeLocalToEpoch,
@@ -50,6 +51,37 @@ export function getActiveTimeContext() {
         ? (Number.isFinite(cfg.origem) ? cfg.origem : startAnchor)
         : startAnchor;
     return { modo: cfg.modo, origem: cfg.origem, unidade: cfg.unidade, anchor };
+}
+
+/**
+ * Re-renders a temporal section whenever the active map's time lens changes
+ * (mode/unit/origin), so an open attribute panel reflects timeline-bar edits
+ * live. The lens never mutates feature times — only how they're displayed/entered
+ * (offset vs date, unit letter), so a rebuild is all that's needed. The
+ * subscription self-removes once `host` leaves the DOM (panel closed or rebuilt),
+ * since these presentation-only sections expose no explicit cleanup hook.
+ * @param {HTMLElement} host - The section element (doubles as the liveness probe).
+ * @param {() => void} render - Rebuilds the section's body from current state.
+ */
+function bindTimeContextRerender(host, render) {
+    let bus;
+    try {
+        bus = getEventBus();
+    } catch {
+        bus = null;
+    }
+    if (!bus) return;
+    const unsubs = [];
+    const handler = () => {
+        if (!host.isConnected) {
+            unsubs.forEach((off) => off());
+            unsubs.length = 0;
+            return;
+        }
+        render();
+    };
+    unsubs.push(bus.on(EventTypes.TEMPORAL_CONFIG_CHANGED, handler));
+    unsubs.push(bus.on(EventTypes.MAP_TEMPORAL_CHANGED, handler));
 }
 
 /**
@@ -90,27 +122,49 @@ export function createTemporalAttributesSection({ feature, featureType, selected
  * @returns {HTMLElement}
  */
 export function createTemporalValiditySection({ inicio, fim, onChange, timeContext }) {
-    const ctx = timeContext || getActiveTimeContext();
-
     const section = document.createElement('div');
     section.className = 'temporal-attr-section';
 
-    const title = document.createElement('div');
-    title.className = 'temporal-attr-section__title';
-    title.textContent = 'Validade temporal';
-    section.appendChild(title);
+    // Live snapshot of the two times so a lens-change rebuild keeps any edits made
+    // in this panel (the inputs are recreated, but the values must persist).
+    const times = {
+        temporalInicio: Number.isFinite(inicio) ? inicio : null,
+        temporalFim: Number.isFinite(fim) ? fim : null,
+    };
 
-    const hint = document.createElement('div');
-    hint.className = 'temporal-attr-section__hint';
-    hint.textContent = 'Em branco = permanente (visível em qualquer instante).';
-    section.appendChild(hint);
+    const handleChange = (prop, epoch) => {
+        times[prop] = Number.isFinite(epoch) ? epoch : null;
+        onChange(prop, times[prop]);
+    };
 
-    section.appendChild(
-        buildTimeRow({ labelText: 'Início', epoch: inicio, timeContext: ctx, onChange: (epoch) => onChange('temporalInicio', epoch) })
-    );
-    section.appendChild(
-        buildTimeRow({ labelText: 'Fim', epoch: fim, timeContext: ctx, onChange: (epoch) => onChange('temporalFim', epoch) })
-    );
+    const renderBody = () => {
+        const ctx = timeContext || getActiveTimeContext();
+        section.replaceChildren();
+
+        const title = document.createElement('div');
+        title.className = 'temporal-attr-section__title';
+        title.textContent = 'Validade temporal';
+        section.appendChild(title);
+
+        const hint = document.createElement('div');
+        hint.className = 'temporal-attr-section__hint';
+        hint.textContent = 'Em branco = permanente (visível em qualquer instante).';
+        section.appendChild(hint);
+
+        section.appendChild(
+            buildTimeRow({ labelText: 'Início', epoch: times.temporalInicio, timeContext: ctx, onChange: (epoch) => handleChange('temporalInicio', epoch) })
+        );
+        section.appendChild(
+            buildTimeRow({ labelText: 'Fim', epoch: times.temporalFim, timeContext: ctx, onChange: (epoch) => handleChange('temporalFim', epoch) })
+        );
+    };
+
+    renderBody();
+
+    // Reflect timeline-bar lens changes (mode/unit/origin) live. A fixed timeContext
+    // (explicit caller / tests) opts out, since there's no active map to track.
+    if (!timeContext) bindTimeContextRerender(section, renderBody);
+
     return section;
 }
 
@@ -233,11 +287,18 @@ function formatDistance(meters) {
     return `${km.toFixed(km < 10 ? 2 : 1).replace('.', ',')} km`;
 }
 
-/** Average speed (km/h, pt-BR comma), or null when undefined (no duration/distance). */
+/**
+ * Average speed (pt-BR comma), or null when undefined (no duration/distance). Uses
+ * adaptive precision so slow tracks don't collapse to "0,0 km/h": more decimals
+ * under 10 km/h, and m/s once even two decimals of km/h would round to zero.
+ */
 function formatSpeed(meters, durationMs) {
     if (!(durationMs > 0) || !(meters > 0)) return null;
-    const kmh = (meters / (durationMs / 1000)) * 3.6;
-    return `${kmh.toFixed(1).replace('.', ',')} km/h`;
+    const mps = meters / (durationMs / 1000);
+    const kmh = mps * 3.6;
+    if (kmh >= 10) return `${kmh.toFixed(1).replace('.', ',')} km/h`;
+    if (kmh >= 0.1) return `${kmh.toFixed(2).replace('.', ',')} km/h`;
+    return `${mps.toFixed(mps >= 1 ? 1 : 2).replace('.', ',')} m/s`;
 }
 
 /** Registry name of the symbol control that owns each trajectory-capable type. */
@@ -291,6 +352,10 @@ function buildAutoBindings(feature, featureType) {
             : [];
     if (defs.length === 0) return null;
 
+    // GDH is an absolute date-time group, so auto-deriving it makes no sense under
+    // the relative (D+N) lens — disable that one binding while in relative mode.
+    const isRelative = getActiveTimeContext().modo === TEMPORAL_MODES.RELATIVO;
+
     const section = document.createElement('div');
     section.className = 'temporal-attr-section';
 
@@ -311,14 +376,26 @@ function buildAutoBindings(feature, featureType) {
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.checked = feature.properties?.[key] === true;
+
+        const dtgDisabled = key === 'autoDtg' && isRelative;
+        if (dtgDisabled) {
+            cb.disabled = true;
+            row.classList.add('temporal-auto-binding--disabled');
+            row.title = 'Indisponível no modo relativo (GDH usa data absoluta).';
+        }
+
         cb.addEventListener('change', () => {
             persistSymbolProperty(feature, featureType, key, cb.checked);
             if (key === 'autoDtg' && cb.checked) deriveDtgFields(feature, featureType);
-            getControl('TemporalDerivation')?.refreshEnabled?.();
+            // Re-sync the symbol image so turning a binding OFF drops its derived
+            // modifier (direction/speed) instead of leaving the last value baked in.
+            if (featureType === 'military_symbol') {
+                getControl('TemporalDerivation')?.reapplyFeature?.(feature.properties?.id);
+            }
         });
 
         const span = document.createElement('span');
-        span.textContent = label;
+        span.textContent = dtgDisabled ? `${label} (somente modo absoluto)` : label;
 
         row.append(cb, span);
         section.appendChild(row);
@@ -341,7 +418,8 @@ function buildAutoBindings(feature, featureType) {
 export function createTrajectorySection({ feature, featureType, map }) {
     if (!TRAJECTORY_FEATURE_TYPES.includes(featureType)) return null;
 
-    const timeContext = getActiveTimeContext();
+    // Re-read on lens change so waypoint times (offset vs date, unit) stay current.
+    let timeContext = getActiveTimeContext();
 
     const section = document.createElement('div');
     section.className = 'temporal-attr-section';
@@ -437,7 +515,10 @@ export function createTrajectorySection({ feature, featureType, map }) {
                 if (epoch === null) return;
                 kp.t = epoch; // mutate the shared keypoint object
                 persist();
-                renderList();
+                // Don't renderList() here: re-sorting the rows as the user fills in
+                // each date is disorienting. persist() already sorts the stored array;
+                // the visible order stabilises on the next full render. Refresh stats only.
+                renderStats(normalizeTrajectory(feature.properties?.trajetoria));
             },
         });
         fields.appendChild(timeField);
@@ -449,20 +530,32 @@ export function createTrajectorySection({ feature, featureType, map }) {
 
         row.appendChild(fields);
 
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.className = 'temporal-trajectory-row__delete';
-        del.title = 'Remover ponto';
-        del.setAttribute('aria-label', 'Remover ponto');
-        del.textContent = '✕';
-        del.addEventListener('click', () => {
-            const arr = feature.properties?.trajetoria;
-            const i = Array.isArray(arr) ? arr.indexOf(kp) : -1;
-            if (i >= 0) arr.splice(i, 1); // mutate in place, keep array reference
-            persist();
-            renderList();
-        });
-        row.appendChild(del);
+        // The first keypoint is the feature's start position (its anchor) and can't
+        // be removed; clear the whole trajectory with "Limpar" instead.
+        if (index === 0) {
+            badge.title = 'Ponto inicial (posição da feição) — não pode ser removido';
+            const lock = document.createElement('span');
+            lock.className = 'temporal-trajectory-row__anchor';
+            lock.textContent = '⚓';
+            lock.title = 'Ponto inicial fixo';
+            lock.setAttribute('aria-label', 'Ponto inicial fixo');
+            row.appendChild(lock);
+        } else {
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'temporal-trajectory-row__delete';
+            del.title = 'Remover ponto';
+            del.setAttribute('aria-label', 'Remover ponto');
+            del.textContent = '✕';
+            del.addEventListener('click', () => {
+                const arr = feature.properties?.trajetoria;
+                const i = Array.isArray(arr) ? arr.indexOf(kp) : -1;
+                if (i >= 0) arr.splice(i, 1); // mutate in place, keep array reference
+                persist();
+                renderList();
+            });
+            row.appendChild(del);
+        }
 
         return row;
     }
@@ -493,15 +586,31 @@ export function createTrajectorySection({ feature, featureType, map }) {
     actions.appendChild(clearBtn);
 
     section.appendChild(actions);
+
+    // Auto-binding toggles (direction/speed/DTG) for symbol types. Hosted in a slot
+    // so they rebuild on lens change (the GDH toggle is disabled in relative mode).
+    const bindingsSlot = document.createElement('div');
+    section.appendChild(bindingsSlot);
+    const renderBindings = () => {
+        bindingsSlot.replaceChildren();
+        const bindings = buildAutoBindings(feature, featureType);
+        if (bindings) bindingsSlot.appendChild(bindings);
+    };
+
     renderList();
+    renderBindings();
+
+    // Reflect timeline-bar lens changes (mode/unit/origin): re-time the waypoints and
+    // re-evaluate the GDH-in-relative-mode gate.
+    bindTimeContextRerender(section, () => {
+        timeContext = getActiveTimeContext();
+        renderList();
+        renderBindings();
+    });
 
     // Show this feature's trajectory on the map (path + draggable point markers)
     // while it's selected, with the list as the onChange target.
     getControl('TrajectoryEditControl')?.show(feature, { onChange: renderList });
-
-    // Auto-binding toggles (direction/speed/DTG) for symbol types.
-    const bindings = buildAutoBindings(feature, featureType);
-    if (bindings) section.appendChild(bindings);
 
     return section;
 }

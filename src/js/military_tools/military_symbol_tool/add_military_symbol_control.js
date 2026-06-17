@@ -133,8 +133,11 @@ class AddMilitarySymbolControl extends BaseControl {
   }
 
   createSelectionBox(feature) {
-    // Military symbols use pre-calculated selection boxes stored as properties
-    if (feature.properties.selectionBox) {
+    // Military symbols use pre-calculated selection boxes stored as properties.
+    // A moving (trajectory) symbol is displaced from its authored position, so the
+    // stored box (computed at home) no longer matches — recompute from live coords.
+    const moving = Array.isArray(feature.properties.trajetoria) && feature.properties.trajetoria.length >= 2;
+    if (feature.properties.selectionBox && !moving) {
       return { geometry: feature.properties.selectionBox };
     }
 
