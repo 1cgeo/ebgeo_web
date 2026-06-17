@@ -86,10 +86,20 @@ getEventBus().emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 - The active layer receives new features; layers emit `LAYERS_CHANGED`.
 - Projects are saved as `.ebgeo` files.
 - Briefing slides reference 3D models via `modelId` (not `tilesetId`).
+- **Temporal data** (optional, per feature): `temporalInicio`/`temporalFim` (validity window, epoch ms — absent = permanent) and `trajetoria` (moving-feature keypoints `{t, lng, lat}`, epoch ms; point/military_symbol/coordination_measure). Per-map temporal config is stored separately (see Temporal Module).
 
 ## Application Modes
 
 `NORMAL` (default) | `BRIEFING_EDIT` (editor) | `BRIEFING_PRESENT` (presentation). Managed by `ApplicationModeManager` (`mode/application-mode.manager.js`); mode changes drive UI visibility profiles.
+
+## Temporal Module
+
+Timeline control per map (`temporal/`). Lives in `temporal-controller.js` (playback/cursor) + `temporal-render.service.js` (filters + trajectory positions) + `temporal-model.js` (pure math, node-testable) + `temporal-derivation.service.js` (auto symbol attrs) + `trajectory-tool/` (line-tool-style keypoint editing).
+
+- **Per-map config** persisted under `temporal_<mapName>` (appStore, like map-lock), shape `{ ativo, modo, unidade, inicio, fim, origem }`. Ops in `store/temporal.operations.js` (`getMapTemporalConfigSync` for hot paths, `setMapTemporalConfig`, `toggleMapTemporal`). Emits `MAP_TEMPORAL_CHANGED` (on `ativo` flip) + `TEMPORAL_CONFIG_CHANGED`; cursor moves emit `TEMPORAL_CURSOR_CHANGED`.
+- **Pure-lens model:** absolute epoch ms is canonical; `modo` (absoluto/relativo D+N), `unidade`, and `origem` (D-origin) are display lenses that NEVER mutate feature times. Moving features in time is the explicit "Reagendar" action only: `shiftMapTemporalTimes` (store) + `shiftSourcesTemporal` (live source) — it shifts `temporalInicio`/`temporalFim` + every trajectory `t` and re-derives auto DTG.
+- **Hot path (playback):** runs every rAF — keep it lean. Apply is coalesced (in-flight guard); show/hide filters are quantized to the timeline step in `layers/visibility-filter.js` (rebuild only on step boundaries); trajectory interpolation normalizes once per feature per frame. Reset trajectory caches via `resetTrajectoryCache()` on resync.
+- **Derivation is image-only:** auto direction/speed/DTG on military symbols regenerate the symbol PNG (`generateSymbolBlob` + `loadImageToMap`) and MUST NOT write the GeoJSON source or store — that would race the per-frame geometry pass. Rotation is left fully manual (never auto-driven).
 
 ## CSS
 

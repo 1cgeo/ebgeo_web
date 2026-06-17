@@ -28,6 +28,7 @@ src/js/
 │   ├── settings.operations.js  # App/user settings
 │   ├── cesium3d.operations.js  # 3D operations
 │   ├── streetview360.operations.js
+│   ├── temporal.operations.js  # Per-map temporal config (temporal_<mapName>); shiftMapTemporalTimes
 │   ├── atlas/               # Atlas entity (top-level project container)
 │   ├── repositories/        # Repository abstraction (interface, local, factory)
 │   ├── services/             # map-resolver.service.js (name↔UUID with LRU)
@@ -54,6 +55,8 @@ src/js/
 ├── snapping/                # Vertex/edge/endpoint snapping service
 ├── selection_tools/         # Selection interaction tools
 ├── vector_info/             # Vector feature info panel
+├── temporal/                # Timeline module (per-map): controller, render service,
+│                            # pure model, derivation, trajectory-tool (keypoint editing)
 │
 ├── sidebar/                 # Collapsible sidebar (tabs: Maps, Layers, Briefings, Import, Export)
 ├── toolbar/                 # Grouped tool buttons with popups
@@ -137,6 +140,7 @@ App events are defined in `events/event_types.js` and accessed via `EventTypes.X
 - **UI coordination**: `SIDEBAR_EXPANDED/COLLAPSED`, `SIDEBAR_TAB_CHANGED`, `FEATURE_PANEL_OPENED/CLOSED`, `UI_LAYOUT_CHANGED`, `UI_CLOSE_ALL_POPUPS`, `TOOLBAR_GROUP_OPENED/CLOSED`, `BASE_LAYER_CHANGED`, `MAP_LOCK_CHANGED`
 - **Briefing**: `BRIEFING_EDIT_STARTED/ENDED`, `BRIEFING_PRESENT_STARTED/ENDED`, `BRIEFING_SLIDE_CHANGED`
 - **Processing**: `PROCESSING_STARTED/COMPLETED/ERROR`
+- **Temporal**: `MAP_TEMPORAL_CHANGED` (per-map control toggled), `TEMPORAL_CONFIG_CHANGED` (unit/bounds/origin changed), `TEMPORAL_CURSOR_CHANGED` (cursor moved — emitted per playback frame)
 - **Session/Sync** (offline no-op today): `SESSION_CHANGED`, `CONNECTION_STATE_CHANGED`, `REMOTE_OPERATION_APPLIED`
 - **3D viewer**: `VIEWER_3D_OPENED/CLOSED`, `MARKER_3D_CLICKED`, `VIEWSHED_3D_CLICKED/DESELECTED`, `VIEWSHEDS_3D_CHANGED`
 - **360 viewer**: `STREETVIEW_360_OPENED/CLOSED`, `MARKER_360_*`, `ORIENTATION_360_*`

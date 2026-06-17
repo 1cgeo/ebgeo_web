@@ -16,6 +16,7 @@ Na página principal, o tutorial será segmentado em módulos.
 * Módulo 8: uso de ferramentas no mapeamento 3D
 * Módulo 9: briefings (apresentações)
 * Módulo 10: processamento e recursos avançados
+* Módulo 11: linha do tempo (controle temporal)
 
 ### Módulo 1: Ferramentas Gerais
 
@@ -476,3 +477,59 @@ Permite identificar feições do mapa base (EDGV). Ative a ferramenta e clique s
 #### Uso em dispositivos móveis
 
 O EBGeo também se adapta a celulares e telas pequenas, com uma interface própria: painel inferior deslizável, gaveta lateral, botões flutuantes (bússola, zoom e camada base), editor de feições adaptado e busca em tela cheia. Os gestos de toque substituem as ações de mouse (toque e arraste para mover, pinça para zoom, long-press para o menu de contexto).
+
+### Módulo 11: Linha do Tempo (Controle Temporal)
+
+O EBGeo permite dar uma dimensão temporal ao mapa: cada feição pode ter uma **validade no tempo** (quando aparece e desaparece) e feições móveis (pontos, símbolos militares e medidas de coordenação) podem ter uma **trajetória** que as desloca ao longo do tempo. É ideal para representar a evolução de uma operação hora a hora ou dia a dia.
+
+#### Ativar o controle temporal
+
+No card do mapa atual (aba **Mapas**), clique no botão de **relógio** para ativar o controle temporal daquele mapa. Uma **barra de linha do tempo** aparece na parte inferior da tela. O botão fica desabilitado quando o mapa está travado.
+
+#### A barra de linha do tempo
+
+- **Reproduzir/Pausar**: anima o cursor ao longo do intervalo, mostrando feições e trajetórias evoluindo no tempo.
+- **Velocidade**: seletor da velocidade de reprodução.
+- **Cursor (régua)**: arraste para navegar até um instante específico; as setas ← → do teclado avançam/retrocedem um passo (a unidade configurada). A régua exibe o instante atual.
+- **Olho (modo revelar)**: mostra temporariamente as feições que estariam ocultas fora do intervalo atual — útil durante a edição, sem precisar mover o cursor.
+- **Engrenagem (configurações)**: abre as configurações temporais do mapa.
+
+Cada usuário navega sua própria linha do tempo: reproduzir, pausar e mover o cursor são ações locais e não afetam os demais.
+
+#### Configurações temporais
+
+Na engrenagem da barra, defina:
+
+- **Unidade de divisão**: minuto, hora, dia ou semana (granularidade da régua e do passo do cursor).
+- **Modo**: **Absoluto** (datas e horas reais) ou **Relativo** (offsets militares D+N a partir de uma origem).
+- **Início/Fim do mapa**: os limites do intervalo. Em branco, são deduzidos automaticamente das feições.
+- **Data de D (origem)**: a referência para o eixo D+N no modo relativo. Ela apenas **rotula** a régua — não move as feições.
+- **Reagendar feições**: ação explícita que **desloca todas as feições e trajetórias no tempo** para que o Dia D caia em outra data real, mantendo os offsets D+N. Use ao reprogramar a operação (não pode ser desfeito).
+
+#### Validade temporal das feições
+
+No painel de qualquer feição há a seção **Validade temporal**, com os campos **Início** e **Fim**. A feição só fica visível enquanto o cursor estiver dentro dessa janela. Campos em branco significam **permanente** (visível em qualquer instante). Os valores podem ser informados como data/hora exata ou como offset (D+N), conforme o modo.
+
+#### Trajetórias (feições móveis)
+
+Pontos, símbolos militares e medidas de coordenação podem receber uma **Trajetória** — uma sequência de pontos-chave, cada um com um instante associado. Durante a reprodução, a feição se move suavemente interpolando entre eles.
+
+A trajetória é editada no mapa, de forma análoga à ferramenta de linha:
+
+- **Adicionar no mapa**: entra no modo de adição — cada clique acrescenta um ponto-chave no instante atual da régua. Uma barra de "Cancelar / Concluir" aparece no topo.
+- **Mover** um ponto-chave: arraste o manipulador (mantém o instante daquele ponto).
+- **Inserir**: clique no manipulador intermediário de um segmento (o instante é a média dos vizinhos).
+- **Remover**: botão direito (ou long-press no toque) sobre um ponto-chave.
+- Os **pinos** na própria barra da linha do tempo também podem ser arrastados para reposicionar um ponto-chave no tempo.
+
+O painel da feição mostra estatísticas da trajetória (número de pontos, duração e distância) e permite saltar o cursor para cada ponto-chave.
+
+#### Atributos automáticos (Simbologia Militar e Medida de Coordenação)
+
+Símbolos militares e medidas de coordenação com trajetória podem ter atributos **derivados automaticamente** do movimento, por meio dos "Vínculos automáticos" no painel:
+
+- **Direção**: a direção de deslocamento, calculada a partir da trajetória no instante atual.
+- **Velocidade**: a velocidade do trecho atual.
+- **GDH/DTG**: o grupo data-hora, derivado da janela de validade temporal.
+
+Esses vínculos são opcionais (desligados por padrão) e atualizam o símbolo conforme a reprodução avança. A **rotação** do símbolo permanece sempre manual.
