@@ -30,6 +30,9 @@ import { normalizeTrajectory, headingAtSorted, speedAtSorted } from './temporal-
 const DIRECTION_STEP_DEG = 5;
 const MIL_SOURCE = 'military_symbols';
 const MIL_CONTROL = 'AddMilitarySymbolControl';
+/** Debounce for the auto-gate rescan: LAYERS_CHANGED fires in bursts (visibility /
+ *  lock toggles), so coalesce them into one getData scan instead of one per event. */
+const GATE_REFRESH_DEBOUNCE_MS = 150;
 
 /** Formats a m/s speed as the Z amplifier string (rounded km/h), or '' when undefined. */
 function formatSpeedAmplifier(mps) {
@@ -49,12 +52,13 @@ export class TemporalDerivationService {
         this._applied = new Map(); // featureId -> { direction, speed } last applied (throttle + restore set)
         this._enabled = false;     // any auto military symbol present? (gates the per-cursor getData)
         this._busy = false;        // in-flight regen pass (drops overlapping cursor events)
+        this._refreshTimer = null; // debounce handle for the gate rescan
         setupCleanup(this);
     }
 
     init() {
         subscribe(this, this._eventBus, EventTypes.TEMPORAL_CURSOR_CHANGED, ({ cursor }) => this._onCursor(cursor));
-        subscribe(this, this._eventBus, EventTypes.LAYERS_CHANGED, () => this._refreshEnabled());
+        subscribe(this, this._eventBus, EventTypes.LAYERS_CHANGED, () => this._scheduleRefresh());
         subscribe(this, this._eventBus, EventTypes.MAP_TEMPORAL_CHANGED, ({ enabled }) => {
             if (!enabled) {
                 // Close the gate synchronously BEFORE restoring, so a cursor event
@@ -74,6 +78,15 @@ export class TemporalDerivationService {
     /** Public: re-evaluate the auto gate (called when a binding toggle changes). */
     refreshEnabled() {
         return this._refreshEnabled();
+    }
+
+    /** Coalesces bursty LAYERS_CHANGED events into a single debounced gate rescan. */
+    _scheduleRefresh() {
+        if (this._refreshTimer) clearTimeout(this._refreshTimer);
+        this._refreshTimer = setTimeout(() => {
+            this._refreshTimer = null;
+            this._refreshEnabled();
+        }, GATE_REFRESH_DEBOUNCE_MS);
     }
 
     /** Cheap gate: whether any military symbol opts into auto direction/speed. */
@@ -102,9 +115,9 @@ export class TemporalDerivationService {
         this._busy = true;
         try {
             const data = await source.getData();
-            for (const feature of data?.features || []) {
-                await this._deriveSymbol(gen, feature, cursor);
-            }
+            // Independent per-feature regens — run them concurrently so several
+            // symbols turning in the same frame don't serialize blob generation.
+            await Promise.all((data?.features || []).map((feature) => this._deriveSymbol(gen, feature, cursor)));
         } catch {
             /* source not ready — try again on the next cursor event */
         } finally {
@@ -148,11 +161,14 @@ export class TemporalDerivationService {
         if (gen && source) {
             try {
                 const data = await source.getData();
-                for (const feature of data?.features || []) {
-                    if (!this._applied.has(feature.properties?.id)) continue;
-                    const result = await gen.generateSymbolBlob(feature.properties);
-                    await loadImageToMap(this._map, feature.properties.id, result.blob, { replaceExisting: true });
-                }
+                await Promise.all(
+                    (data?.features || [])
+                        .filter((feature) => this._applied.has(feature.properties?.id))
+                        .map(async (feature) => {
+                            const result = await gen.generateSymbolBlob(feature.properties);
+                            await loadImageToMap(this._map, feature.properties.id, result.blob, { replaceExisting: true });
+                        })
+                );
             } catch {
                 /* best-effort restore */
             }
@@ -170,6 +186,10 @@ export class TemporalDerivationService {
     }
 
     destroy() {
+        if (this._refreshTimer) {
+            clearTimeout(this._refreshTimer);
+            this._refreshTimer = null;
+        }
         cleanup(this);
         this._applied.clear();
     }

@@ -130,7 +130,10 @@ export function updateAllLayerFilters(mapInstance) {
     if (!mapInstance) return;
 
     const visibleLayerIds = getVisibleLayerIds();
-    const cacheKey = `${activeTemporalCursor}|${activeTemporalCursorEnd}|${revealMode}|${JSON.stringify(visibleLayerIds)}`;
+    // Cheap cache key (runs every frame during playback): join the ids instead of
+    // JSON.stringify — layer ids are plain strings, so a delimiter join is unique
+    // enough and avoids the per-frame serializer cost.
+    const cacheKey = `${activeTemporalCursor}|${activeTemporalCursorEnd}|${revealMode}|${visibleLayerIds.join(',')}`;
     if (cachedVisibleLayerIds === cacheKey) return;
     cachedVisibleLayerIds = cacheKey;
 
