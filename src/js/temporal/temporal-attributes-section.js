@@ -44,13 +44,18 @@ import { updateSourceFeatureProperty } from './temporal-render.service.js';
 export function getActiveTimeContext() {
     const cfg = getMapTemporalConfigSync();
     const bounds = getControl('TemporalControl')?.getBounds?.() || null;
-    const startAnchor = bounds && Number.isFinite(bounds.inicio)
+    // Timeline window (temporal-bar start/end): the resolved bounds, falling back to
+    // the configured início/fim. Exposed so date pickers can highlight the window.
+    const inicio = bounds && Number.isFinite(bounds.inicio)
         ? bounds.inicio
         : (Number.isFinite(cfg.inicio) ? cfg.inicio : null);
+    const fim = bounds && Number.isFinite(bounds.fim)
+        ? bounds.fim
+        : (Number.isFinite(cfg.fim) ? cfg.fim : null);
     const anchor = cfg.modo === TEMPORAL_MODES.RELATIVO
-        ? (Number.isFinite(cfg.origem) ? cfg.origem : startAnchor)
-        : startAnchor;
-    return { modo: cfg.modo, origem: cfg.origem, unidade: cfg.unidade, anchor };
+        ? (Number.isFinite(cfg.origem) ? cfg.origem : inicio)
+        : inicio;
+    return { modo: cfg.modo, origem: cfg.origem, unidade: cfg.unidade, anchor, inicio, fim };
 }
 
 /**
@@ -214,7 +219,7 @@ function buildTimeField({ epoch, onChange, timeContext }) {
     const render = () => {
         field.replaceChildren();
         field.appendChild(
-            offsetView ? buildOffsetInput(current, ctx, emit) : buildDatetimeInput(current, emit)
+            offsetView ? buildOffsetInput(current, ctx, emit) : buildDatetimeInput(current, emit, ctx)
         );
         // Toggle only in absolute mode and only when offsets can be resolved.
         if (!isRelative && canOffset) {
@@ -231,11 +236,16 @@ function buildTimeField({ epoch, onChange, timeContext }) {
     return field;
 }
 
-function buildDatetimeInput(epoch, emit) {
+function buildDatetimeInput(epoch, emit, timeContext) {
     const input = document.createElement('input');
     input.type = 'datetime-local';
     input.className = 'temporal-attr-row__input';
     input.value = Number.isFinite(epoch) ? epochToDatetimeLocal(epoch) : '';
+    // Highlight the temporal-bar window in the native calendar: bound selectable
+    // dates to [início, fim] so the timeline start/end stand out while picking.
+    const ctx = timeContext || {};
+    if (Number.isFinite(ctx.inicio)) input.min = epochToDatetimeLocal(ctx.inicio);
+    if (Number.isFinite(ctx.fim)) input.max = epochToDatetimeLocal(ctx.fim);
     input.addEventListener('change', () => emit(datetimeLocalToEpoch(input.value)));
     return input;
 }
