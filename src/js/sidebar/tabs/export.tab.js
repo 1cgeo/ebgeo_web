@@ -565,6 +565,8 @@ export class ExportTab {
         this._pdfExportTab.showLatLongGrid = false;
         this._pdfExportTab.showUTMGrid = false;
         this._pdfExportTab.dpi = 300;
+        this._pdfExportTab.rows = 1;
+        this._pdfExportTab.cols = 1;
 
         // Clear existing content
         this._pdfContentContainer.innerHTML = '';
@@ -588,6 +590,9 @@ export class ExportTab {
 
             // Setup event listeners manually since we control the DOM here
             this._setupPdfEventListeners();
+
+            // Sync mosaic-dependent UI (count, hint, disabled options) with state
+            this._pdfExportTab._updateMosaicUIState();
         } else {
             // Fallback: create simple export button
             this._createFallbackPdfUI();
@@ -629,9 +634,24 @@ export class ExportTab {
                 if (this._pdfExportTab) {
                     this._pdfExportTab.orientation = e.target.value;
                     this._pdfExportTab.updateBounds();
+                    this._pdfExportTab.zoomToPreviewArea();
                 }
             });
         });
+
+        // Mosaic rows / columns
+        const rowsSelect = this._pdfContentContainer.querySelector('#pdf-rows-select');
+        if (rowsSelect) {
+            addDomListener(this, rowsSelect, 'change', (e) => {
+                if (this._pdfExportTab) this._pdfExportTab.onRowsChange(e);
+            });
+        }
+        const colsSelect = this._pdfContentContainer.querySelector('#pdf-cols-select');
+        if (colsSelect) {
+            addDomListener(this, colsSelect, 'change', (e) => {
+                if (this._pdfExportTab) this._pdfExportTab.onColsChange(e);
+            });
+        }
 
         // Export button
         const exportBtn = this._pdfContentContainer.querySelector('#pdf-export-btn');

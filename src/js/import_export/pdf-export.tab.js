@@ -7,7 +7,21 @@ import {
     createExportProgressModal,
     getCleanMapStyle,
 } from './export-utils.js'
-import { GRID_MARGIN_MM, UTM_MAX_SCALE_DENOM, parseScaleDenom } from './pdf-export.constants.js'
+import {
+    GRID_MARGIN_MM,
+    UTM_MAX_SCALE_DENOM,
+    parseScaleDenom,
+    MOSAIC_MAX_DIM,
+    MOSAIC_WARN_TILES,
+} from './pdf-export.constants.js'
+import {
+    computeMosaicZoom,
+    pageMercatorSpan,
+    pageContainerCssPx,
+    computeTileCenters,
+    computeMosaicBounds,
+    tileBounds,
+} from './pdf-mosaic-geometry.js'
 import { isMapTemporalEnabledSync, getControl } from '@store'
 import { isTemporallyVisible } from '@js/temporal/temporal-model.js'
 
@@ -22,6 +36,11 @@ export default class PDFExportTab {
         this.marginMM = 5;
         this.paperBounds = null;
         this.usableBounds = null;
+
+        // Mosaic (multi-page) options. rows×cols > 1 switches to full-bleed,
+        // multi-page jsPDF export with double-sided assembly aids.
+        this.rows = 1;
+        this.cols = 1;
 
         // Cartographic layout options
         this.showTitle = false;
@@ -63,6 +82,8 @@ export default class PDFExportTab {
         this.onOrientationChange = this.onOrientationChange.bind(this);
         this.onScaleChange = this.onScaleChange.bind(this);
         this.onDPIChange = this.onDPIChange.bind(this);
+        this.onRowsChange = this.onRowsChange.bind(this);
+        this.onColsChange = this.onColsChange.bind(this);
         this.onExportClick = this.onExportClick.bind(this);
         this.onMapMove = this.onMapMove.bind(this);
         this._onStyleData = this._onStyleData.bind(this);
@@ -89,6 +110,14 @@ export default class PDFExportTab {
             `<option value="${dpi.value}" ${dpi.value === this.dpi ? 'selected' : ''}>${dpi.label}</option>`
         ).join('');
 
+        const dimOptions = (selected) => {
+            let out = '';
+            for (let n = 1; n <= MOSAIC_MAX_DIM; n++) {
+                out += `<option value="${n}" ${n === selected ? 'selected' : ''}>${n}</option>`;
+            }
+            return out;
+        };
+
         return `
             <div class="pdf-export-container">
                 <div class="scale-selector">
@@ -114,6 +143,33 @@ export default class PDFExportTab {
                         <input type="radio" name="pdf-orientation" value="portrait">
                         Retrato (A4)
                     </label>
+                </div>
+
+                <div class="pdf-mosaic-section">
+                    <div class="pdf-mosaic-title">Mosaico (várias páginas)</div>
+                    <div class="pdf-mosaic-dims">
+                        <label class="pdf-mosaic-dim">
+                            <span>Linhas</span>
+                            <select id="pdf-rows-select" class="pdf-mosaic-select">
+                                ${dimOptions(this.rows)}
+                            </select>
+                        </label>
+                        <label class="pdf-mosaic-dim">
+                            <span>Colunas</span>
+                            <select id="pdf-cols-select" class="pdf-mosaic-select">
+                                ${dimOptions(this.cols)}
+                            </select>
+                        </label>
+                    </div>
+                    <div class="pdf-mosaic-count" id="pdf-mosaic-count">1 folha A4</div>
+                    <div class="pdf-mosaic-hint" id="pdf-mosaic-hint">
+                        Imprima em <strong>frente e verso</strong>, em tamanho real. A capa do PDF
+                        traz o passo a passo (e a borda de virada correta) e o verso de cada folha
+                        traz as etiquetas de montagem (com o mapa para baixo). Ligue a
+                        <strong>Grade Lat/Long ou UTM</strong> para emoldurar o perímetro com as
+                        coordenadas; as emendas internas seguem contínuas. Caixas de
+                        título/legenda/escala/norte não são usadas no mosaico.
+                    </div>
                 </div>
 
                 <div class="pdf-cartographic-section">
@@ -199,6 +255,16 @@ export default class PDFExportTab {
             input.addEventListener('change', this.onOrientationChange);
         }
 
+        const rowsSelect = document.getElementById('pdf-rows-select');
+        if (rowsSelect) {
+            rowsSelect.addEventListener('change', this.onRowsChange);
+        }
+
+        const colsSelect = document.getElementById('pdf-cols-select');
+        if (colsSelect) {
+            colsSelect.addEventListener('change', this.onColsChange);
+        }
+
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) {
             exportBtn.addEventListener('click', this.onExportClick);
@@ -206,6 +272,7 @@ export default class PDFExportTab {
 
         // Cartographic options
         this._attachCartographicListeners();
+        this._updateMosaicUIState();
     }
 
     detachEventListeners() {
@@ -222,6 +289,16 @@ export default class PDFExportTab {
         const orientationInputs = document.querySelectorAll('input[name="pdf-orientation"]');
         for (const input of orientationInputs) {
             input.removeEventListener('change', this.onOrientationChange);
+        }
+
+        const rowsSelect = document.getElementById('pdf-rows-select');
+        if (rowsSelect) {
+            rowsSelect.removeEventListener('change', this.onRowsChange);
+        }
+
+        const colsSelect = document.getElementById('pdf-cols-select');
+        if (colsSelect) {
+            colsSelect.removeEventListener('change', this.onColsChange);
         }
 
         const exportBtn = document.getElementById('pdf-export-btn');
@@ -315,6 +392,73 @@ export default class PDFExportTab {
     onOrientationChange(event) {
         this.orientation = event.target.value;
         this.updateBounds();
+        this.zoomToPreviewArea();
+    }
+
+    onRowsChange(event) {
+        this.rows = this._clampDim(event.target.value);
+        this._afterDimChange();
+    }
+
+    onColsChange(event) {
+        this.cols = this._clampDim(event.target.value);
+        this._afterDimChange();
+    }
+
+    /** Parses and clamps a dimension select value to [1, MOSAIC_MAX_DIM]. */
+    _clampDim(value) {
+        const n = parseInt(value, 10) || 1;
+        return Math.min(MOSAIC_MAX_DIM, Math.max(1, n));
+    }
+
+    /** Refreshes preview and dependent UI after a rows/cols change. */
+    _afterDimChange() {
+        this._updateMosaicUIState();
+        this.updateBounds();
+        this.zoomToPreviewArea();
+    }
+
+    /** Whether the current selection spans more than one A4 page. */
+    get isMosaic() {
+        return this.rows * this.cols > 1;
+    }
+
+    /**
+     * Reflects mosaic state in the panel: shows the assembly hint, updates the
+     * sheet count, and disables map-overlay cartographic options that do not
+     * apply to a clean mosaic (legend / scale bar / north arrow). Grids and the
+     * optional cover title remain available.
+     */
+    _updateMosaicUIState() {
+        const mosaic = this.isMosaic;
+        const total = this.rows * this.cols;
+
+        const countEl = document.getElementById('pdf-mosaic-count');
+        if (countEl) {
+            countEl.textContent = total === 1 ? '1 folha A4' : `${total} folhas A4 (${this.rows}×${this.cols})`;
+        }
+
+        const hintEl = document.getElementById('pdf-mosaic-hint');
+        if (hintEl) {
+            hintEl.classList.toggle('pdf-mosaic-hint--visible', mosaic);
+        }
+
+        for (const id of ['pdf-show-legend', 'pdf-show-scalebar', 'pdf-show-north']) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            el.disabled = mosaic;
+            if (mosaic) el.checked = false;
+        }
+        if (mosaic) {
+            this.showLegend = false;
+            this.showScaleBar = false;
+            this.showNorthArrow = false;
+        }
+
+        const exportBtn = document.getElementById('pdf-export-btn');
+        if (exportBtn) {
+            exportBtn.textContent = mosaic ? 'Exportar mosaico PDF' : 'Exportar PDF';
+        }
     }
 
     /**
@@ -420,6 +564,11 @@ export default class PDFExportTab {
      * @param {Object} center - The center point with lng and lat properties
      */
     updateBoundsAtCenter(center) {
+        if (this.isMosaic) {
+            this._updateMosaicBoundsAtCenter(center);
+            return;
+        }
+
         const bounds = this.calculateBoundsFromScaleAtCenter(this.scale, this.orientation, center);
 
         // Preview is always north-up — no rotation applied.
@@ -465,6 +614,70 @@ export default class PDFExportTab {
                 features: [paperFeature, usableFeature]
             });
         }
+    }
+
+    /**
+     * Builds the multi-page mosaic preview: one rectangle per A4 tile, laid out
+     * with the same Mercator geometry the export uses (so the preview matches the
+     * printed result exactly). Also sets paperBounds to the whole mosaic so
+     * zoomToPreviewArea() frames the full area.
+     * @param {{lng:number, lat:number}} center
+     */
+    _updateMosaicBoundsAtCenter(center) {
+        const span = this._mosaicPageSpan(center.lat);
+        const tiles = computeTileCenters({
+            rows: this.rows, cols: this.cols,
+            centerLng: center.lng, centerLat: center.lat,
+            pageMercW: span.width, pageMercH: span.height,
+        });
+
+        const features = tiles.map(t => {
+            const b = tileBounds({
+                centerLng: t.centerLng, centerLat: t.centerLat,
+                pageMercW: span.width, pageMercH: span.height,
+            });
+            return {
+                type: 'Feature',
+                properties: { type: 'paper', row: t.row, col: t.col },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[
+                        [b.west, b.north], [b.east, b.north],
+                        [b.east, b.south], [b.west, b.south],
+                        [b.west, b.north],
+                    ]],
+                },
+            };
+        });
+
+        const mb = computeMosaicBounds({
+            centerLng: center.lng, centerLat: center.lat,
+            rows: this.rows, cols: this.cols,
+            pageMercW: span.width, pageMercH: span.height,
+        });
+        this.paperBounds = {
+            topLeft: [mb.west, mb.north], topRight: [mb.east, mb.north],
+            bottomRight: [mb.east, mb.south], bottomLeft: [mb.west, mb.south],
+        };
+        this.usableBounds = this.paperBounds;
+
+        const source = this.map.getSource('pdf-export-preview');
+        if (source) {
+            source.setData({ type: 'FeatureCollection', features });
+        }
+    }
+
+    /**
+     * Per-page Mercator span (width/height in metres) at the current scale,
+     * orientation and the given latitude. Shared by preview and (implicitly) the
+     * export, which recomputes the same values.
+     * @param {number} lat - Centre latitude
+     * @returns {{ width: number, height: number }}
+     */
+    _mosaicPageSpan(lat) {
+        const [pageWmm, pageHmm] = this.orientation === 'landscape' ? [297, 210] : [210, 297];
+        const zoom = computeMosaicZoom(this._parseScaleDenom(), lat);
+        return pageMercatorSpan(zoom, pageContainerCssPx(pageWmm), pageContainerCssPx(pageHmm));
     }
 
     zoomToPreviewArea() {
@@ -655,6 +868,58 @@ export default class PDFExportTab {
         };
     }
 
+    /**
+     * Runs the multi-page mosaic export via the jsPDF pipeline. The hidden map,
+     * tile rendering and PDF assembly live in pdf-mosaic-export.js (lazy-loaded);
+     * this method owns the progress modal and cancellation flag.
+     */
+    async _runMosaicExport() {
+        this.showExportModal();
+        this.updateProgress(5, 'Inicializando...');
+
+        try {
+            const total = this.rows * this.cols;
+            if (total > MOSAIC_WARN_TILES) {
+                this.updateProgress(5, `Mosaico grande (${total} folhas) — isso pode levar um tempo...`);
+            }
+
+            const { exportMosaicPdf } = await import('./pdf-mosaic-export.js');
+
+            const ok = await exportMosaicPdf({
+                map: this.map,
+                cleanStyle: this.getCleanStyle(),
+                center: this.getVisibleCenter(),
+                scale: this.scale,
+                dpi: this.dpi,
+                orientation: this.orientation,
+                rows: this.rows,
+                cols: this.cols,
+                showLatLongGrid: this.showLatLongGrid,
+                showUTMGrid: this.isUTMGridAllowed,
+                title: this.showTitle ? this.mapTitle : '',
+                includeCover: true,
+                includeVerso: true,
+                updateProgress: (percent, text) => this.updateProgress(percent, text),
+                isCancelled: () => this._exportCancelled,
+            });
+
+            if (ok) {
+                // Capture the modal locally so a quick second export (which reassigns
+                // this._progress) is not dismissed by this stale timeout.
+                const progress = this._progress;
+                setTimeout(() => progress?.remove(), 800);
+            } else {
+                this._progress?.remove();
+            }
+        } catch (error) {
+            if (!this._exportCancelled) {
+                console.error('Error exporting mosaic PDF:', error);
+                showError('Não foi possível exportar o mosaico: ' + error.message);
+            }
+            this._progress?.remove();
+        }
+    }
+
     async onExportClick() {
         // Prevent concurrent exports
         if (this._exporting) return;
@@ -662,6 +927,19 @@ export default class PDFExportTab {
 
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) exportBtn.disabled = true;
+
+        // Multi-page mosaic uses a separate, full-bleed jsPDF pipeline.
+        if (this.isMosaic) {
+            try {
+                await this._runMosaicExport();
+            } finally {
+                this._exporting = false;
+                this._exportCancelled = false;
+                const btn = document.getElementById('pdf-export-btn');
+                if (btn) btn.disabled = false;
+            }
+            return;
+        }
 
         let hiddenMapContainer;
         let hiddenMap;
@@ -831,7 +1109,10 @@ export default class PDFExportTab {
             a.click();
             URL.revokeObjectURL(url);
 
-            setTimeout(() => this._progress?.remove(), 800);
+            // Capture locally so a quick second export does not get its modal
+            // dismissed by this stale timeout (this._progress may be reassigned).
+            const progress = this._progress;
+            setTimeout(() => progress?.remove(), 800);
 
         } catch (error) {
             if (!this._exportCancelled) {
