@@ -176,6 +176,83 @@ export function createTemporalValiditySection({ inicio, fim, onChange, timeConte
 }
 
 /**
+ * Read-only temporal summary for the locked-map feature panel: the validity
+ * window (Início/Fim) plus a one-line trajectory summary, formatted under the
+ * active time lens. Returns null when the feature carries no temporal data, so the
+ * caller renders nothing for purely-spatial features.
+ * @param {Object} opts
+ * @param {Object} opts.feature - The single selected feature.
+ * @returns {HTMLElement|null}
+ */
+export function createTemporalReadonlySection({ feature }) {
+    const p = feature?.properties || {};
+    const hasInicio = Number.isFinite(p.temporalInicio);
+    const hasFim = Number.isFinite(p.temporalFim);
+    const waypoints = normalizeTrajectory(p.trajetoria);
+    const hasTrajectory = waypoints.length > 0;
+    if (!hasInicio && !hasFim && !hasTrajectory) return null;
+
+    const section = document.createElement('div');
+    section.className = 'temporal-attr-section temporal-attr-section--readonly';
+
+    const render = () => {
+        const ctx = getActiveTimeContext();
+        section.replaceChildren();
+
+        const title = document.createElement('div');
+        title.className = 'temporal-attr-section__title';
+        title.textContent = 'Temporal';
+        section.appendChild(title);
+
+        // Validity window (em-dash when one bound is open / permanent).
+        if (hasInicio || hasFim) {
+            section.appendChild(buildReadonlyRow('Início', hasInicio ? formatTimelineLabel(p.temporalInicio, ctx) : '—'));
+            section.appendChild(buildReadonlyRow('Fim', hasFim ? formatTimelineLabel(p.temporalFim, ctx) : '—'));
+        }
+
+        // Trajectory summary: point count + span · total distance · average speed.
+        if (hasTrajectory) {
+            section.appendChild(buildReadonlyRow('Trajetória', `${waypoints.length} ponto(s)`));
+            const s = trajectoryStats(waypoints);
+            if (s.count >= 2) {
+                const span = `${formatTimelineLabel(waypoints[0].t, ctx)} → ${formatTimelineLabel(waypoints[s.count - 1].t, ctx)}`;
+                const parts = [span, formatDistance(s.distanceMeters)];
+                const speed = formatSpeed(s.distanceMeters, s.durationMs);
+                if (speed) parts.push(speed);
+                const statsEl = document.createElement('div');
+                statsEl.className = 'temporal-trajectory-stats';
+                statsEl.textContent = parts.join(' · ');
+                section.appendChild(statsEl);
+            }
+        }
+    };
+
+    render();
+    // Reflect timeline-bar lens changes (mode/unit/origin) live, like the editable sections.
+    bindTimeContextRerender(section, render);
+
+    return section;
+}
+
+/** A read-only label/value row for the locked temporal summary. */
+function buildReadonlyRow(labelText, valueText) {
+    const row = document.createElement('div');
+    row.className = 'temporal-attr-row temporal-attr-row--readonly';
+
+    const label = document.createElement('span');
+    label.className = 'temporal-attr-row__label';
+    label.textContent = labelText;
+    row.appendChild(label);
+
+    const value = document.createElement('span');
+    value.className = 'temporal-attr-row__value';
+    value.textContent = valueText;
+    row.appendChild(value);
+
+    return row;
+}
+
+/**
  * A labelled time row (label + swappable date/offset field).
  * @param {{labelText: string, epoch: (number|undefined), onChange: (epoch:(number|null))=>void, timeContext: Object}} opts
  * @returns {HTMLElement}

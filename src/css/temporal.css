@@ -258,6 +258,20 @@
     font-size: 0.78rem;
 }
 
+/* Read-only temporal summary (locked map): label + plain value, no inputs. */
+.temporal-attr-row--readonly {
+    margin-bottom: var(--space-1);
+}
+
+.temporal-attr-row__value {
+    min-width: 0;
+    font-size: 0.78rem;
+    color: var(--gray-800);
+    text-align: right;
+    word-break: break-word;
+    font-variant-numeric: tabular-nums;
+}
+
 /* Swappable date/offset field (date input or offset input + ⇄ toggle). */
 .temporal-attr-row__field,
 .temporal-attr-offset {

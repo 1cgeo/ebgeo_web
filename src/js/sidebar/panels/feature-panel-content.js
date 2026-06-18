@@ -16,7 +16,7 @@ import { createGroupTypeSelector } from '../components/group-type-selector.js';
 import { createMultiSelectionActions } from '../components/multi-selection-actions.js';
 import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo, getControl } from '@store/index.js';
 import { renderReadOnlyAttributesSection } from '@js/user_data/attributes_tab_renderer.js';
-import { createTemporalAttributesSection, createTrajectorySection } from '@js/temporal/temporal-attributes-section.js';
+import { createTemporalAttributesSection, createTrajectorySection, createTemporalReadonlySection } from '@js/temporal/temporal-attributes-section.js';
 import { COORDINATE_FORMATS, formatCoordinates } from '@utils/index.js';
 import { createModernSelect, createObservationsSection } from '@tools/helpers/index.js';
 import {
@@ -768,6 +768,11 @@ export async function createFeaturePanelContent({
             readOnlyAttrsContainer.className = 'feature-readonly-attributes-section';
             await renderReadOnlyAttributesSection(readOnlyAttrsContainer, featureId, featureType);
             container.appendChild(readOnlyAttrsContainer);
+
+            // Read-only temporal summary (validity window + trajectory), only when
+            // the feature actually carries temporal data.
+            const temporalReadonly = createTemporalReadonlySection({ feature });
+            if (temporalReadonly) container.appendChild(temporalReadonly);
         }
 
         // For mixed types in locked mode: show read-only type summary
