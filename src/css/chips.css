@@ -43,7 +43,8 @@
     background: white;
     border: none;
     border-radius: var(--radius-full);
-    box-shadow: var(--shadow-control);
+    /* Layered downward elevation reads as "raised", not sunken */
+    box-shadow: var(--shadow-sm), var(--shadow-md);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -58,11 +59,13 @@
 
 .chip-btn:hover {
     background: var(--gray-50);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-md), var(--shadow-lg);
+    transform: translateY(-1px);
 }
 
 .chip-btn:active {
-    transform: scale(0.98);
+    transform: translateY(0) scale(0.98);
+    box-shadow: var(--shadow-sm);
 }
 
 .chip-btn svg {
@@ -95,7 +98,8 @@
     /* Reset hover on touch devices to prevent sticky state */
     .chip-btn:hover {
         background: white;
-        box-shadow: var(--shadow-control);
+        box-shadow: var(--shadow-sm), var(--shadow-md);
+        transform: none;
     }
 }
 
