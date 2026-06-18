@@ -453,9 +453,9 @@ Um briefing também pode ser exportado como PDF (com capa e um slide por página
 
 O EBGeo inclui algoritmos de análise que recebem as feições selecionadas (ou de uma camada) e geram um novo polígono de resultado:
 
-- **Buffer (Zona de Influência)**: cria uma área a uma distância (em metros) ao redor das feições.
-- **Voronoi (Proximidade)**: gera as regiões de proximidade a partir de pontos.
-- **Envoltória Convexa (Convex Hull)**: gera o menor polígono que envolve as feições.
+- **Zona de Influência**: cria uma área a uma distância (em metros) ao redor das feições.
+- **Zonas de Proximidade**: gera as regiões de proximidade a partir de pontos (cada local fica associado ao ponto mais próximo).
+- **Contorno Externo**: cria a menor área que envolve todas as feições selecionadas.
 
 #### Menu de contexto (clique direito)
 

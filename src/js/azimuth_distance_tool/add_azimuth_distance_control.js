@@ -475,7 +475,8 @@ class AddAzimuthDistanceControl extends BaseControl {
                 opacity: 1
             },
             polarData,
-            observations: legObservations
+            observations: legObservations,
+            currentZoom: Number.isFinite(this.map?.getZoom?.()) ? this.map.getZoom() : 0
         });
 
         if (features.length === 0) {

@@ -68,6 +68,13 @@ export const TRAJECTORY_TYPE_TO_SOURCE = {
     coordination_measure: 'coordination_measures',
 };
 
+/** Maps a trajectory-capable feature type to its registered control name. */
+export const TRAJECTORY_TYPE_TO_CONTROL = {
+    point: 'AddPointControl',
+    military_symbol: 'AddMilitarySymbolControl',
+    coordination_measure: 'AddCoordinationMeasureControl',
+};
+
 /**
  * Playback speeds, expressed as timeline-units advanced per real second.
  * (e.g. with unit HORA, speed 2 advances 2 hours per wall-clock second.)

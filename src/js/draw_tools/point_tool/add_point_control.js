@@ -9,6 +9,7 @@ import { LABEL_ZOOM_PROPERTIES, recalcLabelSize } from '../../tool_manager/helpe
 import { getSnappingService } from '../../snapping/snapping.service.js';
 import { generatePointImage, needsPerFeatureImage } from './point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from './point-custom-icons.js';
+import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
 
 /** Maximum circle-radius (in pixels) for zoom-corrected points. */
 const MAX_POINT_RADIUS = 500;
@@ -394,6 +395,9 @@ class AddPointControl extends BaseControl {
             effectiveZoom
         );
 
+        // Moving a trajectory feature relocates its anchor (kp 0 = the start position).
+        const anchorPatch = reanchorOnMove(feature.properties, newCoordinates, feature.geometry.coordinates);
+
         return {
             ...feature,
             geometry: {
@@ -402,6 +406,7 @@ class AddPointControl extends BaseControl {
             },
             properties: {
                 ...feature.properties,
+                ...(anchorPatch || null),
                 selectionBox: newSelectionBox,
             }
         };

@@ -16,6 +16,7 @@ import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     syncZoomCorrectedProperty,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
+import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
 
 class AddCoordinationMeasureControl extends BaseControl {
   featureType = 'coordination_measure';
@@ -225,11 +226,15 @@ class AddCoordinationMeasureControl extends BaseControl {
       effectiveZoom
     );
 
+    // Moving a trajectory feature relocates its anchor (kp 0 = the start position).
+    const anchorPatch = reanchorOnMove(feature.properties, newCoordinates, feature.geometry.coordinates);
+
     const updatedFeature = {
       ...feature,
       geometry: this.geometry.generate(newCoordinates),
       properties: {
         ...feature.properties,
+        ...(anchorPatch || null),
         selectionBox: newSelectionBox,
       },
     };

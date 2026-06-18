@@ -16,7 +16,7 @@
  * updateFeatureProperty) and ask the TemporalController to re-apply render.
  */
 
-import { getControl, getEventBus, updateFeatureProperty, getMapTemporalConfigSync } from '@store';
+import { getControl, getEventBus, updateFeatureProperty, getStorageTypeFromSource, getMapTemporalConfigSync } from '@store';
 import { EventTypes } from '@events/event_types.js';
 import {
     epochToDatetimeLocal,
@@ -100,7 +100,9 @@ export function createTemporalAttributesSection({ feature, featureType, selected
         onChange: (prop, epoch) => {
             const value = Number.isFinite(epoch) ? epoch : null;
             control?.updateFeaturesProperty?.(selectedFeatures, prop, value);
-            updateFeatureProperty(featureType, feature.properties.id, prop, value);
+            // updateFeatureProperty keys by STORAGE type ('points'), not the source
+            // type ('point') the panel passes — convert or the store write silently fails.
+            updateFeatureProperty(getStorageTypeFromSource(featureType), feature.properties.id, prop, value);
             if (feature.properties) feature.properties[prop] = value;
             // Keep a linked DTG/GDH amplifier in sync with the temporal window.
             deriveDtgFields(feature, featureType);
@@ -310,7 +312,7 @@ const SYMBOL_CONTROL_BY_TYPE = {
 /** Writes a property to the live symbol source (regenerating) and the store. */
 function persistSymbolProperty(feature, featureType, prop, value) {
     getControl(SYMBOL_CONTROL_BY_TYPE[featureType])?.updateFeaturesProperty?.([feature], prop, value);
-    updateFeatureProperty(featureType, feature.properties.id, prop, value);
+    updateFeatureProperty(getStorageTypeFromSource(featureType), feature.properties.id, prop, value);
 }
 
 /**
@@ -453,7 +455,7 @@ export function createTrajectorySection({ feature, featureType, map }) {
         if (map && sourceId) {
             updateSourceFeatureProperty(map, sourceId, feature.properties.id, 'trajetoria', sorted);
         }
-        updateFeatureProperty(featureType, feature.properties.id, 'trajetoria', sorted);
+        updateFeatureProperty(getStorageTypeFromSource(featureType), feature.properties.id, 'trajetoria', sorted);
         getControl('TemporalControl')?.sync();
         getControl('TrajectoryEditControl')?.refreshDisplay();
     };

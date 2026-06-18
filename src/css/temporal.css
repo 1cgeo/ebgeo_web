@@ -457,17 +457,19 @@
 .trajectory-edit-toolbar {
     position: fixed;
 
-    /* Bottom-center, stacked just above the temporal bar. Its measured height is
-       published as --temporal-bar-height while the bar is visible (falls back to 0
-       when hidden). Shifts with the sidebar/feature panel like the active-tool chip. */
-    bottom: calc(var(--space-3) + var(--temporal-bar-height, 0px) + var(--space-2));
+    /* Top-center, like a toast — but dropped just below the chips row so a
+       horizontally-centered bar never collides with the left-aligned chips on
+       narrow viewports. Shifts with the sidebar/feature panel like the active-tool chip. */
+    top: calc(
+        var(--space-3) + var(--search-bar-height) + var(--space-1) + var(--chip-height) + var(--space-2)
+    );
     left: 50%;
     transform: translateX(-50%);
     transition: transform var(--transition-normal);
     z-index: var(--z-floating);
     display: flex;
     align-items: center;
-    gap: var(--space-3);
+    gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     background: var(--surface, #fff);
     border: 1px solid var(--border-color);
@@ -494,7 +496,7 @@
 
 .trajectory-edit-toolbar__btn {
     height: 34px;
-    padding: 0 var(--space-4);
+    padding: 0 var(--space-3);
     border-radius: var(--radius-md);
     border: 1px solid var(--border-color);
     background: #fff;

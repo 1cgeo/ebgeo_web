@@ -23,6 +23,7 @@ import {
     getEventBus,
     getStateManager,
     updateFeatureProperty,
+    getStorageTypeFromSource,
     getMapTemporalConfigSync,
 } from '@store';
 import { EventTypes } from '@events/event_types.js';
@@ -31,7 +32,7 @@ import { isTouchDevice } from '@utils/pointer-utils.js';
 import { setupVertexRemoveLongPress } from '@js/draw_tools/drawing-touch-helpers.js';
 import { normalizeTrajectory } from '../temporal-model.js';
 import { unitToMs } from '../temporal.utils.js';
-import { TRAJECTORY_TYPE_TO_SOURCE } from '../temporal.constants.js';
+import { TRAJECTORY_TYPE_TO_SOURCE, TRAJECTORY_TYPE_TO_CONTROL } from '../temporal.constants.js';
 import { updateSourceFeatureProperty } from '../temporal-render.service.js';
 import {
     buildPathCollection,
@@ -200,12 +201,11 @@ export class TrajectoryEditControl {
         this._map.on('click', this._onClick);
         document.addEventListener('keydown', this._onKeyDown, true);
         this._map.getCanvas().style.cursor = 'crosshair';
-        showToast('Clique no mapa para adicionar pontos à trajetória. "Concluir" salva.', 'info');
     }
 
     _onClick(e) {
         const arr = this._ensureArray();
-        const kp = { t: this._currentCursorTime(), lng: e.lngLat.lng, lat: e.lngLat.lat };
+        const kp = { t: this._nextAppendTime(), lng: e.lngLat.lng, lat: e.lngLat.lat };
         arr.push(kp);
         this._lastAdded = kp;
         this._normalizeInPlace();
@@ -274,6 +274,25 @@ export class TrajectoryEditControl {
         const arr = this._feature?.properties?.trajetoria || [];
         const last = arr[arr.length - 1];
         return last ? last.t + step : Date.now();
+    }
+
+    /**
+     * Time for the next appended keypoint: one timeline step past the current last
+     * keypoint, so each map click extends the path forward (append to the END) —
+     * re-entering append mode on an existing trajectory keeps adding at the tail
+     * instead of dropping points at the cursor instant. Falls back to the cursor
+     * (then now) only when there are no keypoints yet.
+     * @returns {number} Epoch ms for the appended keypoint.
+     */
+    _nextAppendTime() {
+        const arr = this._feature?.properties?.trajetoria;
+        if (Array.isArray(arr) && arr.length > 0) {
+            const sorted = normalizeTrajectory(arr);
+            const last = sorted[sorted.length - 1];
+            const step = unitToMs(getMapTemporalConfigSync().unidade);
+            return last.t + (Number.isFinite(step) && step > 0 ? step : 60_000);
+        }
+        return this._currentCursorTime();
     }
 
     /**
@@ -633,12 +652,58 @@ export class TrajectoryEditControl {
         const props = this._feature?.properties;
         if (!props) return;
         const sorted = normalizeTrajectory(props.trajetoria);
+
+        // The anchor (kp 0) is bound 1:1 to the feature's home position. If it moved
+        // (anchor vertex dragged), relocate the feature too and persist geometry +
+        // trajectory together through the owning control, so both land consistently.
+        if (this._syncHomeToAnchor(sorted[0])) {
+            const control = getControl(TRAJECTORY_TYPE_TO_CONTROL[this._featureType]);
+            if (control?.updateFeatures) {
+                control.updateFeatures([this._feature], true);
+            } else {
+                // updateFeatureProperty keys by STORAGE type — convert the source type.
+                updateFeatureProperty(getStorageTypeFromSource(this._featureType), props.id, 'trajetoria', sorted);
+            }
+            getControl('TemporalControl')?.sync();
+            return;
+        }
+
         const sourceId = TRAJECTORY_TYPE_TO_SOURCE[this._featureType];
         if (sourceId) {
             updateSourceFeatureProperty(this._map, sourceId, props.id, 'trajetoria', sorted);
         }
-        updateFeatureProperty(this._featureType, props.id, 'trajetoria', sorted);
+        // updateFeatureProperty keys by STORAGE type ('points'), not the source type
+        // ('point') held in _featureType — convert or the store write silently fails.
+        updateFeatureProperty(getStorageTypeFromSource(this._featureType), props.id, 'trajetoria', sorted);
         getControl('TemporalControl')?.sync();
+    }
+
+    /**
+     * Binds the feature's home (authoring) position to the trajectory anchor (kp 0):
+     * relocating the anchor relocates the feature's initial position. Updates
+     * `_temporalHome` when the feature is currently displaced (temporal active), else
+     * its geometry coordinates. The owning control then persists geometry + store.
+     * @param {{lng:number, lat:number}|undefined} anchor - The earliest keypoint.
+     * @returns {boolean} True when the home position changed.
+     */
+    _syncHomeToAnchor(anchor) {
+        const feature = this._feature;
+        if (!anchor || !feature?.properties) return false;
+        if (!Number.isFinite(anchor.lng) || !Number.isFinite(anchor.lat)) return false;
+
+        const props = feature.properties;
+        if (Array.isArray(props._temporalHome)) {
+            if (props._temporalHome[0] === anchor.lng && props._temporalHome[1] === anchor.lat) return false;
+            props._temporalHome = [anchor.lng, anchor.lat];
+            return true;
+        }
+        const cur = feature.geometry?.coordinates;
+        if (Array.isArray(cur) && cur[0] === anchor.lng && cur[1] === anchor.lat) return false;
+        if (feature.geometry && Array.isArray(cur)) {
+            feature.geometry.coordinates = [anchor.lng, anchor.lat];
+            return true;
+        }
+        return false;
     }
 
     // ===== On-screen append toolbar =====
@@ -648,7 +713,7 @@ export class TrajectoryEditControl {
         const bar = document.createElement('div');
         bar.className = 'trajectory-edit-toolbar';
         bar.innerHTML = `
-            <span class="trajectory-edit-toolbar__hint">Clique no mapa para adicionar pontos à trajetória</span>
+            <span class="trajectory-edit-toolbar__hint">Clique no mapa</span>
             <span class="trajectory-edit-toolbar__count"></span>
             <button type="button" class="trajectory-edit-toolbar__btn trajectory-edit-toolbar__cancel">Cancelar</button>
             <button type="button" class="trajectory-edit-toolbar__btn trajectory-edit-toolbar__done">Concluir</button>

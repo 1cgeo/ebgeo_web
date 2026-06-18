@@ -584,6 +584,11 @@ class AddImportControl {
             baseProperties.trajetoria = cleanTrajectory;
         }
 
+        // Anchor zoom-correction to the CURRENT zoom (like a freshly-drawn feature),
+        // not the spread default of 0 — otherwise the 2^(zoom-createdAtZoom) factor
+        // balloons an imported point/label at any non-zero zoom (the GPX/import bug).
+        const currentZoom = Number.isFinite(this.map?.getZoom?.()) ? this.map.getZoom() : 0;
+
         switch (targetType) {
             case 'lines':
                 baseProperties.baseCoordinates = feature.geometry.coordinates;
@@ -606,10 +611,17 @@ class AddImportControl {
                         ? coords.slice(0, -1)
                         : coords;
                 }
+                // Shape geometry is real-world sized; only the optional label scales.
+                baseProperties.labelCreatedAtZoom = currentZoom;
+                baseProperties.labelCalculatedSize = baseProperties.labelSize;
                 break;
             }
 
             case 'points':
+                baseProperties.sizeCreatedAtZoom = currentZoom;
+                baseProperties.calculatedSize = baseProperties.size;
+                baseProperties.labelCreatedAtZoom = currentZoom;
+                baseProperties.labelCalculatedSize = baseProperties.labelSize;
                 break;
         }
 
