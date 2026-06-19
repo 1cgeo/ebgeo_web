@@ -22,6 +22,11 @@ import {
     computeMosaicBounds,
     tileBounds,
 } from './pdf-mosaic-geometry.js'
+// Static import: pdf-cartographic-elements is already pinned to the import-export
+// chunk by pdf-mosaic-export.js (static import), so a dynamic import here would not
+// split it into a separate chunk — it only triggered a Rollup mixed-import warning.
+// Cartographic layout is composed on every PDF export (see "Always compose" below).
+import { composeLayout, loadLogoImage } from './pdf-cartographic-elements.js'
 import { isMapTemporalEnabledSync, getControl } from '@store'
 import { isTemporallyVisible } from '@js/temporal/temporal-model.js'
 
@@ -1024,7 +1029,6 @@ export default class PDFExportTab {
             // Always compose cartographic layout (at minimum draws map border)
             let exportCanvas = hiddenMap.getCanvas();
             {
-                const { composeLayout, loadLogoImage } = await import('./pdf-cartographic-elements.js');
                 const logoImage = await loadLogoImage();
                 exportCanvas = composeLayout(exportCanvas, {
                     title: this.showTitle ? this.mapTitle : null,
