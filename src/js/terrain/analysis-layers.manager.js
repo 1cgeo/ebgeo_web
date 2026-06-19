@@ -146,37 +146,48 @@ class AnalysisLayersManager {
     }
 
     /**
-     * Returns the default raster paint properties from the layer's config.
-     * Used as the baseline when applying style overrides or resetting to default.
+     * Builds a structured style descriptor for a raster analysis layer. Raster
+     * paint is always scalar (the tiles are pre-rendered RGB). Defaults mirror
+     * the values used when the layer is added in `_addAnalysisLayer`.
      * @param {string} layerId
-     * @returns {Object}
+     * @returns {{kind:'raster', sublayers:Object}}
      */
-    getDefaultStyle(layerId) {
+    getStyleDescriptor(layerId) {
         const layerConfig = this.getLayerConfig(layerId);
-        if (!layerConfig) return {};
+        const paint = layerConfig?.paint || {};
 
-        const paint = layerConfig.paint || {};
         return {
-            'raster-opacity': layerConfig.opacity ?? paint['raster-opacity'] ?? 1,
-            'raster-brightness-min': paint['raster-brightness-min'] ?? 0,
-            'raster-brightness-max': paint['raster-brightness-max'] ?? 1,
-            'raster-contrast': paint['raster-contrast'] ?? 0,
-            'raster-saturation': paint['raster-saturation'] ?? 0,
-            'raster-hue-rotate': paint['raster-hue-rotate'] ?? 0
+            kind: 'raster',
+            sublayers: {
+                raster: {
+                    present: true,
+                    values: {
+                        // _addAnalysisLayer sets raster-opacity = opacity || 1.0
+                        // (the explicit key overrides the paint spread); mirror it.
+                        'raster-opacity': layerConfig?.opacity || 1,
+                        'raster-brightness-min': paint['raster-brightness-min'] ?? 0,
+                        'raster-brightness-max': paint['raster-brightness-max'] ?? 1,
+                        'raster-contrast': paint['raster-contrast'] ?? 0,
+                        'raster-saturation': paint['raster-saturation'] ?? 0,
+                        'raster-hue-rotate': paint['raster-hue-rotate'] ?? 0
+                    }
+                }
+            }
         };
     }
 
     /**
-     * Applies user style overrides to a raster analysis layer.
-     * Missing properties fall back to the layer's config defaults.
+     * Applies user style overrides to a raster analysis layer, falling back to
+     * config defaults for any property not overridden.
      * @param {string} layerId
-     * @param {Object} overrides - Map of MapLibre paint property → value
+     * @param {Object} overrides - Nested map { raster:{prop:val} }.
      */
     applyStyleOverrides(layerId, overrides) {
         const mapLayerId = this._mapLayerId(layerId);
         if (!this.map.getLayer(mapLayerId)) return;
 
-        const merged = { ...this.getDefaultStyle(layerId), ...(overrides || {}) };
+        const descriptor = this.getStyleDescriptor(layerId);
+        const merged = { ...descriptor.sublayers.raster.values, ...(overrides?.raster || {}) };
         for (const [prop, value] of Object.entries(merged)) {
             try {
                 this.map.setPaintProperty(mapLayerId, prop, value);

@@ -28,8 +28,11 @@ import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
  * @property {CatalogLayerStatus} [status='active'] - Availability status
  * @property {string} [originalId] - Original ID in config (for analysis layers)
  * @property {Object} config - Original configuration
- * @property {Object} [styleOverrides] - User-customized paint/layout properties
- *   keyed by MapLibre property name (e.g. 'raster-opacity', 'fill-color').
+ * @property {Object} [styleOverrides] - User-customized paint/layout values,
+ *   nested by sub-layer. Vector: { fill:{prop:val}, border:{...}, label:{...} };
+ *   raster: { raster:{prop:val} }. Each value may be a scalar or a data-driven
+ *   MapLibre expression. Legacy flat overrides (keyed directly by property) are
+ *   ignored by the managers.
  */
 
 // ===== HELPERS =====

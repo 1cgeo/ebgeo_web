@@ -1,109 +1,127 @@
 // Path: js/modals/layer-style.modal.js
 
 /**
- * @fileoverview Layer style configuration modal for catalog analysis/data layers.
- * Lets the user customize raster (analysis) or vector (data) paint properties,
- * with live preview, debounced persistence, and a "Restaurar padrão" action.
+ * @fileoverview Structured (QGIS-like) style editor for catalog analysis/data
+ * layers. Per sub-layer (fill / border / label, or the raster layer), each
+ * editable paint property is classified as constant, categorized
+ * (case/match) or graduated (interpolate/step), and rendered with the matching
+ * control. The classification field and the number of categories/stops are
+ * read-only — the user edits the existing outputs and breaks only.
+ *
+ * Edits apply live to the map, persist debounced to the catalog layer's
+ * `styleOverrides` (nested by sub-layer), and can be reset to config defaults.
  */
 
 import {
     setupCleanup,
     addDomListener,
+    addScopedDomListener,
+    clearScopedListeners,
     trackTimer,
     cleanup,
     removeElement
 } from '@utils/event-cleanup.js';
 import { DebouncedPersist } from '@utils/debounced-persist.js';
+import { deepClone } from '@utils/deep-utils.js';
 import { CATALOG_ITEM_TYPES } from '@catalog/catalog.constants.js';
 import { updateCatalogLayer } from '@store';
+import {
+    VECTOR_SUBLAYERS,
+    RASTER_SUBLAYER,
+    formatNumber
+} from '@layers/layer-style/layer-style.schema.js';
+import {
+    classifyStyleValue,
+    parseCategorized,
+    serializeCategorized,
+    parseGraduated,
+    serializeGraduated,
+    graduatedStopsAscending,
+    parseColor,
+    formatRgba,
+    toHex6
+} from '@layers/layer-style/style-expression.model.js';
 
 const PERSIST_KEY = 'layer-style';
 
+/** Scope for the rebuildable body controls, cleared before each repopulate. */
+const BODY_SCOPE = 'body';
+
 /**
- * Field definitions per layer type. Each defines how to render and persist
- * one MapLibre property override.
+ * Lazily-created 2D context used to normalize any CSS color (named, %, hsl) to
+ * a concrete rgb/rgba string the pure color parser can decompose.
+ * @type {?CanvasRenderingContext2D}
  */
-const ANALYSIS_FIELDS = [
-    { key: 'raster-opacity',          label: 'Opacidade',  kind: 'range',  min: 0,    max: 1,    step: 0.01, format: percent },
-    { key: 'raster-brightness-min',   label: 'Brilho mínimo', kind: 'range', min: 0,  max: 1,    step: 0.01, format: percent },
-    { key: 'raster-brightness-max',   label: 'Brilho máximo', kind: 'range', min: 0,  max: 1,    step: 0.01, format: percent },
-    { key: 'raster-contrast',         label: 'Contraste',  kind: 'range',  min: -1,   max: 1,    step: 0.01, format: signed },
-    { key: 'raster-saturation',       label: 'Saturação',  kind: 'range',  min: -1,   max: 1,    step: 0.01, format: signed },
-    { key: 'raster-hue-rotate',       label: 'Matiz',      kind: 'range',  min: 0,    max: 360,  step: 1,    format: deg }
-];
+let colorProbeCtx = null;
 
-const DATA_FIELDS_FILL = [
-    { key: 'fill-color',     label: 'Cor de preenchimento', kind: 'color' },
-    { key: 'fill-opacity',   label: 'Opacidade',            kind: 'range', min: 0, max: 1, step: 0.01, format: percent }
-];
-const DATA_FIELDS_BORDER = [
-    { key: 'line-color',     label: 'Cor da borda',         kind: 'color' },
-    { key: 'line-width',     label: 'Espessura',            kind: 'range', min: 0, max: 10, step: 0.5, format: px },
-    { key: 'line-opacity',   label: 'Opacidade',            kind: 'range', min: 0, max: 1, step: 0.01, format: percent }
-];
-const DATA_FIELDS_LABEL = [
-    { key: 'text-color',      label: 'Cor do texto',  kind: 'color' },
-    { key: 'text-size',       label: 'Tamanho',       kind: 'range', min: 8,  max: 32, step: 1,    format: px },
-    { key: 'text-halo-color', label: 'Cor do contorno', kind: 'color' },
-    { key: 'text-halo-width', label: 'Espessura do contorno', kind: 'range', min: 0, max: 5, step: 0.5, format: px }
-];
-
-function percent(v) { return `${Math.round(v * 100)}%`; }
-function signed(v)  { return v.toFixed(2); }
-function deg(v)     { return `${Math.round(v)}°`; }
-function px(v)      { return `${v}px`; }
+/**
+ * Resolves any CSS color string to a concrete rgb()/rgba()/hex via the browser,
+ * so named colors ('cornflowerblue'), percentages and hsl() survive editing
+ * instead of collapsing to black. Invalid input yields '#000000'.
+ * @param {*} value
+ * @returns {string}
+ */
+function resolveCssColor(value) {
+    if (typeof value !== 'string') return '#000000';
+    if (!colorProbeCtx) {
+        colorProbeCtx = document.createElement('canvas').getContext('2d');
+    }
+    colorProbeCtx.fillStyle = '#000000';
+    try {
+        colorProbeCtx.fillStyle = value;
+    } catch {
+        // Invalid color — fillStyle keeps the prior value.
+    }
+    return colorProbeCtx.fillStyle;
+}
 
 const SETTINGS_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
 const CLOSE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 
-/**
- * Convert any color value to a #RRGGBB hex string accepted by `<input type="color">`.
- * Falls back to '#000000' when alpha-aware formats can't be losslessly mapped.
- */
-function toHexColor(value) {
-    if (typeof value !== 'string') return '#000000';
-    if (/^#[0-9a-f]{6}$/i.test(value)) return value;
-    if (/^#[0-9a-f]{3}$/i.test(value)) {
-        return '#' + value.slice(1).split('').map(c => c + c).join('');
-    }
-    const rgb = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-    if (rgb) {
-        const hex = (n) => Number(n).toString(16).padStart(2, '0');
-        return `#${hex(rgb[1])}${hex(rgb[2])}${hex(rgb[3])}`;
-    }
-    return '#000000';
+/** Coerces a possibly-string value to a finite number, defaulting to 0. */
+function asNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
 }
 
 /**
- * Modal that exposes paint properties for a catalog analysis or data layer.
+ * Structured style editor modal for a catalog analysis or data layer.
  */
 export class LayerStyleModal {
     /**
      * @param {Object} config
-     * @param {Object} config.layer - Catalog layer state
-     * @param {Object} [config.analysisLayersManager] - Analysis layers manager
-     * @param {Object} [config.dataLayersManager] - Data layers manager
-     * @param {Function} [config.onChange] - Called with (layerId, mergedOverrides) after each change
+     * @param {Object} config.layer - Catalog layer state.
+     * @param {Object} [config.analysisLayersManager]
+     * @param {Object} [config.dataLayersManager]
      */
     constructor(config) {
         this._layer = config.layer;
         this._analysisLayersManager = config.analysisLayersManager || null;
         this._dataLayersManager = config.dataLayersManager || null;
-        this._onChange = config.onChange || null;
 
         this._overlay = null;
         this._container = null;
+        this._body = null;
         this._previousActiveElement = null;
+        this._closing = false;
         this._persist = new DebouncedPersist({ delay: 300 });
 
-        this._overrides = { ...(this._layer.styleOverrides || {}) };
-        this._defaults = this._loadDefaults();
-        this._fields = this._fieldsForType();
+        // Working copy of persisted overrides; mutated live, persisted debounced.
+        // Keep only sub-layer-nested entries — legacy flat overrides (keyed
+        // directly by paint property) are dropped rather than carried forward.
+        this._overrides = {};
+        for (const [key, value] of Object.entries(deepClone(this._layer.styleOverrides || {}))) {
+            if (value && typeof value === 'object' && !Array.isArray(value)) {
+                this._overrides[key] = value;
+            }
+        }
+
+        this._resolveTarget();
 
         setupCleanup(this);
     }
 
-    /** Shows the modal. */
+    /** Shows the modal. @returns {Promise<Object>} resolves with final overrides. */
     show() {
         return new Promise((resolve) => {
             this._resolvePromise = resolve;
@@ -116,32 +134,24 @@ export class LayerStyleModal {
         });
     }
 
-    /** @private */
-    _loadDefaults() {
-        const innerId = this._layer.config?.id;
-        if (!innerId) return {};
-        if (this._layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && this._analysisLayersManager) {
-            return this._analysisLayersManager.getDefaultStyle(innerId);
-        }
-        if (this._layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && this._dataLayersManager) {
-            return this._dataLayersManager.getDefaultStyle(innerId);
-        }
-        return {};
-    }
+    /** Resolves the manager, inner config id, descriptor and schema. @private */
+    _resolveTarget() {
+        this._innerId = this._layer.config?.id || null;
 
-    /** @private */
-    _fieldsForType() {
         if (this._layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER) {
-            return [{ title: 'Raster', fields: ANALYSIS_FIELDS }];
+            this._manager = this._analysisLayersManager;
+            this._schemaSublayers = [RASTER_SUBLAYER];
+        } else if (this._layer.type === CATALOG_ITEM_TYPES.DATA_LAYER) {
+            this._manager = this._dataLayersManager;
+            this._schemaSublayers = VECTOR_SUBLAYERS;
+        } else {
+            this._manager = null;
+            this._schemaSublayers = [];
         }
-        if (this._layer.type === CATALOG_ITEM_TYPES.DATA_LAYER) {
-            return [
-                { title: 'Preenchimento', fields: DATA_FIELDS_FILL },
-                { title: 'Borda',         fields: DATA_FIELDS_BORDER },
-                { title: 'Rótulo',        fields: DATA_FIELDS_LABEL }
-            ];
-        }
-        return [];
+
+        this._descriptor = (this._manager && this._innerId)
+            ? this._manager.getStyleDescriptor(this._innerId)
+            : { sublayers: {} };
     }
 
     /** @private */
@@ -156,7 +166,8 @@ export class LayerStyleModal {
         this._container.className = 'modal-container layer-style-modal-container';
 
         this._container.appendChild(this._buildHeader());
-        this._container.appendChild(this._buildBody());
+        this._body = this._buildBody();
+        this._container.appendChild(this._body);
         this._container.appendChild(this._buildFooter());
 
         this._overlay.appendChild(this._container);
@@ -203,107 +214,322 @@ export class LayerStyleModal {
     _buildBody() {
         const body = document.createElement('div');
         body.className = 'modal-body layer-style-modal__body';
+        this._fillBody(body);
+        return body;
+    }
 
-        if (this._fields.length === 0) {
+    /** Populates (or repopulates) the body sections. @private */
+    _fillBody(body) {
+        // Drop listeners from the previous build so repeated resets don't
+        // accumulate handlers bound to detached control nodes.
+        clearScopedListeners(this, BODY_SCOPE);
+        body.innerHTML = '';
+
+        const sections = this._schemaSublayers
+            .map(schemaSub => this._buildSection(schemaSub))
+            .filter(Boolean);
+
+        if (sections.length === 0) {
             const empty = document.createElement('p');
             empty.className = 'layer-style-modal__empty';
             empty.textContent = 'Esta camada não possui estilos configuráveis.';
             body.appendChild(empty);
-            return body;
+            return;
         }
 
-        for (const section of this._fields) {
-            const sectionEl = document.createElement('div');
-            sectionEl.className = 'settings-section layer-style-section';
+        sections.forEach(section => body.appendChild(section));
+    }
 
-            const head = document.createElement('div');
-            head.className = 'settings-section__header';
-            head.textContent = section.title;
-            sectionEl.appendChild(head);
+    /**
+     * Builds one sub-layer section, or null when that sub-layer is absent.
+     * @private
+     */
+    _buildSection(schemaSub) {
+        const descSub = this._descriptor.sublayers?.[schemaSub.key];
+        if (!descSub?.present) return null;
 
-            for (const field of section.fields) {
-                sectionEl.appendChild(this._buildField(field));
-            }
-            body.appendChild(sectionEl);
+        const section = document.createElement('div');
+        section.className = 'settings-section layer-style-section';
+
+        const head = document.createElement('div');
+        head.className = 'settings-section__header';
+        head.textContent = schemaSub.title;
+        section.appendChild(head);
+
+        for (const propSchema of schemaSub.props) {
+            section.appendChild(this._buildProp(schemaSub.key, propSchema, descSub.values[propSchema.prop]));
         }
 
-        return body;
+        return section;
+    }
+
+    /**
+     * Builds a single property block, dispatching on the value's kind.
+     * @private
+     */
+    _buildProp(subKey, propSchema, defaultValue) {
+        const effective = this._overrides[subKey]?.[propSchema.prop] ?? defaultValue;
+        const kind = classifyStyleValue(effective);
+
+        if (kind === 'categorized') {
+            const model = parseCategorized(effective);
+            if (model) return this._buildCategorized(subKey, propSchema, model);
+        } else if (kind === 'graduated') {
+            const model = parseGraduated(effective);
+            if (model) return this._buildGraduated(subKey, propSchema, model);
+        } else if (kind === 'constant') {
+            return this._buildConstant(subKey, propSchema, effective);
+        }
+        return this._buildUnsupported(propSchema);
+    }
+
+    // ===== Property block builders =====
+
+    /** @private */
+    _buildConstant(subKey, propSchema, value) {
+        const box = this._propBox(propSchema.label);
+        const onChange = (v) => this._setOverride(subKey, propSchema.prop, v);
+        box.appendChild(this._outputControl(propSchema, value, onChange));
+        return box;
     }
 
     /** @private */
-    _buildField(field) {
-        const wrap = document.createElement('div');
-        wrap.className = 'layer-style-field';
-        wrap.dataset.fieldKey = field.key;
+    _buildCategorized(subKey, propSchema, model) {
+        const box = this._propBox(propSchema.label, `categorizado por ${model.fieldLabel}`);
+        const rows = document.createElement('div');
+        rows.className = 'lsx-rows';
 
-        const label = document.createElement('label');
-        label.className = 'layer-style-field__label';
-        label.textContent = field.label;
-        wrap.appendChild(label);
+        const reserialize = () => this._setOverride(subKey, propSchema.prop, serializeCategorized(model));
 
-        if (field.kind === 'color') {
-            this._buildColorControl(wrap, field);
-        } else {
-            this._buildRangeControl(wrap, field);
+        model.categories.forEach((cat) => {
+            rows.appendChild(this._valueRow(propSchema, cat.label, cat.output, (v) => {
+                cat.output = v;
+                reserialize();
+            }));
+        });
+        rows.appendChild(this._valueRow(propSchema, 'Padrão', model.fallback, (v) => {
+            model.fallback = v;
+            reserialize();
+        }));
+
+        box.appendChild(rows);
+        return box;
+    }
+
+    /** @private */
+    _buildGraduated(subKey, propSchema, model) {
+        const box = this._propBox(propSchema.label, `graduado por ${model.fieldLabel}`);
+        const rows = document.createElement('div');
+        rows.className = 'lsx-rows';
+
+        // Only apply/persist while breaks stay strictly ascending — a transient
+        // out-of-order edit would otherwise serialize an expression MapLibre
+        // rejects, leaving an invalid value persisted in styleOverrides.
+        const reserialize = () => {
+            if (!graduatedStopsAscending(model)) return;
+            this._setOverride(subKey, propSchema.prop, serializeGraduated(model));
+        };
+
+        // step layers carry a base output for values below the first break.
+        let baseLabelEl = null;
+        if (model.op === 'step') {
+            const label = model.stops.length ? `< ${model.stops[0].stop}` : 'base';
+            const baseRow = this._valueRow(propSchema, label, model.base, (v) => {
+                model.base = v;
+                reserialize();
+            });
+            baseLabelEl = baseRow.querySelector('.lsx-row__label');
+            rows.appendChild(baseRow);
         }
 
+        model.stops.forEach((stop, i) => {
+            rows.appendChild(this._stopRow(propSchema, model, stop, i, reserialize, baseLabelEl));
+        });
+
+        box.appendChild(rows);
+        return box;
+    }
+
+    /** @private */
+    _buildUnsupported(propSchema) {
+        const box = this._propBox(propSchema.label);
+        const note = document.createElement('p');
+        note.className = 'lsx-note';
+        note.textContent = 'Expressão avançada — não editável por aqui.';
+        box.appendChild(note);
+        return box;
+    }
+
+    // ===== Row builders =====
+
+    /**
+     * A read-only-label + editable-output row (categories, step base).
+     * @private
+     */
+    _valueRow(propSchema, label, value, onChange) {
+        const row = document.createElement('div');
+        row.className = 'lsx-row';
+
+        const lab = document.createElement('span');
+        lab.className = 'lsx-row__label';
+        lab.textContent = label;
+        lab.title = label;
+        row.appendChild(lab);
+
+        row.appendChild(this._outputControl(propSchema, value, onChange));
+        return row;
+    }
+
+    /**
+     * A graduated stop row: editable break value + editable output.
+     * @private
+     */
+    _stopRow(propSchema, model, stop, index, reserialize, baseLabelEl) {
+        const row = document.createElement('div');
+        row.className = 'lsx-row';
+
+        const prefix = model.op === 'step' ? '≥ ' : '= ';
+        const pre = document.createElement('span');
+        pre.className = 'lsx-row__prefix';
+        pre.textContent = prefix;
+        row.appendChild(pre);
+
+        const breakInput = document.createElement('input');
+        breakInput.type = 'number';
+        breakInput.className = 'lsx-break';
+        breakInput.value = String(stop.stop);
+        addScopedDomListener(this, BODY_SCOPE, breakInput, 'input', () => {
+            // valueAsNumber is NaN for an empty/partial field, so clearing the
+            // input is ignored rather than snapping the break to 0.
+            const n = breakInput.valueAsNumber;
+            if (!Number.isFinite(n)) return;
+            stop.stop = n;
+            // Keep the step base label in sync when the first break changes.
+            if (model.op === 'step' && index === 0 && baseLabelEl) {
+                baseLabelEl.textContent = `< ${n}`;
+            }
+            reserialize();
+        });
+        row.appendChild(breakInput);
+
+        row.appendChild(this._outputControl(propSchema, stop.output, (v) => {
+            stop.output = v;
+            reserialize();
+        }));
+        return row;
+    }
+
+    /** Color or numeric control depending on the property's output type. @private */
+    _outputControl(propSchema, value, onChange) {
+        if (propSchema.outputType === 'color') {
+            return this._colorControl(value, onChange);
+        }
+        return this._rangeControl(asNumber(value), propSchema, onChange);
+    }
+
+    /** Alpha-aware color control: swatch + hidden native picker + alpha slider. @private */
+    _colorControl(initial, onChange) {
+        const wrap = document.createElement('div');
+        wrap.className = 'lsx-color';
+
+        // Normalize via the browser first, so named/percentage/hsl colors keep
+        // their real RGB instead of collapsing to black on the first edit.
+        const resolved = resolveCssColor(initial);
+        const state = parseColor(resolved) || { r: 0, g: 0, b: 0, a: 1 };
+
+        const swatch = document.createElement('label');
+        swatch.className = 'lsx-color__swatch';
+        swatch.style.backgroundColor = formatRgba(state);
+
+        const native = document.createElement('input');
+        native.type = 'color';
+        native.className = 'lsx-color__native';
+        native.value = toHex6(resolved);
+        swatch.appendChild(native);
+
+        const alpha = document.createElement('input');
+        alpha.type = 'range';
+        alpha.className = 'lsx-color__alpha';
+        alpha.min = '0';
+        alpha.max = '1';
+        alpha.step = '0.01';
+        alpha.value = String(state.a);
+
+        const emit = () => {
+            const css = formatRgba(state);
+            swatch.style.backgroundColor = css;
+            onChange(css);
+        };
+
+        addScopedDomListener(this, BODY_SCOPE, native, 'input', () => {
+            const parsed = parseColor(native.value);
+            if (parsed) {
+                state.r = parsed.r;
+                state.g = parsed.g;
+                state.b = parsed.b;
+            }
+            emit();
+        });
+        addScopedDomListener(this, BODY_SCOPE, alpha, 'input', () => {
+            state.a = Number(alpha.value);
+            emit();
+        });
+
+        wrap.appendChild(swatch);
+        wrap.appendChild(alpha);
         return wrap;
     }
 
-    /** @private */
-    _buildRangeControl(wrap, field) {
-        const row = document.createElement('div');
-        row.className = 'layer-style-field__row';
+    /** Numeric range control with a formatted readout. @private */
+    _rangeControl(value, propSchema, onChange) {
+        const wrap = document.createElement('div');
+        wrap.className = 'lsx-range';
 
         const slider = document.createElement('input');
         slider.type = 'range';
-        slider.className = 'layer-style-slider';
-        slider.min = String(field.min);
-        slider.max = String(field.max);
-        slider.step = String(field.step);
-        const initial = this._currentValue(field.key);
-        slider.value = String(initial);
-        slider.dataset.fieldKey = field.key;
+        slider.className = 'lsx-range__slider';
+        slider.min = String(propSchema.min ?? 0);
+        slider.max = String(propSchema.max ?? 1);
+        slider.step = String(propSchema.step ?? 0.01);
+        slider.value = String(value);
 
-        const valueEl = document.createElement('span');
-        valueEl.className = 'layer-style-field__value';
-        valueEl.textContent = field.format(Number(initial));
+        const readout = document.createElement('span');
+        readout.className = 'lsx-range__value';
+        readout.textContent = formatNumber(propSchema.format, value);
 
-        row.appendChild(slider);
-        row.appendChild(valueEl);
-        wrap.appendChild(row);
-
-        addDomListener(this, slider, 'input', () => {
-            const value = Number(slider.value);
-            valueEl.textContent = field.format(value);
-            this._setOverride(field.key, value);
+        addScopedDomListener(this, BODY_SCOPE, slider, 'input', () => {
+            const n = Number(slider.value);
+            readout.textContent = formatNumber(propSchema.format, n);
+            onChange(n);
         });
+
+        wrap.appendChild(slider);
+        wrap.appendChild(readout);
+        return wrap;
     }
 
-    /** @private */
-    _buildColorControl(wrap, field) {
-        const row = document.createElement('div');
-        row.className = 'layer-style-field__row';
+    /** Builds a property container with a header (and optional sub-label). @private */
+    _propBox(label, subLabel) {
+        const box = document.createElement('div');
+        box.className = 'lsx-prop';
 
-        const color = document.createElement('input');
-        color.type = 'color';
-        color.className = 'layer-style-color';
-        const initial = toHexColor(this._currentValue(field.key));
-        color.value = initial;
-        color.dataset.fieldKey = field.key;
+        const head = document.createElement('div');
+        head.className = 'lsx-prop__head';
 
-        const valueEl = document.createElement('span');
-        valueEl.className = 'layer-style-field__value layer-style-field__value--mono';
-        valueEl.textContent = initial;
+        const name = document.createElement('span');
+        name.className = 'lsx-prop__name';
+        name.textContent = label;
+        head.appendChild(name);
 
-        row.appendChild(color);
-        row.appendChild(valueEl);
-        wrap.appendChild(row);
+        if (subLabel) {
+            const sub = document.createElement('span');
+            sub.className = 'lsx-prop__field';
+            sub.textContent = subLabel;
+            head.appendChild(sub);
+        }
 
-        addDomListener(this, color, 'input', () => {
-            valueEl.textContent = color.value;
-            this._setOverride(field.key, color.value);
-        });
+        box.appendChild(head);
+        return box;
     }
 
     /** @private */
@@ -328,95 +554,56 @@ export class LayerStyleModal {
         return footer;
     }
 
-    /** Returns the current effective value (override or default). @private */
-    _currentValue(key) {
-        if (Object.prototype.hasOwnProperty.call(this._overrides, key)) {
-            return this._overrides[key];
-        }
-        return this._defaults[key];
-    }
+    // ===== Override plumbing =====
 
-    /** Records an override and applies it live + schedules persistence. @private */
-    _setOverride(key, value) {
-        this._overrides[key] = value;
+    /** Records an override, applies it live and schedules persistence. @private */
+    _setOverride(subKey, prop, value) {
+        if (!this._overrides[subKey]) this._overrides[subKey] = {};
+        this._overrides[subKey][prop] = value;
         this._applyLive();
         this._schedulePersist();
     }
 
-    /** @private */
+    /**
+     * Applies overrides to the map, coalesced to one call per frame so dragging
+     * a slider doesn't re-apply every sub-layer prop on each 'input' event.
+     * @private
+     */
     _applyLive() {
-        const innerId = this._layer.config?.id;
-        if (!innerId) return;
-
-        if (this._layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && this._analysisLayersManager) {
-            this._analysisLayersManager.applyStyleOverrides(innerId, this._overrides);
-        } else if (this._layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && this._dataLayersManager) {
-            this._dataLayersManager.applyStyleOverrides(innerId, this._overrides);
-        }
-
-        if (this._onChange) {
-            this._onChange(this._layer.id, this._overrides);
-        }
+        if (!this._manager || !this._innerId || this._applyScheduled) return;
+        this._applyScheduled = true;
+        requestAnimationFrame(() => {
+            this._applyScheduled = false;
+            if (!this._overlay || !this._manager || !this._innerId) return;
+            this._manager.applyStyleOverrides(this._innerId, this._overrides);
+        });
     }
 
     /** @private */
     _schedulePersist() {
-        const snapshot = { ...this._overrides };
+        const snapshot = deepClone(this._overrides);
         this._persist.schedule(PERSIST_KEY, () =>
             updateCatalogLayer(this._layer.id, { styleOverrides: snapshot })
         );
     }
 
-    /** Resets all fields to defaults and persists. @private */
+    /** Clears all overrides, re-applies config defaults and rebuilds the form. @private */
     _resetToDefault() {
         this._overrides = {};
-        this._refreshControlsFromDefaults();
         this._applyLive();
+        this._fillBody(this._body);
         this._schedulePersist();
     }
 
-    /** @private */
-    _refreshControlsFromDefaults() {
-        const sliders = this._container.querySelectorAll('.layer-style-slider');
-        sliders.forEach(slider => {
-            const key = slider.dataset.fieldKey;
-            const field = this._findField(key);
-            if (!field) return;
-            const value = this._defaults[key];
-            slider.value = String(value);
-            const valueEl = slider.parentElement.querySelector('.layer-style-field__value');
-            if (valueEl) valueEl.textContent = field.format(Number(value));
-        });
-
-        const colors = this._container.querySelectorAll('.layer-style-color');
-        colors.forEach(color => {
-            const key = color.dataset.fieldKey;
-            const hex = toHexColor(this._defaults[key]);
-            color.value = hex;
-            const valueEl = color.parentElement.querySelector('.layer-style-field__value');
-            if (valueEl) valueEl.textContent = hex;
-        });
-    }
-
-    /** @private */
-    _findField(key) {
-        for (const section of this._fields) {
-            const f = section.fields.find(field => field.key === key);
-            if (f) return f;
-        }
-        return null;
-    }
+    // ===== Lifecycle =====
 
     /** @private */
     _close() {
-        // Guard against a second Escape/overlay-click during the close animation,
-        // which would otherwise re-run teardown and schedule a second destroy timer.
+        // Guard against a second Escape/overlay-click during the close animation.
         if (this._closing) return;
         this._closing = true;
 
-        // Flush pending persist before closing.
         this._persist.flush(PERSIST_KEY);
-
         this._overlay.dataset.visible = 'false';
 
         trackTimer(this, setTimeout(() => {
@@ -437,6 +624,7 @@ export class LayerStyleModal {
         removeElement(this._overlay);
         this._overlay = null;
         this._container = null;
+        this._body = null;
     }
 }
 

@@ -1,6 +1,7 @@
 // Path: js/terrain/data-layers.manager.js
 // Manages vector data layers (molduras, etc.) from config.dataLayers
 import config from '../config.js';
+import { LAYOUT_PROPS } from '@layers/layer-style/layer-style.schema.js';
 
 /**
  * Manages vector data layers in the system.
@@ -182,58 +183,84 @@ class DataLayersManager {
     }
 
     /**
-     * Returns the default style values for a vector data layer.
-     * Flat map of property names matching applyStyleOverrides keys.
+     * Builds a structured style descriptor for a vector data layer: which
+     * sub-layers exist and the default (config) value of each editable property.
+     * Values may be plain colors/numbers OR data-driven MapLibre expressions
+     * (case/match/interpolate/step), preserved verbatim from config.
+     *
+     * Defaults for absent properties mirror MapLibre's own paint defaults so
+     * that applying a descriptor never changes the look of a property the user
+     * did not edit.
      * @param {string} layerId
-     * @returns {Object}
+     * @returns {{kind:'vector', sublayers:Object}}
      */
-    getDefaultStyle(layerId) {
-        const layerConfig = this.getLayerConfig(layerId);
-        if (!layerConfig) return {};
-
-        const fill = layerConfig.style?.fill || {};
-        const border = layerConfig.style?.border || {};
-        const label = layerConfig.style?.label || {};
-        const labelPaint = label.paint || {};
-        const labelLayout = label.layout || {};
+    getStyleDescriptor(layerId) {
+        const style = this.getLayerConfig(layerId)?.style || {};
+        const fill = style.fill;
+        const border = style.border;
+        const label = style.label;
+        const labelPaint = label?.paint || {};
+        const labelLayout = label?.layout || {};
 
         return {
-            'fill-color': fill.color || 'rgba(0,0,0,0.1)',
-            'fill-opacity': fill.opacity ?? 1,
-            'line-color': border.color || '#666666',
-            'line-width': border.width ?? 1,
-            'line-opacity': border.opacity ?? 1,
-            'text-color': labelPaint['text-color'] || '#000000',
-            'text-halo-color': labelPaint['text-halo-color'] || '#ffffff',
-            'text-halo-width': labelPaint['text-halo-width'] ?? 1,
-            'text-size': labelLayout['text-size'] ?? labelPaint['text-size'] ?? 12
+            kind: 'vector',
+            sublayers: {
+                fill: {
+                    present: !!fill,
+                    // Mirror _addFillLayer's own fallbacks (|| not ??) so applying
+                    // the descriptor never changes an untouched property.
+                    values: {
+                        'fill-color': fill?.color || 'rgba(0,0,0,0.1)',
+                        'fill-opacity': fill?.opacity ?? 1
+                    }
+                },
+                border: {
+                    present: !!border,
+                    // Mirror _addBorderLayer's fallbacks exactly (|| 1, || '#666666').
+                    values: {
+                        'line-color': border?.color || '#666666',
+                        'line-width': border?.width || 1,
+                        'line-opacity': border?.opacity || 1
+                    }
+                },
+                label: {
+                    present: !!label,
+                    values: {
+                        'text-color': labelPaint['text-color'] ?? '#000000',
+                        'text-halo-color': labelPaint['text-halo-color'] ?? 'rgba(0,0,0,0)',
+                        'text-halo-width': labelPaint['text-halo-width'] ?? 0,
+                        'text-size': labelLayout['text-size'] ?? 16
+                    }
+                }
+            }
         };
     }
 
     /**
-     * Applies user style overrides to fill / border / label sub-layers.
-     * Missing properties fall back to config defaults.
+     * Applies user style overrides to the fill / border / label sub-layers,
+     * falling back to config defaults for any property not overridden. Accepts
+     * scalar values or data-driven expressions.
      * @param {string} layerId
-     * @param {Object} overrides - Flat map of property → value
+     * @param {Object} overrides - Nested map { fill:{prop:val}, border:{...}, label:{...} }.
      */
     applyStyleOverrides(layerId, overrides) {
-        const merged = { ...this.getDefaultStyle(layerId), ...(overrides || {}) };
+        const descriptor = this.getStyleDescriptor(layerId);
 
-        const fillId = `data-${layerId}-fill`;
-        const borderId = `data-${layerId}-border`;
-        const labelId = `data-${layerId}-label`;
+        for (const [subKey, sub] of Object.entries(descriptor.sublayers)) {
+            if (!sub.present) continue;
 
-        this._setPaint(fillId, 'fill-color', merged['fill-color']);
-        this._setPaint(fillId, 'fill-opacity', merged['fill-opacity']);
+            const mapLayerId = `data-${layerId}-${subKey}`;
+            if (!this.map.getLayer(mapLayerId)) continue;
 
-        this._setPaint(borderId, 'line-color', merged['line-color']);
-        this._setPaint(borderId, 'line-width', merged['line-width']);
-        this._setPaint(borderId, 'line-opacity', merged['line-opacity']);
-
-        this._setPaint(labelId, 'text-color', merged['text-color']);
-        this._setPaint(labelId, 'text-halo-color', merged['text-halo-color']);
-        this._setPaint(labelId, 'text-halo-width', merged['text-halo-width']);
-        this._setLayout(labelId, 'text-size', merged['text-size']);
+            const merged = { ...sub.values, ...(overrides?.[subKey] || {}) };
+            for (const [prop, value] of Object.entries(merged)) {
+                if (LAYOUT_PROPS.has(prop)) {
+                    this._setLayout(mapLayerId, prop, value);
+                } else {
+                    this._setPaint(mapLayerId, prop, value);
+                }
+            }
+        }
     }
 
     /** Safely sets a paint property if the layer exists. */
@@ -333,7 +360,10 @@ class DataLayersManager {
         const labelLayerId = `data-${layerConfig.id}-label`;
         if (this.map.getLayer(labelLayerId) || !layerConfig.style?.label) return;
 
+        // Honor any author-specified layout (text-size, text-font, anchor, …) —
+        // text-field/visibility are forced afterwards so the layer starts hidden.
         const layout = {
+            ...(layerConfig.style.label.layout || {}),
             'text-field': layerConfig.style.label.textField || ['get', 'name'],
             visibility: 'none'
         };

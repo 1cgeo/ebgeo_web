@@ -1865,60 +1865,132 @@
     gap: var(--space-3);
 }
 
-.layer-style-field {
+/* ----- Property block (constant / categorized / graduated) ----- */
+.lsx-prop {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: var(--space-2);
 }
 
-.layer-style-field__label {
+.lsx-prop__head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+.lsx-prop__name {
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-medium);
     color: var(--gray-700);
 }
 
-.layer-style-field__row {
+.lsx-prop__field {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.lsx-note {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    font-style: italic;
+    color: var(--gray-500);
+}
+
+/* ----- Rows for category / stop values ----- */
+.lsx-rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--gray-200);
+}
+
+.lsx-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.lsx-row__label {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lsx-row__prefix {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    font-variant-numeric: tabular-nums;
+}
+
+.lsx-break {
+    width: 88px;
+    padding: var(--space-1) var(--space-2);
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ----- Alpha-aware color control ----- */
+.lsx-color {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.lsx-color__swatch {
+    position: relative;
+    width: 32px;
+    height: 24px;
+    flex-shrink: 0;
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.lsx-color__native {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+}
+
+.lsx-color__alpha {
+    width: 72px;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+/* ----- Numeric range control ----- */
+.lsx-range {
     display: flex;
     align-items: center;
     gap: var(--space-3);
+    flex: 1;
 }
 
-.layer-style-slider {
+.lsx-range__slider {
     flex: 1;
     accent-color: var(--primary);
     cursor: pointer;
 }
 
-.layer-style-color {
-    width: 36px;
-    height: 28px;
-    padding: 0;
-    border: var(--border-width) solid var(--gray-300);
-    border-radius: var(--radius-sm);
-    background: transparent;
-    cursor: pointer;
-}
-
-.layer-style-color::-webkit-color-swatch-wrapper {
-    padding: 2px;
-}
-
-.layer-style-color::-webkit-color-swatch {
-    border: none;
-    border-radius: 3px;
-}
-
-.layer-style-field__value {
+.lsx-range__value {
     font-size: var(--font-size-xs);
     color: var(--gray-600);
-    min-width: 56px;
+    min-width: 48px;
     text-align: right;
     font-variant-numeric: tabular-nums;
-}
-
-.layer-style-field__value--mono {
-    font-family: var(--font-mono, monospace);
-    text-transform: uppercase;
 }
 
 .layer-style-modal__footer {
