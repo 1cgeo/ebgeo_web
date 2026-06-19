@@ -2143,3 +2143,64 @@
 .coord-point-btn {
     flex: 1;
 }
+
+/* ===== BOUNDARY ECHELON INSTANCES ===== */
+.boundary-instances-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.boundary-instance-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.boundary-instance-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.boundary-instance-row__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.boundary-instance-row__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-700);
+}
+
+.boundary-instance-row__remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--gray-500);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.boundary-instance-row__remove:hover:not(:disabled) {
+    background: var(--color-error);
+    color: #fff;
+}
+
+.boundary-instance-row__remove:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}

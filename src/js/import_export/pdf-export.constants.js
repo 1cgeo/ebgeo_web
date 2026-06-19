@@ -11,6 +11,18 @@ export const GRID_MARGIN_MM = 5;
 /** Scale denominator at which UTM grid becomes meaningless. */
 export const UTM_MAX_SCALE_DENOM = 2500000;
 
+/** Maximum rows/columns selectable for a mosaic (multi-page) export. */
+export const MOSAIC_MAX_DIM = 6;
+
+/**
+ * Width (mm) of the coordinate border band drawn on the OUTER perimeter sheets
+ * of a mosaic when a grid is enabled. Internal seams stay full-bleed/continuous.
+ */
+export const MOSAIC_BORDER_MM = 8;
+
+/** Soft warning threshold for total mosaic pages (rows × cols). */
+export const MOSAIC_WARN_TILES = 16;
+
 /**
  * Parses the denominator from a scale string like "1:25000".
  * @param {string} scale - Scale string

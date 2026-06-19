@@ -207,12 +207,30 @@ function _parseUTM(row, mapping, fixedValues) {
 // ============================================================================
 
 /**
- * Parses a numeric value, handling comma as decimal separator.
+ * Parses a numeric value, handling comma as decimal separator and optional
+ * thousands separators (pt-BR "1.234,56" or en-US "1,234.56").
  * @param {string} value
  * @returns {number|null}
  */
 function _parseNumber(value) {
-    const cleaned = String(value).trim().replace(',', '.');
+    let cleaned = String(value).trim();
+    const hasComma = cleaned.includes(',');
+    const hasDot = cleaned.includes('.');
+
+    if (hasComma && hasDot) {
+        // The rightmost separator is the decimal mark; the other is grouping.
+        if (cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')) {
+            // pt-BR: dot groups thousands, comma is the decimal mark.
+            cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+        } else {
+            // en-US: comma groups thousands, dot is the decimal mark.
+            cleaned = cleaned.replace(/,/g, '');
+        }
+    } else if (hasComma) {
+        // Only commas present: treat comma as the decimal separator.
+        cleaned = cleaned.replace(/,/g, '.');
+    }
+
     const num = parseFloat(cleaned);
     return isNaN(num) ? null : num;
 }

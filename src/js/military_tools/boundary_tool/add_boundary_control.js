@@ -1,7 +1,7 @@
 // Path: js/military_tools/boundary_tool/add_boundary_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
-import { IDUtils } from '../../utilities';
+import { IDUtils, deepClone, deepEqual } from '../../utilities';
 import { getPointerPosition, isTouchDevice } from '../../utilities/pointer-utils';
 import { addBoundaryAttributesToPanel } from './boundary_attributes_panel.js';
 import AddBoundaryGeometry from './add_boundary_geometry.js';
@@ -58,7 +58,7 @@ class AddBoundaryControl extends BaseControl {
         opacity: 1,
         source: 'boundary',
         type: 'boundary',
-        symbol_position_ratio: 0.5,
+        symbol_instances: [{ ratio: 0.5, showLabels: true }],
         symbol_size: 1,
         text_size: 35,
         echelon: 'XXX',
@@ -508,6 +508,8 @@ class AddBoundaryControl extends BaseControl {
 
         const properties = {
             ...AddBoundaryControl.DEFAULT_PROPERTIES,
+            // Clone so each feature owns its instances (the default is shared by reference).
+            symbol_instances: deepClone(AddBoundaryControl.DEFAULT_PROPERTIES.symbol_instances),
             symbol_size: adaptiveSymbolSize,
             baseCoordinates: [...this.drawPoints],
             id: featureId,
@@ -1003,13 +1005,19 @@ class AddBoundaryControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                if (['baseCoordinates', 'symbol_position_ratio', 'symbol_size', 'echelon', 'text_distance_ratio'].includes(property)) {
+                if (property === 'symbol_instances') {
+                    // Drop the migrated legacy scalar so storage converges to the array model.
+                    delete sourceFeature.properties.symbol_position_ratio;
+                    delete feature.properties.symbol_position_ratio;
+                }
+
+                if (['baseCoordinates', 'symbol_instances', 'symbol_size', 'echelon', 'text_distance_ratio'].includes(property)) {
                     const newGeometry = this.geometry.generate(sourceFeature.properties);
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
 
-                if (['color', 'lineWidth', 'opacity', 'text_top', 'text_bottom', 'text_size', 'text_distance_ratio', 'echelon', 'symbol_position_ratio', 'symbol_size'].includes(property)) {
+                if (['color', 'lineWidth', 'opacity', 'text_top', 'text_bottom', 'text_size', 'text_distance_ratio', 'echelon', 'symbol_instances', 'symbol_size'].includes(property)) {
                     await this.updateDependentFeatures(sourceFeature);
                 }
             }
@@ -1085,6 +1093,7 @@ class AddBoundaryControl extends BaseControl {
             id: _id,
             nome: _nome,
             baseCoordinates: _baseCoordinates,
+            symbol_instances: _symbolInstances,
             ...styleProperties
         } = properties;
 
@@ -1101,13 +1110,13 @@ class AddBoundaryControl extends BaseControl {
             feature.properties.text_top !== initialProperties.text_top ||
             feature.properties.text_bottom !== initialProperties.text_bottom ||
             feature.properties.symbol_size !== initialProperties.symbol_size ||
-            feature.properties.symbol_position_ratio !== initialProperties.symbol_position_ratio ||
+            !deepEqual(feature.properties.symbol_instances, initialProperties.symbol_instances) ||
             feature.properties.text_distance_ratio !== initialProperties.text_distance_ratio ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
             feature.properties.bloqueado !== initialProperties.bloqueado ||
-            JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
+            !deepEqual(feature.properties.baseCoordinates, initialProperties.baseCoordinates)
         );
     }
 

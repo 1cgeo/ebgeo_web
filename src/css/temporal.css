@@ -1,0 +1,684 @@
+/* Temporal Module — timeline bar + per-map settings modal */
+
+/* ===== Timeline bar (bottom of map — unified with the coordinates readout) ===== */
+
+.temporal-bar {
+    position: fixed;
+    bottom: var(--space-3);
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(720px, calc(100vw - 2 * var(--space-4)));
+
+    /* Below the sidebar (--z-sidebar: 30) and feature panel (--z-panel: 35) so an
+       open sidebar covers the bar, but above the map, toolbar, and the bottom-left
+       base-layer selector (--z-controls) where they meet at the bottom. */
+    z-index: calc(var(--z-controls) + 1);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    background: var(--surface, #fff);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+}
+
+.temporal-bar[data-hidden="true"] {
+    display: none;
+}
+
+/* Top row: playback controls + timeline scrubber + actions. */
+.temporal-bar__main {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+}
+
+/* Bottom row: hosts the docked mouse-coordinates readout
+   (see .coordinates-control--embedded). Hidden when nothing is docked. */
+.temporal-bar__coords {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: var(--space-1);
+    border-top: 1px solid var(--border-color);
+}
+
+.temporal-bar__coords:empty {
+    display: none;
+}
+
+.temporal-bar__controls,
+.temporal-bar__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
+}
+
+.temporal-bar__btn {
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--gray-100);
+    color: var(--gray-700);
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.temporal-bar__btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.temporal-bar__btn:hover {
+    background: var(--gray-200);
+}
+
+.temporal-bar__play {
+    background: var(--primary);
+    color: #fff;
+}
+
+.temporal-bar__play:hover {
+    background: var(--primary-hover);
+}
+
+.temporal-bar__reveal[data-active="true"] {
+    background: var(--color-warning);
+    color: #fff;
+}
+
+.temporal-bar__speed {
+    height: 30px;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+    color: var(--gray-800);
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.temporal-bar__timeline {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.temporal-bar__time {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--gray-800);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+}
+
+.temporal-bar__track {
+    position: relative;
+    height: 16px;
+    cursor: pointer;
+    touch-action: none;
+}
+
+/* The visual rail sits centered in the taller hit area. */
+.temporal-bar__track::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--gray-200);
+}
+
+.temporal-bar__progress {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 6px;
+    width: 0;
+    border-radius: var(--radius-full);
+    background: var(--primary);
+    pointer-events: none;
+}
+
+.temporal-bar__ticks {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.temporal-bar__tick {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 1px;
+    height: 10px;
+    background: var(--gray-300);
+}
+
+.temporal-bar__handle {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 14px;
+    height: 14px;
+    transform: translate(-50%, -50%);
+    border-radius: var(--radius-full);
+    background: var(--primary);
+    border: 2px solid #fff;
+    box-shadow: var(--shadow-sm);
+    pointer-events: none;
+}
+
+/* Sparse labels for interior ticks (unit value / relative offset). */
+.temporal-bar__axis {
+    position: relative;
+    height: 12px;
+}
+
+.temporal-bar__axis-label {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    font-size: 0.58rem;
+    line-height: 1;
+    color: var(--gray-500);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.temporal-bar__range {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.62rem;
+    color: var(--gray-500);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+}
+
+/* ===== Attribute-panel temporal sections ===== */
+
+.temporal-attr-section {
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+}
+
+.temporal-attr-section__title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--gray-800);
+    margin-bottom: var(--space-1);
+}
+
+.temporal-attr-section__hint {
+    font-size: 0.72rem;
+    color: var(--gray-500);
+    margin-bottom: var(--space-2);
+}
+
+.temporal-attr-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+}
+
+.temporal-attr-row__label {
+    font-size: 0.78rem;
+    color: var(--gray-700);
+    flex-shrink: 0;
+}
+
+.temporal-attr-row__input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 34px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    color: var(--gray-800);
+    font-size: 0.78rem;
+}
+
+/* Read-only temporal summary (locked map): label + plain value, no inputs. */
+.temporal-attr-row--readonly {
+    margin-bottom: var(--space-1);
+}
+
+.temporal-attr-row__value {
+    min-width: 0;
+    font-size: 0.78rem;
+    color: var(--gray-800);
+    text-align: right;
+    word-break: break-word;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Swappable date/offset field (date input or offset input + ⇄ toggle). */
+.temporal-attr-row__field,
+.temporal-attr-offset {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.temporal-attr-offset__prefix {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--gray-700);
+    font-variant-numeric: tabular-nums;
+}
+
+.temporal-attr-row__swap {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background var(--transition-fast);
+}
+
+.temporal-attr-row__swap:hover {
+    background: var(--gray-200);
+}
+
+.temporal-attr-actions {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.temporal-attr-btn {
+    flex: 1 1 auto;
+    height: 34px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    color: var(--gray-700);
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.temporal-attr-btn:hover {
+    background: var(--gray-100);
+}
+
+.temporal-attr-btn--primary {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
+.temporal-attr-btn--primary:hover {
+    background: var(--primary-hover);
+}
+
+.temporal-attr-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ===== Trajectory waypoint list (feature panel) ===== */
+
+.temporal-trajectory-stats {
+    font-size: 0.72rem;
+    color: var(--gray-600);
+    font-variant-numeric: tabular-nums;
+    margin-bottom: var(--space-2);
+}
+
+.temporal-auto-binding {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.78rem;
+    color: var(--gray-700);
+    padding: 2px 0;
+    cursor: pointer;
+}
+
+.temporal-auto-binding input {
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.temporal-auto-binding--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.temporal-auto-binding--disabled input {
+    cursor: not-allowed;
+}
+
+.temporal-trajectory-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-2);
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.temporal-trajectory-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+    transition: background var(--transition-fast);
+}
+
+.temporal-trajectory-row:hover {
+    background: var(--gray-100);
+}
+
+.temporal-trajectory-row__badge {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    padding: 0;
+    border-radius: var(--radius-full);
+    background: var(--primary);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.temporal-trajectory-row__badge:hover {
+    box-shadow: 0 0 0 2px var(--primary-light, rgba(63, 79, 181, 0.35));
+    transform: scale(1.1);
+}
+
+.temporal-trajectory-row__fields {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.temporal-trajectory-row__coord {
+    font-size: 0.68rem;
+    color: var(--gray-500);
+    font-variant-numeric: tabular-nums;
+}
+
+.temporal-trajectory-row__delete {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: var(--gray-500);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+}
+
+.temporal-trajectory-row__delete:hover {
+    background: var(--gray-200);
+    color: var(--color-error);
+}
+
+/* Fixed anchor marker shown in place of the delete button on the first keypoint. */
+.temporal-trajectory-row__anchor {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-400);
+    font-size: 0.8rem;
+}
+
+/* ===== Trajectory map editor — on-screen toolbar ===== */
+
+.trajectory-edit-toolbar {
+    position: fixed;
+
+    /* Top-center, like a toast — but dropped just below the chips row so a
+       horizontally-centered bar never collides with the left-aligned chips on
+       narrow viewports. Shifts with the sidebar/feature panel like the active-tool chip. */
+    top: calc(
+        var(--space-3) + var(--search-bar-height) + var(--space-1) + var(--chip-height) + var(--space-2)
+    );
+    left: 50%;
+    transform: translateX(-50%);
+    transition: transform var(--transition-normal);
+    z-index: var(--z-floating);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--surface, #fff);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+/* Shift with the sidebar/feature panel, exactly like .active-tool-chip. */
+.trajectory-edit-toolbar[data-sidebar-state="expanded"] {
+    transform: translateX(calc(-50% + var(--sidebar-panel-width) / 2));
+}
+
+.trajectory-edit-toolbar__hint {
+    font-size: 0.8rem;
+    color: var(--gray-700);
+}
+
+.trajectory-edit-toolbar__count {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.trajectory-edit-toolbar__btn {
+    height: 34px;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: #fff;
+    color: var(--gray-700);
+    cursor: pointer;
+    font-size: 0.82rem;
+}
+
+.trajectory-edit-toolbar__cancel:hover {
+    background: var(--gray-100);
+}
+
+.trajectory-edit-toolbar__done {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    font-weight: 600;
+}
+
+.trajectory-edit-toolbar__done:hover {
+    background: var(--primary-hover);
+}
+
+/* ===== Per-map settings modal ===== */
+
+.temporal-settings-container {
+    display: flex;
+    flex-direction: column;
+    max-height: 85vh;
+}
+
+.temporal-settings-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    flex: 1 1 auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.temporal-settings__select,
+.temporal-settings__datetime {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    height: 38px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+    color: var(--gray-800);
+    font-size: 0.85rem;
+}
+
+/* Mode-conditional field groups (absolute dates vs relative offsets). */
+.temporal-settings-group {
+    display: none;
+}
+
+.temporal-settings-body[data-mode="absoluto"] .temporal-settings-group[data-when="absoluto"],
+.temporal-settings-body[data-mode="relativo"] .temporal-settings-group[data-when="relativo"] {
+    display: contents;
+}
+
+.temporal-settings__offset {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.temporal-settings__offset-prefix {
+    flex-shrink: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--gray-700);
+    font-variant-numeric: tabular-nums;
+}
+
+.temporal-settings-reschedule__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.temporal-settings-reschedule__row .temporal-settings__datetime {
+    flex: 1;
+}
+
+.temporal-settings-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    flex-shrink: 0;
+    padding: var(--space-4) var(--space-5);
+    border-top: 1px solid var(--border-color);
+}
+
+.temporal-settings-btn {
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.temporal-settings-btn--cancel {
+    background: transparent;
+    color: var(--gray-600);
+}
+
+.temporal-settings-btn--cancel:hover {
+    background: var(--gray-50);
+    border-color: var(--gray-300);
+}
+
+.temporal-settings-btn--save {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
+.temporal-settings-btn--save:hover {
+    background: var(--primary-hover);
+}
+
+/* ===== Map card temporal toggle (next to lock) ===== */
+
+.current-map-temporal-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--gray-200);
+    color: var(--gray-700);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
+
+.current-map-temporal-btn:hover {
+    background: var(--gray-300);
+    transform: scale(1.05);
+}
+
+.current-map-temporal-btn[data-temporal="true"] {
+    background: var(--primary);
+    color: #fff;
+}
+
+.current-map-temporal-btn[data-temporal="true"]:hover {
+    background: var(--primary-hover);
+}
+
+.current-map-temporal-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* ===== Responsive ===== */
+
+@media (width <= 768px) {
+    .temporal-bar__speed {
+        display: none;
+    }
+}

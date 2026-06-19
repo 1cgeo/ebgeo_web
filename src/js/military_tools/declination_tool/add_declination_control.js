@@ -14,6 +14,7 @@ import {
 } from '@store';
 import { IDUtils, showError, loadImageToMap } from '@utils';
 import { calculateMagneticDeclination } from '@utils/geomagnetic/wmm_calculator.js';
+import { calculateMeridianConvergence } from '@utils/geomagnetic/meridian_convergence.js';
 import { convertSvgToPngBlob } from '../svg-to-png.js';
 import { addDeclinationAttributesToPanel } from './declination_attributes_panel.js';
 import AddDeclinationGeometry from './add_declination_geometry.js';
@@ -39,6 +40,10 @@ class AddDeclinationControl extends BaseControl {
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
         this._name = 'AddDeclinationControl';
+
+        // Feature IDs with an in-flight convergence backfill (prevents the
+        // fire-and-forget backfill from running twice on rapid panel reopens).
+        this._convergenceBackfillIds = new Set();
     }
 
     static DEFAULT_PROPERTIES = {
@@ -59,6 +64,7 @@ class AddDeclinationControl extends BaseControl {
         bloqueado: false,
 
         declination: 0,
+        convergence: 0,
         inclination: 0,
         intensity: 0,
         latitude: 0,
@@ -103,6 +109,14 @@ class AddDeclinationControl extends BaseControl {
                 options
             );
             container.appendChild(sectionPanel);
+
+            // Backfill convergence for legacy diagrams (created before the
+            // feature existed). Fire-and-forget: regenerates the icon when done.
+            if (features.length === 1 && features[0].properties.convergence === undefined) {
+                this.ensureConvergence(features[0]).catch((error) => {
+                    console.error('Error backfilling convergence:', error);
+                });
+            }
         } catch (error) {
             console.error('Error creating declination attribute panel:', error);
         }
@@ -145,9 +159,10 @@ class AddDeclinationControl extends BaseControl {
         }
 
         const declination = wmmResult.declination;
+        const convergence = calculateMeridianConvergence(lngLat.lat, lngLat.lng) ?? 0;
 
         // Generate SVG diagram and convert to PNG
-        const svgString = generateDeclinationSvg(declination);
+        const svgString = generateDeclinationSvg(declination, convergence);
         let blob;
         try {
             blob = await convertSvgToPngBlob(svgString, ICON_WIDTH, ICON_HEIGHT);
@@ -180,6 +195,7 @@ class AddDeclinationControl extends BaseControl {
                 calculatedSize: AddDeclinationControl.DEFAULT_PROPERTIES.size,
                 selectionBox,
                 declination: wmmResult.declination,
+                convergence,
                 inclination: wmmResult.inclination,
                 intensity: wmmResult.intensity,
                 latitude: lngLat.lat,
@@ -229,7 +245,10 @@ class AddDeclinationControl extends BaseControl {
      * @param {Object} feature - The declination feature
      */
     async regenerateIcon(feature) {
-        const svgString = generateDeclinationSvg(feature.properties.declination);
+        const svgString = generateDeclinationSvg(
+            feature.properties.declination,
+            feature.properties.convergence ?? 0,
+        );
 
         try {
             const blob = await convertSvgToPngBlob(svgString, ICON_WIDTH, ICON_HEIGHT);
@@ -416,32 +435,64 @@ class AddDeclinationControl extends BaseControl {
             return;
         }
 
-        const now = new Date();
+        const convergence = calculateMeridianConvergence(lat, lng) ?? 0;
+        const calculationDate = new Date().toISOString().split('T')[0];
+
         const data = await this.map.getSource('magnetic_declinations').getData();
         const sourceFeature = data.features.find(
             (f) => f.properties.id === feature.properties.id
         );
 
         if (sourceFeature) {
-            sourceFeature.properties.declination = wmmResult.declination;
-            sourceFeature.properties.inclination = wmmResult.inclination;
-            sourceFeature.properties.intensity = wmmResult.intensity;
-            sourceFeature.properties.latitude = lat;
-            sourceFeature.properties.longitude = lng;
-            sourceFeature.properties.calculationDate = now.toISOString().split('T')[0];
-            sourceFeature.properties.wmmWarning = wmmResult.warning || null;
-
-            feature.properties.declination = wmmResult.declination;
-            feature.properties.inclination = wmmResult.inclination;
-            feature.properties.intensity = wmmResult.intensity;
-            feature.properties.latitude = lat;
-            feature.properties.longitude = lng;
-            feature.properties.calculationDate = now.toISOString().split('T')[0];
-            feature.properties.wmmWarning = wmmResult.warning || null;
+            const applyWmm = (props) => {
+                props.declination = wmmResult.declination;
+                props.convergence = convergence;
+                props.inclination = wmmResult.inclination;
+                props.intensity = wmmResult.intensity;
+                props.latitude = lat;
+                props.longitude = lng;
+                props.calculationDate = calculationDate;
+                props.wmmWarning = wmmResult.warning || null;
+            };
+            applyWmm(sourceFeature.properties);
+            applyWmm(feature.properties);
 
             await this.regenerateIcon(sourceFeature);
             this.forceUpdateMainSource(data);
             this.updateSelectionManagerFeatures([sourceFeature]);
+        }
+    }
+
+    /**
+     * Lazily backfills meridian convergence for diagrams created before the
+     * convergence feature existed, then regenerates the icon. No-op when the
+     * convergence is already present. Uses the stored latitude/longitude, so it
+     * does not depend on geometry being available.
+     * @param {Object} feature - The declination feature
+     */
+    async ensureConvergence(feature) {
+        const id = feature.properties.id;
+        if (feature.properties.convergence !== undefined || this._convergenceBackfillIds.has(id)) return;
+        this._convergenceBackfillIds.add(id);
+
+        try {
+            const { latitude: lat, longitude: lng } = feature.properties;
+            const convergence = calculateMeridianConvergence(lat, lng) ?? 0;
+
+            feature.properties.convergence = convergence;
+
+            const data = await this.map.getSource('magnetic_declinations').getData();
+            const sourceFeature = data.features.find((f) => f.properties.id === id);
+            if (sourceFeature) {
+                sourceFeature.properties.convergence = convergence;
+            }
+
+            this.forceUpdateMainSource(data);
+            const target = sourceFeature || feature;
+            await this.regenerateIcon(target);
+            this.updateSelectionManagerFeatures([target]);
+        } finally {
+            this._convergenceBackfillIds.delete(id);
         }
     }
 

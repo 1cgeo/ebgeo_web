@@ -42,7 +42,17 @@ export function cleanFeature(feature) {
         return null;
     }
 
-    const geometry = feature.geometry || feature._geometry;
+    let geometry = feature.geometry || feature._geometry;
+
+    // Temporal: a trajectory-displaced feature carries its authoring (home)
+    // position in the runtime-only `_temporalHome`. Persist the home position,
+    // not the interpolated/displaced one, so editing a moving feature never
+    // saves a wrong location. (`_temporalHome` itself is dropped below by the
+    // `_`-prefix rule in isInternalProperty.)
+    const home = feature.properties?._temporalHome;
+    if (Array.isArray(home) && home.length >= 2 && geometry?.type === 'Point') {
+        geometry = { ...geometry, coordinates: [home[0], home[1]] };
+    }
 
     const cleanedProperties = {};
     if (feature.properties) {
@@ -132,6 +142,7 @@ export function getDefaultLayer() {
         name: 'Padrão',
         visible: true,
         locked: false,
+        opacity: 1,
         order: 0,
         createdAt: now,
         updatedAt: now,

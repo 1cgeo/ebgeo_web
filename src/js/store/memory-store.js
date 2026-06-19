@@ -43,7 +43,8 @@ function createInitialState() {
         colorUsageCache: new Map(),
         cesium3d: getEmptyCesium3dData(),
         streetview360: { ...getEmptyStreetview360Data(), _mapName: null },
-        lockedMaps: new Set()
+        lockedMaps: new Set(),
+        temporalConfigs: new Map()
     };
 }
 
@@ -63,6 +64,8 @@ function createInitialState() {
  * @property {Object} cesium3d - Cesium 3D cache (camera positions, markers, measurements, viewsheds).
  * @property {Object} streetview360 - Street View 360 cache (orientations, markers, _mapName for validation).
  * @property {Set<string>} lockedMaps - Locked (read-only) map names, loaded from IndexedDB for synchronous access.
+ * @property {Map<string, {ativo: boolean, unidade: string, inicio: (number|null), fim: (number|null)}>} temporalConfigs
+ *   Per-map temporal configuration cache, loaded from IndexedDB for synchronous access.
  */
 export const memoryStore = createInitialState();
 

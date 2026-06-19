@@ -154,6 +154,10 @@ export class MilitarySymbolGenerator {
             return { valid: false, error: 'SIDC is null or undefined' };
         }
 
+        if (typeof sidc !== 'string') {
+            return { valid: false, error: 'SIDC must be a string' };
+        }
+
         const cleanSIDC = sidc.replace(/\s/g, '');
 
         if (cleanSIDC.length !== 20 && cleanSIDC.length !== 30) {

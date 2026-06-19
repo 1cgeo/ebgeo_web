@@ -956,6 +956,32 @@
     box-shadow: var(--panel-focus-ring-stronger);
 }
 
+/* Custom (uploaded) icon thumbnail inside a tile */
+.marker-symbol-picker__img {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    pointer-events: none;
+}
+
+/* Upload ("+") tile */
+.marker-symbol-picker__item--upload {
+    position: relative;
+    border: 2px dashed var(--gray-300);
+    color: var(--gray-500);
+    font-size: 20px;
+    line-height: 1;
+}
+
+.marker-symbol-picker__item--upload:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.marker-symbol-picker__file-input {
+    display: none;
+}
+
 /* Disabled state for label tab controls */
 .feature-tab-control--disabled {
     opacity: 0.5;

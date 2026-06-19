@@ -38,6 +38,11 @@ class MouseCoordinatesControl {
         this.gridControl = null;
         this._name = 'MouseCoordinatesControl';
 
+        // Docking: when the temporal bar is active the readout is relocated into
+        // it (see attachTo/detach). Original parent is remembered to restore it.
+        this._originalParent = null;
+        this._embeddedSlot = null;
+
         /** @type {Array<Function>} Cleanup functions for StateManager subscriptions */
         this._unsubscribers = [];
 
@@ -526,6 +531,33 @@ class MouseCoordinatesControl {
                 this._elevationSpan.style.display = 'none';
             }
         }
+    }
+
+    /**
+     * Dock the coordinates readout into an external slot (e.g. the temporal
+     * bar's bottom row), neutralizing the floating-pill chrome via the
+     * `--embedded` modifier. Idempotent; all coordinate logic keeps running.
+     * @param {HTMLElement} slot - Target element to host the readout.
+     */
+    attachTo(slot) {
+        if (!this._container || !slot || this._embeddedSlot === slot) return;
+        // Remember the floating parent once, so detach() can restore it.
+        if (!this._originalParent) {
+            this._originalParent = this._container.parentNode;
+        }
+        slot.appendChild(this._container);
+        this._container.classList.add('coordinates-control--embedded');
+        this._embeddedSlot = slot;
+    }
+
+    /** Restore the readout to its floating bottom-center position. Idempotent. */
+    detach() {
+        if (!this._container || !this._embeddedSlot) return;
+        this._container.classList.remove('coordinates-control--embedded');
+        if (this._originalParent) {
+            this._originalParent.appendChild(this._container);
+        }
+        this._embeddedSlot = null;
     }
 
     getCurrentFormat() {

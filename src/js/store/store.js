@@ -308,6 +308,7 @@ export {
     getCurrentMapFeatures,
     getFeatureById,
     updateFeatureProperty,
+    shiftMapTemporalTimes,
     moveFeaturesToMap,
     batchUpdateLOSFeatures,
     batchUpdateVisibilityFeatures,
@@ -360,6 +361,7 @@ export {
     renameLayer,
     setLayerVisibility,
     setLayerLocked,
+    setLayerOpacity,
     reorderLayers,
     setMapLayers
 } from './layer.operations.js';
@@ -388,6 +390,28 @@ export {
     getImage,
     removeImage
 } from './settings.operations.js';
+
+// ===== RE-EXPORTS FROM TEMPORAL OPERATIONS =====
+
+export {
+    getMapTemporalConfig,
+    getMapTemporalConfigSync,
+    isMapTemporalEnabled,
+    isMapTemporalEnabledSync,
+    setMapTemporalConfig,
+    toggleMapTemporal
+} from './temporal.operations.js';
+
+// ===== RE-EXPORTS FROM CUSTOM ICON OPERATIONS =====
+
+export {
+    getCustomIcons,
+    addCustomIcon,
+    removeCustomIcon,
+    getCustomIconBlob,
+    getCustomIconsForExport,
+    restoreCustomIconsFromImport
+} from './customIcons.operations.js';
 
 // ===== RE-EXPORTS FROM CATALOG OPERATIONS =====
 

@@ -52,6 +52,7 @@ export function createCSVConfigPanel(options) {
     let currentFormat = 'latlong_dd';
     let currentMapping = {};
     let currentFixedValues = {};
+    let currentTemporalMapping = {}; // { inicio?: columnName, fim?: columnName }
     let utmZoneSource = 'fixed'; // 'fixed' or 'column'
     let preview = parseCSVPreview(csvText, currentSeparator);
 
@@ -131,6 +132,16 @@ export function createCSVConfigPanel(options) {
     container.appendChild(attributeInfo);
 
     // ========================================================================
+    // TEMPORAL MAPPING SECTION (optional)
+    // ========================================================================
+
+    container.appendChild(createSectionDivider('Dados Temporais (opcional)'));
+
+    const temporalMappingContainer = document.createElement('div');
+    temporalMappingContainer.className = 'csv-config-panel__mapping';
+    container.appendChild(temporalMappingContainer);
+
+    // ========================================================================
     // IMPORT BUTTON
     // ========================================================================
 
@@ -167,6 +178,7 @@ export function createCSVConfigPanel(options) {
                 coordinateFormat: currentFormat,
                 columnMapping: { ...currentMapping },
                 fixedValues: { ...currentFixedValues },
+                temporalMapping: { ...currentTemporalMapping },
             };
 
             const { geoJSON, skippedCount } = csvToGeoJSON(config);
@@ -239,6 +251,7 @@ export function createCSVConfigPanel(options) {
     function _resetMapping() {
         currentMapping = {};
         currentFixedValues = {};
+        currentTemporalMapping = {};
         utmZoneSource = 'fixed';
     }
 
@@ -282,7 +295,44 @@ export function createCSVConfigPanel(options) {
             _buildZoneSelector(columnOptions);
         }
 
+        _buildTemporalMapping();
         _updateAttributeInfo();
+    }
+
+    /**
+     * Builds the optional temporal-column selectors (start/end), populated from
+     * the CSV headers. Selecting a column maps it to temporalInicio/temporalFim.
+     */
+    function _buildTemporalMapping() {
+        temporalMappingContainer.replaceChildren();
+        currentTemporalMapping = {};
+
+        const columnOptions = [
+            NONE_OPTION,
+            ...preview.headers.map(h => ({ value: h, label: h })),
+        ];
+
+        const roles = [
+            { key: 'inicio', label: 'Coluna de início' },
+            { key: 'fim', label: 'Coluna de fim' },
+        ];
+
+        for (const role of roles) {
+            const select = createModernSelect({
+                label: role.label,
+                value: '',
+                options: columnOptions,
+                onChange: (value) => {
+                    if (value) {
+                        currentTemporalMapping[role.key] = value;
+                    } else {
+                        delete currentTemporalMapping[role.key];
+                    }
+                    _updateAttributeInfo();
+                },
+            });
+            temporalMappingContainer.appendChild(select);
+        }
     }
 
     function _buildZoneSelector(columnOptions) {
@@ -401,8 +451,11 @@ export function createCSVConfigPanel(options) {
     }
 
     function _updateAttributeInfo() {
-        const coordinateColumns = new Set(Object.values(currentMapping));
-        const attrColumns = preview.headers.filter(h => !coordinateColumns.has(h));
+        const reservedColumns = new Set([
+            ...Object.values(currentMapping),
+            ...Object.values(currentTemporalMapping),
+        ]);
+        const attrColumns = preview.headers.filter(h => !reservedColumns.has(h));
 
         if (attrColumns.length > 0) {
             // textContent is XSS-safe, no need for escapeHtml

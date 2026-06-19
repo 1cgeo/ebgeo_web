@@ -14,6 +14,7 @@ import {
     extractBaseCoordinates,
 } from '../processing.constants.js';
 import { buildAlgorithmPanelScaffold } from './panel-builder.js';
+import { mergeTemporalWindows } from '@js/temporal/temporal-model.js';
 
 // ============================================================================
 // CONSTANTS
@@ -85,7 +86,7 @@ function createVoronoiPanel(deps) {
 
     const pointsHint = document.createElement('div');
     pointsHint.className = 'processing-panel__hint';
-    pointsHint.textContent = 'Ignora outras geometrias (sem centroide)';
+    pointsHint.textContent = 'Usa somente feições do tipo ponto (ignora linhas e áreas)';
     pointsToggleContainer.appendChild(pointsHint);
 
     container.appendChild(pointsToggleContainer);
@@ -374,14 +375,14 @@ function executeVoronoi(features, params) {
     }
 
     if (points.length < 2) {
-        throw new Error('São necessários pelo menos 2 pontos para gerar o diagrama de Voronoi');
+        throw new Error('São necessários pelo menos 2 pontos para gerar as zonas de proximidade');
     }
 
     const collection = window.turf.featureCollection(points);
     const voronoi = window.turf.voronoi(collection, { bbox });
 
     if (!voronoi || !voronoi.features || voronoi.features.length === 0) {
-        throw new Error('O algoritmo não produziu resultados');
+        throw new Error('Não foi possível gerar as zonas de proximidade');
     }
 
     const results = [];
@@ -400,7 +401,7 @@ function executeVoronoi(features, params) {
             const sourceName = pointSources[i]?.properties?.nome;
             const cellName = sourceName
                 ? `Proximidade - ${sourceName}`
-                : `Célula ${i + 1}`;
+                : `Zona ${i + 1}`;
 
             const props = {
                 ...POLYGON_DEFAULTS,
@@ -418,6 +419,8 @@ function executeVoronoi(features, params) {
             if (pointSources[i]?.properties?.images) {
                 props.images = structuredClone(pointSources[i].properties.images);
             }
+            // Inherit the generator point's temporal validity (1:1 cell → point).
+            Object.assign(props, mergeTemporalWindows([pointSources[i]?.properties]));
 
             results.push({
                 type: 'Feature',
@@ -445,8 +448,8 @@ function executeVoronoi(features, params) {
 
 registerAlgorithm({
     id: 'voronoi',
-    name: 'Diagrama de Proximidade',
-    description: 'Divide uma região em áreas onde cada ponto do terreno é associado ao ponto de referência mais próximo, formando um mosaico de zonas de proximidade.',
+    name: 'Zonas de Proximidade',
+    description: 'Divide uma região em áreas onde cada ponto do terreno fica associado ao ponto de referência mais próximo, formando um mosaico de zonas de proximidade.',
     icon: VORONOI_ICON,
     category: 'geometry',
     supportedGeometryTypes: SUPPORTED_GEOMETRY_TYPES,

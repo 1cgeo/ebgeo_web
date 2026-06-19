@@ -98,6 +98,10 @@ export function calculateAngle(p1, p2, p3) {
  * @returns {number[][]} Array of [lng, lat] coords
  */
 export function generateArcCoordinates(center, bearing1, bearing2, radiusMeters, numPoints = 36) {
+    // Guard against a zero/invalid point count: i/numPoints would be 0/0 = NaN,
+    // poisoning every bearing. Fall back to the documented default.
+    if (!Number.isFinite(numPoints) || numPoints < 1) numPoints = 36;
+
     let sweep = bearing2 - bearing1;
     if (sweep < 0) sweep += 360;
 

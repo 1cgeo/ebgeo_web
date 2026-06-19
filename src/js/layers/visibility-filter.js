@@ -12,6 +12,79 @@ const VISIBLE_FILTER = ['!=', ['get', 'visivel'], false];
 let cachedVisibleLayerIds = null;
 
 /**
+ * Active temporal window [start, end] (epoch ms), or null when temporal control
+ * is off. A feature passes when its [temporalInicio, temporalFim] validity
+ * overlaps this window. During playback the window spans one timeline step, so
+ * the filters only change on step boundaries while the cursor advances smoothly.
+ * For an instantaneous test, end === start.
+ * @type {number|null}
+ */
+let activeTemporalCursor = null;
+let activeTemporalCursorEnd = null;
+
+/**
+ * Reveal mode: when true the temporal hide-clause is suppressed so all features
+ * stay rendered (out-of-window ones are dimmed elsewhere, not hidden).
+ * @type {boolean}
+ */
+let revealMode = false;
+
+/**
+ * Sets (or clears) the temporal window used by the layer filters. A feature is
+ * kept when its validity overlaps [cursor, cursorEnd]; with the default
+ * `cursorEnd === cursor` this is the classic instantaneous test. Pass a wider
+ * window (one timeline step) to keep features valid anywhere within the current
+ * step visible for the whole step. Pass a null/non-finite `cursor` to disable
+ * temporal filtering. Caller must follow with updateAllLayerFilters() to take effect.
+ * @param {number|null} cursor - Window start (epoch ms), or null to disable.
+ * @param {number} [cursorEnd=cursor] - Window end (epoch ms).
+ */
+export function setTemporalCursor(cursor, cursorEnd = cursor) {
+    activeTemporalCursor = Number.isFinite(cursor) ? cursor : null;
+    activeTemporalCursorEnd =
+        activeTemporalCursor === null ? null
+            : Number.isFinite(cursorEnd) ? Math.max(cursorEnd, activeTemporalCursor) : activeTemporalCursor;
+}
+
+/**
+ * Enables/disables reveal mode (suppresses temporal hiding).
+ * @param {boolean} on
+ */
+export function setRevealMode(on) {
+    revealMode = !!on;
+}
+
+/** Sentinels at the edges of the JS Date range (used as "no bound"). */
+const MIN_TS = -8.64e15;
+const MAX_TS = 8.64e15;
+
+/**
+ * Builds a MapLibre predicate that keeps a feature only when its
+ * [temporalInicio, temporalFim] window overlaps [windowStart, windowEnd].
+ * Missing/null bounds coalesce to the date-range sentinels, so a feature without
+ * temporal data is permanent. With windowEnd === windowStart this is the classic
+ * "cursor inside the feature window" instantaneous test.
+ * @param {number} windowStart - Window start (epoch ms).
+ * @param {number} windowEnd - Window end (epoch ms).
+ * @returns {Array} MapLibre filter expression.
+ */
+function buildTemporalFilter(windowStart, windowEnd) {
+    return [
+        'all',
+        ['<=', ['coalesce', ['get', 'temporalInicio'], MIN_TS], windowEnd],
+        ['>=', ['coalesce', ['get', 'temporalFim'], MAX_TS], windowStart],
+    ];
+}
+
+/**
+ * @returns {Array<Array>} Temporal clause(s) to append to a layer filter ([] when off).
+ */
+function temporalClauses() {
+    if (activeTemporalCursor === null || revealMode) return [];
+    return [buildTemporalFilter(activeTemporalCursor, activeTemporalCursorEnd ?? activeTemporalCursor)];
+}
+
+/**
  * Builds the layer membership filter for a set of visible layer IDs.
  * @param {string[]} visibleLayerIds
  * @returns {Array} MapLibre expression
@@ -28,8 +101,9 @@ function buildLayerFilter(visibleLayerIds) {
  */
 export function createLayerVisibilityFilter(visibleLayerIds, additionalFilters) {
     const layerFilter = buildLayerFilter(visibleLayerIds);
-    if (additionalFilters) {
-        return ['all', VISIBLE_FILTER, layerFilter, ...additionalFilters];
+    const extra = [...(additionalFilters || []), ...temporalClauses()];
+    if (extra.length) {
+        return ['all', VISIBLE_FILTER, layerFilter, ...extra];
     }
     return ['all', VISIBLE_FILTER, layerFilter];
 }
@@ -45,7 +119,7 @@ export function createHatchLayerFilter(visibleLayerIds, hatchEnabled) {
         ? [['==', ['get', 'hatchEnabled'], true], ['has', 'hatchPatternId']]
         : [['!=', ['get', 'hatchEnabled'], true]];
 
-    return ['all', VISIBLE_FILTER, buildLayerFilter(visibleLayerIds), ...hatchFilters];
+    return ['all', VISIBLE_FILTER, buildLayerFilter(visibleLayerIds), ...hatchFilters, ...temporalClauses()];
 }
 
 /**
@@ -56,7 +130,10 @@ export function updateAllLayerFilters(mapInstance) {
     if (!mapInstance) return;
 
     const visibleLayerIds = getVisibleLayerIds();
-    const cacheKey = JSON.stringify(visibleLayerIds);
+    // Cheap cache key (runs every frame during playback): join the ids instead of
+    // JSON.stringify — layer ids are plain strings, so a delimiter join is unique
+    // enough and avoids the per-frame serializer cost.
+    const cacheKey = `${activeTemporalCursor}|${activeTemporalCursorEnd}|${revealMode}|${visibleLayerIds.join(',')}`;
     if (cachedVisibleLayerIds === cacheKey) return;
     cachedVisibleLayerIds = cacheKey;
 

@@ -1,7 +1,7 @@
 // Path: js/processing/algorithms/convex-hull.algorithm.js
 
 /**
- * @fileoverview Convex Hull algorithm (Envoltoria Convexa).
+ * @fileoverview Convex Hull algorithm — shown to users as "Contorno Externo".
  * Generates the smallest convex polygon containing all input features.
  */
 
@@ -12,6 +12,7 @@ import {
     extractBaseCoordinates,
 } from '../processing.constants.js';
 import { buildAlgorithmPanelScaffold } from './panel-builder.js';
+import { mergeTemporalWindows } from '@js/temporal/temporal-model.js';
 
 // ============================================================================
 // CONSTANTS
@@ -33,7 +34,7 @@ function createConvexHullPanel(deps) {
 
     const scaffold = buildAlgorithmPanelScaffold({
         stateManager,
-        defaultOutputPrefix: 'Envoltória',
+        defaultOutputPrefix: 'Contorno Externo',
     });
 
     const { container } = scaffold;
@@ -124,7 +125,7 @@ function executeConvexHull(features, params) {
     const { onProgress } = params;
 
     if (features.length < 2) {
-        throw new Error('São necessárias pelo menos 2 feições para gerar a envoltória convexa');
+        throw new Error('São necessárias pelo menos 2 feições para gerar o contorno externo');
     }
 
     if (onProgress) onProgress(1, 3);
@@ -136,7 +137,7 @@ function executeConvexHull(features, params) {
     const hull = window.turf.convex(collection);
 
     if (!hull || !hull.geometry) {
-        throw new Error('Não foi possível gerar a envoltória. Verifique se as feições não são colineares.');
+        throw new Error('Não foi possível gerar o contorno. Verifique se as feições não estão todas alinhadas em linha reta.');
     }
 
     const baseCoordinates = extractBaseCoordinates(hull.geometry.coordinates[0]);
@@ -146,8 +147,8 @@ function executeConvexHull(features, params) {
         properties: {
             ...POLYGON_DEFAULTS,
             source: 'polygon',
-            nome: 'Envoltória Convexa',
-            descricao: `Gerada a partir de ${features.length} feições`,
+            nome: 'Contorno Externo',
+            descricao: `Gerado a partir de ${features.length} feições`,
             visivel: true,
             bloqueado: false,
             baseCoordinates,
@@ -157,6 +158,9 @@ function executeConvexHull(features, params) {
             coordinates: hull.geometry.coordinates,
         },
     };
+
+    // N:1 → the hull is valid over the UNION of its inputs' validity windows.
+    Object.assign(cleanFeature.properties, mergeTemporalWindows(features.map((f) => f.properties)));
 
     if (onProgress) onProgress(3, 3);
 
@@ -169,8 +173,8 @@ function executeConvexHull(features, params) {
 
 registerAlgorithm({
     id: 'convex-hull',
-    name: 'Envoltória Convexa',
-    description: 'Gera o menor polígono convexo que contém todas as feições selecionadas, útil para delimitar perímetros e áreas de abrangência.',
+    name: 'Contorno Externo',
+    description: 'Cria a menor área que envolve todas as feições selecionadas, como um elástico esticado em volta dos pontos. Útil para delimitar perímetros e áreas de abrangência.',
     icon: CONVEX_HULL_ICON,
     category: 'geometry',
     supportedGeometryTypes: SUPPORTED_GEOMETRY_TYPES,

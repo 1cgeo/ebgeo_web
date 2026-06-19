@@ -34,10 +34,8 @@ class AddLineGeometry extends BaseGeometry {
         return coordinates.every(point =>
             Array.isArray(point) &&
             point.length >= 2 &&
-            typeof point[0] === 'number' &&
-            typeof point[1] === 'number' &&
-            !isNaN(point[0]) &&
-            !isNaN(point[1])
+            Number.isFinite(point[0]) &&
+            Number.isFinite(point[1])
         );
     }
 

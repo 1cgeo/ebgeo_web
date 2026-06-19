@@ -42,7 +42,7 @@ export function canSplitLine(selectedFeatures) {
         return { canSplit: false, reason: 'Linha sem coordenadas suficientes' };
     }
 
-    if (f.properties?.bloqueado === true) {
+    if (f.properties?.bloqueado) {
         return { canSplit: false, reason: 'Linha está bloqueada' };
     }
 

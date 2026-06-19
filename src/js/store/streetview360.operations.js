@@ -237,7 +237,8 @@ export async function getAllOrientations(mapName = null) {
  * @param {string} photoName - Photo where marker is placed
  * @param {Object} markerData - Marker data
  * @param {Object} markerData.position - Position data (heading, pitch, distance)
- * @param {Object} [markerData.properties] - Properties (nome, descricao)
+ * @param {Object} [markerData.properties] - Properties (nome, descricao,
+ *   plus optional temporal validity: temporalInicio/temporalFim as epoch ms).
  * @param {Object} [markerData.style] - Style overrides
  * @param {string|null} mapName - Map name (uses current if null)
  * @returns {Promise<Object>} Created marker
@@ -260,6 +261,8 @@ export async function addMarker360(photoName, markerData, mapName = null) {
             distance: markerData.position.distance || 5
         },
         properties: {
+            // Preserve any optional temporal validity (temporalInicio/temporalFim).
+            ...markerData.properties,
             nome: markerData.properties?.nome || `Ponto #${existingCount + 1}`,
             descricao: markerData.properties?.descricao || ''
         },

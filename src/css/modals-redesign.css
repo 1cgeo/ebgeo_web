@@ -1841,6 +1841,128 @@
 }
 
 /* =========================================================================
+   LAYER STYLE MODAL
+   ========================================================================= */
+
+.layer-style-modal-container {
+    max-width: 460px;
+}
+
+.layer-style-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+}
+
+.layer-style-modal__empty {
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+    text-align: center;
+    padding: var(--space-4) 0;
+}
+
+.layer-style-section {
+    gap: var(--space-3);
+}
+
+.layer-style-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.layer-style-field__label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+}
+
+.layer-style-field__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.layer-style-slider {
+    flex: 1;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.layer-style-color {
+    width: 36px;
+    height: 28px;
+    padding: 0;
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    cursor: pointer;
+}
+
+.layer-style-color::-webkit-color-swatch-wrapper {
+    padding: 2px;
+}
+
+.layer-style-color::-webkit-color-swatch {
+    border: none;
+    border-radius: 3px;
+}
+
+.layer-style-field__value {
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    min-width: 56px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.layer-style-field__value--mono {
+    font-family: var(--font-mono, monospace);
+    text-transform: uppercase;
+}
+
+.layer-style-modal__footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-5);
+    border-top: var(--border-width) solid var(--border-color);
+}
+
+.layer-style-reset-btn {
+    padding: var(--space-2) var(--space-3);
+    background: transparent;
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-md);
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.layer-style-reset-btn:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-400);
+}
+
+.layer-style-close-btn {
+    padding: var(--space-2) var(--space-4);
+    background: var(--primary);
+    border: none;
+    border-radius: var(--radius-md);
+    color: white;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.layer-style-close-btn:hover {
+    background: var(--primary-700, var(--primary));
+}
+
+/* =========================================================================
    RESPONSIVE — TOUCH DEVICES
    ========================================================================= */
 

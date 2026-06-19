@@ -23,6 +23,7 @@ import {
 import { showSuccess, showToast, showWarning } from '@utils/index.js';
 import { showConfirm } from '@modals/index.js';
 import { deepClone } from '@utils/deep-utils.js';
+import { createTemporalValiditySection } from '@js/temporal/temporal-attributes-section.js';
 import {
     createModernSlider,
     createModernColorPicker,
@@ -97,7 +98,10 @@ export function createMarkerPanel360Content(marker, photoName, onClose) {
     container.appendChild(locationPlaceholder);
     buildLocationSection(locationPlaceholder, currentMarker, photoName);
 
-    // 6. Delete button at the end
+    // 6. Temporal validity section (optional start/end visibility window)
+    buildTemporalSection(container, currentMarker);
+
+    // 7. Delete button at the end
     buildDeleteButton(container, currentMarker, onClose);
 
     // Cleanup function
@@ -778,6 +782,27 @@ function buildLocationSection(placeholder, marker, photoName) {
 
     placeholder.innerHTML = '';
     placeholder.appendChild(section);
+}
+
+/**
+ * Builds the temporal validity section (start/end datetime).
+ * Empty fields mean the marker is permanent (visible at any cursor).
+ * Changes persist additively into marker.properties via updateMarker360.
+ * @param {HTMLElement} container - Parent container.
+ * @param {Object} marker - Current marker state.
+ */
+function buildTemporalSection(container, marker) {
+    container.appendChild(
+        createTemporalValiditySection({
+            inicio: marker.properties?.temporalInicio,
+            fim: marker.properties?.temporalFim,
+            onChange: async (prop, epoch) => {
+                const value = Number.isFinite(epoch) ? epoch : null;
+                marker.properties = { ...marker.properties, [prop]: value };
+                await updateMarker360(marker.id, { properties: { [prop]: value } });
+            },
+        })
+    );
 }
 
 /**

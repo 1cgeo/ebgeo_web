@@ -44,6 +44,7 @@ export {
 // Components (re-exports for convenience)
 export {
     createLayerHeader,
+    createLayerOpacityRow,
     handleSetActiveLayer,
     handleAddLayer,
     updateActiveLayerIndicators,

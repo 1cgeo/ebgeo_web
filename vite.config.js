@@ -276,8 +276,11 @@ export default defineConfig(({ mode: _mode }) => ({
     // Source maps: 'hidden' generates maps without exposing them publicly
     sourcemap: 'hidden',
 
-    // Maximum chunk size before warning
-    chunkSizeWarningLimit: 1000
+    // Maximum chunk size before warning.
+    // core sits at ~1010 kB minified (~315 kB gzip) by design: it is the shared
+    // foundation chunk (store, tool_manager, briefing, modals, catalog, ...)
+    // and cannot be split further without circular chunk dependencies.
+    chunkSizeWarningLimit: 1100
   },
 
   // ===== DEVELOPMENT SERVER =====

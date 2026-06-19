@@ -30,6 +30,8 @@ import {
     hasMapNotes,
     isMapLocked,
     toggleMapLock,
+    isMapTemporalEnabled,
+    toggleMapTemporal,
     getControl,
 } from '@store/index.js';
 import { EventTypes } from '@events/event_types.js';
@@ -73,6 +75,8 @@ const MAPS_ICONS = {
     lock: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
 
     lockOpen: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`,
+
+    clock: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
 
     gear: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
 };
@@ -214,6 +218,9 @@ export class MapsTab {
                 <button class="current-map-lock-btn" id="current-map-lock-btn" title="Bloquear mapa" data-locked="false">
                     ${MAPS_ICONS.lockOpen}
                 </button>
+                <button class="current-map-temporal-btn" id="current-map-temporal-btn" title="Habilitar controle temporal" data-temporal="false">
+                    ${MAPS_ICONS.clock}
+                </button>
                 <button class="current-map-notes-btn" id="current-map-notes-btn" title="Notas do mapa">
                     ${MAPS_ICONS.fileText}
                 </button>
@@ -232,6 +239,10 @@ export class MapsTab {
         // Setup lock button handler
         const lockBtn = card.querySelector('#current-map-lock-btn');
         addDomListener(this, lockBtn, 'click', () => this._handleToggleLock());
+
+        // Setup temporal control button handler
+        const temporalBtn = card.querySelector('#current-map-temporal-btn');
+        addDomListener(this, temporalBtn, 'click', () => this._handleToggleTemporal());
 
         // Setup notes button handler
         const notesBtn = card.querySelector('#current-map-notes-btn');
@@ -252,6 +263,21 @@ export class MapsTab {
             showWarning('Mapa bloqueado');
         } else {
             showSuccess('Mapa desbloqueado');
+        }
+    }
+
+    /**
+     * Handles toggling the per-map temporal control.
+     * @private
+     */
+    async _handleToggleTemporal() {
+        if (!this._currentMapName) return;
+
+        const newState = await toggleMapTemporal(this._currentMapName);
+        if (newState) {
+            showSuccess('Controle temporal habilitado');
+        } else {
+            showSuccess('Controle temporal desabilitado');
         }
     }
 
@@ -278,6 +304,7 @@ export class MapsTab {
     _setupEventListeners() {
         subscribe(this, this._eventBus, EventTypes.LAYERS_CHANGED, () => this._loadMaps());
         subscribe(this, this._eventBus, EventTypes.MAP_LOCK_CHANGED, () => this._loadMaps());
+        subscribe(this, this._eventBus, EventTypes.MAP_TEMPORAL_CHANGED, () => this._loadMaps());
     }
 
     /**
@@ -337,6 +364,20 @@ export class MapsTab {
         }
 
         this._currentMapCard.classList.toggle('current-map-card--locked', locked);
+
+        // Update temporal control state. A locked map is read-only, so the toggle
+        // is disabled (mirroring the name input) — existing temporal config still renders.
+        const temporalEnabled = await isMapTemporalEnabled(this._currentMapName);
+        const temporalBtn = this._currentMapCard.querySelector('#current-map-temporal-btn');
+        if (temporalBtn) {
+            temporalBtn.dataset.temporal = temporalEnabled.toString();
+            temporalBtn.disabled = locked;
+            temporalBtn.title = locked
+                ? 'Controle temporal (mapa bloqueado)'
+                : temporalEnabled
+                    ? 'Desabilitar controle temporal'
+                    : 'Habilitar controle temporal';
+        }
 
         if (nameInput) {
             nameInput.disabled = locked;

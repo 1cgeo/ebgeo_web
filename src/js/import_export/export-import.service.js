@@ -27,10 +27,15 @@ import {
     setCesium3dDataForImport,
     getStreetview360DataForExport,
     setStreetview360DataForImport,
+    getMapTemporalConfig,
+    setMapTemporalConfig,
     getBriefingsForExport,
     importBriefings,
+    getCustomIconsForExport,
+    restoreCustomIconsFromImport,
     getGroupManager,
 } from '@store';
+import { DEFAULT_TEMPORAL_CONFIG } from '@js/temporal/temporal.constants.js';
 
 import { IDUtils } from '@utils/id_utils.js';
 import { showToast, showSuccess, showError, showWarning } from '@utils/toast_service.js';
@@ -361,6 +366,7 @@ export class ExportImportService {
                 layers: {},
                 cesium3d: {},
                 streetview360: {},
+                temporal: {},
                 briefings: [],
             };
 
@@ -410,6 +416,15 @@ export class ExportImportService {
                 }
             } catch (error) {
                 console.warn('Could not export briefings:', error);
+            }
+
+            // Custom point icons: metadata travels in data.json, blobs in images/.
+            const customIcons = await getCustomIconsForExport();
+            if (customIcons.length > 0) {
+                data.customIcons = customIcons;
+                for (const icon of customIcons) {
+                    usedImages.add(icon.id);
+                }
             }
 
             zip.file('data.json', JSON.stringify(data), {
@@ -607,6 +622,9 @@ export class ExportImportService {
                 // Import street view 360 data additively
                 await this._importMappedData(data.streetview360, setStreetview360DataForImport, mapNameMapping, '360 data');
 
+                // Import per-map temporal config additively
+                await this._importMappedData(data.temporal, setMapTemporalConfig, mapNameMapping, 'temporal config');
+
                 // Import briefings (additive import - no overwrite)
                 await this._importBriefings(data.briefings, false);
 
@@ -636,6 +654,9 @@ export class ExportImportService {
                 // Import street view 360 data directly (normal import)
                 await this._importMappedData(data.streetview360, setStreetview360DataForImport, null, '360 data');
 
+                // Import per-map temporal config directly (normal import)
+                await this._importMappedData(data.temporal, setMapTemporalConfig, null, 'temporal config');
+
                 // Import briefings (normal import - overwrite if same ID)
                 await this._importBriefings(data.briefings, true);
 
@@ -647,6 +668,11 @@ export class ExportImportService {
                 // Load images after processing maps (normal import)
                 await this.loadImagesFromZip(zip);
             }
+
+            // Restore custom point-icon registry (blobs already restored above).
+            // Non-additive import replaces the project, so replace the registry;
+            // additive import merges into the existing one.
+            await restoreCustomIconsFromImport(data.customIcons, { replace: !isAdditiveImport });
 
             // Notify about unavailable catalog layers
             if (totalUnavailableCatalogLayers > 0) {
@@ -1002,6 +1028,15 @@ export class ExportImportService {
             { key: 'layers', fn: () => getLayers(mapName), check: (v) => v?.length > 0 },
             { key: 'cesium3d', fn: () => getCesium3dDataForExport(mapName), check: (v) => !!v },
             { key: 'streetview360', fn: () => getStreetview360DataForExport(mapName), check: (v) => !!v },
+            // Per-map temporal config (modo/origem/unidade/bounds) so temporal-aware
+            // maps round-trip. Export whenever it differs from the default in ANY field
+            // — not only when currently active — so a configured-but-disabled relative
+            // map keeps its origem/modo/unidade/bounds across export/import.
+            {
+                key: 'temporal',
+                fn: () => getMapTemporalConfig(mapName),
+                check: (v) => !!v && Object.keys(DEFAULT_TEMPORAL_CONFIG).some((k) => v[k] !== DEFAULT_TEMPORAL_CONFIG[k]),
+            },
         ];
 
         for (const { key, fn, check, transform } of tasks) {

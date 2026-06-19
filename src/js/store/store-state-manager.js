@@ -8,7 +8,10 @@ import {
     setColorUsageCompat as setColorUsage,
     removeColorUsageCompat as removeColorUsage,
     getAllMapKeysCompat as getAllMapNames,
-    getMapDataCompat as getMapData
+    getMapDataCompat as getMapData,
+    // Imported from repositories instead of settings.operations to avoid
+    // a static store ↔ state-manager import cycle.
+    deleteImageCompat as removeImage
 } from './repositories/index.js';
 import { getGroupManager } from './services.js';
 import { mapResolver } from './services/map-resolver.service.js';
@@ -154,6 +157,14 @@ class MapManager {
             this.memoryStore.lockedMaps.add(mapName);
         } else {
             this.memoryStore.lockedMaps.delete(mapName);
+        }
+
+        // Load temporal config into the sync cache for the active map.
+        const temporalCfg = await getSettingCompat(`temporal_${mapName}`);
+        if (temporalCfg) {
+            this.memoryStore.temporalConfigs.set(mapName, temporalCfg);
+        } else {
+            this.memoryStore.temporalConfigs.delete(mapName);
         }
 
         logOperation(
@@ -491,14 +502,9 @@ class MapManager {
         collect(actions);
         if (ids.length === 0) return;
 
-        // Dynamic import avoids a static store ↔ state-manager import cycle.
-        import('./settings.operations.js')
-            .then(({ removeImage }) => {
-                for (const id of ids) {
-                    Promise.resolve(removeImage(id)).catch(() => { /* best effort */ });
-                }
-            })
-            .catch(() => { /* best effort */ });
+        for (const id of ids) {
+            Promise.resolve(removeImage(id)).catch(() => { /* best effort */ });
+        }
     }
 
     recordAction(action) {

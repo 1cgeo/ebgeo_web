@@ -223,6 +223,10 @@ export function createBatchPointsPanel(options = {}) {
                         layerId,
                         id: featureId,
                         nome: featureName,
+                        // Anchor BOTH the marker size and the label to the current zoom —
+                        // size was left at the default (0) so the marker ballooned at zoom.
+                        sizeCreatedAtZoom: currentZoom,
+                        calculatedSize: defaultProps.size || 10,
                         labelCreatedAtZoom: currentZoom,
                         labelCalculatedSize: defaultProps.labelSize || 14,
                     },

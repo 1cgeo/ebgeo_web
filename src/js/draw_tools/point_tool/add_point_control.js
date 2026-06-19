@@ -8,6 +8,8 @@ import { BaseControl } from '../../tool_manager';
 import { LABEL_ZOOM_PROPERTIES, recalcLabelSize } from '../../tool_manager/helpers/label-tab.helpers.js';
 import { getSnappingService } from '../../snapping/snapping.service.js';
 import { generatePointImage, needsPerFeatureImage } from './point-marker-symbols.js';
+import { parseCustomMarker, registerCustomFeatureImage } from './point-custom-icons.js';
+import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
 
 /** Maximum circle-radius (in pixels) for zoom-corrected points. */
 const MAX_POINT_RADIUS = 500;
@@ -44,37 +46,24 @@ function recalcPointSize(sourceFeature, selectedFeature, currentZoom) {
 }
 
 /**
- * Register a per-feature marker image in MapLibre.
+ * Register a per-feature built-in marker image (shape/icon with baked-in colors),
+ * keyed by feature id, using feature properties with default fallbacks.
  * @param {Object} map - MapLibre map instance
- * @param {string} featureId - Feature ID (used as image ID)
- * @param {string} symbolId - Marker symbol identifier
- * @param {string} fillColor - Fill color
- * @param {string} lineColor - Border color
- * @param {number} lineWidth - Border width in CSS pixels
- */
-function registerFeatureImage(map, featureId, symbolId, fillColor, lineColor, lineWidth) {
-    const imageData = generatePointImage(symbolId, fillColor, lineColor, lineWidth);
-    if (map.hasImage(featureId)) {
-        map.removeImage(featureId);
-    }
-    map.addImage(featureId, imageData, { pixelRatio: 2 });
-}
-
-/**
- * Register a per-feature image using feature properties with default fallbacks.
- * @param {Object} map - MapLibre map instance
- * @param {Object} props - Feature properties
+ * @param {Object} props - Feature properties (id, markerSymbol, colors)
  */
 function registerImageFromProps(map, props) {
     const defaults = AddPointControl.DEFAULT_PROPERTIES;
-    registerFeatureImage(
-        map,
-        props.id,
+    const imageData = generatePointImage(
         props.markerSymbol,
         props.fillColor || defaults.fillColor,
         props.lineColor || defaults.lineColor,
-        props.lineWidth || defaults.lineWidth,
+        // ?? not || so a valid lineWidth of 0 ("no border") is preserved.
+        props.lineWidth ?? defaults.lineWidth,
     );
+    if (map.hasImage(props.id)) {
+        map.removeImage(props.id);
+    }
+    map.addImage(props.id, imageData, { pixelRatio: 2 });
 }
 
 class AddPointControl extends BaseControl {
@@ -301,7 +290,11 @@ class AddPointControl extends BaseControl {
     }
 
     createSelectionBox(feature) {
-        if (feature.properties.selectionBox) {
+        // A moving (trajectory) feature is displaced from its authored position, so
+        // the stored selectionBox (computed at home) no longer matches — recompute
+        // from the current displayed coordinates instead.
+        const moving = Array.isArray(feature.properties.trajetoria) && feature.properties.trajetoria.length >= 2;
+        if (feature.properties.selectionBox && !moving) {
             return { geometry: feature.properties.selectionBox };
         }
 
@@ -402,6 +395,9 @@ class AddPointControl extends BaseControl {
             effectiveZoom
         );
 
+        // Moving a trajectory feature relocates its anchor (kp 0 = the start position).
+        const anchorPatch = reanchorOnMove(feature.properties, newCoordinates, feature.geometry.coordinates);
+
         return {
             ...feature,
             geometry: {
@@ -410,6 +406,7 @@ class AddPointControl extends BaseControl {
             },
             properties: {
                 ...feature.properties,
+                ...(anchorPatch || null),
                 selectionBox: newSelectionBox,
             }
         };
@@ -521,9 +518,10 @@ class AddPointControl extends BaseControl {
      * Create point at specific coordinates
      * @param {number} lng - Longitude
      * @param {number} lat - Latitude
+     * @param {Object} [propertyOverrides] - Property overrides merged over defaults (e.g. nome, fillColor, size, attributes)
      * @returns {Promise<Object|null>} Created feature or null if error
      */
-    createPointAtCoordinates = async (lng, lat) => {
+    createPointAtCoordinates = async (lng, lat, propertyOverrides = {}) => {
         const coordinates = [lng, lat];
 
         if (!this.geometry.validate(coordinates)) {
@@ -532,45 +530,36 @@ class AddPointControl extends BaseControl {
         }
 
         const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
-        const featureName = await IDUtils.generateFeatureName('point', this.map);
+        const featureName = propertyOverrides.nome
+            || await IDUtils.generateFeatureName('point', this.map);
 
         const currentZoom = this.map.getZoom();
-        const defaults = AddPointControl.DEFAULT_PROPERTIES;
+        const baseProps = { ...AddPointControl.DEFAULT_PROPERTIES, ...propertyOverrides };
         const feature = {
             type: 'Feature',
             id: geoJsonId,
             properties: {
-                ...defaults,
+                ...baseProps,
                 layerId: getActiveLayerIdSync(),
                 id: featureId,
                 nome: featureName,
                 labelCreatedAtZoom: currentZoom,
-                labelCalculatedSize: defaults.labelSize,
+                labelCalculatedSize: baseProps.labelSize,
                 sizeCreatedAtZoom: currentZoom,
-                calculatedSize: defaults.size,
+                calculatedSize: baseProps.size,
             },
             geometry: this.geometry.generate(coordinates)
         };
 
         feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
             coordinates,
-            defaults.size,
-            defaults.lineWidth,
+            baseProps.size,
+            baseProps.lineWidth,
             currentZoom
         );
 
-        // Register per-feature image if non-circle marker
-        const markerSymbol = feature.properties.markerSymbol;
-        if (needsPerFeatureImage(markerSymbol)) {
-            registerFeatureImage(
-                this.map,
-                featureId,
-                markerSymbol,
-                feature.properties.fillColor,
-                feature.properties.lineColor,
-                feature.properties.lineWidth,
-            );
-        }
+        // Register per-feature image (custom icon, built-in shape/icon, or none)
+        await this._applyMarkerImage(feature.properties);
 
         try {
             await addFeature('points', feature);
@@ -592,16 +581,35 @@ class AddPointControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
+    /**
+     * Register or clean up the per-feature marker image for a point's current
+     * marker. Custom icons ('custom:<id>') register the uploaded image (async);
+     * built-in non-circle markers bake a per-feature image; circle markers clear
+     * any leftover image.
+     * @param {Object} props - Feature properties (must include id + markerSymbol)
+     */
+    _applyMarkerImage = async (props) => {
+        const iconId = parseCustomMarker(props.markerSymbol);
+        if (iconId) {
+            const registered = await registerCustomFeatureImage(this.map, props.id, iconId);
+            // Blob missing/undecodable: drop any stale per-feature image so the point
+            // doesn't keep rendering the previous marker.
+            if (!registered && this.map.hasImage(props.id)) {
+                this.map.removeImage(props.id);
+            }
+        } else if (needsPerFeatureImage(props.markerSymbol)) {
+            registerImageFromProps(this.map, props);
+        } else if (this.map.hasImage(props.id)) {
+            this.map.removeImage(props.id);
+        }
+    }
+
     updateFeaturesProperty = async (features, property, value) => {
         const data = await this.map.getSource('points').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
-                // Capture old marker symbol before mutation for image cleanup
-                const oldMarkerSymbol = property === 'markerSymbol'
-                    ? sourceFeature.properties.markerSymbol : undefined;
-
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
@@ -629,15 +637,7 @@ class AddPointControl extends BaseControl {
 
                 // Regenerate per-feature image when visual properties change
                 if (IMAGE_REGEN_PROPERTIES.has(property)) {
-                    const props = sourceFeature.properties;
-                    if (needsPerFeatureImage(props.markerSymbol)) {
-                        registerImageFromProps(this.map, props);
-                    } else if (property === 'markerSymbol' && needsPerFeatureImage(oldMarkerSymbol)) {
-                        // Switched from non-circle to circle — remove old image
-                        if (this.map.hasImage(props.id)) {
-                            this.map.removeImage(props.id);
-                        }
-                    }
+                    await this._applyMarkerImage(sourceFeature.properties);
                 }
             }
         }
@@ -674,13 +674,7 @@ class AddPointControl extends BaseControl {
 
         // Regenerate per-feature images after discarding changes
         for (const feature of features) {
-            const props = feature.properties;
-            if (needsPerFeatureImage(props.markerSymbol)) {
-                registerImageFromProps(this.map, props);
-            } else if (this.map.hasImage(props.id)) {
-                // Restored to circle — remove orphaned image
-                this.map.removeImage(props.id);
-            }
+            await this._applyMarkerImage(feature.properties);
         }
 
         await this.updateFeatures(features, true, true);

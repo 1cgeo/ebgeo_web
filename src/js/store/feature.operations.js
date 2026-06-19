@@ -17,6 +17,7 @@ import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { runTransaction } from './store-transaction.js';
 import { deepClone, deepEqual } from '../utilities/deep-utils.js';
 import { EventTypes } from '../events';
+import { formatDTG } from '../temporal/temporal.utils.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
 
@@ -597,6 +598,68 @@ export async function updateFeatureProperty(featureType, featureId, property, va
     });
 
     return true;
+}
+
+/**
+ * Re-derives the auto DTG/GDH amplifiers for a feature whose temporal window just
+ * shifted, so a `dateTimeGroup` / `gdhIni` / `gdhFim` bound to the timeline (the
+ * `autoDtg` opt-in) does not go stale after "Reagendar". No-op unless `autoDtg` is
+ * on. Mirrors deriveDtgFields in temporal-attributes-section.js (canonical values only).
+ * @param {string} type - Storage feature type (military_symbol / coordination_measure).
+ * @param {Object} p - Feature properties (already shifted in place).
+ */
+function rederiveAutoDtg(type, p) {
+    if (p.autoDtg !== true) return;
+    if (type === 'military_symbol') {
+        if (Number.isFinite(p.temporalInicio)) p.dateTimeGroup = formatDTG(p.temporalInicio, 'military');
+    } else if (type === 'coordination_measure') {
+        if (Number.isFinite(p.temporalInicio)) p.gdhIni = formatDTG(p.temporalInicio, 'coordination');
+        if (Number.isFinite(p.temporalFim)) p.gdhFim = formatDTG(p.temporalFim, 'coordination');
+    }
+}
+
+/**
+ * Shifts every temporal timestamp on a map's features by `deltaMs`:
+ * `temporalInicio`, `temporalFim`, and each trajectory keypoint's `t`. Driven by
+ * the explicit "Reagendar" action (move the whole exercise to a new real D-Day,
+ * keeping the D+N offsets). Atomic (one transaction, one persist). Not undoable
+ * and not logged to the sync queue (offline no-op today); reverse it by
+ * rescheduling back.
+ * @param {string|null} mapName - Target map (null = current).
+ * @param {number} deltaMs - Amount to add to each temporal timestamp.
+ * @returns {Promise<number>} Number of features changed.
+ */
+export async function shiftMapTemporalTimes(mapName, deltaMs) {
+    const targetMap = resolveMap(mapName);
+    if (!Number.isFinite(deltaMs) || deltaMs === 0) return 0;
+    if (guardWrite(GuardAction.UPDATE_FEATURE, 'shiftMapTemporalTimes', targetMap).blocked) return 0;
+
+    const currentMapData = await getMapDataCompat(targetMap);
+    let changed = 0;
+    for (const type of Object.keys(currentMapData.features)) {
+        for (const feature of currentMapData.features[type]) {
+            const p = feature.properties;
+            if (!p) continue;
+            let touched = false;
+            if (Number.isFinite(p.temporalInicio)) { p.temporalInicio += deltaMs; touched = true; }
+            if (Number.isFinite(p.temporalFim)) { p.temporalFim += deltaMs; touched = true; }
+            if (Array.isArray(p.trajetoria)) {
+                for (const kp of p.trajetoria) {
+                    if (kp && Number.isFinite(kp.t)) { kp.t += deltaMs; touched = true; }
+                }
+            }
+            if (touched) {
+                rederiveAutoDtg(type, p); // keep auto DTG/GDH amplifiers in sync with the shifted window
+                touchUpdatedTimestamp(feature);
+                changed++;
+            }
+        }
+    }
+
+    if (changed === 0) return 0;
+
+    await runTransaction(async () => () => updateMapDataCompat(targetMap, currentMapData));
+    return changed;
 }
 
 // ===== MOVE OPERATIONS =====

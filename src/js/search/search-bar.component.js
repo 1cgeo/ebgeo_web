@@ -14,9 +14,8 @@ import {
     cleanup,
     removeElement
 } from '@utils/event-cleanup.js';
-import { addFeature, getActiveLayerIdSync, setCurrentMap, getCurrentMapNameSync } from '@store/store.js';
+import { setCurrentMap, getCurrentMapNameSync } from '@store/store.js';
 import { zoomToFeature, zoomAndSelectFeature } from '@utils/feature_navigation_utils.js';
-import { IDUtils } from '@utils/id_utils.js';
 import { showError } from '@utils';
 import { escapeHtml } from '@utils/html-escape.js';
 import { getEventBus } from '@store/services.js';
@@ -662,7 +661,6 @@ export class SearchBarComponent {
     async _saveApiResultAsFeature(result) {
         try {
             const original = result.original || {};
-            const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
 
             // Build attributes from API result
             const attributes = {};
@@ -678,52 +676,33 @@ export class SearchBarComponent {
                 }
             });
 
-            const feature = {
-                type: 'Feature',
-                id: geoJsonId,
-                properties: {
-                    id: featureId,
-                    layerId: getActiveLayerIdSync(),
-                    source: 'point',
-                    nome: result.name || 'Ponto de Busca',
-                    descricao: `Importado da busca: ${original.tipo || 'Local'}`,
-                    fillColor: '#e74c3c',
-                    size: 12,
-                    opacity: 1,
-                    visivel: true,
-                    bloqueado: false,
-                    attributes: attributes
-                },
-                geometry: {
-                    type: 'Point',
-                    coordinates: result.coordinates
-                }
-            };
-
-            // Save to store
-            await addFeature('points', feature);
-
-            // Update map source
-            const source = this._map.getSource('points');
-            if (source) {
-                const data = await source.getData();
-                data.features.push(feature);
-                source.setData(data);
+            const pointControl = getControl('AddPointControl');
+            if (!pointControl || typeof pointControl.createPointAtCoordinates !== 'function') {
+                console.warn('[SearchBar] PointControl not available');
+                showError('Erro ao salvar feição. Tente novamente.');
+                return;
             }
 
-            // Disable API result panel flag before closing
+            // Close the API result panel before the control selects the new
+            // feature (selection reopens the feature panel)
             this._apiResultPanelOpen = false;
             this._removeMarker();
-
-            // Close the feature panel
             if (this._stateManager) {
                 this._stateManager.closeFeaturePanel();
             }
 
-            // Select the new feature
-            if (this._selectionManager) {
-                await this._selectionManager.toggleFeatureSelection('point', featureId, feature);
-                this._selectionManager.updateUI();
+            const [lng, lat] = result.coordinates;
+            const feature = await pointControl.createPointAtCoordinates(lng, lat, {
+                nome: result.name || 'Ponto de Busca',
+                descricao: `Importado da busca: ${original.tipo || 'Local'}`,
+                fillColor: '#e74c3c',
+                size: 12,
+                attributes: attributes
+            });
+
+            if (!feature) {
+                showError('Erro ao salvar feição. Tente novamente.');
+                return;
             }
 
             this._currentApiResult = null;
