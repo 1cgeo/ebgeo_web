@@ -257,7 +257,7 @@ export class TemporalController {
      * Features appear/disappear on step boundaries (matching the unit shown on the
      * bar): a feature is visible whenever its validity overlaps the cell, and the
      * filters rebuild once per step instead of every frame. The end instant of the
-     * range collapses to a point so the final state renders fully before looping.
+     * range collapses to a point so the final state renders fully before stopping.
      * @param {number} cursor - Raw cursor (epoch ms).
      * @returns {{start: number, end: number}} Window for the visibility filters.
      */
@@ -345,14 +345,13 @@ export class TemporalController {
         this._lastFrameTs = ts;
 
         const advance = unitToMs(this._config.unidade) * this._speed * dt;
-        let next;
         if (this._cursor >= this._bounds.fim) {
-            // The end instant was shown last frame — loop back to the start now.
-            next = this._bounds.inicio;
-        } else {
-            // Land exactly on `fim` so end-of-range instants render before looping.
-            next = Math.min(this._cursor + advance, this._bounds.fim);
+            // The end instant was shown last frame — stop at the end (no loop).
+            this._stopPlayback();
+            return;
         }
+        // Land exactly on `fim` so end-of-range instants render before stopping.
+        const next = Math.min(this._cursor + advance, this._bounds.fim);
 
         this._cursor = next;
         this._bar.setCursor(next);

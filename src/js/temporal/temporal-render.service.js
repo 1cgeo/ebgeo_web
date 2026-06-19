@@ -82,7 +82,15 @@ export function applyRevealDim(map, cursor, reveal) {
         for (const prop of props) {
             const key = `${layerId}|${prop}`;
             if (!originalOpacity.has(key)) {
-                originalOpacity.set(key, map.getPaintProperty(layerId, prop));
+                let original;
+                try {
+                    original = map.getPaintProperty(layerId, prop);
+                } catch {
+                    // Defensive: MapLibre throws if `prop` is not valid for this
+                    // layer's type. `props` is already type-filtered, but guard anyway.
+                    original = undefined;
+                }
+                originalOpacity.set(key, original);
             }
             const orig = originalOpacity.get(key);
             try {

@@ -39,6 +39,7 @@ export const FEATURE_LAYER_IDS = [
     'image-layer',
     'military-symbols-layer',
     'coordination-measures-layer',
+    'magnetic-declinations-layer',
     'boundary-main-layer',
     'boundary-circles-layer',
     'boundary-circles-stroke-layer',

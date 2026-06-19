@@ -13,6 +13,7 @@ import {
     parseScaleDenom,
     MOSAIC_MAX_DIM,
     MOSAIC_WARN_TILES,
+    MOSAIC_OVERLAP_MM,
 } from './pdf-export.constants.js'
 import {
     computeMosaicZoom,
@@ -168,12 +169,15 @@ export default class PDFExportTab {
                     </div>
                     <div class="pdf-mosaic-count" id="pdf-mosaic-count">1 folha A4</div>
                     <div class="pdf-mosaic-hint" id="pdf-mosaic-hint">
-                        Imprima em <strong>frente e verso</strong>, em tamanho real. A capa do PDF
-                        traz o passo a passo (e a borda de virada correta) e o verso de cada folha
-                        traz as etiquetas de montagem (com o mapa para baixo). Ligue a
+                        Imprima em <strong>frente e verso</strong>, em tamanho real. As folhas
+                        compartilham uma <strong>sobreposição de ${MOSAIC_OVERLAP_MM} mm</strong> nas
+                        emendas: corte cada folha pela linha vermelha do verso e ponha por baixo da
+                        vizinha — assim a margem que a impressora não imprime some e não fica
+                        <strong>faixa branca</strong>. A capa traz o passo a passo e o verso traz as
+                        etiquetas de montagem (com o mapa para baixo). Ligue a
                         <strong>Grade Lat/Long ou UTM</strong> para emoldurar o perímetro com as
-                        coordenadas; as emendas internas seguem contínuas. Caixas de
-                        título/legenda/escala/norte não são usadas no mosaico.
+                        coordenadas. Título, legenda, barra de escala e seta-norte são posicionados
+                        como se o mosaico fosse um único mapa (podem cair divididos entre folhas).
                     </div>
                 </div>
 
@@ -429,10 +433,10 @@ export default class PDFExportTab {
     }
 
     /**
-     * Reflects mosaic state in the panel: shows the assembly hint, updates the
-     * sheet count, and disables map-overlay cartographic options that do not
-     * apply to a clean mosaic (legend / scale bar / north arrow). Grids and the
-     * optional cover title remain available.
+     * Reflects mosaic state in the panel: shows the assembly hint and updates the
+     * sheet count + export button label. Title/legend/scale bar/north arrow are
+     * positioned across the whole mosaic (as if it were a single map), so they stay
+     * available in mosaic mode.
      */
     _updateMosaicUIState() {
         const mosaic = this.isMosaic;
@@ -446,18 +450,6 @@ export default class PDFExportTab {
         const hintEl = document.getElementById('pdf-mosaic-hint');
         if (hintEl) {
             hintEl.classList.toggle('pdf-mosaic-hint--visible', mosaic);
-        }
-
-        for (const id of ['pdf-show-legend', 'pdf-show-scalebar', 'pdf-show-north']) {
-            const el = document.getElementById(id);
-            if (!el) continue;
-            el.disabled = mosaic;
-            if (mosaic) el.checked = false;
-        }
-        if (mosaic) {
-            this.showLegend = false;
-            this.showScaleBar = false;
-            this.showNorthArrow = false;
         }
 
         const exportBtn = document.getElementById('pdf-export-btn');
@@ -634,6 +626,7 @@ export default class PDFExportTab {
             rows: this.rows, cols: this.cols,
             centerLng: center.lng, centerLat: center.lat,
             pageMercW: span.width, pageMercH: span.height,
+            overlapMercW: span.overlap, overlapMercH: span.overlap,
         });
 
         const features = tiles.map(t => {
@@ -659,6 +652,7 @@ export default class PDFExportTab {
             centerLng: center.lng, centerLat: center.lat,
             rows: this.rows, cols: this.cols,
             pageMercW: span.width, pageMercH: span.height,
+            overlapMercW: span.overlap, overlapMercH: span.overlap,
         });
         this.paperBounds = {
             topLeft: [mb.west, mb.north], topRight: [mb.east, mb.north],
@@ -673,16 +667,21 @@ export default class PDFExportTab {
     }
 
     /**
-     * Per-page Mercator span (width/height in metres) at the current scale,
-     * orientation and the given latitude. Shared by preview and (implicitly) the
-     * export, which recomputes the same values.
+     * Per-page Mercator span (width/height in metres) and the seam overlap (metres)
+     * at the current scale, orientation and the given latitude. Shared by preview
+     * and (implicitly) the export, which recomputes the same values.
      * @param {number} lat - Centre latitude
-     * @returns {{ width: number, height: number }}
+     * @returns {{ width: number, height: number, overlap: number }}
      */
     _mosaicPageSpan(lat) {
         const [pageWmm, pageHmm] = this.orientation === 'landscape' ? [297, 210] : [210, 297];
         const zoom = computeMosaicZoom(this._parseScaleDenom(), lat);
-        return pageMercatorSpan(zoom, pageContainerCssPx(pageWmm), pageContainerCssPx(pageHmm));
+        const span = pageMercatorSpan(zoom, pageContainerCssPx(pageWmm), pageContainerCssPx(pageHmm));
+        // Seam overlap (Mercator metres) so the preview tiles overlap exactly like
+        // the exported sheets do.
+        const overlapCss = pageContainerCssPx(MOSAIC_OVERLAP_MM);
+        const overlap = pageMercatorSpan(zoom, overlapCss, overlapCss).width;
+        return { width: span.width, height: span.height, overlap };
     }
 
     zoomToPreviewArea() {
@@ -890,6 +889,12 @@ export default class PDFExportTab {
 
             const { exportMosaicPdf } = await import('./pdf-mosaic-export.js');
 
+            // Collect legend stats over the WHOLE mosaic area (usableBounds spans the
+            // full mosaic in mosaic mode) so the legend reflects the assembled map.
+            const featuresByType = this.showLegend
+                ? await this._collectFeatureStats(this._buildExportBoundsPolygon())
+                : {};
+
             const ok = await exportMosaicPdf({
                 map: this.map,
                 cleanStyle: this.getCleanStyle(),
@@ -901,6 +906,10 @@ export default class PDFExportTab {
                 cols: this.cols,
                 showLatLongGrid: this.showLatLongGrid,
                 showUTMGrid: this.isUTMGridAllowed,
+                showLegend: this.showLegend,
+                showScaleBar: this.showScaleBar,
+                showNorthArrow: this.showNorthArrow,
+                featuresByType,
                 title: this.showTitle ? this.mapTitle : '',
                 includeCover: true,
                 includeVerso: true,

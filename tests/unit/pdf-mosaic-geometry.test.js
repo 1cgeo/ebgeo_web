@@ -135,6 +135,40 @@ describe('computeTileCenters', () => {
         expect(tile.centerLng).toBeCloseTo(base.centerLng, 6);
         expect(tile.centerLat).toBeCloseTo(base.centerLat, 6);
     });
+
+    it('overlap shrinks neighbour spacing by the overlap amount', () => {
+        const tiles = computeTileCenters({ ...base, overlapMercW: 2000, overlapMercH: 1400 });
+        const merc = tiles.map(t => lngLatToMercator(t.centerLng, t.centerLat));
+        // Horizontal/vertical advance = span − overlap.
+        expect(merc[1].x - merc[0].x).toBeCloseTo(base.pageMercW - 2000, 3);
+        expect(merc[0].y - merc[3].y).toBeCloseTo(base.pageMercH - 1400, 3);
+    });
+
+    it('adjacent tiles share an overlap-wide duplicated strip', () => {
+        const tiles = computeTileCenters({ ...base, overlapMercW: 2000, overlapMercH: 1400 });
+        const m0 = lngLatToMercator(tiles[0].centerLng, tiles[0].centerLat);
+        const m1 = lngLatToMercator(tiles[1].centerLng, tiles[1].centerLat);
+        // East edge of tile 0 overlaps the west edge of tile 1 by exactly `overlap`.
+        const t0East = m0.x + base.pageMercW / 2;
+        const t1West = m1.x - base.pageMercW / 2;
+        expect(t0East - t1West).toBeCloseTo(2000, 3);
+    });
+
+    it('keeps the mosaic centred when overlapping', () => {
+        const merc = computeTileCenters({ ...base, overlapMercW: 2000, overlapMercH: 1400 })
+            .map(t => lngLatToMercator(t.centerLng, t.centerLat));
+        const meanX = merc.reduce((s, m) => s + m.x, 0) / merc.length;
+        const meanY = merc.reduce((s, m) => s + m.y, 0) / merc.length;
+        const c = lngLatToMercator(base.centerLng, base.centerLat);
+        expect(meanX).toBeCloseTo(c.x, 3);
+        expect(meanY).toBeCloseTo(c.y, 3);
+    });
+
+    it('overlap = 0 reproduces the abutting (no-overlap) layout', () => {
+        const plain = computeTileCenters(base);
+        const zeroed = computeTileCenters({ ...base, overlapMercW: 0, overlapMercH: 0 });
+        expect(zeroed).toEqual(plain);
+    });
 });
 
 describe('computeMosaicBounds', () => {
@@ -147,6 +181,34 @@ describe('computeMosaicBounds', () => {
         const tiles = computeTileCenters({
             ...params, centerLng: params.centerLng, centerLat: params.centerLat,
         });
+        for (const t of tiles) {
+            const tb = tileBounds({ ...t, pageMercW: params.pageMercW, pageMercH: params.pageMercH });
+            expect(tb.west).toBeGreaterThanOrEqual(bounds.west - 1e-6);
+            expect(tb.east).toBeLessThanOrEqual(bounds.east + 1e-6);
+            expect(tb.south).toBeGreaterThanOrEqual(bounds.south - 1e-6);
+            expect(tb.north).toBeLessThanOrEqual(bounds.north + 1e-6);
+        }
+    });
+
+    it('shrinks the total span by the overlaps', () => {
+        const params = {
+            centerLng: 10, centerLat: 45, rows: 3, cols: 4,
+            pageMercW: 6000, pageMercH: 4200,
+        };
+        const b = computeMosaicBounds({ ...params, overlapMercW: 1000, overlapMercH: 700 });
+        // Mercator x depends only on lng, so converting the bounds back gives the total span.
+        const width = lngLatToMercator(b.east, params.centerLat).x - lngLatToMercator(b.west, params.centerLat).x;
+        // total = pageMercW + (cols−1)(pageMercW − overlap) = 6000 + 3·5000 = 21000.
+        expect(width).toBeCloseTo(6000 + 3 * 5000, 0);
+    });
+
+    it('still encloses every tile when overlapping', () => {
+        const params = {
+            centerLng: 10, centerLat: 45, rows: 3, cols: 4,
+            pageMercW: 6000, pageMercH: 4200, overlapMercW: 1000, overlapMercH: 700,
+        };
+        const bounds = computeMosaicBounds(params);
+        const tiles = computeTileCenters(params);
         for (const t of tiles) {
             const tb = tileBounds({ ...t, pageMercW: params.pageMercW, pageMercH: params.pageMercH });
             expect(tb.west).toBeGreaterThanOrEqual(bounds.west - 1e-6);

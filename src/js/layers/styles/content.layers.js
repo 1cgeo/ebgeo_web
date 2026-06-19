@@ -141,7 +141,8 @@ export function setupTextLayers(features, mapInstance) {
         paint: {
             'text-color': ['get', 'color'],
             'text-halo-color': ['get', 'backgroundColor'],
-            'text-halo-width': ['get', 'textHaloWidth']
+            'text-halo-width': ['get', 'textHaloWidth'],
+            'text-opacity': 1
         },
         filter: VISIBLE_FILTER
     });

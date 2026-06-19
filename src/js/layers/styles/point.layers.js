@@ -48,6 +48,7 @@ export function setupPointLayers(features, mapInstance) {
             'circle-opacity': ['get', 'opacity'],
             'circle-stroke-color': ['coalesce', ['get', 'lineColor'], 'transparent'],
             'circle-stroke-width': ['coalesce', ['get', 'lineWidth'], 0],
+            'circle-stroke-opacity': ['get', 'opacity'],
         },
         filter: CIRCLE_MARKER_FILTER,
     });

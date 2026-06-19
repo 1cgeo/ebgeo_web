@@ -489,6 +489,7 @@ class AddBoundaryGeometry extends BaseGeometry {
                         geometry: polygon.geometry,
                         properties: {
                             parent: boundaryFeature.properties.id,
+                            layerId: boundaryFeature.properties.layerId,
                             color: boundaryFeature.properties.color,
                             opacity: boundaryFeature.properties.opacity,
                             source: 'boundary-circle'
@@ -545,10 +546,12 @@ class AddBoundaryGeometry extends BaseGeometry {
                         },
                         properties: {
                             parent: boundaryFeature.properties.id,
+                            layerId: boundaryFeature.properties.layerId,
                             text: text_top,
                             rotation: textRotation,
                             text_size: text_size,
                             color: boundaryFeature.properties.color,
+                            opacity: boundaryFeature.properties.opacity,
                             source: 'boundary-text'
                         }
                     });
@@ -565,10 +568,12 @@ class AddBoundaryGeometry extends BaseGeometry {
                         },
                         properties: {
                             parent: boundaryFeature.properties.id,
+                            layerId: boundaryFeature.properties.layerId,
                             text: text_bottom,
                             rotation: textRotation,
                             text_size: text_size,
                             color: boundaryFeature.properties.color,
+                            opacity: boundaryFeature.properties.opacity,
                             source: 'boundary-text'
                         }
                     });

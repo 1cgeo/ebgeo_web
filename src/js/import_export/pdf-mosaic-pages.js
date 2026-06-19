@@ -29,6 +29,8 @@ const MUTED = [110, 110, 110];
 const FAINT_FILL = [244, 246, 244];
 const HILITE_FILL = [80, 141, 78];
 const BORDER = [150, 150, 150];
+// Cut-line warning red for the seam-trim guides on the verso.
+const CUT = [200, 60, 60];
 
 // ============================================================================
 // PUBLIC API
@@ -46,8 +48,9 @@ const BORDER = [150, 150, 150];
  * @param {string} [opts.title] - Optional map title
  * @param {number} opts.pageW - Page width (mm)
  * @param {number} opts.pageH - Page height (mm)
+ * @param {number} [opts.overlapMm=10] - Seam overlap duplicated between sheets (mm)
  */
-export function drawCoverPage(doc, { rows, cols, scaleLabel, dpi, orientation, title, pageW, pageH }) {
+export function drawCoverPage(doc, { rows, cols, scaleLabel, dpi, orientation, title, pageW, pageH, overlapMm = 10 }) {
     // The duplex flip must preserve top/bottom so the verso "TOPO" backs the map's
     // North. That requires flipping about the A4 vertical (210 mm) edge — which is
     // the LONG edge in portrait but the SHORT edge in landscape.
@@ -87,11 +90,11 @@ export function drawCoverPage(doc, { rows, cols, scaleLabel, dpi, orientation, t
     const steps = [
         `Imprima este PDF em FRENTE E VERSO, virando pela borda ${duplexEdge}, em tamanho real (100% / "Tamanho real" — não use "Ajustar à página").`,
         'Separe as folhas de mapa (a capa e este resumo ficam de fora).',
-        'Apare a borda branca não-impressa de cada folha nas emendas internas, para o mapa encostar no limite do papel.',
+        `Em cada emenda interna, corte a folha pela linha tracejada VERMELHA do verso — há ${overlapMm} mm de mapa repetido de propósito, para cobrir a margem que a impressora não imprime.`,
         'Vire todas as folhas com o MAPA PARA BAIXO. Gire cada folha até a seta "TOPO" do verso apontar para longe de você.',
-        'Monte a grade seguindo a Linha/Coluna do verso. O diagrama do verso já está espelhado para esta montagem de costas.',
-        'Una as folhas vizinhas com fita adesiva pelo verso.',
-        'Vire todo o bloco da ESQUERDA para a DIREITA. O mapa aparece correto e contínuo.',
+        'Monte a grade pela Linha/Coluna do verso (já espelhado). As bordas cortadas (linha vermelha) entram POR BAIXO da folha vizinha; encoste o corte na linha de registro pontilhada da vizinha.',
+        'Una as folhas com fita adesiva pelo verso.',
+        'Vire todo o bloco da ESQUERDA para a DIREITA. O mapa aparece contínuo, sem faixa branca nas emendas.',
     ];
 
     doc.setFontSize(11);
@@ -186,17 +189,22 @@ export function drawOverviewPage(doc, { rows, cols, pageW, pageH }) {
  * @param {number} opts.cols
  * @param {number} opts.pageW
  * @param {number} opts.pageH
+ * @param {number} [opts.overlapMm=10] - Seam overlap duplicated between sheets (mm)
  */
-export function drawVersoPage(doc, { row, col, rows, cols, pageW, pageH }) {
+export function drawVersoPage(doc, { row, col, rows, cols, pageW, pageH, overlapMm = 10 }) {
     const margin = 14;
 
     const { assemblyCol } = mirrorAssemblyPosition({ row, col, cols });
 
+    // Push the header below the top cut line (drawn at `overlapMm` from the edge)
+    // so the "TOPO" mark never collides with it.
+    const headTopY = Math.max(margin, overlapMm + 6);
+
     // "↑ TOPO" mark near the top edge.
-    drawTopMark(doc, pageW, margin);
+    drawTopMark(doc, pageW, headTopY);
 
     // Heading.
-    let y = margin + 20;
+    let y = headTopY + 20;
     setColor(doc, 'text', MUTED);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
@@ -221,8 +229,9 @@ export function drawVersoPage(doc, { row, col, rows, cols, pageW, pageH }) {
     );
 
     // Mirrored grid with this tile highlighted (the primary, unambiguous guide).
+    // Leave room below for the legend + footer so text never touches the grid.
     const top = y + 6;
-    const bottom = pageH - margin - 12;
+    const bottom = pageH - margin - 28;
     const box = fitGrid({
         rows, cols, pageW, pageH,
         maxW: pageW - 2 * margin - 20,
@@ -233,6 +242,23 @@ export function drawVersoPage(doc, { row, col, rows, cols, pageW, pageH }) {
         x: gridX, y: top, cellW: box.cellW, cellH: box.cellH,
         rows, cols, mirror: true, labelAll: false, highlight: { row, col },
     });
+
+    // Cut / overlap guides drawn in the page margins (clear of the central content).
+    drawSeamGuides(doc, { row, col, rows, cols, pageW, pageH, overlapMm });
+
+    // Legend: explains the guides, or — on the single top-left sheet that has no cut
+    // — why it has none (it sits on top; the neighbours cut and tuck under it).
+    const hasCut = row > 0 || col > 0;
+    const hasRecv = row < rows - 1 || col < cols - 1;
+    const legendText = hasCut
+        ? 'Tracejado vermelho = corte e ponha por baixo · pontilhado = registro da vizinha'
+        : (hasRecv ? 'Sem corte nesta folha: ela fica POR CIMA — as vizinhas cortam e encaixam nas linhas pontilhadas.' : '');
+    if (legendText) {
+        setColor(doc, 'text', MUTED);
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(8);
+        doc.text(legendText, pageW / 2, pageH - margin - 11, { align: 'center' });
+    }
 
     // Footer: the tile's identity in the FINISHED map, plus the final action.
     setColor(doc, 'text', MUTED);
@@ -270,6 +296,60 @@ function drawTopMark(doc, pageW, margin) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.text('TOPO', cx + half + 3, baseY + 1);
+}
+
+/**
+ * Draws the cut/overlap guides in the verso margins.
+ *
+ * Convention (final map): each sheet trims its NORTH and WEST overlap and lays the
+ * cut edges OVER the neighbours above/left — so every internal seam is cut once.
+ * In the face-down verso frame the assembly grid is mirrored, so map-North maps to
+ * the verso TOP edge and map-West to the verso RIGHT edge; the receiving seams
+ * (map-South / map-East) fall on the verso BOTTOM / LEFT edges.
+ *
+ * A guide is drawn only when a neighbour exists on that side. Cut guides are a
+ * dashed red line at `overlapMm` from the edge (cut here, then slide under the
+ * neighbour); registration guides are a dotted grey line marking where the
+ * neighbour's cut edge should land.
+ *
+ * @param {import('jspdf').jsPDF} doc
+ * @param {Object} o
+ * @param {number} o.row - 0-based final row
+ * @param {number} o.col - 0-based final column
+ * @param {number} o.rows
+ * @param {number} o.cols
+ * @param {number} o.pageW
+ * @param {number} o.pageH
+ * @param {number} o.overlapMm - Distance from the edge to the cut/registration line
+ */
+function drawSeamGuides(doc, { row, col, rows, cols, pageW, pageH, overlapMm }) {
+    const inset = 8; // keep guide lines clear of the sheet corners
+    const cutTop = row > 0;             // map North seam  → verso TOP edge
+    const cutRight = col > 0;           // map West seam   → verso RIGHT edge
+    const recvBottom = row < rows - 1;  // map South seam  → verso BOTTOM edge
+    const recvLeft = col < cols - 1;    // map East seam   → verso LEFT edge
+
+    // --- Cut guides (dashed red) ---
+    setColor(doc, 'draw', CUT);
+    doc.setLineWidth(0.5);
+    doc.setLineDashPattern([2.4, 1.6], 0);
+    if (cutTop) doc.line(inset, overlapMm, pageW - inset, overlapMm);
+    if (cutRight) doc.line(pageW - overlapMm, inset, pageW - overlapMm, pageH - inset);
+    doc.setLineDashPattern([], 0);
+
+    setColor(doc, 'text', CUT);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    if (cutTop) doc.text('CORTAR (por baixo)', inset + 2, overlapMm - 1.5);
+    if (cutRight) doc.text('CORTAR (por baixo)', pageW - overlapMm - 1.5, pageH - inset, { angle: 90 });
+
+    // --- Registration guides on receiving edges (dotted grey) ---
+    setColor(doc, 'draw', MUTED);
+    doc.setLineWidth(0.3);
+    doc.setLineDashPattern([0.6, 1.4], 0);
+    if (recvBottom) doc.line(inset, pageH - overlapMm, pageW - inset, pageH - overlapMm);
+    if (recvLeft) doc.line(overlapMm, inset, overlapMm, pageH - inset);
+    doc.setLineDashPattern([], 0);
 }
 
 /**

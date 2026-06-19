@@ -309,11 +309,11 @@ describe('resolveTimelineBounds', () => {
     it('uses explicit config bounds when present', () => {
         expect(resolveTimelineBounds({ inicio: 0, fim: 1000, unidade: 'HORA' }, [])).toEqual({ inicio: 0, fim: 1000 });
     });
-    it('derives missing bounds from feature extent (padded by one unit)', () => {
+    it('derives missing bounds from the exact feature extent (no padding)', () => {
         const features = [{ properties: { temporalInicio: 100, temporalFim: 200 } }];
         const r = resolveTimelineBounds({ inicio: null, fim: null, unidade: 'MINUTO' }, features);
         expect(r.inicio).toBe(100);
-        expect(r.fim).toBe(200 + 60_000);
+        expect(r.fim).toBe(200);
     });
     it('returns null when undeterminable', () => {
         expect(resolveTimelineBounds({ inicio: null, fim: null, unidade: 'HORA' }, [])).toBeNull();

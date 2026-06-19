@@ -445,6 +445,93 @@ function _utmBorderLines(mapBounds, scaleDenom) {
     return { vertical, horizontal };
 }
 
+/**
+ * Overlays the cartographic elements (title, north arrow, scale bar, legend, logo)
+ * onto a single mosaic tile, positioned as if the WHOLE assembled mosaic were one
+ * map. Each element is placed in the assembled-mosaic pixel frame, then the context
+ * is translated by the tile's offset so only the part falling within this tile is
+ * drawn (the canvas clips the rest). An element that straddles a seam therefore
+ * prints split across the neighbouring sheets and re-joins when assembled.
+ *
+ * @param {CanvasRenderingContext2D} ctx - The tile canvas context
+ * @param {Object} o
+ * @param {number} o.offsetX - This tile's left edge in assembled-mosaic px
+ * @param {number} o.offsetY - This tile's top edge in assembled-mosaic px
+ * @param {number} o.mosaicW - Assembled mosaic width (px)
+ * @param {number} o.mosaicH - Assembled mosaic height (px)
+ * @param {number} o.frameInset - Inset from the assembled edge to the neat-line (px);
+ *   equals the perimeter coordinate band when a grid is on, else 0
+ * @param {string|null} o.title
+ * @param {boolean} o.showNorthArrow
+ * @param {boolean} o.showScaleBar
+ * @param {boolean} o.showLegend
+ * @param {Object} o.featuresByType - { type: { count, color } } for the legend
+ * @param {string} o.scale - Scale string like "1:25000"
+ * @param {number} [o.dpi=300]
+ * @param {HTMLImageElement} [o.logoImage]
+ */
+export function drawMosaicCartographicOverlay(ctx, {
+    offsetX, offsetY, mosaicW, mosaicH, frameInset = 0,
+    title, showNorthArrow, showScaleBar, showLegend,
+    featuresByType = {}, scale, dpi = 300, logoImage,
+}) {
+    const uiScale = dpi / 200;
+    const frameLeft = frameInset;
+    const frameTop = frameInset;
+    const frameRight = mosaicW - frameInset;
+    const frameBottom = mosaicH - frameInset;
+    const frameW = frameRight - frameLeft;
+
+    const legendEntries = Object.entries(featuresByType)
+        .map(([type, value]) => (typeof value === 'number' ? [type, value, null] : [type, value.count, value.color || null]))
+        .filter(([, count]) => count > 0);
+
+    // Shift the assembled-mosaic coordinate system into this tile's space.
+    ctx.save();
+    ctx.translate(-offsetX, -offsetY);
+
+    if (title) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawTitle(ctx, title, mosaicW / uiScale, frameTop / uiScale);
+        ctx.restore();
+    }
+
+    if (showNorthArrow) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        const northY = frameTop / uiScale + (title ? (TITLE_HEIGHT + 40) : 30);
+        const northX = frameRight / uiScale - NORTH_ARROW_SIZE - 30;
+        _drawNorthArrow(ctx, northX, northY, 0);
+        ctx.restore();
+    }
+
+    if (showScaleBar) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        const barX = frameLeft / uiScale + 40;
+        const barY = frameBottom / uiScale - SCALE_BAR_HEIGHT - 30;
+        _drawScaleBar(ctx, barX, barY, scale, frameW / uiScale, 200);
+        ctx.restore();
+    }
+
+    if (showLegend && legendEntries.length > 0) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawLegend(ctx, frameRight / uiScale, frameBottom / uiScale, legendEntries);
+        ctx.restore();
+    }
+
+    if (logoImage) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawLogo(ctx, logoImage, frameLeft / uiScale, frameTop / uiScale);
+        ctx.restore();
+    }
+
+    ctx.restore();
+}
+
 // ============================================================================
 // PRIVATE DRAWING FUNCTIONS
 // ============================================================================
@@ -557,13 +644,15 @@ function _drawNorthArrow(ctx, x, y, bearing) {
 function _drawScaleBar(ctx, x, y, scale, canvasWidth, dpi = 300) {
     const denominator = parseScaleDenom(scale);
 
-    // Calculate a "nice" distance for the scale bar (roughly 1/5 of map width)
+    // Fixed cartographic divisions: each of the 4 segments spans denom/50 metres
+    // (500 m at 1:25.000, 1000 m at 1:50.000, 200 m at 1:10.000, …) — i.e. 20 mm on
+    // paper per division at any scale. canvasWidth only sets the pixel width of that
+    // fixed ground distance.
+    const segments = 4;
+    const divisionMeters = denominator / 50;
+    const niceDistance = divisionMeters * segments;
     const mapWidthMM = canvasWidth / (dpi / 25.4);
     const mapWidthMeters = (mapWidthMM / 1000) * denominator;
-    const targetBarMeters = mapWidthMeters / 5;
-
-    // Round to a nice number
-    const niceDistance = _niceNumber(targetBarMeters);
     const barWidthPx = (niceDistance / mapWidthMeters) * canvasWidth;
 
     // Background
@@ -579,7 +668,6 @@ function _drawScaleBar(ctx, x, y, scale, canvasWidth, dpi = 300) {
     ctx.fillText(_formatScaleText(denominator), x, y);
 
     // Scale bar body (alternating black/white segments)
-    const segments = 4;
     const segWidth = barWidthPx / segments;
     const barY = y + 22;
     const barH = 10;
@@ -1259,19 +1347,6 @@ function _drawLegendSwatch(ctx, x, y, type, color) {
             ctx.fillRect(x + 2, y + 2, 12, 12);
             break;
     }
-}
-
-/**
- * Returns a "nice" rounded number for scale bar distances.
- */
-function _niceNumber(value) {
-    const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
-    const fraction = value / magnitude;
-
-    if (fraction <= 1) return magnitude;
-    if (fraction <= 2) return 2 * magnitude;
-    if (fraction <= 5) return 5 * magnitude;
-    return 10 * magnitude;
 }
 
 /**

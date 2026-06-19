@@ -166,7 +166,9 @@ function buildTipLabel(tip, text, dx = 0) {
 function buildLegend(declinationDeg, convergenceDeg) {
     const fontSize = 20;
     const x = 20;
+    // Convergence sits above declination, and both lines are kept high enough
+    // to clear the arrow-tip labels (NV/NQ/NM) that land just below (~y=66).
     return `
-  <text x="${x}" y="34" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${TEXT_COLOR}">Decl. (NV-NM): ${formatSignedDegrees(declinationDeg)}</text>
-  <text x="${x}" y="62" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${TEXT_COLOR}">Conv. (NV-NQ): ${formatSignedDegrees(convergenceDeg)}</text>`;
+  <text x="${x}" y="22" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${TEXT_COLOR}">Conv. (NV-NQ): ${formatSignedDegrees(convergenceDeg)}</text>
+  <text x="${x}" y="46" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${TEXT_COLOR}">Decl. (NV-NM): ${formatSignedDegrees(declinationDeg)}</text>`;
 }

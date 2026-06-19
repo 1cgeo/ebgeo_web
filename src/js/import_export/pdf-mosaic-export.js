@@ -25,9 +25,13 @@ import {
     computeTileCenters,
 } from './pdf-mosaic-geometry.js';
 import { drawCoverPage, drawOverviewPage, drawVersoPage } from './pdf-mosaic-pages.js';
-import { drawMosaicGridLines, drawMosaicTileBorder } from './pdf-cartographic-elements.js';
+import {
+    drawMosaicGridLines,
+    drawMosaicTileBorder,
+    drawMosaicCartographicOverlay,
+} from './pdf-cartographic-elements.js';
 import { transferMapImages, correctZoomInvariantFeatures } from './export-utils.js';
-import { parseScaleDenom, MOSAIC_BORDER_MM } from './pdf-export.constants.js';
+import { parseScaleDenom, MOSAIC_BORDER_MM, MOSAIC_OVERLAP_MM } from './pdf-export.constants.js';
 
 /** Page dimensions (mm) for each orientation. */
 function pageSizeMm(orientation) {
@@ -71,6 +75,10 @@ function waitForIdle(hiddenMap, timeoutMs = 20000) {
  * @param {number} config.cols
  * @param {boolean} [config.showLatLongGrid]
  * @param {boolean} [config.showUTMGrid]
+ * @param {boolean} [config.showLegend] - Draw the legend as if the mosaic were one map
+ * @param {boolean} [config.showScaleBar] - Draw the scale bar as if the mosaic were one map
+ * @param {boolean} [config.showNorthArrow] - Draw the north arrow as if the mosaic were one map
+ * @param {Object} [config.featuresByType] - { type: { count, color } } for the legend
  * @param {string} [config.title]
  * @param {boolean} [config.includeCover=true]
  * @param {boolean} [config.includeVerso=true]
@@ -90,6 +98,10 @@ export async function exportMosaicPdf(config) {
         cols,
         showLatLongGrid = false,
         showUTMGrid = false,
+        showLegend = false,
+        showScaleBar = false,
+        showNorthArrow = false,
+        featuresByType = {},
         title = '',
         includeCover = true,
         includeVerso = true,
@@ -105,14 +117,22 @@ export async function exportMosaicPdf(config) {
     const scaleDenom = parseScaleDenom(scale);
     const zoom = computeMosaicZoom(scaleDenom, center.lat);
     const span = pageMercatorSpan(zoom, containerWcss, containerHcss);
+    // Overlap duplicated along every internal seam (Mercator metres, isotropic).
+    const overlapCss = pageContainerCssPx(MOSAIC_OVERLAP_MM);
+    const overlapMerc = pageMercatorSpan(zoom, overlapCss, overlapCss).width;
     const tiles = computeTileCenters({
         rows, cols,
         centerLng: center.lng, centerLat: center.lat,
         pageMercW: span.width, pageMercH: span.height,
+        overlapMercW: overlapMerc, overlapMercH: overlapMerc,
     });
     const drawGrid = showLatLongGrid || showUTMGrid;
     // When a grid is on, the mosaic's outer perimeter gets a coordinate border band.
     const bandPx = drawGrid ? Math.round((MOSAIC_BORDER_MM / 25.4) * dpi) : 0;
+    // Seam overlap in device pixels — needed to place mosaic-wide cartographic
+    // elements in the assembled-mosaic frame (tiles advance by tileW − overlapPx).
+    const overlapPx = Math.round((MOSAIC_OVERLAP_MM / 25.4) * dpi);
+    const drawCarto = showLegend || showScaleBar || showNorthArrow || !!title;
 
     let hiddenContainer = null;
     let hiddenMap = null;
@@ -170,7 +190,7 @@ export async function exportMosaicPdf(config) {
             newPage();
             drawCoverPage(doc, {
                 rows, cols, scaleLabel: scaleLabel(scale), dpi, orientation, title,
-                pageW: page.w, pageH: page.h,
+                pageW: page.w, pageH: page.h, overlapMm: MOSAIC_OVERLAP_MM,
             });
             newPage();
             drawOverviewPage(doc, { rows, cols, pageW: page.w, pageH: page.h });
@@ -201,6 +221,8 @@ export async function exportMosaicPdf(config) {
             };
             const dataUrl = captureTile(hiddenMap, {
                 drawGrid, scale, showLatLongGrid, showUTMGrid, dpi, pixelRatio, bands, bandPx,
+                drawCarto, overlapPx, row: tile.row, col: tile.col, rows, cols,
+                title, showLegend, showScaleBar, showNorthArrow, featuresByType,
             });
 
             newPage();
@@ -210,7 +232,7 @@ export async function exportMosaicPdf(config) {
                 newPage();
                 drawVersoPage(doc, {
                     row: tile.row, col: tile.col, rows, cols,
-                    pageW: page.w, pageH: page.h,
+                    pageW: page.w, pageH: page.h, overlapMm: MOSAIC_OVERLAP_MM,
                 });
             }
         }
@@ -233,13 +255,20 @@ export async function exportMosaicPdf(config) {
 /**
  * Captures the current off-screen map view as a JPEG data URL. When a grid is
  * on, it overlays continuous grid lines onto a 2D copy of the WebGL canvas and,
- * for perimeter tiles, draws the coordinate border band.
+ * for perimeter tiles, draws the coordinate border band. When cartographic
+ * elements are enabled, it overlays the title/legend/scale-bar/north-arrow placed
+ * as if the whole mosaic were a single map (split across tiles by the offset).
  * @returns {string} JPEG data URL
  */
-function captureTile(hiddenMap, { drawGrid, scale, showLatLongGrid, showUTMGrid, dpi, pixelRatio, bands, bandPx }) {
+function captureTile(hiddenMap, {
+    drawGrid, scale, showLatLongGrid, showUTMGrid, dpi, pixelRatio, bands, bandPx,
+    drawCarto, overlapPx, row, col, rows, cols,
+    title, showLegend, showScaleBar, showNorthArrow, featuresByType,
+}) {
     const glCanvas = hiddenMap.getCanvas();
 
-    if (!drawGrid) {
+    // Fast path: no grid and no cartographic overlay → return the raw map.
+    if (!drawGrid && !drawCarto) {
         return glCanvas.toDataURL('image/jpeg', 0.92);
     }
 
@@ -249,35 +278,59 @@ function captureTile(hiddenMap, { drawGrid, scale, showLatLongGrid, showUTMGrid,
     const ctx = out.getContext('2d');
     ctx.drawImage(glCanvas, 0, 0);
 
-    const b = hiddenMap.getBounds();
-    const mapBounds = { west: b.getWest(), east: b.getEast(), south: b.getSouth(), north: b.getNorth() };
-    const projectionFn = (lngLat) => {
-        const pt = hiddenMap.project(lngLat);
-        return { x: pt.x * pixelRatio, y: pt.y * pixelRatio };
-    };
+    if (drawGrid) {
+        const b = hiddenMap.getBounds();
+        const mapBounds = { west: b.getWest(), east: b.getEast(), south: b.getSouth(), north: b.getNorth() };
+        const projectionFn = (lngLat) => {
+            const pt = hiddenMap.project(lngLat);
+            return { x: pt.x * pixelRatio, y: pt.y * pixelRatio };
+        };
 
-    drawMosaicGridLines(ctx, {
-        mapBounds,
-        mapW: out.width,
-        mapH: out.height,
-        projectionFn,
-        scale,
-        showLatLong: showLatLongGrid,
-        showUTM: showUTMGrid,
-        dpi,
-    });
-
-    if (bandPx > 0) {
-        drawMosaicTileBorder(ctx, {
+        drawMosaicGridLines(ctx, {
             mapBounds,
-            pageWpx: out.width,
-            pageHpx: out.height,
-            bands,
-            bandPx,
+            mapW: out.width,
+            mapH: out.height,
             projectionFn,
             scale,
             showLatLong: showLatLongGrid,
             showUTM: showUTMGrid,
+            dpi,
+        });
+
+        if (bandPx > 0) {
+            drawMosaicTileBorder(ctx, {
+                mapBounds,
+                pageWpx: out.width,
+                pageHpx: out.height,
+                bands,
+                bandPx,
+                projectionFn,
+                scale,
+                showLatLong: showLatLongGrid,
+                showUTM: showUTMGrid,
+                dpi,
+            });
+        }
+    }
+
+    // Overlay the mosaic-wide cartographic elements (after the grid/border so they
+    // sit on top). The assembled mosaic is cols·tileW − (cols−1)·overlap wide, and
+    // this tile occupies the slice starting at col·(tileW − overlap).
+    if (drawCarto) {
+        const advX = out.width - overlapPx;
+        const advY = out.height - overlapPx;
+        drawMosaicCartographicOverlay(ctx, {
+            offsetX: col * advX,
+            offsetY: row * advY,
+            mosaicW: cols * out.width - (cols - 1) * overlapPx,
+            mosaicH: rows * out.height - (rows - 1) * overlapPx,
+            frameInset: bandPx,
+            title: title || null,
+            showNorthArrow,
+            showScaleBar,
+            showLegend,
+            featuresByType,
+            scale,
             dpi,
         });
     }

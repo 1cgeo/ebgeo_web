@@ -20,6 +20,16 @@ export const MOSAIC_MAX_DIM = 6;
  */
 export const MOSAIC_BORDER_MM = 8;
 
+/**
+ * Overlap (mm) duplicated between neighbouring mosaic sheets along every internal
+ * seam. Each sheet renders this much of its neighbours' map on its top/left, so the
+ * operator can cut along the verso guide and lay the cut edge OVER the neighbour —
+ * the printer's unprintable border (~3–6 mm) falls inside the duplicated strip, so
+ * the assembled mosaic has no white gutter. Must exceed the worst-case printer
+ * margin; 10 mm covers typical laser/inkjet printers with slack.
+ */
+export const MOSAIC_OVERLAP_MM = 10;
+
 /** Soft warning threshold for total mosaic pages (rows × cols). */
 export const MOSAIC_WARN_TILES = 16;
 

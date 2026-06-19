@@ -92,6 +92,7 @@ export function setupBoundaryLayers(features, mapInstance) {
             'text-color': ['get', 'color'],
             'text-halo-color': '#fff',
             'text-halo-width': 2,
+            'text-opacity': ['coalesce', ['get', 'opacity'], 1],
         },
         filter: VISIBLE_FILTER,
     });

@@ -102,8 +102,12 @@ export function pageMercatorSpan(zoom, containerWidthCssPx, containerHeightCssPx
 
 /**
  * Computes the centre lng/lat of every tile in an R×C mosaic, row-major
- * (top-left first, reading left→right then top→bottom). Tiles abut exactly:
- * neighbouring centres are one full page span apart in Mercator.
+ * (top-left first, reading left→right then top→bottom).
+ *
+ * With no overlap (default) tiles abut exactly: neighbouring centres are one full
+ * page span apart in Mercator. With an overlap, neighbouring centres are spaced by
+ * `span − overlap`, so each pair of neighbours shares an `overlap`-wide duplicated
+ * strip of map (used by the cut-and-overlay assembly to defeat printer margins).
  * @param {Object} params
  * @param {number} params.rows
  * @param {number} params.cols
@@ -111,18 +115,25 @@ export function pageMercatorSpan(zoom, containerWidthCssPx, containerHeightCssPx
  * @param {number} params.centerLat - Mosaic centre latitude
  * @param {number} params.pageMercW - Page Mercator width (m)
  * @param {number} params.pageMercH - Page Mercator height (m)
+ * @param {number} [params.overlapMercW=0] - Horizontal overlap between neighbours (m)
+ * @param {number} [params.overlapMercH=0] - Vertical overlap between neighbours (m)
  * @returns {Array<{ row: number, col: number, centerLng: number, centerLat: number }>}
  */
-export function computeTileCenters({ rows, cols, centerLng, centerLat, pageMercW, pageMercH }) {
+export function computeTileCenters({ rows, cols, centerLng, centerLat, pageMercW, pageMercH, overlapMercW = 0, overlapMercH = 0 }) {
     const c = lngLatToMercator(centerLng, centerLat);
-    const leftX = c.x - (cols * pageMercW) / 2;
-    const topY = c.y + (rows * pageMercH) / 2;
+    const advX = pageMercW - overlapMercW;
+    const advY = pageMercH - overlapMercH;
+    // Total span = first full page + (n−1) reduced advances.
+    const totalW = pageMercW + (cols - 1) * advX;
+    const totalH = pageMercH + (rows - 1) * advY;
+    const leftX = c.x - totalW / 2;
+    const topY = c.y + totalH / 2;
 
     const tiles = [];
     for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
-            const tx = leftX + (col + 0.5) * pageMercW;
-            const ty = topY - (row + 0.5) * pageMercH;
+            const tx = leftX + pageMercW / 2 + col * advX;
+            const ty = topY - pageMercH / 2 - row * advY;
             const ll = mercatorToLngLat(tx, ty);
             tiles.push({ row, col, centerLng: ll.lng, centerLat: ll.lat });
         }
@@ -155,12 +166,16 @@ export function tileBounds({ centerLng, centerLat, pageMercW, pageMercH }) {
  * @param {number} params.cols
  * @param {number} params.pageMercW
  * @param {number} params.pageMercH
+ * @param {number} [params.overlapMercW=0] - Horizontal overlap between neighbours (m)
+ * @param {number} [params.overlapMercH=0] - Vertical overlap between neighbours (m)
  * @returns {{ west: number, south: number, east: number, north: number }}
  */
-export function computeMosaicBounds({ centerLng, centerLat, rows, cols, pageMercW, pageMercH }) {
+export function computeMosaicBounds({ centerLng, centerLat, rows, cols, pageMercW, pageMercH, overlapMercW = 0, overlapMercH = 0 }) {
     const c = lngLatToMercator(centerLng, centerLat);
-    const tl = mercatorToLngLat(c.x - (cols * pageMercW) / 2, c.y + (rows * pageMercH) / 2);
-    const br = mercatorToLngLat(c.x + (cols * pageMercW) / 2, c.y - (rows * pageMercH) / 2);
+    const totalW = pageMercW + (cols - 1) * (pageMercW - overlapMercW);
+    const totalH = pageMercH + (rows - 1) * (pageMercH - overlapMercH);
+    const tl = mercatorToLngLat(c.x - totalW / 2, c.y + totalH / 2);
+    const br = mercatorToLngLat(c.x + totalW / 2, c.y - totalH / 2);
     return { west: tl.lng, north: tl.lat, east: br.lng, south: br.lat };
 }
 

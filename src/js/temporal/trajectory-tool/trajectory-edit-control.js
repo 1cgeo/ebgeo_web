@@ -82,8 +82,7 @@ export class TrajectoryEditControl {
         this._onEditMouseDown = this._onEditMouseDown.bind(this);
         this._onEditMouseMove = this._onEditMouseMove.bind(this);
         this._onEditMouseUp = this._onEditMouseUp.bind(this);
-        this._onHandleEnter = this._onHandleEnter.bind(this);
-        this._onHandleLeave = this._onHandleLeave.bind(this);
+        this._onHoverMove = this._onHoverMove.bind(this);
         this._onCanvasContextMenu = this._onCanvasContextMenu.bind(this);
         this._performPreview = this._performPreview.bind(this);
     }
@@ -342,10 +341,12 @@ export class TrajectoryEditControl {
         map.on('mousedown', this._onEditMouseDown);
         map.on('mousemove', this._onEditMouseMove);
         map.on('mouseup', this._onEditMouseUp);
-        map.on('mouseenter', VERTEX_LAYER, this._onHandleEnter);
-        map.on('mouseenter', MIDPOINT_LAYER, this._onHandleEnter);
-        map.on('mouseleave', VERTEX_LAYER, this._onHandleLeave);
-        map.on('mouseleave', MIDPOINT_LAYER, this._onHandleLeave);
+        // Drive the hover cursor from a continuous mousemove (like the line tool's
+        // onHoverMove) rather than per-layer mouseenter/leave: the boundary events
+        // only fire once, so anything that re-asserts the canvas cursor afterwards
+        // (MapLibre's idle grab, dragPan) would leave it stuck. Querying every move
+        // keeps the affordance correct.
+        map.on('mousemove', this._onHoverMove);
         map.getCanvas().addEventListener('contextmenu', this._onCanvasContextMenu, true);
 
         if (isTouchDevice()) {
@@ -363,10 +364,7 @@ export class TrajectoryEditControl {
         map.off('mousedown', this._onEditMouseDown);
         map.off('mousemove', this._onEditMouseMove);
         map.off('mouseup', this._onEditMouseUp);
-        map.off('mouseenter', VERTEX_LAYER, this._onHandleEnter);
-        map.off('mouseenter', MIDPOINT_LAYER, this._onHandleEnter);
-        map.off('mouseleave', VERTEX_LAYER, this._onHandleLeave);
-        map.off('mouseleave', MIDPOINT_LAYER, this._onHandleLeave);
+        map.off('mousemove', this._onHoverMove);
         map.getCanvas().removeEventListener('contextmenu', this._onCanvasContextMenu, true);
         map.dragPan.enable();
         map.getCanvas().style.cursor = '';
@@ -377,14 +375,28 @@ export class TrajectoryEditControl {
         this._resetDrag();
     }
 
-    _onHandleEnter() {
+    /** Continuous hover: re-applies the handle cursor on every move (idle when dragging/adding). */
+    _onHoverMove(e) {
         if (this._adding || this._editing) return;
-        this._map.getCanvas().style.cursor = 'pointer';
+        this._setHoverCursorAt(e?.point);
     }
 
-    _onHandleLeave() {
-        if (this._adding || this._editing) return;
-        this._map.getCanvas().style.cursor = '';
+    /**
+     * Sets the cursor for whatever handle is under `point`. Distinct affordances so
+     * the action is obvious before clicking — and deliberately NOT `grab` for a
+     * vertex, since MapLibre's idle canvas cursor is already `grab` (pan) and the two
+     * would be indistinguishable:
+     *  - vertex   → `move`  (reposition the keypoint)
+     *  - midpoint → `copy`  ("+", inserts a new keypoint)
+     *  - neither  → `''`    (falls back to MapLibre's pan cursor)
+     * @param {{x:number,y:number}} [point] - Screen point to query.
+     */
+    _setHoverCursorAt(point) {
+        const type = point ? this._queryHandle(point)?.properties?.handleType : null;
+        let cursor = '';
+        if (type === 'midpoint') cursor = 'copy';
+        else if (type === 'vertex') cursor = 'move';
+        this._map.getCanvas().style.cursor = cursor;
     }
 
     _onEditMouseDown(e) {
@@ -400,7 +412,10 @@ export class TrajectoryEditControl {
         this._dragMoved = false;
         this._previewPos = handle.geometry.coordinates.slice();
         this._map.dragPan.disable();
-        this._map.getCanvas().style.cursor = 'grabbing';
+        // While dragging: vertex = grabbing (holding/repositioning), midpoint keeps
+        // "copy" (+) since releasing creates a new keypoint. Both differ from the
+        // hover cursors (move / copy) and from MapLibre's idle pan cursor (grab).
+        this._map.getCanvas().style.cursor = this._dragType === 'midpoint' ? 'copy' : 'grabbing';
         e.preventDefault();
     }
 
@@ -431,7 +446,7 @@ export class TrajectoryEditControl {
         this._map.getSource(HANDLE_SOURCE)?.setData(buildHandleCollection(preview));
     }
 
-    _onEditMouseUp() {
+    _onEditMouseUp(e) {
         if (!this._editing) return;
         const type = this._dragType;
         const index = this._dragIndex;
@@ -440,7 +455,9 @@ export class TrajectoryEditControl {
 
         getSnappingService()?.hideIndicator(this._map);
         this._map.dragPan.enable();
-        this._map.getCanvas().style.cursor = '';
+        // Restore the hover cursor for whatever handle is still under the pointer,
+        // so the affordance doesn't go blank until the next mouse move off-and-on.
+        this._setHoverCursorAt(e?.point);
         this._resetDrag();
 
         if (!pos) return;
@@ -573,7 +590,8 @@ export class TrajectoryEditControl {
                 id: PATH_LAYER,
                 type: 'line',
                 source: PATH_SOURCE,
-                paint: { 'line-color': '#16a34a', 'line-width': 2, 'line-dasharray': [2, 1.5] },
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: { 'line-color': '#16a34a', 'line-width': 3, 'line-dasharray': [2, 1.5] },
             });
         }
         if (!map.getLayer(MIDPOINT_LAYER)) {
@@ -583,11 +601,11 @@ export class TrajectoryEditControl {
                 source: HANDLE_SOURCE,
                 filter: ['==', ['get', 'handleType'], 'midpoint'],
                 paint: {
-                    'circle-radius': 4,
+                    'circle-radius': 6,
                     'circle-color': '#ffffff',
                     'circle-opacity': 0.9,
                     'circle-stroke-color': '#16a34a',
-                    'circle-stroke-width': 1.5,
+                    'circle-stroke-width': 2,
                 },
             });
         }
@@ -597,7 +615,7 @@ export class TrajectoryEditControl {
                 type: 'circle',
                 source: HIGHLIGHT_SOURCE,
                 paint: {
-                    'circle-radius': 11,
+                    'circle-radius': 14,
                     'circle-opacity': 0,
                     'circle-stroke-color': '#f59e0b',
                     'circle-stroke-width': 3,
@@ -611,10 +629,10 @@ export class TrajectoryEditControl {
                 source: HANDLE_SOURCE,
                 filter: ['==', ['get', 'handleType'], 'vertex'],
                 paint: {
-                    'circle-radius': 7,
+                    'circle-radius': 9,
                     'circle-color': '#16a34a',
                     'circle-stroke-color': '#ffffff',
-                    'circle-stroke-width': 2,
+                    'circle-stroke-width': 2.5,
                 },
             });
         }
@@ -626,7 +644,8 @@ export class TrajectoryEditControl {
                 filter: ['==', ['get', 'handleType'], 'vertex'],
                 layout: {
                     'text-field': ['get', 'label'],
-                    'text-size': 10,
+                    'text-size': 12,
+                    'text-font': ['Noto Sans Bold'],
                     'text-allow-overlap': true,
                     'text-ignore-placement': true,
                 },

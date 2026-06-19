@@ -301,7 +301,7 @@ export function computeTemporalExtent(featureList) {
 
 /**
  * Resolves the effective [inicio, fim] timeline bounds for a map: explicit
- * config bounds win; otherwise fall back to the features' extent (padded by one unit).
+ * config bounds win; otherwise fall back to the features' exact extent.
  * @param {{inicio: (number|null), fim: (number|null), unidade: string}} config
  * @param {Array<Object>} features - Features to derive a fallback extent from.
  * @returns {{inicio: number, fim: number}|null} Bounds, or null when undeterminable.
@@ -314,9 +314,8 @@ export function resolveTimelineBounds(config, features) {
     if (inicio === null || fim === null) {
         const extent = computeTemporalExtent(features);
         if (extent) {
-            const step = unitToMs(cfg.unidade);
             if (inicio === null) inicio = extent.min;
-            if (fim === null) fim = extent.max + step;
+            if (fim === null) fim = extent.max;
         }
     }
 

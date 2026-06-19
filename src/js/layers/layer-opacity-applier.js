@@ -43,7 +43,15 @@ let lastSignature = null;
 function snapshotOriginal(mapInstance, mapLayerId, prop) {
     const key = `${mapLayerId}:${prop}`;
     if (!originalPaintCache.has(key)) {
-        const value = mapInstance.getPaintProperty(mapLayerId, prop);
+        let value;
+        try {
+            value = mapInstance.getPaintProperty(mapLayerId, prop);
+        } catch {
+            // MapLibre throws when `prop` is not a valid paint property for this
+            // layer's type (e.g. 'fill-opacity' on a circle/symbol layer).
+            // Treat as absent so the caller skips it.
+            value = undefined;
+        }
         originalPaintCache.set(key, value);
     }
     return originalPaintCache.get(key);
