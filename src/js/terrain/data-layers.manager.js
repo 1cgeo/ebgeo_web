@@ -181,6 +181,83 @@ class DataLayersManager {
         }
     }
 
+    /**
+     * Returns the default style values for a vector data layer.
+     * Flat map of property names matching applyStyleOverrides keys.
+     * @param {string} layerId
+     * @returns {Object}
+     */
+    getDefaultStyle(layerId) {
+        const layerConfig = this.getLayerConfig(layerId);
+        if (!layerConfig) return {};
+
+        const fill = layerConfig.style?.fill || {};
+        const border = layerConfig.style?.border || {};
+        const label = layerConfig.style?.label || {};
+        const labelPaint = label.paint || {};
+        const labelLayout = label.layout || {};
+
+        return {
+            'fill-color': fill.color || 'rgba(0,0,0,0.1)',
+            'fill-opacity': fill.opacity ?? 1,
+            'line-color': border.color || '#666666',
+            'line-width': border.width ?? 1,
+            'line-opacity': border.opacity ?? 1,
+            'text-color': labelPaint['text-color'] || '#000000',
+            'text-halo-color': labelPaint['text-halo-color'] || '#ffffff',
+            'text-halo-width': labelPaint['text-halo-width'] ?? 1,
+            'text-size': labelLayout['text-size'] ?? labelPaint['text-size'] ?? 12
+        };
+    }
+
+    /**
+     * Applies user style overrides to fill / border / label sub-layers.
+     * Missing properties fall back to config defaults.
+     * @param {string} layerId
+     * @param {Object} overrides - Flat map of property → value
+     */
+    applyStyleOverrides(layerId, overrides) {
+        const merged = { ...this.getDefaultStyle(layerId), ...(overrides || {}) };
+
+        const fillId = `data-${layerId}-fill`;
+        const borderId = `data-${layerId}-border`;
+        const labelId = `data-${layerId}-label`;
+
+        this._setPaint(fillId, 'fill-color', merged['fill-color']);
+        this._setPaint(fillId, 'fill-opacity', merged['fill-opacity']);
+
+        this._setPaint(borderId, 'line-color', merged['line-color']);
+        this._setPaint(borderId, 'line-width', merged['line-width']);
+        this._setPaint(borderId, 'line-opacity', merged['line-opacity']);
+
+        this._setPaint(labelId, 'text-color', merged['text-color']);
+        this._setPaint(labelId, 'text-halo-color', merged['text-halo-color']);
+        this._setPaint(labelId, 'text-halo-width', merged['text-halo-width']);
+        this._setLayout(labelId, 'text-size', merged['text-size']);
+    }
+
+    /** Safely sets a paint property if the layer exists. */
+    _setPaint(layerId, prop, value) {
+        if (value === undefined || value === null) return;
+        if (!this.map.getLayer(layerId)) return;
+        try {
+            this.map.setPaintProperty(layerId, prop, value);
+        } catch (error) {
+            console.warn(`Error setting paint ${prop} on ${layerId}:`, error);
+        }
+    }
+
+    /** Safely sets a layout property if the layer exists. */
+    _setLayout(layerId, prop, value) {
+        if (value === undefined || value === null) return;
+        if (!this.map.getLayer(layerId)) return;
+        try {
+            this.map.setLayoutProperty(layerId, prop, value);
+        } catch (error) {
+            console.warn(`Error setting layout ${prop} on ${layerId}:`, error);
+        }
+    }
+
     /** Adds a source if it does not already exist */
     _addSourceSafe(sourceId, sourceConfig) {
         if (!this.map.getSource(sourceId)) {

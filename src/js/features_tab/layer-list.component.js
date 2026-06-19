@@ -11,6 +11,7 @@ import {
     setActiveLayer,
     setLayerVisibility,
     setLayerLocked,
+    setLayerOpacity,
     deleteLayer,
     renameLayer,
 } from '@store';
@@ -138,6 +139,60 @@ function createLayerControls(layer, callbacks) {
     controls.appendChild(deleteBtn);
 
     return controls;
+}
+
+/**
+ * Creates an inline opacity row for a layer (visible without expanding).
+ *
+ * @param {Object} layer - Layer data object
+ * @returns {HTMLElement} Opacity row element
+ */
+export function createLayerOpacityRow(layer) {
+    const row = document.createElement('div');
+    row.className = 'layer-opacity-row';
+    row.dataset.layerId = layer.id;
+    row.onclick = (e) => e.stopPropagation();
+
+    const label = document.createElement('span');
+    label.className = 'layer-opacity-label';
+    label.textContent = 'Opacidade';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'layer-opacity-slider';
+    slider.min = '0';
+    slider.max = '100';
+    slider.step = '1';
+    const initialPercent = Math.round((typeof layer.opacity === 'number' ? layer.opacity : 1) * 100);
+    slider.value = String(initialPercent);
+    slider.title = 'Opacidade da camada';
+    slider.setAttribute('aria-label', `Opacidade da camada ${layer.name}`);
+
+    const valueLabel = document.createElement('span');
+    valueLabel.className = 'layer-opacity-value';
+    valueLabel.textContent = `${initialPercent}%`;
+
+    // Coalesce store writes to at most one per animation frame so dragging the
+    // slider does not emit LAYERS_CHANGED (and rebuild all layer filters) every tick.
+    let rafId = null;
+    let pendingOpacity = null;
+    slider.addEventListener('input', () => {
+        const percent = Number(slider.value);
+        valueLabel.textContent = `${percent}%`;
+        pendingOpacity = percent / 100;
+        if (rafId === null) {
+            rafId = requestAnimationFrame(() => {
+                rafId = null;
+                setLayerOpacity(layer.id, pendingOpacity);
+            });
+        }
+    });
+
+    row.appendChild(label);
+    row.appendChild(slider);
+    row.appendChild(valueLabel);
+
+    return row;
 }
 
 /**

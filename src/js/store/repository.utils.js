@@ -142,6 +142,7 @@ export function getDefaultLayer() {
         name: 'Padrão',
         visible: true,
         locked: false,
+        opacity: 1,
         order: 0,
         createdAt: now,
         updatedAt: now,

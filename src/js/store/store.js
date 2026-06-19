@@ -361,6 +361,7 @@ export {
     renameLayer,
     setLayerVisibility,
     setLayerLocked,
+    setLayerOpacity,
     reorderLayers,
     setMapLayers
 } from './layer.operations.js';

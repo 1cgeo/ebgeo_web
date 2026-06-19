@@ -13,6 +13,7 @@ import { EventTypes } from '../events';
 import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
+import { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
 import {
     setupPointLayers,
     setupLineLayers,
@@ -224,6 +225,25 @@ async function restoreTerrainState() {
  * @param {Object} analysisLayersManager - Analysis layers manager
  * @param {Object} dataLayersManager - Data layers manager
  */
+async function restoreCatalogLayer(layer, terrainControl, analysisLayersManager, dataLayersManager) {
+    const innerId = layer.config?.id;
+
+    if (layer.type === CATALOG_ITEM_TYPES.HILLSHADE) {
+        terrainControl?.setHillshadeVisibility?.(true);
+        return;
+    }
+
+    const manager = layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER ? analysisLayersManager
+        : layer.type === CATALOG_ITEM_TYPES.DATA_LAYER ? dataLayersManager
+        : null;
+    if (!manager || !innerId) return;
+
+    await manager.toggleLayer(innerId, true);
+    if (layer.styleOverrides) {
+        manager.applyStyleOverrides(innerId, layer.styleOverrides);
+    }
+}
+
 async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLayersManager) {
     try {
         const catalogLayers = await getCatalogLayers();
@@ -232,17 +252,11 @@ async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLaye
 
         const terrainControl = getControl('TerrainControl');
 
-        for (const layer of catalogLayers) {
-            if (layer.status === 'unavailable' || !layer.visible) continue;
+        const restorations = catalogLayers
+            .filter(layer => layer.status !== 'unavailable' && layer.visible)
+            .map(layer => restoreCatalogLayer(layer, terrainControl, analysisLayersManager, dataLayersManager));
 
-            if (layer.type === CATALOG_ITEM_TYPES.HILLSHADE) {
-                terrainControl?.setHillshadeVisibility?.(true);
-            } else if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
-                await analysisLayersManager.toggleLayer(layer.config?.id, true);
-            } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
-                await dataLayersManager.toggleLayer(layer.config?.id, true);
-            }
-        }
+        await Promise.all(restorations);
     } catch (error) {
         console.warn('Error restoring catalog layers:', error);
     }
@@ -401,6 +415,7 @@ function setupLayerVisibilityListener(mapInstance, eventBus) {
         invalidateFilterCache();
         updateAllLayerFilters(mapInstance);
         updateMeasurementLabelVisibility();
+        applyLayerOpacities(mapInstance);
     });
 }
 
@@ -414,6 +429,7 @@ function setupLayerVisibilityListener(mapInstance, eventBus) {
 export async function setupMapFeatures(mapInstance, analysisLayersManager, dataLayersManager, eventBus) {
     try {
         invalidateFilterCache();
+        invalidateOpacityCache();
 
         setupLayerSeparators(mapInstance);
 
@@ -455,6 +471,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         if (layerVisibilityUnsub) layerVisibilityUnsub();
         layerVisibilityUnsub = setupLayerVisibilityListener(mapInstance, eventBus);
         updateAllLayerFilters(mapInstance);
+        applyLayerOpacities(mapInstance);
 
         requestAnimationFrame(() => {
             clearAllMeasurements();
@@ -467,4 +484,5 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
 }
 
 export { updateAllLayerFilters, invalidateFilterCache } from './visibility-filter.js';
+export { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
 export { FEATURE_LAYER_IDS, HATCH_PATTERN_LAYERS, FEATURE_SOURCES } from './layer.constants.js';

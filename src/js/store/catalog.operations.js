@@ -28,6 +28,8 @@ import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
  * @property {CatalogLayerStatus} [status='active'] - Availability status
  * @property {string} [originalId] - Original ID in config (for analysis layers)
  * @property {Object} config - Original configuration
+ * @property {Object} [styleOverrides] - User-customized paint/layout properties
+ *   keyed by MapLibre property name (e.g. 'raster-opacity', 'fill-color').
  */
 
 // ===== HELPERS =====

@@ -4,7 +4,7 @@
  * @fileoverview Builds layer container elements for FeaturesTab.
  */
 
-import { createLayerHeader } from './layer-list.component.js';
+import { createLayerHeader, createLayerOpacityRow } from './layer-list.component.js';
 import { createFeatureItem } from './feature-item.component.js';
 import { createGroupItemInLayer } from './group-item.component.js';
 
@@ -66,6 +66,10 @@ export function createLayerContainer(layerInfo, callbacks) {
     attachHeaderEventHandlers(header, layer.id, callbacks);
 
     container.appendChild(header);
+
+    // Inline opacity slider (always visible, separate row)
+    const opacityRow = createLayerOpacityRow(layer);
+    container.appendChild(opacityRow);
 
     // Create content container
     const content = document.createElement('div');

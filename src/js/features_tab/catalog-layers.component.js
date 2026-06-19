@@ -7,6 +7,7 @@
 
 import {
     getCatalogLayers,
+    getCatalogLayerById,
     removeCatalogLayer,
     toggleCatalogLayerVisibility,
     validateCatalogLayerAvailability,
@@ -23,6 +24,7 @@ import {
 } from '@catalog/catalog.constants.js';
 import { showSuccess, showToast } from '@utils';
 import { escapeHtml } from '@utils/html-escape.js';
+import { showLayerStyleModal } from '@modals';
 
 /**
  * Icons used in the component.
@@ -36,8 +38,37 @@ const ICONS = {
     INFO: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
     CLOSE: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
     REFRESH: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`,
-    LEGEND: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><line x1="14" y1="6" x2="21" y2="6"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="17" x2="21" y2="17"/></svg>`
+    LEGEND: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><line x1="14" y1="6" x2="21" y2="6"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="17" x2="21" y2="17"/></svg>`,
+    SETTINGS: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`
 };
+
+/**
+ * Whether a layer type supports style configuration via the layer-style modal.
+ * @param {string} type
+ * @returns {boolean}
+ */
+function supportsStyleConfig(type) {
+    return type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER || type === CATALOG_ITEM_TYPES.DATA_LAYER;
+}
+
+/**
+ * Applies persisted style overrides for a catalog layer to the map.
+ * Safe to call regardless of layer type — no-op for unsupported types.
+ * @param {Object} layer - Catalog layer state
+ * @param {Object} [analysisLayersManager]
+ * @param {Object} [dataLayersManager]
+ */
+function applyCatalogLayerStyleOverrides(layer, analysisLayersManager, dataLayersManager) {
+    if (!layer?.styleOverrides) return;
+    const innerId = layer.config?.id;
+    if (!innerId) return;
+
+    if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
+        analysisLayersManager.applyStyleOverrides(innerId, layer.styleOverrides);
+    } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
+        dataLayersManager.applyStyleOverrides(innerId, layer.styleOverrides);
+    }
+}
 
 /**
  * Creates the catalog layers container element.
@@ -162,6 +193,7 @@ function createActiveLayerHTML(layer) {
     const isDataLayer = layer.type === CATALOG_ITEM_TYPES.DATA_LAYER;
     // Check if layer has legend configured
     const hasLegend = layer.config?.legend?.items?.length > 0;
+    const hasStyleConfig = supportsStyleConfig(layer.type);
 
     return `
         <div class="catalog-layer-info">
@@ -177,6 +209,11 @@ function createActiveLayerHTML(layer) {
             ${(hasLocation || isDataLayer) ? `
                 <button class="catalog-layer-btn catalog-layer-zoom" title="Ir para camada">
                     ${ICONS.ZOOM}
+                </button>
+            ` : ''}
+            ${hasStyleConfig ? `
+                <button class="catalog-layer-btn catalog-layer-settings" title="Configurar estilo">
+                    ${ICONS.SETTINGS}
                 </button>
             ` : ''}
             <button class="catalog-layer-btn catalog-layer-visibility" title="Alternar visibilidade" data-visible="${layer.visible}">
@@ -242,6 +279,15 @@ function attachActiveLayerEvents(item, layer, map, eventBus, analysisLayersManag
         });
     }
 
+    // Settings (style config)
+    const settingsBtn = item.querySelector('.catalog-layer-settings');
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await openLayerStyleModal(layer, analysisLayersManager, dataLayersManager);
+        });
+    }
+
     // Toggle visibility
     const visBtn = item.querySelector('.catalog-layer-visibility');
     visBtn.addEventListener('click', async (e) => {
@@ -253,6 +299,15 @@ function attachActiveLayerEvents(item, layer, map, eventBus, analysisLayersManag
 
         // Apply visibility to map
         applyLayerVisibility(map, layer, newVisibility, analysisLayersManager, dataLayersManager);
+
+        // Re-apply persisted style overrides — toggling visibility re-creates layer
+        // sources/paint in some managers, which would otherwise drop overrides.
+        // Re-read the layer so edits made via the style modal (which do not trigger a
+        // re-render) are not reverted to the overrides captured when the row rendered.
+        if (newVisibility) {
+            const fresh = await getCatalogLayerById(layer.id);
+            applyCatalogLayerStyleOverrides(fresh || layer, analysisLayersManager, dataLayersManager);
+        }
 
         // Emit event
         eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
@@ -313,6 +368,28 @@ function attachRemoveEvent(item, layer, map, eventBus, analysisLayersManager, da
 
         // Emit event
         eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
+    });
+}
+
+/**
+ * Opens the style configuration modal for an analysis or data catalog layer.
+ * Reads the latest layer state from the store so the form reflects any
+ * previously persisted overrides.
+ * @param {Object} layer - Catalog layer state at the moment the row was rendered
+ * @param {Object} [analysisLayersManager]
+ * @param {Object} [dataLayersManager]
+ */
+async function openLayerStyleModal(layer, analysisLayersManager, dataLayersManager) {
+    if (!supportsStyleConfig(layer.type)) return;
+
+    // Read the freshest layer state in case overrides were updated elsewhere.
+    const latest = await getCatalogLayerById(layer.id);
+    const targetLayer = latest || layer;
+
+    await showLayerStyleModal({
+        layer: targetLayer,
+        analysisLayersManager,
+        dataLayersManager
     });
 }
 
@@ -379,6 +456,14 @@ function removeLayerFromMap(map, layer, analysisLayersManager, dataLayersManager
 }
 
 /**
+ * Teardown of the currently-open unavailable-layer popover. Lets a new popover
+ * fully remove the previous one (node + its document click listener) instead of
+ * orphaning the listener via a bare node `.remove()`.
+ * @type {?() => void}
+ */
+let activePopoverTeardown = null;
+
+/**
  * Shows a popover with details about an unavailable layer.
  * @param {Object} layer - Layer data
  * @param {HTMLElement} anchorElement - Element to anchor the popover to
@@ -388,10 +473,9 @@ function removeLayerFromMap(map, layer, analysisLayersManager, dataLayersManager
  * @param {Object} [dataLayersManager] - Data layers manager instance
  */
 function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analysisLayersManager, dataLayersManager) {
-    // Remove any existing popover
-    const existingPopover = document.querySelector('.catalog-layer-popover');
-    if (existingPopover) {
-        existingPopover.remove();
+    // Fully tear down any existing popover (node + its document click listener) first.
+    if (activePopoverTeardown) {
+        activePopoverTeardown();
     }
 
     const typeConfig = CATALOG_TYPE_CONFIG[layer.type];
@@ -437,7 +521,11 @@ function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analys
     const removePopover = () => {
         popover.remove();
         document.removeEventListener('click', closeOnClickOutside);
+        if (activePopoverTeardown === removePopover) {
+            activePopoverTeardown = null;
+        }
     };
+    activePopoverTeardown = removePopover;
 
     // Close button event
     const closeBtn = popover.querySelector('.popover-close');
@@ -642,6 +730,9 @@ export async function handleCatalogAddLayer(payload, map, eventBus, analysisLaye
     } else if (type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
         dataLayersManager.toggleLayer(item.originalData.id, true);
     }
+
+    // Apply any persisted style overrides (no-op for new layers).
+    applyCatalogLayerStyleOverrides(catalogLayer, analysisLayersManager, dataLayersManager);
 
     // Emit event to refresh UI
     eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
