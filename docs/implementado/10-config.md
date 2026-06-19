@@ -7,7 +7,7 @@ forma centralizada** — permitindo que um administrador configure basemaps,
 camadas, tilesets e parâmetros do mapa sem editar um arquivo `.js` e fazer
 redeploy do frontend.
 
-> **Análoga a [`acoes-interface-multiusuario.md`](../../ebgeo_web/docs/acoes-interface-multiusuario.md):**
+> **Análoga a [`acoes-interface-multiusuario.md`](../../../ebgeo_web/docs/acoes-interface-multiusuario.md):**
 > assim como aquele documento cruza as **ações da interface** com o sistema
 > multiusuário, este cruza a **configuração estática** com o backend.
 

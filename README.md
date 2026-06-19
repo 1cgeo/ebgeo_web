@@ -4,22 +4,47 @@ Guia de integração frontend-backend para o EBGeo.
 
 ---
 
-## Ordem de Implementação
+## Estrutura da Documentação
 
-Os documentos estão organizados em ordem de implementação recomendada:
+A pasta `docs/` está separada em **dois grupos**:
+
+- **`docs/implementado/`** — guias de integração das funcionalidades **já implementadas e verificadas no código**.
+- **`docs/pendente/`** — análise de gaps e documentos de **roadmap** (ainda **não** implementados neste backend).
+
+### ✅ Implementado — `docs/implementado/`
+
+Guias de integração frontend-backend, em ordem de implementação recomendada:
 
 | # | Documento | Descrição | Linhas |
 |---|-----------|-----------|--------|
-| 01 | [Autenticação](./01-autenticacao.md) | Login, registro, refresh token, logout | ~300 |
-| 02 | [Atlas Básico](./02-atlas-basico.md) | CRUD de atlas, permissões | ~350 |
-| 03 | [Sync Inicial](./03-sync-inicial.md) | Pull inicial, snapshot, carregamento | ~400 |
-| 04 | [WebSocket Colaboração](./04-websocket-collab.md) | Conexão WS, mensagens, presença | ~450 |
-| 05 | [Sync CRDT](./05-sync-crdt.md) | Operações CRDT, push/pull HTTP | ~500 |
-| 06 | [Presença e Imagens](./06-presenca-imagens.md) | Cursores, seleção, upload de imagens | ~400 |
-| 07 | [Compartilhamento](./07-compartilhamento.md) | Links públicos, sharing com usuários | ~450 |
-| 08 | [Offline e Import](./08-offline-import.md) | Modo offline, reconexão, upload de atlas | ~500 |
-| 09 | [Administração](./09-admin.md) | Gerenciamento de usuários e resources | ~550 |
-| 10 | [Configuração (config.js)](./10-config.md) | Cobertura do `config.js` do frontend pelo backend (basemaps, tilesets, config global) | ~280 |
+| 01 | [Autenticação](./docs/implementado/01-autenticacao.md) | Login, registro, refresh token, logout | ~300 |
+| 02 | [Atlas Básico](./docs/implementado/02-atlas-basico.md) | CRUD de atlas, permissões | ~350 |
+| 03 | [Sync Inicial](./docs/implementado/03-sync-inicial.md) | Pull inicial, snapshot, carregamento | ~400 |
+| 04 | [WebSocket Colaboração](./docs/implementado/04-websocket-collab.md) | Conexão WS, mensagens, presença | ~450 |
+| 05 | [Sync CRDT](./docs/implementado/05-sync-crdt.md) | Operações CRDT, push/pull HTTP | ~500 |
+| 06 | [Presença e Imagens](./docs/implementado/06-presenca-imagens.md) | Cursores, seleção, upload de imagens | ~400 |
+| 07 | [Compartilhamento](./docs/implementado/07-compartilhamento.md) | Links públicos, sharing com usuários | ~450 |
+| 08 | [Offline e Import](./docs/implementado/08-offline-import.md) | Modo offline, reconexão, upload de atlas | ~500 |
+| 09 | [Administração](./docs/implementado/09-admin.md) | Gerenciamento de usuários e resources | ~550 |
+| 10 | [Configuração (config.js)](./docs/implementado/10-config.md) | Cobertura do `config.js` do frontend pelo backend (basemaps, tilesets, config global) | ~280 |
+
+### 🚧 Pendente / Não implementado — `docs/pendente/`
+
+**Gaps da colaboração atual:**
+
+| # | Documento | Descrição |
+|---|-----------|-----------|
+| 11 | [Gaps Multiusuário](./docs/pendente/11-gaps-multiusuario.md) | Cruzamento §1–§29 das ações da interface vs. backend; gaps abertos (`gridStyle`, `catalogLayer`, config temporal, merge de mapas) |
+
+**Roadmap "backend único"** (análises de 2026-06-14, descrevem trabalho **futuro** — nada implementado neste backend):
+
+| Documento | Descrição |
+|-----------|-----------|
+| [AVALIACAO-REAPROVEITAMENTO](./docs/pendente/AVALIACAO-REAPROVEITAMENTO.md) | Decisão: aproveitar o `ebgeo_backend` como núcleo vs. reescrever do zero |
+| [IDEIAS-EBGEO-WEB-2](./docs/pendente/IDEIAS-EBGEO-WEB-2.md) | Padrões a minerar das tentativas antigas (`ebgeo_web_2_*`) |
+| [SERVICO-NOMES-GEOGRAFICOS](./docs/pendente/SERVICO-NOMES-GEOGRAFICOS.md) | Plano de absorção do serviço de nomes geográficos (PostGIS) |
+| [EBGEO-360](./docs/pendente/EBGEO-360.md) | Análise/integração do microsserviço de panoramas 360 |
+| [PROTOTIPO-COLABORACAO-TEMPO-REAL](./docs/pendente/PROTOTIPO-COLABORACAO-TEMPO-REAL.md) | Ideias do protótipo de colaboração em tempo real |
 
 ---
 
@@ -147,20 +172,35 @@ const WS_BASE_URL = process.env.WS_URL || 'ws://localhost:3000';
 
 ## Gaps Conhecidos do Backend
 
-Os seguintes gaps foram identificados ao cruzar as ações da interface do frontend com o backend atual. Veja detalhes completos no `CLAUDE.md` (seção "Limitações Conhecidas e Gaps para Multiusuário").
+Gaps identificados ao cruzar as ações da interface do frontend (`acoes-interface-multiusuario.md`,
+rev. ~313 ações / 29 seções) com o backend atual. Análise completa em
+[docs/pendente/11-gaps-multiusuario.md](./docs/pendente/11-gaps-multiusuario.md) e no `CLAUDE.md`
+(seção "Limitações Conhecidas e Gaps para Multiusuário").
 
-### Resumo
+### Resolvidos (confirmados no código)
+
+| Prioridade | Gap | Solução |
+|-----------|-----|---------|
+| **P0** | Atlas delete não desconectava clientes WS | `closeRoom()` → broadcast `atlas_deleted` + close code 4001 |
+| **P0** | Mutações REST sem broadcast WS | `atlas_updated`, `atlas_settings_updated`, `sharing_updated`, `operations`, `map_duplicated` |
+| **P1** | Mover feição entre mapas via sync | `map_id` em `UPDATE_FIELDS.feature` |
+| **P1** | Duplicar mapa individual | `POST /atlas/:id/maps/:mapId/duplicate` + broadcast `map_duplicated` |
+| **P1** | Map reorder broadcast via WS | Coberto por `atlas_updated` (inclui `map_order`) |
+| **P2** | Awareness de briefing | `briefing_edit_start/end` → `briefing_edit_started/ended` |
+
+### Gaps abertos
 
 | Prioridade | Gap | Status |
 |-----------|-----|--------|
-| **P0** | Atlas delete não desconecta clientes WS | Pendente |
-| **P0** | Mutações REST (settings, map_order, sharing) sem broadcast WS | Pendente |
-| **P1** | Mover feição entre mapas via sync (`map_id` update) | Pendente |
-| **P1** | Duplicar mapa individual (endpoint dedicado) | Pendente |
-| **P1** | Map reorder broadcast via WS | Pendente |
-| **P2** | Awareness de briefing (edit started/ended) | Pendente |
+| **P1** | `gridStyle` (§26 Grade UTM) é no-op — sem coluna de grade em `maps` | Pendente |
+| **P1** | `catalogLayer` (§19/§2) — frontend emite ops por-camada; backend espera array no `maps.catalog_layers` | Pendente |
+| **P2** | Config temporal por mapa (§29) — sem coluna `temporal_config`; frontend ainda não emite op de sync | Pendente |
 | **P3** | Sub-canais WS por mapa (otimização de tráfego) | Pendente |
-| **P3** | Combinar mapas / merge endpoint | Pendente |
-| N/A | Undo/Redo | Frontend (backend já suporta as operações inversas) |
+| **P3** | Combinar mapas / merge atômico (§1.14, §24.3) | Pendente (contornável por batch) |
+| N/A | Undo/Redo (§16) | Frontend (backend já suporta as ops inversas) |
+| N/A | Dados temporais por feição (§29 items 13-20) | OK — viajam em `properties` (JSONB) |
 
-**~85% das funcionalidades multiusuário já estão implementadas no backend.** Os gaps P0 são necessários para garantir consistência em real-time.
+**Divergências de contrato:** papéis do frontend (`owner/admin/editor/viewer`) vs. backend
+(`owner/write/read` por-atlas + `user/admin` global); `locked` é advisory (não bloqueia escrita no servidor).
+
+**~95% das funcionalidades multiusuário já estão implementadas no backend.**

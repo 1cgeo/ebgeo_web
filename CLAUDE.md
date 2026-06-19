@@ -76,11 +76,11 @@ Todas as entidades colaborativas são gerenciadas **exclusivamente via sync**:
 - `streetview360` - Dados de panoramas 360 (orientation, marker)
 
 **Sub-entidades de mapa (operações via sync):**
-- `mapPosition` - Viewport (center_lat, center_long, zoom, bearing, pitch)
-- `baseLayer` - Camada base do mapa
-- `mapNotes` - Notas do mapa
-- `gridStyle` - Estilo de grade
-- `catalogLayer` - Camadas do catálogo
+- `mapPosition` - Viewport (center_lat, center_long, zoom, bearing, pitch) ✅
+- `baseLayer` - Camada base do mapa (coluna `base_layer`) ✅
+- `mapNotes` - Notas do mapa (`notes_title`/`notes_description`) ✅
+- `gridStyle` - Estilo de grade ⚠️ **alias existe mas é no-op** — não há coluna na tabela `maps`, o payload `{format, visible}` é descartado. Ver [Gaps](#limitações-conhecidas-e-gaps-para-multiusuário).
+- `catalogLayer` - Camadas do catálogo ⚠️ **incompatível** — o frontend emite ops **por camada** (`entityId` = id da camada, `data` = objeto único), mas o backend tenta gravar o array inteiro em `maps.catalog_layers`; o payload não bate com nenhuma coluna. Ver [Gaps](#limitações-conhecidas-e-gaps-para-multiusuário).
 
 **Módulos read-only:**
 - `maps` e `briefings` possuem apenas rotas GET (listagem e detalhes)
@@ -428,8 +428,9 @@ Administradores podem:
 
 ## Documentação Adicional
 
-- **[docs/README.md](docs/README.md)** - Índice da documentação
-- **docs/01-autenticacao.md** a **docs/09-admin.md** - Guias de integração passo-a-passo
+- **[README.md](README.md)** - Índice da documentação (raiz do repositório)
+- **docs/implementado/01-autenticacao.md** a **docs/implementado/10-config.md** - Guias de integração passo-a-passo
+- **[docs/pendente/11-gaps-multiusuario.md](docs/pendente/11-gaps-multiusuario.md)** - Cruzamento §1–§29 das ações da interface vs. backend
 
 ## Notas para Desenvolvimento
 
@@ -503,40 +504,58 @@ O snapshot retorna estrutura idêntica ao IndexedDB do frontend:
 
 ## Limitações Conhecidas e Gaps para Multiusuário
 
-Baseado na análise completa do documento `docs/acoes-interface-multiusuario.md` do frontend (277 ações em 28 seções da interface). O backend suporta ~97% das funcionalidades multiusuário.
+Baseado na análise completa do documento `docs/acoes-interface-multiusuario.md` do frontend
+(**~313 ações em 29 seções** da interface — revisão que adicionou a §29 Módulo Temporal e o
+modelo de 4 papéis Owner/Admin/Editor/Viewer). O backend suporta **~95%** das funcionalidades
+multiusuário. Análise detalhada seção a seção em **[docs/pendente/11-gaps-multiusuario.md](docs/pendente/11-gaps-multiusuario.md)**.
 
-### Resolvidos
+### Resolvidos (confirmados no código)
 
 | Gap | Solução |
 |-----|---------|
 | **P0: Atlas delete notifica WS** | `closeRoom()` em `collab.rooms.js` — broadcast `atlas_deleted` + fecha conexões com code 4001 |
-| **P0: Mutações REST com broadcast WS** | `updateAtlas` → `atlas_updated`, `updateSettings` → `atlas_settings_updated`, sharing → `sharing_updated`, sync push → `operations` |
+| **P0: Mutações REST com broadcast WS** | `updateAtlas` → `atlas_updated`, `updateSettings` → `atlas_settings_updated`, sharing → `sharing_updated`, sync push → `operations`, duplicar mapa → `map_duplicated` |
 | **P1: Mover feição entre mapas** | `map_id` adicionado a `UPDATE_FIELDS.feature` em `sync.service.js` |
 | **P1: Duplicar mapa individual** | `POST /atlas/:atlasId/maps/:mapId/duplicate` — clona mapa com sub-entidades (layers, groups, features, group_features, cesium3d, streetview360) |
 | **P1: Map reorder via WS** | Coberto por `atlas_updated` broadcast no `updateAtlas` (inclui `map_order`) |
 | **P2: Awareness de briefing** | Mensagens WS `briefing_edit_start`/`briefing_edit_end` → broadcast `briefing_edit_started`/`briefing_edit_ended` |
+| **Exagero de terreno (§24 item 8)** | Persiste em `atlas.settings.terrainExaggeration` (JSONB) — coberto por `PATCH /settings` + broadcast `atlas_settings_updated` |
+| **Dados temporais por feição (§29 items 13-20)** | `temporalInicio`, `temporalFim`, `trajetoria`, flags `autoDtg`/`autoDirection`/`autoSpeed`, `dateTimeGroup`, `gdhIni`/`gdhFim` viajam dentro de `properties` (JSONB) numa op `feature` normal — armazenados verbatim, sem mudança no backend |
 
-### P3 — Otimizações futuras
+### Gaps abertos — exigem mudança no backend
 
-| Gap | Ref. Frontend | Descrição | Impacto |
-|-----|---------------|-----------|---------|
-| **Sub-canais por mapa** | §Resumo, item 2 | Todas as mensagens WS são broadcast para a room inteira (atlas). Cursor e seleção são enviados para todos, mesmo quem está em outro mapa. Frontend sugere sub-canais por mapa para otimizar tráfego. | Tráfego desnecessário em atlas com muitos mapas e usuários. |
-| **Combinar mapas (merge)** | §1 item 14; §24 item 3 | Não há endpoint para mover feições de múltiplos mapas para um mapa destino atomicamente. | "Puxar outros mapas" na sidebar e modal de combinação ficam sem backend. |
+| Prioridade | Gap | Ref. Frontend | Descrição |
+|-----------|-----|---------------|-----------|
+| **P1** | **`gridStyle` é no-op** | §26 (Grade UTM) | Frontend emite op `gridStyle` com `data: {format, visible}` (mesmo envelope do `baseLayer`, `entityId == mapId`). Backend mapeia `gridStyle → {target:'map', subType:'grid'}`, mas **não há coluna de grade em `maps`** nem entrada em `MAP_UPDATE_FIELDS` → `buildDynamicUpdate` retorna `null` (no-op silencioso). **Fix:** coluna `grid_style JSONB` + entrada em `MAP_UPDATE_FIELDS` + incluir no snapshot. |
+| **P1** | **`catalogLayer` incompatível** | §19 item 4; §2 items 15,16,25 | Frontend emite ops **por camada** (`catalogLayer`, `entityId` = id da camada, `data` = um objeto `CatalogLayerState`, create/update/delete). Backend trata como update do array inteiro em `maps.catalog_layers` → o payload por-camada não bate com nenhuma coluna → no-op. **Fix:** tratar `catalogLayer` como entidade própria (merge por id no array JSONB, ou tabela dedicada) com create/update/delete. |
+| **P2** | **Config temporal por mapa** | §29 items 1,8-11 | A config `temporal_<mapa>` = `{ativo, modo, unidade, inicio, fim, origem}` é **estado compartilhado do mapa** (broadcast + LWW). Hoje **não há coluna** em `maps` (descartada pelo whitelist) **e** o frontend **ainda não emite op de sync** (persistência local + EventBus `MAP_TEMPORAL_CHANGED`/`TEMPORAL_CONFIG_CHANGED`). **Fix (quando o frontend ligar o sync):** coluna `temporal_config JSONB` + sub-entidade `mapTemporal` + snapshot. |
+| **P3** | **Sub-canais por mapa** | §Resumo, item 2 | Todas as mensagens WS são broadcast para a room inteira (atlas). Cursor/seleção vão para todos, mesmo quem está em outro mapa. Frontend sugere sub-canais por mapa para reduzir tráfego. |
+| **P3** | **Combinar mapas (merge)** | §1 item 14; §24 item 3 | Não há endpoint para mover feições de múltiplos mapas para um destino atomicamente. Contornável por batch de ops `feature` com `map_id` novo (já suportado), mas sem atomicidade transacional. |
+
+### Divergências de contrato (documentar/alinhar com frontend)
+
+| Tema | Frontend (`acoes-...`/código) | Backend atual | Implicação |
+|------|-------------------------------|---------------|------------|
+| **Papéis** | `UserRole = {owner, admin, editor, viewer}` (`session-context.js`); JWT deve carregar `role`; default `viewer` | JWT `role ∈ {user, admin}` (global) + permissão por-atlas `owner/write/read` resolvida à parte (campo `permission` no `connected` do WS e `req.atlasPermission`) | Backend **não** emite `role: editor/viewer`. Mapear: `owner→owner`, `write→editor`, `read→viewer`, `admin (global)→admin`. O frontend deve derivar o papel da `permission` por-atlas, ou o backend passar a expor o vocabulário editor/viewer. |
+| **`locked` (mapa/camada/grupo/feição)** | Bloqueio desabilita edição; vários itens "Respeita bloqueio de mapa" / "Permissão de admin ou owner do mapa" | `locked` é só uma coluna mutável; **o sync nunca bloqueia escrita** numa entidade travada | Bloqueio é **advisory (frontend-only)**. Não há tier "admin do mapa" — permissão é por-atlas (`write`). |
 
 ### Não requer mudança no backend
 
 | Item | Ref. Frontend | Justificativa |
 |------|---------------|---------------|
-| **Undo/Redo (Ctrl+Z/Y)** | §16 items 1,2 | Implementável 100% no frontend. O frontend gera operações inversas e envia via sync normal. O backend já suporta create↔delete e update com dados anteriores. Pilha de undo/redo é local por usuário. |
-| **Operações locais (~137 ações, 49%)** | Todas as seções | Zoom, pan, seleção, ferramentas, exportação, navegação, configurações locais — ações puramente locais sem impacto no servidor. |
-| **Operações batch** | §2 items 13-14,19,23 | Multi-seleção (ocultar/bloquear), deletar feições de tileset/foto — resolvidas enviando múltiplas operações sync individuais. Backend já suporta array de operações. |
-| **Operações de split/merge de geometrias** | §14 items 10,11,12 | Combinar/separar setas, cortar linha — resolvidas pelo frontend gerando operações CRDT (create+delete). |
-| **Importação de arquivos geoespaciais** | §5 items 1-7 | GeoJSON, Shapefile, KML, GPX, CSV — parsing é feito no frontend, que envia operações sync com as feições resultantes. |
+| **Undo/Redo (Ctrl+Z/Y)** | §16 items 1,2 | 100% no frontend. Gera operações inversas e envia via sync normal. Backend já suporta create↔delete e update com dados anteriores. Pilha de undo/redo é local por usuário. |
+| **Operações locais (~144 ações, 46%)** | Todas as seções | Zoom, pan, seleção, ferramentas, exportação, navegação, deep-link/URL (§27), Garmin KMZ (§6 items 9-10), cursor/reprodução temporal (§29 items 2-7), configurações locais — sem impacto no servidor. |
+| **Operações batch** | §2 items 13-14,19,23 | Multi-seleção (ocultar/bloquear), deletar feições de tileset/foto — múltiplas ops sync individuais. Backend já suporta array de operações. |
+| **Reagendamento temporal (§29 item 12)** | §29 | Shift temporal em massa = batch de ops `feature` (atualiza `temporalInicio`/`temporalFim`/`trajetoria` em `properties`). O frontend calcula os deltas e envia o batch. *Obs.:* a parte de limites/origem do mapa depende da config temporal por mapa (gap P2 acima). |
+| **Operações de split/merge de geometrias** | §14 items 10,11,12 | Combinar/separar setas, cortar linha — frontend gera ops CRDT (create+delete). |
+| **Importação de arquivos geoespaciais** | §5 items 1-8 | GeoJSON, Shapefile, KML/KMZ, GPX, CSV, pontos por coordenadas — parsing no frontend, que envia ops sync com as feições resultantes (tracks com tempo viram pontos móveis). |
 
-### Estatísticas do Frontend (Ref: acoes-interface-multiusuario.md)
+### Estatísticas do Frontend (Ref: acoes-interface-multiusuario.md, rev. 29 seções)
 
 | Categoria | Total | Local | Sync Simples | Destrutivo |
 |-----------|-------|-------|--------------|------------|
-| **TOTAL** | **~277** | **~137 (49%)** | **~125 (45%)** | **~15 (6%)** |
+| **TOTAL** | **~313** | **~144 (46%)** | **~154 (49%)** | **~15 (5%)** |
+
+**~46% das ações são puramente locais** (sem sync) · **~49% precisam de sync simples** (broadcast + LWW) · **~5% são destrutivas** (soft-delete + permissão + broadcast).
 
 **Nenhuma ação requer lock.** Toda resolução de conflito é last-write-wins com timestamp.

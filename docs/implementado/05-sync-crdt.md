@@ -76,10 +76,13 @@ Estes EntityTypes são mapeados automaticamente para updates na tabela `maps`:
 | `mapPosition` | `center_lat`, `center_long`, `zoom`, `bearing`, `pitch` |
 | `baseLayer` | `base_layer` |
 | `mapNotes` | `notes_title`, `notes_description` |
-| `gridStyle` | (campo de estilo de grade no mapa) |
-| `catalogLayer` | `catalog_layers` |
+| `gridStyle` | ⚠️ **no-op** — não há coluna de grade em `maps` (gap aberto) |
+| `catalogLayer` | ⚠️ **incompatível** — frontend emite ops por-camada, backend espera array em `catalog_layers` (gap aberto) |
 
 > **Nota:** Para sub-entidades de mapa, use `mapId` com o ID do mapa a atualizar. Os dados vêm no campo `data` (não `changes`).
+>
+> ⚠️ `gridStyle` e `catalogLayer` estão registrados como aliases mas **ainda não persistem**.
+> Detalhes e fix em [11-gaps-multiusuario.md](../pendente/11-gaps-multiusuario.md).
 
 ### Mapeamento de EntityTypes (3D/360)
 
