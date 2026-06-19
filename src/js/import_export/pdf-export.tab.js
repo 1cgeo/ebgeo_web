@@ -170,8 +170,9 @@ export default class PDFExportTab {
                     <div class="pdf-mosaic-count" id="pdf-mosaic-count">1 folha A4</div>
                     <div class="pdf-mosaic-hint" id="pdf-mosaic-hint">
                         Imprima em <strong>frente e verso</strong>, em tamanho real. As folhas
-                        compartilham uma <strong>sobreposição de ${MOSAIC_OVERLAP_MM} mm</strong> nas
-                        emendas: corte cada folha pela linha vermelha do verso e ponha por baixo da
+                        compartilham uma <strong>sobreposição de ${MOSAIC_OVERLAP_MM} mm</strong>
+                        nas emendas: corte cada folha pela linha vermelha do verso,
+                        <strong>no meio da faixa repetida</strong>, e ponha por baixo da
                         vizinha — assim a margem que a impressora não imprime some e não fica
                         <strong>faixa branca</strong>. A capa traz o passo a passo e o verso traz as
                         etiquetas de montagem (com o mapa para baixo). Ligue a

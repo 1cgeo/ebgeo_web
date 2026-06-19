@@ -194,6 +194,23 @@ export function mirrorAssemblyPosition({ row, col, cols }) {
 }
 
 /**
+ * Distance (mm) from a trimmed sheet edge to its cut line — the MIDDLE of the
+ * duplicated overlap strip.
+ *
+ * The cut is centred (not at the full overlap) so the cut sheet keeps `overlapMm/2`
+ * of inked map past the cut line: after it is laid with that inked edge over the
+ * neighbour, the edge covers the neighbour's unprintable margin. This is correct
+ * only when `overlapMm/2 ≥ printerMargin` on each side, i.e. `overlapMm ≥ 2·margin`
+ * (see {@link getMosaicOverlapMm}). Cutting at the full overlap instead pushes the
+ * inked edge back to the neighbour's paper edge and re-opens a white strip.
+ * @param {number} overlapMm - Seam overlap (mm)
+ * @returns {number} Cut inset from the edge (mm)
+ */
+export function mosaicCutInsetMm(overlapMm) {
+    return overlapMm / 2;
+}
+
+/**
  * Convenience: full per-page Mercator span derived straight from scale + page
  * size + latitude (closed form, container-rounding aside). Handy for previews
  * where an off-screen container does not exist.

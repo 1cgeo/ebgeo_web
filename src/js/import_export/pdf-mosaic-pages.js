@@ -19,7 +19,8 @@
  * @see pdf-mosaic-geometry.js#mirrorAssemblyPosition
  */
 
-import { mirrorAssemblyPosition } from './pdf-mosaic-geometry.js';
+import { mirrorAssemblyPosition, mosaicCutInsetMm } from './pdf-mosaic-geometry.js';
+import { MOSAIC_OVERLAP_MM } from './pdf-export.constants.js';
 
 // Palette (RGB) — mirrors the app's primary green and neutral greys.
 const PRIMARY = [80, 141, 78];
@@ -48,9 +49,9 @@ const CUT = [200, 60, 60];
  * @param {string} [opts.title] - Optional map title
  * @param {number} opts.pageW - Page width (mm)
  * @param {number} opts.pageH - Page height (mm)
- * @param {number} [opts.overlapMm=10] - Seam overlap duplicated between sheets (mm)
+ * @param {number} [opts.overlapMm=MOSAIC_OVERLAP_MM] - Seam overlap duplicated between sheets (mm)
  */
-export function drawCoverPage(doc, { rows, cols, scaleLabel, dpi, orientation, title, pageW, pageH, overlapMm = 10 }) {
+export function drawCoverPage(doc, { rows, cols, scaleLabel, dpi, orientation, title, pageW, pageH, overlapMm = MOSAIC_OVERLAP_MM }) {
     // The duplex flip must preserve top/bottom so the verso "TOPO" backs the map's
     // North. That requires flipping about the A4 vertical (210 mm) edge — which is
     // the LONG edge in portrait but the SHORT edge in landscape.
@@ -90,7 +91,7 @@ export function drawCoverPage(doc, { rows, cols, scaleLabel, dpi, orientation, t
     const steps = [
         `Imprima este PDF em FRENTE E VERSO, virando pela borda ${duplexEdge}, em tamanho real (100% / "Tamanho real" — não use "Ajustar à página").`,
         'Separe as folhas de mapa (a capa e este resumo ficam de fora).',
-        `Em cada emenda interna, corte a folha pela linha tracejada VERMELHA do verso — há ${overlapMm} mm de mapa repetido de propósito, para cobrir a margem que a impressora não imprime.`,
+        `Em cada emenda interna, corte a folha pela linha tracejada VERMELHA do verso (no meio da faixa repetida) — há ${overlapMm} mm de mapa repetido de propósito, para cobrir a margem que a impressora não imprime.`,
         'Vire todas as folhas com o MAPA PARA BAIXO. Gire cada folha até a seta "TOPO" do verso apontar para longe de você.',
         'Monte a grade pela Linha/Coluna do verso (já espelhado). As bordas cortadas (linha vermelha) entram POR BAIXO da folha vizinha; encoste o corte na linha de registro pontilhada da vizinha.',
         'Una as folhas com fita adesiva pelo verso.',
@@ -189,16 +190,16 @@ export function drawOverviewPage(doc, { rows, cols, pageW, pageH }) {
  * @param {number} opts.cols
  * @param {number} opts.pageW
  * @param {number} opts.pageH
- * @param {number} [opts.overlapMm=10] - Seam overlap duplicated between sheets (mm)
+ * @param {number} [opts.overlapMm=MOSAIC_OVERLAP_MM] - Seam overlap duplicated between sheets (mm)
  */
-export function drawVersoPage(doc, { row, col, rows, cols, pageW, pageH, overlapMm = 10 }) {
+export function drawVersoPage(doc, { row, col, rows, cols, pageW, pageH, overlapMm = MOSAIC_OVERLAP_MM }) {
     const margin = 14;
 
     const { assemblyCol } = mirrorAssemblyPosition({ row, col, cols });
 
-    // Push the header below the top cut line (drawn at `overlapMm` from the edge)
-    // so the "TOPO" mark never collides with it.
-    const headTopY = Math.max(margin, overlapMm + 6);
+    // Push the header below the top cut line (drawn at the overlap midline) so the
+    // "TOPO" mark never collides with it.
+    const headTopY = Math.max(margin, mosaicCutInsetMm(overlapMm) + 6);
 
     // "↑ TOPO" mark near the top edge.
     drawTopMark(doc, pageW, headTopY);
@@ -307,10 +308,14 @@ function drawTopMark(doc, pageW, margin) {
  * the verso TOP edge and map-West to the verso RIGHT edge; the receiving seams
  * (map-South / map-East) fall on the verso BOTTOM / LEFT edges.
  *
- * A guide is drawn only when a neighbour exists on that side. Cut guides are a
- * dashed red line at `overlapMm` from the edge (cut here, then slide under the
- * neighbour); registration guides are a dotted grey line marking where the
- * neighbour's cut edge should land.
+ * A guide is drawn only when a neighbour exists on that side. Both the cut guide
+ * and the matching registration guide sit at the MIDDLE of the duplicated strip
+ * (`overlapMm/2` from their respective edges): the dashed red line is where to cut
+ * (the cut edge then goes under the neighbour on the bench → on top in the flipped
+ * final map, covering its white margin); the dotted grey line on the receiving
+ * sheet marks where the neighbour's cut edge should land. Cutting at the full
+ * overlap instead would push the inked edge back to the neighbour's paper edge and
+ * re-open a white strip (see {@link mosaicCutInsetMm}).
  *
  * @param {import('jspdf').jsPDF} doc
  * @param {Object} o
@@ -320,10 +325,11 @@ function drawTopMark(doc, pageW, margin) {
  * @param {number} o.cols
  * @param {number} o.pageW
  * @param {number} o.pageH
- * @param {number} o.overlapMm - Distance from the edge to the cut/registration line
+ * @param {number} o.overlapMm - Seam overlap (mm); guides sit at half this (strip midline)
  */
 function drawSeamGuides(doc, { row, col, rows, cols, pageW, pageH, overlapMm }) {
     const inset = 8; // keep guide lines clear of the sheet corners
+    const cut = mosaicCutInsetMm(overlapMm); // cut/registration line: overlap midline
     const cutTop = row > 0;             // map North seam  → verso TOP edge
     const cutRight = col > 0;           // map West seam   → verso RIGHT edge
     const recvBottom = row < rows - 1;  // map South seam  → verso BOTTOM edge
@@ -333,22 +339,22 @@ function drawSeamGuides(doc, { row, col, rows, cols, pageW, pageH, overlapMm }) 
     setColor(doc, 'draw', CUT);
     doc.setLineWidth(0.5);
     doc.setLineDashPattern([2.4, 1.6], 0);
-    if (cutTop) doc.line(inset, overlapMm, pageW - inset, overlapMm);
-    if (cutRight) doc.line(pageW - overlapMm, inset, pageW - overlapMm, pageH - inset);
+    if (cutTop) doc.line(inset, cut, pageW - inset, cut);
+    if (cutRight) doc.line(pageW - cut, inset, pageW - cut, pageH - inset);
     doc.setLineDashPattern([], 0);
 
     setColor(doc, 'text', CUT);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
-    if (cutTop) doc.text('CORTAR (por baixo)', inset + 2, overlapMm - 1.5);
-    if (cutRight) doc.text('CORTAR (por baixo)', pageW - overlapMm - 1.5, pageH - inset, { angle: 90 });
+    if (cutTop) doc.text('CORTAR (por baixo)', inset + 2, cut - 1.5);
+    if (cutRight) doc.text('CORTAR (por baixo)', pageW - cut - 1.5, pageH - inset, { angle: 90 });
 
     // --- Registration guides on receiving edges (dotted grey) ---
     setColor(doc, 'draw', MUTED);
     doc.setLineWidth(0.3);
     doc.setLineDashPattern([0.6, 1.4], 0);
-    if (recvBottom) doc.line(inset, pageH - overlapMm, pageW - inset, pageH - overlapMm);
-    if (recvLeft) doc.line(overlapMm, inset, overlapMm, pageH - inset);
+    if (recvBottom) doc.line(inset, pageH - cut, pageW - inset, pageH - cut);
+    if (recvLeft) doc.line(cut, inset, cut, pageH - inset);
     doc.setLineDashPattern([], 0);
 }
 

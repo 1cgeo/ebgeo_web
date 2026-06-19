@@ -105,6 +105,7 @@ export async function exportMosaicPdf(config) {
         title = '',
         includeCover = true,
         includeVerso = true,
+        overlapMm = MOSAIC_OVERLAP_MM,
         updateProgress = () => {},
         isCancelled = () => false,
     } = config;
@@ -118,7 +119,7 @@ export async function exportMosaicPdf(config) {
     const zoom = computeMosaicZoom(scaleDenom, center.lat);
     const span = pageMercatorSpan(zoom, containerWcss, containerHcss);
     // Overlap duplicated along every internal seam (Mercator metres, isotropic).
-    const overlapCss = pageContainerCssPx(MOSAIC_OVERLAP_MM);
+    const overlapCss = pageContainerCssPx(overlapMm);
     const overlapMerc = pageMercatorSpan(zoom, overlapCss, overlapCss).width;
     const tiles = computeTileCenters({
         rows, cols,
@@ -131,7 +132,7 @@ export async function exportMosaicPdf(config) {
     const bandPx = drawGrid ? Math.round((MOSAIC_BORDER_MM / 25.4) * dpi) : 0;
     // Seam overlap in device pixels — needed to place mosaic-wide cartographic
     // elements in the assembled-mosaic frame (tiles advance by tileW − overlapPx).
-    const overlapPx = Math.round((MOSAIC_OVERLAP_MM / 25.4) * dpi);
+    const overlapPx = Math.round((overlapMm / 25.4) * dpi);
     const drawCarto = showLegend || showScaleBar || showNorthArrow || !!title;
 
     let hiddenContainer = null;
@@ -190,7 +191,7 @@ export async function exportMosaicPdf(config) {
             newPage();
             drawCoverPage(doc, {
                 rows, cols, scaleLabel: scaleLabel(scale), dpi, orientation, title,
-                pageW: page.w, pageH: page.h, overlapMm: MOSAIC_OVERLAP_MM,
+                pageW: page.w, pageH: page.h, overlapMm,
             });
             newPage();
             drawOverviewPage(doc, { rows, cols, pageW: page.w, pageH: page.h });
@@ -232,7 +233,7 @@ export async function exportMosaicPdf(config) {
                 newPage();
                 drawVersoPage(doc, {
                     row: tile.row, col: tile.col, rows, cols,
-                    pageW: page.w, pageH: page.h, overlapMm: MOSAIC_OVERLAP_MM,
+                    pageW: page.w, pageH: page.h, overlapMm,
                 });
             }
         }

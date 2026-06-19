@@ -11,7 +11,13 @@ import {
     computeMosaicBounds,
     mirrorAssemblyPosition,
     pageMercatorSpanFromScale,
+    mosaicCutInsetMm,
 } from '../../src/js/import_export/pdf-mosaic-geometry.js';
+import {
+    getMosaicOverlapMm,
+    MOSAIC_CUT_SLACK_MM,
+    MOSAIC_PRINTER_MARGIN_MM,
+} from '../../src/js/import_export/pdf-export.constants.js';
 
 // ============================================================================
 // Mercator round-trip
@@ -261,5 +267,59 @@ describe('pageMercatorSpanFromScale', () => {
         });
         expect(span.width).toBeGreaterThan(span.height);
         expect(span.width / span.height).toBeCloseTo(297 / 210, 2);
+    });
+});
+
+// ============================================================================
+// Seam overlap + cut feasibility (printer-margin defeat)
+//
+// Regression for the mosaic white-seam bug: every internal seam joins two
+// full-bleed sheets that EACH lose their own unprintable margin m, so the cut
+// must (1) sit at the strip midline O/2 to remove the cut sheet's own margin and
+// (2) still land inside the neighbour's ink. Both hold iff m <= O/2 <= O - m,
+// i.e. O >= 2m. The earlier scheme used O = 10mm with a cut at the FULL overlap,
+// which fails this for any m > 0.
+// ============================================================================
+
+describe('getMosaicOverlapMm / mosaicCutInsetMm', () => {
+    it('derives the overlap as 2·(margin + slack)', () => {
+        expect(getMosaicOverlapMm(7)).toBe(2 * (7 + MOSAIC_CUT_SLACK_MM));
+        expect(getMosaicOverlapMm(5)).toBe(2 * (5 + MOSAIC_CUT_SLACK_MM));
+    });
+
+    it('defaults to the configured printer margin', () => {
+        expect(getMosaicOverlapMm()).toBe(getMosaicOverlapMm(MOSAIC_PRINTER_MARGIN_MM));
+    });
+
+    it('cuts at the middle of the duplicated strip', () => {
+        expect(mosaicCutInsetMm(18)).toBe(9);
+        expect(mosaicCutInsetMm(getMosaicOverlapMm(7))).toBe(getMosaicOverlapMm(7) / 2);
+    });
+
+    it('the centred cut is feasible: margin <= O/2 <= O - margin, with slack each side', () => {
+        fc.assert(
+            fc.property(fc.double({ min: 3, max: 12, noNaN: true }), (m) => {
+                const O = getMosaicOverlapMm(m);
+                const c = mosaicCutInsetMm(O);
+                // Cut removes the sheet's own white margin...
+                expect(c).toBeGreaterThanOrEqual(m);
+                // ...and lands inside the neighbour's ink (not at its paper edge).
+                expect(c).toBeLessThanOrEqual(O - m);
+                // Symmetric tolerance equals the configured slack on each side.
+                expect(c - m).toBeCloseTo(MOSAIC_CUT_SLACK_MM, 9);
+            })
+        );
+    });
+
+    it('regression: the centred cut is feasible where the old full-overlap cut was not', () => {
+        const m = 5;
+        const O = getMosaicOverlapMm(m); // 14
+        const upperBound = O - m;        // 9 — cut must land at/inside neighbour's ink
+        // The OLD behaviour cut at the FULL overlap (O) → past the neighbour's ink.
+        expect(O).toBeGreaterThan(upperBound);
+        // The actual cut stays within the feasible window [m, O-m]; reverting
+        // mosaicCutInsetMm to the full overlap (the original bug) would break this.
+        expect(mosaicCutInsetMm(O)).toBeLessThanOrEqual(upperBound);
+        expect(mosaicCutInsetMm(O)).toBeGreaterThanOrEqual(m);
     });
 });
