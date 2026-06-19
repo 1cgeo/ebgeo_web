@@ -323,6 +323,9 @@ export class TemporalController {
 
     _startPlayback() {
         if (this._playing || !this._enabled || !this._bounds) return;
+        // Pressing play at (or past) the end rewinds to the start, so playback
+        // replays from the beginning instead of stopping on the first frame.
+        if (this._cursor >= this._bounds.fim) this.setCursor(this._bounds.inicio);
         this._playing = true;
         this._lastFrameTs = null;
         this._bar.setPlaying(true);
