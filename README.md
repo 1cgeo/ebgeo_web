@@ -33,9 +33,11 @@ Guias de integração frontend-backend, em ordem de implementação recomendada:
 Plano consolidado (verificado contra o código atual) para evoluir o `ebgeo_backend` ao "backend único".
 **Comece sempre por [`00-visao-geral.md`](./docs/plano/00-visao-geral.md) e [`_padroes.md`](./docs/plano/_padroes.md).**
 
-> **Status:** Fases **0–6 implementadas** (código + testes, 637 casos verdes); Fases **7–8 com o lado
-> backend pronto** (gateway NGINX e cliente WebSocket são infra/frontend). Cada arquivo de fase tem um
-> banner de status. Veja também [`docs/deploy/gateway-360.md`](./docs/deploy/gateway-360.md).
+> **Status:** Fases **0–6 + 9 implementadas** (código + testes, **708 casos verdes**); a **Fase 9
+> absorveu o `ebgeo_360`** no backend (módulo `sv360` em `/api/v1/sv360` — leitura/escrita/ingestão/ETL/
+> tiles; BLOBs em SQLite via worker pool). A **Fase 7 (gateway externo) foi superSEDIDA pela 9** (o 360
+> não é mais um serviço separado). A **Fase 8** (cliente WebSocket) é frontend. Cada arquivo de fase tem
+> um banner de status. Deploy do backend único em [`docs/deploy/gateway-360.md`](./docs/deploy/gateway-360.md).
 
 | Fase | Documento | Objetivo | Depende de |
 |------|-----------|----------|------------|
@@ -48,8 +50,9 @@ Plano consolidado (verificado contra o código atual) para evoluir o `ebgeo_back
 | 4 | [Catálogo 3D + Assets](./docs/plano/fase-4-catalogo3d-assets.md) | Fonte única `ng.catalogo_3d`, servir assets 3D | 3 |
 | 5 | [Multi-org / Identidade](./docs/plano/fase-5-multiorg-identidade.md) | `organizations`, claim de org no JWT, auditoria | 0 |
 | 6 | [Acesso Geográfico](./docs/plano/fase-6-acesso-geografico.md) | Zonas espaciais, permissões de modelo, autorização na query | 3, 5 |
-| 7 | [Gateway + 360](./docs/plano/fase-7-gateway-360.md) | Manter 360 separado, unificar JWT | 5 |
+| 7 ⛔ | [Gateway + 360](./docs/plano/fase-7-gateway-360.md) | ~~Manter 360 separado~~ — **supersedida pela Fase 9** (360 absorvido); só o JWT emissor único permanece | 5 |
 | 8 | [Colaboração E2E](./docs/plano/fase-8-colaboracao-e2e.md) | Cliente WS, viewport, reconexão (frontend-pesado) | 1, 5 |
+| 9 ✅ | [Absorver o 360](./docs/plano/fase-9-absorver-360.md) | Serviço + metadados do `ebgeo_360` no backend (`sv360`); BLOBs em SQLite | 3, 5 |
 | — | [Referência](./docs/plano/99-referencia.md) | Apêndices verbatim (SQL, schemas, contrato 360, config.js, UI admin) | — |
 
 ---

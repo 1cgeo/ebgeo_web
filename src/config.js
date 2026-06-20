@@ -62,6 +62,20 @@ const config = Object.freeze({
     maxInflight: parseInt(optional('ASSETS_3D_MAX_INFLIGHT', '8'), 10),
   }),
 
+  sv360: Object.freeze({
+    // Directory holding the per-project {slug}.db SQLite stores (WebP BLOBs).
+    dbDir: optional('SV360_DB_DIR', './data/sv360'),
+    // Caps in-heap BLOB buffers served concurrently (mirrors assets3d).
+    maxInflight: parseInt(optional('SV360_MAX_INFLIGHT', '8'), 10),
+    // Multer streams the uploaded images.db (multi-GB) here BEFORE the atomic swap.
+    // MUST be on the same volume as dbDir so the .tmp→dest rename stays atomic.
+    tmpDir: optional('SV360_TMP_DIR', './data/sv360-tmp'),
+    // Hard cap for the multipart upload (the images.db can be large). Default 2
+    // GiB (the original 360 bodyLimit); configurable via SV360_MAX_UPLOAD_BYTES.
+    // FIX-4: a tighter default bounds the authenticated disk-fill blast radius.
+    maxUploadBytes: parseInt(optional('SV360_MAX_UPLOAD_BYTES', String(2 * 1024 * 1024 * 1024)), 10),
+  }),
+
   ws: Object.freeze({
     heartbeatIntervalMs: parseInt(optional('WS_HEARTBEAT_INTERVAL_MS', '30000'), 10),
     heartbeatTimeoutMs: parseInt(optional('WS_HEARTBEAT_TIMEOUT_MS', '5000'), 10),
@@ -90,9 +104,13 @@ const config = Object.freeze({
     hillshadeUrl: optional('HILLSHADE_URL', 'https://demotiles.maplibre.org/terrain-tiles/tiles.json'),
     map3dImageryUrl: optional('MAP3D_IMAGERY_URL', 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'),
     map3dTerrainUrl: optional('MAP3D_TERRAIN_URL', 'http://localhost/terrain/tilesets/terrain'),
-    sv360ServiceUrl: optional('SV360_SERVICE_URL', 'http://localhost:8081/api/v1'),
-    sv360PointsUrl: optional('SV360_POINTS_URL', 'http://localhost:3000/fotos'),
-    sv360LinesUrl: optional('SV360_LINES_URL', 'http://localhost:3000/fotos_linha'),
+    // Fase 9: the 360 is ABSORBED into this backend (no external :8081 upstream).
+    // serviceUrl is the in-backend mount; previewThumbnail (relative) concatenates
+    // with it. Points source = the live tiles GeoJSON; the lines GeoJSON / PMTiles
+    // vector source are deploy-configured (see .env.example).
+    sv360ServiceUrl: optional('SV360_SERVICE_URL', 'http://localhost:3000/api/v1/sv360'),
+    sv360PointsUrl: optional('SV360_POINTS_URL', 'http://localhost:3000/api/v1/sv360/tiles/fotos.geojson'),
+    sv360LinesUrl: optional('SV360_LINES_URL', 'http://localhost:3000/api/v1/sv360/tiles/fotos_linha.geojson'),
     // Basemap tile/style URLs (substitutable by internal servers in production):
     osmTileUrl: optional('OSM_TILE_URL', 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'),
     glyphsUrl: optional('MAPLIBRE_GLYPHS_URL', 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf'),

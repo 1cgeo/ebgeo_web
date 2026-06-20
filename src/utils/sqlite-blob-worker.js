@@ -32,6 +32,23 @@ parentPort.on('message', (msg) => {
     return;
   }
 
+  // Surgically drop the cached connection for one dbPath (release the OS file
+  // handle so the main thread can rename/replace it on Windows). Always ACK, even
+  // if this worker never cached that path, so the pool's round-trip completes.
+  if (msg.type === 'evict') {
+    const db = conns.get(msg.dbPath);
+    if (db) {
+      try {
+        db.close();
+      } catch {
+        /* ignore */
+      }
+      conns.delete(msg.dbPath);
+    }
+    parentPort.postMessage({ type: 'evicted', evictId: msg.evictId, dbPath: msg.dbPath });
+    return;
+  }
+
   const { id, dbPath, sql, params } = msg;
   try {
     const row = conn(dbPath).prepare(sql).get(...params);

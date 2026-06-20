@@ -1,6 +1,14 @@
 # Fase 7 — Gateway e integração do `ebgeo_360` (separado, JWT unificado)
 
-> **✅ STATUS: PRONTA (lado backend).** Esta fase **não escreve código de domínio** — é infra (NGINX) +
+> **⛔ SUPERSEDIDA PELA FASE 9 (o 360 foi ABSORVIDO).** Por decisão de produto posterior, o `ebgeo_360`
+> deixou de ser um microsserviço separado atrás de um gateway: virou o módulo `src/modules/streetview360`
+> deste backend (`/api/v1/sv360`), ver [`fase-9-absorver-360.md`](fase-9-absorver-360.md). **Não há mais
+> upstream `:8081`.** O que desta fase permanece válido: o **emissor único de JWT** (aliases `org`/`login`)
+> e os **padrões de engenharia do 360** já carregados (ETag O(1)/BLOB-em-SQLite/worker pool/dummy-hash).
+> O `docs/deploy/gateway-360.md` foi reescrito para o **backend único** (NGINX de um upstream só). O resto
+> abaixo é histórico (o desenho de gateway externo que foi descartado).
+>
+> **✅ STATUS (histórico): PRONTA (lado backend).** Esta fase **não escreve código de domínio** — é infra (NGINX) +
 > alinhamento de claims (Fase 5) + docs. **Entregue:** (a) o token de emissor único já carrega
 > `sub/role/organization_id/org_role/username` e ganhou **aliases `org`/`login`** para o 360 consumir
 > sem mudar (`issueAccessToken`); (b) **config de gateway NGINX + contrato do 360 + dualidade de

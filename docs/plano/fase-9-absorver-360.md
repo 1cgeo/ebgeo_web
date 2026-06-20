@@ -170,7 +170,7 @@ não se aplica a `photos.id` (é UUID v5 do cliente). Índices: GiST(geom), btre
 `sequence_number`. **Critérios:** SRID 4326 validado; FK de org; `npm test` sem regressão. **Teste:**
 `tests/integration/sv360-schema.test.js`.
 
-### Tarefa 2 — ETL: importar `index.db` + copiar `{slug}.db`
+### Tarefa 2 — ETL: importar `index.db` + copiar `{slug}.db` — ✅ IMPLEMENTADA (stage 3a)
 Script `scripts/sv360-import.js` (idempotente, por projeto, com verificação por tamanho e rollback):
 abre o `index.db` (better-sqlite3 readonly), faz **COPY/INSERT** dos metadados para `sv360.*`
 (preenchendo `geom` de `lon/lat`), e **copia** cada `{slug}.db` para `SV360_DB_DIR` (verificando
@@ -178,6 +178,18 @@ abre o `index.db` (better-sqlite3 readonly), faz **COPY/INSERT** dos metadados p
 (criar a OM na fase-5 se faltar). **Critérios:** contagem de fotos/targets bate; reexecução não
 duplica; um projeto corrompido não aborta os demais. **Teste:** fixtures pequenas (1 projeto, 2 fotos,
 um `images.db` de teste) — validar contagem e `geom`.
+
+> **Estado real (verificado):** `importIndexDb(indexDbPath, { dbDirSource, dbDirDest, logger })` é
+> **exportada** (testável) + wrapper CLI gated por `import.meta.url === pathToFileURL(process.argv[1]).href`.
+> Lê o `index.db` (better-sqlite3 readonly), mapeia §4.3 para um **manifest em memória por projeto** e
+> **REUSA `mergeProject`** (`sv360.merge.js`) — o mesmo upsert/purge/collision-guard do upload — dentro de
+> **uma `tx()` por projeto** (org resolve via `resolveOrgIdBySlug`: `org-legacy`/ausente → org default
+> `00000000-…-0001`). Copia o `{slug}.db` com **size-check** (`soma full+preview ≤ tamanho do arquivo`)
+> **dentro da mesma callback da tx** (cold import sem leitores vivos → cópia no commit; um throw faz
+> rollback do projeto). Idempotente (rerun = mesmo estado); projeto sem `{slug}.db` de origem vai p/
+> `skipped[]` sem abortar os demais. `fsync` é best-effort (handle `r+`; EPERM/EINVAL/ENOTSUP engolidos —
+> Windows). **Teste:** `tests/integration/sv360-etl.test.js` (index.db + `{slug}.db` sintéticos; linhas
+> `sv360.*` + `geom` + arquivo copiado; rerun idempotente; projeto sem `.db` → skipped).
 
 ### Tarefa 3 — Camada de acesso ao BLOB SQLite + isolamento do caminho quente
 `src/modules/streetview360/sv360.blobstore.js`: abre `{SV360_DB_DIR}/{db_filename}` (better-sqlite3
@@ -194,7 +206,7 @@ de `*_size_bytes` (Postgres) → **304 antes do SQLite** → semáforo → Range
 `ST_DWithin(geom::geography, ..., raio)`. **Critérios:** contrato §4.2 byte-compatível; ETag/304/206/416
 corretos. **Teste:** `tests/integration/sv360-contract.test.js` (shape + ETag + 304 + Range + envelope).
 
-### Tarefa 5 — Escrita/calibração (auth + posse)
+### Tarefa 5 — Escrita/calibração (auth + posse) — ✅ IMPLEMENTADA (stage 2)
 PUT calibration/height/rotation/scale/reviewed; targets override/visibility/criar/deletar; DELETE photo
 (soft → `deleted_photos`); batch-calibration. Posse: `canWriteProject` (`role=admin` global passa; senão
 `user.org === project.organization_id` e `org_role` de escrita). **Faixas de validação de calibração
@@ -202,7 +214,30 @@ preservadas** (mudar uma faixa rejeita valores antes aceitos). **Critérios:** n
 preservadas; soft-delete via tombstone. **Teste:** `tests/integration/sv360-write.test.js` (posse +
 faixas + caso negativo).
 
-### Tarefa 6 — Admin: ingestão (bundle), status, delete projeto
+> **Estado real (verificado):** 4 arquivos novos — `sv360.write.{queries,service,controller,schemas}.js` —
+> montados em `sv360.routes.js` com o middleware `auth` **estrito** (anônimo → **401**), `validate(schema)`
+> e o `sv360ErrorHandler` mantido como **último**. Posse **no service** via `enforceProjectWritable`:
+> escada **404→403** (`isProjectReadable` → 404 sem vazar; `canWriteProject` → 403 se lê mas não escreve).
+> Todas as respostas que devolvem foto **re-leem** (`GET_PHOTO_BY_ID` + `GET_TARGETS_FOR_PHOTO`) e chamam
+> `buildPhotoMetadata` (agora **exportado** de `sv360.service.js`) — fonte única do shape §4.2. UPDATE de
+> calibração é **dinâmico por whitelist** (`CALIBRATION_COLUMN_WHITELIST`, nunca do input) + `updated_at=now()`.
+> Soft-delete usa `GET_PHOTO_FOR_WRITE` (**não** exclui tombstoned → re-delete idempotente: 1ª 204, 2ª 404
+> porque o read gate exclui tombstoned); targets são o **único hard-delete** (adjacência regenerável).
+> Batch roda em `tx()` com **falha parcial por item** (`{updated,failed}`).
+>
+> **⚠️ VALIDAÇÃO = TIPO/FINITUDE, sem faixas numéricas (decisão):** os docs (esta seção +
+> `99-referencia.md §6.2`) só dizem "faixas preservadas, não apertar" e **não documentam limite numérico
+> nenhum** — os números reais ficam no fonte `1cgeo/ebgeo_360` (não portado). As colunas são
+> `DOUBLE PRECISION`/`INTEGER` **sem CHECK** (aceitam bearing negativo/>360, escala 0, rotação negativa).
+> Como impor um min/max chutado **422-aria** um valor que o cliente envia e o banco aceitaria (o
+> quebra-contrato do aviso), o Joi valida **só tipo/finitude**: todo numérico é `Joi.number()` (rejeita
+> `NaN`/`Infinity`/string), **sem min/max**; `floor_level` inteiro; booleanos estritos; `.min(1)` na
+> estrutura. O teste cobre **caso negativo de TIPO** (`heading:'north'` → 422) e um caso que **prova a
+> não-restrição** (`heading:400`, `distance_scale:0`, rotação negativa → 200). **Confirmar no fonte antes
+> de adicionar qualquer bound.** Stage 3 (admin/upload/ingestão/tiles) permanece **NÃO** implementado
+> (Tarefas 6–7).
+
+### Tarefa 6 — Admin: ingestão (bundle), status, delete projeto — ✅ IMPLEMENTADA (stage 3a)
 `POST /admin/projects/upload` (multipart, `bodyLimit` alto; **streama o `.db` para disco**, não
 materializa); `validateManifest` (rejeita NaN/Infinity, lat/lon fora de faixa, NOT NULL ausente, target
 referenciando foto fora do manifest); **swap atômico** `.tmp/.bak` do `{slug}.db`; **merge transacional**
@@ -212,9 +247,71 @@ com rollback do `.bak` em falha; merge transacional; 409 em colisão cross-OM. *
 `tests/integration/sv360-ingest.test.js` (upload de bundle de teste; reupload "último manda";
 manifest inválido → 4xx).
 
-### Tarefa 7 — Tiles GeoJSON + (opcional) PMTiles
-`GET /tiles/fotos.geojson` ao vivo (do Postgres, NDJSON/streaming O(1)). PMTiles opcional (tippecanoe
-fora do processo Node). **Critérios:** GeoJSON com as fotos visíveis (respeitando `status`/posse).
+> **Estado real (verificado):** 4 rotas admin sob `/api/v1/sv360/admin` montadas em `sv360.routes.js` com
+> `auth` **estrito** + **multer** `diskStorage` (campos `manifest`/`imagesDb`/`thumbnail`, `SV360_TMP_DIR`
+> no mesmo volume que `SV360_DB_DIR`, `SV360_MAX_UPLOAD_BYTES`), `sv360ErrorHandler` mantido **LAST**. 5
+> arquivos novos: `sv360.merge.js` (core `mergeProject`/`resolveOrgIdBySlug`/`collisionGuard`/`deriveDbFilename`
+> — único lugar de upsert/purge/collision, **reusado pelo ETL**), `sv360.ingest.js` (orquestra `validateManifest`
+> → `validateImagesDb` size-check → `installSwap` → `tx(mergeProject)` → `commitSwap`/`rollbackSwap`),
+> `sv360.admin.{queries,service,controller,schemas}.js`. **Posse no service**: admin global qualquer OM;
+> `om_data_admin` (`org_role∈{owner,admin,editor}` da OM dona) só a própria (manifest `orgSlug` divergente → 403).
+>
+> **Remediações de segurança/atomicidade do stage 3a (revisão adversarial):**
+> - **FIX-1 — `db_filename` DERIVADO no servidor.** O nome do `{slug}.db` é computado por
+>   `deriveDbFilename(orgId, slug)` = `` `${orgId}__${sanitizeSlug(slug)}.db` `` e o valor do manifest é
+>   **IGNORADO** (schema agora `optional/allow(null)`). Sem isso, um `om_data_admin` da OM-A podia apontar
+>   `db_filename` para o `{slug}.db` da OM-B e o swap sobrescrevia o arquivo da vítima. O prefixo de `orgId`
+>   isola por org+slug (duas orgs com o mesmo slug geram arquivos diferentes). O ETL copia o `{slug}.db` de
+>   origem (nome legado) para o nome **derivado** retornado por `mergeProject`. `resolveDbPath` mantém
+>   `path.basename` (defesa em profundidade).
+> - **FIX-2 — flag `committed` no install.** No `installSwap`, `committed=true` **imediatamente** após o
+>   `rename(.tmp→dest)`; o rollback do `.bak` só roda se `!committed`. Uma falha de limpeza pós-rename é
+>   **logada e engolida** (jamais desfaz um swap já instalado).
+> - **FIX-3 — ordem SWAP-PRIMEIRO-DEPOIS-COMMIT.** `installSwap` instala o novo arquivo **preservando o
+>   `.bak`**; em seguida `tx(mergeProject)` — se LANÇAR (409/erro), `rollbackSwap` restaura o `.bak` (ou apaga
+>   o arquivo novo se não havia anterior) e re-lança; se SUCESSO, `commitSwap` apaga o `.bak`. O **commit do
+>   Postgres é o ponto atômico**, então os metadados nunca ficam à frente do BLOB. *Janela residual honesta:*
+>   um crash ENTRE o swap e o commit deixa arquivo-novo + metadados-velhos — **benigno** (fotos anunciadas
+>   continuam servíveis; fotos novas só não aparecem ainda). Como a colisão 409 é quase-impossível (UUID v5
+>   namespaced), o custo de install-then-rollback no 409 é desprezível.
+> - **FIX-4 — gate de capacidade de upload (anti disk-fill DoS).** Middleware `requireUploadCapability`
+>   APÓS `auth` e ANTES do multer: rejeita (403, drenando o corpo multipart) quem não tem capacidade de
+>   escrita alguma (`role==='admin'` ou `org_role∈{owner,admin,editor}`). Um viewer da mesma org → 403 **antes**
+>   de qualquer stream ao disco (a checagem por-org exata permanece no service). `SV360_MAX_UPLOAD_BYTES`
+>   default reduzido de ~8 GiB para **2 GiB** (configurável).
+> - **FIX-5 — slug ambíguo do admin global.** `loadWritableProject` detecta o mesmo slug em ≥2 orgs e
+>   responde **409** ("slug ambíguo; especifique a organização"); aceita `?orgId`/`?orgSlug` para desambiguar
+>   (em vez do `ORDER BY created_at LIMIT 1` que podia agir na OM errada).
+> - **FIX-6 — colisão same-org cross-project → 409 limpo.** O guard foi ampliado (`CHECK_PHOTO_IDS_IN_OTHER_PROJECT`):
+>   detecta id pertencente a um projeto **diferente do alvo `(orgId, slug)`**, de qualquer org. Sem isso, um id
+>   de outro projeto da MESMA org passava o guard antigo (só cross-OM) e estourava a PK global como 500 opaco.
+>   O re-upload do MESMO `(orgId, slug)` continua permitido (ids próprios não são colisão).
+>
+> **DELETE = HARD** (CASCADE + remove `{slug}.db` após evict; não há tombstone de projeto — o soft
+> equivalente é `PATCH status=disabled`). `blobPool.evict` (novo) faz eviction cirúrgico do handle readonly
+> antes do rename (Windows EBUSY). **Thumbnail** só persistida em `{slug}.webp` (rota de serviço = stage 3b).
+> **Auditoria** do upload é só pino-log (a ação não existe no CHECK fechado de `audit_trail`/015).
+
+### Tarefa 7 — Tiles GeoJSON + thumbnails + previewThumbnail — ✅ IMPLEMENTADA (stage 3b)
+`GET /tiles/fotos.geojson` ao vivo (do Postgres): **FeatureCollection** das fotos legíveis, com a regra de
+acesso (`enabled` público; `disabled` só admin/org dona) **embutida no SQL** (`TILES_PHOTOS`, params
+`isAdmin`/`orgId` — mesmo padrão do BUSCA do gazetteer) — defesa em profundidade. Cada Feature é um
+`Point [lon,lat]` (de `ST_X/ST_Y(geom)`) + `properties` (`id`/`projectSlug`/`img`/`display_name`/
+`sequence_number`/`heading`/`ele`); tombstoned excluído.
+`GET /thumbnails/:slug.webp` serve o `{slug}.webp` (gravado na ingestão) do **FS** (`config.sv360.dbDir`)
+com o padrão FS-fallback do `assets3d`: ETag O(1) de `fs.stat` (`"{slug}-{size}-{mtimeMs}"`), 304, Range
+206/416, `Cache-Control: immutable`, `Content-Type: image/webp`, **stream sem semáforo** (arquivo pequeno).
+A leitura do projeto é checada (`resolveThumbnailPath` → `isProjectReadable`), então um projeto oculto =
+**404** para anon; `path.basename` no slug (anti-traversal) + schema `^[a-z0-9-]+$`.
+`previewThumbnail` adicionado ao shape congelado de `/photos/:uuid`: **relativo sem `/api/v1`** =
+`/thumbnails/{projectSlug}.webp` (o cliente concatena com `serviceUrl` = `<backend>/api/v1/sv360`). Campo
+**adicionado** (não renomeia/quebra o shape). As rotas estáticas `/tiles/fotos.geojson` e
+`/thumbnails/:slug.webp` são declaradas **ANTES** de `/photos/:uuid`/`/projects/:slug`; `sv360ErrorHandler`
+permanece o último. **Follow-up trivial junto:** `?orgId`/`?orgSlug` do PATCH/DELETE admin validados por Joi
+(`orgScopeQuerySchema`, `orgId` uuidv4) → `?orgId` malformado dá **400 limpo** (não 500 no cast SQL).
+**Resta (opcional):** **PMTiles** (`/pmtiles/fotos.pmtiles`, tippecanoe fora do processo Node) — não
+implementado, opcional. **Critérios:** GeoJSON com as fotos visíveis (respeitando `status`/posse). ✅
+Coberto por `tests/integration/sv360-tiles.test.js` (13 casos).
 
 ### Tarefa 8 — Montagem, config, gateway e docs
 Montar `/api/v1/sv360`; `config.sv360 = { dbDir, maxInflight }`; `SV360_SERVICE_URL` do `GET /api/config`
@@ -242,13 +339,18 @@ rotas sem mudança de código (só `serviceUrl`).
 
 ## 7. Definition of Done
 
-- [ ] Schema `sv360` (projects/photos[geom+GiST]/targets/deleted_photos) com FK de org; ETL importou
-      metadados + copiou `{slug}.db` com verificação por tamanho (idempotente).
+- [x] Schema `sv360` (projects/photos[geom+GiST]/targets/deleted_photos) com FK de org; **ETL importou
+      metadados + copiou `{slug}.db` com verificação por tamanho (idempotente)** — `sv360-etl.test.js` verde.
 - [ ] BLOBs servidos do SQLite com **ETag O(1)** (`*_size_bytes` do Postgres), **304 antes do SQLite**,
       Range 206/416, `immutable`, **semáforo** ativo; caminho quente isolado (worker/processo) com latência medida.
-- [ ] Shape de `/photos/:uuid` byte-compatível com §4.2; envelope `{error:"..."}` nas rotas do 360.
-- [ ] Escrita/calibração com posse (`canWriteProject`) e faixas de validação preservadas; soft-delete via tombstone.
-- [ ] Ingestão (bundle) com swap atômico `.tmp/.bak` + merge transacional + guard cross-OM (409).
+- [x] Shape de `/photos/:uuid` byte-compatível com §4.2 (incl. **`previewThumbnail` relativo sem `/api/v1`**,
+      stage 3b); envelope `{error:"..."}` nas rotas do 360.
+- [x] **Tiles + thumbnails (stage 3b):** `GET /tiles/fotos.geojson` (FeatureCollection, acesso embutido no
+      SQL, tombstoned excluído) e `GET /thumbnails/:slug.webp` (FS, ETag O(1)/304/Range/immutable, 404 para
+      projeto oculto/ausente, anti-traversal) — `sv360-tiles.test.js` verde. PMTiles permanece opcional.
+- [x] Escrita/calibração com posse (`canWriteProject`); soft-delete via tombstone. **(stage 2 — `sv360-write.test.js` verde; validação só de tipo/finitude, SEM faixa numérica chutada, ver Tarefa 5.)**
+- [x] **Ingestão (bundle) com swap atômico `.tmp/.bak` + merge transacional + guard cross-OM (409)** —
+      `sv360-ingest.test.js` verde (upload/reupload/manifests inválidos/409/posse/status/delete).
 - [ ] Auth unificado (emissor único; sem `/auth` no módulo); `flexibleAuth` para leitura.
 - [ ] `GET /api/config` aponta `streetView360.serviceUrl` para `/api/v1/sv360`; Fase 7 atualizada (NGINX
       não roteia mais o 360 externo).

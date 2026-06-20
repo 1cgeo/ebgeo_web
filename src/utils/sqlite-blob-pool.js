@@ -12,7 +12,9 @@ class SqliteBlobPool {
     this.size = Math.max(1, size);
     this.workers = [];
     this.pending = new Map();
+    this.evicts = new Map(); // evictId -> { remaining, resolve }
     this.nextId = 1;
+    this.nextEvictId = 1;
     this.rr = 0;
   }
 
@@ -22,6 +24,16 @@ class SqliteBlobPool {
       const w = new Worker(WORKER_URL);
       w.on('message', (msg) => {
         if (msg.type === 'closed') return;
+        if (msg.type === 'evicted') {
+          const e = this.evicts.get(msg.evictId);
+          if (!e) return;
+          e.remaining -= 1;
+          if (e.remaining <= 0) {
+            this.evicts.delete(msg.evictId);
+            e.resolve();
+          }
+          return;
+        }
         const p = this.pending.get(msg.id);
         if (!p) return;
         this.pending.delete(msg.id);
@@ -54,15 +66,40 @@ class SqliteBlobPool {
     });
   }
 
+  /**
+   * Surgically closes the cached readonly connection to `dbPath` on EVERY worker
+   * (each worker may hold it, given round-robin), WITHOUT tearing down the pool or
+   * touching other dbPaths. Required before an atomic rename over an open SQLite
+   * file on Windows (rename over an open handle → EBUSY/EPERM). Resolves once all
+   * workers have confirmed ('evicted'). If the pool has not spawned yet, there is
+   * nothing to evict → resolves immediately.
+   * @param {string} dbPath - the {slug}.db (or any db) to release everywhere
+   * @returns {Promise<void>}
+   */
+  evict(dbPath) {
+    if (!this.workers.length) return Promise.resolve();
+    const evictId = this.nextEvictId++;
+    return new Promise((resolve) => {
+      this.evicts.set(evictId, { remaining: this.workers.length, resolve });
+      for (const w of this.workers) w.postMessage({ type: 'evict', evictId, dbPath });
+    });
+  }
+
   /** Terminates all workers (releasing their SQLite file handles). */
   async closeAll() {
     const workers = this.workers;
     this.workers = [];
     for (const [, p] of this.pending) p.reject(new Error('pool closing'));
     this.pending.clear();
+    // Any in-flight evict resolves (the handles are released by terminate anyway).
+    for (const [, e] of this.evicts) e.resolve();
+    this.evicts.clear();
     await Promise.all(workers.map((w) => w.terminate()));
   }
 }
 
 const size = Number(process.env.SQLITE_BLOB_WORKERS) || Math.min(4, Math.max(1, os.cpus().length - 1));
 export const blobPool = new SqliteBlobPool(size);
+
+/** Convenience binding of blobPool.evict (closes a single dbPath everywhere). */
+export const evict = (dbPath) => blobPool.evict(dbPath);

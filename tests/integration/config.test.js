@@ -72,7 +72,8 @@ describe('Config endpoint (GET /api/v1/config)', () => {
   it('exposes env-injected service URLs (defaults applied in test)', async () => {
     const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
     assert.equal(cfg.search.apiUrl, 'http://localhost:3001/busca');
-    assert.equal(cfg.streetView360.serviceUrl, 'http://localhost:8081/api/v1');
+    // Fase 9: 360 absorbed → serviceUrl is the in-backend mount, not an external :8081 upstream.
+    assert.equal(cfg.streetView360.serviceUrl, 'http://localhost:3000/api/v1/sv360');
     assert.equal(cfg.map3d.providers.terrain.type, 'Cesium');
     assert.equal(cfg.map2d.terrainSource.type, 'raster-dem');
   });

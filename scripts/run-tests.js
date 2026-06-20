@@ -38,8 +38,9 @@ async function createDatabase() {
 
     if (exists) {
       console.log(`📦 Database "${TEST_DB_NAME}" already exists, resetting...`);
-      // Terminate connections and drop
-      await adminDb.none(`
+      // Terminate connections and drop. pg_terminate_backend RETURNS rows, so use
+      // .any (not .none, which throws "No return data was expected").
+      await adminDb.any(`
         SELECT pg_terminate_backend(pg_stat_activity.pid)
         FROM pg_stat_activity
         WHERE pg_stat_activity.datname = $1
@@ -126,8 +127,9 @@ async function dropDatabase() {
   const adminDb = pgp(ADMIN_DB_URL);
 
   try {
-    // Terminate connections
-    await adminDb.none(`
+    // Terminate connections. pg_terminate_backend RETURNS rows, so use .any
+    // (not .none, which throws "No return data was expected").
+    await adminDb.any(`
       SELECT pg_terminate_backend(pg_stat_activity.pid)
       FROM pg_stat_activity
       WHERE pg_stat_activity.datname = $1

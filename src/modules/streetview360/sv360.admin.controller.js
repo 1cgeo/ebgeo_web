@@ -1,0 +1,91 @@
+// Path: src/modules/streetview360/sv360.admin.controller.js
+// HTTP layer for the StreetView 360 ADMIN / INGESTION routes (Fase 9, stage 3a).
+//
+// Every handler is reached only AFTER the STRICT `auth` middleware (401 if no
+// credential). Ownership (admin global vs om_data_admin) lives in the SERVICE,
+// not here. Responses follow the FROZEN flat 360 contract: bare JSON (NOT wrapped
+// in {data}); errors bubble to the router-level sv360ErrorHandler ({ error }).
+//
+// The upload reads the multer.fields() result (req.files.{manifest,imagesDb,
+// thumbnail}[0].path — disk storage, the images.db is multi-GB and streamed to a
+// tmp path, never in memory). The controller ALWAYS cleans the multer tmp files
+// in a finally: on success the images.db tmp was already copied by the swap, so
+// removing the leftover tmp is safe; on failure all tmp files are removed.
+import { existsSync, rmSync } from 'node:fs';
+import { asyncHandler } from '../../utils/async-handler.js';
+import * as asvc from './sv360.admin.service.js';
+import { BadRequestError } from '../../utils/errors.js';
+
+// Best-effort removal of a multer tmp file (never throws).
+function cleanTmp(p) {
+  if (p && existsSync(p)) {
+    try {
+      rmSync(p, { force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * POST /sv360/admin/projects/upload — ingest a bundle (manifest.json + images.db
+ * + optional thumbnail.webp) via multipart. 201 with the project summary.
+ * Ownership + merge tx + atomic {slug}.db swap happen in the service/ingest.
+ */
+export const uploadProject = asyncHandler(async (req, res) => {
+  const files = req.files || {};
+  const manifestPath = files.manifest?.[0]?.path;
+  const imagesDbPath = files.imagesDb?.[0]?.path;
+  const thumbnailPath = files.thumbnail?.[0]?.path;
+
+  try {
+    if (!manifestPath) throw new BadRequestError('manifest field is required');
+    if (!imagesDbPath) throw new BadRequestError('imagesDb field is required');
+
+    const result = await asvc.uploadBundle(req.user, {
+      manifestPath,
+      imagesDbPath,
+      thumbnailPath,
+    });
+    res.status(201).json(result);
+  } finally {
+    // manifest + thumbnail tmp are always disposable; the images.db tmp was
+    // copied by the swap on success and should be removed on failure too.
+    cleanTmp(manifestPath);
+    cleanTmp(thumbnailPath);
+    cleanTmp(imagesDbPath);
+  }
+});
+
+/**
+ * PATCH /sv360/admin/projects/:slug/status — { status: 'enabled'|'disabled' }.
+ * 200 with the updated project.
+ */
+export const updateProjectStatus = asyncHandler(async (req, res) => {
+  const project = await asvc.setStatus(req.params.slug, req.body.status, req.user, {
+    orgId: req.query.orgId,
+    orgSlug: req.query.orgSlug,
+  });
+  res.json(project);
+});
+
+/**
+ * DELETE /sv360/admin/projects/:slug — HARD-delete the project (CASCADE photos ->
+ * targets) + remove the {slug}.db from disk (after a blobPool evict). 204.
+ */
+export const deleteProject = asyncHandler(async (req, res) => {
+  await asvc.deleteProject(req.params.slug, req.user, {
+    orgId: req.query.orgId,
+    orgSlug: req.query.orgSlug,
+  });
+  res.status(204).end();
+});
+
+/**
+ * GET /sv360/admin/projects — list the caller's OM projects INCLUDING disabled
+ * (a global admin sees all OMs, optionally filtered by ?orgId). 200 with array.
+ */
+export const listProjects = asyncHandler(async (req, res) => {
+  const projects = await asvc.listProjects(req.user, { orgId: req.query.orgId });
+  res.json(projects);
+});

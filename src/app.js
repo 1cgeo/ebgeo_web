@@ -21,6 +21,7 @@ import { nomesRoutes, assets3dRoutes } from './modules/nomes/index.js';
 import { organizationsRoutes } from './modules/organizations/index.js';
 import { auditRoutes } from './modules/audit/index.js';
 import { zonesRoutes } from './modules/zones/index.js';
+import { sv360Routes } from './modules/streetview360/index.js';
 
 /**
  * Creates and configures the Express application.
@@ -85,6 +86,7 @@ export function createApp() {
   app.use('/api/v1/organizations', organizationsRoutes);
   app.use('/api/v1/audit', auditRoutes);
   app.use('/api/v1/zones', zonesRoutes);
+  app.use('/api/v1/sv360', sv360Routes);
 
   // 404 for unmatched routes (before the error handler)
   app.use((req, res, next) => {
