@@ -132,7 +132,27 @@ export async function reconcileAuthorization(ws) {
 }
 
 /**
- * Attaches WebSocket handling to the HTTP server.
+ * One heartbeat sweep over all sockets: terminate a socket that has not ponged
+ * since the previous sweep (isAlive=false → network-drop close 1006 → `away`),
+ * otherwise flip isAlive=false (a client `ping` re-arms it via handlePing) and
+ * re-reconcile live authorization (W1/O1). Exported so tests can drive the reap
+ * deterministically instead of waiting the 30s interval.
+ * @param {import('ws').WebSocketServer} wss
+ */
+export function heartbeatSweep(wss) {
+  wss.clients.forEach((ws) => {
+    if (!ws.isAlive) {
+      logger.debug({ userId: ws.userId, atlasId: ws.atlasId }, 'Terminating inactive WebSocket');
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    reconcileAuthorization(ws);
+  });
+}
+
+/**
+ * Attaches WebSocket handling to the HTTP server. Returns the WebSocketServer
+ * (used by tests to drive heartbeatSweep / inspect clients).
  */
 export function attachWebSocket(server) {
   const wss = new WebSocketServer({ noServer: true });
@@ -217,20 +237,13 @@ export function attachWebSocket(server) {
   // permission at handshake and lives for hours, so each tick re-reconciles live
   // authorization (share downgrade/revoke, atlas unpublished, org deactivated)
   // against the DB. Staleness is thus bounded to one heartbeat interval (~30s).
-  const heartbeatInterval = setInterval(() => {
-    wss.clients.forEach((ws) => {
-      if (!ws.isAlive) {
-        logger.debug({ userId: ws.userId, atlasId: ws.atlasId }, 'Terminating inactive WebSocket');
-        return ws.terminate();
-      }
-      ws.isAlive = false;
-      reconcileAuthorization(ws);
-    });
-  }, config.ws.heartbeatIntervalMs);
+  const heartbeatInterval = setInterval(() => heartbeatSweep(wss), config.ws.heartbeatIntervalMs);
 
   wss.on('close', () => {
     clearInterval(heartbeatInterval);
   });
+
+  return wss;
 }
 
 /**
