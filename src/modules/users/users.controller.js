@@ -23,6 +23,11 @@ export const searchUsers = asyncHandler(async (req, res) => {
   res.json({ data: users });
 });
 
+export const rotateMyApiKey = asyncHandler(async (req, res) => {
+  const result = await usersService.rotateApiKey(req.user.id, req.user.id, req);
+  res.json({ data: result });
+});
+
 // ============================================
 // Admin controllers
 // ============================================
@@ -57,7 +62,8 @@ export const deleteUser = asyncHandler(async (req, res) => {
   const result = await usersService.deleteUser(
     req.params.userId,
     req.user.id,
-    req.query.transferTo
+    req.query.transferTo,
+    req
   );
   res.json({ data: result });
 });
@@ -65,4 +71,9 @@ export const deleteUser = asyncHandler(async (req, res) => {
 export const reactivateUser = asyncHandler(async (req, res) => {
   const user = await usersService.reactivateUser(req.params.userId);
   res.json({ data: user });
+});
+
+export const rotateUserApiKey = asyncHandler(async (req, res) => {
+  const result = await usersService.rotateApiKey(req.params.userId, req.user.id, req);
+  res.json({ data: result });
 });

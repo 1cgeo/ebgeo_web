@@ -10,12 +10,14 @@ export const pushOperations = asyncHandler(async (req, res) => {
     req.user.id
   );
 
-  // Broadcast to WS clients so they receive real-time updates
-  // Use result.applied (the server-acknowledged ops) rather than raw input
+  // Broadcast the pushed operations to WS peers for real-time updates.
+  // The service returns { acks, serverVersion } (no `applied`); we broadcast the
+  // normalized input. The HTTP sender has no socket, so it can't be excluded —
+  // clients must ignore ops whose clientId is their own (contract: fase-1/fase-8).
   broadcastToRoom(req.atlasId, {
     type: 'operations',
     userId: req.user.id,
-    ops: result.applied || req.body.operations,
+    ops: req.body.operations,
   });
 
   res.json({ data: result });

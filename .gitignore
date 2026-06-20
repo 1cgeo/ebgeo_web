@@ -11,6 +11,8 @@ node_modules/
 # Runtime data
 data/images/
 data/test-images/
+data/assets3d/
+data/*.sqlite*
 
 # Logs
 *.log
@@ -27,6 +29,6 @@ Thumbs.db
 # Test coverage
 coverage/
 
-package-lock.json
+# package-lock.json is committed (npm ci in CI requires it).
 yarn.lock
 pnpm-lock.yaml

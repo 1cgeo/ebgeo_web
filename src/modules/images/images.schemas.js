@@ -9,7 +9,7 @@ export const uploadQuerySchema = Joi.object({
 const bulkImageItemSchema = Joi.object({
   localId: Joi.string().uuid().required(), // Client-side ID for mapping
   filename: Joi.string().max(255).required(),
-  mimeType: Joi.string().valid('image/png', 'image/jpeg', 'image/svg+xml', 'image/webp').required(),
+  mimeType: Joi.string().valid('image/png', 'image/jpeg', 'image/webp').required(),
   data: Joi.string().required(), // Base64 encoded image data
 });
 

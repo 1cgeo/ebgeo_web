@@ -7,15 +7,27 @@ export const uploadImage = asyncHandler(async (req, res) => {
   res.status(201).json({ data: image });
 });
 
-export const getImage = asyncHandler(async (req, res) => {
-  const { stream, mimeType, filename } = await imagesService.getImageStream(
+export const getImage = asyncHandler(async (req, res, next) => {
+  const { path, mimeType, filename } = await imagesService.getImageFile(
     req.atlasId,
     req.params.imageId
   );
 
+  // Serve as an attachment (never inline — avoids any rendered-content XSS).
   res.setHeader('Content-Type', mimeType);
-  res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-  stream.pipe(res);
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  // Images are immutable once uploaded; cache privately (access-controlled).
+  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+
+  // res.sendFile handles ETag, conditional 304, Range/206 and Last-Modified.
+  res.sendFile(path, {
+    acceptRanges: true,
+    lastModified: true,
+    etag: true,
+    cacheControl: false, // we set Cache-Control above (private)
+  }, (err) => {
+    if (err) next(err);
+  });
 });
 
 export const deleteImage = asyncHandler(async (req, res) => {

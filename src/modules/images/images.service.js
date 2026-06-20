@@ -1,15 +1,17 @@
 // Path: src/modules/images/images.service.js
 import { mkdir, unlink, writeFile, stat } from 'fs/promises';
-import { join, dirname } from 'path';
-import { createReadStream } from 'fs';
+import { join, resolve } from 'path';
 import crypto from 'crypto';
+import { fileTypeFromFile, fileTypeFromBuffer } from 'file-type';
 import { query } from '../../database/index.js';
 import { NotFoundError, BadRequestError } from '../../utils/errors.js';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import * as Q from './images.queries.js';
 
-const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
+// SVG removed: it is a stored-XSS vector when served, and the frontend does
+// not rely on it for features. Reintroduce only with explicit sanitization.
+const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 export async function uploadImage(atlasId, file, userId) {
   if (!file) {
@@ -25,14 +27,15 @@ export async function uploadImage(atlasId, file, userId) {
     throw new BadRequestError(`File too large. Maximum size: ${config.images.maxSizeMb}MB`);
   }
 
-  // Generate storage path
-  const ext = file.originalname.split('.').pop() || 'bin';
-  const uniqueId = crypto.randomUUID();
-  const storagePath = join(config.images.dir, atlasId, `${uniqueId}.${ext}`);
+  // Validate the actual file CONTENT (magic bytes) against the declared type.
+  // Defends against e.g. an HTML/SVG payload renamed to .png.
+  const detected = await fileTypeFromFile(file.path);
+  if (!detected || !ALLOWED_MIME_TYPES.includes(detected.mime) || detected.mime !== file.mimetype) {
+    await unlink(file.path).catch(() => {});
+    throw new BadRequestError('File content does not match declared type');
+  }
 
-  // Ensure directory exists
-  await mkdir(dirname(storagePath), { recursive: true });
-
+  // multer already wrote the file to `file.path`; persist exactly that path.
   const { rows } = await query(Q.INSERT_IMAGE, [
     atlasId,
     file.originalname,
@@ -55,17 +58,24 @@ export async function getImageById(atlasId, imageId) {
   return rows[0];
 }
 
-export async function getImageStream(atlasId, imageId) {
+/**
+ * Resolves an image to an absolute file path + metadata for download.
+ * Returns the path (not a stream) so the controller can use res.sendFile,
+ * which handles ETag, conditional 304, Range/206 and caching.
+ */
+export async function getImageFile(atlasId, imageId) {
   const image = await getImageById(atlasId, imageId);
 
+  const absolutePath = resolve(image.storage_path);
   try {
-    await stat(image.storage_path);
+    await stat(absolutePath);
   } catch {
     throw new NotFoundError('Image file');
   }
 
   return {
-    stream: createReadStream(image.storage_path),
+    id: image.id,
+    path: absolutePath,
     mimeType: image.mime_type,
     filename: image.filename,
   };
@@ -138,6 +148,16 @@ export async function bulkUploadImages(atlasId, images, userId) {
         results.failed.push({
           localId: image.localId,
           error: `File too large: ${Math.round(buffer.length / 1024 / 1024)}MB (max: ${config.images.maxSizeMb}MB)`,
+        });
+        continue;
+      }
+
+      // Validate decoded content (magic bytes) against the declared mime type.
+      const detected = await fileTypeFromBuffer(buffer);
+      if (!detected || !ALLOWED_MIME_TYPES.includes(detected.mime) || detected.mime !== image.mimeType) {
+        results.failed.push({
+          localId: image.localId,
+          error: 'Content does not match declared type',
         });
         continue;
       }

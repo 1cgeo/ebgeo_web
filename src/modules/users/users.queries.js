@@ -121,3 +121,27 @@ export const TRANSFER_ATLAS_OWNERSHIP = `
 export const COUNT_USER_ATLAS = `
   SELECT COUNT(*) as count FROM atlas WHERE owner_id = $1 AND deleted_at IS NULL
 `;
+
+// Revoke all active refresh tokens for a user (on password change/reset/deactivate).
+export const REVOKE_ALL_USER_TOKENS = `
+  UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL
+`;
+
+// Atomic API key rotation: archive the old key + issue a new one in one statement.
+export const ROTATE_API_KEY = `
+  WITH old AS (
+    INSERT INTO api_key_history (user_id, api_key, created_at, revoked_at, revoked_by)
+    SELECT id, api_key, NULL::timestamptz, NOW(), $2
+    FROM users WHERE id = $1 AND api_key IS NOT NULL
+    RETURNING 1
+  )
+  UPDATE users SET api_key = gen_random_uuid(), updated_at = NOW()
+  WHERE id = $1
+  RETURNING api_key
+`;
+
+export const FIND_USER_BY_API_KEY = `
+  SELECT id, username, nome, posto_graduacao, organizacao_militar,
+         organization_id, org_role, role
+  FROM users WHERE api_key = $1 AND is_active = true
+`;

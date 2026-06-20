@@ -1,9 +1,15 @@
 // Path: src/modules/sync/sync.queries.js
 
 export const INSERT_OPERATION = `
-  INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id)
-  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10)
+  INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id, op_id)
+  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11)
+  ON CONFLICT (atlas_id, op_id) DO NOTHING
   RETURNING *
+`;
+
+// Fetch an already-applied operation by its client op id (for idempotent acks).
+export const GET_OPERATION_BY_OP_ID = `
+  SELECT server_version FROM operations WHERE atlas_id = $1 AND op_id = $2
 `;
 
 export const GET_OPERATIONS_SINCE_VERSION = `
@@ -35,10 +41,17 @@ export const GET_ATLAS_METADATA = `
 export const GET_ATLAS_MAPS = `
   SELECT id, name, base_layer, center_lat, center_long, zoom, bearing, pitch,
          notes_title, notes_description, analysis_layers, catalog_layers,
-         locked, created_at, updated_at, version
+         grid_style, temporal_config, locked, created_at, updated_at, version
   FROM maps
   WHERE atlas_id = $1 AND deleted_at IS NULL
   ORDER BY created_at
+`;
+
+// Per-layer catalog layers (dedicated table; soft-deleted excluded).
+export const GET_MAP_CATALOG_LAYERS = `
+  SELECT id, map_id, data, created_at, updated_at, version
+  FROM catalog_layers
+  WHERE map_id = $1 AND deleted_at IS NULL
 `;
 
 export const GET_MAP_FEATURES = `

@@ -12,6 +12,7 @@ const router = Router();
 router.get('/me', auth, ctrl.getProfile);
 router.put('/me', auth, validate({ body: schemas.updateProfileSchema }), ctrl.updateProfile);
 router.put('/me/password', auth, validate({ body: schemas.updatePasswordSchema }), ctrl.updatePassword);
+router.post('/me/api-key/rotate', auth, ctrl.rotateMyApiKey);
 router.get('/search', auth, validate({ query: schemas.searchQuerySchema }), ctrl.searchUsers);
 
 // Admin routes (manage all users)
@@ -22,5 +23,6 @@ router.put('/:userId', auth, requireAdmin, validate({ params: schemas.userIdPara
 router.post('/:userId/reset-password', auth, requireAdmin, validate({ params: schemas.userIdParamsSchema, body: schemas.resetPasswordSchema }), ctrl.resetPassword);
 router.delete('/:userId', auth, requireAdmin, validate({ params: schemas.userIdParamsSchema, query: schemas.deleteUserQuerySchema }), ctrl.deleteUser);
 router.post('/:userId/reactivate', auth, requireAdmin, validate({ params: schemas.userIdParamsSchema }), ctrl.reactivateUser);
+router.post('/:userId/api-key/rotate', auth, requireAdmin, validate({ params: schemas.userIdParamsSchema }), ctrl.rotateUserApiKey);
 
 export { router as usersRoutes };

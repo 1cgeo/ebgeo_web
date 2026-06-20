@@ -22,13 +22,16 @@ export function extractBearerToken(req) {
  */
 export function verifyAndMapUser(token) {
   try {
-    const payload = jwt.verify(token, config.jwt.secret);
+    const payload = jwt.verify(token, config.jwt.secret, { algorithms: config.jwt.algorithms });
     return {
       id: payload.sub,
       username: payload.username,
       nome: payload.nome,
       posto_graduacao: payload.posto,
       role: payload.role || 'user',
+      // Legacy tokens (pre-org claim) fall back gracefully.
+      organization_id: payload.organization_id ?? null,
+      org_role: payload.org_role || 'viewer',
     };
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
@@ -45,6 +48,11 @@ export function verifyAndMapUser(token) {
  * Returns 401 if missing or invalid.
  */
 export function auth(req, res, next) {
+  // Already authenticated by the global flexibleAuth (Bearer/api-key/cookie)?
+  if (req.user) {
+    return next();
+  }
+
   const token = extractBearerToken(req);
 
   if (!token) {

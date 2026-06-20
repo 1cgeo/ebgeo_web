@@ -14,7 +14,7 @@ router.get('/admin/stats', auth, requireAdmin, ctrl.getCleanupStats);
 router.post('/admin/cleanup', auth, requireAdmin, validate({ body: schemas.cleanupSchema }), ctrl.cleanupOperations);
 
 // Sync operations
-router.post('/', auth, requireAtlasPermission('write'), ctrl.pushOperations);
+router.post('/', auth, requireAtlasPermission('write'), validate({ body: schemas.pushSchema }), ctrl.pushOperations);
 router.get('/:version', auth, requireAtlasPermission('read'), ctrl.pullOperations);
 
 export { router as syncRoutes };

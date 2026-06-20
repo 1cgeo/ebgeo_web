@@ -3,15 +3,24 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import config from './config.js';
+import { one } from './database/index.js';
+import { NotFoundError } from './utils/errors.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { errorHandler } from './middleware/error-handler.js';
+import { flexibleAuth } from './middleware/flexible-auth.js';
 
 // Module routes
 import { authRoutes } from './modules/auth/index.js';
 import { usersRoutes } from './modules/users/index.js';
 import { atlasRoutes } from './modules/atlas/index.js';
 import { resourcesRoutes } from './modules/resources/index.js';
+import { configRoutes } from './modules/config/index.js';
+import { nomesRoutes, assets3dRoutes } from './modules/nomes/index.js';
+import { organizationsRoutes } from './modules/organizations/index.js';
+import { auditRoutes } from './modules/audit/index.js';
+import { zonesRoutes } from './modules/zones/index.js';
 
 /**
  * Creates and configures the Express application.
@@ -21,24 +30,66 @@ export function createApp() {
   const app = express();
 
   // Global middleware (order matters)
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        imgSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    hsts: config.isProd ? { maxAge: 15552000, includeSubDomains: true } : false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }));
   app.use(cors({ origin: config.cors.origin, credentials: true }));
+  app.use(cookieParser());
   app.use(compression());
   app.use(express.json({ limit: '10mb' }));
+
+  // Non-blocking global auth: populates req.user when a credential is present
+  // (api key / cookie / Bearer); the anonymous path is preserved.
+  app.use(flexibleAuth);
 
   // Request logging (skip in test to reduce noise)
   if (!config.isTest) {
     app.use(requestLogger);
   }
 
-  // Health check (no auth)
-  app.get('/api/v1/health', (req, res) => res.json({ status: 'ok' }));
+  // Health check (no auth) — readiness: touches the DB, 503 if it is down.
+  app.get('/api/v1/health', async (req, res) => {
+    try {
+      await one('SELECT 1 AS ok');
+      res.json({ status: 'ok' });
+    } catch {
+      res.status(503).json({
+        error: { code: 'SERVICE_UNAVAILABLE', message: 'Database unavailable' },
+      });
+    }
+  });
+
+  // Public runtime config (no auth) — mounted before authenticated routes.
+  app.use('/api/v1/config', configRoutes);
+  app.use('/api/config', configRoutes); // compatibility alias
+
+  // Public 3D asset serving (immutable, Range/ETag). Discovery is gated by the
+  // authenticated catalog (GET /api/v1/nomes/catalogo3d).
+  app.use('/api/v1/assets3d', assets3dRoutes);
 
   // Route mounting
   app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1/users', usersRoutes);
   app.use('/api/v1/atlas', atlasRoutes);
   app.use('/api/v1/resources', resourcesRoutes);
+  app.use('/api/v1/nomes', nomesRoutes);
+  app.use('/api/v1/organizations', organizationsRoutes);
+  app.use('/api/v1/audit', auditRoutes);
+  app.use('/api/v1/zones', zonesRoutes);
+
+  // 404 for unmatched routes (before the error handler)
+  app.use((req, res, next) => {
+    next(new NotFoundError('Route'));
+  });
 
   // Centralized error handler (must be last)
   app.use(errorHandler);

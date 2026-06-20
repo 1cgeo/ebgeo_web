@@ -19,13 +19,20 @@
     "test:unit": "node scripts/run-tests.js tests/unit/**/*.test.js",
     "test:integration": "node scripts/run-tests.js tests/integration/**/*.test.js",
     "test:ws": "node scripts/run-tests.js tests/ws/**/*.test.js",
-    "test:quick": "node --test --env-file=.env.test tests/**/*.test.js"
+    "test:quick": "node --test --env-file=.env.test tests/**/*.test.js",
+    "lint": "eslint src tests",
+    "lint:fix": "eslint src tests --fix",
+    "format": "prettier --write \"**/*.{js,json,md}\""
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
+    "better-sqlite3": "^12.11.1",
     "compression": "^1.7.4",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "express": "^4.21.0",
+    "express-rate-limit": "^8.5.2",
+    "file-type": "^22.0.1",
     "helmet": "^8.0.0",
     "joi": "^17.13.0",
     "jsonwebtoken": "^9.0.2",
@@ -36,6 +43,11 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.5.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.4",
     "supertest": "^6.3.3"
   }
 }

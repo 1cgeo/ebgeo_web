@@ -57,6 +57,31 @@ async function createDatabase() {
   }
 }
 
+// PostGIS is an UNTRUSTED extension: it must be created by a superuser. In CI
+// the postgis/postgis image already enables it in template1 (new DBs inherit
+// it). Locally the app role (ebgeo) is not a superuser, so we pre-create the
+// spatial extensions with a superuser connection. Best-effort: if no superuser
+// is reachable, migrations still try CREATE EXTENSION as the app role (works
+// where the app role is a superuser, e.g. the CI image).
+async function ensureExtensions() {
+  const superUrl =
+    process.env.SUPERUSER_DATABASE_URL ||
+    `postgresql://postgres:postgres@${DB_HOST}:${DB_PORT}/${TEST_DB_NAME}`;
+  const sp = pgPromise();
+  const sdb = sp(superUrl);
+  try {
+    for (const ext of ['postgis', 'pg_trgm', 'unaccent', 'pgcrypto']) {
+      await sdb.none(`CREATE EXTENSION IF NOT EXISTS ${ext}`);
+    }
+    console.log('✅ Spatial extensions ensured (superuser)');
+  } catch (err) {
+    console.warn(`⚠️  Could not pre-create extensions as superuser: ${err.message}`);
+    console.warn('   Migrations will attempt CREATE EXTENSION as the app role.');
+  } finally {
+    await sp.end();
+  }
+}
+
 async function migrate() {
   console.log('📋 Running migrations...');
   await runMigrations(TEST_DB_URL);
@@ -134,6 +159,9 @@ async function main() {
   try {
     // Step 1: Create database
     await createDatabase();
+
+    // Step 1b: Ensure spatial extensions (PostGIS needs a superuser)
+    await ensureExtensions();
 
     // Step 2: Run migrations
     await migrate();

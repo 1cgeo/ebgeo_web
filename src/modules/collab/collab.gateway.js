@@ -7,7 +7,8 @@ import crypto from 'crypto';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { query } from '../../database/index.js';
-import { joinRoom, leaveRoom, getRoomUsers, broadcastToRoom } from './collab.rooms.js';
+import { joinRoom, leaveRoom, getRoomUsers } from './collab.rooms.js';
+import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
 import * as handlers from './collab.handlers.js';
 
@@ -80,6 +81,9 @@ export function attachWebSocket(server) {
       const url = new URL(request.url, `http://${request.headers.host}`);
       const atlasId = url.searchParams.get('atlasId');
       const token = url.searchParams.get('token');
+      // Stable clientId across reconnects (idempotency + presence). Old clients
+      // omit it → the server generates one.
+      const clientId = url.searchParams.get('clientId') || null;
 
       if (!atlasId || !token) {
         socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
@@ -87,10 +91,10 @@ export function attachWebSocket(server) {
         return;
       }
 
-      // Verify JWT
+      // Verify JWT (algorithm allowlist — reject `none`/asymmetric forgery)
       let payload;
       try {
-        payload = jwt.verify(token, config.jwt.secret);
+        payload = jwt.verify(token, config.jwt.secret, { algorithms: config.jwt.algorithms });
       } catch (err) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
@@ -115,8 +119,9 @@ export function attachWebSocket(server) {
           username: isPublicUser ? 'visitante' : payload.username,
           nome: isPublicUser ? 'Visitante' : payload.nome,
           posto_graduacao: isPublicUser ? null : payload.posto,
+          role: isPublicUser ? 'user' : (payload.role || 'user'),
           isPublic: isPublicUser,
-        }, atlasId, permission);
+        }, atlasId, permission, clientId);
       });
     } catch (err) {
       logger.error({ err }, 'WebSocket upgrade error');
@@ -144,8 +149,9 @@ export function attachWebSocket(server) {
 /**
  * Handles a new WebSocket connection.
  */
-function onConnection(ws, user, atlasId, permission) {
-  const clientId = crypto.randomUUID();
+function onConnection(ws, user, atlasId, permission, providedClientId = null) {
+  // Use the client-provided stable id when present; otherwise generate one.
+  const clientId = providedClientId || crypto.randomUUID();
 
   // Attach user info to WebSocket
   ws.userId = user.id;
@@ -160,8 +166,11 @@ function onConnection(ws, user, atlasId, permission) {
   ws.currentMapId = null;
   ws.selectedFeatures = [];
 
-  // Create session
-  collabService.createSession(user.id, atlasId, clientId);
+  // Create session (skip for public visitors: their `sub` is `public-<uuid>`,
+  // which has no row in `users` and would break the active_sessions FK).
+  if (!ws.isPublic) {
+    collabService.createSession(user.id, atlasId, clientId);
+  }
 
   // Join room
   joinRoom(atlasId, ws);
@@ -169,12 +178,14 @@ function onConnection(ws, user, atlasId, permission) {
   // Get current users
   const usersOnline = getRoomUsers(atlasId);
 
-  // Send connected message
+  // Send connected message. `permission` (owner/write/read) is the frozen field;
+  // `role` exposes the frontend vocabulary (owner/editor/viewer/admin).
   ws.send(JSON.stringify({
     type: 'connected',
     sessionId: clientId,
     userId: user.id,
     permission,
+    role: toFrontendRole(permission, user.role),
     usersOnline,
   }));
 
@@ -233,6 +244,10 @@ function handleMessage(ws, data) {
       handlers.handleSyncRequest(ws, data);
       break;
 
+    case 'connection-quality':
+      handlers.handleConnectionQuality(ws, data);
+      break;
+
     case 'briefing_edit_start':
       handlers.handleBriefingEditStart(ws, data);
       break;
@@ -255,8 +270,10 @@ function onClose(ws) {
   // Leave room
   leaveRoom(ws.atlasId, ws);
 
-  // Delete session
-  collabService.deleteSession(ws.userId, ws.atlasId, ws.clientId);
+  // Delete session (only created for non-public connections)
+  if (!ws.isPublic) {
+    collabService.deleteSession(ws.userId, ws.atlasId, ws.clientId);
+  }
 
   // Broadcast user left
   collabService.broadcastUserLeft(ws.atlasId, ws.userId);

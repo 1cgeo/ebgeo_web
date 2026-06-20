@@ -82,7 +82,7 @@ Estes EntityTypes são mapeados automaticamente para updates na tabela `maps`:
 > **Nota:** Para sub-entidades de mapa, use `mapId` com o ID do mapa a atualizar. Os dados vêm no campo `data` (não `changes`).
 >
 > ⚠️ `gridStyle` e `catalogLayer` estão registrados como aliases mas **ainda não persistem**.
-> Detalhes e fix em [11-gaps-multiusuario.md](../pendente/11-gaps-multiusuario.md).
+> Detalhes e fix em [docs/plano/fase-1-sync-multiusuario.md](../plano/fase-1-sync-multiusuario.md).
 
 ### Mapeamento de EntityTypes (3D/360)
 

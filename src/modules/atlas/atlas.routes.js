@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { requireAtlasPermission } from '../../middleware/permissions.js';
+import { publicLinkLimiter } from '../../middleware/rate-limit.js';
 import * as ctrl from './atlas.controller.js';
 import * as schemas from './atlas.schemas.js';
 
@@ -19,7 +20,7 @@ const router = Router();
 router.get('/', auth, ctrl.listAtlas);
 router.post('/', auth, validate({ body: schemas.createAtlasSchema }), ctrl.createAtlas);
 router.post('/import', auth, validate({ body: schemas.importSchema }), ctrl.importAtlas);
-router.get('/public/:link', ctrl.getPublicAtlas);
+router.get('/public/:link', publicLinkLimiter, ctrl.getPublicAtlas);
 router.get('/:atlasId', auth, requireAtlasPermission('read'), ctrl.getAtlas);
 router.put('/:atlasId', auth, requireAtlasPermission('write'), validate({ body: schemas.updateAtlasSchema }), ctrl.updateAtlas);
 router.delete('/:atlasId', auth, requireAtlasPermission('owner'), ctrl.deleteAtlas);

@@ -1,0 +1,42 @@
+# EBGeo Backend — local development stack.
+# Uses the postgis/postgis image so the `postgis`, `pg_trgm` and `unaccent`
+# extensions are available (required by the gazetteer / access-control modules).
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ebgeo
+      POSTGRES_PASSWORD: ebgeo_secret
+      POSTGRES_DB: ebgeo
+    ports:
+      - "5432:5432"
+    volumes:
+      - ebgeo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ebgeo -d ebgeo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: postgresql://ebgeo:ebgeo_secret@db:5432/ebgeo
+      JWT_SECRET: change-me-to-a-random-64-char-string-for-local-dev-only
+      CORS_ORIGIN: http://localhost:8080
+      IMAGES_DIR: /app/data/images
+    ports:
+      - "3000:3000"
+    volumes:
+      - ebgeo_images:/app/data/images
+    # Run migrations before starting the server.
+    command: sh -c "node src/database/migrate.js && node src/index.js"
+
+volumes:
+  ebgeo_pgdata:
+  ebgeo_images:

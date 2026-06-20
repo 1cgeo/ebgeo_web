@@ -7,6 +7,7 @@ import { mkdirSync } from 'fs';
 import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { requireAtlasPermission } from '../../middleware/permissions.js';
+import { BadRequestError } from '../../utils/errors.js';
 import * as ctrl from './images.controller.js';
 import * as schemas from './images.schemas.js';
 import config from '../../config.js';
@@ -34,11 +35,12 @@ const upload = multer({
     fileSize: config.images.maxSizeMb * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
-    const allowed = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
+    const allowed = ['image/png', 'image/jpeg', 'image/webp'];
     if (allowed.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type'));
+      // BadRequestError (AppError) so the error handler returns 400, not 500.
+      cb(new BadRequestError('Invalid file type'));
     }
   },
 });

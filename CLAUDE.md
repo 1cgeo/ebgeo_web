@@ -79,8 +79,9 @@ Todas as entidades colaborativas são gerenciadas **exclusivamente via sync**:
 - `mapPosition` - Viewport (center_lat, center_long, zoom, bearing, pitch) ✅
 - `baseLayer` - Camada base do mapa (coluna `base_layer`) ✅
 - `mapNotes` - Notas do mapa (`notes_title`/`notes_description`) ✅
-- `gridStyle` - Estilo de grade ⚠️ **alias existe mas é no-op** — não há coluna na tabela `maps`, o payload `{format, visible}` é descartado. Ver [Gaps](#limitações-conhecidas-e-gaps-para-multiusuário).
-- `catalogLayer` - Camadas do catálogo ⚠️ **incompatível** — o frontend emite ops **por camada** (`entityId` = id da camada, `data` = objeto único), mas o backend tenta gravar o array inteiro em `maps.catalog_layers`; o payload não bate com nenhuma coluna. Ver [Gaps](#limitações-conhecidas-e-gaps-para-multiusuário).
+- `gridStyle` - Estilo de grade ✅ **persiste** em `maps.grid_style` (JSONB); payload `{format, visible}`. (Fase 1)
+- `mapTemporal` - Config temporal do mapa ✅ persiste em `maps.temporal_config` (JSONB) `{ativo, unidade, inicio, fim, modo, origem}` — **gated** (aguarda o frontend emitir a op). (Fase 1)
+- `catalogLayer` - Camadas do catálogo ✅ **entidade por-camada** na tabela `catalog_layers` (id/map_id/data/version/soft-delete) com create/update/delete; aparece no snapshot como `map.catalogLayers`. **Dual-mode:** se a op trouxer o array inteiro (`data.catalog_layers`), grava na coluna legada `maps.catalog_layers` (compat). (Fase 1)
 
 **Módulos read-only:**
 - `maps` e `briefings` possuem apenas rotas GET (listagem e detalhes)
@@ -189,10 +190,11 @@ O script de testes (`npm test`) gerencia automaticamente o banco de teste:
 - Sem PostGIS - não há queries espaciais no servidor
 - Soft-delete via `deleted_at` em todas as entidades principais
 - `version` para CRDT, incrementado a cada update
+- **Idempotência de operações** (Fase 0): coluna `operations.op_id` (id do cliente) + índice `UNIQUE (atlas_id, op_id)`; o push usa `ON CONFLICT DO NOTHING` (reenvio não duplica nem reaplica)
 
 ### Migrações
 Arquivos em `src/database/migrations/` executados em ordem alfabética.
-Tracking via tabela `_migrations`.
+Tracking via tabela `_migrations`. **Forward-only** (sem rollback). Ao adicionar, use o próximo número livre.
 
 | Migração | Descrição |
 |----------|-----------|
@@ -200,6 +202,19 @@ Tracking via tabela `_migrations`.
 | 002_atlas.sql | Atlas, maps, layers, groups, features (18 tipos), group_features, cesium3d_data, streetview360_data, images, briefings, slides, trigger mark_slides_broken_on_map_delete |
 | 003_sync.sql | Operations (CRDT log), active_sessions, resources, trigger update_atlas_current_version, seed de recursos |
 | 004_map_locked.sql | Adiciona campo `locked` (BOOLEAN DEFAULT FALSE) à tabela maps |
+| 005_client_id_text.sql | Converte `operations.client_id` de UUID para TEXT |
+| 006_operations_idempotency.sql | Adiciona `operations.op_id` (TEXT) + índice `UNIQUE (atlas_id, op_id)` para idempotência |
+| 007_map_grid_style.sql | Adiciona `maps.grid_style` (JSONB) — gridStyle |
+| 008_catalog_layers.sql | Cria tabela `catalog_layers` (entidade por-camada com soft-delete) |
+| 009_map_temporal_config.sql | Adiciona `maps.temporal_config` (JSONB) — mapTemporal (gated) |
+| 010_config_resources.sql | Backfill de `resources.config` (basemaps/tileset) para o endpoint `GET /api/v1/config` |
+| 011_postgis_ng.sql | **PostGIS** + schema `ng` (nomes_geograficos[4674], edificacoes[4326], catalogo_3d), `f_unaccent`, triggers `tipo_peso`/`search_vector`, `ng.refresh_busca()` (Fase 3) |
+| 012_organizations.sql | Tabela `organizations` + org default (`slug='default'`) (Fase 5) |
+| 013_users_org_and_roles.sql | `users.organization_id` (FK, backfill) + `org_role` + CHECK em `role` (Fase 5) |
+| 014_api_keys.sql | `users.api_key` + tabela `api_key_history` (rotação) (Fase 5) |
+| 015_audit_trail.sql | Tabela `audit_trail` (auditoria de negócio, CHECK fechado de action/target) (Fase 5) |
+| 016_model_permissions.sql | `ng.catalogo_3d.access_level` + `ng.model_permissions`/`model_group_permissions` + stub `ng.user_groups` (Fase 4) |
+| 017_geographic_access.sql | `ng.groups` + `geographic_access_zones`(4674) + zone permissions + `access_level` em nomes/edificacoes + `ng.fn_user_zone_geoms` + índices parciais (Fase 6) |
 
 ## Configuração (config.js)
 
@@ -219,6 +234,15 @@ Tracking via tabela `_migrations`.
 | `MAX_IMAGE_SIZE_MB` | 10 | Tamanho máximo de upload de imagem |
 | `WS_HEARTBEAT_INTERVAL_MS` | 30000 | Intervalo de heartbeat WebSocket |
 | `WS_HEARTBEAT_TIMEOUT_MS` | 5000 | Timeout de heartbeat WebSocket |
+| `ALLOW_SELF_REGISTRATION` | (prod: false, dev/test: true) | Habilita `POST /auth/register`; desligado em produção por padrão |
+| `RATE_LIMIT_AUTH_WINDOW_MS` | 900000 | Janela do rate limit das rotas de credencial (15 min) |
+| `RATE_LIMIT_AUTH_MAX` | 10 | Máx. tentativas por janela em `/auth/login\|refresh\|register` (chave: IP+username) |
+| `RATE_LIMIT_PUBLIC_WINDOW_MS` | 60000 | Janela do rate limit do link público (1 min) |
+| `RATE_LIMIT_PUBLIC_MAX` | 30 | Máx. requisições por janela em `/atlas/public/:link` (por IP) |
+
+> **Boot fail-fast:** `validateEnvVariables()` (chamado em `src/index.js`) valida o ambiente agrupando
+> erros (DATABASE_URL, JWT_SECRET ≥ 32 chars em prod, PORT, CORS_ORIGIN) e aborta com mensagem clara.
+> `JWT_SECRET` em teste/dev é livre; em produção exige ≥ 32 caracteres.
 
 ## Sistema de Permissões
 
@@ -267,19 +291,29 @@ Administradores podem:
 ### Tipos de Mensagem
 - `ping`/`pong` - Heartbeat
 - `cursor`, `selection` - Presença
-- `operation`, `operations` - CRDT ops
+- `operation`, `operations` - CRDT ops (ack/`ack_batch` carregam `results[]` com `{success, operationId, idempotent, currentVersion}`)
+- `connection-quality` → `adaptive-settings` - Monitor de qualidade adaptativo (Fase 1)
 - `sync_request`/`sync_response` - Sync via WS
 - `user_joined`, `user_left` - Eventos de sala
 - `atlas_updated`, `atlas_deleted`, `atlas_settings_updated` - Mutações REST broadcast
 - `sharing_updated` - Alterações de compartilhamento broadcast
+- `maps_merged` - Merge de mapas broadcast (Fase 1)
+- `connected` - Inclui `permission` (owner/write/read) **e** `role` (owner/editor/viewer/admin) (Fase 1); handshake aceita `?clientId=` estável (idempotência/presença na reconexão, Fase 8)
 - `briefing_edit_start`/`briefing_edit_end` → `briefing_edit_started`/`briefing_edit_ended` - Awareness
 
-## CRDT
+## CRDT / Modelo de conflito
 
-- **Last-Writer-Wins (LWW)** por entidade
-- Timestamp como comparador principal
-- ClientId como tiebreaker
-- Delete sempre vence sobre update
+> **Estado real do código (verificado):** a resolução de conflito é **LWW por ordem de chegada ao
+> servidor**, NÃO por timestamp. O `applyOperation` aplica todo UPDATE incondicionalmente
+> (`version = version + 1`, `updated_at = NOW()`) sem comparar `client_timestamp`. O módulo
+> `src/crdt` (resolver/merger LWW por timestamp+clientId) existe mas **não é plugado** no caminho de
+> escrita (código morto). Decisão registrada em `docs/plano/fase-1-sync-multiusuario.md` (D2): manter
+> LWW-por-chegada + idempotência por `op_id` (já implementada na Fase 0); plugar o `crdt` só se
+> LWW-por-timestamp virar requisito de produto.
+
+- **Last-Writer-Wins (LWW)** por entidade, **por ordem de chegada** (não por timestamp)
+- **Idempotência** por `op_id` do cliente (reenvio não duplica/reaplica) — Fase 0
+- Delete (soft-delete) vence updates subsequentes para a mesma entidade na ordem de chegada
 
 ## Credenciais de Teste (após seed)
 
@@ -298,15 +332,16 @@ Administradores podem:
 
 ## Rotas da API (50 endpoints)
 
-### Health Check
+### Health Check & Config
 | Método | Rota | Descrição | Auth | Permissão |
 |--------|------|-----------|------|-----------|
-| GET | `/api/v1/health` | Health check | Não | - |
+| GET | `/api/v1/health` | Health check (readiness com `SELECT 1`) | Não | - |
+| GET | `/api/v1/config` (+ alias `/api/config`) | Config dinâmico do frontend (shape do `config.js`); dados de `resources` + URLs por env (Fase 2) | Não | - |
 
 ### Auth
 | Método | Rota | Descrição | Auth | Permissão |
 |--------|------|-----------|------|-----------|
-| POST | `/api/v1/auth/register` | Auto-cadastro | Não | - |
+| POST | `/api/v1/auth/register` | Auto-cadastro (gateado por `ALLOW_SELF_REGISTRATION`; 404 se off) | Não | - |
 | POST | `/api/v1/auth/login` | Login | Não | - |
 | POST | `/api/v1/auth/refresh` | Refresh token | Não | - |
 | POST | `/api/v1/auth/logout` | Logout | Sim | User |
@@ -351,6 +386,7 @@ Administradores podem:
 | GET | `/api/v1/atlas/:atlasId/maps` | Listar mapas | Sim | Read |
 | GET | `/api/v1/atlas/:atlasId/maps/:mapId` | Obter mapa | Sim | Read |
 | POST | `/api/v1/atlas/:atlasId/maps/:mapId/duplicate` | Duplicar mapa | Sim | Write |
+| POST | `/api/v1/atlas/:atlasId/maps/:mapId/merge` | Combinar mapas (move sub-entidades dos `sourceMapIds` para `:mapId`, atômico) | Sim | Write |
 
 ### Briefings (read-only, escrita via sync)
 | Método | Rota | Descrição | Auth | Permissão |
@@ -400,6 +436,52 @@ Administradores podem:
 **Targets suportados:**
 `feature`, `group`, `layer`, `group_feature`, `map`, `briefing`, `slide`, `cesium3d`, `streetview360`
 
+### Multi-org / Identidade / Auditoria (Fase 5)
+| Método | Rota | Descrição | Auth | Permissão |
+|--------|------|-----------|------|-----------|
+| GET | `/api/v1/organizations` | Listar organizações (OMs) | Sim | User |
+| GET | `/api/v1/organizations/:id` | Obter organização | Sim | User |
+| POST | `/api/v1/organizations` | Criar org (auditado `ORG_CREATE`) | Sim | Admin |
+| PUT | `/api/v1/organizations/:id` | Atualizar org | Sim | Admin |
+| DELETE | `/api/v1/organizations/:id` | Desativar org (soft-delete) | Sim | Admin |
+| POST | `/api/v1/users/me/api-key/rotate` | Rotacionar minha API key (atômico) | Sim | User |
+| POST | `/api/v1/users/:userId/api-key/rotate` | Rotacionar API key de usuário | Sim | Admin |
+| GET | `/api/v1/audit` | Consultar trilha de auditoria (filtros action/actor/target) | Sim | Admin |
+
+> **Identidade:** JWT agora carrega `organization_id` (tenant) e `org_role ∈ {owner,editor,viewer,admin}`
+> além do `role` global `{user,admin}` — payload de **emissor único** (web/nomes/360). Tokens legados
+> (sem o claim) ainda validam (`org_role→viewer`, `organization_id→null`). **Auth flexível**
+> (`flexibleAuth`, global não-bloqueante): popula `req.user` via `Authorization: Bearer`, cookie `token`
+> ou `x-api-key`; o caminho anônimo é preservado e rotas estritas (`auth`) continuam exigindo credencial.
+> **Auditoria** (`audit_trail`, banco, consultável, transacional via `createAudit(req, params, t?)`) é
+> **distinta** do logging operacional. `EnvironmentManager` (`src/utils/environment.js`) é a fonte única
+> de cookie/cors/pool/useHttps. **`atlas.owner_id`/`images.uploaded_by`/`atlas_shares.added_by`** são
+> `REFERENCES users(id)` **sem `ON DELETE`** → reatribuir (via `?transferTo`) antes de qualquer hard-delete.
+
+### Nomes Geográficos (Gazetteer — PostGIS, read-only, Fase 3)
+| Método | Rota | Descrição | Auth | Permissão |
+|--------|------|-----------|------|-----------|
+| GET | `/api/v1/nomes/busca` | Busca de topônimos (7 critérios; `?q=&lat=&lon=&zoom=`); responde **array nu** (contrato congelado) | Sim | User |
+| GET | `/api/v1/nomes/feicoes` | Clique 3D em edificação (`?lat=&lon=&z=`); desempate por altitude | Sim | User |
+| GET | `/api/v1/nomes/catalogo3d` | Catálogo 3D full-text PT-BR (`?q=&page=&nr_records=`); **filtro de acesso embutido no SQL** (public/admin/permissão); envelope `{total,page,nr_records,data}` | Sim | User |
+| GET | `/api/v1/assets3d/*` | Servir assets 3D imutáveis (tileset.json/b3dm/glb/terrain) com ETag O(1)/304/Range/cache; **dual-mode: store SQLite primeiro, filesystem como fallback**; descoberta gateada pelo catálogo (Fase 4) | Não (público) | - |
+
+> **Controle de acesso geográfico (Fase 6):** a autorização é **embutida na query SQL** (defesa em
+> profundidade — o dado não vaza nem com bug na camada de app). `ng.nomes_geograficos`/`ng.edificacoes`/
+> `ng.catalogo_3d` têm `access_level` (public/private); um privado só aparece para **admin**, **permissão
+> direta** ou se sua geometria estiver **contida numa zona do usuário** (`ST_Contains` via
+> `ng.fn_user_zone_geoms`, predicado único reusado por busca/feicoes/count). Admin de zonas em
+> `/api/v1/zones` (CRUD + replace-set de permissões com auditoria `PERMISSION_GRANT`).
+> **Endpoints de permissão de modelo 3D e o módulo de grupos são follow-ups** (a infra de tabelas/FK e o
+> filtro já existem; permissões de modelo testadas via `catalogo3d-access`).
+
+> **PostGIS:** extensão **untrusted** — exige superusuário para `CREATE EXTENSION postgis`. Em prod, o DBA cria
+> postgis no banco (ou o role do app é privilegiado); a imagem `postgis/postgis` já o habilita em `template1`.
+> Localmente, `scripts/run-tests.js` pré-cria via `SUPERUSER_DATABASE_URL` (default `postgres:postgres@localhost`).
+> **Carga de nomes (FME):** após cada carga, rodar **`SELECT ng.refresh_busca();`** (DBSCAN + `tipo_peso`) —
+> sem isso, `cluster_id` fica nulo e a busca degrada silenciosamente. O `criterio_busca.md` do serviço
+> original está desatualizado (6 critérios); o código (7 critérios, pesos somam 1.00) é a fonte de verdade.
+
 ### Resources (admin)
 | Método | Rota | Descrição | Auth | Permissão |
 |--------|------|-----------|------|-----------|
@@ -416,21 +498,71 @@ Administradores podem:
 - **Write**: Acesso de escrita ao atlas (owner ou write)
 - **Owner**: Apenas o dono do atlas
 
+## Segurança (Hardening — Fase 0)
+
+- **Rate limiting** (`express-rate-limit`, `src/middleware/rate-limit.js`) em `/auth/login|refresh|register` (chave IP+username) e `/atlas/public/:link` (por IP). Pulado em teste (a menos de `RATE_LIMIT_FORCE=1`).
+- **Login timing-safe**: bcrypt sempre roda (hash dummy quando o usuário não existe); mensagem genérica `Invalid credentials` para usuário inexistente e senha errada.
+- **Refresh tokens**: rotação + **detecção de reuso** (reapresentar token revogado revoga toda a família); **revogados na troca/reset de senha e na desativação** do usuário.
+- **JWT**: `jwt.verify(..., { algorithms: ['HS256'] })` no REST e no gateway WS (rejeita `none`/forja).
+- **Upload de imagem**: allowlist `png/jpeg/webp` (**SVG removido**, vetor de XSS), **validação de magic bytes** (`file-type`) em multipart e base64; download servido como `attachment` com `ETag`/`Cache-Control: immutable`/`Range`.
+- **`POST /sync`**: validação Joi (`pushSchema`, máx. 500 ops, aceita ambos os vocabulários) no REST e no WS.
+- **helmet** com CSP/HSTS explícitos (HSTS só em prod); **handler 404** padronizado; **health** com `SELECT 1` (503 se o banco cair).
+- **Self-registration gateada** por `ALLOW_SELF_REGISTRATION` (off em prod).
+- **Pool** `poolMin/poolMax` aplicado na conexão pg-promise.
+
+## Distribuição 3D (assets em SQLite ou filesystem)
+
+Os binários 3D (`tileset.json`/`.b3dm`/`.glb`/`.pnts`/`.terrain`) podem ser servidos de **duas fontes**
+(o controller tenta o SQLite primeiro, depois o filesystem):
+- **SQLite** (`better-sqlite3`): store em `ASSETS_3D_SQLITE` (default `./data/assets3d.sqlite`), tabela
+  `assets(rel_path PK, data BLOB, size_bytes, content_type, etag)`. ETag O(1) (coluna, sem ler o BLOB)
+  na thread principal; **304 antes de qualquer leitura de BLOB**. O `SELECT data` (BLOB pesado) roda num
+  **pool de worker threads** (`src/utils/sqlite-blob-pool.js` + `sqlite-blob-worker.js`, `SQLITE_BLOB_WORKERS`
+  workers) — tira o read síncrono do event loop. Range 206/416 sobre o Buffer; **semáforo**
+  `ASSETS_3D_MAX_INFLIGHT` (default 8) limita buffers vivos no heap. Carga: `node scripts/assets3d-import.js <dir>`.
+- **Filesystem** (`ASSETS_3D_DIR`, default `./data/assets3d`): stream via `createReadStream` (sem
+  semáforo). É o fallback quando o asset não está no SQLite.
+
+> Os **metadados** (descoberta/posição) ficam sempre em `ng.catalogo_3d` (Postgres). Só o **binário**
+> é que tem as duas opções de store. (Mesmo modelo de BLOB-em-SQLite previsto para o 360 na Fase 9.)
+
+## DevOps
+
+- `Dockerfile` (multi-stage, node:20-slim, non-root) + `docker-compose.yml` (app + `postgis/postgis:16`).
+- Dependência nativa `better-sqlite3` (store SQLite de assets 3D; binário pré-compilado, sem build no slim).
+- Lint/format: `eslint.config.js` (flat) + `.prettierrc.json`; `npm run lint` / `npm run format`.
+- `package-lock.json` é commitado.
+- **Sem CI no GitHub** (removido por opção). Rodar `npm run lint` e `npm test` localmente/no hook de pré-commit.
+
 ## Testes
 
-25 arquivos de teste organizados em 3 categorias:
+**637 casos** organizados em 3 categorias (todos passam via `npm test`). O módulo morto `src/crdt`
+e seus 4 testes foram removidos na Fase 1 (D2: LWW-por-chegada). Cobertura inclui as Fases 0–6
+(hardening, sync multiusuário, config, gazetteer PostGIS, catálogo 3D, multi-org/auditoria, acesso
+geográfico) + peças de backend das Fases 7–8 (JWT emissor único, handshake clientId).
 
-| Categoria | Arquivos | Comando |
-|-----------|----------|---------|
-| Unit (4) | crdt-merger, crdt-resolver, permission-resolver, sync-operations | `npm run test:unit` |
-| Integration (19) | atlas, atlas-import, auth, features, images, permissions, resources, sharing, sync, sync-3d-data, sync-advanced, sync-briefing-ops, sync-feature-map-move, sync-feature-ops, sync-frontend-format, sync-group-ops, sync-layer-ops, sync-map-ops, users-admin | `npm run test:integration` |
-| WebSocket (2) | collab, collab-broadcasts | `npm run test:ws` |
+| Categoria | Cobertura | Comando |
+|-----------|-----------|---------|
+| Unit | errors, middleware-*, permission-resolver, require-admin, **config**, **collab-quality** | `npm run test:unit` |
+| Integration | atlas*, auth*, features*, images*, maps-briefings, permissions, resources, sharing, sync*, users-admin · **Fase 0**: auth-hardening, rate-limit, sync-validation, images-hardening, health · **Fase 1**: sync-catalog-layer, sync-map-grid-temporal, maps-merge | `npm run test:integration` |
+| WebSocket | collab, collab-advanced, collab-broadcasts · **Fase 0**: collab-validation · **Fase 1**: collab-roles, collab-quality | `npm run test:ws` |
+
+**Testes de hardening (Fase 0):** rate limit (429), login timing-safe + mensagem genérica, JWT `alg:none`
+rejeitado, reuso de refresh token, revogação de token na troca de senha, validação Joi do `/sync`,
+idempotência por `op_id`, rejeição de SVG + magic bytes, cache/304/Range no download de imagem,
+health com `SELECT 1`, 404 handler.
+
+**Testes de sync multiusuário (Fase 1):** gridStyle/temporal persistem + snapshot, catalogLayer
+por-camada (create/update/delete/snapshot) + dual-mode legado, merge atômico de mapas + caso
+negativo cross-atlas, ack `results[]` idempotente, vocabulário de papéis no `connected`, monitor de
+qualidade adaptativo.
 
 ## Documentação Adicional
 
 - **[README.md](README.md)** - Índice da documentação (raiz do repositório)
 - **docs/implementado/01-autenticacao.md** a **docs/implementado/10-config.md** - Guias de integração passo-a-passo
-- **[docs/pendente/11-gaps-multiusuario.md](docs/pendente/11-gaps-multiusuario.md)** - Cruzamento §1–§29 das ações da interface vs. backend
+- **[docs/plano/00-visao-geral.md](docs/plano/00-visao-geral.md)** - Plano de implementação consolidado por fases (backend único); comece por `00-visao-geral.md` + `_padroes.md`. **Fases 0–6 implementadas; 7–8 com backend pronto** (gateway/cliente são infra/frontend).
+- **[docs/deploy/gateway-360.md](docs/deploy/gateway-360.md)** - Config NGINX do gateway + contrato JWT de emissor único + integração do `ebgeo_360`
 
 ## Notas para Desenvolvimento
 
@@ -507,7 +639,7 @@ O snapshot retorna estrutura idêntica ao IndexedDB do frontend:
 Baseado na análise completa do documento `docs/acoes-interface-multiusuario.md` do frontend
 (**~313 ações em 29 seções** da interface — revisão que adicionou a §29 Módulo Temporal e o
 modelo de 4 papéis Owner/Admin/Editor/Viewer). O backend suporta **~95%** das funcionalidades
-multiusuário. Análise detalhada seção a seção em **[docs/pendente/11-gaps-multiusuario.md](docs/pendente/11-gaps-multiusuario.md)**.
+multiusuário. Plano de resolução dos gaps abertos em **[docs/plano/fase-1-sync-multiusuario.md](docs/plano/fase-1-sync-multiusuario.md)** (e o plano completo do "backend único" em **[docs/plano/00-visao-geral.md](docs/plano/00-visao-geral.md)**).
 
 ### Resolvidos (confirmados no código)
 
@@ -521,16 +653,18 @@ multiusuário. Análise detalhada seção a seção em **[docs/pendente/11-gaps-
 | **P2: Awareness de briefing** | Mensagens WS `briefing_edit_start`/`briefing_edit_end` → broadcast `briefing_edit_started`/`briefing_edit_ended` |
 | **Exagero de terreno (§24 item 8)** | Persiste em `atlas.settings.terrainExaggeration` (JSONB) — coberto por `PATCH /settings` + broadcast `atlas_settings_updated` |
 | **Dados temporais por feição (§29 items 13-20)** | `temporalInicio`, `temporalFim`, `trajetoria`, flags `autoDtg`/`autoDirection`/`autoSpeed`, `dateTimeGroup`, `gdhIni`/`gdhFim` viajam dentro de `properties` (JSONB) numa op `feature` normal — armazenados verbatim, sem mudança no backend |
+| **P1: `gridStyle` (§26)** ✅ Fase 1 | Persiste em `maps.grid_style` (migração 007) + `MAP_UPDATE_FIELDS` + snapshot |
+| **P1: `catalogLayer` por-camada (§19/§2)** ✅ Fase 1 | Tabela dedicada `catalog_layers` (migração 008) com create/update/delete por id + snapshot `map.catalogLayers`; dual-mode com a coluna legada |
+| **P2: Config temporal por mapa (§29)** ✅ Fase 1 (gated) | `maps.temporal_config` (migração 009) + sub-entidade `mapTemporal` + snapshot; aguarda o frontend emitir a op |
+| **P3: Combinar mapas / merge (§1.14, §24.3)** ✅ Fase 1 | `POST /atlas/:id/maps/:mapId/merge` — move sub-entidades em transação única |
+| **Idempotência de sync** ✅ Fase 0 | `op_id` + `UNIQUE (atlas_id, op_id)` + `ON CONFLICT`; ack `results[]` com `idempotent` |
 
 ### Gaps abertos — exigem mudança no backend
 
 | Prioridade | Gap | Ref. Frontend | Descrição |
 |-----------|-----|---------------|-----------|
-| **P1** | **`gridStyle` é no-op** | §26 (Grade UTM) | Frontend emite op `gridStyle` com `data: {format, visible}` (mesmo envelope do `baseLayer`, `entityId == mapId`). Backend mapeia `gridStyle → {target:'map', subType:'grid'}`, mas **não há coluna de grade em `maps`** nem entrada em `MAP_UPDATE_FIELDS` → `buildDynamicUpdate` retorna `null` (no-op silencioso). **Fix:** coluna `grid_style JSONB` + entrada em `MAP_UPDATE_FIELDS` + incluir no snapshot. |
-| **P1** | **`catalogLayer` incompatível** | §19 item 4; §2 items 15,16,25 | Frontend emite ops **por camada** (`catalogLayer`, `entityId` = id da camada, `data` = um objeto `CatalogLayerState`, create/update/delete). Backend trata como update do array inteiro em `maps.catalog_layers` → o payload por-camada não bate com nenhuma coluna → no-op. **Fix:** tratar `catalogLayer` como entidade própria (merge por id no array JSONB, ou tabela dedicada) com create/update/delete. |
-| **P2** | **Config temporal por mapa** | §29 items 1,8-11 | A config `temporal_<mapa>` = `{ativo, modo, unidade, inicio, fim, origem}` é **estado compartilhado do mapa** (broadcast + LWW). Hoje **não há coluna** em `maps` (descartada pelo whitelist) **e** o frontend **ainda não emite op de sync** (persistência local + EventBus `MAP_TEMPORAL_CHANGED`/`TEMPORAL_CONFIG_CHANGED`). **Fix (quando o frontend ligar o sync):** coluna `temporal_config JSONB` + sub-entidade `mapTemporal` + snapshot. |
 | **P3** | **Sub-canais por mapa** | §Resumo, item 2 | Todas as mensagens WS são broadcast para a room inteira (atlas). Cursor/seleção vão para todos, mesmo quem está em outro mapa. Frontend sugere sub-canais por mapa para reduzir tráfego. |
-| **P3** | **Combinar mapas (merge)** | §1 item 14; §24 item 3 | Não há endpoint para mover feições de múltiplos mapas para um destino atomicamente. Contornável por batch de ops `feature` com `map_id` novo (já suportado), mas sem atomicidade transacional. |
+| **P3** | **Viewport loading no atlas** | §1 | Filtro espacial server-side **indisponível** no schema atlas (feições são JSONB, sem PostGIS). Plano: bbox materializado (colunas + índice) **sob demanda de performance** — ver `docs/plano/fase-1-sync-multiusuario.md` Tarefa 8. Não introduzir PostGIS no schema atlas. |
 
 ### Divergências de contrato (documentar/alinhar com frontend)
 

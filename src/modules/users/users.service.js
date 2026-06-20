@@ -1,7 +1,8 @@
 // Path: src/modules/users/users.service.js
 import bcrypt from 'bcrypt';
-import { query } from '../../database/index.js';
+import { query, tx } from '../../database/index.js';
 import { NotFoundError, UnauthorizedError, ConflictError, ForbiddenError } from '../../utils/errors.js';
+import { createAudit } from '../../utils/audit.js';
 import * as Q from './users.queries.js';
 
 const SALT_ROUNDS = 12;
@@ -57,8 +58,9 @@ export async function updatePassword(userId, currentPassword, newPassword) {
   // Hash new password
   const newHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
-  // Update password
+  // Update password and revoke existing refresh tokens (force re-login elsewhere)
   await query(Q.UPDATE_USER_PASSWORD, [userId, newHash]);
+  await query(Q.REVOKE_ALL_USER_TOKENS, [userId]);
 
   return { success: true };
 }
@@ -173,6 +175,9 @@ export async function resetPassword(userId, newPassword) {
     throw new NotFoundError('User');
   }
 
+  // Revoke existing refresh tokens so the old password's sessions die.
+  await query(Q.REVOKE_ALL_USER_TOKENS, [userId]);
+
   return { success: true };
 }
 
@@ -182,43 +187,64 @@ export async function resetPassword(userId, newPassword) {
  * @param {string} adminId - Admin performing the action
  * @param {string} transferToUserId - User to transfer atlas to (optional)
  */
-export async function deleteUser(userId, adminId, transferToUserId = null) {
+export async function deleteUser(userId, adminId, transferToUserId = null, req = null) {
   // Can't delete yourself
   if (userId === adminId) {
     throw new ForbiddenError('Cannot deactivate your own account');
   }
 
-  // Check if user exists
+  // Fast-fail existence check (read) before opening the transaction.
   const user = await getUserById(userId);
 
-  // Check if user has atlas
-  const { rows: atlasCount } = await query(Q.COUNT_USER_ATLAS, [userId]);
-  const count = parseInt(atlasCount[0].count, 10);
+  // Atomic: count atlas -> (transfer) -> soft-delete -> revoke tokens.
+  // If any step fails, the whole thing rolls back (no orphaned transfer).
+  return tx(async (t) => {
+    const atlasCount = await t.one(Q.COUNT_USER_ATLAS, [userId]);
+    const count = parseInt(atlasCount.count, 10);
 
-  if (count > 0) {
-    if (transferToUserId) {
-      // Verify transfer target exists and is active
-      const targetUser = await getUserById(transferToUserId);
-      if (!targetUser.is_active) {
-        throw new ForbiddenError('Cannot transfer atlas to an inactive user');
+    if (count > 0) {
+      if (!transferToUserId) {
+        throw new ConflictError(
+          `User has ${count} atlas(es). Provide transferTo parameter to transfer ownership, or the atlas will remain orphaned.`
+        );
       }
-
-      // Transfer atlas ownership
-      await query(Q.TRANSFER_ATLAS_OWNERSHIP, [userId, transferToUserId]);
-    } else {
-      // No transfer target specified, return error with count
-      throw new ConflictError(`User has ${count} atlas(es). Provide transferTo parameter to transfer ownership, or the atlas will remain orphaned.`);
+      const target = await t.oneOrNone(Q.FIND_USER_BY_ID_ADMIN, [transferToUserId]);
+      if (!target) throw new NotFoundError('User');
+      if (!target.is_active) throw new ForbiddenError('Cannot transfer atlas to an inactive user');
+      // RETURNING rows -> use t.any (t.none would reject on returned rows).
+      await t.any(Q.TRANSFER_ATLAS_OWNERSHIP, [userId, transferToUserId]);
     }
-  }
 
-  // Soft delete user
-  const { rows } = await query(Q.SOFT_DELETE_USER, [userId]);
+    const deleted = await t.oneOrNone(Q.SOFT_DELETE_USER, [userId]);
+    if (!deleted) throw new NotFoundError('User');
 
-  if (rows.length === 0) {
-    throw new NotFoundError('User');
-  }
+    await t.none(Q.REVOKE_ALL_USER_TOKENS, [userId]);
 
-  return { success: true, atlasTransferred: count > 0 ? count : 0 };
+    // Audit participates in the same transaction (rolls back together).
+    await createAudit(req, {
+      action: 'USER_DELETE', actorId: adminId, targetType: 'USER',
+      targetId: userId, targetName: user.nome, details: { atlasTransferred: count },
+    }, t);
+
+    return { success: true, atlasTransferred: count > 0 ? count : 0 };
+  });
+}
+
+/**
+ * Atomically rotates a user's API key (old key archived to api_key_history),
+ * auditing within the same transaction.
+ */
+export async function rotateApiKey(userId, actorId, req = null) {
+  return tx(async (t) => {
+    const row = await t.one(Q.ROTATE_API_KEY, [userId, actorId]);
+    await createAudit(req, {
+      action: 'API_KEY_ROTATE',
+      actorId,
+      targetType: 'USER',
+      targetId: userId,
+    }, t);
+    return { apiKey: row.api_key };
+  });
 }
 
 /**

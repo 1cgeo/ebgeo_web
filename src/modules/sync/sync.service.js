@@ -18,7 +18,10 @@ const ENTITY_TYPE_MAP = {
   baseLayer: { target: 'map', subType: 'baseLayer' },
   mapNotes: { target: 'map', subType: 'notes' },
   gridStyle: { target: 'map', subType: 'grid' },
-  catalogLayer: { target: 'map', subType: 'catalog' },
+  mapTemporal: { target: 'map', subType: 'temporal' },
+  // catalogLayer is now its own entity (per-layer). The handler also accepts the
+  // legacy whole-array form (data.catalog_layers) and writes maps.catalog_layers.
+  catalogLayer: { target: 'catalog_layer' },
 };
 
 /**
@@ -349,11 +352,19 @@ export async function getAtlasSnapshot(atlasId) {
       const rawFeatures = await t.query(Q.GET_MAP_FEATURES, [map.id]);
       const rawCesium3d = await t.query(Q.GET_MAP_CESIUM3D, [map.id]);
       const rawStreetview360 = await t.query(Q.GET_MAP_STREETVIEW360, [map.id]);
+      const rawCatalogLayers = await t.query(Q.GET_MAP_CATALOG_LAYERS, [map.id]);
 
       // Transform to frontend structure
       map.features = transformFeaturesToFrontend(rawFeatures);
       map.cesium3d = transformCesium3dToFrontend(rawCesium3d);
       map.streetview360 = transformStreetview360ToFrontend(rawStreetview360);
+      // Per-layer catalog layers (new). The legacy `catalog_layers` column is
+      // still returned by GET_ATLAS_MAPS for backward compatibility.
+      map.catalogLayers = rawCatalogLayers.map((c) => ({
+        id: c.id,
+        ...c.data,
+        sync: buildSyncMetadata(c),
+      }));
 
       // Transform layers: rename sort_order -> order for frontend compatibility
       const rawLayers = await t.query(Q.GET_MAP_LAYERS, [map.id]);
@@ -447,8 +458,8 @@ export async function pushOperations(atlasId, operations, userId) {
       // Normalize operation to internal format (accepts both frontend and legacy names)
       const op = normalizeOperation(rawOp);
 
-      // Insert operation into log (using internal field names)
-      const inserted = await t.one(Q.INSERT_OPERATION, [
+      // Insert operation into log (idempotent: ON CONFLICT (atlas_id, op_id) DO NOTHING).
+      const inserted = await t.oneOrNone(Q.INSERT_OPERATION, [
         atlasId,
         op.type,
         op.target,
@@ -459,11 +470,25 @@ export async function pushOperations(atlasId, operations, userId) {
         op.timestamp,
         op.clientId,
         userId,
+        rawOp.id ?? null,
       ]);
+
+      if (!inserted) {
+        // Operation already applied (same op_id). Ack with the recorded version
+        // and skip re-applying the effect — this is the idempotency guarantee.
+        const prev = await t.oneOrNone(Q.GET_OPERATION_BY_OP_ID, [atlasId, rawOp.id]);
+        acks.push({
+          opId: rawOp.id,
+          serverVersion: prev ? prev.server_version : null,
+          idempotent: true,
+        });
+        continue;
+      }
 
       acks.push({
         opId: rawOp.id,
         serverVersion: inserted.server_version,
+        idempotent: false,
       });
 
       // Apply operation to entity tables based on normalized op
@@ -475,7 +500,16 @@ export async function pushOperations(atlasId, operations, userId) {
   const versionResult = await query(Q.GET_CURRENT_VERSION, [atlasId]);
   const serverVersion = parseInt(versionResult.rows[0].current_version, 10);
 
-  return { acks, serverVersion };
+  // Per-operation ack contract (for confident offline dequeue). `acks` is kept
+  // as a backward-compatible alias of the same data.
+  const results = acks.map((a) => ({
+    success: true,
+    operationId: a.opId,
+    idempotent: a.idempotent === true,
+    currentVersion: a.serverVersion != null ? parseInt(a.serverVersion, 10) : serverVersion,
+  }));
+
+  return { results, acks, serverVersion };
 }
 
 /**
@@ -663,6 +697,8 @@ const MAP_UPDATE_FIELDS = [
   { column: 'notes_description' },
   { column: 'analysis_layers', jsonb: true },
   { column: 'catalog_layers', jsonb: true },
+  { column: 'grid_style', jsonb: true },
+  { column: 'temporal_config', jsonb: true },
   { column: 'locked' },
 ];
 
@@ -670,7 +706,7 @@ const MAP_UPDATE_FIELDS = [
  * Normalizes map changes by resolving frontend/backend field name aliases.
  * Uses nullish coalescing (??) to correctly handle empty string values.
  */
-function normalizeMapChanges(changes) {
+function normalizeMapChanges(changes, subType = null) {
   const normalized = { ...changes };
 
   // base_layer / baseLayer
@@ -686,6 +722,22 @@ function normalizeMapChanges(changes) {
   // notes_description / description (only for map context, not briefing)
   if (normalized.notes_description === undefined && normalized.description !== undefined) {
     normalized.notes_description = normalized.description;
+  }
+
+  // gridStyle: the {format,visible} payload IS the grid_style object. Only write
+  // when grid fields are present (older clients smuggle data via analysis_layers).
+  if (subType === 'grid' && normalized.grid_style === undefined &&
+      (changes.format !== undefined || changes.visible !== undefined)) {
+    normalized.grid_style = { format: changes.format, visible: changes.visible };
+  }
+
+  // mapTemporal: assemble temporal_config from the known keys present.
+  if (subType === 'temporal' && normalized.temporal_config === undefined) {
+    const t = {};
+    for (const k of ['ativo', 'unidade', 'inicio', 'fim', 'modo', 'origem']) {
+      if (changes[k] !== undefined) t[k] = changes[k];
+    }
+    if (Object.keys(t).length > 0) normalized.temporal_config = t;
   }
 
   return normalized;
@@ -736,7 +788,7 @@ function buildUpdateQuery(target, op, atlasId) {
 
     // Merge changes and data, then normalize frontend field aliases
     const merged = { ...op.changes, ...op.data };
-    const changes = normalizeMapChanges(merged);
+    const changes = normalizeMapChanges(merged, op._subType);
     return buildDynamicUpdate(
       'maps', changes, MAP_UPDATE_FIELDS,
       [mapId, atlasId], 'id = $1 AND atlas_id = $2',
@@ -809,6 +861,53 @@ function buildSoftDeleteQuery(table, target, op, atlasId) {
 }
 
 /**
+ * Applies a catalogLayer operation. Dual-mode:
+ *  - Legacy whole-array form (`data`/`changes`.catalog_layers is an array):
+ *    writes the array to the `maps.catalog_layers` column (backward compatible).
+ *  - Per-layer form: upsert/update/soft-delete a row in the `catalog_layers`
+ *    table keyed by the layer id (op.targetId), scoped to the map.
+ * @param {Object} t - Transaction context
+ */
+async function applyCatalogLayerOp(t, atlasId, op, type) {
+  if (!op.mapId) return;
+
+  const arrayPayload =
+    (op.data && Array.isArray(op.data.catalog_layers) && op.data.catalog_layers) ||
+    (op.changes && Array.isArray(op.changes.catalog_layers) && op.changes.catalog_layers);
+
+  if (arrayPayload) {
+    await t.none(
+      `UPDATE maps SET catalog_layers = $1::jsonb, updated_at = NOW(), version = version + 1
+       WHERE id = $2 AND atlas_id = $3`,
+      [JSON.stringify(arrayPayload), op.mapId, atlasId]
+    );
+    return;
+  }
+
+  if (type === 'create') {
+    await t.none(
+      `INSERT INTO catalog_layers (id, map_id, data)
+       VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (id) DO NOTHING`,
+      [op.targetId, op.mapId, JSON.stringify(op.data || {})]
+    );
+  } else if (type === 'update') {
+    const payload = op.changes ?? op.data ?? {};
+    await t.none(
+      `UPDATE catalog_layers SET data = $1::jsonb, updated_at = NOW(), version = version + 1
+       WHERE id = $2 AND map_id = $3 AND deleted_at IS NULL`,
+      [JSON.stringify(payload), op.targetId, op.mapId]
+    );
+  } else if (type === 'delete') {
+    await t.none(
+      `UPDATE catalog_layers SET deleted_at = NOW(), updated_at = NOW(), version = version + 1
+       WHERE id = $1 AND map_id = $2`,
+      [op.targetId, op.mapId]
+    );
+  }
+}
+
+/**
  * Applies an operation to the appropriate entity table.
  * @param {Object} t - Transaction context from pg-promise
  */
@@ -829,11 +928,18 @@ async function applyOperation(t, atlasId, op) {
     cesium3d: 'cesium3d_data',
     streetview360: 'streetview360_data',
     group_feature: 'group_features',
+    catalog_layer: 'catalog_layers',
   };
 
   const table = tableMap[target];
   if (!table) {
     return; // Unknown target, skip
+  }
+
+  // catalogLayer has dual-mode handling (legacy whole-array vs per-layer table).
+  if (target === 'catalog_layer') {
+    await applyCatalogLayerOp(t, atlasId, op, type);
+    return;
   }
 
   switch (type) {
@@ -894,8 +1000,8 @@ async function applyOperation(t, atlasId, op) {
       } else if (target === 'map' && op.data) {
         const data = op.data;
         await t.none(`
-          INSERT INTO maps (id, atlas_id, name, base_layer, center_lat, center_long, zoom, bearing, pitch, notes_title, notes_description, analysis_layers, catalog_layers, locked)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14)
+          INSERT INTO maps (id, atlas_id, name, base_layer, center_lat, center_long, zoom, bearing, pitch, notes_title, notes_description, analysis_layers, catalog_layers, grid_style, temporal_config, locked)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16)
           ON CONFLICT (id) DO NOTHING
         `, [
           op.targetId,
@@ -911,6 +1017,8 @@ async function applyOperation(t, atlasId, op) {
           data.notes_description || null,
           JSON.stringify(data.analysis_layers || {}),
           JSON.stringify(data.catalog_layers || []),
+          JSON.stringify(data.grid_style || {}),
+          JSON.stringify(data.temporal_config || {}),
           data.locked === true,
         ]);
       } else if (target === 'briefing' && op.data) {

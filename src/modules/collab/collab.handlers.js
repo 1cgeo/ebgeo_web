@@ -3,7 +3,27 @@
 
 import { broadcastToRoom } from './collab.rooms.js';
 import * as syncService from '../sync/sync.service.js';
+import { pushSchema } from '../sync/sync.schemas.js';
+import { classifyConnectionQuality, adaptiveSettingsFor } from './collab.quality.js';
 import logger from '../../utils/logger.js';
+
+/**
+ * Validates a batch of operations against the shared push schema.
+ * The WS path does not go through the `validate` middleware, so we validate
+ * here. Returns true if valid; otherwise sends an `error` message and returns false.
+ */
+function validateOps(ws, ops) {
+  const { error } = pushSchema.validate({ operations: ops });
+  if (error) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      code: 'VALIDATION_ERROR',
+      message: error.message,
+    }));
+    return false;
+  }
+  return true;
+}
 
 /**
  * Handles ping messages (heartbeat).
@@ -56,6 +76,8 @@ export async function handleOperation(ws, data) {
     return;
   }
 
+  if (!validateOps(ws, [data.op])) return;
+
   try {
     const result = await syncService.pushOperations(
       ws.atlasId,
@@ -63,11 +85,12 @@ export async function handleOperation(ws, data) {
       ws.userId
     );
 
-    // Send ack to sender
+    // Send ack to sender (per-op result included for confident dequeue)
     ws.send(JSON.stringify({
       type: 'ack',
       opId: data.op.id,
       serverVersion: result.serverVersion,
+      result: result.results[0],
     }));
 
     // Broadcast operation to peers
@@ -99,6 +122,8 @@ export async function handleOperations(ws, data) {
     return;
   }
 
+  if (!Array.isArray(data.ops) || !validateOps(ws, data.ops)) return;
+
   try {
     const result = await syncService.pushOperations(
       ws.atlasId,
@@ -106,11 +131,12 @@ export async function handleOperations(ws, data) {
       ws.userId
     );
 
-    // Send batch ack to sender
+    // Send batch ack to sender (per-op results for confident dequeue)
     ws.send(JSON.stringify({
       type: 'ack_batch',
       opIds: data.ops.map((op) => op.id),
       serverVersion: result.serverVersion,
+      results: result.results,
     }));
 
     // Broadcast all operations to peers in a single message
@@ -127,6 +153,27 @@ export async function handleOperations(ws, data) {
       message: err.message,
     }));
   }
+}
+
+/**
+ * Handles a client-reported connection quality sample (round-trip latency).
+ * When the quality band changes, pushes `adaptive-settings` to that client so
+ * it can adjust batch interval / geometry precision / viewport-only mode.
+ */
+export function handleConnectionQuality(ws, data) {
+  const rtt = Number(data.rttMs);
+  if (!Number.isFinite(rtt) || rtt < 0) return;
+
+  const quality = classifyConnectionQuality(rtt);
+  if (quality === ws.qualityClass) return; // only emit on change
+
+  ws.qualityClass = quality;
+  ws.rttMs = rtt;
+  ws.send(JSON.stringify({
+    type: 'adaptive-settings',
+    quality,
+    ...adaptiveSettingsFor(quality),
+  }));
 }
 
 /**

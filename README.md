@@ -9,7 +9,7 @@ Guia de integração frontend-backend para o EBGeo.
 A pasta `docs/` está separada em **dois grupos**:
 
 - **`docs/implementado/`** — guias de integração das funcionalidades **já implementadas e verificadas no código**.
-- **`docs/pendente/`** — análise de gaps e documentos de **roadmap** (ainda **não** implementados neste backend).
+- **`docs/plano/`** — **plano de implementação consolidado por fases** (consolida as 6 análises de roadmap antigas, verificadas contra o código atual), voltado para implementação incremental do "backend único".
 
 ### ✅ Implementado — `docs/implementado/`
 
@@ -28,23 +28,29 @@ Guias de integração frontend-backend, em ordem de implementação recomendada:
 | 09 | [Administração](./docs/implementado/09-admin.md) | Gerenciamento de usuários e resources | ~550 |
 | 10 | [Configuração (config.js)](./docs/implementado/10-config.md) | Cobertura do `config.js` do frontend pelo backend (basemaps, tilesets, config global) | ~280 |
 
-### 🚧 Pendente / Não implementado — `docs/pendente/`
+### 📋 Plano de Implementação por Fases — `docs/plano/`
 
-**Gaps da colaboração atual:**
+Plano consolidado (verificado contra o código atual) para evoluir o `ebgeo_backend` ao "backend único".
+**Comece sempre por [`00-visao-geral.md`](./docs/plano/00-visao-geral.md) e [`_padroes.md`](./docs/plano/_padroes.md).**
 
-| # | Documento | Descrição |
-|---|-----------|-----------|
-| 11 | [Gaps Multiusuário](./docs/pendente/11-gaps-multiusuario.md) | Cruzamento §1–§29 das ações da interface vs. backend; gaps abertos (`gridStyle`, `catalogLayer`, config temporal, merge de mapas) |
+> **Status:** Fases **0–6 implementadas** (código + testes, 637 casos verdes); Fases **7–8 com o lado
+> backend pronto** (gateway NGINX e cliente WebSocket são infra/frontend). Cada arquivo de fase tem um
+> banner de status. Veja também [`docs/deploy/gateway-360.md`](./docs/deploy/gateway-360.md).
 
-**Roadmap "backend único"** (análises de 2026-06-14, descrevem trabalho **futuro** — nada implementado neste backend):
-
-| Documento | Descrição |
-|-----------|-----------|
-| [AVALIACAO-REAPROVEITAMENTO](./docs/pendente/AVALIACAO-REAPROVEITAMENTO.md) | Decisão: aproveitar o `ebgeo_backend` como núcleo vs. reescrever do zero |
-| [IDEIAS-EBGEO-WEB-2](./docs/pendente/IDEIAS-EBGEO-WEB-2.md) | Padrões a minerar das tentativas antigas (`ebgeo_web_2_*`) |
-| [SERVICO-NOMES-GEOGRAFICOS](./docs/pendente/SERVICO-NOMES-GEOGRAFICOS.md) | Plano de absorção do serviço de nomes geográficos (PostGIS) |
-| [EBGEO-360](./docs/pendente/EBGEO-360.md) | Análise/integração do microsserviço de panoramas 360 |
-| [PROTOTIPO-COLABORACAO-TEMPO-REAL](./docs/pendente/PROTOTIPO-COLABORACAO-TEMPO-REAL.md) | Ideias do protótipo de colaboração em tempo real |
+| Fase | Documento | Objetivo | Depende de |
+|------|-----------|----------|------------|
+| — | [Visão Geral](./docs/plano/00-visao-geral.md) | Arquitetura-alvo, decisões abertas, mapa de fases | — |
+| — | [Padrões](./docs/plano/_padroes.md) | Template de módulo, convenções, formato de tarefa/DoD | — |
+| 0 | [Hardening + DevOps](./docs/plano/fase-0-hardening.md) | Rate limit, validação, auth timing-safe, bugs §2.4, CI/Docker/lint, health real | — |
+| 1 | [Sync Multiusuário](./docs/plano/fase-1-sync-multiusuario.md) | Modelo de conflito, idempotência, `gridStyle`, `catalogLayer`, merge de mapas | 0 |
+| 2 | [Config Dinâmico](./docs/plano/fase-2-config-dinamico.md) | `GET /api/config` espelhando o `config.js` | 0 |
+| 3 | [PostGIS + Gazetteer](./docs/plano/fase-3-postgis-gazetteer.md) | Schema `ng`, busca de 7 critérios, `/feicoes`, `/catalogo3d` | 0 |
+| 4 | [Catálogo 3D + Assets](./docs/plano/fase-4-catalogo3d-assets.md) | Fonte única `ng.catalogo_3d`, servir assets 3D | 3 |
+| 5 | [Multi-org / Identidade](./docs/plano/fase-5-multiorg-identidade.md) | `organizations`, claim de org no JWT, auditoria | 0 |
+| 6 | [Acesso Geográfico](./docs/plano/fase-6-acesso-geografico.md) | Zonas espaciais, permissões de modelo, autorização na query | 3, 5 |
+| 7 | [Gateway + 360](./docs/plano/fase-7-gateway-360.md) | Manter 360 separado, unificar JWT | 5 |
+| 8 | [Colaboração E2E](./docs/plano/fase-8-colaboracao-e2e.md) | Cliente WS, viewport, reconexão (frontend-pesado) | 1, 5 |
+| — | [Referência](./docs/plano/99-referencia.md) | Apêndices verbatim (SQL, schemas, contrato 360, config.js, UI admin) | — |
 
 ---
 
@@ -173,8 +179,8 @@ const WS_BASE_URL = process.env.WS_URL || 'ws://localhost:3000';
 ## Gaps Conhecidos do Backend
 
 Gaps identificados ao cruzar as ações da interface do frontend (`acoes-interface-multiusuario.md`,
-rev. ~313 ações / 29 seções) com o backend atual. Análise completa em
-[docs/pendente/11-gaps-multiusuario.md](./docs/pendente/11-gaps-multiusuario.md) e no `CLAUDE.md`
+rev. ~313 ações / 29 seções) com o backend atual. Plano de resolução em
+[docs/plano/fase-1-sync-multiusuario.md](./docs/plano/fase-1-sync-multiusuario.md) e no `CLAUDE.md`
 (seção "Limitações Conhecidas e Gaps para Multiusuário").
 
 ### Resolvidos (confirmados no código)

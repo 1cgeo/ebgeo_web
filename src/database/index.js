@@ -13,7 +13,12 @@ const initOptions = {
 };
 
 const pgp = pgPromise(initOptions);
-const db = pgp(config.db.connectionString);
+// Apply pool sizing (poolMin/poolMax were read in config but never passed before).
+const db = pgp({
+  connectionString: config.db.connectionString,
+  max: config.db.poolMax,
+  min: config.db.poolMin,
+});
 
 /**
  * Executes a parameterized SQL query.
