@@ -9,10 +9,25 @@ export const FIND_ZONE = `
   FROM ng.geographic_access_zones WHERE id = $1
 `;
 
+// Validates a GeoJSON geometry before write: ST_GeomFromGeoJSON parses it (throws
+// on malformed JSON shape) and ST_IsValid rejects self-intersections / unclosed
+// rings. Returns a single row { valid: boolean }.
+export const VALIDATE_GEOM = `
+  SELECT ST_IsValid(ST_SetSRID(ST_GeomFromGeoJSON($1), 4674)) AS valid
+`;
+
 // geom comes in as a GeoJSON Polygon; stored as SRID 4674 (matches nomes).
 export const INSERT_ZONE = `
   INSERT INTO ng.geographic_access_zones (name, description, geom, created_by)
   VALUES ($1, $2, ST_SetSRID(ST_GeomFromGeoJSON($3), 4674), $4)
+  RETURNING id, name, description, created_at
+`;
+
+// Full replace of a zone's name/description/geom (PUT semantics).
+export const UPDATE_ZONE = `
+  UPDATE ng.geographic_access_zones
+  SET name = $2, description = $3, geom = ST_SetSRID(ST_GeomFromGeoJSON($4), 4674)
+  WHERE id = $1
   RETURNING id, name, description, created_at
 `;
 

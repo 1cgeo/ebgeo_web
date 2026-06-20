@@ -7,10 +7,11 @@ import WebSocket from 'ws';
 /**
  * Creates a test WS client connected to the collab endpoint.
  */
-export async function createWsClient(server, atlasId, token) {
+export async function createWsClient(server, atlasId, token, clientId) {
   const addr = server.address();
   const port = typeof addr === 'object' ? addr.port : addr;
-  const url = `ws://localhost:${port}/api/v1/collab?atlasId=${atlasId}&token=${token}`;
+  const cid = clientId ? `&clientId=${clientId}` : '';
+  const url = `ws://localhost:${port}/api/v1/collab?atlasId=${atlasId}&token=${token}${cid}`;
 
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);

@@ -1,287 +1,434 @@
-# Configuração da Aplicação (`config.js`) — Cobertura pelo Backend
+# 10 - Config Dinâmico (`GET /api/v1/config`)
 
-Este documento mapeia o arquivo de configuração global do frontend
-(`ebgeo_web/src/js/config.js`) contra o que o **EBGeo Backend** já oferece, e
-descreve o que falta para que o backend possa **servir essa configuração de
-forma centralizada** — permitindo que um administrador configure basemaps,
-camadas, tilesets e parâmetros do mapa sem editar um arquivo `.js` e fazer
-redeploy do frontend.
+Este documento cobre o endpoint **público** que substitui o `config.js` estático do
+frontend. Em vez de embarcar URLs de servidores e catálogos de basemaps/tilesets no
+build do `ebgeo_web`, o frontend faz um `fetch('/api/config')` no boot e recebe, em
+runtime, um JSON com o **mesmo shape** que o antigo `config.js` exportava. Assim o
+operador troca servidores (OSM/BDGEx/busca/360/tiles) e edita o catálogo (basemaps,
+camadas, tilesets) **sem rebuild do frontend**.
 
-> **Análoga a [`acoes-interface-multiusuario.md`](../../../ebgeo_web/docs/acoes-interface-multiusuario.md):**
-> assim como aquele documento cruza as **ações da interface** com o sistema
-> multiusuário, este cruza a **configuração estática** com o backend.
+O payload é montado a partir de **três fontes**:
 
----
+1. **Tabela `resources`** (dados editáveis em runtime) — basemaps, camadas de
+   análise, camadas de dados e tilesets.
+2. **Variáveis de ambiente** (`config.appConfig`) — URLs de serviços e tiles,
+   injetadas por deployment.
+3. **Defaults estáticos de UI** (`config.static.js`) — `app`, `features`, `map2d`,
+   `map3d` e os styles MapLibre dos basemaps.
 
-## Constraint Fundamental
-
-> A aplicação DEVE funcionar identicamente para usuários **não autenticados**.
-> O backend é aditivo.
-
-Isso tem uma consequência direta para a substituição do `config.js`:
-
-- A configuração precisa estar disponível **sem autenticação** (modo offline /
-  público), ou o frontend mantém o `config.js` local como **fallback**.
-- Hoje `GET /api/v1/resources` exige `Auth: Sim` (permissão `User`) — ou seja,
-  **não serve** o caso não autenticado. Ver [Gaps](#gaps-e-proposta-de-implementação).
-
-O modelo recomendado é **híbrido**:
-1. Frontend embarca um `config.js` mínimo (defaults de deploy).
-2. Se houver backend, faz *merge* da configuração remota por cima dos defaults.
+> **Contrato congelado**: as **12 chaves de topo** (`app`, `features`, `services`,
+> `search`, `basemaps`, `analysisLayers`, `dataLayers`, `map2d`, `map3d`, `tilesets`,
+> `streetView360`, `basemapStyles`) + `assets3dBaseUrl` reproduzem o shape exato que o
+> `config.helpers.js` do frontend consome. Não renomeie, remova nem aninhe chaves sem
+> alinhar com o frontend — qualquer divergência quebra os call-sites existentes.
 
 ---
 
-## Legenda de Status
+## Visão Geral
 
-- ✅ **Coberto** — Já existe suporte no backend (tabela `resources`).
-- 🟡 **Parcial** — Há estrutura, mas falta schema/seed/endpoint para cobrir 100%.
-- 🔴 **Gap** — Não há suporte; requer nova categoria, endpoint ou tabela.
-- 🟢 **Local** — Faz sentido permanecer no frontend (config de build/deploy).
-
----
-
-## Onde o backend já encaixa: tabela `resources`
-
-A tabela `resources` (migração `003_sync.sql`) é o ponto de extensão natural
-para o catálogo do `config.js`:
-
-```sql
-CREATE TABLE resources (
-  id          VARCHAR(100) PRIMARY KEY,
-  category    VARCHAR(50) NOT NULL,   -- ver enum abaixo
-  name        VARCHAR(255) NOT NULL,
-  description TEXT,
-  config      JSONB DEFAULT '{}',     -- payload livre (urls, paint, options...)
-  active      BOOLEAN DEFAULT true,   -- ↔ `enabled` do config.js
-  sort_order  INTEGER DEFAULT 0,      -- ↔ `priority` do config.js
-  created_at  TIMESTAMPTZ,
-  updated_at  TIMESTAMPTZ
-);
+```
+Cliente (frontend)               Backend
+   |                                |
+   |  [Boot da aplicação]           |
+   |                                |
+   |-- GET /api/config ------------>|  (sem auth — funciona anônimo/offline)
+   |                                |
+   |                                |-- monta payload de 3 fontes:
+   |                                |     resources (DB) + env URLs + UI estática
+   |                                |
+   |<-- 200 -----------------------|
+   |   { data: { app, features,     |
+   |     basemaps, tilesets,        |
+   |     map2d, map3d, ... } }      |
+   |                                |
+   [Frontend faz merge sobre o      |
+    config.js local (fallback)]     |
 ```
 
-**Categorias válidas (CHECK):**
-`basemap`, `analysis_layer`, `data_layer`, `tileset`, `streetview_marker`
-
-**Seed atual (003_sync.sql):** 5 basemaps, 1 `analysis_layer` (hillshade),
-1 `tileset` (PCL). **Atenção:** o seed grava apenas `id`, `category`, `name` e
-`sort_order` — o campo `config` (JSONB) fica **vazio**, então URLs, `paint`,
-`options` etc. ainda **não** estão persistidos.
-
-| `config.js` (frontend) | Campo em `resources` |
-|------------------------|----------------------|
-| `enabled`              | `active`             |
-| `name`                 | `name`               |
-| `priority`             | `sort_order`         |
-| `image` / `description`| `description` ou `config` |
-| restante (url, source, style, paint, options, locate, ...) | `config` (JSONB) |
+A constraint fundamental do EBGeo — **a aplicação funciona identicamente para
+usuários não autenticados** — vale aqui: o endpoint é **público** (montado antes do
+middleware de auth) e o payload nunca carrega segredo, só URLs de rede e preferências
+de UI. Se o backend estiver indisponível, o frontend mantém o `config.js` local como
+fallback.
 
 ---
 
-## Análise Seção a Seção do `config.js`
+## 1. Obter a configuração
 
-### 1. `app` — Identidade da aplicação
+### Endpoint
 
-| Chave | O que é | Backend hoje | Status |
-|-------|---------|--------------|--------|
-| `app.title` | Título exibido na interface ("EBGeo") | — | 🔴 Gap (config global) |
-| `app.tutorialUrl` | URL do tutorial (`./docs/doc.html`) | — | 🟢 Local (asset do deploy) |
+`GET /api/v1/config`
 
-### 2. `features` — Feature flags
+Alias de compatibilidade: `GET /api/config` (mesmo router, mesma resposta).
 
-| Chave | O que é | Backend hoje | Status |
-|-------|---------|--------------|--------|
-| `features.map_3d` | Habilita visualizador 3D | — | 🔴 Gap (config global) |
-| `features.imagens_panoramicas` | Habilita Street View 360 | — | 🔴 Gap (config global) |
-| `features.apisearch` | Habilita busca via API externa | — | 🔴 Gap (config global) |
-| `features.grid` | Habilita grid | — | 🔴 Gap (config global) |
+- **Auth**: Não (público).
+- **Cache**: `Cache-Control: no-cache` — a config muda raramente, mas pode ser
+  editada em runtime via `/resources`; sem cache agressivo, as edições propagam na
+  requisição seguinte.
 
-> Feature flags são **globais por deployment**. Não cabem em `resources`
-> (que é catálogo de itens) — pedem um endpoint/registro de **config global**.
+### Request
 
-### 3. `services` e `search` — URLs de serviços externos
-
-| Chave | O que é | Backend hoje | Status |
-|-------|---------|--------------|--------|
-| `services.tileServerUrl` | Servidor de tiles vetoriais | — | 🟢 Local / 🔴 Gap (config global) |
-| `search.apiUrl` | API de busca de feições | — | 🟢 Local / 🔴 Gap (config global) |
-
-> URLs de infraestrutura geralmente variam por **ambiente** (dev/prod), então o
-> mais robusto é mantê-las como config de deploy do frontend. Se forem servidas
-> pelo backend, devem entrar no registro de config global.
-
-### 4. `basemaps` — Camadas base ✅
-
-| Chave | O que é | Backend hoje | Status |
-|-------|---------|--------------|--------|
-| `basemaps.<id>.enabled` | Liga/desliga basemap | `resources.active` | ✅ Coberto |
-| `basemaps.<id>.name` | Nome exibido | `resources.name` | ✅ Coberto |
-| `basemaps.<id>.priority` | Ordem | `resources.sort_order` | ✅ Coberto |
-| `basemaps.<id>.image` | Thumbnail | `resources.config.image` | 🟡 Parcial (não no seed) |
-
-> `category = 'basemap'`. Os 5 basemaps já estão no seed. **Divergência a
-> corrigir:** o seed insere `osm` e `imagens` como `active = true` (default),
-> mas o `config.js` os tem com `enabled: false`.
-
-### 5. `analysisLayers` — Camadas de análise raster 🟡
-
-| Chave | O que é | Backend hoje | Status |
-|-------|---------|--------------|--------|
-| `analysisLayers.enabled` | Feature flag global da seção | — | 🔴 Gap (config global) |
-| `analysisLayers.layers[]` | DEM, declive, etc. (id, source, bounds, paint, legend) | `category = 'analysis_layer'` | 🟡 Parcial |
-
-> A categoria existe e o `hillshade` está no seed (porém em `map2d`, não nesta
-> lista — ver §8). O payload completo (`source`, `bounds`, `paint`, `legend`)
-> precisa ir para `resources.config`. A lista vem vazia por padrão no `config.js`.
-
-### 6. `dataLayers` — Camadas de dados vetoriais (molduras, etc.) 🟡
-
-| Chave | O que é | Backend hoje | Status |
-|-------|---------|--------------|--------|
-| `dataLayers.enabled` | Feature flag global da seção | — | 🔴 Gap (config global) |
-| `dataLayers.layers[]` | Vetoriais do catálogo "Dados" (source, sourceLayer, style.fill/border/label, labelSource, legend) | `category = 'data_layer'` | 🟡 Parcial |
-
-> Categoria existe, **sem seed**. Toda a estrutura (incluindo expressões
-> MapLibre em `style`) cabe em `resources.config` (JSONB). Lista vazia por padrão.
-
-### 7. `map2d` — Configuração do mapa 2D 🔴/🟡
-
-| Chave | O que é | Backend hoje | Status |
-|-------|---------|--------------|--------|
-| `map2d.bounds` | Extensão geográfica inicial | — | 🔴 Gap (config global) |
-| `map2d.minZoom` / `maxZoom` / `maxPitch` | Limites de navegação | — | 🔴 Gap (config global) |
-| `map2d.globe_projection` | Modo globo | — | 🔴 Gap (config global) |
-| `map2d.sourceTileLodParams` | Otimização de tiles | — | 🔴 Gap (config global) |
-| `map2d.maxBounds` | Limites geográficos (opcional) | — | 🔴 Gap (config global) |
-| `map2d.terrainSource` | Source de elevação/terreno | — | 🔴 Gap (config global) |
-| `map2d.hillshadeSource` | Source de sombreamento | — | 🔴 Gap (config global) |
-| `map2d.hillshade` | Camada de sombreamento (enabled, paint, layout) | `analysis_layer` (`hillshade` no seed) | 🟡 Parcial |
-
-> Os defaults do mapa 2D são **config global** (não catálogo). Apenas a *camada*
-> `hillshade` se encaixa em `resources` (`analysis_layer`); os `*Source` e os
-> limites de viewport precisam do registro de config global.
-
-### 8. `map3d` — Configuração do Cesium 🔴
-
-| Chave | O que é | Backend hoje | Status |
-|-------|---------|--------------|--------|
-| `map3d.bounds` | Visão inicial do Cesium | — | 🔴 Gap (config global) |
-| `map3d.viewer` | UI do viewer (infoBox, geocoder, timeline, ...) | — | 🔴 Gap (config global) |
-| `map3d.providers.imagery` | Provedor de imagery | — | 🔴 Gap (config global) |
-| `map3d.providers.terrain` | Provedor de terreno | — | 🔴 Gap (config global) |
-
-> Toda a seção `map3d` é **config global** do viewer 3D. Não cabe em `resources`.
-
-### 9. `tilesets` — Modelos 3D (3D Tiles e GLB) ✅
-
-| Chave | O que é | Backend hoje | Status |
-|-------|---------|--------------|--------|
-| `tilesets[].id` / `name` / `description` | Identificação | `resources.id/name/description` | ✅ Coberto |
-| `tilesets[].url` / `heightOffset` / `locate` | 3D Tiles | `resources.config` | 🟡 Parcial (não no seed) |
-| `tilesets[].type = 'glb'` + `position`/`rotation`/`scale`/`maximumScale` | Modelos GLB | `resources.config` | 🟡 Parcial (sem seed GLB) |
-| `keywords`, `data_captura`, `local`, `previewVideo`, `previewThumbnail` | Metadados | `resources.config` | 🟡 Parcial |
-
-> `category = 'tileset'`. `PCL` (3D Tiles) está no seed; o GLB de exemplo
-> (`hangar-01`) **não**. Todo o payload específico vai para `resources.config`.
-
-### 10. `streetView360` — Serviço de panoramas 🔴
-
-| Chave | O que é | Backend hoje | Status |
-|-------|---------|--------------|--------|
-| `streetView360.serviceUrl` | API de panoramas (UUID + loading progressivo) | — | 🟢 Local / 🔴 Gap (config global) |
-| `streetView360.pointsSource` / `pointsSourceLayer` | PMTiles de pontos | — | 🔴 Gap (config global) |
-| `streetView360.linesSource` / `linesSourceLayer` | PMTiles de linhas | — | 🔴 Gap (config global) |
-
-> A categoria `streetview_marker` existe em `resources`, mas se refere a
-> **marcadores** (dado de usuário, sincronizado via entidade `streetview360`),
-> **não** a esta config de serviço. Esta seção é **config global** de serviço.
-
----
-
-## Resumo de Cobertura
-
-| Seção `config.js` | Natureza | Mecanismo no backend | Status |
-|-------------------|----------|----------------------|--------|
-| `app` | Global | Config global (gap) | 🔴 |
-| `features` | Global | Config global (gap) | 🔴 |
-| `services` / `search` | Ambiente | Local ou config global | 🟢/🔴 |
-| `basemaps` | Catálogo | `resources` (`basemap`) | ✅ |
-| `analysisLayers` | Catálogo | `resources` (`analysis_layer`) | 🟡 |
-| `dataLayers` | Catálogo | `resources` (`data_layer`) | 🟡 |
-| `map2d` | Global (+ hillshade catálogo) | Config global + `resources` | 🔴/🟡 |
-| `map3d` | Global | Config global (gap) | 🔴 |
-| `tilesets` | Catálogo | `resources` (`tileset`) | ✅ |
-| `streetView360` | Ambiente/serviço | Local ou config global | 🔴 |
-
-**Conclusão:** o backend já cobre o **catálogo** (basemaps, camadas, tilesets)
-via `resources`, mas falta (a) **popular o `config` JSONB** desses recursos e
-(b) um mecanismo para a **configuração global** da aplicação (feature flags,
-defaults de mapa 2D/3D, viewer Cesium, URLs de serviço).
-
----
-
-## Gaps e Proposta de Implementação
-
-### Gap 1 — Acesso não autenticado
-
-`GET /api/v1/resources` e o novo endpoint de config precisam de uma variante
-**pública** (sem JWT) para honrar a constraint de funcionamento offline/anônimo.
-Opções: rota pública dedicada, ou o frontend usa `config.js` local como fallback
-e só faz *merge* da config remota quando autenticado.
-
-### Gap 2 — Popular `resources.config`
-
-O seed atual grava apenas `id`/`name`/`sort_order`. É preciso uma migração (ou
-seed) que preencha `config` (JSONB) com URLs, `source`, `paint`, `options`,
-`locate`, etc., para cada basemap/tileset/camada — e alinhar `active` com o
-`enabled` do `config.js` (corrigir `osm`/`imagens`).
-
-### Gap 3 — Registro de Configuração Global
-
-Criar um lugar para a config **não-catálogo**. Duas abordagens:
-
-- **A) Nova categoria `app_config`** em `resources` (reaproveita tabela/CRUD):
-  cada bloco (`app`, `features`, `map2d`, `map3d`, ...) vira uma linha com o
-  payload em `config`. Exige relaxar o `CHECK` da coluna `category`.
-- **B) Tabela/endpoint dedicado** `GET /api/v1/config`: retorna o objeto de
-  config global montado (mais próximo do formato que o frontend consome).
-
-### Gap 4 — Escopo: global vs por-atlas
-
-Decidir se a config é **global do servidor** (um EBGeo = um conjunto de basemaps/
-tilesets) ou **sobrescrevível por atlas**. O `config.js` é hoje global; manter
-global é o caminho mais simples e compatível.
-
-### Esboço de endpoint sugerido
+Sem corpo, sem query, sem header obrigatório:
 
 ```http
-GET /api/v1/config            # público; monta o objeto estilo config.js
-GET /api/v1/resources?category=basemap   # catálogo (já existe; tornar público)
+GET /api/v1/config HTTP/1.1
+Host: ebgeo.example.mil.br
 ```
 
-Resposta de `GET /config` reconstruída a partir de `resources` + config global:
+### Response (200)
 
-```jsonc
+O envelope segue o padrão do repositório: o objeto de config vem dentro de `data`.
+O frontend lê `(await res.json()).data`.
+
+```json
 {
-  "app":      { "title": "EBGeo" },
-  "features": { "map_3d": true, "imagens_panoramicas": true, ... },
-  "basemaps": { /* derivado de resources category=basemap */ },
-  "tilesets": [ /* derivado de resources category=tileset */ ],
-  "map2d":    { /* config global */ },
-  "map3d":    { /* config global */ }
+  "data": {
+    "app": {
+      "title": "EBGeo",
+      "tutorialUrl": "./docs/doc.html"
+    },
+    "features": {
+      "map_3d": true,
+      "imagens_panoramicas": true,
+      "apisearch": false,
+      "grid": false
+    },
+    "services": {
+      "tileServerUrl": ""
+    },
+    "search": {
+      "apiUrl": "http://localhost:3001/busca"
+    },
+    "assets3dBaseUrl": "/api/v1/assets3d",
+    "basemaps": {
+      "carta-topografica": {
+        "name": "Topográfica",
+        "enabled": true,
+        "image": "./images/layers/carta-topografica-thumb.png",
+        "priority": 1
+      },
+      "carta-ortoimagem": {
+        "name": "Ortoimagem",
+        "enabled": true,
+        "image": "./images/layers/carta-ortoimagem-thumb.png",
+        "priority": 2
+      },
+      "bdgex": {
+        "name": "BDGEx",
+        "enabled": true,
+        "image": "./images/layers/bdgex-thumb.png",
+        "priority": 3
+      },
+      "osm": { "name": "OSM", "enabled": false, "priority": 4 },
+      "imagens": { "name": "Imagens", "enabled": false, "priority": 5 }
+    },
+    "analysisLayers": {
+      "enabled": true,
+      "layers": [
+        { "id": "hillshade", "name": "Sombreamento do Relevo" }
+      ]
+    },
+    "dataLayers": {
+      "enabled": true,
+      "layers": []
+    },
+    "map2d": {
+      "bounds": [[-58.1, -33.4], [-48.7, -27.1]],
+      "minZoom": 1,
+      "maxZoom": 17.9,
+      "maxPitch": 65,
+      "globe_projection": true,
+      "sourceTileLodParams": [5, 6.0],
+      "hillshade": {
+        "enabled": false,
+        "name": "Sombreamento do Relevo",
+        "description": "Visualização de relevo sombreado baseada em modelo digital de elevação",
+        "thumbnail": null,
+        "layer": {
+          "id": "hillshade",
+          "type": "hillshade",
+          "source": "hillshadeSource",
+          "paint": {
+            "hillshade-method": "standard",
+            "hillshade-illumination-direction": 315,
+            "hillshade-shadow-color": "rgba(0, 0, 0, 0.5)",
+            "hillshade-highlight-color": "rgba(255, 255, 255, 0.5)",
+            "hillshade-accent-color": "rgba(0, 0, 0, 0.5)",
+            "hillshade-exaggeration": 0.5
+          },
+          "layout": { "visibility": "visible" }
+        }
+      },
+      "terrainSource": {
+        "type": "raster-dem",
+        "url": "https://demotiles.maplibre.org/terrain-tiles/tiles.json",
+        "tileSize": 256
+      },
+      "hillshadeSource": {
+        "type": "raster-dem",
+        "url": "https://demotiles.maplibre.org/terrain-tiles/tiles.json",
+        "tileSize": 256
+      }
+    },
+    "map3d": {
+      "bounds": { "west": -58.1, "south": -33.8, "east": -48.0, "north": -22.5 },
+      "viewer": {
+        "infoBox": false,
+        "vrButton": false,
+        "geocoder": false,
+        "homeButton": false,
+        "sceneModePicker": false,
+        "baseLayerPicker": false,
+        "navigationHelpButton": true,
+        "animation": false,
+        "timeline": false,
+        "fullscreenButton": false
+      },
+      "providers": {
+        "imagery": {
+          "enabled": true,
+          "type": "UrlTemplate",
+          "url": "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          "options": { "maximumLevel": 18, "minimumLevel": 0, "tileWidth": 256, "tileHeight": 256 }
+        },
+        "terrain": {
+          "enabled": true,
+          "type": "Cesium",
+          "url": "http://localhost/terrain/tilesets/terrain",
+          "options": { "requestVertexNormals": true }
+        }
+      }
+    },
+    "tilesets": [
+      {
+        "id": "PCL",
+        "name": "Posto de Comando Logístico",
+        "url": "/3d/PCL/tileset.json",
+        "heightOffset": 35,
+        "description": "Modelo 3D do Posto de Comando Logístico capturado por drone",
+        "keywords": ["PCL", "posto comando", "logística", "drone"],
+        "data_captura": "15/03/2024",
+        "local": "Resende, RJ",
+        "previewVideo": "/3d/videos/preview.webm",
+        "previewThumbnail": "/3d/videos/thumbnail.jpg",
+        "locate": { "lon": -44.47332385414955, "lat": -22.43976556982974, "height": 1000 }
+      }
+    ],
+    "streetView360": {
+      "serviceUrl": "http://localhost:3000/api/v1/sv360",
+      "pointsSource": {
+        "type": "vector",
+        "tiles": ["http://localhost:3000/api/v1/sv360/tiles/{z}/{x}/{y}.pbf"]
+      },
+      "pointsSourceLayer": "fotos",
+      "linesSource": {
+        "type": "vector",
+        "tiles": ["http://localhost:3000/api/v1/sv360/tiles/{z}/{x}/{y}.pbf"]
+      },
+      "linesSourceLayer": "fotos_linha"
+    },
+    "basemapStyles": {
+      "carta-topografica": { "version": 8, "glyphs": "...", "sources": { "...": {} }, "layers": [] },
+      "osm": { "version": 8, "glyphs": "...", "sources": { "...": {} }, "layers": [] },
+      "bdgex": { "version": 8, "glyphs": "...", "sources": { "...": {} }, "layers": [] },
+      "imagens": { "version": 8, "glyphs": "...", "sources": { "...": {} }, "layers": [] },
+      "carta-ortoimagem": { "version": 8, "glyphs": "...", "sources": { "...": {} }, "layers": [] }
+    }
+  }
 }
 ```
 
+> Os valores de URL acima são os **defaults DEV-only** (placeholders públicos). Em
+> produção militar eles são substituídos por servidores internos da DGEO via
+> variáveis de ambiente (ver [§5](#5-variáveis-de-ambiente)). O `basemapStyles` está
+> resumido no exemplo — cada entrada é um style MapLibre completo (`version: 8`,
+> `glyphs`, `sources`, `layers`); o detalhe está em [§4](#4-basemapstyles-styles-maplibre).
+
 ---
 
-## Checklist de Implementação
+## 2. As chaves de topo, fonte a fonte
 
-- [ ] Tornar o catálogo (`/resources` e/ou `/config`) acessível **sem auth**
-- [ ] Migração para popular `resources.config` (basemaps, tilesets, camadas)
-- [ ] Alinhar `active` ↔ `enabled` (corrigir `osm`/`imagens` no seed)
-- [ ] Definir mecanismo de **config global** (categoria `app_config` ou `/config`)
-- [ ] Endpoint `GET /api/v1/config` montando o objeto no formato do frontend
-- [ ] Frontend: *merge* da config remota sobre o `config.js` local (fallback)
-- [ ] Admin UI / CRUD para basemaps, tilesets e camadas (já há `POST/PUT/DELETE /resources`)
-- [ ] Decidir escopo: global do servidor vs sobrescrita por atlas
-</content>
-</invoke>
+| Chave | Fonte | Tipo | Observação |
+|-------|-------|------|------------|
+| `app` | estática | objeto | `title`, `tutorialUrl` |
+| `features` | estática | objeto | feature flags globais (`map_3d`, `imagens_panoramicas`, `apisearch`, `grid`) |
+| `services` | env | objeto | `tileServerUrl` |
+| `search` | env | objeto | `apiUrl` (busca de feições) |
+| `assets3dBaseUrl` | env | string | base que o frontend resolve contra `url`s 3D relativos |
+| `basemaps` | `resources` | **objeto** chaveado por id | catálogo de camadas base |
+| `analysisLayers` | `resources` | `{ enabled, layers[] }` | camadas raster de análise |
+| `dataLayers` | `resources` | `{ enabled, layers[] }` | camadas vetoriais (molduras etc.) |
+| `map2d` | estático + env | objeto | defaults de viewport + `terrain/hillshade` source por env |
+| `map3d` | estático + env | objeto | viewer Cesium + `providers.imagery/terrain` por env |
+| `tilesets` | `resources` | **array** | modelos 3D (3D Tiles e GLB) |
+| `streetView360` | env | objeto | serviço de panoramas + fonte vetorial MVT |
+| `basemapStyles` | estática + env | objeto chaveado por id | styles MapLibre dos basemaps |
+
+> **Atenção ao tipo de `basemaps` vs `tilesets`** (contrato congelado): `basemaps`
+> é um **objeto** indexado por id (o frontend faz `config.basemaps[id]`), enquanto
+> `tilesets` é um **array**. Não troque um pelo outro.
+
+### Notas de integração no frontend
+
+- `assets3dBaseUrl` resolve os `url` relativos do catálogo 3D (ex.: `/3d/PCL/tileset.json`
+  vira `${assets3dBaseUrl}/3d/PCL/tileset.json`).
+- `streetView360.serviceUrl` é a base que o cliente concatena com os caminhos do
+  módulo 360 (imagem, metadados, thumbnails).
+- Faça **merge** do payload remoto sobre o `config.js` local: se uma chave faltar
+  (deploy antigo), o default local cobre.
+
+---
+
+## 3. Dados editáveis em runtime: a tabela `resources`
+
+`basemaps`, `analysisLayers.layers`, `dataLayers.layers` e `tilesets` vêm da tabela
+`resources` (categorias `basemap`, `analysis_layer`, `data_layer`, `tileset`). Cada
+linha tem `id`, `name`, `config` (JSONB livre), `active` e `sort_order`. O endpoint só
+inclui linhas com `active = true`, ordenadas por `sort_order`, e mescla o JSONB
+`config` no objeto de saída (`{ id, name, ...config }`).
+
+Isso significa que **editar a config visível pelo frontend não exige mudança de
+código nem redeploy**: basta editar a linha em `resources` (via o CRUD admin de
+`/api/v1/resources` — ver [09 - Administração](./09-admin.md)). A próxima chamada a
+`GET /config` já reflete a alteração.
+
+**Mapeamento `config.js` ↔ `resources`:**
+
+| Campo no payload | Coluna em `resources` |
+|------------------|-----------------------|
+| `enabled` (em `config`) | `config.enabled` |
+| `name` | `name` |
+| `priority` (em `config`) | `config.priority` (e `sort_order` para ordenação) |
+| `image`, `url`, `paint`, `locate`, ... | `config` (JSONB) |
+
+> O catálogo de seed traz 5 basemaps (`carta-topografica`, `carta-ortoimagem`,
+> `bdgex`, `osm`, `imagens`), 1 analysis layer (`hillshade`) e 1 tileset (`PCL`). Os
+> basemaps `osm` e `imagens` vêm com `enabled: false` por padrão.
+
+---
+
+## 4. `basemapStyles` (styles MapLibre)
+
+Cada basemap precisa de um **style MapLibre** completo (`version`, `glyphs`,
+`sources`, `layers`) para ser renderizado. Esses styles são montados pelo backend a
+partir de templates estáticos, com as URLs de tile/glyphs **injetadas por ambiente** —
+assim o servidor de tiles pode ser interno sem mudar o código.
+
+São servidos **5 styles**, indexados pelo id do basemap:
+
+| id | Fonte de tiles (env) |
+|----|----------------------|
+| `carta-topografica` | `OSM_TILE_URL` |
+| `osm` | `OSM_TILE_URL` |
+| `bdgex` | `BDGEX_WMS_URL` |
+| `imagens` | `IMAGENS_TILE_URL` |
+| `carta-ortoimagem` | `ORTOIMAGEM_TILE_URL` |
+
+Exemplo de um style (`osm`):
+
+```json
+{
+  "version": 8,
+  "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+  "sources": {
+    "osm": {
+      "type": "raster",
+      "tiles": ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      "tileSize": 256,
+      "attribution": "&copy; OpenStreetMap Contributors",
+      "maxzoom": 19
+    }
+  },
+  "layers": [{ "id": "osm", "type": "raster", "source": "osm" }]
+}
+```
+
+> **Pegadinha histórica**: no `config.js` antigo, as URLs reais dos tiles dos
+> basemaps **não** estavam no próprio `config.js` — moravam em módulos separados de
+> `baselayers/*.js`. O endpoint as absorve aqui, em `basemapStyles`, para servir 100%
+> da config num só lugar. Os placeholders públicos (OSM, Google, BDGEx, demotiles)
+> **não vão para produção** — reaponte para os servidores internos via env.
+
+---
+
+## 5. `streetView360` como fonte vetorial (MVT)
+
+O overlay de panoramas 360 é uma **fonte vetorial renderizada pelo próprio backend**
+(PostGIS `ST_AsMVT`), servida em `${serviceUrl}/tiles/{z}/{x}/{y}.pbf`. Cada tile
+carrega **duas camadas**:
+
+- `fotos` — pontos das fotos (use `pointsSourceLayer: 'fotos'`).
+- `fotos_linha` — linhas de trajetória por projeto (use `linesSourceLayer: 'fotos_linha'`).
+
+Ambas as sources (`pointsSource` e `linesSource`) apontam para o **mesmo** template de
+tile; o frontend seleciona a camada pelo `*SourceLayer`. Os `{z}/{x}/{y}` são
+placeholders literais do MapLibre, **não** variáveis de ambiente.
+
+```json
+"streetView360": {
+  "serviceUrl": "http://localhost:3000/api/v1/sv360",
+  "pointsSource": { "type": "vector", "tiles": ["http://localhost:3000/api/v1/sv360/tiles/{z}/{x}/{y}.pbf"] },
+  "pointsSourceLayer": "fotos",
+  "linesSource": { "type": "vector", "tiles": ["http://localhost:3000/api/v1/sv360/tiles/{z}/{x}/{y}.pbf"] },
+  "linesSourceLayer": "fotos_linha"
+}
+```
+
+> **Contrato congelado**: a chave de topo é `streetView360`. O sub-shape usa
+> `type: 'vector'` + `tiles: [...]` (MVT). GeoJSON-como-fonte e PMTiles foram
+> **descontinuados** — só `serviceUrl` é configurável por deploy (a base
+> `SV360_SERVICE_URL`). Os tiles MVT são servidos pelo próprio backend sob `serviceUrl`.
+
+---
+
+## 6. Variáveis de ambiente
+
+As URLs do payload são injetadas por ambiente, então um deploy aponta o frontend para
+servidores internos **sem rebuild**. Defaults são placeholders DEV-only.
+
+| Variável | Chave no payload | Default (DEV) |
+|----------|------------------|---------------|
+| `TILE_SERVER_URL` | `services.tileServerUrl` | `""` |
+| `SEARCH_API_URL` | `search.apiUrl` | `http://localhost:3001/busca` |
+| `TERRAIN_URL` | `map2d.terrainSource.url` | demotiles MapLibre |
+| `HILLSHADE_URL` | `map2d.hillshadeSource.url` | demotiles MapLibre |
+| `MAP3D_IMAGERY_URL` | `map3d.providers.imagery.url` | OSM público |
+| `MAP3D_TERRAIN_URL` | `map3d.providers.terrain.url` | `http://localhost/terrain/tilesets/terrain` |
+| `SV360_SERVICE_URL` | `streetView360.serviceUrl` (+ template de tiles) | `http://localhost:3000/api/v1/sv360` |
+| `OSM_TILE_URL` | tiles dos styles `carta-topografica`/`osm` | OSM público |
+| `BDGEX_WMS_URL` | tiles do style `bdgex` | BDGEx WMS público |
+| `IMAGENS_TILE_URL` | tiles do style `imagens` | Google tiles |
+| `ORTOIMAGEM_TILE_URL` | tiles do style `carta-ortoimagem` | BDGEx ortoimagem WMS |
+| `MAPLIBRE_GLYPHS_URL` | `glyphs` de todos os styles | demotiles MapLibre |
+| `ASSETS_3D_BASE_URL` | `assets3dBaseUrl` | `/api/v1/assets3d` |
+
+> O boot **não** falha nem avisa se essas URLs continuarem em `localhost`/placeholder
+> público em produção — os defaults são intencionais para dev/offline. Em produção
+> militar, defina todas para os servidores internos da DGEO. Lista completa de env de
+> deploy em [../deploy/deploy.md](../deploy/deploy.md).
+
+---
+
+## 7. Tratamento de erros
+
+| Situação | Comportamento |
+|----------|---------------|
+| Sem token / token inválido | **Irrelevante** — o endpoint é público; sempre responde 200 |
+| Banco indisponível | 500 (a montagem lê `resources`); o frontend deve cair no `config.js` local |
+| Edição via `/resources` | Refletida na **próxima** chamada (sem cache); rota de edição exige `admin` |
+
+### Notas de integração no frontend
+
+- **Sempre tenha um fallback**: o `config.js` local embarcado no build cobre o caso
+  de o backend estar fora do ar (offline-first). Faça `merge` do remoto por cima.
+- Trate a resposta como `res.data` (envelope `{ data }`), não a raiz.
+- Re-busque a config após o operador editar recursos no admin — não há push/WS para
+  config; é pull sob demanda.
+
+---
+
+## Referências
+
+- [09 - Administração](./09-admin.md) — CRUD admin da tabela `resources`.
+- [../deploy/deploy.md](../deploy/deploy.md) — variáveis de ambiente de deploy (URLs, CORS, NGINX), incl. as `*_URL` da config dinâmica e o módulo 360 absorvido.
+- [../../README.md](../../README.md) — índice da documentação.

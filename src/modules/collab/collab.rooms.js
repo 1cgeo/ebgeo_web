@@ -85,6 +85,9 @@ export function getRoomUsers(atlasId) {
         posto_graduacao: client.userPosto,
         mapId: client.currentMapId,
         cursorPosition: client.cursorPosition,
+        // Fase 8 (Tarefa 2): a client kept in the room during the away grace
+        // window (abnormal close) is reported as `away`; live ones as `online`.
+        status: client.away ? 'away' : 'online',
       });
     }
   }

@@ -12,6 +12,31 @@ import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
 import * as handlers from './collab.handlers.js';
 
+// Accepted shape of a client-provided clientId (UUID v4 or nanoid-style).
+const CLIENT_ID_RE = /^[a-zA-Z0-9_-]{8,64}$/;
+
+// WebSocket close code for an abnormal closure (no close frame): network drop
+// or `terminate()`. Anything else (1000/1005/1001/4001…) is a clean/intentional
+// close and removes the user immediately.
+const ABNORMAL_CLOSE = 1006;
+
+// Fase 8 (Tarefa 2): pending away-removal timers keyed by `${atlasId}::${clientId}`.
+// On an abnormal close the user is kept in the room as `away` and removed after
+// the grace window; a reconnect with the same clientId cancels the timer.
+const awayTimers = new Map();
+
+// Grace window before an `away` user is actually removed. Configurable for tests.
+let awayGraceMs = config.ws.awayGraceMs;
+
+/** Test/ops hook to shorten (or lengthen) the away grace window. */
+export function setAwayGraceMs(ms) {
+  awayGraceMs = ms;
+}
+
+function awayKey(atlasId, clientId) {
+  return `${atlasId}::${clientId}`;
+}
+
 /**
  * Resolves atlas permission for a user.
  * For public tokens, validates that the token is for the requested atlas.
@@ -81,9 +106,12 @@ export function attachWebSocket(server) {
       const url = new URL(request.url, `http://${request.headers.host}`);
       const atlasId = url.searchParams.get('atlasId');
       const token = url.searchParams.get('token');
-      // Stable clientId across reconnects (idempotency + presence). Old clients
-      // omit it → the server generates one.
-      const clientId = url.searchParams.get('clientId') || null;
+      // Stable clientId across reconnects (idempotency + presence). Validate the
+      // format (UUID v4 / nanoid-ish); an absent OR malformed value falls back to
+      // a server-generated one (preserves back-compat, avoids log/presence noise).
+      // It is only a presence/idempotency key — never a credential (auth is the JWT).
+      const rawClientId = url.searchParams.get('clientId');
+      const clientId = (rawClientId && CLIENT_ID_RE.test(rawClientId)) ? rawClientId : null;
 
       if (!atlasId || !token) {
         socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
@@ -153,6 +181,16 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   // Use the client-provided stable id when present; otherwise generate one.
   const clientId = providedClientId || crypto.randomUUID();
 
+  // Reconnect within the away grace window: cancel the pending removal and drop
+  // the stale (closed) socket from the room so presence is not duplicated.
+  const pending = awayTimers.get(awayKey(atlasId, clientId));
+  if (pending) {
+    clearTimeout(pending.timer);
+    awayTimers.delete(awayKey(atlasId, clientId));
+    leaveRoom(atlasId, pending.ws);
+    collabService.broadcastUserBack(atlasId, user.id, clientId);
+  }
+
   // Attach user info to WebSocket
   ws.userId = user.id;
   ws.userName = user.nome;
@@ -204,9 +242,10 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
     }
   });
 
-  // Set up close handler
-  ws.on('close', () => {
-    onClose(ws);
+  // Set up close handler (the close code distinguishes a clean leave from a
+  // network drop — see onClose).
+  ws.on('close', (code) => {
+    onClose(ws, code);
   });
 
   // Set up error handler
@@ -248,6 +287,13 @@ function handleMessage(ws, data) {
       handlers.handleConnectionQuality(ws, data);
       break;
 
+    case 'leave':
+      // Explicit intentional leave: flag it and close cleanly so onClose removes
+      // the user immediately (no away grace).
+      ws.intentionalLeave = true;
+      ws.close(1000, 'leave');
+      break;
+
     case 'briefing_edit_start':
       handlers.handleBriefingEditStart(ws, data);
       break;
@@ -262,19 +308,54 @@ function handleMessage(ws, data) {
 }
 
 /**
- * Handles WebSocket close event.
+ * Removes a connection from the room and presence for good (room + session +
+ * peer notification). Shared by the intentional-close path and the away timeout.
  */
-function onClose(ws) {
-  logger.info({ userId: ws.userId, atlasId: ws.atlasId }, 'WebSocket disconnected');
-
-  // Leave room
+function removeConnection(ws) {
   leaveRoom(ws.atlasId, ws);
-
-  // Delete session (only created for non-public connections)
   if (!ws.isPublic) {
     collabService.deleteSession(ws.userId, ws.atlasId, ws.clientId);
   }
-
-  // Broadcast user left
   collabService.broadcastUserLeft(ws.atlasId, ws.userId);
+}
+
+/**
+ * Handles WebSocket close event.
+ *
+ * A clean/intentional close (any code other than 1006, or an explicit `leave`)
+ * removes the user immediately. An abnormal close (1006 — network drop or
+ * heartbeat `terminate()`) marks the user `away` and keeps the session for a
+ * grace window so a reconnect with the same clientId can resume it without the
+ * user "blinking" out of the presence list.
+ */
+function onClose(ws, code) {
+  const networkDrop = code === ABNORMAL_CLOSE && ws.intentionalLeave !== true;
+  logger.info({ userId: ws.userId, atlasId: ws.atlasId, code, networkDrop }, 'WebSocket disconnected');
+
+  if (!networkDrop) {
+    // Defensive: clear any stale away timer for this client before removing.
+    const key = awayKey(ws.atlasId, ws.clientId);
+    const pending = awayTimers.get(key);
+    if (pending) {
+      clearTimeout(pending.timer);
+      awayTimers.delete(key);
+    }
+    removeConnection(ws);
+    return;
+  }
+
+  // Network drop: keep the (now-closed) socket in the room marked `away` so
+  // presence still lists it, broadcast `user_away`, and schedule removal.
+  ws.away = true;
+  collabService.broadcastUserAway(ws.atlasId, ws.userId, ws.clientId);
+
+  const key = awayKey(ws.atlasId, ws.clientId);
+  const existing = awayTimers.get(key);
+  if (existing) clearTimeout(existing.timer);
+  const timer = setTimeout(() => {
+    awayTimers.delete(key);
+    removeConnection(ws);
+  }, awayGraceMs);
+  if (typeof timer.unref === 'function') timer.unref();
+  awayTimers.set(key, { ws, timer });
 }

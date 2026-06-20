@@ -47,6 +47,10 @@ export async function getAppConfig() {
     features: S.FEATURES,
     services: { tileServerUrl: C.tileServerUrl },
     search: { apiUrl: C.searchApiUrl },
+    // Fase 4 (Tarefa 6): base URL the frontend resolves relative 3D asset `url`s
+    // against (tileset.json/.glb/.terrain). Env-configurable so deployments can
+    // point at an internal host; the catalog stores only relative paths.
+    assets3dBaseUrl: config.assets3d.baseUrl,
     basemaps,
     analysisLayers: { enabled: true, layers: analysisLayers },
     dataLayers: { enabled: true, layers: dataLayers },

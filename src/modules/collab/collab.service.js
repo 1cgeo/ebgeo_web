@@ -110,6 +110,30 @@ export function broadcastUserLeft(atlasId, userId) {
 }
 
 /**
+ * Broadcasts that a user dropped abnormally and is `away` (still in the
+ * presence list, within the grace window) — peers should not remove them yet.
+ */
+export function broadcastUserAway(atlasId, userId, clientId) {
+  broadcastToRoom(atlasId, {
+    type: 'user_away',
+    userId,
+    clientId,
+  });
+}
+
+/**
+ * Broadcasts that an `away` user reconnected within the grace window — peers
+ * should clear the `away` state for this client.
+ */
+export function broadcastUserBack(atlasId, userId, clientId) {
+  broadcastToRoom(atlasId, {
+    type: 'user_back',
+    userId,
+    clientId,
+  });
+}
+
+/**
  * Gets online users for a room.
  */
 export function getOnlineUsers(atlasId) {

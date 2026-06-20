@@ -15,6 +15,10 @@ export const createZone = asyncHandler(async (req, res) => {
   res.status(201).json({ data: zone });
 });
 
+export const updateZone = asyncHandler(async (req, res) => {
+  res.json({ data: await zonesService.updateZone(req.params.id, req.body) });
+});
+
 export const deleteZone = asyncHandler(async (req, res) => {
   await zonesService.deleteZone(req.params.id);
   res.status(204).send();

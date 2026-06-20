@@ -79,6 +79,10 @@ const config = Object.freeze({
   ws: Object.freeze({
     heartbeatIntervalMs: parseInt(optional('WS_HEARTBEAT_INTERVAL_MS', '30000'), 10),
     heartbeatTimeoutMs: parseInt(optional('WS_HEARTBEAT_TIMEOUT_MS', '5000'), 10),
+    // Fase 8 (Tarefa 2): on an abnormal close (network drop / heartbeat
+    // terminate) the user is marked `away` for this grace window instead of
+    // being removed; a reconnect with the same clientId cancels removal.
+    awayGraceMs: parseInt(optional('WS_AWAY_GRACE_MS', '120000'), 10),
   }),
 
   rateLimit: Object.freeze({

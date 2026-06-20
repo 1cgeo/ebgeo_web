@@ -87,6 +87,11 @@ describe('Config endpoint (GET /api/v1/config)', () => {
     assert.equal(cfg.map2d.terrainSource.type, 'raster-dem');
   });
 
+  it('exposes assets3dBaseUrl for resolving relative 3D asset URLs (Fase 4)', async () => {
+    const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
+    assert.equal(cfg.assets3dBaseUrl, '/api/v1/assets3d');
+  });
+
   it('reflects edits to the resources table without code changes', async () => {
     // Mutate a seed basemap, assert reflection, then restore (sequential test files).
     const before = await db.query(`SELECT config FROM resources WHERE id = 'osm'`);
