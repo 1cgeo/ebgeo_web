@@ -344,7 +344,7 @@ describe('Briefing Operations via Sync', () => {
 
     it('duplicates slide (§22 item 3) — creates new slide with same data', async () => {
       const briefing = await createBriefing(db, atlas.id, { name: 'Duplicate Briefing' });
-      const original = await createSlide(db, briefing.id, {
+      await createSlide(db, briefing.id, {
         title: 'Original Slide',
         content: '<p>Duplicated content</p>',
         mode: '2d',

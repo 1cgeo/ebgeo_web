@@ -5,7 +5,8 @@ import crypto from 'crypto';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { query } from '../../database/index.js';
-import { UnauthorizedError, ConflictError } from '../../utils/errors.js';
+import { UnauthorizedError, ConflictError, ForbiddenError } from '../../utils/errors.js';
+import { orgIsActive } from '../../utils/org-status.js';
 import * as Q from './auth.queries.js';
 
 const SALT_ROUNDS = 12;
@@ -98,6 +99,11 @@ export async function login(username, password) {
     throw new UnauthorizedError('Account is deactivated');
   }
 
+  // O1: a member of a deactivated organization cannot start a session.
+  if (!(await orgIsActive(user.organization_id))) {
+    throw new ForbiddenError('Organization is inactive');
+  }
+
   // Update last login
   await query(Q.UPDATE_LAST_LOGIN, [user.id]);
 
@@ -165,6 +171,11 @@ export async function refresh(refreshToken) {
   }
 
   const user = userResult.rows[0];
+
+  // O1: a member of a deactivated organization cannot renew a session.
+  if (!(await orgIsActive(user.organization_id))) {
+    throw new ForbiddenError('Organization is inactive');
+  }
 
   // Generate new tokens
   const accessToken = generateAccessToken(user);

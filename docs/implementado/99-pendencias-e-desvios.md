@@ -64,6 +64,17 @@ texto nos guias, os achados de **código** verificados foram tratados assim:
 | `truncateCoords` exportada/testada sem uso em `src/` | by-design | Utilitário transport-only reservado (coberto por teste unitário); **não** é dead code removível. |
 | Ramo 403 anti-traversal em `assets3d` praticamente inalcançável | by-design | `path.posix.normalize` colapsa `..` para dentro da raiz → na prática **404**; o 403 fica como defesa em profundidade. Ver [14-catalogo3d-assets.md](./14-catalogo3d-assets.md). |
 
+### Reconciliação de autorização: estado vivo vs. claims do JWT — 2026-06-20
+
+A autorização derivava de estado **cacheado** (o payload do JWT, válido por `JWT_ACCESS_EXPIRY=15min`, ou
+a permissão resolvida uma única vez no handshake WS) sem reconciliar com o banco. Tratamento por eixo:
+
+| Item | Decisão | Comportamento as-built |
+|------|---------|------------------------|
+| **Desativação de organização** (`organizations.is_active=false`) | **corrigido (O1)** | Barra os membros **imediatamente**. `orgIsActive()` ([src/utils/org-status.js](../../src/utils/org-status.js)) é checado no `auth` **estrito** (rota protegida → 403), no `login` e no `refresh` (→ 403), e no handshake/heartbeat do WS. O caminho anônimo/`flexibleAuth` **não** é afetado. Custo: +1 lookup de PK por request de membro com `organization_id`. Teste: `organizations.test.js`. |
+| **Permissão WS cacheada no handshake** | **corrigido (W1)** | `reconcileAuthorization()` ([collab.gateway.js](../../src/modules/collab/collab.gateway.js)) roda a cada tick de heartbeat (~30s): rebaixamento de share (write→read) atualiza `ws.permission` (a próxima escrita é recusada); revogação de share / atlas despublicado / org desativada **fecham** o socket (código `4003`). Janela limitada a ≤1 intervalo de heartbeat. Teste: `tests/ws/collab-reauthz.test.js`. |
+| **Token de acesso vivo após desativação de usuário / rebaixamento de admin** | **aceito (by-design)** | Janela de **≤15 min** (TTL do access token). `login`/`refresh` já barram usuário inativo (`is_active`) e o `refresh` **relê o usuário do banco** → um admin rebaixado recebe o papel atual na próxima rotação. Optou-se por **não** rechecar `is_active`/`role` por request (custo de DB + caminho anônimo). Se precisar de corte sub-minuto para uma conta individual, encurte `JWT_ACCESS_EXPIRY` ou adicione a checagem de `is_active` no `auth` estrito (mesmo padrão do O1). |
+
 ---
 
 ## 🔴 Alta / Bloqueante

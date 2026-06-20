@@ -1,6 +1,5 @@
 // Path: tests/integration/permissions.test.js
 import { describe, it, before, after } from 'node:test';
-import assert from 'node:assert/strict';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, createMap, loginUser } from '../helpers/fixtures.js';

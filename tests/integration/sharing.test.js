@@ -206,7 +206,7 @@ describe('Sharing API', () => {
     });
 
     it('owner can update share permission from write to read', async () => {
-      const res = await supertest(app)
+      await supertest(app)
         .put(`/api/v1/atlas/${atlas.id}/sharing/users/${reader.id}`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({ permission: 'read' })

@@ -1,5 +1,6 @@
 // Path: src/modules/sync/sync.service.js
 import { query, tx, task } from '../../database/index.js';
+import { ForbiddenError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
 
 /**
@@ -759,17 +760,22 @@ function normalizeLayerChanges(changes) {
  * Returns null if no changes apply.
  */
 function buildUpdateQuery(target, op, atlasId) {
+  // Map-scoped entities are also pinned to the ROUTE atlas: the EXISTS clause
+  // rejects an op whose mapId belongs to a DIFFERENT atlas, so a writer on atlas A
+  // cannot mutate atlas B's data by supplying B's mapId (cross-atlas IDOR).
+  const inAtlas = 'EXISTS (SELECT 1 FROM maps m WHERE m.id = $2 AND m.atlas_id = $3)';
+
   if (target === 'feature' && op.changes && op.mapId) {
     return buildDynamicUpdate(
       'features', op.changes, UPDATE_FIELDS.feature,
-      [op.targetId, op.mapId], 'id = $1 AND map_id = $2',
+      [op.targetId, op.mapId, atlasId], `id = $1 AND map_id = $2 AND ${inAtlas}`,
     );
   }
 
   if (target === 'group' && op.changes && op.mapId) {
     return buildDynamicUpdate(
       'groups', op.changes, UPDATE_FIELDS.group,
-      [op.targetId, op.mapId], 'id = $1 AND map_id = $2',
+      [op.targetId, op.mapId, atlasId], `id = $1 AND map_id = $2 AND ${inAtlas}`,
     );
   }
 
@@ -777,7 +783,7 @@ function buildUpdateQuery(target, op, atlasId) {
     const changes = normalizeLayerChanges(op.changes);
     return buildDynamicUpdate(
       'layers', changes, UPDATE_FIELDS.layer,
-      [op.targetId, op.mapId], 'id = $1 AND map_id = $2',
+      [op.targetId, op.mapId, atlasId], `id = $1 AND map_id = $2 AND ${inAtlas}`,
     );
   }
 
@@ -816,14 +822,14 @@ function buildUpdateQuery(target, op, atlasId) {
   if (target === 'cesium3d' && op.changes && op.mapId) {
     return buildDynamicUpdate(
       'cesium3d_data', op.changes, UPDATE_FIELDS.cesium3d,
-      [op.targetId, op.mapId], 'id = $1 AND map_id = $2',
+      [op.targetId, op.mapId, atlasId], `id = $1 AND map_id = $2 AND ${inAtlas}`,
     );
   }
 
   if (target === 'streetview360' && op.changes && op.mapId) {
     return buildDynamicUpdate(
       'streetview360_data', op.changes, UPDATE_FIELDS.streetview360,
-      [op.targetId, op.mapId], 'id = $1 AND map_id = $2',
+      [op.targetId, op.mapId, atlasId], `id = $1 AND map_id = $2 AND ${inAtlas}`,
     );
   }
 
@@ -837,11 +843,13 @@ function buildUpdateQuery(target, op, atlasId) {
 function buildSoftDeleteQuery(table, target, op, atlasId) {
   const SOFT_DELETE = 'SET deleted_at = NOW(), updated_at = NOW(), version = version + 1';
 
-  // Entities scoped by map_id
+  // Entities scoped by map_id — and pinned to the ROUTE atlas via the map, so a
+  // writer on atlas A cannot soft-delete atlas B's data with B's mapId.
   if (['feature', 'group', 'layer', 'cesium3d', 'streetview360'].includes(target) && op.mapId) {
     return {
-      sql: `UPDATE ${table} ${SOFT_DELETE} WHERE id = $1 AND map_id = $2`,
-      values: [op.targetId, op.mapId],
+      sql: `UPDATE ${table} ${SOFT_DELETE} WHERE id = $1 AND map_id = $2
+            AND EXISTS (SELECT 1 FROM maps m WHERE m.id = $2 AND m.atlas_id = $3)`,
+      values: [op.targetId, op.mapId, atlasId],
     };
   }
 
@@ -888,25 +896,29 @@ async function applyCatalogLayerOp(t, atlasId, op, type) {
     return;
   }
 
+  // Per-layer rows are pinned to a map of THIS atlas (cross-atlas IDOR guard).
   if (type === 'create') {
     await t.none(
       `INSERT INTO catalog_layers (id, map_id, data)
-       VALUES ($1, $2, $3::jsonb)
+       SELECT $1, $2, $3::jsonb
+       WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $4)
        ON CONFLICT (id) DO NOTHING`,
-      [op.targetId, op.mapId, JSON.stringify(op.data || {})]
+      [op.targetId, op.mapId, JSON.stringify(op.data || {}), atlasId]
     );
   } else if (type === 'update') {
     const payload = op.changes ?? op.data ?? {};
     await t.none(
       `UPDATE catalog_layers SET data = $1::jsonb, updated_at = NOW(), version = version + 1
-       WHERE id = $2 AND map_id = $3 AND deleted_at IS NULL`,
-      [JSON.stringify(payload), op.targetId, op.mapId]
+       WHERE id = $2 AND map_id = $3 AND deleted_at IS NULL
+         AND EXISTS (SELECT 1 FROM maps WHERE id = $3 AND atlas_id = $4)`,
+      [JSON.stringify(payload), op.targetId, op.mapId, atlasId]
     );
   } else if (type === 'delete') {
     await t.none(
       `UPDATE catalog_layers SET deleted_at = NOW(), updated_at = NOW(), version = version + 1
-       WHERE id = $1 AND map_id = $2`,
-      [op.targetId, op.mapId]
+       WHERE id = $1 AND map_id = $2
+         AND EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $3)`,
+      [op.targetId, op.mapId, atlasId]
     );
   }
 }
@@ -951,9 +963,12 @@ async function applyOperation(t, atlasId, op) {
       // Handle create operations for different targets
       if (target === 'feature' && op.data && op.mapId) {
         const data = op.data;
+        // INSERT...SELECT...WHERE EXISTS pins the row to a map of THIS atlas: a
+        // create with a foreign atlas's mapId inserts zero rows (cross-atlas IDOR).
         await t.none(`
           INSERT INTO features (id, map_id, feature_type, geometry, properties, layer_id)
-          VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6)
+          SELECT $1, $2, $3, $4::jsonb, $5::jsonb, $6
+          WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $7)
           ON CONFLICT (id) DO NOTHING
         `, [
           op.targetId,
@@ -962,12 +977,14 @@ async function applyOperation(t, atlasId, op) {
           JSON.stringify(data.geometry || {}),
           JSON.stringify(data.properties || {}),
           data.layer_id || null,
+          atlasId,
         ]);
       } else if (target === 'group' && op.data && op.mapId) {
         const data = op.data;
         await t.none(`
           INSERT INTO groups (id, map_id, name, visible, locked, style, parent_id)
-          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+          SELECT $1, $2, $3, $4, $5, $6::jsonb, $7
+          WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $8)
           ON CONFLICT (id) DO NOTHING
         `, [
           op.targetId,
@@ -977,12 +994,14 @@ async function applyOperation(t, atlasId, op) {
           data.locked === true,
           JSON.stringify(data.style || {}),
           data.parent_id || null,
+          atlasId,
         ]);
       } else if (target === 'layer' && op.data && op.mapId) {
         const data = op.data;
         await t.none(`
           INSERT INTO layers (id, map_id, name, visible, locked, opacity, sort_order, style)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+          SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb
+          WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $9)
           ON CONFLICT (id) DO NOTHING
         `, [
           op.targetId,
@@ -993,6 +1012,7 @@ async function applyOperation(t, atlasId, op) {
           data.opacity ?? 1,
           data.sort_order ?? data.order ?? 0, // Accept both 'order' (frontend) and 'sort_order' (backend)
           JSON.stringify(data.style || {}),
+          atlasId,
         ]);
       } else if (target === 'group_feature' && op.data) {
         const data = op.data;
@@ -1069,7 +1089,8 @@ async function applyOperation(t, atlasId, op) {
         const data = op.data;
         await t.none(`
           INSERT INTO cesium3d_data (id, map_id, data_type, tileset_id, data)
-          VALUES ($1, $2, $3, $4, $5::jsonb)
+          SELECT $1, $2, $3, $4, $5::jsonb
+          WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $6)
           ON CONFLICT (id) DO NOTHING
         `, [
           op.targetId,
@@ -1077,12 +1098,14 @@ async function applyOperation(t, atlasId, op) {
           data.data_type,
           data.tileset_id || null,
           JSON.stringify(data.data || {}),
+          atlasId,
         ]);
       } else if (target === 'streetview360' && op.data && op.mapId) {
         const data = op.data;
         await t.none(`
           INSERT INTO streetview360_data (id, map_id, data_type, photo_name, data)
-          VALUES ($1, $2, $3, $4, $5::jsonb)
+          SELECT $1, $2, $3, $4, $5::jsonb
+          WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $6)
           ON CONFLICT (id) DO NOTHING
         `, [
           op.targetId,
@@ -1090,12 +1113,23 @@ async function applyOperation(t, atlasId, op) {
           data.data_type,
           data.photo_name || null,
           JSON.stringify(data.data || {}),
+          atlasId,
         ]);
       }
       break;
     }
 
     case 'update': {
+      // A feature/slide carries a settable map_id; moving it to a map of ANOTHER
+      // atlas would inject/exfiltrate across tenants. Require the destination map
+      // to belong to THIS atlas (null map_id = clearing the ref, always allowed).
+      if ((target === 'feature' || target === 'slide') && op.changes && op.changes.map_id) {
+        const dest = await t.oneOrNone(
+          'SELECT 1 FROM maps WHERE id = $1 AND atlas_id = $2',
+          [op.changes.map_id, atlasId]
+        );
+        if (!dest) throw new ForbiddenError('Cross-atlas map reference denied');
+      }
       const updateQuery = buildUpdateQuery(target, op, atlasId);
       if (updateQuery) {
         await t.none(updateQuery.sql, updateQuery.values);

@@ -103,4 +103,45 @@ describe('Organizations + audit', () => {
       .set('Authorization', `Bearer ${userToken}`)
       .expect(403);
   });
+
+  it('deactivating an org bars its members immediately (in-flight token, login, refresh)', async () => {
+    // O1: the JWT org claim can be up to 15 min stale, so the backend reconciles
+    // organizations.is_active live on the strict path + login/refresh.
+    const created = await supertest(app)
+      .post('/api/v1/organizations')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ nome: 'Barred OM', slug: 'barred-om' })
+      .expect(201);
+    const orgId = created.body.data.id;
+
+    const member = await createUser(db, { username: 'barred_member' });
+    await db.query('UPDATE users SET organization_id = $1, org_role = $2 WHERE id = $3', [orgId, 'editor', member.id]);
+
+    // While the org is active: login works and the token reaches a strict route.
+    const login = await supertest(app)
+      .post('/api/v1/auth/login')
+      .send({ username: member.username, password: member.password })
+      .expect(200);
+    const memberTok = login.body.data.accessToken;
+    const memberRefresh = login.body.data.refreshToken;
+    await supertest(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${memberTok}`).expect(200);
+
+    // Deactivate the org.
+    await supertest(app)
+      .delete(`/api/v1/organizations/${orgId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(204);
+
+    // The still-valid in-flight token is now barred on a strict route (403),
+    // and the member can neither log in afresh nor refresh.
+    await supertest(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${memberTok}`).expect(403);
+    await supertest(app)
+      .post('/api/v1/auth/login')
+      .send({ username: member.username, password: member.password })
+      .expect(403);
+    await supertest(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: memberRefresh })
+      .expect(403);
+  });
 });

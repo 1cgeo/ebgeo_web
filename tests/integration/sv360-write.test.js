@@ -525,4 +525,33 @@ describe('StreetView 360 — write/calibration contract', () => {
     const { rows } = await db.query(`SELECT floor_level FROM sv360.photos WHERE id = $1`, [photoId]);
     assert.equal(rows[0].floor_level, 7);
   });
+
+  it('batch-calibration: a SQL-level failure (floor_level overflow) isolates ONLY that item', async () => {
+    // floor_level is Joi.number().integer() with no max, but the column is a 4-byte
+    // INTEGER — a finite-but-huge value passes validation and overflows at the DB
+    // layer (SQLSTATE 22003). A shared tx would enter the aborted state and silently
+    // drop every other item; per-item savepoints must isolate the bad one.
+    const res = await supertest(app)
+      .post(url('/photos/batch-calibration'))
+      .set(...auth(ownerToken))
+      .send({
+        photos: [
+          { uuid: photoId, heading: 21 },        // before the bad item
+          { uuid: targetId, floor_level: 9999999999 }, // SQL overflow → fails ONLY this item
+          { uuid: thirdId, heading: 22 },        // after the bad item
+        ],
+      })
+      .expect(200);
+
+    const updatedIds = res.body.updated.map((u) => u.camera.id).sort();
+    assert.deepEqual(updatedIds, [photoId, thirdId].sort(), 'both valid items must succeed');
+    assert.equal(res.body.failed.length, 1);
+    assert.equal(res.body.failed[0].uuid, targetId, 'only the overflow item fails');
+
+    // The two valid items must be persisted (not silently lost / not falsely failed).
+    const { rows: r1 } = await db.query(`SELECT heading FROM sv360.photos WHERE id = $1`, [photoId]);
+    const { rows: r3 } = await db.query(`SELECT heading FROM sv360.photos WHERE id = $1`, [thirdId]);
+    assert.equal(Number(r1[0].heading), 21, 'item BEFORE the failure must persist');
+    assert.equal(Number(r3[0].heading), 22, 'item AFTER the failure must persist');
+  });
 });

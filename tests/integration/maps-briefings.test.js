@@ -17,7 +17,7 @@ describe('Maps & Briefings API', () => {
   let owner, reader, stranger;
   let ownerToken, readerToken, strangerToken;
   let atlas, map1, map2, lockedMap;
-  let briefing1, briefing2, slide1, slide2;
+  let briefing1;
 
   before(async () => {
     const env = await setupTestEnv();
@@ -59,10 +59,10 @@ describe('Maps & Briefings API', () => {
 
     // Create briefings with slides
     briefing1 = await createBriefing(db, atlas.id, { name: 'Briefing One' });
-    briefing2 = await createBriefing(db, atlas.id, { name: 'Briefing Two', description: 'Second briefing' });
+    await createBriefing(db, atlas.id, { name: 'Briefing Two', description: 'Second briefing' });
 
-    slide1 = await createSlide(db, briefing1.id, { title: 'Slide 1', map_id: map1.id });
-    slide2 = await createSlide(db, briefing1.id, { title: 'Slide 2', map_id: map2.id });
+    await createSlide(db, briefing1.id, { title: 'Slide 1', map_id: map1.id });
+    await createSlide(db, briefing1.id, { title: 'Slide 2', map_id: map2.id });
 
     // Share atlas with reader (read permission)
     await createShare(db, atlas.id, reader.id, 'read', owner.id);

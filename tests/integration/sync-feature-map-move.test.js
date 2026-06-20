@@ -172,7 +172,7 @@ describe('Feature Map Move & Duplicate Map', () => {
   describe('POST /atlas/:atlasId/maps/:mapId/duplicate', () => {
     it('duplicates a map with all sub-entities', async () => {
       const map = await createMap(db, atlas.id, { name: 'Original Map' });
-      const layer = await createLayer(db, map.id, { name: 'Test Layer' });
+      await createLayer(db, map.id, { name: 'Test Layer' });
       await createFeature(db, map.id, {
         feature_type: 'point',
         geometry: { coordinates: [-43.2, -22.9] },

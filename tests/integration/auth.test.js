@@ -105,6 +105,29 @@ describe('Auth API', () => {
       .expect(401);
   });
 
+  it('GET /auth/me — authenticates via the `token` cookie (no Authorization header)', async () => {
+    // flexibleAuth resolves the JWT from req.cookies.token BEFORE the Bearer header
+    // (the frontend uses httpOnly cookie sessions). A regression in cookie parsing or
+    // precedence would silently break browser auth, which Bearer-only tests never catch.
+    const login = await supertest(app)
+      .post('/api/v1/auth/login')
+      .send({ username: user.username, password: user.password });
+    const accessToken = login.body.data.accessToken;
+
+    const ok = await supertest(app)
+      .get('/api/v1/auth/me')
+      .set('Cookie', `token=${accessToken}`)
+      .expect(200);
+    assert.equal(ok.body.data.username, user.username);
+  });
+
+  it('GET /auth/me — a garbage `token` cookie is treated as anonymous → 401 on a strict route', async () => {
+    await supertest(app)
+      .get('/api/v1/auth/me')
+      .set('Cookie', 'token=garbage.jwt.value')
+      .expect(401);
+  });
+
   describe('POST /auth/register — Self-registration', () => {
     it('registers a new user with valid data', async () => {
       const res = await supertest(app)

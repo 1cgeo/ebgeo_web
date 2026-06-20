@@ -5,7 +5,6 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
 import { createServer } from 'http';
-import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, createMap, loginUser, makeAtlasPublic, getPublicToken } from '../helpers/fixtures.js';
 import { createWsClient } from '../helpers/ws-client.js';
@@ -277,7 +276,7 @@ describe('WebSocket Collaboration', () => {
       });
 
       // Should receive error
-      const errorMsg = await client.waitForType('error').catch(() => null);
+      await client.waitForType('error').catch(() => null);
       // If no error message type, the operation should be silently rejected
       // Check that feature was NOT created
       const { rows } = await db.query(
@@ -480,7 +479,7 @@ describe('WebSocket Collaboration', () => {
       await client2.waitForType('connected');
 
       // Client 1 should receive user_joined
-      const joinedMsg = await client1.waitForType('user_joined').catch(() => null);
+      await client1.waitForType('user_joined').catch(() => null);
       // May or may not be implemented - just check connection worked
 
       client1.close();
@@ -500,7 +499,7 @@ describe('WebSocket Collaboration', () => {
       client2.close();
 
       // Client 1 should receive user_left
-      const leftMsg = await client1.waitForType('user_left').catch(() => null);
+      await client1.waitForType('user_left').catch(() => null);
       // May or may not be implemented
 
       client1.close();

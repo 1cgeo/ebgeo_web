@@ -13,7 +13,7 @@ import { createUser, createAtlas, createMap, createBriefing, createShare, loginU
 import { createWsClient } from '../helpers/ws-client.js';
 
 describe('WebSocket Broadcasts from REST', function () {
-  let app, db, server, port;
+  let app, db, server;
   let owner, ownerToken, writer, writerToken, atlas, map, briefing;
 
   before(async () => {
@@ -29,7 +29,6 @@ describe('WebSocket Broadcasts from REST', function () {
     await new Promise((resolve) => {
       server.listen(0, () => resolve());
     });
-    port = server.address().port;
 
     // Create test users
     owner = await createUser(db, { username: 'bcast_owner' });
@@ -55,7 +54,7 @@ describe('WebSocket Broadcasts from REST', function () {
     it('broadcasts atlas_deleted and closes connections when atlas is deleted', async () => {
       // Create a separate atlas for this test so we don't affect others
       const deleteAtlas = await createAtlas(db, owner.id, { name: 'Atlas To Delete' });
-      const deleteMap = await createMap(db, deleteAtlas.id);
+      await createMap(db, deleteAtlas.id);
       await createShare(db, deleteAtlas.id, writer.id, 'write', owner.id);
 
       // Both users connect via WS

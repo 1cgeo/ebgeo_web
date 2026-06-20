@@ -46,6 +46,24 @@ export function errorHandler(err, req, res, next) {
     return res.status(err.statusCode).json(response);
   }
 
+  // Map common PostgreSQL error codes (SQLSTATE) to clean 4xx responses instead
+  // of leaking a raw 500. Messages are generic on purpose — the driver's text can
+  // expose column/constraint names, so we never forward err.message here.
+  const PG_ERROR_MAP = {
+    '23505': { statusCode: 409, code: 'CONFLICT', message: 'Resource already exists' },
+    '23503': { statusCode: 409, code: 'CONFLICT', message: 'Referenced resource not found or still in use' },
+    '23502': { statusCode: 400, code: 'BAD_REQUEST', message: 'Missing required field' },
+    '23514': { statusCode: 400, code: 'BAD_REQUEST', message: 'Value violates a constraint' },
+    '22P02': { statusCode: 400, code: 'BAD_REQUEST', message: 'Malformed value (invalid id or type)' },
+    '22003': { statusCode: 400, code: 'BAD_REQUEST', message: 'Numeric value out of range' },
+  };
+  if (typeof err.code === 'string' && PG_ERROR_MAP[err.code]) {
+    const mapped = PG_ERROR_MAP[err.code];
+    return res.status(mapped.statusCode).json({
+      error: { code: mapped.code, message: mapped.message },
+    });
+  }
+
   // Handle unknown errors
   const statusCode = err.statusCode || 500;
   const response = {

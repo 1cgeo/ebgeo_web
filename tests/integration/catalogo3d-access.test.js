@@ -32,6 +32,28 @@ describe('Catálogo 3D — access filter', () => {
     await teardownTestEnv(db);
   });
 
+  it('shows a private model via GROUP permission, with count aligned (model_group_permissions branch)', async () => {
+    // A private model becomes visible if the user belongs to a group holding a
+    // model_group_permissions row. The group branch is duplicated in CATALOGO_SELECT
+    // AND CATALOGO_COUNT; this pins both (a JOIN regression or SELECT/COUNT drift on
+    // the group branch would leak a model or make the count lie about pagination).
+    const groupUser = await createUser(db, { username: 'cat3d_group_user' });
+    const groupTok = await loginUser(app, groupUser.username, groupUser.password);
+
+    // Negative baseline: a brand-new user (no direct, no group) must not see it.
+    let res = await list(groupTok);
+    assert.ok(!res.body.data.some((m) => m.name === 'Secret Model'), 'no access before the group is granted');
+
+    const { rows: grp } = await db.query(`INSERT INTO ng.groups (name) VALUES ('Cat3D Group') RETURNING id`);
+    const groupId = grp[0].id;
+    await db.query(`INSERT INTO ng.user_groups (user_id, group_id) VALUES ($1, $2)`, [groupUser.id, groupId]);
+    await db.query(`INSERT INTO ng.model_group_permissions (group_id, model_id) VALUES ($1, $2)`, [groupId, privateId]);
+
+    res = await list(groupTok);
+    assert.ok(res.body.data.some((m) => m.name === 'Secret Model'), 'group member must see the private model');
+    assert.equal(res.body.total, res.body.data.length, 'count must align with data on the group branch');
+  });
+
   const list = (token) =>
     supertest(app).get('/api/v1/nomes/catalogo3d').set('Authorization', `Bearer ${token}`).expect(200);
 

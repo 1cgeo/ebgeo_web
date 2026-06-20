@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { query } from '../../database/index.js';
+import { orgIsActive } from '../../utils/org-status.js';
 import { joinRoom, leaveRoom, getRoomUsers } from './collab.rooms.js';
 import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
@@ -97,6 +98,40 @@ async function resolvePermission(atlasId, userId, payload) {
 }
 
 /**
+ * W1 + O1: re-reconciles a LIVE socket's authorization against the DB. Called on
+ * every heartbeat tick (and unit-testable directly). A revoked share / unpublished
+ * atlas / deactivated org closes the socket with code 4003 (a clean close → the peer
+ * is removed immediately, not kept `away`). A downgrade (write→read) just lowers
+ * ws.permission so the next write is rejected by the handlers.
+ * @param {import('ws').WebSocket} ws - a connected socket (ws.atlasId/userId/permission/...).
+ */
+export async function reconcileAuthorization(ws) {
+  try {
+    if (!ws.isPublic && ws.organizationId && !(await orgIsActive(ws.organizationId))) {
+      ws.close(4003, 'organization deactivated');
+      return;
+    }
+    const current = await resolvePermission(ws.atlasId, ws.userId, {
+      isPublic: ws.isPublic,
+      atlasId: ws.atlasId,
+    });
+    if (!current) {
+      ws.close(4003, 'access revoked');
+      return;
+    }
+    if (current !== ws.permission) {
+      logger.info(
+        { userId: ws.userId, atlasId: ws.atlasId, from: ws.permission, to: current },
+        'WS permission re-resolved on heartbeat'
+      );
+      ws.permission = current;
+    }
+  } catch (err) {
+    logger.error({ err, userId: ws.userId, atlasId: ws.atlasId }, 'WS authorization re-resolution failed');
+  }
+}
+
+/**
  * Attaches WebSocket handling to the HTTP server.
  */
 export function attachWebSocket(server) {
@@ -144,6 +179,13 @@ export function attachWebSocket(server) {
       const userId = payload.sub;
       const isPublicUser = payload.isPublic === true;
 
+      // O1: a member of a deactivated organization cannot open a collab socket.
+      if (!isPublicUser && payload.organization_id && !(await orgIsActive(payload.organization_id))) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
       // Resolve permission
       const permission = await resolvePermission(atlasId, userId, payload);
       if (!permission) {
@@ -160,6 +202,7 @@ export function attachWebSocket(server) {
           nome: isPublicUser ? 'Visitante' : payload.nome,
           posto_graduacao: isPublicUser ? null : payload.posto,
           role: isPublicUser ? 'user' : (payload.role || 'user'),
+          organization_id: isPublicUser ? null : (payload.organization_id ?? null),
           isPublic: isPublicUser,
         }, atlasId, permission, clientId);
       });
@@ -170,7 +213,10 @@ export function attachWebSocket(server) {
     }
   });
 
-  // Heartbeat interval
+  // Heartbeat interval — also the hook for W1/O1: a WS connection caches its
+  // permission at handshake and lives for hours, so each tick re-reconciles live
+  // authorization (share downgrade/revoke, atlas unpublished, org deactivated)
+  // against the DB. Staleness is thus bounded to one heartbeat interval (~30s).
   const heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws) => {
       if (!ws.isAlive) {
@@ -178,6 +224,7 @@ export function attachWebSocket(server) {
         return ws.terminate();
       }
       ws.isAlive = false;
+      reconcileAuthorization(ws);
     });
   }, config.ws.heartbeatIntervalMs);
 
@@ -212,6 +259,7 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   ws.clientId = clientId;
   ws.isAlive = true;
   ws.isPublic = user.isPublic || false;
+  ws.organizationId = user.organization_id || null;
   ws.cursorPosition = null;
   ws.currentMapId = null;
   ws.selectedFeatures = [];

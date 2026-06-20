@@ -3,26 +3,23 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'crypto';
+import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import {
   createUser, createAtlas, createMap, loginUser,
-  createFeature, createLayer, createGroup,
-  createBriefing, createSlide, makeAtlasPublic, getPublicToken,
+  createFeature, createLayer, makeAtlasPublic,
 } from '../helpers/fixtures.js';
 
 describe('Atlas Advanced', () => {
-  let app, db, owner, ownerToken, stranger, strangerToken;
+  let app, db, owner, ownerToken;
 
   before(async () => {
     const env = await setupTestEnv();
     app = env.app;
     db = env.db;
     owner = await createUser(db, { username: 'atlas_adv_owner' });
-    stranger = await createUser(db, { username: 'atlas_adv_stranger' });
     ownerToken = await loginUser(app, owner.username, owner.password);
-    strangerToken = await loginUser(app, stranger.username, stranger.password);
   });
 
   after(async () => {
@@ -162,7 +159,7 @@ describe('Atlas Advanced', () => {
   describe('Delete atlas soft-delete', () => {
     it('DELETE sets deleted_at, maps are also soft-deleted', async () => {
       const atlas = await createAtlas(db, owner.id, { name: 'Delete Me Atlas' });
-      const map = await createMap(db, atlas.id, { name: 'Delete Me Map' });
+      await createMap(db, atlas.id, { name: 'Delete Me Map' });
 
       await supertest(app)
         .delete(`/api/v1/atlas/${atlas.id}`)
@@ -228,6 +225,22 @@ describe('Atlas Advanced', () => {
       // publicToken should be a JWT string
       assert.ok(typeof res.body.data.publicToken === 'string');
       assert.ok(res.body.data.publicToken.split('.').length === 3);
+    });
+
+    it('publicToken carries the frozen, locked-down claims (read-only, this atlas, 1h)', async () => {
+      // The public token is the boundary that lets an anonymous visitor connect
+      // read-only over WS. A regression widening its claims (write/owner, another
+      // atlas, no expiry) would silently break that boundary — pin the contract.
+      const atlas = await createAtlas(db, owner.id, { name: 'Claims Atlas' });
+      const publicLink = await makeAtlasPublic(db, atlas.id);
+      const res = await supertest(app).get(`/api/v1/atlas/public/${publicLink}`).expect(200);
+
+      const payload = jwt.decode(res.body.data.publicToken);
+      assert.equal(payload.permission, 'read', 'public token must be read-only');
+      assert.equal(payload.isPublic, true);
+      assert.equal(payload.atlasId, atlas.id, 'token must be bound to THIS atlas');
+      assert.ok(String(payload.sub).startsWith('public-'), 'sub must be a synthetic public principal');
+      assert.ok(payload.exp - payload.iat <= 3600 + 5 && payload.exp - payload.iat >= 3600 - 5, '~1h expiry');
     });
 
     it('GET /atlas/public/:link returns 404 for invalid link', async () => {

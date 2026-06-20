@@ -227,8 +227,11 @@ export async function softDeletePhoto(uuid, user) {
 /**
  * Per-item batch calibration with partial failure (a batch may span photos of
  * different projects, so ownership is checked per item). One bad item never
- * fails the rest. The whole batch runs in a single transaction; each item's
- * own failure is captured (not re-thrown) so the tx commits the successes.
+ * fails the rest. Each item runs in its OWN nested transaction (a SAVEPOINT):
+ * if an item's SQL fails — e.g. a finite-but-out-of-range floor_level overflows
+ * the INTEGER column — only that savepoint rolls back, leaving the outer tx (and
+ * the already-committed successes) intact. A plain shared `t` would instead enter
+ * the aborted state on the first SQL error and silently drop every other item.
  * @param {Array<Object>} items - each { uuid, ...calibration subset }
  * @param {Object} user
  * @returns {Promise<{updated: Object[], failed: {uuid:string, error:string}[]}>}
@@ -238,14 +241,18 @@ export async function batchCalibration(items, user) {
   const failed = [];
 
   await tx(async (t) => {
-    const exec = txExecutor(t);
     for (const item of items) {
       const { uuid, ...fields } = item;
       try {
-        await loadWritablePhoto(uuid, user, exec);
-        const update = buildCalibrationUpdate(uuid, fields);
-        if (update) await exec(update.sql, update.params);
-        updated.push(await rebuildPhotoShape(uuid, exec));
+        // Nested tx => SAVEPOINT: an item failure rolls back ONLY this item.
+        const shape = await t.tx(async (t2) => {
+          const exec = txExecutor(t2);
+          await loadWritablePhoto(uuid, user, exec);
+          const update = buildCalibrationUpdate(uuid, fields);
+          if (update) await exec(update.sql, update.params);
+          return rebuildPhotoShape(uuid, exec);
+        });
+        updated.push(shape);
       } catch (err) {
         failed.push({ uuid, error: err.message });
       }

@@ -268,6 +268,38 @@ describe('Users Admin API', () => {
         .send({ newPassword: 'HackedPassword' })
         .expect(403);
     });
+
+    it('admin reset-password revokes the target user\'s existing sessions', async () => {
+      // Security: resetting a (possibly compromised) account must kill its live
+      // refresh sessions, not just change the hash. This is a SEPARATE code path
+      // from self-service password change and had no revocation assertion.
+      const victim = await createUser(db, { username: 'pwd_reset_revoke' });
+      const login = await supertest(app)
+        .post('/api/v1/auth/login')
+        .send({ username: victim.username, password: victim.password })
+        .expect(200);
+      const oldRefresh = login.body.data.refreshToken;
+
+      await supertest(app)
+        .post(`/api/v1/users/${victim.id}/reset-password`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ newPassword: 'BrandNew@123' })
+        .expect(200);
+
+      // The pre-existing refresh token must no longer be accepted.
+      await supertest(app)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: oldRefresh })
+        .expect(401);
+    });
+
+    it('reset-password on a non-existent user → 404', async () => {
+      await supertest(app)
+        .post('/api/v1/users/00000000-0000-0000-0000-000000000000/reset-password')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ newPassword: 'Whatever@123' })
+        .expect(404);
+    });
   });
 
   describe('DELETE /users/:userId — Deactivate User (Admin)', () => {
@@ -301,7 +333,7 @@ describe('Users Admin API', () => {
       const targetUser = await createUser(db, { username: 'transfer_target' });
       const atlas = await createAtlas(db, userWithAtlas.id, { name: 'Atlas to Transfer' });
 
-      const res = await supertest(app)
+      await supertest(app)
         .delete(`/api/v1/users/${userWithAtlas.id}?transferTo=${targetUser.id}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
@@ -397,7 +429,7 @@ describe('Users Admin API', () => {
       });
 
       it('user cannot change their own role', async () => {
-        const res = await supertest(app)
+        await supertest(app)
           .put('/api/v1/users/me')
           .set('Authorization', `Bearer ${userToken}`)
           .send({ role: 'admin' }); // Should be ignored

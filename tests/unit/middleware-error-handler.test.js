@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { errorHandler } from '../../src/middleware/error-handler.js';
 import {
-  AppError, NotFoundError, ForbiddenError, UnauthorizedError,
+  NotFoundError, ForbiddenError, UnauthorizedError,
   ValidationError, ConflictError, BadRequestError,
 } from '../../src/utils/errors.js';
 
@@ -100,5 +100,51 @@ describe('errorHandler middleware', () => {
 
     assert.equal(res.statusCode, 400);
     assert.equal(res.body.error.code, 'BAD_REQUEST');
+  });
+
+  // --- PostgreSQL SQLSTATE mapping (no more raw 500s on constraint/cast errors) ---
+  const PG_CASES = [
+    { code: '23505', status: 409, errCode: 'CONFLICT' },   // unique_violation
+    { code: '23503', status: 409, errCode: 'CONFLICT' },   // foreign_key_violation
+    { code: '23502', status: 400, errCode: 'BAD_REQUEST' }, // not_null_violation
+    { code: '23514', status: 400, errCode: 'BAD_REQUEST' }, // check_violation
+    { code: '22P02', status: 400, errCode: 'BAD_REQUEST' }, // invalid_text_representation (bad uuid/enum)
+    { code: '22003', status: 400, errCode: 'BAD_REQUEST' }, // numeric_value_out_of_range
+  ];
+  for (const c of PG_CASES) {
+    it(`maps PG ${c.code} → ${c.status} ${c.errCode}`, () => {
+      // Simulate a driver error: a plain Error carrying the SQLSTATE in .code, with
+      // a leaky message (column/constraint names) that MUST NOT be forwarded.
+      const pgErr = Object.assign(new Error('duplicate key value violates unique constraint "users_username_key"'), { code: c.code });
+      const res = mockRes();
+      errorHandler(pgErr, mockReq(), res, () => {});
+
+      assert.equal(res.statusCode, c.status);
+      assert.equal(res.body.error.code, c.errCode);
+      assert.ok(!/users_username_key|duplicate key/.test(res.body.error.message), 'must not leak the raw driver message');
+    });
+  }
+
+  it('does NOT treat pg-promise QueryResultError (numeric .code) as a SQLSTATE', () => {
+    // pg-promise QueryResultError uses a small integer code (e.g. 0); it must fall
+    // through to the unknown-error 500 path, not the string-keyed PG map.
+    const qre = Object.assign(new Error('No data returned from the query.'), { code: 0 });
+    const res = mockRes();
+    errorHandler(qre, mockReq(), res, () => {});
+
+    assert.equal(res.statusCode, 500);
+    assert.equal(res.body.error.code, 'INTERNAL_ERROR');
+  });
+
+  it('masks internals on unknown errors (prod contract): no raw message, no stack', () => {
+    // In NODE_ENV=test config.isDev is false → the production masking branch runs.
+    // This pins the info-leak protection: the driver/stack must never reach the client.
+    const res = mockRes();
+    errorHandler(new Error('secret internal failure at /etc/passwd'), mockReq(), res, () => {});
+
+    assert.equal(res.statusCode, 500);
+    assert.equal(res.body.error.code, 'INTERNAL_ERROR');
+    assert.equal(res.body.error.message, 'Something went wrong', 'raw message must be masked');
+    assert.equal(res.body.error.stack, undefined, 'stack must never be exposed outside dev');
   });
 });

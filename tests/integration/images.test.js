@@ -137,15 +137,12 @@ describe('Images API', () => {
   });
 
   describe('GET /atlas/:atlasId/images — List Images', () => {
-    let uploadedImageId;
-
     before(async () => {
       // Upload an image to list
-      const res = await supertest(app)
+      await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .attach('image', testImagePath);
-      uploadedImageId = res.body.data.id;
     });
 
     it('owner can list images', async () => {
@@ -218,6 +215,29 @@ describe('Images API', () => {
         .get(`/api/v1/atlas/${atlas.id}/images/00000000-0000-0000-0000-000000000000`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .expect(404);
+    });
+
+    it('cannot reach an image of another atlas via a DIFFERENT atlas URL (cross-atlas IDOR)', async () => {
+      // The attacker OWNS atlasB, so requireAtlasPermission passes for B; the image
+      // belongs to `atlas` (A). The only tenant binding is `AND atlas_id = $2` in the
+      // query, so addressing A's imageId through B's URL must 404 on GET and DELETE,
+      // and must NOT cross-atlas-delete the image.
+      const attacker = await createUser(db, { username: 'images_cross_atlas' });
+      const atlasB = await createAtlas(db, attacker.id, { name: 'Attacker Atlas' });
+      const attackerToken = await loginUser(app, attacker.username, attacker.password);
+
+      await supertest(app)
+        .get(`/api/v1/atlas/${atlasB.id}/images/${uploadedImageId}`)
+        .set('Authorization', `Bearer ${attackerToken}`)
+        .expect(404);
+
+      await supertest(app)
+        .delete(`/api/v1/atlas/${atlasB.id}/images/${uploadedImageId}`)
+        .set('Authorization', `Bearer ${attackerToken}`)
+        .expect(404);
+
+      const { rows } = await db.query('SELECT 1 FROM images WHERE id = $1', [uploadedImageId]);
+      assert.equal(rows.length, 1, 'cross-atlas image must survive the foreign-atlas delete attempt');
     });
   });
 
@@ -416,7 +436,7 @@ describe('Images API', () => {
       const validLocalId = '44444444-4444-4444-4444-444444444444';
       const invalidLocalId = '55555555-5555-5555-5555-555555555555';
 
-      const res = await supertest(app)
+      await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images/bulk`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .send({

@@ -102,4 +102,45 @@ describe('Geographic access control (nomes + feicoes + zones admin)', () => {
     const audit = await db.query(`SELECT COUNT(*)::int AS n FROM audit_trail WHERE action='PERMISSION_GRANT' AND target_type='ZONE'`);
     assert.ok(audit.rows[0].n >= 1);
   });
+
+  it('zone access via GROUP membership — positive AND negative (fn_user_zone_geoms group branch)', async () => {
+    // A user with NO direct zone permission but who BELONGS to a group holding a
+    // zone permission must see the private name/building. The architecture mandates
+    // a negative test for every SQL-embedded access filter; the group branch had none.
+    const memberUser = await createUser(db, { username: 'geo_group_member' });
+    const memberTok = await loginUser(app, memberUser.username, memberUser.password);
+
+    const { rows: grp } = await db.query(
+      `INSERT INTO ng.groups (name) VALUES ('Grupo Restrito') RETURNING id`
+    );
+    const groupId = grp[0].id;
+    await db.query('INSERT INTO ng.user_groups (user_id, group_id) VALUES ($1, $2)', [memberUser.id, groupId]);
+
+    const { rows: z } = await db.query(`SELECT id FROM ng.geographic_access_zones WHERE name = 'Area Restrita'`);
+    const zoneId = z[0].id;
+
+    // Before granting the group: the member sees nothing private (negative baseline).
+    const before = await busca(memberTok, 'Base Secreta');
+    assert.ok(!before.body.some((r) => r.nome === 'Base Secreta'), 'no access before the group is granted');
+
+    // Grant the zone to the GROUP (preserve the existing direct-user grant via replace-set).
+    await supertest(app)
+      .put(`/api/v1/zones/${zoneId}/permissions`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ users: [withUser.id], groups: [groupId] })
+      .expect(200);
+
+    // Positive: the group member now sees the private name AND identifies the building.
+    const nameRes = await busca(memberTok, 'Base Secreta');
+    assert.ok(nameRes.body.some((r) => r.nome === 'Base Secreta'), 'group member must see the private name');
+    const feic = await supertest(app)
+      .get('/api/v1/nomes/feicoes').query({ lat: -22.9, lon: -43.2, z: 25 })
+      .set('Authorization', `Bearer ${memberTok}`).expect(200);
+    assert.equal(feic.body.nome, 'Bunker', 'group member must identify the private building');
+
+    // Negative: removing the membership revokes access on the next query.
+    await db.query('DELETE FROM ng.user_groups WHERE user_id = $1 AND group_id = $2', [memberUser.id, groupId]);
+    const after = await busca(memberTok, 'Base Secreta');
+    assert.ok(!after.body.some((r) => r.nome === 'Base Secreta'), 'removing group membership revokes access');
+  });
 });
