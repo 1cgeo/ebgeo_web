@@ -30,6 +30,19 @@ import { sv360ErrorHandler } from './sv360-error.js';
 
 const router = Router();
 
+// Validates the MVT tile coords (:z/:x/:y) against tileParamsSchema and converts a
+// Joi failure into a BadRequestError (400) — the MVT contract wants 400 for a
+// malformed tile, NOT the module's generic Joi→422 path. On success the coerced
+// integers are written back to req.params so the controller reads numbers.
+function validateTileParams(req, res, next) {
+  const { error, value } = schemas.tileParamsSchema.validate(req.params, {
+    abortEarly: false,
+  });
+  if (error) return next(new BadRequestError(error.details?.[0]?.message || 'Invalid tile'));
+  req.params = { ...req.params, ...value };
+  next();
+}
+
 // --- multer (bundle upload) -------------------------------------------------
 // diskStorage STREAMS the (multi-GB) images.db to a tmp path on the SAME volume
 // as SV360_DB_DIR (so the later .tmp->dest rename is atomic, not cross-device).
@@ -86,6 +99,13 @@ router.use(flexibleAuth);
 // 'tiles' / 'thumbnails' are never captured as a slug/uuid. Both are flexibleAuth
 // (read): the access rule lives in the SQL (tiles) and the service (thumbnail).
 router.get('/tiles/fotos.geojson', ctrl.tilesGeojson);
+
+// Vector tiles (MVT) — the LIVE source the frontend now consumes (vector source).
+// Express captures the literal '.pbf' suffix off :y. z/x/y are validated as
+// integers (z 0..24; x/y < 2^z) → a malformed tile coord is a clean 400 BEFORE the
+// query (validateTileParams throws BadRequestError, NOT the Joi→422 path). Declared
+// alongside the static reads, BEFORE '/photos/:uuid', so 'tiles' is never a slug.
+router.get('/tiles/:z/:x/:y.pbf', validateTileParams, ctrl.mvtTile);
 
 // Express strips the literal '.webp' suffix; :slug holds just the project slug.
 router.get(

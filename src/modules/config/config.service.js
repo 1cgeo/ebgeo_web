@@ -74,11 +74,17 @@ export async function getAppConfig() {
       },
     },
     tilesets,
+    // Fase 9 (Tarefa 7): the 360 overlay is a server-rendered VECTOR source (PostGIS
+    // ST_AsMVT) served by THIS backend at {serviceUrl}/tiles/{z}/{x}/{y}.pbf. One
+    // tile carries two layers: 'fotos' (points) and 'fotos_linha' (per-project
+    // trajectory lines). {z}/{x}/{y} are MapLibre placeholders (literals). GeoJSON-
+    // as-source and PMTiles are discontinued. Both sources point at the SAME tile
+    // template; the frontend selects the layer via pointsSourceLayer/linesSourceLayer.
     streetView360: {
       serviceUrl: C.sv360ServiceUrl,
-      pointsSource: { type: 'vector', url: C.sv360PointsUrl },
+      pointsSource: { type: 'vector', tiles: [`${C.sv360ServiceUrl}/tiles/{z}/{x}/{y}.pbf`] },
       pointsSourceLayer: 'fotos',
-      linesSource: { type: 'vector', url: C.sv360LinesUrl },
+      linesSource: { type: 'vector', tiles: [`${C.sv360ServiceUrl}/tiles/{z}/{x}/{y}.pbf`] },
       linesSourceLayer: 'fotos_linha',
     },
     basemapStyles: S.buildBasemapStyles(C),

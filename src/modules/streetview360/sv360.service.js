@@ -14,6 +14,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { query } from '../../database/index.js';
 import * as Q from './sv360.queries.js';
+import * as TQ from './sv360.tiles.queries.js';
 import * as blobstore from './sv360.blobstore.js';
 import config from '../../config.js';
 import { NotFoundError } from '../../utils/errors.js';
@@ -199,6 +200,28 @@ export async function tilesFeatureCollection(user) {
       },
     })),
   };
+}
+
+/**
+ * Renders a single Mapbox Vector Tile (MVT) for the StreetView 360 layers at
+ * z/x/y, READABLE by the caller. The tile carries two layers ('fotos' points +
+ * 'fotos_linha' per-project trajectory lines). The read-access rule (enabled =
+ * public; disabled = admin/owning-org) is EMBEDDED IN THE SQL (defense in depth),
+ * so a hidden project never leaks even with an app-layer bug; tombstoned photos
+ * are excluded. An empty tile (no features in the bbox) returns an empty Buffer —
+ * a valid MVT response (the controller answers 200).
+ * @param {number} z - tile zoom
+ * @param {number} x - tile column
+ * @param {number} y - tile row
+ * @param {Object} [user] - req.user ({ role, organization_id }) or undefined
+ * @returns {Promise<Buffer>} the MVT protobuf (possibly empty)
+ */
+export async function mvtTile(z, x, y, user) {
+  const isAdmin = user?.role === 'admin';
+  const { rows } = await query(TQ.MVT_TILE, [z, x, y, isAdmin, user?.organization_id ?? null]);
+  const tile = rows[0]?.tile;
+  // pg returns bytea as a Node Buffer; normalize null/undefined to an empty tile.
+  return Buffer.isBuffer(tile) ? tile : Buffer.alloc(0);
 }
 
 /**

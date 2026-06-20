@@ -74,6 +74,15 @@ describe('Config endpoint (GET /api/v1/config)', () => {
     assert.equal(cfg.search.apiUrl, 'http://localhost:3001/busca');
     // Fase 9: 360 absorbed → serviceUrl is the in-backend mount, not an external :8081 upstream.
     assert.equal(cfg.streetView360.serviceUrl, 'http://localhost:3000/api/v1/sv360');
+    // Fase 9 (Tarefa 7): the 360 overlay is a server-rendered VECTOR source (MVT
+    // tiles), NOT GeoJSON/PMTiles. Both layers share the same tile template.
+    const expectedTiles = ['http://localhost:3000/api/v1/sv360/tiles/{z}/{x}/{y}.pbf'];
+    assert.equal(cfg.streetView360.pointsSource.type, 'vector');
+    assert.deepEqual(cfg.streetView360.pointsSource.tiles, expectedTiles);
+    assert.equal(cfg.streetView360.pointsSourceLayer, 'fotos');
+    assert.equal(cfg.streetView360.linesSource.type, 'vector');
+    assert.deepEqual(cfg.streetView360.linesSource.tiles, expectedTiles);
+    assert.equal(cfg.streetView360.linesSourceLayer, 'fotos_linha');
     assert.equal(cfg.map3d.providers.terrain.type, 'Cesium');
     assert.equal(cfg.map2d.terrainSource.type, 'raster-dem');
   });

@@ -477,7 +477,8 @@ Respostas **nuas** (objeto/array, **NÃO** `{data}`) — contrato congelado de e
 
 | Método | Rota | Descrição | Auth | Permissão |
 |--------|------|-----------|------|-----------|
-| GET | `/api/v1/sv360/tiles/fotos.geojson` | **FeatureCollection GeoJSON** das fotos de projetos legíveis (regra `enabled`/posse **embutida no SQL**, defesa em profundidade); cada Feature = `Point [lon,lat]` + `properties` (`id`/`projectSlug`/`img`/`display_name`/`sequence_number`/`heading`/`ele`); tombstoned excluído (stage 3b) | Opcional | - |
+| GET | `/api/v1/sv360/tiles/:z/:x/:y.pbf` | **Vector tile (MVT)** renderizado pelo PostGIS (`ST_AsMVT`+`ST_AsMVTGeom`+`ST_TileEnvelope`): **fonte VETORIAL** que o frontend consome (substitui GeoJSON-como-fonte e PMTiles, **descontinuados**). Um tile carrega **2 camadas** (bytea concatenado): **`fotos`** (pontos das fotos legíveis; props `id`/`projectSlug`/`img`/`sequence_number`) e **`fotos_linha`** (LINHA da **trajetória por projeto** — fotos em ordem de `sequence_number` via `ST_MakeLine`). Acesso (`enabled`/posse) **embutido no SQL** (mesmo predicado do `fotos.geojson`); tombstoned excluído; bbox em 4326 (`&&`) usa o GiST antes de transformar p/ 3857. `Cache-Control: public, max-age=60` (**NÃO** immutable — muda com a ingestão); tile vazio = **200** com Buffer vazio; z/x/y validados (z 0..24, x/y < 2^z) → **400** se inválido | Opcional | - |
+| GET | `/api/v1/sv360/tiles/fotos.geojson` | **FeatureCollection GeoJSON** das fotos de projetos legíveis (regra `enabled`/posse **embutida no SQL**, defesa em profundidade); cada Feature = `Point [lon,lat]` + `properties` (`id`/`projectSlug`/`img`/`display_name`/`sequence_number`/`heading`/`ele`); tombstoned excluído. **Mantida** (compat), mas a **config do 360 agora aponta para o MVT** | Opcional | - |
 | GET | `/api/v1/sv360/thumbnails/:slug.webp` | Thumbnail `{slug}.webp` do projeto (gravado na ingestão) servido do **FS** com ETag O(1) (`fs.stat`)/304/Range/`immutable`/`image/webp` (stream, sem semáforo, padrão `assets3d` FS-fallback); **404 se projeto oculto/inexistente** ou arquivo ausente; `path.basename` (anti-traversal) (stage 3b) | Opcional | - |
 | GET | `/api/v1/sv360/projects` | Lista projetos visíveis (enabled público; disabled oculto para anon) | Opcional | - |
 | GET | `/api/v1/sv360/projects/:slug` | Projeto por slug (404 se oculto/inexistente) | Opcional | - |
@@ -565,8 +566,27 @@ Respostas **nuas** (objeto/array, **NÃO** `{data}`) — contrato congelado de e
 > **`previewThumbnail`** no shape congelado de `/photos/:uuid` é **RELATIVO sem `/api/v1`** =
 > `/thumbnails/{projectSlug}.webp` (o cliente concatena com `serviceUrl` = `<backend>/api/v1/sv360`,
 > resolvendo para `…/api/v1/sv360/thumbnails/{slug}.webp`) — campo **adicionado**, não renomeia/quebra o
-> shape (99-referencia §6.1/§6.2 ponto 2). **PMTiles** (`/pmtiles/fotos.pmtiles`, tippecanoe fora do Node)
-> permanece **opcional/não implementado**.
+> shape (99-referencia §6.1/§6.2 ponto 2).
+
+> **Vector tiles MVT (sv360 Tarefa 7 — Fase 9):** `GET /tiles/:z/:x/:y.pbf` é a **fonte VETORIAL** servida
+> pela app que o frontend passa a consumir — **PMTiles e a ideia de GeoJSON-como-fonte são descontinuados**
+> (a rota `fotos.geojson` continua existindo p/ compat, mas a config do 360 aponta para o MVT). O tile é
+> renderizado pelo PostGIS (`ST_AsMVT`+`ST_AsMVTGeom`+`ST_TileEnvelope($z,$x,$y)`, query `MVT_TILE` em
+> `sv360.tiles.queries.js`) e carrega **2 camadas** num único protobuf (bytea concatenado
+> `layer_fotos || layer_linha`): **`fotos`** (pontos das fotos) e **`fotos_linha`** (LINHAS).
+> **Definição de `fotos_linha` (escolhida):** a **trajetória por projeto** — fotos conectadas em ordem de
+> `sequence_number` via `ST_MakeLine` agrupado por `project_id` (uma LineString por projeto; projeto de 1
+> foto não gera linha). Escolhida em vez do grafo de navegação (`sv360.targets`) porque a "lines source" no
+> mapa desenha a **rota/caminho** que o usuário percorre (o antigo `fotos_linha.geojson`), uma linha limpa
+> por projeto — enquanto o grafo dirigido emitiria segmentos bidirecionais sobrepostos e já é exposto
+> por-foto no array `targets` do metadado. **Acesso embutido no SQL** (mesmo predicado `isAdmin`/`orgId` do
+> `TILES_PHOTOS`) p/ as DUAS camadas; tombstoned excluído (`NOT EXISTS deleted_photos`); anon nunca vê
+> projeto `disabled`. **Performance:** filtra por bbox em 4326 (`p.geom && ST_Transform(ST_TileEnvelope,4326)`)
+> p/ usar o **GiST**, e só então `ST_AsMVTGeom` transforma p/ 3857. `Cache-Control: public, max-age=60`
+> (**NÃO** immutable — tiles mudam com a ingestão); tile vazio = **200** com Buffer vazio (MVT vazio é
+> válido); z/x/y validados (z 0..24, x/y < 2^z) → **400** se inválido. `streetView360` no `GET /api/config`
+> agora é `pointsSource/linesSource = { type:'vector', tiles:[`${serviceUrl}/tiles/{z}/{x}/{y}.pbf`] }` com
+> `pointsSourceLayer:'fotos'`/`linesSourceLayer:'fotos_linha'`.
 
 > **Distribuição da imagem (sv360):** metadados (incl. `full/preview_size_bytes` para o ETag O(1)) ficam no
 > Postgres (`sv360.photos`); o **binário WebP** vive num **SQLite por projeto** `{slug}.db` em `SV360_DB_DIR`
@@ -673,7 +693,7 @@ Os binários 3D (`tileset.json`/`.b3dm`/`.glb`/`.pnts`/`.terrain`) podem ser ser
 
 ## Testes
 
-**708 casos** organizados em 3 categorias (todos passam via `npm test`). O módulo morto `src/crdt`
+**723 casos** organizados em 3 categorias (todos passam via `npm test`). O módulo morto `src/crdt`
 e seus 4 testes foram removidos na Fase 1 (D2: LWW-por-chegada). Cobertura inclui as Fases 0–6
 (hardening, sync multiusuário, config, gazetteer PostGIS, catálogo 3D, multi-org/auditoria, acesso
 geográfico) + peças de backend das Fases 7–8 (JWT emissor único, handshake clientId) + **Fase 9 stage 1**
@@ -693,12 +713,16 @@ geom + copia `{slug}.db` para o nome derivado, projeto sem `.db` → skipped, re
 **Fase 9 stage 3b** (`sv360-tiles` — `/tiles/fotos.geojson` FeatureCollection válida, anon vê enabled e
 **não** vaza disabled, admin/org-dona veem disabled, tombstoned excluído; `/thumbnails/:slug.webp` serve
 com ETag/304/`image/webp`, disabled → 404 anon, traversal não escapa, ausente → 404; `previewThumbnail`
-relativo sem `/api/v1` no `/photos/:uuid`).
+relativo sem `/api/v1` no `/photos/:uuid`) + **Fase 9 Tarefa 7** (`sv360-mvt` — `/tiles/:z/:x/:y.pbf`
+Content-Type `application/vnd.mapbox-vector-tile` + 200, tile **decodificado** com `@mapbox/vector-tile`+`pbf`:
+camada `fotos` contém a foto do projeto enabled p/ anon e **não** vaza a do disabled, admin/org-dona veem;
+tombstoned excluído; camada `fotos_linha` com a LINHA de trajetória; tile fora de cobertura = 200 vazio;
+z/x/y inválido → 400; `config.test` — `streetView360` usa fonte `{type:'vector', tiles:[…/tiles/{z}/{x}/{y}.pbf]}`).
 
 | Categoria | Cobertura | Comando |
 |-----------|-----------|---------|
 | Unit | errors, middleware-*, permission-resolver, require-admin, **config**, **collab-quality** | `npm run test:unit` |
-| Integration | atlas*, auth*, features*, images*, maps-briefings, permissions, resources, sharing, sync*, users-admin · **Fase 0**: auth-hardening, rate-limit, sync-validation, images-hardening, health · **Fase 1**: sync-catalog-layer, sync-map-grid-temporal, maps-merge · **Fase 9**: sv360-contract (leitura), sv360-write (escrita/calibração), sv360-ingest (admin/upload/swap/409/posse), sv360-etl (importIndexDb), sv360-tiles (tiles GeoJSON/thumbnails/previewThumbnail) | `npm run test:integration` |
+| Integration | atlas*, auth*, features*, images*, maps-briefings, permissions, resources, sharing, sync*, users-admin · **Fase 0**: auth-hardening, rate-limit, sync-validation, images-hardening, health · **Fase 1**: sync-catalog-layer, sync-map-grid-temporal, maps-merge · **Fase 9**: sv360-contract (leitura), sv360-write (escrita/calibração), sv360-ingest (admin/upload/swap/409/posse), sv360-etl (importIndexDb), sv360-tiles (tiles GeoJSON/thumbnails/previewThumbnail), sv360-mvt (vector tiles MVT — 2 camadas fotos/fotos_linha, acesso embutido, decode com @mapbox/vector-tile) | `npm run test:integration` |
 | WebSocket | collab, collab-advanced, collab-broadcasts · **Fase 0**: collab-validation · **Fase 1**: collab-roles, collab-quality | `npm run test:ws` |
 
 **Testes de hardening (Fase 0):** rate limit (429), login timing-safe + mensagem genérica, JWT `alg:none`

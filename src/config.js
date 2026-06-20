@@ -106,11 +106,12 @@ const config = Object.freeze({
     map3dTerrainUrl: optional('MAP3D_TERRAIN_URL', 'http://localhost/terrain/tilesets/terrain'),
     // Fase 9: the 360 is ABSORBED into this backend (no external :8081 upstream).
     // serviceUrl is the in-backend mount; previewThumbnail (relative) concatenates
-    // with it. Points source = the live tiles GeoJSON; the lines GeoJSON / PMTiles
-    // vector source are deploy-configured (see .env.example).
+    // with it. The frontend now consumes a server-rendered VECTOR source: the MVT
+    // tiles at `${serviceUrl}/tiles/{z}/{x}/{y}.pbf` (PostGIS ST_AsMVT), carrying
+    // the 'fotos' (points) and 'fotos_linha' (per-project trajectory lines) layers.
+    // GeoJSON-as-source and PMTiles are DISCONTINUED. The {z}/{x}/{y} are MapLibre
+    // placeholders (literals), NOT env. Only the service base is deploy-configured.
     sv360ServiceUrl: optional('SV360_SERVICE_URL', 'http://localhost:3000/api/v1/sv360'),
-    sv360PointsUrl: optional('SV360_POINTS_URL', 'http://localhost:3000/api/v1/sv360/tiles/fotos.geojson'),
-    sv360LinesUrl: optional('SV360_LINES_URL', 'http://localhost:3000/api/v1/sv360/tiles/fotos_linha.geojson'),
     // Basemap tile/style URLs (substitutable by internal servers in production):
     osmTileUrl: optional('OSM_TILE_URL', 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'),
     glyphsUrl: optional('MAPLIBRE_GLYPHS_URL', 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf'),

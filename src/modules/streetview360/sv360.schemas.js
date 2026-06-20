@@ -41,6 +41,23 @@ export const thumbnailSlugParamSchema = Joi.object({
     .required(),
 });
 
+// :z/:x/:y path params for GET /tiles/:z/:x/:y.pbf — MVT tile coordinates. z is a
+// plausible web-mercator zoom (0..24); x/y must fall inside the 2^z grid for that
+// zoom. A custom validator enforces the x/y < 2^z bound (cross-field) so an out-of-
+// range tile is rejected with 400 (translated to the frozen { error } envelope)
+// rather than reaching PostGIS. Express captures the literal '.pbf' suffix off :y.
+export const tileParamsSchema = Joi.object({
+  z: Joi.number().integer().min(0).max(24).required(),
+  x: Joi.number().integer().min(0).required(),
+  y: Joi.number().integer().min(0).required(),
+}).custom((value, helpers) => {
+  const max = 2 ** value.z;
+  if (value.x >= max || value.y >= max) {
+    return helpers.error('any.invalid', { message: 'x/y out of range for zoom z' });
+  }
+  return value;
+}, 'tile xy range');
+
 // Reserved for stage-2 /nearby (lat/lon/radius numerics). Defined now so the
 // numeric contract is fixed; not wired into a stage-1 route.
 export const nearbyQuerySchema = Joi.object({

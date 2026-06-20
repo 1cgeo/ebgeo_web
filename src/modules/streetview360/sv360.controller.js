@@ -76,6 +76,25 @@ export const tilesGeojson = asyncHandler(async (req, res) => {
   res.json(await svc.tilesFeatureCollection(req.user));
 });
 
+// GET /sv360/tiles/:z/:x/:y.pbf — a server-rendered Mapbox Vector Tile (MVT) with
+// two layers ('fotos' points + 'fotos_linha' trajectory lines). Access is embedded
+// in the SQL (anon never sees a disabled project). The tile MAY be empty (no
+// features in the bbox) — that is a valid 200 response (an empty Buffer is a valid
+// MVT). Cache-Control is SHORT (NOT immutable): tiles change as projects are
+// ingested/tombstoned/toggled. z/x/y are validated as integers by the route schema.
+const MVT_CONTENT_TYPE = 'application/vnd.mapbox-vector-tile';
+const MVT_CACHE_CONTROL = 'public, max-age=60';
+export const mvtTile = asyncHandler(async (req, res) => {
+  const z = Number(req.params.z);
+  const x = Number(req.params.x);
+  const y = Number(req.params.y);
+  const tile = await svc.mvtTile(z, x, y, req.user);
+  res.setHeader('Content-Type', MVT_CONTENT_TYPE);
+  res.setHeader('Cache-Control', MVT_CACHE_CONTROL);
+  res.setHeader('Content-Length', tile.length);
+  return res.status(200).end(tile);
+});
+
 // GET /sv360/thumbnails/:slug.webp — serves the per-project {slug}.webp from the
 // filesystem with the assets3d ETag-O(1)/304/Range/immutable contract. The .webp
 // is a small file, so it STREAMS from the FS (no semaphore). 404 if the project is
@@ -113,13 +132,15 @@ export const getPhotoImage = asyncHandler(async (req, res, next) => {
 
   setImmutableHeaders(res, d.etag, d.contentType);
 
-  // 304 BEFORE any SQLite touch and BEFORE acquiring the semaphore.
+  // 304 BEFORE any SQLite touch and BEFORE acquiring the semaphore (the ETag is
+  // Postgres-derived → O(1)). Range/Content-Length, however, are derived from the
+  // ACTUAL blob length AFTER the read (below) — NOT from Postgres `size_bytes`.
+  // In steady state they match (validateImagesDb enforces it at ingest), but the
+  // blob lives in the {slug}.db file while the size lives in Postgres, so during
+  // the ingest swap↔commit window (or any drift) a same-name image replacement
+  // could make them diverge. Trusting the buffer length keeps every 200/206
+  // response protocol-correct (Content-Length always == body) regardless.
   if (req.headers['if-none-match'] === d.etag) return res.status(304).end();
-
-  const range = req.headers.range ? parseRange(req.headers.range, d.sizeBytes) : null;
-  if (range === 'invalid') {
-    return res.status(416).setHeader('Content-Range', `bytes */${d.sizeBytes}`).end();
-  }
 
   await sem.acquire();
   let released = false;
@@ -137,13 +158,18 @@ export const getPhotoImage = asyncHandler(async (req, res, next) => {
       release();
       return next(new NotFoundError('Image'));
     }
+    const size = buf.length; // authoritative: the bytes we will actually send
+    const range = req.headers.range ? parseRange(req.headers.range, size) : null;
+    if (range === 'invalid') {
+      return res.status(416).setHeader('Content-Range', `bytes */${size}`).end();
+    }
     if (range) {
       res.status(206);
-      res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${d.sizeBytes}`);
+      res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
       res.setHeader('Content-Length', range.end - range.start + 1);
       return res.end(buf.subarray(range.start, range.end + 1));
     }
-    res.setHeader('Content-Length', d.sizeBytes);
+    res.setHeader('Content-Length', size);
     return res.end(buf);
   } catch (err) {
     release();

@@ -272,8 +272,18 @@ manifest inválido → 4xx).
 >   o arquivo novo se não havia anterior) e re-lança; se SUCESSO, `commitSwap` apaga o `.bak`. O **commit do
 >   Postgres é o ponto atômico**, então os metadados nunca ficam à frente do BLOB. *Janela residual honesta:*
 >   um crash ENTRE o swap e o commit deixa arquivo-novo + metadados-velhos — **benigno** (fotos anunciadas
->   continuam servíveis; fotos novas só não aparecem ainda). Como a colisão 409 é quase-impossível (UUID v5
->   namespaced), o custo de install-then-rollback no 409 é desprezível.
+>   continuam servíveis; fotos novas só não aparecem ainda; foto removida → **404 que se auto-cura** no
+>   próximo upload). Como a colisão 409 é quase-impossível (UUID v5 namespaced), o custo de
+>   install-then-rollback no 409 é desprezível.
+> - **FIX-3b — serve robusto à divergência tamanho-Postgres × BLOB (revisão profunda da janela).** O único
+>   efeito NÃO-benigno possível da janela seria um **`Content-Length` inconsistente** se um upload
+>   substituísse a imagem de um mesmo nome (UUID v5 é por NOME, não por conteúdo) e um crash caísse no meio:
+>   o Postgres teria o tamanho antigo e o arquivo o BLOB novo. **Corrigido:** o serve de imagem
+>   (`sv360.controller.js`) deriva `Content-Length` e os limites de `Range` do **comprimento real do
+>   Buffer** lido, NÃO do `*_size_bytes` do Postgres (que segue sendo só a fonte O(1) do ETag/304). Assim
+>   toda resposta 200/206 é **protocol-correct** mesmo sob qualquer drift. Teste: `sv360-image-drift.test.js`
+>   (Postgres com tamanho propositalmente errado → `Content-Length` = tamanho real; `Range` válido só contra
+>   o tamanho velho mas além do BLOB real → **416**). **Veredito da revisão: a janela é benigna.**
 > - **FIX-4 — gate de capacidade de upload (anti disk-fill DoS).** Middleware `requireUploadCapability`
 >   APÓS `auth` e ANTES do multer: rejeita (403, drenando o corpo multipart) quem não tem capacidade de
 >   escrita alguma (`role==='admin'` ou `org_role∈{owner,admin,editor}`). Um viewer da mesma org → 403 **antes**
@@ -305,12 +315,46 @@ A leitura do projeto é checada (`resolveThumbnailPath` → `isProjectReadable`)
 **404** para anon; `path.basename` no slug (anti-traversal) + schema `^[a-z0-9-]+$`.
 `previewThumbnail` adicionado ao shape congelado de `/photos/:uuid`: **relativo sem `/api/v1`** =
 `/thumbnails/{projectSlug}.webp` (o cliente concatena com `serviceUrl` = `<backend>/api/v1/sv360`). Campo
-**adicionado** (não renomeia/quebra o shape). As rotas estáticas `/tiles/fotos.geojson` e
+**adicionado** (não renomeia/quebra o shape). **CONFIRMADO (produto): a thumbnail é por PROJETO** (um
+`{slug}.webp` por projeto), não por foto. As rotas estáticas `/tiles/fotos.geojson` e
 `/thumbnails/:slug.webp` são declaradas **ANTES** de `/photos/:uuid`/`/projects/:slug`; `sv360ErrorHandler`
 permanece o último. **Follow-up trivial junto:** `?orgId`/`?orgSlug` do PATCH/DELETE admin validados por Joi
 (`orgScopeQuerySchema`, `orgId` uuidv4) → `?orgId` malformado dá **400 limpo** (não 500 no cast SQL).
-**Resta (opcional):** **PMTiles** (`/pmtiles/fotos.pmtiles`, tippecanoe fora do processo Node) — não
-implementado, opcional. **Critérios:** GeoJSON com as fotos visíveis (respeitando `status`/posse). ✅
+**VECTOR TILES (MVT) — ✅ IMPLEMENTADO (Tarefa 7, fonte vetorial servida pela app).** O frontend passa a
+consumir uma **fonte VETORIAL** do backend; **PMTiles e GeoJSON-como-fonte são DESCONTINUADOS** (a rota
+`fotos.geojson` permanece p/ compat, mas a config do 360 aponta para o MVT). `GET /tiles/:z/:x/:y.pbf`
+renderiza o tile pelo **PostGIS** (`ST_AsMVT`+`ST_AsMVTGeom`+`ST_TileEnvelope($z,$x,$y)`; query `MVT_TILE`
+em `src/modules/streetview360/sv360.tiles.queries.js`) com **2 camadas** num único protobuf (bytea
+concatenado `layer_fotos || layer_linha`):
+- **`fotos`** — pontos das fotos legíveis; `geom = ST_AsMVTGeom(ST_Transform(p.geom,3857), ST_TileEnvelope)`;
+  props `id`/`projectSlug`/`img`(`original_name`)/`sequence_number`.
+- **`fotos_linha`** — **LINHAS**. **Definição escolhida: a TRAJETÓRIA por projeto** — fotos conectadas em
+  ordem de `sequence_number` via `ST_MakeLine` agrupado por `project_id` (uma LineString por projeto;
+  projeto de 1 foto não gera linha, filtrado por `ST_NumPoints >= 2`). **Justificativa:** a "lines source"
+  no mapa desenha a **rota/caminho** que o usuário percorre entre os panoramas do projeto (o antigo
+  `fotos_linha.geojson`), uma linha limpa por projeto — em vez do grafo de navegação dirigido
+  (`sv360.targets`), que emitiria segmentos bidirecionais sobrepostos e já é exposto por-foto no array
+  `targets` do metadado de `/photos/:uuid`. Assim a linha no mapa == a trajetória de captura.
+
+**Acesso (defesa em profundidade — embutido no SQL):** o **mesmo predicado** do `TILES_PHOTOS`
+(`$isAdmin OR pr.status='enabled' OR pr.organization_id=$orgId`) gateia as DUAS camadas; tombstoned
+excluído (`NOT EXISTS sv360.deleted_photos`); anon (isAdmin=false, orgId=null) **nunca** vê projeto
+`disabled`. **Performance/índice:** filtra por bbox em 4326 (`p.geom && ST_Transform(ST_TileEnvelope,4326)`)
+p/ usar o **GiST** `idx_sv360_photos_geom`, e só então `ST_AsMVTGeom` transforma os sobreviventes p/ 3857.
+**Controller** `GET /tiles/:z/:x/:y.pbf` → Buffer (bytea) com `Content-Type:
+application/vnd.mapbox-vector-tile`, `Cache-Control: public, max-age=60` (**NÃO** immutable — muda com a
+ingestão), **200** com Buffer vazio quando não há features; z/x/y validados via Joi (`tileParamsSchema`:
+z 0..24, x/y < 2^z; `validateTileParams` lança `BadRequestError`) → **400** se inválido. **Config**
+(`src/config.js` + `config.service.js`): `streetView360.pointsSource/linesSource = { type:'vector',
+tiles:[`${serviceUrl}/tiles/{z}/{x}/{y}.pbf`] }` com `pointsSourceLayer:'fotos'`/`linesSourceLayer:'fotos_linha'`
+(os `{z}/{x}/{y}` são placeholders do MapLibre, literais); `SV360_POINTS_URL`/`SV360_LINES_URL`
+aposentados do `.env.example`. **devDeps:** `@mapbox/vector-tile` + `pbf` (decode do MVT no teste).
+**Critérios:** Content-Type + 200; camada `fotos` contém a foto do enabled p/ anon e **não** vaza a do
+disabled (mas mostra a admin/org-dona); tombstoned excluído; camada `fotos_linha` presente; z/x/y inválido
+→ 400. ✅ Coberto por `tests/integration/sv360-mvt.test.js` (10 casos, decode com `@mapbox/vector-tile`).
+
+**Resta (opcional):** **PMTiles** (`/pmtiles/fotos.pmtiles`, tippecanoe fora do processo Node) — **substituído
+pelo MVT acima** (descontinuado). **`GET /tiles/fotos.geojson`** (FeatureCollection, mantido p/ compat). ✅
 Coberto por `tests/integration/sv360-tiles.test.js` (13 casos).
 
 ### Tarefa 8 — Montagem, config, gateway e docs
