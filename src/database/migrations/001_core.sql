@@ -1,5 +1,8 @@
 -- Path: src/database/migrations/001_core.sql
--- Core tables: extensions, users, authentication
+-- Baseline: identidade e auth — extensão pgcrypto, organizations, users (campos
+-- militares BR + multi-org + papéis + api_key), refresh_tokens, api_key_history,
+-- audit_trail. Consolidação do histórico incremental 001/012/013/014/015 num
+-- único baseline aditivo (sem PostGIS — core migra sem superusuário).
 
 -- ============================================================================
 -- EXTENSIONS
@@ -7,18 +10,47 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";    -- gen_random_uuid()
 
 -- ============================================================================
+-- ORGANIZATIONS (multi-org; precede users por causa da FK organization_id)
+-- ============================================================================
+CREATE TABLE organizations (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nome        VARCHAR(255) NOT NULL,
+    slug        VARCHAR(100) UNIQUE NOT NULL,
+    sigla       VARCHAR(50),
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Org padrão determinística (id fixo para backfill idempotente + testes).
+INSERT INTO organizations (id, nome, slug, sigla)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Organização Padrão', 'default', 'DEFAULT')
+ON CONFLICT (slug) DO NOTHING;
+
+-- ============================================================================
 -- USERS
+-- organization_id é NULLABLE por design (tokens legados degradam para null);
+-- organizacao_militar (texto livre) é preservada durante a transição multi-org.
 -- ============================================================================
 CREATE TABLE users (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username            VARCHAR(100) UNIQUE NOT NULL,
     password_hash       VARCHAR(255) NOT NULL,
-    role                VARCHAR(20) NOT NULL DEFAULT 'user',
+    role                VARCHAR(20) NOT NULL DEFAULT 'user'
+                          CHECK (role IN ('user','admin')),
 
     -- Personal info (Brazilian military context)
     nome                VARCHAR(255) NOT NULL,
     posto_graduacao     VARCHAR(50),
     organizacao_militar VARCHAR(255),
+
+    -- Multi-org: FK + papel org-scoped (vocabulário UserRole do frontend).
+    organization_id     UUID REFERENCES organizations(id),
+    org_role            VARCHAR(20) NOT NULL DEFAULT 'viewer'
+                          CHECK (org_role IN ('owner','admin','editor','viewer')),
+
+    -- Chave de API M2M (live key na linha quente; histórico/rotação à parte).
+    api_key             UUID UNIQUE,
 
     -- Metadata
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -29,6 +61,7 @@ CREATE TABLE users (
 
 CREATE UNIQUE INDEX idx_users_username_lower ON users(LOWER(username));
 CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_users_organization ON users(organization_id);
 
 -- ============================================================================
 -- REFRESH TOKENS (for logout revocation support)
@@ -44,3 +77,46 @@ CREATE TABLE refresh_tokens (
 
 CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash) WHERE revoked_at IS NULL;
+
+-- ============================================================================
+-- API KEY HISTORY (rotação/revogação das chaves M2M)
+-- ============================================================================
+CREATE TABLE api_key_history (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES users(id),
+    api_key     UUID NOT NULL,
+    created_at  TIMESTAMPTZ,
+    revoked_at  TIMESTAMPTZ,
+    revoked_by  UUID REFERENCES users(id),
+    UNIQUE (user_id, api_key)
+);
+CREATE INDEX idx_api_key_history_user ON api_key_history(user_id);
+
+-- ============================================================================
+-- AUDIT TRAIL (trilha de negócio queryable, transacional). actor_id SEM FK para
+-- o log sobreviver a um delete de usuário. Distinto do log operacional (arquivos).
+-- ============================================================================
+CREATE TABLE audit_trail (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    action      VARCHAR(50) NOT NULL
+                CHECK (action IN (
+                  'LOGIN','LOGOUT','USER_CREATE','USER_UPDATE','USER_DELETE',
+                  'PASSWORD_RESET','API_KEY_ROTATE','ROLE_CHANGE',
+                  'ORG_CREATE','ORG_UPDATE','ORG_DELETE',
+                  'ATLAS_DELETE','SHARING_CHANGE','PERMISSION_GRANT','PERMISSION_REVOKE'
+                )),
+    actor_id    UUID NOT NULL,
+    target_type VARCHAR(20) CHECK (target_type IN ('USER','GROUP','MODEL','ZONE','SYSTEM','ATLAS','ORG')),
+    target_id   UUID,
+    target_name VARCHAR(255),
+    details     JSONB,
+    ip          VARCHAR(45) NOT NULL,
+    user_agent  TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_audit_actor ON audit_trail(actor_id);
+CREATE INDEX idx_audit_target ON audit_trail(target_type, target_id);
+CREATE INDEX idx_audit_action ON audit_trail(action);
+CREATE INDEX idx_audit_created ON audit_trail(created_at DESC);
+CREATE INDEX idx_audit_created_act ON audit_trail(created_at DESC, action);
+CREATE INDEX idx_audit_details_gin ON audit_trail USING GIN (details);

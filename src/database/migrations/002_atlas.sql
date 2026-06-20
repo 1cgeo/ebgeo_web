@@ -1,5 +1,8 @@
 -- Path: src/database/migrations/002_atlas.sql
--- Atlas domain: atlas, maps, features, layers, groups, 3D/360 data, images, briefings
+-- Baseline: domínio atlas — atlas, atlas_shares, maps, layers, groups, features,
+-- group_features, catalog_layers, cesium3d_data, streetview360_data, images,
+-- briefings, slides. Geometria do atlas é JSONB (mesmo formato do IndexedDB);
+-- SEM PostGIS no schema public do atlas. Consolida 002/004/007/008/009/019.
 
 -- ============================================================================
 -- ATLAS
@@ -67,6 +70,8 @@ CREATE INDEX idx_atlas_shares_user ON atlas_shares(user_id);
 
 -- ============================================================================
 -- MAPS
+-- locked, grid_style (§26 Grade UTM) e temporal_config (§29; gated no frontend)
+-- ficam no CREATE — antes eram ADD COLUMN nas migrações 004/007/009.
 -- ============================================================================
 CREATE TABLE maps (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -80,6 +85,7 @@ CREATE TABLE maps (
     zoom            DOUBLE PRECISION,
     bearing         DOUBLE PRECISION NOT NULL DEFAULT 0,
     pitch           DOUBLE PRECISION NOT NULL DEFAULT 0,
+    locked          BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- Map notes
     notes_title     TEXT,
@@ -88,6 +94,8 @@ CREATE TABLE maps (
     -- Complex nested data stored as JSONB
     analysis_layers JSONB NOT NULL DEFAULT '{}',
     catalog_layers  JSONB NOT NULL DEFAULT '[]',
+    grid_style      JSONB NOT NULL DEFAULT '{}',
+    temporal_config JSONB NOT NULL DEFAULT '{}',
 
     -- Sync metadata
     version         INTEGER NOT NULL DEFAULT 1,
@@ -171,18 +179,17 @@ CREATE TABLE features (
     version         INTEGER NOT NULL DEFAULT 1,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at      TIMESTAMPTZ
-);
+    deleted_at      TIMESTAMPTZ,
 
-ALTER TABLE features ADD CONSTRAINT valid_feature_type
-CHECK (feature_type IN (
-    'point', 'line', 'polygon', 'text', 'image',
-    'circle', 'rectangle', 'ellipse', 'brush',
-    'arrow', 'boundary', 'occupied_front',
-    'military_symbol', 'coordination_measure',
-    'los', 'visibility',
-    'processed_los', 'processed_visibility'
-));
+    CONSTRAINT valid_feature_type CHECK (feature_type IN (
+        'point', 'line', 'polygon', 'text', 'image',
+        'circle', 'rectangle', 'ellipse', 'brush',
+        'arrow', 'boundary', 'occupied_front',
+        'military_symbol', 'coordination_measure',
+        'los', 'visibility',
+        'processed_los', 'processed_visibility'
+    ))
+);
 
 CREATE INDEX idx_features_map ON features(map_id);
 CREATE INDEX idx_features_type ON features(feature_type);
@@ -200,6 +207,23 @@ CREATE TABLE group_features (
 );
 
 CREATE INDEX idx_group_features_feature ON group_features(feature_id);
+
+-- ============================================================================
+-- CATALOG LAYERS (§19/§2 — entidade por-camada de catálogo; entityId = layer id
+-- vindo do cliente). Espelha o domínio de sync (soft-delete + version). A coluna
+-- legada maps.catalog_layers (array) permanece p/ clone/import/clientes de array.
+-- ============================================================================
+CREATE TABLE catalog_layers (
+    id          UUID PRIMARY KEY,            -- layer id comes from the client
+    map_id      UUID NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
+    data        JSONB NOT NULL DEFAULT '{}',
+    version     INTEGER NOT NULL DEFAULT 1,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at  TIMESTAMPTZ
+);
+
+CREATE INDEX idx_catalog_layers_map ON catalog_layers(map_id) WHERE deleted_at IS NULL;
 
 -- ============================================================================
 -- CESIUM 3D DATA
@@ -224,7 +248,8 @@ CREATE INDEX idx_cesium3d_type ON cesium3d_data(data_type);
 CREATE INDEX idx_cesium3d_tileset ON cesium3d_data(tileset_id) WHERE tileset_id IS NOT NULL;
 
 -- ============================================================================
--- STREETVIEW 360 DATA
+-- STREETVIEW 360 DATA (orientação/marcadores 360 DENTRO do atlas/sync; distinto
+-- do schema sv360, que é read-only e fora do CRDT — ver 005_sv360.sql)
 -- ============================================================================
 CREATE TABLE streetview360_data (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -244,13 +269,15 @@ CREATE INDEX idx_streetview360_type ON streetview360_data(data_type);
 
 -- ============================================================================
 -- IMAGES
+-- mime_type alinhado à allowlist da app (png/jpeg/webp; SEM svg → anti-XSS).
+-- Antes a 002 aceitava 'image/svg+xml' e a 019 apertava o CHECK.
 -- ============================================================================
 CREATE TABLE images (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     atlas_id        UUID NOT NULL REFERENCES atlas(id) ON DELETE CASCADE,
     filename        VARCHAR(255) NOT NULL,
     mime_type       VARCHAR(100) NOT NULL CHECK (mime_type IN (
-                        'image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'
+                        'image/png', 'image/jpeg', 'image/webp'
                     )),
     size_bytes      INTEGER,
     storage_path    VARCHAR(500) NOT NULL,

@@ -6,11 +6,11 @@
 // Conventions (_padroes §8):
 //   - 100% parametrized ($1..$N); never string-interpolate input.
 //   - All names UPPER_SNAKE_CASE, verb + entity.
-//   - Column names are the REAL ones from 018_sv360_schema.sql.
+//   - Column names are the REAL ones from 005_sv360.sql.
 //   - The shared merge core (sv360.merge.js) is the ONLY caller that runs the
 //     UPSERT / PURGE / INSERT_* / collision queries, inside a single tx `t`.
 //
-// Real columns (018_sv360_schema.sql):
+// Real columns (005_sv360.sql):
 //   sv360.projects (id, organization_id, slug, name, center_lat, center_long,
 //                   entry_photo_id, photo_count, db_filename, status,
 //                   created_at, updated_at)  UNIQUE(organization_id, slug)

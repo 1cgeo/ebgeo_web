@@ -17,7 +17,7 @@
 //     - returns { projectId, dbFilename, photoCount } for the caller to drive the
 //       tx commit + atomic file swap.
 //
-// Real columns: see src/database/migrations/018_sv360_schema.sql. The geom of a
+// Real columns: see src/database/migrations/005_sv360.sql. The geom of a
 // photo is filled by trg_sv360_photos_geom from lon/lat — never written here.
 import * as AQ from './sv360.admin.queries.js';
 import { ConflictError } from '../../utils/errors.js';

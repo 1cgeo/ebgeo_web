@@ -8,7 +8,7 @@
 // the whole project each time and ingestion is "last upload wins" by
 // (organization_id, slug). The exact studio format is an assumption flagged in
 // the SPEC (docs/plano/fase-9-absorver-360.md); this schema maps 1:1 onto the
-// real §4.3 / 018_sv360_schema.sql columns.
+// real §4.3 / 005_sv360.sql columns.
 //
 // What it rejects (the contract the SPEC's validateManifest must enforce):
 //   - NaN / Infinity in ANY numeric (Joi.number() rejects non-finite);

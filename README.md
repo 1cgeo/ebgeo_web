@@ -196,27 +196,17 @@ de teste de regressão; toda query com filtro de acesso precisa de teste com usu
 - Soft-delete (`deleted_at`) em entidades principais; `version` por entidade (CRDT, +1 a cada update).
 - Idempotência de operações: `operations.op_id` + `UNIQUE (atlas_id, op_id)`, push com `ON CONFLICT DO NOTHING`.
 
+> **Baseline consolidado:** os 19 migrations incrementais originais foram unificados em **5 arquivos por
+> domínio** (sem app em produção, o histórico incremental foi colapsado num baseline limpo, aditivo e
+> forward-only). Equivalência verificada por diff de schema + suíte completa.
+
 | Migração | Descrição |
 |----------|-----------|
-| 001_core | pgcrypto, `users` (campos militares BR), `refresh_tokens` |
-| 002_atlas | atlas, maps, layers, groups, features (18 tipos), group_features, cesium3d_data, streetview360_data, images, briefings, slides |
-| 003_sync | operations (log CRDT), active_sessions, resources + seed |
-| 004_map_locked | `maps.locked` (BOOLEAN) |
-| 005_client_id_text | `operations.client_id` UUID → TEXT |
-| 006_operations_idempotency | `operations.op_id` + `UNIQUE (atlas_id, op_id)` |
-| 007_map_grid_style | `maps.grid_style` (JSONB) |
-| 008_catalog_layers | tabela `catalog_layers` (por-camada, soft-delete) |
-| 009_map_temporal_config | `maps.temporal_config` (JSONB, gated) |
-| 010_config_resources | backfill `resources.config` para `GET /api/v1/config` |
-| 011_postgis_ng | **PostGIS** + schema `ng` (nomes 4674, edificacoes 4326, catalogo_3d), `f_unaccent`, triggers, `ng.refresh_busca()` |
-| 012_organizations | `organizations` + org default |
-| 013_users_org_and_roles | `users.organization_id` (FK) + `org_role` + CHECK em `role` |
-| 014_api_keys | `users.api_key` + `api_key_history` |
-| 015_audit_trail | `audit_trail` (CHECK fechado de action/target) |
-| 016_model_permissions | `ng.catalogo_3d.access_level` + `model_permissions`/`model_group_permissions` + stub `ng.user_groups` |
-| 017_geographic_access | `ng.groups` + `geographic_access_zones` (4674) + zone permissions + `access_level` em nomes/edificações + `ng.fn_user_zone_geoms` |
-| 018_sv360_schema | schema **`sv360`**: `projects` (FK org, UNIQUE org+slug, status), `photos` (id TEXT UUID v5, PK global, `geom` 4326 via trigger), `targets`, `deleted_photos` (tombstone) |
-| 019_images_mime_allowlist | `images.mime_type` CHECK alinhado à allowlist da app (remove `image/svg+xml`) |
+| 001_core | `pgcrypto`; `organizations` (+ org default); `users` (campos militares BR + `organization_id` FK + `org_role` + `api_key` + CHECK em `role`); `refresh_tokens`; `api_key_history`; `audit_trail` (CHECK fechado de action/target) |
+| 002_atlas | atlas, atlas_shares, maps (com `locked`/`grid_style`/`temporal_config`), layers, groups, features (18 tipos), group_features, `catalog_layers` (por-camada), cesium3d_data, streetview360_data, images (MIME png/jpeg/webp, sem svg), briefings, slides |
+| 003_sync | operations (log CRDT, `client_id` TEXT, `op_id` + `UNIQUE (atlas_id, op_id)`), active_sessions, resources + seed (`config` no shape de `GET /api/v1/config`) |
+| 004_ng | **PostGIS** + schema `ng` (nomes 4674, edificacoes 4326, catalogo_3d), `f_unaccent`, triggers, `ng.refresh_busca()`; `access_level` em nomes/edificações/catalogo_3d; `model_permissions`/`model_group_permissions` + `ng.user_groups`; `ng.groups` + `geographic_access_zones` (4674) + zone permissions + `ng.fn_user_zone_geoms` |
+| 005_sv360 | schema **`sv360`**: `projects` (FK org, UNIQUE org+slug, status), `photos` (id TEXT UUID v5, PK global, `geom` 4326 via trigger), `targets`, `deleted_photos` (tombstone) |
 
 > **Carga de nomes (FME):** após cada carga, rodar `SELECT ng.refresh_busca();` (DBSCAN + `tipo_peso`) —
 > sem isso `cluster_id`/`tipo_peso` ficam nulos e a busca degrada silenciosamente.
@@ -484,7 +474,7 @@ implementadas.**
 |-----|---------|
 | Atlas delete notifica WS · mutações REST com broadcast | `closeRoom()`/`atlas_deleted` (4001); `atlas_updated`/`settings`/`sharing`/`operations`/`map_duplicated` |
 | Mover feição entre mapas · duplicar mapa · map reorder · awareness de briefing | `map_id` em `UPDATE_FIELDS`; `/maps/:id/duplicate`; `atlas_updated` (map_order); `briefing_edit_*` |
-| `gridStyle` · `catalogLayer` por-camada · config temporal · merge de mapas | ✅ Fase 1 (migrações 007/008/009; `POST /maps/:id/merge`) |
+| `gridStyle` · `catalogLayer` por-camada · config temporal · merge de mapas | ✅ Fase 1 (baseline `002_atlas`; `POST /maps/:id/merge`) |
 | Idempotência de sync · presença `away`/`remove` + `clientId` | ✅ Fase 0/8 (`op_id` UNIQUE; `user_away`/`user_back`) |
 
 ### Abertos (por design / sob demanda)

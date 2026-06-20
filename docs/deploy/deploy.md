@@ -54,7 +54,7 @@
 - **Node 20 LTS** (ES Modules). `package.json` declara `"type": "module"` e `engines.node >=20.0.0`.
   Runtimes <20 falham no boot; não há `.nvmrc`. Não rode com transpilers CJS.
 - **PostgreSQL 16** com **PostGIS** habilitado. Extensões usadas pelas migrações:
-  - `postgis` — **UNTRUSTED**: `CREATE EXTENSION postgis` exige **superusuário** (migração 011).
+  - `postgis` — **UNTRUSTED**: `CREATE EXTENSION postgis` exige **superusuário** (migração `004_ng`).
   - `pgcrypto`, `pg_trgm`, `unaccent` — **trusted** (criáveis pelo dono do banco; sem problema).
 - **Requisito de superusuário para PostGIS** — resolva UMA das opções **ANTES de migrar**:
   1. **Imagem `postgis/postgis`** (recomendado): habilita `postgis` no `template1`, então o banco novo já
@@ -245,14 +245,15 @@ funcionam em rede militar isolada** nem entre hosts. Em produção, aponte TODAS
   Sai com código 1 em falha.
 - **Nunca renumere/renomeie/reordene** migrações já aplicadas (o tracking é por NOME de arquivo). Para
   corrigir um defeito, adicione uma **nova** migração no próximo número livre (020…).
-- **PostGIS exige superusuário** (§2): a migração `011` faz `CREATE EXTENSION postgis` (untrusted). Garanta a
+- **PostGIS exige superusuário** (§2): a migração `004` faz `CREATE EXTENSION postgis` (untrusted). Garanta a
   extensão disponível ANTES de migrar (imagem `postgis/postgis`, DBA pré-criando, ou role privilegiado).
-- **3 schemas:** `public` (atlas/JSONB, sem PostGIS) · `ng` (gazetteer PostGIS, criado em 011) · `sv360`
-  (metadados 360, criado em 018). Como a 011 roda **incondicionalmente**, **PostGIS é pré-requisito de
+- **3 schemas:** `public` (atlas/JSONB, sem PostGIS) · `ng` (gazetteer PostGIS, criado em 004) · `sv360`
+  (metadados 360, criado em 005). Como a 004 roda **incondicionalmente**, **PostGIS é pré-requisito de
   QUALQUER deploy completo**, mesmo um deploy só do atlas.
-- **Faixas de migração:** 001–010 = core do atlas (users/atlas/maps/features/sync/idempotência/grid/temporal);
-  011–019 = gazetteer PostGIS, catálogo/permissões 3D, multi-org/identidade/api-key, auditoria, acesso
-  geográfico (zonas), schema sv360 e allowlist de MIME das imagens (019).
+- **Baseline por domínio (5 migrations):** `001_core` (identidade/org/auth/auditoria) · `002_atlas`
+  (atlas/maps/features/briefings) · `003_sync` (operations/sessions/resources) · `004_ng` (gazetteer
+  PostGIS + catálogo/permissões 3D + acesso geográfico) · `005_sv360` (schema sv360). Os 19 migrations
+  incrementais originais foram consolidados nesse baseline (forward-only, aditivo).
 
 ### Ordem de migração no deploy
 
@@ -467,7 +468,7 @@ por projeto** — projeto corrompido vai para `skipped[]` **sem abortar os demai
 - **Exit codes (tratar em automação):** `0` = tudo ok · **`2` = parcial** (≥1 projeto em `skipped[]`,
   ex.: `.db` ausente ou size-check falhou — **disparar alerta, não tratar como sucesso**) · `1` = falha total.
 - **Backfill de org:** `orgSlug` ausente/`default`/`org-legacy` → org default fixa
-  `00000000-0000-0000-0000-000000000001` (migração 012). Um `orgSlug` não-legado **inexistente** em
+  `00000000-0000-0000-0000-000000000001` (migração `001_core`). Um `orgSlug` não-legado **inexistente** em
   `public.organizations` → `ConflictError` (409). Crie a OM (Fase 5) **antes** do ETL se for usar slug real.
 
 ### 360 — upload online de bundle (admin)

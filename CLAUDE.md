@@ -85,7 +85,7 @@ npm run lint           # eslint (rode antes de finalizar) | npm run format
 ## Migrações
 
 `src/database/migrations/NNN_*.sql`, ordem alfabética, tracking em `_migrations`, **forward-only**,
-**aditivas** (`ADD COLUMN DEFAULT`/`CREATE TABLE/INDEX`). Use o **próximo número livre** (head = `019`).
+**aditivas** (`ADD COLUMN DEFAULT`/`CREATE TABLE/INDEX`). Use o **próximo número livre** (head = `005`).
 `gen_random_uuid()` para PKs (não `uuid_generate_v4`). Migração que mexe em PostGIS precisa de superusuário.
 
 ## Segurança (baseline)

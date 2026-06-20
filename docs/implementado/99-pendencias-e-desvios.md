@@ -51,7 +51,7 @@ texto nos guias, os achados de **código** verificados foram tratados assim:
 | `updateProfile`/`updateUser`: `null`/`''` em `posto_graduacao`/`organizacao_militar` | Users | `COALESCE` ignorava (no-op) → **limpa a coluna** |
 | Upgrade WebSocket valida o `pathname` | Collab | qualquer path aceito → **só `/api/v1/collab`** |
 | Log do gazetteer (Pino) | Nomes | logava `q`/coords crus → **só `queryKeys`** (valores sensíveis fora do log) |
-| `images.mime_type` CHECK (migração **019**) | Schema | aceitava `svg+xml` → **alinhado à allowlist** (png/jpeg/webp) |
+| `images.mime_type` CHECK (baseline `002_atlas`) | Schema | aceitava `svg+xml` → **alinhado à allowlist** (png/jpeg/webp) |
 | Comentário do `orgScopeQuerySchema` | sv360 | dizia 400 → **422** (comportamento real) |
 
 ### Desvios mantidos (by-design / decisão consciente — **não** alterados)

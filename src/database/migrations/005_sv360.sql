@@ -1,18 +1,16 @@
--- Path: src/database/migrations/018_sv360_schema.sql
--- StreetView 360 (Fase 9, STAGE 1 — read-only): schema `sv360` for panorama
--- projects/photos/targets metadata + soft-delete tombstones. Binaries (webp)
--- live in per-project {slug}.db SQLite stores, NOT here — only metadata +
--- PostGIS point. PostGIS already created by 011, so GEOMETRY(POINT,4326) works.
--- Forward-only / additive. gen_random_uuid() PKs except sv360.photos.id, which
--- is the CLIENT-supplied deterministic UUID v5 string (D9.6) — NO default.
+-- Path: src/database/migrations/005_sv360.sql
+-- Baseline: StreetView 360 (schema sv360) — metadados de projects/photos/targets
+-- + tombstones. FORA do sync/CRDT/WS do atlas. Binários WebP vivem em SQLite
+-- por projeto ({orgId}__{slug}.db), NÃO aqui — só metadados + ponto PostGIS.
+-- PostGIS já criado em 004. gen_random_uuid() PKs exceto sv360.photos.id, que é
+-- o UUID v5 determinístico fornecido pelo cliente (D9.6) — SEM default.
 
 -- 1) Schema
 CREATE SCHEMA IF NOT EXISTS sv360;
 
--- 2) projects (mission/OM-scoped panorama set). FK to public.organizations with
---    NO ON DELETE — reassign before any hard-delete (same rule as atlas.owner_id).
---    entry_photo_id is a soft/logical reference to a photos.id string (the photo
---    may not exist yet during ingestion), so it is NOT a DB FK.
+-- 2) projects (mission/OM-scoped panorama set). FK to public.organizations com
+--    NO ON DELETE — reatribua antes de qualquer hard-delete (regra do atlas.owner_id).
+--    entry_photo_id é referência lógica a photos.id (pode não existir na ingestão).
 CREATE TABLE sv360.projects (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES public.organizations(id),
@@ -93,8 +91,7 @@ CREATE TABLE sv360.targets (
 CREATE INDEX idx_sv360_targets_source
   ON sv360.targets(source_id) WHERE hidden = false;
 
--- 5) deleted_photos (tombstone for soft-deleted photos). Stage 1 only READS this
---    to exclude tombstoned photos; stage 2 writes here. No FK — the photos row
+-- 5) deleted_photos (tombstone for soft-deleted photos). No FK — the photos row
 --    may already be gone (logical reference only).
 CREATE TABLE sv360.deleted_photos (
     photo_id   TEXT PRIMARY KEY,
