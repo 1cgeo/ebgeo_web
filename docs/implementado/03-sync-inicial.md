@@ -476,7 +476,8 @@ function getStoreForEntityType(entityType) {
     'cameraPosition3d': 'cesium3dData',
     'orientation360': 'streetview360Data',
     'marker360': 'streetview360Data',
-    'group_feature': 'groupFeatures'
+    'group_feature': 'groupFeatures',
+    'catalog_layer': 'catalogLayers'
   };
   return mapping[entityType];
 }
@@ -532,6 +533,10 @@ snapshot
 │   ├── groupFeatures[]                       ← Mantido para compatibilidade
 │   │   └── { group_id, feature_id }
 │   │
+│   ├── catalogLayers[]                       ← Camadas de catálogo por-layer (tabela catalog_layers)
+│   │   (cada entry: { id, ...data, sync })
+│   │   (a coluna legada `catalog_layers` do mapa continua sendo retornada para compatibilidade)
+│   │
 │   ├── cesium3d {}                           ← Objeto hierárquico
 │   │   ├── cameraPositions { [tilesetId]: entry }
 │   │   ├── markers []
@@ -565,6 +570,7 @@ snapshot
 |-------------|-------------------|-----------|
 | `features[]` (flat) | `features {}` (por tipo) | Organizado em 18 coleções como GeoJSON Features |
 | `cesium3d_data[]` (flat) | `cesium3d {}` (hierárquico) | Separado por `data_type` em cameraPositions/markers/measurements/viewsheds |
+| `catalog_layers[]` (tabela, flat) | `catalogLayers[]` (por-layer com sync) | Camadas de catálogo da tabela dedicada `catalog_layers`, separadas da coluna legada `catalog_layers` do mapa |
 | `streetview360_data[]` (flat) | `streetview360 {}` (hierárquico) | Separado por `data_type` em orientations/markers |
 | `sort_order` | `order` | Layers usam `order` ao invés de `sort_order` |
 | `map_order` | `mapOrder` | Atlas usa camelCase |

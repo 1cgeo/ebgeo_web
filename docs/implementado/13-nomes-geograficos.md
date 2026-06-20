@@ -365,7 +365,8 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
       "municipio": "Rio de Janeiro",
       "estado": "RJ",
       "palavras_chave": ["igreja", "histórico", "patrimônio"],
-      "style": {}
+      "style": {},
+      "rank": 0
     }
   ]
 }
@@ -378,6 +379,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 | `lon/lat/height/heading/pitch/roll/heightoffset/maximumscreenspaceerror` | Posicionamento/render do modelo na cena. |
 | `palavras_chave` | Array de strings (entra no full-text com peso alto). |
 | `style` | JSONB livre (pode ser `{}`). |
+| `rank` | Relevância do full-text (`ts_rank`). `0` quando a busca é feita sem `q`. |
 
 ### Como funciona
 

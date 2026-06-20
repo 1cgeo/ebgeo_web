@@ -105,7 +105,7 @@ Ao concluir o handshake, o servidor envia **uma** mensagem `connected`:
 | `userId` | ID do usuário autenticado (ou `public-<uuid>` para visitante). |
 | `permission` | Permissão **por-atlas** (eixo backend): `owner`, `write` ou `read`. **Campo congelado.** |
 | `role` | Vocabulário de **papel** esperado pelo frontend: `owner`, `admin`, `editor` ou `viewer`. |
-| `usersOnline` | Outros usuários atualmente na sala (inclui quem está `away`). |
+| `usersOnline` | Todos os usuários atualmente na sala, **incluindo você mesmo** (inclui quem está `away`). O cliente deve filtrar a própria entrada pelo `userId` retornado no `connected` se quiser exibir só os peers. |
 
 ### `permission` vs `role` (dois eixos)
 

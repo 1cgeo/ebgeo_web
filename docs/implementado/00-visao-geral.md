@@ -56,8 +56,8 @@ servidor:
           sv360:         PostGIS  (projects, photos[geom], targets) + {slug}.db (BLOBs WebP)
 ```
 
-Cada caixa de módulo é um diretório em `src/modules/<nome>/` com fronteiras rígidas (rotas →
-controller → service → queries → schemas). O detalhe das convenções está no
+A maioria das caixas de módulo é um diretório em `src/modules/<nome>/` com fronteiras rígidas (rotas →
+controller → service → queries → schemas). Algumas caixas lógicas do diagrama vivem dentro de um módulo maior (ex.: `catalogo3d`/`assets3d` ficam em `nomes/`; `features`/`layers`/`groups`/`slides` são manipulados via `sync`/`atlas`, sem diretório próprio). O diretório do 360 chama-se `streetview360/` (montado em `/api/v1/sv360`). O detalhe das convenções está no
 [README §Convenções de Engenharia](../../README.md#convenções-de-engenharia).
 
 ### Quem fala com o quê

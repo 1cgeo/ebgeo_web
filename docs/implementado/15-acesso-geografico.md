@@ -14,7 +14,7 @@ O acesso é desenhado como **polígono**. Cada feição do gazetteer carrega um 
 (`public` ou `private`). Uma feição `public` é visível para todos; uma `private` só aparece para
 quem tem direito a ela. O direito vem de três fontes, nesta ordem:
 
-1. **Admin global** (`role: 'admin'` no JWT) — enxerga tudo.
+1. **Admin global** (usuário com `role = 'admin'`) — enxerga tudo. Nos endpoints de leitura do gazetteer o status de admin é re-verificado na tabela `users` dentro da própria query SQL (não pela claim do JWT); nas rotas `/api/v1/zones` o role do JWT é checado pelo middleware `requireAdmin`.
 2. **Permissão direta de modelo** (apenas catálogo 3D — concessão linha a linha).
 3. **Zona espacial** — o usuário tem permissão sobre uma **zona-polígono**, e a feição privada cai
    **dentro** dela (`ST_Contains`). Não há cadastro feição a feição: basta o ponto estar contido na
@@ -79,9 +79,10 @@ nomes geográficos). Antes de gravar, o backend valida a geometria com `ST_IsVal
 malformada ou topologicamente inválida (anel não-fechado, auto-interseção/"bowtie") é rejeitada com
 `422`.
 
-> **Contrato congelado**: `geom` é um GeoJSON `Polygon` em **WGS84/4674** — pares `[longitude,
-> latitude]`, anel externo fechado (primeiro ponto = último ponto), no sentido anti-horário. Não
-> envie `MultiPolygon` nem `Feature`/`FeatureCollection`: apenas o objeto de geometria `Polygon`.
+> **Contrato congelado**: `geom` é um GeoJSON `Polygon` em **SIRGAS 2000 / EPSG 4674** — pares
+> `[longitude, latitude]`, anel externo fechado (primeiro ponto = último ponto). A orientação do
+> anel não é exigida (a validação usa apenas `ST_IsValid`). Não envie `MultiPolygon` nem
+> `Feature`/`FeatureCollection`: apenas o objeto de geometria `Polygon`.
 
 ---
 

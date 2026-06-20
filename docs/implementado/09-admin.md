@@ -232,6 +232,8 @@ Este documento cobre o gerenciamento de usuários e resources por administradore
 |------|--------|-----------|
 | 403 | `FORBIDDEN` | Admin tentando desativar a si mesmo |
 | 404 | `NOT_FOUND` | Usuário não encontrado |
+| 404 | `NOT_FOUND` | Usuário de destino (`transferTo`) não encontrado |
+| 403 | `FORBIDDEN` | Usuário de destino (`transferTo`) está inativo |
 | 409 | `CONFLICT` | Usuário tem atlas e `transferTo` não foi informado |
 
 ### 2.7 Reativar Usuário
@@ -662,6 +664,7 @@ Ou:
 | GET | `/api/v1/users/me` | User | Perfil |
 | PUT | `/api/v1/users/me` | User | Atualizar perfil |
 | PUT | `/api/v1/users/me/password` | User | Alterar senha |
+| POST | `/api/v1/users/me/api-key/rotate` | User | Rotacionar API key (detalhes no doc 12) |
 | GET | `/api/v1/users/search` | User | Buscar usuários |
 
 ### Usuários (admin)
@@ -675,6 +678,7 @@ Ou:
 | POST | `/api/v1/users/:userId/reset-password` | Admin | Resetar senha |
 | DELETE | `/api/v1/users/:userId` | Admin | Desativar |
 | POST | `/api/v1/users/:userId/reactivate` | Admin | Reativar |
+| POST | `/api/v1/users/:userId/api-key/rotate` | Admin | Rotacionar API key do usuário (detalhes no doc 12) |
 
 ### Atlas
 
@@ -691,12 +695,13 @@ Ou:
 | PATCH | `/api/v1/atlas/:id/settings` | User | owner | Atualizar settings |
 | POST | `/api/v1/atlas/:id/clone` | User | read | Clonar |
 
-### Maps (read-only, escrita via sync)
+### Maps (GET via REST, edição de conteúdo via sync)
 
 | Método | Endpoint | Auth | Perm | Descrição |
 |--------|----------|------|------|-----------|
 | GET | `/api/v1/atlas/:id/maps` | User | read | Listar mapas |
 | GET | `/api/v1/atlas/:id/maps/:mapId` | User | read | Obter mapa |
+| POST | `/api/v1/atlas/:id/maps/:mapId/duplicate` | User | write | Duplicar mapa (clone server-side) |
 
 ### Briefings (read-only, escrita via sync)
 

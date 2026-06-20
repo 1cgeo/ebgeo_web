@@ -779,14 +779,14 @@ function applyRemote(op, localState) {
 | Status | Código | Quando |
 |--------|--------|--------|
 | `401` | — | Sem token / token inválido |
-| `403` | `FORBIDDEN` | Sem permissão `write` no push (ou `read` no pull) |
+| `403` | `FORBIDDEN` | Sem permissão `write` no push (ou `read` no pull) — mensagem `Access denied` ou `Insufficient permissions` |
 | `404` | `NOT_FOUND` | Atlas inexistente / deletado |
 | `422` | validação | Schema do push inválido (sem `id`, `operationType` inválido, > 500 ops, array vazio) |
 
 Formato de erro (envelope padrão da API):
 
 ```json
-{ "error": { "code": "FORBIDDEN", "message": "Write permission required" } }
+{ "error": { "code": "FORBIDDEN", "message": "Insufficient permissions" } }
 ```
 
 No WebSocket, os mesmos erros chegam como mensagem `{ "type": "error", "code": "...", "message": "..." }`
@@ -824,11 +824,11 @@ NOTHING`. Reenviar a mesma operação (mesmo cenário de reconexão WS ou retry 
 > chegou (timeout de rede, reconexão). Use `results[].idempotent` apenas como informação — em ambos os
 > casos (`true`/`false`) a operação está garantidamente aplicada e pode sair da fila pendente.
 
-### Operações legadas sem `id`
+### Operações sem `id`
 
-Operações sem `op.id` ainda são aceitas (a coluna `op_id` recebe `null`); nesse caso **não há**
-garantia de idempotência (reenviar duplica). Sempre gere um `id` único por operação para obter a
-garantia.
+No push HTTP o campo `id` é **obrigatório** (schema Joi `id.required()`): uma operação sem `id` é
+rejeitada com **422** antes de chegar ao banco. Não existe, nesse caminho, o cenário de `op_id =
+null`. Sempre gere um `id` único por operação — ele é a chave de idempotência.
 
 ---
 

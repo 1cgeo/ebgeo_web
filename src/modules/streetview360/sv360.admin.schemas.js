@@ -172,8 +172,9 @@ export const listAdminQuerySchema = Joi.object({
 
 // PATCH/DELETE /admin/projects/:slug[/status] — optional ?orgId / ?orgSlug used by
 // a global admin to disambiguate a slug owned by ≥2 OMs (FIX-5). Validated so a
-// MALFORMED ?orgId yields a clean 400 (Joi → frozen { error }) instead of a 500
-// when the value reaches the SQL uuid cast in the service. orgSlug is a free token.
+// MALFORMED ?orgId yields a clean 422 (Joi → frozen { error }) via the generic
+// `validate` middleware + sv360 error handler, instead of a 500 when the value
+// reaches the SQL uuid cast in the service. orgSlug is a free token.
 export const orgScopeQuerySchema = Joi.object({
   orgId: Joi.string().guid({ version: ['uuidv4'] }),
   orgSlug: Joi.string().trim().min(1).max(255),

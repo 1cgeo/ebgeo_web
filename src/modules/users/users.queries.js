@@ -12,11 +12,14 @@ export const FIND_USER_WITH_PASSWORD = `
   WHERE id = $1 AND is_active = true
 `;
 
+// Nullable fields (posto_graduacao/organizacao_militar) use a "provided" flag so
+// an explicit null/'' CLEARS the column, while an omitted field is left unchanged.
+// (COALESCE alone could never clear a column to NULL.)
 export const UPDATE_USER_PROFILE = `
   UPDATE users
   SET nome = COALESCE($2, nome),
-      posto_graduacao = COALESCE($3, posto_graduacao),
-      organizacao_militar = COALESCE($4, organizacao_militar),
+      posto_graduacao = CASE WHEN $4 THEN $3 ELSE posto_graduacao END,
+      organizacao_militar = CASE WHEN $6 THEN $5 ELSE organizacao_militar END,
       updated_at = NOW()
   WHERE id = $1
   RETURNING id, username, nome, posto_graduacao, organizacao_militar, created_at, last_login_at
@@ -77,14 +80,16 @@ export const INSERT_USER_ADMIN = `
   RETURNING id, username, nome, posto_graduacao, organizacao_militar, role, is_active, created_at
 `;
 
+// posto_graduacao/organizacao_militar use a "provided" flag (see UPDATE_USER_PROFILE)
+// so an explicit null/'' clears the column; an omitted field is left unchanged.
 export const UPDATE_USER_ADMIN = `
   UPDATE users
   SET username = COALESCE($2, username),
       nome = COALESCE($3, nome),
-      posto_graduacao = COALESCE($4, posto_graduacao),
-      organizacao_militar = COALESCE($5, organizacao_militar),
-      role = COALESCE($6, role),
-      is_active = COALESCE($7, is_active),
+      posto_graduacao = CASE WHEN $5 THEN $4 ELSE posto_graduacao END,
+      organizacao_militar = CASE WHEN $7 THEN $6 ELSE organizacao_militar END,
+      role = COALESCE($8, role),
+      is_active = COALESCE($9, is_active),
       updated_at = NOW()
   WHERE id = $1
   RETURNING id, username, nome, posto_graduacao, organizacao_militar, role, is_active, created_at, updated_at, last_login_at

@@ -20,14 +20,14 @@ frontend.
 
 - `src/index.js` boot (HTTP + WS + `validateEnvVariables()` fail-fast) · `src/app.js` factory `createApp()` (testável)
 - `src/config.js` env · `src/database/` (`query`/`tx`, `migrate.js`, `migrations/`) · `src/middleware/` · `src/utils/`
-- `src/modules/<nome>/` — `auth users atlas maps briefings resources sharing images sync collab config nomes zones streetview360`
+- `src/modules/<nome>/` — `auth users organizations atlas maps briefings resources sharing images sync collab config nomes zones streetview360 audit`
 
 ## Comandos
 
 ```bash
 npm run dev            # node --watch
 npm run db:migrate     # aplica migrações | npm run db:seed
-npm test               # cria DB ebgeo_test → migra → roda → dropa (unit+integration+ws, 738 casos)
+npm test               # cria DB ebgeo_test → migra → roda → dropa (unit+integration+ws, 745 casos)
 npm run test:unit | test:integration | test:ws   # subconjuntos
 npm run test:keep-db   # mantém o DB p/ debug
 npm run lint           # eslint (rode antes de finalizar) | npm run format
@@ -85,7 +85,7 @@ npm run lint           # eslint (rode antes de finalizar) | npm run format
 ## Migrações
 
 `src/database/migrations/NNN_*.sql`, ordem alfabética, tracking em `_migrations`, **forward-only**,
-**aditivas** (`ADD COLUMN DEFAULT`/`CREATE TABLE/INDEX`). Use o **próximo número livre** (head = `018`).
+**aditivas** (`ADD COLUMN DEFAULT`/`CREATE TABLE/INDEX`). Use o **próximo número livre** (head = `019`).
 `gen_random_uuid()` para PKs (não `uuid_generate_v4`). Migração que mexe em PostGIS precisa de superusuário.
 
 ## Segurança (baseline)

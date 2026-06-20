@@ -24,11 +24,15 @@ export async function getProfile(userId) {
  * Updates user profile.
  */
 export async function updateProfile(userId, data) {
+  // For nullable fields, pass [value, provided?]: an explicit null/'' clears the
+  // column (value normalized to null), an omitted field leaves it unchanged.
   const { rows } = await query(Q.UPDATE_USER_PROFILE, [
     userId,
     data.nome || null,
-    data.posto_graduacao !== undefined ? data.posto_graduacao : null,
-    data.organizacao_militar !== undefined ? data.organizacao_militar : null,
+    data.posto_graduacao === '' ? null : (data.posto_graduacao ?? null),
+    data.posto_graduacao !== undefined,
+    data.organizacao_militar === '' ? null : (data.organizacao_militar ?? null),
+    data.organizacao_militar !== undefined,
   ]);
 
   if (rows.length === 0) {
@@ -145,8 +149,10 @@ export async function updateUser(userId, data) {
     userId,
     data.username || null,
     data.nome || null,
-    data.posto_graduacao !== undefined ? data.posto_graduacao : null,
-    data.organizacao_militar !== undefined ? data.organizacao_militar : null,
+    data.posto_graduacao === '' ? null : (data.posto_graduacao ?? null),
+    data.posto_graduacao !== undefined,
+    data.organizacao_militar === '' ? null : (data.organizacao_militar ?? null),
+    data.organizacao_militar !== undefined,
     data.role || null,
     data.is_active !== undefined ? data.is_active : null,
   ]);

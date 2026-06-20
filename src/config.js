@@ -52,6 +52,10 @@ const config = Object.freeze({
   images: Object.freeze({
     dir: optional('IMAGES_DIR', './data/images'),
     maxSizeMb: parseInt(optional('MAX_IMAGE_SIZE_MB', '10'), 10),
+    // Bounded body limit for POST /images/bulk (base64 batch, up to 50 images).
+    // Larger than the global JSON limit so the per-image limit is actually
+    // reachable in a batch; still capped to bound the authenticated memory blast.
+    maxBulkUploadMb: parseInt(optional('MAX_BULK_UPLOAD_MB', '50'), 10),
   }),
 
   assets3d: Object.freeze({

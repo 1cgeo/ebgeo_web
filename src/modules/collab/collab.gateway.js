@@ -12,6 +12,9 @@ import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
 import * as handlers from './collab.handlers.js';
 
+// The only path this WebSocket gateway serves (matches the documented contract).
+const COLLAB_WS_PATH = '/api/v1/collab';
+
 // Accepted shape of a client-provided clientId (UUID v4 or nanoid-style).
 const CLIENT_ID_RE = /^[a-zA-Z0-9_-]{8,64}$/;
 
@@ -104,6 +107,15 @@ export function attachWebSocket(server) {
     try {
       // Parse URL
       const url = new URL(request.url, `http://${request.headers.host}`);
+
+      // Only the collab channel is served here; reject upgrades to any other path
+      // so this handler never hijacks a future WS endpoint on the same server.
+      if (url.pathname !== COLLAB_WS_PATH) {
+        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
       const atlasId = url.searchParams.get('atlasId');
       const token = url.searchParams.get('token');
       // Stable clientId across reconnects (idempotency + presence). Validate the

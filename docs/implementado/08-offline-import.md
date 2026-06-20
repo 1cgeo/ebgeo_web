@@ -286,7 +286,8 @@ O servidor valida:
 - Todos os IDs devem ser UUIDs válidos
 - `feature_type` deve ser um dos 18 tipos válidos
 - `mode` de slide deve ser válido (2d, 3d, 360)
-- Referências (layer_id, map_id, parent_id) devem apontar para IDs no payload
+
+Observacao: as referências (layer_id, map_id, parent_id) NAO sao validadas contra os IDs do payload na borda (o Joi apenas verifica o formato UUID, permitindo null). A integridade referencial e garantida pela ordem de insercao (maps -> layers -> groups -> features ...) e pelas FKs do PostgreSQL; uma referencia invalida resulta em erro de FK e rollback da transacao.
 
 ### 3.5 Implementação de Upload
 
@@ -469,8 +470,8 @@ O backend disponibiliza um endpoint de **bulk upload** que permite enviar múlti
 |----------------|-----------|
 | **Máximo de imagens** | 50 por requisição |
 | **Formato de dados** | Base64 puro ou data URL (`data:image/png;base64,...`) |
-| **Tipos suportados** | `image/png`, `image/jpeg`, `image/svg+xml`, `image/webp` |
-| **Tamanho máximo** | Configurável via `IMAGES_MAX_SIZE_MB` (default: 10MB) |
+| **Tipos suportados** | `image/png`, `image/jpeg`, `image/webp` (SVG NAO e suportado - removido por ser vetor de XSS armazenado) |
+| **Tamanho máximo** | Configurável via `MAX_IMAGE_SIZE_MB` (default: 10MB) |
 | **Falhas parciais** | Imagens que falharem não impedem o upload das demais |
 | **Mapeamento** | Retorna `mapping` de `localId → serverId` para atualizar features |
 

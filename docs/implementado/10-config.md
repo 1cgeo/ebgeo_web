@@ -285,7 +285,9 @@ O frontend lê `(await res.json()).data`.
 `resources` (categorias `basemap`, `analysis_layer`, `data_layer`, `tileset`). Cada
 linha tem `id`, `name`, `config` (JSONB livre), `active` e `sort_order`. O endpoint só
 inclui linhas com `active = true`, ordenadas por `sort_order`, e mescla o JSONB
-`config` no objeto de saída (`{ id, name, ...config }`).
+`config` no objeto de saída. Para `analysisLayers`, `dataLayers` e `tilesets` cada
+item é `{ id, name, ...config }`; para `basemaps` o `id` vira a chave do objeto e o
+valor é `{ name, ...config }` (sem campo `id`).
 
 Isso significa que **editar a config visível pelo frontend não exige mudança de
 código nem redeploy**: basta editar a linha em `resources` (via o CRUD admin de

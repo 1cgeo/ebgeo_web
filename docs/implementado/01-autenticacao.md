@@ -40,6 +40,8 @@ O backend usa JWT (JSON Web Tokens) para autenticação:
       "nome": "Capitão Silva",
       "posto_graduacao": "Cap",
       "organizacao_militar": "CIGEx",
+      "organization_id": "org-uuid",
+      "org_role": "viewer",
       "role": "user"
     }
   }
@@ -72,10 +74,16 @@ Cliente                          Backend
   "nome": "Capitão Silva",
   "posto": "Cap",
   "role": "user",
+  "organization_id": "org-uuid",
+  "org_role": "viewer",
+  "org": "org-uuid",
+  "login": "cap.silva",
   "iat": 1699999999,
   "exp": 1700000899
 }
 ```
+
+Os aliases `org` (= `organization_id`) e `login` (= `username`) existem para que o token de emissor único seja consumível como está pelo ebgeo_360, sem alteração.
 
 ---
 
@@ -297,7 +305,11 @@ Cliente                          Backend
     "nome": "Capitão Silva",
     "posto_graduacao": "Cap",
     "organizacao_militar": "CIGEx",
-    "role": "user"
+    "organization_id": "org-uuid",
+    "org_role": "viewer",
+    "role": "user",
+    "created_at": "2024-01-15T10:30:00.000Z",
+    "last_login_at": "2024-01-15T10:30:00.000Z"
   }
 }
 ```
@@ -306,7 +318,7 @@ Cliente                          Backend
 
 ## 9. Auto-cadastro (Registro)
 
-Como o sistema é para uso interno em rede militar, usuários podem se auto-cadastrar.
+Como o sistema é para uso interno em rede militar, o auto-cadastro pode ser habilitado, mas é **desabilitado por padrão em produção** (e habilitado em dev/test). O comportamento é controlado pela variável `ALLOW_SELF_REGISTRATION` (`true`/`false`). Quando desabilitado, a rota não é montada e a requisição cai no handler 404.
 
 ### Endpoint
 
@@ -334,6 +346,8 @@ Como o sistema é para uso interno em rede militar, usuários podem se auto-cada
     "nome": "Tenente Oliveira",
     "posto_graduacao": "Ten",
     "organizacao_militar": "CIGEx",
+    "organization_id": "org-uuid",
+    "org_role": "viewer",
     "role": "user",
     "created_at": "2024-01-15T10:30:00.000Z"
   }

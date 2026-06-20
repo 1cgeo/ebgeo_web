@@ -803,9 +803,13 @@ function buildUpdateQuery(target, op, atlasId) {
   }
 
   if (target === 'slide' && op.changes) {
+    // Scope by atlas via the parent briefing: a write to atlas A must not touch a
+    // slide of atlas B even if its UUID is known (the FK only guarantees the slide
+    // exists, not that it belongs to this atlas).
     return buildDynamicUpdate(
       'slides', op.changes, UPDATE_FIELDS.slide,
-      [op.targetId], 'id = $1',
+      [op.targetId, atlasId],
+      'id = $1 AND briefing_id IN (SELECT id FROM briefings WHERE atlas_id = $2)',
     );
   }
 
@@ -849,11 +853,11 @@ function buildSoftDeleteQuery(table, target, op, atlasId) {
     };
   }
 
-  // Entities with only id (slide)
+  // Slide: scoped by atlas through its parent briefing (prevents cross-atlas delete).
   if (target === 'slide') {
     return {
-      sql: `UPDATE ${table} ${SOFT_DELETE} WHERE id = $1`,
-      values: [op.targetId],
+      sql: `UPDATE ${table} ${SOFT_DELETE} WHERE id = $1 AND briefing_id IN (SELECT id FROM briefings WHERE atlas_id = $2)`,
+      values: [op.targetId, atlasId],
     };
   }
 
@@ -992,11 +996,15 @@ async function applyOperation(t, atlasId, op) {
         ]);
       } else if (target === 'group_feature' && op.data) {
         const data = op.data;
+        // Both the group and the feature must live in a map of this atlas, else a
+        // write to atlas A could link entities of atlas B. EXISTS gates the insert.
         await t.none(`
           INSERT INTO group_features (group_id, feature_id)
-          VALUES ($1, $2)
+          SELECT $1, $2
+          WHERE EXISTS (SELECT 1 FROM groups g JOIN maps m ON m.id = g.map_id WHERE g.id = $1 AND m.atlas_id = $3)
+            AND EXISTS (SELECT 1 FROM features f JOIN maps m ON m.id = f.map_id WHERE f.id = $2 AND m.atlas_id = $3)
           ON CONFLICT DO NOTHING
-        `, [data.group_id, data.feature_id]);
+        `, [data.group_id, data.feature_id, atlasId]);
       } else if (target === 'map' && op.data) {
         const data = op.data;
         await t.none(`
@@ -1037,9 +1045,12 @@ async function applyOperation(t, atlasId, op) {
         ]);
       } else if (target === 'slide' && op.data) {
         const data = op.data;
+        // Guard the insert: only attach the slide when its briefing belongs to the
+        // route's atlas. A cross-atlas briefing_id yields zero inserted rows.
         await t.none(`
           INSERT INTO slides (id, briefing_id, title, content, mode, map_id, model_id, photo_id, position, orientation)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb)
+          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb
+          WHERE EXISTS (SELECT 1 FROM briefings WHERE id = $2 AND atlas_id = $11)
           ON CONFLICT (id) DO NOTHING
         `, [
           op.targetId,
@@ -1052,6 +1063,7 @@ async function applyOperation(t, atlasId, op) {
           data.photo_id || null,
           JSON.stringify(data.position || {}),
           JSON.stringify(data.orientation || {}),
+          atlasId,
         ]);
       } else if (target === 'cesium3d' && op.data && op.mapId) {
         const data = op.data;
@@ -1092,11 +1104,14 @@ async function applyOperation(t, atlasId, op) {
     }
 
     case 'delete': {
-      // group_feature is a hard delete (join table, no soft-delete)
+      // group_feature is a hard delete (join table, no soft-delete), scoped to the
+      // atlas via the group's map so atlas A can't unlink atlas B's associations.
       if (target === 'group_feature' && op.data) {
         await t.none(
-          `DELETE FROM group_features WHERE group_id = $1 AND feature_id = $2`,
-          [op.data.group_id, op.data.feature_id]
+          `DELETE FROM group_features
+           WHERE group_id = $1 AND feature_id = $2
+             AND group_id IN (SELECT g.id FROM groups g JOIN maps m ON m.id = g.map_id WHERE m.atlas_id = $3)`,
+          [op.data.group_id, op.data.feature_id, atlasId]
         );
         break;
       }

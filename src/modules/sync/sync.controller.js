@@ -1,5 +1,6 @@
 // Path: src/modules/sync/sync.controller.js
 import { asyncHandler } from '../../utils/async-handler.js';
+import { NotFoundError } from '../../utils/errors.js';
 import * as syncService from './sync.service.js';
 import { broadcastToRoom } from '../collab/collab.rooms.js';
 
@@ -33,6 +34,11 @@ export const pullOperations = asyncHandler(async (req, res) => {
 export const getCleanupStats = asyncHandler(async (req, res) => {
   const atlasId = req.params.atlasId;
   const stats = await syncService.getCleanupStats(atlasId);
+  // getCleanupStats returns null for a non-existent/deleted atlas — surface 404
+  // instead of a silent 200 with data:null.
+  if (!stats) {
+    throw new NotFoundError('Atlas');
+  }
   res.json({ data: stats });
 });
 

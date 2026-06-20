@@ -213,10 +213,13 @@ O caminho é normalizado e validado contra a raiz dos assets (`path.resolve` +
 verificação de prefixo). Tentativas de escapar do diretório retornam erro:
 
 ```
-GET /api/v1/assets3d/../../etc/passwd
-GET /api/v1/assets3d/%2e%2e/secret
+GET /api/v1/assets3d/../../etc/passwd  → 404
+GET /api/v1/assets3d/%2e%2e/secret     → 404
 
-→ 403 Forbidden   (path traversal)
+Os segmentos `..` são colapsados contra a raiz dos assets pela normalização (`path.posix.normalize`),
+então o alvo permanece dentro da raiz e, como o arquivo não existe, a resposta é **404**. O `403
+Forbidden` só ocorreria se o caminho, após a normalização, ainda escapasse da raiz — o que essas
+tentativas não fazem.
 ```
 
 Asset inexistente → **404**.
@@ -337,13 +340,14 @@ scripts/assets3d-import.js <dir>`).
 | `200` | Asset servido (inteiro) | Usar normalmente |
 | `206` | Asset servido (Range) | Montar o slice (Cesium faz automaticamente) |
 | `304` | `If-None-Match` bateu | Usar a cópia em cache |
-| `403` | Path traversal detectado | Bug de montagem de URL — revisar concatenação |
+| `403` | Caminho que escapa da raiz dos assets após a normalização (raro/quase inalcançável) | Bug de montagem de URL — revisar concatenação |
 | `404` | Asset inexistente | Catálogo aponta para binário ausente; logar/ocultar o modelo |
 | `416` | Range inválido | Refazer a requisição sem `Range` |
 | `401` | Apenas no `/catalogo3d` (descoberta) | Renovar token (ver [01 - Autenticação](./01-autenticacao.md)) |
 
-> A rota `/assets3d/*` é pública: **não** retorna 401/403 por falta de token. O único 403 possível é
-> path traversal.
+> A rota `/assets3d/*` é pública: **não** retorna 401/403 por falta de token. Um 403 só ocorre se o
+> caminho, após a normalização, escapar da raiz dos assets — a maioria das tentativas de traversal
+> com `..` é colapsada para dentro da raiz e retorna 404.
 
 ---
 

@@ -168,11 +168,16 @@ Cliente                          Backend
     },
     "map_order": ["map-uuid-1", "map-uuid-2"],
     "version": 42,
+    "maps": [
+      { "id": "map-uuid-1", "name": "Mapa 1", "created_at": "2024-01-15T10:30:00.000Z", "updated_at": "2024-01-15T10:30:00.000Z" }
+    ],
     "created_at": "2024-01-15T10:30:00.000Z",
     "updated_at": "2024-01-15T14:20:00.000Z"
   }
 }
 ```
+
+> **Nota:** O GET de um atlas sempre inclui um array `maps` com o resumo (`id`, `name`, `created_at`, `updated_at`) dos mapas não deletados.
 
 ---
 
@@ -244,7 +249,7 @@ Cliente                          Backend
 
 204 No Content
 
-> **Nota:** Apenas o owner pode deletar um atlas. Isso também remove todos os mapas, features, briefings e outros dados associados.
+> **Nota:** Apenas o owner pode deletar um atlas. A deleção é um soft-delete (marca `deleted_at` no atlas e incrementa `version`); o atlas deixa de aparecer nas listagens e o WebSocket é encerrado (`atlas_deleted`). Os mapas, features e briefings associados permanecem no banco (não há hard-delete em cascata).
 
 ---
 
@@ -378,7 +383,8 @@ owner > write > read
 1. userId === atlas.owner_id     → 'owner'
 2. atlas_shares.permission       → 'read' ou 'write'
 3. atlas.is_public              → 'read'
-4. Nenhum                       → 403 Forbidden
+4. Nenhum (atlas existe, mas sem acesso) → 403 Forbidden
+   (atlas inexistente ou deletado       → 404 Not Found)
 ```
 
 ### Matriz de Permissões
@@ -434,7 +440,7 @@ ws.onmessage = (event) => {
 
 | Código | HTTP | Descrição |
 |--------|------|-----------|
-| `VALIDATION_ERROR` | 400 | Dados inválidos |
+| `VALIDATION_ERROR` | 422 | Dados inválidos |
 | `UNAUTHORIZED` | 401 | Token ausente ou inválido |
 | `FORBIDDEN` | 403 | Sem permissão |
 | `NOT_FOUND` | 404 | Atlas não encontrado |

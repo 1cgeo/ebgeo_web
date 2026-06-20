@@ -46,7 +46,21 @@ export function createApp() {
   app.use(cors({ origin: config.cors.origin, credentials: true }));
   app.use(cookieParser());
   app.use(compression());
-  app.use(express.json({ limit: '10mb' }));
+
+  // Body parsing. The bulk image endpoint carries a base64 batch (up to 50
+  // images) that can exceed the default 10mb; give it a dedicated, bounded limit
+  // so the documented per-image limit is actually reachable. Every other route
+  // keeps the conservative 10mb cap. The bulk parser must win for that path, so
+  // it is selected before the global parser runs (a second express.json would
+  // no-op once req.body is set).
+  const jsonParser = express.json({ limit: '10mb' });
+  const bulkJsonParser = express.json({ limit: `${config.images.maxBulkUploadMb}mb` });
+  app.use((req, res, next) => {
+    if (req.method === 'POST' && req.path.endsWith('/images/bulk')) {
+      return bulkJsonParser(req, res, next);
+    }
+    return jsonParser(req, res, next);
+  });
 
   // Non-blocking global auth: populates req.user when a credential is present
   // (api key / cookie / Bearer); the anonymous path is preserved.

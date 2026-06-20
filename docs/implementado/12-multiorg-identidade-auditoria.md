@@ -308,7 +308,7 @@ Assim, a base instalada não é invalidada quando os claims de org são introduz
 
 ### Onde o `org_role`/`organization_id` aparecem nas respostas
 
-O objeto `user` retornado por `POST /auth/login` e por `POST /auth/refresh` já inclui os campos:
+O objeto `user` (com `organization_id`/`org_role`/`role`) é retornado por `POST /auth/login` (e por `GET /auth/me`) e já inclui os campos. O `POST /auth/refresh` devolve apenas `{ accessToken, refreshToken }` — sem objeto `user`; para ler os claims de org após um refresh, decodifique o `accessToken` ou chame `GET /auth/me`:
 
 ```json
 {

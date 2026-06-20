@@ -99,7 +99,7 @@ src/
 npm run dev              # node --watch
 npm run db:migrate       # aplica migrações
 npm run db:seed          # dados de teste
-npm test                 # cria DB ebgeo_test → migra → roda (unit+integration+ws, 738 casos) → dropa
+npm test                 # cria DB ebgeo_test → migra → roda (unit+integration+ws, 745 casos) → dropa
 npm run test:unit | test:integration | test:ws
 npm run test:keep-db     # mantém o DB após os testes (debug)
 npm run lint             # eslint  ·  npm run format  (prettier)
@@ -216,6 +216,7 @@ de teste de regressão; toda query com filtro de acesso precisa de teste com usu
 | 016_model_permissions | `ng.catalogo_3d.access_level` + `model_permissions`/`model_group_permissions` + stub `ng.user_groups` |
 | 017_geographic_access | `ng.groups` + `geographic_access_zones` (4674) + zone permissions + `access_level` em nomes/edificações + `ng.fn_user_zone_geoms` |
 | 018_sv360_schema | schema **`sv360`**: `projects` (FK org, UNIQUE org+slug, status), `photos` (id TEXT UUID v5, PK global, `geom` 4326 via trigger), `targets`, `deleted_photos` (tombstone) |
+| 019_images_mime_allowlist | `images.mime_type` CHECK alinhado à allowlist da app (remove `image/svg+xml`) |
 
 > **Carga de nomes (FME):** após cada carga, rodar `SELECT ng.refresh_busca();` (DBSCAN + `tipo_peso`) —
 > sem isso `cluster_id`/`tipo_peso` ficam nulos e a busca degrada silenciosamente.
@@ -235,6 +236,7 @@ de teste de regressão; toda query com filtro de acesso precisa de teste com usu
 | `JWT_ACCESS_EXPIRY` / `_REFRESH_EXPIRY` | 15m / 7d | Validade dos tokens |
 | `CORS_ORIGIN` | http://localhost:8080 | Origem CORS (não wildcard) |
 | `IMAGES_DIR` / `MAX_IMAGE_SIZE_MB` | ./data/images / 10 | Imagens |
+| `MAX_BULK_UPLOAD_MB` | 50 | Limite de corpo dedicado do `POST /images/bulk` (lote base64; > limite global de JSON) |
 | `WS_HEARTBEAT_INTERVAL_MS` / `_TIMEOUT_MS` | 30000 / 5000 | Heartbeat WebSocket |
 | `WS_AWAY_GRACE_MS` | 120000 | Janela `away`→`remove` na queda; reconexão c/ mesmo `clientId` cancela |
 | `ASSETS_3D_DIR` / `ASSETS_3D_SQLITE` | ./data/assets3d / ./data/assets3d.sqlite | Store de assets 3D (FS + SQLite) |

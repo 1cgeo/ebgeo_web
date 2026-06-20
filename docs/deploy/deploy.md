@@ -81,10 +81,10 @@
 - `HEALTHCHECK` (interval 30s) faz `fetch` a `http://127.0.0.1:${PORT||3000}/api/v1/health` via `node -e`
   (fetch global do Node 20). O endpoint faz `SELECT 1` → o container fica **unhealthy se o Postgres cair**.
 
-### Dependência nativa `better-sqlite3`
+### Dependências nativas (`better-sqlite3`, `bcrypt`)
 
-- Única dependência nativa (`better-sqlite3`). Usada nos stores SQLite de assets 3D e 360.
-- O Dockerfile **não instala build tools** (gcc/python/make) — funciona porque `better-sqlite3` publica
+- Duas dependências nativas (`better-sqlite3` e `bcrypt`). `better-sqlite3` é usada nos stores SQLite de assets 3D e 360; `bcrypt` no hashing de senha.
+- O Dockerfile **não instala build tools** (gcc/python/make) — funciona porque ambas publicam
   **prebuilds glibc/x64 para node:20/debian**.
 - **Gotcha:** em **ARM**, ambiente **air-gapped** ou com prebuild indisponível, o `npm ci` tenta compilar e
   **falha no slim** por falta de toolchain. Nesses casos, adicione `build-essential` + `python3` ao estágio
@@ -175,6 +175,7 @@ valida `DATABASE_URL` presente, `JWT_SECRET` presente e **≥32 chars SÓ em pro
 |----------|---------|---------|------|
 | `WS_HEARTBEAT_INTERVAL_MS` | `30000` | Não | Intervalo de heartbeat. |
 | `WS_HEARTBEAT_TIMEOUT_MS` | `5000` | Não | Timeout de heartbeat. |
+| `WS_AWAY_GRACE_MS` | `120000` | Não | Janela de tolerância (ms) antes de remover da presença um usuário derrubado anormalmente (Fase 8 away/remove); reconexão com o mesmo `clientId` cancela a remoção. |
 
 ### Imagens / stores binários
 
@@ -182,6 +183,7 @@ valida `DATABASE_URL` presente, `JWT_SECRET` presente e **≥32 chars SÓ em pro
 |----------|---------|---------|------|
 | `IMAGES_DIR` | `./data/images` | Não | Dir de uploads de imagem do atlas. Montar volume; gravável por uid 1001. |
 | `MAX_IMAGE_SIZE_MB` | `10` | Não | Limite de upload de imagem. |
+| `MAX_BULK_UPLOAD_MB` | `50` | Não | Limite de body dedicado do `POST /atlas/:id/images/bulk` (lote base64 de até 50 imagens); maior que o limite JSON global de 10 MB para o limite por-imagem ser alcançável no lote. |
 | `ASSETS_3D_DIR` | `./data/assets3d` | Não | Fallback FS dos binários 3D (stream sem semáforo). |
 | `ASSETS_3D_BASE_URL` | `/api/v1/assets3d` | Não | Base URL dos assets 3D no `GET /config`. |
 | `ASSETS_3D_SQLITE` | `./data/assets3d.sqlite` | Não | Store SQLite (servido primeiro). |
@@ -242,15 +244,15 @@ funcionam em rede militar isolada** nem entre hosts. Em produção, aponte TODAS
   (falha no meio faz rollback dela; as anteriores ficam commitadas). Exige `DATABASE_URL` (lança se ausente).
   Sai com código 1 em falha.
 - **Nunca renumere/renomeie/reordene** migrações já aplicadas (o tracking é por NOME de arquivo). Para
-  corrigir um defeito, adicione uma **nova** migração no próximo número livre (019…).
+  corrigir um defeito, adicione uma **nova** migração no próximo número livre (020…).
 - **PostGIS exige superusuário** (§2): a migração `011` faz `CREATE EXTENSION postgis` (untrusted). Garanta a
   extensão disponível ANTES de migrar (imagem `postgis/postgis`, DBA pré-criando, ou role privilegiado).
 - **3 schemas:** `public` (atlas/JSONB, sem PostGIS) · `ng` (gazetteer PostGIS, criado em 011) · `sv360`
   (metadados 360, criado em 018). Como a 011 roda **incondicionalmente**, **PostGIS é pré-requisito de
   QUALQUER deploy completo**, mesmo um deploy só do atlas.
 - **Faixas de migração:** 001–010 = core do atlas (users/atlas/maps/features/sync/idempotência/grid/temporal);
-  011–018 = gazetteer PostGIS, catálogo/permissões 3D, multi-org/identidade/api-key, auditoria, acesso
-  geográfico (zonas), schema sv360.
+  011–019 = gazetteer PostGIS, catálogo/permissões 3D, multi-org/identidade/api-key, auditoria, acesso
+  geográfico (zonas), schema sv360 e allowlist de MIME das imagens (019).
 
 ### Ordem de migração no deploy
 
@@ -358,8 +360,9 @@ server {
 - **Repassar `Authorization` é obrigatório** — `flexibleAuth` lê o `Bearer`; sem o header, auth por Bearer
   quebra atrás do proxy.
 - **WebSocket** exige `proxy_http_version 1.1` + `Upgrade` + `Connection "upgrade"`. O handler de upgrade do
-  backend exige query params `atlasId` e `token` (400 se faltar) e **não valida o pathname** `/api/v1/collab`
-  — confie no proxy para rotear.
+  backend **valida o pathname**: rejeita com `404 Not Found` qualquer caminho diferente de `/api/v1/collab`
+  (antes de qualquer outra checagem) e exige os query params `atlasId` e `token` (400 se faltar). Roteie
+  `/api/v1/collab` para o backend no proxy.
 - **`client_max_body_size`** deve casar com `SV360_MAX_UPLOAD_BYTES` (default 2 GiB). Se subir um, suba o
   outro — senão o NGINX corta com 413 antes do backend. (O body **JSON** do app é limitado a 10mb,
   separado do upload multipart.)
@@ -544,9 +547,9 @@ tippecanoe/PMTiles.** `Cache-Control: public, max-age=60` (curto, muda a cada in
 | Migração 011 falha em `CREATE EXTENSION postgis` (`permission denied to create extension`) | `postgis` é **untrusted**; role do app não é superusuário e a imagem não tem postgis no `template1` | Usar imagem `postgis/postgis`, ou DBA pré-criar `CREATE EXTENSION postgis;` com superusuário, ou role privilegiado — **antes** de migrar (§2/§5). |
 | Boot aborta com `Configuração inválida:` | `DATABASE_URL`/`JWT_SECRET` ausentes, `JWT_SECRET` <32 chars em prod, `PORT` fora de 1–65535, `CORS_ORIGIN` URL inválida | Corrigir as env vars listadas no erro agrupado (§4). |
 | `npm ci` falha compilando `better-sqlite3` (sem gcc/python) | ARM / air-gapped / prebuild glibc indisponível | Adicionar `build-essential`+`python3` ao estágio `deps`, ou prover o prebuild no cache (§3). |
-| WebSocket não conecta (handshake falha / fica em polling) | NGINX sem `proxy_http_version 1.1` + `Upgrade`/`Connection "upgrade"`, ou faltam `atlasId`/`token` na query | Ajustar o `location` do proxy (§7); o handshake exige `?atlasId=&token=`. |
+| WebSocket não conecta (handshake falha / 404 / fica em polling) | NGINX sem `proxy_http_version 1.1` + `Upgrade`/`Connection "upgrade"`, faltam `atlasId`/`token` na query, ou o proxy roteia o upgrade para path != `/api/v1/collab` (o backend responde 404) | Ajustar o `location` do proxy (§7); rotear `/api/v1/collab`; o handshake exige `?atlasId=&token=`. |
 | Upload do 360 corta com 413 | `client_max_body_size` do NGINX < `SV360_MAX_UPLOAD_BYTES` | Igualar os dois valores (§7). |
-| `POST /atlas/import` ou `/atlas/:id/images/bulk` dá 413 | body **JSON** do Express limitado a **10 MB** (`app.js`); import offline / até 50 imagens base64 podem exceder | Diferente do multipart do 360 — fatiar o import em lotes menores no cliente, ou subir o limite do `express.json()` se necessário. |
+| `POST /atlas/import` dá 413 | body **JSON** do Express limitado a **10 MB** (`app.js`); import offline pode exceder | Fatiar o import em lotes menores no cliente, ou subir o limite do `express.json()`. **Obs.:** `/atlas/:id/images/bulk` usa um parser dedicado de `MAX_BULK_UPLOAD_MB` (default 50 MB), não os 10 MB globais. |
 | Bundle 360 sobe mas swap não é atômico / arquivos órfãos `.tmp`/`.bak` | `SV360_TMP_DIR` em volume diferente de `SV360_DB_DIR` (rename cross-device) | Pôr ambos no MESMO volume/filesystem (§6). Restos `.tmp`/`.bak` após crash são lixo seguro de remover. |
 | Escrita de imagem/SQLite/ingestão falha por `EACCES` | Volume `/app/data/*` não gravável por uid 1001 | `chown` do host para 1001 ou `fsGroup: 1001` no K8s (§6). |
 | Busca de topônimos degradada (resultados ruins, sem erro) | `SELECT ng.refresh_busca()` **esquecido** após COPY/FME (cluster_id nulo, tipo_peso default) | Rodar `SELECT ng.refresh_busca();` após cada carga em massa (§5). |

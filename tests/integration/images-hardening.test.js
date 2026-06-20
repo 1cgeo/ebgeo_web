@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, loginUser } from '../helpers/fixtures.js';
+import config from '../../src/config.js';
 
 // Minimal valid 1x1 PNG (real magic bytes).
 const PNG_1x1 = Buffer.from([
@@ -53,6 +54,18 @@ describe('Images hardening', () => {
         contentType: 'image/png',
       })
       .expect(400);
+  });
+
+  it('rejects a single upload over MAX_IMAGE_SIZE_MB with 400 (not 500)', async () => {
+    // Exceed the configured per-image limit; multer raises LIMIT_FILE_SIZE, which
+    // the route maps to a 400 (BadRequestError) instead of a generic 500.
+    const tooBig = Buffer.alloc((config.images.maxSizeMb + 1) * 1024 * 1024, 0x00);
+    const res = await supertest(app)
+      .post(`/api/v1/atlas/${atlas.id}/images`)
+      .set('Authorization', `Bearer ${token}`)
+      .attach('image', tooBig, { filename: 'huge.png', contentType: 'image/png' })
+      .expect(400);
+    assert.equal(res.body.error.code, 'BAD_REQUEST');
   });
 
   it('accepts a real PNG and serves the download as an immutable attachment', async () => {

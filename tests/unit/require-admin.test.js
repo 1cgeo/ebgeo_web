@@ -6,10 +6,10 @@ import assert from 'node:assert/strict';
 import { requireAdmin } from '../../src/middleware/require-admin.js';
 
 describe('requireAdmin middleware', () => {
-  it('calls next with ForbiddenError when req.user is missing', (_, done) => {
+  it('calls next with UnauthorizedError (401) when req.user is missing', (_, done) => {
     requireAdmin({ user: undefined }, {}, (err) => {
       assert.ok(err);
-      assert.equal(err.statusCode, 403);
+      assert.equal(err.statusCode, 401);
       assert.match(err.message, /Authentication required/);
       done();
     });
@@ -31,10 +31,10 @@ describe('requireAdmin middleware', () => {
     });
   });
 
-  it('rejects null user', (_, done) => {
+  it('rejects null user with 401', (_, done) => {
     requireAdmin({ user: null }, {}, (err) => {
       assert.ok(err);
-      assert.equal(err.statusCode, 403);
+      assert.equal(err.statusCode, 401);
       done();
     });
   });

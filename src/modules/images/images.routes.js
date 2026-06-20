@@ -45,8 +45,24 @@ const upload = multer({
   },
 });
 
+// Wrap multer so a MulterError (e.g. LIMIT_FILE_SIZE) maps to a 400 instead of
+// falling through to the generic 500 (MulterError has no statusCode). The
+// fileFilter's BadRequestError is already an AppError and passes through.
+function uploadSingleImage(req, res, next) {
+  upload.single('image')(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      const msg = err.code === 'LIMIT_FILE_SIZE'
+        ? `Image too large (max ${config.images.maxSizeMb}MB)`
+        : `Upload error: ${err.message}`;
+      return next(new BadRequestError(msg));
+    }
+    if (err) return next(err);
+    next();
+  });
+}
+
 router.get('/', auth, requireAtlasPermission('read'), ctrl.listImages);
-router.post('/', auth, requireAtlasPermission('write'), upload.single('image'), ctrl.uploadImage);
+router.post('/', auth, requireAtlasPermission('write'), uploadSingleImage, ctrl.uploadImage);
 router.post('/bulk', auth, requireAtlasPermission('write'), validate({ body: schemas.bulkUploadSchema }), ctrl.bulkUploadImages);
 router.get('/:imageId', auth, requireAtlasPermission('read'), ctrl.getImage);
 router.delete('/:imageId', auth, requireAtlasPermission('write'), ctrl.deleteImage);

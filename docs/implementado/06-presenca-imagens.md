@@ -274,8 +274,8 @@ const response = await fetch(`/api/v1/atlas/${atlasId}/images`, {
 
 ### 2.4 Limites e Tipos Aceitos
 
-- **Tamanho máximo:** 10 MB
-- **Tipos aceitos:** PNG, JPEG, SVG, WebP
+- **Tamanho máximo:** 10 MB (configurável via `MAX_IMAGE_SIZE_MB`)
+- **Tipos aceitos:** PNG, JPEG, WebP (SVG **não** é aceito — é vetor de stored-XSS; uploads SVG retornam 400). O tipo declarado também é validado por magic-bytes do conteúdo real.
 
 ### 2.5 Fluxo Completo: Adicionar Imagem ao Mapa
 

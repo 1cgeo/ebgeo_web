@@ -535,7 +535,7 @@ por `?orgId=<uuid>`); admin de OM vê só a sua.
 ```
 
 Alterna `enabled`/`disabled`. **200** com o projeto. Admin global pode desambiguar slug colidente
-entre OMs via `?orgId=<uuid>` ou `?orgSlug=<slug>`; `?orgId` malformado → **400**.
+entre OMs via `?orgId=<uuid>` ou `?orgSlug=<slug>`; `?orgId` malformado → **422** (erro de validação Joi).
 
 ### 9.4 Hard-delete do projeto
 
@@ -550,7 +550,7 @@ Todos no envelope plano `{ "error": "mensagem" }`:
 
 | Código | Significado |
 |--------|-------------|
-| `400` | Parâmetro de tile fora de faixa, `?orgId` malformado, JSON/manifest ausente |
+| `400` | Parâmetro de tile fora de faixa, JSON/manifest ausente ou JSON quebrado |
 | `401` | Rota de escrita/admin sem token válido |
 | `403` | Sem capacidade/posse de escrita (ex.: `viewer`, cross-org) |
 | `404` | Recurso inexistente, com tombstone, ou oculto para o chamador |

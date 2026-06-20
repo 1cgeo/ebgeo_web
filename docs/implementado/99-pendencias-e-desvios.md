@@ -5,7 +5,7 @@ conscientes (by-design) e divergências de contrato do backend EBGeo. É a refer
 quem integra com a API saber o que **não** confiar que existe, o que é **advisory** (precisa ser
 respeitado no frontend) e o que está **deferido** por decisão.
 
-> **Nada aqui é bloqueante.** A suíte de testes está verde (`npm test`, ~738 casos cobrindo as
+> **Nada aqui é bloqueante.** A suíte de testes está verde (`npm test`, ~745 casos cobrindo as
 > Fases 0–9). Todos os fluxos documentados nos guias 01–10 funcionam como descrito. Os itens abaixo
 > são limitações conhecidas, otimizações sob demanda, follow-ups intencionais ou contratos que o
 > frontend já sabe acomodar — nenhum impede a integração nem quebra o caminho anônimo.
@@ -31,6 +31,38 @@ Os buckets de criticidade refletem o impacto **para quem integra com o backend h
 | 🟡 Baixa | Otimização, cleanup ou lacuna de cobertura sem impacto funcional. |
 | ⚪ By-design / decisão consciente | Comportamento intencional documentado; não mude esperando que vire defeito. |
 | 🔵 Frontend (fora do backend) | A lógica vive no cliente (`ebgeo_web`); o backend já oferece o contrato. |
+
+---
+
+## Auditoria de consistência doc↔código — 2026-06-20
+
+Revisão documento-a-documento dos guias `00`–`16` contra o código-fonte. Além das correções de
+texto nos guias, os achados de **código** verificados foram tratados assim:
+
+### Corrigido nesta auditoria
+
+| Correção | Área | Antes → Depois |
+|----------|------|----------------|
+| **IDOR cross-atlas via sync** — `slide` (create/update/delete) e `group_feature` (create/delete) não escopavam pelo atlas da rota. Agora o filtro de atlas vive na própria query (slide via `briefings.atlas_id`; group_feature via `groups.map_id`→`maps.atlas_id`). Teste negativo em `tests/integration/sync-cross-atlas-access.test.js`. | Sync / segurança | escrita cross-atlas possível → **bloqueada na SQL** |
+| Upload single acima do limite: `MulterError(LIMIT_FILE_SIZE)` agora mapeado por wrapper (`uploadSingleImage`) | Imagens / hardening | **500** → **400** |
+| `POST /images/bulk` com limite de corpo dedicado `MAX_BULK_UPLOAD_MB` (default 50 MB) | Imagens | limite por-imagem inalcançável (413) → **alcançável** |
+| `requireAdmin` sem credencial | Middleware | **403** → **401** (alinha `require-org-role`) |
+| `GET /atlas/:id/sync/admin/stats` para atlas inexistente | Sync admin | **200 `data:null`** → **404** |
+| `updateProfile`/`updateUser`: `null`/`''` em `posto_graduacao`/`organizacao_militar` | Users | `COALESCE` ignorava (no-op) → **limpa a coluna** |
+| Upgrade WebSocket valida o `pathname` | Collab | qualquer path aceito → **só `/api/v1/collab`** |
+| Log do gazetteer (Pino) | Nomes | logava `q`/coords crus → **só `queryKeys`** (valores sensíveis fora do log) |
+| `images.mime_type` CHECK (migração **019**) | Schema | aceitava `svg+xml` → **alinhado à allowlist** (png/jpeg/webp) |
+| Comentário do `orgScopeQuerySchema` | sv360 | dizia 400 → **422** (comportamento real) |
+
+### Desvios mantidos (by-design / decisão consciente — **não** alterados)
+
+| Desvio | Natureza | Por quê |
+|--------|----------|---------|
+| `POST /maps/:id/duplicate` e `POST /atlas/import` criam entidades colaborativas via REST **fora** do log CRDT (sem `op_id`) | by-design | São operações server-side de clonagem/import (análogas ao clone de atlas); não fazem parte do fluxo de edição colaborativa. Documentadas nos guias 02/08/09. |
+| Hard-DELETE de `images` (com `unlink`) e de `atlas_shares` | by-design | Entidade binária secundária / tabela de associação (FK `ON DELETE CASCADE`); o princípio de soft-delete vale para a **entidade principal**. |
+| `addUserShare` faz upsert e retorna **201** mesmo em re-compartilhamento | by-design | Idempotente; o status é mantido para não quebrar o contrato do frontend. |
+| `truncateCoords` exportada/testada sem uso em `src/` | by-design | Utilitário transport-only reservado (coberto por teste unitário); **não** é dead code removível. |
+| Ramo 403 anti-traversal em `assets3d` praticamente inalcançável | by-design | `path.posix.normalize` colapsa `..` para dentro da raiz → na prática **404**; o 403 fica como defesa em profundidade. Ver [14-catalogo3d-assets.md](./14-catalogo3d-assets.md). |
 
 ---
 
@@ -105,7 +137,7 @@ espere que mudem.
 | **DELETE de projeto sv360 é HARD-delete** (não há tombstone de projeto). O "soft" equivalente é `PATCH .../status` com `disabled`. | sv360 / admin | by-design | Para ocultar sem destruir, use `PATCH status=disabled`. `DELETE` apaga linhas (CASCADE) e o `{slug}.db`. |
 | **`db_filename` do 360 é derivado no servidor** (`${orgId}__{slug}.db`); o valor do manifest é ignorado. | sv360 / ingestão | by-design (segurança) | Isolamento cross-OM: duas orgs com o mesmo slug geram arquivos diferentes. O cliente não controla o nome do arquivo. |
 | **CI no GitHub não existe** (`.github/workflows/` ausente). Descartado por opção. | DevOps | by-design | Rode `npm run lint` e `npm test` localmente / no hook de pré-commit. |
-| **`docker-compose.yml` usa `postgis/postgis:16`** (não `postgres:16`). | DevOps | by-design | Necessário para PostGIS (Fases 3+). PostGIS é extensão untrusted (exige superusuário para `CREATE EXTENSION`). |
+| **`docker-compose.yml` usa `postgis/postgis:16-3.4`** (não `postgres:16`). | DevOps | by-design | Necessário para PostGIS (Fases 3+). PostGIS é extensão untrusted (exige superusuário para `CREATE EXTENSION`). |
 | **Bug de broadcast: o remetente HTTP não é excluído do broadcast** de ops (sem socket no contexto HTTP). | WebSocket / sync | by-design | O cliente ignora ops com `clientId` próprio. Garanta que o frontend filtra o eco da própria operação. |
 | **Fase 7 (gateway 360 externo) foi superada.** Não há gateway NGREX externo, serviço `ebgeo_360`, prefixo `/api/360/` nem upstream `:8081`. O 360 é o módulo interno `sv360`. | Arquitetura / 360 | by-design | Aponte o frontend para `GET /api/config` → `streetView360.serviceUrl` (`<backend>/api/v1/sv360`). Não há serviço externo de 360. |
 
@@ -130,7 +162,7 @@ A lógica vive no cliente (`ebgeo_web`). O backend já oferece o contrato necess
 
 ## Resumo executivo
 
-- **Bloqueante:** nenhum. Suíte verde (~738 testes), contratos congelados intactos, caminho anônimo
+- **Bloqueante:** nenhum. Suíte verde (~745 testes), contratos congelados intactos, caminho anônimo
   preservado.
 - **Para o integrador frontend, lembre-se de:** (1) respeitar `locked` localmente (advisory);
   (2) filtrar cursores/seleção por `mapId`; (3) ignorar o eco da própria op via `clientId`;

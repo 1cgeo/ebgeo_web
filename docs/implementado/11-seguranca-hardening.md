@@ -269,14 +269,18 @@ A validação ocorre em **duas camadas**:
 
 ### Response (400) — tipo inválido
 
+No upload single (multipart) o `fileFilter` do multer rejeita com a mensagem curta:
+
 ```json
 {
   "error": {
     "code": "BAD_REQUEST",
-    "message": "Invalid file type. Allowed: image/png, image/jpeg, image/webp"
+    "message": "Invalid file type"
   }
 }
 ```
+
+(A mensagem completa `Invalid file type. Allowed: image/png, image/jpeg, image/webp` só existe na checagem do service, inalcançável no multipart; no bulk base64 o motivo é `Invalid file type: <mime>`.)
 
 ### Response (400) — conteúdo não bate com o tipo declarado
 
@@ -295,13 +299,20 @@ A validação ocorre em **duas camadas**:
 {
   "error": {
     "code": "BAD_REQUEST",
-    "message": "File too large. Maximum size: 10MB"
+    "message": "Image too large (max 10MB)"
   }
 }
 ```
 
-> O limite default é **10 MB** (`MAX_IMAGE_SIZE_MB`). O multer rejeita acima desse tamanho
-> antes mesmo de o conteúdo ser inspecionado.
+> O limite default é **10 MB** (`MAX_IMAGE_SIZE_MB`); o multer rejeita acima desse tamanho
+> antes mesmo de o conteúdo ser inspecionado. No upload single (multipart) o
+> `MulterError(LIMIT_FILE_SIZE)` é mapeado para **`400 BAD_REQUEST`** por um wrapper na rota
+> (`uploadSingleImage`), e não mais para o `500` genérico. No caminho bulk/base64 o motivo no
+> `failed[]` é `File too large: <N>MB (max: 10MB)`.
+>
+> O corpo do `POST /images/bulk` (lote base64) tem um limite dedicado **`MAX_BULK_UPLOAD_MB`**
+> (default 50 MB), maior que o limite global de JSON (10 MB), para o limite por imagem ser
+> de fato alcançável num lote.
 
 No **bulk** (`POST /api/v1/atlas/:atlasId/images/bulk`, base64) a validação é **por item**
 com falha parcial — itens inválidos vão para `failed[]` com o motivo, sem abortar os demais:
