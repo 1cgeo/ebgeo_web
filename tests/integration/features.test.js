@@ -63,6 +63,62 @@ describe('Features via Sync API', () => {
       assert.equal(rows[0].feature_type, 'point');
     });
 
+    // Regression: a feature in the implicit "default" layer must sync. The real
+    // frontend GeoJSON carries the type + layer in `properties` (source / layerId),
+    // and 'default' is a NON-UUID sentinel for the implicit layer. features.layer_id
+    // is a UUID column, so without coercion the INSERT 22P02'd and rejected the WHOLE
+    // push batch — blocking all sync for anyone drawing into the default layer. (The
+    // numeric top-level GeoJSON `id` must also be ignored: the row id is the targetId.)
+    it('accepts a feature in the implicit "default" layer (non-UUID layerId → layer_id null)', async () => {
+      const targetId = randomUUID();
+      await supertest(app)
+        .post(`/api/v1/atlas/${atlasId}/sync`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          operations: [{
+            id: randomUUID(),
+            type: 'create',
+            target: 'feature',
+            targetId,
+            mapId,
+            data: {
+              type: 'Feature',
+              id: 1782053337250, // MapLibre's numeric top-level id — must NOT become the row id
+              geometry: { type: 'LineString', coordinates: [[-43.2, -22.9], [-43.1, -22.8]] },
+              properties: { id: targetId, source: 'line', layerId: 'default', nome: 'Eixo' },
+            },
+            timestamp: Date.now(),
+            clientId: 'test-client',
+          }],
+        })
+        .expect(200);
+
+      const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [targetId]);
+      assert.equal(rows.length, 1, 'the default-layer feature was persisted');
+      assert.equal(rows[0].layer_id, null, "non-UUID 'default' layerId coerced to null");
+      assert.equal(rows[0].feature_type, 'line', 'feature_type derived from properties.source');
+      assert.equal(rows[0].properties.layerId, 'default', 'layerId preserved verbatim in the properties JSONB');
+    });
+
+    it('keeps a real UUID layerId on the feature row', async () => {
+      const targetId = randomUUID();
+      const layerId = randomUUID();
+      await supertest(app)
+        .post(`/api/v1/atlas/${atlasId}/sync`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          operations: [{
+            id: randomUUID(), type: 'create', target: 'feature', targetId, mapId,
+            data: { geometry: { coordinates: [-43, -22] }, properties: { id: targetId, source: 'point', layerId } },
+            timestamp: Date.now(), clientId: 'test-client',
+          }],
+        })
+        .expect(200);
+
+      const { rows } = await db.query('SELECT layer_id FROM features WHERE id = $1', [targetId]);
+      assert.equal(rows[0].layer_id, layerId, 'a real UUID layerId is preserved on the row');
+    });
+
     it('creates a polygon feature', async () => {
       const targetId = randomUUID();
       const coords = [[[-43.3, -22.9], [-43.2, -22.9], [-43.2, -22.8], [-43.3, -22.9]]];

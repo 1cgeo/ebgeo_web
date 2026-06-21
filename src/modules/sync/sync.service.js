@@ -147,6 +147,8 @@ function reshape3d360Payload(rawData, mapping) {
  * persists `feature_type`/`layer_id` as columns. Derive the flat columns from the
  * properties when the top-level fields are absent (so the raw GeoJSON `data` works).
  */
+const FEATURE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function deriveFeatureColumns(rawData) {
   if (!rawData || typeof rawData !== 'object' || !rawData.properties || typeof rawData.properties !== 'object') {
     return rawData;
@@ -154,7 +156,17 @@ function deriveFeatureColumns(rawData) {
   const props = rawData.properties;
   const patch = {};
   if (rawData.feature_type === undefined && props.source !== undefined) patch.feature_type = props.source;
-  if (rawData.layer_id === undefined && props.layerId !== undefined) patch.layer_id = props.layerId;
+
+  // features.layer_id is a UUID FK. The frontend's implicit "default" layer (and any
+  // non-UUID sentinel) is not a real layer row, so a value like 'default' would fail
+  // the UUID cast (22P02) and reject the whole push. Coerce a non-UUID layer id to
+  // null (= "no layer"); the original layerId stays verbatim inside the properties
+  // JSONB, so the round-trip back to the client is unchanged.
+  const rawLayer = rawData.layer_id !== undefined ? rawData.layer_id : props.layerId;
+  if (rawLayer !== undefined) {
+    patch.layer_id = (typeof rawLayer === 'string' && FEATURE_UUID_RE.test(rawLayer)) ? rawLayer : null;
+  }
+
   return Object.keys(patch).length ? { ...rawData, ...patch } : rawData;
 }
 
