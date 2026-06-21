@@ -24,6 +24,8 @@ export class PromptModal {
      * @param {string} [config.defaultValue] - Default input value
      * @param {string} [config.confirmText] - Confirm button text
      * @param {string} [config.cancelText] - Cancel button text
+     * @param {string} [config.inputTestid] - Optional data-testid for the input
+     * @param {string} [config.confirmTestid] - Optional data-testid for the confirm button
      */
     constructor(config = {}) {
         this._config = {
@@ -31,7 +33,9 @@ export class PromptModal {
             placeholder: config.placeholder || '',
             defaultValue: config.defaultValue || '',
             confirmText: config.confirmText || 'Confirmar',
-            cancelText: config.cancelText || 'Cancelar'
+            cancelText: config.cancelText || 'Cancelar',
+            inputTestid: config.inputTestid || null,
+            confirmTestid: config.confirmTestid || null
         };
         this._overlay = null;
         this._container = null;
@@ -94,6 +98,9 @@ export class PromptModal {
         this._input.className = 'prompt-modal-input';
         this._input.placeholder = this._config.placeholder;
         this._input.value = this._config.defaultValue;
+        if (this._config.inputTestid) {
+            this._input.dataset.testid = this._config.inputTestid;
+        }
         body.appendChild(this._input);
 
         // Actions
@@ -109,6 +116,9 @@ export class PromptModal {
         const confirmBtn = document.createElement('button');
         confirmBtn.className = 'prompt-modal-btn prompt-modal-btn-confirm';
         confirmBtn.textContent = this._config.confirmText;
+        if (this._config.confirmTestid) {
+            confirmBtn.dataset.testid = this._config.confirmTestid;
+        }
         addDomListener(this, confirmBtn, 'click', () => this._confirm());
         actions.appendChild(confirmBtn);
 

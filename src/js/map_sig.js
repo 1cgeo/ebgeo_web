@@ -48,6 +48,11 @@ import { initKeyboardServiceBriefing, BriefingEditorControl, BriefingPresenterCo
 import { ToolbarControl, ActiveToolChip } from './toolbar';
 import { AttributeTableControl } from './attribute_table';
 import { PhoneLayout } from './phone';
+import { AccountControl, SyncStatusControl } from '@js/account/index.js';
+import { OnlineUsersControl, RemoteCursorsLayer, startPresence } from '@js/presence/index.js';
+import { LockedBannerControl, mapLockController } from '@js/locking/index.js';
+import { EventTypes } from '@events/event_types.js';
+import { ConnectionStates } from '@store/sync/connection-state.js';
 
 // Draw tools
 import {
@@ -129,6 +134,11 @@ export function createMap() {
     if (config.map2d.maxBounds) {
         map.setMaxBounds(config.map2d.maxBounds);
     }
+
+    // Test/E2E hook: expose the 2D map instance so Playwright specs can assert real
+    // map state (zoom/bearing/pitch/center). Harmless in production — the map is
+    // already client-side state, mirroring `window.map` used by the 3D viewer.
+    globalThis.__ebgeoMap = map;
 
     // ===== TILE ERROR HANDLING =====
     // Detect certificate errors and show modal with instructions
@@ -590,6 +600,48 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     });
     baseLayerSelectorControl.init(document.body);
 
+    // ===== BACKEND-INTEGRATION CONTROLS (account orchestrator + sync badge) =====
+    // Additive: with no backend these render harmlessly (badge "Offline",
+    // "Entrar" opens the login flow only on click). The anonymous/offline
+    // path is unaffected.
+    const accountControl = new AccountControl();
+    const syncStatusControl = new SyncStatusControl();
+    map.addControl(accountControl, 'top-right');
+    map.addControl(syncStatusControl, 'top-right');
+
+    // ===== PRESENCE / AWARENESS (Slice 2: online roster + live remote cursors) =====
+    // Additive: with no backend the wsClient never fires presence events, so the
+    // roster stays hidden (count 0) and no cursor markers are created. The
+    // anonymous/offline path is unaffected.
+    const onlineUsersControl = new OnlineUsersControl();
+    map.addControl(onlineUsersControl, 'top-right');
+
+    const remoteCursorsLayer = new RemoteCursorsLayer(map);
+
+    // Bridge the WS transport to the presence store (inbound presence/cursor and
+    // throttled outbound cursor). Harmless offline — it only wires handlers.
+    startPresence({ map });
+
+    // Drive the cursor overlay from the connection lifecycle: render remote
+    // cursors only while ONLINE; tear them down (and clear presence) otherwise.
+    // CONNECTION_STATE_CHANGED is emitted on the event bus by the sync layer.
+    getEventBus().on(EventTypes.CONNECTION_STATE_CHANGED, ({ currentState } = {}) => {
+        if (currentState === ConnectionStates.ONLINE) {
+            remoteCursorsLayer.start();
+        } else {
+            remoteCursorsLayer.stop();
+        }
+    });
+
+    // ===== MAP LOCK UX (Slice 3: on-map "Mapa bloqueado" banner + state controller) =====
+    // Additive: the banner only appears while the active map is locked; the
+    // controller mirrors remote lock changes (MAP_MODIFIED -> MAP_LOCK_CHANGED)
+    // and gates the toggle by role. Offline/anonymous users keep full local
+    // control (they can lock locally; no network is touched).
+    const lockedBannerControl = new LockedBannerControl();
+    map.addControl(lockedBannerControl, 'top-left');
+    mapLockController.start();
+
     // ===== REGISTER CONTROLS IN CONTROL REGISTRY (declarative) =====
     // This allows other modules (like layer_setup.js) to access controls by name
 
@@ -639,6 +691,14 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         ['ClipboardManager', clipboardManager],
         // UI components accessed by phone layout
         ['chipsComponent', chipsComponent],
+        // Backend integration (account orchestrator + sync status badge)
+        ['account', accountControl],
+        ['syncStatus', syncStatusControl],
+        // Presence / awareness (online roster + live remote cursors)
+        ['onlineUsers', onlineUsersControl],
+        ['remoteCursors', remoteCursorsLayer],
+        // Map lock UX (on-map "Mapa bloqueado" banner)
+        ['lockedBanner', lockedBannerControl],
     ];
 
     for (const [name, ctrl] of CONTROL_REGISTRY) {
@@ -762,6 +822,7 @@ export function setupCleanupHandlers(destroyables) {
         destroyables.dragDropHandler.disable();
         destroyables.dragRotateHandler.disable();
         destroyables.phoneLayout.destroy();
+        mapLockController.stop();
         try {
             const { destroyDeepLinkListener } = await import('./deep-link/deep-link.js');
             destroyDeepLinkListener();

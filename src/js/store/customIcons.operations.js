@@ -24,6 +24,8 @@ import {
 } from './repositories/index.js';
 import { getEventBus } from './services.js';
 import { EventTypes } from '../events/event_types.js';
+import { uploadImageBlob, fetchImageBlob } from './sync/image-sync.js';
+import { logAtlasSetting } from './sync/operation-dispatcher.js';
 
 const SETTING_KEY = 'custom_icons';
 
@@ -83,6 +85,17 @@ export async function getCustomIcons() {
 }
 
 /**
+ * Invalidate the in-memory registry cache so the next access reloads from storage.
+ * Used by the remote sync handler (datamodel-14) after it writes a synced
+ * `custom_icons` list to storage, so getCustomIcons() returns the synced value
+ * instead of a stale cache. Mirrors the ALL_DATA_CLEARED reset.
+ */
+export function invalidateCustomIconsCache() {
+    registry = null;
+    loadPromise = null;
+}
+
+/**
  * Add a custom icon: store its blob and register its metadata.
  * @param {Object} params
  * @param {string} params.name - Display name
@@ -93,7 +106,12 @@ export async function getCustomIcons() {
  */
 export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' }) {
     await ensureLoaded();
-    const id = generateUUID();
+    // §17.19: when online, upload the blob so collaborators can fetch it; the backend
+    // image id becomes the icon id (referenced on the feature's markerSymbol). Offline
+    // (or on failure) fall back to a local UUID — the icon still works locally and can
+    // be reconciled on a later sync.
+    const uploaded = await uploadImageBlob(blob, `${name || 'icon'}.png`);
+    const id = uploaded?.id || generateUUID();
     await saveImageCompat(id, blob);
 
     const entry = { id, name: name || 'Ícone', thumbnail, type, createdAt: Date.now() };
@@ -107,6 +125,10 @@ export async function addCustomIcon({ name, blob, thumbnail, type = 'image/png' 
         throw error;
     }
     registry = next;
+    // datamodel-14: sync the icon REGISTRY (metadata list) to the atlas. Blobs sync
+    // separately via the images endpoint. No-op offline; the backend replaces
+    // atlas.settings.customIcons wholesale with this full list.
+    await logAtlasSetting({ customIcons: next });
     return entry;
 }
 
@@ -120,6 +142,8 @@ export async function removeCustomIcon(id) {
     registry = registry.filter((entry) => entry.id !== id);
     await setSettingCompat(SETTING_KEY, registry);
     await deleteImageCompat(id);
+    // datamodel-14: sync the updated registry list to the atlas (no-op offline).
+    await logAtlasSetting({ customIcons: registry });
 }
 
 /**
@@ -128,7 +152,15 @@ export async function removeCustomIcon(id) {
  * @returns {Promise<Blob|null>}
  */
 export async function getCustomIconBlob(id) {
-    return getImageCompat(id);
+    const local = await getImageCompat(id);
+    if (local) return local;
+    // §17.19: a collaborator may reference an icon uploaded by someone else that is
+    // not cached locally — fetch it from the backend by id and cache it for next time.
+    const remote = await fetchImageBlob(id);
+    if (remote) {
+        await saveImageCompat(id, remote).catch(() => {});
+    }
+    return remote;
 }
 
 /**

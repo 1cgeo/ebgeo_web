@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // point-custom-icons.js pulls in the store barrel and DOM/canvas-coupled utils.
 // Mock the heavy deps so the pure marker-id helpers can be tested in `node`.
@@ -8,11 +8,12 @@ vi.mock('@store', () => ({
 vi.mock('@utils/image_utils.js', () => ({
     IMAGE_CONFIG: { maxSizeBytes: 10 * 1024 * 1024 },
 }));
+const showError = vi.fn();
 vi.mock('@utils/toast_service.js', () => ({
-    showError: () => {},
+    showError: (...args) => showError(...args),
 }));
 
-const { parseCustomMarker, customMarkerSymbol } = await import(
+const { parseCustomMarker, customMarkerSymbol, normalizeIconFile } = await import(
     '../../src/js/draw_tools/point_tool/point-custom-icons.js'
 );
 
@@ -51,5 +52,46 @@ describe('customMarkerSymbol', () => {
     it('round-trips with parseCustomMarker', () => {
         const id = 'icon-9f8e';
         expect(parseCustomMarker(customMarkerSymbol(id))).toBe(id);
+    });
+});
+
+describe('normalizeIconFile — accepted input types (backend allowlist + rasterized svg)', () => {
+    // The `node` test env has no DOM/canvas, so accepted types fall through the
+    // type gate and fail later in `blobToImage`. We assert the *type gate* only:
+    // rejected types short-circuit with the "Tipo não suportado" toast and never
+    // attempt to decode; accepted types pass the gate (that toast is never shown).
+    const TYPE_REJECTION = /Tipo não suportado/;
+    const fileLike = (type) => ({ type, size: 1024, name: `icon.${type.split('/')[1]}` });
+
+    beforeEach(() => {
+        showError.mockClear();
+    });
+
+    it('rejects gif at the type gate (backend rejects gif)', async () => {
+        const result = await normalizeIconFile(fileLike('image/gif'));
+        expect(result).toBeNull();
+        expect(showError).toHaveBeenCalledTimes(1);
+        expect(showError).toHaveBeenCalledWith(expect.stringMatching(TYPE_REJECTION));
+    });
+
+    it.each([
+        ['image/png'],
+        ['image/jpeg'],
+        ['image/webp'],
+        ['image/svg+xml'], // accepted only as a rasterization input
+    ])('passes the type gate for %s', async (type) => {
+        // Decoding fails without a DOM, but the type-rejection toast must NOT fire.
+        const result = await normalizeIconFile(fileLike(type));
+        expect(result).toBeNull(); // no canvas in `node` → processing fails after the gate
+        const typeRejections = showError.mock.calls.filter(
+            ([msg]) => typeof msg === 'string' && TYPE_REJECTION.test(msg),
+        );
+        expect(typeRejections).toHaveLength(0);
+    });
+
+    it('rejects a missing file', async () => {
+        const result = await normalizeIconFile(null);
+        expect(result).toBeNull();
+        expect(showError).toHaveBeenCalledWith(expect.stringMatching(/Nenhum arquivo/));
     });
 });

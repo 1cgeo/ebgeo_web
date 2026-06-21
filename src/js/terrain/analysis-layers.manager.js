@@ -197,20 +197,38 @@ class AnalysisLayersManager {
         }
     }
 
-    /** Validates analysis layers configuration at initialization */
+    /**
+     * Validates analysis layers configuration at initialization and DROPS any
+     * malformed layer (missing/invalid bounds) instead of aborting app boot.
+     *
+     * The layers array is merged in from the remote `/api/config`, which may carry a
+     * layer without bounds (e.g. a seeded `hillshade` with an empty config). A single
+     * malformed remote layer must NOT crash the whole app (which would tear down every
+     * map control); it is logged and skipped so the rest of the app — and every other
+     * valid layer — boots normally. `bounds` stays required for a layer to be usable
+     * (zoomToLayer relies on it).
+     */
     _validateLayersConfig() {
         if (!config.analysisLayers?.enabled) return;
+        const layers = config.analysisLayers.layers;
+        if (!Array.isArray(layers)) return;
 
-        for (const layer of config.analysisLayers.layers) {
+        config.analysisLayers.layers = layers.filter((layer) => {
             if (!layer.bounds || !Array.isArray(layer.bounds) || layer.bounds.length !== 4) {
-                throw new Error(`Analysis layer "${layer.id}" deve ter bounds válidos [west, south, east, north]`);
+                console.warn(
+                    `Analysis layer "${layer.id}" sem bounds válidos [west, south, east, north] — ignorada.`
+                );
+                return false;
             }
-
             const [west, south, east, north] = layer.bounds;
             if (west >= east || south >= north) {
-                throw new Error(`Analysis layer "${layer.id}" tem bounds inválidos: west < east e south < north`);
+                console.warn(
+                    `Analysis layer "${layer.id}" com bounds inválidos (exige west < east e south < north) — ignorada.`
+                );
+                return false;
             }
-        }
+            return true;
+        });
     }
 
     /**

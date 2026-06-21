@@ -15,6 +15,7 @@ import { memoryStore } from './memory-store.js';
 import { getEventBus } from './services.js';
 import { EventTypes } from '../events';
 import { DEFAULT_TEMPORAL_CONFIG } from '../temporal/temporal.constants.js';
+import { logMapTemporalOperation, OperationType } from './sync/operation-dispatcher.js';
 
 const STORE_PREFIX = 'temporal_';
 
@@ -97,6 +98,14 @@ export async function setMapTemporalConfig(mapName, patch) {
         }
         bus.emit(EventTypes.TEMPORAL_CONFIG_CHANGED, { mapName: target, config: next });
     }
+
+    // Emit as a sync op so the per-map temporal config travels to collaborators.
+    // No-op unless operation logging is enabled (safe offline). Backend maps
+    // 'mapTemporal' to maps.temporal_config; entityId === the map UUID. The op MUST
+    // carry the UUID (not the name) — the dispatcher's isValidUUID guard drops non-UUID
+    // map-setting ops, so logging the name silently dropped every temporal sync.
+    await logMapTemporalOperation(OperationType.UPDATE, mapManager.getMapId(target), next);
+
     return next;
 }
 

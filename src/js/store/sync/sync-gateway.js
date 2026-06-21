@@ -1,12 +1,12 @@
 // Path: js/store/sync/sync-gateway.js
 
 /**
- * @fileoverview Sync gateway abstraction for operation transmission.
- * Defines the interface for sending local operations to a backend
- * and applying remote operations locally.
+ * @fileoverview Sync gateway for inbound remote operations.
+ * Holds the remote-operation handler and dispatches operations
+ * received from other clients to the local store.
  *
- * Current implementation: OFFLINE (no-op).
- * Future: replace with WebSocket-based implementation.
+ * Note: outbound sending lives in sync-engine.flush() →
+ * apiClient.pushOperations(); the gateway is not on the send path.
  *
  * @dependencies operation-queue.js, operation-factory.js, connection-state.js
  */
@@ -24,25 +24,6 @@ class SyncGateway {
     constructor() {
         /** @type {Function|null} */
         this._remoteOperationHandler = null;
-    }
-
-    /**
-     * Attempts to send pending operations from the queue.
-     * Offline: returns immediately with { sent: 0 }.
-     * Online (future): peeks queue, sends via transport, dequeues confirmed.
-     *
-     * @param {number} [_batchSize=50] - Max operations to send per call
-     * @returns {Promise<{ sent: number, failed: number, remaining: number }>}
-     */
-    async sendPendingOperations(_batchSize = 50) {
-        const remaining = await operationQueue.size();
-
-        // Future: when online, peek queue, send via WebSocket, dequeue confirmed
-        if (!connectionState.isOnline()) {
-            return { sent: 0, failed: 0, remaining };
-        }
-
-        return { sent: 0, failed: 0, remaining };
     }
 
     /**

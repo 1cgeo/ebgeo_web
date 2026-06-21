@@ -23,7 +23,15 @@ export function deepClone(obj) {
 
     const copy = {};
     for (const key of Object.keys(obj)) {
-        copy[key] = deepClone(obj[key]);
+        const cloned = deepClone(obj[key]);
+        if (key === '__proto__') {
+            // Plain assignment `copy.__proto__ = x` sets the PROTOTYPE, not an own
+            // property — so a `__proto__` data key would be lost (and a malicious
+            // object could pollute the clone's prototype). Define it explicitly.
+            Object.defineProperty(copy, key, { value: cloned, writable: true, enumerable: true, configurable: true });
+        } else {
+            copy[key] = cloned;
+        }
     }
     return copy;
 }
@@ -62,8 +70,16 @@ export function getByPath(obj, path) {
  * setByPath({ a: { b: 1 } }, 'a.b', 2) // returns { a: { b: 2 } }
  * setByPath({ a: {} }, 'a.b.c', 1) // returns { a: { b: { c: 1 } } }
  */
+// Path segments that must never be traversed/written — they would mutate the
+// prototype chain (prototype pollution) rather than set a data property.
+const UNSAFE_PATH_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 export function setByPath(obj, path, value) {
     const keys = path.split('.');
+    if (keys.some((k) => UNSAFE_PATH_KEYS.has(k))) {
+        // Refuse a prototype-polluting path; return the input unchanged.
+        return { ...obj };
+    }
     const result = { ...obj };
     let current = result;
 

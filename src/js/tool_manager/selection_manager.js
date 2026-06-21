@@ -16,7 +16,9 @@ import {
     startBatchUndo,
     commitBatchUndo,
     discardBatchUndo,
-    getFeatureIcon
+    getFeatureIcon,
+    getFeatureById,
+    getStorageTypeFromSource
 } from '../store';
 import { createTwoFingerTapHandler } from '../utilities/pointer-utils';
 
@@ -251,6 +253,20 @@ class SelectionManager {
             if (locked) control._mapLocked = false;
         }
 
+        this.updateUI();
+    }
+
+    /**
+     * Selects ALL features of a group (clearing any prior selection first). Public wrapper
+     * around the group-aware selection used by the map click path, so other entry points
+     * (e.g. the layers tab) can give a grouped feature the same whole-group selection
+     * instead of selecting a single member.
+     * @param {Object} group - Group object ({ features: [{type, id}], ... })
+     */
+    async selectGroup(group) {
+        if (!group) return;
+        this.deselectAllFeatures();
+        await this._selectGroup(group);
         this.updateUI();
     }
 
@@ -612,7 +628,25 @@ class SelectionManager {
         }
 
         for (const featureRef of group.features) {
-            const completeFeature = await this.getCompleteFeatureFromSource(featureRef.type, featureRef.id);
+            // Resolve each member INDEPENDENTLY and resiliently: prefer the live map source,
+            // fall back to the store. Both lookups are wrapped so a single feature's failure
+            // (the source query can throw or hang when the map is mid-render / under load)
+            // never aborts the whole-group selection — otherwise the group highlighted
+            // partially or not at all. selectFeature already falls back to the store this way.
+            let completeFeature = null;
+            try {
+                completeFeature = await this.getCompleteFeatureFromSource(featureRef.type, featureRef.id);
+            } catch (_e) {
+                completeFeature = null;
+            }
+            if (!completeFeature) {
+                const storageType = getStorageTypeFromSource(featureRef.type);
+                try {
+                    completeFeature = await getFeatureById(storageType, featureRef.id);
+                } catch (_e) {
+                    completeFeature = null;
+                }
+            }
             if (completeFeature) {
                 stateManager.addToSelection(featureRef.type, String(featureRef.id), completeFeature);
                 const control = this.controls.get(featureRef.type);

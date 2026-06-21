@@ -1,0 +1,559 @@
+/* Path: src/css/account.css */
+
+/**
+ * @fileoverview BEM styles for the backend-integration UI (Slice 1).
+ * Covers the account control (top-right orchestrator button), the login
+ * modal error/field affordances, the project-picker list, and the
+ * sync-status corner badge. Uses design tokens from design-tokens.css.
+ *
+ * Blocks:
+ *   - .account-control     (login/logout button + username)
+ *   - .login-modal         (inline error + field wrappers)
+ *   - .project-picker      (selectable project rows + empty state)
+ *   - .sync-status-badge   (connection-state badge, [data-state] driven)
+ */
+
+/* =========================================================================
+   ACCOUNT CONTROL (MapLibre IControl, top-right)
+   Logged out: just the "Entrar" button. Logged in: a single circular avatar
+   button pinned to the corner that opens a dropdown (name + Sair).
+   ========================================================================= */
+
+.account-control {
+    position: relative; /* anchor for the absolute dropdown menu */
+    display: flex;
+    align-items: center;
+}
+
+/* Hide the avatar button cleanly when logged out (the [hidden] attribute is
+   overridden by display:inline-flex below, so guard it). */
+.account-control__identity[hidden] {
+    display: none;
+}
+
+/* The whole identity is now a single avatar button (no inline name/Sair). */
+.account-control__identity {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-full);
+    cursor: pointer;
+}
+
+.account-control__identity:focus-visible {
+    outline: 2px solid var(--primary-dark);
+    outline-offset: 2px;
+}
+
+/* Deterministic-color avatar (initials); background set inline at runtime
+   from the presence palette, the same hue used for this user elsewhere. */
+.account-control__avatar {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    line-height: 1;
+    color: #fff;
+    background: var(--gray-400);
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow var(--transition-fast);
+}
+
+.account-control__identity:hover .account-control__avatar {
+    box-shadow: var(--shadow-md);
+}
+
+/* ---- Dropdown menu (name header + Sair), Google-Docs style ---- */
+.account-control__menu[hidden] {
+    display: none;
+}
+
+.account-control__menu {
+    position: absolute;
+    top: calc(100% + var(--space-2));
+    right: 0;
+    /* Above the tool toolbar (--z-toolbar: 20) so the menu opens OVER the tools. */
+    z-index: var(--z-floating);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 180px;
+    /* Bound the width so long usernames / atlas names ellipsize instead of growing. */
+    max-width: 260px;
+    padding: var(--space-2);
+    background: #fff;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+}
+
+/* Current-atlas context block: tiny caption + truncated atlas name. */
+.account-control__atlas[hidden] {
+    display: none;
+}
+
+.account-control__atlas {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    padding: var(--space-1) var(--space-2);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.account-control__atlas-caption {
+    font-size: 10px;
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-400);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.account-control__atlas-name {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.account-control__user {
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The [hidden] attribute (display:none) is overridden by the display:inline-flex below,
+   so guard it — otherwise the hidden "Entrar"/"Sair" button stays visible. */
+.account-control__btn[hidden] {
+    display: none;
+}
+
+.account-control__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    height: var(--control-button-size);
+    padding: 0 var(--space-3);
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+/* Primary action: "Entrar" — the app's standard green confirm button
+   (matches .prompt-modal-btn-confirm: padding-based height + border). */
+.account-control__btn--login {
+    height: auto;
+    padding: var(--space-2) var(--space-3);
+    background: var(--primary);
+    border: var(--border-width) solid var(--primary);
+    color: #fff;
+}
+
+.account-control__btn--login:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+}
+
+.account-control__btn--login:focus-visible {
+    outline: 2px solid var(--primary-dark);
+    outline-offset: 2px;
+}
+
+/* Secondary action: "Sair" — a full-width menu item inside the dropdown
+   (neutral grey, never green). */
+.account-control__btn--logout {
+    justify-content: flex-start;
+    width: 100%;
+    height: auto;
+    padding: var(--space-2);
+    background: transparent;
+    color: var(--gray-700);
+    border-radius: var(--radius-sm);
+}
+
+.account-control__btn--logout:hover {
+    background: var(--gray-100);
+    color: var(--gray-900);
+}
+
+.account-control__btn--logout:focus-visible {
+    outline: 2px solid var(--gray-400);
+    outline-offset: 2px;
+}
+
+/* =========================================================================
+   TOP-RIGHT COLLABORATION BAR (online roster + sync light + account avatar)
+   The global .mapboxgl-ctrl-group forces flex-direction:column + flex-end on
+   EVERY control, which stacked three tall cards down the corner. Lay them out
+   instead as ONE compact horizontal bar (Google-Docs style).
+
+   Controls are added to the DOM in this order: account, sync, online. With
+   row-reverse the FIRST in the DOM (account avatar) lands at the right edge and
+   the rest flow leftward → [circles+count] [sync light] [avatar]. The bar is
+   low (~36px) and sits ABOVE the right-edge tool toolbar (y≈80), so it no
+   longer needs the right:64px shove — it does not overlap the tool icons.
+   ========================================================================= */
+
+.maplibregl-ctrl-top-right,
+.mapboxgl-ctrl-top-right {
+    display: flex !important;
+    flex-direction: row-reverse !important;
+    align-items: center !important;
+    gap: var(--space-2);
+    /* Lift the WHOLE cluster's stacking context above the tool toolbar (--z-toolbar: 20).
+       The dropdowns are trapped inside each control's own context (.mapboxgl-ctrl-group has
+       z-index:--z-dropdown=10), so raising a dropdown's own z-index isn't enough — the
+       parent context must clear the toolbar. With the container at --z-floating, everything
+       inside (including the open menu/list) paints above the tools. */
+    z-index: var(--z-floating) !important;
+}
+
+/* Hidden collaboration controls must actually hide: the base
+   .mapboxgl-ctrl-group { display:flex !important } overrides the [hidden] attribute,
+   so logged-out showed the sync light + an empty online "0". Force them gone. */
+.maplibregl-ctrl-top-right .mapboxgl-ctrl-group[hidden],
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group[hidden] {
+    display: none !important;
+}
+
+/* When logged in, wrap the whole cluster (online circles + sync light + avatar) as ONE
+   frosted pill — a single Google-Docs-style bar div. Gated on the avatar being visible so
+   that logged-out (only the green "Entrar") is NOT wrapped in a pill. */
+.maplibregl-ctrl-top-right:has(.account-control__identity:not([hidden])),
+.mapboxgl-ctrl-top-right:has(.account-control__identity:not([hidden])) {
+    padding: var(--space-1) var(--space-2);
+    background: rgb(255 255 255 / 95%);
+    backdrop-filter: blur(8px);
+    border: var(--border-width) solid rgb(0 0 0 / 10%);
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-control);
+}
+
+/* Lay each control out in a row (override the forced column). */
+.maplibregl-ctrl-top-right .mapboxgl-ctrl-group.account-control,
+.maplibregl-ctrl-top-right .mapboxgl-ctrl-group.sync-status-badge,
+.maplibregl-ctrl-top-right .mapboxgl-ctrl-group.online-users,
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.account-control,
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.sync-status-badge,
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.online-users {
+    flex-direction: row !important;
+    align-items: center !important;
+}
+
+/* The account avatar and the sync light are bare (the circle / the dot IS the
+   affordance), so drop the frosted "group" card chrome from them — the bar is
+   a strip of small atoms, not stacked cards. The online roster keeps a subtle
+   pill (styled in presence.css). */
+.maplibregl-ctrl-top-right .mapboxgl-ctrl-group.account-control,
+.maplibregl-ctrl-top-right .mapboxgl-ctrl-group.sync-status-badge,
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.online-users,
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.account-control,
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.sync-status-badge,
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.online-users {
+    background-color: transparent;
+    backdrop-filter: none;
+    border: none;
+    box-shadow: none;
+}
+
+/* =========================================================================
+   LOGIN MODAL (container + form + fields + inline error + actions)
+   ========================================================================= */
+
+.login-modal__container {
+    max-width: 400px;
+}
+
+.login-modal__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+/* Field wrapper reuses .settings-field (label + control stack); this only
+   tightens the per-field internal gap. */
+.login-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+/* The real input — previously had NO styles at all. */
+.login-modal__input {
+    width: 100%;
+    height: var(--touch-target-min);
+    padding: 0 var(--space-3);
+    box-sizing: border-box;
+    background: #fff;
+    border: var(--border-width) solid var(--border-color-dark);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-base);
+    color: var(--gray-900);
+    outline: none;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.login-modal__input::placeholder {
+    color: var(--gray-400);
+}
+
+/* Focus ring matches the settings/prompt inputs across the app. */
+.login-modal__input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+/* Inline error — soft red surface, NOT green. */
+.login-modal__error {
+    padding: var(--space-2) var(--space-3);
+    background: rgb(239 68 68 / 10%);
+    border: var(--border-width) solid var(--color-error);
+    border-radius: var(--radius-md);
+    color: var(--color-error);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+}
+
+.login-modal__error[hidden],
+.login-modal__error:empty {
+    display: none;
+}
+
+/* Actions row: cancel (neutral) on the left, confirm (green) on the right. */
+.login-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.login-modal__actions .prompt-modal-btn {
+    min-width: 96px;
+}
+
+.login-modal__actions .prompt-modal-btn-confirm:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* =========================================================================
+   PROJECT PICKER (selectable rows + avatar badge + actions + empty state)
+   ========================================================================= */
+
+.project-picker {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.project-picker__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-height: 50vh;
+    overflow-y: auto;
+}
+
+.project-picker__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-3) var(--space-3);
+    background: var(--gray-50);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-base);
+    color: var(--gray-800);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast),
+        box-shadow var(--transition-fast);
+}
+
+.project-picker__item:hover {
+    background: var(--primary-50);
+    border-color: var(--primary);
+    box-shadow: var(--shadow-sm);
+}
+
+.project-picker__item:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Atlas avatar: initials on a stable per-atlas color (set inline at runtime). */
+.project-picker__badge {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-bold);
+    line-height: 1;
+    color: #fff;
+    background: var(--gray-400);
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-sm);
+}
+
+/* Title + subtitle column (Google-Docs style). min-width:0 lets children ellipsize. */
+.project-picker__main {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.project-picker__name {
+    min-width: 0;
+    overflow: hidden;
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Subtitle: "por Você · modificado há 2 dias". */
+.project-picker__meta {
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Right-hand tag cluster: public badge + permission chip. */
+.project-picker__tags {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+/* Discreet "Público" indicator. */
+.project-picker__public {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-500);
+}
+
+.project-picker__public svg {
+    flex: 0 0 auto;
+}
+
+/* Permission chip (role tag). Subtle tokenized fills per permission. */
+.project-picker__chip {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.4;
+    white-space: nowrap;
+    background: var(--gray-100);
+    color: var(--gray-600);
+}
+
+/* Owner: soft green (matches the app's primary). */
+.project-picker__chip--owner {
+    background: var(--primary-100);
+    color: var(--primary-800);
+}
+
+/* Write: soft blue (info). */
+.project-picker__chip--write {
+    background: color-mix(in srgb, var(--color-info) 14%, transparent);
+    color: color-mix(in srgb, var(--color-info) 78%, var(--gray-900));
+}
+
+/* Read: neutral gray (default chip styling, kept explicit for clarity). */
+.project-picker__chip--read {
+    background: var(--gray-100);
+    color: var(--gray-600);
+}
+
+/* Footer actions: cancel (neutral) + create (green). */
+.project-picker__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.project-picker__create {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.project-picker__empty {
+    padding: var(--space-6) var(--space-4);
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+    text-align: center;
+}
+
+/* =========================================================================
+   SYNC STATUS LIGHT (MapLibre IControl, corner bar)
+   A single colored dot — NO visible text. The state label (Conectado /
+   Sincronizando… / Desconectado) is the hover tooltip via the `title` attr.
+   Green = online, yellow = connecting, red = offline. Hidden when anonymous.
+   ========================================================================= */
+
+.sync-status-badge[hidden] {
+    display: none;
+}
+
+.sync-status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-1);
+}
+
+.sync-status-badge__dot {
+    flex: 0 0 auto;
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-full);
+    background: var(--gray-400);
+}
+
+.sync-status-badge[data-state="online"] .sync-status-badge__dot {
+    background: var(--color-success);
+}
+
+.sync-status-badge[data-state="connecting"] .sync-status-badge__dot {
+    background: var(--color-warning);
+}
+
+.sync-status-badge[data-state="offline"] .sync-status-badge__dot {
+    background: var(--color-error);
+}

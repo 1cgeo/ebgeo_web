@@ -160,9 +160,18 @@ export async function getAllMapKeysCompat() {
 export async function createMapCompat(mapNameOrId, mapData = null) {
     const repo = getRepository();
     const newMapData = mapData || getEmptyMapData();
-    // Ensure name is set if not provided
-    if (!newMapData.name) {
+    // A fresh map (no caller-supplied data) must take the REQUESTED name — getEmptyMapData
+    // returns the placeholder 'Novo Mapa', which silently overrode the name the UI asked for
+    // (every new map ended up "Novo Mapa"). Imported/duplicated data keeps its own name.
+    if (!mapData || !newMapData.name) {
         newMapData.name = mapNameOrId;
+    }
+    // Assign a stable UUID so the map can travel as a CRDT map op. Without one, addMap fell
+    // back to using the NAME as the op id (non-UUID), so a map created in a shared atlas
+    // never reached the other collaborators. Local/anonymous maps keep being keyed by name;
+    // the id is inert there (sync is off), so the additive contract is preserved.
+    if (!newMapData.id) {
+        newMapData.id = crypto.randomUUID();
     }
     await repo.saveMap(mapNameOrId, newMapData);
     return newMapData;
@@ -393,6 +402,16 @@ export async function setColorUsageCompat(mapNameOrId, colorUsageData) {
     const repo = getRepository();
     const key = `color_usage_${_resolveSettingsKey(mapNameOrId)}`;
     await repo.saveSetting(key, colorUsageData);
+    // datamodel-13: sync this map's color usage to the atlas as a per-map nested
+    // object ({ [mapName]: counts }). No-op offline; the backend deep-merges into
+    // atlas.settings.colorUsage so a single-map write does not clobber siblings.
+    // Dynamic import avoids a static cycle (dispatcher dynamically imports this module).
+    try {
+        const { logAtlasSetting } = await import('../sync/operation-dispatcher.js');
+        await logAtlasSetting({ colorUsage: { [mapNameOrId]: colorUsageData } });
+    } catch {
+        // best-effort: a failure to queue the sync op must not break the local write.
+    }
 }
 
 /**

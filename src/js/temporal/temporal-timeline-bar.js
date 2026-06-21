@@ -80,6 +80,7 @@ export class TemporalTimelineBar {
     mount(parent) {
         const root = document.createElement('div');
         root.className = 'temporal-bar';
+        root.dataset.testid = 'temporal-bar';
         root.dataset.hidden = 'true';
         root.setAttribute('role', 'group');
         root.setAttribute('aria-label', 'Controle de linha do tempo');

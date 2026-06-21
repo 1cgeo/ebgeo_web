@@ -14,6 +14,7 @@ import { IDUtils } from '../utilities';
 import { DebouncedPersist } from '../utilities/debounced-persist.js';
 import { EventTypes } from '../events';
 import { logLayerOperation, OperationType } from '../store/sync/index.js';
+import { mapResolver } from '../store/services/map-resolver.service.js';
 
 /**
  * Create a DebouncedPersist with standard error handling.
@@ -196,7 +197,7 @@ class LayerManager {
         this._persistActiveLayerAsync(targetMap);
         this._notifyLayersChanged();
 
-        logLayerOperation(OperationType.DELETE, layerId, targetMap, null, deletedLayer);
+        logLayerOperation(OperationType.DELETE, layerId, mapResolver.resolveToId(targetMap), null, deletedLayer);
 
         return { success: true, deletedLayerId: layerId, createdDefaultLayer };
     }
@@ -444,7 +445,9 @@ class LayerManager {
         this._persistLayersAsync(targetMap);
         if (notify) this._notifyLayersChanged();
 
-        logLayerOperation(OperationType.CREATE, newLayer.id, targetMap, newLayer);
+        // Tag the op with the map's UUID (not its name) so it reaches the right map on the
+        // backend/peers — same fix class as feature ops.
+        logLayerOperation(OperationType.CREATE, newLayer.id, mapResolver.resolveToId(targetMap), newLayer);
         return newLayer;
     }
 
@@ -470,7 +473,7 @@ class LayerManager {
         this._persistLayersAsync(targetMap);
         this._notifyLayersChanged();
 
-        logLayerOperation(OperationType.UPDATE, layerId, targetMap, layer, oldLayer);
+        logLayerOperation(OperationType.UPDATE, layerId, mapResolver.resolveToId(targetMap), layer, oldLayer);
         return layer;
     }
 

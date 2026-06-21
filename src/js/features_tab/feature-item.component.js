@@ -10,6 +10,7 @@ import {
     getFeatureById,
     getFeatureIconFromStorage,
     getSourceTypeFromStorage,
+    getFeatureGroup,
 } from '@store';
 import { zoomToFeature, zoomAndSelectFeature, escapeHtml } from '@utils';
 
@@ -102,6 +103,20 @@ export async function handleFeatureClick(feature, map, selectionManager) {
 
         if (isLocked) {
             await zoomToFeature(feature.rawFeature, map);
+            return;
+        }
+
+        // A grouped feature selects the WHOLE group, mirroring the map's click behavior —
+        // the layers tab previously selected only the single member (inconsistent UX).
+        const sourceType = getSourceTypeFromStorage(feature.storageType);
+        const group = getFeatureGroup(sourceType, feature.id);
+        if (group) {
+            await selectionManager.selectGroup(group);
+            await zoomToFeature(feature.rawFeature, map, {
+                paddingPercent: 0.25,
+                minZoom: 12,
+                maxZoom: 18,
+            });
             return;
         }
 

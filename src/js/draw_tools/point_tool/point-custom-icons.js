@@ -23,8 +23,12 @@ const CUSTOM_PREFIX = 'custom:';
 const NORMALIZED_SIZE = 96;
 const PIXEL_RATIO = 2;
 
+// png/jpeg/webp match the backend upload allowlist; svg is accepted only as a
+// rasterization *input* — `normalizeIconFile` always emits an `image/png` blob
+// (canvasToBlob below), so raw SVG never reaches storage. gif is excluded to
+// stay aligned with the backend (it rejects gif).
 const ALLOWED_TYPES = new Set([
-    'image/png', 'image/webp', 'image/gif', 'image/jpeg', 'image/svg+xml',
+    'image/png', 'image/webp', 'image/jpeg', 'image/svg+xml',
 ]);
 
 /** Decoded normalized images, keyed by icon id, reused across features. */
@@ -108,7 +112,7 @@ export async function normalizeIconFile(file) {
         return null;
     }
     if (!ALLOWED_TYPES.has(file.type)) {
-        showError('Tipo não suportado (use PNG, WebP, GIF, JPEG ou SVG)');
+        showError('Tipo não suportado (use PNG, WebP, JPEG ou SVG)');
         return null;
     }
     if (file.size > IMAGE_CONFIG.maxSizeBytes) {

@@ -22,6 +22,11 @@ export default defineConfig({
     },
     test: {
         include: ['tests/**/*.test.js'],
+        // The E2E specs (`tests/e2e/**/*.e2e.test.js`) require a live backend and
+        // run under their own config (`vitest.e2e.config.js`); the Playwright browser
+        // specs live in `tests/e2e-ui/` (run via `npm run test:e2e:ui`). Keep both out
+        // of the hermetic unit/integration run.
+        exclude: ['node_modules/**', 'tests/e2e/**', 'tests/e2e-ui/**'],
         environment: 'node',
         globals: true,
         coverage: {

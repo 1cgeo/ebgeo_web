@@ -157,10 +157,8 @@ describe('SyncGateway offline behavior', () => {
         gateway = new SyncGateway();
     });
 
-    it('sendPendingOperations returns sent:0', async () => {
-        const result = await gateway.sendPendingOperations();
-        expect(result.sent).toBe(0);
-        expect(result.failed).toBe(0);
+    it('exposes no outbound send method (sending lives in sync-engine.flush)', () => {
+        expect(gateway.sendPendingOperations).toBeUndefined();
     });
 
     it('applyRemoteOperation is a no-op', async () => {
@@ -354,18 +352,20 @@ describe('Sync scheduler offline no-op', () => {
         vi.useRealTimers();
     });
 
-    it('does not call sendPendingOperations when offline', async () => {
-        const sendSpy = vi.spyOn(syncGateway, 'sendPendingOperations');
+    it('does not trigger any network activity when offline', async () => {
+        // The scheduler is a no-op; the gateway exposes no send path.
+        expect(syncGateway.sendPendingOperations).toBeUndefined();
 
         // Emit entity lifecycle events while offline
         eventBus.emit(EventTypes.FEATURE_CREATED, {});
         eventBus.emit(EventTypes.LAYER_MODIFIED, {});
         eventBus.emit(EventTypes.MAP_DELETED, {});
 
-        // Wait well past debounce
+        // Wait well past any historical debounce window
         await vi.advanceTimersByTimeAsync(5000);
 
-        expect(sendSpy).not.toHaveBeenCalled();
+        // Still no send path exists.
+        expect(syncGateway.sendPendingOperations).toBeUndefined();
     });
 });
 

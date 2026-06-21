@@ -1,0 +1,121 @@
+/* Path: src/css/locking.css */
+
+/**
+ * @fileoverview Map locking UX styles (Slice 3 multiuser UX).
+ * BEM blocks: .locked-banner (prominent top warning banner shown when the
+ * active map is locked) and .map-lock-btn (lock toggle button in the maps tab,
+ * with locked / unlocked / disabled states).
+ * Appearance only — show/hide and state toggling are driven from JS.
+ */
+
+/* =========================================================================
+   LOCKED BANNER
+   Prominent top-of-viewport banner warning that the active map is locked.
+   Hidden via the [hidden] attribute.
+   ========================================================================= */
+
+.locked-banner {
+    position: fixed;
+    top: var(--safe-area-top);
+    left: 50%;
+    z-index: var(--z-floating);
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    max-width: calc(100vw - var(--space-8));
+    padding: var(--space-2) var(--space-4);
+    margin-top: var(--space-3);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-900);
+    background-color: var(--color-warning);
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-lg);
+    transform: translateX(-50%);
+}
+
+.locked-banner[hidden] {
+    display: none;
+}
+
+.locked-banner__icon {
+    flex-shrink: 0;
+    width: var(--space-5);
+    height: var(--space-5);
+    fill: currentcolor;
+}
+
+.locked-banner__text {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* =========================================================================
+   MAP LOCK BUTTON
+   Toggle button rendered per-map in the maps tab actions grid.
+   Default (unlocked) state shows an "open lock" affordance; the --locked
+   modifier emphasises the active lock; [disabled] dims for non-owners.
+   ========================================================================= */
+
+.map-lock-btn {
+    display: inline-flex;
+    gap: var(--space-2);
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-2) var(--space-3);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+    cursor: pointer;
+    background-color: var(--gray-100);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    transition:
+        background-color var(--transition-fast),
+        color var(--transition-fast),
+        border-color var(--transition-fast);
+}
+
+.map-lock-btn:hover {
+    background-color: var(--gray-200);
+    border-color: var(--border-color-dark);
+}
+
+.map-lock-btn__icon {
+    flex-shrink: 0;
+    width: var(--space-4);
+    height: var(--space-4);
+    fill: currentcolor;
+}
+
+/* Active lock — warning accent so the locked state reads at a glance. */
+.map-lock-btn--locked {
+    color: var(--gray-900);
+    background-color: var(--color-warning);
+    border-color: var(--color-warning);
+}
+
+.map-lock-btn--locked:hover {
+    color: var(--gray-900);
+    background-color: var(--color-warning);
+    border-color: var(--gray-900);
+}
+
+/* Non-owner: backend rejects the toggle (403), so dim and block locally. */
+.map-lock-btn:disabled,
+.map-lock-btn[disabled] {
+    color: var(--gray-400);
+    cursor: not-allowed;
+    background-color: var(--gray-100);
+    border-color: var(--border-color);
+    opacity: 0.6;
+}
+
+.map-lock-btn:disabled:hover,
+.map-lock-btn[disabled]:hover {
+    background-color: var(--gray-100);
+    border-color: var(--border-color);
+}

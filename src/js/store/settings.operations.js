@@ -22,6 +22,7 @@ import {
 import { mapResolver } from './services/map-resolver.service.js';
 import mapManager from './store-state-manager.js';
 import { logGridStyleOperation, logMapNotesOperation, OperationType } from './sync/index.js';
+import { fetchImageBlob } from './sync/image-sync.js';
 
 // ===== HELPERS =====
 
@@ -221,7 +222,16 @@ export async function storeImage(imageId, blob) {
  * @returns {Promise<Blob|null>} Image blob or null
  */
 export async function getImage(imageId) {
-    return getImageData(imageId);
+    const local = await getImageData(imageId);
+    if (local) return local;
+    // §17.14: a collaborator may reference a photo uploaded by someone else that is
+    // not cached locally (the imageId is the backend image id for online-created
+    // features) — fetch it from the backend by id and cache it for next render.
+    const remote = await fetchImageBlob(imageId);
+    if (remote) {
+        await storeImageData(imageId, remote).catch(() => {});
+    }
+    return remote;
 }
 
 /**

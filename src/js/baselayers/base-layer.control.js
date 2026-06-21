@@ -26,6 +26,7 @@ import imagensLayer from './imagens_layer.js';
 import bdgexLayer from './bdgex_layer.js';
 import config from '../config.js';
 import { setupMapFeatures } from '../layers';
+import { wireRemoteFeatureRender } from '../layers/remote-feature-render.js';
 import { showError } from '../utilities';
 
 const STYLE_MAP = {
@@ -86,6 +87,16 @@ class BaseLayerControl {
         this._toolManager = toolManager;
         this._analysisLayersManager = analysisLayersManager;
         this._dataLayersManager = dataLayersManager;
+
+        // Repopulate the 2D map sources when a PEER's feature op arrives, then rebuild
+        // the features tree (which reads from the sources). The remote-op handler only
+        // updated the store, leaving the MapLibre sources — and thus the live map and
+        // the tree — stale until a base-layer/map switch.
+        if (this._unwireRemoteRender) this._unwireRemoteRender();
+        this._unwireRemoteRender = wireRemoteFeatureRender(async () => {
+            await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
+            getEventBus().emit(EventTypes.LAYERS_CHANGED, {});
+        });
     }
 
     onAdd(map) {

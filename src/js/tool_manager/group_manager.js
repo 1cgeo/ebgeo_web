@@ -5,6 +5,7 @@ import { generateUUID } from '../utilities/uuid.js';
 import { EventTypes } from '../events';
 import { createSyncMetadata, touchSyncMetadata, markDeleted, isActive } from '../store/sync/sync-metadata.js';
 import { logGroupOperation, OperationType } from '../store/sync/index.js';
+import { mapResolver } from '../store/services/map-resolver.service.js';
 
 /**
  * Central manager for feature groups
@@ -65,7 +66,10 @@ class GroupManager {
         this._notifyGroupsChanged();
 
         // Log operation for sync
-        logGroupOperation(OperationType.CREATE, groupId, targetMap, newGroup);
+        // Tag the sync op with the map's UUID (not its name) — a non-UUID map id would be
+        // rejected by the backend and POISON A's whole flush batch (every op queued after
+        // it would never reach peers), the same flush-poison class as feature/layer/temporal.
+        logGroupOperation(OperationType.CREATE, groupId, mapResolver.resolveToId(targetMap), newGroup);
 
         return newGroup;
     }
@@ -133,7 +137,7 @@ class GroupManager {
                 const oldGroup = { ...groupsCache[groupId] };
                 groupsCache[groupId].sync = markDeleted(groupsCache[groupId].sync);
                 // Log delete operation for old group
-                logGroupOperation(OperationType.DELETE, groupId, targetMap, null, oldGroup);
+                logGroupOperation(OperationType.DELETE, groupId, mapResolver.resolveToId(targetMap), null, oldGroup);
             }
         });
 
@@ -144,7 +148,7 @@ class GroupManager {
         this._notifyGroupsChanged();
 
         // Log create operation for the combined group
-        logGroupOperation(OperationType.CREATE, newGroupId, targetMap, combinedGroup);
+        logGroupOperation(OperationType.CREATE, newGroupId, mapResolver.resolveToId(targetMap), combinedGroup);
 
         return combinedGroup;
     }
@@ -179,7 +183,7 @@ class GroupManager {
         this._notifyGroupsChanged();
 
         // Log operation for sync
-        logGroupOperation(OperationType.DELETE, groupId, targetMap, null, oldGroup);
+        logGroupOperation(OperationType.DELETE, groupId, mapResolver.resolveToId(targetMap), null, oldGroup);
 
         return features;
     }
@@ -207,7 +211,7 @@ class GroupManager {
         this._saveGroupsToDBAsync(targetMap);
 
         // Log operation for sync
-        logGroupOperation(OperationType.UPDATE, groupId, targetMap, group, oldGroup);
+        logGroupOperation(OperationType.UPDATE, groupId, mapResolver.resolveToId(targetMap), group, oldGroup);
 
         return group;
     }

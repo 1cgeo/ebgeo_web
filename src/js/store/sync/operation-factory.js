@@ -18,16 +18,34 @@ import { isValidEntityType, isValidOperationType } from './operation-types.js';
 let clientId = null;
 
 /**
+ * Returns the ambient `localStorage` when available, or `null` outside the
+ * browser (Node/SSR/test runners). Guards against environments where the global
+ * is undefined or throws on access (e.g. disabled storage in privacy mode).
+ * @returns {Storage|null} The storage object, or null when unavailable.
+ */
+function safeLocalStorage() {
+    try {
+        if (typeof localStorage !== 'undefined') return localStorage;
+    } catch {
+        // Accessing localStorage can throw (sandboxed iframes, disabled storage).
+    }
+    return null;
+}
+
+/**
  * Gets or creates the client ID for this session.
+ * Persists to localStorage when available; otherwise keeps an in-memory id for
+ * the lifetime of the module (e.g. Node-based test runners).
  * @returns {string} Client ID
  */
 export function getClientId() {
     if (clientId) return clientId;
 
-    clientId = localStorage.getItem('ebgeo_client_id');
+    const store = safeLocalStorage();
+    clientId = store ? store.getItem('ebgeo_client_id') : null;
     if (!clientId) {
         clientId = generateUUID();
-        localStorage.setItem('ebgeo_client_id', clientId);
+        if (store) store.setItem('ebgeo_client_id', clientId);
     }
     return clientId;
 }
@@ -37,7 +55,8 @@ export function getClientId() {
  */
 export function resetClientId() {
     clientId = null;
-    localStorage.removeItem('ebgeo_client_id');
+    const store = safeLocalStorage();
+    if (store) store.removeItem('ebgeo_client_id');
 }
 
 // ===== LAMPORT CLOCK =====

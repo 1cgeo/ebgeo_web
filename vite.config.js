@@ -329,7 +329,8 @@ export default defineConfig(({ mode: _mode }) => ({
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
-        changeOrigin: true
+        changeOrigin: true,
+        ws: true
       },
       '/busca': {
         target: 'http://localhost:3000',

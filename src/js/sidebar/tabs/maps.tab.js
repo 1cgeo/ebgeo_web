@@ -29,7 +29,6 @@ import {
     hasMapSavedPosition,
     hasMapNotes,
     isMapLocked,
-    toggleMapLock,
     isMapTemporalEnabled,
     toggleMapTemporal,
     getControl,
@@ -37,6 +36,14 @@ import {
 import { EventTypes } from '@events/event_types.js';
 import { showSuccess, showError, showWarning, IDUtils } from '@utils/index.js';
 import { showPrompt, showConfirm, showCombineMapsModal } from '@modals/index.js';
+import { mapLockController } from '@js/locking/index.js';
+import { mapResolver } from '@store/services/map-resolver.service.js';
+import { resolveRedirectTarget } from './remote-map-redirect.js';
+import { showSharingModal } from '@modals/sharing.modal.js';
+import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
+import { syncEngine } from '@store/sync/sync-engine.js';
+import { sessionContext } from '@store/sync/session-context.js';
+import { apiClient } from '@store/sync/api-client.js';
 
 /**
  * Icons specific to maps tab.
@@ -79,6 +86,10 @@ const MAPS_ICONS = {
     clock: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
 
     gear: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
+
+    cloudDownload: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/></svg>`,
+
+    users: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
 };
 
 /**
@@ -135,6 +146,7 @@ export class MapsTab {
         const newMapBtn = document.createElement('button');
         newMapBtn.className = 'sidebar-section-header-btn';
         newMapBtn.title = 'Novo mapa';
+        newMapBtn.setAttribute('data-testid', 'maps-new-map');
         newMapBtn.innerHTML = MAPS_ICONS.plus;
         addDomListener(this, newMapBtn, 'click', () => this._handleNewMap());
         sectionHeader.appendChild(newMapBtn);
@@ -174,6 +186,7 @@ export class MapsTab {
 
         const actions = [
             { id: 'open', icon: MAPS_ICONS.folderOpen, label: 'Abrir', handler: () => this._handleOpenProject(), title: 'Abrir projeto (substitui atual)' },
+            { id: 'open-backend', icon: MAPS_ICONS.cloudDownload, label: 'Abrir do servidor', handler: () => this._handleOpenBackendProject(), title: 'Abrir projeto do servidor (substitui atual)', testid: 'maps-open-backend' },
             { id: 'import', icon: MAPS_ICONS.folderPlus, label: 'Importar', handler: () => this._handleImportAdditive(), title: 'Importar e adicionar ao projeto atual' },
             { id: 'save', icon: MAPS_ICONS.save, label: 'Salvar', handler: () => this._handleSaveProject(), title: 'Salvar projeto' },
             { id: 'clear', icon: MAPS_ICONS.trash2, label: 'Limpar Tudo', handler: () => this._handleClearAll(), title: 'Limpar todos os dados' },
@@ -185,6 +198,9 @@ export class MapsTab {
             button.id = `maps-action-${action.id}`;
             button.innerHTML = `${action.icon}<span>${action.label}</span>`;
             button.title = action.title;
+            if (action.testid) {
+                button.setAttribute('data-testid', action.testid);
+            }
 
             addDomListener(this, button, 'click', action.handler);
             grid.appendChild(button);
@@ -215,7 +231,7 @@ export class MapsTab {
                         0 feições - 1 camada
                     </div>
                 </div>
-                <button class="current-map-lock-btn" id="current-map-lock-btn" title="Bloquear mapa" data-locked="false">
+                <button class="current-map-lock-btn" id="current-map-lock-btn" title="Bloquear mapa" data-locked="false" data-testid="map-lock-toggle">
                     ${MAPS_ICONS.lockOpen}
                 </button>
                 <button class="current-map-temporal-btn" id="current-map-temporal-btn" title="Habilitar controle temporal" data-temporal="false">
@@ -225,7 +241,15 @@ export class MapsTab {
                     ${MAPS_ICONS.fileText}
                 </button>
             </div>
+            <button class="current-map-share-btn" id="current-map-share-btn" data-testid="maps-share-btn" title="Compartilhar projeto" hidden>
+                ${MAPS_ICONS.users}<span>Compartilhar</span>
+            </button>
         `;
+
+        // Setup share button handler (atlas-level; visibility gated to the owner
+        // of a connected server atlas — toggled in _updateShareButton()).
+        const shareBtn = card.querySelector('#current-map-share-btn');
+        addDomListener(this, shareBtn, 'click', () => this._handleShareAtlas());
 
         // Setup name input handler
         const nameInput = card.querySelector('#current-map-name-input');
@@ -253,12 +277,28 @@ export class MapsTab {
 
     /**
      * Handles toggling map lock.
+     *
+     * Routes through {@link mapLockController} (not the bare store op) so the
+     * role gate applies (only OWNER/ADMIN online; offline = full local control)
+     * and the change is logged for sync as a `map` update. The controller shows
+     * its own pt-BR error when a non-owner attempts the toggle, in which case
+     * the returned state is unchanged and we emit nothing further.
      * @private
      */
     async _handleToggleLock() {
         if (!this._currentMapName) return;
 
-        const newState = await toggleMapLock(this._currentMapName);
+        if (!mapLockController.canToggleLock()) {
+            showWarning('Apenas o dono pode bloquear o mapa');
+            return;
+        }
+
+        const wasLocked = mapLockController.isMapLocked();
+        const newState = await mapLockController.toggleMapLock(this._currentMapName);
+
+        // Only celebrate an actual flip (a blocked toggle returns the prior state).
+        if (newState === wasLocked) return;
+
         if (newState) {
             showWarning('Mapa bloqueado');
         } else {
@@ -304,7 +344,45 @@ export class MapsTab {
     _setupEventListeners() {
         subscribe(this, this._eventBus, EventTypes.LAYERS_CHANGED, () => this._loadMaps());
         subscribe(this, this._eventBus, EventTypes.MAP_LOCK_CHANGED, () => this._loadMaps());
+        // Remote lock changes arrive as MAP_MODIFIED; re-read so the toggle and
+        // indicators reflect a lock flipped by another collaborator.
+        subscribe(this, this._eventBus, EventTypes.MAP_MODIFIED, () => this._loadMaps());
         subscribe(this, this._eventBus, EventTypes.MAP_TEMPORAL_CHANGED, () => this._loadMaps());
+        // §1.8/§1.9: react to maps created/deleted by OTHER users (remote ops). A
+        // remote map-delete of the map currently being viewed redirects elsewhere.
+        subscribe(this, this._eventBus, EventTypes.REMOTE_OPERATION_APPLIED, (p) => this._onRemoteOperation(p));
+        // Re-evaluate the owner-only "Compartilhar" button when the session
+        // (login/role) or the connection (connect/disconnect an atlas) changes.
+        subscribe(this, this._eventBus, EventTypes.SESSION_CHANGED, () => this._updateShareButton());
+        subscribe(this, this._eventBus, EventTypes.CONNECTION_STATE_CHANGED, () => this._updateShareButton());
+    }
+
+    /**
+     * Reacts to a remote operation from another collaborator. For a remote MAP delete
+     * of the map currently being viewed (§1.9), redirects to another map via the normal
+     * selection flow and warns the user; always refreshes the list (§1.8 new/removed maps).
+     * @private
+     * @param {{ operation?: Object }} [payload]
+     */
+    async _onRemoteOperation({ operation } = {}) {
+        if (!operation || operation.entityType !== 'map') return;
+
+        if (operation.operationType === 'delete') {
+            try {
+                const target = resolveRedirectTarget(operation, {
+                    currentMapName: await getCurrentMapName(),
+                    allMapNames: await getAllMapNamesStore(),
+                    getNameForId: (id) => mapResolver.getNameForId(id),
+                });
+                if (target) {
+                    await this._handleSelectMap(target);
+                    showWarning('O mapa que você estava vendo foi removido por outro usuário.');
+                }
+            } catch (_error) {
+                // best-effort redirect; the list refresh below still runs
+            }
+        }
+        this._loadMaps();
     }
 
     /**
@@ -346,10 +424,13 @@ export class MapsTab {
             nameInput.value = this._currentMapName;
         }
 
-        // Update badge letter
+        // Update badge: stable initials + deterministic hue keyed on the map name
+        // (the avatar inline color is the one sanctioned non-token color). The first
+        // letter is preserved as textContent so the e2e badge assertion still holds.
         const badgeEl = this._currentMapCard.querySelector('#current-map-badge');
         if (badgeEl && this._currentMapName) {
             badgeEl.textContent = this._currentMapName.charAt(0).toUpperCase();
+            badgeEl.style.backgroundColor = getPresenceColor(this._currentMapName);
         }
 
         // Update lock state
@@ -358,9 +439,17 @@ export class MapsTab {
         const notesBtn = this._currentMapCard.querySelector('#current-map-notes-btn');
 
         if (lockBtn) {
+            // Only OWNER/ADMIN (or any offline user) may toggle the lock; the
+            // backend also enforces OWNER, so a write user is blocked there too.
+            const canToggle = mapLockController.canToggleLock();
             lockBtn.dataset.locked = locked.toString();
             lockBtn.innerHTML = locked ? MAPS_ICONS.lock : MAPS_ICONS.lockOpen;
-            lockBtn.title = locked ? 'Desbloquear mapa' : 'Bloquear mapa';
+            lockBtn.disabled = !canToggle;
+            lockBtn.title = !canToggle
+                ? 'Apenas o dono pode bloquear'
+                : locked
+                    ? 'Desbloquear mapa'
+                    : 'Bloquear mapa';
         }
 
         this._currentMapCard.classList.toggle('current-map-card--locked', locked);
@@ -387,7 +476,48 @@ export class MapsTab {
             notesBtn.title = locked ? 'Notas do mapa (somente leitura)' : 'Notas do mapa';
         }
 
+        this._updateShareButton();
+
         await this._updateCurrentMapStats();
+    }
+
+    /**
+     * Toggles the atlas-level "Compartilhar" button. It is shown only when a
+     * server atlas is connected AND the current user is its OWNER. Gating reads
+     * the synchronous session/sync singletons: `syncEngine.atlasId` is non-null
+     * only while connected, and `sessionContext.role` reflects the PER-ATLAS role
+     * the connect handshake set ('owner' for the atlas owner). The backend also
+     * enforces owner-only on every sharing mutation, so this is purely cosmetic.
+     * @private
+     */
+    _updateShareButton() {
+        const shareBtn = this._currentMapCard?.querySelector('#current-map-share-btn');
+        if (!shareBtn) return;
+
+        const isOwner = !!syncEngine.atlasId && sessionContext.role === 'owner';
+        shareBtn.hidden = !isOwner;
+    }
+
+    /**
+     * Opens the sharing modal for the connected atlas (owner-only entry point).
+     * The atlas display name is resolved lazily from the project list so the modal
+     * header can show it; if it can't be resolved the modal still works (it re-reads
+     * the canonical sharing config from the server) and just omits the name.
+     * @private
+     */
+    async _handleShareAtlas() {
+        const atlasId = syncEngine.atlasId;
+        if (!atlasId) return;
+
+        let atlasName;
+        try {
+            const projects = await apiClient.listAtlas();
+            atlasName = projects?.find(p => p.id === atlasId)?.name;
+        } catch (_error) {
+            // Name is cosmetic; the modal works without it.
+        }
+
+        showSharingModal(atlasId, { atlasName });
     }
 
     /**
@@ -475,10 +605,11 @@ export class MapsTab {
         item.className = `map-list-item${locked ? ' map-list-item--locked' : ''}`;
         item.dataset.mapName = mapName;
         item.dataset.selected = isSelected.toString();
+        item.setAttribute('data-testid', 'map-list-item');
 
         // Build position indicator (clickable — restores saved position)
         const positionIndicator = hasSavedPosition
-            ? `<span class="map-position-indicator" title="Ir para posição salva">${MAPS_ICONS.mapPin}</span>`
+            ? `<span class="map-position-indicator" data-testid="map-position-indicator" title="Ir para posição salva">${MAPS_ICONS.mapPin}</span>`
             : '';
 
         // Build notes indicator
@@ -491,27 +622,33 @@ export class MapsTab {
             ? `<span class="map-lock-indicator" title="Mapa bloqueado">${MAPS_ICONS.lock}</span>`
             : '';
 
-        // Build meta text
+        // Build meta text. NOTE: the .map-list-meta text contract is asserted by e2e
+        // ('Mapa atual' when selected, '' otherwise) — keep it exactly as-is.
         const metaText = isSelected ? 'Mapa atual' : '';
 
-        // Get first letter for badge
-        const initial = mapName.charAt(0).toUpperCase();
+        // Stable initials + deterministic hue keyed on the map name (sanctioned
+        // non-token inline color). Selected badge falls back to the token --primary
+        // via the --selected class, which overrides this inline color in CSS.
+        const initials = escapeHtml(getInitials(mapName));
+        const badgeColor = getPresenceColor(mapName);
 
         item.innerHTML = `
             <div class="map-list-drag-handle" title="Arrastar para reordenar">
                 ${MAPS_ICONS.grip}
             </div>
-            <div class="map-list-badge ${isSelected ? 'map-list-badge--selected' : ''}">
-                ${initial}
+            <div class="map-list-badge ${isSelected ? 'map-list-badge--selected' : ''}" style="background-color: ${badgeColor}">
+                ${initials}
             </div>
             <div class="map-list-info">
                 <div class="map-list-name">
                     ${escapeHtml(mapName)}
-                    ${lockIndicator}
-                    ${positionIndicator}
-                    ${notesIndicator}
                 </div>
                 <div class="map-list-meta">${metaText}</div>
+            </div>
+            <div class="map-list-indicators">
+                ${lockIndicator}
+                ${positionIndicator}
+                ${notesIndicator}
             </div>
             <div class="map-list-actions">
                 <button class="map-list-action-btn menu-btn" title="Mais opções">
@@ -793,6 +930,40 @@ export class MapsTab {
     }
 
     /**
+     * Handles opening a project from the backend (replaces current project).
+     * Delegates the login → project-picker → connect flow to the AccountControl
+     * orchestrator. Mirrors the destructive-confirm guard of _handleOpenProject:
+     * opening a backend project wipes the local store via the picker's onPick.
+     * @private
+     */
+    async _handleOpenBackendProject() {
+        // Check if there are existing features that would be lost
+        const hasExistingFeatures = await this._checkForExistingFeatures();
+        if (hasExistingFeatures) {
+            const confirmed = await showConfirm(
+                'Ao abrir um projeto do servidor, todos os dados atuais serão perdidos. Deseja continuar?',
+                { destructive: true }
+            );
+            if (!confirmed) return;
+        }
+
+        const accountControl = getControl('account');
+        if (!accountControl || typeof accountControl.openProjectPicker !== 'function') {
+            showError('Integração com o servidor indisponível');
+            return;
+        }
+
+        try {
+            await accountControl.openProjectPicker();
+        } catch (error) {
+            console.error('Failed to open backend project:', error);
+            showError('Falha ao abrir o projeto do servidor');
+        } finally {
+            this._loadMaps();
+        }
+    }
+
+    /**
      * Checks if any map has existing features in IndexedDB.
      * @returns {Promise<boolean>} True if features exist.
      * @private
@@ -866,7 +1037,9 @@ export class MapsTab {
      */
     async _handleClearAll() {
         const confirmed = await showConfirm('Limpar TODOS os dados?', {
-            message: 'Esta ação irá:\n- Deletar todos os mapas\n- Remover todas as feições\n\nEsta ação NÃO pode ser desfeita!',
+            message: 'Isso apaga TODO o projeto e NÃO pode ser desfeito:\n- Todos os mapas serão deletados\n- Todas as feições serão removidas\n- Posições e notas salvas serão perdidas\n\nEsta ação é irreversível.',
+            confirmText: 'Apagar tudo',
+            cancelText: 'Cancelar',
             destructive: true
         });
 

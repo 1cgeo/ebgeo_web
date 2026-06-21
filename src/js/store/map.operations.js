@@ -13,14 +13,15 @@ import {
     getAllMapKeysCompat,
     getSettingCompat,
     setSettingCompat,
-    setMapNotesCompat
+    setMapNotesCompat,
+    getRepository
 } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
-import { logMapOperation, logMapPositionOperation, logBaseLayerOperation, OperationType } from './sync/index.js';
+import { logMapOperation, logMapPositionOperation, logBaseLayerOperation, logAtlasSetting, OperationType } from './sync/index.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { generateUUID, isValidUUID } from '../utilities/uuid.js';
@@ -223,7 +224,7 @@ export async function removeMap(mapName) {
     const colors = await getAppSetting('mapBadgeColors');
     if (colors?.[mapName]) {
         delete colors[mapName];
-        await setAppSetting('mapBadgeColors', colors);
+        await setMapBadgeColors(colors);
     }
 
     if (isCurrentMap) {
@@ -280,7 +281,7 @@ export async function renameMap(oldName, newName) {
     if (colors?.[oldName]) {
         colors[newName] = colors[oldName];
         delete colors[oldName];
-        await setAppSetting('mapBadgeColors', colors);
+        await setMapBadgeColors(colors);
     }
 
     if (mapManager.getCurrentMapName() === newName) {
@@ -304,6 +305,24 @@ export async function setCurrentMap(mapName) {
 
     const locked = memoryStore.lockedMaps.has(mapName);
     deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName, locked });
+}
+
+/**
+ * Activates the atlas's map after connecting to a server atlas. Opening an atlas
+ * pulls its maps into the store but leaves the app on the LOCAL default map
+ * ("Principal"), so the user would not see (or sync onto) the shared content. Atlas
+ * maps carry a real UUID `id` (the local default does not), so we switch to the
+ * first UUID-keyed map. No-op when there is none (e.g. a brand-new empty atlas).
+ *
+ * @returns {Promise<string|null>} The activated map name, or null when none exists.
+ */
+export async function activateAtlasInitialMap() {
+    const all = await getRepository().getAllMaps();
+    const maps = Array.from(all instanceof Map ? all.values() : Object.values(all || {}));
+    const atlasMap = maps.find((m) => m && m.name && isValidUUID(m.id));
+    if (!atlasMap) return null;
+    await setCurrentMap(atlasMap.name);
+    return atlasMap.name;
 }
 
 /**
@@ -627,6 +646,11 @@ export async function getMapBadgeColors() {
  */
 export async function setMapBadgeColors(colors) {
     await setAppSetting('mapBadgeColors', colors);
+    // datamodel-13: sync the full map-name→color object to the atlas. No-op offline
+    // (operation logging disabled until connected); the backend deep-merges the
+    // mapBadgeColors object into atlas.settings. Single chokepoint — add/remove/rename
+    // all funnel through here.
+    await logAtlasSetting({ mapBadgeColors: colors });
 }
 
 /**

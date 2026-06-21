@@ -12,6 +12,7 @@ import {
 } from '@utils/event-cleanup.js';
 import { getRepository } from '@store/repositories/index.js';
 import { DEFAULT_TERRAIN_EXAGGERATION } from '@store/atlas/atlas.entity.js';
+import { logSettingOperation, OperationType } from '@store/sync/operation-dispatcher.js';
 
 const MIN_EXAGGERATION = 1;
 const MAX_EXAGGERATION = 3;
@@ -63,6 +64,7 @@ export class SettingsModal {
     _render() {
         this._overlay = document.createElement('div');
         this._overlay.className = 'modal-overlay settings-modal-overlay';
+        this._overlay.setAttribute('data-testid', 'settings-modal');
         this._overlay.setAttribute('role', 'dialog');
         this._overlay.setAttribute('aria-modal', 'true');
         this._overlay.dataset.visible = 'false';
@@ -134,6 +136,7 @@ export class SettingsModal {
         const slider = document.createElement('input');
         slider.type = 'range';
         slider.className = 'settings-slider';
+        slider.setAttribute('data-testid', 'settings-exaggeration-slider');
         slider.min = String(MIN_EXAGGERATION);
         slider.max = String(MAX_EXAGGERATION);
         slider.step = String(STEP_EXAGGERATION);
@@ -148,6 +151,7 @@ export class SettingsModal {
         const numberInput = document.createElement('input');
         numberInput.type = 'number';
         numberInput.className = 'settings-slider__input';
+        numberInput.setAttribute('data-testid', 'settings-exaggeration-value');
         numberInput.min = String(MIN_EXAGGERATION);
         numberInput.max = String(MAX_EXAGGERATION);
         numberInput.step = String(STEP_EXAGGERATION);
@@ -217,6 +221,11 @@ export class SettingsModal {
             if (!atlas.settings) atlas.settings = {};
             atlas.settings.terrainExaggeration = value;
             await repo.saveAtlas(atlas);
+
+            // §24.8: sync the atlas-level setting to the backend. No-op offline
+            // (operation logging is disabled until connected); the backend merges
+            // only the terrainExaggeration whitelist into atlas.settings.
+            await logSettingOperation(OperationType.UPDATE, atlas.id ?? 'atlas', { terrainExaggeration: value });
         } catch (error) {
             console.warn('Failed to persist terrain exaggeration:', error);
         }

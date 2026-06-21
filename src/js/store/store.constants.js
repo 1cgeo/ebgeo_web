@@ -93,6 +93,12 @@ export const FEATURE_TYPE_MAPPINGS = Object.freeze({
     coordination_measure: 'coordination_measures',
     los: 'los',
     visibility: 'visibility',
+    // Processing OUTPUT types: their store buckets are the source name verbatim (NOT
+    // `source + 's'`). Without these, getStorageTypeFromSource fell back to
+    // 'processed_loss'/'processed_visibilitys', so a synced processing result landed in
+    // a phantom bucket on the receiving peer and never rendered.
+    processed_los: 'processed_los',
+    processed_visibility: 'processed_visibility',
     magnetic_declination: 'magnetic_declinations',
 });
 

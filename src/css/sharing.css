@@ -1,0 +1,450 @@
+/* Path: src/css/sharing.css */
+
+/**
+ * @fileoverview Atlas sharing modal styles.
+ *
+ * Drives the sharing.modal.js UI: a public-link toggle (custom switch + copyable
+ * link), a members list (avatar + name + permission select + remove), and a
+ * debounced user-search with a results dropdown. Built on the shared modal shell
+ * (.modal-overlay / .modal-container / .modal-header / .modal-body from
+ * modals-redesign.css) and the settings-field primitives. Fully tokenized — the
+ * only non-token color is the per-user avatar background set inline by the
+ * presence-color helper.
+ */
+
+/* =========================================================================
+   CONTAINER
+   ========================================================================= */
+
+.sharing-modal-container {
+    max-width: 480px;
+}
+
+.sharing {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+}
+
+/* =========================================================================
+   SECTIONS
+   ========================================================================= */
+
+.sharing-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.sharing-section__title {
+    margin: 0;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+    padding-bottom: var(--space-2);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+/* =========================================================================
+   STATES (loading / error / empty)
+   ========================================================================= */
+
+.sharing__state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    padding: var(--space-8) var(--space-4);
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+    text-align: center;
+}
+
+.sharing__state--error p {
+    margin: 0;
+    color: var(--gray-600);
+}
+
+.sharing__spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid var(--gray-200);
+    border-top-color: var(--primary);
+    border-radius: var(--radius-full);
+    animation: sharing-spin 0.7s linear infinite;
+}
+
+@keyframes sharing-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.sharing__empty {
+    padding: var(--space-5);
+    text-align: center;
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+    background: var(--gray-50);
+    border: var(--border-width) dashed var(--border-color);
+    border-radius: var(--radius-lg);
+}
+
+/* =========================================================================
+   PUBLIC LINK — TOGGLE ROW + SWITCH
+   ========================================================================= */
+
+.sharing-toggle-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+}
+
+.sharing-toggle-row__text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.sharing-switch {
+    position: relative;
+    flex-shrink: 0;
+    width: 44px;
+    height: 24px;
+    padding: 0;
+    margin-top: var(--space-1);
+    background: var(--gray-300);
+    border: none;
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.sharing-switch:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.sharing-switch--on {
+    background: var(--primary);
+}
+
+.sharing-switch__thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--transition-fast);
+}
+
+.sharing-switch--on .sharing-switch__thumb {
+    transform: translateX(20px);
+}
+
+/* =========================================================================
+   PUBLIC LINK — COPYABLE LINK ROW
+   ========================================================================= */
+
+.sharing-link {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    padding: var(--space-2);
+    background: var(--primary-50);
+    border: var(--border-width) solid var(--primary-200);
+    border-radius: var(--radius-md);
+}
+
+.sharing-link__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--primary);
+    padding-left: var(--space-1);
+}
+
+.sharing-link__input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-2) var(--space-3);
+    background: white;
+    border: var(--border-width) solid var(--primary-200);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    outline: none;
+}
+
+.sharing-link__input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+.sharing-link__copy {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-shrink: 0;
+}
+
+.sharing-link__copy svg {
+    width: 16px;
+    height: 16px;
+}
+
+.sharing-link__copy.copied {
+    background: var(--color-success);
+    border-color: var(--color-success);
+}
+
+/* =========================================================================
+   MEMBERS LIST
+   ========================================================================= */
+
+.sharing-members {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.sharing-member {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: white;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    transition: border-color var(--transition-fast);
+}
+
+.sharing-member:hover {
+    border-color: var(--gray-300);
+}
+
+.sharing-member__info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+}
+
+.sharing-member__name {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-800);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sharing-member__username {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sharing-member__permission {
+    flex-shrink: 0;
+    padding: var(--space-1) var(--space-2);
+    background: var(--gray-50);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    cursor: pointer;
+    transition: border-color var(--transition-fast);
+}
+
+.sharing-member__permission:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+.sharing-member__remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border: var(--border-width) solid transparent;
+    border-radius: var(--radius-md);
+    color: var(--gray-400);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.sharing-member__remove:hover {
+    background: var(--color-error);
+    border-color: var(--color-error);
+    color: white;
+}
+
+.sharing-member__remove:focus-visible {
+    outline: 2px solid var(--color-error);
+    outline-offset: 2px;
+}
+
+/* =========================================================================
+   AVATAR (background color set inline by presence-colors helper)
+   ========================================================================= */
+
+.sharing-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: white;
+    text-transform: uppercase;
+}
+
+/* =========================================================================
+   ADD PEOPLE — SEARCH + RESULTS
+   ========================================================================= */
+
+.sharing-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.sharing-search__icon {
+    position: absolute;
+    left: var(--space-3);
+    display: flex;
+    align-items: center;
+    color: var(--gray-400);
+    pointer-events: none;
+}
+
+.sharing-search__input {
+    width: 100%;
+    padding: var(--space-2) var(--space-3) var(--space-2) var(--space-8);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.sharing-search__input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+.sharing-results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    max-height: 220px;
+    overflow-y: auto;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--space-1);
+    background: var(--gray-50);
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) transparent;
+}
+
+.sharing-results[hidden] {
+    display: none;
+}
+
+.sharing-results::-webkit-scrollbar {
+    width: 6px;
+}
+
+.sharing-results::-webkit-scrollbar-thumb {
+    background-color: var(--primary);
+    border-radius: var(--radius-sm);
+}
+
+.sharing-results__empty {
+    padding: var(--space-3);
+    text-align: center;
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+}
+
+.sharing-result {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    background: white;
+    border: var(--border-width) solid transparent;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    text-align: left;
+    transition: all var(--transition-fast);
+}
+
+.sharing-result:hover {
+    border-color: var(--primary-300);
+    background: var(--primary-50);
+}
+
+.sharing-result:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+}
+
+.sharing-result__info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+/* =========================================================================
+   RESPONSIVE — TOUCH
+   ========================================================================= */
+
+@media (pointer: coarse) {
+    .sharing-switch {
+        width: 52px;
+        height: 30px;
+    }
+
+    .sharing-switch__thumb {
+        width: 26px;
+        height: 26px;
+    }
+
+    .sharing-switch--on .sharing-switch__thumb {
+        transform: translateX(22px);
+    }
+
+    .sharing-member__remove {
+        width: var(--touch-target-min);
+        height: var(--touch-target-min);
+    }
+
+    .sharing-member__permission {
+        min-height: var(--touch-target-min);
+    }
+}

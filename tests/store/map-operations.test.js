@@ -5,7 +5,7 @@ import { getEmptyMapData } from '../../src/js/store/repository.utils.js';
 // Hoisted shared state
 // ============================================================================
 
-const { mockMapManager, mockLockedMaps, mockMemoryStore, mockSettings, mockMaps } = vi.hoisted(() => {
+const { mockMapManager, mockLockedMaps, mockMemoryStore, mockSettings, mockMaps, mockRepoMaps } = vi.hoisted(() => {
     return {
         mockMapManager: {
             getCurrentMapName: vi.fn(() => 'TestMap'),
@@ -27,7 +27,8 @@ const { mockMapManager, mockLockedMaps, mockMemoryStore, mockSettings, mockMaps 
             currentMap: 'TestMap'
         },
         mockSettings: { value: {} },
-        mockMaps: { value: {} }
+        mockMaps: { value: {} },
+        mockRepoMaps: { value: [] }
     };
 });
 
@@ -47,6 +48,7 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
     logMapOperation: vi.fn(),
     logMapPositionOperation: vi.fn(),
     logBaseLayerOperation: vi.fn(),
+    logAtlasSetting: vi.fn(),
     OperationType: { CREATE: 'CREATE', UPDATE: 'UPDATE', DELETE: 'DELETE' }
 }));
 
@@ -88,7 +90,8 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
     getAllMapKeysCompat: vi.fn(async () => Object.keys(mockMaps.value)),
     getSettingCompat: vi.fn(async (key) => mockSettings.value[key] ?? null),
     setSettingCompat: vi.fn(async (key, value) => { mockSettings.value[key] = value; }),
-    setMapNotesCompat: vi.fn(async () => {})
+    setMapNotesCompat: vi.fn(async () => {}),
+    getRepository: vi.fn(() => ({ getAllMaps: vi.fn(async () => mockRepoMaps.value) }))
 }));
 
 vi.mock('../../src/js/store/store-state-manager.js', () => ({
@@ -142,6 +145,7 @@ import {
     removeMap,
     renameMap,
     setCurrentMap,
+    activateAtlasInitialMap,
     getCurrentMapName,
     getCurrentMapNameSync,
     getCurrentMapIdSync,
@@ -194,6 +198,7 @@ beforeEach(() => {
     mockMaps.value = {
         'TestMap': { ...getEmptyMapData(), id: 'uuid-TestMap' }
     };
+    mockRepoMaps.value = [];
     mockMapManager.getCurrentMapName.mockReturnValue('TestMap');
     checkPermission.mockReturnValue({ allowed: true });
 
@@ -201,6 +206,47 @@ beforeEach(() => {
         eventBus: mockEventBus,
         groupManager: mockGroupManager,
         layerManager: mockLayerManager
+    });
+});
+
+// ============================================================================
+// activateAtlasInitialMap — bug B regression
+// ============================================================================
+
+describe('activateAtlasInitialMap (bug B)', () => {
+    // Opening a server atlas pulls its maps but leaves the app on the local default
+    // "Principal" map; the user could not see or sync onto the shared content. Atlas
+    // maps carry a UUID id, the local default does not — so we activate the UUID one.
+    it('activates the atlas map (UUID id), not the local default "Principal"', async () => {
+        mockRepoMaps.value = [
+            { name: 'Principal' },                       // local default — no UUID id
+            { id: 'uuid-tatico', name: 'Mapa Tático' },  // atlas map — UUID id
+        ];
+
+        const activated = await activateAtlasInitialMap();
+
+        expect(activated).toBe('Mapa Tático');
+        expect(mockMapManager.setCurrentMap).toHaveBeenCalledWith('Mapa Tático');
+    });
+
+    it('returns null and does not switch when the atlas has no UUID-keyed map', async () => {
+        mockRepoMaps.value = [{ name: 'Principal' }];
+
+        const activated = await activateAtlasInitialMap();
+
+        expect(activated).toBeNull();
+        expect(mockMapManager.setCurrentMap).not.toHaveBeenCalled();
+    });
+
+    it('accepts a Map-shaped getAllMaps() return', async () => {
+        mockRepoMaps.value = new Map([
+            ['uuid-tatico', { id: 'uuid-tatico', name: 'Mapa Tático' }],
+        ]);
+
+        const activated = await activateAtlasInitialMap();
+
+        expect(activated).toBe('Mapa Tático');
+        expect(mockMapManager.setCurrentMap).toHaveBeenCalledWith('Mapa Tático');
     });
 });
 

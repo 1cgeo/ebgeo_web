@@ -10,6 +10,7 @@ import { createOperation, createBatchOperations } from './operation-factory.js';
 import { operationQueue } from './operation-queue.js';
 import { EntityType, OperationType } from './operation-types.js';
 import { StoreErrorEvents, emitStoreError } from '../store-errors.js';
+import { isValidUUID } from '../../utilities/uuid.js';
 
 /**
  * Whether operation logging is enabled.
@@ -101,6 +102,14 @@ function handleQueueFailure(label, entityId, error, retryFn) {
 export async function logOperation(entityType, operationType, entityId, mapId, data = null, previousData = null) {
     if (!enabled) return;
 
+    // A SETTING op must scope to the atlas: a UUID id (per logAtlasSetting) or the
+    // 'atlas' sentinel. A non-UUID local key (e.g. 'lastActiveMap' — per-client view
+    // state) can never be pushed: the backend rejects it (22P02), and that one op
+    // fails the ENTIRE flush batch, blocking all sync. Defense-in-depth for bug D.
+    if (entityType === EntityType.SETTING && entityId !== 'atlas' && !isValidUUID(entityId)) {
+        return;
+    }
+
     try {
         const operation = createOperation(entityType, operationType, entityId, mapId, data, previousData);
         await operationQueue.enqueue(operation);
@@ -171,6 +180,11 @@ function createEntityLogger(entityType, atlasLevel = false) {
  */
 function createMapSettingLogger(entityType) {
     return async function (opType, mapId, data = null, previousData = null) {
+        // entityId === mapId here. A non-UUID id means the map is NOT a synced atlas
+        // map (e.g. the local "Principal" default whose id is its name), so the op can
+        // never be pushed — skip it. Otherwise the backend rejects the non-UUID map id
+        // and that single op fails the ENTIRE flush batch, blocking all sync (bug D).
+        if (!isValidUUID(mapId)) return;
         await logOperation(entityType, opType, mapId, mapId, data, previousData);
     };
 }
@@ -222,6 +236,43 @@ export const logMapNotesOperation = createMapSettingLogger(EntityType.MAP_NOTES)
 
 /** Logs a grid style operation (entityId === mapId). */
 export const logGridStyleOperation = createMapSettingLogger(EntityType.GRID_STYLE);
+
+/** Logs a per-map temporal config operation (entityId === mapId). */
+export const logMapTemporalOperation = createMapSettingLogger(EntityType.MAP_TEMPORAL);
+
+/** Logs an atlas-level setting operation (§24.8, e.g. terrainExaggeration; mapId always null). */
+export const logSettingOperation = createEntityLogger(EntityType.SETTING, true);
+
+/**
+ * Convenience wrapper for syncing a WHITELISTED atlas-level app-preference patch
+ * (datamodel-13/14: mapBadgeColors, colorUsage, customIcons — and §24.8
+ * terrainExaggeration). Resolves the atlas id best-effort so the op carries the
+ * real entityId, then emits a `setting` UPDATE op. Offline-safe: when operation
+ * logging is disabled (not connected) `logSettingOperation` is a no-op, so callers
+ * may invoke this unconditionally from any write site. Never throws — a failure to
+ * resolve/queue must not break the local write that triggered it.
+ *
+ * @param {Object} patch - The whitelisted setting patch (e.g. { mapBadgeColors }).
+ * @returns {Promise<void>}
+ */
+export async function logAtlasSetting(patch) {
+    if (!enabled) return;
+    try {
+        let atlasId = 'atlas';
+        try {
+            const { getRepository } = await import('../repositories/index.js');
+            const atlas = await getRepository().getAtlas?.();
+            if (atlas?.id) atlasId = atlas.id;
+        } catch {
+            // Repository/atlas not available — fall back to the 'atlas' sentinel.
+            // The backend `setting` handler scopes by the ROUTE atlas and ignores
+            // entityId, so the sentinel still applies the patch correctly.
+        }
+        await logSettingOperation(OperationType.UPDATE, atlasId, patch);
+    } catch (error) {
+        console.warn('Failed to log atlas setting op:', error);
+    }
+}
 
 // Re-export types and queue for external access
 export { EntityType, OperationType };

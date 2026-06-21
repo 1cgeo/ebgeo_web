@@ -15,7 +15,7 @@ import {
 } from './repositories/index.js';
 import { getGroupManager } from './services.js';
 import { mapResolver } from './services/map-resolver.service.js';
-import { logOperation, EntityType, OperationType, sessionContext } from './sync/index.js';
+import { sessionContext } from './sync/index.js';
 import { LRUCache } from '../utilities/lru-cache.js';
 import { IMAGE_RESOURCE_FEATURE_TYPES } from './store.constants.js';
 
@@ -118,6 +118,18 @@ class MapManager {
     }
 
     /**
+     * Resolves an arbitrary map name to its UUID — so a feature op for a NON-current
+     * target map (e.g. moving a feature between maps) is tagged with the right map id
+     * instead of the current map's.
+     * @param {string} mapName
+     * @returns {string} Map UUID (or the name back if unresolved)
+     */
+    getMapId(mapName) {
+        if (!mapName) return mapName;
+        return mapResolver.resolveToId(mapName);
+    }
+
+    /**
      * Gets both the current map name and ID.
      * @returns {{name: string, id: string}}
      */
@@ -167,14 +179,10 @@ class MapManager {
             this.memoryStore.temporalConfigs.delete(mapName);
         }
 
-        logOperation(
-            EntityType.SETTING,
-            OperationType.UPDATE,
-            'lastActiveMap',
-            null,
-            { value: mapName },
-            { value: previousMap }
-        );
+        // The active map is LOCAL per-client state (each collaborator may view a
+        // different map), so it is intentionally NOT synced. Logging it as a `setting`
+        // op pushed a non-UUID/local key the backend rejects (22P02), which failed the
+        // WHOLE flush batch and blocked all sync.
     }
 
     // ===== COLOR TRACKING SYSTEM =====

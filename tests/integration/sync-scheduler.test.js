@@ -3,11 +3,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 /**
  * Sync Scheduler Tests
  *
- * Validates that the sync scheduler correctly:
- * - Does NOT trigger sync when offline
- * - Triggers debounced sync when online
- * - Flushes immediately on OFFLINE → ONLINE transition
- * - Coalesces rapid events into a single sync call
+ * The sync scheduler is now a no-op: outbound flushing is owned by
+ * sync-flush.js / sync-engine.js, and the gateway no longer exposes a
+ * send method. These tests pin the no-op contract:
+ * - initSyncScheduler does not subscribe to events
+ * - it never triggers any network/send activity, online or offline
  */
 
 // ============================================================================
@@ -94,22 +94,18 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-describe('Offline behavior', () => {
-    it('does NOT call sendPendingOperations when offline', async () => {
-        const sendSpy = vi.spyOn(syncGateway, 'sendPendingOperations');
-
-        // Trigger a sync event while offline
-        eventBus.emit(EventTypes.FEATURE_CREATED, {});
-
-        // Advance past debounce
-        await vi.advanceTimersByTimeAsync(2000);
-
-        expect(sendSpy).not.toHaveBeenCalled();
+describe('No-op scheduler contract', () => {
+    it('does not subscribe to any events', () => {
+        expect(eventBus.on).not.toHaveBeenCalled();
     });
 
-    it('does not attempt sync for any entity lifecycle event', async () => {
-        const sendSpy = vi.spyOn(syncGateway, 'sendPendingOperations');
+    it('exposes no send method on the gateway', () => {
+        expect(syncGateway.sendPendingOperations).toBeUndefined();
+    });
+});
 
+describe('No network activity offline', () => {
+    it('does not trigger any send when offline', async () => {
         const events = [
             EventTypes.FEATURE_CREATED,
             EventTypes.LAYER_MODIFIED,
@@ -121,101 +117,35 @@ describe('Offline behavior', () => {
             eventBus.emit(event, {});
         }
 
+        // Advance well past any historical debounce window.
         await vi.advanceTimersByTimeAsync(5000);
 
-        expect(sendSpy).not.toHaveBeenCalled();
+        // The scheduler subscribed to nothing, so no listeners fired.
+        // Nothing to assert beyond no throw — the gateway has no send path.
+        expect(syncGateway.sendPendingOperations).toBeUndefined();
     });
 });
 
-describe('Online behavior', () => {
+describe('No network activity online', () => {
     beforeEach(() => {
-        // Go online
         connectionState.transition(ConnectionStates.CONNECTING);
         connectionState.transition(ConnectionStates.ONLINE);
     });
 
-    it('calls sendPendingOperations after debounce when online', async () => {
-        const sendSpy = vi.spyOn(syncGateway, 'sendPendingOperations')
-            .mockResolvedValue({ sent: 0, failed: 0, remaining: 0 });
-
-        // Trigger sync event
+    it('does not trigger any send on entity events when online', async () => {
         eventBus.emit(EventTypes.FEATURE_CREATED, {});
+        await vi.advanceTimersByTimeAsync(5000);
 
-        // Before debounce: not called yet
-        await vi.advanceTimersByTimeAsync(500);
-        expect(sendSpy).not.toHaveBeenCalled();
-
-        // After debounce: called
-        await vi.advanceTimersByTimeAsync(600);
-        expect(sendSpy).toHaveBeenCalledTimes(1);
+        expect(syncGateway.sendPendingOperations).toBeUndefined();
     });
 
-    it('coalesces rapid events into single sync call', async () => {
-        const sendSpy = vi.spyOn(syncGateway, 'sendPendingOperations')
-            .mockResolvedValue({ sent: 0, failed: 0, remaining: 0 });
-
-        // Flush the initial sync triggered by the ONLINE transition in beforeEach
-        await vi.advanceTimersByTimeAsync(50);
-        sendSpy.mockClear();
-
-        // Fire 5 events rapidly (each resets the debounce)
-        for (let i = 0; i < 5; i++) {
-            eventBus.emit(EventTypes.FEATURE_CREATED, {});
-            await vi.advanceTimersByTimeAsync(100);
-        }
-
-        // Wait for debounce to complete
-        await vi.advanceTimersByTimeAsync(1500);
-
-        // Should have been called only once (debounce coalesced)
-        expect(sendSpy).toHaveBeenCalledTimes(1);
-    });
-});
-
-describe('Connection transition', () => {
-    it('triggers immediate sync on CONNECTING → ONLINE transition', async () => {
-        const sendSpy = vi.spyOn(syncGateway, 'sendPendingOperations')
-            .mockResolvedValue({ sent: 0, failed: 0, remaining: 0 });
-
+    it('does not trigger any send on CONNECTING → ONLINE transition', async () => {
+        connectionState.transition(ConnectionStates.OFFLINE);
         connectionState.transition(ConnectionStates.CONNECTING);
-
-        // Clear any previous calls from init
-        sendSpy.mockClear();
-
-        // Go ONLINE → should trigger immediate sync (delay=0)
         connectionState.transition(ConnectionStates.ONLINE);
 
-        // Advance just enough for setTimeout(fn, 0)
-        await vi.advanceTimersByTimeAsync(10);
+        await vi.advanceTimersByTimeAsync(5000);
 
-        expect(sendSpy).toHaveBeenCalledTimes(1);
-    });
-});
-
-describe('Scheduler subscribes to correct events', () => {
-    it('subscribes to all entity lifecycle events', () => {
-        const expectedEvents = [
-            EventTypes.FEATURE_CREATED,
-            EventTypes.FEATURE_MODIFIED,
-            EventTypes.FEATURE_DELETED,
-            EventTypes.LAYER_CREATED,
-            EventTypes.LAYER_MODIFIED,
-            EventTypes.LAYER_DELETED,
-            EventTypes.GROUP_CREATED,
-            EventTypes.GROUP_MODIFIED,
-            EventTypes.GROUP_DELETED,
-            EventTypes.MAP_CREATED,
-            EventTypes.MAP_MODIFIED,
-            EventTypes.MAP_DELETED,
-            EventTypes.BRIEFING_CREATED,
-            EventTypes.BRIEFING_UPDATED,
-            EventTypes.BRIEFING_DELETED,
-        ];
-
-        const subscribedEvents = eventBus.on.mock.calls.map(c => c[0]);
-
-        for (const event of expectedEvents) {
-            expect(subscribedEvents).toContain(event);
-        }
+        expect(syncGateway.sendPendingOperations).toBeUndefined();
     });
 });

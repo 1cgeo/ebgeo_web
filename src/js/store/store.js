@@ -328,6 +328,7 @@ export {
     removeMap,
     renameMap,
     setCurrentMap,
+    activateAtlasInitialMap,
     getCurrentMapName,
     getCurrentMapNameSync,
     getCurrentMapIdSync,

@@ -43,11 +43,13 @@ import {
     enableOperationLogging,
     disableOperationLogging,
     isOperationLoggingEnabled,
+    logOperation,
     logFeatureOperation,
     logMapOperation,
+    logBaseLayerOperation,
     logBatchOperations
 } from '../../src/js/store/sync/operation-dispatcher.js';
-import { OperationType } from '../../src/js/store/sync/operation-types.js';
+import { EntityType, OperationType } from '../../src/js/store/sync/operation-types.js';
 import { operationQueue } from '../../src/js/store/sync/operation-queue.js';
 import { emitStoreError } from '../../src/js/store/store-errors.js';
 
@@ -125,6 +127,40 @@ describe('Logging when enabled', () => {
         const ops = await operationQueue.peek(1);
         expect(ops[0].entityType).toBe('map');
         expect(ops[0].mapId).toBeNull();
+    });
+
+    // Regression — bug D: a map-setting op (baseLayer/mapPosition/mapNotes) keyed by a
+    // NON-UUID map id (e.g. the local "Principal" default) can never be pushed; the
+    // backend rejects the non-UUID id and that one op fails the ENTIRE flush batch,
+    // blocking all sync. Such ops must NOT be enqueued.
+    it('logBaseLayerOperation skips a non-UUID map id (un-syncable — would poison the flush)', async () => {
+        await logBaseLayerOperation(OperationType.UPDATE, 'Principal', { baseLayer: 'osm' });
+        expect(await operationQueue.count()).toBe(0);
+    });
+
+    it('logBaseLayerOperation enqueues for a real UUID map id', async () => {
+        const mapId = '4a22f7df-df6d-47df-80bb-f26df86d31ec';
+        await logBaseLayerOperation(OperationType.UPDATE, mapId, { baseLayer: 'osm' });
+
+        const ops = await operationQueue.peek(1);
+        expect(await operationQueue.count()).toBe(1);
+        expect(ops[0].entityType).toBe('baseLayer');
+        expect(ops[0].entityId).toBe(mapId);
+        expect(ops[0].mapId).toBe(mapId);
+    });
+
+    // Regression — bug D (extended): a SETTING op keyed by a non-UUID LOCAL key (e.g.
+    // 'lastActiveMap', the per-client active map) can never be pushed — the backend
+    // rejects it (22P02) and that one op fails the whole flush batch, blocking sync.
+    it('logOperation skips a SETTING op with a non-UUID local key', async () => {
+        await logOperation(EntityType.SETTING, OperationType.UPDATE, 'lastActiveMap', null, { value: 'Mapa A' });
+        expect(await operationQueue.count()).toBe(0);
+    });
+
+    it('logOperation enqueues a SETTING op scoped to the atlas (UUID id or "atlas" sentinel)', async () => {
+        await logOperation(EntityType.SETTING, OperationType.UPDATE, '1b2d5b48-d232-4672-b6ce-fee86375df52', null, { mapBadgeColors: {} });
+        await logOperation(EntityType.SETTING, OperationType.UPDATE, 'atlas', null, { customIcons: [] });
+        expect(await operationQueue.count()).toBe(2);
     });
 
     it('logBatchOperations enqueues all operations', async () => {

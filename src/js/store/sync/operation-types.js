@@ -25,6 +25,7 @@ export const EntityType = Object.freeze({
     BASE_LAYER: 'baseLayer',
     MAP_NOTES: 'mapNotes',
     GRID_STYLE: 'gridStyle',
+    MAP_TEMPORAL: 'mapTemporal',
     CATALOG_LAYER: 'catalogLayer',
 
     BRIEFING: 'briefing',

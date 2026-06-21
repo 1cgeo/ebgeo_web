@@ -5,7 +5,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 **Princípios de design:**
 - **Sem locks** — Nenhuma ação bloqueia outros usuários. Toda resolução de conflito é last-write-wins.
 - **Autenticação JWT** — Token refresh + WebSocket autenticado.
-- **Awareness opcional** — Presença de cursores/avatares é nice-to-have, não requisito.
+- **Awareness (presença) — requisito** — Presença em tempo real é obrigatória: cada usuário vê os cursores/avatares, a lista de quem está online e o estado (mapa ativo, edição, instante temporal) dos demais.
 
 ---
 
@@ -36,7 +36,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 12 | **Salvar posição do mapa** (centro, zoom, bearing, pitch) | 🟡 Broadcast `MAP_MODIFIED`. Last-write-wins. |
 | 13 | **Limpar posição salva** | 🟡 Broadcast `MAP_MODIFIED` removendo posição. Last-write-wins. |
 | 14 | **Puxar outros mapas** (combinar mapas) | 🔴🔒 Move feições entre mapas. Servidor executa operação atômica. Broadcast `MAP_MODIFIED` + feições movidas para todos. Permissão de editor em ambos os mapas. |
-| 15 | **Trocar mapa ativo** (click no mapa) | 🟢 Ação local de navegação. Awareness opcional: "Usuário X está no Mapa Y". |
+| 15 | **Trocar mapa ativo** (click no mapa) | 🟢 Ação local de navegação. Awareness (presença em tempo real): "Usuário X está no Mapa Y". |
 | 16 | **Atalhos de mapas recentes** (badges laterais) | 🟢 Ação local de navegação. |
 | 17 | **Configurações** (botão engrenagem) — abre modal de configurações | 🟢 Ação local. Modal permite ajustar preferências como exagero de terreno. |
 | 18 | **Restaurar posição salva** (click no ícone de posição) | 🟢 Ação local de navegação. Restaura centro/zoom/bearing/pitch salvos do mapa. |
@@ -57,7 +57,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 7 | **Reordenar camadas** (drag & drop) | 🟡 Broadcast nova ordem de renderização. Last-write-wins. |
 | 8 | **Expandir/colapsar camada** | 🟢 Estado local da UI. |
 | 9 | **Abrir tabela de atributos** | 🟢 Ação local de visualização. Dados são lidos do estado sincronizado. |
-| 10 | **Click em feição na lista** — Selecionar e zoom | 🟢 Ação local (seleção + navegação de câmera). Awareness opcional. |
+| 10 | **Click em feição na lista** — Selecionar e zoom | 🟢 Ação local (seleção + navegação de câmera). Awareness (presença em tempo real). |
 | 11 | **Visibilidade de feição individual** | 🟡 Broadcast `FEATURE_MODIFIED`. Visibilidade é persistida. Outros clientes atualizam estado visual da feição. |
 | 12 | **Bloquear/desbloquear feição** | 🟡🔒 Broadcast `FEATURE_MODIFIED`. Outros clientes desabilitam edição dessa feição específica. |
 | 13 | **Multi-seleção — ocultar/mostrar em batch** | 🟡 Broadcast `FEATURE_MODIFIED` para cada feição alterada. Last-write-wins. |
@@ -148,7 +148,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 
 | # | Ação | Impacto Multiusuário |
 |---|------|---------------------|
-| 1 | **Ativar ferramenta** (Ponto, Linha, Polígono, Retângulo, Círculo, Elipse, Setor, Texto, Imagem, Pincel) | 🟢 Estado local do tool manager. Awareness opcional. |
+| 1 | **Ativar ferramenta** (Ponto, Linha, Polígono, Retângulo, Círculo, Elipse, Setor, Texto, Imagem, Pincel) | 🟢 Estado local do tool manager. Awareness (presença em tempo real). |
 | 2 | **Desenhar geometria** (clicks/drag no mapa) | 🟡 Durante o desenho: estado local. Ao completar: `FEATURE_CREATED` via servidor com broadcast para todos. |
 | 3 | **Cancelar desenho** (Escape) | 🟢 Ação local. Descarta geometria parcial. |
 | 4 | **Configurar estilo** (cor, largura, opacidade) no painel | 🟢 Configuração local que será aplicada à feição ao salvar. |
@@ -264,7 +264,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 | 2 | **Zoom** (scroll wheel / pinch) | 🟢 Navegação local. |
 | 3 | **Rotação** (Ctrl+drag / dois dedos) | 🟢 Navegação local. |
 | 4 | **Inclinação (pitch)** (right-click drag / dois dedos) | 🟢 Navegação local. |
-| 5 | **Selecionar feição** (click) | 🟢 Seleção local. Awareness opcional. |
+| 5 | **Selecionar feição** (click) | 🟢 Seleção local. Awareness (presença em tempo real). |
 | 6 | **Multi-seleção** (Shift+click) | 🟢 Seleção local. |
 | 7 | **Multi-seleção touch** (dois dedos tap) | 🟢 Seleção local. |
 | 8 | **Desselecionar tudo** (click em área vazia / Escape) | 🟢 Ação local. |
@@ -518,14 +518,14 @@ mapa) com o formato `{ ativo, modo, unidade, inicio, fim, origem }`.
 **Princípio:** o *flag* `ativo` e a configuração são **estado compartilhado do mapa**
 (broadcast + last-write-wins), mas **cursor, reprodução, velocidade e modo revelar são
 estado de visualização local por usuário** — cada usuário navega sua própria linha do
-tempo sem afetar os demais (análogo a pan/zoom). Awareness opcional pode expor o
+tempo sem afetar os demais (análogo a pan/zoom). Awareness (presença em tempo real) pode expor o
 instante/reprodução de cada usuário.
 
 | # | Ação | Impacto Multiusuário |
 |---|------|---------------------|
 | 1 | **Ativar/desativar controle temporal do mapa** | 🟡 Config escopo de mapa (`ativo`), compartilhada. Broadcast `MAP_TEMPORAL_CHANGED` + `TEMPORAL_CONFIG_CHANGED`. Last-write-wins. Ao receber, clientes mostram/ocultam a barra e aplicam os filtros temporais. |
-| 2 | **Reproduzir / Pausar** (play/pause) | 🟢 Estado de reprodução local por usuário. Cada um reproduz sua própria linha do tempo. Awareness opcional ("Usuário X está em D+3"). |
-| 3 | **Arrastar cursor** (scrub no track — mouse/touch) | 🟢 Posição do cursor é local por usuário. Awareness opcional. |
+| 2 | **Reproduzir / Pausar** (play/pause) | 🟢 Estado de reprodução local por usuário. Cada um reproduz sua própria linha do tempo. Awareness (presença em tempo real) ("Usuário X está em D+3"). |
+| 3 | **Arrastar cursor** (scrub no track — mouse/touch) | 🟢 Posição do cursor é local por usuário. Awareness (presença em tempo real). |
 | 4 | **Navegar cursor pelo teclado** (←/→, um passo de unidade) | 🟢 Navegação local. |
 | 5 | **Velocidade de reprodução** (seletor Nx) | 🟢 Preferência local de reprodução. |
 | 6 | **Modo revelar** (olho — mostrar feições fora do intervalo para edição) | 🟢 Modo de visualização local. Não altera dados (apenas suprime o ocultamento temporal e esmaece). |
@@ -581,7 +581,8 @@ instante/reprodução de cada usuário.
 | Reagendamento (shift temporal em massa) | Operação atômica no servidor + broadcast em batch (não desfazível) |
 | Operações destrutivas (delete) | Soft-delete + broadcast |
 
-### 4. Awareness (Presença) — Opcional
+### 4. Awareness (Presença) — Requisito
+Presença em tempo real é **obrigatória** (não é nice-to-have). O sistema deve expor:
 - Cursor/avatar de cada usuário no mapa (posição do mouse)
 - Lista de usuários online no projeto
 - Indicador de mapa ativo de cada usuário

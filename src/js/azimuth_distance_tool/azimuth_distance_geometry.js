@@ -127,7 +127,13 @@ export function applyDeclination(azimuthDeg, declination, northRef) {
  * @returns {number} Normalized azimuth (0-360)
  */
 export function normalizeAzimuth(azimuth) {
-    return ((azimuth % DEGREES_PER_CIRCLE) + DEGREES_PER_CIRCLE) % DEGREES_PER_CIRCLE;
+    let result = azimuth % DEGREES_PER_CIRCLE;
+    if (result < 0) result += DEGREES_PER_CIRCLE;
+    // Float guard: a tiny negative input can make (azimuth % 360) + 360 round to
+    // exactly 360 — keep the result strictly in [0, 360) so the op stays idempotent
+    // (re-normalizing an already-normalized value returns it unchanged).
+    if (result >= DEGREES_PER_CIRCLE) result -= DEGREES_PER_CIRCLE;
+    return result;
 }
 
 /**

@@ -422,6 +422,8 @@ export class PhoneBottomSheet {
         // Root container
         this._el = document.createElement('div');
         this._el.className = 'phone-bottom-sheet';
+        // Mirror the current snap state onto a stable attribute for styling/testing.
+        this._el.dataset.state = this._state;
 
         // Handle
         this._handleEl = document.createElement('div');
@@ -638,6 +640,11 @@ export class PhoneBottomSheet {
     _setState(newState) {
         const previousState = this._state;
         this._state = newState;
+
+        // Mirror the snap state onto a stable attribute for styling/testing.
+        if (this._el) {
+            this._el.dataset.state = newState;
+        }
 
         // Remove all state modifier classes
         this._el.classList.remove(

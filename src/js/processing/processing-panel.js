@@ -36,6 +36,13 @@ export function createProcessingPanel(options) {
     const panelResult = algorithm.createPanel({ stateManager, eventBus });
     const { element, getParams, validate, ui } = panelResult;
 
+    // Tag the mounted panel with the selected algorithm so the active choice is
+    // observable in the DOM (used by e2e specs and as a stable hook).
+    if (element) {
+        element.dataset.algorithmId = algorithm.id;
+        element.dataset.testid = 'processing-panel';
+    }
+
     if (mapLocked && ui?.executeBtn) {
         ui.executeBtn.disabled = true;
         ui.executeBtn.title = 'Mapa bloqueado para edição';

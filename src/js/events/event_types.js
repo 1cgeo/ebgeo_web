@@ -202,6 +202,12 @@ export const EventTypes = Object.freeze({
     // ===== SYNC =====
     /** Payload: { operation } */
     REMOTE_OPERATION_APPLIED: 'sync:remoteOperationApplied',
+
+    // ===== PRESENCE / AWARENESS =====
+    /** Online users set changed (join/left/away/back/initial). Payload: { users } */
+    PRESENCE_CHANGED: 'presence:changed',
+    /** A user's cursor moved (live cursors). Payload: { mapId } */
+    PRESENCE_CURSORS_CHANGED: 'presence:cursorsChanged',
 });
 
 /**

@@ -1,0 +1,280 @@
+/* Path: src/css/presence.css */
+
+/**
+ * @fileoverview Presence / awareness UI styles (Slice 2 multiuser UX).
+ * BEM blocks: .online-users (roster control) and .remote-cursor (live cursor).
+ *
+ * Visual identity: a per-user color (the deterministic palette in
+ * presence-colors.js) is applied INLINE at runtime — the avatar background and
+ * the cursor's `--presence-color` custom property. Everything else here uses
+ * design-system tokens only (no hardcoded colors). The .mapboxgl-ctrl-group
+ * frosted frame already wraps the roster control.
+ */
+
+/* =========================================================================
+   ONLINE USERS ROSTER
+   IControl-style panel listing connected collaborators.
+   ========================================================================= */
+
+/* Compact cluster in the top-right collaboration bar: overlapping avatar
+   circles + the total count. Anchors the absolute dropdown below it. */
+.online-users {
+    position: relative;
+    display: flex;
+    align-items: center;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+}
+
+.online-users[hidden] {
+    display: none;
+}
+
+/* Toggle = the avatar stack + count. Clicking it opens the named dropdown. */
+.online-users__toggle {
+    display: inline-flex;
+    gap: var(--space-1);
+    align-items: center;
+    padding: var(--space-1) var(--space-2);
+    font-family: inherit;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-700);
+    cursor: pointer;
+    background-color: transparent;
+    border: none;
+    border-radius: var(--radius-full);
+    transition: background-color var(--transition-fast);
+}
+
+.online-users__toggle:hover {
+    background-color: var(--gray-100);
+}
+
+.online-users__toggle:focus-visible {
+    outline: 2px solid var(--color-info);
+    outline-offset: 2px;
+}
+
+/* Overlapping avatar stack — circles tuck under each other, newest on top. */
+.online-users__stack {
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Each circle: initials on the user's stable color, white ring so overlaps
+   read clearly. The name lives in the `title` tooltip (no visible name). */
+.online-users__chip {
+    box-sizing: border-box;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: var(--space-6);
+    height: var(--space-6);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    line-height: 1;
+    color: #fff;
+    text-transform: uppercase;
+    background-color: var(--gray-400);
+    border: 2px solid #fff;
+    border-radius: var(--radius-full);
+}
+
+/* Tuck each subsequent circle under the previous one. */
+.online-users__chip + .online-users__chip {
+    margin-left: -8px;
+}
+
+.online-users__chip--away {
+    opacity: 0.55;
+}
+
+/* Overflow chip ("+N") — neutral grey, not a per-user color. */
+.online-users__chip--more {
+    color: var(--gray-700);
+    background-color: var(--gray-200);
+}
+
+/* Visible total count next to the stack. */
+.online-users__count {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-600);
+}
+
+/* Named dropdown: a white card under the cluster (Google-Docs style). */
+.online-users__list[hidden] {
+    display: none;
+}
+
+.online-users__list {
+    position: absolute;
+    top: calc(100% + var(--space-2));
+    right: 0;
+    /* Above the tool toolbar (--z-toolbar: 20) so the list opens OVER the tools. */
+    z-index: var(--z-floating);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 200px;
+    max-width: 280px;
+    /* Many users: cap the height and scroll instead of growing off-screen. */
+    max-height: min(320px, 60vh);
+    overflow-y: auto;
+    margin: 0;
+    padding: var(--space-2);
+    list-style: none;
+    background: #fff;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+}
+
+.online-users__item {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-md);
+    transition: background-color var(--transition-fast);
+}
+
+.online-users__item:hover {
+    background-color: var(--gray-50);
+}
+
+/* Away peers: visually attenuated (case G). */
+.online-users__item--away {
+    opacity: 0.55;
+}
+
+/* ---- Avatar (initials on a per-user color set inline at runtime) ---- */
+.online-users__avatar {
+    position: relative;
+    box-sizing: border-box;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: var(--space-8);
+    height: var(--space-8);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    line-height: 1;
+    color: #fff;
+    text-transform: uppercase;
+    /* Fallback only — runtime overrides via inline background-color. */
+    background-color: var(--gray-400);
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-sm);
+}
+
+/* ---- Status dot (online = green, away = grey) anchored on the avatar ---- */
+.online-users__status {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    box-sizing: border-box;
+    width: var(--space-3);
+    height: var(--space-3);
+    background-color: var(--color-success);
+    border: 2px solid #fff;
+    border-radius: var(--radius-full);
+}
+
+.online-users__item--away .online-users__status {
+    background-color: var(--gray-400);
+}
+
+/* ---- Text column: name + awareness subtext ---- */
+.online-users__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0; /* allow ellipsis inside flex */
+}
+
+.online-users__name {
+    overflow: hidden;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-800);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.online-users__meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+/* Discreet awareness subtext (active map / briefing / temporal / away / sel).
+   max-width bounds a very long map name so it ellipsizes instead of overflowing. */
+.online-users__meta {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.online-users__meta:not(:last-child)::after {
+    margin-left: var(--space-1);
+    color: var(--gray-300);
+    content: "·";
+}
+
+/* =========================================================================
+   REMOTE CURSOR
+   Colored pointer (arrow) + name label. Position is applied at runtime by the
+   marker; the per-user color arrives via the inline `--presence-color` prop.
+   ========================================================================= */
+
+.remote-cursor {
+    position: relative;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+/* Arrow/pointer built from borders, tinted with the user's presence color. */
+.remote-cursor__pointer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    width: var(--space-4);
+    height: var(--space-4);
+    background-color: var(--presence-color, var(--color-info));
+    border: 2px solid #fff;
+    box-shadow: var(--shadow-md);
+    /* Teardrop/pointer: round 3 corners, keep the top-left sharp. */
+    border-radius: var(--radius-full) var(--radius-full) var(--radius-full) 2px;
+    transform: translate(-2px, -2px);
+}
+
+.remote-cursor__label {
+    position: absolute;
+    top: 0;
+    left: calc(var(--space-4) + var(--space-1));
+    max-width: 160px;
+    padding: var(--space-1) var(--space-2);
+    overflow: hidden;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-tight);
+    color: #fff;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background-color: var(--presence-color, var(--color-info));
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+}

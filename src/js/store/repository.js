@@ -21,6 +21,7 @@ import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
 import config from '../config.js';
 import { createSyncMetadata } from './sync/sync-metadata.js';
 import { DEFAULT_MAP_NAME } from './store.constants.js';
+import { logAtlasSetting } from './sync/operation-dispatcher.js';
 
 // Re-export from repository.utils.js for backward compatibility
 export {
@@ -407,6 +408,10 @@ export async function getColorUsage(mapName) {
  */
 export async function setColorUsage(mapName, colorUsageData) {
     await appStore.setItem(`color_usage_${mapName}`, colorUsageData);
+    // datamodel-13: sync this map's color usage to the atlas as a per-map nested
+    // object ({ [mapName]: counts }). No-op offline; the backend deep-merges into
+    // atlas.settings.colorUsage so a single-map write does not clobber sibling maps.
+    await logAtlasSetting({ colorUsage: { [mapName]: colorUsageData } });
 }
 
 /**

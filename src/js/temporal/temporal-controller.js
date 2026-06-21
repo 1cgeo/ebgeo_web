@@ -118,6 +118,24 @@ export class TemporalController {
         return this._bounds;
     }
 
+    /** @returns {boolean} Whether playback is currently running. */
+    isPlaying() {
+        return this._playing;
+    }
+
+    /**
+     * Active display context for label formatting (mode/origin/unit), mirroring
+     * what the bar receives. Used by presence to label a peer's temporal instant.
+     * @returns {{ modo: (string|null), origem: (number|null), unidade: (string|null) }}
+     */
+    getTimeContext() {
+        const config = this._config || {};
+        const origem = Number.isFinite(config.origem)
+            ? config.origem
+            : (this._bounds ? this._bounds.inicio : null);
+        return { modo: config.modo ?? null, origem, unidade: config.unidade ?? null };
+    }
+
     /** Re-reads config/features for the active map and re-applies render state. */
     sync() {
         return this._syncForActiveMap();

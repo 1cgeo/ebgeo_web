@@ -11,6 +11,7 @@ const { mockMapData, mockMapManager, mockLockedMaps } = vi.hoisted(() => {
         mockMapManager: {
             getCurrentMapName: vi.fn(() => 'TestMap'),
             getCurrentMapId: vi.fn(() => 'map-uuid-123'),
+            getMapId: vi.fn(() => 'map-uuid-123'),
             getFeatureColor: vi.fn(() => null),
             getFeatureColors: vi.fn(() => []),
             updateColorUsage: vi.fn(),
@@ -74,6 +75,7 @@ import {
     removeFeatureSilent,
     deleteLayerFeatures,
     getLayerFeatures,
+    shiftMapTemporalTimes,
     setFeatureDependencies
 } from '../../src/js/store/feature.operations.js';
 
@@ -110,6 +112,7 @@ beforeEach(() => {
     mockMapData.value = getEmptyMapData();
     mockMapManager.getCurrentMapName.mockReturnValue('TestMap');
     mockMapManager.getCurrentMapId.mockReturnValue('map-uuid-123');
+    mockMapManager.getMapId.mockReturnValue('map-uuid-123');
     mockMapManager.getFeatureColor.mockReturnValue(null);
     mockMapManager.getFeatureColors.mockReturnValue([]);
     isCurrentMapLockedSync.mockReturnValue(false);
@@ -785,6 +788,171 @@ describe('getLayerFeatures', () => {
         const features = await getLayerFeatures('default');
 
         expect(features).toHaveLength(1);
+    });
+});
+
+// ============================================================================
+// shiftMapTemporalTimes (Reagendar)
+// ============================================================================
+
+describe('shiftMapTemporalTimes', () => {
+    it('shifts temporalInicio/temporalFim and trajectory t values by deltaMs', async () => {
+        const symbol = makeFeature('s1', 'military_symbol', {
+            temporalInicio: 1000,
+            temporalFim: 5000,
+            trajetoria: [{ t: 1000 }, { t: 3000 }, { t: 5000 }]
+        });
+        mockMapData.value.features.military_symbols.push(symbol);
+
+        const changed = await shiftMapTemporalTimes('TestMap', 2000);
+
+        expect(changed).toBe(1);
+        const savedData = updateMapDataCompat.mock.calls[0][1];
+        const saved = savedData.features.military_symbols[0].properties;
+        expect(saved.temporalInicio).toBe(3000);
+        expect(saved.temporalFim).toBe(7000);
+        expect(saved.trajetoria.map(kp => kp.t)).toEqual([3000, 5000, 7000]);
+    });
+
+    it('enqueues a feature UPDATE op per shifted feature carrying the shifted timestamps', async () => {
+        const symbol = makeFeature('s1', 'military_symbol', {
+            temporalInicio: 1000,
+            temporalFim: 5000,
+            trajetoria: [{ t: 1000 }, { t: 5000 }]
+        });
+        const measure = makeFeature('m1', 'coordination_measure', {
+            temporalInicio: 2000,
+            temporalFim: 8000
+        });
+        mockMapData.value.features.military_symbols.push(symbol);
+        mockMapData.value.features.coordination_measures.push(measure);
+
+        const changed = await shiftMapTemporalTimes('TestMap', 2000);
+
+        expect(changed).toBe(2);
+        expect(logFeatureOperation).toHaveBeenCalledTimes(2);
+
+        // op for the military symbol carries the shifted window + trajectory t values
+        expect(logFeatureOperation).toHaveBeenCalledWith(
+            'UPDATE',
+            's1',
+            'map-uuid-123',
+            expect.objectContaining({
+                properties: expect.objectContaining({
+                    temporalInicio: 3000,
+                    temporalFim: 7000,
+                    trajetoria: [{ t: 3000 }, { t: 7000 }]
+                })
+            }),
+            expect.objectContaining({
+                properties: expect.objectContaining({ temporalInicio: 1000, temporalFim: 5000 })
+            })
+        );
+
+        // op for the coordination measure carries its own shifted window
+        expect(logFeatureOperation).toHaveBeenCalledWith(
+            'UPDATE',
+            'm1',
+            'map-uuid-123',
+            expect.objectContaining({
+                properties: expect.objectContaining({ temporalInicio: 4000, temporalFim: 10000 })
+            }),
+            expect.objectContaining({
+                properties: expect.objectContaining({ temporalInicio: 2000, temporalFim: 8000 })
+            })
+        );
+    });
+
+    it('only logs ops for features that actually have temporal fields', async () => {
+        const symbol = makeFeature('s1', 'military_symbol', { temporalInicio: 1000 });
+        const plain = makeFeature('p1'); // no temporal data
+        mockMapData.value.features.military_symbols.push(symbol);
+        mockMapData.value.features.points.push(plain);
+
+        const changed = await shiftMapTemporalTimes('TestMap', 500);
+
+        expect(changed).toBe(1);
+        expect(logFeatureOperation).toHaveBeenCalledTimes(1);
+        expect(logFeatureOperation).toHaveBeenCalledWith(
+            'UPDATE',
+            's1',
+            'map-uuid-123',
+            expect.objectContaining({ properties: expect.objectContaining({ temporalInicio: 1500 }) }),
+            expect.any(Object)
+        );
+    });
+
+    it('bumps updatedAt/version on shifted features (sync metadata)', async () => {
+        const symbol = makeFeature('s1', 'military_symbol', {
+            temporalInicio: 1000,
+            createdAt: 1,
+            updatedAt: 1,
+            version: 2
+        });
+        mockMapData.value.features.military_symbols.push(symbol);
+
+        await shiftMapTemporalTimes('TestMap', 1000);
+
+        const savedData = updateMapDataCompat.mock.calls[0][1];
+        const saved = savedData.features.military_symbols[0].properties;
+        expect(saved.version).toBe(3);
+        expect(saved.updatedAt).toBeGreaterThan(1);
+    });
+
+    it('is a no-op (no persist, no ops) when delta is 0 or non-finite', async () => {
+        const symbol = makeFeature('s1', 'military_symbol', { temporalInicio: 1000 });
+        mockMapData.value.features.military_symbols.push(symbol);
+
+        expect(await shiftMapTemporalTimes('TestMap', 0)).toBe(0);
+        expect(await shiftMapTemporalTimes('TestMap', NaN)).toBe(0);
+
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(logFeatureOperation).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when no feature carries temporal data', async () => {
+        mockMapData.value.features.points.push(makeFeature('p1'));
+
+        const changed = await shiftMapTemporalTimes('TestMap', 1000);
+
+        expect(changed).toBe(0);
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(logFeatureOperation).not.toHaveBeenCalled();
+    });
+
+    it('blocks (and emits no ops) on a locked map', async () => {
+        isCurrentMapLockedSync.mockReturnValue(true);
+        mockMapData.value.features.military_symbols.push(
+            makeFeature('s1', 'military_symbol', { temporalInicio: 1000 })
+        );
+
+        const changed = await shiftMapTemporalTimes('TestMap', 1000);
+
+        expect(changed).toBe(0);
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(logFeatureOperation).not.toHaveBeenCalled();
+    });
+
+    it('persists once for the whole batch (atomic)', async () => {
+        mockMapData.value.features.military_symbols.push(
+            makeFeature('s1', 'military_symbol', { temporalInicio: 1000 }),
+            makeFeature('s2', 'military_symbol', { temporalInicio: 2000 })
+        );
+
+        await shiftMapTemporalTimes('TestMap', 1000);
+
+        expect(updateMapDataCompat).toHaveBeenCalledOnce();
+    });
+
+    it('persistence failure prevents sync logging (offline-safe atomicity)', async () => {
+        updateMapDataCompat.mockRejectedValueOnce(new Error('IndexedDB write failed'));
+        mockMapData.value.features.military_symbols.push(
+            makeFeature('s1', 'military_symbol', { temporalInicio: 1000 })
+        );
+
+        await expect(shiftMapTemporalTimes('TestMap', 1000)).rejects.toThrow('IndexedDB write failed');
+
+        expect(logFeatureOperation).not.toHaveBeenCalled();
     });
 });
 

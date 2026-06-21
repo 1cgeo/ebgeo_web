@@ -15,8 +15,8 @@ export const IMAGE_CONFIG = {
     maxDimension: 2048,
     thumbnailSize: 150,
     thumbnailQuality: 0.7,
-    allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
-    allowedExtensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp'],
+    allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp'],
 };
 
 /**
@@ -49,7 +49,7 @@ export function validateImageFile(file) {
     }
 
     if (!IMAGE_CONFIG.allowedTypes.includes(file.type)) {
-        return { valid: false, reason: 'Tipo de arquivo não suportado (use JPEG, PNG, GIF ou WebP)' };
+        return { valid: false, reason: 'Tipo de arquivo não suportado (use JPEG, PNG ou WebP)' };
     }
 
     return { valid: true };

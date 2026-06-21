@@ -102,7 +102,10 @@ export {
     logBaseLayerOperation,
     logMapNotesOperation,
     logCatalogLayerOperation,
-    logGridStyleOperation
+    logGridStyleOperation,
+    logMapTemporalOperation,
+    logSettingOperation,
+    logAtlasSetting
 } from './operation-dispatcher.js';
 
 // Session context
@@ -137,8 +140,40 @@ export {
 // Remote operation handler
 export {
     applyRemoteOperation,
+    applyRemoteSnapshot,
     setRemoteHandlerEventBus
 } from './remote-operation-handler.js';
+
+// API client
+export {
+    apiClient,
+    ApiClient,
+    configureApiClient,
+    ApiError
+} from './api-client.js';
+
+// WebSocket client
+export {
+    wsClient,
+    WsClient
+} from './ws-client.js';
+
+// Sync engine
+export {
+    syncEngine
+} from './sync-engine.js';
+
+// Runtime config (deep-merge backend /api/config into static config)
+export {
+    applyRuntimeConfig,
+    resolveBackendBaseUrl
+} from './runtime-config.js';
+
+// Auto-flush driver (periodic + change-driven engine.flush())
+export {
+    startAutoFlush,
+    stopAutoFlush
+} from './sync-flush.js';
 
 // Sync scheduler
 export {

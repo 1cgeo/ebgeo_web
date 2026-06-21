@@ -14,6 +14,9 @@
 
 import { initializeAppConfig } from './config-loader.js';
 import { initConfigHelpers } from './config.helpers.js';
+import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-config.js';
+import { syncEngine } from '@store/sync/sync-engine.js';
+import { apiClient } from '@store/sync/api-client.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
 import { initServices } from './store';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
@@ -29,6 +32,17 @@ import { initTabLock } from '@utils/tab-lock.js';
  */
 async function initApp() {
     // Phase 1: Config (synchronous, no dependencies)
+    // Point the sync engine at the backend and deep-merge the remote /api/config
+    // into the static config BEFORE the helpers read it. Both steps are
+    // fail-safe: if the backend is down, the anonymous/offline path boots
+    // unchanged on the static config.
+    try {
+        syncEngine.configure({ baseUrl: resolveBackendBaseUrl() });
+    } catch (error) {
+        console.warn('Sync engine configuration failed (offline path):', error);
+    }
+    await applyRuntimeConfig({ apiClient });
+
     initializeAppConfig();
     initConfigHelpers();
 

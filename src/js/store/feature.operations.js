@@ -256,7 +256,7 @@ export async function addFeature(type, feature, mapName = null) {
         }
 
         tx.deferAsync(() => {
-            const mapId = mapManager.getCurrentMapId();
+            const mapId = mapManager.getMapId(targetMap);
             return logFeatureOperation(OperationType.CREATE, cleanedFeature.properties.id, mapId, cleanedFeature);
         });
 
@@ -316,7 +316,7 @@ export async function updateFeature(type, feature, mapName = null) {
         }
 
         tx.deferAsync(() => {
-            const mapId = mapManager.getCurrentMapId();
+            const mapId = mapManager.getMapId(targetMap);
             return logFeatureOperation(OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature);
         });
 
@@ -374,7 +374,7 @@ export async function removeFeature(type, id, mapName = null) {
         }
 
         tx.deferAsync(() => {
-            const mapId = mapManager.getCurrentMapId();
+            const mapId = mapManager.getMapId(targetMap);
             return logFeatureOperation(OperationType.DELETE, id, mapId, null, mainFeature);
         });
 
@@ -431,6 +431,14 @@ export async function removeFeatureFromMap(type, id, mapName) {
 
         tx.deferSync(() => {
             deps.groupManager.removeFeatureFromAllGroups(mainFeature.properties.source, id, mapName);
+        });
+
+        // Emit the DELETE op so the source-map removal SYNCS (this is the source half of
+        // moveFeaturesToMap). Without it, a moved feature stayed on the source map for
+        // every other client — it left but they never saw it leave.
+        tx.deferAsync(() => {
+            const mapId = mapManager.getMapId(mapName);
+            return logFeatureOperation(OperationType.DELETE, id, mapId, null, mainFeature);
         });
 
         return () => updateMapDataCompat(mapName, mapData);
@@ -590,7 +598,7 @@ export async function updateFeatureProperty(featureType, featureId, property, va
         }
 
         tx.deferAsync(() => {
-            const mapId = mapManager.getCurrentMapId();
+            const mapId = mapManager.getMapId(targetMap);
             return logFeatureOperation(OperationType.UPDATE, featureId, mapId, feature, oldFeature);
         });
 
@@ -622,9 +630,9 @@ function rederiveAutoDtg(type, p) {
  * Shifts every temporal timestamp on a map's features by `deltaMs`:
  * `temporalInicio`, `temporalFim`, and each trajectory keypoint's `t`. Driven by
  * the explicit "Reagendar" action (move the whole exercise to a new real D-Day,
- * keeping the D+N offsets). Atomic (one transaction, one persist). Not undoable
- * and not logged to the sync queue (offline no-op today); reverse it by
- * rescheduling back.
+ * keeping the D+N offsets). Atomic (one transaction, one persist). Not undoable.
+ * Each shifted feature emits a `feature` UPDATE op (carrying the shifted temporal
+ * fields) so collaborators receive the new window; the logger is a no-op offline.
  * @param {string|null} mapName - Target map (null = current).
  * @param {number} deltaMs - Amount to add to each temporal timestamp.
  * @returns {Promise<number>} Number of features changed.
@@ -635,12 +643,16 @@ export async function shiftMapTemporalTimes(mapName, deltaMs) {
     if (guardWrite(GuardAction.UPDATE_FEATURE, 'shiftMapTemporalTimes', targetMap).blocked) return 0;
 
     const currentMapData = await getMapDataCompat(targetMap);
-    let changed = 0;
+    // Collect shifted features so each can emit a feature UPDATE op after the single
+    // persist. Snapshot the pre-shift feature for the op's previousData, mirroring
+    // updateFeature's logFeatureOperation(UPDATE, ...) call shape.
+    const shifted = [];
     for (const type of Object.keys(currentMapData.features)) {
         for (const feature of currentMapData.features[type]) {
             const p = feature.properties;
             if (!p) continue;
             let touched = false;
+            const oldFeature = deepClone(feature);
             if (Number.isFinite(p.temporalInicio)) { p.temporalInicio += deltaMs; touched = true; }
             if (Number.isFinite(p.temporalFim)) { p.temporalFim += deltaMs; touched = true; }
             if (Array.isArray(p.trajetoria)) {
@@ -651,15 +663,24 @@ export async function shiftMapTemporalTimes(mapName, deltaMs) {
             if (touched) {
                 rederiveAutoDtg(type, p); // keep auto DTG/GDH amplifiers in sync with the shifted window
                 touchUpdatedTimestamp(feature);
-                changed++;
+                shifted.push({ feature, oldFeature });
             }
         }
     }
 
-    if (changed === 0) return 0;
+    if (shifted.length === 0) return 0;
 
-    await runTransaction(async () => () => updateMapDataCompat(targetMap, currentMapData));
-    return changed;
+    await runTransaction(async (tx) => {
+        tx.deferAsync(async () => {
+            const mapId = mapManager.getMapId(targetMap);
+            for (const { feature, oldFeature } of shifted) {
+                await logFeatureOperation(OperationType.UPDATE, feature.properties.id, mapId, feature, oldFeature);
+            }
+        });
+
+        return () => updateMapDataCompat(targetMap, currentMapData);
+    });
+    return shifted.length;
 }
 
 // ===== MOVE OPERATIONS =====

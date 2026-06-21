@@ -19,6 +19,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run --config vitest.e2e.config.js",
+    "test:e2e:ui": "playwright test",
+    "test:e2e:mega": "playwright test browser-collab-mega --headed",
     "build_dev": "vite build"
   },
   "dependencies": {
@@ -41,6 +44,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@playwright/test": "^1.49.0",
     "@vitejs/plugin-legacy": "^5.4.0",
     "@vitest/coverage-v8": "^4.1.8",
     "eslint": "^9.17.0",

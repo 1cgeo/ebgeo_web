@@ -146,6 +146,17 @@ export async function getPhotoDisplayName(photoId) {
 let _projectsCache = null;
 
 /**
+ * Normalizes a projects API response into a plain array.
+ * Accepts both the bare-array shape (`GET /sv360/projects`) and the
+ * legacy `{ projects: [...] }` envelope. Always returns an array.
+ * @param {*} data - Parsed JSON response body
+ * @returns {Array} Array of project objects (empty if none)
+ */
+export function normalizeProjects(data) {
+  return Array.isArray(data) ? data : (data?.projects ?? []);
+}
+
+/**
  * Fetches all projects from the service with caching.
  * First call fetches from API; subsequent calls return the cache.
  * @param {boolean} [forceRefresh=false] - Force a fresh API call
@@ -159,7 +170,7 @@ export async function fetchProjects(forceRefresh = false) {
     throw new Error(`Failed to fetch projects (HTTP ${response.status})`);
   }
   const data = await response.json();
-  _projectsCache = data.projects;
+  _projectsCache = normalizeProjects(data);
   return _projectsCache;
 }
 

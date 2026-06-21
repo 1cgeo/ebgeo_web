@@ -8,6 +8,7 @@ import {
   getActiveLayerIdSync
 } from "../../store";
 import { IDUtils, showError, loadImageToMap as utilLoadImageToMap } from "../../utilities";
+import { uploadImageBlob } from "../../store/sync/image-sync.js";
 import { addImageAttributesToPanel } from "./image_attributes_panel.js";
 import AddImageGeometry from "./add_image_geometry.js";
 import { BaseControl } from "../../tool_manager";
@@ -294,12 +295,14 @@ class AddImageControl extends BaseControl {
   };
 
   addImageFeature = async (lngLat, imageBase64) => {
-    const imageId = IDUtils.generateUniqueId();
-
     this.resizeImage(imageBase64, async (resizedImageBase64, width, height) => {
       try {
         const response = await fetch(resizedImageBase64);
         const blob = await response.blob();
+        // §17.14: when online, upload so collaborators can fetch the photo; the
+        // backend image id becomes the feature's imageId. Offline → a local id.
+        const uploaded = await uploadImageBlob(blob, 'photo.png');
+        const imageId = uploaded?.id || IDUtils.generateUniqueId();
         await storeImage(imageId, blob);
 
         const feature = this.createImageFeature(lngLat, imageId, width, height);
