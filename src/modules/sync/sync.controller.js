@@ -8,7 +8,8 @@ export const pushOperations = asyncHandler(async (req, res) => {
   const result = await syncService.pushOperations(
     req.atlasId,
     req.body.operations,
-    req.user.id
+    req.user.id,
+    req.atlasPermission
   );
 
   // Broadcast the pushed operations to WS peers for real-time updates.

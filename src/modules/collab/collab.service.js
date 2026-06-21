@@ -17,20 +17,12 @@ const DELETE_SESSION = `
   WHERE user_id = $1 AND atlas_id = $2 AND client_id = $3
 `;
 
-const UPDATE_SESSION_HEARTBEAT = `
-  UPDATE active_sessions
-  SET last_heartbeat = NOW()
-  WHERE user_id = $1 AND atlas_id = $2 AND client_id = $3
-`;
-
-const UPDATE_SESSION_PRESENCE = `
-  UPDATE active_sessions
-  SET cursor_position = $4::jsonb,
-      current_map_id = $5,
-      selected_features = $6::uuid[],
-      last_heartbeat = NOW()
-  WHERE user_id = $1 AND atlas_id = $2 AND client_id = $3
-`;
+// NOTE (B-be1): live presence is NOT persisted. Cursor position, current map,
+// selected features and temporal state are held in-memory on the `ws` object
+// (see collab.gateway.js / collab.handlers.js: ws.cursorPosition / ws.currentMapId /
+// ws.selectedFeatures / ws.temporalState) and broadcast to the room. Per-cursor DB
+// writes would be wasteful, so the old updateSessionPresence/updateSessionHeartbeat
+// helpers were removed. `active_sessions` only tracks connect/disconnect.
 
 /**
  * Creates a session record for a WebSocket connection.
@@ -53,35 +45,6 @@ export async function deleteSession(userId, atlasId, clientId) {
     await query(DELETE_SESSION, [userId, atlasId, clientId]);
   } catch (err) {
     logger.error({ err, userId, atlasId }, 'Failed to delete session');
-  }
-}
-
-/**
- * Updates session heartbeat timestamp.
- */
-export async function updateSessionHeartbeat(userId, atlasId, clientId) {
-  try {
-    await query(UPDATE_SESSION_HEARTBEAT, [userId, atlasId, clientId]);
-  } catch (err) {
-    logger.error({ err, userId, atlasId }, 'Failed to update session heartbeat');
-  }
-}
-
-/**
- * Updates session presence data.
- */
-export async function updateSessionPresence(userId, atlasId, clientId, presence) {
-  try {
-    await query(UPDATE_SESSION_PRESENCE, [
-      userId,
-      atlasId,
-      clientId,
-      presence.cursorPosition ? JSON.stringify(presence.cursorPosition) : null,
-      presence.currentMapId || null,
-      presence.selectedFeatures || [],
-    ]);
-  } catch (err) {
-    logger.error({ err, userId, atlasId }, 'Failed to update session presence');
   }
 }
 

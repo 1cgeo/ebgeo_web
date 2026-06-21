@@ -30,6 +30,11 @@ CREATE TABLE operations (
     client_id           TEXT NOT NULL,
     server_version      BIGINT NOT NULL DEFAULT nextval('atlas_version_seq'),
 
+    -- Lamport clock (lógico) carregado pela op do frontend. NÃO decide o vencedor
+    -- (LWW é por ordem de chegada ao servidor) — persistido só para ecoar no pull
+    -- incremental, deixando o cliente avançar seu Lamport clock a cada op recebida.
+    lamport_timestamp   BIGINT,
+
     -- Idempotência: id da operação fornecido pelo cliente (TEXT, formato livre).
     op_id               TEXT,
 

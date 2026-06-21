@@ -242,7 +242,10 @@ export async function deleteUser(userId, adminId, transferToUserId = null, req =
  */
 export async function rotateApiKey(userId, actorId, req = null) {
   return tx(async (t) => {
-    const row = await t.one(Q.ROTATE_API_KEY, [userId, actorId]);
+    // oneOrNone (not one): a nonexistent user matches 0 rows; map that to a
+    // clean 404 instead of letting pg-promise's QueryResultError surface as 500.
+    const row = await t.oneOrNone(Q.ROTATE_API_KEY, [userId, actorId]);
+    if (!row) throw new NotFoundError('User');
     await createAudit(req, {
       action: 'API_KEY_ROTATE',
       actorId,

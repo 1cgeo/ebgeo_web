@@ -142,7 +142,9 @@ const config = Object.freeze({
  */
 export function validateEnvVariables() {
   const errors = [];
-  const isProd = nodeEnv === 'production';
+  // Read NODE_ENV at call time (not the import-time const) so boot-time env
+  // overrides and tests exercise the production branch deterministically.
+  const isProd = (process.env.NODE_ENV || 'development') === 'production';
 
   // Database
   if (!process.env.DATABASE_URL) errors.push('DATABASE_URL é obrigatório');
@@ -161,6 +163,11 @@ export function validateEnvVariables() {
   }
 
   // CORS
+  if (isProd && !process.env.CORS_ORIGIN) {
+    // In production CORS_ORIGIN MUST be set explicitly — the localhost default is
+    // a dev-only placeholder and must never be relied on for a deployed origin.
+    errors.push('CORS_ORIGIN é obrigatório em produção');
+  }
   if (process.env.CORS_ORIGIN) {
     try {
       new URL(process.env.CORS_ORIGIN);

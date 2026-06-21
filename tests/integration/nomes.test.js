@@ -103,12 +103,14 @@ describe('Gazetteer (nomes geográficos)', () => {
     assert.equal(morros.length, 1);
   });
 
-  it('GET /nomes/busca requires auth and validates input', async () => {
-    await supertest(app).get('/api/v1/nomes/busca').query({ q: 'Rio', lat: -22.9, lon: -43.2 }).expect(401);
+  it('GET /nomes/busca allows anonymous access and validates input', async () => {
+    // Frozen contract: the gazetteer search is the frontend's config.search.apiUrl and
+    // must work WITHOUT a token (anonymous => public-only via the embedded SQL filter).
+    await supertest(app).get('/api/v1/nomes/busca').query({ q: 'Rio', lat: -22.9, lon: -43.2 }).expect(200);
+    // Validation still applies on the anonymous path (q too short -> 422 before the DB).
     await supertest(app)
       .get('/api/v1/nomes/busca')
-      .query({ q: 'Ri', lat: -22.9, lon: -43.2 }) // q too short
-      .set('Authorization', `Bearer ${token}`)
+      .query({ q: 'Ri', lat: -22.9, lon: -43.2 })
       .expect(422);
   });
 

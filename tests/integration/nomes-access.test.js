@@ -88,6 +88,21 @@ describe('Geographic access control (nomes + feicoes + zones admin)', () => {
     assert.ok(res.body.some((r) => r.nome === 'Base Secreta'));
   });
 
+  // /busca is anonymous-accessible (frontend config.search.apiUrl, no token). The
+  // embedded SQL access filter ($5 userId null) must still hold: public yes, private no.
+  const buscaAnon = (q) =>
+    supertest(app).get('/api/v1/nomes/busca').query({ q, lat: -22.9, lon: -43.2 }).expect(200);
+
+  it('anonymous busca returns public names (no auth required)', async () => {
+    const res = await buscaAnon('Praca Publica');
+    assert.ok(res.body.some((r) => r.nome === 'Praca Publica'));
+  });
+
+  it('anonymous busca HIDES private names (negative case)', async () => {
+    const res = await buscaAnon('Base Secreta');
+    assert.ok(!res.body.some((r) => r.nome === 'Base Secreta'));
+  });
+
   it('identify (/feicoes) respects zone access', async () => {
     const q = { lat: -22.9, lon: -43.2, z: 25 };
     const withRes = await supertest(app).get('/api/v1/nomes/feicoes').query(q).set('Authorization', `Bearer ${withTok}`).expect(200);

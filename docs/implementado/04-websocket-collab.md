@@ -54,10 +54,10 @@ janela de graça `away` (ver §4) não encontra o timer pendente para cancelar.
 
 ```javascript
 // Frontend: gere uma vez e persista
-let clientId = localStorage.getItem('ebgeo.clientId');
+let clientId = localStorage.getItem('ebgeo_client_id');
 if (!clientId) {
   clientId = crypto.randomUUID();        // casa com o regex do servidor
-  localStorage.setItem('ebgeo.clientId', clientId);
+  localStorage.setItem('ebgeo_client_id', clientId);
 }
 const url = `ws://${HOST}/api/v1/collab?atlasId=${atlasId}&token=${token}&clientId=${clientId}`;
 ```
@@ -565,10 +565,10 @@ class CollabWebSocket {
   }
 
   getOrCreateClientId() {
-    let id = localStorage.getItem('ebgeo.clientId');
+    let id = localStorage.getItem('ebgeo_client_id');
     if (!id) {
       id = crypto.randomUUID();              // casa com ^[a-zA-Z0-9_-]{8,64}$
-      localStorage.setItem('ebgeo.clientId', id);
+      localStorage.setItem('ebgeo_client_id', id);
     }
     return id;
   }

@@ -22,6 +22,9 @@ const operationSchema = Joi.object({
   data: Joi.object().unknown(true).allow(null),
   changes: Joi.object().unknown(true).allow(null),
   timestamp: Joi.number(),
+  // Logical clock. Load-bearing: the frontend calls advanceLamportClock() with this
+  // on every inbound op, so it is persisted and echoed back on incremental pull.
+  lamportTimestamp: Joi.number(),
   clientId: Joi.string(),
 })
   .or('entityType', 'target')

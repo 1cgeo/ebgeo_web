@@ -276,6 +276,7 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   ws.cursorPosition = null;
   ws.currentMapId = null;
   ws.selectedFeatures = [];
+  ws.temporalState = null;
 
   // Create session (skip for public visitors: their `sub` is `public-<uuid>`,
   // which has no row in `users` and would break the active_sessions FK).
@@ -338,6 +339,10 @@ function handleMessage(ws, data) {
 
     case 'cursor':
       handlers.handleCursor(ws, data);
+      break;
+
+    case 'temporal':
+      handlers.handleTemporal(ws, data);
       break;
 
     case 'selection':

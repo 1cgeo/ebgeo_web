@@ -1,7 +1,18 @@
 // Path: src/modules/sync/sync.service.js
 import { query, tx, task } from '../../database/index.js';
-import { ForbiddenError } from '../../utils/errors.js';
+import { ForbiddenError, ConflictError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
+
+/**
+ * Whitelisted `setting` op keys whose value is a KEYED OBJECT that must be
+ * deep-merged (one level) into its own sub-object inside atlas.settings, so a
+ * per-map write accumulates instead of clobbering sibling maps:
+ *  - mapBadgeColors: { [mapName]: color }     (datamodel-13)
+ *  - colorUsage:     { [mapName]: { color: count } }  (datamodel-13)
+ * Plain/scalar keys (terrainExaggeration) and list keys (customIcons) are
+ * replaced wholesale via the top-level shallow merge instead.
+ */
+const SETTING_OBJECT_KEYS = ['mapBadgeColors', 'colorUsage'];
 
 /**
  * Maps frontend-specific entity types to backend generic types.
@@ -95,19 +106,74 @@ function buildDynamicUpdate(table, changes, fields, whereValues, whereClause) {
   };
 }
 
+// Meta keys that live as their OWN columns and are NOT part of the cesium3d/
+// streetview360 JSONB `data` payload. Everything else on a flat entity is `data`.
+const ENTITY_3D360_META = ['id', 'sync', 'data_type', 'tilesetId', 'tileset_id', 'photoName', 'photo_name', 'data'];
+
+/**
+ * Reshapes a cesium3d/streetview360 payload into the backend envelope
+ * `{ data_type, tileset_id|photo_name, data: {...rest} }`.
+ *
+ * Accepts BOTH shapes (frozen-contract tolerance):
+ *  - FLAT (what the real frontend emits): `{ id, tilesetId|photoName, position,
+ *    properties, style, sync, ... }` — camelCase, fields at the top level.
+ *  - NESTED (legacy/tests): `{ data_type, tileset_id, data: {...} }` — passes through.
+ * The snapshot OUT transform spreads `...item.data`, so the inner object must hold
+ * everything except the id/tileset_id/photo_name/sync meta (round-trip symmetric).
+ */
+function reshape3d360Payload(rawData, mapping) {
+  if (!rawData || typeof rawData !== 'object') {
+    return { data_type: mapping.dataType };
+  }
+  const isNested = rawData.data && typeof rawData.data === 'object' && !Array.isArray(rawData.data);
+  const inner = isNested
+    ? rawData.data
+    : Object.fromEntries(Object.entries(rawData).filter(([k]) => !ENTITY_3D360_META.includes(k)));
+
+  const out = { data_type: rawData.data_type || mapping.dataType, data: inner };
+  if (mapping.target === 'cesium3d') {
+    const tid = rawData.tileset_id ?? rawData.tilesetId;
+    if (tid !== undefined) out.tileset_id = tid;
+  } else if (mapping.target === 'streetview360') {
+    const pn = rawData.photo_name ?? rawData.photoName;
+    if (pn !== undefined) out.photo_name = pn;
+  }
+  return out;
+}
+
+/**
+ * The frontend stores a feature as a GeoJSON Feature whose TYPE lives in
+ * `properties.source` and whose layer lives in `properties.layerId`. The backend
+ * persists `feature_type`/`layer_id` as columns. Derive the flat columns from the
+ * properties when the top-level fields are absent (so the raw GeoJSON `data` works).
+ */
+function deriveFeatureColumns(rawData) {
+  if (!rawData || typeof rawData !== 'object' || !rawData.properties || typeof rawData.properties !== 'object') {
+    return rawData;
+  }
+  const props = rawData.properties;
+  const patch = {};
+  if (rawData.feature_type === undefined && props.source !== undefined) patch.feature_type = props.source;
+  if (rawData.layer_id === undefined && props.layerId !== undefined) patch.layer_id = props.layerId;
+  return Object.keys(patch).length ? { ...rawData, ...patch } : rawData;
+}
+
 /**
  * Normalizes operation field names from frontend format to internal format.
  * Frontend uses: entityType, operationType, entityId
  * Internal uses: target, type, targetId (for DB compatibility)
  * This function accepts BOTH formats for compatibility.
- * Also maps specific 3D/360 entity types to generic backend types.
+ * Also maps specific 3D/360 entity types to generic backend types and reconciles
+ * the payload shapes the real frontend emits (flat 3D/360 entity, GeoJSON feature,
+ * and update payload carried in `data` instead of `changes`).
  */
 function normalizeOperation(op) {
   // Get raw entity type from frontend or backend format
   const rawEntityType = op.entityType || op.target;
   const mapping = ENTITY_TYPE_MAP[rawEntityType];
+  const type = op.operationType || op.type;
 
-  // If it's a mapped type (like marker3d), convert to generic type and inject data_type
+  // If it's a mapped type (like marker3d), convert to generic type and reshape data
   let target = rawEntityType;
   let data = op.data;
   let subType = null;
@@ -116,29 +182,37 @@ function normalizeOperation(op) {
     target = mapping.target;
     subType = mapping.subType || null;
 
-    // Inject data_type into data object for cesium3d/streetview360
+    // cesium3d/streetview360: reshape FLAT/nested entity into the backend envelope.
     if (mapping.dataType) {
-      if (data && !data.data_type) {
-        data = { ...data, data_type: mapping.dataType };
-      } else if (!data) {
-        data = { data_type: mapping.dataType };
-      }
+      data = reshape3d360Payload(data, mapping);
     }
+  } else if (rawEntityType === 'feature') {
+    // Feature ops carry a raw GeoJSON Feature; derive the flat type/layer columns.
+    data = deriveFeatureColumns(data);
+  }
+
+  // The frontend's shared create/update factory ALWAYS puts the payload in `data`
+  // (it never produces a `changes` key). For updates, fall back to `data` so the
+  // update apply path (which reads `changes`) is not a silent no-op / data loss.
+  let changes = op.changes;
+  if (type === 'update' && (changes === undefined || changes === null) && data != null) {
+    changes = data;
   }
 
   return {
     ...op,
     // Use normalized target (mapped if needed)
     target,
-    type: op.operationType || op.type,
+    type,
     targetId: op.entityId || op.targetId,
     data,
+    changes,
     // Sub-type for map field updates (mapPosition, baseLayer, etc.)
     _subType: subType,
     // Keep original frontend entity type for responses
     _originalEntityType: rawEntityType,
     entityType: rawEntityType,
-    operationType: op.operationType || op.type,
+    operationType: type,
     entityId: op.entityId || op.targetId,
   };
 }
@@ -168,6 +242,9 @@ function toFrontendOperation(op) {
     data: op.data,
     changes: op.changes,
     timestamp: parseInt(op.client_timestamp, 10),
+    // Echo the logical clock so the puller can advance its Lamport clock. Omitted
+    // (undefined) for legacy ops inserted before the column existed.
+    lamportTimestamp: op.lamport_timestamp != null ? parseInt(op.lamport_timestamp, 10) : undefined,
     clientId: op.client_id,
     serverVersion: parseInt(op.server_version, 10),
   };
@@ -424,7 +501,16 @@ export async function getAtlasSnapshot(atlasId) {
     // Get all briefings with slides
     const briefings = await t.query(Q.GET_ATLAS_BRIEFINGS, [atlasId]);
     for (const briefing of briefings) {
-      briefing.slides = await t.query(Q.GET_BRIEFING_SLIDES, [briefing.id]);
+      const rawSlides = await t.query(Q.GET_BRIEFING_SLIDES, [briefing.id]);
+      // slide_order (UUID[]) is the canonical ordering; surface `order` (index),
+      // the camelCase `temporalCursor`, and per-slide sync metadata for the frontend.
+      const order = Array.isArray(briefing.slide_order) ? briefing.slide_order : [];
+      briefing.slides = rawSlides.map((slide) => ({
+        ...slide,
+        temporalCursor: slide.temporal_cursor ?? null,
+        order: order.indexOf(slide.id),
+        sync: buildSyncMetadata(slide),
+      }));
       briefing.sync = buildSyncMetadata(briefing);
     }
 
@@ -446,18 +532,50 @@ export async function getAtlasSnapshot(atlasId) {
 }
 
 /**
+ * Targets whose mutations are blocked while their parent map is locked.
+ */
+const LOCKABLE_CHILD_TARGETS = new Set([
+  'feature', 'group', 'layer', 'cesium3d', 'streetview360', 'catalog_layer', 'group_feature',
+]);
+
+/**
+ * Authorization gate for a single operation (multiuser spec): map-delete and map
+ * lock/unlock are reserved for the atlas owner; everything else passes the route/WS
+ * 'write' gate. Throws ForbiddenError when denied.
+ * @param {Object} op - Normalized operation (target/type/_subType/changes/data).
+ * @param {'owner'|'write'|'read'} permission - Resolved atlas permission.
+ */
+function assertOperationAllowed(op, permission) {
+  if (op.target !== 'map') return;
+  if (op.type === 'delete' && permission !== 'owner') {
+    throw new ForbiddenError('Only the atlas owner can delete a map');
+  }
+  if (op.type === 'update' && !op._subType) {
+    const merged = { ...op.changes, ...op.data };
+    if (merged.locked !== undefined && permission !== 'owner') {
+      throw new ForbiddenError('Only the atlas owner can lock or unlock a map');
+    }
+  }
+}
+
+/**
  * Pushes a batch of operations to the server.
  * Operations are applied and recorded in the operations log.
  * Accepts both frontend format (entityType, operationType, entityId) and
  * legacy format (target, type, targetId).
+ * @param {'owner'|'write'|'read'} [permission='owner'] - Resolved atlas permission
+ *   (passed by the HTTP route / WS handler; defaults to owner for trusted internal calls).
  */
-export async function pushOperations(atlasId, operations, userId) {
+export async function pushOperations(atlasId, operations, userId, permission = 'owner') {
   const acks = [];
 
   await tx(async (t) => {
     for (const rawOp of operations) {
       // Normalize operation to internal format (accepts both frontend and legacy names)
       const op = normalizeOperation(rawOp);
+
+      // Authorization: map-delete and map lock/unlock are owner-only (multiuser spec).
+      assertOperationAllowed(op, permission);
 
       // Insert operation into log (idempotent: ON CONFLICT (atlas_id, op_id) DO NOTHING).
       const inserted = await t.oneOrNone(Q.INSERT_OPERATION, [
@@ -472,6 +590,7 @@ export async function pushOperations(atlasId, operations, userId) {
         op.clientId,
         userId,
         rawOp.id ?? null,
+        op.lamportTimestamp ?? null,
       ]);
 
       if (!inserted) {
@@ -667,6 +786,7 @@ const UPDATE_FIELDS = {
     { column: 'photo_id' },
     { column: 'position', jsonb: true },
     { column: 'orientation', jsonb: true },
+    { column: 'temporal_cursor', jsonb: true },
     { column: 'is_broken' },
     { column: 'broken_reason' },
   ],
@@ -702,6 +822,30 @@ const MAP_UPDATE_FIELDS = [
   { column: 'temporal_config', jsonb: true },
   { column: 'locked' },
 ];
+
+/**
+ * Column whitelist PER map sub-type (mapPosition/baseLayer/mapNotes/gridStyle/
+ * mapTemporal). A sub-typed update may ONLY touch its own column(s): this prevents
+ * a sibling column smuggled in the payload (e.g. a `name` riding alongside a
+ * temporal_config) from overwriting unrelated map state. Keys match ENTITY_TYPE_MAP
+ * subType values.
+ */
+const MAP_SUBTYPE_FIELDS = {
+  position: [
+    { column: 'center_lat' },
+    { column: 'center_long' },
+    { column: 'zoom' },
+    { column: 'bearing' },
+    { column: 'pitch' },
+  ],
+  baseLayer: [{ column: 'base_layer' }],
+  notes: [{ column: 'notes_title' }, { column: 'notes_description' }],
+  // grid_style is the current contract; analysis_layers is the grid-domain field
+  // legacy clients write through gridStyle (both are grid state, never a sensitive
+  // sibling like name/base_layer/locked).
+  grid: [{ column: 'grid_style', jsonb: true }, { column: 'analysis_layers', jsonb: true }],
+  temporal: [{ column: 'temporal_config', jsonb: true }],
+};
 
 /**
  * Normalizes map changes by resolving frontend/backend field name aliases.
@@ -795,8 +939,12 @@ function buildUpdateQuery(target, op, atlasId) {
     // Merge changes and data, then normalize frontend field aliases
     const merged = { ...op.changes, ...op.data };
     const changes = normalizeMapChanges(merged, op._subType);
+    // A sub-typed update is narrowed to its own column(s) (anti sibling-column
+    // smuggling); a plain `map` update may touch the full set.
+    const fields = op._subType ? (MAP_SUBTYPE_FIELDS[op._subType] || []) : MAP_UPDATE_FIELDS;
+    if (fields.length === 0) return null;
     return buildDynamicUpdate(
-      'maps', changes, MAP_UPDATE_FIELDS,
+      'maps', changes, fields,
       [mapId, atlasId], 'id = $1 AND atlas_id = $2',
     );
   }
@@ -930,6 +1078,73 @@ async function applyCatalogLayerOp(t, atlasId, op, type) {
 async function applyOperation(t, atlasId, op) {
   const target = op.target;
   const type = op.type;
+
+  // Lock enforcement: a locked map blocks mutations of its child entities (the
+  // spec's "disable editing"). Map-level ops (lock/unlock/delete) are governed by
+  // authorization above, so the owner can still unlock.
+  if (LOCKABLE_CHILD_TARGETS.has(target) && op.mapId) {
+    const m = await t.oneOrNone('SELECT locked FROM maps WHERE id = $1 AND deleted_at IS NULL', [op.mapId]);
+    if (m && m.locked) {
+      throw new ConflictError('Map is locked');
+    }
+  }
+
+  // §24.8 atlas-level setting (e.g. terrainExaggeration): merge a WHITELISTED patch
+  // into atlas.settings (JSONB shallow merge), scoped to the route atlas. Only known
+  // app-preference keys are accepted — never the resource-availability keys — so a
+  // write user cannot rewrite which basemaps/layers the atlas exposes. (Previously a
+  // `setting`/`atlas_meta` op was a silent no-op that still acked success.)
+  if (target === 'setting' && type === 'update') {
+    const patch = op.changes || op.data || {};
+    const safe = {};
+    if (patch.terrainExaggeration !== undefined) safe.terrainExaggeration = patch.terrainExaggeration;
+    // datamodel-13/14: app-level preference state that is local-only today, synced
+    // through the SAME whitelist mechanism as terrainExaggeration. customIcons is the
+    // icon REGISTRY (metadata list under the frontend key `custom_icons`; the blobs
+    // sync via the images endpoint, not here) — a list, replaced wholesale on each
+    // write. mapBadgeColors (map-name→color) and colorUsage (per-map color counts,
+    // frontend key `color_usage`, nested as { [mapName]: counts }) are keyed objects:
+    // they are shallow-merged into their OWN sub-object (see SETTING_OBJECT_KEYS) so a
+    // per-map write accumulates instead of clobbering sibling maps. None of these is a
+    // resource-availability key (features/basemaps/etc.), which stay rejected so a
+    // write user cannot rewrite what the atlas exposes.
+    if (patch.customIcons !== undefined) safe.customIcons = patch.customIcons;
+    // Object-valued keys are merged per-key below; collect their incoming patches.
+    const objectPatches = {};
+    for (const key of SETTING_OBJECT_KEYS) {
+      if (patch[key] !== undefined && patch[key] !== null && typeof patch[key] === 'object') {
+        objectPatches[key] = patch[key];
+      }
+    }
+    if (Object.keys(safe).length > 0 || Object.keys(objectPatches).length > 0) {
+      // Build the merged settings expression: a top-level shallow merge for the plain
+      // keys (`safe`), plus a deep one-level merge for each object key so concurrent
+      // per-map writes don't drop each other (`COALESCE(settings->key,'{}') || incoming`).
+      const setParts = ['settings || $1::jsonb'];
+      const values = [JSON.stringify(safe)];
+      let idx = 2;
+      const objectAssignments = [];
+      for (const [key, value] of Object.entries(objectPatches)) {
+        objectAssignments.push(
+          `jsonb_build_object('${key}', COALESCE(settings->'${key}', '{}'::jsonb) || $${idx}::jsonb)`
+        );
+        values.push(JSON.stringify(value));
+        idx++;
+      }
+      // Apply object-key deep merges on top of the shallow base.
+      let expr = setParts[0];
+      for (const assignment of objectAssignments) {
+        expr = `(${expr}) || ${assignment}`;
+      }
+      values.push(atlasId);
+      await t.none(
+        `UPDATE atlas SET settings = ${expr}, updated_at = NOW()
+         WHERE id = $${idx} AND deleted_at IS NULL`,
+        values
+      );
+    }
+    return;
+  }
 
   // Map target to table name
   const tableMap = {
@@ -1068,9 +1283,9 @@ async function applyOperation(t, atlasId, op) {
         // Guard the insert: only attach the slide when its briefing belongs to the
         // route's atlas. A cross-atlas briefing_id yields zero inserted rows.
         await t.none(`
-          INSERT INTO slides (id, briefing_id, title, content, mode, map_id, model_id, photo_id, position, orientation)
-          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb
-          WHERE EXISTS (SELECT 1 FROM briefings WHERE id = $2 AND atlas_id = $11)
+          INSERT INTO slides (id, briefing_id, title, content, mode, map_id, model_id, photo_id, position, orientation, temporal_cursor)
+          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb
+          WHERE EXISTS (SELECT 1 FROM briefings WHERE id = $2 AND atlas_id = $12)
           ON CONFLICT (id) DO NOTHING
         `, [
           op.targetId,
@@ -1083,6 +1298,7 @@ async function applyOperation(t, atlasId, op) {
           data.photo_id || null,
           JSON.stringify(data.position || {}),
           JSON.stringify(data.orientation || {}),
+          data.temporal_cursor != null ? JSON.stringify(data.temporal_cursor) : null,
           atlasId,
         ]);
       } else if (target === 'cesium3d' && op.data && op.mapId) {
@@ -1154,6 +1370,18 @@ async function applyOperation(t, atlasId, op) {
       const deleteQuery = buildSoftDeleteQuery(table, target, op, atlasId);
       if (deleteQuery) {
         await t.none(deleteQuery.sql, deleteQuery.values);
+      }
+
+      // §2.2 cascade: deleting a LAYER soft-deletes all its features in the same
+      // transaction ("deletar camada e todas as feições"). Scoped to a map of THIS
+      // atlas (cross-atlas IDOR guard) and only rows not already deleted.
+      if (target === 'layer' && op.mapId) {
+        await t.none(
+          `UPDATE features SET deleted_at = NOW(), updated_at = NOW(), version = version + 1
+           WHERE layer_id = $1 AND map_id = $2 AND deleted_at IS NULL
+             AND EXISTS (SELECT 1 FROM maps m WHERE m.id = $2 AND m.atlas_id = $3)`,
+          [op.targetId, op.mapId, atlasId]
+        );
       }
       break;
     }

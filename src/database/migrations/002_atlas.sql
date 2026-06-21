@@ -325,6 +325,8 @@ CREATE TABLE slides (
     photo_id        VARCHAR(100),
     position        JSONB NOT NULL DEFAULT '{"longitude":null,"latitude":null,"zoom":null,"altitude":null}',
     orientation     JSONB NOT NULL DEFAULT '{"bearing":0,"pitch":0,"heading":null}',
+    -- Cursor temporal do slide 2D (v2.2; §29). NULL = sem cursor salvo.
+    temporal_cursor JSONB,
     is_broken       BOOLEAN NOT NULL DEFAULT FALSE,
     broken_reason   VARCHAR(50),
 

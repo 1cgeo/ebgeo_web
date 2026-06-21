@@ -5,7 +5,7 @@ conscientes (by-design) e divergências de contrato do backend EBGeo. É a refer
 quem integra com a API saber o que **não** confiar que existe, o que é **advisory** (precisa ser
 respeitado no frontend) e o que está **deferido** por decisão.
 
-> **Nada aqui é bloqueante.** A suíte de testes está verde (`npm test`, ~745 casos cobrindo as
+> **Nada aqui é bloqueante.** A suíte de testes está verde (`npm test`, ~1010 casos cobrindo as
 > Fases 0–9). Todos os fluxos documentados nos guias 01–10 funcionam como descrito. Os itens abaixo
 > são limitações conhecidas, otimizações sob demanda, follow-ups intencionais ou contratos que o
 > frontend já sabe acomodar — nenhum impede a integração nem quebra o caminho anônimo.
@@ -77,6 +77,42 @@ a permissão resolvida uma única vez no handshake WS) sem reconciliar com o ban
 
 ---
 
+## Reconciliação do envelope de sync com o frontend ebgeo_web — 2026-06-20
+
+Revisão multiagente do backend contra o store/sync **real** do frontend (`ebgeo_web/src/js/store/*`),
+o `config.js` e `docs/acoes-interface-multiusuario.md`. Os achados de **código** do lado backend foram
+tratados assim — todos **aditivos / backward-compatible** (suíte verde, +9 testes):
+
+### Corrigido (backend)
+
+| Correção | Área | Antes → Depois | Teste |
+|----------|------|----------------|-------|
+| **Envelope 3D/360 plano** — o store emite a entidade achatada em camelCase (`{ id, tilesetId\|photoName, position, … }`); o apply lia `data.data`/`tileset_id` aninhado → `tileset_id` NULL e `data` `{}`. `normalizeOperation` agora reagrupa o shape plano para `{ data_type, tileset_id\|photo_name, data }` (o aninhado continua aceito). | Sync / 3D-360 | payload perdido → **round-trip** | `sync-frontend-envelope.test.js` |
+| **Update com payload em `data`** — o factory do frontend nunca produz `changes`; o apply de update lia só `op.changes` → no-op silencioso com ack falso. Fallback `changes ?? data` no `update`. | Sync | perda de dados silenciosa → **aplica** | idem |
+| **Feature como GeoJSON cru** — tipo em `properties.source`, camada em `properties.layerId`. Create/update deriva `feature_type`/`layer_id` quando ausentes no topo de `data`. | Sync / feature | create falhava / tipo nulo → **persiste** | idem |
+| **`lamportTimestamp`** persistido (`operations.lamport_timestamp`, baseline `003_sync.sql`) e ecoado no pull incremental (`toFrontendOperation`). O broadcast WS já ecoava a op crua. | Sync / clock | descartado → **ecoado** | idem |
+| **Slide `temporal_cursor` (v2.2)** — coluna no baseline `002_atlas.sql`, gravada no create/update e devolvida no snapshot como `temporalCursor` (+ `order` + `sync` por slide). | Sync / briefing | campo descartado → **round-trip** | idem |
+| **`GET /nomes/busca` anônimo** — removido o `auth` estrito; o SQL filtra acesso embutido (`userId` null → só públicos). | Gazetteer | 401 anônimo → **200 público** | `nomes-access.test.js` (negativo: privado oculto p/ anônimo) |
+| Erro de doc: chave `localStorage` do `clientId` (`ebgeo.clientId` → `ebgeo_client_id`) no guia 04. | Doc | — | — |
+| **Isolamento de sub-op de mapa** — um update sub-tipado (mapTemporal/gridStyle/mapNotes/baseLayer/mapPosition) agora só toca a(s) coluna(s) do seu sub-tipo (`MAP_SUBTYPE_FIELDS`); uma coluna-irmã contrabandeada (ex.: `name` junto do `temporal_config`) é **descartada**. | Sync / mapa | sibling-column smuggling → **bloqueado** | `tests/integration/sync-map-subentity-isolation.test.js` |
+| **Autorização por op + lock de mapa imposto** — map-delete/lock exigem owner (403); mapa locked bloqueia escrita de entidades-filhas (409). | Sync / permissões | advisory → **imposto** | `tests/integration/sync-authz-lock.test.js` |
+| **Cascata de delete de camada (§2.2)** — deletar uma camada via sync soft-deleta todas as suas feições no MESMO tx (antes só a linha da camada). | Sync / camadas | feições órfãs → **cascata atômica** | `tests/integration/sync-layer-cascade.test.js` |
+| **Atomicidade do push (§29.12 reagendar / §2.19/§2.23 delete em lote / §18.6 deletar coluna)** — um push = um `tx`; lotes destrutivos enviados num único `operations[]` são all-or-nothing (um op que falha reverte o lote inteiro + o log). | Sync | — | `tests/integration/sync-batch-atomicity.test.js` |
+| **Settings de atlas §24.8 (terrainExaggeration)** — a op `setting` mescla um whitelist em `atlas.settings` (nunca chaves de recurso); antes era no-op com ack falso. No frontend o modal emite a op e o `remote-operation-handler` aplica ao terreno em tempo real. | Sync / atlas | no-op falso → **persiste + aplica** | `sync-atlas-settings.test.js` (BE) · `remote-setting-op.test.js` (FE) |
+
+### Deferido (precisa de superfície/decisão do frontend — **não** alterado)
+
+| Item | Por quê deferido |
+|------|------------------|
+| **Autorização por tipo de operação** + **lock de mapa imposto no servidor** | **IMPLEMENTADO (2026-06-20).** `pushOperations` recebe a permissão resolvida (`req.atlasPermission` / `ws.permission`): `map` **delete** e flip de `locked` exigem **owner** (403 p/ write); um mapa **locked** bloqueia mutações de entidades-filhas (feature/layer/group/cesium3d/streetview360/catalog → 409). Testes negativos em `tests/integration/sync-authz-lock.test.js`. |
+| **Atlas `lastActiveMapId` / `schemaVersion`** | Já existe op atlas-level: a op `setting` mescla um **whitelist** em `atlas.settings` (hoje só `terrainExaggeration` §24.8 — ver "Corrigido"). `lastActiveMapId`/`schemaVersion` seguem **local/cliente** (fora do whitelist); para sincronizá-los, adicione-os ao whitelist do handler `setting` em `sync.service.js`. |
+| **`mapBadgeColors` / `color_usage`** | Sem `entityType` no store do frontend para sincronizá-los — precisa de uma op nova **no cliente** primeiro. |
+| **`customIcons` (registry + blobs)** | Vivem só no IndexedDB + `.ebgeo`. Exige endpoint de upload + entidade de sync + coordenação com o frontend — escopo maior que ajuste de backend. |
+| **Fotos base64 em `feature.properties` vs limite de 10 MB do corpo** | A correção real é o frontend subir a foto pelo endpoint de imagens e referenciá-la, não embutir base64. Subir o limite tem implicação de segurança. |
+| **SVG/GIF no `.ebgeo` / validadores do frontend** | A allowlist do backend (`png/jpeg/webp`, sem SVG) é baseline de segurança deliberada; o ajuste é no validador do **frontend**. |
+
+---
+
 ## 🔴 Alta / Bloqueante
 
 Nenhum item.
@@ -97,7 +133,7 @@ mas ignorá-los leva a comportamento inesperado em produção.
 | Item | Área / Subsistema | Natureza | Recomendação |
 |------|-------------------|----------|--------------|
 | **Mutações REST não emitiam broadcast WS** (histórico) — hoje `atlas_updated`/`atlas_settings_updated`/`atlas_deleted`/`sharing_updated`/`maps_merged`/`map_duplicated` **são** broadcast. O que **continua sem broadcast**: escrita do módulo `sv360` (calibração, targets, soft-delete) não notifica nenhum canal WS. | WebSocket / sv360 | by-design | O 360 está **fora** do sync/CRDT/WS do atlas. Após uma escrita 360, o frontend deve recarregar os metadados da foto (`GET /sv360/photos/:uuid`) — não espere um evento de tempo real. |
-| **`locked` é advisory — o sync nunca bloqueia escrita** numa entidade (mapa/camada/grupo/feição) travada. O servidor armazena `locked` mas `buildUpdateQuery`/`buildSoftDeleteQuery` não o consultam antes de aplicar. | Sync / permissões | by-design | O frontend **deve** respeitar `locked` localmente (desabilitar edição). Não confie no servidor para recusar uma op sobre uma entidade travada — ele aceitará. |
+| **Lock de MAPA é imposto no servidor (2026-06-20)** — um mapa `locked=true` faz o sync **recusar (409)** qualquer mutação de entidade-filha (feature/layer/group/cesium3d/streetview360/catalog). Flip de `locked` e delete de mapa exigem **owner** (403 p/ write). **Pendência:** lock de camada/grupo/feição **individual** (com o mapa destravado) ainda é advisory — só o lock de MAPA é imposto. | Sync / permissões | parcial | Lock de MAPA já é garantido pelo servidor; o frontend ainda deve refletir lock de camada/grupo/feição individual localmente. Ver `tests/integration/sync-authz-lock.test.js`. |
 | **Divergência de papéis:** o JWT carrega `role ∈ {user, admin}` (global) + `org_role ∈ {owner,editor,viewer,admin}`; a permissão **por atlas** é `owner/write/read`. O frontend usa `{owner, admin, editor, viewer}`. | Identidade / WebSocket | by-design | Use o campo **`role`** do evento `connected` do WS — o gateway já mapeia `owner→owner`, `write→editor`, `read→viewer`, `admin→admin` (`toFrontendRole`). O REST expõe `permission` (owner/write/read); derive o papel a partir dela. Ver [04-websocket-collab.md](./04-websocket-collab.md). |
 | **Endpoints de admin de permissão de modelo 3D não existem** (`GET/PUT /api/v1/catalogo3d/:id/permissions`, `PATCH .../access-level`). A concessão de acesso a um modelo privado só é possível via INSERT direto em `ng.model_permissions`/`ng.model_group_permissions`. | Catálogo 3D / acesso geográfico | follow-up | **Não chame** essas rotas — elas retornam 404. A infra (tabelas, FK, filtro de leitura embutido no SQL) está pronta; gerenciar permissão de modelo hoje é tarefa de DBA/seed. |
 | **Módulo de grupos/membresia não existe** (CRUD de `ng.groups` / `ng.user_groups`). O acesso via-grupo (catálogo 3D e zonas geográficas) **funciona** se as linhas forem inseridas no banco, mas não há rota para criar grupos ou gerir membresia. | Acesso geográfico / grupos | follow-up | Popule `ng.user_groups`/`ng.groups` por seed/DBA. O filtro de leitura já honra grupos; só falta a superfície de administração. |
@@ -139,7 +175,7 @@ espere que mudem.
 | **CRDT real é LWW por ordem de chegada ao servidor, NÃO por timestamp.** O `applyOperation` aplica todo UPDATE incondicionalmente (`version + 1`, `updated_at = NOW()`) sem comparar `client_timestamp`. O módulo `src/crdt` (resolver por timestamp) **foi removido** — era código morto. | Sync / CRDT | by-design | O `timestamp` da op viaja e é devolvido, mas **não** decide o vencedor — quem chega por último no servidor vence. A idempotência é por `op_id`. Ver [05-sync-crdt.md](./05-sync-crdt.md). |
 | **Viewport loading no atlas indisponível.** As feições do atlas são JSONB **sem PostGIS**; não há filtro espacial server-side (`ST_Intersects`). O pull traz o estado por versão, não por bounding box. | Sync / atlas | by-design / aberto (sob demanda) | O frontend carrega o snapshot completo e filtra localmente. Decisão de arquitetura "atlas é JSONB" — não se planeja introduzir PostGIS no schema do atlas. |
 | **Rooms WS são por atlas, não por mapa.** Cursor/seleção/ops são broadcast para **todos** os conectados ao atlas, independente do mapa ativo. | WebSocket | by-design / aberto (P3) | O frontend deve **filtrar por `mapId`** ao exibir cursores/seleção. Sub-canais por mapa são um gap aberto P3 (otimização de tráfego). |
-| **Endpoints do gazetteer/catálogo 3D exigem auth estrito** (`auth`), não `optionalAuth`. Anônimo recebe **401**, nunca chega ao SQL com `userId` null. | Gazetteer / catálogo 3D | by-design | O ramo "anônimo só vê público" existe como defesa em profundidade no SQL, mas **não é alcançável** por HTTP anônimo. Use sempre um token nessas rotas. |
+| **`GET /nomes/busca` aceita anônimo** (sem `auth` estrito; o `flexibleAuth` global popula `req.user` quando há credencial). **`/feicoes` e `/catalogo3d` continuam** com `auth` estrito (401 sem token). | Gazetteer / catálogo 3D | by-design | Em `busca`, o ramo "anônimo só vê público" do SQL **é** alcançável (`userId` null → só públicos; teste negativo em `nomes-access.test.js`). Em `/feicoes` e `/catalogo3d`, use sempre um token. |
 | **`GET /api/v1/nomes/busca` responde array nu** (não `{ data: [...] }`). Contrato congelado. | Gazetteer | by-design (contrato congelado) | Consuma a resposta como array diretamente. Não envolva em `.data`. |
 | **Rotas `sv360` respondem nuas** (objeto/array) e usam envelope de erro **plano** `{ "error": "..." }` — diferente do `{ error: { code, message } }` global. | sv360 | by-design (contrato congelado) | Trate o módulo 360 com parsing próprio: sucesso = objeto/array direto; erro = `{ error: "<msg>" }`. Ver [../../README.md](../../README.md). |
 | **`previewThumbnail` no shape de `/photos/:uuid` é RELATIVO sem `/api/v1`** = `/thumbnails/{slug}.webp`. | sv360 | by-design (contrato congelado) | Concatene com `serviceUrl` (`<backend>/api/v1/sv360`) para obter a URL final. |
@@ -173,9 +209,9 @@ A lógica vive no cliente (`ebgeo_web`). O backend já oferece o contrato necess
 
 ## Resumo executivo
 
-- **Bloqueante:** nenhum. Suíte verde (~745 testes), contratos congelados intactos, caminho anônimo
+- **Bloqueante:** nenhum. Suíte verde (~1010 testes), contratos congelados intactos, caminho anônimo
   preservado.
-- **Para o integrador frontend, lembre-se de:** (1) respeitar `locked` localmente (advisory);
+- **Para o integrador frontend, lembre-se de:** (1) lock de MAPA já é imposto no servidor (409); refletir lock de camada/grupo/feição **individual** localmente (advisory);
   (2) filtrar cursores/seleção por `mapId`; (3) ignorar o eco da própria op via `clientId`;
   (4) derivar o papel a partir de `permission`/`role` do evento `connected`; (5) recarregar
   metadados do 360 após escrita (sem broadcast WS); (6) parsear `sv360` com envelope plano.

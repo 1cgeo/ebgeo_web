@@ -323,61 +323,78 @@ describe('WebSocket Collaboration — gaps', () => {
   });
 
   // ── ws-09 ────────────────────────────────────────────────────────────────
-  describe('ws-09 presence-persistence service (dead path) unit', () => {
-    it('updateSessionPresence writes valid UUID features; non-UUID does not throw; heartbeat bumps', async () => {
-      const svc = await import('../../src/modules/collab/collab.service.js');
+  // B-be1: presence is in-memory by design — no per-cursor DB writes. The
+  // updateSessionPresence/updateSessionHeartbeat dead helpers were removed;
+  // active_sessions tracks only connect/disconnect (covered by ws-10).
 
-      const u = await createUser(db, { username: U() });
-      const clientId = randomUUID();
-      const f1 = randomUUID();
-      const f2 = randomUUID();
+  // ── caso E + B-be2 ───────────────────────────────────────────────────────
+  // Isolated atlas + users so no presence from earlier tests (e.g. an `away`
+  // owner kept in the room during the grace window) bleeds into the snapshot.
+  describe('temporal presence (caso E) + selectedFeatures in snapshot (B-be2)', () => {
+    let tAtlas, tMap, tOwnerTok, tReaderTok, tOwner, tReader;
 
-      const sessionId = await svc.createSession(u.id, atlas.id, clientId);
-      assert.ok(sessionId, 'session created');
-
-      await svc.updateSessionPresence(u.id, atlas.id, clientId, {
-        cursorPosition: { lng: -43.2, lat: -22.9 },
-        currentMapId: map.id,
-        selectedFeatures: [f1, f2],
-      });
-
-      const { rows } = await db.query(
-        `SELECT cursor_position, current_map_id, selected_features
-         FROM active_sessions WHERE user_id = $1 AND atlas_id = $2 AND client_id = $3`,
-        [u.id, atlas.id, clientId]
+    before(async () => {
+      tOwner = await createUser(db, { username: U() });
+      tReader = await createUser(db, { username: U() });
+      tOwnerTok = await loginUser(app, tOwner.username, tOwner.password);
+      tReaderTok = await loginUser(app, tReader.username, tReader.password);
+      tAtlas = await createAtlas(db, tOwner.id, { name: `Atlas ${U()}` });
+      tMap = await createMap(db, tAtlas.id);
+      await db.query(
+        `INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by) VALUES ($1, $2, 'read', $3)`,
+        [tAtlas.id, tReader.id, tOwner.id]
       );
-      assert.equal(rows.length, 1);
-      assert.deepEqual(rows[0].cursor_position, { lng: -43.2, lat: -22.9 });
-      assert.equal(rows[0].current_map_id, map.id);
-      assert.deepEqual(rows[0].selected_features.map(String).sort(), [f1, f2].sort());
+    });
 
-      // Non-UUID featureId: the $6::uuid[] cast fails inside, but the service
-      // try/catches the error so the CALLER does not throw.
-      await assert.doesNotReject(
-        svc.updateSessionPresence(u.id, atlas.id, clientId, {
-          cursorPosition: { lng: 0, lat: 0 },
-          currentMapId: map.id,
-          selectedFeatures: ['not-a-uuid'],
-        })
-      );
+    it('a temporal update is broadcast to peers and NOT echoed back to the sender', async () => {
+      const o = await createWsClient(server, tAtlas.id, tOwnerTok);
+      await o.waitForType('connected');
+      const r = await createWsClient(server, tAtlas.id, tReaderTok);
+      const connectedR = await r.waitForType('connected');
 
-      // Heartbeat bump: last_heartbeat strictly increases.
-      const before = await db.query(
-        `SELECT last_heartbeat FROM active_sessions WHERE user_id=$1 AND atlas_id=$2 AND client_id=$3`,
-        [u.id, atlas.id, clientId]
-      );
-      await sleep(30);
-      await svc.updateSessionHeartbeat(u.id, atlas.id, clientId);
-      const afterHb = await db.query(
-        `SELECT last_heartbeat FROM active_sessions WHERE user_id=$1 AND atlas_id=$2 AND client_id=$3`,
-        [u.id, atlas.id, clientId]
-      );
-      assert.ok(
-        new Date(afterHb.rows[0].last_heartbeat).getTime() >=
-          new Date(before.rows[0].last_heartbeat).getTime()
-      );
+      o.clearMessages();
+      r.clearMessages();
 
-      await svc.deleteSession(u.id, atlas.id, clientId);
+      const state = { mode: 'play', t: 1718900000000, speed: 2 };
+      r.send({ type: 'temporal', state, mapId: tMap.id });
+
+      const temporal = await o.waitForType('temporal');
+      assert.equal(temporal.userId, connectedR.userId);
+      assert.deepEqual(temporal.state, state);
+      assert.equal(temporal.mapId, tMap.id);
+
+      // Not echoed back to the sender.
+      await sleep(200);
+      assert.equal(r.getMessagesOfType('temporal').length, 0, 'sender must not receive its own temporal');
+
+      o.close();
+      r.close();
+    });
+
+    it('temporalState AND selectedFeatures appear in a late-joiner snapshot (usersOnline)', async () => {
+      const a = await createWsClient(server, tAtlas.id, tReaderTok);
+      const connectedA = await a.waitForType('connected');
+
+      // A publishes temporal state and a selection (in-memory on its ws).
+      const state = { mode: 'pause', t: 1718900001234 };
+      const fid = randomUUID();
+      a.send({ type: 'temporal', state, mapId: tMap.id });
+      a.send({ type: 'selection', featureIds: [fid], mapId: tMap.id });
+      await sleep(150);
+
+      // Late-joiner B gets A in its join snapshot WITH both fields populated.
+      const b = await createWsClient(server, tAtlas.id, tOwnerTok);
+      const connectedB = await b.waitForType('connected');
+
+      const peerA = connectedB.usersOnline.find((u) => u.id === connectedA.userId);
+      assert.ok(peerA, 'B should see A in usersOnline');
+      assert.ok('temporalState' in peerA, 'snapshot entry exposes temporalState');
+      assert.ok('selectedFeatures' in peerA, 'snapshot entry exposes selectedFeatures');
+      assert.deepEqual(peerA.temporalState, state);
+      assert.deepEqual(peerA.selectedFeatures, [fid]);
+
+      a.close();
+      b.close();
     });
   });
 

@@ -18,7 +18,14 @@ export async function listBasemaps() {
 
 export async function listAnalysisLayers() {
   const { rows } = await query(Q.LIST_BY_CATEGORY, ['analysis_layer']);
-  return rows.map((r) => ({ id: r.id, name: r.name, ...r.config }));
+  // The frozen frontend contract requires every analysis layer to carry a valid
+  // `bounds` [west, south, east, north] (the frontend zooms-to-layer with it). A
+  // seeded layer with an incomplete config (e.g. the placeholder `hillshade` with
+  // `{}`) is non-functional and previously broke app boot — never serve an analysis
+  // layer that lacks valid bounds, so /api/config can't emit contract-breaking data.
+  return rows
+    .map((r) => ({ id: r.id, name: r.name, ...r.config }))
+    .filter((layer) => Array.isArray(layer.bounds) && layer.bounds.length === 4);
 }
 
 export async function listDataLayers() {

@@ -1,8 +1,8 @@
 // Path: src/modules/sync/sync.queries.js
 
 export const INSERT_OPERATION = `
-  INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id, op_id)
-  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11)
+  INSERT INTO operations (atlas_id, op_type, entity_type, entity_id, map_id, changes, data, client_timestamp, client_id, user_id, op_id, lamport_timestamp)
+  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12)
   ON CONFLICT (atlas_id, op_id) DO NOTHING
   RETURNING *
 `;
@@ -93,7 +93,7 @@ export const GET_ATLAS_BRIEFINGS = `
 
 export const GET_BRIEFING_SLIDES = `
   SELECT id, briefing_id, title, content, mode, map_id, model_id, photo_id,
-         position, orientation, is_broken, broken_reason,
+         position, orientation, temporal_cursor, is_broken, broken_reason,
          created_at, updated_at, version
   FROM slides
   WHERE briefing_id = $1 AND deleted_at IS NULL

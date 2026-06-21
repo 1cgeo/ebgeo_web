@@ -49,6 +49,22 @@ export function handleCursor(ws, data) {
 }
 
 /**
+ * Handles temporal-presence updates (caso E). Mirrors handleCursor: live state is
+ * kept in-memory on the ws object and broadcast to peers (sender excluded).
+ */
+export function handleTemporal(ws, data) {
+  ws.temporalState = data.state;
+  if (data.mapId !== undefined) ws.currentMapId = data.mapId;
+
+  broadcastToRoom(ws.atlasId, {
+    type: 'temporal',
+    userId: ws.userId,
+    state: data.state,
+    mapId: data.mapId,
+  }, ws);
+}
+
+/**
  * Handles feature selection updates.
  */
 export function handleSelection(ws, data) {
@@ -82,7 +98,8 @@ export async function handleOperation(ws, data) {
     const result = await syncService.pushOperations(
       ws.atlasId,
       [data.op],
-      ws.userId
+      ws.userId,
+      ws.permission
     );
 
     // Send ack to sender (per-op result included for confident dequeue)
@@ -128,7 +145,8 @@ export async function handleOperations(ws, data) {
     const result = await syncService.pushOperations(
       ws.atlasId,
       data.ops,
-      ws.userId
+      ws.userId,
+      ws.permission
     );
 
     // Send batch ack to sender (per-op results for confident dequeue)

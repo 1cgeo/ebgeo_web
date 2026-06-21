@@ -94,9 +94,12 @@ async function runTests() {
 
   const nodeArgs = ['--test', '--test-force-exit', '--test-concurrency=1', '--test-timeout=30000'];
 
-  if (withCoverage) {
-    nodeArgs.push('--experimental-test-coverage');
-  }
+  // Coverage is collected out-of-band by c8 (via NODE_V8_COVERAGE), which the spawned
+  // `node --test` child inherits and writes on exit — `npm run test:coverage` wraps this
+  // script in c8. Node's built-in --experimental-test-coverage is deliberately NOT used:
+  // combined with --test-force-exit it cancels in-flight tests (understating coverage),
+  // and without force-exit the suite hangs on open ws/pg handles.
+  void withCoverage;
 
   nodeArgs.push(testPattern);
 

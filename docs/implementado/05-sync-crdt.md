@@ -209,6 +209,25 @@ no objeto `data`; na resposta de pull incremental, converte de volta para o tipo
 }
 ```
 
+### Compatibilidade com o store do frontend (ebgeo_web) — aceito as-built
+
+O guia acima usa o vocabulário canônico (`changes` no update; 3D/360 no shape aninhado
+`{ data_type, tileset_id, data }`). O backend também aceita, **sem conversão no cliente**, os shapes
+que o store real do frontend emite (`src/js/store/*`):
+
+- **Update com payload em `data`** — a fábrica de operações do frontend coloca o payload em `data`
+  tanto no `create` quanto no `update`. Quando `changes` está ausente num `update`, o backend usa
+  `data` como `changes` (deixa de ser no-op silencioso).
+- **Feature como GeoJSON cru** — `{ "type": "Feature", "geometry": …, "properties": … }`, com o tipo
+  em `properties.source` e a camada em `properties.layerId`. O backend deriva `feature_type`/`layer_id`
+  quando ausentes no topo de `data`.
+- **3D/360 no shape plano (camelCase)** — `{ id, tilesetId | photoName, position, properties, style,
+  sync }`. O backend reagrupa para `{ data_type, tileset_id | photo_name, data: { …resto } }`.
+- **`lamportTimestamp`** — persistido e **ecoado** no pull incremental (o frontend o usa para avançar
+  o Lamport clock em toda op de entrada).
+- **`temporal_cursor`** no slide (v2.2) — persistido no create/update e devolvido no snapshot como
+  `temporalCursor` (além de `order` e `sync` por slide).
+
 ### Atualizar viewport do mapa (`mapPosition`)
 
 ```json

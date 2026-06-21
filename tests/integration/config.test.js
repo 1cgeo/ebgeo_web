@@ -58,6 +58,34 @@ describe('Config endpoint (GET /api/v1/config)', () => {
     assert.equal(pcl.url, '/3d/PCL/tileset.json');
   });
 
+  it('analysisLayers only exposes layers with valid bounds; the placeholder hillshade is excluded', async () => {
+    const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
+    assert.equal(cfg.analysisLayers.enabled, true);
+    assert.ok(Array.isArray(cfg.analysisLayers.layers));
+    // The seeded `hillshade` analysis_layer has an empty config (no bounds) — serving
+    // it would violate the frozen contract and break the frontend boot, so it is filtered.
+    assert.ok(!cfg.analysisLayers.layers.some((l) => l.id === 'hillshade'),
+      'placeholder hillshade (no bounds) must not be served');
+    // Every served analysis layer carries valid bounds.
+    for (const l of cfg.analysisLayers.layers) {
+      assert.ok(Array.isArray(l.bounds) && l.bounds.length === 4, `analysis layer ${l.id} missing valid bounds`);
+    }
+  });
+
+  it('serves an analysis layer once its config is completed with valid bounds (resources-driven)', async () => {
+    const before = await db.query(`SELECT config FROM resources WHERE id = 'hillshade'`);
+    try {
+      await db.query(`UPDATE resources SET config = $1 WHERE id = 'hillshade'`,
+        [JSON.stringify({ bounds: [-74, -34, -34, 6] })]);
+      const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
+      const hs = cfg.analysisLayers.layers.find((l) => l.id === 'hillshade');
+      assert.ok(hs, 'hillshade with valid bounds should now be served');
+      assert.deepEqual(hs.bounds, [-74, -34, -34, 6]);
+    } finally {
+      await db.query(`UPDATE resources SET config = $1 WHERE id = 'hillshade'`, [before.rows[0].config]);
+    }
+  });
+
   it('basemapStyles serves 5 valid MapLibre styles with env-injected URLs', async () => {
     const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
     for (const id of ['carta-topografica', 'osm', 'bdgex', 'imagens', 'carta-ortoimagem']) {

@@ -28,6 +28,70 @@ describe('config — validateEnvVariables', () => {
     assert.doesNotThrow(() => validateEnvVariables());
   });
 
+  it('rejects production without CORS_ORIGIN (C1 fail-fast)', () => {
+    const saved = {
+      NODE_ENV: process.env.NODE_ENV,
+      CORS_ORIGIN: process.env.CORS_ORIGIN,
+      JWT_SECRET: process.env.JWT_SECRET,
+    };
+    try {
+      process.env.NODE_ENV = 'production';
+      delete process.env.CORS_ORIGIN;
+      // A valid >=32-char secret so only the CORS rule fires in prod.
+      process.env.JWT_SECRET = 'x'.repeat(40);
+
+      let caught;
+      try {
+        validateEnvVariables();
+      } catch (err) {
+        caught = err;
+      }
+      assert.ok(caught, 'prod without CORS_ORIGIN should throw');
+      assert.match(caught.message, /CORS_ORIGIN/);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
+  it('passes in production with a valid CORS_ORIGIN', () => {
+    const saved = {
+      NODE_ENV: process.env.NODE_ENV,
+      CORS_ORIGIN: process.env.CORS_ORIGIN,
+      JWT_SECRET: process.env.JWT_SECRET,
+    };
+    try {
+      process.env.NODE_ENV = 'production';
+      process.env.CORS_ORIGIN = 'https://ebgeo.eb.mil.br';
+      process.env.JWT_SECRET = 'x'.repeat(40);
+      assert.doesNotThrow(() => validateEnvVariables());
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
+  it('does not require CORS_ORIGIN outside production', () => {
+    const saved = {
+      NODE_ENV: process.env.NODE_ENV,
+      CORS_ORIGIN: process.env.CORS_ORIGIN,
+    };
+    try {
+      process.env.NODE_ENV = 'development';
+      delete process.env.CORS_ORIGIN;
+      assert.doesNotThrow(() => validateEnvVariables());
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
   it('accumulates ALL errors (does not stop at the first)', () => {
     const saved = {
       DATABASE_URL: process.env.DATABASE_URL,

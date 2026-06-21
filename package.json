@@ -14,7 +14,7 @@
     "db:test:drop": "node scripts/test-db.js drop",
     "db:test:reset": "node scripts/test-db.js reset",
     "test": "node scripts/run-tests.js",
-    "test:coverage": "node scripts/run-tests.js --coverage",
+    "test:coverage": "c8 node scripts/run-tests.js",
     "test:keep-db": "node scripts/run-tests.js --keep-db",
     "test:unit": "node scripts/run-tests.js tests/unit/**/*.test.js",
     "test:integration": "node scripts/run-tests.js tests/integration/**/*.test.js",
@@ -25,7 +25,7 @@
     "format": "prettier --write \"**/*.{js,json,md}\""
   },
   "dependencies": {
-    "bcrypt": "^5.1.1",
+    "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.11.1",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.7",
@@ -45,6 +45,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@mapbox/vector-tile": "^3.0.0",
+    "c8": "^11.0.0",
     "eslint": "^10.5.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.6.0",
