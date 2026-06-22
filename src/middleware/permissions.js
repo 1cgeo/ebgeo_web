@@ -73,6 +73,15 @@ export function requireAtlasPermission(requiredLevel) {
       const atlas = atlasResult.rows[0];
       const userId = req.user?.id || null;
 
+      // Global admins have full (owner-level) access to every atlas so they can
+      // support/debug and manage any user's project.
+      if (req.user?.role === 'admin') {
+        req.atlasPermission = 'owner';
+        req.atlasId = atlasId;
+        req.atlasOwnerId = atlas.owner_id;
+        return next();
+      }
+
       // Fetch user's share if they have one
       // Skip share lookup for public tokens (non-UUID user IDs)
       let share = null;

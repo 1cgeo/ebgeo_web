@@ -48,9 +48,9 @@ describe('Sharing API — gap coverage', () => {
     await teardownTestEnv(db);
   });
 
-  // ---- share-01: global admin who is not owner is locked out of sharing REST ----
+  // ---- share-01: global admin (non-owner) CAN manage sharing (support/debug) ----
   describe('share-01: global admin (non-owner) on sharing routes', () => {
-    it('global admin who is not the owner gets 403 on GET /sharing and POST /sharing/users', async () => {
+    it('global admin who is not the owner CAN GET /sharing and POST /sharing/users', async () => {
       const admin = await createUser(db, { username: uniq(), role: 'admin' });
       const adminToken = mintToken(admin);
       const atlas = await createAtlas(db, owner.id, { name: `s01 ${uniq()}` });
@@ -58,17 +58,19 @@ describe('Sharing API — gap coverage', () => {
       // sanity: the token really carries role:'admin'
       assert.equal(jwt.decode(adminToken).role, 'admin');
 
+      // Global admins have owner-level access to every atlas so they can support/
+      // debug and manage any user's sharing (requireAtlasPermission admin bypass).
       await supertest(app)
         .get(`/api/v1/atlas/${atlas.id}/sharing`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .expect(403);
+        .expect(200);
 
       const target = await createUser(db, { username: uniq() });
       await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/sharing/users`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ userId: target.id, permission: 'read' })
-        .expect(403);
+        .expect(201);
     });
   });
 

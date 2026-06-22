@@ -74,6 +74,12 @@ async function resolvePermission(atlasId, userId, payload) {
 
   const atlas = atlasResult.rows[0];
 
+  // Global admins have full (owner-level) access to every atlas so they can
+  // support/debug and manage any user's project.
+  if (payload.role === 'admin') {
+    return 'owner';
+  }
+
   // Owner check
   if (userId === atlas.owner_id) {
     return 'owner';
@@ -114,6 +120,7 @@ export async function reconcileAuthorization(ws) {
     const current = await resolvePermission(ws.atlasId, ws.userId, {
       isPublic: ws.isPublic,
       atlasId: ws.atlasId,
+      role: ws.userRole,
     });
     if (!current) {
       ws.close(4003, 'access revoked');
@@ -267,6 +274,7 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   ws.userId = user.id;
   ws.userName = user.nome;
   ws.userPosto = user.posto_graduacao;
+  ws.userRole = user.role;
   ws.atlasId = atlasId;
   ws.permission = permission;
   ws.clientId = clientId;
