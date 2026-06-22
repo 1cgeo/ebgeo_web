@@ -482,20 +482,23 @@ export class MapsTab {
     }
 
     /**
-     * Toggles the atlas-level "Compartilhar" button. It is shown only when a
-     * server atlas is connected AND the current user is its OWNER. Gating reads
-     * the synchronous session/sync singletons: `syncEngine.atlasId` is non-null
-     * only while connected, and `sessionContext.role` reflects the PER-ATLAS role
-     * the connect handshake set ('owner' for the atlas owner). The backend also
-     * enforces owner-only on every sharing mutation, so this is purely cosmetic.
+     * Toggles the atlas-level "Compartilhar" button. Shown when a server atlas is
+     * connected AND the current user can manage sharing: the atlas OWNER, or a
+     * GLOBAL ADMIN (admins manage any atlas to support/debug users). Gating reads
+     * the synchronous session/sync singletons: `syncEngine.atlasId` is non-null only
+     * while connected, and `sessionContext.role` reflects the PER-ATLAS role from the
+     * connect handshake ('owner' for the owner, 'admin' for a global admin — the
+     * backend collapses owner+admin to 'admin'). The backend enforces the same
+     * owner-or-admin rule on every sharing mutation, so this is purely cosmetic.
      * @private
      */
     _updateShareButton() {
         const shareBtn = this._currentMapCard?.querySelector('#current-map-share-btn');
         if (!shareBtn) return;
 
-        const isOwner = !!syncEngine.atlasId && sessionContext.role === 'owner';
-        shareBtn.hidden = !isOwner;
+        const canShare = !!syncEngine.atlasId
+            && (sessionContext.role === 'owner' || sessionContext.role === 'admin');
+        shareBtn.hidden = !canShare;
     }
 
     /**
