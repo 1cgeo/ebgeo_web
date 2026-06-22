@@ -1,5 +1,5 @@
 // Path: tests/integration/comments.test.js
-// Spatial comments (docs/sistema-usuarios-e-acesso.md): a Comentarista may ONLY write comment
+// Spatial comments (docs/visao-e-principios.md §11 in the frontend): a Comentarista may ONLY write comment
 // ops; a reader cannot write comments at all; and comments are hidden from read-only viewers in
 // the snapshot (the visibility rule). Every access filter gets a NEGATIVE test per CLAUDE.md.
 

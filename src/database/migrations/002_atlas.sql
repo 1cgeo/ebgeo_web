@@ -209,7 +209,7 @@ CREATE TABLE group_features (
 CREATE INDEX idx_group_features_feature ON group_features(feature_id);
 
 -- ============================================================================
--- COMMENTS (comentário espacial — ver docs/sistema-usuarios-e-acesso.md no frontend)
+-- COMMENTS (comentário espacial — ver docs/visao-e-principios.md §11 no frontend)
 -- Raiz (parent_id NULL, com lng/lat → pin no mapa) e respostas (parent_id → raiz).
 -- Sincroniza pelo pipeline de ops (entityType 'comment'). NÃO é enviado a conexões
 -- de nível 'read' (Visualizador/anônimo) — filtro de transmissão no snapshot/broadcast.
