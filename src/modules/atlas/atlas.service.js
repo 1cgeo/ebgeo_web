@@ -2,7 +2,7 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { query, tx } from '../../database/index.js';
-import { NotFoundError } from '../../utils/errors.js';
+import { NotFoundError, BadRequestError } from '../../utils/errors.js';
 import config from '../../config.js';
 import * as Q from './atlas.queries.js';
 
@@ -460,6 +460,68 @@ export async function disablePublicSharing(atlasId) {
 }
 
 /**
+ * Transfers atlas ownership to another user (owner-only — enforced at the route).
+ *
+ * The new owner MUST already be a member (atlas_shares row). In one transaction: set
+ * atlas.owner_id, drop the new owner's share row (ownership comes from owner_id, not a share),
+ * and demote the previous owner to a 'manage' co-Gestor — so the ex-owner keeps full
+ * management access and never silently loses the project. Rejects self-transfer and
+ * non-member targets.
+ *
+ * @param {string} atlasId
+ * @param {string} currentOwnerId - The atlas's current owner (req.atlasOwnerId)
+ * @param {string} newOwnerId
+ * @returns {Promise<Object>} The updated atlas (with maps summary)
+ */
+export async function transferOwnership(atlasId, currentOwnerId, newOwnerId) {
+  if (newOwnerId === currentOwnerId) {
+    throw new BadRequestError('O novo dono já é o dono atual do atlas.');
+  }
+
+  await tx(async (t) => {
+    const atlas = await t.oneOrNone(Q.FIND_ATLAS_BY_ID, [atlasId]);
+    if (!atlas) {
+      throw new NotFoundError('Atlas');
+    }
+
+    // The new owner must be an ACTIVE user AND a current member of the atlas — never hand
+    // ownership to a deactivated account (which could no longer delete/transfer it, orphaning it).
+    const member = await t.oneOrNone(
+      `SELECT s.user_id FROM atlas_shares s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.atlas_id = $1 AND s.user_id = $2 AND u.is_active = true`,
+      [atlasId, newOwnerId]
+    );
+    if (!member) {
+      throw new BadRequestError('O novo dono precisa ser um membro ativo do atlas.');
+    }
+
+    // Hand over ownership.
+    await t.none(
+      `UPDATE atlas SET owner_id = $2, updated_at = NOW(), version = version + 1
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [atlasId, newOwnerId]
+    );
+
+    // The new owner is no longer a share (ownership comes from owner_id).
+    await t.none(
+      `DELETE FROM atlas_shares WHERE atlas_id = $1 AND user_id = $2`,
+      [atlasId, newOwnerId]
+    );
+
+    // The previous owner becomes a co-Gestor (keeps full management access).
+    await t.none(
+      `INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by)
+       VALUES ($1, $2, 'manage', $3)
+       ON CONFLICT (atlas_id, user_id) DO UPDATE SET permission = 'manage'`,
+      [atlasId, currentOwnerId, newOwnerId]
+    );
+  });
+
+  return getAtlasById(atlasId);
+}
+
+/**
  * Imports a complete atlas from offline storage (IndexedDB).
  * Creates atlas with all maps, features, layers, groups, briefings, and slides.
  * IDs from the client are preserved.
@@ -499,8 +561,9 @@ export async function importAtlas(userId, data) {
       await t.none(
         `INSERT INTO maps (id, atlas_id, name, base_layer, center_lat, center_long,
                           zoom, bearing, pitch, notes_title, notes_description,
-                          analysis_layers, catalog_layers, locked)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14)`,
+                          analysis_layers, catalog_layers, locked, grid_style, temporal_config)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14,
+                 $15::jsonb, $16::jsonb)`,
         [
           map.id,
           atlasId,
@@ -516,6 +579,8 @@ export async function importAtlas(userId, data) {
           JSON.stringify(map.analysis_layers || {}),
           JSON.stringify(map.catalog_layers || []),
           map.locked === true,
+          JSON.stringify(map.grid_style || {}),
+          JSON.stringify(map.temporal_config || {}),
         ]
       );
 

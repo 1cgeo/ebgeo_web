@@ -487,3 +487,9 @@ implementadas.**
 **Divergências de contrato:** papéis do frontend (`owner/admin/editor/viewer`) vs. backend
 (`owner/write/read` por-atlas + `user/admin` global; o WS já expõe `role` mapeado). `locked` é
 **advisory** (frontend-only) — o sync nunca bloqueia escrita numa entidade travada.
+
+**Lifecycle de socket é client-driven:** `auth.logout` revoga só o refresh token — **não** fecha sockets de
+`collab` nem limpa presença; um socket só cai no fechamento pelo cliente (`leave`/close) ou quando o sweep de
+heartbeat reconcilia **autorização** (share revogado / atlas despublicado / org desativada — **não** a
+revogação do refresh token). **Um socket por `atlasId`** (sem "switch" no servidor): trocar de atlas exige
+nova conexão + fechar a anterior pelo cliente. `flexibleAuth` faz sliding renewal do cookie `token` (<5 min p/ expirar).

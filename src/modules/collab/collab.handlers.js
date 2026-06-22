@@ -1,7 +1,7 @@
 // Path: src/modules/collab/collab.handlers.js
 // Individual message type handlers for WebSocket collaboration
 
-import { broadcastToRoom } from './collab.rooms.js';
+import { broadcastToRoom, broadcastOperations } from './collab.rooms.js';
 import * as syncService from '../sync/sync.service.js';
 import { pushSchema } from '../sync/sync.schemas.js';
 import { classifyConnectionQuality, adaptiveSettingsFor } from './collab.quality.js';
@@ -110,12 +110,14 @@ export async function handleOperation(ws, data) {
       result: result.results[0],
     }));
 
-    // Broadcast operation to peers
+    // Broadcast operation to peers. A comment op must NOT reach read-only viewers
+    // (Visualizador / public visitor) — the spatial-comment visibility rule.
+    const isComment = (data.op?.entityType || data.op?.target) === 'comment';
     broadcastToRoom(ws.atlasId, {
       type: 'operation',
       userId: ws.userId,
       op: data.op,
-    }, ws);
+    }, ws, { skipReadOnly: isComment });
   } catch (err) {
     logger.error({ err, atlasId: ws.atlasId }, 'Failed to process operation');
     ws.send(JSON.stringify({
@@ -157,12 +159,9 @@ export async function handleOperations(ws, data) {
       results: result.results,
     }));
 
-    // Broadcast all operations to peers in a single message
-    broadcastToRoom(ws.atlasId, {
-      type: 'operations',
-      userId: ws.userId,
-      ops: data.ops,
-    }, ws);
+    // Broadcast all operations to peers. Comment ops are split out for read-only viewers
+    // (a mixed batch still delivers the non-comment ops to them).
+    broadcastOperations(ws.atlasId, data.ops, { userId: ws.userId, excludeWs: ws });
   } catch (err) {
     logger.error({ err, atlasId: ws.atlasId }, 'Failed to process operations batch');
     ws.send(JSON.stringify({
@@ -223,7 +222,7 @@ export function handleBriefingEditEnd(ws, data) {
  */
 export async function handleSyncRequest(ws, data) {
   try {
-    const result = await syncService.pullOperations(ws.atlasId, data.lastVersion || 0);
+    const result = await syncService.pullOperations(ws.atlasId, data.lastVersion || 0, ws.permission);
 
     if (result.isSnapshot) {
       ws.send(JSON.stringify({

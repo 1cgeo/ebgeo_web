@@ -12,6 +12,11 @@ export async function getSharingConfig(atlasId) {
   return {
     isPublic: rows[0].is_public,
     publicLink: rows[0].public_link,
+    owner: {
+      userId: rows[0].owner_id,
+      username: rows[0].owner_username,
+      nome: rows[0].owner_nome,
+    },
     shares: rows[0].shares,
   };
 }

@@ -353,6 +353,33 @@ describe('All 18 Feature Types via Sync', () => {
       assert.equal(feature.properties.source, 'processed_visibility');
       assert.equal(feature.properties.coverage, 0.75);
     });
+
+    it('sector -> setores collection', async () => {
+      const { targetId, res } = await pushFeature(
+        app, token, atlasId, mapId,
+        'sector',
+        { center: [-43.2, -22.9], radius: 3000, startAngle: 30, endAngle: 90 }
+      );
+      assert.equal(res.status, 200);
+
+      const feature = await findFeatureInSnapshot(app, token, atlasId, mapId, 'setores', targetId);
+      assert.ok(feature, 'sector should be in setores collection');
+      assert.equal(feature.properties.source, 'sector');
+    });
+
+    it('magnetic_declination -> magnetic_declinations collection', async () => {
+      const { targetId, res } = await pushFeature(
+        app, token, atlasId, mapId,
+        'magnetic_declination',
+        { coordinates: [-43.2, -22.9] },
+        { declination: -21.5 }
+      );
+      assert.equal(res.status, 200);
+
+      const feature = await findFeatureInSnapshot(app, token, atlasId, mapId, 'magnetic_declinations', targetId);
+      assert.ok(feature, 'magnetic_declination should be in magnetic_declinations collection');
+      assert.equal(feature.properties.source, 'magnetic_declination');
+    });
   });
 
   describe('Complex Geometry and Properties', () => {
@@ -443,7 +470,7 @@ describe('All 18 Feature Types via Sync', () => {
   });
 
   describe('All collections present in snapshot', () => {
-    it('snapshot has all 18 feature type collections', async () => {
+    it('snapshot has all 20 feature type collections', async () => {
       const res = await supertest(app)
         .get(`/api/v1/atlas/${atlasId}/sync/0`)
         .set('Authorization', `Bearer ${token}`)
@@ -454,8 +481,9 @@ describe('All 18 Feature Types via Sync', () => {
 
       const expectedCollections = [
         'points', 'lines', 'polygons', 'texts', 'images',
-        'circles', 'rectangles', 'ellipses', 'brushes', 'arrows',
+        'circles', 'rectangles', 'ellipses', 'brushes', 'setores', 'arrows',
         'boundarys', 'occupied_fronts', 'military_symbols', 'coordination_measures',
+        'magnetic_declinations',
         'los', 'visibility', 'processed_los', 'processed_visibility',
       ];
 

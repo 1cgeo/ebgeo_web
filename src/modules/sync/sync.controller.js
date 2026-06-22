@@ -2,7 +2,7 @@
 import { asyncHandler } from '../../utils/async-handler.js';
 import { NotFoundError } from '../../utils/errors.js';
 import * as syncService from './sync.service.js';
-import { broadcastToRoom } from '../collab/collab.rooms.js';
+import { broadcastOperations } from '../collab/collab.rooms.js';
 
 export const pushOperations = asyncHandler(async (req, res) => {
   const result = await syncService.pushOperations(
@@ -12,22 +12,18 @@ export const pushOperations = asyncHandler(async (req, res) => {
     req.atlasPermission
   );
 
-  // Broadcast the pushed operations to WS peers for real-time updates.
-  // The service returns { acks, serverVersion } (no `applied`); we broadcast the
-  // normalized input. The HTTP sender has no socket, so it can't be excluded —
-  // clients must ignore ops whose clientId is their own (contract: fase-1/fase-8).
-  broadcastToRoom(req.atlasId, {
-    type: 'operations',
-    userId: req.user.id,
-    ops: req.body.operations,
-  });
+  // Broadcast the pushed operations to WS peers for real-time updates. Comment ops are kept
+  // away from read-only viewers (visibility rule); a mixed batch still reaches them minus the
+  // comments. The HTTP sender has no socket, so it can't be excluded — clients ignore ops whose
+  // clientId is their own (contract: fase-1/fase-8).
+  broadcastOperations(req.atlasId, req.body.operations, { userId: req.user.id });
 
   res.json({ data: result });
 });
 
 export const pullOperations = asyncHandler(async (req, res) => {
   const sinceVersion = parseInt(req.params.version, 10) || 0;
-  const result = await syncService.pullOperations(req.atlasId, sinceVersion);
+  const result = await syncService.pullOperations(req.atlasId, sinceVersion, req.atlasPermission);
   res.json({ data: result });
 });
 

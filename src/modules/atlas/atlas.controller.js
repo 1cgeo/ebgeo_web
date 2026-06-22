@@ -61,3 +61,13 @@ export const duplicateMap = asyncHandler(async (req, res) => {
   broadcastToRoom(req.atlasId, { type: 'map_duplicated', mapId: newMap.id });
   res.status(201).json({ data: newMap });
 });
+
+export const transferOwnership = asyncHandler(async (req, res) => {
+  // req.atlasOwnerId is the CURRENT owner (set by the owner-only guard); req.user may be a
+  // global admin acting on someone else's atlas, so we demote req.atlasOwnerId, not req.user.
+  const atlas = await atlasService.transferOwnership(req.atlasId, req.atlasOwnerId, req.body.newOwnerId);
+  // Notify the room so clients re-resolve their role + re-gate the UI immediately; the WS
+  // heartbeat reconcile is the fallback that adjusts each live socket's cached permission.
+  broadcastToRoom(req.atlasId, { type: 'atlas_owner_changed', atlasId: req.atlasId, newOwnerId: req.body.newOwnerId });
+  res.json({ data: atlas });
+});

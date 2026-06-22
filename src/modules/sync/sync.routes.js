@@ -13,8 +13,10 @@ const router = Router({ mergeParams: true });
 router.get('/admin/stats', auth, requireAdmin, ctrl.getCleanupStats);
 router.post('/admin/cleanup', auth, requireAdmin, validate({ body: schemas.cleanupSchema }), ctrl.cleanupOperations);
 
-// Sync operations
-router.post('/', auth, requireAtlasPermission('write'), validate({ body: schemas.pushSchema }), ctrl.pushOperations);
+// Sync operations. The push gate is 'comment' (not 'write') so a Comentarista can reach the
+// route to push comment ops; assertOperationAllowed() then enforces per-op that a comment-tier
+// user may ONLY write spatial comments. read-tier is still blocked here (read < comment).
+router.post('/', auth, requireAtlasPermission('comment'), validate({ body: schemas.pushSchema }), ctrl.pushOperations);
 router.get('/:version', auth, requireAtlasPermission('read'), ctrl.pullOperations);
 
 export { router as syncRoutes };

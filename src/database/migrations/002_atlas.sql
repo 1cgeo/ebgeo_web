@@ -58,7 +58,7 @@ CREATE TABLE atlas_shares (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     atlas_id        UUID NOT NULL REFERENCES atlas(id) ON DELETE CASCADE,
     user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    permission      VARCHAR(10) NOT NULL CHECK (permission IN ('read', 'write')),
+    permission      VARCHAR(10) NOT NULL CHECK (permission IN ('read', 'comment', 'write', 'manage')),
     added_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     added_by        UUID REFERENCES users(id),
 
@@ -183,9 +183,9 @@ CREATE TABLE features (
 
     CONSTRAINT valid_feature_type CHECK (feature_type IN (
         'point', 'line', 'polygon', 'text', 'image',
-        'circle', 'rectangle', 'ellipse', 'brush',
+        'circle', 'rectangle', 'ellipse', 'brush', 'sector',
         'arrow', 'boundary', 'occupied_front',
-        'military_symbol', 'coordination_measure',
+        'military_symbol', 'coordination_measure', 'magnetic_declination',
         'los', 'visibility',
         'processed_los', 'processed_visibility'
     ))
@@ -207,6 +207,38 @@ CREATE TABLE group_features (
 );
 
 CREATE INDEX idx_group_features_feature ON group_features(feature_id);
+
+-- ============================================================================
+-- COMMENTS (comentário espacial — ver docs/sistema-usuarios-e-acesso.md no frontend)
+-- Raiz (parent_id NULL, com lng/lat → pin no mapa) e respostas (parent_id → raiz).
+-- Sincroniza pelo pipeline de ops (entityType 'comment'). NÃO é enviado a conexões
+-- de nível 'read' (Visualizador/anônimo) — filtro de transmissão no snapshot/broadcast.
+-- Respostas são entidades próprias (parent_id) para não haver clobber LWW (P10).
+-- ============================================================================
+CREATE TABLE comments (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    atlas_id        UUID NOT NULL REFERENCES atlas(id) ON DELETE CASCADE,
+    map_id          UUID NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
+    parent_id       UUID REFERENCES comments(id) ON DELETE CASCADE,
+    author_id       UUID REFERENCES users(id),
+
+    -- Pin coordinate (root only; NULL for replies)
+    lng             DOUBLE PRECISION,
+    lat             DOUBLE PRECISION,
+    status          VARCHAR(10) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+
+    -- Full comment payload as-is from the frontend (text, authorInitials, authorColor, ...)
+    data            JSONB NOT NULL DEFAULT '{}',
+
+    version         INTEGER NOT NULL DEFAULT 1,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at      TIMESTAMPTZ
+);
+
+CREATE INDEX idx_comments_atlas ON comments(atlas_id);
+CREATE INDEX idx_comments_map ON comments(map_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_comments_parent ON comments(parent_id) WHERE parent_id IS NOT NULL;
 
 -- ============================================================================
 -- CATALOG LAYERS (§19/§2 — entidade por-camada de catálogo; entityId = layer id

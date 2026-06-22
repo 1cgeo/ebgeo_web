@@ -478,9 +478,9 @@ describe('WebSocket Collaboration', () => {
       const client2 = await createWsClient(server, atlas.id, writerToken);
       await client2.waitForType('connected');
 
-      // Client 1 should receive user_joined
-      await client1.waitForType('user_joined').catch(() => null);
-      // May or may not be implemented - just check connection worked
+      // Client 1 receives user_joined for client 2 (the joining client is excluded from its own event).
+      const joined = await client1.waitForType('user_joined');
+      assert.equal(joined.user.id, writer.id);
 
       client1.close();
       client2.close();
@@ -498,9 +498,9 @@ describe('WebSocket Collaboration', () => {
       // Client 2 disconnects
       client2.close();
 
-      // Client 1 should receive user_left
-      await client1.waitForType('user_left').catch(() => null);
-      // May or may not be implemented
+      // Client 1 receives user_left carrying the departed user's id.
+      const left = await client1.waitForType('user_left');
+      assert.equal(left.userId, writer.id);
 
       client1.close();
     });

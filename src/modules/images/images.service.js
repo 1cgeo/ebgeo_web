@@ -119,6 +119,11 @@ export async function bulkUploadImages(atlasId, images, userId) {
 
   const maxBytes = config.images.maxSizeMb * 1024 * 1024;
 
+  // localIds already inserted in THIS batch. The first occurrence preserves the localId as the
+  // server id (P11 ref validity); a duplicate localId within the same batch can't reuse the PK,
+  // so it gets a fresh server id and the mapping collapses last-wins to the latest.
+  const seenLocalIds = new Set();
+
   for (const image of images) {
     try {
       if (!ALLOWED_MIME_TYPES.includes(image.mimeType)) {
@@ -166,18 +171,38 @@ export async function bulkUploadImages(atlasId, images, userId) {
       const uniqueId = crypto.randomUUID();
       const storagePath = join(atlasDir, `${uniqueId}.${ext}`);
 
+      // First occurrence of this localId preserves it as the server id (so an image-feature's blob
+      // ref — which equals its feature id — stays valid with no post-import rewrite). A duplicate
+      // localId WITHIN the same batch can't reuse the PK, so it gets a fresh generated server id.
+      let serverImage;
+      if (seenLocalIds.has(image.localId)) {
+        const { rows } = await query(Q.INSERT_IMAGE, [
+          atlasId,
+          image.filename,
+          image.mimeType,
+          buffer.length,
+          storagePath,
+          userId,
+        ]);
+        serverImage = rows[0];
+      } else {
+        const { rows } = await query(Q.INSERT_IMAGE_WITH_ID, [
+          image.localId,
+          atlasId,
+          image.filename,
+          image.mimeType,
+          buffer.length,
+          storagePath,
+          userId,
+        ]);
+        serverImage = rows[0];
+        seenLocalIds.add(image.localId);
+      }
+
+      // Write the blob AFTER the row inserts, so a failed INSERT (e.g. a cross-atlas global-PK
+      // collision when re-saving the same local atlas) never leaves an orphan file on disk.
       await writeFile(storagePath, buffer);
 
-      const { rows } = await query(Q.INSERT_IMAGE, [
-        atlasId,
-        image.filename,
-        image.mimeType,
-        buffer.length,
-        storagePath,
-        userId,
-      ]);
-
-      const serverImage = rows[0];
       results.uploaded.push({
         localId: image.localId,
         serverId: serverImage.id,

@@ -6,11 +6,15 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
  * Permission hierarchy levels (higher number = more access).
+ * read < comment < write < manage < owner. `comment` (Comentarista) sees the atlas and
+ * may only act on spatial comments; `manage` (co-Gestor) can share + configure the atlas.
  */
 const PERMISSION_LEVELS = {
   read: 1,
-  write: 2,
-  owner: 3,
+  comment: 2,
+  write: 3,
+  manage: 4,
+  owner: 5,
 };
 
 /**
@@ -19,9 +23,9 @@ const PERMISSION_LEVELS = {
  * @param {Object} params
  * @param {string|null} params.userId - Current user ID (null for anonymous)
  * @param {string} params.ownerId - Atlas owner ID
- * @param {Object|null} params.share - User's share record { permission: 'read'|'write' }
+ * @param {Object|null} params.share - User's share record { permission: 'read'|'comment'|'write'|'manage' }
  * @param {boolean} params.isPublic - Whether atlas is public
- * @returns {string|null} Permission level: 'owner', 'write', 'read', or null
+ * @returns {string|null} Permission level: 'owner', 'manage', 'write', 'comment', 'read', or null
  */
 export function resolvePermission({ userId, ownerId, share, isPublic }) {
   // 1. Is user the atlas owner?
@@ -47,7 +51,7 @@ export function resolvePermission({ userId, ownerId, share, isPublic }) {
  * Creates middleware that checks if the authenticated user has
  * the required permission level on the atlas specified by :atlasId or :aId or :id.
  *
- * @param {'read' | 'write' | 'owner'} requiredLevel - Minimum permission
+ * @param {'read' | 'comment' | 'write' | 'manage' | 'owner'} requiredLevel - Minimum permission
  * @returns {Function} Express middleware
  */
 export function requireAtlasPermission(requiredLevel) {

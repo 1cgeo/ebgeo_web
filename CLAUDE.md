@@ -61,6 +61,13 @@ npm run lint           # eslint (rode antes de finalizar) | npm run format
   `org_role ∈ {owner,editor,viewer,admin}` + aliases `org`/`login`. Tokens legados degradam
   (`org_role→viewer`, `organization_id→null`). `flexibleAuth` é global e **não-bloqueante** (Bearer/cookie/
   `x-api-key`, preserva anônimo); rotas de escrita usam o middleware `auth` **estrito** (401 sem token).
+  `flexibleAuth` faz **sliding session**: renova o cookie `token` quando faltam <5 min p/ expirar.
+- **Lifecycle de socket de colaboração é CLIENT-DRIVEN** (contrato p/ o frontend): `auth.logout` só revoga o
+  refresh token — **não** fecha sockets de `collab` nem limpa presença. Um socket só cai (a) quando o cliente
+  fecha a conexão / envia `leave`, ou (b) quando o sweep de heartbeat (~30s, `reconcileAuthorization`)
+  reconcilia **autorização** (share revogado / atlas despublicado / org desativada) — ele **não** reage à
+  revogação do refresh token. Há **um socket por `atlasId`** (sem mensagem de "switch"): trocar de atlas =
+  abrir nova conexão e fechar a anterior pelo cliente.
 - **`sv360` está FORA do sync/CRDT/WS** do atlas: BLOBs WebP em SQLite por projeto (`{slug}.db`, worker
   pool + ETag O(1) + semáforo), erros em envelope **plano** `{ error }` (não `{error:{code,message}}`),
   `db_filename` **derivado no servidor** (`${orgId}__{slug}.db`), ingestão swap-then-commit. Detalhes em

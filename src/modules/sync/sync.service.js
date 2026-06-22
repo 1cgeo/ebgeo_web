@@ -354,11 +354,13 @@ function transformFeaturesToFrontend(features) {
     rectangles: [],
     ellipses: [],
     brushes: [],
+    setores: [],
     arrows: [],
     boundarys: [],
     occupied_fronts: [],
     military_symbols: [],
     coordination_measures: [],
+    magnetic_declinations: [],
     los: [],
     visibility: [],
     processed_los: [],
@@ -376,11 +378,13 @@ function transformFeaturesToFrontend(features) {
     rectangle: 'rectangles',
     ellipse: 'ellipses',
     brush: 'brushes',
+    sector: 'setores',
     arrow: 'arrows',
     boundary: 'boundarys',
     occupied_front: 'occupied_fronts',
     military_symbol: 'military_symbols',
     coordination_measure: 'coordination_measures',
+    magnetic_declination: 'magnetic_declinations',
     los: 'los',
     visibility: 'visibility',
     processed_los: 'processed_los',
@@ -424,7 +428,7 @@ export async function getAtlasSyncInfo(atlasId) {
  * Generates a full snapshot of the atlas state.
  * Used when client requests version 0 or version < min_version.
  */
-export async function getAtlasSnapshot(atlasId) {
+export async function getAtlasSnapshot(atlasId, permission = 'owner') {
   return task(async (t) => {
     // Get atlas metadata
     const atlasResult = await t.query(Q.GET_ATLAS_METADATA, [atlasId]);
@@ -435,6 +439,25 @@ export async function getAtlasSnapshot(atlasId) {
 
     // Get all maps
     const maps = await t.query(Q.GET_ATLAS_MAPS, [atlasId]);
+
+    // Spatial comments are hidden from read-only viewers (Visualizador / public visitor): a
+    // 'read'-level snapshot omits them. Fetched ONCE for the whole atlas (not per-map) and grouped
+    // by map_id, to avoid an extra per-map query for every (often empty) map.
+    const commentsByMap = {};
+    if (permission !== 'read') {
+      const rawComments = await t.query(Q.GET_ATLAS_COMMENTS, [atlasId]);
+      for (const c of rawComments) {
+        if (!commentsByMap[c.map_id]) commentsByMap[c.map_id] = [];
+        commentsByMap[c.map_id].push({
+          id: c.id,
+          ...c.data,
+          mapId: c.map_id,
+          parentId: c.parent_id,
+          status: c.status,
+          sync: buildSyncMetadata(c),
+        });
+      }
+    }
 
     // Get features, layers, groups, cesium3d, streetview360 for each map
     // Transform to frontend format
@@ -455,6 +478,9 @@ export async function getAtlasSnapshot(atlasId) {
         ...c.data,
         sync: buildSyncMetadata(c),
       }));
+
+      // Spatial comments (prefetched once above, grouped by map_id); empty for read-only viewers.
+      map.comments = commentsByMap[map.id] || [];
 
       // Transform layers: rename sort_order -> order for frontend compatibility
       const rawLayers = await t.query(Q.GET_MAP_LAYERS, [map.id]);
@@ -551,13 +577,25 @@ const LOCKABLE_CHILD_TARGETS = new Set([
 ]);
 
 /**
- * Authorization gate for a single operation (multiuser spec): map-delete and map
- * lock/unlock are reserved for the atlas owner; everything else passes the route/WS
- * 'write' gate. Throws ForbiddenError when denied.
+ * Authorization gate for a single operation (multiuser spec):
+ *  - 'read'    → no writes at all (defensive; the route/WS gate already blocks it).
+ *  - 'comment' → may ONLY write spatial comments (target 'comment').
+ *  - map-delete and map lock/unlock are reserved for the atlas owner.
+ *  - everything else passes (write / manage / owner).
+ * Throws ForbiddenError when denied.
  * @param {Object} op - Normalized operation (target/type/_subType/changes/data).
- * @param {'owner'|'write'|'read'} permission - Resolved atlas permission.
+ * @param {'owner'|'manage'|'write'|'comment'|'read'} permission - Resolved atlas permission.
  */
 function assertOperationAllowed(op, permission) {
+  // Read-only never writes (defensive — the route/WS gate already blocks it).
+  if (permission === 'read') {
+    throw new ForbiddenError('Read-only users cannot send operations');
+  }
+  // Comentarista (comment tier) may only create/edit/delete spatial comments.
+  if (permission === 'comment' && op.target !== 'comment') {
+    throw new ForbiddenError('Comentaristas só podem criar ou editar comentários');
+  }
+
   if (op.target !== 'map') return;
   if (op.type === 'delete' && permission !== 'owner') {
     throw new ForbiddenError('Only the atlas owner can delete a map');
@@ -575,8 +613,8 @@ function assertOperationAllowed(op, permission) {
  * Operations are applied and recorded in the operations log.
  * Accepts both frontend format (entityType, operationType, entityId) and
  * legacy format (target, type, targetId).
- * @param {'owner'|'write'|'read'} [permission='owner'] - Resolved atlas permission
- *   (passed by the HTTP route / WS handler; defaults to owner for trusted internal calls).
+ * @param {'owner'|'manage'|'write'|'comment'|'read'} [permission='owner'] - Resolved atlas
+ *   permission (passed by the HTTP route / WS handler; defaults to owner for trusted internal calls).
  */
 export async function pushOperations(atlasId, operations, userId, permission = 'owner') {
   const acks = [];
@@ -624,7 +662,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       });
 
       // Apply operation to entity tables based on normalized op
-      await applyOperation(t, atlasId, op);
+      await applyOperation(t, atlasId, op, userId, permission);
     }
   });
 
@@ -650,7 +688,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
  * - If sinceVersion == 0 or sinceVersion < min_version → returns full snapshot
  * - Otherwise → returns incremental operations
  */
-export async function pullOperations(atlasId, sinceVersion) {
+export async function pullOperations(atlasId, sinceVersion, permission = 'owner') {
   // Get sync info to check min_version
   const syncInfo = await getAtlasSyncInfo(atlasId);
   if (!syncInfo) {
@@ -660,9 +698,9 @@ export async function pullOperations(atlasId, sinceVersion) {
   const minVersion = parseInt(syncInfo.min_version, 10);
   const currentVersion = parseInt(syncInfo.current_version, 10);
 
-  // If client is too far behind or starting fresh, return snapshot
+  // If client is too far behind or starting fresh, return snapshot (comments filtered by tier).
   if (sinceVersion === 0 || sinceVersion < minVersion) {
-    const snapshot = await getAtlasSnapshot(atlasId);
+    const snapshot = await getAtlasSnapshot(atlasId, permission);
     if (!snapshot) {
       return { operations: [], currentVersion: 0, isSnapshot: false };
     }
@@ -673,11 +711,16 @@ export async function pullOperations(atlasId, sinceVersion) {
     };
   }
 
-  // Otherwise return incremental operations (converted to frontend format)
+  // Otherwise return incremental operations (converted to frontend format). Read-only viewers
+  // never receive comment ops (visibility rule).
   const opsResult = await query(Q.GET_OPERATIONS_SINCE_VERSION, [atlasId, sinceVersion]);
+  let operations = opsResult.rows.map(toFrontendOperation);
+  if (permission === 'read') {
+    operations = operations.filter((o) => o.entityType !== 'comment');
+  }
 
   return {
-    operations: opsResult.rows.map(toFrontendOperation),
+    operations,
     currentVersion,
     isSnapshot: false,
   };
@@ -1084,10 +1127,79 @@ async function applyCatalogLayerOp(t, atlasId, op, type) {
 }
 
 /**
+ * Applies a spatial-comment op (create/update/delete). Comments are a dedicated entity (root +
+ * replies via parent_id; replies are separate rows so concurrent replies don't clobber — P10).
+ * IDOR-safe: a create is pinned to a map of THIS atlas; update/delete are scoped by atlas_id.
+ * @param {Object} t - Transaction context from pg-promise
+ */
+const COMMENT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** @param {*} v @returns {string|null} v if it's a UUID string, else null. */
+function asUuidOrNull(v) {
+  return typeof v === 'string' && COMMENT_UUID_RE.test(v) ? v : null;
+}
+
+async function applyCommentOp(t, atlasId, op, type, userId, permission) {
+  const data = op.changes ?? op.data ?? {};
+  // Editors and above may act on ANY comment; a Comentarista only on their OWN (authorship gate).
+  const isEditor = permission === 'write' || permission === 'manage' || permission === 'owner';
+
+  if (type === 'create') {
+    // Robustness: a non-UUID authorId/parentId is dropped to NULL — otherwise Postgres 22P02
+    // (invalid uuid) would abort the whole flush batch (the poison-pill class already guarded for
+    // mapId in the frontend dispatcher). A reply whose parent no longer exists soft-fails (inserts
+    // zero rows via the EXISTS guard) instead of raising a 23503 FK violation.
+    const authorId = asUuidOrNull(data.authorId);
+    const parentId = asUuidOrNull(data.parentId);
+    await t.none(`
+      INSERT INTO comments (id, atlas_id, map_id, parent_id, author_id, lng, lat, status, data)
+      SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb
+      WHERE EXISTS (SELECT 1 FROM maps WHERE id = $3 AND atlas_id = $2)
+        AND ($4::uuid IS NULL OR EXISTS (SELECT 1 FROM comments WHERE id = $4::uuid AND atlas_id = $2))
+      ON CONFLICT (id) DO NOTHING
+    `, [
+      op.targetId,
+      atlasId,
+      op.mapId,
+      parentId,
+      authorId,
+      data.lng ?? null,
+      data.lat ?? null,
+      data.status === 'resolved' ? 'resolved' : 'open',
+      JSON.stringify(data),
+    ]);
+  } else if (type === 'update') {
+    // Keep the existing status when the payload doesn't carry a valid one (a text-only edit must
+    // not silently reopen a resolved comment). Author gate: own comment, or editor+.
+    const status = data.status === 'resolved' || data.status === 'open' ? data.status : null;
+    await t.none(`
+      UPDATE comments SET data = $1::jsonb, status = COALESCE($2, status), updated_at = NOW(), version = version + 1
+      WHERE id = $3 AND atlas_id = $4 AND deleted_at IS NULL AND ($5 OR author_id = $6)
+    `, [
+      JSON.stringify(data),
+      status,
+      op.targetId,
+      atlasId,
+      isEditor,
+      userId,
+    ]);
+  } else if (type === 'delete') {
+    // Soft-delete the target AND, for a root, its replies (cascade), authorized by the TARGET's
+    // author (or editor+). Replies of an authorized root delete are removed regardless of their
+    // own author — deleting a thread deletes the thread.
+    await t.none(`
+      UPDATE comments SET deleted_at = NOW(), updated_at = NOW(), version = version + 1
+      WHERE atlas_id = $2 AND deleted_at IS NULL AND (id = $1 OR parent_id = $1)
+        AND ($3 OR EXISTS (SELECT 1 FROM comments WHERE id = $1 AND author_id = $4))
+    `, [op.targetId, atlasId, isEditor, userId]);
+  }
+}
+
+/**
  * Applies an operation to the appropriate entity table.
  * @param {Object} t - Transaction context from pg-promise
  */
-async function applyOperation(t, atlasId, op) {
+async function applyOperation(t, atlasId, op, userId, permission) {
   const target = op.target;
   const type = op.type;
 
@@ -1121,6 +1233,9 @@ async function applyOperation(t, atlasId, op) {
     // resource-availability key (features/basemaps/etc.), which stay rejected so a
     // write user cannot rewrite what the atlas exposes.
     if (patch.customIcons !== undefined) safe.customIcons = patch.customIcons;
+    // mapOrder (array of map names) — the maps-list ordering; a plain array replaced
+    // wholesale. Not a resource-availability key, so a write user may reorder the list.
+    if (patch.mapOrder !== undefined) safe.mapOrder = patch.mapOrder;
     // Object-valued keys are merged per-key below; collect their incoming patches.
     const objectPatches = {};
     for (const key of SETTING_OBJECT_KEYS) {
@@ -1172,6 +1287,7 @@ async function applyOperation(t, atlasId, op) {
     streetview360: 'streetview360_data',
     group_feature: 'group_features',
     catalog_layer: 'catalog_layers',
+    comment: 'comments',
   };
 
   const table = tableMap[target];
@@ -1182,6 +1298,12 @@ async function applyOperation(t, atlasId, op) {
   // catalogLayer has dual-mode handling (legacy whole-array vs per-layer table).
   if (target === 'catalog_layer') {
     await applyCatalogLayerOp(t, atlasId, op, type);
+    return;
+  }
+
+  // Spatial comments have their own column shape (parent_id, lng/lat, status).
+  if (target === 'comment') {
+    await applyCommentOp(t, atlasId, op, type, userId, permission);
     return;
   }
 

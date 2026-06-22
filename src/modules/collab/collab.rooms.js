@@ -34,18 +34,54 @@ export function getRoomClients(atlasId) {
 }
 
 /**
- * Broadcasts a message to all clients in a room, optionally excluding the sender.
+ * Broadcasts a message to all clients in a room, optionally excluding the sender. With
+ * `opts.skipReadOnly`, read-only connections (Visualizador / public visitor) are skipped — used to
+ * keep spatial-comment ops away from viewers (the comment visibility rule).
+ * @param {string} atlasId
+ * @param {Object|string} message
+ * @param {import('ws').WebSocket|null} [excludeWs]
+ * @param {{ skipReadOnly?: boolean }} [opts]
  */
-export function broadcastToRoom(atlasId, message, excludeWs = null) {
+export function broadcastToRoom(atlasId, message, excludeWs = null, { skipReadOnly = false } = {}) {
   const room = rooms.get(atlasId);
   if (!room) return;
 
   const payload = typeof message === 'string' ? message : JSON.stringify(message);
 
   for (const client of room) {
-    if (client !== excludeWs && client.readyState === 1) { // WebSocket.OPEN = 1
-      client.send(payload);
+    if (client === excludeWs || client.readyState !== 1) continue; // WebSocket.OPEN = 1
+    if (skipReadOnly && client.permission === 'read') continue;
+    client.send(payload);
+  }
+}
+
+/**
+ * Broadcasts an operations batch honoring the spatial-comment visibility rule: read-only
+ * connections never receive `comment` ops. Non-comment ops go to everyone except the sender; a
+ * MIXED batch is split so read clients still get the non-comment ops.
+ * @param {string} atlasId
+ * @param {Object[]} ops - The operation batch.
+ * @param {{ userId?: string, excludeWs?: import('ws').WebSocket|null }} [opts]
+ */
+export function broadcastOperations(atlasId, ops, { userId, excludeWs = null } = {}) {
+  const room = rooms.get(atlasId);
+  if (!room || !Array.isArray(ops) || ops.length === 0) return;
+
+  const fullPayload = JSON.stringify({ type: 'operations', userId, ops });
+  const nonComment = ops.filter((o) => o && (o.entityType || o.target) !== 'comment');
+  const hasComment = nonComment.length !== ops.length;
+  const readPayload = nonComment.length
+    ? JSON.stringify({ type: 'operations', userId, ops: nonComment })
+    : null;
+
+  for (const client of room) {
+    if (client === excludeWs || client.readyState !== 1) continue;
+    if (!hasComment || client.permission !== 'read') {
+      client.send(fullPayload);
+    } else if (readPayload) {
+      client.send(readPayload);
     }
+    // read-only client + all-comment batch → nothing sent.
   }
 }
 

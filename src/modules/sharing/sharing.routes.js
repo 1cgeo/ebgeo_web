@@ -8,11 +8,15 @@ import * as schemas from './sharing.schemas.js';
 
 const router = Router({ mergeParams: true });
 
-router.get('/', auth, requireAtlasPermission('owner'), ctrl.getSharingConfig);
-router.post('/public', auth, requireAtlasPermission('owner'), ctrl.enablePublicSharing);
-router.delete('/public', auth, requireAtlasPermission('owner'), ctrl.disablePublicSharing);
-router.post('/users', auth, requireAtlasPermission('owner'), validate({ body: schemas.addUserShareSchema }), ctrl.addUserShare);
-router.put('/users/:userId', auth, requireAtlasPermission('owner'), validate({ body: schemas.updateUserShareSchema }), ctrl.updateUserShare);
-router.delete('/users/:userId', auth, requireAtlasPermission('owner'), ctrl.removeUserShare);
+// Sharing is a co-Gestor ('manage') capability, not owner-only. A manager can grant up to
+// 'manage' (the share enum max — 'owner' is NOT grantable) and remove other members, but can
+// never touch the owner (the owner has no atlas_shares row, so removeUserShare is a no-op on
+// them). Ownership changes only via the owner-only transfer route.
+router.get('/', auth, requireAtlasPermission('manage'), ctrl.getSharingConfig);
+router.post('/public', auth, requireAtlasPermission('manage'), ctrl.enablePublicSharing);
+router.delete('/public', auth, requireAtlasPermission('manage'), ctrl.disablePublicSharing);
+router.post('/users', auth, requireAtlasPermission('manage'), validate({ body: schemas.addUserShareSchema }), ctrl.addUserShare);
+router.put('/users/:userId', auth, requireAtlasPermission('manage'), validate({ body: schemas.updateUserShareSchema }), ctrl.updateUserShare);
+router.delete('/users/:userId', auth, requireAtlasPermission('manage'), ctrl.removeUserShare);
 
 export { router as sharingRoutes };

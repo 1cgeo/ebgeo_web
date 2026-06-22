@@ -49,6 +49,11 @@ export const cloneAtlasSchema = Joi.object({
   name: Joi.string().max(255),
 });
 
+// Ownership transfer: the new owner is picked among current members (validated in the service).
+export const transferOwnershipSchema = Joi.object({
+  newOwnerId: Joi.string().uuid().required(),
+});
+
 export const atlasIdParamsSchema = Joi.object({
   atlasId: Joi.string().uuid().required(),
 });
@@ -61,14 +66,16 @@ export const idParamsSchema = Joi.object({
 // Import Schema - Bulk import de atlas offline
 // ============================================
 
-// All 18 valid feature types
+// Valid feature types — must match the frontend SOURCE_TYPES (store.constants.js) + the
+// processing outputs, and the features.valid_feature_type CHECK (002_atlas.sql).
 const VALID_FEATURE_TYPES = [
   // Basic
   'point', 'line', 'polygon', 'text', 'image',
   // Shapes
-  'circle', 'rectangle', 'ellipse', 'brush',
+  'circle', 'rectangle', 'ellipse', 'brush', 'sector',
   // Military
   'arrow', 'boundary', 'occupied_front', 'military_symbol', 'coordination_measure',
+  'magnetic_declination',
   // Analysis
   'los', 'visibility', 'processed_los', 'processed_visibility',
 ];
@@ -139,6 +146,10 @@ const mapSchema = Joi.object({
   analysis_layers: Joi.object().default({}),
   catalog_layers: Joi.array().default([]),
   locked: Joi.boolean().default(false),
+  // Per-map temporal config + grid style (maps columns). Accepted on import so a local atlas
+  // saved to the server preserves the temporal module + grid (P9: sync ⊇ .ebgeo coverage).
+  grid_style: Joi.object().default({}),
+  temporal_config: Joi.object().default({}),
   features: Joi.array().items(featureSchema).default([]),
   layers: Joi.array().items(layerSchema).default([]),
   groups: Joi.array().items(groupSchema).default([]),

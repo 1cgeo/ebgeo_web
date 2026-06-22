@@ -54,6 +54,14 @@ export const GET_MAP_CATALOG_LAYERS = `
   WHERE map_id = $1 AND deleted_at IS NULL
 `;
 
+export const GET_ATLAS_COMMENTS = `
+  SELECT id, map_id, parent_id, author_id, lng, lat, status, data,
+         created_at, updated_at, version
+  FROM comments
+  WHERE atlas_id = $1 AND deleted_at IS NULL
+  ORDER BY created_at
+`;
+
 export const GET_MAP_FEATURES = `
   SELECT id, map_id, feature_type, geometry, properties, layer_id,
          created_at, updated_at, version
