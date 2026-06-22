@@ -36,7 +36,8 @@ describe('WebSocket — role vocabulary in connected', () => {
     atlas = await createAtlas(db, owner.id, { name: 'Roles Atlas' });
     await db.query(`INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by) VALUES ($1,$2,'write',$3)`, [atlas.id, writer.id, owner.id]);
     await db.query(`INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by) VALUES ($1,$2,'read',$3)`, [atlas.id, reader.id, owner.id]);
-    // Global admin connects as a writer-shared user; role must resolve to 'admin'.
+    // Global admin given only a 'write' share: the admin bypass must still resolve
+    // them to OWNER (full access), proving the bypass overrides the per-atlas share.
     await db.query(`INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by) VALUES ($1,$2,'write',$3)`, [atlas.id, admin.id, owner.id]);
   });
 
@@ -70,9 +71,11 @@ describe('WebSocket — role vocabulary in connected', () => {
     assert.equal(c.role, 'viewer');
   });
 
-  it('global admin -> role admin (even with a lower per-atlas permission)', async () => {
+  it('global admin -> permission owner (bypass) + role admin, overriding a lower share', async () => {
     const c = await roleFor(adminToken);
-    assert.equal(c.permission, 'write');
+    // Admin bypass: a global admin gets OWNER-level access to any atlas (so they can
+    // support/debug), overriding the 'write' share set up below.
+    assert.equal(c.permission, 'owner');
     assert.equal(c.role, 'admin');
   });
 });
