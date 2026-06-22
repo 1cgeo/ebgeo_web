@@ -265,6 +265,43 @@ export class BaseLayerSelectorControl {
         // Listen for map lock changes
         subscribe(this, this._eventBus, EventTypes.MAP_LOCK_CHANGED,
             () => this._applyMapLockState());
+
+        // Per-atlas config changed (Gestor restricted the basemaps, or connect/disconnect) —
+        // rebuild the available-basemaps grid and switch off any now-unavailable selection.
+        subscribe(this, this._eventBus, EventTypes.ATLAS_SETTINGS_CHANGED,
+            () => this.regateBasemaps());
+    }
+
+    /**
+     * Re-gates the basemap list against the current config (after a per-atlas overlay apply/revert):
+     * rebuilds the expanded grid and, if the active basemap is no longer available, switches to the
+     * first available one.
+     */
+    regateBasemaps() {
+        this._loadEnabledLayers();
+        const availableIds = new Set(this._enabledLayers.map((l) => l.id));
+
+        const grid = this._expandedView?.querySelector('.base-layer-grid');
+        if (grid) {
+            this._thumbnails.clear();
+            grid.textContent = '';
+            this._enabledLayers.forEach(({ id, config: layerConfig }) => {
+                grid.appendChild(this._createLayerOption(id, layerConfig));
+            });
+        }
+
+        let current = 'carta-topografica';
+        try {
+            current = this._stateManager?.get('baseLayer.activeLayer')
+                || this._baseLayerControl?.currentLayer || current;
+        } catch (_e) {
+            // Use default.
+        }
+        if (!availableIds.has(current) && this._enabledLayers.length > 0) {
+            this._handleLayerSelect(this._enabledLayers[0].id);
+        } else {
+            this._syncCurrentLayer();
+        }
     }
 
     /**

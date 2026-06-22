@@ -33,7 +33,8 @@ src/js/
 │   ├── repositories/        # Repository abstraction (interface, local, factory)
 │   ├── services/             # map-resolver.service.js (name↔UUID with LRU)
 │   ├── migration/            # Schema migrations (v1→v2, v2→v2.1, v2.1→v2.2; auto, version-conditional on startup)
-│   └── sync/                 # Operation queue, Lamport clock, future WebSocket infra (no-op offline)
+│   └── sync/                 # Real-time sync CLIENT (wired, NOT no-op): REST api-client + WebSocket ws-client,
+│                             #   sync-engine orchestration, op queue + Lamport, remote-op apply, session/connection state
 │
 ├── events/                  # event_bus.js, event_types.js, event_emitter.js
 ├── state/                   # state_manager.js (UI state: sidebar, panels)
@@ -85,6 +86,8 @@ src/js/
 ├── keyboard/                # Keyboard shortcuts
 ├── deep-link/               # Shareable URL state (deep linking)
 ├── phone/                   # Mobile/phone-specific UI
+├── account/                 # Login + account menu + project-picker entry; sync status light
+├── presence/                # Online-users roster + remote cursors + presence store (collaboration)
 ├── user_data/               # Custom attributes + image management
 ├── ui/                      # Shared UI utilities
 └── utilities/               # Helpers (uuid, deep-utils, toast, event-cleanup, etc.)
@@ -104,26 +107,37 @@ Ephemeral (non-persistent) tools that do NOT follow the 3-file tool pattern. Sha
 
 Points can render a text label (`showLabel`) with props `labelText`, `labelColor`, `labelSize`, `labelOutlineColor`, `labelOutlineWidth`, plus zoom-correction props (`labelZoomCorrectionEnabled`, `labelCreatedAtZoom`, `labelCalculatedSize`) that keep the label a constant visual size across zoom. Rendered via `point-label-layer` (alongside `point-layer` + `point-marker-layer`); the panel "Etiqueta" tab is built with `tool_manager/helpers/label-tab.helpers.js`.
 
-## Sync Infrastructure
+## Sync / Real-Time Collaboration
 
-Operation queue with Lamport clock for causal ordering. Queue compaction: CREATE+DELETE=remove both, CREATE+UPDATEs=merge. Real-time sync infra (session-context, connection-state, sync-gateway, sync-scheduler) is wired but no-op offline, ready for future WebSocket backend.
+The `store/sync/` client is **fully wired** to an optional backend (`ebgeo_backend`: Express + PostgreSQL + `ws`, JWT auth). The app still runs fully offline/anonymous when nobody logs in. *(This section previously described the layer as "no-op / offline-only / no backend exists" — that is no longer true.)* Operations carry a Lamport clock for causal ordering; queue compaction: CREATE+DELETE=remove both, CREATE+UPDATEs=merge.
 
-### Multi-User Preparation (NOT yet implemented)
+**Transport & orchestration**
+- `api-client.js` — REST `/api/v1` (login/refresh/logout, `listAtlas`/`createAtlas`/`getAtlas`, sharing, `searchUsers`, `pushOperations`/`pullSync`, images). Tokens in-memory (`_accessToken`/`_refreshToken`).
+- `ws-client.js` — real `WebSocket` to `/api/v1/collab?atlasId&token&clientId`; heartbeat (ping/pong), exponential-backoff reconnect, `sync_request` replay, inbound op de-dupe by own `clientId`.
+- `sync-engine.js` (`syncEngine`) — lifecycle: `login` → `connect(atlasId,{initialPull})` (snapshot + WS) → `flush`/`pull` → `disconnect`/`logoutAndDisconnect`.
+- `sync-flush.js` — outbound flush (1.5s interval + `FLUSH_TRIGGER_EVENTS`), gated on `connectionState.isOnline()`; batches via `apiClient.pushOperations`. `runtime-config.js` resolves base URL; `image-sync.js` syncs image blobs.
 
-The app is currently **offline-only**. The sync infrastructure exists solely to make a future WebSocket backend transition easy — no backend or multi-user feature exists yet. Full spec: `docs/acoes-interface-multiusuario.md`.
+**Outbound** — store ops call `logXxxOperation` directly (`operation-dispatcher.js`; feature ops log inside the `runTransaction` deferAsync) → `operation-queue.js` (IndexedDB queue `ebgeo/operation_queue`, compaction, auto-purge) using `operation-factory.js` (Lamport clock + persisted `clientId`). Op types in `operation-types.js`.
 
-**Future design direction:** no locks (all LWW), JWT auth (Owner/Admin/Editor/Viewer roles), soft-delete, per-user undo.
+**Inbound** — `remote-operation-handler.js` `applyRemoteOperation` routes by entityType, persists via the repo, emits the matching lifecycle event + `REMOTE_OPERATION_APPLIED`. `applyRemoteSnapshot` reshapes the backend snapshot (snake_case→camelCase) on `connect`. 3D/360 inbound is **emit-only** (not persisted in the handler).
 
-**Groundwork already laid (client-side only, all no-op today):**
-- `operation-queue.js` — IndexedDB queue with compaction
-- `operation-factory.js` — Lamport clock for causal ordering
-- `session-context.js` — identity abstraction (offline anonymous for now)
-- `connection-state.js` — state machine (permanently OFFLINE for now)
-- `sync-gateway.js` — transmission abstraction (no-op)
-- `sync-scheduler.js` — debounced entity lifecycle listener (queues locally only)
-- `operation-dispatcher.js` / `remote-operation-handler.js` — outbound/inbound op plumbing (idle offline)
-- `permission-guard.js` — role-based gate (always permissive offline)
-- `event-bridges.js` / `operation-types.js` / `sync-metadata.js` — wiring + shared shapes
+**Identity / connection / permissions**
+- `session-context.js` (`sessionContext`) — OFFLINE/ONLINE; JWT `userId`+role (owner/admin/editor/viewer); offline = anonymous `clientId` with full local perms.
+- `connection-state.js` (`connectionState`) — real state machine `OFFLINE→CONNECTING→ONLINE→RECONNECTING`, driven by `ws-client.js`.
+- `event-bridges.js` — bridges both singletons to `SESSION_CHANGED` / `CONNECTION_STATE_CHANGED`.
+- `permission-guard.js` — role gate (permissive offline). `sync-gateway.js` — inbound relay (early-returns when offline). `sync-scheduler.js` — **now a no-op shell** kept for call-site stability (outbound owned by `sync-flush.js`).
+
+**Entry points & UI** — `account/account.control.js` (login modal → `openProjectPicker` → `clearAllDataStore` → `connect` → `startAutoFlush`; logout → `logoutAndDisconnect`), `account/sync-status.control.js` (connection light, hidden when anonymous), `presence/` (online-users roster + remote cursors + presence store), `modals/{login,project-picker,sharing}.modal.js`, `sidebar/tabs/maps.tab.js` ("Abrir do servidor" + share button).
+
+**Conflict model** — LWW by **server arrival order** (not timestamp); idempotency by `op_id`. Backend entity writes are **sync-only** (no REST write routes for feature/map/layer/group/briefing/slide). Operating model & principles (offline-first, local-vs-remote separation, atlas isolation, network resilience): `docs/visao-e-principios.md`. Full multi-user action map: `docs/acoes-interface-multiusuario.md`.
+
+**Sync — accurate current state (most earlier "gaps" are resolved):**
+- Tokens **persist in `localStorage`**; session + last remote atlas **restored on boot/F5** (`restoreSessionFromStorage`, `reconnectLastAtlas`); the refresh-rotation / 401-retry path (`apiClient.refresh`) IS reachable on boot.
+- Remote-atlas data is **cleared on logout/disconnect**; the boot guard discards orphan remote data found while logged out. The local↔remote split is the **store-origin marker** (`store-origin.js`), NOT per-atlas namespacing — **multiple named local atlases are a deliberate non-goal** (local = one workspace + `.ebgeo`; named atlases are a server concept; see `docs/visao-e-principios.md` P12).
+- The local default map `Principal` is name-keyed: non-UUID-context ops are dropped pre-flush (anti-leak); on `connect`, `activateAtlasInitialMap` removes non-UUID local strays (so a same-named server map isn't shadowed); `getAllMapNamesStore` resolves UUID keys → names.
+- Remote layer/3D/360 ops **and** snapshots persist into their dedicated side-stores and refresh the active-map layer cache (P11 round-trip fidelity).
+- Permission role gate applies only to a **connected remote atlas** — the local store is always editable, even logged in.
+- **By design, client-driven:** `auth.logout` revokes only the refresh token; the collab socket close + presence teardown happen on the client.
 
 ## Vite Chunks
 
@@ -141,7 +155,7 @@ App events are defined in `events/event_types.js` and accessed via `EventTypes.X
 - **Briefing**: `BRIEFING_EDIT_STARTED/ENDED`, `BRIEFING_PRESENT_STARTED/ENDED`, `BRIEFING_SLIDE_CHANGED`
 - **Processing**: `PROCESSING_STARTED/COMPLETED/ERROR`
 - **Temporal**: `MAP_TEMPORAL_CHANGED` (per-map control toggled), `TEMPORAL_CONFIG_CHANGED` (unit/bounds/origin changed), `TEMPORAL_CURSOR_CHANGED` (cursor moved — emitted per playback frame)
-- **Session/Sync** (offline no-op today): `SESSION_CHANGED`, `CONNECTION_STATE_CHANGED`, `REMOTE_OPERATION_APPLIED`
+- **Session/Sync**: `SESSION_CHANGED`, `CONNECTION_STATE_CHANGED` (live collaboration state), `REMOTE_OPERATION_APPLIED` (a peer's op was applied to the local store)
 - **3D viewer**: `VIEWER_3D_OPENED/CLOSED`, `MARKER_3D_CLICKED`, `VIEWSHED_3D_CLICKED/DESELECTED`, `VIEWSHEDS_3D_CHANGED`
 - **360 viewer**: `STREETVIEW_360_OPENED/CLOSED`, `MARKER_360_*`, `ORIENTATION_360_*`
 

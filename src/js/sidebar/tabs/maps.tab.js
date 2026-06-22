@@ -39,11 +39,9 @@ import { showPrompt, showConfirm, showCombineMapsModal } from '@modals/index.js'
 import { mapLockController } from '@js/locking/index.js';
 import { mapResolver } from '@store/services/map-resolver.service.js';
 import { resolveRedirectTarget } from './remote-map-redirect.js';
-import { showSharingModal } from '@modals/sharing.modal.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
-import { syncEngine } from '@store/sync/sync-engine.js';
 import { sessionContext } from '@store/sync/session-context.js';
-import { apiClient } from '@store/sync/api-client.js';
+import { CommentsPanel } from '@js/comment_tool/comments-panel.js';
 
 /**
  * Icons specific to maps tab.
@@ -158,6 +156,11 @@ export class MapsTab {
         this._mapsList.className = 'maps-list';
         this._container.appendChild(this._mapsList);
 
+        // Comments section — the current map's spatial comments (open + resolved), where a
+        // resolved comment can still be reviewed, plus the show/hide-all toggle and "new" button.
+        this._commentsPanel = new CommentsPanel();
+        this._container.appendChild(this._commentsPanel.render());
+
         // Settings button
         const settingsBtn = document.createElement('button');
         settingsBtn.className = 'sidebar-settings-btn';
@@ -204,9 +207,26 @@ export class MapsTab {
 
             addDomListener(this, button, 'click', action.handler);
             grid.appendChild(button);
+
+            // §item1: keep refs to the two session-gated actions.
+            if (action.id === 'open-backend') this._openBackendBtn = button;
+            if (action.id === 'clear') this._clearAllBtn = button;
         });
 
+        this._updateActionsVisibility();
         return grid;
+    }
+
+    /**
+     * Session-gates the two actions (§item1): "Abrir do servidor" is shown only when logged
+     * in (the picker requires auth); "Limpar Tudo" is hidden when logged in (a server atlas
+     * is left/closed via logout, not wiped through the local "clear all").
+     * @private
+     */
+    _updateActionsVisibility() {
+        const loggedIn = sessionContext.isAuthenticated();
+        if (this._openBackendBtn) this._openBackendBtn.hidden = !loggedIn;
+        if (this._clearAllBtn) this._clearAllBtn.hidden = loggedIn;
     }
 
     /**
@@ -241,15 +261,7 @@ export class MapsTab {
                     ${MAPS_ICONS.fileText}
                 </button>
             </div>
-            <button class="current-map-share-btn" id="current-map-share-btn" data-testid="maps-share-btn" title="Compartilhar projeto" hidden>
-                ${MAPS_ICONS.users}<span>Compartilhar</span>
-            </button>
         `;
-
-        // Setup share button handler (atlas-level; visibility gated to the owner
-        // of a connected server atlas — toggled in _updateShareButton()).
-        const shareBtn = card.querySelector('#current-map-share-btn');
-        addDomListener(this, shareBtn, 'click', () => this._handleShareAtlas());
 
         // Setup name input handler
         const nameInput = card.querySelector('#current-map-name-input');
@@ -353,8 +365,8 @@ export class MapsTab {
         subscribe(this, this._eventBus, EventTypes.REMOTE_OPERATION_APPLIED, (p) => this._onRemoteOperation(p));
         // Re-evaluate the owner-only "Compartilhar" button when the session
         // (login/role) or the connection (connect/disconnect an atlas) changes.
-        subscribe(this, this._eventBus, EventTypes.SESSION_CHANGED, () => this._updateShareButton());
-        subscribe(this, this._eventBus, EventTypes.CONNECTION_STATE_CHANGED, () => this._updateShareButton());
+        subscribe(this, this._eventBus, EventTypes.SESSION_CHANGED, () => this._updateActionsVisibility());
+        subscribe(this, this._eventBus, EventTypes.CONNECTION_STATE_CHANGED, () => this._updateActionsVisibility());
     }
 
     /**
@@ -476,51 +488,7 @@ export class MapsTab {
             notesBtn.title = locked ? 'Notas do mapa (somente leitura)' : 'Notas do mapa';
         }
 
-        this._updateShareButton();
-
         await this._updateCurrentMapStats();
-    }
-
-    /**
-     * Toggles the atlas-level "Compartilhar" button. Shown when a server atlas is
-     * connected AND the current user can manage sharing: the atlas OWNER, or a
-     * GLOBAL ADMIN (admins manage any atlas to support/debug users). Gating reads
-     * the synchronous session/sync singletons: `syncEngine.atlasId` is non-null only
-     * while connected, and `sessionContext.role` reflects the PER-ATLAS role from the
-     * connect handshake ('owner' for the owner, 'admin' for a global admin — the
-     * backend collapses owner+admin to 'admin'). The backend enforces the same
-     * owner-or-admin rule on every sharing mutation, so this is purely cosmetic.
-     * @private
-     */
-    _updateShareButton() {
-        const shareBtn = this._currentMapCard?.querySelector('#current-map-share-btn');
-        if (!shareBtn) return;
-
-        const canShare = !!syncEngine.atlasId
-            && (sessionContext.role === 'owner' || sessionContext.role === 'admin');
-        shareBtn.hidden = !canShare;
-    }
-
-    /**
-     * Opens the sharing modal for the connected atlas (owner-only entry point).
-     * The atlas display name is resolved lazily from the project list so the modal
-     * header can show it; if it can't be resolved the modal still works (it re-reads
-     * the canonical sharing config from the server) and just omits the name.
-     * @private
-     */
-    async _handleShareAtlas() {
-        const atlasId = syncEngine.atlasId;
-        if (!atlasId) return;
-
-        let atlasName;
-        try {
-            const projects = await apiClient.listAtlas();
-            atlasName = projects?.find(p => p.id === atlasId)?.name;
-        } catch (_error) {
-            // Name is cosmetic; the modal works without it.
-        }
-
-        showSharingModal(atlasId, { atlasName });
     }
 
     /**
@@ -940,16 +908,8 @@ export class MapsTab {
      * @private
      */
     async _handleOpenBackendProject() {
-        // Check if there are existing features that would be lost
-        const hasExistingFeatures = await this._checkForExistingFeatures();
-        if (hasExistingFeatures) {
-            const confirmed = await showConfirm(
-                'Ao abrir um projeto do servidor, todos os dados atuais serão perdidos. Deseja continuar?',
-                { destructive: true }
-            );
-            if (!confirmed) return;
-        }
-
+        // The local-data warning + .ebgeo offer is centralized in AccountControl.openProjectPicker
+        // (so it also covers the login→picker path), gated on the store being local with content.
         const accountControl = getControl('account');
         if (!accountControl || typeof accountControl.openProjectPicker !== 'function') {
             showError('Integração com o servidor indisponível');
@@ -1331,6 +1291,7 @@ export class MapsTab {
      */
     destroy() {
         this._closeContextMenu();
+        this._commentsPanel?.destroy();
         // Row-scoped listeners are flushed by cleanup(this) below.
 
         if (this._sortableInstance) {

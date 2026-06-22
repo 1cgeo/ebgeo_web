@@ -43,6 +43,11 @@ describeOrSkip('Login → open project flow (real browser + real backend)', () =
             window.__EBGEO_BACKEND_URL__ = url;
         }, `${state.baseUrl}/api/v1`);
 
+        // The setup api.login() above PERSISTS a JWT to localStorage (session persistence / P7), so a
+        // plain reload would boot ALREADY authenticated and hide the login button. Clear it so the
+        // reload boots ANONYMOUS — this test exercises the UI login from scratch.
+        await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+
         // 3. Reload so the init script + fresh app boot pick up the override.
         await page.goto('/');
         await expect(page.locator('[data-testid="account-control"]')).toBeAttached({ timeout: 20000 });

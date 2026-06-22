@@ -114,6 +114,7 @@
     position: absolute;
     top: calc(100% + var(--space-2));
     right: 0;
+
     /* Above the tool toolbar (--z-toolbar: 20) so the list opens OVER the tools. */
     z-index: var(--z-floating);
     display: flex;
@@ -121,6 +122,7 @@
     gap: var(--space-1);
     min-width: 200px;
     max-width: 280px;
+
     /* Many users: cap the height and scroll instead of growing off-screen. */
     max-height: min(320px, 60vh);
     overflow-y: auto;
@@ -166,6 +168,7 @@
     line-height: 1;
     color: #fff;
     text-transform: uppercase;
+
     /* Fallback only — runtime overrides via inline background-color. */
     background-color: var(--gray-400);
     border-radius: var(--radius-full);
@@ -255,6 +258,7 @@
     background-color: var(--presence-color, var(--color-info));
     border: 2px solid #fff;
     box-shadow: var(--shadow-md);
+
     /* Teardrop/pointer: round 3 corners, keep the top-left sharp. */
     border-radius: var(--radius-full) var(--radius-full) var(--radius-full) 2px;
     transform: translate(-2px, -2px);

@@ -64,6 +64,7 @@ const layerStore = localforage.createInstance({ name: 'ebgeo_layers' });
 const cesium3dStore = localforage.createInstance({ name: 'ebgeo_cesium3d' });
 const streetview360Store = localforage.createInstance({ name: 'ebgeo_streetview360' });
 const briefingStore = localforage.createInstance({ name: 'ebgeo_briefings' });
+const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
 
 // ===== HELPER FUNCTIONS FOR INITIALIZATION =====
 
@@ -342,6 +343,15 @@ export async function clearAllStreetview360Data() {
  */
 export async function clearAllBriefingData() {
     await briefingStore.clear();
+}
+
+/**
+ * Clears the atlas record (`ebgeo_atlas`). The atlas holds atlas-level settings (e.g.
+ * `terrainExaggeration`) that a remote atlas writes; clearing it on logout/switch prevents
+ * those from surviving the session or leaking into another atlas (inv 2/3).
+ */
+export async function clearAllAtlasData() {
+    await atlasStore.clear();
 }
 
 /**

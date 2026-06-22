@@ -28,6 +28,9 @@ export const TOOLBAR_ICONS = {
     // Select tool (larger size: 22x22)
     select: `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="14" rx="2" stroke-dasharray="3,2"/><circle cx="7" cy="19" r="1" fill="currentColor"/></svg>`,
 
+    // Comment - speech bubble (spatial comment tool)
+    comment: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/></svg>`,
+
     // Point - icon_point_black.svg (map pin style)
     point: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 40 40"><path fill="currentColor" d="M 20 4 C 13.398438 4 8 9.398438 8 16 C 8 22.601562 20 34 20 34 C 20 34 32 22.601562 32 16 C 32 9.398438 26.601562 4 20 4 Z M 20 8 C 24.199219 8 27.601562 11.398438 27.601562 15.601562 C 27.601562 18.601562 24 23.398438 21.800781 26 L 18.398438 26 C 16.199219 23.199219 12.601562 18.398438 12.601562 15.601562 C 12.398438 11.398438 15.800781 8 20 8 Z"/></svg>`,
 

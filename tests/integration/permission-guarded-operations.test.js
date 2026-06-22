@@ -55,6 +55,20 @@ vi.mock('../../src/js/store/store-errors.js', () => ({
     setStoreErrorEventBus: vi.fn()
 }));
 
+// The role-based gate applies ONLY to a connected REMOTE atlas. In this suite "online" means
+// "connected to a remote atlas", so default isRemoteStoreSync → true (the role gate is active);
+// the offline describes are permitted via checkPermission's isOffline() short-circuit regardless.
+// Other store-origin exports are no-ops (the guarded ops under test never touch them).
+vi.mock('../../src/js/store/store-origin.js', () => ({
+    StoreOriginKind: { LOCAL: 'local', REMOTE: 'remote' },
+    isRemoteStoreSync: vi.fn(() => true),
+    getStoreOriginSync: vi.fn(() => ({ kind: 'remote', atlasId: 'atlas-1' })),
+    loadStoreOrigin: vi.fn(async () => ({ kind: 'remote', atlasId: 'atlas-1' })),
+    setStoreOrigin: vi.fn(async () => {}),
+    markStoreRemote: vi.fn(async () => {}),
+    markStoreLocal: vi.fn(async () => {}),
+}));
+
 // ============================================================================
 // Imports
 // ============================================================================

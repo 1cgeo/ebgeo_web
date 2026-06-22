@@ -110,6 +110,15 @@ export async function logOperation(entityType, operationType, entityId, mapId, d
         return;
     }
 
+    // A map-scoped op (feature/layer/group/catalogLayer/3D/360) whose CONTEXT mapId is not a
+    // UUID targets a non-synced local map (e.g. the local default 'Principal', keyed by name).
+    // The backend rejects a non-UUID mapId (Postgres 22P02) and that one op fails the ENTIRE
+    // flush batch, blocking all sync (bug D). Such an op can never bind server-side, so drop
+    // it. Atlas-level ops (map/briefing/setting) pass mapId=null and are unaffected.
+    if (mapId != null && !isValidUUID(mapId)) {
+        return;
+    }
+
     try {
         const operation = createOperation(entityType, operationType, entityId, mapId, data, previousData);
         await operationQueue.enqueue(operation);
@@ -136,17 +145,29 @@ export async function logOperation(entityType, operationType, entityId, mapId, d
 export async function logBatchOperations(operations) {
     if (!enabled) return;
 
+    // Same poison-pill defense as logOperation (bug D): drop ops that can never be pushed — a
+    // map-scoped op whose context mapId is not a UUID, or a SETTING op without a UUID/'atlas'
+    // id. One such op would fail the entire flush batch and stall all sync.
+    const safe = (operations || []).filter((op) => {
+        if (!op) return false;
+        if (op.entityType === EntityType.SETTING) {
+            return op.entityId === 'atlas' || isValidUUID(op.entityId);
+        }
+        return op.mapId == null || isValidUUID(op.mapId);
+    });
+    if (safe.length === 0) return;
+
     try {
-        const created = createBatchOperations(operations);
+        const created = createBatchOperations(safe);
         await operationQueue.enqueueAll(created);
         consecutiveFailures = 0;
     } catch (error) {
         handleQueueFailure(
-            `batch (${operations.length} ops)`,
+            `batch (${safe.length} ops)`,
             null,
             error,
             async () => {
-                const retryCreated = createBatchOperations(operations);
+                const retryCreated = createBatchOperations(safe);
                 await operationQueue.enqueueAll(retryCreated);
             }
         );
@@ -218,6 +239,9 @@ export const logMarker360Operation = createEntityLogger(EntityType.MARKER_360);
 
 /** Logs a briefing operation (atlas-level, mapId is always null). */
 export const logBriefingOperation = createEntityLogger(EntityType.BRIEFING, true);
+
+/** Logs a spatial comment operation (map-scoped — carries the comment's map UUID). */
+export const logCommentOperation = createEntityLogger(EntityType.COMMENT);
 
 /** Logs a 3D camera position operation. */
 export const logCameraPosition3dOperation = createEntityLogger(EntityType.CAMERA_POSITION_3D);

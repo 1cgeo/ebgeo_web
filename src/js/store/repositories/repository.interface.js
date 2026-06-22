@@ -76,6 +76,10 @@ export const RepositoryMethods = Object.freeze([
     'saveBriefing',
     'deleteBriefing',
 
+    // Spatial comment operations
+    'getMapComments',
+    'saveMapComments',
+
     // Utility operations
     'clearAll',
 ]);

@@ -1,6 +1,6 @@
 # EBGeo Web
 
-GIS web para o Exército Brasileiro. MapLibre GL JS (2D) + Cesium (3D, lazy) + Three.js (360, lazy). Vanilla JS (ES modules, no framework), Vite, IndexedDB via LocalForage.
+GIS web para o Exército Brasileiro. MapLibre GL JS (2D) + Cesium (3D, lazy) + Three.js (360, lazy). Vanilla JS (ES modules, no framework), Vite, IndexedDB via LocalForage. Runs fully **offline/anonymous** by default; an **optional backend** (`ebgeo_backend` — Express + PostgreSQL + `ws`) adds login, server-hosted atlases, sharing, and **real-time multi-user collaboration** (see *Backend & Real-Time Sync*).
 
 Detailed references live in `.claude/rules/` (`architecture.md`, `common-tasks.md`, `testing.md`) and `.claude/skills/` (`new-tool`, `store-op`).
 
@@ -91,6 +91,20 @@ getEventBus().emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 ## Application Modes
 
 `NORMAL` (default) | `BRIEFING_EDIT` (editor) | `BRIEFING_PRESENT` (presentation). Managed by `ApplicationModeManager` (`mode/application-mode.manager.js`); mode changes drive UI visibility profiles.
+
+## Backend & Real-Time Sync
+
+> The `store/sync/` layer is **fully wired** to an optional backend (`ebgeo_backend`). It is **not** a no-op — earlier docs that called it "offline-only / future infra" were stale. The app still runs fully offline/anonymous when nobody logs in. **Operating model & principles** (offline-first, local-vs-remote separation, atlas isolation, migration safety, network resilience): `docs/visao-e-principios.md`.
+
+- **Transport** — `api-client.js` (REST `/api/v1`: `login`/`refresh`/`logout`, `listAtlas`/`createAtlas`/`getAtlas`, sharing, `searchUsers`, `pushOperations`/`pullSync`, images) + `ws-client.js` (real `WebSocket` to `/api/v1/collab`; heartbeat, backoff reconnect, replay). `runtime-config.js` resolves the base URL; `image-sync.js` syncs image blobs.
+- **Orchestration** — `sync-engine.js` (singleton `syncEngine`): `login` → `connect(atlasId, {initialPull})` (snapshot pull + WS) → `flush`/`pull` → `disconnect`/`logoutAndDisconnect`. Outbound flushing in `sync-flush.js` (1.5s interval **and** `FLUSH_TRIGGER_EVENTS`), gated on `connectionState.isOnline()`.
+- **Outbound** — store mutations call `logXxxOperation` directly (`operation-dispatcher.js`; feature ops log inside the `runTransaction` deferAsync) → `operation-queue.js` (IndexedDB queue, compaction, Lamport via `operation-factory.js`) → `apiClient.pushOperations` (`POST /atlas/:id/sync`). Op envelope `{id, entityType, operationType, entityId, mapId, data, lamportTimestamp, clientId}`; types in `operation-types.js`.
+- **Inbound** — `remote-operation-handler.js` `applyRemoteOperation` persists to the repo + emits the matching lifecycle event (`FEATURE_CREATED`/`MAP_CREATED`/`LAYERS_CHANGED`/…) then `REMOTE_OPERATION_APPLIED`. `applyRemoteSnapshot` reshapes the backend snapshot (snake_case→camelCase) on connect. (3D/360 inbound is emit-only.)
+- **Identity/state** — `session-context.js` (`sessionContext`: OFFLINE/ONLINE; JWT `userId`+role owner/admin/editor/viewer; offline = anonymous `clientId`, full local perms) + `connection-state.js` (`connectionState`: real state machine `OFFLINE→CONNECTING→ONLINE→RECONNECTING`, driven by `ws-client.js`). Bridged to the EventBus by `event-bridges.js` as `SESSION_CHANGED` / `CONNECTION_STATE_CHANGED`. `permission-guard.js` gates store ops (permissive offline). `sync-scheduler.js` is now a **no-op shell** (outbound is owned by `sync-flush.js`).
+- **UI** — login + account menu + project picker in `account/account.control.js`; connection light in `account/sync-status.control.js` (hidden when anonymous); presence (online-users roster, remote cursors) in `presence/`; sharing in `modals/sharing.modal.js`; "Abrir do servidor" + share button in `sidebar/tabs/maps.tab.js`.
+- **Conflict model** — LWW by **server arrival order** (not timestamp); idempotency by `op_id`. Backend entity writes are **sync-only** (no REST write routes for feature/map/layer/group/briefing/slide).
+
+**Sync — accurate current state (this area moved fast; the old "known gaps" are mostly resolved):** JWT tokens **persist in `localStorage`**, and the session + last remote atlas are **restored on boot/F5** (`restoreSessionFromStorage`, `reconnectLastAtlas`; the 401-refresh rotation path is reachable on boot). Remote-atlas data is **cleared on logout/disconnect**, and the boot guard discards orphan remote data found while logged out (`store-origin.js` + `clearAllDataStore`). The local↔remote split is the **store-origin marker**, NOT per-atlas IndexedDB namespacing — **multiple named local atlases are a deliberate non-goal** (local = one workspace + `.ebgeo`; named atlases are a server concept; see `docs/visao-e-principios.md` P12). The local default map `Principal` is name-keyed: ops with a non-UUID context `mapId` are dropped before the flush queue (anti-leak), on `connect` `activateAtlasInitialMap` removes non-UUID local strays so a same-named server map isn't shadowed, and `getAllMapNamesStore` resolves UUID keys → names. Remote layer/3D/360 ops **and** snapshots persist into their dedicated side-stores and refresh the active-map layer cache (P11 round-trip fidelity). The permission role gate applies only to a **connected remote atlas** — the local store is always editable, even when logged in. **By design, client-driven:** `auth.logout` revokes only the refresh token, so the collab socket close + presence teardown happen on the client.
 
 ## Temporal Module
 

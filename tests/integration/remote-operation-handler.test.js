@@ -26,6 +26,12 @@ Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 const mapDataStore = new Map();
 // In-memory app-settings store (notes/grid/temporal/lock side-stores)
 const settingStore = new Map();
+// In-memory 3D / 360 per-map stores (keyed by map name)
+const cesium3dStore = new Map();
+const sv360Store = new Map();
+// In-memory layer / group side-stores (keyed by map id)
+const layerStore = new Map();
+const groupStore = new Map();
 
 vi.mock('localforage', () => {
     const mockStore = new Map();
@@ -63,6 +69,13 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
         saveMapNotes: vi.fn(async (mapId, notes) => { settingStore.set(`map_notes_${mapId}`, notes); }),
         saveGridStyle: vi.fn(async (mapId, grid) => { settingStore.set(`gridStyle_${mapId}`, grid); }),
         saveSetting: vi.fn(async (key, value) => { settingStore.set(key, value); }),
+        getCesium3d: vi.fn(async (mapName) => cesium3dStore.get(mapName) || { cameraPositions: {}, markers: [], measurements: [], viewsheds: [] }),
+        saveCesium3d: vi.fn(async (mapName, data) => { cesium3dStore.set(mapName, data); }),
+        getStreetview360: vi.fn(async (mapName) => sv360Store.get(mapName) || { orientations: {}, markers: [] }),
+        saveStreetview360: vi.fn(async (mapName, data) => { sv360Store.set(mapName, data); }),
+        getLayers: vi.fn(async (mapId) => layerStore.get(mapId) || []),
+        saveLayers: vi.fn(async (mapId, layers) => { layerStore.set(mapId, layers); }),
+        saveGroups: vi.fn(async (mapId, groups) => { groupStore.set(mapId, groups); }),
     })),
 }));
 
@@ -83,6 +96,8 @@ vi.mock('../../src/js/store/repositories/local.repository.js', () => ({
 import { applyRemoteOperation, applyRemoteSnapshot, setRemoteHandlerEventBus } from '../../src/js/store/sync/remote-operation-handler.js';
 import { EntityType, OperationType } from '../../src/js/store/sync/operation-types.js';
 import { EventTypes } from '../../src/js/events/event_types.js';
+import { memoryStore } from '../../src/js/store/memory-store.js';
+import { readFileSync } from 'node:fs';
 
 // ============================================================================
 // Helpers
@@ -132,6 +147,10 @@ beforeEach(() => {
     mapDataStore.clear();
     briefingStore.clear();
     settingStore.clear();
+    cesium3dStore.clear();
+    sv360Store.clear();
+    layerStore.clear();
+    groupStore.clear();
     eventBus = createMockEventBus();
     setRemoteHandlerEventBus(eventBus);
 });
@@ -557,6 +576,80 @@ describe('Remote 3D / 360 collection operations', () => {
     });
 });
 
+// P9 GAP-6/7: a LIVE 3D/360 op must PERSIST into the per-map cesium3d/streetview360 store on
+// the peer (previously emit-only → diverged until a snapshot). mapId resolves to the map name
+// (resolver empty in the test → identity), so the stores are keyed by 'map-1'.
+describe('Remote 3D / 360 operations — persistence (P9)', () => {
+    it('persists a remote 3D marker into the cesium3d store (CREATE then DELETE)', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.MARKER_3D, operationType: OperationType.CREATE,
+            entityId: 'm3d-1', mapId: 'map-1', data: { id: 'm3d-1', tilesetId: 't1', nome: 'M1' },
+        });
+        expect(cesium3dStore.get('map-1').markers.map((m) => m.id)).toEqual(['m3d-1']);
+
+        await applyRemoteOperation({
+            entityType: EntityType.MARKER_3D, operationType: OperationType.DELETE,
+            entityId: 'm3d-1', mapId: 'map-1', data: null,
+        });
+        expect(cesium3dStore.get('map-1').markers).toHaveLength(0);
+    });
+
+    it('persists remote measurement + viewshed into their buckets', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.MEASUREMENT_3D, operationType: OperationType.CREATE,
+            entityId: 'meas-1', mapId: 'map-1', data: { id: 'meas-1' },
+        });
+        await applyRemoteOperation({
+            entityType: EntityType.VIEWSHED_3D, operationType: OperationType.CREATE,
+            entityId: 'vs-1', mapId: 'map-1', data: { id: 'vs-1' },
+        });
+        expect(cesium3dStore.get('map-1').measurements.map((m) => m.id)).toEqual(['meas-1']);
+        expect(cesium3dStore.get('map-1').viewsheds.map((v) => v.id)).toEqual(['vs-1']);
+    });
+
+    it('persists a remote camera position keyed by tilesetId (CREATE then DELETE by id)', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.CAMERA_POSITION_3D, operationType: OperationType.CREATE,
+            entityId: 'cam-1', mapId: 'map-1', data: { id: 'cam-1', tilesetId: 'tile-9' },
+        });
+        expect(cesium3dStore.get('map-1').cameraPositions['tile-9'].id).toBe('cam-1');
+
+        await applyRemoteOperation({
+            entityType: EntityType.CAMERA_POSITION_3D, operationType: OperationType.DELETE,
+            entityId: 'cam-1', mapId: 'map-1', data: null,
+        });
+        expect(cesium3dStore.get('map-1').cameraPositions['tile-9']).toBeUndefined();
+    });
+
+    it('persists a remote 360 orientation keyed by photoName (UPDATE then DELETE by id)', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.ORIENTATION_360, operationType: OperationType.UPDATE,
+            entityId: 'or-1', mapId: 'map-1', data: { id: 'or-1', photoName: 'photo-a' },
+        });
+        expect(sv360Store.get('map-1').orientations['photo-a'].id).toBe('or-1');
+
+        await applyRemoteOperation({
+            entityType: EntityType.ORIENTATION_360, operationType: OperationType.DELETE,
+            entityId: 'or-1', mapId: 'map-1', data: null,
+        });
+        expect(sv360Store.get('map-1').orientations['photo-a']).toBeUndefined();
+    });
+
+    it('persists a remote 360 marker into the streetview360 markers array', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.MARKER_360, operationType: OperationType.CREATE,
+            entityId: 'm360-1', mapId: 'map-1', data: { id: 'm360-1', photoName: 'photo-a' },
+        });
+        expect(sv360Store.get('map-1').markers.map((m) => m.id)).toEqual(['m360-1']);
+
+        await applyRemoteOperation({
+            entityType: EntityType.MARKER_360, operationType: OperationType.DELETE,
+            entityId: 'm360-1', mapId: 'map-1', data: null,
+        });
+        expect(sv360Store.get('map-1').markers).toHaveLength(0);
+    });
+});
+
 describe('Remote map-setting operations', () => {
     it('emits MAP_MODIFIED for mapPosition', async () => {
         await applyRemoteOperation({
@@ -639,6 +732,87 @@ describe('Remote map-setting operations', () => {
             EventTypes.LAYERS_CHANGED,
             expect.objectContaining({ mapName: 'map-1' })
         );
+    });
+});
+
+// P9: a LIVE map-setting/catalog op must PERSIST inbound (not just emit), so two clients
+// editing live converge — matching the snapshot path. Regression for GAP-1/2/3/4/5.
+describe('Remote map-setting operations — persistence (P9)', () => {
+    beforeEach(() => {
+        mapDataStore.set('map-1', createTestMapData());
+    });
+
+    it('persists baseLayer onto the map record', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.BASE_LAYER, operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: 'map-1', data: { baseLayer: 'osm' },
+        });
+        expect(mapDataStore.get('map-1').baseLayer).toBe('osm');
+    });
+
+    it('persists map notes to the side-store', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.MAP_NOTES, operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: 'map-1', data: { title: 'T', description: 'D' },
+        });
+        expect(settingStore.get('map_notes_map-1')).toEqual({ title: 'T', description: 'D' });
+    });
+
+    it('persists grid style to the side-store', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.GRID_STYLE, operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: 'map-1', data: { format: 'UTM', visible: true },
+        });
+        expect(settingStore.get('gridStyle_map-1')).toEqual({ format: 'UTM', visible: true });
+    });
+
+    it('persists saved map position onto the map record', async () => {
+        const pos = { id: 'pos-1', center_lat: -22.9, center_long: -43.1, zoom: 10, bearing: 0, pitch: 0 };
+        await applyRemoteOperation({
+            entityType: EntityType.MAP_POSITION, operationType: OperationType.UPDATE,
+            entityId: 'map-1', mapId: 'map-1', data: pos,
+        });
+        const saved = mapDataStore.get('map-1');
+        expect(saved.savedPosition).toEqual(pos);
+        expect(saved.center_lat).toBe(-22.9);
+        expect(saved.zoom).toBe(10);
+    });
+
+    it('clears saved position on a DELETE (null data)', async () => {
+        const m = mapDataStore.get('map-1');
+        m.savedPosition = { id: 'pos-1', center_lat: -22.9 };
+        m.center_lat = -22.9;
+        await applyRemoteOperation({
+            entityType: EntityType.MAP_POSITION, operationType: OperationType.DELETE,
+            entityId: 'map-1', mapId: 'map-1', data: null,
+        });
+        const saved = mapDataStore.get('map-1');
+        expect(saved.savedPosition).toBeUndefined();
+        expect(saved.center_lat).toBeNull();
+    });
+
+    it('persists a remote catalog layer (CREATE replace-by-id / DELETE)', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.CATALOG_LAYER, operationType: OperationType.CREATE,
+            entityId: 'cl-1', mapId: 'map-1', data: { id: 'cl-1', name: 'WMS', visible: true },
+        });
+        expect(mapDataStore.get('map-1').catalogLayers).toHaveLength(1);
+        expect(mapDataStore.get('map-1').catalogLayers[0].name).toBe('WMS');
+
+        // UPDATE replaces by id (no duplicate).
+        await applyRemoteOperation({
+            entityType: EntityType.CATALOG_LAYER, operationType: OperationType.UPDATE,
+            entityId: 'cl-1', mapId: 'map-1', data: { id: 'cl-1', name: 'WMS', visible: false },
+        });
+        expect(mapDataStore.get('map-1').catalogLayers).toHaveLength(1);
+        expect(mapDataStore.get('map-1').catalogLayers[0].visible).toBe(false);
+
+        // DELETE removes by id.
+        await applyRemoteOperation({
+            entityType: EntityType.CATALOG_LAYER, operationType: OperationType.DELETE,
+            entityId: 'cl-1', mapId: 'map-1', data: null,
+        });
+        expect(mapDataStore.get('map-1').catalogLayers).toHaveLength(0);
     });
 });
 
@@ -731,6 +905,90 @@ describe('applyRemoteSnapshot', () => {
         expect(saved).toBeDefined();
         // Empty/absent settings should not create stray side-store entries.
         expect(settingStore.size).toBe(0);
+    });
+});
+
+// P10: conflicts resolve last-one-wins BY ARRIVAL (no version/timestamp gate), and locks are
+// advisory-only — a locked map still accepts remote edits. These pin the model against any
+// future drift into version-rejection or lock-blocking on the apply path.
+describe('P10 — LWW & no-locks on apply', () => {
+    beforeEach(() => {
+        mapDataStore.set('map-1', createTestMapData());
+    });
+
+    it('a remote UPDATE overwrites local regardless of local version (LWW by arrival)', async () => {
+        mapDataStore.get('map-1').features.points.push({
+            type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] },
+            properties: { id: 'f1', source: 'point', nome: 'old', version: 99 },
+        });
+
+        // An older-version op still wins because it arrived later (no version gate).
+        await applyRemoteOperation({
+            entityType: EntityType.FEATURE, operationType: OperationType.UPDATE,
+            entityId: 'f1', mapId: 'map-1',
+            data: {
+                type: 'Feature', geometry: { type: 'Point', coordinates: [1, 1] },
+                properties: { id: 'f1', source: 'point', nome: 'new', version: 1 },
+            },
+        });
+
+        const f = mapDataStore.get('map-1').features.points[0];
+        expect(f.properties.nome).toBe('new');
+        expect(f.properties.version).toBe(1);
+    });
+
+    it('a locked map still accepts remote feature ops (lock is advisory only)', async () => {
+        memoryStore.lockedMaps.add('map-1');
+        try {
+            await applyRemoteOperation({
+                entityType: EntityType.FEATURE, operationType: OperationType.CREATE,
+                entityId: 'f2', mapId: 'map-1',
+                data: {
+                    type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] },
+                    properties: { id: 'f2', source: 'point' },
+                },
+            });
+            expect(mapDataStore.get('map-1').features.points.some((f) => f.properties.id === 'f2')).toBe(true);
+        } finally {
+            memoryStore.lockedMaps.delete('map-1');
+        }
+    });
+});
+
+// P11: a pulled snapshot must reconstruct layers / cesium3d / streetview360 into their DEDICATED
+// side-stores (where the export loaders + layer manager read them), not only inline in the map doc
+// — else a server atlas re-exports as .ebgeo WITHOUT its layers/3D/360 (round-trip data loss).
+describe('applyRemoteSnapshot — side-store fidelity (P11)', () => {
+    it('persists snapshot layers / cesium3d / streetview360 into their side-stores', async () => {
+        await applyRemoteSnapshot({
+            maps: [{
+                id: 'map-1', name: 'Mapa A',
+                features: { points: [] },
+                layers: [{ id: 'L1', name: 'Camada', order: 0, visible: true }],
+                cesium3d: { cameraPositions: {}, markers: [{ id: 'cm1', tilesetId: 't1' }], measurements: [], viewsheds: [] },
+                streetview360: { orientations: {}, markers: [{ id: 'sm1', photoName: 'p' }] },
+            }],
+        });
+        expect(layerStore.get('map-1')).toEqual([{ id: 'L1', name: 'Camada', order: 0, visible: true }]);
+        expect(cesium3dStore.get('map-1').markers.map((m) => m.id)).toEqual(['cm1']);
+        expect(sv360Store.get('map-1').markers.map((m) => m.id)).toEqual(['sm1']);
+    });
+});
+
+// P8: undo/redo is LOCAL per user — a remote op must NEVER enter the undo stack. Remote ops
+// apply by mutating the repo directly; they never route through the local undo path
+// (store-state-manager.recordAction). This is a structural guarantee — if anyone wires the
+// undo machinery into the remote handler, this fails.
+describe('P8 — remote ops are never undoable (structural)', () => {
+    it('the remote-operation-handler does not touch the undo machinery', () => {
+        const src = readFileSync(
+            new URL('../../src/js/store/sync/remote-operation-handler.js', import.meta.url),
+            'utf8'
+        );
+        // No IMPORT of the undo machinery and no recordAction CALL (descriptive comments that
+        // mention store-state-manager are fine — we match the import/call, not any mention).
+        expect(src).not.toMatch(/from\s+['"][^'"]*store-state-manager/);
+        expect(src).not.toMatch(/\.recordAction\s*\(/);
     });
 });
 

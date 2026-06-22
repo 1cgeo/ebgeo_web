@@ -50,6 +50,7 @@ import { AttributeTableControl } from './attribute_table';
 import { PhoneLayout } from './phone';
 import { AccountControl, SyncStatusControl } from '@js/account/index.js';
 import { OnlineUsersControl, RemoteCursorsLayer, startPresence } from '@js/presence/index.js';
+import { CommentOverlay } from '@js/comment_tool/index.js';
 import { LockedBannerControl, mapLockController } from '@js/locking/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { ConnectionStates } from '@store/sync/connection-state.js';
@@ -286,6 +287,8 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
 
     const mapManager = new MapManager(baseLayerControl, selectionManager);
     const exportImportService = new ExportImportService(baseLayerControl, toolManager, mapManager, getEventBus());
+    // Register so the account control can reach it for "Salvar atlas local no servidor" (item 2).
+    registerControl('exportImport', exportImportService);
 
     baseLayerControl.setDependencies({
         selectionManager,
@@ -633,6 +636,17 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         }
     });
 
+    // ===== SPATIAL COMMENTS (Fase 3): pin overlay. =====
+    // Additive: comments render for both the local (offline) store and a connected remote atlas;
+    // the overlay reloads on COMMENT_* events and on map switch. A Visualizador never receives
+    // comments (server filter), so the overlay simply has nothing to render. Creation + management
+    // live in the Maps panel (CommentsPanel) and via Shift+C — NOT in the on-map tool cluster.
+    const commentOverlay = new CommentOverlay(map, toolManager);
+    commentOverlay.start();
+    // Expose the overlay to the keyboard manager (read lazily on keypress) so Shift+C toggles
+    // comment placement — see keyboard-shortcuts.js.
+    keyboardShortcuts.controls.commentOverlay = commentOverlay;
+
     // ===== MAP LOCK UX (Slice 3: on-map "Mapa bloqueado" banner + state controller) =====
     // Additive: the banner only appears while the active map is locked; the
     // controller mirrors remote lock changes (MAP_MODIFIED -> MAP_LOCK_CHANGED)
@@ -699,6 +713,8 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         ['remoteCursors', remoteCursorsLayer],
         // Map lock UX (on-map "Mapa bloqueado" banner)
         ['lockedBanner', lockedBannerControl],
+        // Spatial comments (pin overlay; managed from the Maps panel or via Shift+C)
+        ['commentOverlay', commentOverlay],
     ];
 
     for (const [name, ctrl] of CONTROL_REGISTRY) {

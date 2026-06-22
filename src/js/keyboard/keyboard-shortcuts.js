@@ -128,6 +128,15 @@ class KeyboardShortcuts {
             return;
         }
 
+        // Shift+C toggles spatial-comment placement. The single-letter keys are all taken by draw
+        // tools (c = circle), so the comment tool — a collaboration annotation, not a draw tool —
+        // uses a Shift combo. The actual write is permission-gated when the comment is created.
+        if (hasShift && !hasCtrl && key === 'c') {
+            e.preventDefault();
+            this.controls.commentOverlay?.togglePlacement?.();
+            return;
+        }
+
         if (!hasCtrl && !hasShift) {
             this.handleToolShortcuts(e, key);
         }

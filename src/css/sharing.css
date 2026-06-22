@@ -301,6 +301,61 @@
     outline-offset: 2px;
 }
 
+/* Owner row: a muted "Gestor (dono)" badge in place of the permission/remove controls. */
+.sharing-member__owner-badge {
+    flex-shrink: 0;
+    padding: var(--space-1) var(--space-2);
+    background: var(--gray-100);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+    white-space: nowrap;
+}
+
+/* "Tornar dono" (transfer ownership) — shown to the current owner on each member row. */
+.sharing-member__transfer {
+    flex-shrink: 0;
+    padding: var(--space-1) var(--space-2);
+    background: transparent;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color var(--transition-fast);
+}
+
+.sharing-member__transfer:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.sharing-member__transfer:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Atlas settings modal (Gestor): rows of feature / basemap availability toggles. */
+.atlas-settings__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    cursor: pointer;
+}
+
+.atlas-settings__row input[type="checkbox"] {
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.atlas-settings__actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--space-3);
+}
+
 /* =========================================================================
    AVATAR (background color set inline by presence-colors helper)
    ========================================================================= */

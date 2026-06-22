@@ -36,8 +36,11 @@ import {
     setRemoteHandlerEventBus,
 } from './remote-operation-handler.js';
 import { syncGateway } from './sync-gateway.js';
+import { connectionState } from './connection-state.js';
 import { setImageSyncAtlas } from './image-sync.js';
+import { applyAtlasSettings, revertAtlasSettings } from './atlas-settings.service.js';
 import { getEventBus } from '../services.js';
+import { EventTypes } from '../../events/event_types.js';
 
 /** Max operations pushed per HTTP batch when flushing the queue. */
 const FLUSH_BATCH_SIZE = 100;
@@ -87,6 +90,7 @@ class SyncEngine {
         sessionContext.setSession({
             userId: user.id,
             role: user.org_role || 'viewer',
+            username: user.username || user.nome || username,
         });
         return user;
     }
@@ -111,30 +115,90 @@ class SyncEngine {
     async connect(atlasId, { initialPull = true } = {}) {
         this._wireOnce();
 
+        let snapshot = null;
         if (initialPull) {
             const result = await apiClient.pullSync(atlasId, 0);
-            if (result?.snapshot) {
-                await applyRemoteSnapshot(result.snapshot);
+            snapshot = result?.snapshot ?? null;
+            if (snapshot) {
+                await applyRemoteSnapshot(snapshot);
             }
             this._lastVersion = result?.currentVersion ?? 0;
         }
 
         this._atlasId = atlasId;
         setImageSyncAtlas(atlasId);
+        // Authenticated connect → log local mutations for outbound sync. Re-enabled explicitly here
+        // because a prior public-visitor connect (connectPublic) disables logging.
+        enableOperationLogging();
         const payload = await wsClient.connect(atlasId, { lastVersion: this._lastVersion });
 
-        // Reflect the PER-ATLAS role from the connect payload (owner/editor/viewer),
-        // not just the global org_role login set — otherwise a self-registered owner
-        // or a write-shared collaborator is wrongly gated as viewer and cannot edit
-        // this atlas. The backend maps the atlas permission to the role here.
+        // Reflect the PER-ATLAS role from the connect payload (owner/editor/viewer), not just the
+        // global org_role login set, so a self-registered owner or a write-shared collaborator can
+        // edit. PRESERVE the restored username — setSession would otherwise null it, blanking the
+        // account avatar on an F5-reconnect (where this is the only session set after restore).
         if (payload?.role) {
             sessionContext.setSession({
                 userId: payload.userId ?? sessionContext.userId,
                 role: payload.role,
+                username: sessionContext.username,
             });
         }
 
+        // Apply the per-atlas config overlay from the snapshot's settings (no extra round-trip).
+        await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings);
         return payload;
+    }
+
+    /**
+     * Goes online for a PUBLIC atlas as an anonymous, read-only visitor (the public viewer-link
+     * flow). Same wiring as {@link connect}, but the session becomes a "visitante" (VIEWER) rather
+     * than an authenticated identity. The caller must have set the ephemeral public token on the
+     * api client and marked the store remote first.
+     * @param {string} atlasId
+     * @returns {Promise<Object>} The WS `connected` payload.
+     */
+    async connectPublic(atlasId) {
+        this._wireOnce();
+
+        const result = await apiClient.pullSync(atlasId, 0);
+        const snapshot = result?.snapshot ?? null;
+        if (snapshot) {
+            await applyRemoteSnapshot(snapshot);
+        }
+        this._lastVersion = result?.currentVersion ?? 0;
+
+        this._atlasId = atlasId;
+        setImageSyncAtlas(atlasId);
+        // Anonymous read-only visitor: NEVER log ops — there is no token to push them and they would
+        // orphan the op queue for a later real login (which would then flush them to the wrong atlas).
+        disableOperationLogging();
+        const payload = await wsClient.connect(atlasId, { lastVersion: this._lastVersion });
+
+        // Anonymous read-only visitor: the permission guard blocks editing the remote store, and
+        // isAuthenticated() stays false (no account menu).
+        sessionContext.setVisitorSession();
+
+        // The per-atlas config overlay still applies — a visitor respects 3D/360/basemap availability.
+        await this._applyAtlasSettingsOverlay(atlasId, snapshot?.atlas?.settings);
+        return payload;
+    }
+
+    /**
+     * @private Applies the connected atlas's per-atlas config overlay (3D/360/basemap availability)
+     * as a restrictive intersection over the deploy config, then lets the UI re-gate. Prefers the
+     * settings already carried in the pulled snapshot (no extra round-trip); falls back to a REST
+     * fetch only when they aren't present. Best-effort: a failure leaves the deploy config intact.
+     * @param {string} atlasId
+     * @param {Object} [snapshotSettings] - atlas.settings from the pulled snapshot, if any.
+     */
+    async _applyAtlasSettingsOverlay(atlasId, snapshotSettings) {
+        try {
+            const settings = snapshotSettings ?? await apiClient.getAtlasSettings(atlasId);
+            applyAtlasSettings(settings);
+            getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { settings });
+        } catch {
+            // No settings reachable / no UI bus — non-fatal.
+        }
     }
 
     /**
@@ -177,6 +241,14 @@ class SyncEngine {
      */
     disconnect() {
         wsClient.disconnect();
+        // The per-atlas config overlay no longer applies — restore the deploy-level config and
+        // re-gate the UI back to its defaults.
+        revertAtlasSettings();
+        try {
+            getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { settings: null });
+        } catch {
+            // No UI bus (headless).
+        }
     }
 
     /**
@@ -190,11 +262,16 @@ class SyncEngine {
         await apiClient.logout();
         sessionContext.clearSession();
         disableOperationLogging();
+        // Forget the atlas so a subsequent boot/connect starts clean and nothing thinks
+        // a server atlas is still open.
+        this._atlasId = null;
+        this._lastVersion = 0;
     }
 
     /**
-     * Wires the remote handler event bus, the sync gateway, the WS inbound
-     * handlers, and enables operation logging. Idempotent (wire-once).
+     * Wires the remote handler event bus, the sync gateway, and the WS inbound handlers.
+     * Idempotent (wire-once). Operation logging is toggled per connect path (connect enables it,
+     * connectPublic disables it for the read-only visitor), NOT here.
      * @private
      */
     _wireOnce() {
@@ -217,6 +294,11 @@ class SyncEngine {
         wsClient.on('operation', (op) => syncGateway.applyRemoteOperation(op));
 
         wsClient.on('syncResponse', async (msg) => {
+            // Drop a late sync_response that arrives after a disconnect (e.g. during the
+            // disconnect→clear window of a logout/atlas-switch) so it can't persist remote
+            // data into a store being torn down (inv 2/3). The inbound op path is already
+            // gated by syncGateway.isOnline(); the snapshot path was not.
+            if (!connectionState.isOnline()) return;
             if (msg?.isSnapshot) {
                 await applyRemoteSnapshot(msg.snapshot);
             } else {
@@ -231,7 +313,50 @@ class SyncEngine {
             }
         });
 
-        enableOperationLogging();
+        // The connected atlas was deleted server-side (`atlas_deleted` broadcast). Stop the
+        // auto-reconnect from chasing the dead room, then notify the UI to tear down + redirect.
+        wsClient.on('atlasDeleted', (msg) => {
+            this.disconnect();
+            try {
+                getEventBus().emit(EventTypes.ATLAS_DELETED_REMOTE, { atlasId: msg?.atlasId });
+            } catch {
+                // No UI bus (headless) — disconnect already handled the transport teardown.
+            }
+        });
+
+        // Ownership changed server-side (`atlas_owner_changed`). Re-resolve THIS client's role
+        // locally from the broadcast (it carries the new owner id) so the UI re-gates immediately;
+        // the WS heartbeat reconcile is the server-side fallback that adjusts ws.permission.
+        wsClient.on('atlasOwnerChanged', (msg) => {
+            const myId = sessionContext.userId;
+            if (myId) {
+                if (msg?.newOwnerId === myId) {
+                    sessionContext.updateRole('owner');
+                } else if (sessionContext.role === 'owner') {
+                    sessionContext.updateRole('manager'); // demoted ex-owner → co-Gestor
+                }
+            }
+            try {
+                getEventBus().emit(EventTypes.ATLAS_OWNER_CHANGED, {
+                    atlasId: msg?.atlasId,
+                    newOwnerId: msg?.newOwnerId,
+                });
+            } catch {
+                // No UI bus (headless).
+            }
+        });
+
+        // Atlas settings changed server-side (`atlas_settings_updated`) — re-apply the per-atlas
+        // config overlay (3D/360/basemap availability), then notify the UI to re-gate.
+        wsClient.on('atlasSettings', (msg) => {
+            applyAtlasSettings(msg?.settings);
+            try {
+                getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { settings: msg?.settings });
+            } catch {
+                // No UI bus (headless).
+            }
+        });
+
         this._handlersWired = true;
     }
 }

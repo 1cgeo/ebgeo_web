@@ -9,8 +9,10 @@ import { FeatureToggle } from './components/feature-toggle.js';
 import { NavButton } from './components/nav-button.js';
 import { FEATURE_TOGGLES, NAV_BUTTONS } from './bottom-controls.constants.js';
 import config from '@js/config.js';
+import { EventTypes } from '@events/event_types.js';
 import {
     setupCleanup,
+    subscribe,
     addDomListener,
     cleanup,
     removeElement
@@ -136,8 +138,8 @@ export class BottomControlsControl {
             case 'panorama':
                 return config.features?.imagens_panoramicas !== false;
             case 'terrain':
-                // Terrain is always enabled if config exists
-                return true;
+                // Per-atlas config can hide terrain (features.terrain_3d); undefined = enabled.
+                return config.features?.terrain_3d !== false;
             default:
                 return true;
         }
@@ -217,6 +219,12 @@ export class BottomControlsControl {
 
         // Terrain changes
         this._map.on('terrain', this._onTerrainChange);
+
+        // Per-atlas config changed (Gestor restricted 3D/360, or connect/disconnect) — re-gate the
+        // feature toggles so disabled capabilities disappear (and re-appear when the overlay reverts).
+        if (this._eventBus) {
+            subscribe(this, this._eventBus, EventTypes.ATLAS_SETTINGS_CHANGED, () => this.regateFeatures());
+        }
 
         // Tool manager activation events - listen on toolManager if it has events
         // Store unsubscribe functions for cleanup to prevent memory leaks
@@ -423,6 +431,27 @@ case 'resetNorth':
         if (control === this._streetViewControl) {
             this._featureToggles.get('panorama')?.setActive(active);
         }
+    }
+
+    /**
+     * Re-gates the feature toggles against the current config (after a per-atlas overlay apply/
+     * revert). A capability the atlas disabled is deactivated (if active) and its toggle removed;
+     * a re-enabled capability gets its toggle back. Rebuilds the left container from scratch.
+     */
+    regateFeatures() {
+        // If a now-disabled viewer is open, close it so the map state matches the gate.
+        if (!this._isFeatureEnabled({ id: 'models3d' }) && this._modelsViewerControl?.isActive) {
+            this._toggleModels3D(false);
+        }
+        if (!this._isFeatureEnabled({ id: 'panorama' }) && this._streetViewControl?.isActive) {
+            this._togglePanorama(false);
+        }
+
+        this._featureToggles.forEach(toggle => toggle.destroy());
+        this._featureToggles.clear();
+        if (this._leftContainer) this._leftContainer.textContent = '';
+        this._createFeatureToggles();
+        this._syncInitialStates();
     }
 
     /**

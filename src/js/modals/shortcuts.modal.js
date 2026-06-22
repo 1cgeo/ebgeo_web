@@ -93,6 +93,7 @@ const SHORTCUTS_DATA = {
             { key: 'Q', icon: TOOLBAR_ICONS.select, description: 'Seleção retangular' },
             { key: 'N', icon: TOOLBAR_ICONS.featureInfo, description: 'Informações da carta' },
             { key: 'G', icon: TOOLBAR_ICONS.snapping, description: 'Ativar/desativar snap' },
+            { key: 'Shift+C', icon: TOOLBAR_ICONS.comment, description: 'Comentário' },
         ],
     },
     viewer3d: {

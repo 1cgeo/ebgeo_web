@@ -27,6 +27,7 @@ const layerStore = localforage.createInstance({ name: 'ebgeo_layers' });
 const cesium3dStore = localforage.createInstance({ name: 'ebgeo_cesium3d' });
 const streetview360Store = localforage.createInstance({ name: 'ebgeo_streetview360' });
 const briefingStore = localforage.createInstance({ name: 'ebgeo_briefings' });
+const commentStore = localforage.createInstance({ name: 'ebgeo_comments' });
 
 // ===== HELPER FUNCTIONS =====
 
@@ -260,6 +261,14 @@ export class LocalRepository {
             sync: data.sync ? touchSyncMetadata(data.sync) : createSyncMetadata(null)
         };
         await mapStore.setItem(resolvedKey, mapData);
+        // A synced/atlas map is keyed by UUID; register name↔id so the rest of the app
+        // (maps list, getMap-by-name, ordering) can resolve the UUID back to its display
+        // name. Without this a peer's UUID-keyed map surfaced as a raw UUID in the maps
+        // list (§item2). Skipped for name-keyed local maps (resolvedKey is the name), so
+        // the additive phantom-map invariant is preserved.
+        if (isValidUUID(resolvedKey) && mapData.name) {
+            mapResolver.registerMap(mapData.name, resolvedKey);
+        }
     }
 
     /**
@@ -548,6 +557,30 @@ export class LocalRepository {
         await streetview360Store.setItem(key, data);
     }
 
+    // ===== COMMENT OPERATIONS (spatial comments) =====
+
+    /**
+     * Gets the spatial comments for a map, keyed by comment id (root + replies via parentId).
+     * @param {string} mapIdOrName - Map ID or name
+     * @returns {Promise<Object>} { [commentId]: comment }
+     */
+    async getMapComments(mapIdOrName) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const data = await this._getWithFallback(commentStore, resolvedKey, mapIdOrName, 'comments_');
+        return data || {};
+    }
+
+    /**
+     * Saves the spatial comments collection for a map.
+     * @param {string} mapIdOrName - Map ID or name
+     * @param {Object} commentsById - { [commentId]: comment }
+     * @returns {Promise<void>}
+     */
+    async saveMapComments(mapIdOrName, commentsById) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        await commentStore.setItem(`comments_${resolvedKey}`, commentsById);
+    }
+
     // ===== SETTINGS OPERATIONS =====
 
     /**
@@ -714,7 +747,8 @@ export class LocalRepository {
             layerStore.clear(),
             cesium3dStore.clear(),
             streetview360Store.clear(),
-            briefingStore.clear()
+            briefingStore.clear(),
+            commentStore.clear()
         ]);
     }
 }

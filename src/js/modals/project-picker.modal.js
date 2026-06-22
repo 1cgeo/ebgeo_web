@@ -7,7 +7,7 @@
  */
 
 import { ModalBase } from './modal.base.js';
-import { PromptModal } from './prompt.modal.js';
+import { showCreateAtlasModal } from './create-atlas.modal.js';
 import { addDomListener, addScopedDomListener, clearScopedListeners } from '@utils/event-cleanup.js';
 import { escapeHtml } from '@utils/html-escape.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
@@ -295,34 +295,20 @@ export class ProjectPickerModal extends ModalBase {
     }
 
     /**
-     * Handles creating a new project. Uses the design-system prompt modal
-     * (not the native browser prompt) to collect the new project's name.
+     * Handles creating a new project. Opens the create-atlas dialog (name + inline sharing
+     * options, §item5); on success it forwards the name + staged sharing to our onCreate and
+     * closes the picker. The create dialog stays open on failure so the user can retry.
      * @private
      */
-    async _handleCreate() {
-        if (this._busy || !this._onCreate) return;
-
-        // Stable testids let e2e drive the new (non-native) create flow.
-        const prompt = new PromptModal({
-            title: 'Nome do novo projeto',
-            placeholder: 'Ex.: Operação Fronteira',
-            confirmText: 'Criar',
-            inputTestid: 'project-picker-create-input',
-            confirmTestid: 'project-picker-create-confirm'
+    _handleCreate() {
+        if (!this._onCreate) return;
+        const onCreate = this._onCreate;
+        showCreateAtlasModal({
+            onCreate: async (name, sharing) => {
+                await onCreate(name, sharing);
+                this.hide();
+            }
         });
-        const name = await prompt.show();
-
-        if (name === null) return;
-        const trimmed = name.trim();
-        if (!trimmed) return;
-
-        this._busy = true;
-        try {
-            await this._onCreate(trimmed);
-            this.hide();
-        } catch {
-            this._busy = false;
-        }
     }
 
     /**

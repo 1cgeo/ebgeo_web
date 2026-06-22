@@ -202,6 +202,20 @@ export const EventTypes = Object.freeze({
     // ===== SYNC =====
     /** Payload: { operation } */
     REMOTE_OPERATION_APPLIED: 'sync:remoteOperationApplied',
+    /** Payload: { atlasId } — the connected atlas was deleted server-side; tear down + redirect. */
+    ATLAS_DELETED_REMOTE: 'sync:atlasDeletedRemote',
+    /** Payload: { atlasId, newOwnerId } — atlas ownership changed; re-gate UI / role. */
+    ATLAS_OWNER_CHANGED: 'sync:atlasOwnerChanged',
+    /** Payload: { settings } — the connected atlas's settings changed (Gestor edited 3D/360/basemap). */
+    ATLAS_SETTINGS_CHANGED: 'sync:atlasSettingsChanged',
+
+    // ===== SPATIAL COMMENTS =====
+    /** Payload: { comment } — a spatial comment (root or reply) was created. */
+    COMMENT_CREATED: 'comment:created',
+    /** Payload: { comment } — a spatial comment was edited / resolved / reopened. */
+    COMMENT_UPDATED: 'comment:updated',
+    /** Payload: { commentId } — a spatial comment was deleted. */
+    COMMENT_DELETED: 'comment:deleted',
 
     // ===== PRESENCE / AWARENESS =====
     /** Online users set changed (join/left/away/back/initial). Payload: { users } */

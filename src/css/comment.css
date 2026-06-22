@@ -1,0 +1,483 @@
+/* Path: css/comment.css */
+
+/* ============================================================================
+   SPATIAL COMMENTS (Fase 3): map pins + Google-Docs-style thread / compose cards.
+   ============================================================================ */
+
+/* ---- Toolbar button (MapLibre IControl) ---- */
+.comment-control__btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    color: var(--gray-700);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.comment-control__btn:hover {
+    color: var(--primary);
+}
+
+.comment-control__btn--active {
+    color: #fff;
+    background: var(--primary);
+}
+
+/* ---- Pin (DOM marker): a teardrop in the author's color with their 2 initials ---- */
+.comment-pin {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    background: var(--comment-color, var(--primary));
+    border: 2px solid #fff;
+    border-radius: 50% 50% 50% 4px;
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+    transition: transform var(--transition-fast);
+}
+
+.comment-pin:hover {
+    z-index: 2;
+    transform: scale(1.12);
+}
+
+.comment-pin__initials {
+    font-size: 11px;
+    font-weight: var(--font-weight-semibold);
+    line-height: 1;
+    color: #fff;
+    text-transform: uppercase;
+    pointer-events: none;
+}
+
+.comment-pin[data-resolved="true"] {
+    background: var(--gray-400);
+    opacity: 0.85;
+}
+
+.comment-pin[data-resolved="true"]::after {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    font-size: 10px;
+    font-weight: bold;
+    color: #fff;
+    content: "✓";
+    background: var(--primary);
+    border: 2px solid #fff;
+    border-radius: 50%;
+}
+
+/* ---- Popup shell: strip MapLibre's default chrome, keep only our card ---- */
+.comment-popup .maplibregl-popup-content,
+.comment-popup .mapboxgl-popup-content {
+    padding: 0;
+    background: transparent;
+    border-radius: var(--radius-lg);
+    box-shadow: none;
+}
+
+.comment-popup .maplibregl-popup-tip,
+.comment-popup .mapboxgl-popup-tip {
+    display: none;
+}
+
+/* ---- Card ---- */
+.comment-card {
+    width: 320px;
+    max-width: 88vw;
+    overflow: hidden;
+    font-family: inherit;
+    background: #fff;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+.comment-card--compose {
+    width: 300px;
+}
+
+.comment-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.comment-card__title {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+}
+
+.comment-card[data-resolved="true"] .comment-card__title {
+    color: var(--gray-500);
+}
+
+.comment-card__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.comment-card__action {
+    padding: 2px var(--space-2);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--primary);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.comment-card__action:hover {
+    background: var(--primary-100);
+}
+
+.comment-card__action--danger {
+    color: var(--color-error);
+}
+
+.comment-card__action--danger:hover {
+    background: rgb(239 68 68 / 12%);
+}
+
+.comment-card__close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--gray-500);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.comment-card__close:hover {
+    color: var(--gray-800);
+    background: var(--gray-100);
+}
+
+/* ---- Entry (root comment + replies) ---- */
+.comment-entry {
+    display: flex;
+    gap: var(--space-2);
+    padding: var(--space-3);
+}
+
+.comment-entry--root {
+    padding-bottom: var(--space-2);
+}
+
+.comment-card__replies {
+    padding-left: var(--space-3);
+    margin-left: var(--space-3);
+    border-left: 2px solid var(--gray-100);
+}
+
+.comment-card__replies .comment-entry {
+    padding: var(--space-2) var(--space-3) var(--space-2) 0;
+}
+
+.comment-entry__avatar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    font-size: 10px;
+    font-weight: var(--font-weight-semibold);
+    color: #fff;
+    text-transform: uppercase;
+    border-radius: 50%;
+}
+
+.comment-card__replies .comment-entry__avatar {
+    width: 22px;
+    height: 22px;
+    font-size: 9px;
+}
+
+.comment-entry__body {
+    flex: 1;
+    min-width: 0;
+}
+
+.comment-entry__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.comment-entry__time {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.comment-entry__text {
+    margin: 2px 0 0;
+    font-size: var(--font-size-sm);
+    line-height: 1.45;
+    color: var(--gray-800);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.comment-card[data-resolved="true"] .comment-entry--root .comment-entry__text {
+    color: var(--gray-500);
+}
+
+/* ---- Composer (new comment / reply) ---- */
+.comment-composer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-top: var(--border-width) solid var(--border-color);
+}
+
+.comment-composer--compact {
+    padding: var(--space-2) var(--space-3);
+}
+
+.comment-composer__input {
+    box-sizing: border-box; /* keep width:100% + padding inside the card (no right-edge clip) */
+    width: 100%;
+    min-height: 36px;
+    padding: var(--space-2);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+    background: var(--gray-50);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    resize: vertical;
+}
+
+.comment-composer__input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+.comment-composer__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.comment-composer__btn {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    border: var(--border-width) solid transparent;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.comment-composer__btn--ghost {
+    color: var(--gray-700);
+    background: transparent;
+}
+
+.comment-composer__btn--ghost:hover {
+    background: var(--gray-100);
+}
+
+.comment-composer__btn--primary {
+    color: #fff;
+    background: var(--primary);
+}
+
+.comment-composer__btn--primary:hover {
+    background: var(--primary-hover);
+}
+
+.comment-composer__btn--primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* ============================================================================
+   COMENTÁRIOS SECTION (Maps sidebar tab): list of the current map's comments.
+   ============================================================================ */
+.comments-panel {
+    margin-top: var(--space-3);
+}
+
+.comments-panel__header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+/* Visibility toggle greyed-out while comments are hidden. */
+.comments-toggle--off {
+    color: var(--gray-400);
+}
+
+/* Dedicated, bounded scroll area with a visible scrollbar, so a map with many comments stays
+   usable instead of growing the whole Maps tab. */
+.comments-panel__scroll {
+    margin-top: var(--space-2);
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.comments-panel__scroll::-webkit-scrollbar {
+    width: 8px;
+}
+
+.comments-panel__scroll::-webkit-scrollbar-thumb {
+    background: var(--gray-300);
+    border-radius: 4px;
+}
+
+.comments-panel__scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--gray-400);
+}
+
+.comments-panel__empty {
+    padding: var(--space-2) var(--space-1);
+    font-size: var(--font-size-sm);
+    color: var(--gray-500);
+}
+
+/* Collapsible group header (Abertos / Resolvidos) inside the scroll area. */
+.comments-group__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    width: 100%;
+    padding: var(--space-1);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-600);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.comments-group__header:hover {
+    background: var(--gray-50);
+}
+
+.comments-group__chevron {
+    display: inline-flex;
+    color: var(--gray-400);
+    transition: transform var(--transition-fast);
+}
+
+.comments-group__header[aria-expanded="false"] .comments-group__chevron {
+    transform: rotate(-90deg);
+}
+
+.comments-group__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-1);
+}
+
+.comment-list-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2);
+    text-align: left;
+    background: transparent;
+    border: var(--border-width) solid transparent;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.comment-list-item:hover {
+    background: var(--gray-50);
+    border-color: var(--border-color);
+}
+
+.comment-list-item[data-resolved="true"] {
+    opacity: 0.7;
+}
+
+.comment-list-item__avatar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    font-size: 10px;
+    font-weight: var(--font-weight-semibold);
+    color: #fff;
+    text-transform: uppercase;
+    border-radius: 50%;
+}
+
+.comment-list-item__body {
+    flex: 1;
+    min-width: 0;
+}
+
+.comment-list-item__text {
+    overflow: hidden;
+    font-size: var(--font-size-sm);
+    line-height: 1.35;
+    color: var(--gray-800);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.comment-list-item[data-resolved="true"] .comment-list-item__text {
+    color: var(--gray-500);
+}
+
+.comment-list-item__meta {
+    margin-top: 2px;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.comment-list-item__badge {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    font-size: 10px;
+    font-weight: bold;
+    color: #fff;
+    background: var(--primary);
+    border-radius: 50%;
+}

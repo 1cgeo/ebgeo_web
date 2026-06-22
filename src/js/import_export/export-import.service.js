@@ -15,6 +15,8 @@ import {
     setSchemaVersion,
     getColorUsage,
     getMapNotes,
+    getGridStyle,
+    setGridStyle,
     getMapGroups,
     getLayers,
     setMapLayers,
@@ -29,6 +31,8 @@ import {
     setStreetview360DataForImport,
     getMapTemporalConfig,
     setMapTemporalConfig,
+    getComments,
+    setMapComments,
     getBriefingsForExport,
     importBriefings,
     getCustomIconsForExport,
@@ -330,6 +334,63 @@ export class ExportImportService {
      * Handles project export to .ebgeo file
      * @param {string[]|null} selectedMaps - Optional array of map names to export. If null, exports all maps.
      */
+    /**
+     * Builds the in-memory `.ebgeo` data object (the same structure `handleExport` serializes into
+     * `data.json`) WITHOUT zipping — used by "Salvar atlas local no servidor" to feed the
+     * server-import transform (`local-atlas-to-server.js`). This MIRRORS handleExport's data-building
+     * block; keep the two in sync (a field added to the export must be added here too — P9/P11).
+     * @param {string[]} mapsToExport - Map names to include.
+     * @returns {Promise<Object>} The export data object.
+     */
+    async buildExportDataObject(mapsToExport) {
+        const currentMapName = await getCurrentMapName();
+        const exportCurrentMap = mapsToExport.includes(currentMapName) ? currentMapName : mapsToExport[0];
+        const fullMapOrder = await getMapOrder();
+        const filteredMapOrder = fullMapOrder.filter((name) => mapsToExport.includes(name));
+
+        const data = {
+            version: ATLAS_SCHEMA_VERSION,
+            currentMap: exportCurrentMap,
+            mapOrder: filteredMapOrder,
+            maps: {}, colorUsage: {}, mapNotes: {}, groups: {}, layers: {},
+            cesium3d: {}, streetview360: {}, temporal: {}, gridStyle: {}, comments: {}, briefings: [],
+        };
+
+        for (const mapName of mapsToExport) {
+            const mapData = await getCurrentMapFeatures(mapName);
+            if (mapData) {
+                const position = await getMapPosition(mapName);
+                const catalogLayers = await getCatalogLayers(mapName);
+                const fullMapData = {
+                    baseLayer: await getCurrentBaseLayer(mapName),
+                    hillshadeEnabled: true,
+                    analysisLayers: {},
+                    features: mapData,
+                    catalogLayers: catalogLayers.length > 0 ? catalogLayers : undefined,
+                    zoom: position.zoom,
+                    center_lat: position.center_lat,
+                    center_long: position.center_long,
+                    bearing: position.bearing,
+                    pitch: position.pitch,
+                };
+                data.maps[mapName] = this.optimizeMapData(fullMapData);
+            }
+            await this._exportOptionalMapData(data, mapName);
+        }
+
+        try {
+            const briefings = await getBriefingsForExport();
+            if (briefings?.length > 0) data.briefings = briefings;
+        } catch (error) {
+            console.warn('Could not export briefings:', error);
+        }
+
+        const customIcons = await getCustomIconsForExport();
+        if (customIcons.length > 0) data.customIcons = customIcons;
+
+        return data;
+    }
+
     async handleExport(selectedMaps = null) {
         try {
             this._toolManager.deactivateCurrentTool();
@@ -367,6 +428,8 @@ export class ExportImportService {
                 cesium3d: {},
                 streetview360: {},
                 temporal: {},
+                gridStyle: {},
+                comments: {},
                 briefings: [],
             };
 
@@ -625,6 +688,12 @@ export class ExportImportService {
                 // Import per-map temporal config additively
                 await this._importMappedData(data.temporal, setMapTemporalConfig, mapNameMapping, 'temporal config');
 
+                // Import per-map grid style additively
+                await this._importMappedData(data.gridStyle, setGridStyle, mapNameMapping, 'grid style');
+
+                // Import per-map spatial comments additively
+                await this._importMappedData(data.comments, setMapComments, mapNameMapping, 'comments');
+
                 // Import briefings (additive import - no overwrite)
                 await this._importBriefings(data.briefings, false);
 
@@ -656,6 +725,12 @@ export class ExportImportService {
 
                 // Import per-map temporal config directly (normal import)
                 await this._importMappedData(data.temporal, setMapTemporalConfig, null, 'temporal config');
+
+                // Import per-map grid style directly (normal import)
+                await this._importMappedData(data.gridStyle, setGridStyle, null, 'grid style');
+
+                // Import per-map spatial comments directly (normal import)
+                await this._importMappedData(data.comments, setMapComments, null, 'comments');
 
                 // Import briefings (normal import - overwrite if same ID)
                 await this._importBriefings(data.briefings, true);
@@ -1024,7 +1099,11 @@ export class ExportImportService {
         const tasks = [
             { key: 'colorUsage', fn: () => getColorUsage(mapName), check: (v) => v && Object.keys(v).length > 0 },
             { key: 'mapNotes', fn: () => getMapNotes(mapName), check: (v) => v && (v.title || v.description) },
-            { key: 'groups', fn: () => getMapGroups(mapName), check: (v) => v?.size > 0, transform: (v) => Object.fromEntries(v) },
+            // getMapGroups returns a PLAIN OBJECT keyed by group id (memoryStore.groups[map]),
+            // which is exactly what importGroupsDirectly/importMapGroups expect — so check by key
+            // count and export as-is. (A stale `.size`/`Object.fromEntries` here assumed a Map and
+            // silently dropped ALL groups from every `.ebgeo`, local and remote — P9/P11 bug.)
+            { key: 'groups', fn: () => getMapGroups(mapName), check: (v) => v && Object.keys(v).length > 0 },
             { key: 'layers', fn: () => getLayers(mapName), check: (v) => v?.length > 0 },
             { key: 'cesium3d', fn: () => getCesium3dDataForExport(mapName), check: (v) => !!v },
             { key: 'streetview360', fn: () => getStreetview360DataForExport(mapName), check: (v) => !!v },
@@ -1037,6 +1116,15 @@ export class ExportImportService {
                 fn: () => getMapTemporalConfig(mapName),
                 check: (v) => !!v && Object.keys(DEFAULT_TEMPORAL_CONFIG).some((k) => v[k] !== DEFAULT_TEMPORAL_CONFIG[k]),
             },
+            // Per-map grid/UTM-grid style so configured grids round-trip in .ebgeo (P9 symmetry
+            // with the live sync, which already persists gridStyle inbound).
+            {
+                key: 'gridStyle',
+                fn: () => getGridStyle(mapName),
+                check: (v) => !!v && typeof v === 'object' && Object.keys(v).length > 0,
+            },
+            // Spatial comments (root + replies, keyed by id) so commented maps round-trip in .ebgeo.
+            { key: 'comments', fn: () => getComments(mapName), check: (v) => v && Object.keys(v).length > 0 },
         ];
 
         for (const { key, fn, check, transform } of tasks) {

@@ -63,3 +63,14 @@ export {
     getBriefingsForExport,
     importBriefings
 } from './briefing.operations.js';
+
+// Spatial comment operations
+export {
+    addComment,
+    addReply,
+    updateComment,
+    resolveComment,
+    removeComment,
+    getComments,
+    setMapComments
+} from './comment.operations.js';

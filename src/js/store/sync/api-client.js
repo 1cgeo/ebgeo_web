@@ -38,6 +38,16 @@ export class ApiError extends Error {
     }
 }
 
+/** localStorage key holding the persisted auth tokens (survives F5 until the JWT expires). */
+const TOKEN_STORAGE_KEY = 'ebgeo_auth';
+
+/**
+ * Timeout (ms) for boot-critical requests (config + session restore) so a hung backend can't
+ * block boot. Other requests (snapshot pull / op push) are intentionally UNBOUNDED so a large
+ * transfer on a slow/degrading network is never aborted mid-flight (P6 — resiliência a redes ruins).
+ */
+const BOOT_TIMEOUT_MS = 8000;
+
 /**
  * HTTP client for the EBGeo backend.
  */
@@ -47,9 +57,11 @@ export class ApiClient {
      * @param {string} [opts.baseUrl] - API base, e.g. 'http://localhost:3001/api/v1' or '/api/v1'.
      * @param {typeof fetch} [opts.fetch] - Fetch implementation (defaults to global fetch).
      */
-    constructor({ baseUrl = DEFAULT_BASE_URL, fetch: fetchImpl } = {}) {
+    constructor({ baseUrl = DEFAULT_BASE_URL, fetch: fetchImpl, bootTimeoutMs = BOOT_TIMEOUT_MS } = {}) {
         this.baseUrl = baseUrl.replace(/\/$/, '');
         this._fetch = fetchImpl || ((...args) => globalThis.fetch(...args));
+        /** @type {number} Timeout (ms) applied to boot-critical requests only (getConfig/getMe). */
+        this._bootTimeoutMs = bootTimeoutMs;
         /** @type {string|null} */
         this._accessToken = null;
         /** @type {string|null} */
@@ -67,6 +79,18 @@ export class ApiClient {
     setTokens({ accessToken, refreshToken }) {
         this._accessToken = accessToken || null;
         if (refreshToken !== undefined) this._refreshToken = refreshToken;
+        this._persistTokens();
+    }
+
+    /**
+     * Sets an EPHEMERAL access token (in-memory only, NOT persisted). Used by the public
+     * "viewer link" flow: the short-lived public token must not survive a reload (the link in the
+     * URL is re-resolved on boot instead).
+     * @param {string} token
+     */
+    setEphemeralToken(token) {
+        this._accessToken = token || null;
+        this._refreshToken = null;
     }
 
     /** @returns {string|null} The current access token. */
@@ -78,11 +102,51 @@ export class ApiClient {
     clearTokens() {
         this._accessToken = null;
         this._refreshToken = null;
+        this._persistTokens();
     }
 
     /** @returns {boolean} Whether an access token is present. */
     isAuthenticated() {
         return this._accessToken !== null;
+    }
+
+    /**
+     * @private Persists the current tokens to localStorage so the session survives a reload.
+     * Degrades silently to in-memory only when localStorage is unavailable.
+     */
+    _persistTokens() {
+        try {
+            if (typeof localStorage === 'undefined') return;
+            if (this._accessToken || this._refreshToken) {
+                localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify({
+                    accessToken: this._accessToken,
+                    refreshToken: this._refreshToken,
+                }));
+            } else {
+                localStorage.removeItem(TOKEN_STORAGE_KEY);
+            }
+        } catch {
+            // localStorage unavailable/full — keep working with in-memory tokens only.
+        }
+    }
+
+    /**
+     * Loads persisted tokens (if any) into memory. Call once on boot before validating the
+     * session via {@link getMe}; cross-reload login persistence relies on this.
+     * @returns {boolean} Whether a token was found.
+     */
+    loadStoredTokens() {
+        try {
+            if (typeof localStorage === 'undefined') return false;
+            const raw = localStorage.getItem(TOKEN_STORAGE_KEY);
+            if (!raw) return false;
+            const parsed = JSON.parse(raw) || {};
+            this._accessToken = parsed.accessToken || null;
+            this._refreshToken = parsed.refreshToken || null;
+            return !!(this._accessToken || this._refreshToken);
+        } catch {
+            return false;
+        }
     }
 
     // ===== CORE REQUEST =====
@@ -100,16 +164,36 @@ export class ApiClient {
      * @returns {Promise<*>} The parsed response (envelope unwrapped).
      * @throws {ApiError}
      */
-    async _request(method, path, { body, auth = true, _retry = true } = {}) {
+    async _request(method, path, { body, auth = true, _retry = true, timeoutMs } = {}) {
         const headers = {};
         if (body !== undefined) headers['Content-Type'] = 'application/json';
         if (auth && this._accessToken) headers['Authorization'] = `Bearer ${this._accessToken}`;
 
-        const res = await this._fetch(`${this.baseUrl}${path}`, {
-            method,
-            headers,
-            body: body !== undefined ? JSON.stringify(body) : undefined,
-        });
+        // Boot-critical requests (config + session restore) pass a `timeoutMs` so a hung backend
+        // can't block boot (P1); the abort surfaces as a rejected fetch handled by the caller's
+        // offline/anonymous fallback. All other requests (snapshot pull / op push) are left
+        // UNBOUNDED so a large transfer on a slow/degrading network is never aborted (P6).
+        let res;
+        if (timeoutMs) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                res = await this._fetch(`${this.baseUrl}${path}`, {
+                    method,
+                    headers,
+                    body: body !== undefined ? JSON.stringify(body) : undefined,
+                    signal: controller.signal,
+                });
+            } finally {
+                clearTimeout(timer);
+            }
+        } else {
+            res = await this._fetch(`${this.baseUrl}${path}`, {
+                method,
+                headers,
+                body: body !== undefined ? JSON.stringify(body) : undefined,
+            });
+        }
 
         // 204 No Content (logout) — nothing to parse.
         if (res.status === 204) return null;
@@ -120,7 +204,7 @@ export class ApiClient {
             // Transparent refresh+retry on an expired access token.
             if (res.status === 401 && _retry && auth && this._refreshToken) {
                 await this.refresh();
-                return this._request(method, path, { body, auth, _retry: false });
+                return this._request(method, path, { body, auth, _retry: false, timeoutMs });
             }
             const err = parsed && typeof parsed === 'object' ? parsed.error : null;
             throw new ApiError(err?.message || `HTTP ${res.status}`, {
@@ -225,6 +309,15 @@ export class ApiClient {
         }
     }
 
+    /**
+     * Returns the authenticated user (validates the access token; transparently refreshes on
+     * a 401 when a refresh token is available). Used on boot to restore a persisted session.
+     * @returns {Promise<Object>} The current user.
+     */
+    async getMe() {
+        return this._request('GET', '/auth/me', { timeoutMs: this._bootTimeoutMs });
+    }
+
     // ===== CONFIG =====
 
     /**
@@ -232,7 +325,7 @@ export class ApiClient {
      * @returns {Promise<Object>} The config object.
      */
     async getConfig() {
-        return this._request('GET', '/config', { auth: false });
+        return this._request('GET', '/config', { auth: false, timeoutMs: this._bootTimeoutMs });
     }
 
     // ===== ATLAS =====
@@ -259,7 +352,70 @@ export class ApiClient {
         return this._request('GET', `/atlas/${atlasId}`);
     }
 
-    // ===== SHARING (owner-only; backend enforces) =====
+    /**
+     * Deletes an atlas (owner-only — backend enforces). Soft-deletes it and broadcasts
+     * `atlas_deleted` to the collab room so connected clients disconnect + return to the picker.
+     * @param {string} atlasId
+     * @returns {Promise<null>}
+     */
+    async deleteAtlas(atlasId) {
+        return this._request('DELETE', `/atlas/${atlasId}`);
+    }
+
+    /**
+     * Creates a new atlas from a bulk-import payload (the local store serialized to the backend
+     * import shape). Preserves client-provided entity UUIDs; the atlas itself gets a fresh server
+     * id. Used by "Salvar atlas local no servidor".
+     * @param {Object} payload - Per the backend importSchema ({ atlas, maps, briefings }).
+     * @returns {Promise<Object>} The created atlas ({ id, name, ..., summary }).
+     */
+    async importAtlas(payload) {
+        return this._request('POST', '/atlas/import', { body: payload });
+    }
+
+    /**
+     * Opens a public (anonymous) atlas by its share link. No auth required. Returns the atlas
+     * metadata plus a short-lived read-only `publicToken` for the WebSocket — used by the public
+     * "viewer link" flow (logged-out visitor).
+     * @param {string} link - The public link token.
+     * @returns {Promise<Object>} The atlas ({ id, name, ..., publicToken }).
+     */
+    async getPublicAtlas(link) {
+        return this._request('GET', `/atlas/public/${encodeURIComponent(link)}`, { auth: false });
+    }
+
+    /**
+     * Patches the atlas settings (which features/basemaps are available). Manager-level
+     * server-side; broadcasts `atlas_settings_updated` to the room.
+     * @param {string} atlasId
+     * @param {Object} settings - Partial settings (deep-merged server-side).
+     * @returns {Promise<Object>} The updated atlas.
+     */
+    async updateAtlasSettings(atlasId, settings) {
+        return this._request('PATCH', `/atlas/${atlasId}/settings`, { body: settings });
+    }
+
+    /**
+     * Reads the atlas settings (which features/basemaps are available). Read-level server-side.
+     * @param {string} atlasId
+     * @returns {Promise<Object>} The atlas.settings object.
+     */
+    async getAtlasSettings(atlasId) {
+        return this._request('GET', `/atlas/${atlasId}/settings`);
+    }
+
+    /**
+     * Transfers atlas ownership to another member (owner-only — backend enforces). The previous
+     * owner is demoted to a co-Gestor ('manage'). Broadcasts `atlas_owner_changed` to the room.
+     * @param {string} atlasId
+     * @param {string} newOwnerId - A current member of the atlas.
+     * @returns {Promise<Object>} The updated atlas.
+     */
+    async transferOwnership(atlasId, newOwnerId) {
+        return this._request('POST', `/atlas/${atlasId}/transfer`, { body: { newOwnerId } });
+    }
+
+    // ===== SHARING (Gestor-level / 'manage'; backend enforces) =====
 
     /**
      * Reads the sharing configuration for an atlas (public link + per-user shares).
@@ -293,7 +449,7 @@ export class ApiClient {
      * Grants a user access to the atlas at the given permission.
      * @param {string} atlasId
      * @param {string} userId
-     * @param {'read'|'write'} permission
+     * @param {'read'|'comment'|'write'|'manage'} permission
      * @returns {Promise<Object>} The created share record.
      */
     async addShare(atlasId, userId, permission) {
@@ -306,7 +462,7 @@ export class ApiClient {
      * Updates an existing user's permission on the atlas.
      * @param {string} atlasId
      * @param {string} userId
-     * @param {'read'|'write'} permission
+     * @param {'read'|'comment'|'write'|'manage'} permission
      * @returns {Promise<Object>} The updated share record.
      */
     async updateShare(atlasId, userId, permission) {
@@ -387,6 +543,20 @@ export class ApiClient {
             throw new ApiError(err?.message || `HTTP ${res.status}`, { status: res.status, code: err?.code });
         }
         return this._unwrap(parsed);
+    }
+
+    /**
+     * Bulk-uploads images (base64) to an atlas in one request — used to migrate the local image
+     * blobs of an atlas saved to the server. Each item: `{ localId, filename, mimeType, data }`
+     * where `data` is base64. Returns `{ uploaded, failed, mapping }` where `mapping` is
+     * `{ localId: serverId }` (the server assigns new ids; callers rewrite feature refs). The
+     * backend caps the batch at 50 items, so callers must chunk.
+     * @param {string} atlasId
+     * @param {Array<{ localId: string, filename: string, mimeType: string, data: string }>} images
+     * @returns {Promise<{ uploaded: Array, failed: Array, mapping: Record<string,string> }>}
+     */
+    async bulkUploadImages(atlasId, images) {
+        return this._request('POST', `/atlas/${atlasId}/images/bulk`, { body: { images } });
     }
 
     /**

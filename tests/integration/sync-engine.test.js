@@ -68,6 +68,8 @@ const h = vi.hoisted(() => {
             applyRemoteOperation: vi.fn(async () => {}),
         },
         eventBusMock: { emit: vi.fn(), on: vi.fn(), off: vi.fn() },
+        // syncResponse only arrives while connected; the engine now gates its apply on this.
+        connectionStateMock: { isOnline: vi.fn(() => true) },
     };
 });
 
@@ -119,6 +121,10 @@ vi.mock('../../src/js/store/sync/sync-gateway.js', () => ({
     syncGateway: h.syncGatewayMock,
 }));
 
+vi.mock('../../src/js/store/sync/connection-state.js', () => ({
+    connectionState: h.connectionStateMock,
+}));
+
 vi.mock('../../src/js/store/services.js', () => ({
     getEventBus: vi.fn(() => h.eventBusMock),
 }));
@@ -167,6 +173,7 @@ describe('login', () => {
         expect(sessionContextMock.setSession).toHaveBeenCalledWith({
             userId: 'user-1',
             role: 'editor',
+            username: 'alice',
         });
         expect(user).toEqual({ id: 'user-1', org_role: 'editor' });
     });
@@ -177,6 +184,7 @@ describe('login', () => {
         expect(sessionContextMock.setSession).toHaveBeenCalledWith({
             userId: 'user-9',
             role: 'viewer',
+            username: 'bob',
         });
     });
 });
@@ -257,9 +265,20 @@ describe('connect', () => {
     it('wires WS handlers only once across reconnects', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
         await syncEngine.connect('atlas-1', { initialPull: false });
-        // 2 events ('operation','syncResponse') wired exactly once total.
-        expect(wsClientMock.on).toHaveBeenCalledTimes(2);
-        expect(enableOperationLogging).toHaveBeenCalledTimes(1);
+        // 5 events ('operation','syncResponse','atlasDeleted','atlasOwnerChanged','atlasSettings')
+        // wired exactly once total.
+        expect(wsClientMock.on).toHaveBeenCalledTimes(5);
+        // Operation logging is now enabled per authenticated connect (not in wire-once), so two
+        // connects enable it twice.
+        expect(enableOperationLogging).toHaveBeenCalledTimes(2);
+    });
+
+    it('on "atlas_deleted" the engine disconnects (stops chasing the dead room)', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        wsClientMock.disconnect.mockClear();
+        await wsClientMock._handlers.atlasDeleted({ atlasId: 'atlas-1' });
+        // disconnect() closes the socket + stops the auto-reconnect backoff.
+        expect(wsClientMock.disconnect).toHaveBeenCalled();
     });
 
     it('routes inbound "operation" frames through the sync gateway', async () => {

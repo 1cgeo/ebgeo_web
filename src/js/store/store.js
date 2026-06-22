@@ -28,6 +28,7 @@ import {
     clearAllCesium3dData,
     clearAllStreetview360Data,
     clearAllBriefingData,
+    clearAllAtlasData,
     setAppSetting,
     getColorUsage
 } from './repository.js';
@@ -35,6 +36,9 @@ import {
 import mapManager from './store-state-manager.js';
 import { mapResolver, awaitMapResolverReady } from './services/map-resolver.service.js';
 import { EventTypes } from '../events';
+import { sessionContext } from './sync/session-context.js';
+import { loadStoreOrigin, isRemoteStoreSync, markStoreLocal } from './store-origin.js';
+import { operationQueue } from './sync/operation-queue.js';
 
 import {
     setFeatureDependencies,
@@ -115,11 +119,46 @@ async function loadMapDataToMemory(mapName) {
 }
 
 /**
+ * Additive boot guard: if the local IndexedDB currently holds a REMOTE (server) atlas but
+ * nobody is authenticated — the JWT expired, or the tab was closed without logging out —
+ * that remote data must not remain editable offline. Discard it back to a blank local
+ * atlas; the user must re-open from the server (when logged in) or work from a downloaded
+ * `.ebgeo`.
+ *
+ * This NEVER fires for the standalone offline/local user: the origin marker defaults to
+ * 'local' (and is absent for every pre-existing offline user), so their IndexedDB data and
+ * `.ebgeo` workflow are completely untouched. Item 8 (session restore) runs BEFORE this, so
+ * a returning authenticated user keeps their session and reconnects instead of being wiped.
+ *
+ * @returns {Promise<void>}
+ */
+async function enforceLocalStoreWhenLoggedOut() {
+    await loadStoreOrigin();
+    if (!isRemoteStoreSync() || sessionContext.isAuthenticated()) {
+        return;
+    }
+    resetMemoryStore();
+    mapResolver.clear();
+    await clearAllMapData();
+    await clearAllImageData();
+    await clearAllAppSettings();
+    await clearAllGroupData();
+    await clearAllLayerData();
+    await clearAllCesium3dData();
+    await clearAllStreetview360Data();
+    await clearAllBriefingData();
+    await clearAllAtlasData();
+    await operationQueue.clear();
+    await markStoreLocal();
+}
+
+/**
  * Initialize with last active map.
  *
  * @returns {Promise<string>} Last active map name
  */
 export async function initializeWithLastActiveMap() {
+    await enforceLocalStoreWhenLoggedOut();
     const lastActiveMap = await initializeRepository();
     await awaitMapResolverReady();
     await mapManager.setCurrentMap(lastActiveMap);
@@ -152,6 +191,11 @@ export async function clearAllDataStore() {
     await clearAllCesium3dData();
     await clearAllStreetview360Data();
     await clearAllBriefingData();
+    // The atlas record + pending operation queue belong to the atlas being abandoned. Clearing
+    // them prevents remote atlas.settings and un-flushed remote ops from surviving a
+    // logout/switch or leaking into another atlas (inv 2/3).
+    await clearAllAtlasData();
+    await operationQueue.clear();
 
     await mapManager.clearAllColorCaches();
 
@@ -160,6 +204,9 @@ export async function clearAllDataStore() {
     clearStreetview360Cache();
 
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
+    // A full clear always lands on a blank LOCAL atlas (the offline default). A subsequent
+    // server connect re-marks the store REMOTE (markStoreRemote).
+    await markStoreLocal();
 
     deps.eventBus.emit(EventTypes.ALL_DATA_CLEARED);
 
@@ -335,6 +382,7 @@ export {
     getCurrentMapInfoSync,
     setSchemaVersion,
     getMapDataStore,
+    hasAnyMapFeatures,
     getCurrentBaseLayer,
     setBaseLayer,
     updateMapPosition,
@@ -505,3 +553,14 @@ export {
 
 export { SCHEMA_VERSION, MIN_SCHEMA_VERSION, MAX_SCHEMA_VERSION };
 export { compareVersions, cleanFeature, isInternalProperty, getColorUsage };
+
+// ===== RE-EXPORTS FROM STORE ORIGIN (local vs remote-temporary separation) =====
+
+export {
+    markStoreRemote,
+    markStoreLocal,
+    isRemoteStoreSync,
+    getStoreOriginSync,
+    loadStoreOrigin,
+    StoreOriginKind
+} from './store-origin.js';

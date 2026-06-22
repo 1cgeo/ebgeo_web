@@ -27,7 +27,9 @@ import {
 import { escapeHtml } from '@utils/html-escape.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 import { apiClient } from '@store/sync/api-client.js';
-import { showError } from '@utils/toast_service.js';
+import { showError, showSuccess } from '@utils/toast_service.js';
+import { sessionContext } from '@store/sync/session-context.js';
+import { showConfirm } from '@modals/index.js';
 
 /** Debounce (ms) for the user-search input. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -37,6 +39,13 @@ const SEARCH_MIN_CHARS = 2;
 const COPY_FEEDBACK_MS = 1800;
 /** Default permission granted when a searched user is picked. */
 const DEFAULT_GRANT_PERMISSION = 'write';
+/** Permission levels offered in the member dropdown (pt-BR labels, ascending access). */
+const PERMISSION_LEVELS = [
+    { value: 'read', label: 'Leitura' },
+    { value: 'comment', label: 'Comentário' },
+    { value: 'write', label: 'Edição' },
+    { value: 'manage', label: 'Gestão' },
+];
 
 /**
  * Icons used by the modal (inline SVG, currentColor).
@@ -95,6 +104,8 @@ export class SharingModal extends ModalBase {
         this._publicLink = null;
         /** @type {Array<{userId:string, username:string, nome:string, permission:string}>} */
         this._shares = [];
+        /** @type {{userId:string, username:string, nome:string}|null} The atlas owner (badge + transfer). */
+        this._owner = null;
         /** @type {boolean} Network-in-flight guard (one mutation at a time). */
         this._busy = false;
         /** @type {number|null} Pending debounced-search timer id. */
@@ -131,6 +142,7 @@ export class SharingModal extends ModalBase {
             const cfg = await apiClient.getSharing(this._atlasId);
             this._isPublic = Boolean(cfg?.isPublic);
             this._publicLink = cfg?.publicLink ?? null;
+            this._owner = cfg?.owner ?? null;
             this._shares = Array.isArray(cfg?.shares) ? cfg.shares : [];
             this._renderBody();
         } catch {
@@ -227,13 +239,40 @@ export class SharingModal extends ModalBase {
 
     /** @private */
     _renderMembersSection() {
+        const ownerRow = this._owner ? this._renderOwnerItem(this._owner) : '';
+        const shareRows = this._shares.length
+            ? this._shares.map((s) => this._renderMemberItem(s)).join('')
+            : (this._owner ? '' : this._renderEmptyMembers());
         return `
             <section class="sharing-section">
                 <h3 class="sharing-section__title">Membros</h3>
                 <div class="sharing-members">
-                    ${this._shares.length ? this._shares.map((s) => this._renderMemberItem(s)).join('') : this._renderEmptyMembers()}
+                    ${ownerRow}
+                    ${shareRows}
                 </div>
             </section>
+        `;
+    }
+
+    /**
+     * @private Renders the atlas owner row (read-only — a "(dono)" badge, no controls).
+     * @param {{userId:string, username:string, nome:string}} owner
+     */
+    _renderOwnerItem(owner) {
+        const userId = String(owner?.userId ?? '');
+        const nome = owner?.nome ?? owner?.username ?? '';
+        const username = owner?.username ?? '';
+        const color = escapeHtml(getPresenceColor(userId));
+        const initials = escapeHtml(getInitials(nome));
+        return `
+            <div class="sharing-member" data-testid="sharing-owner-item">
+                <span class="sharing-avatar" aria-hidden="true" style="background-color: ${color};">${initials}</span>
+                <div class="sharing-member__info">
+                    <span class="sharing-member__name">${escapeHtml(nome)}</span>
+                    <span class="sharing-member__username">@${escapeHtml(username)}</span>
+                </div>
+                <span class="sharing-member__owner-badge">Gestor (dono)</span>
+            </div>
         `;
     }
 
@@ -254,9 +293,17 @@ export class SharingModal extends ModalBase {
         const userId = String(share?.userId ?? '');
         const nome = share?.nome ?? share?.username ?? '';
         const username = share?.username ?? '';
-        const permission = share?.permission === 'write' ? 'write' : 'read';
+        const current = PERMISSION_LEVELS.some((p) => p.value === share?.permission) ? share.permission : 'read';
         const color = escapeHtml(getPresenceColor(userId));
         const initials = escapeHtml(getInitials(nome));
+        const options = PERMISSION_LEVELS.map((p) =>
+            `<option value="${p.value}"${current === p.value ? ' selected' : ''}>${p.label}</option>`
+        ).join('');
+        // Only the current owner may hand ownership to a member.
+        const transferBtn = sessionContext.role === 'owner'
+            ? `<button type="button" class="sharing-member__transfer" data-action="transfer"
+                        data-testid="sharing-member-transfer" aria-label="Tornar ${escapeHtml(nome)} o dono">Tornar dono</button>`
+            : '';
 
         return `
             <div class="sharing-member" data-testid="sharing-member-item" data-user-id="${escapeHtml(userId)}">
@@ -265,10 +312,10 @@ export class SharingModal extends ModalBase {
                     <span class="sharing-member__name">${escapeHtml(nome)}</span>
                     <span class="sharing-member__username">@${escapeHtml(username)}</span>
                 </div>
+                ${transferBtn}
                 <select class="sharing-member__permission" data-action="permission"
                         data-testid="sharing-member-permission" aria-label="Permissão de ${escapeHtml(nome)}">
-                    <option value="read"${permission === 'read' ? ' selected' : ''}>Leitura</option>
-                    <option value="write"${permission === 'write' ? ' selected' : ''}>Edição</option>
+                    ${options}
                 </select>
                 <button type="button" class="sharing-member__remove" data-action="remove"
                         data-testid="sharing-member-remove" aria-label="Remover ${escapeHtml(nome)}">
@@ -355,6 +402,12 @@ export class SharingModal extends ModalBase {
             if (remove) {
                 addScopedDomListener(this, 'body', remove, 'click', () =>
                     this._handleRemove(userId));
+            }
+            const transfer = row.querySelector('[data-action="transfer"]');
+            if (transfer) {
+                const nome = row.querySelector('.sharing-member__name')?.textContent ?? '';
+                addScopedDomListener(this, 'body', transfer, 'click', () =>
+                    this._handleTransfer(userId, nome));
             }
         });
 
@@ -447,6 +500,32 @@ export class SharingModal extends ModalBase {
             await this._load();
         } catch {
             showError('Não foi possível remover o membro.');
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    /**
+     * @private Transfers ownership to a member (owner-only). After a confirmation, calls the API
+     * and re-reads the config. The current user stops being the owner (becomes a Gestor); the WS
+     * `atlas_owner_changed` broadcast re-gates the rest of the UI.
+     * @param {string} userId
+     * @param {string} nome - Display name for the confirmation copy.
+     */
+    async _handleTransfer(userId, nome) {
+        if (this._busy || !userId) return;
+        const ok = await showConfirm(
+            `Tornar ${nome || 'este membro'} o novo dono do projeto? Você deixará de ser o dono e passará a Gestor.`,
+            { destructive: true, confirmText: 'Transferir' }
+        );
+        if (!ok) return;
+        this._busy = true;
+        try {
+            await apiClient.transferOwnership(this._atlasId, userId);
+            showSuccess('Propriedade transferida.');
+            await this._load();
+        } catch {
+            showError('Não foi possível transferir a propriedade.');
         } finally {
             this._busy = false;
         }

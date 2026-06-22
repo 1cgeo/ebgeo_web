@@ -55,6 +55,7 @@ const TOOL_NAMES = {
     // Standalone tools
     vectortileinfo: 'Informações da Carta',
     rectangleselection: 'Selecionar',
+    comment: 'Comentário',
 };
 
 /**
@@ -74,6 +75,7 @@ const TOOLBAR_TOOLS = new Set([
     // Utility tools
     'vectortileinfo', 'rectangleselection',
     'azimuth_distance', 'azimuthdistance',
+    'comment',
 ]);
 
 /**

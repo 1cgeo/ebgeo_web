@@ -120,9 +120,9 @@ describe('No network activity offline', () => {
         // Advance well past any historical debounce window.
         await vi.advanceTimersByTimeAsync(5000);
 
-        // The scheduler subscribed to nothing, so no listeners fired.
-        // Nothing to assert beyond no throw — the gateway has no send path.
-        expect(syncGateway.sendPendingOperations).toBeUndefined();
+        // The no-op scheduler subscribes to NOTHING (initSyncScheduler never calls eventBus.on),
+        // so none of the emitted events could have reached it — the real, falsifiable invariant.
+        expect(eventBus.on).not.toHaveBeenCalled();
     });
 });
 
@@ -136,7 +136,8 @@ describe('No network activity online', () => {
         eventBus.emit(EventTypes.FEATURE_CREATED, {});
         await vi.advanceTimersByTimeAsync(5000);
 
-        expect(syncGateway.sendPendingOperations).toBeUndefined();
+        // Online makes no difference: the no-op scheduler still subscribed to nothing.
+        expect(eventBus.on).not.toHaveBeenCalled();
     });
 
     it('does not trigger any send on CONNECTING → ONLINE transition', async () => {
@@ -146,6 +147,7 @@ describe('No network activity online', () => {
 
         await vi.advanceTimersByTimeAsync(5000);
 
-        expect(syncGateway.sendPendingOperations).toBeUndefined();
+        // Connection transitions don't wire the no-op scheduler either — it never subscribed.
+        expect(eventBus.on).not.toHaveBeenCalled();
     });
 });

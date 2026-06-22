@@ -31,6 +31,8 @@ export const EntityType = Object.freeze({
     BRIEFING: 'briefing',
     SLIDE: 'slide',
 
+    COMMENT: 'comment',
+
     SETTING: 'setting'
 });
 

@@ -19,11 +19,19 @@ export const SessionMode = Object.freeze({
     ONLINE: 'online'
 });
 
-/** @readonly @enum {string} */
+/**
+ * Frontend role vocabulary (mapped from the backend's per-atlas permission +
+ * global role by `toFrontendRole`). Display names (pt-BR):
+ *   admin → "Admin do sistema", owner/manager → "Gestor", editor → "Editor",
+ *   commenter → "Comentarista", viewer → "Visualizador".
+ * @readonly @enum {string}
+ */
 export const UserRole = Object.freeze({
-    OWNER: 'owner',
-    ADMIN: 'admin',
+    OWNER: 'owner',       // atlas owner (the supreme Gestor)
+    ADMIN: 'admin',       // global system admin
+    MANAGER: 'manager',   // promoted co-Gestor (atlas_shares 'manage')
     EDITOR: 'editor',
+    COMMENTER: 'commenter', // may only act on spatial comments
     VIEWER: 'viewer'
 });
 
@@ -31,14 +39,16 @@ export const UserRole = Object.freeze({
 export const PermissionAction = Object.freeze({
     EDIT: 'canEdit',
     DELETE: 'canDelete',
+    COMMENT: 'canComment',
     MANAGE_USERS: 'canManageUsers',
     LOCK_MAPS: 'canLockMaps'
 });
 
-/** Full-control permissions shared by Owner, Admin, and offline mode. */
+/** Full-control permissions shared by Owner, Manager, Admin, and offline mode. */
 const FULL_PERMISSIONS = Object.freeze({
     canEdit: true,
     canDelete: true,
+    canComment: true,
     canManageUsers: true,
     canLockMaps: true
 });
@@ -50,15 +60,25 @@ const FULL_PERMISSIONS = Object.freeze({
 const ROLE_PERMISSIONS = Object.freeze({
     [UserRole.OWNER]: FULL_PERMISSIONS,
     [UserRole.ADMIN]: FULL_PERMISSIONS,
+    [UserRole.MANAGER]: FULL_PERMISSIONS,
     [UserRole.EDITOR]: Object.freeze({
         canEdit: true,
         canDelete: true,
+        canComment: true,
+        canManageUsers: false,
+        canLockMaps: false
+    }),
+    [UserRole.COMMENTER]: Object.freeze({
+        canEdit: false,
+        canDelete: false,
+        canComment: true,
         canManageUsers: false,
         canLockMaps: false
     }),
     [UserRole.VIEWER]: Object.freeze({
         canEdit: false,
         canDelete: false,
+        canComment: false,
         canManageUsers: false,
         canLockMaps: false
     })
@@ -82,6 +102,9 @@ class SessionContext {
 
         /** @type {Object} */
         this._permissions = { ...FULL_PERMISSIONS };
+
+        /** @type {boolean} Whether this is an anonymous public "visitante" (read-only) session. */
+        this._isVisitor = false;
 
         /** @type {Set<Function>} */
         this._listeners = new Set();
@@ -120,6 +143,15 @@ class SessionContext {
     }
 
     /**
+     * Display name of the authenticated user (null when offline). Lets the account UI render
+     * the avatar after a session is restored on reload, without the login modal.
+     * @returns {string|null}
+     */
+    get username() {
+        return this._username || null;
+    }
+
+    /**
      * Current permissions object.
      * @returns {Object}
      */
@@ -141,7 +173,15 @@ class SessionContext {
      * @returns {boolean}
      */
     isAuthenticated() {
-        return this._mode === SessionMode.ONLINE && this._userId !== null;
+        return this._mode === SessionMode.ONLINE && this._userId !== null && !this._isVisitor;
+    }
+
+    /**
+     * Whether this is an anonymous public "visitante" session (online, read-only, no account).
+     * @returns {boolean}
+     */
+    isVisitor() {
+        return this._isVisitor === true;
     }
 
     /**
@@ -168,7 +208,7 @@ class SessionContext {
     /**
      * Sets an authenticated session.
      * Transitions from offline to online mode.
-     * @param {{ userId: string, role: string, permissions?: Object }} userInfo
+     * @param {{ userId: string, role: string, username?: string, permissions?: Object }} userInfo
      */
     setSession(userInfo) {
         if (!userInfo || !userInfo.userId) {
@@ -181,10 +221,27 @@ class SessionContext {
         this._mode = SessionMode.ONLINE;
         this._userId = userInfo.userId;
         this._role = role;
+        this._username = userInfo.username || null;
         this._permissions = userInfo.permissions
             ? { ...defaultPerms, ...userInfo.permissions }
             : { ...defaultPerms };
+        this._isVisitor = false;
 
+        this._notifyListeners();
+    }
+
+    /**
+     * Sets an anonymous public "visitante" session: ONLINE + read-only (VIEWER) with NO account
+     * identity. Used by the public viewer-link flow so the permission guard blocks editing of the
+     * connected remote atlas while `isAuthenticated()` stays false (no account menu shown).
+     */
+    setVisitorSession() {
+        this._mode = SessionMode.ONLINE;
+        this._userId = null;
+        this._role = UserRole.VIEWER;
+        this._username = null;
+        this._isVisitor = true;
+        this._permissions = { ...ROLE_PERMISSIONS[UserRole.VIEWER] };
         this._notifyListeners();
     }
 
@@ -196,8 +253,23 @@ class SessionContext {
         this._mode = SessionMode.OFFLINE;
         this._userId = null;
         this._role = null;
+        this._username = null;
+        this._isVisitor = false;
         this._permissions = { ...FULL_PERMISSIONS };
 
+        this._notifyListeners();
+    }
+
+    /**
+     * Updates ONLY the role (and its derived permissions), preserving identity. Used when a
+     * connected atlas's ownership changes live (`atlas_owner_changed`) so the UI re-gates without
+     * a reconnect — and without nulling userId/username the way setSession would.
+     * @param {string} role - A UserRole value.
+     */
+    updateRole(role) {
+        this._role = role;
+        const perms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS[UserRole.VIEWER];
+        this._permissions = { ...perms };
         this._notifyListeners();
     }
 
@@ -247,6 +319,7 @@ class SessionContext {
         this._mode = SessionMode.OFFLINE;
         this._userId = null;
         this._role = null;
+        this._isVisitor = false;
         this._permissions = { ...FULL_PERMISSIONS };
         this._listeners.clear();
     }

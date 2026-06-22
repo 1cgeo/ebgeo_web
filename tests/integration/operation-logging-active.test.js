@@ -46,6 +46,7 @@ import {
     disableOperationLogging,
     isOperationLoggingEnabled,
     logFeatureOperation,
+    operationQueue,
 } from '../../src/js/store/sync/operation-dispatcher.js';
 import { createOperation, createBatchOperations } from '../../src/js/store/sync/operation-factory.js';
 
@@ -74,13 +75,18 @@ describe('Operation logging activation', () => {
         expect(isOperationLoggingEnabled()).toBe(true);
     });
 
-    it('logFeatureOperation does nothing when disabled', async () => {
+    it('logFeatureOperation enqueues only when logging is enabled', async () => {
+        await operationQueue.clear();
+
+        // Disabled → the op must NOT reach the queue (assert the EFFECT, not just the flag).
         disableOperationLogging();
         await logFeatureOperation(OperationType.CREATE, 'f1', 'map1', { id: 'f1' });
+        expect(await operationQueue.size()).toBe(0);
 
-        // Queue should be empty because logging is disabled
-        // (the mock queue from the module is used internally, not our local `queue`)
-        expect(isOperationLoggingEnabled()).toBe(false);
+        // Enabled → the same call DOES enqueue exactly one op.
+        enableOperationLogging();
+        await logFeatureOperation(OperationType.CREATE, 'f2', 'map1', { id: 'f2' });
+        expect(await operationQueue.size()).toBe(1);
     });
 });
 

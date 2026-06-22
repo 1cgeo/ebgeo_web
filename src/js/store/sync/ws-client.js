@@ -305,6 +305,15 @@ export class WsClient {
             case 'adaptive-settings':
                 this._emit('adaptiveSettings', msg);
                 break;
+            case 'atlas_deleted':
+                this._emit('atlasDeleted', msg);
+                break;
+            case 'atlas_owner_changed':
+                this._emit('atlasOwnerChanged', msg);
+                break;
+            case 'atlas_settings_updated':
+                this._emit('atlasSettings', msg);
+                break;
             case 'error':
                 this._emit('error', { kind: 'server', code: msg.code, message: msg.message });
                 break;

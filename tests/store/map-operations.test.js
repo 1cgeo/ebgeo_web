@@ -76,6 +76,9 @@ vi.mock('../../src/js/store/repositories/index.js', () => ({
     }),
     createMapCompat: vi.fn(async (mapName, data) => {
         const mapData = data || getEmptyMapData();
+        // Mirror the real createMapCompat: a fresh map (no caller data) takes the
+        // requested name, not the getEmptyMapData() placeholder.
+        if (!data || !mapData.name) mapData.name = mapName;
         mapData.id = `uuid-${mapName}`;
         mockMaps.value[mapName] = mapData;
         return mapData;
@@ -107,7 +110,8 @@ vi.mock('../../src/js/store/services/map-resolver.service.js', () => ({
         registerMap: vi.fn(),
         unregisterMapById: vi.fn(),
         renameMap: vi.fn(),
-        resolveToId: vi.fn((name) => `uuid-${name}`)
+        resolveToId: vi.fn((name) => `uuid-${name}`),
+        resolveToName: vi.fn((idOrName) => idOrName)
     }
 }));
 
@@ -129,7 +133,8 @@ vi.mock('../../src/js/utilities/uuid.js', () => ({
 vi.mock('../../src/js/events', () => ({
     EventTypes: {
         MAP_LOCK_CHANGED: 'map:lockChanged',
-        LAYERS_CHANGED: 'layers:changed'
+        LAYERS_CHANGED: 'layers:changed',
+        MAP_CREATED: 'map:created'
     }
 }));
 
@@ -146,6 +151,7 @@ import {
     renameMap,
     setCurrentMap,
     activateAtlasInitialMap,
+    hasAnyMapFeatures,
     getCurrentMapName,
     getCurrentMapNameSync,
     getCurrentMapIdSync,
@@ -229,8 +235,21 @@ describe('activateAtlasInitialMap (bug B)', () => {
         expect(mockMapManager.setCurrentMap).toHaveBeenCalledWith('Mapa Tático');
     });
 
-    it('returns null and does not switch when the atlas has no UUID-keyed map', async () => {
+    it('creates and activates a first atlas map when the atlas has no UUID-keyed map', async () => {
+        // A brand-new EMPTY atlas has only the local default 'Principal' (no UUID). Rather
+        // than stranding the user on the un-syncable local map, activateAtlasInitialMap now
+        // creates a first atlas map (UUID-keyed) and switches to it (§item3).
         mockRepoMaps.value = [{ name: 'Principal' }];
+
+        const activated = await activateAtlasInitialMap();
+
+        expect(activated).toBeTruthy();
+        expect(mockMapManager.setCurrentMap).toHaveBeenCalled();
+    });
+
+    it('returns null when no UUID map exists and creation is blocked (e.g. viewer)', async () => {
+        mockRepoMaps.value = [{ name: 'Principal' }];
+        checkPermission.mockReturnValue({ allowed: false, reason: 'NO_EDIT' });
 
         const activated = await activateAtlasInitialMap();
 
@@ -290,6 +309,20 @@ describe('getAllMapNamesStore', () => {
         const names = await getAllMapNamesStore();
 
         expect(names).toEqual(['MapA', 'MapB']);
+    });
+});
+
+describe('hasAnyMapFeatures', () => {
+    it('returns false when no map has features', async () => {
+        mockMaps.value = { 'MapA': getEmptyMapData(), 'MapB': getEmptyMapData() };
+        expect(await hasAnyMapFeatures()).toBe(false);
+    });
+
+    it('returns true when any map has at least one feature', async () => {
+        const withFeature = getEmptyMapData();
+        withFeature.features.points.push({ properties: { id: 'p1' } });
+        mockMaps.value = { 'MapA': getEmptyMapData(), 'MapB': withFeature };
+        expect(await hasAnyMapFeatures()).toBe(true);
     });
 });
 

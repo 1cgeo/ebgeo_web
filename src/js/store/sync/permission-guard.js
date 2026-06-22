@@ -10,6 +10,7 @@
  */
 
 import { sessionContext, PermissionAction } from './session-context.js';
+import { isRemoteStoreSync } from '../store-origin.js';
 
 /**
  * Maps high-level guard actions to the permission required.
@@ -34,6 +35,13 @@ export const GuardAction = Object.freeze({
     UPDATE_GROUP: PermissionAction.EDIT,
     DELETE_GROUP: PermissionAction.DELETE,
 
+    // Spatial comments: gated by the COMMENT capability (Comentarista and up). The finer
+    // author-or-editor rule for editing/deleting a specific comment is enforced in the comment
+    // operations + backend, not by this coarse capability gate.
+    CREATE_COMMENT: PermissionAction.COMMENT,
+    UPDATE_COMMENT: PermissionAction.COMMENT,
+    DELETE_COMMENT: PermissionAction.COMMENT,
+
     IMPORT_DATA: PermissionAction.EDIT,
     CLEAR_ALL_DATA: PermissionAction.DELETE,
 
@@ -56,7 +64,11 @@ export const GuardAction = Object.freeze({
  * @returns {{ allowed: boolean, reason?: string }}
  */
 export function checkPermission(action) {
-    if (sessionContext.isOffline()) {
+    // Full local control whenever the store is the user's OWN local workspace — offline/anonymous OR
+    // authenticated but NOT connected to a server atlas. The role-based gate applies ONLY to a
+    // connected REMOTE atlas; the local store is always editable (offline-first, P1). Without this a
+    // logged-in user whose global role is `viewer` could not even draw on their own local store.
+    if (sessionContext.isOffline() || !isRemoteStoreSync()) {
         return { allowed: true };
     }
 

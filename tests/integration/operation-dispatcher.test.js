@@ -111,7 +111,7 @@ describe('Logging when enabled', () => {
     });
 
     it('logFeatureOperation enqueues operation', async () => {
-        await logFeatureOperation(OperationType.CREATE, 'f1', 'map-1', { nome: 'Ponto A' });
+        await logFeatureOperation(OperationType.CREATE, 'f1', '4a22f7df-df6d-47df-80bb-f26df86d31ec', { nome: 'Ponto A' });
         const count = await operationQueue.count();
         expect(count).toBe(1);
 
@@ -149,6 +149,14 @@ describe('Logging when enabled', () => {
         expect(ops[0].mapId).toBe(mapId);
     });
 
+    // Regression — bug D (extended to feature/layer/group): an op whose CONTEXT mapId is not
+    // a UUID (a feature on the local 'Principal' map, which is name-keyed) can never be
+    // pushed and would poison the flush batch. logOperation must drop it before enqueue.
+    it('logFeatureOperation skips a non-UUID context mapId', async () => {
+        await logFeatureOperation(OperationType.CREATE, 'f1', 'Principal', { nome: 'Ponto A' });
+        expect(await operationQueue.count()).toBe(0);
+    });
+
     // Regression — bug D (extended): a SETTING op keyed by a non-UUID LOCAL key (e.g.
     // 'lastActiveMap', the per-client active map) can never be pushed — the backend
     // rejects it (22P02) and that one op fails the whole flush batch, blocking sync.
@@ -164,12 +172,23 @@ describe('Logging when enabled', () => {
     });
 
     it('logBatchOperations enqueues all operations', async () => {
+        const mapId = '4a22f7df-df6d-47df-80bb-f26df86d31ec';
         await logBatchOperations([
-            { entityType: 'feature', operationType: OperationType.CREATE, entityId: 'f1', mapId: 'm1' },
-            { entityType: 'feature', operationType: OperationType.CREATE, entityId: 'f2', mapId: 'm1' }
+            { entityType: 'feature', operationType: OperationType.CREATE, entityId: 'f1', mapId },
+            { entityType: 'feature', operationType: OperationType.CREATE, entityId: 'f2', mapId }
         ]);
         const count = await operationQueue.count();
         expect(count).toBe(2);
+    });
+
+    // Regression — bug D for the BATCH path: a batch op with a non-UUID mapId can never be
+    // pushed and would poison the whole flush batch. Such ops are dropped before enqueue.
+    it('logBatchOperations drops batch ops with a non-UUID mapId', async () => {
+        await logBatchOperations([
+            { entityType: 'feature', operationType: OperationType.CREATE, entityId: 'f1', mapId: 'Principal' },
+            { entityType: 'feature', operationType: OperationType.CREATE, entityId: 'f2', mapId: '4a22f7df-df6d-47df-80bb-f26df86d31ec' }
+        ]);
+        expect(await operationQueue.count()).toBe(1); // only the UUID-mapId op survives
     });
 });
 
@@ -185,7 +204,7 @@ describe('Dispatcher error handling', () => {
         const origEnqueue = operationQueue.enqueue.bind(operationQueue);
         operationQueue.enqueue = vi.fn().mockRejectedValue(new Error('DB full'));
 
-        await logFeatureOperation(OperationType.CREATE, 'f1', 'map-1');
+        await logFeatureOperation(OperationType.CREATE, 'f1', '4a22f7df-df6d-47df-80bb-f26df86d31ec');
 
         expect(emitStoreError).toHaveBeenCalledWith(
             'store:syncError',

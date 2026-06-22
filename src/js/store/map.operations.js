@@ -99,7 +99,22 @@ export function setBriefingLockOverride(active) {
  * @returns {Promise<string[]>} Array of map names
  */
 export async function getAllMapNamesStore() {
-    const allMaps = await getAllMapNames();
+    const allKeys = await getAllMapNames();
+
+    // Storage keys are a mix of UUIDs (synced/atlas maps) and legacy names. Callers expect
+    // display NAMES, so resolve each key (UUID→name) and de-dup — otherwise a peer's
+    // UUID-keyed map renders as a raw UUID in the maps list (§item2). resolveToName is a
+    // no-op for keys that are already names.
+    const seen = new Set();
+    const allMaps = [];
+    for (const key of allKeys) {
+        const name = mapResolver.resolveToName(key) || key;
+        if (!seen.has(name)) {
+            seen.add(name);
+            allMaps.push(name);
+        }
+    }
+
     const savedOrder = await getMapOrderRepo();
 
     if (!savedOrder || savedOrder.length === 0) {
@@ -140,6 +155,9 @@ export async function getMapOrder() {
  */
 export async function setMapOrder(orderArray) {
     await setMapOrderRepo(orderArray);
+    // Sync the maps-list ordering as an atlas-level app setting (atlas.settings.mapOrder) so the
+    // order converges across peers. Offline-safe: a no-op when not connected.
+    await logAtlasSetting({ mapOrder: orderArray });
 }
 
 /**
@@ -173,6 +191,14 @@ export async function addMap(mapName, mapData = null, colorUsageData = null, not
     }
 
     logMapOperation(OperationType.CREATE, mapId, newMapData);
+
+    // Announce the new map locally so listeners (maps list, locked banner) refresh and the
+    // sync auto-flush trigger fires promptly instead of waiting a full interval (§item2).
+    // The remote handler emits the same event when a peer's map arrives; the creator only
+    // emits here, so there is no double-handling.
+    if (deps.eventBus) {
+        deps.eventBus.emit(EventTypes.MAP_CREATED, { mapName, mapId });
+    }
 
     return newMapData;
 }
@@ -317,10 +343,34 @@ export async function setCurrentMap(mapName) {
  * @returns {Promise<string|null>} The activated map name, or null when none exists.
  */
 export async function activateAtlasInitialMap() {
-    const all = await getRepository().getAllMaps();
-    const maps = Array.from(all instanceof Map ? all.values() : Object.values(all || {}));
-    const atlasMap = maps.find((m) => m && m.name && isValidUUID(m.id));
-    if (!atlasMap) return null;
+    const repo = getRepository();
+    const all = await repo.getAllMaps();
+    const entries = all instanceof Map ? [...all.entries()] : Object.entries(all || {});
+
+    // This runs only AFTER connecting to a server atlas, where every map is UUID-keyed. A
+    // NON-UUID-keyed map is therefore a local stray — the offline default ('Principal') recreated
+    // on boot. If an atlas map shares that name, the stray SHADOWS it on name-based reads
+    // (repo.getMap('Principal') direct-hits the stray's key), so the user would land on an EMPTY
+    // map. Drop the strays so name resolution reaches the real (UUID-keyed) atlas map.
+    const uuidMaps = [];
+    for (const [key, data] of entries) {
+        if (data && isValidUUID(data.id)) {
+            uuidMaps.push(data);
+        } else {
+            // Local stray (no UUID id) — delete by its storage key so it can't shadow a remote map.
+            await repo.deleteMap?.(key);
+        }
+    }
+
+    let atlasMap = uuidMaps.find((m) => m && m.name) || uuidMaps[0];
+    if (!atlasMap) {
+        // Brand-new EMPTY atlas: no UUID-keyed map. Create a first atlas map so the user edits a
+        // SYNCED map from the start — addMap assigns a UUID and logs a CREATE op that reaches
+        // collaborators (§item3). Blocked for a viewer (returns null), which is fine.
+        const created = await addMap('Mapa 1');
+        if (!created) return null;
+        atlasMap = created;
+    }
     await setCurrentMap(atlasMap.name);
     return atlasMap.name;
 }
@@ -390,6 +440,25 @@ export async function setSchemaVersion(schemaVersion) {
  */
 export async function getMapDataStore(mapName) {
     return await getMapData(mapName);
+}
+
+/**
+ * Whether ANY map in the store currently has at least one feature. Used to decide whether
+ * replacing the local store (opening/creating a server atlas) would destroy local work and
+ * therefore needs a confirmation + `.ebgeo` offer (inv 6).
+ *
+ * @returns {Promise<boolean>}
+ */
+export async function hasAnyMapFeatures() {
+    const names = await getAllMapNamesStore();
+    for (const name of names) {
+        const data = await getMapData(name);
+        const features = data?.features;
+        if (features && Object.values(features).some((arr) => Array.isArray(arr) && arr.length > 0)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // ===== MAP CONFIGURATION =====

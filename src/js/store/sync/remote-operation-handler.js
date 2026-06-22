@@ -82,23 +82,26 @@ export async function applyRemoteOperation(operation) {
         case EntityType.BRIEFING:
             await applyRemoteBriefingOp(operationType, entityId, data);
             break;
+        case EntityType.COMMENT:
+            await applyRemoteCommentOp(operationType, entityId, mapId, data);
+            break;
         case EntityType.MARKER_3D:
-            applyRemote3dOp(EventTypes.MARKERS_3D_CHANGED, mapId);
+            await applyRemoteCesium3dEntityOp('markers', EventTypes.MARKERS_3D_CHANGED, operationType, entityId, mapId, data);
             break;
         case EntityType.MEASUREMENT_3D:
-            applyRemote3dOp(EventTypes.MEASUREMENTS_3D_CHANGED, mapId);
+            await applyRemoteCesium3dEntityOp('measurements', EventTypes.MEASUREMENTS_3D_CHANGED, operationType, entityId, mapId, data);
             break;
         case EntityType.VIEWSHED_3D:
-            applyRemote3dOp(EventTypes.VIEWSHEDS_3D_CHANGED, mapId);
+            await applyRemoteCesium3dEntityOp('viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, operationType, entityId, mapId, data);
             break;
         case EntityType.CAMERA_POSITION_3D:
-            applyRemoteCameraOp(operationType, mapId, data);
+            await applyRemoteCameraOp(operationType, entityId, mapId, data);
             break;
         case EntityType.ORIENTATION_360:
-            applyRemoteOrientation360Op(operationType, mapId, data);
+            await applyRemoteOrientation360Op(operationType, entityId, mapId, data);
             break;
         case EntityType.MARKER_360:
-            applyRemote3dOp(EventTypes.MARKERS_360_CHANGED, mapId);
+            await applyRemoteMarker360Op(operationType, entityId, mapId, data);
             break;
         case EntityType.MAP_POSITION:
         case EntityType.BASE_LAYER:
@@ -108,7 +111,7 @@ export async function applyRemoteOperation(operation) {
             await applyRemoteMapSettingOp(entityType, mapId, data);
             break;
         case EntityType.CATALOG_LAYER:
-            emit(EventTypes.LAYERS_CHANGED, { mapName: mapId });
+            await applyRemoteCatalogLayerOp(operationType, entityId, mapId, data);
             break;
         case EntityType.SETTING:
             await applyRemoteSettingOp(data);
@@ -247,6 +250,15 @@ async function applyRemoteLayerOp(opType, layerId, mapId, data) {
             next = layers.filter((l) => l.id !== layerId);
         }
         await repo.saveLayers?.(mapId, next);
+        // Refresh the in-memory layer cache so getVisibleLayerIds() and the features panel
+        // see the new/changed layer immediately. The visibility filter reads memoryStore
+        // (not the repo), so without this a peer's features on a brand-new layer are filtered
+        // OUT until a manual map switch (§item3a). Only the current map has a live cache.
+        const layerMapName = mapResolver.resolveToName(mapId) || mapId;
+        if (memoryStore.currentMap === layerMapName) {
+            const { loadLayersToMemory } = await import('../layer.operations.js');
+            await loadLayersToMemory(layerMapName);
+        }
     } catch (err) {
         console.warn('Remote layer op persist failed:', err);
     }
@@ -281,17 +293,24 @@ function findFeatureIndexById(arr, id) {
 async function applyRemoteMapOp(opType, mapId, data) {
     const repo = getRepository();
     switch (opType) {
-        case OperationType.CREATE:
-            // Persist a map another user created so it appears locally (§1.8). The
-            // maps list is repo-backed, so saving here makes it show up on refresh.
-            if (data) await repo.saveMap?.(mapId, data);
-            if (data?.name) mapResolver.registerMap(data.name, mapId);
-            emit(EventTypes.MAP_CREATED, { mapId, map: data });
+        case OperationType.CREATE: {
+            // Persist a map another user created so it appears locally (§1.8). Reshape the
+            // backend snake_case columns → local camelCase + side-stores first (same as the
+            // snapshot path); a passthrough for already-camelCase live ops, but it keeps a
+            // snake_case broadcast from corrupting the map's local shape (§item2). saveMap
+            // registers the name↔UUID resolver mapping so the maps list shows the name.
+            const reshaped = data ? await reshapeSnapshotMap(repo, data) : data;
+            if (reshaped) await repo.saveMap?.(mapId, reshaped);
+            if (reshaped?.name) mapResolver.registerMap(reshaped.name, mapId);
+            emit(EventTypes.MAP_CREATED, { mapId, map: reshaped });
             break;
-        case OperationType.UPDATE:
-            if (data) await repo.saveMap?.(mapId, data);
-            emit(EventTypes.MAP_MODIFIED, { mapId, map: data });
+        }
+        case OperationType.UPDATE: {
+            const reshaped = data ? await reshapeSnapshotMap(repo, data) : data;
+            if (reshaped) await repo.saveMap?.(mapId, reshaped);
+            emit(EventTypes.MAP_MODIFIED, { mapId, map: reshaped });
             break;
+        }
         case OperationType.DELETE:
             // Remove the map another user deleted (§1.9). The resolver entry is left
             // intact so the maps tab can still resolve id→name for its redirect; the
@@ -377,31 +396,122 @@ async function applyRemoteBriefingOp(opType, briefingId, data) {
 }
 
 /**
- * Applies a remote 3D / 360 collection operation.
- *
- * These entities (markers, measurements, viewsheds, 360 markers) are persisted
- * by the app inside the per-map cesium3d / streetview360 stores, which are
- * keyed by map *name* and backed by their own memory caches. Reproducing that
- * write path here would couple the remote handler to four store modules and
- * their caches. Instead we emit the matching coarse "changed" event so the
- * relevant UI re-reads its data from the store (mirrors the feature handler,
- * which also emits LAYERS_CHANGED with the map id as mapName).
- *
- * @param {string} changeEvent - EventTypes.* coarse change event to emit
- * @param {string} mapId - Map UUID (used as mapName for downstream listeners)
+ * Applies a remote spatial-comment op. Comments are map-scoped, persisted in the per-map comment
+ * side-store (the repo resolves the map id↔name key internally, so the op's `mapId` is passed
+ * directly). Root and reply share the same store keyed by comment id.
+ * @param {string} opType
+ * @param {string} commentId
+ * @param {string} mapId - The op's map context.
+ * @param {Object} data - The comment object (root or reply).
  */
-function applyRemote3dOp(changeEvent, mapId) {
+async function applyRemoteCommentOp(opType, commentId, mapId, data) {
+    const collection = await localRepository.getMapComments(mapId);
+    switch (opType) {
+        case OperationType.CREATE:
+        case OperationType.UPDATE: {
+            if (data) collection[commentId] = data;
+            await localRepository.saveMapComments(mapId, collection);
+            emit(opType === OperationType.CREATE ? EventTypes.COMMENT_CREATED : EventTypes.COMMENT_UPDATED, { comment: data });
+            break;
+        }
+        case OperationType.DELETE:
+            delete collection[commentId];
+            await localRepository.saveMapComments(mapId, collection);
+            emit(EventTypes.COMMENT_DELETED, { commentId });
+            break;
+    }
+}
+
+// 3D / 360 entities live in the per-map cesium3d / streetview360 stores, keyed by map NAME
+// and backed by their own memory caches. To converge a LIVE op on a peer (P9), we persist to
+// the repo (the durable truth) and INVALIDATE the canonical cache (best-effort, via the store
+// module's own clear fn) — the emitted "changed" event then makes the UI re-read fresh from the
+// repo. This avoids hand-syncing the cache internals (which the cache-clear functions own).
+
+/** @private Best-effort invalidation of the cesium3d memory cache after a repo write. */
+async function invalidateCesium3dCache() {
+    try {
+        const { clearCesium3dCache } = await import('../cesium3d.operations.js');
+        clearCesium3dCache();
+    } catch {
+        // Cache invalidation is best-effort; the repo write is the durable part.
+    }
+}
+
+/** @private Best-effort invalidation of the streetview360 memory cache after a repo write. */
+async function invalidateStreetview360Cache() {
+    try {
+        const { clearStreetview360Cache } = await import('../streetview360.operations.js');
+        clearStreetview360Cache();
+    } catch {
+        // best-effort
+    }
+}
+
+/**
+ * Applies a remote cesium3d ARRAY-entity op (markers / measurements / viewsheds). Persists into
+ * the per-map cesium3d store's array bucket (replace-by-id / remove-by-id), then emits.
+ *
+ * @param {string} bucket - 'markers' | 'measurements' | 'viewsheds'.
+ * @param {string} changeEvent - The coarse "changed" event to emit.
+ * @param {string} opType - Operation type.
+ * @param {string} entityId - The entity id (matches the stored item's `id`).
+ * @param {string} mapId - Map UUID.
+ * @param {Object|null} data - The entity (CREATE/UPDATE) or null (DELETE).
+ * @returns {Promise<void>}
+ */
+async function applyRemoteCesium3dEntityOp(bucket, changeEvent, opType, entityId, mapId, data) {
+    const repo = getRepository();
+    const mapName = mapResolver.resolveToName(mapId) || mapId;
+    try {
+        const c3d = await repo.getCesium3d?.(mapName);
+        if (c3d) {
+            if (!Array.isArray(c3d[bucket])) c3d[bucket] = [];
+            const idx = c3d[bucket].findIndex((e) => e && e.id === entityId);
+            if (opType === OperationType.DELETE) {
+                if (idx !== -1) c3d[bucket].splice(idx, 1);
+            } else if (data) {
+                if (idx !== -1) c3d[bucket][idx] = data; else c3d[bucket].push(data);
+            }
+            await repo.saveCesium3d?.(mapName, c3d);
+            await invalidateCesium3dCache();
+        }
+    } catch (err) {
+        console.warn('Remote cesium3d op persist failed:', err);
+    }
     emit(changeEvent, { mapName: mapId });
 }
 
 /**
- * Applies a remote 3D camera position operation.
+ * Applies a remote 3D camera position op. cameraPositions is an object keyed by `tilesetId`
+ * (one saved camera per tileset). DELETE carries no data, so the tileset key is found by the
+ * stored position's `id` matching the op `entityId`.
  *
- * @param {string} opType - Operation type
- * @param {string} mapId - Map UUID
- * @param {Object} [data] - Camera position data ({ tilesetId, ... })
+ * @param {string} opType - Operation type.
+ * @param {string} entityId - The camera position id.
+ * @param {string} mapId - Map UUID.
+ * @param {Object|null} [data] - Camera position ({ id, tilesetId, ... }) or null (DELETE).
+ * @returns {Promise<void>}
  */
-function applyRemoteCameraOp(opType, mapId, data) {
+async function applyRemoteCameraOp(opType, entityId, mapId, data) {
+    const repo = getRepository();
+    const mapName = mapResolver.resolveToName(mapId) || mapId;
+    try {
+        const c3d = await repo.getCesium3d?.(mapName);
+        if (c3d) {
+            if (!c3d.cameraPositions) c3d.cameraPositions = {};
+            if (opType === OperationType.DELETE) {
+                const key = Object.keys(c3d.cameraPositions).find((k) => c3d.cameraPositions[k]?.id === entityId);
+                if (key) delete c3d.cameraPositions[key];
+            } else if (data?.tilesetId) {
+                c3d.cameraPositions[data.tilesetId] = data;
+            }
+            await repo.saveCesium3d?.(mapName, c3d);
+            await invalidateCesium3dCache();
+        }
+    } catch (err) {
+        console.warn('Remote camera op persist failed:', err);
+    }
     if (opType !== OperationType.DELETE) {
         emit(EventTypes.CAMERA_3D_SAVED, { tilesetId: data?.tilesetId, mapName: mapId });
     }
@@ -409,17 +519,69 @@ function applyRemoteCameraOp(opType, mapId, data) {
 }
 
 /**
- * Applies a remote 360 orientation operation.
+ * Applies a remote 360 orientation op. orientations is an object keyed by `photoName`. DELETE
+ * finds the key by the stored orientation's `id` matching the op `entityId`.
  *
- * @param {string} opType - Operation type
- * @param {string} mapId - Map UUID
- * @param {Object} [data] - Orientation data ({ photoName, ... })
+ * @param {string} opType - Operation type.
+ * @param {string} entityId - The orientation id.
+ * @param {string} mapId - Map UUID.
+ * @param {Object|null} [data] - Orientation ({ id, photoName, ... }) or null (DELETE).
+ * @returns {Promise<void>}
  */
-function applyRemoteOrientation360Op(opType, mapId, data) {
+async function applyRemoteOrientation360Op(opType, entityId, mapId, data) {
+    const repo = getRepository();
+    const mapName = mapResolver.resolveToName(mapId) || mapId;
+    try {
+        const sv = await repo.getStreetview360?.(mapName);
+        if (sv) {
+            if (!sv.orientations) sv.orientations = {};
+            if (opType === OperationType.DELETE) {
+                const key = Object.keys(sv.orientations).find((k) => sv.orientations[k]?.id === entityId);
+                if (key) delete sv.orientations[key];
+            } else if (data?.photoName) {
+                sv.orientations[data.photoName] = data;
+            }
+            await repo.saveStreetview360?.(mapName, sv);
+            await invalidateStreetview360Cache();
+        }
+    } catch (err) {
+        console.warn('Remote orientation360 op persist failed:', err);
+    }
     const eventType = opType === OperationType.DELETE
         ? EventTypes.ORIENTATION_360_CLEARED
         : EventTypes.ORIENTATION_360_SAVED;
     emit(eventType, { photoName: data?.photoName, mapName: mapId });
+}
+
+/**
+ * Applies a remote 360 marker op (streetview360 markers array; replace-by-id / remove-by-id).
+ *
+ * @param {string} opType - Operation type.
+ * @param {string} entityId - The 360 marker id.
+ * @param {string} mapId - Map UUID.
+ * @param {Object|null} data - The marker (CREATE/UPDATE) or null (DELETE).
+ * @returns {Promise<void>}
+ */
+async function applyRemoteMarker360Op(opType, entityId, mapId, data) {
+    const repo = getRepository();
+    const mapName = mapResolver.resolveToName(mapId) || mapId;
+    try {
+        const sv = await repo.getStreetview360?.(mapName);
+        if (sv) {
+            if (!Array.isArray(sv.markers)) sv.markers = [];
+            const idx = sv.markers.findIndex((m) => m && m.id === entityId);
+            if (opType === OperationType.DELETE) {
+                if (idx !== -1) sv.markers.splice(idx, 1);
+            } else if (data) {
+                if (idx !== -1) sv.markers[idx] = data; else sv.markers.push(data);
+            }
+            await repo.saveStreetview360?.(mapName, sv);
+            await invalidateStreetview360Cache();
+        }
+    } catch (err) {
+        console.warn('Remote marker360 op persist failed:', err);
+    }
+    emit(EventTypes.MARKERS_360_CHANGED, { mapName: mapId });
 }
 
 /**
@@ -433,13 +595,57 @@ function applyRemoteOrientation360Op(opType, mapId, data) {
  * @param {Object} [data] - Setting data
  */
 async function applyRemoteMapSettingOp(entityType, mapId, data) {
+    const repo = getRepository();
     switch (entityType) {
-        case EntityType.BASE_LAYER:
+        case EntityType.BASE_LAYER: {
+            // Persist the base layer onto the map record so a peer receiving a LIVE op
+            // converges with the snapshot path (P9), not just emit. data = { baseLayer }.
+            const layer = data?.baseLayer;
+            if (layer) {
+                const mapData = await repo.getMap?.(mapId);
+                if (mapData) {
+                    mapData.baseLayer = layer;
+                    await repo.saveMap?.(mapId, mapData);
+                }
+            }
             emit(EventTypes.BASE_LAYER_CHANGED, { layer: data });
             break;
+        }
         case EntityType.MAP_NOTES:
+            // Persist notes to the side-store (matches reshapeSnapshotMap + setMapNotes; P9).
+            // data = { title, description }.
+            if (data) await repo.saveMapNotes?.(mapId, data);
             emit(EventTypes.MAP_NOTES_REQUESTED, { mapName: mapId });
             break;
+        case EntityType.GRID_STYLE:
+            // Persist grid style to the side-store (matches reshapeSnapshotMap + setGridStyle).
+            if (data) await repo.saveGridStyle?.(mapId, data);
+            break;
+        case EntityType.MAP_POSITION: {
+            // Persist the saved position onto the map record (savedPosition + legacy flat
+            // fields) so the peer keeps the new center/zoom (P9). data = savedPosition, or
+            // null on a clear (DELETE).
+            const mapData = await repo.getMap?.(mapId);
+            if (mapData) {
+                if (data) {
+                    mapData.savedPosition = data;
+                    mapData.center_lat = data.center_lat ?? null;
+                    mapData.center_long = data.center_long ?? null;
+                    mapData.zoom = data.zoom ?? null;
+                    mapData.bearing = data.bearing ?? null;
+                    mapData.pitch = data.pitch ?? null;
+                } else {
+                    delete mapData.savedPosition;
+                    mapData.center_lat = null;
+                    mapData.center_long = null;
+                    mapData.zoom = null;
+                    mapData.bearing = null;
+                    mapData.pitch = null;
+                }
+                await repo.saveMap?.(mapId, mapData);
+            }
+            break;
+        }
         case EntityType.MAP_TEMPORAL: {
             // Persist the per-map temporal config so the peer actually adopts it — emitting
             // an event alone left B's stored config unchanged (same emit-without-persist
@@ -461,6 +667,35 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
             break;
     }
     emit(EventTypes.MAP_MODIFIED, { mapId, map: data });
+}
+
+/**
+ * Applies a remote catalog-layer op. Catalog layers (external/WMS/analysis/hillshade) live
+ * inside the map record's `catalogLayers` array, so a LIVE op must mutate that array on the
+ * peer (not just emit) — otherwise a collaborator's added external layer only reached peers via
+ * a full snapshot (P9). CREATE/UPDATE replace-by-id (idempotent); DELETE removes by id.
+ *
+ * @param {string} opType - Operation type.
+ * @param {string} layerId - Catalog layer id.
+ * @param {string} mapId - Map UUID.
+ * @param {Object|null} data - The catalog layer (CREATE/UPDATE) or null (DELETE).
+ * @returns {Promise<void>}
+ */
+async function applyRemoteCatalogLayerOp(opType, layerId, mapId, data) {
+    const repo = getRepository();
+    const mapData = await repo.getMap?.(mapId);
+    if (mapData) {
+        if (!Array.isArray(mapData.catalogLayers)) mapData.catalogLayers = [];
+        const idx = mapData.catalogLayers.findIndex((l) => l && l.id === layerId);
+        if (opType === OperationType.DELETE) {
+            if (idx !== -1) mapData.catalogLayers.splice(idx, 1);
+        } else if (data) {
+            if (idx !== -1) mapData.catalogLayers[idx] = data;
+            else mapData.catalogLayers.push(data);
+        }
+        await repo.saveMap?.(mapId, mapData);
+    }
+    emit(EventTypes.LAYERS_CHANGED, { mapName: mapId });
 }
 
 /**
@@ -548,6 +783,17 @@ async function applyRemoteAppStateSettings(data) {
             await repo.saveSetting?.('custom_icons', data.customIcons);
             const { invalidateCustomIconsCache } = await import('../customIcons.operations.js');
             invalidateCustomIconsCache();
+        } catch {
+            // best-effort
+        }
+    }
+
+    if (Array.isArray(data.mapOrder)) {
+        // setSettingCompat('mapOrder', list) — the key getMapOrder() reads. Emit LAYERS_CHANGED
+        // so the maps tab re-renders in the new order (it reloads the list on that event).
+        try {
+            await repo.saveSetting?.('mapOrder', data.mapOrder);
+            emit(EventTypes.LAYERS_CHANGED, { mapName: null });
         } catch {
             // best-effort
         }
@@ -671,6 +917,35 @@ export async function applyRemoteSnapshot(snapshot) {
                 await repo.saveGroups?.(map.id, byId);
                 if (map.name) memoryStore.groups[map.name] = byId;
             }
+
+            // P11 round-trip fidelity: layers / cesium3d / streetview360 are carried INLINE in the
+            // snapshot map, but every reader (export loaders, layer manager) reads them from
+            // DEDICATED side-stores — which the incremental op-handlers write but the bulk snapshot
+            // path did not. Persist them here (mirrors the groups handling above), else a pulled
+            // atlas re-exports without its layers/3D/360 (silent data loss).
+            if (Array.isArray(map.layers)) {
+                await repo.saveLayers?.(map.id, map.layers);
+                // Refresh the live layer cache if this is the active map (visibility filter reads it).
+                if (map.name && memoryStore.currentMap === map.name) {
+                    const { loadLayersToMemory } = await import('../layer.operations.js');
+                    await loadLayersToMemory(map.name);
+                }
+            }
+            if (map.cesium3d && typeof map.cesium3d === 'object') {
+                await repo.saveCesium3d?.(map.id, map.cesium3d);
+            }
+            if (map.streetview360 && typeof map.streetview360 === 'object') {
+                await repo.saveStreetview360?.(map.id, map.streetview360);
+            }
+            // Spatial comments: the backend snapshot sends them as an ARRAY per map; normalize to
+            // the { [id]: comment } shape the side-store + overlay expect. Absent for read-only
+            // viewers (the server omits them) — then the side-store simply stays empty.
+            if (Array.isArray(map.comments)) {
+                const commentsById = {};
+                for (const c of map.comments) { if (c && c.id) commentsById[c.id] = c; }
+                await repo.saveMapComments?.(map.id, commentsById);
+            }
+
             emit(EventTypes.MAP_MODIFIED, { mapId: map.id, map: reshaped });
         }
     }
@@ -685,6 +960,8 @@ export async function applyRemoteSnapshot(snapshot) {
 
     emit(EventTypes.LAYERS_CHANGED, {});
     emit(EventTypes.GROUPS_CHANGED, {});
+    // Signal the comment overlay to reload the active map's comments from the side-store.
+    emit(EventTypes.COMMENT_UPDATED, {});
 }
 
 // ============================================================================

@@ -80,12 +80,14 @@
     position: absolute;
     top: calc(100% + var(--space-2));
     right: 0;
+
     /* Above the tool toolbar (--z-toolbar: 20) so the menu opens OVER the tools. */
     z-index: var(--z-floating);
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
     min-width: 180px;
+
     /* Bound the width so long usernames / atlas names ellipsize instead of growing. */
     max-width: 260px;
     padding: var(--space-2);
@@ -218,6 +220,7 @@
     flex-direction: row-reverse !important;
     align-items: center !important;
     gap: var(--space-2);
+
     /* Lift the WHOLE cluster's stacking context above the tool toolbar (--z-toolbar: 20).
        The dropdowns are trapped inside each control's own context (.mapboxgl-ctrl-group has
        z-index:--z-dropdown=10), so raising a dropdown's own z-index isn't enough — the
@@ -264,10 +267,8 @@
    pill (styled in presence.css). */
 .maplibregl-ctrl-top-right .mapboxgl-ctrl-group.account-control,
 .maplibregl-ctrl-top-right .mapboxgl-ctrl-group.sync-status-badge,
-.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.online-users,
 .mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.account-control,
-.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.sync-status-badge,
-.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.online-users {
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.sync-status-badge {
     background-color: transparent;
     backdrop-filter: none;
     border: none;

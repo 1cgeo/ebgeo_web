@@ -98,6 +98,7 @@ export {
     logOrientation360Operation,
     logMarker360Operation,
     logBriefingOperation,
+    logCommentOperation,
     logMapPositionOperation,
     logBaseLayerOperation,
     logMapNotesOperation,

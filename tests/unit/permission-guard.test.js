@@ -5,12 +5,18 @@ vi.mock('../../src/js/store/sync/operation-factory.js', () => ({
     getClientId: vi.fn(() => 'mock-client-id-123')
 }));
 
+// The role-based gate applies ONLY to a connected REMOTE atlas (store-origin). Mock it so the
+// online-role describes below exercise the gate (default REMOTE); the local-store describe flips it.
+vi.mock('../../src/js/store/store-origin.js', () => ({ isRemoteStoreSync: vi.fn(() => true) }));
+
 // NO mock of session-context — use the REAL singleton + ROLE_PERMISSIONS
 import { checkPermission, assertPermission, GuardAction } from '../../src/js/store/sync/permission-guard.js';
 import { sessionContext, UserRole } from '../../src/js/store/sync/session-context.js';
+import { isRemoteStoreSync } from '../../src/js/store/store-origin.js';
 
 beforeEach(() => {
     sessionContext._reset(); // restores OFFLINE mode with full permissions
+    isRemoteStoreSync.mockReturnValue(true); // default: connected to a remote atlas (role gate active)
 });
 
 // ============================================================================
@@ -113,6 +119,24 @@ describe('Online — Owner', () => {
         expect(checkPermission('CREATE_FEATURE')).toEqual({ allowed: true });
         expect(checkPermission('DELETE_MAP')).toEqual({ allowed: true });
         expect(checkPermission('MANAGE_USERS')).toEqual({ allowed: true });
+        expect(checkPermission('LOCK_MAP')).toEqual({ allowed: true });
+    });
+});
+
+// ============================================================================
+// Online but on the LOCAL store (logged in, NOT connected to a server atlas)
+// ============================================================================
+
+describe('Online — local store (not connected)', () => {
+    beforeEach(() => {
+        // A logged-in user whose global role is VIEWER, but working on the LOCAL workspace.
+        sessionContext.setSession({ userId: 'u-local', role: UserRole.VIEWER });
+        isRemoteStoreSync.mockReturnValue(false);
+    });
+
+    it('permits editing despite a viewer role — the local store is always editable (P1)', () => {
+        expect(checkPermission('CREATE_FEATURE')).toEqual({ allowed: true });
+        expect(checkPermission('DELETE_MAP')).toEqual({ allowed: true });
         expect(checkPermission('LOCK_MAP')).toEqual({ allowed: true });
     });
 });
