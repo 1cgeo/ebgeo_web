@@ -102,9 +102,10 @@ export async function addReply(parentId, input, mapName = null) {
     const targetMap = resolveMap(mapName);
     if (!guardComment(GuardAction.CREATE_COMMENT, 'addReply')) return;
 
-    // Don't create an orphan reply (and a doomed sync op) if the root was deleted out from under us.
+    // Don't create an orphan reply (and a doomed sync op) if the root was deleted out from under us,
+    // and don't reply to a resolved comment (it must be reopened first — UI enforces this too).
     const parent = (await getRepository().getMapComments(targetMap))[parentId];
-    if (!parent || parent.deleted) return;
+    if (!parent || parent.deleted || parent.status === 'resolved') return;
 
     const now = Date.now();
     const reply = {

@@ -17,6 +17,7 @@ import {
     getComments,
     addComment,
     addReply,
+    updateComment,
     resolveComment,
     removeComment,
 } from '@store';
@@ -26,7 +27,10 @@ import { getInitials, getPresenceColor } from '@js/presence/presence-colors.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { showWarning } from '@utils/toast_service.js';
-import { setupCleanup, subscribe, cleanup } from '@utils/event-cleanup.js';
+import { setupCleanup, subscribe, trackTimer, cleanup } from '@utils/event-cleanup.js';
+
+/** Static speech-bubble glyph for the pin reply-count badge (static SVG — XSS-safe). */
+const REPLY_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z"/></svg>`;
 
 /** Relative-time label in pt-BR (compact). */
 function timeAgo(ts) {
@@ -70,6 +74,8 @@ export class CommentOverlay {
         this._popup = null;
         /** @type {boolean} Placement mode (next map click creates a comment). */
         this._placement = false;
+        /** @type {string|null} Root id currently being dragged — suppresses the post-drag click. */
+        this._draggingId = null;
         /** @type {boolean} Whether comment pins are shown on the map. */
         this._visible = true;
         this._active = false;
@@ -255,53 +261,129 @@ export class CommentOverlay {
     /** @private */
     _upsertMarker(root) {
         const color = root.authorColor || getPresenceColor(String(root.authorId || ''));
+        const replies = this._replyCount(root.id);
+        const canModify = this._canModify(root);
         let marker = this._markers.get(root.id);
         if (!marker) {
-            const el = this._createPin(root, color);
-            marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+            const el = this._createPin(root, color, replies, canModify);
+            // Owner/Editor+ may reposition the pin; MapLibre owns the drag + the positioning
+            // transform on this root element (visuals live on the inner shape — see _createPin).
+            marker = new maplibregl.Marker({ element: el, anchor: 'bottom', draggable: canModify })
                 .setLngLat([root.lng, root.lat])
                 .addTo(this._map);
+            marker.on('dragstart', () => { this._draggingId = root.id; });
+            marker.on('dragend', () => this._handleMarkerDragEnd(root.id, marker));
             this._markers.set(root.id, marker);
             return;
         }
         const el = marker.getElement();
         el.dataset.resolved = root.status === 'resolved' ? 'true' : 'false';
+        el.classList.toggle('comment-pin--draggable', canModify);
         el.style.setProperty('--comment-color', color);
         const initials = el.querySelector('.comment-pin__initials');
         if (initials) initials.textContent = root.authorInitials || '?';
+        this._updatePinCount(el, replies);
+        if (marker.isDraggable() !== canModify) marker.setDraggable(canModify);
         marker.setLngLat([root.lng, root.lat]);
     }
 
-    /** @private Builds the teardrop pin (author color + 2 initials). */
-    _createPin(root, color) {
+    /** @private Number of replies to a root comment (excludes the root itself). */
+    _replyCount(rootId) {
+        let n = 0;
+        for (const c of Object.values(this._comments)) {
+            if (c && c.parentId === rootId) n++;
+        }
+        return n;
+    }
+
+    /** @private Builds the teardrop pin: an inner shape (author color + 2 initials) plus a
+     * reply-count badge. The transform/hover-scale live on the inner shape, NOT the root —
+     * MapLibre writes the positioning `transform: translate(...)` onto the root every frame, so a
+     * transition/transform there would lag on pan and the hover scale would be overridden. */
+    _createPin(root, color, replies, canModify) {
         const el = document.createElement('button');
         el.type = 'button';
         el.className = 'comment-pin';
         el.dataset.testid = 'comment-pin';
         el.dataset.commentId = root.id;
         el.dataset.resolved = root.status === 'resolved' ? 'true' : 'false';
+        el.classList.toggle('comment-pin--draggable', canModify);
         el.style.setProperty('--comment-color', color);
         el.setAttribute('aria-label', 'Comentário');
 
+        const shape = document.createElement('span');
+        shape.className = 'comment-pin__shape';
         const initials = document.createElement('span');
         initials.className = 'comment-pin__initials';
         initials.textContent = root.authorInitials || '?';
-        el.appendChild(initials);
+        shape.appendChild(initials);
+        el.appendChild(shape);
+
+        const count = document.createElement('span');
+        count.className = 'comment-pin__count';
+        count.dataset.testid = 'comment-pin-count';
+        count.innerHTML = REPLY_ICON; // static SVG
+        const num = document.createElement('span');
+        num.className = 'comment-pin__count-num';
+        count.appendChild(num);
+        el.appendChild(count);
+        this._updatePinCount(el, replies);
 
         el.addEventListener('click', (ev) => {
             ev.stopPropagation();
+            // A finished drag emits a synthetic click — don't open the thread then (the flag is
+            // cleared on the next tick by _handleMarkerDragEnd).
+            if (this._draggingId === root.id) return;
             this._openThread(root.id);
         });
         return el;
     }
 
+    /** @private Sets the pin's reply-count badge text + visibility (hidden when there are none). */
+    _updatePinCount(el, replies) {
+        const badge = el.querySelector('.comment-pin__count');
+        const num = el.querySelector('.comment-pin__count-num');
+        if (!badge || !num) return;
+        num.textContent = replies > 0 ? String(replies) : '';
+        badge.hidden = replies <= 0;
+        if (replies > 0) {
+            const label = `${replies} ${replies > 1 ? 'respostas' : 'resposta'}`;
+            badge.title = label;
+            badge.setAttribute('aria-label', label);
+        } else {
+            badge.removeAttribute('title');
+            badge.removeAttribute('aria-label');
+        }
+    }
+
+    /** @private Persists a moved comment pin (owner/Editor+ drag). Snaps back if the session lost
+     * the right to modify it mid-drag; the COMMENT_UPDATED reload reconciles the final position. */
+    async _handleMarkerDragEnd(rootId, marker) {
+        // Clear the click-suppress flag after the synthetic post-drag click has fired.
+        trackTimer(this, setTimeout(() => { if (this._draggingId === rootId) this._draggingId = null; }, 0));
+        const root = this._comments[rootId];
+        const ll = marker.getLngLat?.();
+        if (!root || !ll) return;
+        if (!this._canModify(root)) {
+            marker.setLngLat([root.lng, root.lat]);
+            return;
+        }
+        if (ll.lng === root.lng && ll.lat === root.lat) return;
+        await updateComment({ ...root, lng: ll.lng, lat: ll.lat });
+    }
+
     // ===== MAP CLICK (placement) =====
 
-    /** @private */
+    /** @private A map click either places a new comment (placement mode) or — when a thread/compose
+     * card is open — dismisses it. Pin clicks stopPropagation, so this never fires from a pin. Same
+     * behaviour online and offline (the overlay is connection-agnostic). */
     _handleMapClick(e) {
-        if (!this._placement) return;
-        this._endPlacement();
-        this._openCompose(e.lngLat);
+        if (this._placement) {
+            this._endPlacement();
+            this._openCompose(e.lngLat);
+            return;
+        }
+        if (this._popup) this._closeCard();
     }
 
     // ===== CARDS (compose + thread) =====
@@ -366,7 +448,17 @@ export class CommentOverlay {
             for (const r of replies) list.appendChild(this._buildEntry(r, false));
             card.appendChild(list);
         }
-        if (this._canComment()) {
+        // A resolved comment is read-only: no replies until it is reopened (matches "resolvido sai
+        // do mapa" — the thread is only reachable from the Comentários panel).
+        if (root.status === 'resolved') {
+            const note = document.createElement('p');
+            note.className = 'comment-card__note';
+            note.dataset.testid = 'comment-resolved-note';
+            note.textContent = this._canModify(root)
+                ? 'Comentário resolvido. Reabra para responder.'
+                : 'Comentário resolvido.';
+            card.appendChild(note);
+        } else if (this._canComment()) {
             card.appendChild(this._buildComposer({
                 placeholder: 'Responder…',
                 submitLabel: 'Responder',

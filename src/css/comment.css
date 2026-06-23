@@ -28,25 +28,48 @@
     background: var(--primary);
 }
 
-/* ---- Pin (DOM marker): a teardrop in the author's color with their 2 initials ---- */
+/* ---- Pin (DOM marker): a teardrop in the author's color with their 2 initials ----
+   The ROOT is positioned by MapLibre, which writes `transform: translate(...)` onto it every frame.
+   So the root carries NO transform/transition of its own — a transition there lags the pin behind
+   the map on pan, and a `:hover { transform: scale() }` would be overridden by MapLibre's inline
+   transform. All visuals (and the hover scale) live on the inner .comment-pin__shape instead. */
 .comment-pin {
     position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: block;
     width: 30px;
     height: 30px;
     padding: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+}
+
+.comment-pin--draggable .comment-pin__shape {
+    cursor: grab;
+}
+
+.comment-pin--draggable:active .comment-pin__shape {
+    cursor: grabbing;
+}
+
+.comment-pin__shape {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
     background: var(--comment-color, var(--primary));
     border: 2px solid #fff;
     border-radius: 50% 50% 50% 4px;
     box-shadow: var(--shadow-md);
-    cursor: pointer;
     transition: transform var(--transition-fast);
 }
 
 .comment-pin:hover {
     z-index: 2;
+}
+
+.comment-pin:hover .comment-pin__shape {
     transform: scale(1.12);
 }
 
@@ -59,27 +82,34 @@
     pointer-events: none;
 }
 
-.comment-pin[data-resolved="true"] {
-    background: var(--gray-400);
-    opacity: 0.85;
+/* Reply-count badge (top-right): a white pill with a chat glyph + the count (hidden when 0). */
+.comment-pin__count {
+    position: absolute;
+    top: -7px;
+    right: -8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    font-weight: var(--font-weight-bold);
+    line-height: 1;
+    color: var(--gray-800);
+    background: #fff;
+    border: 1.5px solid var(--comment-color, var(--primary));
+    border-radius: 8px;
+    box-shadow: var(--shadow-sm);
+    pointer-events: none;
 }
 
-.comment-pin[data-resolved="true"]::after {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    font-size: 10px;
-    font-weight: bold;
-    color: #fff;
-    content: "✓";
-    background: var(--primary);
-    border: 2px solid #fff;
-    border-radius: 50%;
+.comment-pin__count[hidden] {
+    display: none;
+}
+
+.comment-pin__count svg {
+    flex: 0 0 auto;
+    color: var(--comment-color, var(--primary));
 }
 
 /* ---- Popup shell: strip MapLibre's default chrome, keep only our card ---- */
@@ -249,6 +279,15 @@
 
 .comment-card[data-resolved="true"] .comment-entry--root .comment-entry__text {
     color: var(--gray-500);
+}
+
+/* Read-only footer note shown instead of the reply composer on a resolved thread. */
+.comment-card__note {
+    padding: var(--space-2) var(--space-3) var(--space-3);
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    border-top: var(--border-width) solid var(--border-color);
 }
 
 /* ---- Composer (new comment / reply) ---- */
