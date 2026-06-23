@@ -24,6 +24,7 @@
 
 import { connectionState as defaultConnectionState, ConnectionStates } from './connection-state.js';
 import { apiClient as defaultApiClient } from './api-client.js';
+import { getClientId } from './operation-factory.js';
 
 const DEFAULT_HEARTBEAT_MS = 25000;
 const DEFAULT_RECONNECT_BASE_MS = 1000;
@@ -479,4 +480,9 @@ export class WsClient {
 }
 
 /** Shared singleton WS client. */
-export const wsClient = new WsClient();
+// The singleton MUST carry the stable clientId (the same id the ops are stamped with): the WS
+// handshake needs it for presence, and inbound de-dup (`_applyInboundOps`) drops our own echoed
+// ops by `op.clientId === this._clientId`. Without it `_clientId` stayed null → de-dup was off →
+// the author re-applied every one of their own HTTP-flushed ops. (Test instances still pass their
+// own clientId, so this only wires the real app.)
+export const wsClient = new WsClient({ clientId: getClientId() });

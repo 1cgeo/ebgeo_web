@@ -13,6 +13,7 @@
 
 import { getRepository } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
+import { sessionContext } from './sync/session-context.js';
 import { logCommentOperation, OperationType } from './sync/index.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
@@ -28,6 +29,12 @@ function resolveMap(mapName) {
 
 /** @private Permission gate for a comment write; emits STORE_OPERATION_BLOCKED if denied. */
 function guardComment(guardAction, operationName) {
+    // A comment needs an author — without a logged-in user there is no author. Anonymous/offline can
+    // only VIEW comments (e.g. ones imported from a remote .ebgeo), never create/edit/resolve/delete.
+    if (!sessionContext.isAuthenticated()) {
+        emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: operationName, reason: 'not-authenticated' });
+        return false;
+    }
     const perm = checkPermission(guardAction);
     if (!perm.allowed) {
         emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, { operation: operationName, reason: perm.reason });

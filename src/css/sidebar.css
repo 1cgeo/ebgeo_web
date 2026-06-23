@@ -404,6 +404,12 @@
     color: var(--gray-700);
 }
 
+/* The base rule sets display:flex, which (author origin) overrides the UA [hidden]{display:none};
+   this makes `button.hidden = true` actually hide the session-gated actions (e.g. "Abrir do servidor"). */
+.sidebar-action-btn[hidden] {
+    display: none;
+}
+
 .sidebar-action-btn:hover {
     background: var(--gray-50);
     border-color: var(--primary);

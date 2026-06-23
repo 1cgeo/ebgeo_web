@@ -65,6 +65,7 @@ const cesium3dStore = localforage.createInstance({ name: 'ebgeo_cesium3d' });
 const streetview360Store = localforage.createInstance({ name: 'ebgeo_streetview360' });
 const briefingStore = localforage.createInstance({ name: 'ebgeo_briefings' });
 const atlasStore = localforage.createInstance({ name: 'ebgeo_atlas' });
+const commentStore = localforage.createInstance({ name: 'ebgeo_comments' });
 
 // ===== HELPER FUNCTIONS FOR INITIALIZATION =====
 
@@ -346,6 +347,13 @@ export async function clearAllBriefingData() {
 }
 
 /**
+ * Clears all spatial-comment data.
+ */
+export async function clearAllCommentData() {
+    await commentStore.clear();
+}
+
+/**
  * Clears the atlas record (`ebgeo_atlas`). The atlas holds atlas-level settings (e.g.
  * `terrainExaggeration`) that a remote atlas writes; clearing it on logout/switch prevents
  * those from surviving the session or leaking into another atlas (inv 2/3).
@@ -355,27 +363,13 @@ export async function clearAllAtlasData() {
 }
 
 /**
- * Clears all app settings and associated per-map data.
+ * Clears the ENTIRE app-settings store — every per-map key (color usage, notes, grid style,
+ * temporal config, saved position, base layer, map lock) plus globals (schema version, store
+ * origin). Per-map data in the OTHER stores (groups, layers, 3D, 360) is cleared by their own
+ * clearAll*Data functions, which every caller invokes alongside this one — so a per-map sweep here
+ * (which also ran AFTER mapStore was already cleared, making it a no-op) was redundant.
  */
 export async function clearAllAppSettings() {
-    const allMaps = await mapStore.keys();
-    for (const mapName of allMaps) {
-        try {
-            await Promise.all([
-                appStore.removeItem(`color_usage_${mapName}`),
-                appStore.removeItem(`map_notes_${mapName}`),
-                appStore.removeItem(`gridStyle_${mapName}`),
-                groupStore.removeItem(mapName),
-                layerStore.removeItem(`layers_${mapName}`),
-                layerStore.removeItem(`activeLayer_${mapName}`),
-                cesium3dStore.removeItem(`cesium3d_${mapName}`),
-                streetview360Store.removeItem(`streetview360_${mapName}`)
-            ]);
-        } catch (error) {
-            console.warn(`Error clearing data for map ${mapName}:`, error);
-        }
-    }
-
     await appStore.clear();
 }
 

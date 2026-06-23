@@ -666,18 +666,21 @@ describe('Remote map-setting operations', () => {
         );
     });
 
-    it('emits BASE_LAYER_CHANGED and MAP_MODIFIED for baseLayer', async () => {
+    it('emits BASE_LAYER_CHANGED with the id STRING (not the wrapper object) for baseLayer', async () => {
+        // The op data is { baseLayer: '<id>' } (map.operations.js#logBaseLayerOperation). The event
+        // payload must be { layer: '<id string>' } — mirroring base-layer.control's emit — or the
+        // base-layer-selector renders "[object Object]". Regression for the {layer: data} bug.
         await applyRemoteOperation({
             entityType: EntityType.BASE_LAYER,
             operationType: OperationType.UPDATE,
             entityId: 'map-1',
             mapId: 'map-1',
-            data: { id: 'osm' }
+            data: { baseLayer: 'osm' }
         });
 
         expect(eventBus.emit).toHaveBeenCalledWith(
             EventTypes.BASE_LAYER_CHANGED,
-            expect.objectContaining({ layer: { id: 'osm' } })
+            expect.objectContaining({ layer: 'osm' })
         );
         expect(eventBus.emit).toHaveBeenCalledWith(
             EventTypes.MAP_MODIFIED,

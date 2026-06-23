@@ -293,6 +293,9 @@ describe('Repository contract tests', () => {
             await repo.saveMap('map-1', { name: 'Test Map' });
             await repo.saveLayers('map-1', [{ id: 'l1', name: 'Layer' }]);
             await repo.saveSetting('theme', 'dark');
+            // Spatial comments must be part of the full clear (regression: "Limpar Tudo" used to
+            // leave them — the clear sequence had no comment-store step).
+            await repo.saveMapComments('map-1', { c1: { id: 'c1', text: 'Comentário' } });
 
             // Clear everything
             await repo.clearAll();
@@ -304,6 +307,8 @@ describe('Repository contract tests', () => {
             expect(map).toBeNull();
             const setting = await repo.getSetting('theme');
             expect(setting).toBeNull();
+            const comments = await repo.getMapComments('map-1');
+            expect(Object.keys(comments)).toHaveLength(0);
         });
     });
 });

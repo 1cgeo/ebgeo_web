@@ -336,6 +336,12 @@
     gap: var(--space-1);
 }
 
+/* Make `button.hidden = true` actually hide the "+" (the button's display would otherwise
+   override the UA [hidden]{display:none}) — used to hide "novo comentário" when read-only. */
+.comments-panel__header-actions [hidden] {
+    display: none;
+}
+
 /* Visibility toggle greyed-out while comments are hidden. */
 .comments-toggle--off {
     color: var(--gray-400);

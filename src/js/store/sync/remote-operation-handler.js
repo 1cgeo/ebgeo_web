@@ -319,6 +319,10 @@ async function applyRemoteMapOp(opType, mapId, data) {
             emit(EventTypes.MAP_DELETED, { mapId });
             break;
     }
+    // The maps list, "Mapas" tab, current-map card and the recent-map badge all refresh on
+    // LAYERS_CHANGED (not on MAP_*), so a peer's map create/rename/delete must emit it too —
+    // otherwise the badge/list never sync until a fresh snapshot (mirrors applyRemoteSnapshot).
+    emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 }
 
 /**
@@ -607,15 +611,18 @@ async function applyRemoteMapSettingOp(entityType, mapId, data) {
                     mapData.baseLayer = layer;
                     await repo.saveMap?.(mapId, mapData);
                 }
+                // The payload MUST be the layer id STRING (mirrors base-layer.control's emit). Emitting
+                // the wrapper object `data` made the base-layer-selector render "[object Object]".
+                emit(EventTypes.BASE_LAYER_CHANGED, { layer });
             }
-            emit(EventTypes.BASE_LAYER_CHANGED, { layer: data });
             break;
         }
         case EntityType.MAP_NOTES:
             // Persist notes to the side-store (matches reshapeSnapshotMap + setMapNotes; P9).
-            // data = { title, description }.
+            // data = { title, description }. The consumer (sidebar) keys by map NAME, so resolve
+            // the UUID→name first (mirrors the MAP_TEMPORAL branch) instead of passing the raw UUID.
             if (data) await repo.saveMapNotes?.(mapId, data);
-            emit(EventTypes.MAP_NOTES_REQUESTED, { mapName: mapId });
+            emit(EventTypes.MAP_NOTES_REQUESTED, { mapName: mapResolver.resolveToName(mapId) || mapId });
             break;
         case EntityType.GRID_STYLE:
             // Persist grid style to the side-store (matches reshapeSnapshotMap + setGridStyle).

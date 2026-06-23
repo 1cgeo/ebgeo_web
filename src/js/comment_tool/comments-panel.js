@@ -13,6 +13,8 @@
 
 import { getComments, getCurrentMapNameSync } from '@store';
 import { getControl } from '@store/control.registry.js';
+import { sessionContext } from '@store/sync/session-context.js';
+import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
 import { getPresenceColor } from '@js/presence/presence-colors.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
@@ -41,6 +43,7 @@ export class CommentsPanel {
         this._scrollEl = null;
         this._titleEl = null;
         this._toggleBtn = null;
+        this._newBtn = null;
         /** @type {Object} id → comment for the active map. */
         this._comments = {};
         /** Per-group collapse state (Resolvidos starts collapsed — less actionable). */
@@ -72,13 +75,13 @@ export class CommentsPanel {
         addScopedDomListener(this, 'panel', this._toggleBtn, 'click', () => this._handleToggleVisibility());
         actions.appendChild(this._toggleBtn);
 
-        const newBtn = document.createElement('button');
-        newBtn.className = 'sidebar-section-header-btn';
-        newBtn.setAttribute('data-testid', 'comments-new');
-        newBtn.title = 'Novo comentário (Shift+C)';
-        newBtn.innerHTML = ICONS.plus;
-        addScopedDomListener(this, 'panel', newBtn, 'click', () => this._handleNew());
-        actions.appendChild(newBtn);
+        this._newBtn = document.createElement('button');
+        this._newBtn.className = 'sidebar-section-header-btn';
+        this._newBtn.setAttribute('data-testid', 'comments-new');
+        this._newBtn.title = 'Novo comentário (Shift+C)';
+        this._newBtn.innerHTML = ICONS.plus;
+        addScopedDomListener(this, 'panel', this._newBtn, 'click', () => this._handleNew());
+        actions.appendChild(this._newBtn);
 
         header.appendChild(actions);
         this._container.appendChild(header);
@@ -92,6 +95,10 @@ export class CommentsPanel {
         subscribe(this, bus, EventTypes.COMMENT_UPDATED, () => this._reload());
         subscribe(this, bus, EventTypes.COMMENT_DELETED, () => this._reload());
         subscribe(this, bus, EventTypes.LAYERS_CHANGED, () => this._reload());
+        // Login/logout changes whether the section shows at all (and the "+").
+        subscribe(this, bus, EventTypes.SESSION_CHANGED, () => this._reload());
+        // "Limpar Tudo" / logout wipe the store — re-evaluate (the section should empty/hide).
+        subscribe(this, bus, EventTypes.ALL_DATA_CLEARED, () => this._reload());
 
         this._reload();
         return this._container;
@@ -102,12 +109,27 @@ export class CommentsPanel {
         return getControl('commentOverlay');
     }
 
-    /** @private Reloads the active map's comments, then re-renders. */
+    /** @private Whether the current session may create comments (logged-in user + comment permission). */
+    _canComment() {
+        return sessionContext.isAuthenticated() && checkPermission(GuardAction.CREATE_COMMENT).allowed;
+    }
+
+    /** @private Reloads the active map's comments, then re-renders (and re-evaluates visibility). */
     async _reload() {
         if (!this._scrollEl) return;
         const mapName = getCurrentMapNameSync();
         this._comments = (mapName ? await getComments(mapName) : {}) || {};
         if (!this._scrollEl) return;
+
+        const hasComments = Object.values(this._comments).some((c) => c && !c.parentId);
+        const canComment = this._canComment();
+        // Logged out with NO comments → hide the whole section. With comments (e.g. from an imported
+        // .ebgeo) → show it READ-ONLY (no "+"). Logged in → show it with the "+" to add.
+        const shouldShow = canComment || hasComments;
+        this._container.hidden = !shouldShow;
+        if (!shouldShow) return;
+        if (this._newBtn) this._newBtn.hidden = !canComment;
+
         this._render();
         this._syncToggle();
     }
@@ -246,6 +268,7 @@ export class CommentsPanel {
         this._scrollEl = null;
         this._titleEl = null;
         this._toggleBtn = null;
+        this._newBtn = null;
     }
 }
 

@@ -28,6 +28,7 @@ import {
     clearAllCesium3dData,
     clearAllStreetview360Data,
     clearAllBriefingData,
+    clearAllCommentData,
     clearAllAtlasData,
     setAppSetting,
     getColorUsage
@@ -147,6 +148,7 @@ async function enforceLocalStoreWhenLoggedOut() {
     await clearAllCesium3dData();
     await clearAllStreetview360Data();
     await clearAllBriefingData();
+    await clearAllCommentData();
     await clearAllAtlasData();
     await operationQueue.clear();
     await markStoreLocal();
@@ -191,6 +193,7 @@ export async function clearAllDataStore() {
     await clearAllCesium3dData();
     await clearAllStreetview360Data();
     await clearAllBriefingData();
+    await clearAllCommentData();
     // The atlas record + pending operation queue belong to the atlas being abandoned. Clearing
     // them prevents remote atlas.settings and un-flushed remote ops from surviving a
     // logout/switch or leaking into another atlas (inv 2/3).

@@ -87,6 +87,10 @@ export class CommentOverlay {
         subscribe(this, bus, EventTypes.COMMENT_DELETED, () => this._reload());
         // Map switch rebuilds layers + emits LAYERS_CHANGED — reload comments for the new map.
         subscribe(this, bus, EventTypes.LAYERS_CHANGED, () => this._reload());
+        // Login/logout flips who can modify a comment — refresh the open thread's gated controls.
+        subscribe(this, bus, EventTypes.SESSION_CHANGED, () => this._reload());
+        // "Limpar Tudo" / logout wipe the store — drop the now-stale pins + open card.
+        subscribe(this, bus, EventTypes.ALL_DATA_CLEARED, () => this._reload());
         this._map.on('click', this._onMapClick);
         this._reload();
     }
@@ -111,7 +115,9 @@ export class CommentOverlay {
         if (next === this._placement) return this._placement;
         if (next) {
             if (!this._canComment()) {
-                showWarning('Você não tem permissão para comentar neste atlas.');
+                showWarning(sessionContext.isAuthenticated()
+                    ? 'Você não tem permissão para comentar neste atlas.'
+                    : 'Faça login para adicionar comentários.');
                 return false;
             }
             if (this._toolManager) this._toolManager.setActiveTool(this);
@@ -149,9 +155,10 @@ export class CommentOverlay {
         }
     }
 
-    /** @private Whether the session may create comments (Comentarista+; always on the local store). */
+    /** @private Whether the session may create comments. Requires a logged-in user (a comment needs
+     * an author) AND comment permission (Comentarista+ on a remote atlas; always on the local store). */
     _canComment() {
-        return checkPermission(GuardAction.CREATE_COMMENT).allowed;
+        return sessionContext.isAuthenticated() && checkPermission(GuardAction.CREATE_COMMENT).allowed;
     }
 
     /** @private Whether the session may edit/resolve/delete THIS comment: an Editor+ may act on any,
