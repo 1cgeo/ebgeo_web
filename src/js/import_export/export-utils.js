@@ -96,6 +96,11 @@ export async function correctZoomInvariantFeatures(hiddenMap, finalZoom) {
 export function transferMapImages(sourceMap, targetMap) {
     const loadedImages = sourceMap.listImages();
     for (const id of loadedImages) {
+        // Skip images the target already has (e.g. style sprite images like
+        // `etrdg:*`, loaded when the hidden map's style loads). Re-adding them
+        // makes MapLibre's addImage fire an "already exists" error per image —
+        // thousands of them across a multi-page mosaic export.
+        if (targetMap.hasImage(id)) continue;
         const image = sourceMap.getImage(id);
         if (image) {
             targetMap.addImage(id, image.data, { sdf: image.sdf });
