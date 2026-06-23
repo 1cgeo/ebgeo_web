@@ -47,6 +47,7 @@ interface Operation {
   mapId?: string | null;     // UUID do mapa (quando aplicável)
   timestamp: number;         // Milliseconds desde epoch
   clientId: string;          // ID do cliente (gerado no frontend)
+  traceId?: string;          // SyncLedger (test/dev): correlação gesto→op; opcional, ecoado no broadcast
   data?: object;             // Estado completo (para create)
   changes?: object;          // Campos alterados (para update)
 }
@@ -503,7 +504,9 @@ canal WebSocket (doc 04); o push HTTP é o caminho de recuperação.
 
 ### Permissão
 
-`write`
+`comment` (gate da rota — `read` continua bloqueado). A checagem fina por-operação
+(`assertOperationAllowed`) refina: um `comment`-tier só pode escrever comentários espaciais;
+`write`/`manage`/`owner` escrevem qualquer entidade; map-delete e lock/unlock são exclusivos do `owner`.
 
 ### Request
 
@@ -798,7 +801,7 @@ function applyRemote(op, localState) {
 | Status | Código | Quando |
 |--------|--------|--------|
 | `401` | — | Sem token / token inválido |
-| `403` | `FORBIDDEN` | Sem permissão `write` no push (ou `read` no pull) — mensagem `Access denied` ou `Insufficient permissions` |
+| `403` | `FORBIDDEN` | Sem permissão `comment` no push (gate da rota; ou `read` no pull) ou op negada pela checagem por-operação (`assertOperationAllowed`) — mensagem `Access denied` ou `Insufficient permissions` |
 | `404` | `NOT_FOUND` | Atlas inexistente / deletado |
 | `422` | validação | Schema do push inválido (sem `id`, `operationType` inválido, > 500 ops, array vazio) |
 

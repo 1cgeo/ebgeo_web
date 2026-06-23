@@ -5,7 +5,7 @@ conscientes (by-design) e divergências de contrato do backend EBGeo. É a refer
 quem integra com a API saber o que **não** confiar que existe, o que é **advisory** (precisa ser
 respeitado no frontend) e o que está **deferido** por decisão.
 
-> **Nada aqui é bloqueante.** A suíte de testes está verde (`npm test`, ~1010 casos cobrindo as
+> **Nada aqui é bloqueante.** A suíte de testes está verde (`npm test`, ~1159 casos cobrindo as
 > Fases 0–9). Todos os fluxos documentados nos guias 01–10 funcionam como descrito. Os itens abaixo
 > são limitações conhecidas, otimizações sob demanda, follow-ups intencionais ou contratos que o
 > frontend já sabe acomodar — nenhum impede a integração nem quebra o caminho anônimo.
@@ -209,7 +209,7 @@ A lógica vive no cliente (`ebgeo_web`). O backend já oferece o contrato necess
 
 ## Resumo executivo
 
-- **Bloqueante:** nenhum. Suíte verde (~1010 testes), contratos congelados intactos, caminho anônimo
+- **Bloqueante:** nenhum. Suíte verde (~1140 testes), contratos congelados intactos, caminho anônimo
   preservado.
 - **Para o integrador frontend, lembre-se de:** (1) lock de MAPA já é imposto no servidor (409); refletir lock de camada/grupo/feição **individual** localmente (advisory);
   (2) filtrar cursores/seleção por `mapId`; (3) ignorar o eco da própria op via `clientId`;

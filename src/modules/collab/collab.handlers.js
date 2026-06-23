@@ -111,12 +111,14 @@ export async function handleOperation(ws, data) {
     }));
 
     // Broadcast operation to peers. A comment op must NOT reach read-only viewers
-    // (Visualizador / public visitor) — the spatial-comment visibility rule.
+    // (Visualizador / public visitor) — the spatial-comment visibility rule. Stamp the op with
+    // its server arrival order (serverVersion) so peers converge by LWW-by-arrival.
     const isComment = (data.op?.entityType || data.op?.target) === 'comment';
+    const opOut = { ...data.op, serverVersion: result.results?.[0]?.currentVersion ?? result.serverVersion };
     broadcastToRoom(ws.atlasId, {
       type: 'operation',
       userId: ws.userId,
-      op: data.op,
+      op: opOut,
     }, ws, { skipReadOnly: isComment });
   } catch (err) {
     logger.error({ err, atlasId: ws.atlasId }, 'Failed to process operation');
@@ -160,8 +162,11 @@ export async function handleOperations(ws, data) {
     }));
 
     // Broadcast all operations to peers. Comment ops are split out for read-only viewers
-    // (a mixed batch still delivers the non-comment ops to them).
-    broadcastOperations(ws.atlasId, data.ops, { userId: ws.userId, excludeWs: ws });
+    // (a mixed batch still delivers the non-comment ops to them). Stamp each op with its server
+    // arrival order (serverVersion) so peers converge by LWW-by-arrival.
+    const versionByOp = new Map((result.results || []).map((r) => [r.operationId, r.currentVersion]));
+    const opsOut = data.ops.map((op) => ({ ...op, serverVersion: versionByOp.get(op.id) ?? result.serverVersion }));
+    broadcastOperations(ws.atlasId, opsOut, { userId: ws.userId, excludeWs: ws });
   } catch (err) {
     logger.error({ err, atlasId: ws.atlasId }, 'Failed to process operations batch');
     ws.send(JSON.stringify({

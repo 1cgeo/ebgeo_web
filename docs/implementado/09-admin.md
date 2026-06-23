@@ -692,7 +692,7 @@ Ou:
 | PUT | `/api/v1/atlas/:id` | User | write | Atualizar |
 | DELETE | `/api/v1/atlas/:id` | User | owner | Deletar |
 | GET | `/api/v1/atlas/:id/settings` | User | read | Settings |
-| PATCH | `/api/v1/atlas/:id/settings` | User | owner | Atualizar settings |
+| PATCH | `/api/v1/atlas/:id/settings` | User | manage | Atualizar settings |
 | POST | `/api/v1/atlas/:id/clone` | User | read | Clonar |
 
 ### Maps (GET via REST, edição de conteúdo via sync)
@@ -714,12 +714,12 @@ Ou:
 
 | Método | Endpoint | Auth | Perm | Descrição |
 |--------|----------|------|------|-----------|
-| GET | `/api/v1/atlas/:id/sharing` | User | owner | Ver config |
-| POST | `/api/v1/atlas/:id/sharing/public` | User | owner | Habilitar público |
-| DELETE | `/api/v1/atlas/:id/sharing/public` | User | owner | Desabilitar público |
-| POST | `/api/v1/atlas/:id/sharing/users` | User | owner | Compartilhar |
-| PUT | `/api/v1/atlas/:id/sharing/users/:userId` | User | owner | Alterar perm |
-| DELETE | `/api/v1/atlas/:id/sharing/users/:userId` | User | owner | Remover |
+| GET | `/api/v1/atlas/:id/sharing` | User | manage | Ver config |
+| POST | `/api/v1/atlas/:id/sharing/public` | User | manage | Habilitar público |
+| DELETE | `/api/v1/atlas/:id/sharing/public` | User | manage | Desabilitar público |
+| POST | `/api/v1/atlas/:id/sharing/users` | User | manage | Compartilhar |
+| PUT | `/api/v1/atlas/:id/sharing/users/:userId` | User | manage | Alterar perm |
+| DELETE | `/api/v1/atlas/:id/sharing/users/:userId` | User | manage | Remover |
 
 ### Imagens
 
@@ -735,7 +735,7 @@ Ou:
 
 | Método | Endpoint | Auth | Perm | Descrição |
 |--------|----------|------|------|-----------|
-| POST | `/api/v1/atlas/:id/sync` | User | write | Push operações |
+| POST | `/api/v1/atlas/:id/sync` | User | comment | Push operações |
 | GET | `/api/v1/atlas/:id/sync/:version` | User | read | Pull |
 | GET | `/api/v1/atlas/:id/sync/admin/stats` | Admin | - | Estatísticas |
 | POST | `/api/v1/atlas/:id/sync/admin/cleanup` | Admin | - | Cleanup |

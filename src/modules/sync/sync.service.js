@@ -2,6 +2,7 @@
 import { query, tx, task } from '../../database/index.js';
 import { ForbiddenError, ConflictError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
+import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
 
 /**
  * Whitelisted `setting` op keys whose value is a KEYED OBJECT that must be
@@ -652,6 +653,17 @@ export async function pushOperations(atlasId, operations, userId, permission = '
           serverVersion: prev ? prev.server_version : null,
           idempotent: true,
         });
+        // SyncLedger: an idempotent re-arrival — the LWW arrival-order truth already
+        // exists; record it so a peer's echo/replay is distinguishable from a fresh op.
+        // Guarded so the hot path allocates/calls nothing when tracing is off.
+        if (isTraceEnabled()) {
+          recordSpan(atlasId, TraceStage.SERVER_INSERTED, {
+            opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
+            entityId: op.entityId, mapId: op.mapId, clientId: op.clientId,
+            serverVersion: prev ? parseInt(prev.server_version, 10) : null,
+            idempotent: true, outcome: TraceOutcome.IDEMPOTENT,
+          });
+        }
         continue;
       }
 
@@ -661,8 +673,31 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         idempotent: false,
       });
 
+      // SyncLedger: the op.id ↔ server_version binding (LWW arrival-order truth).
+      // Guarded so the hot path allocates/calls nothing when tracing is off.
+      if (isTraceEnabled()) {
+        recordSpan(atlasId, TraceStage.SERVER_INSERTED, {
+          opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
+          entityId: op.entityId, mapId: op.mapId, clientId: op.clientId,
+          serverVersion: parseInt(inserted.server_version, 10), idempotent: false, outcome: TraceOutcome.OK,
+        });
+      }
+
       // Apply operation to entity tables based on normalized op
-      await applyOperation(t, atlasId, op, userId, permission);
+      const rowsAffected = await applyOperation(t, atlasId, op, userId, permission);
+
+      // SyncLedger: the flagship "acked but no effect" guard (invariant I2). An
+      // update/delete that matched zero rows (foreign mapId, EXISTS guard) is surfaced
+      // — historically indistinguishable from a real write because applyOperation used
+      // t.none (no rowCount). Guarded so the hot path is zero-cost when tracing is off.
+      if (isTraceEnabled()) {
+        recordSpan(atlasId, TraceStage.SERVER_APPLIED, {
+          opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
+          entityId: op.entityId, mapId: op.mapId,
+          rowsAffected: rowsAffected ?? null,
+          outcome: rowsAffected === 0 ? TraceOutcome.NO_EFFECT : TraceOutcome.OK,
+        });
+      }
     }
   });
 
@@ -1202,6 +1237,10 @@ async function applyCommentOp(t, atlasId, op, type, userId, permission) {
 async function applyOperation(t, atlasId, op, userId, permission) {
   const target = op.target;
   const type = op.type;
+  // Rows touched by the main entity write, for the SyncLedger server.applied span
+  // (the "acked but no effect" guard, I2). Undefined for paths we don't measure
+  // (setting/catalog/comment/group_feature-create and unmeasured creates).
+  let rowsAffected;
 
   // Lock enforcement: a locked map blocks mutations of its child entities (the
   // spec's "disable editing"). Map-level ops (lock/unlock/delete) are governed by
@@ -1314,7 +1353,7 @@ async function applyOperation(t, atlasId, op, userId, permission) {
         const data = op.data;
         // INSERT...SELECT...WHERE EXISTS pins the row to a map of THIS atlas: a
         // create with a foreign atlas's mapId inserts zero rows (cross-atlas IDOR).
-        await t.none(`
+        const r = await t.result(`
           INSERT INTO features (id, map_id, feature_type, geometry, properties, layer_id)
           SELECT $1, $2, $3, $4::jsonb, $5::jsonb, $6
           WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $7)
@@ -1328,6 +1367,7 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           data.layer_id || null,
           atlasId,
         ]);
+        rowsAffected = r.rowCount;
       } else if (target === 'group' && op.data && op.mapId) {
         const data = op.data;
         await t.none(`
@@ -1482,7 +1522,8 @@ async function applyOperation(t, atlasId, op, userId, permission) {
       }
       const updateQuery = buildUpdateQuery(target, op, atlasId);
       if (updateQuery) {
-        await t.none(updateQuery.sql, updateQuery.values);
+        const r = await t.result(updateQuery.sql, updateQuery.values);
+        rowsAffected = r.rowCount;
       }
       break;
     }
@@ -1491,19 +1532,21 @@ async function applyOperation(t, atlasId, op, userId, permission) {
       // group_feature is a hard delete (join table, no soft-delete), scoped to the
       // atlas via the group's map so atlas A can't unlink atlas B's associations.
       if (target === 'group_feature' && op.data) {
-        await t.none(
+        const r = await t.result(
           `DELETE FROM group_features
            WHERE group_id = $1 AND feature_id = $2
              AND group_id IN (SELECT g.id FROM groups g JOIN maps m ON m.id = g.map_id WHERE m.atlas_id = $3)`,
           [op.data.group_id, op.data.feature_id, atlasId]
         );
+        rowsAffected = r.rowCount;
         break;
       }
 
       // All other entities use soft-delete with the same pattern
       const deleteQuery = buildSoftDeleteQuery(table, target, op, atlasId);
       if (deleteQuery) {
-        await t.none(deleteQuery.sql, deleteQuery.values);
+        const r = await t.result(deleteQuery.sql, deleteQuery.values);
+        rowsAffected = r.rowCount;
       }
 
       // §2.2 cascade: deleting a LAYER soft-deletes all its features in the same
@@ -1520,4 +1563,6 @@ async function applyOperation(t, atlasId, op, userId, permission) {
       break;
     }
   }
+
+  return rowsAffected;
 }

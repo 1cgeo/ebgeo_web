@@ -284,7 +284,7 @@ class ConnectionStatus {
 
 O servidor valida:
 - Todos os IDs devem ser UUIDs válidos
-- `feature_type` deve ser um dos 18 tipos válidos
+- `feature_type` deve ser um dos 20 tipos válidos
 - `mode` de slide deve ser válido (2d, 3d, 360)
 
 Observacao: as referências (layer_id, map_id, parent_id) NAO sao validadas contra os IDs do payload na borda (o Joi apenas verifica o formato UUID, permitindo null). A integridade referencial e garantida pela ordem de insercao (maps -> layers -> groups -> features ...) e pelas FKs do PostgreSQL; uma referencia invalida resulta em erro de FK e rollback da transacao.

@@ -103,25 +103,27 @@ Ao concluir o handshake, o servidor envia **uma** mensagem `connected`:
 |-------|-----------|
 | `sessionId` | É o **`clientId` efetivo** (o que você enviou, ou o gerado pelo servidor no fallback). |
 | `userId` | ID do usuário autenticado (ou `public-<uuid>` para visitante). |
-| `permission` | Permissão **por-atlas** (eixo backend): `owner`, `write` ou `read`. **Campo congelado.** |
-| `role` | Vocabulário de **papel** esperado pelo frontend: `owner`, `admin`, `editor` ou `viewer`. |
+| `permission` | Permissão **por-atlas** (eixo backend): `owner`, `manage`, `write`, `comment` ou `read`. **Campo congelado.** |
+| `role` | Vocabulário de **papel** esperado pelo frontend: `owner`, `admin`, `manager`, `editor`, `commenter` ou `viewer`. |
 | `usersOnline` | Todos os usuários atualmente na sala, **incluindo você mesmo** (inclui quem está `away`). O cliente deve filtrar a própria entrada pelo `userId` retornado no `connected` se quiser exibir só os peers. |
 
 ### `permission` vs `role` (dois eixos)
 
 O backend mantém dois eixos ortogonais e expõe **ambos** no `connected`:
 
-- `permission` (por-atlas): `owner` / `write` / `read` — usado para autorizar escrita (ver §3.4).
+- `permission` (por-atlas): `owner` / `manage` / `write` / `comment` / `read` — usado para autorizar escrita (ver §3.4).
 - `role` (vocabulário de UI): derivado de `permission` + `role global` do JWT (`user`/`admin`):
 
 | Entrada | `role` emitido |
 |---------|----------------|
 | `role` global `admin` (qualquer permissão) | `admin` |
 | `permission = owner` | `owner` |
+| `permission = manage` | `manager` |
 | `permission = write` | `editor` |
+| `permission = comment` | `commenter` |
 | `permission = read` (ou público/none) | `viewer` |
 
-> **Contrato congelado**: `permission` continua sendo emitido com o vocabulário `owner/write/read`. O
+> **Contrato congelado**: `permission` continua sendo emitido com o vocabulário `owner/manage/write/comment/read`. O
 > `role` é **aditivo** — não substitui `permission`. Para autorizar escrita no cliente, cheque
 > `permission !== 'read'` (não o `role`).
 
@@ -141,6 +143,7 @@ Resumo do protocolo (C = cliente→servidor, S = servidor→cliente):
 | `ping` | C→S | `pong` |
 | `cursor` | C→S | broadcast `cursor` aos peers |
 | `selection` | C→S | broadcast `selection` aos peers |
+| `temporal` | C→S | broadcast `temporal` aos peers (presença temporal) |
 | `operation` | C→S | `ack` ao emissor + broadcast `operation` aos peers |
 | `operations` | C→S | `ack_batch` ao emissor + broadcast `operations` aos peers |
 | `sync_request` | C→S | `sync_response` (snapshot ou ops) |
@@ -212,8 +215,10 @@ seguinte, encerradas via `terminate()` (close code `1006`, tratado como queda de
 
 ### 3.4 Operação CRDT (Única)
 
-Requer `permission` de escrita (`owner`/`write`). Read-only → `error` com code `FORBIDDEN`. A op é
-validada (mesmo schema Joi do `POST /sync`, máx. 500 ops por mensagem) antes de aplicar.
+Requer `permission` diferente de `read` (`owner`/`manage`/`write`/`comment`). Read-only → `error` com
+code `FORBIDDEN`. A op é validada (mesmo schema Joi do `POST /sync`, máx. 500 ops por mensagem) antes de
+aplicar; a checagem fina por-operação (ex.: `comment` só escreve comentários) é refinada no service
+(`assertOperationAllowed`).
 
 ```javascript
 // Cliente → Servidor
@@ -592,8 +597,8 @@ class CollabWebSocket {
     switch (msg.type) {
       case 'connected':
         this.sessionId = msg.sessionId;       // == clientId efetivo
-        this.permission = msg.permission;     // owner/write/read
-        this.role = msg.role;                 // owner/admin/editor/viewer
+        this.permission = msg.permission;     // owner/manage/write/comment/read
+        this.role = msg.role;                 // owner/admin/manager/editor/commenter/viewer
         this.onUsersOnline(msg.usersOnline);  // cada um com status online|away
         break;
       case 'pong': break;

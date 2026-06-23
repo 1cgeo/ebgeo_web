@@ -53,7 +53,7 @@ O Atlas é a entidade principal do sistema. Cada atlas pode conter:
 
 A lista inclui:
 - Atlas próprios (`user_permission: 'owner'`)
-- Atlas compartilhados (`user_permission: 'read'` ou `'write'`)
+- Atlas compartilhados (`user_permission: 'read'`, `'comment'`, `'write'` ou `'manage'`)
 
 ### Fluxo
 
@@ -286,7 +286,7 @@ Cliente                          Backend
 
 `PATCH /api/v1/atlas/:atlasId/settings`
 
-**Permissão:** `owner`
+**Permissão:** `manage`
 
 ```json
 {
@@ -374,14 +374,14 @@ O clone **não** inclui:
 ### Hierarquia
 
 ```
-owner > write > read
+owner > manage > write > comment > read
 ```
 
 ### Resolução de Permissão
 
 ```
 1. userId === atlas.owner_id     → 'owner'
-2. atlas_shares.permission       → 'read' ou 'write'
+2. atlas_shares.permission       → 'read', 'comment', 'write' ou 'manage'
 3. atlas.is_public              → 'read'
 4. Nenhum (atlas existe, mas sem acesso) → 403 Forbidden
    (atlas inexistente ou deletado       → 404 Not Found)

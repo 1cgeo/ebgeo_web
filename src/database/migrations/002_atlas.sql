@@ -21,7 +21,9 @@ CREATE TABLE atlas (
         "features": {
             "map_3d": true,
             "panoramic_images": true,
-            "terrain_3d": true
+            "terrain_3d": true,
+            "data_layers": true,
+            "analysis_layers": true
         },
         "basemaps": [],
         "default_basemap": null,

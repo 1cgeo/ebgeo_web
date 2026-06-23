@@ -99,7 +99,7 @@ src/
 npm run dev              # node --watch
 npm run db:migrate       # aplica migrações
 npm run db:seed          # dados de teste
-npm test                 # cria DB ebgeo_test → migra → roda (unit+integration+ws, 745 casos) → dropa
+npm test                 # cria DB ebgeo_test → migra → roda (unit+integration+ws, ~1159 casos / 108 arquivos) → dropa
 npm run test:unit | test:integration | test:ws
 npm run test:keep-db     # mantém o DB após os testes (debug)
 npm run lint             # eslint  ·  npm run format  (prettier)
@@ -238,6 +238,7 @@ de teste de regressão; toda query com filtro de acesso precisa de teste com usu
 | `ALLOW_SELF_REGISTRATION` | prod:false, dev/test:true | Habilita `POST /auth/register` |
 | `RATE_LIMIT_AUTH_WINDOW_MS` / `_MAX` | 900000 / 10 | Rate limit `/auth/{login,refresh,register}` (IP+username) |
 | `RATE_LIMIT_PUBLIC_WINDOW_MS` / `_MAX` | 60000 / 30 | Rate limit `/atlas/public/:link` (por IP) |
+| `EBGEO_TRACE` | *(ausente)* | SyncLedger: liga o ring de trace + monta `GET/DELETE /api/v1/debug/trace`. `=1` (ou `NODE_ENV=test`); **nunca em prod** |
 
 URLs de serviço/tiles do `GET /api/config` (basemaps, busca, terrain, 360) também vêm de env — ver
 [`.env.example`](.env.example) e [10-config](./docs/implementado/10-config.md).
@@ -328,6 +329,14 @@ Exceções: rotas `sv360` respondem **nuas** (objeto/array) e usam envelope de e
 | POST | `/api/v1/atlas/:atlasId/sync` (push de operações) | Write |
 | GET | `/api/v1/atlas/:atlasId/sync/:version` (snapshot ou ops incrementais) | Read |
 | GET/POST | `/api/v1/atlas/:atlasId/sync/admin/stats` · `/sync/admin/cleanup` | Admin |
+
+### Debug / SyncLedger (test/dev — só com o tracer ligado)
+| Método | Rota | Auth |
+|--------|------|------|
+| GET | `/api/v1/debug/trace?atlasId=&opId=&traceId=` (spans do ring de sync do atlas) | User |
+| DELETE | `/api/v1/debug/trace?atlasId=` (limpa o ring; tudo se omitido) | User |
+
+> Montado **apenas** quando `EBGEO_TRACE=1` ou `NODE_ENV=test` (`isTraceEnabled()` em `utils/sync-trace.js`); ausente em produção.
 
 ### Multi-org / Identidade / Auditoria
 | Método | Rota | Permissão |

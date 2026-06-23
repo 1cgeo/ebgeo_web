@@ -64,8 +64,8 @@ endpoints está no documento de Nomes Geográficos; aqui interessa só **o efeit
   um usuário com a zona e "nada" para outro. Se o usuário trocar de conta (ou perder/ganhar uma
   permissão de zona), refaça as consultas — não há push de invalidação.
 - **Anônimo só vê o público.** Na mecânica do SQL, sem usuário (`userId` nulo) sobram apenas as
-  feições `public`. (Os endpoints do gazetteer hoje exigem login; o ramo anônimo existe como defesa
-  em profundidade.)
+  feições `public`. (`/feicoes` e `/catalogo3d` exigem login; `/busca` é alcançável anonimamente,
+  e o ramo anônimo existe como defesa em profundidade.)
 
 ---
 

@@ -8,7 +8,7 @@ dados é externa, via job FME) construído sobre PostGIS no schema isolado `ng`.
 
 ## Visão Geral
 
-O gazetteer entrega ao frontend três capacidades, todas sob autenticação de leitura:
+O gazetteer entrega ao frontend três capacidades:
 
 - **`GET /api/v1/nomes/busca`** — autocomplete de topônimos com ranking de 7 critérios (até 5
   resultados, deduplicados por cluster).
@@ -29,9 +29,11 @@ Pontos importantes para quem integra:
   é embutido no SQL (defesa em profundidade). Ver doc [15](./15-acesso-geografico.md) para o detalhe;
   aqui basta saber que registros privados só aparecem para quem tem direito.
 
-> **Autenticação obrigatória.** As três rotas exigem `Authorization: Bearer <accessToken>`. Sem
-> token, a resposta é `401`. (Anônimo via `flexibleAuth` enxergaria apenas registros públicos, mas
-> estas rotas usam `auth` estrito.)
+> **Autenticação.** `/feicoes` e `/catalogo3d` exigem `Authorization: Bearer <accessToken>` (`auth`
+> estrito) — sem token, `401`. Já `/busca` é o caminho do campo de busca do mapa
+> (`config.search.apiUrl`) e **NÃO** usa `auth` estrito: funciona anônimo (o `flexibleAuth` global
+> popula `req.user` se houver credencial; sem ela, o filtro de acesso embutido no SQL — `$5 userId`
+> nulo — devolve apenas registros públicos).
 
 ---
 
@@ -46,7 +48,8 @@ consulta e exibe até 5 sugestões já ranqueadas).
 
 ### Headers
 
-`Authorization: Bearer <accessToken>`
+`Authorization: Bearer <accessToken>` (**opcional** — esta rota aceita o caminho anônimo; sem token,
+só registros públicos)
 
 ### Query params
 
@@ -191,9 +194,11 @@ LIMIT 5;
 
 ### Tratamento de erros
 
+> Esta rota **não** usa `auth` estrito (aceita o caminho anônimo), então não há `401` por token
+> ausente. Sem credencial, o filtro embutido no SQL devolve apenas registros públicos.
+
 | Código | Quando | Corpo |
 |--------|--------|-------|
-| `401` | Sem token / token inválido | `{ "error": { "code": "UNAUTHORIZED", "message": "..." } }` |
 | `422` | `q` ausente ou < 3 chars; `lat`/`lon` ausentes; `zoom` fora de 1–20 | `{ "error": { "code": "VALIDATION_ERROR", "message": "Validation failed", "details": [...] } }` |
 
 ```javascript
@@ -459,7 +464,7 @@ duplicatas no resultado). Detalhes de operação no [guia de deploy](../deploy/d
 - [ ] Distinguir `{ id, ... }` (achou) de `{ message }` (não achou) — ambos chegam como **200**
 - [ ] Galeria/painel 3D consumindo `/nomes/catalogo3d` com paginação 1-based
 - [ ] Usar `total` + `nr_records` para o controle de páginas
-- [ ] Tratar `401` (re-login/refresh) e `422` (validação) em todas as três rotas
+- [ ] Tratar `401` (re-login/refresh) em `/feicoes` e `/catalogo3d` (`/busca` é anônimo) e `422` (validação) nas três rotas
 - [ ] Não assumir que todos os registros são visíveis — o acesso é filtrado por usuário
 
 ---

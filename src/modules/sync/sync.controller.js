@@ -12,11 +12,18 @@ export const pushOperations = asyncHandler(async (req, res) => {
     req.atlasPermission
   );
 
+  // Stamp each broadcast op with its server-assigned arrival order (serverVersion) so peers can
+  // resolve concurrent edits by LWW-by-arrival in REAL TIME (convergence). The order lives in
+  // result.results[].currentVersion, keyed by operationId. Without it the broadcast op carried
+  // no order and concurrent same-feature edits diverged.
+  const versionByOp = new Map((result.results || []).map((r) => [r.operationId, r.currentVersion]));
+  const stamped = req.body.operations.map((op) => ({ ...op, serverVersion: versionByOp.get(op.id) ?? result.serverVersion }));
+
   // Broadcast the pushed operations to WS peers for real-time updates. Comment ops are kept
   // away from read-only viewers (visibility rule); a mixed batch still reaches them minus the
   // comments. The HTTP sender has no socket, so it can't be excluded — clients ignore ops whose
   // clientId is their own (contract: fase-1/fase-8).
-  broadcastOperations(req.atlasId, req.body.operations, { userId: req.user.id });
+  broadcastOperations(req.atlasId, stamped, { userId: req.user.id });
 
   res.json({ data: result });
 });

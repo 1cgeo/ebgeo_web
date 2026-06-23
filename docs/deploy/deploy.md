@@ -168,6 +168,7 @@ valida `DATABASE_URL` presente, `JWT_SECRET` presente e **≥32 chars SÓ em pro
 | `RATE_LIMIT_PUBLIC_WINDOW_MS` | `60000` | Não | Janela (1 min) de `/atlas/public/:link`. |
 | `RATE_LIMIT_PUBLIC_MAX` | `30` | Não | Máx. requisições/janela (por IP). |
 | `RATE_LIMIT_FORCE` | — | Não | Só relevante em teste (força o limiter mesmo em `NODE_ENV=test`). |
+| `EBGEO_TRACE` | — | Não | SyncLedger (observabilidade de sync): `=1` liga o ring + monta `GET/DELETE /api/v1/debug/trace`. Test/dev apenas (também por `NODE_ENV=test`); **deixe ausente em produção**. |
 
 ### WebSocket
 
@@ -192,7 +193,7 @@ valida `DATABASE_URL` presente, `JWT_SECRET` presente e **≥32 chars SÓ em pro
 | `SV360_DB_DIR` | `./data/sv360` | Não | Dir dos `{orgId}__{slug}.db` (~41 GB) + thumbnails `.webp`. |
 | `SV360_TMP_DIR` | `./data/sv360-tmp` | Não | **Staging de upload — DEVE estar no MESMO volume que `SV360_DB_DIR`** (rename atômico). |
 | `SV360_MAX_INFLIGHT` | `8` | Não | Semáforo de buffers WebP 360 no heap (espelha assets3d). |
-| `SV360_MAX_UPLOAD_BYTES` | `2147483648` (2 GiB) | Não | Teto do multipart do bundle 360. **Divergência:** `.env.example` sugere 8 GiB, mas o default efetivo é **2 GiB**. Deve casar com `client_max_body_size` do NGINX. |
+| `SV360_MAX_UPLOAD_BYTES` | `2147483648` (2 GiB) | Não | Teto do multipart do bundle 360. `.env.example` e o default do código coincidem (2 GiB). Deve casar com `client_max_body_size` do NGINX. |
 
 ### appConfig (servido por `GET /api/v1/config`)
 
@@ -545,7 +546,7 @@ tippecanoe/PMTiles.** `Cache-Control: public, max-age=60` (curto, muda a cada in
 
 | Sintoma | Causa provável | Ação |
 |---------|----------------|------|
-| Migração 011 falha em `CREATE EXTENSION postgis` (`permission denied to create extension`) | `postgis` é **untrusted**; role do app não é superusuário e a imagem não tem postgis no `template1` | Usar imagem `postgis/postgis`, ou DBA pré-criar `CREATE EXTENSION postgis;` com superusuário, ou role privilegiado — **antes** de migrar (§2/§5). |
+| Migração 004 falha em `CREATE EXTENSION postgis` (`permission denied to create extension`) | `postgis` é **untrusted**; role do app não é superusuário e a imagem não tem postgis no `template1` | Usar imagem `postgis/postgis`, ou DBA pré-criar `CREATE EXTENSION postgis;` com superusuário, ou role privilegiado — **antes** de migrar (§2/§5). |
 | Boot aborta com `Configuração inválida:` | `DATABASE_URL`/`JWT_SECRET` ausentes, `JWT_SECRET` <32 chars em prod, `PORT` fora de 1–65535, `CORS_ORIGIN` URL inválida | Corrigir as env vars listadas no erro agrupado (§4). |
 | `npm ci` falha compilando `better-sqlite3` (sem gcc/python) | ARM / air-gapped / prebuild glibc indisponível | Adicionar `build-essential`+`python3` ao estágio `deps`, ou prover o prebuild no cache (§3). |
 | WebSocket não conecta (handshake falha / 404 / fica em polling) | NGINX sem `proxy_http_version 1.1` + `Upgrade`/`Connection "upgrade"`, faltam `atlasId`/`token` na query, ou o proxy roteia o upgrade para path != `/api/v1/collab` (o backend responde 404) | Ajustar o `location` do proxy (§7); rotear `/api/v1/collab`; o handshake exige `?atlasId=&token=`. |

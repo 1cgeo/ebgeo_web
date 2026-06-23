@@ -21,6 +21,8 @@ export const atlasSettingsSchema = Joi.object({
     map_3d: Joi.boolean(),
     panoramic_images: Joi.boolean(),
     terrain_3d: Joi.boolean(),
+    data_layers: Joi.boolean(),
+    analysis_layers: Joi.boolean(),
   }),
   basemaps: Joi.array().items(Joi.string()),
   default_basemap: Joi.string().allow(null),

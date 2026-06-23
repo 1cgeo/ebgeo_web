@@ -20,14 +20,14 @@ frontend.
 
 - `src/index.js` boot (HTTP + WS + `validateEnvVariables()` fail-fast) · `src/app.js` factory `createApp()` (testável)
 - `src/config.js` env · `src/database/` (`query`/`tx`, `migrate.js`, `migrations/`) · `src/middleware/` · `src/utils/`
-- `src/modules/<nome>/` — `auth users organizations atlas maps briefings resources sharing images sync collab config nomes zones streetview360 audit`
+- `src/modules/<nome>/` — `auth users organizations atlas maps briefings resources sharing images sync collab config nomes zones streetview360 audit debug` (`debug` = endpoint do SyncLedger, montado só com o tracer ligado — test/dev)
 
 ## Comandos
 
 ```bash
 npm run dev            # node --watch
 npm run db:migrate     # aplica migrações | npm run db:seed
-npm test               # cria DB ebgeo_test → migra → roda → dropa (unit+integration+ws, 745 casos)
+npm test               # cria DB ebgeo_test → migra → roda → dropa (unit+integration+ws, ~1159 casos / 108 arquivos)
 npm run test:unit | test:integration | test:ws   # subconjuntos
 npm run test:keep-db   # mantém o DB p/ debug
 npm run lint           # eslint (rode antes de finalizar) | npm run format
@@ -101,6 +101,10 @@ SQL parametrizado · rate limit em `/auth/{login,refresh,register}` e `/atlas/pu
 custo 12 + login timing-safe + rotação/detecção-de-reuso de refresh · `jwt.verify` **só HS256** · upload
 allowlist `png/jpeg/webp` + magic-bytes (**sem SVG**), download como `attachment` · helmet CSP/HSTS ·
 self-registration gateada por `ALLOW_SELF_REGISTRATION` (off em prod).
+
+## SyncLedger (observabilidade de sync — test/dev)
+
+Camada de tracing **aditiva e gated** (`EBGEO_TRACE=1` ou `NODE_ENV=test`; **nunca em prod**). `utils/sync-trace.js` mantém um ring por atlas espelhando o contrato de estágios do frontend; `sync.service` emite `server.inserted`/`server.applied` (`applyOperation` usa `t.result` p/ expor `rowsAffected`) e `collab.rooms` `server.broadcast` (`broadcastOperations`/`broadcastToRoom` passaram a **retornar** `{ sent, recipients, … }`); `sync.schemas` aceita `traceId` no envelope. `GET/DELETE /api/v1/debug/trace` (auth) expõe o ring — montado só com o tracer ligado (`app.js`). Spec/as-built: `ebgeo_web/docs/proposta-observabilidade-sync.md`.
 
 ## Antes de finalizar
 

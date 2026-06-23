@@ -14,7 +14,7 @@ PostgreSQL/PostGIS (JS puro) que adiciona, ao app de mapeamento local-first, tud
 servidor:
 
 - **Autenticação** JWT (access + refresh) de emissor único, com identidade org-scoped.
-- **Atlas colaborativo** — atlas/maps/features (18 tipos) em JSONB, layers, groups, briefings, slides.
+- **Atlas colaborativo** — atlas/maps/features (20 tipos) em JSONB, layers, groups, briefings, slides.
 - **Sincronização** offline-first: snapshot + operações CRDT (LWW por ordem de chegada) com log.
 - **Colaboração em tempo real** via WebSocket (presença, cursores, ops, awareness).
 - **Imagens** (upload/download com magic-bytes, ETag, Range) e **compartilhamento** (links públicos + sharing por usuário).
@@ -145,7 +145,7 @@ resposta for `401`, renove via `POST /auth/refresh` e repita. Rotas públicas (`
 `GET /atlas/public/:link`, gazetteer/assets/360 de leitura) aceitam o caminho anônimo. Ver
 [01 - Autenticação](./01-autenticacao.md).
 
-**3. Permissões.** Por atlas, a hierarquia é `owner` > `write` > `read` (resolvida em waterfall:
+**3. Permissões.** Por atlas, a hierarquia é `owner` > `manage` > `write` > `comment` > `read` (resolvida em waterfall:
 owner → share → público → 403). Roles globais são `user` e `admin`. A identidade org-scoped do JWT
 (`organization_id` + `org_role ∈ {owner, editor, viewer, admin}`) governa os subsistemas multi-org
 (13/14/15). Para acesso a dados geográficos, a autorização é **embutida na query SQL** (um privado só

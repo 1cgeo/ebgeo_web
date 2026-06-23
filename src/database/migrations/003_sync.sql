@@ -120,9 +120,32 @@ INSERT INTO resources (id, category, name, sort_order, config) VALUES
     'enabled', true, 'image', './images/layers/carta-ortoimagem-thumb.png', 'priority', 2)),
   ('bdgex', 'basemap', 'BDGEx', 3, jsonb_build_object(
     'enabled', true, 'image', './images/layers/bdgex-thumb.png', 'priority', 3)),
-  ('osm', 'basemap', 'OSM', 4, jsonb_build_object('enabled', false, 'priority', 4)),
-  ('imagens', 'basemap', 'Imagens', 5, jsonb_build_object('enabled', false, 'priority', 5)),
+  ('osm', 'basemap', 'OpenStreetMaps', 4, jsonb_build_object('enabled', false, 'priority', 4)),
+  ('imagens', 'basemap', 'Imagens do Google', 5, jsonb_build_object('enabled', false, 'priority', 5)),
   ('hillshade', 'analysis_layer', 'Sombreamento do Relevo', 1, '{}'::jsonb),
+  -- Exemplos de camadas de DADOS (vetoriais) e de ANÁLISE (raster). Servidas pelo /api/config
+  -- e restringíveis por atlas (settings.available_data_layers / available_analysis_layers).
+  -- Troque pelas camadas reais do deploy (as URLs aqui são placeholders).
+  ('rodovias-federais', 'data_layer', 'Rodovias Federais', 1, jsonb_build_object(
+    'description', 'Malha rodoviária federal',
+    'source', jsonb_build_object('type', 'vector', 'url', 'http://localhost/tiles/rodovias'),
+    'sourceLayer', 'rodovias', 'minzoom', 4, 'maxzoom', 18,
+    'style', jsonb_build_object('border', jsonb_build_object('color', '#E74C3C', 'width', 2, 'opacity', 1)))),
+  ('limites-municipais', 'data_layer', 'Limites Municipais', 2, jsonb_build_object(
+    'description', 'Divisão político-administrativa municipal',
+    'source', jsonb_build_object('type', 'vector', 'url', 'http://localhost/tiles/municipios'),
+    'sourceLayer', 'municipios', 'minzoom', 4, 'maxzoom', 14,
+    'style', jsonb_build_object('border', jsonb_build_object('color', '#6b7280', 'width', 1, 'opacity', 0.8)))),
+  ('declividade', 'analysis_layer', 'Declividade', 2, jsonb_build_object(
+    'description', 'Mapa de declividade do terreno',
+    'source', jsonb_build_object('type', 'raster-dem', 'url', 'http://localhost/tiles/dem/{z}/{x}/{y}.png'),
+    'bounds', jsonb_build_array(-45, -23, -44, -22),
+    'paint', jsonb_build_object('raster-opacity', 0.7))),
+  ('hipsometria', 'analysis_layer', 'Hipsometria', 3, jsonb_build_object(
+    'description', 'Mapa hipsométrico (altimetria) do terreno',
+    'source', jsonb_build_object('type', 'raster-dem', 'url', 'http://localhost/tiles/dem/{z}/{x}/{y}.png'),
+    'bounds', jsonb_build_array(-45, -23, -44, -22),
+    'paint', jsonb_build_object('raster-opacity', 0.6))),
   ('PCL', 'tileset', 'Posto de Comando Logístico', 1, jsonb_build_object(
     'url', '/3d/PCL/tileset.json', 'heightOffset', 35,
     'description', 'Modelo 3D do Posto de Comando Logístico capturado por drone',

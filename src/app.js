@@ -22,6 +22,8 @@ import { organizationsRoutes } from './modules/organizations/index.js';
 import { auditRoutes } from './modules/audit/index.js';
 import { zonesRoutes } from './modules/zones/index.js';
 import { sv360Routes } from './modules/streetview360/index.js';
+import { debugRoutes } from './modules/debug/debug.routes.js';
+import { isTraceEnabled } from './utils/sync-trace.js';
 
 /**
  * Creates and configures the Express application.
@@ -101,6 +103,13 @@ export function createApp() {
   app.use('/api/v1/audit', auditRoutes);
   app.use('/api/v1/zones', zonesRoutes);
   app.use('/api/v1/sv360', sv360Routes);
+
+  // SyncLedger debug-trace endpoint — env-gated (test/dev only), never in production.
+  // The `!config.isProd` clause is a hard production cross-check: even if EBGEO_TRACE=1
+  // leaks into a prod env (making isTraceEnabled() true), the routes are NOT mounted.
+  if (isTraceEnabled() && !config.isProd) {
+    app.use('/api/v1/debug', debugRoutes);
+  }
 
   // 404 for unmatched routes (before the error handler)
   app.use((req, res, next) => {

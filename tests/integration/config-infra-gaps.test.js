@@ -246,9 +246,15 @@ describe('Config + infra — gap coverage', () => {
       }
     });
 
-    it('data_layer (empty in seed) serves the {enabled:true, layers:[]} shape', async () => {
-      const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
-      assert.deepEqual(cfg.dataLayers, { enabled: true, layers: [] });
+    it('empty data_layer category serves the {enabled:true, layers:[]} shape', async () => {
+      // Deactivate the seeded data_layer rows inside this test, then restore.
+      await db.query(`UPDATE resources SET active = false WHERE category = 'data_layer'`);
+      try {
+        const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
+        assert.deepEqual(cfg.dataLayers, { enabled: true, layers: [] });
+      } finally {
+        await db.query(`UPDATE resources SET active = true WHERE category = 'data_layer'`);
+      }
     });
   });
 

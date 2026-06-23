@@ -1,6 +1,8 @@
 // Path: src/modules/collab/collab.rooms.js
 // In-memory room management for WebSocket collaboration
 
+import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
+
 const rooms = new Map(); // atlasId -> Set<WebSocket>
 
 /**
@@ -44,15 +46,18 @@ export function getRoomClients(atlasId) {
  */
 export function broadcastToRoom(atlasId, message, excludeWs = null, { skipReadOnly = false } = {}) {
   const room = rooms.get(atlasId);
-  if (!room) return;
+  if (!room) return { sent: 0, recipients: [] };
 
   const payload = typeof message === 'string' ? message : JSON.stringify(message);
 
+  const recipients = [];
   for (const client of room) {
     if (client === excludeWs || client.readyState !== 1) continue; // WebSocket.OPEN = 1
     if (skipReadOnly && client.permission === 'read') continue;
     client.send(payload);
+    recipients.push(client.clientId || client.userId);
   }
+  return { sent: recipients.length, recipients };
 }
 
 /**
@@ -65,7 +70,7 @@ export function broadcastToRoom(atlasId, message, excludeWs = null, { skipReadOn
  */
 export function broadcastOperations(atlasId, ops, { userId, excludeWs = null } = {}) {
   const room = rooms.get(atlasId);
-  if (!room || !Array.isArray(ops) || ops.length === 0) return;
+  if (!room || !Array.isArray(ops) || ops.length === 0) return { sent: 0, recipients: [] };
 
   const fullPayload = JSON.stringify({ type: 'operations', userId, ops });
   const nonComment = ops.filter((o) => o && (o.entityType || o.target) !== 'comment');
@@ -74,15 +79,46 @@ export function broadcastOperations(atlasId, ops, { userId, excludeWs = null } =
     ? JSON.stringify({ type: 'operations', userId, ops: nonComment })
     : null;
 
+  const recipients = [];
+  let skippedSelf = 0;
+  let skippedClosed = 0;
+  let skippedReadOnly = 0;
   for (const client of room) {
-    if (client === excludeWs || client.readyState !== 1) continue;
+    if (client === excludeWs) { skippedSelf++; continue; }
+    if (client.readyState !== 1) { skippedClosed++; continue; }
     if (!hasComment || client.permission !== 'read') {
       client.send(fullPayload);
+      recipients.push(client.clientId || client.userId);
     } else if (readPayload) {
       client.send(readPayload);
+      recipients.push(client.clientId || client.userId);
+    } else {
+      // read-only client + all-comment batch → nothing sent.
+      skippedReadOnly++;
     }
-    // read-only client + all-comment batch → nothing sent.
   }
+
+  const summary = { sent: recipients.length, recipients, skippedSelf, skippedClosed, skippedReadOnly };
+
+  // SyncLedger: turn the historically fire-and-forget fan-out into an assertable span
+  // (invariant I7 — who received an op, and why someone didn't).
+  if (isTraceEnabled()) {
+    for (const op of ops) {
+      recordSpan(atlasId, TraceStage.SERVER_BROADCAST, {
+        opId: op.id,
+        traceId: op.traceId,
+        entityType: op.entityType || op.target,
+        sent: summary.sent,
+        recipients: summary.recipients,
+        skippedSelf,
+        skippedClosed,
+        skippedReadOnly,
+        outcome: TraceOutcome.OK,
+      });
+    }
+  }
+
+  return summary;
 }
 
 /**

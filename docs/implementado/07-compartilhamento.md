@@ -8,9 +8,13 @@ Este documento cobre links públicos, compartilhamento com usuários e acesso p�
 
 ### 1.1 Visão Geral
 
-O owner de um atlas pode compartilhar com outros usuários, definindo permissões:
+O owner (ou um co-Gestor com permissão `manage`) de um atlas pode compartilhar com outros usuários, definindo permissões:
 - `read` - Somente visualização
+- `comment` - Pode comentar (Comentarista)
 - `write` - Pode editar
+- `manage` - Co-Gestor (pode compartilhar e configurar o atlas)
+
+> **Nota:** `owner` não é concedível por compartilhamento (vem de `atlas.owner_id`; a propriedade muda apenas pela rota de transferência).
 
 ### 1.2 Ver Configuração de Compartilhamento
 
@@ -20,7 +24,7 @@ O owner de um atlas pode compartilhar com outros usuários, definindo permissõe
 
 #### Permissão
 
-`owner`
+`manage`
 
 #### Response
 
@@ -85,7 +89,7 @@ Qualquer usuário autenticado
 
 #### Permissão
 
-`owner`
+`manage`
 
 #### Request
 
@@ -121,7 +125,7 @@ Qualquer usuário autenticado
 
 #### Permissão
 
-`owner`
+`manage`
 
 #### Request
 
@@ -150,7 +154,7 @@ Qualquer usuário autenticado
 
 #### Permissão
 
-`owner`
+`manage`
 
 #### Response
 
@@ -192,7 +196,7 @@ Owner                            Backend
 
 #### Permissão
 
-`owner`
+`manage`
 
 #### Response (200)
 
@@ -214,7 +218,7 @@ O link público completo seria: `https://app.ebgeo.mil/atlas/public/abc123xyz`
 
 #### Permissão
 
-`owner`
+`manage`
 
 #### Response
 

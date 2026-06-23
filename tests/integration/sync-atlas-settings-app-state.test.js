@@ -104,7 +104,8 @@ describe('Sync atlas-level app-state settings (datamodel-13/14)', () => {
     const s = await settings();
     assert.equal(s.mapBadgeColors.Delta, '#ec4899', 'whitelisted key rode along fine');
     assert.deepEqual(s.basemaps, [], 'resource key (basemaps) NOT overwritten — default [] preserved');
-    assert.deepEqual(s.features, { map_3d: true, panoramic_images: true, terrain_3d: true },
+    assert.deepEqual(s.features,
+      { map_3d: true, panoramic_images: true, terrain_3d: true, data_layers: true, analysis_layers: true },
       'resource key (features) NOT overwritten — default preserved');
     assert.ok(!('malicious' in s), 'non-whitelisted key dropped');
   });

@@ -137,11 +137,13 @@ Retornado quando `version == 0` ou `version < min_version`:
             "rectangles": [],
             "ellipses": [],
             "brushes": [],
+            "setores": [],
             "arrows": [],
             "boundarys": [],
             "occupied_fronts": [],
             "military_symbols": [],
             "coordination_measures": [],
+            "magnetic_declinations": [],
             "los": [],
             "visibility": [],
             "processed_los": [],
@@ -512,10 +514,12 @@ snapshot
 │   │   ├── texts[], images[]                   properties: { ...props,
 │   │   ├── circles[], rectangles[]               id, source, createdAt,
 │   │   ├── ellipses[], brushes[]                 updatedAt, version } }
+│   │   ├── setores[]
 │   │   ├── arrows[], boundarys[]
 │   │   ├── occupied_fronts[]
 │   │   ├── military_symbols[]
 │   │   ├── coordination_measures[]
+│   │   ├── magnetic_declinations[]
 │   │   ├── los[], visibility[]
 │   │   └── processed_los[], processed_visibility[]
 │   │
@@ -568,7 +572,7 @@ snapshot
 
 | Campo no DB | Campo no Snapshot | Descrição |
 |-------------|-------------------|-----------|
-| `features[]` (flat) | `features {}` (por tipo) | Organizado em 18 coleções como GeoJSON Features |
+| `features[]` (flat) | `features {}` (por tipo) | Organizado em 20 coleções como GeoJSON Features |
 | `cesium3d_data[]` (flat) | `cesium3d {}` (hierárquico) | Separado por `data_type` em cameraPositions/markers/measurements/viewsheds |
 | `catalog_layers[]` (tabela, flat) | `catalogLayers[]` (por-layer com sync) | Camadas de catálogo da tabela dedicada `catalog_layers`, separadas da coluna legada `catalog_layers` do mapa |
 | `streetview360_data[]` (flat) | `streetview360 {}` (hierárquico) | Separado por `data_type` em orientations/markers |
@@ -581,13 +585,13 @@ snapshot
 
 ## 9. Tipos de Feature Suportados
 
-O backend suporta 18 tipos de features:
+O backend suporta 20 tipos de features:
 
 | Categoria | Tipos |
 |-----------|-------|
 | **Básicos** | `point`, `line`, `polygon`, `text`, `image` |
-| **Formas** | `circle`, `rectangle`, `ellipse`, `brush` |
-| **Militares** | `arrow`, `boundary`, `occupied_front`, `military_symbol`, `coordination_measure` |
+| **Formas** | `circle`, `rectangle`, `ellipse`, `brush`, `sector` |
+| **Militares** | `arrow`, `boundary`, `occupied_front`, `military_symbol`, `coordination_measure`, `magnetic_declination` |
 | **Análises** | `los`, `visibility`, `processed_los`, `processed_visibility` |
 
 ---

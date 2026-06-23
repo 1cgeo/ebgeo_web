@@ -26,6 +26,9 @@ const operationSchema = Joi.object({
   // on every inbound op, so it is persisted and echoed back on incremental pull.
   lamportTimestamp: Joi.number(),
   clientId: Joi.string(),
+  // SyncLedger gesture id (best-effort observability). Explicitly allowed (rather than
+  // relying on .unknown(true)) so it survives validation and rides the broadcast to peers.
+  traceId: Joi.string().allow(null),
 })
   .or('entityType', 'target')
   .or('operationType', 'type')
