@@ -18,6 +18,7 @@ class VectorTileInfoControl {
         this.handleMapClickBound = this.handleMapClick.bind(this);
         this._handleMoveStart = this._onMoveStart.bind(this);
         this._handleZoomStart = this._onZoomStart.bind(this);
+        this._handleMouseMove = this._onMouseMove.bind(this);
         this._handleKeydown = this._onKeydown.bind(this);
 
         this._setupDocumentListeners();
@@ -45,6 +46,18 @@ class VectorTileInfoControl {
         }
     }
 
+    /**
+     * Keep the identify cursor pinned while the tool is active.
+     * Setting the canvas cursor once on activate() can be dropped by other
+     * map interactions (drag/pan, layout/resize), so re-assert it on move —
+     * mirrors how active draw tools own the cursor while running.
+     */
+    _onMouseMove() {
+        if (this.isActive && this.map && this.map.getCanvas().style.cursor !== 'help') {
+            this.map.getCanvas().style.cursor = 'help';
+        }
+    }
+
     onAdd(map) {
         this.map = map;
     }
@@ -54,6 +67,7 @@ class VectorTileInfoControl {
 
         if (this.isActive && this.map) {
             this.map.off('click', this.handleMapClickBound);
+            this.map.off('mousemove', this._handleMouseMove);
             this.map.off('movestart', this._handleMoveStart);
             this.map.off('zoomstart', this._handleZoomStart);
         }
@@ -74,6 +88,7 @@ class VectorTileInfoControl {
         this.map.getCanvas().style.cursor = 'help';
 
         this.map.on('click', this.handleMapClickBound);
+        this.map.on('mousemove', this._handleMouseMove);
         this.map.on('movestart', this._handleMoveStart);
         this.map.on('zoomstart', this._handleZoomStart);
     }
@@ -83,6 +98,7 @@ class VectorTileInfoControl {
         this.map.getCanvas().style.cursor = '';
 
         this.map.off('click', this.handleMapClickBound);
+        this.map.off('mousemove', this._handleMouseMove);
         this.map.off('movestart', this._handleMoveStart);
         this.map.off('zoomstart', this._handleZoomStart);
 
