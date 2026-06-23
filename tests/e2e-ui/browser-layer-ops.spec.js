@@ -80,6 +80,12 @@ describeOrSkip('Layer CRUD (real Chromium + real backend, snapshot-verified)', (
         await page.goto('/');
         await seedSession(page, state.baseUrl, 'lyr_create');
 
+        // no-UI: backend op-contract test. It pins the persisted `layer` `create` op shape
+        // and the frozen snapshot CONTRACT — including the `order` ⇄ `sort_order` column
+        // alias and the explicit `style`/`opacity`/`visible`/`locked` fields — read back
+        // from the raw `api.pullSync` snapshot. The "Nova camada" UI only ever sends default
+        // values (no arbitrary opacity/order/style on creation), so the precise envelope is
+        // driven directly through the real api-client.
         const layerId = await page.evaluate(async () => {
             const { api, createOperation, atlasId, mapId } = window.__layer;
             const id = crypto.randomUUID();
@@ -112,6 +118,12 @@ describeOrSkip('Layer CRUD (real Chromium + real backend, snapshot-verified)', (
         await page.goto('/');
         await seedSession(page, state.baseUrl, 'lyr_update');
 
+        // no-UI: backend op-contract test. It asserts a single `layer` `update` op carrying
+        // {visible,locked,opacity,order} round-trips into the snapshot, that an omitted
+        // field (`name`) is left untouched (partial-update semantics), and that the row
+        // version bumps. The app's per-attribute toggles never send this combined envelope,
+        // and the assertions read the raw snapshot, so the transport is driven directly
+        // through the real api-client.
         const layerId = await page.evaluate(async () => {
             const { api, createOperation, atlasId, mapId } = window.__layer;
             const id = crypto.randomUUID();
@@ -161,6 +173,11 @@ describeOrSkip('Layer CRUD (real Chromium + real backend, snapshot-verified)', (
         await page.goto('/');
         await seedSession(page, state.baseUrl, 'lyr_delete');
 
+        // no-UI: backend op-contract test for the §2.2 DELETE CASCADE. It asserts that a
+        // `layer` `delete` op soft-deletes the layer AND its child feature server-side (the
+        // feature vanishes from the snapshot) — a backend cascade verified against the raw
+        // `api.pullSync` snapshot, not an in-app render. The transport is driven directly
+        // through the real api-client.
         // Create a layer plus a feature that belongs to it (layerId in properties).
         const ids = await page.evaluate(async () => {
             const { api, createOperation, atlasId, mapId } = window.__layer;
@@ -215,6 +232,10 @@ describeOrSkip('Layer CRUD (real Chromium + real backend, snapshot-verified)', (
         await page.goto('/');
         await seedSession(page, state.baseUrl, 'lyr_idem');
 
+        // no-UI: backend IDEMPOTENCY test. Re-pushing the SAME create op object (same op id)
+        // twice is a transport-replay scenario (ON CONFLICT DO NOTHING) that no UI gesture
+        // can express — the app mints a fresh op id per user action. The transport is driven
+        // directly through the real api-client and asserted on the raw snapshot.
         const layerId = await page.evaluate(async () => {
             const { api, createOperation, atlasId, mapId } = window.__layer;
             const id = crypto.randomUUID();

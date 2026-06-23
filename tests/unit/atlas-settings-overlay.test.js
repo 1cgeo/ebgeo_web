@@ -52,8 +52,34 @@ describe('intersectAvailability (pure)', () => {
 
     it('treats absent settings as "no restriction"', () => {
         expect(intersectAvailability(DEPLOY, undefined)).toEqual({
-            map_3d: true, imagens_panoramicas: true, terrain_3d: true, basemaps: { a: true, b: true, c: false },
+            map_3d: true, imagens_panoramicas: true, terrain_3d: true,
+            basemaps: { a: true, b: true, c: false }, dataLayers: [], analysisLayers: [],
+            dataLayersEnabled: true, analysisLayersEnabled: true, tilesets: [],
         });
+    });
+
+    it('global Dados/Análise toggle off disables the whole category (intersection with deploy)', () => {
+        const baseline = {
+            map_3d: true, imagens_panoramicas: true, terrain_3d: true, basemaps: {},
+            dataLayersEnabled: true, analysisLayersEnabled: true,
+        };
+        const out = intersectAvailability(baseline, { features: { data_layers: false, analysis_layers: true } });
+        expect(out.dataLayersEnabled).toBe(false);
+        expect(out.analysisLayersEnabled).toBe(true);
+    });
+
+    it('filters data/analysis layers to the allowlist (empty/absent = keep all)', () => {
+        const baseline = {
+            map_3d: true, imagens_panoramicas: true, terrain_3d: true, basemaps: {},
+            dataLayers: [{ id: 'd1' }, { id: 'd2' }],
+            analysisLayers: [{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }],
+        };
+        // Empty/absent allowlist = no restriction (full deploy arrays kept).
+        expect(intersectAvailability(baseline, {}).dataLayers).toEqual([{ id: 'd1' }, { id: 'd2' }]);
+        // Strict subset = the allowlist of ids.
+        const out = intersectAvailability(baseline, { available_data_layers: ['d2'], available_analysis_layers: ['a1', 'a3'] });
+        expect(out.dataLayers).toEqual([{ id: 'd2' }]);
+        expect(out.analysisLayers).toEqual([{ id: 'a1' }, { id: 'a3' }]);
     });
 });
 

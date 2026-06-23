@@ -25,6 +25,8 @@
 import { connectionState as defaultConnectionState, ConnectionStates } from './connection-state.js';
 import { apiClient as defaultApiClient } from './api-client.js';
 import { getClientId } from './operation-factory.js';
+import { record } from './diag/trace-core.js';
+import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 
 const DEFAULT_HEARTBEAT_MS = 25000;
 const DEFAULT_RECONNECT_BASE_MS = 1000;
@@ -258,6 +260,7 @@ export class WsClient {
         try {
             msg = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data));
         } catch {
+            record(TraceStage.WS_INBOUND, { outcome: TraceOutcome.DROPPED, reason: DropReason.PARSE_ERROR });
             return;
         }
 
@@ -271,12 +274,28 @@ export class WsClient {
             case 'operations':
                 this._applyInboundOps(Array.isArray(msg.ops) ? msg.ops : []);
                 break;
-            case 'ack':
+            case 'ack': {
+                const r = msg.result || {};
+                record(TraceStage.PUSH_ACK, {
+                    opId: msg.opId, serverVersion: msg.serverVersion ?? r.currentVersion,
+                    outcome: r.idempotent ? TraceOutcome.IDEMPOTENT : TraceOutcome.OK,
+                });
                 this._emit('ack', { opIds: [msg.opId], serverVersion: msg.serverVersion, results: msg.result ? [msg.result] : [] });
                 break;
-            case 'ack_batch':
-                this._emit('ack', { opIds: msg.opIds || [], serverVersion: msg.serverVersion, results: msg.results || [] });
+            }
+            case 'ack_batch': {
+                const ids = msg.opIds || [];
+                const results = msg.results || [];
+                ids.forEach((id, i) => {
+                    const rr = results[i] || {};
+                    record(TraceStage.PUSH_ACK, {
+                        opId: id, serverVersion: msg.serverVersion ?? rr.currentVersion,
+                        outcome: rr.idempotent ? TraceOutcome.IDEMPOTENT : TraceOutcome.OK,
+                    });
+                });
+                this._emit('ack', { opIds: ids, serverVersion: msg.serverVersion, results });
                 break;
+            }
             case 'sync_response':
                 if (Number.isFinite(msg.currentVersion)) this.setLastVersion(msg.currentVersion);
                 this._emit('syncResponse', msg);
@@ -315,11 +334,24 @@ export class WsClient {
             case 'atlas_settings_updated':
                 this._emit('atlasSettings', msg);
                 break;
+            case 'atlas_updated':
+            case 'map_duplicated':
+            case 'maps_merged':
+                // These create/alter server-side data OUTSIDE the CRDT op log (REST clone/merge/
+                // rename), so peers never receive the entities as ops. Trigger a snapshot re-pull
+                // so the change is actually picked up (it was silently dropped at `default`).
+                this._emit('serverResync', msg);
+                break;
+            case 'sharing_updated':
+                this._emit('sharingUpdated', msg);
+                break;
             case 'error':
                 this._emit('error', { kind: 'server', code: msg.code, message: msg.message });
                 break;
             default:
-                // Unknown/forward-compatible message — ignore.
+                // Unknown/forward-compatible message — ignored, but surfaced so a
+                // protocol mismatch isn't completely invisible.
+                record(TraceStage.WS_INBOUND, { type: msg.type, outcome: TraceOutcome.DROPPED, reason: DropReason.UNKNOWN_TYPE });
                 break;
         }
     }
@@ -327,10 +359,34 @@ export class WsClient {
     /** @private Routes a batch of inbound operations, skipping this client's own echoes. */
     _applyInboundOps(ops) {
         const handler = this._handlers.operation;
-        if (!handler) return;
         for (const op of ops) {
+            record(TraceStage.WS_INBOUND, {
+                opId: op.id, traceId: op.traceId, clientId: op.clientId,
+                entityType: op.entityType, operationType: op.operationType,
+                entityId: op.entityId, mapId: op.mapId, outcome: TraceOutcome.OK,
+            });
+
+            // Advance the serverVersion cursor monotonically so the reconnect-replay
+            // `sync_request(lastVersion)` asks for the right tail. NOTE: server_version comes from a
+            // GLOBAL sequence shared across atlases, so it is monotonic but NOT contiguous per atlas
+            // — a "hole" is just another atlas's op, not a lost one. We therefore must NOT treat
+            // non-contiguity as a gap (that produced spurious sync_request storms); genuine op loss
+            // only happens across a disconnect and is recovered by the reconnect-time sync_request
+            // in _onConnected.
+            const sv = op.serverVersion;
+            if (Number.isFinite(sv) && sv > this._lastVersion) {
+                this._lastVersion = sv;
+            }
+
             // The HTTP-push broadcast can't exclude the sender; ignore our own echo.
-            if (op.clientId && this._clientId && op.clientId === this._clientId) continue;
+            if (op.clientId && this._clientId && op.clientId === this._clientId) {
+                record(TraceStage.WS_SELF_ECHO, {
+                    opId: op.id, traceId: op.traceId, clientId: op.clientId,
+                    outcome: TraceOutcome.FILTERED, reason: DropReason.ECHO_SELF,
+                });
+                continue;
+            }
+            if (!handler) continue;
             // SERIALIZE: the handler does an async read-modify-write of the map's store
             // entry. Applying ops concurrently (a batch broadcast, or rapid ops) races —
             // concurrent IndexedDB writes to the same map key clobber each other, losing
@@ -458,11 +514,20 @@ export class WsClient {
 
     /** @private Transitions connection state, ignoring no-op/invalid transitions. */
     _safeTransition(state) {
+        let fromState = null;
+        try {
+            fromState = this._conn.getState();
+        } catch {
+            // State machine not ready — fromState stays null.
+        }
         try {
             this._conn.transition(state);
+            record(TraceStage.CONN_TRANSITION, { fromState, toState: state, outcome: TraceOutcome.OK });
             this._emit('stateChange', { state });
         } catch {
-            // Same-state or invalid transition — ignore (machine stays consistent).
+            // Same-state or invalid transition — ignore (machine stays consistent), but
+            // surface the swallowed transition so an illegal one isn't invisible (inv I9).
+            record(TraceStage.CONN_TRANSITION, { fromState, toState: state, outcome: TraceOutcome.FAILED });
         }
     }
 

@@ -16,10 +16,10 @@
 ```javascript
 import { addFeature, getFeatureById, updateFeature, removeFeature } from '@store';
 
-await addFeature('polygon', feature, mapName);  // 3rd arg = mapName (optional); active layer resolved internally
-const feature = await getFeatureById('polygon', featureId);
-await updateFeature('polygon', feature);         // pass the full feature object (3rd arg mapName, optional)
-await removeFeature('polygon', featureId);       // delete by id (NOT "deleteFeature")
+await addFeature('polygons', feature, mapName);  // 1st arg = storage type (plural, e.g. 'points'); 3rd arg = mapName (optional); active layer resolved internally
+const feature = await getFeatureById('polygons', featureId);
+await updateFeature('polygons', feature);         // pass the full feature object (3rd arg mapName, optional)
+await removeFeature('polygons', featureId);       // delete by id (NOT "deleteFeature")
 ```
 
 ## Adding a New Event

@@ -15,6 +15,9 @@
  */
 
 import { expect } from '@playwright/test';
+import { waitForRemoteEntity } from './trace-helpers.js';
+import { collectLedger, reduceLedger, renderReport } from './ledger.js';
+import { ApiClient } from '../../../src/js/store/sync/api-client.js';
 
 /**
  * Seeds two users + an atlas with one map "Mapa Tático", shared WRITE with user B.
@@ -129,6 +132,14 @@ export async function openClient(browser, baseUrl, atlasId, creds) {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${baseUrl}/api/v1`);
+    // Enable the SyncLedger tracer before app boot so every collab spec gets the in-page
+    // ring (window.__ebgeoSyncTrace) the deterministic waits + ledger collection read.
+    // Escape hatch: set EBGEO_E2E_NO_TRACE=1 to run the collab specs with the tracer fully
+    // inert (the pollPeer* helpers fall back to their store poll), e.g. to isolate whether
+    // a failure is tracer-related.
+    if (process.env.EBGEO_E2E_NO_TRACE !== '1') {
+        await page.addInitScript(() => { window.__EBGEO_TRACE__ = true; });
+    }
     await page.goto('/');
     await loginUI(page, creds.username, creds.password);
     await openAtlasUI(page, atlasId);
@@ -148,26 +159,154 @@ export function readFeatures(page, type) {
 export const currentMapName = (page) =>
     page.evaluate(async () => (await import('/src/js/store/index.js')).getCurrentMapNameSync());
 
-/** Polls until the peer's store has a feature of `type` with `id`. */
+/**
+ * @private Shared draw driver, exactly like a user: fit the map to the coords, activate the tool
+ * from the draw toolbar, click the canvas at each vertex (multi-vertex tools finish on a
+ * right-click of the last point), and return the freshly-created feature's id (the tool generates
+ * it; we diff `storage` before/after to find it).
+ * @returns {Promise<string|null>}
+ */
+async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
+    const before = new Set((await readFeatures(page, storage)).map((f) => f.id));
+
+    // Fit/center the map so every vertex is guaranteed in-frame for the clicks.
+    await page.evaluate((cs) => {
+        const map = globalThis.__ebgeoMap;
+        if (cs.length === 1) { map.jumpTo({ center: cs[0], zoom: 14 }); return; }
+        const lngs = cs.map((c) => c[0]); const lats = cs.map((c) => c[1]);
+        map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 100, duration: 0 });
+    }, coords);
+    await page.waitForTimeout(300); // let the camera settle before projecting
+
+    await page.locator('.toolbar-group[data-group-id="draw"] .toolbar-group-btn').click();
+    const btn = page.locator(`.toolbar-group[data-group-id="draw"] .toolbar-tool-btn[data-tool-id="${toolId}"]`);
+    await btn.click();
+    await expect(btn).toHaveAttribute('data-active', 'true', { timeout: 5000 });
+
+    // Project each lng/lat to a viewport pixel (map projection + canvas offset).
+    const pts = await page.evaluate((cs) => {
+        const map = globalThis.__ebgeoMap;
+        const rect = map.getCanvas().getBoundingClientRect();
+        return cs.map(([lng, lat]) => {
+            const p = map.project([lng, lat]);
+            return { x: Math.round(rect.left + p.x), y: Math.round(rect.top + p.y) };
+        });
+    }, coords);
+
+    if (!multi) {
+        await page.mouse.click(pts[0].x, pts[0].y); // single click places a point
+    } else {
+        for (let i = 0; i < pts.length - 1; i++) {
+            await page.mouse.click(pts[i].x, pts[i].y);
+            await page.waitForTimeout(120);
+        }
+        await page.mouse.click(pts[pts.length - 1].x, pts[pts.length - 1].y, { button: 'right' }); // finish
+    }
+
+    // Return the freshly-created feature id (the one absent before the draw).
+    let id = null;
+    await expect.poll(async () => {
+        const fresh = (await readFeatures(page, storage)).find((f) => !before.has(f.id));
+        id = fresh?.id ?? null;
+        return id;
+    }, { timeout: 10000 }).toBeTruthy();
+    return id;
+}
+
+/** Draws a LINE via the real line tool (vertex clicks + right-click finish). @returns {Promise<string>} new id. */
+export const drawLineUI = (page, coords) => drawViaToolUI(page, { toolId: 'line', storage: 'lines', coords, multi: true });
+
+/** Draws a POLYGON via the real polygon tool (vertex clicks + right-click finish). @returns {Promise<string>} new id. */
+export const drawPolygonUI = (page, coords) => drawViaToolUI(page, { toolId: 'polygon', storage: 'polygons', coords, multi: true });
+
+/** Places a POINT via the real point tool (single canvas click). @returns {Promise<string>} new id. */
+export const drawPointUI = (page, lngLat) => drawViaToolUI(page, { toolId: 'point', storage: 'points', coords: [lngLat], multi: false });
+
+/**
+ * Waits until the peer's store has a feature of `type` with `id`. SyncLedger-gated:
+ * first waits deterministically for the peer's `remote.applied` span (the op was applied
+ * + lifecycle event emitted), then asserts the store. Falls back to a store poll if the
+ * trace never fires, so the assertion stays honest. Replaces the old blind 20s poll.
+ */
 export async function pollPeerFeature(page, type, id, timeout = 20000) {
+    let traced = false;
+    try {
+        traced = await waitForRemoteEntity(page, id, { timeout });
+    } catch {
+        // Trace was active but the signal never came → genuine miss; a short store poll confirms.
+        traced = true;
+    }
     await expect
-        .poll(async () => (await readFeatures(page, type)).some((x) => x.id === id), { timeout })
+        .poll(async () => (await readFeatures(page, type)).some((x) => x.id === id), { timeout: traced ? 5000 : timeout })
         .toBe(true);
 }
 
-/** Polls until the peer's feature of `type`/`id` satisfies `pred(props)`. */
+/** Waits until the peer's feature of `type`/`id` satisfies `pred(props)` (SyncLedger-gated). */
 export async function pollPeerFeatureWhere(page, type, id, pred, timeout = 20000) {
+    let traced = false;
+    try {
+        traced = await waitForRemoteEntity(page, id, { timeout });
+    } catch {
+        traced = true;
+    }
     await expect
         .poll(async () => {
             const hit = (await readFeatures(page, type)).find((x) => x.id === id);
             return hit ? !!pred(hit.props) : false;
-        }, { timeout })
+        }, { timeout: traced ? 8000 : timeout })
         .toBe(true);
 }
 
-/** Polls until the peer's store NO LONGER has the feature (delete sync). */
+/** Waits until the peer's store NO LONGER has the feature (delete sync; SyncLedger-gated). */
 export async function pollPeerFeatureGone(page, type, id, timeout = 20000) {
+    let traced = false;
+    try {
+        traced = await waitForRemoteEntity(page, id, { operationType: 'delete', timeout });
+    } catch {
+        traced = true;
+    }
     await expect
-        .poll(async () => (await readFeatures(page, type)).some((x) => x.id === id), { timeout })
+        .poll(async () => (await readFeatures(page, type)).some((x) => x.id === id), { timeout: traced ? 5000 : timeout })
         .toBe(false);
+}
+
+/**
+ * Collects the UNIFIED SyncLedger (each client's ring + the server ring) at the end of a
+ * collaboration scenario, attaches the merged ledger.jsonl + the human/AI report to the
+ * Playwright report, and asserts the session was correct: NO op was acked-but-no-effect
+ * (invariant I2 — the flagship "wrote 0 rows" guard). The server ring is best-effort (the
+ * /debug/trace endpoint is mounted only under NODE_ENV=test). Use ONLY for well-behaved
+ * convergence flows — not for permission/lock edge-case specs where a 0-row outcome may be
+ * the intended behaviour.
+ *
+ * @param {import('@playwright/test').TestInfo} testInfo
+ * @param {import('@playwright/test').Page[]} pages
+ * @param {string} baseUrl
+ * @param {{ username: string, password: string }} ownerCreds
+ * @param {string} atlasId
+ * @param {{ allowNoEffects?: boolean }} [opts] - allowNoEffects: skip the I2 assertion for specs
+ *   that exercise undo→redo (re-creating a soft-deleted feature is a BY-DESIGN server no-op — a
+ *   tombstone — per the backend "Sync CRDT — confirmed gaps"; it is not a violation).
+ * @returns {Promise<Object>} The reduced report.
+ */
+export async function assertLedgerClean(testInfo, pages, baseUrl, ownerCreds, atlasId, { allowNoEffects = false } = {}) {
+    let token;
+    try {
+        const owner = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
+        await owner.login(ownerCreds.username, ownerCreds.password);
+        token = owner.getAccessToken();
+    } catch {
+        // Server-side ledger is optional enrichment; the client rings carry the core signal.
+    }
+    const spans = await collectLedger(pages, { baseUrl, token, atlasId });
+    const report = reduceLedger(spans);
+    await testInfo.attach('syncledger.report.md', { body: renderReport(report), contentType: 'text/markdown' });
+    await testInfo.attach('syncledger.jsonl', {
+        body: spans.map((s) => JSON.stringify(s)).join('\n'),
+        contentType: 'application/x-ndjson',
+    });
+    if (!allowNoEffects) {
+        expect(report.summary.noEffects, `acked-but-no-effect ops: ${JSON.stringify(report.noEffects)}`).toBe(0);
+    }
+    return report;
 }

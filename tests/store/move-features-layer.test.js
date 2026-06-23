@@ -11,6 +11,7 @@ const { mockMapData, mockMapManager, mockLockedMaps } = vi.hoisted(() => {
         mockMapManager: {
             getCurrentMapName: vi.fn(() => 'TestMap'),
             getCurrentMapId: vi.fn(() => 'map-uuid-123'),
+            getMapId: vi.fn(() => 'map-uuid-123'),
             getFeatureColor: vi.fn(() => null),
             getFeatureColors: vi.fn(() => []),
             updateColorUsage: vi.fn(),
@@ -83,6 +84,7 @@ import { isCurrentMapLockedSync } from '../../src/js/store/map.operations.js';
 import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
 import { updateMapDataCompat } from '../../src/js/store/repositories/index.js';
 import { emitStoreError } from '../../src/js/store/store-errors.js';
+import { logFeatureOperation, OperationType } from '../../src/js/store/sync/index.js';
 
 // ============================================================================
 // Helpers
@@ -350,5 +352,39 @@ describe('moveFeaturesToLayer - persistence', () => {
 
         // Single atomic persist, not one per feature
         expect(updateMapDataCompat).toHaveBeenCalledOnce();
+    });
+});
+
+// ============================================================================
+// moveFeaturesToLayer - sync (regression: the layerId change must reach peers)
+// ============================================================================
+
+describe('moveFeaturesToLayer - sync', () => {
+    it('logs a feature UPDATE op per moved feature (so the layer change syncs)', async () => {
+        mockMapData.value.features.points.push(
+            makeFeature('p1', 'point', { layerId: 'layer-A' }),
+            makeFeature('p2', 'point', { layerId: 'layer-A' }),
+            makeFeature('p3', 'point', { layerId: 'layer-B' })
+        );
+
+        await moveFeaturesToLayer(['layer-A'], 'layer-target');
+
+        // Exactly the two moved features are logged (p3 in layer-B is untouched).
+        expect(logFeatureOperation).toHaveBeenCalledTimes(2);
+        expect(logFeatureOperation).toHaveBeenCalledWith(
+            OperationType.UPDATE,
+            'p1',
+            'map-uuid-123',
+            expect.objectContaining({ properties: expect.objectContaining({ layerId: 'layer-target' }) }),
+            expect.objectContaining({ properties: expect.objectContaining({ layerId: 'layer-A' }) })
+        );
+    });
+
+    it('logs nothing when no feature moved', async () => {
+        mockMapData.value.features.points.push(
+            makeFeature('p1', 'point', { layerId: 'layer-X' })
+        );
+        await moveFeaturesToLayer(['layer-nonexistent'], 'layer-target');
+        expect(logFeatureOperation).not.toHaveBeenCalled();
     });
 });

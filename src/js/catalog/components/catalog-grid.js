@@ -14,7 +14,7 @@ import { CATALOG_UI_ICONS } from '../catalog.constants.js';
  * @param {Function} options.onItemClick - Item click callback
  * @returns {HTMLElement}
  */
-export function createCatalogGrid({ items, onItemClick, mapLocked = false }) {
+export function createCatalogGrid({ items, onItemClick, mapLocked = false, selectable = false, allowedIds, onToggle }) {
     const grid = document.createElement('div');
     grid.className = 'catalog-grid';
 
@@ -32,8 +32,12 @@ export function createCatalogGrid({ items, onItemClick, mapLocked = false }) {
     items.forEach(item => {
         const card = createCatalogCard({
             item,
-            onClick: () => onItemClick(item),
-            mapLocked
+            onClick: () => onItemClick?.(item),
+            mapLocked,
+            selectable,
+            // allowedIds is a Set of the RAW (originalData) ids currently allowed in the atlas.
+            selected: selectable ? !!allowedIds?.has(item.originalData?.id ?? item.id) : false,
+            onToggle,
         });
         grid.appendChild(card);
     });

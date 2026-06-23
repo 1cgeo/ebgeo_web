@@ -19,8 +19,17 @@
  *   - LWW-by-arrival: two creates with the SAME id collapse to one entry whose
  *     payload reflects the LAST arrival (idempotency + last-writer-wins).
  *
- * Each test seeds its OWN user + atlas + map for full isolation. No UI clicks —
- * the transport is driven entirely through `page.evaluate`.
+ * Each test seeds its OWN user + atlas + map for full isolation.
+ *
+ * UI-first note: marker3d / measurement3d / viewshed3d / cameraPosition3d are
+ * VIEWER-ONLY entities — they exist only inside the Cesium 3D viewer and are placed by
+ * picking a rendered 3D-Tiles scene, NOT by a single-gesture click on the 2D MapLibre
+ * map. The viewer needs a live WebGL Cesium context + a served tileset, which self-skip
+ * headless (see viewer-3d-open.spec.js §20.13-19). So this transport-shape spec drives
+ * the real api-client / operation-factory directly via `page.evaluate`; every assertion
+ * still reads observable backend `pullSync` state. The 2D-map UI that DOES exist (the
+ * #feature-toggle-models3d marker viewer + opening the Cesium viewer) is covered by the
+ * dedicated UI spec viewer-3d-open.spec.js.
  */
 
 import { test, expect } from '@playwright/test';
@@ -113,6 +122,9 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
                     roll: 0,
                 };
 
+                // no-UI: marker3d/measurement3d/viewshed3d/cameraPosition3d are
+                // viewer-only (placed by picking a rendered 3D-Tiles scene in the Cesium
+                // viewer, which self-skips headless) — driven on the real transport.
                 await api.pushOperations(aid, [
                     createOperation('marker3d', 'create', markerId, mid, marker),
                     createOperation('measurement3d', 'create', measurementId, mid, measurement),
@@ -174,6 +186,8 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
                 const keepId = crypto.randomUUID();
                 const dropId = crypto.randomUUID();
 
+                // no-UI: viewer-only marker3d (Cesium viewer self-skips headless) — the
+                // create/update/delete lifecycle is exercised on the real transport.
                 // Two markers under the same tileset: one we'll update, one we'll delete.
                 await api.pushOperations(aid, [
                     createOperation('marker3d', 'create', keepId, mid, {
@@ -235,6 +249,8 @@ describeOrSkip('Cesium-3D transport (real Chromium + real backend)', () => {
                 const tilesetId = `tileset-${crypto.randomUUID().slice(0, 8)}`;
                 const id = crypto.randomUUID();
 
+                // no-UI: viewer-only viewshed3d (Cesium viewer self-skips headless) —
+                // LWW/idempotency is exercised on the real transport.
                 // Same entity id, two arrivals. Last arrival is the survivor; the entity
                 // is never duplicated (INSERT ... ON CONFLICT DO NOTHING + LWW update).
                 await api.pushOperations(aid, [

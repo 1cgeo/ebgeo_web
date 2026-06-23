@@ -27,9 +27,16 @@
  * keyed by `photoName`; markers are a flat array. There are NO REST write routes —
  * everything travels as a CRDT op through `api.pushOperations`.
  *
- * Each test self-provisions its own user + atlas + map for isolation. No UI clicks —
- * the transport is driven entirely through `page.evaluate`. Every assertion is
- * grounded in an observable `api.pullSync` snapshot — no mocks, real HTTP.
+ * Each test self-provisions its own user + atlas + map for isolation.
+ *
+ * UI-first note: marker360 / orientation360 are VIEWER-ONLY entities — created/edited
+ * INSIDE the Three.js 360 panorama viewer (anchored to a loaded equirectangular photo),
+ * not by a single-gesture click on the 2D MapLibre map. A marker360 carries 3D panorama
+ * coordinates a 2D click cannot produce, and the viewer needs a WebGL camera + a photo
+ * that are absent in this env (see viewer-360-open.spec.js §21). So this transport-shape
+ * CRUD spec drives the real api-client / operation-factory directly via `page.evaluate`;
+ * every assertion still reads observable backend `pullSync` state. The 2D-map 360 UI that
+ * DOES exist is covered by viewer-360-open.spec.js.
  */
 
 import { test, expect } from '@playwright/test';
@@ -85,6 +92,9 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
                 const keepId = crypto.randomUUID();
                 const dropId = crypto.randomUUID();
 
+                // no-UI: marker360 is viewer-only (placed inside the Three.js 360 viewer,
+                // which self-skips headless) — the create/update/delete lifecycle runs on
+                // the real transport.
                 // §21.3 ADD two flat markers under the same photo: one we'll edit,
                 // one we'll delete. Flat camelCase payload, exactly what the real
                 // frontend emits — ids + photoName at the top level, rest is opaque.
@@ -191,6 +201,8 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
                 const idA = crypto.randomUUID();
                 const idB = crypto.randomUUID();
 
+                // no-UI: orientation360 is viewer-only (saved inside the Three.js 360
+                // viewer, which self-skips headless) — save/clear runs on the real transport.
                 // §21.6 SAVE two orientations under different photos. Flat payload;
                 // photoName becomes the orientations map KEY in the snapshot.
                 await api.pushOperations(aid, [
@@ -268,6 +280,9 @@ describeOrSkip('Street View 360 annotation transport (real Chromium + real backe
                 const timedId = crypto.randomUUID();
                 const permanentId = crypto.randomUUID();
 
+                // no-UI: marker360 is viewer-only (placed inside the 360 viewer, which
+                // self-skips headless) — the temporal-window round-trip + LWW edit run on
+                // the real transport.
                 // §21.15 a marker with a temporal visibility window (início/fim ride
                 // inside the marker payload), plus a permanent one (empty fields).
                 await api.pushOperations(aid, [

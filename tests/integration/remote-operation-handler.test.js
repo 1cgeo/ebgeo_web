@@ -356,19 +356,59 @@ describe('Remote Feature Operations', () => {
         expect(mapDataStore.get('map-1').features.points).toHaveLength(0);
     });
 
-    it('handles missing map gracefully', async () => {
-        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
+    // Regression — new-map silent drop: a feature/create can arrive before its map/create op
+    // (A creates a map and immediately draws on it). It must be BUFFERED, not dropped, and
+    // replayed once the map lands. Previously `if (!mapData) return` lost the feature forever.
+    it('buffers a feature op whose map is missing and replays it when the map arrives', async () => {
         await applyRemoteOperation({
             entityType: EntityType.FEATURE,
             operationType: OperationType.CREATE,
-            entityId: 'remote-f2',
-            mapId: 'nonexistent-map',
-            data: testFeature
+            entityId: 'pending-feat',
+            mapId: 'later-map',
+            data: { ...testFeature, properties: { ...testFeature.properties, id: 'pending-feat' } },
+        });
+        // Not applied yet — the map does not exist locally.
+        expect(mapDataStore.get('later-map')).toBeUndefined();
+
+        // The map's create op arrives → the buffered feature is replayed onto it.
+        await applyRemoteOperation({
+            entityType: EntityType.MAP,
+            operationType: OperationType.CREATE,
+            entityId: 'later-map',
+            mapId: null,
+            data: { id: 'later-map', name: 'Later Map', features: { points: [], lines: [] } },
         });
 
-        expect(consoleSpy).toHaveBeenCalled();
-        consoleSpy.mockRestore();
+        const map = mapDataStore.get('later-map');
+        expect(map).toBeDefined();
+        expect(map.features.points.some((f) => f.properties.id === 'pending-feat')).toBe(true);
+    });
+
+    // Regression — concurrent-edit divergence: an UPDATE OLDER (lower serverVersion) than the
+    // last applied — a concurrent peer edit that lost the arrival-order race — must be IGNORED,
+    // so both clients converge to the highest-serverVersion value (LWW by arrival order).
+    it('ignores a feature UPDATE older than the last applied (LWW by serverVersion → convergence)', async () => {
+        const line = {
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+            properties: { id: 'conv-1', source: 'line', lineColor: '#000000' },
+        };
+        mapDataStore.get('map-1').features.lines.push(line);
+        const colorOf = () => mapDataStore.get('map-1').features.lines.find((f) => f.properties.id === 'conv-1').properties.lineColor;
+
+        // Newer arrival (serverVersion 20) wins.
+        await applyRemoteOperation({
+            entityType: EntityType.FEATURE, operationType: OperationType.UPDATE, entityId: 'conv-1', mapId: 'map-1', serverVersion: 20,
+            data: { ...line, properties: { ...line.properties, lineColor: '#ff0000' } },
+        });
+        expect(colorOf()).toBe('#ff0000');
+
+        // A LATER-DELIVERED but OLDER op (serverVersion 10) must be dropped — else the clients diverge.
+        await applyRemoteOperation({
+            entityType: EntityType.FEATURE, operationType: OperationType.UPDATE, entityId: 'conv-1', mapId: 'map-1', serverVersion: 10,
+            data: { ...line, properties: { ...line.properties, lineColor: '#0000ff' } },
+        });
+        expect(colorOf()).toBe('#ff0000'); // unchanged — the stale op was ignored
     });
 
     it('handles delete of nonexistent feature gracefully', async () => {

@@ -254,6 +254,43 @@ describe('connect', () => {
         expect(sessionContextMock.setSession).toHaveBeenCalledWith({ userId: 'owner-1', role: 'owner' });
     });
 
+    // Regression — the atlas OWNER is promoted the INSTANT the snapshot lands (its atlas.sync
+    // carries ownerId), BEFORE the WS handshake. This is what makes the owner's account config
+    // buttons appear immediately on an F5 reconnect instead of waiting on — or being lost to —
+    // the socket handshake (which used to be the only thing that applied the role).
+    it('promotes the OWNER from the snapshot (before the WS handshake) when the user owns the atlas', async () => {
+        sessionContextMock.userId = 'owner-9';
+        sessionContextMock.username = 'Dona';
+        apiClientMock.pullSync.mockResolvedValueOnce({
+            snapshot: { atlas: { sync: { ownerId: 'owner-9' } }, maps: {} },
+            currentVersion: 3,
+            isSnapshot: true,
+        });
+
+        await syncEngine.connect('atlas-1');
+
+        expect(sessionContextMock.setSession).toHaveBeenCalledWith({
+            userId: 'owner-9', role: 'owner', username: 'Dona',
+        });
+    });
+
+    it('does NOT promote from the snapshot when the user is not the atlas owner', async () => {
+        sessionContextMock.userId = 'user-2';
+        sessionContextMock.username = 'Colab';
+        apiClientMock.pullSync.mockResolvedValueOnce({
+            snapshot: { atlas: { sync: { ownerId: 'someone-else' } }, maps: {} },
+            currentVersion: 3,
+            isSnapshot: true,
+        });
+        wsClientMock.connect.mockResolvedValueOnce({ sessionId: 's1', userId: 'user-2', permission: 'write', role: 'editor' });
+
+        await syncEngine.connect('atlas-1');
+
+        expect(sessionContextMock.setSession).not.toHaveBeenCalledWith(
+            expect.objectContaining({ role: 'owner' })
+        );
+    });
+
     it('leaves the session untouched on connect when the payload carries no role', async () => {
         wsClientMock.connect.mockResolvedValueOnce({ sessionId: 's1', userId: 'user-1', permission: null });
 
@@ -265,9 +302,9 @@ describe('connect', () => {
     it('wires WS handlers only once across reconnects', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
         await syncEngine.connect('atlas-1', { initialPull: false });
-        // 5 events ('operation','syncResponse','atlasDeleted','atlasOwnerChanged','atlasSettings')
-        // wired exactly once total.
-        expect(wsClientMock.on).toHaveBeenCalledTimes(5);
+        // 6 events ('operation','syncResponse','atlasDeleted','atlasOwnerChanged','atlasSettings',
+        // 'serverResync') wired exactly once total.
+        expect(wsClientMock.on).toHaveBeenCalledTimes(6);
         // Operation logging is now enabled per authenticated connect (not in wire-once), so two
         // connects enable it twice.
         expect(enableOperationLogging).toHaveBeenCalledTimes(2);

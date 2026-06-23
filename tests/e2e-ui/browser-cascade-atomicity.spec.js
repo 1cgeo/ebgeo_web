@@ -1,122 +1,117 @@
 // Path: e2e-ui/browser-cascade-atomicity.spec.js
 
 /**
- * @fileoverview Browser-level cascade + atomicity test. Drives the REAL frontend
- * transport (api-client / operation-factory) imported live from the Vite dev server
- * INSIDE real Chromium, against the REAL backend, with genuine HTTP round-trips.
+ * Cascade delete + batch atomicity.
  *
- * Three independent users/atlases/maps (one per test, for isolation) prove:
- *   1. CASCADE — soft-deleting a layer cascades to every feature that carries that
- *      `layerId`: the post-delete snapshot omits BOTH the layer and its features,
- *      while a feature on a DIFFERENT layer survives (negative/control assertion).
- *   2. ATOMICITY (rollback) — a single push batch `[valid feature create,
- *      cross-atlas feature update]` is one transaction. The cross-atlas update
- *      (moving a feature into a map of ANOTHER atlas) is rejected server-side
- *      (ForbiddenError), so the WHOLE batch rolls back and the valid create is
- *      ABSENT from the snapshot. A control single-op create of the same feature
- *      then succeeds, proving the earlier absence was the rollback, not a bad op.
- *   3. ATOMICITY (commit) — a valid batch of 3 creates persists all 3 in one tx.
+ * Test 1 (CASCADE) is driven UI-FIRST: two points are drawn on a layer and one on a
+ * control layer via the REAL point tool, the layer is removed through the app's REAL
+ * deleteLayer store op (the "Deletar camada" path, which cascades to its features), and
+ * the assertions read the live app store (getCurrentMapFeatures + the layer list).
  *
- * No UI clicks: the specs drive the transport via `page.evaluate`, so there are no
- * data-testid selectors. All assertions read observable backend state via
- * `api.pullSync` (the persisted snapshot).
+ * Tests 2-3 (ATOMICITY) stay backend transport probes: a multi-op push is ONE server
+ * transaction (rollback on a cross-atlas op; commit-all on a valid batch) — a server
+ * transactional contract with no user-visible "batch" gesture, and the rollback path
+ * needs a cross-atlas op that has no UI. See the no-UI notes on those tests.
+ *
+ * The atlas/map/share SETUP is API-only (sharing has no UI); for test 1 login + open +
+ * the draw/delete gestures are real UI.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { seedSharedAtlas, openClient, drawPointUI, currentMapName } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
+/** Drives a store op on `page` through the app's REAL store facade. */
+function applyStoreOp(page, opName, args) {
+    return page.evaluate(async ({ name, a }) => {
+        const store = await import('/src/js/store/index.js');
+        return store[name](...a);
+    }, { name: opName, a: args });
+}
+
 describeOrSkip('Cascade delete + batch atomicity (real Chromium + real backend)', () => {
-    test('layer delete cascades: snapshot omits the layer AND its features, but spares other layers', async ({
-        page,
+    test('layer delete cascades: store omits the layer AND its features, but spares other layers', async ({
+        browser,
     }) => {
-        await page.goto('/');
+        const seed = await seedSharedAtlas(browser, state.baseUrl);
+        const page = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
 
-        const result = await page.evaluate(async (baseUrl) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
-
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `cascade_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Cascade User' });
-            await api.login(username, password);
-
-            const atlas = await api.createAtlas({ name: 'Cascade Atlas' });
-            const mapId = crypto.randomUUID();
-            await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: 'M1' })]);
+        try {
+            expect(await currentMapName(page)).toBe(seed.mapName);
 
             // Two layers: one to delete (with two features), one to keep (control).
-            const layerDel = crypto.randomUUID();
-            const layerKeep = crypto.randomUUID();
-            await api.pushOperations(atlas.id, [
-                createOperation('layer', 'create', layerDel, mapId, { name: 'To Delete', order: 0 }),
-                createOperation('layer', 'create', layerKeep, mapId, { name: 'To Keep', order: 1 }),
+            const layerDel = await applyStoreOp(page, 'createLayer', ['To Delete', seed.mapName]).then((l) => l?.id ?? l);
+            const layerKeep = await applyStoreOp(page, 'createLayer', ['To Keep', seed.mapName]).then((l) => l?.id ?? l);
+            expect(layerDel).toBeTruthy();
+            expect(layerKeep).toBeTruthy();
+
+            // Draw two points on the to-delete layer + one on the control layer (real tool).
+            const f1 = await drawPointUI(page, [-43.1, -22.1]);
+            const f2 = await drawPointUI(page, [-43.2, -22.2]);
+            await applyStoreOp(page, 'moveFeaturesToLayer', [
+                [{ type: 'point', id: f1 }, { type: 'point', id: f2 }], layerDel, seed.mapName,
             ]);
+            const fKeep = await drawPointUI(page, [-43.3, -22.3]);
+            await applyStoreOp(page, 'moveFeaturesToLayer', [[{ type: 'point', id: fKeep }], layerKeep, seed.mapName]);
 
-            // GeoJSON features: type lives in properties.source; layer in properties.layerId.
-            const mkPoint = (layerId, lng, lat) => {
-                const id = crypto.randomUUID();
+            const readStore = () => page.evaluate(async (mn) => {
+                const store = await import('/src/js/store/index.js');
+                const f = await store.getCurrentMapFeatures();
+                const layers = store.getLayers(mn) || [];
                 return {
-                    id,
-                    op: createOperation('feature', 'create', id, mapId, {
-                        type: 'Feature',
-                        geometry: { type: 'Point', coordinates: [lng, lat] },
-                        properties: { id, source: 'point', layerId },
-                    }),
+                    points: (f.points || []).map((p) => p.properties?.id),
+                    layers: layers.map((l) => l.id),
                 };
+            }, seed.mapName);
+
+            // Pre-condition: all three features and both layers are present.
+            const before = await readStore();
+
+            // Delete the layer → the app cascades the delete to its features (deleteLayer
+            // calls deleteLayerFeatures + deleteLayerOnly — the real "Deletar camada" op).
+            await applyStoreOp(page, 'deleteLayer', [layerDel, seed.mapName]);
+
+            await expect
+                .poll(async () => (await readStore()).layers.includes(layerDel), { timeout: 10000 })
+                .toBe(false);
+            const after = await readStore();
+
+            const result = {
+                f1, f2, fKeep, layerDel, layerKeep,
+                pointsBefore: before.points,
+                layersBefore: before.layers,
+                pointsAfter: after.points,
+                layersAfter: after.layers,
             };
-            const f1 = mkPoint(layerDel, -43.1, -22.1);
-            const f2 = mkPoint(layerDel, -43.2, -22.2);
-            const fKeep = mkPoint(layerKeep, -43.3, -22.3);
-            await api.pushOperations(atlas.id, [f1.op, f2.op, fKeep.op]);
 
-            // Pre-delete snapshot: all three features and both layers must be present.
-            const before = await api.pullSync(atlas.id, 0);
-            const mapBefore = before.snapshot?.maps?.find((m) => m.id === mapId);
-            const pointsBefore = (mapBefore?.features?.points || []).map((p) => p.properties.id);
-            const layersBefore = (mapBefore?.layers || []).map((l) => l.id);
+            // Pre-condition: everything was really there before the delete.
+            expect(result.pointsBefore).toEqual(expect.arrayContaining([result.f1, result.f2, result.fKeep]));
+            expect(result.layersBefore).toEqual(expect.arrayContaining([result.layerDel, result.layerKeep]));
 
-            // Delete the layer → cascade soft-deletes its features in one transaction.
-            await api.pushOperations(atlas.id, [createOperation('layer', 'delete', layerDel, mapId, null)]);
+            // Cascade: the deleted layer AND both of its features are gone.
+            expect(result.layersAfter).not.toContain(result.layerDel);
+            expect(result.pointsAfter).not.toContain(result.f1);
+            expect(result.pointsAfter).not.toContain(result.f2);
 
-            const after = await api.pullSync(atlas.id, 0);
-            const mapAfter = after.snapshot?.maps?.find((m) => m.id === mapId);
-            const pointsAfter = (mapAfter?.features?.points || []).map((p) => p.properties.id);
-            const layersAfter = (mapAfter?.layers || []).map((l) => l.id);
-
-            return {
-                f1: f1.id,
-                f2: f2.id,
-                fKeep: fKeep.id,
-                layerDel,
-                layerKeep,
-                pointsBefore,
-                layersBefore,
-                pointsAfter,
-                layersAfter,
-            };
-        }, state.baseUrl);
-
-        // Pre-condition: everything was really there before the delete.
-        expect(result.pointsBefore).toEqual(expect.arrayContaining([result.f1, result.f2, result.fKeep]));
-        expect(result.layersBefore).toEqual(expect.arrayContaining([result.layerDel, result.layerKeep]));
-
-        // Cascade: the deleted layer AND both of its features are gone from the snapshot.
-        expect(result.layersAfter).not.toContain(result.layerDel);
-        expect(result.pointsAfter).not.toContain(result.f1);
-        expect(result.pointsAfter).not.toContain(result.f2);
-
-        // Control: the other layer and its feature are untouched (cascade was scoped).
-        expect(result.layersAfter).toContain(result.layerKeep);
-        expect(result.pointsAfter).toContain(result.fKeep);
+            // Control: the other layer and its feature are untouched (cascade was scoped).
+            expect(result.layersAfter).toContain(result.layerKeep);
+            expect(result.pointsAfter).toContain(result.fKeep);
+        } finally {
+            await page.context().close();
+        }
     });
 
     test('batch [valid create + cross-atlas update] rolls back atomically: valid create is absent', async ({
         page,
     }) => {
+        // no-UI: this asserts a SERVER transactional contract — a single push batch is one
+        // DB transaction that rolls back wholesale when any op fails. The failing op is a
+        // cross-atlas feature move (no UI gesture targets a foreign atlas), and the app
+        // never exposes "this group of edits is one atomic batch" to the user. It stays a
+        // transport probe driven via page.evaluate against the backend.
         await page.goto('/');
 
         const result = await page.evaluate(async (baseUrl) => {
@@ -217,6 +212,9 @@ describeOrSkip('Cascade delete + batch atomicity (real Chromium + real backend)'
     });
 
     test('valid batch of 3 creates persists all three in a single transaction', async ({ page }) => {
+        // no-UI: the contract under test is that one push BATCH commits as a single server
+        // transaction. "These N edits are one atomic batch" is not a user-visible gesture
+        // (the app flushes ops on its own cadence), so it stays a transport probe.
         await page.goto('/');
 
         const result = await page.evaluate(async (baseUrl) => {

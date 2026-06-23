@@ -24,25 +24,54 @@ import {
     readFeatures,
     pollPeerFeature,
     setSharePermission,
+    drawLineUI,
 } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
-function applyStoreOp(page, opName, args) {
-    return page.evaluate(async ({ name, a }) => {
-        const store = await import('/src/js/store/index.js');
-        return store[name](...a);
-    }, { name: opName, a: args });
-}
-
 const hasLine = async (page, id) => (await readFeatures(page, 'lines')).some((x) => x.id === id);
 
-const newLine = (id) => ({
-    type: 'Feature',
-    properties: { id, source: 'line', layerId: 'default', lineColor: '#3f4fb5', lineWidth: 4 },
-    geometry: { type: 'LineString', coordinates: [[-43.2, -22.9], [-43.1, -22.8]] },
-});
+/** Spread-out line coords so each draw is unambiguous on the canvas. */
+const lineCoords = () => [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]];
+
+/**
+ * Performs the REAL line-draw gesture (toolbar activate → vertex clicks → right-click
+ * finish) WITHOUT asserting a feature was created — used to drive a read-only peer's
+ * BLOCKED authoring attempt, where the write is denied locally (guardWrite) so no feature
+ * appears. Mirrors the click choreography of the shared drawLineUI helper. Returns nothing;
+ * the caller asserts the write was blocked. Each blocked attempt carries no known id, so
+ * the caller diffs the line set before/after to prove NOTHING was created.
+ */
+async function attemptDrawLineBlockedUI(page, coords) {
+    await page.evaluate((cs) => {
+        const map = globalThis.__ebgeoMap;
+        const lngs = cs.map((c) => c[0]); const lats = cs.map((c) => c[1]);
+        map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 100, duration: 0 });
+    }, coords);
+    await page.waitForTimeout(300);
+
+    await page.locator('.toolbar-group[data-group-id="draw"] .toolbar-group-btn').click();
+    const btn = page.locator('.toolbar-group[data-group-id="draw"] .toolbar-tool-btn[data-tool-id="line"]');
+    await btn.click();
+    // The tool may activate even for a read-only peer; the WRITE is what gets gated.
+    await page.waitForTimeout(200);
+
+    const pts = await page.evaluate((cs) => {
+        const map = globalThis.__ebgeoMap;
+        const rect = map.getCanvas().getBoundingClientRect();
+        return cs.map(([lng, lat]) => {
+            const p = map.project([lng, lat]);
+            return { x: Math.round(rect.left + p.x), y: Math.round(rect.top + p.y) };
+        });
+    }, coords);
+    for (let i = 0; i < pts.length - 1; i++) {
+        await page.mouse.click(pts[i].x, pts[i].y);
+        await page.waitForTimeout(120);
+    }
+    await page.mouse.click(pts[pts.length - 1].x, pts[pts.length - 1].y, { button: 'right' }); // finish
+    await page.keyboard.press('Escape'); // ensure the tool is dismissed afterwards
+}
 
 describeOrSkip('Permissions — dynamic share control cross-client', () => {
     test('read-only peer cannot write, but sees the owner writes', async ({ browser }) => {
@@ -50,17 +79,21 @@ describeOrSkip('Permissions — dynamic share control cross-client', () => {
         const A = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
         const B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
         try {
-            // Owner writes → read-only B receives it.
-            const idA = crypto.randomUUID();
-            await applyStoreOp(A, 'addFeature', ['lines', newLine(idA)]);
+            // Owner DRAWS a line through the real tool → read-only B receives it.
+            const idA = await drawLineUI(A, lineCoords());
             await pollPeerFeature(B, 'lines', idA);
 
-            // Read-only B tries to write → blocked on B itself (guardWrite) and never reaches A.
-            const idB = crypto.randomUUID();
-            await applyStoreOp(B, 'addFeature', ['lines', newLine(idB)]);
+            // Read-only B tries to DRAW a line through the real tool → blocked on B itself
+            // (guardWrite) so no feature lands locally, and nothing reaches A. We snapshot the
+            // line ids before/after to prove the blocked gesture conjured nothing new.
+            const beforeB = new Set((await readFeatures(B, 'lines')).map((x) => x.id));
+            const beforeA = new Set((await readFeatures(A, 'lines')).map((x) => x.id));
+            await attemptDrawLineBlockedUI(B, lineCoords());
             await B.waitForTimeout(4000);
-            expect(await hasLine(B, idB), 'read-only write is blocked locally on B').toBe(false);
-            expect(await hasLine(A, idB), 'read-only write never reached the owner').toBe(false);
+            const newOnB = (await readFeatures(B, 'lines')).filter((x) => !beforeB.has(x.id));
+            const newOnA = (await readFeatures(A, 'lines')).filter((x) => !beforeA.has(x.id));
+            expect(newOnB, 'read-only write is blocked locally on B (no new line)').toHaveLength(0);
+            expect(newOnA, 'read-only write never reached the owner (no new line)').toHaveLength(0);
         } finally {
             await A.context().close();
             await B.context().close();
@@ -72,10 +105,12 @@ describeOrSkip('Permissions — dynamic share control cross-client', () => {
         const A = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
         let B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
         try {
-            // Read-only: B cannot write.
-            const blocked = crypto.randomUUID();
-            await applyStoreOp(B, 'addFeature', ['lines', newLine(blocked)]);
-            expect(await hasLine(B, blocked), 'still read-only — write blocked').toBe(false);
+            // Read-only: B's real draw gesture is blocked → no feature lands locally.
+            const beforeBlocked = new Set((await readFeatures(B, 'lines')).map((x) => x.id));
+            await attemptDrawLineBlockedUI(B, lineCoords());
+            await B.waitForTimeout(1500);
+            const blockedNew = (await readFeatures(B, 'lines')).filter((x) => !beforeBlocked.has(x.id));
+            expect(blockedNew, 'still read-only — write blocked (no new line)').toHaveLength(0);
 
             // Owner promotes B to write.
             const status = await setSharePermission(A, state.baseUrl, seed.userA, seed.atlasId, seed.userB.id, 'write');
@@ -85,9 +120,8 @@ describeOrSkip('Permissions — dynamic share control cross-client', () => {
             await B.context().close();
             B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
 
-            // Now B can write → the owner sees it.
-            const idB = crypto.randomUUID();
-            await applyStoreOp(B, 'addFeature', ['lines', newLine(idB)]);
+            // Now B can DRAW through the real tool → the owner sees it.
+            const idB = await drawLineUI(B, lineCoords());
             expect(await hasLine(B, idB), 'B can write after upgrade').toBe(true);
             await pollPeerFeature(A, 'lines', idB);
         } finally {

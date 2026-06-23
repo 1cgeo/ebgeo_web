@@ -11,8 +11,9 @@
  * - Extracts custom attributes from imported GeoJSON properties
  */
 
-import { getMapData, updateMapData, getCurrentMapNameSync, getStorageTypeFromSource, getEventBus } from '@store';
+import { getMapData, updateFeature, getCurrentMapNameSync, getStorageTypeFromSource, getEventBus } from '@store';
 import { IDUtils } from '@utils';
+import { deepClone } from '@utils/deep-utils.js';
 import { EventTypes, FeatureUpdateProperty } from '@events';
 import {
     IMAGE_CONFIG,
@@ -171,11 +172,17 @@ const userDataManager = {
             return null;
         }
 
-        const feature = mapData.features[storageType][featureIndex];
-        const updatedFeature = updateFn(feature);
-        mapData.features[storageType][featureIndex] = updatedFeature;
+        // Work on a deep CLONE, never the live store object, so the store keeps holding the OLD
+        // feature: updateFeature compares old vs new (isFeatureEqual) to detect a real change, and
+        // the clone carries every existing attribute/image/descricao so the authoritative write
+        // below only changes the one field updateFn touched.
+        const updatedFeature = updateFn(deepClone(mapData.features[storageType][featureIndex]));
 
-        await updateMapData(mapName, mapData);
+        // Persist AND log a sync op via the canonical update path (a direct updateMapData write
+        // emitted only a LOCAL event, so attributes/photos never reached collaborators). Pass
+        // preserveUserData:false so an intentionally-emptied attributes/images collection (removing
+        // the last attribute/photo) is persisted instead of being restored from the old value.
+        await updateFeature(storageType, updatedFeature, mapName, { preserveUserData: false });
         return updatedFeature;
     },
 
@@ -231,20 +238,27 @@ const userDataManager = {
         }
 
         const stringValue = value === null || value === undefined ? '' : String(value);
+        let changed = false;
 
         await this._updateFeature(featureId, featureType, (feature) => {
             if (!feature.properties.attributes) {
                 feature.properties.attributes = {};
             }
-            feature.properties.attributes[key] = stringValue;
+            // Only flag a real change — re-setting the same value must NOT emit a fake update.
+            if (feature.properties.attributes[key] !== stringValue) {
+                feature.properties.attributes[key] = stringValue;
+                changed = true;
+            }
             return feature;
         });
 
-        this._emitUpdate(featureId, featureType, FeatureUpdateProperty.ATTRIBUTES, {
-            key,
-            value: stringValue,
-            action: 'set',
-        });
+        if (changed) {
+            this._emitUpdate(featureId, featureType, FeatureUpdateProperty.ATTRIBUTES, {
+                key,
+                value: stringValue,
+                action: 'set',
+            });
+        }
     },
 
     /**

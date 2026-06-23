@@ -24,10 +24,14 @@ export function hasTilesets() {
  * Falls back to 'carta-topografica' if all basemaps are disabled.
  */
 export function validateBasemapsConfig() {
-    const enabled = Object.values(config.basemaps).filter(b => b.enabled);
-    if (enabled.length === 0) {
-        console.warn('All basemaps disabled! Enabling carta-topografica as fallback');
-        config.basemaps['carta-topografica'].enabled = true;
+    const entries = Object.entries(config.basemaps || {});
+    const enabled = entries.filter(([, b]) => b.enabled);
+    if (enabled.length === 0 && entries.length > 0) {
+        // The server is the source of basemaps; don't assume a specific id exists — re-enable
+        // carta-topografica if present, otherwise the first available basemap.
+        const target = config.basemaps['carta-topografica'] ? 'carta-topografica' : entries[0][0];
+        console.warn(`All basemaps disabled! Enabling "${target}" as fallback`);
+        config.basemaps[target].enabled = true;
     }
 }
 
@@ -58,19 +62,39 @@ export function getBasemapLayoutClass(count) {
 }
 
 /**
- * Get valid basemap fallback when current selection is unavailable
+ * Get valid basemap fallback when current selection is unavailable.
+ *
+ * Always resolves to a USABLE basemap id whenever any basemap exists, so callers
+ * (base-layer.control.js, map.operations.js, import/export) never set the active
+ * base layer to '' (which would leave the map with no basemap). Resolution order:
+ *   1. currentBasemap if it is enabled;
+ *   2. the first ENABLED basemap (by priority);
+ *   3. if none is enabled but basemaps exist, the first basemap key (any — an
+ *      atlas overlay may have disabled every basemap, yet we still need one to render);
+ *   4. '' only when config.basemaps is truly empty.
+ *
  * @param {string|null} currentBasemap - Currently selected basemap ID
- * @returns {string} Valid basemap ID
+ * @returns {string} Usable basemap ID, or '' only when no basemaps are configured
  */
 export function getValidBasemapFallback(currentBasemap = null) {
-    const enabled = getEnabledBasemaps();
-    if (enabled.length === 0) return 'carta-topografica';
-
     if (currentBasemap && config.basemaps[currentBasemap]?.enabled) {
         return currentBasemap;
     }
 
-    return enabled[0][0];
+    const enabled = getEnabledBasemaps();
+    if (enabled.length > 0) {
+        return enabled[0][0];
+    }
+
+    // No basemap is enabled (e.g. an atlas overlay disabled every basemap). Still
+    // return an existing basemap key so the map renders something, rather than ''.
+    const allKeys = Object.keys(config.basemaps || {});
+    if (allKeys.length > 0) {
+        return allKeys[0];
+    }
+
+    // config.basemaps is truly empty — nothing usable exists.
+    return '';
 }
 
 // ===== 3D PROVIDERS =====

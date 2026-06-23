@@ -35,8 +35,16 @@
  *     entity removes the key.
  *   - tilesetId is preserved on every entry (top-level `tilesetId`).
  *
- * Each test self-provisions its own user + atlas + map for isolation. No UI clicks —
- * the transport is driven entirely through `page.evaluate`.
+ * Each test self-provisions its own user + atlas + map for isolation.
+ *
+ * UI-first note: every entity here (marker3d / measurement3d / viewshed3d /
+ * cameraPosition3d) is VIEWER-ONLY — created by picking a rendered 3D-Tiles scene
+ * inside the Cesium viewer, which requires a live WebGL context + served tileset and
+ * self-skips headless (see viewer-3d-open.spec.js §20.13-19). There is no single-gesture
+ * 2D-map create for them, so this transport-shape CRUD spec drives the real api-client /
+ * operation-factory directly via `page.evaluate`; every assertion still reads observable
+ * backend `pullSync` state. The 2D-map UI that DOES exist for 3D is covered by
+ * viewer-3d-open.spec.js.
  */
 
 import { test, expect } from '@playwright/test';
@@ -100,6 +108,8 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                     return (map?.cesium3d?.markers || []).filter((m) => m.id === id).length;
                 };
 
+                // no-UI: marker3d is viewer-only (Cesium viewer self-skips headless) —
+                // the full update/temporal/delete lifecycle runs on the real transport.
                 // CREATE — flat camelCase marker3d with initial name, no style yet, plus
                 // temporal validity window (temporalInicio/temporalFim).
                 await api.pushOperations(aid, [
@@ -180,6 +190,8 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                     return (map?.cesium3d?.measurements || []).find((m) => m.id === measurementId) || null;
                 };
 
+                // no-UI: measurement3d is viewer-only (Cesium viewer self-skips headless)
+                // — create/delete is exercised on the real transport.
                 await api.pushOperations(aid, [
                     createOperation('measurement3d', 'create', measurementId, mid, {
                         id: measurementId,
@@ -227,6 +239,8 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                     return { entry: all[0] || null, count: all.length };
                 };
 
+                // no-UI: viewshed3d is viewer-only (Cesium viewer self-skips headless) —
+                // create/config-update/delete is exercised on the real transport.
                 await api.pushOperations(aid, [
                     createOperation('viewshed3d', 'create', viewshedId, mid, {
                         id: viewshedId,
@@ -299,6 +313,8 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                     return map?.cesium3d?.cameraPositions || {};
                 };
 
+                // no-UI: cameraPosition3d is viewer-only (Cesium viewer self-skips
+                // headless) — save/clear is exercised on the real transport.
                 // SAVE the saved view — the snapshot keys it by tilesetId.
                 await api.pushOperations(aid, [
                     createOperation('cameraPosition3d', 'create', cameraId, mid, {
@@ -350,6 +366,9 @@ describeOrSkip('Cesium-3D full CRUD transport (real Chromium + real backend)', (
                 const { ApiClient } = await import('/src/js/store/sync/api-client.js');
                 const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
 
+                // no-UI: this is a cross-atlas IDOR probe — both the victim's viewer-only
+                // marker3d plant and the attacker's forged foreign-mapId write are
+                // unreachable through any UI, so the whole flow rides the real transport.
                 // The victim (current window.__c3dCrud) plants a marker on their own map.
                 const victimApi = window.__c3dCrud.api;
                 const victimTileset = `tileset-${crypto.randomUUID().slice(0, 8)}`;

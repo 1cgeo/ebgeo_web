@@ -21,11 +21,18 @@ import {
     readFeatures,
     pollPeerFeature,
     pollPeerFeatureWhere,
+    drawLineUI,
 } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
+/**
+ * Drives a real store op on `page`. Used ONLY for the recolor mutation below, which has no
+ * single-gesture UI to a SPECIFIC hex (the panel color picker opens the OS-native color
+ * dialog, not drivable to an exact value in Playwright). Feature CREATES go through the
+ * real draw tool (drawLineUI); the recolor stays a store op so the asserted hex is exact.
+ */
 function applyStoreOp(page, opName, args) {
     return page.evaluate(async ({ name, a }) => {
         const store = await import('/src/js/store/index.js');
@@ -33,11 +40,8 @@ function applyStoreOp(page, opName, args) {
     }, { name: opName, a: args });
 }
 
-const newLine = (id) => ({
-    type: 'Feature',
-    properties: { id, source: 'line', layerId: 'default', lineColor: '#3f4fb5', lineWidth: 4 },
-    geometry: { type: 'LineString', coordinates: [[-43.2, -22.9], [-43.1, -22.8]] },
-});
+/** Spread-out line coords so each draw is unambiguous on the canvas. */
+const lineCoords = () => [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]];
 
 describeOrSkip('Reconnection — offline-first replay cross-client', () => {
     test('B catches up on everything the owner did while it was offline', async ({ browser }) => {
@@ -45,18 +49,19 @@ describeOrSkip('Reconnection — offline-first replay cross-client', () => {
         const A = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
         const B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
         try {
-            // Baseline: live sync works.
-            const f1 = crypto.randomUUID();
-            await applyStoreOp(A, 'addFeature', ['lines', newLine(f1)]);
+            // Baseline: live sync works. A DRAWS the line through the real tool.
+            const f1 = await drawLineUI(A, lineCoords());
             await pollPeerFeature(B, 'lines', f1);
 
             // B drops off the network.
             await B.context().setOffline(true);
             await B.waitForTimeout(1500);
 
-            // Owner keeps working while B is away: a new feature + an edit to the old one.
-            const f2 = crypto.randomUUID();
-            await applyStoreOp(A, 'addFeature', ['lines', newLine(f2)]);
+            // Owner keeps working while B is away: a new feature (drawn via the real tool) +
+            // an edit to the old one. The recolor stays a store op — see applyStoreOp note:
+            // // no-UI: panel color picker opens the OS-native color dialog, not drivable to
+            // an exact hex in Playwright; the assertion below pins the exact #ff0000 value.
+            const f2 = await drawLineUI(A, lineCoords());
             await applyStoreOp(A, 'updateFeatureProperty', ['lines', f1, 'lineColor', '#ff0000']);
             await A.waitForTimeout(1500);
 
@@ -75,18 +80,16 @@ describeOrSkip('Reconnection — offline-first replay cross-client', () => {
         const A = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
         const B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
         try {
-            // Confirm B is genuinely connected first (a write that reaches A live).
-            const warm = crypto.randomUUID();
-            await applyStoreOp(B, 'addFeature', ['lines', newLine(warm)]);
+            // Confirm B is genuinely connected first (a write that reaches A live). B DRAWS it.
+            const warm = await drawLineUI(B, lineCoords());
             await pollPeerFeature(A, 'lines', warm);
 
-            // B goes offline and keeps drawing (offline = full local perms; ops queue).
+            // B goes offline and keeps drawing through the REAL line tool (offline = full
+            // local perms; the ops queue locally).
             await B.context().setOffline(true);
             await B.waitForTimeout(1500);
-            const off1 = crypto.randomUUID();
-            const off2 = crypto.randomUUID();
-            await applyStoreOp(B, 'addFeature', ['lines', newLine(off1)]);
-            await applyStoreOp(B, 'addFeature', ['lines', newLine(off2)]);
+            const off1 = await drawLineUI(B, lineCoords());
+            const off2 = await drawLineUI(B, lineCoords());
             // They exist locally on B even while offline.
             expect((await readFeatures(B, 'lines')).some((x) => x.id === off1)).toBe(true);
 

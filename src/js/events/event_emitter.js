@@ -29,6 +29,8 @@ export class EventEmitter {
         this._warningThreshold = DEFAULT_WARNING_THRESHOLD;
         /** @type {Set<string>} */
         this._warnedEvents = new Set();
+        /** @type {Set<Function>} Wildcard listeners notified of every emit (event, payload) */
+        this._anyListeners = new Set();
     }
 
     /**
@@ -76,6 +78,23 @@ export class EventEmitter {
      */
     once(event, callback) {
         return this.on(event, callback, { once: true });
+    }
+
+    /**
+     * Register a wildcard listener invoked for EVERY emit as `(event, payload)`,
+     * including events that have no specific listeners. Used by diagnostic taps
+     * (the SyncLedger tracer) to observe the whole bus from one subscription.
+     * Wildcard listeners are error-isolated and run before specific listeners.
+     * @param {Function} callback - Receives (event, payload).
+     * @returns {Function} Unsubscribe function.
+     * @throws {TypeError} If callback is not a function.
+     */
+    onAny(callback) {
+        if (typeof callback !== 'function') {
+            throw new TypeError('EventEmitter.onAny: callback must be a function');
+        }
+        this._anyListeners.add(callback);
+        return () => this._anyListeners.delete(callback);
     }
 
     /**
@@ -127,6 +146,18 @@ export class EventEmitter {
      * @returns {boolean} True if event had listeners
      */
     emit(event, payload) {
+        // Wildcard listeners fire for EVERY event, even ones with no specific
+        // listener — so the early `return false` below must not skip them.
+        if (this._anyListeners.size > 0) {
+            for (const anyCb of this._anyListeners) {
+                try {
+                    anyCb(event, payload);
+                } catch (error) {
+                    console.error(`[EventEmitter] Error in wildcard listener for "${event}":`, error);
+                }
+            }
+        }
+
         const listeners = this._listeners.get(event);
         if (!listeners || listeners.length === 0) return false;
 

@@ -29,6 +29,7 @@ import {
 } from '@store';
 import { getEventBus } from '@store/services.js';
 import { sessionContext, UserRole } from '@store/sync/session-context.js';
+import { isRemoteStoreSync } from '@store/store-origin.js';
 import { logMapOperation } from '@store/sync/operation-dispatcher.js';
 import { showError } from '@utils/index.js';
 import { EventTypes } from '@events/event_types.js';
@@ -72,6 +73,19 @@ export class MapLockController {
             return true;
         }
         return LOCK_CAPABLE_ROLES.includes(sessionContext.role);
+    }
+
+    /**
+     * Whether the active remote session is READ-ONLY: a connected remote atlas where the user is a
+     * viewer/commenter, OR an anonymous public-link visitor (a VIEWER). In that case the map must
+     * present as locked and the padlock must NOT be toggleable. The local store is never read-only
+     * (offline/local = full control), so this returns false there.
+     * @returns {boolean}
+     */
+    isReadOnly() {
+        if (!isRemoteStoreSync()) return false;
+        const role = sessionContext.role;
+        return role === UserRole.VIEWER || role === UserRole.COMMENTER;
     }
 
     /**

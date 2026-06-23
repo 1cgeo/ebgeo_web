@@ -84,6 +84,11 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
         await page.goto('/');
         const ids = await seedAtlasAndMap(page, state.baseUrl, 'catcreate');
 
+        // no-UI: backend op-contract test for the per-layer `catalogLayer` sync entity. It
+        // pins the persisted `catalogLayer` `create` op shape and the snapshot CONTRACT
+        // (`{ id, ...data, sync }` with a numeric `sync.version`) read back from the raw
+        // `api.pullSync` snapshot. This asserts the server-side row+envelope contract, not an
+        // in-app catalog render, so the transport is driven directly through the real api-client.
         const layerId = await page.evaluate(async ({ atlasId, mapId }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
             const id = crypto.randomUUID();
@@ -114,6 +119,10 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
         await page.goto('/');
         const ids = await seedAtlasAndMap(page, state.baseUrl, 'catupdate');
 
+        // no-UI: backend op-contract test. It asserts a `catalogLayer` `update` op overwrites
+        // the per-layer row `data` (name/visible/opacity) and bumps `sync.version`, verified
+        // against the raw `api.pullSync` snapshot. The exact create-then-update envelope pair
+        // is a transport contract, so it is driven directly through the real api-client.
         const layerId = await page.evaluate(async ({ atlasId, mapId }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
             const id = crypto.randomUUID();
@@ -150,6 +159,10 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
         await page.goto('/');
         const ids = await seedAtlasAndMap(page, state.baseUrl, 'catdelete');
 
+        // no-UI: backend op-contract test for the SOFT-DELETE of a per-layer `catalogLayer`
+        // row (the `delete` op sets deleted_at so the entry leaves the raw snapshot). It
+        // verifies server-side persistence, not an in-app catalog render, so the transport
+        // is driven directly through the real api-client.
         const layerId = await page.evaluate(async ({ atlasId, mapId }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
             const id = crypto.randomUUID();
@@ -181,6 +194,10 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
         await page.goto('/');
         const ids = await seedAtlasAndMap(page, state.baseUrl, 'catidem');
 
+        // no-UI: backend IDEMPOTENCY test. Re-pushing a second `create` with the SAME layer
+        // id (ON CONFLICT DO NOTHING — first data wins) is a transport-replay scenario no UI
+        // gesture can express; the app mints a fresh id per catalog add. Driven directly
+        // through the real api-client and asserted on the raw snapshot.
         const layerId = await page.evaluate(async ({ atlasId, mapId }) => {
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
             const id = crypto.randomUUID();
@@ -206,6 +223,12 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
         await page.goto('/');
         const ids = await seedAtlasAndMap(page, state.baseUrl, 'catlegacy');
 
+        // no-UI: a LEGACY-FORMAT op-contract test. The whole-array `data.catalog_layers`
+        // envelope (entityId == MAP id) is an old wire shape the current app never emits;
+        // it asserts the backend routes it to the maps.catalog_layers column WITHOUT
+        // leaking into the per-layer catalogLayers list. No UI gesture produces this legacy
+        // envelope, so it is driven directly through the real api-client.
+        //
         // Legacy op: the entityId is the MAP id and the payload is a whole array under
         // `data.catalog_layers`. The backend routes this to the maps.catalog_layers
         // column, which is intentionally separate from the per-layer catalogLayers list.
@@ -248,6 +271,12 @@ describeOrSkip('Browser catalogLayer (per-layer) sync (real Chromium + real back
             return mapId;
         }, state.baseUrl);
 
+        // no-UI: a cross-atlas IDOR security test. Pushing a `catalogLayer` create whose
+        // mapId belongs to ANOTHER atlas (on the victim's own atlas route) is a hand-crafted
+        // request no UI can issue — the app only ever targets its own current map. It probes
+        // the backend's `WHERE EXISTS (map in THIS atlas)` guard, so the transport is driven
+        // directly through the real api-client.
+        //
         // The victim user pushes (against victim.atlasId) a catalogLayer create whose
         // mapId belongs to the OTHER atlas. The INSERT's `WHERE EXISTS (map in THIS
         // atlas)` guard makes it a no-op — no row, no error surface in the snapshot.

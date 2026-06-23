@@ -23,12 +23,13 @@ src/js/
 │   ├── group.operations.js     # Grouping
 │   ├── map.operations.js       # Map CRUD
 │   ├── briefing.operations.js  # Briefing CRUD
+│   ├── comment.operations.js   # Spatial comments (root/reply/resolve)
 │   ├── catalog.operations.js   # External-layer catalog state
 │   ├── customIcons.operations.js  # User custom point icons
 │   ├── settings.operations.js  # App/user settings
 │   ├── cesium3d.operations.js  # 3D operations
 │   ├── streetview360.operations.js
-│   ├── temporal.operations.js  # Per-map temporal config (temporal_<mapName>); shiftMapTemporalTimes
+│   ├── temporal.operations.js  # Per-map temporal config (temporal_<mapName>); shiftMapTemporalTimes lives in feature.operations.js
 │   ├── atlas/               # Atlas entity (top-level project container)
 │   ├── repositories/        # Repository abstraction (interface, local, factory)
 │   ├── services/             # map-resolver.service.js (name↔UUID with LRU)
@@ -67,6 +68,7 @@ src/js/
 ├── search/                  # Global search bar
 ├── context-menu/            # Right-click menus
 ├── catalog/                 # External layer catalog
+├── comment_tool/            # Spatial comments (overlay + comments panel)
 ├── attribute_table/         # Data grid with filtering
 ├── features_tab/            # Layer/feature tree list
 │
@@ -84,6 +86,7 @@ src/js/
 ├── coordinates/             # Mouse coordinate display
 ├── grid/                    # UTM grid overlay
 ├── keyboard/                # Keyboard shortcuts
+├── locking/                 # Map lock (controller + locked banner control)
 ├── deep-link/               # Shareable URL state (deep linking)
 ├── phone/                   # Mobile/phone-specific UI
 ├── account/                 # Login + account menu + project-picker entry; sync status light
@@ -138,6 +141,8 @@ The `store/sync/` client is **fully wired** to an optional backend (`ebgeo_backe
 - Remote layer/3D/360 ops **and** snapshots persist into their dedicated side-stores and refresh the active-map layer cache (P11 round-trip fidelity).
 - Permission role gate applies only to a **connected remote atlas** — the local store is always editable, even logged in.
 - **By design, client-driven:** `auth.logout` revokes only the refresh token; the collab socket close + presence teardown happen on the client.
+
+**SyncLedger (sync observability — test/dev only, never prod)** — an additive, env-gated tracing layer that makes the multi-user pipeline visible end-to-end. A `traceId` is minted per user gesture in `runTransaction` (`store-transaction.js`) and stamped onto the op envelope (`operation-factory.js`); typed **spans** are recorded to a ring buffer keyed by `op.id` (the always-works join key). Lives in `store/sync/diag/`: `trace-stages.js` (shared FE/BE stage/outcome/reason contract), `trace-core.js` (`record()` — zero-cost when off — + ring `window.__ebgeoSyncTrace`, Node-safe), `bus-tap.js` (a first-class `EventEmitter.onAny()` tap → `remote.applied` + a `render.source` UI-effect probe). Spans come from `operation-dispatcher.js` (`preflush.drop`/`enqueue`), `sync-engine.js` (`flush.push` + `push.ack` — the previously-dropped ack response is now consumed), `ws-client.js` (`ws.inbound`/`ws.self-echo`/`conn.transition`) and `sync-gateway.js` (`gateway.gate`); installed from `store/services.js` + `index.js`. The backend mirrors the contract (`utils/sync-trace.js` + `GET/DELETE /api/v1/debug/trace`) so Playwright `collectLedger` merges both rings by `op.id`/`traceId`. Gated by `?trace=sync`/`localStorage`/test init script (FE) and `EBGEO_TRACE=1`/`NODE_ENV=test` (BE) — production is a dead branch. Test helpers in `tests/e2e-ui/helpers/{trace-helpers,ledger}.js`. Design + as-built: `docs/proposta-observabilidade-sync.md`.
 
 ## Vite Chunks
 

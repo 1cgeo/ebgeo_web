@@ -350,7 +350,7 @@ csv `_parseNumber` (vírgula), line-split `canSplitLine` (bloqueado string), mil
 | `line_profile.js` | `formatLength` | médio | Fronteira 1000m toFixed(2); 999.999→'1000.00 m' quirk | S |
 | `los_tool` | `extractCoordinatesFromGeometry`/`generateProcessedFeatures`/`formatDistance` | médio | Multi vs Single; toFixed(2) vs panel toFixed(1) divergência | S |
 | `visibility` | `normalizeFeatureProperties`/`normalizeCenter`/`translateGeometry`/`getCachedElevation` | baixo/médio | bearing 0 vs angle legacy; cache key 5-dec colisão; translate dropa z | S/M |
-| `processing.constants.js` | `migrateFeatures` | médio | non-object→as-is; non-array value passthrough | S |
+| `store/migration/v1-to-v2.migration.js` | `migrateFeatures` | médio | non-object→as-is; non-array value passthrough | S |
 | `streetview360.operations.js` | `filterActiveEntries`/`setStreetview360DataForImport` merge (extrair) | médio | soft-delete excluído; markers regeneram id | S/M |
 | `cesium3d.operations.js` | `getNextAutoNumber`/`removeByTileset` (exportar) | médio | vazio→1; max+1 não first-free; regex anchored | M |
 | `grid/grid-layers.config.js` | `GRID_LAYERS`/`lineLayerId`/`labelLayerId` (exportar) | médio | latlong label dropa '4326', utm mantém 'utm' (assimetria); 16 IDs/sistema; sem dup | S |

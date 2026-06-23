@@ -272,7 +272,7 @@ export async function addFeature(type, feature, mapName = null) {
  * @param {Object} feature - Feature with updated properties
  * @param {string} [mapName=null] - Target map name
  */
-export async function updateFeature(type, feature, mapName = null) {
+export async function updateFeature(type, feature, mapName = null, { preserveUserData: keepUserData = true } = {}) {
     const targetMap = resolveMap(mapName);
     if (guardWrite(GuardAction.UPDATE_FEATURE, 'updateFeature', targetMap).blocked) return;
 
@@ -289,7 +289,9 @@ export async function updateFeature(type, feature, mapName = null) {
     const oldFeature = currentMapData.features[type][index];
     const oldColor = mapManager.getFeatureColor(oldFeature);
 
-    preserveUserData(oldFeature, cleanedFeature);
+    // Skip for authoritative user-data writes: UserDataManager passes a full clone, so an
+    // intentionally-emptied attributes/images collection must NOT be restored from the old value.
+    if (keepUserData) preserveUserData(oldFeature, cleanedFeature);
     preserveSyncMetadata(oldFeature, cleanedFeature);
 
     if (isFeatureEqual(oldFeature, cleanedFeature)) return;
@@ -529,6 +531,18 @@ export async function addFeatures(featuresMap, mapName = null) {
         if (Object.keys(action.features).length > 0 && shouldRecordUndo(mapName)) {
             tx.deferSync(() => mapManager.recordAction(action));
         }
+
+        // Enqueue a sync op per created feature so a BATCH add (import, processing output, paste)
+        // reaches collaborators — mirrors the singular addFeature(). Without this, batch-added
+        // features persisted locally but never synced (P9 sync-coverage gap).
+        tx.deferAsync(async () => {
+            const mapId = mapManager.getMapId(targetMap);
+            for (const type of Object.keys(action.features)) {
+                for (const feat of action.features[type]) {
+                    await logFeatureOperation(OperationType.CREATE, feat.properties.id, mapId, feat);
+                }
+            }
+        });
 
         return () => updateMapDataCompat(targetMap, currentMapData);
     });
@@ -1041,6 +1055,7 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
     if (guardWrite(GuardAction.UPDATE_FEATURE, 'moveFeaturesToLayer', targetMap).blocked) return false;
     const currentMapData = await getMapDataCompat(targetMap);
     let modified = false;
+    const moved = [];
     const isLayerIdArray = typeof featureRefs[0] === 'string';
 
     for (const storageType of getAllStorageTypes()) {
@@ -1058,7 +1073,9 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
             }
 
             if (shouldMove) {
+                const oldFeature = deepClone(feature);
                 feature.properties.layerId = targetLayerId;
+                moved.push({ feature, oldFeature });
                 modified = true;
             }
         }
@@ -1066,6 +1083,12 @@ export async function moveFeaturesToLayer(featureRefs, targetLayerId, mapName = 
 
     if (modified) {
         await updateMapDataCompat(targetMap, currentMapData);
+        // Sync the layerId change to peers — it was persisted locally but never logged, so a
+        // collaborator kept the feature in its old layer (with the wrong visibility/lock).
+        const mapId = mapManager.getMapId(targetMap);
+        for (const { feature, oldFeature } of moved) {
+            await logFeatureOperation(OperationType.UPDATE, feature.properties.id, mapId, feature, oldFeature);
+        }
     }
     return modified;
 }

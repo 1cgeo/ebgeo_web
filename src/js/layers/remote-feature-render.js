@@ -23,6 +23,12 @@ const REMOTE_FEATURE_EVENTS = [
     EventTypes.FEATURE_CREATED,
     EventTypes.FEATURE_MODIFIED,
     EventTypes.FEATURE_DELETED,
+    // A snapshot (initial open / reconnect catch-up) saves features to the STORE and emits
+    // MAP_MODIFIED per map, but NOT per-feature FEATURE_* events — so without this a
+    // just-reconnected client had its snapshot features in the store yet missing from the live
+    // MapLibre source (and the source-built features tree). MAP_MODIFIED is map-level + infrequent
+    // (map ops + snapshots), so refreshing on it has none of the cost of refreshing on LAYERS_CHANGED.
+    EventTypes.MAP_MODIFIED,
 ];
 
 /**

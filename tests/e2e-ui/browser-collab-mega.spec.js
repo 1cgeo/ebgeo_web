@@ -36,11 +36,24 @@ import {
     pollPeerFeature,
     pollPeerFeatureWhere,
     pollPeerFeatureGone,
+    assertLedgerClean,
+    drawLineUI,
+    drawPointUI,
+    currentMapName,
 } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
+/**
+ * Drives a real store op on `page`. Retained ONLY for the mutations that have no single-
+ * gesture UI to a deterministic value in this harness (each call site carries a `// no-UI:`
+ * note): the panel color picker (recolor) opens the OS-native color dialog — not drivable
+ * to an exact hex in Playwright; multi-DRAG to exact deltas, grouping via canvas multi-
+ * select (headless WebGL hit-testing is unreliable — see layers-tab-local.spec.js), and the
+ * briefing/temporal authoring flows. Feature CREATE, rename, map create/switch, undo/redo
+ * and delete all go through the REAL UI below.
+ */
 function applyStoreOp(page, opName, args) {
     return page.evaluate(async ({ name, a }) => {
         const store = await import('/src/js/store/index.js');
@@ -52,26 +65,113 @@ const hasLine = async (page, id) => (await readFeatures(page, 'lines')).some((x)
 const lineColor = async (page, id) => (await readFeatures(page, 'lines')).find((x) => x.id === id)?.props?.lineColor;
 const symbolName = async (page, id) => (await readFeatures(page, 'military_symbols')).find((x) => x.id === id)?.props?.nome;
 
-const newLine = (id) => ({
-    type: 'Feature',
-    properties: { id, source: 'line', layerId: 'default', nome: 'Eixo', lineColor: '#000000', lineWidth: 4 },
-    geometry: { type: 'LineString', coordinates: [[-43.2, -22.9], [-43.1, -22.8]] },
-});
-const newSymbol = (id) => ({
-    type: 'Feature',
-    properties: { id, source: 'military_symbol', layerId: 'default', nome: 'Pel', sidc: 'SFGPUCI-----' },
-    geometry: { type: 'Point', coordinates: [-43.18, -22.85] },
-});
-const newPoint = (id, lng, lat) => ({
-    type: 'Feature',
-    properties: { id, source: 'point', layerId: 'default', nome: 'Pt', color: '#ffaa00', size: 28 },
-    geometry: { type: 'Point', coordinates: [lng, lat] },
-});
 const pointLng = (page, id) => page.evaluate(async (i) => {
     const s = await import('/src/js/store/index.js');
     const f = (await s.getCurrentMapFeatures()).points.find((x) => x.properties?.id === i);
     return f ? f.geometry.coordinates[0] : null;
 }, id);
+
+// ── Inline UI drivers (learned from the clean sibling specs) ─────────────────
+// drawMilitarySymbolUI: shared-atlas spec's drawMilitarySymbol gesture;
+// createMapUI/switchMapUI: maps-tab-navigation spec;
+// selectFeatureInTreeUI: shared-atlas selectFeatureById (layers tree row click);
+// renameViaPanelUI: the editable feature-name input the attribute panel renders;
+// deleteSelectedViaUI: the real Delete key → confirm-modal destructive flow.
+
+/** Places a MILITARY SYMBOL via the real tool (single click, default SIDC). @returns {Promise<string>} new id. */
+async function drawMilitarySymbolUI(page, [lng, lat]) {
+    const before = new Set((await readFeatures(page, 'military_symbols')).map((f) => f.id));
+    await page.evaluate((c) => globalThis.__ebgeoMap.jumpTo({ center: c, zoom: 14 }), [lng, lat]);
+    await page.waitForTimeout(300);
+    await page.locator('.toolbar-group[data-group-id="military"] .toolbar-group-btn').click();
+    await expect(page.locator('.toolbar-group[data-group-id="military"] .toolbar-popup')).toHaveAttribute('data-visible', 'true', { timeout: 5000 });
+    await page.locator('.toolbar-group[data-group-id="military"] .toolbar-tool-btn[data-tool-id="militarySymbol"]').click();
+    const pt = await page.evaluate((c) => {
+        const map = globalThis.__ebgeoMap;
+        const rect = map.getCanvas().getBoundingClientRect();
+        const p = map.project(c);
+        return { x: Math.round(rect.left + p.x), y: Math.round(rect.top + p.y) };
+    }, [lng, lat]);
+    await page.mouse.click(pt.x, pt.y);
+    let id = null;
+    await expect.poll(async () => {
+        const fresh = (await readFeatures(page, 'military_symbols')).find((f) => !before.has(f.id));
+        id = fresh?.id ?? null;
+        return id;
+    }, { timeout: 10000 }).toBeTruthy();
+    await page.keyboard.press('Escape');
+    return id;
+}
+
+/** Opens the Maps sidebar tab (idempotent) and waits for the current-map card to render. */
+async function openMapsTab(page) {
+    if ((await page.locator('.maps-tab #current-map-name-input').count()) === 0) {
+        await page.locator('.sidebar-nav-btn[data-tab="mapas"]').click();
+    }
+    await expect(page.locator('.maps-tab #current-map-name-input')).toBeVisible({ timeout: 10000 });
+}
+
+/** Creates a new map through the real Maps-tab UI (header "Novo mapa" → prompt → confirm). */
+async function createMapUI(page, name) {
+    await openMapsTab(page);
+    await page.locator('[data-testid="maps-new-map"]').click();
+    const input = page.locator('.prompt-modal-input');
+    await expect(input).toBeVisible({ timeout: 5000 });
+    await input.fill(name);
+    await page.locator('.prompt-modal-btn-confirm').click();
+    await expect(input).toBeHidden({ timeout: 5000 });
+    await expect(page.locator(`.maps-tab .map-list-item[data-map-name="${name}"]`)).toBeVisible({ timeout: 5000 });
+}
+
+/** Switches the active map by clicking its card in the real Maps-tab list. */
+async function switchMapUI(page, name) {
+    await openMapsTab(page);
+    const card = page.locator(`.maps-tab .map-list-item[data-map-name="${name}"]`);
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await card.click();
+    await expect.poll(async () => currentMapName(page), { timeout: 10000 }).toBe(name);
+}
+
+/** Opens the layers tab (idempotent — never toggles it closed). */
+async function openLayersTab(page) {
+    if ((await page.locator('.layer-container').count()) === 0) {
+        await page.locator('.sidebar-nav-btn[data-tab="camadas"]').click();
+    }
+    await expect(page.locator('.layer-container').first()).toBeVisible({ timeout: 10000 });
+}
+
+/** Selects a feature by id via its row in the real layers tree (expands collapsed nodes first). */
+async function selectFeatureInTreeUI(page, featureId) {
+    await openLayersTab(page);
+    for (const icon of await page.locator('.layer-expand-icon.collapsed').all()) {
+        await icon.click().catch(() => {});
+    }
+    const row = page.locator(`.feature-item[data-feature-id="${featureId}"] .feature-main`).first();
+    await expect(row).toBeVisible({ timeout: 10000 });
+    await row.evaluate((el) => el.click()); // raw DOM click — actionability can hang on overlapped rows
+}
+
+/** Renames a feature through the real attribute panel: select it, click the editable name, type, Enter. */
+async function renameViaPanelUI(page, featureId, newName) {
+    await selectFeatureInTreeUI(page, featureId);
+    const nameDisplay = page.locator('.feature-name-editable').first();
+    await expect(nameDisplay).toBeVisible({ timeout: 10000 });
+    await nameDisplay.click();
+    const nameInput = page.locator('.feature-name-input.editing').first();
+    await expect(nameInput).toBeVisible({ timeout: 5000 });
+    await nameInput.fill(newName);
+    await nameInput.press('Enter');
+    await page.keyboard.press('Escape'); // close the panel/deselect so later gestures aren't intercepted
+}
+
+/** Deletes a feature through the real UI: select it, press Delete, confirm the destructive modal. */
+async function deleteSelectedViaUI(page, featureId) {
+    await selectFeatureInTreeUI(page, featureId);
+    await page.locator('.maplibregl-canvas').first().press('Delete');
+    const confirmBtn = page.locator('.confirm-modal-btn-confirm');
+    await expect(confirmBtn).toBeVisible({ timeout: 5000 });
+    await confirmBtn.click();
+}
 
 // ── Demo helpers ─────────────────────────────────────────────────────────────
 // This harness doubles as a demonstration: run it headed (optionally with a longer
@@ -110,7 +210,7 @@ async function sweepCursor(page, passes = 1) {
 
 
 describeOrSkip('Mega harness — full collaboration session end to end', () => {
-    test('setup → create → multi (group/update/drag) → cross-edit → conflict → maps → undo/redo → briefing → temporal → delete', async ({ browser }) => {
+    test('setup → create → multi (group/update/drag) → cross-edit → conflict → maps → undo/redo → briefing → temporal → delete', async ({ browser }, testInfo) => {
         // Inherently long (9 phases, two live browsers, demo pauses) — give it generous
         // headroom over the 60s default so full-suite load can't tip it into a timeout.
         test.setTimeout(180000);
@@ -124,13 +224,13 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
             await focusView(B, 12);
             await demoPause(A);
 
-            // 2. CREATE — A draws a line, B a military symbol; each sees the other's. A sweeps
-            //    its cursor so B can watch it move (live presence), then both pause to look.
-            const lineId = crypto.randomUUID();
-            const symId = crypto.randomUUID();
-            await applyStoreOp(A, 'addFeature', ['lines', newLine(lineId)]);
+            // 2. CREATE — A DRAWS a line with the real line tool, B places a military symbol
+            //    with the real military tool; each sees the other's. A sweeps its cursor so B
+            //    can watch it move (live presence), then both pause to look. Both ids are
+            //    generated by the tools and read back.
+            const lineId = await drawLineUI(A, [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]]);
             await sweepCursor(A);
-            await applyStoreOp(B, 'addFeature', ['military_symbols', newSymbol(symId)]);
+            const symId = await drawMilitarySymbolUI(B, [-43.18, -22.85]);
             await sweepCursor(B);
             await pollPeerFeature(B, 'lines', lineId);
             await pollPeerFeature(A, 'military_symbols', symId);
@@ -141,34 +241,56 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
             //     visual flourish. Update/drag run BEFORE grouping/selection so neither the
             //     group nor the active selection can interfere with their sync. Map stays
             //     zoomed in and the cursor moves so it's all visible headed.
-            const pts = [
-                newPoint(crypto.randomUUID(), -43.18, -22.86),
-                newPoint(crypto.randomUUID(), -43.15, -22.85),
-                newPoint(crypto.randomUUID(), -43.12, -22.84),
-            ];
-            for (const p of pts) await applyStoreOp(A, 'addFeature', ['points', p]);
-            for (const p of pts) await pollPeerFeature(B, 'points', p.properties.id);
+            // CREATE the three points by DRAWING each with the real point tool (single click).
+            const ptCoords = [[-43.18, -22.86], [-43.15, -22.85], [-43.12, -22.84]];
+            const pts = [];
+            for (const c of ptCoords) {
+                const id = await drawPointUI(A, c);
+                pts.push({ id, lng: c[0], lat: c[1] });
+            }
+            for (const p of pts) await pollPeerFeature(B, 'points', p.id);
             await sweepCursor(A);
             await demoPause(B);
 
             // multi-UPDATE: recolor all three → B sees every one change.
-            for (const p of pts) await applyStoreOp(A, 'updateFeatureProperty', ['points', p.properties.id, 'color', '#e21111']);
-            for (const p of pts) await pollPeerFeatureWhere(B, 'points', p.properties.id, (pr) => pr.color === '#e21111');
+            // // no-UI: the panel color picker opens the OS-native color dialog (color-picker.helpers.js),
+            // which Playwright cannot drive to an EXACT hex; the assertion pins color === '#e21111'.
+            for (const p of pts) await applyStoreOp(A, 'updateFeatureProperty', ['points', p.id, 'color', '#e21111']);
+            for (const p of pts) await pollPeerFeatureWhere(B, 'points', p.id, (pr) => pr.color === '#e21111');
             await demoPause(B);
 
             // multi-DRAG: shift all three geometries → B sees every one move.
+            // // no-UI: a multi-feature canvas drag to an EXACT longitude delta is not a single
+            // reliable gesture headless (WebGL pointer hit-testing); the geometry update stays a
+            // store op so the asserted +0.02 longitude shift is deterministic.
             for (const p of pts) {
-                const moved = { ...p, geometry: { type: 'Point', coordinates: [p.geometry.coordinates[0] + 0.03, p.geometry.coordinates[1] + 0.02] } };
-                await applyStoreOp(A, 'updateFeature', ['points', moved]);
+                // Read the LIVE point and shift only its geometry (preserve every property the
+                // draw + recolor put on it), matching the original {...feature, geometry} intent.
+                await A.evaluate(async ({ id, dLng, dLat }) => {
+                    const store = await import('/src/js/store/index.js');
+                    const f = (await store.getCurrentMapFeatures()).points.find((x) => x.properties?.id === id);
+                    const moved = { ...f, geometry: { type: 'Point', coordinates: [f.geometry.coordinates[0] + dLng, f.geometry.coordinates[1] + dLat] } };
+                    await store.updateFeature('points', moved);
+                }, { id: p.id, dLng: 0.03, dLat: 0.02 });
             }
             for (const p of pts) {
-                await expect.poll(async () => pointLng(B, p.properties.id), { timeout: 20000 }).toBeGreaterThan(p.geometry.coordinates[0] + 0.02);
+                await expect.poll(async () => pointLng(B, p.id), { timeout: 20000 }).toBeGreaterThan(p.lng + 0.02);
             }
             await sweepCursor(B);
             await demoPause(A);
 
             // multi-SELECT: group the three into ONE unit on A → the group SYNCS to B.
-            const createdGroup = await applyStoreOp(A, 'createGroup', [pts]);
+            // // no-UI: grouping is a canvas multi-select (click + shift-click) + context-menu
+            // "Criar Grupo"; its headless WebGL hit-testing is unreliable (documented in
+            // layers-tab-local.spec.js), so we exercise the SAME store op the menu invokes over
+            // the three live point features (looked up by their drawn ids).
+            const ptIds = pts.map((p) => p.id);
+            const createdGroup = await A.evaluate(async (ids) => {
+                const store = await import('/src/js/store/index.js');
+                const all = (await store.getCurrentMapFeatures()).points || [];
+                const members = all.filter((f) => ids.includes(f.properties?.id));
+                return store.createGroup(members);
+            }, ptIds);
             const groupId = createdGroup.id;
             // On A: the three are grouped as one multi-selection unit.
             const groupInfoA = await A.evaluate(async () => {
@@ -192,10 +314,13 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
                 .toBe(3);
             await demoPause(A);
 
-            // 3. CROSS-EDIT — A renames B's symbol; B recolors A's line; both converge.
-            // Generous timeout: the multi phase above queued a burst of ops, so this edit may
-            // sit behind that backlog before it reaches the peer.
-            await applyStoreOp(A, 'updateFeatureProperty', ['military_symbols', symId, 'nome', 'Companhia']);
+            // 3. CROSS-EDIT — A RENAMES B's symbol through the real attribute panel (select the
+            //    symbol in A's layers tree → edit the editable feature-name input); B recolors
+            //    A's line; both converge. Generous timeout: the multi phase above queued a burst
+            //    of ops, so this edit may sit behind that backlog before it reaches the peer.
+            await renameViaPanelUI(A, symId, 'Companhia');
+            // // no-UI: recolor — the panel color picker opens the OS-native color dialog, not
+            // drivable to the EXACT '#22aa22' the assertion pins; driven as a store op.
             await applyStoreOp(B, 'updateFeatureProperty', ['lines', lineId, 'lineColor', '#22aa22']);
             await pollPeerFeatureWhere(A, 'lines', lineId, (p) => p.lineColor === '#22aa22', 35000);
             await pollPeerFeatureWhere(B, 'military_symbols', symId, (p) => p.nome === 'Companhia', 35000);
@@ -203,6 +328,9 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
             await demoPause(A);
 
             // 4. CONFLICT — both recolor the SAME line at once → converge to one color.
+            // // no-UI: simultaneous recolor to two EXACT hexes is the whole point of the LWW
+            // assertion; the panel color picker can't be driven to exact values, so both
+            // recolors are store ops fired concurrently.
             await Promise.all([
                 applyStoreOp(A, 'updateFeatureProperty', ['lines', lineId, 'lineColor', '#ff0000']),
                 applyStoreOp(B, 'updateFeatureProperty', ['lines', lineId, 'lineColor', '#0000ff']),
@@ -216,9 +344,12 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
                 .toMatch(/^#(ff0000|0000ff)$/);
             await demoPause(B);
 
-            // 5. MAPS — A creates a second map → B lists it.
-            const secondMap = await applyStoreOp(A, 'addMap', ['Mapa Secundário']);
-            expect(secondMap.id, 'new map has a UUID').toBeTruthy();
+            // 5. MAPS — A creates a second map through the real Maps-tab UI → B lists it.
+            //    createMap makes the new map A's ACTIVE map (real product behaviour), so A
+            //    switches BACK to the shared atlas map (also via the real card) — the later
+            //    phases (undo/redo, briefing, temporal, delete of the original line) all run
+            //    against the shared map.
+            await createMapUI(A, 'Mapa Secundário');
             await expect
                 .poll(async () => B.evaluate(async () => {
                     const { getRepository } = await import('/src/js/store/repositories/index.js');
@@ -226,6 +357,8 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
                     return Array.from(all instanceof Map ? all.values() : Object.values(all || {})).map((m) => m && m.name);
                 }), { timeout: 20000 })
                 .toContain('Mapa Secundário');
+            await switchMapUI(A, seed.mapName);
+            expect(await currentMapName(A), 'A is back on the shared atlas map').toBe(seed.mapName);
             await demoPause(A);
 
             // NOTE — dynamic PERMISSION (downgrade/upgrade) and OFFLINE RECONNECT are not in
@@ -235,23 +368,26 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
             // and browser-collab-reconnect.spec.js. This harness stays a continuous, both-
             // browsers-live session.
 
-            // 6. UNDO / REDO (per user) — B creates a feature, then undoes ITS OWN last
-            //    action → A sees it disappear; B redoes → A sees it reappear. Undo is a
-            //    per-user local stack; the executors emit sync ops so it propagates.
-            const undoId = crypto.randomUUID();
-            await applyStoreOp(B, 'addFeature', ['lines', newLine(undoId)]);
+            // 6. UNDO / REDO (per user) — B DRAWS a feature, then undoes ITS OWN last action
+            //    with the real Ctrl+Z shortcut → A sees it disappear; B redoes with Ctrl+Y →
+            //    A sees it reappear. Undo is a per-user local stack; the executors emit sync
+            //    ops so it propagates. The shortcuts are real keyboard gestures on the canvas.
+            const undoId = await drawLineUI(B, [[-43.05, -22.7], [-43.0, -22.65], [-42.95, -22.6]]);
             await pollPeerFeature(A, 'lines', undoId);
             await demoPause(A);
-            await applyStoreOp(B, 'undoLastAction', []);
-            expect(await hasLine(B, undoId), 'B undid its own create locally').toBe(false);
+            await B.locator('.maplibregl-canvas').first().press('Control+z');
+            await expect.poll(async () => hasLine(B, undoId), { timeout: 10000 }).toBe(false);
             await pollPeerFeatureGone(A, 'lines', undoId);
             await demoPause(A);
-            await applyStoreOp(B, 'redoLastAction', []);
-            expect(await hasLine(B, undoId), 'B redid its own create locally').toBe(true);
+            await B.locator('.maplibregl-canvas').first().press('Control+y');
+            await expect.poll(async () => hasLine(B, undoId), { timeout: 10000 }).toBe(true);
             await pollPeerFeature(A, 'lines', undoId);
             await demoPause(A);
 
             // 7. BRIEFING — a common module: A authors a briefing → B reflects create+update.
+            // // no-UI: briefing authoring (create + rename) in this harness is exercised as a
+            // store op — the full editor flow (open Briefings tab, create, edit metadata) is a
+            // multi-modal sequence outside this harness's create→sync→converge focus.
             const briefing = await applyStoreOp(A, 'createBriefing', [{ name: 'Plano Op', description: 'v1' }]);
             const briefingId = briefing.id;
             await expect
@@ -264,6 +400,9 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
             await demoPause(B);
 
             // 8. TEMPORAL — A enables the map's temporal window → B reflects the config.
+            // // no-UI: per-map temporal config (ativo/unidade/bounds) is set via the temporal
+            // settings modal; this harness asserts the synced config shape, so it drives the
+            // store op directly rather than the modal's several controls.
             await applyStoreOp(A, 'setMapTemporalConfig', [seed.mapName, { ativo: true, unidade: 'horas', inicio: 1700000000000, fim: 1700003600000 }]);
             await expect
                 .poll(async () => B.evaluate(async (mn) => {
@@ -273,10 +412,17 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
                 .toBe('horas');
             await demoPause(B);
 
-            // 9. DELETE — A removes the original line → B loses it.
-            await applyStoreOp(A, 'removeFeature', ['lines', lineId]);
+            // 9. DELETE — A removes the original line through the real UI (select it in the
+            //    layers tree → Delete key → confirm the destructive modal) → B loses it.
+            await deleteSelectedViaUI(A, lineId);
             await pollPeerFeatureGone(B, 'lines', lineId);
             await demoPause(A, 2);
+
+            // SyncLedger oracle: the merged causal ledger (A + server + B) is attached for
+            // inspection. allowNoEffects: the undo→redo phase re-creates a soft-deleted feature,
+            // which is a BY-DESIGN server no-op (tombstone, per the backend "confirmed gaps") —
+            // not an I2 violation, so it is not asserted against here.
+            await assertLedgerClean(testInfo, [A, B], state.baseUrl, seed.userA, seed.atlasId, { allowNoEffects: true });
         } finally {
             await A.context().close();
             await B.context().close();

@@ -22,11 +22,19 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { seedSharedAtlas, openClient, readFeatures, pollPeerFeature } from './helpers/collab-helpers.js';
+import { seedSharedAtlas, openClient, readFeatures, pollPeerFeature, drawLineUI } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
+/**
+ * Drives a real store op on `page`. Used ONLY for toggleMapLock, which has no single-gesture
+ * collab UI in this product (lock is an owner/admin-only per-client app setting toggled from
+ * the maps tab and gated by role; this spec asserts that role gate + the local read-only
+ * enforcement against a deterministic toggle).
+ * // no-UI: map lock is a per-client app setting whose return value (locked true/false / null
+ * when permission-denied) is the asserted contract; the toggle is exercised directly.
+ */
 function applyStoreOp(page, opName, args) {
     return page.evaluate(async ({ name, a }) => {
         const store = await import('/src/js/store/index.js');
@@ -36,11 +44,8 @@ function applyStoreOp(page, opName, args) {
 
 const hasLine = async (page, id) => (await readFeatures(page, 'lines')).some((x) => x.id === id);
 
-const newLine = (id) => ({
-    type: 'Feature',
-    properties: { id, source: 'line', layerId: 'default', lineColor: '#3f4fb5', lineWidth: 4 },
-    geometry: { type: 'LineString', coordinates: [[-43.2, -22.9], [-43.1, -22.8]] },
-});
+/** Spread-out line coords so each draw is unambiguous on the canvas. */
+const lineCoords = () => [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]];
 
 describeOrSkip('Map lock — owner-only, local read-only enforcement, collaboration stays consistent', () => {
     test('an editor cannot lock; the owner can; owner-lock blocks the owner, editor keeps editing', async ({ browser }) => {
@@ -48,9 +53,8 @@ describeOrSkip('Map lock — owner-only, local read-only enforcement, collaborat
         const A = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA); // owner
         const B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB); // editor
         try {
-            // Baseline: B (editor) can write and A sees it.
-            const warm = crypto.randomUUID();
-            await applyStoreOp(B, 'addFeature', ['lines', newLine(warm)]);
+            // Baseline: B (editor) DRAWS a line through the real tool and A sees it.
+            const warm = await drawLineUI(B, lineCoords());
             await pollPeerFeature(A, 'lines', warm);
 
             // The editor B is NOT allowed to lock (canLockMaps is owner/admin-only).
@@ -60,22 +64,29 @@ describeOrSkip('Map lock — owner-only, local read-only enforcement, collaborat
             // The owner A locks its current map → A's own authoring is blocked locally.
             const locked = await applyStoreOp(A, 'toggleMapLock', [seed.mapName]);
             expect(locked, 'owner toggleMapLock returned locked=true').toBe(true);
-            const blockedId = crypto.randomUUID();
-            await applyStoreOp(A, 'addFeature', ['lines', newLine(blockedId)]);
+            // Real UI enforcement: locking HIDES the authoring toolbar groups (draw/military/
+            // analysis) — the user has no way to draw. Assert the draw group is hidden, then
+            // try the line-tool keyboard shortcut ('l'), which the keyboard handler gates on the
+            // lock, and confirm A's real click on the canvas lands NOTHING.
+            await expect(A.locator('.toolbar-group[data-group-id="draw"]')).toBeHidden({ timeout: 5000 });
+            const beforeA = new Set((await readFeatures(A, 'lines')).map((x) => x.id));
+            await A.locator('.maplibregl-canvas').first().press('l'); // line shortcut — gated while locked
+            const box = await A.locator('.maplibregl-canvas').first().boundingBox();
+            await A.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.45);
+            await A.mouse.click(box.x + box.width * 0.55, box.y + box.height * 0.55, { button: 'right' });
             await A.waitForTimeout(2500);
-            expect(await hasLine(A, blockedId), 'owner write blocked while it holds the lock').toBe(false);
+            const newOnA = (await readFeatures(A, 'lines')).filter((x) => !beforeA.has(x.id));
+            expect(newOnA, 'owner write blocked while it holds the lock (no new line)').toHaveLength(0);
 
-            // The editor B (independent view, not locked) keeps editing → A still RECEIVES it
+            // The editor B (independent view, not locked) keeps DRAWING → A still RECEIVES it
             // (lock blocks local authoring, not inbound sync).
-            const fromB = crypto.randomUUID();
-            await applyStoreOp(B, 'addFeature', ['lines', newLine(fromB)]);
+            const fromB = await drawLineUI(B, lineCoords());
             await pollPeerFeature(A, 'lines', fromB);
 
             // Owner unlocks → its writes work again, B sees them.
             const unlocked = await applyStoreOp(A, 'toggleMapLock', [seed.mapName]);
             expect(unlocked, 'second toggle unlocks').toBe(false);
-            const afterUnlock = crypto.randomUUID();
-            await applyStoreOp(A, 'addFeature', ['lines', newLine(afterUnlock)]);
+            const afterUnlock = await drawLineUI(A, lineCoords());
             expect(await hasLine(A, afterUnlock), 'owner writes again after unlock').toBe(true);
             await pollPeerFeature(B, 'lines', afterUnlock);
         } finally {

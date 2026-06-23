@@ -24,6 +24,8 @@ import { startAutoFlush } from '@store/sync/sync-flush.js';
 import { showToast } from '@utils';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
 import { initTabLock } from '@utils/tab-lock.js';
+import { installWindowBridge, setTracing, resolveTraceFlag } from '@store/sync/diag/trace-core.js';
+import { showUnavailableScreen } from '@ui/unavailable-screen.js';
 
 // ============================================================================
 // BOOTSTRAP
@@ -34,17 +36,42 @@ import { initTabLock } from '@utils/tab-lock.js';
  * Runs phases sequentially — no side-effects at import time.
  */
 async function initApp() {
-    // Phase 1: Config (synchronous, no dependencies)
-    // Point the sync engine at the backend and deep-merge the remote /api/config
-    // into the static config BEFORE the helpers read it. Both steps are
-    // fail-safe: if the backend is down, the anonymous/offline path boots
-    // unchanged on the static config.
+    // Phase 0: SyncLedger observability — install the window.__ebgeoSyncTrace bridge and
+    // enable capture only if a trace flag is present (?trace=sync / localStorage['ebgeo_trace']
+    // / a globalThis.__EBGEO_TRACE__ set by Playwright addInitScript). Flag-gated and zero-cost
+    // when off; fully fail-safe so it never blocks boot.
+    try {
+        installWindowBridge();
+        setTracing(resolveTraceFlag());
+    } catch (error) {
+        console.warn('SyncLedger trace bridge init failed:', error);
+    }
+
+    // Phase 1: Config. The deploy ALWAYS ships a backend and it is the SINGLE source of
+    // config/catalog (the bundled config.js is just a shell hydrated by /api/config). Boot is
+    // FAIL-FAST: if /api/config is unreachable there is nothing to run on, so we show the branded
+    // "EBGeo indisponível" screen and stop instead of booting on an empty/stale config.
     try {
         syncEngine.configure({ baseUrl: resolveBackendBaseUrl() });
     } catch (error) {
-        console.warn('Sync engine configuration failed (offline path):', error);
+        console.warn('Sync engine configuration failed:', error);
     }
-    await applyRuntimeConfig({ apiClient });
+    // Fetch the backend config with a few retries — a transient blip at boot must not take the app
+    // down. Only a real outage (all attempts fail) reaches the branded unavailable screen.
+    const CONFIG_BOOT_ATTEMPTS = 3;
+    const CONFIG_BOOT_RETRY_MS = 1000;
+    let runtimeConfig = { applied: false };
+    for (let attempt = 1; attempt <= CONFIG_BOOT_ATTEMPTS; attempt++) {
+        runtimeConfig = await applyRuntimeConfig({ apiClient });
+        if (runtimeConfig.applied) break;
+        if (attempt < CONFIG_BOOT_ATTEMPTS) {
+            await new Promise((resolve) => setTimeout(resolve, CONFIG_BOOT_RETRY_MS));
+        }
+    }
+    if (!runtimeConfig.applied) {
+        showUnavailableScreen();
+        return;
+    }
 
     initializeAppConfig();
     initConfigHelpers();

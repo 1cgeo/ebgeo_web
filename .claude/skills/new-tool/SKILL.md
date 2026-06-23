@@ -73,7 +73,7 @@ src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
 
 6. **Wire up in `map_sig.js`** — `registerControl()` alone does NOT make a toolbar button work. Instantiate (`new Add<Name>Control(toolManager)`), then add the instance to: `SELECTION_CONTROLS` (→ `selectionManager.registerControl`), `CONTROL_REGISTRY` (keyed by class name, e.g. `'Add<Name>Control'`), and the `controls:` object passed to both `ToolbarControl` and `KeyboardShortcuts` (keyed by `controlKey`, e.g. `<name>Control`). The toolbar resolves its button via `controlKey` against that `controls` map.
 
-7. **Add feature type** to `store` if new type (feature.operations.js mappings).
+7. **Add feature type** to `store` if new type (`store.constants.js` mappings — `SOURCE_TYPES` + `FEATURE_TYPE_MAPPINGS`).
 
 8. **Add to `vite.config.js`** manual chunks if tool is large.
 

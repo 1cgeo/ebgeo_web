@@ -36,6 +36,19 @@
  *     rejected at write (guarded INSERT inserts zero rows) — it never appears anywhere.
  *
  * Each test self-provisions its OWN user + atlas + map + briefing for isolation.
+ *
+ * no-UI (UI-first exception): this spec is a BACKEND SYNC-CONTRACT test, not a user-flow
+ * test. Every assertion reads the raw `pullSync` SNAPSHOT and pins server-side semantics
+ * that the briefing editor UI neither drives nor exposes: §22.8 the LWW-per-slide content
+ * column + a CROSS-ATLAS-scoped write that must match zero rows; §22.9 the snapshot's
+ * raw `orientation`/`mode`/`photo_id` columns + a guarded UPDATE against an UNKNOWN slide
+ * id being a no-op (no phantom row); §22.10 cloned slides carrying the snapshot `order`
+ * index + a guarded INSERT against a NON-EXISTENT briefing_id inserting zero rows. None of
+ * the negatives (foreign-atlas push, unknown-id update, orphan-briefing insert) nor the
+ * raw-column snapshot reads have a single-gesture UI — the editor only ever writes valid,
+ * in-scope ops. Forcing it through the UI would require deleting those guard/scoping
+ * assertions (forbidden), so the flow stays at the api-client/operation-factory transport
+ * layer by design.
  */
 
 import { test, expect } from '@playwright/test';

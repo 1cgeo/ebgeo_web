@@ -336,24 +336,255 @@
     outline-offset: 2px;
 }
 
-/* Atlas settings modal (Gestor): rows of feature / basemap availability toggles. */
-.atlas-settings__row {
+/* =========================================================================
+   ATLAS CONFIG MODAL (Gestor): feature / basemap availability as toggle rows
+   ========================================================================= */
+.atlas-config {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+}
+
+/* Tabbed atlas-config: a wider shell (the Catálogo grid needs room) + a Geral | Catálogo tab bar. */
+[data-testid="atlas-settings-modal"] .modal-container {
+    max-width: 940px;
+}
+
+/* The Geral toggles don't need the full width — keep them readable + centered. */
+.atlas-config__pane[data-pane="geral"] {
+    width: 100%;
+    max-width: 620px;
+    align-self: center;
+}
+
+.atlas-config__tabs {
+    display: flex;
+    gap: var(--space-2);
+    margin: calc(var(--space-5) * -1) calc(var(--space-5) * -1) var(--space-2);
+    padding: 0 var(--space-5);
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.atlas-config__tab {
+    padding: var(--space-3);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-500);
+    cursor: pointer;
+    transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.atlas-config__tab:hover {
+    color: var(--gray-800);
+}
+
+.atlas-config__tab--active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+
+.atlas-config__pane {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+}
+
+.atlas-config__pane[hidden] {
+    display: none;
+}
+
+.atlas-config__pane--catalog .catalog-layout {
+    min-height: 340px;
+}
+
+/* Tighter card grid in the config modal so more items fit per row than the full-screen catalog. */
+.atlas-config__pane--catalog .catalog-grid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--space-3);
+}
+
+.atlas-config__pane--catalog .catalog-grid-wrapper {
+    padding: var(--space-3);
+}
+
+.atlas-config__section-head {
+    margin-bottom: var(--space-3);
+}
+
+.atlas-config__section-title {
+    margin: 0 0 var(--space-1);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gray-700);
+}
+
+.atlas-config__section-desc {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    line-height: var(--line-height-normal);
+    color: var(--gray-500);
+}
+
+.atlas-config__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--white, #fff);
+}
+
+.atlas-config__item {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-3);
-    cursor: pointer;
+    padding: var(--space-3) var(--space-4);
+    transition: background var(--transition-fast);
 }
 
-.atlas-settings__row input[type="checkbox"] {
+.atlas-config__item + .atlas-config__item {
+    border-top: var(--border-width) solid var(--border-color);
+}
+
+.atlas-config__item:hover {
+    background: var(--primary-50);
+}
+
+.atlas-config__item-icon {
+    display: inline-flex;
     flex-shrink: 0;
+    color: var(--primary);
+}
+
+.atlas-config__item-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.atlas-config__item-label {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+}
+
+/* Toggle switch (styled checkbox). */
+.atlas-config__switch {
+    position: relative;
+    flex-shrink: 0;
+    display: inline-flex;
+    width: 40px;
+    height: 22px;
     cursor: pointer;
 }
 
-.atlas-settings__actions {
+.atlas-config__switch input {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+}
+
+.atlas-config__switch-track {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius-full);
+    background: var(--gray-300);
+    transition: background var(--transition-fast);
+}
+
+.atlas-config__switch-track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: var(--radius-full);
+    background: #fff;
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--transition-fast);
+}
+
+.atlas-config__switch input:checked + .atlas-config__switch-track {
+    background: var(--primary);
+}
+
+.atlas-config__switch input:checked + .atlas-config__switch-track::after {
+    transform: translateX(18px);
+}
+
+.atlas-config__switch input:focus-visible + .atlas-config__switch-track {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* Footer pinned to the bottom of the (scrolling) modal body so Salvar/Cancelar stay
+   reachable no matter how long the basemap list is. Breaks out of the body padding to
+   span full width and sit flush to the bottom edge. */
+.atlas-config__actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
     display: flex;
     justify-content: flex-end;
-    margin-top: var(--space-3);
+    gap: var(--space-2);
+    margin: 0 calc(var(--space-5) * -1) calc(var(--space-5) * -1);
+    padding: var(--space-3) var(--space-5);
+    background: #fff;
+    border-top: var(--border-width) solid var(--border-color);
+}
+
+.atlas-config__btn-cancel {
+    padding: var(--space-2) var(--space-4);
+    background: transparent;
+    border: var(--border-width) solid var(--border-color-dark);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.atlas-config__btn-cancel:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-400);
+}
+
+/* Scrollable body of the atlas-config modal: min-height:0 lets the flex child actually
+   scroll (without it the content grows past the container and the footer is clipped),
+   plus the app's green scrollbar. */
+[data-testid="atlas-settings-modal"] .modal-body {
+    min-height: 0;
+
+    /* Standard property — green scrollbar in Chromium (classic, always-visible on Windows/
+       Electron) and Firefox. The ::-webkit rules below cover older Chromium. */
+    scrollbar-color: var(--primary) var(--gray-100);
+}
+
+[data-testid="atlas-settings-modal"] .modal-body::-webkit-scrollbar {
+    width: 10px;
+}
+
+[data-testid="atlas-settings-modal"] .modal-body::-webkit-scrollbar-track {
+    background: var(--gray-100);
+}
+
+[data-testid="atlas-settings-modal"] .modal-body::-webkit-scrollbar-thumb {
+    background: var(--primary);
+    border: 2px solid var(--gray-100);
+    border-radius: var(--radius-full);
+}
+
+[data-testid="atlas-settings-modal"] .modal-body::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-hover);
 }
 
 /* =========================================================================

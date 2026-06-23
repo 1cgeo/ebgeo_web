@@ -7,6 +7,7 @@
 
 import { getControl, isCurrentMapLockedSync } from '@store';
 import { EventTypes } from '@events/event_types.js';
+import { subscribe } from '@utils/event-cleanup.js';
 import { ModalBase } from '@modals/modal.base.js';
 import { CatalogService } from './catalog.service.js';
 import {
@@ -53,6 +54,14 @@ export class CatalogModal extends ModalBase {
         this._searchInput = null;
         this._filtersContainer = null;
         this._gridContainer = null;
+
+        // Re-load when a Gestor restricts availability for the connected atlas (basemaps / data /
+        // analysis / features): the catalog reads the now-filtered config and hides what the atlas
+        // no longer allows. Guarded on _gridContainer so it's a no-op before the modal is rendered.
+        // Tracked via subscribe (setupCleanup ran in ModalBase) so destroy() removes the listener.
+        subscribe(this, this._eventBus, EventTypes.ATLAS_SETTINGS_CHANGED, () => {
+            if (this._gridContainer) this._loadItems();
+        });
     }
 
     /**

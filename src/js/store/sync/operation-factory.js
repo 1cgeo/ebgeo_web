@@ -86,6 +86,28 @@ export function advanceLamportClock(remoteTimestamp) {
     lamportClock = Math.max(lamportClock, remoteTimestamp) + 1;
 }
 
+// ===== ACTION TRACE ID (SyncLedger) =====
+
+/**
+ * Ambient trace id for the user gesture currently being committed. Set by
+ * `runTransaction` for the duration of a transaction's deferred sync logging and
+ * cleared afterwards, so every op produced by that gesture shares one traceId.
+ * Best-effort enrichment only — `op.id` is the always-works correlation key, so a
+ * null traceId never breaks sync.
+ * @type {string|null}
+ */
+let actionTraceId = null;
+
+/** Sets the ambient action trace id (null clears it). */
+export function setActionTraceId(id) {
+    actionTraceId = id || null;
+}
+
+/** @returns {string|null} The ambient action trace id. */
+export function getActionTraceId() {
+    return actionTraceId;
+}
+
 // ===== OPERATION CREATION =====
 
 /**
@@ -100,6 +122,7 @@ export function advanceLamportClock(remoteTimestamp) {
  * @property {number} timestamp - Wall clock timestamp in milliseconds (Date.now())
  * @property {number} lamportTimestamp - Logical clock for causal ordering across clients
  * @property {string} clientId - ID of the client that created this operation
+ * @property {string|null} traceId - SyncLedger gesture id (best-effort; survives the wire via Joi .unknown)
  */
 
 /**
@@ -135,7 +158,8 @@ export function createOperation(entityType, operationType, entityId, mapId, data
         previousData,
         timestamp: Date.now(),
         lamportTimestamp: ++lamportClock,
-        clientId: getClientId()
+        clientId: getClientId(),
+        traceId: actionTraceId
     };
 }
 
@@ -161,6 +185,7 @@ export function createBatchOperations(operations) {
         timestamp,
         lamportTimestamp: ++lamportClock,
         clientId: client,
+        traceId: actionTraceId,
         batchId,
         batchIndex: index
     }));

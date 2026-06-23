@@ -22,7 +22,7 @@ const { CALENDAR, MAP_PIN, CHEVRON_RIGHT } = CATALOG_UI_ICONS;
  * @param {Function} options.onClick - Click callback
  * @returns {HTMLElement}
  */
-export function createCatalogCard({ item, onClick, mapLocked = false }) {
+export function createCatalogCard({ item, onClick, mapLocked = false, selectable = false, selected = false, onToggle }) {
     const typeConfig = CATALOG_TYPE_CONFIG[item.type];
 
     const card = document.createElement('article');
@@ -93,9 +93,26 @@ export function createCatalogCard({ item, onClick, mapLocked = false }) {
 
     card.appendChild(content);
 
-    // Footer with button
+    // Footer
     const footer = document.createElement('div');
     footer.className = 'catalog-card-footer';
+
+    if (selectable) {
+        // Allow/restrict toggle for the atlas-config "Catálogo" tab — no open action, no map-lock.
+        card.dataset.catalogId = item.originalData?.id ?? item.id;
+        const label = document.createElement('label');
+        label.className = 'atlas-config__switch';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = !!selected;
+        const track = document.createElement('span');
+        track.className = 'atlas-config__switch-track';
+        label.append(input, track);
+        input.addEventListener('change', () => onToggle?.(item, input.checked));
+        footer.appendChild(label);
+        card.appendChild(footer);
+        return card;
+    }
 
     const openBtn = document.createElement('button');
     openBtn.className = 'catalog-card-btn';

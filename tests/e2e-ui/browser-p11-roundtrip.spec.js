@@ -15,7 +15,22 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { loginUI, openClient } from './helpers/collab-helpers.js';
+import { loginUI, openClient, drawPointUI, drawPolygonUI } from './helpers/collab-helpers.js';
+
+/**
+ * Enables the per-map temporal config through the REAL Maps-tab clock toggle
+ * (#current-map-temporal-btn). The toggle persists a temporal config locally (with the
+ * controller's now→now+24h fallback window) — the exact values are irrelevant to P11,
+ * which only asserts that whatever A persisted round-trips to B byte-for-byte.
+ * @param {import('@playwright/test').Page} page
+ */
+async function enableTemporalUI(page) {
+    await page.locator('.sidebar-nav-btn[data-tab="mapas"]').click();
+    const clock = page.locator('#current-map-temporal-btn');
+    await expect(clock).toBeVisible({ timeout: 10000 });
+    await clock.click();
+    await expect(clock).toHaveAttribute('data-temporal', 'true', { timeout: 5000 });
+}
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -78,21 +93,32 @@ describeOrSkip('P11 round-trip fidelity (.ebgeo -> server -> .ebgeo, two users)'
             { timeout: 20000 },
         );
 
-        // Draw a rich local dataset: two features + a grid style + a temporal config.
+        // Draw a rich local dataset through the REAL tools: a point + a polygon, then enable a
+        // temporal config via the Maps-tab clock toggle.
+        const pointId = await drawPointUI(pageA, [-43.21, -22.91]);
+        expect(pointId, 'the point tool created the local point').toBeTruthy();
+        // The point tool auto-selects the new feature, sliding the feature panel over the canvas.
+        // Wait for that panel (it opens async, AFTER drawPointUI's store poll returns) before
+        // dismissing it, otherwise Escape's deselect can race the open and leave it covering the
+        // map — which would steal the polygon's vertex clicks (the original failure).
+        const featurePanel = pageA.locator('.feature-panel[data-expanded="true"]');
+        await expect(featurePanel).toBeVisible({ timeout: 10000 });
+        await pageA.keyboard.press('Escape'); // deactivate the point tool + clear the selection
+        await expect(pageA.locator('.feature-panel')).toHaveAttribute('data-expanded', 'false', { timeout: 5000 });
+        const polyId = await drawPolygonUI(pageA, [[-43.2, -22.9], [-43.1, -22.9], [-43.1, -22.8]]);
+        expect(polyId, 'the polygon tool created the local polygon').toBeTruthy();
+        // The polygon tool likewise auto-selects + opens the panel; wait for it, then dismiss so the
+        // Maps tab below interacts with a clean sidebar (same open-then-deselect race as above).
+        await expect(featurePanel).toBeVisible({ timeout: 10000 });
+        await pageA.keyboard.press('Escape'); // deactivate the polygon tool + clear the selection
+        await expect(pageA.locator('.feature-panel')).toHaveAttribute('data-expanded', 'false', { timeout: 5000 });
+        await enableTemporalUI(pageA);
+        // no-UI: the grid overlay button is gated by config.features.grid, which the backend ships
+        // FALSE (config.static.js FEATURES.grid). With the toggle absent in this environment, the
+        // grid style is set through the store op so the P11 round-trip still carries a grid_style.
         await pageA.evaluate(async () => {
             const store = await import('/src/js/store/index.js');
-            const mapName = store.getCurrentMapNameSync();
-            await store.addFeature('points', {
-                type: 'Feature', geometry: { type: 'Point', coordinates: [-43.21, -22.91] },
-                properties: { id: crypto.randomUUID(), source: 'point', nome: 'Alfa' },
-            });
-            await store.addFeature('polygons', {
-                type: 'Feature',
-                geometry: { type: 'Polygon', coordinates: [[[-43.2, -22.9], [-43.1, -22.9], [-43.1, -22.8], [-43.2, -22.9]]] },
-                properties: { id: crypto.randomUUID(), source: 'polygon', nome: 'Area' },
-            });
-            await store.setGridStyle(mapName, { format: 'utm', visible: true });
-            await store.setMapTemporalConfig(mapName, { ativo: true, modo: 'absoluto', unidade: 'h', inicio: 0, fim: 1000, origem: 0 });
+            await store.setGridStyle(store.getCurrentMapNameSync(), { format: 'utm', visible: true });
         });
 
         // A's ORIGINAL local .ebgeo summary (before any server interaction).

@@ -363,10 +363,17 @@ export class MapsTab {
         // §1.8/§1.9: react to maps created/deleted by OTHER users (remote ops). A
         // remote map-delete of the map currently being viewed redirects elsewhere.
         subscribe(this, this._eventBus, EventTypes.REMOTE_OPERATION_APPLIED, (p) => this._onRemoteOperation(p));
-        // Re-evaluate the owner-only "Compartilhar" button when the session
-        // (login/role) or the connection (connect/disconnect an atlas) changes.
-        subscribe(this, this._eventBus, EventTypes.SESSION_CHANGED, () => this._updateActionsVisibility());
-        subscribe(this, this._eventBus, EventTypes.CONNECTION_STATE_CHANGED, () => this._updateActionsVisibility());
+        // Re-evaluate the owner-only "Compartilhar" button AND the read-only padlock state when the
+        // session (login/role) or the connection (connect/disconnect an atlas) changes — becoming a
+        // viewer/commenter/visitor must immediately lock the padlock and forbid toggling it.
+        subscribe(this, this._eventBus, EventTypes.SESSION_CHANGED, () => {
+            this._updateActionsVisibility();
+            if (this._currentMapCard) this._updateCurrentMapCard();
+        });
+        subscribe(this, this._eventBus, EventTypes.CONNECTION_STATE_CHANGED, () => {
+            this._updateActionsVisibility();
+            if (this._currentMapCard) this._updateCurrentMapCard();
+        });
     }
 
     /**
@@ -445,23 +452,27 @@ export class MapsTab {
             badgeEl.style.backgroundColor = getPresenceColor(this._currentMapName);
         }
 
-        // Update lock state
-        const locked = await isMapLocked(this._currentMapName);
+        // Update lock state. A read-only remote session (viewer/commenter, or an anonymous
+        // public-link visitor) ALWAYS presents as locked and can NEVER toggle the padlock.
+        const readOnly = mapLockController.isReadOnly();
+        const locked = readOnly || await isMapLocked(this._currentMapName);
         const lockBtn = this._currentMapCard.querySelector('#current-map-lock-btn');
         const notesBtn = this._currentMapCard.querySelector('#current-map-notes-btn');
 
         if (lockBtn) {
-            // Only OWNER/ADMIN (or any offline user) may toggle the lock; the
-            // backend also enforces OWNER, so a write user is blocked there too.
-            const canToggle = mapLockController.canToggleLock();
+            // Only OWNER/ADMIN (or any offline user) may toggle the lock; the backend also enforces
+            // OWNER, so a write user is blocked there too. A read-only session can never toggle it.
+            const canToggle = !readOnly && mapLockController.canToggleLock();
             lockBtn.dataset.locked = locked.toString();
             lockBtn.innerHTML = locked ? MAPS_ICONS.lock : MAPS_ICONS.lockOpen;
             lockBtn.disabled = !canToggle;
-            lockBtn.title = !canToggle
-                ? 'Apenas o dono pode bloquear'
-                : locked
-                    ? 'Desbloquear mapa'
-                    : 'Bloquear mapa';
+            lockBtn.title = readOnly
+                ? 'Somente leitura'
+                : !canToggle
+                    ? 'Apenas o dono pode bloquear'
+                    : locked
+                        ? 'Desbloquear mapa'
+                        : 'Bloquear mapa';
         }
 
         this._currentMapCard.classList.toggle('current-map-card--locked', locked);

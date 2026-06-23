@@ -28,6 +28,12 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
     test('mapPosition + baseLayer + mapNotes + gridStyle persist to the snapshot', async ({ page }) => {
         await page.goto('/');
 
+        // no-UI: this is a backend op-contract test (per-sub-type column mapping), not a
+        // user gesture. The sub-typed `mapPosition`/`baseLayer`/`mapNotes`/`gridStyle`
+        // op SHAPES (entityId == mapId AND the 4th mapId arg, named-field payloads routed
+        // to dedicated DB columns) and the raw-snapshot assertions (`api.pullSync`) ARE the
+        // contract under test — there is no single in-app UI gesture that emits these exact
+        // envelopes, so the transport is driven directly through the real api-client.
         const result = await page.evaluate(async (baseUrl) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
@@ -131,6 +137,11 @@ describeOrSkip('Map sub-entity updates (real Chromium + real backend)', () => {
     test('a sub-typed op may ONLY touch its own column: a smuggled sibling does not leak', async ({ page }) => {
         await page.goto('/');
 
+        // no-UI: a NEGATIVE op-contract test (column whitelist). "Smuggling" a sibling
+        // `name` field inside a `baseLayer` op is a hand-crafted malicious envelope that
+        // no UI gesture can produce — the app's base-layer switch only ever sends the
+        // base_layer field. The transport is driven directly so the backend's per-sub-type
+        // whitelist (the thing under test) can be probed.
         const result = await page.evaluate(async (baseUrl) => {
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const { createOperation } = await import('/src/js/store/sync/operation-factory.js');

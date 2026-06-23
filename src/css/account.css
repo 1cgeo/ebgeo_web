@@ -179,26 +179,65 @@
     outline-offset: 2px;
 }
 
-/* Secondary action: "Sair" — a full-width menu item inside the dropdown
-   (neutral grey, never green). */
-.account-control__btn--logout {
+/* Dropdown menu items (config actions + "Sair"): full-width left-aligned icon + text
+   rows inside the dropdown (neutral grey, never green). */
+.account-control__menu .account-control__btn {
     justify-content: flex-start;
+    gap: var(--space-2);
     width: 100%;
     height: auto;
     padding: var(--space-2);
     background: transparent;
     color: var(--gray-700);
     border-radius: var(--radius-sm);
+    font-weight: var(--font-weight-normal);
 }
 
-.account-control__btn--logout:hover {
+.account-control__menu .account-control__btn:hover {
     background: var(--gray-100);
     color: var(--gray-900);
 }
 
-.account-control__btn--logout:focus-visible {
+.account-control__menu .account-control__btn:focus-visible {
     outline: 2px solid var(--gray-400);
     outline-offset: 2px;
+}
+
+.account-control__btn-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--gray-500);
+}
+
+.account-control__btn-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.account-control__menu .account-control__btn:hover .account-control__btn-icon {
+    color: var(--primary);
+}
+
+.account-control__btn-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Destructive variant: "Excluir projeto" — red text/icon + red-tinted hover. */
+.account-control__btn--delete-atlas,
+.account-control__btn--delete-atlas .account-control__btn-icon {
+    color: var(--color-error);
+}
+
+.account-control__menu .account-control__btn--delete-atlas:hover {
+    background: rgba(239, 68, 68, 0.08);
+    color: var(--color-error);
+}
+
+.account-control__menu .account-control__btn--delete-atlas:hover .account-control__btn-icon {
+    color: var(--color-error);
 }
 
 /* =========================================================================
@@ -281,6 +320,45 @@
 
 .login-modal__container {
     max-width: 400px;
+}
+
+/* Logo-centric login: hide the default green header bar and lead with the EBGeo brand. */
+.login-modal__container .modal-header {
+    display: none;
+}
+
+.login-modal__container .modal-body {
+    padding-top: var(--space-6);
+}
+
+.login-modal__brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+    margin-bottom: var(--space-5);
+    text-align: center;
+}
+
+.login-modal__logo {
+    width: 72px;
+    height: 72px;
+    margin-bottom: var(--space-2);
+    object-fit: contain;
+}
+
+.login-modal__brand-title {
+    margin: 0;
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.02em;
+    color: var(--gray-900);
+}
+
+.login-modal__brand-tagline {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-500);
 }
 
 .login-modal__form {

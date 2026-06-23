@@ -18,6 +18,19 @@
  *
  * Each test seeds its OWN user + atlas + map + briefing for isolation. The single
  * client drives the whole flow over the browser's own fetch/CORS stack.
+ *
+ * no-UI (UI-first exception): this spec is a BACKEND SYNC-CONTRACT test, not a user-flow
+ * test. Every assertion reads the raw `pullSync` SNAPSHOT and pins transport/server
+ * semantics that the UI neither drives nor exposes — the canonical `slide_order`,
+ * the positional `order` index (NOT insertion order), the camelCase `temporalCursor`
+ * surfaced per slide, and the SOFT-DELETE removal from the snapshot. The briefing editor
+ * UI (briefing-editor.control.js) has no control that sets a per-slide temporal_cursor,
+ * no way to push a bare `briefing` `slide_order` reorder op, and no view of the snapshot
+ * `order` column, so these actions/reads have no faithful single-gesture UI. Driving it
+ * through the editor would force deleting those snapshot assertions (forbidden), so the
+ * flow stays at the api-client/operation-factory transport layer by design. The cross-
+ * client BRIEFING + SLIDE flows ARE driven through the real editor UI in
+ * browser-collab-briefing-temporal.spec.js.
  */
 
 import { test, expect } from '@playwright/test';

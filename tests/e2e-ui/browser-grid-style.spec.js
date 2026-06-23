@@ -21,8 +21,18 @@
  *   - edge: a gridStyle op that smuggles a `name` sibling cannot rename the map
  *     (sub-type column whitelist drops it) yet the grid fields still apply.
  *
- * Each test self-provisions its own user + atlas + map for full isolation. No UI
- * clicks — the transport is driven entirely through `page.evaluate`.
+ * Each test self-provisions its own user + atlas + map for full isolation.
+ *
+ * no-UI: this is a TRANSPORT-LAYER contract test with no app-UI session — its intent
+ * (the backend's grid_style JSONB column WHITELIST: a sub-typed grid update may touch
+ * ONLY grid_style, and a smuggled `name` sibling must be dropped) has no UI surface. The
+ * in-app grid overlay button that would drive §26.1-3 is gated by config.features.grid,
+ * which the backend ships FALSE (ebgeo_backend config.static.js FEATURES.grid) so the
+ * button does not even render in this environment; and the grid menu offers only
+ * latlong/utm/off — it can express neither the `mgrs` format nor the smuggled-`name`
+ * security edge that are the actual point of this test. So the grid sub-type ops are
+ * authored through the real frontend transport (api-client / operation-factory) and every
+ * assertion is grounded in backend state read back through `api.pullSync`.
  */
 
 import { test, expect } from '@playwright/test';

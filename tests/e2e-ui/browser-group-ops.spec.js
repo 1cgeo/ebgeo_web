@@ -1,116 +1,123 @@
 // Path: e2e-ui/browser-group-ops.spec.js
 
 /**
- * Browser-level group lifecycle + group_feature membership test. Drives the REAL
- * frontend transport (api-client / operation-factory) imported live from the Vite
- * dev server inside real Chromium, against the REAL spawned backend. Single client;
- * each test mints its OWN user + atlas + map for full isolation, and every assertion
- * is read back from the persisted snapshot via a REAL HTTP `pullSync` round-trip.
+ * Group lifecycle + group_feature membership.
  *
- * Proves three frozen sync contracts end to end, with REAL HTTP round-trips:
- *   1. Group create/update/delete — a `group` `create` op materialises a group in the
- *      snapshot's `map.groups`; a `group` `update` op merges `name`/`visible` changes;
- *      a `group` `delete` op soft-deletes it so it disappears from the snapshot.
- *   2. group_feature link/unlink — a `group_feature` `create` op links a feature into a
- *      group (the group's `features[]` array gains a `{ type, id }` ref); a
- *      `group_feature` `delete` op unlinks it (the ref disappears) while BOTH the group
- *      and the feature themselves survive.
- *   3. Membership reflection — `map.groups[].features` reflects exactly the current set
- *      of links: present after linking, absent after unlinking.
+ * Test 1 (group create → update → delete) is driven UI-FIRST: two member features are
+ * drawn with the REAL point/line tools, then the group is created / renamed-hidden /
+ * removed through the app's REAL store facade (the same ops "Criar Grupo" / the group
+ * toggles / "Desagrupar" invoke), and every assertion reads the live app store
+ * (getMapGroups + getCurrentMapFeatures).
  *
- * `group_feature` is NOT in the frozen frontend `EntityType` enum (it has no
- * client-side factory), so its op is hand-built in the wire shape the backend's
- * `normalizeOperation` accepts: `{ id, entityType, operationType, entityId, mapId,
- * data: { group_id, feature_id } }`. The backend reads `data.group_id`/`data.feature_id`
- * directly and ignores `entityId` for that target.
+ * Test 2 (group_feature link/unlink + EXISTS edge) stays a backend transport probe:
+ * `group_feature` is a SERVER-ONLY join with NO client EntityType / factory and NO UI
+ * gesture (linking a phantom id has no UI at all), so its wire envelope is hand-built and
+ * asserted against the persisted `pullSync` snapshot. See the no-UI note on that test.
  *
- * Negative/edge: a `group_feature` link whose `feature_id` does NOT exist in the atlas
- * is gated out by the backend's EXISTS guard — it ack's without error but produces NO
- * membership ref, so the dangling link never appears in the snapshot.
- *
- * No UI clicks: the transport is exercised purely via `page.evaluate`, so there are no
- * data-testid selectors. Backend feature shape is GeoJSON with the type in
- * `properties.source`.
+ * The atlas/map/share SETUP is API-only (sharing has no UI); login + open + the test-1
+ * gestures are real UI.
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { seedSharedAtlas, openClient, drawPointUI, drawLineUI } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
+/** Drives a store op on `page` through the app's REAL store facade. */
+function applyStoreOp(page, opName, args) {
+    return page.evaluate(async ({ name, a }) => {
+        const store = await import('/src/js/store/index.js');
+        return store[name](...a);
+    }, { name: opName, a: args });
+}
+
+/**
+ * Reads the live app store's ACTIVE group by id (or null). getMapGroups returns an
+ * object keyed by id and includes soft-deleted groups, so we drop deleted ones
+ * (sync.deleted) — mirroring getGroupById, which is not on the facade barrel.
+ */
+function readGroup(page, groupId) {
+    return page.evaluate(async (gid) => {
+        const store = await import('/src/js/store/index.js');
+        const g = (store.getMapGroups() || {})[gid];
+        return g && !g.sync?.deleted
+            ? { id: g.id, name: g.name, visible: g.visible, members: (g.features || []).map((f) => f.id) }
+            : null;
+    }, groupId);
+}
+
 describeOrSkip('Group ops + group_feature membership (real Chromium + real backend)', () => {
-    test('group create → update → delete round-trips through the snapshot', async ({ page }) => {
-        await page.goto('/');
+    test('group create → update → delete round-trips through the live store', async ({ browser }) => {
+        const seed = await seedSharedAtlas(browser, state.baseUrl);
+        const page = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
 
-        const result = await page.evaluate(async (baseUrl) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
+        try {
+            // Two real member features (the group needs >= 2), drawn through the real tools.
+            const pointId = await drawPointUI(page, [-43.2, -22.9]);
+            const lineId = await drawLineUI(page, [[-43.2, -22.9], [-43.1, -22.8]]);
+            expect(pointId).toBeTruthy();
+            expect(lineId).toBeTruthy();
 
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `grp_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Group User' });
-            await api.login(username, password);
+            // 1. CREATE the group over the two drawn features (the "Criar Grupo" store op;
+            //    canvas multi-select is unreliable headless — see layers-tab-local.spec.js).
+            const created = await page.evaluate(async ({ pid, lid }) => {
+                const store = await import('/src/js/store/index.js');
+                const f = await store.getCurrentMapFeatures();
+                const pt = (f.points || []).find((x) => x.properties?.id === pid);
+                const ln = (f.lines || []).find((x) => x.properties?.id === lid);
+                const g = store.createGroup([pt, ln]);
+                return g ? { id: g.id } : null;
+            }, { pid: pointId, lid: lineId });
+            expect(created?.id).toBeTruthy();
+            const groupId = created.id;
+            const afterCreate = await readGroup(page, groupId);
 
-            const atlas = await api.createAtlas({ name: 'Group Atlas' });
-            const mapId = crypto.randomUUID();
-            await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: 'M1' })]);
+            // 2. UPDATE — rename + hide via the real group-property store op.
+            await applyStoreOp(page, 'updateGroupProperty', [groupId, 'name', 'Alpha-Renamed']);
+            await applyStoreOp(page, 'updateGroupProperty', [groupId, 'visible', false]);
+            const afterUpdate = await readGroup(page, groupId);
 
-            // Find a group by id inside the freshly pulled snapshot.
-            const readGroup = async (gid) => {
-                const pulled = await api.pullSync(atlas.id, 0);
-                const map = pulled.snapshot?.maps?.find((m) => m.id === mapId);
-                const groups = map?.groups || [];
-                return groups.find((g) => g.id === gid) || null;
-            };
+            // 3. DELETE (ungroup) — the group must vanish from the store while its members
+            //    survive (the real "Desagrupar" store op).
+            await applyStoreOp(page, 'ungroupFeatures', [groupId, seed.mapName]);
+            const afterDelete = await readGroup(page, groupId);
 
-            const groupId = crypto.randomUUID();
-            // 1. CREATE.
-            await api.pushOperations(atlas.id, [
-                createOperation('group', 'create', groupId, mapId, {
-                    name: 'Alpha', visible: true,
-                }),
-            ]);
-            const afterCreate = await readGroup(groupId);
+            // CREATE materialised the group with both members; defaults visible.
+            expect(afterCreate).toBeTruthy();
+            expect(afterCreate.visible).toBe(true);
+            expect(afterCreate.members).toEqual(expect.arrayContaining([pointId, lineId]));
+            // UPDATE merged the rename + visibility patch.
+            expect(afterUpdate.name).toBe('Alpha-Renamed');
+            expect(afterUpdate.visible).toBe(false);
+            // DELETE removed it from the store.
+            expect(afterDelete).toBeNull();
 
-            // 2. UPDATE — rename + hide. The frontend factory puts the patch in `data`;
-            //    the backend's update path reads it as `changes`.
-            await api.pushOperations(atlas.id, [
-                createOperation('group', 'update', groupId, mapId, {
-                    name: 'Alpha-Renamed', visible: false,
-                }),
-            ]);
-            const afterUpdate = await readGroup(groupId);
-
-            // 3. DELETE (soft) — must vanish from the snapshot's groups.
-            await api.pushOperations(atlas.id, [
-                createOperation('group', 'delete', groupId, mapId, null),
-            ]);
-            const afterDelete = await readGroup(groupId);
-
-            return {
-                createdName: afterCreate?.name ?? null,
-                createdVisible: afterCreate?.visible ?? null,
-                updatedName: afterUpdate?.name ?? null,
-                updatedVisible: afterUpdate?.visible ?? null,
-                deletedPresent: afterDelete !== null,
-            };
-        }, state.baseUrl);
-
-        // CREATE materialised the group with its initial fields.
-        expect(result.createdName).toBe('Alpha');
-        expect(result.createdVisible).toBe(true);
-        // UPDATE merged the rename + visibility patch.
-        expect(result.updatedName).toBe('Alpha-Renamed');
-        expect(result.updatedVisible).toBe(false);
-        // DELETE soft-removed it from the snapshot.
-        expect(result.deletedPresent).toBe(false);
+            // Members survive ungrouping as loose features.
+            const survivors = await page.evaluate(async ({ pid, lid }) => {
+                const store = await import('/src/js/store/index.js');
+                const f = await store.getCurrentMapFeatures();
+                return {
+                    point: (f.points || []).some((x) => x.properties?.id === pid),
+                    line: (f.lines || []).some((x) => x.properties?.id === lid),
+                };
+            }, { pid: pointId, lid: lineId });
+            expect(survivors.point).toBe(true);
+            expect(survivors.line).toBe(true);
+        } finally {
+            await page.context().close();
+        }
     });
 
     test('group_feature link then unlink: membership appears, then is removed (group + feature survive)', async ({
         page,
     }) => {
+        // no-UI: `group_feature` is a SERVER-ONLY join table with no frontend EntityType,
+        // no client factory and no UI gesture (and linking a non-existent feature, the
+        // EXISTS-guard edge, has no UI at all). This test asserts the raw wire-envelope
+        // contract + EXISTS guard against the persisted snapshot, so it stays a pure
+        // transport probe driven via page.evaluate against the backend.
         await page.goto('/');
 
         const result = await page.evaluate(async (baseUrl) => {

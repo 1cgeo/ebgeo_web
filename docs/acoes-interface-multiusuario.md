@@ -469,7 +469,7 @@ Este documento lista todas as ações da interface do EBGeo Web e descreve o que
 
 | # | Ação | Impacto Multiusuário |
 |---|------|---------------------|
-| 1 | **Ativar grade Lat/Long** | 🟡 Estilo de grade é propriedade persistida por mapa (`grid_<mapa>`, via `setGridStyle` → `GRID_STYLE`, mesmo padrão do BASE_LAYER). Broadcast, last-write-wins. Respeita bloqueio de mapa. |
+| 1 | **Ativar grade Lat/Long** | 🟡 Estilo de grade é propriedade persistida por mapa (`gridStyle_<mapa>`, via `setGridStyle` → `GRID_STYLE`, mesmo padrão do BASE_LAYER). Broadcast, last-write-wins. Respeita bloqueio de mapa. |
 | 2 | **Ativar grade UTM** | 🟡 Mesma persistência por mapa (`format: 'utm'`). `GRID_STYLE` broadcast, last-write-wins. Respeita bloqueio de mapa. |
 | 3 | **Desligar grade** | 🟡 Grava `{visible: false}` no estilo persistido do mapa. `GRID_STYLE` broadcast, last-write-wins. Respeita bloqueio de mapa. |
 

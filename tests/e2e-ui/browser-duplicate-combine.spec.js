@@ -23,6 +23,14 @@
  *
  * Each test seeds its own user + atlas + maps for isolation. No app UI is clicked
  * (no data-testid needed): the specs drive the transport in `page.evaluate`.
+ *
+ * no-UI: these two tests target the BACKEND's structural REST routes
+ * (POST .../maps/:id/duplicate and .../merge) and assert their server contract — status
+ * codes (201/200/404), the " (cópia)" name suffix, the `moved.features` count and the
+ * cross-atlas 404 tenancy gate. The app's own "Duplicar" / "Puxar outros mapas" map-menu
+ * items run a DIFFERENT, LOCAL store path (mapManager.copyMap / combineMapGroups) that
+ * never calls these routes, so there is no UI gesture that exercises this server contract.
+ * They therefore stay transport probes driven via raw authenticated `fetch`.
  */
 
 import { test, expect } from '@playwright/test';

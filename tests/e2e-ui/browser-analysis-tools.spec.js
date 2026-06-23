@@ -24,6 +24,16 @@
  *     in any snapshot bucket.
  *
  * Each test self-provisions its own user + atlas + map for full isolation.
+ *
+ * UI-first note: §9.1 LoS / §9.2 Viewshed have NO single-gesture UI create on the 2D
+ * map. The los/visibility tools (analysis_tools/{los,visibility}_tool) REFUSE to
+ * activate unless a DEM terrain source is loaded (`activate()` returns false when
+ * `map.getTerrain() === null`) and their create path runs per-sample terrain elevation
+ * queries — neither is available against this anonymous, un-rendered transport client.
+ * Like processed_los/processed_visibility, these are analysis OUTPUTS, not placeable
+ * features (see README "UI-first philosophy" + browser-collab-all-types.spec.js). The
+ * writes therefore stay on the real transport (api-client / operation-factory), driven
+ * via page.evaluate; every assertion still reads observable backend `pullSync` state.
  */
 
 import { test, expect } from '@playwright/test';
@@ -87,6 +97,9 @@ describeOrSkip('Analysis tools transport (real Chromium + real backend, §9.1-2)
             const visProps = { observerHeight: 2.5, radius: 5000, ringCount: 360 };
             const visGeometry = { type: 'Point', coordinates: [-43.22, -22.92] };
 
+            // no-UI: los/visibility are analysis OUTPUTS with no single-gesture create —
+            // the tools refuse to activate without a loaded DEM terrain source and sample
+            // terrain elevation per point, so they are pushed on the real transport.
             await api.pushOperations(atlas.id, [
                 createOperation('feature', 'create', losId, mapId,
                     makeFeature(losId, 'los', losGeometry, losProps)),
@@ -129,6 +142,9 @@ describeOrSkip('Analysis tools transport (real Chromium + real backend, §9.1-2)
             // ---- EDGE: an unsupported analysis kind is rejected at write ----
             // The backend valid_feature_type CHECK hard-rejects `enemy_los`, aborting the
             // atomic push; the row must never be persisted nor surface in any bucket.
+            // no-UI: an unsupported analysis source (enemy_los) is unreachable through any
+            // tool — it can only be forged at the transport layer to prove the backend
+            // valid_feature_type CHECK rejects it.
             const bogusId = crypto.randomUUID();
             let writeRejected = false;
             try {

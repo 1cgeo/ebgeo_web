@@ -1,6 +1,6 @@
 # Testing Rules
 
-Full guide: `TESTING.md` (root). Quick rules for working in this repo:
+Full guide: `tests/TESTING.md`. Quick rules for working in this repo:
 
 ## When to add tests
 - New pure logic (math, geometry, parsing, conversion, formatting) → add a unit
@@ -29,3 +29,9 @@ Full guide: `TESTING.md` (root). Quick rules for working in this repo:
 - There is **no test CI and no git hooks** — tests are run manually. (The only
   GitHub workflow, `.github/workflows/deploy.yml`, deploys GitHub Pages; it does
   not run tests.) Coverage is `npm run test:coverage` (report-only, no threshold).
+
+## Collaboration / sync e2e
+- For multi-user (collab/sync) behavior, prefer the **SyncLedger** deterministic waits
+  (`tests/e2e-ui/helpers/trace-helpers.js` — `waitForRemoteEntity`/`waitForStage`) over
+  store polling; on timeout they name the last sync stage reached. See
+  `tests/e2e-ui/README.md` §"SyncLedger trace helpers".

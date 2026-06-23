@@ -75,10 +75,14 @@ class AddCoordinationMeasureControl extends BaseControl {
   onAdd = (map) => {
     this.map = map;
     this.setupZoomListener();
+    // The measure PNG is local-only — never uploaded — so a peer renders an error icon.
+    // Regenerate it from the synced props on every remote coordination-measure op (deterministic).
+    this._subscribeRemoteImageRegen("coordination_measure", (f) => this._regenerateRemote(f));
   };
 
   onRemove = () => {
     this.map.off("zoom", this.handleZoomChange);
+    this._unsubscribeRemoteImageRegen();
     if (this.zoomRafId) {
       cancelAnimationFrame(this.zoomRafId);
       this.zoomRafId = null;
@@ -475,6 +479,21 @@ class AddCoordinationMeasureControl extends BaseControl {
 
   async loadSymbolToMap(symbolId, blob) {
     return loadImageToMap(this.map, symbolId, blob, { replaceExisting: true });
+  }
+
+  /** Rebuilds and re-installs a coordination measure's image from its synced props (peer side). */
+  async _regenerateRemote(feature) {
+    if (!this.map || !feature?.properties?.id) return;
+    let actualPointCode = feature.properties.pointCode;
+    if (actualPointCode === 'ECHELON' || actualPointCode === 'ECHELON_FT') {
+      actualPointCode = feature.properties.echelonCode ||
+        (actualPointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
+    }
+    const result = await this.symbolGenerator.generate(actualPointCode, feature.properties);
+    if (result?.blob) {
+      await storeImage(feature.properties.id, result.blob);
+      await this.loadSymbolToMap(feature.properties.id, result.blob);
+    }
   }
 
   scheduleSymbolUpdate = (feature) => {

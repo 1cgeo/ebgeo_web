@@ -1,298 +1,164 @@
 // Path: e2e-ui/presence-live-cursors.spec.js
 
 /**
- * SHOWCASE: live two-way collaboration on the REAL map across TWO real browsers.
+ * SHOWCASE: live two-way collaboration on the REAL map across TWO real browsers, driven
+ * entirely through the app's OWN UI + NATIVE sync (no manual WsClient / hand-drawn layers).
  *
- * Two independent Chromium contexts open the app, JUMP TO THE SAME PLACE, and
- * connect to the SAME atlas over the REAL backend collab gateway (different
- * clientIds). Then, in real time and watchable headed:
+ * Two independent Chromium contexts log in through the real account UI and OPEN the SAME
+ * shared atlas over the REAL backend collab gateway (different sessions). Then, in real time
+ * and watchable headed:
  *
- *   - BOTH animate their cursor (opposite orbits); each window renders the OTHER's
- *     labelled cursor on its live 2D map via the REAL `RemoteCursorsLayer`.
- *   - Window A draws a LINE feature; window B plants a MILITARY SYMBOL feature.
- *     Each is authored over the REAL backend (`api.pushOperations`), fans out over
- *     the collab WebSocket, and is drawn on the PEER's map — so both windows end up
- *     showing the line, the NATO symbol, and the other player's cursor.
- *   - Each peer also appears as an online avatar in the real roster.
+ *   - BOTH move their mouse over the live 2D canvas; each window renders the OTHER's
+ *     labelled cursor via the REAL presence pipeline (wire → presenceStore →
+ *     RemoteCursorsLayer marker → [data-testid="remote-cursor"]).
+ *   - Window A draws a LINE with the real line tool; window B plants a MILITARY SYMBOL with
+ *     the real military tool. Each is authored by the app, fans out over the collab
+ *     WebSocket via NATIVE sync, and is rendered on the PEER's real map — so both windows end
+ *     up holding the line, the NATO symbol (in the real layers tree), and the other player's
+ *     cursor.
+ *   - Each peer also appears in the app's real online-users roster.
  *
  * Run it headed to watch both windows mirror each other:
  *   npx playwright test presence-live-cursors --headed
- *   npx playwright test presence-live-cursors --ui
  *
- * This exercises, end to end and in BOTH directions: the cursor awareness pipeline
- * (wire → presenceStore → RemoteCursorsLayer marker) AND the feature op fan-out
- * (author → backend push → WS broadcast → peer renders it on the real map).
+ * This exercises, end to end and in BOTH directions: the cursor awareness pipeline AND the
+ * feature op fan-out (author → app push → WS broadcast → peer renders it on the real map),
+ * all through the real UI.
  *
- * Seeds ONE shared user + atlas + map via the backend API (like presence.spec).
+ * Seeds a shared atlas (owner + a write-shared second user) via the backend API (sharing is
+ * a backend-only route with no UI).
  */
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import {
+    seedSharedAtlas, openClient, drawLineUI, readFeatures, pollPeerFeature,
+} from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
 
 /** Shared map view both windows frame, so each sees the other's activity. */
 const CENTER = { lng: -43.2, lat: -22.9 };
-const ZOOM = 12;
-const ORBIT_RADIUS_DEG = 0.018; // ~2 km — clearly visible at this zoom
-const FRAMES = 36;
-const FRAME_DELAY_MS = 70; // ~2.5 s per orbit — slow enough to watch headed
+const ZOOM = 13;
 
-/**
- * Boots a WsClient inside a page connected to `atlasId` with `clientId`, stashing
- * it (plus the atlasId) on `window.__live` for later page.evaluate calls.
- *
- * @param {import('@playwright/test').Page} page
- * @param {{ baseUrl: string, username: string, password: string, atlasId: string, clientId: string }} cfg
- * @returns {Promise<{ sessionUserId: string }>}
- */
-function connectClient(page, cfg) {
-    return page.evaluate(async ({ baseUrl, username, password, atlasId, clientId }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const { WsClient } = await import('/src/js/store/sync/ws-client.js');
-        const { ConnectionState } = await import('/src/js/store/sync/connection-state.js');
+const canvasBox = (page) => page.locator('.maplibregl-canvas').boundingBox();
 
-        const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-        await api.login(username, password);
-
-        const ws = new WsClient({
-            apiClient: api,
-            connectionState: new ConnectionState(),
-            socketFactory: (url) => new WebSocket(url),
-            clientId,
-            heartbeatMs: 1e7,
-        });
-        const connected = await ws.connect(atlasId);
-        window.__live = { api, ws, clientId, atlasId, sessionUserId: connected.userId };
-        return { sessionUserId: connected.userId };
-    }, cfg);
+/** Moves the mouse across the live canvas so the app broadcasts the local cursor (real presence). */
+async function moveCursorOverCanvas(page) {
+    const box = await canvasBox(page);
+    for (let i = 0; i < 8; i++) {
+        await page.mouse.move(box.x + box.width * (0.35 + i * 0.03), box.y + box.height * (0.40 + i * 0.02));
+        await page.waitForTimeout(90); // > the presence throttle
+    }
 }
 
 /**
- * Wires a connected page into the live UI: mounts the REAL RemoteCursorsLayer +
- * roster on the live map, feeds inbound cursor frames into the shared presenceStore
- * (like presence-bridge), and installs an `operation` feeder that DRAWS features the
- * peer creates onto the real map (a line layer for LineStrings, a milsymbol marker
- * for military symbols). Exposes `window.__demo.pushFeature(feature)` which authors
- * a feature over the real backend AND draws it locally (optimistic author render).
- *
+ * Places a MILITARY SYMBOL with the real military tool: open the military group, activate the
+ * symbol tool, single-click the canvas (default SIDC). Returns the new feature id.
  * @param {import('@playwright/test').Page} page
- * @param {{ mapId: string, selfClientId: string, peerClientId: string, peerName: string }} cfg
+ * @returns {Promise<string>}
  */
-function setupClient(page, cfg) {
-    return page.evaluate(async ({ mapId, selfClientId, peerClientId, peerName }) => {
-        const { presenceStore } = await import('/src/js/presence/presence-store.js');
-        const { RemoteCursorsLayer } = await import('/src/js/presence/remote-cursors.layer.js');
-        const { OnlineUsersControl } = await import('/src/js/presence/online-users.control.js');
-        const { sessionContext } = await import('/src/js/store/sync/session-context.js');
-        const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
+async function drawMilitarySymbolUI(page) {
+    const before = new Set((await readFeatures(page, 'military_symbols')).map((f) => f.id));
+    await page.locator('.toolbar-group[data-group-id="military"] .toolbar-group-btn').click();
+    await expect(page.locator('.toolbar-group[data-group-id="military"] .toolbar-popup'))
+        .toHaveAttribute('data-visible', 'true', { timeout: 5000 });
+    await page.locator('.toolbar-group[data-group-id="military"] .toolbar-tool-btn[data-tool-id="militarySymbol"]').click();
 
-        // Self is this window; the peer must NOT be excluded from the overlay.
-        sessionContext.clientId = selfClientId;
-        const map = globalThis.__ebgeoMap;
+    const box = await canvasBox(page);
+    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
 
-        const layer = new RemoteCursorsLayer(map, { mapIdProvider: () => mapId });
-        layer.start();
-
-        const roster = new OnlineUsersControl();
-        const rosterEl = roster.onAdd({});
-        rosterEl.id = 'roster-under-test';
-        document.body.appendChild(rosterEl);
-        rosterEl.querySelector('[data-testid="online-users-toggle"]')?.click();
-        // Seed the peer the way presence-bridge does on a `user_joined` frame (a plain
-        // cursor frame can't surface a brand-new peer in the roster — see git history).
-        presenceStore.userJoined({ clientId: peerClientId, userName: peerName });
-
-        // Inbound cursor → store → PRESENCE_CURSORS_CHANGED → marker on the map.
-        window.__live.ws.on('cursor', (msg) => {
-            presenceStore.setCursor({
-                clientId: peerClientId, userId: msg.userId, userName: peerName,
-                position: msg.position, mapId,
-            });
-        });
-
-        // Draw a received/authored feature onto the live map. Idempotent per id.
-        const drawn = new Set();
-        function drawFeature(feature) {
-            const id = feature && feature.properties ? feature.properties.id : null;
-            if (!id || drawn.has(id) || !feature.geometry) return;
-            drawn.add(id);
-
-            if (feature.geometry.type === 'LineString') {
-                const srcId = `demo-src-${id}`;
-                const layerId = `demo-line-${id}`;
-                if (!map.getSource(srcId)) map.addSource(srcId, { type: 'geojson', data: feature });
-                if (!map.getLayer(layerId)) {
-                    map.addLayer({
-                        id: layerId, type: 'line', source: srcId,
-                        layout: { 'line-cap': 'round', 'line-join': 'round' },
-                        paint: { 'line-color': '#ff2d2d', 'line-width': 4 },
-                    });
-                }
-                return;
-            }
-
-            // Point / military symbol → a DOM marker (real NATO symbol when SIDC is set).
-            const el = document.createElement('div');
-            el.setAttribute('data-testid', 'remote-feature-symbol');
-            el.setAttribute('data-feature-id', id);
-            const sidc = feature.properties.sidc;
-            try {
-                if (sidc && typeof globalThis.ms !== 'undefined') {
-                    el.innerHTML = new globalThis.ms.Symbol(sidc, { size: 34 }).asSVG();
-                } else {
-                    throw new Error('no milsymbol');
-                }
-            } catch {
-                el.textContent = '✚';
-                el.style.cssText = 'font-size:26px;color:#0a7a3f;font-weight:700;text-shadow:0 0 3px #fff';
-            }
-            new globalThis.maplibregl.Marker({ element: el, anchor: 'center' })
-                .setLngLat(feature.geometry.coordinates)
-                .addTo(map);
-        }
-
-        // Peer's feature creates fan in over the WS broadcast → draw them.
-        window.__live.ws.on('operation', (op) => {
-            if (op && op.entityType === 'feature' && op.operationType === 'create' && op.data) {
-                drawFeature(op.data);
-            }
-        });
-
-        async function pushFeature(feature) {
-            const op = {
-                ...createOperation('feature', 'create', feature.properties.id, mapId, feature),
-                clientId: selfClientId,
-            };
-            await window.__live.api.pushOperations(window.__live.atlasId, [op]);
-            drawFeature(feature); // author sees its own feature immediately
-        }
-
-        window.__demo = { pushFeature };
-    }, cfg);
+    let id = null;
+    await expect.poll(async () => {
+        const fresh = (await readFeatures(page, 'military_symbols')).find((f) => !before.has(f.id));
+        id = fresh?.id ?? null;
+        return id;
+    }, { timeout: 10000 }).toBeTruthy();
+    return id;
 }
 
-/**
- * Animates this page's cursor once around a circle, sending each frame over the
- * real WS so the peer renders the motion live. `dir` flips the orbit direction.
- * @param {import('@playwright/test').Page} page
- * @param {{ center: {lng:number,lat:number}, radius:number, frames:number, delay:number, mapId:string, dir:number }} cfg
- */
-function animateCursor(page, cfg) {
-    return page.evaluate(async ({ center, radius, frames, delay, mapId, dir }) => {
-        for (let i = 0; i < frames; i++) {
-            const t = dir * (i / frames) * Math.PI * 2;
-            const position = { lng: center.lng + radius * Math.cos(t), lat: center.lat + radius * Math.sin(t) };
-            window.__live.ws.sendCursor({ position, mapId });
-            await new Promise((r) => setTimeout(r, delay));
-        }
-    }, cfg);
+/** Opens the layers tab (idempotent — never toggles it closed). */
+async function openLayersTab(page) {
+    if ((await page.locator('.layer-container').count()) === 0) {
+        await page.locator('.sidebar-nav-btn[data-tab="camadas"]').click();
+    }
+    await expect(page.locator('.layer-container').first()).toBeVisible({ timeout: 10000 });
+}
+
+/** Expands the real online-users roster so its named rows are visible for assertions. */
+async function expandRoster(page) {
+    const toggle = page.locator('[data-testid="online-users"] [data-testid="online-users-toggle"]');
+    await expect(toggle).toBeVisible({ timeout: 10000 });
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+        await toggle.click();
+    }
 }
 
 describeOrSkip('Live two-way collaboration on the real map (two real browsers + real backend)', () => {
     test('cursors, a line from A and a military symbol from B all appear on BOTH live maps', async ({ browser }) => {
-        // 1. Seed ONE shared user + atlas + map via the backend API.
-        const seedPage = await browser.newPage();
-        await seedPage.goto('/');
-        const seed = await seedPage.evaluate(async (baseUrl) => {
-            const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-            const { createOperation } = await import('/src/js/store/sync/operation-factory.js');
+        // 1. Seed a shared atlas (owner A + write-shared B) via the backend API (no sharing UI).
+        const seed = await seedSharedAtlas(browser, state.baseUrl);
 
-            const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
-            const username = `live_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
-            const password = 'Sup3r-Secret-Pw!';
-            await api.register({ username, password, nome: 'Collab Owner' });
-            await api.login(username, password);
+        // 2. Two real app windows log in and OPEN the shared atlas (app auto-activates its map).
+        const pageA = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
+        const pageB = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
 
-            const atlas = await api.createAtlas({ name: 'Live Collab Atlas' });
-            const mapId = crypto.randomUUID();
-            await api.pushOperations(atlas.id, [createOperation('map', 'create', mapId, null, { name: 'Mapa Tático' })]);
-            return { username, password, atlasId: atlas.id, mapId };
-        }, state.baseUrl);
-        await seedPage.close();
+        try {
+            // 3. Both windows JUMP TO THE SAME PLACE so each sees the other's activity.
+            for (const page of [pageA, pageB]) {
+                await page.evaluate(({ c, z }) => globalThis.__ebgeoMap.jumpTo({ center: [c.lng, c.lat], zoom: z }), { c: CENTER, z: ZOOM });
+            }
 
-        // 2. Two independent browser contexts → two real app windows.
-        const ctxA = await browser.newContext();
-        const pageA = await ctxA.newPage();
-        const ctxB = await browser.newContext();
-        const pageB = await ctxB.newPage();
-        for (const page of [pageA, pageB]) {
-            await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${state.baseUrl}/api/v1`);
-            await page.goto('/');
-        }
+            // 4. Each moves its mouse → the OTHER window renders the remote cursor (with its
+            //    name label) through the REAL presence pipeline (native, both directions).
+            await moveCursorOverCanvas(pageA);
+            await expect(pageB.locator('[data-testid="remote-cursor"]')).toHaveCount(1, { timeout: 8000 });
+            await expect(pageB.locator('[data-testid="remote-cursor"] .remote-cursor__label')).not.toBeEmpty();
+            await moveCursorOverCanvas(pageB);
+            await expect(pageA.locator('[data-testid="remote-cursor"]')).toHaveCount(1, { timeout: 8000 });
+            await expect(pageA.locator('[data-testid="remote-cursor"] .remote-cursor__label')).not.toBeEmpty();
 
-        // 3. Both windows wait for the live 2D map and JUMP TO THE SAME PLACE.
-        for (const page of [pageA, pageB]) {
-            await expect(page.locator('.maplibregl-canvas')).toBeAttached({ timeout: 20000 });
-            await page.waitForFunction(
-                () => globalThis.__ebgeoMap && typeof globalThis.__ebgeoMap.jumpTo === 'function' && globalThis.__ebgeoMap.loaded(),
-                { timeout: 20000 },
-            );
-            await page.evaluate(({ c, z }) => globalThis.__ebgeoMap.jumpTo({ center: [c.lng, c.lat], zoom: z }), { c: CENTER, z: ZOOM });
-        }
-
-        // 4. Connect both WS clients (same owner, different clientIds).
-        const clientIdA = `live-A-${crypto.randomUUID().slice(0, 8)}`;
-        const clientIdB = `live-B-${crypto.randomUUID().slice(0, 8)}`;
-        const cfg = { baseUrl: state.baseUrl, username: seed.username, password: seed.password, atlasId: seed.atlasId };
-        await connectClient(pageA, { ...cfg, clientId: clientIdA });
-        await connectClient(pageB, { ...cfg, clientId: clientIdB });
-
-        // 5. Wire both windows: cursor overlay + roster + feature-render feeders.
-        await setupClient(pageA, { mapId: seed.mapId, selfClientId: clientIdA, peerClientId: clientIdB, peerName: 'Cliente B (janela 2)' });
-        await setupClient(pageB, { mapId: seed.mapId, selfClientId: clientIdB, peerClientId: clientIdA, peerName: 'Cliente A (janela 1)' });
-
-        // 6. BOTH cursors orbit at once (opposite directions). Headed: each window
-        //    shows the OTHER's labelled cursor gliding across the same view.
-        await Promise.all([
-            animateCursor(pageA, { center: CENTER, radius: ORBIT_RADIUS_DEG, frames: FRAMES, delay: FRAME_DELAY_MS, mapId: seed.mapId, dir: 1 }),
-            animateCursor(pageB, { center: CENTER, radius: ORBIT_RADIUS_DEG * 0.6, frames: FRAMES, delay: FRAME_DELAY_MS, mapId: seed.mapId, dir: -1 }),
-        ]);
-
-        // 7. A draws a LINE; B plants a MILITARY SYMBOL. Each is authored over the
-        //    real backend, fans out over the WS, and is drawn on the peer's map.
-        const lineId = crypto.randomUUID();
-        const symbolId = crypto.randomUUID();
-        const lineFeature = {
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [
+            // 5. A draws a LINE with the real line tool; B plants a MILITARY SYMBOL with the real
+            //    military tool. Each is authored by the app and fans out over the WS via NATIVE sync.
+            const lineId = await drawLineUI(pageA, [
                 [CENTER.lng - 0.012, CENTER.lat - 0.006],
                 [CENTER.lng + 0.004, CENTER.lat + 0.009],
                 [CENTER.lng + 0.013, CENTER.lat - 0.002],
-            ] },
-            properties: { id: lineId, source: 'line', nome: 'Eixo de Progressão', cor: '#ff2d2d' },
-        };
-        const symbolFeature = {
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [CENTER.lng + 0.006, CENTER.lat + 0.004] },
-            // SFGPUCI = Friend / Ground / Unit / Combat / Infantry (milsymbol 2525C).
-            properties: { id: symbolId, source: 'military_symbol', sidc: 'SFGPUCI----', nome: 'Pel Inf' },
-        };
+            ]);
+            expect(lineId, "A's line was created by the line tool").toBeTruthy();
+            const symbolId = await drawMilitarySymbolUI(pageB);
+            expect(symbolId, "B's symbol was created by the military tool").toBeTruthy();
 
-        await Promise.all([
-            pageA.evaluate((f) => window.__demo.pushFeature(f), lineFeature),
-            pageB.evaluate((f) => window.__demo.pushFeature(f), symbolFeature),
-        ]);
+            // 6. NATIVE sync carries each feature to the PEER's store (the cross-client render path).
+            await pollPeerFeature(pageB, 'lines', lineId);
+            await pollPeerFeature(pageA, 'military_symbols', symbolId);
 
-        // 8. Assert BOTH windows end up showing: the other player's cursor, the line,
-        //    the military symbol, and the peer in the roster.
-        for (const [page, label] of [[pageA, 'Cliente B'], [pageB, 'Cliente A']]) {
-            const cursor = page.locator('[data-testid="remote-cursor"]');
-            await expect(cursor).toHaveCount(1, { timeout: 8000 });
-            await expect(cursor.locator('.remote-cursor__label')).toContainText(label);
+            // 7. Assert BOTH windows end up showing: the other player's cursor, the line, the
+            //    military symbol (each in the real layers tree), and the peer in the real roster.
+            await openLayersTab(pageA);
+            await expect(pageA.locator(`.feature-item[data-feature-id="${lineId}"]`)).toBeVisible({ timeout: 12000 });   // A's own line
+            await expect(pageA.locator(`.feature-item[data-feature-id="${symbolId}"]`)).toBeVisible({ timeout: 12000 }); // B's symbol on A
+            await openLayersTab(pageB);
+            await expect(pageB.locator(`.feature-item[data-feature-id="${lineId}"]`)).toBeVisible({ timeout: 12000 });   // A's line on B
+            await expect(pageB.locator(`.feature-item[data-feature-id="${symbolId}"]`)).toBeVisible({ timeout: 12000 }); // B's own symbol
 
-            await expect(page.locator('[data-testid="remote-feature-symbol"]')).toHaveCount(1, { timeout: 8000 });
-            await expect(page.locator('#roster-under-test').getByTestId('online-user-item')).toHaveCount(1);
-
-            const hasLine = await page.evaluate((id) => !!globalThis.__ebgeoMap.getLayer(`demo-line-${id}`), lineId);
-            expect(hasLine).toBe(true);
+            // The line is rendered on BOTH real maps (the live MapLibre source carries it cross-client).
+            for (const page of [pageA, pageB]) {
+                const hasLine = await page.evaluate(async (id) => {
+                    const src = globalThis.__ebgeoMap.getSource('lines');
+                    if (!src || typeof src.getData !== 'function') return false;
+                    const data = await src.getData();
+                    return !!data && (data.features || []).some((f) => f.properties?.id === id);
+                }, lineId);
+                expect(hasLine, 'the line is on the live source').toBe(true);
+                await expandRoster(page);
+                await expect(page.locator('[data-testid="online-users"] [data-testid="online-user-item"]'))
+                    .toHaveCount(1, { timeout: 8000 }); // the peer (self is excluded from the roster)
+            }
+        } finally {
+            await pageA.context().close();
+            await pageB.context().close();
         }
-
-        // 9. Clean up.
-        await pageA.evaluate(() => window.__live.ws.disconnect());
-        await pageB.evaluate(() => window.__live.ws.disconnect());
-        await ctxA.close();
-        await ctxB.close();
     });
 });

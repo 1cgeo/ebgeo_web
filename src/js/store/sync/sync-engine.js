@@ -34,6 +34,9 @@ import {
     applyRemoteOperation,
     applyRemoteSnapshot,
     setRemoteHandlerEventBus,
+    recordLocalAppliedVersion,
+    reconcilePendingLocalEdits,
+    CONVERGENCE_GUARDED,
 } from './remote-operation-handler.js';
 import { syncGateway } from './sync-gateway.js';
 import { connectionState } from './connection-state.js';
@@ -41,9 +44,40 @@ import { setImageSyncAtlas } from './image-sync.js';
 import { applyAtlasSettings, revertAtlasSettings } from './atlas-settings.service.js';
 import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
+import { record } from './diag/trace-core.js';
+import { TraceStage, TraceOutcome } from './diag/trace-stages.js';
 
 /** Max operations pushed per HTTP batch when flushing the queue. */
 const FLUSH_BATCH_SIZE = 100;
+
+/**
+ * Records a `push.ack` span per op from the server's push response — binding each
+ * op.id to its server-assigned version and surfacing idempotent re-applies. The
+ * flush path historically discarded this response entirely.
+ * @param {Object} resp - The pushOperations response ({ results?, acks?, serverVersion? }).
+ * @param {Object[]} ops - The ops that were pushed (in order).
+ */
+function recordPushAcks(resp, ops) {
+    if (!resp) return;
+    const results = resp.results || resp.acks || [];
+    ops.forEach((op, i) => {
+        const r = results.find((x) => x && (x.operationId === op.id || x.opId === op.id)) || results[i] || {};
+        const sv = r.currentVersion ?? r.serverVersion ?? resp.serverVersion;
+        record(TraceStage.PUSH_ACK, {
+            opId: op.id,
+            traceId: op.traceId,
+            serverVersion: sv,
+            outcome: r.idempotent ? TraceOutcome.IDEMPOTENT : (r.success === false ? TraceOutcome.FAILED : TraceOutcome.OK),
+        });
+        // Seed the author's own applied serverVersion (LWW convergence): the author filters its
+        // own WS echo, so without this it would never learn its op's server arrival order, and a
+        // peer's concurrent OLDER op could overwrite the author's (correct) value. Applies to all
+        // guarded entity types (feature/layer/group/3D/360).
+        if (sv != null && op.entityId && CONVERGENCE_GUARDED.has(op.entityType)) {
+            recordLocalAppliedVersion(op.entityId, sv);
+        }
+    });
+}
 
 /**
  * Orchestrates the online sync lifecycle: auth, initial pull, WebSocket wiring,
@@ -130,6 +164,22 @@ class SyncEngine {
         // Authenticated connect → log local mutations for outbound sync. Re-enabled explicitly here
         // because a prior public-visitor connect (connectPublic) disables logging.
         enableOperationLogging();
+
+        // Elevate the role for the atlas OWNER the instant the snapshot lands — BEFORE the WS
+        // handshake — so the owner's account config buttons (Configurar/Compartilhar/Excluir)
+        // appear immediately on an F5 reconnect instead of waiting on, or being lost to, the
+        // socket handshake (which is the only thing that applied the role before, via `payload`
+        // below). The `connected` payload still re-confirms the role and resolves the non-owner
+        // roles (manager/editor/commenter/viewer).
+        const ownerId = snapshot?.atlas?.sync?.ownerId;
+        if (ownerId && sessionContext.userId && ownerId === sessionContext.userId) {
+            sessionContext.setSession({
+                userId: sessionContext.userId,
+                role: 'owner',
+                username: sessionContext.username,
+            });
+        }
+
         const payload = await wsClient.connect(atlasId, { lastVersion: this._lastVersion });
 
         // Reflect the PER-ATLAS role from the connect payload (owner/editor/viewer), not just the
@@ -210,12 +260,46 @@ class SyncEngine {
         let pushed = 0;
         let ops = await operationQueue.peek(FLUSH_BATCH_SIZE);
         while (ops && ops.length > 0) {
-            await apiClient.pushOperations(this._atlasId, ops);
-            await operationQueue.dequeue(ops.map(op => op.id));
+            const opIds = ops.map(op => op.id);
+            record(TraceStage.FLUSH_PUSH, {
+                atlasId: this._atlasId, opIds, batchSize: ops.length, outcome: TraceOutcome.OK,
+            });
+            let resp;
+            try {
+                resp = await apiClient.pushOperations(this._atlasId, ops);
+            } catch (error) {
+                // A rejected batch is NOT dequeued — the queue re-peeks the same ops next
+                // flush. Surface the poison batch (which op ids stalled) instead of the
+                // historic silent stall.
+                record(TraceStage.FLUSH_PUSH, {
+                    atlasId: this._atlasId, opIds, outcome: TraceOutcome.FAILED,
+                    error: error?.message || String(error),
+                });
+                await this._reconcileConvergenceGuard();
+                throw error;
+            }
+            recordPushAcks(resp, ops);
+            await operationQueue.dequeue(opIds);
             pushed += ops.length;
             ops = await operationQueue.peek(FLUSH_BATCH_SIZE);
         }
+        await this._reconcileConvergenceGuard();
         return { pushed };
+    }
+
+    /**
+     * @private Self-heals the pending-local-edit convergence guard against the operation queue
+     * after a flush (clears leaked deferrals; see reconcilePendingLocalEdits). Never throws.
+     * @returns {Promise<void>}
+     */
+    async _reconcileConvergenceGuard() {
+        try {
+            const remaining = await operationQueue.getAll();
+            const remainingIds = new Set(remaining.map((o) => o.entityId).filter(Boolean));
+            await reconcilePendingLocalEdits(remainingIds);
+        } catch (err) {
+            console.warn('reconcilePendingLocalEdits failed:', err);
+        }
     }
 
     /**
@@ -233,6 +317,30 @@ class SyncEngine {
             }
         }
         this._lastVersion = result?.currentVersion ?? this._lastVersion;
+    }
+
+    /**
+     * Re-pulls a FRESH FULL snapshot and applies it. Used when a peer performs a server-side
+     * operation OUTSIDE the CRDT op log (duplicate/merge a map, rename the atlas, import) — the new
+     * state never arrives as ops, so an incremental pull would miss it; only a snapshot picks it
+     * up. Best-effort and guarded against overlapping runs.
+     * @returns {Promise<void>}
+     */
+    async resync() {
+        if (this._resyncing || !this._atlasId) return;
+        this._resyncing = true;
+        try {
+            const result = await apiClient.pullSync(this._atlasId, 0);
+            if (result?.snapshot) {
+                await applyRemoteSnapshot(result.snapshot);
+                this._lastVersion = result.currentVersion ?? this._lastVersion;
+                wsClient.setLastVersion(this._lastVersion);
+            }
+        } catch (error) {
+            console.warn('[sync] resync failed:', error);
+        } finally {
+            this._resyncing = false;
+        }
     }
 
     /**
@@ -349,9 +457,26 @@ class SyncEngine {
         // Atlas settings changed server-side (`atlas_settings_updated`) — re-apply the per-atlas
         // config overlay (3D/360/basemap availability), then notify the UI to re-gate.
         wsClient.on('atlasSettings', (msg) => {
+            // Drop a late atlas_settings_updated frame arriving after a disconnect (the
+            // disconnect→revert window): re-applying with no connected atlas would re-capture the
+            // just-restored config as a new baseline and wrongly re-restrict it (mirrors the
+            // sync_response gate above).
+            if (!connectionState.isOnline()) return;
             applyAtlasSettings(msg?.settings);
             try {
                 getEventBus().emit(EventTypes.ATLAS_SETTINGS_CHANGED, { settings: msg?.settings });
+            } catch {
+                // No UI bus (headless).
+            }
+        });
+
+        // A peer created/altered server-side data OUTSIDE the CRDT op log (duplicate/merge a map,
+        // rename the atlas). The entities never arrive as ops, so re-pull a fresh snapshot to pick
+        // them up, then refresh the UI. (These events were silently dropped before.)
+        wsClient.on('serverResync', async () => {
+            await this.resync();
+            try {
+                getEventBus().emit(EventTypes.LAYERS_CHANGED, { mapName: null });
             } catch {
                 // No UI bus (headless).
             }

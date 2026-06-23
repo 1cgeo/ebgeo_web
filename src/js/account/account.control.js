@@ -26,6 +26,31 @@ import {
     removeElement
 } from '@utils/event-cleanup.js';
 
+/* Static inline icons for the dropdown menu actions (no user data — safe to inject). */
+const ICON_SAVE_SERVER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 13v8"/><path d="m8 17 4-4 4 4"/><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/></svg>';
+const ICON_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>';
+const ICON_SETTINGS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>';
+const ICON_LOGOUT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>';
+
+/**
+ * Fills a dropdown menu button with a leading icon + a text label. The icon is a trusted static
+ * SVG string (injected via innerHTML); the label is set via textContent (never user data).
+ * @param {HTMLButtonElement} btn
+ * @param {string} iconSvg
+ * @param {string} label
+ */
+function setMenuButtonContent(btn, iconSvg, label) {
+    const icon = document.createElement('span');
+    icon.className = 'account-control__btn-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = iconSvg;
+    const text = document.createElement('span');
+    text.className = 'account-control__btn-label';
+    text.textContent = label;
+    btn.replaceChildren(icon, text);
+}
+
 /**
  * AccountControl — MapLibre IControl orchestrator for backend integration.
  *
@@ -141,7 +166,7 @@ export class AccountControl {
         this._saveToServerBtn.className = 'account-control__btn account-control__btn--save-server';
         this._saveToServerBtn.setAttribute('role', 'menuitem');
         this._saveToServerBtn.setAttribute('data-testid', 'account-save-server-btn');
-        this._saveToServerBtn.textContent = 'Salvar no servidor';
+        setMenuButtonContent(this._saveToServerBtn, ICON_SAVE_SERVER, 'Salvar no servidor');
         this._saveToServerBtn.hidden = true;
         this._menu.appendChild(this._saveToServerBtn);
 
@@ -152,7 +177,7 @@ export class AccountControl {
         this._shareBtn.className = 'account-control__btn account-control__btn--share';
         this._shareBtn.setAttribute('role', 'menuitem');
         this._shareBtn.setAttribute('data-testid', 'account-share-btn');
-        this._shareBtn.textContent = 'Compartilhar';
+        setMenuButtonContent(this._shareBtn, ICON_SHARE, 'Compartilhar');
         this._shareBtn.hidden = true;
         this._menu.appendChild(this._shareBtn);
 
@@ -163,7 +188,7 @@ export class AccountControl {
         this._settingsBtn.className = 'account-control__btn account-control__btn--settings';
         this._settingsBtn.setAttribute('role', 'menuitem');
         this._settingsBtn.setAttribute('data-testid', 'account-settings-btn');
-        this._settingsBtn.textContent = 'Configurar projeto';
+        setMenuButtonContent(this._settingsBtn, ICON_SETTINGS, 'Configurar projeto');
         this._settingsBtn.hidden = true;
         this._menu.appendChild(this._settingsBtn);
 
@@ -174,7 +199,7 @@ export class AccountControl {
         this._deleteAtlasBtn.className = 'account-control__btn account-control__btn--delete-atlas';
         this._deleteAtlasBtn.setAttribute('role', 'menuitem');
         this._deleteAtlasBtn.setAttribute('data-testid', 'account-delete-atlas-btn');
-        this._deleteAtlasBtn.textContent = 'Excluir projeto';
+        setMenuButtonContent(this._deleteAtlasBtn, ICON_TRASH, 'Excluir projeto');
         this._deleteAtlasBtn.hidden = true;
         this._menu.appendChild(this._deleteAtlasBtn);
 
@@ -183,7 +208,7 @@ export class AccountControl {
         this._logoutBtn.className = 'account-control__btn account-control__btn--logout';
         this._logoutBtn.setAttribute('data-testid', 'account-logout-btn');
         this._logoutBtn.setAttribute('role', 'menuitem');
-        this._logoutBtn.textContent = 'Sair';
+        setMenuButtonContent(this._logoutBtn, ICON_LOGOUT, 'Sair');
         this._menu.appendChild(this._logoutBtn);
 
         this._container.appendChild(this._loginBtn);

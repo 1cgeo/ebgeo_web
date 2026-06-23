@@ -24,6 +24,10 @@ import config from '../../config.js';
  */
 let _baseline = null;
 
+/** Per-atlas 360-view allowlist (raw ids); null = no restriction. Set on apply, cleared on revert.
+ *  360 lives outside `config` (sv360 preflight cache), so the catalog reads this directly. */
+let _atlas360Allowlist = null;
+
 /** @private Captures the current (deploy-level) availability from the config singleton. */
 function captureBaseline() {
     const basemaps = {};
@@ -37,7 +41,24 @@ function captureBaseline() {
         imagens_panoramicas: config.features?.imagens_panoramicas !== false,
         terrain_3d: config.features?.terrain_3d !== false,
         basemaps,
+        // Data/analysis layers are FLAT arrays (no per-layer `enabled` flag, unlike basemaps), so
+        // the baseline keeps the full deploy arrays and the intersection FILTERS them to the allowlist.
+        dataLayers: Array.isArray(config.dataLayers?.layers) ? [...config.dataLayers.layers] : [],
+        analysisLayers: Array.isArray(config.analysisLayers?.layers) ? [...config.analysisLayers.layers] : [],
+        // Global category on/off (the whole "Dados"/"Análise" group): the catalog reads `.enabled`.
+        dataLayersEnabled: config.dataLayers?.enabled !== false,
+        analysisLayersEnabled: config.analysisLayers?.enabled !== false,
+        // 3D models: config.tilesets is a flat array of {id,...}; filter it by available_3d_models.
+        tilesets: Array.isArray(config.tilesets) ? [...config.tilesets] : [],
     };
+}
+
+/** @private Filters a layer array by an id allowlist ([]/absent = keep all). */
+function filterLayers(layers, allowlist) {
+    const all = Array.isArray(layers) ? layers : [];
+    const allow = Array.isArray(allowlist) ? allowlist : [];
+    if (allow.length === 0) return [...all];
+    return all.filter((l) => allow.includes(l?.id));
 }
 
 /**
@@ -62,6 +83,12 @@ export function intersectAvailability(baseline, settings) {
         imagens_panoramicas: baseline.imagens_panoramicas !== false && features.panoramic_images !== false,
         terrain_3d: baseline.terrain_3d !== false && features.terrain_3d !== false,
         basemaps,
+        // Empty/absent allowlist = no restriction (keep the full deploy array); else keep only listed ids.
+        dataLayers: filterLayers(baseline.dataLayers, settings?.available_data_layers),
+        analysisLayers: filterLayers(baseline.analysisLayers, settings?.available_analysis_layers),
+        dataLayersEnabled: baseline.dataLayersEnabled !== false && features.data_layers !== false,
+        analysisLayersEnabled: baseline.analysisLayersEnabled !== false && features.analysis_layers !== false,
+        tilesets: filterLayers(baseline.tilesets, settings?.available_3d_models),
     };
 }
 
@@ -73,6 +100,9 @@ export function intersectAvailability(baseline, settings) {
 export function applyAtlasSettings(settings) {
     if (!_baseline) _baseline = captureBaseline();
     const next = intersectAvailability(_baseline, settings);
+    _atlas360Allowlist = Array.isArray(settings?.available_360_views) && settings.available_360_views.length
+        ? settings.available_360_views
+        : null;
     if (config.features) {
         config.features.map_3d = next.map_3d;
         config.features.imagens_panoramicas = next.imagens_panoramicas;
@@ -83,6 +113,28 @@ export function applyAtlasSettings(settings) {
             if (config.basemaps[id]) config.basemaps[id].enabled = enabled;
         }
     }
+    if (config.dataLayers) {
+        replaceArrayInPlace(config.dataLayers.layers, next.dataLayers);
+        config.dataLayers.enabled = next.dataLayersEnabled;
+    }
+    if (config.analysisLayers) {
+        replaceArrayInPlace(config.analysisLayers.layers, next.analysisLayers);
+        config.analysisLayers.enabled = next.analysisLayersEnabled;
+    }
+    replaceArrayInPlace(config.tilesets, next.tilesets);
+}
+
+/**
+ * @private Replaces an array's contents IN PLACE (preserves the reference) so modules that
+ * captured the original array (e.g. the catalog) keep seeing the overlay-filtered list.
+ * No-op when `arr` is not an array.
+ * @param {*} arr - The live array to mutate.
+ * @param {Array} next - The new contents.
+ */
+function replaceArrayInPlace(arr, next) {
+    if (!Array.isArray(arr)) return;
+    arr.length = 0;
+    arr.push(...(Array.isArray(next) ? next : []));
 }
 
 /**
@@ -101,7 +153,46 @@ export function revertAtlasSettings() {
             if (config.basemaps[id]) config.basemaps[id].enabled = enabled;
         }
     }
+    if (config.dataLayers) {
+        replaceArrayInPlace(config.dataLayers.layers, _baseline.dataLayers);
+        config.dataLayers.enabled = _baseline.dataLayersEnabled;
+    }
+    if (config.analysisLayers) {
+        replaceArrayInPlace(config.analysisLayers.layers, _baseline.analysisLayers);
+        config.analysisLayers.enabled = _baseline.analysisLayersEnabled;
+    }
+    replaceArrayInPlace(config.tilesets, _baseline.tilesets);
+    _atlas360Allowlist = null;
     _baseline = null;
+}
+
+/**
+ * Returns the deploy-level (UNrestricted) data layers. The atlas-config modal must use this — not
+ * `config.dataLayers.layers`, which the active overlay has already FILTERED — so a manager always
+ * sees the full list and can re-enable a previously restricted layer. Falls back to the live config
+ * when no overlay is active (then it IS the full deploy list).
+ * @returns {Array}
+ */
+export function getDeployDataLayers() {
+    if (_baseline) return _baseline.dataLayers;
+    return Array.isArray(config.dataLayers?.layers) ? config.dataLayers.layers : [];
+}
+
+/** As {@link getDeployDataLayers}, for analysis layers. @returns {Array} */
+export function getDeployAnalysisLayers() {
+    if (_baseline) return _baseline.analysisLayers;
+    return Array.isArray(config.analysisLayers?.layers) ? config.analysisLayers.layers : [];
+}
+
+/** As {@link getDeployDataLayers}, for 3D models (config.tilesets). @returns {Array} */
+export function getDeployTilesets() {
+    if (_baseline) return _baseline.tilesets;
+    return Array.isArray(config.tilesets) ? config.tilesets : [];
+}
+
+/** The per-atlas 360-view allowlist (raw ids), or null = no restriction. @returns {string[]|null} */
+export function getAtlas360Allowlist() {
+    return _atlas360Allowlist;
 }
 
 /** Test hook: resets the captured baseline. @private */

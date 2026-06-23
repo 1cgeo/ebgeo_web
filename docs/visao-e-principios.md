@@ -271,6 +271,19 @@ já estava em operação no IndexedDB.
     servidor por "Salvar local no servidor" precisa voltar idêntica num export feito por outro usuário
     com quem o atlas foi compartilhado. **Toda adição ao *transform* local→servidor exige a
     contrapartida no `applyRemoteSnapshot`** (e um teste de fidelidade).
+11. **Os testes de UI (Playwright) dirigem a UI REAL.** Toda ação que um usuário realiza pela
+    interface é executada **pela interface** no teste: ativar a ferramenta na toolbar + clicar no
+    canvas para desenhar feições, painéis de atributos para editar (renomear/recolorir/descrever/
+    mover/excluir), sidebar para mapas/camadas/grupos, modais/toggles para configurações. Atalhos
+    programáticos (`store.addFeature/updateFeature/...` via `page.evaluate`) são permitidos **apenas**
+    para **setup sem UI** (registrar usuários, semear atlas, compartilhar/permissões, forçar
+    reconexão/relógio, ligar o tracer) e **leituras de asserção** de estado (`readFeatures`,
+    `getCurrentMapFeatures`, `getSource().getData()`) — não há UI para "asserir". Quando um tipo/ação
+    genuinamente não tem gesto de UI (ex.: `processed_los`/`processed_visibility` são **saídas** de
+    análise, não feições colocadas; `image` exige seletor de arquivo), documente a exceção no próprio
+    teste. Helpers reutilizáveis em `tests/e2e-ui/helpers/collab-helpers.js`
+    (`drawLineUI`/`drawPointUI`/`drawPolygonUI`/…); referência: `browser-collab-native-render.spec.js`
+    e `tests/e2e-ui/README.md` §"UI-first philosophy".
 
 ---
 

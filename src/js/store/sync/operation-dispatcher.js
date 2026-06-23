@@ -11,6 +11,9 @@ import { operationQueue } from './operation-queue.js';
 import { EntityType, OperationType } from './operation-types.js';
 import { StoreErrorEvents, emitStoreError } from '../store-errors.js';
 import { isValidUUID } from '../../utilities/uuid.js';
+import { record } from './diag/trace-core.js';
+import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
+import { markLocalEditPending, CONVERGENCE_GUARDED } from './remote-operation-handler.js';
 
 /**
  * Whether operation logging is enabled.
@@ -100,13 +103,25 @@ function handleQueueFailure(label, entityId, error, retryFn) {
  * @returns {Promise<void>}
  */
 export async function logOperation(entityType, operationType, entityId, mapId, data = null, previousData = null) {
-    if (!enabled) return;
+    if (!enabled) {
+        // Offline/anonymous: logging is off, so the op is intentionally not queued.
+        // The dominant "I edited but nothing synced" confusion — now a named cause.
+        record(TraceStage.PREFLUSH_DROP, {
+            entityType, operationType, entityId, mapId,
+            outcome: TraceOutcome.DROPPED, reason: DropReason.LOGGING_DISABLED
+        });
+        return;
+    }
 
     // A SETTING op must scope to the atlas: a UUID id (per logAtlasSetting) or the
     // 'atlas' sentinel. A non-UUID local key (e.g. 'lastActiveMap' — per-client view
     // state) can never be pushed: the backend rejects it (22P02), and that one op
     // fails the ENTIRE flush batch, blocking all sync. Defense-in-depth for bug D.
     if (entityType === EntityType.SETTING && entityId !== 'atlas' && !isValidUUID(entityId)) {
+        record(TraceStage.PREFLUSH_DROP, {
+            entityType, operationType, entityId, mapId,
+            outcome: TraceOutcome.DROPPED, reason: DropReason.NON_UUID_SETTING_ID
+        });
         return;
     }
 
@@ -116,12 +131,24 @@ export async function logOperation(entityType, operationType, entityId, mapId, d
     // flush batch, blocking all sync (bug D). Such an op can never bind server-side, so drop
     // it. Atlas-level ops (map/briefing/setting) pass mapId=null and are unaffected.
     if (mapId != null && !isValidUUID(mapId)) {
+        record(TraceStage.PREFLUSH_DROP, {
+            entityType, operationType, entityId, mapId,
+            outcome: TraceOutcome.DROPPED, reason: DropReason.NON_UUID_MAPID
+        });
         return;
     }
 
     try {
         const operation = createOperation(entityType, operationType, entityId, mapId, data, previousData);
         await operationQueue.enqueue(operation);
+        // Mark a local un-acked edit (feature/layer/group/3D/360) so a concurrent remote op for
+        // the SAME entity is deferred until this op's ack reveals the server order (deterministic
+        // LWW convergence).
+        if (CONVERGENCE_GUARDED.has(entityType)) markLocalEditPending(entityId);
+        record(TraceStage.ENQUEUE, {
+            opId: operation.id, traceId: operation.traceId, entityType, operationType, entityId, mapId,
+            lamportTimestamp: operation.lamportTimestamp, outcome: TraceOutcome.OK
+        });
         consecutiveFailures = 0;
     } catch (error) {
         handleQueueFailure(
@@ -143,7 +170,13 @@ export async function logOperation(entityType, operationType, entityId, mapId, d
  * @returns {Promise<void>}
  */
 export async function logBatchOperations(operations) {
-    if (!enabled) return;
+    if (!enabled) {
+        record(TraceStage.PREFLUSH_DROP, {
+            count: (operations || []).length,
+            outcome: TraceOutcome.DROPPED, reason: DropReason.LOGGING_DISABLED
+        });
+        return;
+    }
 
     // Same poison-pill defense as logOperation (bug D): drop ops that can never be pushed — a
     // map-scoped op whose context mapId is not a UUID, or a SETTING op without a UUID/'atlas'
@@ -155,11 +188,23 @@ export async function logBatchOperations(operations) {
         }
         return op.mapId == null || isValidUUID(op.mapId);
     });
+    const filtered = (operations || []).length - safe.length;
+    if (filtered > 0) {
+        record(TraceStage.PREFLUSH_DROP, {
+            count: filtered, outcome: TraceOutcome.DROPPED, reason: DropReason.BATCH_FILTERED
+        });
+    }
     if (safe.length === 0) return;
 
     try {
         const created = createBatchOperations(safe);
         await operationQueue.enqueueAll(created);
+        for (const op of created) {
+            record(TraceStage.ENQUEUE, {
+                opId: op.id, traceId: op.traceId, entityType: op.entityType, operationType: op.operationType,
+                entityId: op.entityId, mapId: op.mapId, batchId: op.batchId, outcome: TraceOutcome.OK
+            });
+        }
         consecutiveFailures = 0;
     } catch (error) {
         handleQueueFailure(
@@ -205,7 +250,13 @@ function createMapSettingLogger(entityType) {
         // map (e.g. the local "Principal" default whose id is its name), so the op can
         // never be pushed — skip it. Otherwise the backend rejects the non-UUID map id
         // and that single op fails the ENTIRE flush batch, blocking all sync (bug D).
-        if (!isValidUUID(mapId)) return;
+        if (!isValidUUID(mapId)) {
+            record(TraceStage.PREFLUSH_DROP, {
+                entityType, operationType: opType, entityId: mapId, mapId,
+                outcome: TraceOutcome.DROPPED, reason: DropReason.NON_UUID_MAPID
+            });
+            return;
+        }
         await logOperation(entityType, opType, mapId, mapId, data, previousData);
     };
 }

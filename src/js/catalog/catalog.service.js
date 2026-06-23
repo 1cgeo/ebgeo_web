@@ -8,6 +8,7 @@
 
 import config from '@js/config.js';
 import { CATALOG_ITEM_TYPES, DEFAULT_THUMBNAILS } from './catalog.constants.js';
+import { getAtlas360Allowlist } from '@store/sync/atlas-settings.service.js';
 
 /**
  * @typedef {Object} CatalogItem
@@ -151,7 +152,9 @@ export class CatalogService {
      * @returns {CatalogItem[]}
      */
     static _getModels3D() {
-        if (!config.hasTilesets()) return [];
+        // Hide 3D models when the atlas/deploy disables 3D (mirrors the 360 gate below), so the
+        // atlas-config "Mapa 3D" toggle removes them from the catalog too.
+        if (config.features?.map_3d === false || !config.hasTilesets()) return [];
 
         return config.tilesets.map(tileset => ({
             id: `3d-${tileset.id}`,
@@ -185,7 +188,7 @@ export class CatalogService {
 
             const serviceUrl = config.streetView360.serviceUrl;
 
-            return projects.map(p => ({
+            const items = projects.map(p => ({
                 id: `360-${p.id}`,
                 type: CATALOG_ITEM_TYPES.PANORAMIC_360,
                 name: p.name,
@@ -199,6 +202,9 @@ export class CatalogService {
                 location: p.center ? { lon: p.center.lon, lat: p.center.lat } : null,
                 originalData: p
             }));
+            // Per-atlas 360 restriction (available_360_views); 360 views live outside `config`.
+            const allow = getAtlas360Allowlist();
+            return allow ? items.filter((it) => allow.includes(it.originalData.id)) : items;
         } catch {
             return [];
         }

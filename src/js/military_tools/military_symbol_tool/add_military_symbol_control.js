@@ -87,10 +87,14 @@ class AddMilitarySymbolControl extends BaseControl {
   onAdd = (map) => {
     this.map = map;
     this.setupZoomListener();
+    // The symbol PNG (milsymbol) is local-only — never uploaded — so a peer renders an error
+    // icon. Regenerate it from the synced SIDC/props on every remote symbol op (deterministic).
+    this._subscribeRemoteImageRegen("military_symbol", (f) => this._regenerateRemote(f));
   };
 
   onRemove = () => {
     this.map.off("zoom", this.handleZoomChange);
+    this._unsubscribeRemoteImageRegen();
     if (this.zoomRafId) {
       cancelAnimationFrame(this.zoomRafId);
       this.zoomRafId = null;
@@ -470,6 +474,16 @@ class AddMilitarySymbolControl extends BaseControl {
 
   async loadSymbolToMap(symbolId, blob) {
     return loadImageToMap(this.map, symbolId, blob, { replaceExisting: true });
+  }
+
+  /** Rebuilds and re-installs a military symbol's image from its synced props (peer side). */
+  async _regenerateRemote(feature) {
+    if (!this.map || !feature?.properties?.id) return;
+    const result = await this.symbolGenerator.generateSymbolBlob(feature.properties);
+    if (result?.blob) {
+      await storeImage(feature.properties.id, result.blob);
+      await this.loadSymbolToMap(feature.properties.id, result.blob);
+    }
   }
 
   scheduleSymbolUpdate = (feature) => {

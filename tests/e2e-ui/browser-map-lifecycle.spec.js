@@ -83,6 +83,13 @@ describeOrSkip('Map lifecycle SYNC actions (real Chromium + real backend)', () =
         const { atlasId, mapIds } = await seed(page, state.baseUrl, 'mlc_notes', ['Alpha']);
         const [mapId] = mapIds;
 
+        // no-UI: backend op-contract test. It pins the exact op SHAPES — a sub-typed
+        // `mapNotes` update (entityId == mapId AND the 4th mapId arg) routed to
+        // notes_title/notes_description columns vs a PLAIN `map` update carrying {name} —
+        // and the per-sub-type column whitelist (the negative "smuggled name" probe). These
+        // are protocol distinctions with no single in-app gesture that emits the precise
+        // envelopes, and every assertion reads the raw `api.pullSync` snapshot, so the
+        // transport is driven directly through the real api-client.
         const result = await page.evaluate(
             async ({ atlasId: aid, mapId: mid }) => {
                 const { api, createOperation } = window.__mlc;
@@ -155,6 +162,11 @@ describeOrSkip('Map lifecycle SYNC actions (real Chromium + real backend)', () =
         const { atlasId, mapIds } = await seed(page, state.baseUrl, 'mlc_pos', ['Bravo']);
         const [mapId] = mapIds;
 
+        // no-UI: backend op-contract test for the `mapPosition` sub-type columns. It asserts
+        // a SAVE then an explicit CLEAR (a second op nulling center_lat/center_long/zoom and
+        // resetting bearing/pitch) round-trip through the dedicated DB columns in the raw
+        // snapshot. The clear-by-nulling-columns envelope is a protocol shape, not a single
+        // user gesture, so the transport is driven directly through the real api-client.
         const result = await page.evaluate(
             async ({ atlasId: aid, mapId: mid }) => {
                 const { api, createOperation } = window.__mlc;
@@ -232,6 +244,11 @@ describeOrSkip('Map lifecycle SYNC actions (real Chromium + real backend)', () =
             'Three',
         ]);
 
+        // no-UI: atlas map REORDER has NO sync-op path — the only write route is the REST
+        // `PUT /atlas/:id` with a snake_case `map_order` body (a frozen backend contract).
+        // This test exercises that exact REST envelope + authed-fetch path and grounds the
+        // result in the raw `atlas.mapOrder` snapshot, which the sidebar drag-reorder UI
+        // cannot stand in for, so the transport is driven directly through the real api-client.
         const result = await page.evaluate(
             async ({ atlasId: aid, mapIds: ids }) => {
                 const { api, baseUrl } = window.__mlc;
@@ -300,6 +317,12 @@ describeOrSkip('Map lifecycle SYNC actions (real Chromium + real backend)', () =
         await attackerPage.goto('/');
         const attacker = await seed(attackerPage, state.baseUrl, 'mlc_attacker', ['Att']);
 
+        // no-UI: a cross-atlas IDOR security test. Both attacks — a `mapPosition` op naming
+        // a FOREIGN mapId pushed on the attacker's OWN atlas route, and a `PUT /atlas/:id`
+        // reorder against the VICTIM's atlas with the attacker's token (no share) — are
+        // hand-crafted requests no UI can issue (the app only ever targets your own current
+        // atlas/map). They probe the backend's EXISTS/atlas-scoped guards, so the transport
+        // is driven directly through the real api-client.
         const attack = await attackerPage.evaluate(
             async ({ ownAtlas, victimAtlas, victimMap, victimOrder }) => {
                 const { api, createOperation, baseUrl } = window.__mlc;

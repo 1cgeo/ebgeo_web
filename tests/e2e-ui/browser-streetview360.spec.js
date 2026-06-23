@@ -26,8 +26,17 @@
  *     `orientations` (the OUT transform only indexes orientations that carry a
  *     truthy `photo_name`), so it never pollutes the orientations map.
  *
- * Each test seeds its OWN user + atlas + map for isolation. No UI clicks — the
- * transport is exercised entirely via `page.evaluate`, so no `data-testid` is used.
+ * Each test seeds its OWN user + atlas + map for isolation.
+ *
+ * UI-first note: orientation360 / marker360 are VIEWER-ONLY entities — they are placed
+ * INSIDE the Three.js 360 panorama viewer (anchored to a loaded equirectangular photo),
+ * not by a single-gesture click on the 2D MapLibre map. The viewer needs a WebGL camera
+ * + a panorama photo that are absent in this env (see viewer-360-open.spec.js §21), and
+ * a marker360 carries 3D panorama coordinates a 2D click cannot produce. So this
+ * transport-shape spec drives the real api-client / operation-factory directly via
+ * `page.evaluate`; every assertion still reads observable backend `pullSync` state. The
+ * 2D-map 360 UI that DOES exist (the #feature-toggle-panorama mode + opening the viewer)
+ * is covered by viewer-360-open.spec.js.
  */
 
 import { test, expect } from '@playwright/test';
@@ -59,6 +68,8 @@ describeOrSkip('Streetview360 FLAT sync (real Chromium + real backend)', () => {
             const orientId = crypto.randomUUID();
             const photoName = `pano_${crypto.randomUUID().slice(0, 8)}.jpg`;
             const orientation = { id: orientId, photoName, yaw: 90, pitch: -12, sync: 'pending' };
+            // no-UI: orientation360 is viewer-only (saved inside the Three.js 360 viewer,
+            // which self-skips headless) — driven on the real transport.
             await api.pushOperations(atlas.id, [
                 createOperation('orientation360', 'create', orientId, mapId, orientation),
             ]);
@@ -72,6 +83,8 @@ describeOrSkip('Streetview360 FLAT sync (real Chromium + real backend)', () => {
                 label: 'North door',
                 sync: 'pending',
             };
+            // no-UI: marker360 is viewer-only (placed inside the 360 viewer against a
+            // loaded panorama; a 2D click can't produce its panorama coords) — real transport.
             await api.pushOperations(atlas.id, [createOperation('marker360', 'create', markerId, mapId, marker)]);
 
             // EDGE: an orientation WITHOUT photoName must not be keyed into orientations.

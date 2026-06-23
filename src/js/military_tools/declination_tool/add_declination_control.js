@@ -78,10 +78,17 @@ class AddDeclinationControl extends BaseControl {
     onAdd = (map) => {
         this.map = map;
         this.setupZoomListener();
+        // A declination diagram is rendered from a local PNG keyed by the feature id, and that
+        // PNG is NEVER uploaded — so a peer has no blob to fetch (it rendered the error icon).
+        // The diagram is fully reconstructible from the synced props (declination/convergence),
+        // so regenerate it on the peer whenever a REMOTE declination op is applied. Deterministic,
+        // so it round-trips create AND edit without shipping the raster.
+        this._subscribeRemoteImageRegen('magnetic_declination', (f) => this.regenerateIcon(f));
     };
 
     onRemove = () => {
         this.map.off('zoom', this.handleZoomChange);
+        this._unsubscribeRemoteImageRegen();
         if (this.zoomRafId) {
             cancelAnimationFrame(this.zoomRafId);
             this.zoomRafId = null;

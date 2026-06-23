@@ -9,6 +9,10 @@
  */
 
 import { StoreErrorEvents, emitStoreError } from './store-errors.js';
+import { generateUUID } from '../utilities/uuid.js';
+import { setActionTraceId } from './sync/operation-factory.js';
+import { record } from './sync/diag/trace-core.js';
+import { TraceStage } from './sync/diag/trace-stages.js';
 
 const TxState = Object.freeze({
     OPEN: 'open',
@@ -104,10 +108,22 @@ class StoreTransaction {
  */
 export async function runTransaction(workFn) {
     const tx = new StoreTransaction();
+    // Mint one trace id per user gesture. It rides every op this transaction logs
+    // (the ambient is read synchronously by createOperation during commit, so it is
+    // safe even with concurrent transactions: there is no await between set and the
+    // synchronous createOperation calls inside commit). Best-effort — op.id remains
+    // the always-works correlation key, so a null/absent traceId never breaks sync.
+    const traceId = generateUUID();
     try {
         const persistFn = await workFn(tx);
         await persistFn();
-        tx.commit();
+        setActionTraceId(traceId);
+        try {
+            record(TraceStage.ACTION_ORIGIN, { traceId, outcome: 'ok' });
+            tx.commit();
+        } finally {
+            setActionTraceId(null);
+        }
     } catch (error) {
         tx.rollback();
         emitStoreError(StoreErrorEvents.STORE_PERSIST_ERROR, {

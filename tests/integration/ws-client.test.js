@@ -275,3 +275,75 @@ describe('WsClient — reconnect with replay', () => {
         expect(FakeSocket.instances).toHaveLength(1); // no reconnect attempt
     });
 });
+
+describe('WsClient — serverVersion cursor (global sequence: monotonic, NOT per-atlas contiguous)', () => {
+    async function connectOnline(lastVersion) {
+        const { ws } = setup();
+        ws.on('operation', () => {});
+        const p = ws.connect('atlas-1', { lastVersion });
+        const sock = FakeSocket.instances[0];
+        sock.emit({ type: 'connected', sessionId: 'me', permission: 'owner', role: 'owner' });
+        await p;
+        sock.sent.length = 0; // drop the handshake noise
+        return { ws, sock };
+    }
+
+    it('does NOT request a replay for a NON-contiguous serverVersion (a hole is another atlas op, not a lost one)', async () => {
+        vi.useFakeTimers();
+        try {
+            const { ws, sock } = await connectOnline(10);
+            // server_version is a GLOBAL sequence, so 10 -> 12 just means another atlas consumed
+            // v11. Per-op gap detection would storm the server with spurious sync_requests.
+            sock.emit({ type: 'operations', ops: [{ id: 'o1', clientId: 'other', entityType: 'feature', serverVersion: 12 }] });
+            await vi.advanceTimersByTimeAsync(700);
+            expect(sock.sent.find((m) => m.type === 'sync_request')).toBeFalsy();
+
+            // The cursor still advances to the highest seen, so reconnect-replay asks from v12.
+            sock.sent.length = 0;
+            ws.requestSync();
+            expect(sock.sent.find((m) => m.type === 'sync_request').lastVersion).toBe(12);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('advances the cursor monotonically — an older inbound serverVersion never moves it backwards', async () => {
+        const { ws, sock } = await connectOnline(10);
+        sock.emit({ type: 'operations', ops: [{ id: 'o1', clientId: 'other', entityType: 'feature', serverVersion: 12 }] });
+        sock.emit({ type: 'operations', ops: [{ id: 'o2', clientId: 'other', entityType: 'feature', serverVersion: 11 }] });
+        sock.sent.length = 0;
+        ws.requestSync();
+        expect(sock.sent.find((m) => m.type === 'sync_request').lastVersion).toBe(12);
+    });
+
+    it('does NOT request a replay for a contiguous op (advances lastVersion silently)', async () => {
+        vi.useFakeTimers();
+        try {
+            const { sock } = await connectOnline(10);
+            sock.emit({ type: 'operations', ops: [{ id: 'o1', clientId: 'other', entityType: 'feature', serverVersion: 11 }] });
+            await vi.advanceTimersByTimeAsync(700);
+            expect(sock.sent.find((m) => m.type === 'sync_request')).toBeFalsy();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
+describe('WsClient — server-side data events route to a re-pull (doc: peer reload on duplicate/merge)', () => {
+    it('routes map_duplicated / maps_merged / atlas_updated to a serverResync event (was silently dropped)', async () => {
+        const { ws } = setup();
+        const onResync = vi.fn();
+        ws.on('serverResync', onResync);
+        const p = ws.connect('atlas-1');
+        const sock = FakeSocket.instances[0];
+        sock.emit({ type: 'connected', sessionId: 'me', permission: 'owner', role: 'owner' });
+        await p;
+
+        sock.emit({ type: 'map_duplicated', mapId: 'm2' });
+        sock.emit({ type: 'maps_merged', mapId: 'm3' });
+        sock.emit({ type: 'atlas_updated', atlasId: 'atlas-1' });
+
+        expect(onResync).toHaveBeenCalledTimes(3);
+        expect(onResync).toHaveBeenCalledWith(expect.objectContaining({ type: 'map_duplicated', mapId: 'm2' }));
+    });
+});

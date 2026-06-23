@@ -14,6 +14,8 @@
 import { operationQueue } from './operation-queue.js';
 import { advanceLamportClock } from './operation-factory.js';
 import { connectionState } from './connection-state.js';
+import { record } from './diag/trace-core.js';
+import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 
 /**
  * Gateway for synchronizing operations between client and server.
@@ -35,7 +37,13 @@ class SyncGateway {
      * @returns {Promise<void>}
      */
     async applyRemoteOperation(operation) {
-        if (!connectionState.isOnline()) return;
+        if (!connectionState.isOnline()) {
+            record(TraceStage.GATEWAY_GATE, {
+                opId: operation?.id, traceId: operation?.traceId,
+                outcome: TraceOutcome.DROPPED, reason: DropReason.OFFLINE,
+            });
+            return;
+        }
 
         if (operation.lamportTimestamp) {
             advanceLamportClock(operation.lamportTimestamp);

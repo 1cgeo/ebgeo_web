@@ -14,6 +14,7 @@ import { WsClient } from '../../../src/js/store/sync/ws-client.js';
 import { ConnectionState } from '../../../src/js/store/sync/connection-state.js';
 import { createOperation } from '../../../src/js/store/sync/operation-factory.js';
 import { generateUUID } from '../../../src/js/utilities/uuid.js';
+import { setTracing, clearTrace, getTrace } from '../../../src/js/store/sync/diag/trace-core.js';
 
 /** True when prerequisites were missing in global-setup; tests describe.skipIf this. */
 export const E2E_SKIP = process.env.EBGEO_E2E_SKIP === '1';
@@ -99,6 +100,44 @@ export function makeWs(api, { clientId }) {
         clientId,
         heartbeatMs: 1e7,
     });
+}
+
+/**
+ * Enables the SyncLedger tracer for this Node process and clears the in-process ring.
+ * The WsClient records ws.inbound / push.ack / conn.transition spans into it, so a
+ * transport-level e2e test can read the client side of the ledger.
+ * @returns {void}
+ */
+export function enableClientTrace() {
+    clearTrace();
+    setTracing(true);
+}
+
+/**
+ * Reads the in-process client ring (optionally filtered).
+ * @param {(span: Object) => boolean} [filter]
+ * @returns {Object[]}
+ */
+export function getClientTrace(filter) {
+    return getTrace(filter);
+}
+
+/**
+ * Fetches the server-side SyncLedger spans for an atlas from the env-gated
+ * `GET /api/v1/debug/trace` endpoint (mounted only under NODE_ENV=test / EBGEO_TRACE).
+ * @param {ApiClient} api - An authenticated client (its token authorizes the read).
+ * @param {string} atlasId
+ * @param {{ opId?: string, traceId?: string }} [query]
+ * @returns {Promise<Object[]>}
+ */
+export async function getServerTrace(api, atlasId, query = {}) {
+    const params = new URLSearchParams({ atlasId, ...query });
+    const res = await fetch(`${getBaseUrl()}/api/v1/debug/trace?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${api.getAccessToken()}` },
+    });
+    if (!res.ok) return [];
+    const body = await res.json();
+    return body?.data?.spans || [];
 }
 
 /**

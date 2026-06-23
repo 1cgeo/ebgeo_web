@@ -30,6 +30,189 @@ import { EntityType, OperationType } from './operation-types.js';
 /** @type {import('../../events/event_bus.js').EventBus|null} */
 let _eventBus = null;
 
+/**
+ * Feature ops whose map has not been applied locally yet, keyed by mapId. A feature/create
+ * for a freshly-created map can arrive before that map's create op is persisted (A creates a
+ * map and immediately draws on it). Buffering — instead of dropping — and replaying once the
+ * map lands prevents silent data loss on the peer.
+ * @type {Map<string, Array<{opType: string, featureId: string, data: Object}>>}
+ */
+const pendingFeatureOps = new Map();
+
+/** Cap per map so a never-arriving map cannot grow the buffer unbounded. */
+const MAX_PENDING_PER_MAP = 1000;
+
+/** Buffers a feature op whose map is absent (replayed by drainPendingFeatureOps). */
+function bufferPendingFeatureOp(mapId, op) {
+    let arr = pendingFeatureOps.get(mapId);
+    if (!arr) {
+        arr = [];
+        pendingFeatureOps.set(mapId, arr);
+    }
+    if (arr.length >= MAX_PENDING_PER_MAP) arr.shift();
+    arr.push(op);
+}
+
+/** Re-applies, in arrival order, any feature ops buffered while `mapId` was missing. */
+async function drainPendingFeatureOps(mapId) {
+    const arr = pendingFeatureOps.get(mapId);
+    if (!arr || arr.length === 0) return;
+    pendingFeatureOps.delete(mapId);
+    for (const op of arr) {
+        // These ops bypass applyRemoteOperation, so apply the version guard here: skip one older
+        // than what's already applied, and record the applied version on success so a later
+        // concurrent op can't overwrite it (LWW by server arrival order).
+        if (!shouldApplyVersion(op.featureId, op.serverVersion)) continue;
+        const applied = await applyRemoteFeatureOp(op.opType, op.featureId, mapId, op.data, op.serverVersion);
+        if (applied) {
+            if (op.opType === OperationType.DELETE) lastAppliedVersion.delete(op.featureId);
+            else markAppliedVersion(op.featureId, op.serverVersion);
+        }
+    }
+}
+
+/**
+ * Last server arrival-order (serverVersion) applied per entity, keyed by entity id. Concurrent
+ * edits to the SAME entity converge to the op with the highest serverVersion (LWW by arrival
+ * order — the documented model): an inbound op OLDER than what was already applied is ignored.
+ * The author seeds its OWN entries from the push ack (recordLocalAppliedVersion), because it
+ * filters its own WS echo and would otherwise never learn its op's server order.
+ * @type {Map<string, number>}
+ */
+const lastAppliedVersion = new Map();
+
+/**
+ * Count of the local user's UN-ACKED edits per feature id. While > 0, a remote op for that
+ * feature is DEFERRED (not applied), because the author's optimistic local edit has no
+ * serverVersion yet — applying a remote op in that window could overwrite a (possibly-newer)
+ * local edit and leave the clients divergent. The push ack (resolveLocalEdit) reveals the
+ * server order and replays the deferred ops through the version guard.
+ * @type {Map<string, number>}
+ */
+const pendingLocalEditCount = new Map();
+
+/** Remote ops deferred while the local user had an un-acked edit, keyed by entity id. */
+const deferredRemoteOps = new Map();
+
+/** Cap so a never-acked local edit can't grow the deferred buffer unbounded. */
+const MAX_DEFERRED_PER_ENTITY = 200;
+
+/**
+ * Entity types whose UPDATE blindly replaces and therefore need LWW-by-serverVersion to converge
+ * on concurrent edits. The convergence guard (defer + version check + record) is applied
+ * GENERICALLY in applyRemoteOperation for all of these, so each entity handler stays unaware of it.
+ */
+export const CONVERGENCE_GUARDED = new Set([
+    EntityType.FEATURE,
+    EntityType.LAYER,
+    EntityType.GROUP,
+    EntityType.MARKER_3D,
+    EntityType.MEASUREMENT_3D,
+    EntityType.VIEWSHED_3D,
+    EntityType.CAMERA_POSITION_3D,
+    EntityType.ORIENTATION_360,
+    EntityType.MARKER_360,
+]);
+
+/** @returns {boolean} Whether an inbound op of `serverVersion` should apply to `entityKey`. */
+function shouldApplyVersion(entityKey, serverVersion) {
+    if (serverVersion == null) return true; // un-stamped (legacy / no backend) → no ordering guard
+    const prev = lastAppliedVersion.get(entityKey);
+    return prev == null || serverVersion >= prev;
+}
+
+/** Records the highest applied serverVersion for `entityKey`. */
+function markAppliedVersion(entityKey, serverVersion) {
+    if (serverVersion == null) return;
+    const prev = lastAppliedVersion.get(entityKey);
+    if (prev == null || serverVersion > prev) lastAppliedVersion.set(entityKey, serverVersion);
+}
+
+/**
+ * Marks the start of a local (un-acked) edit on a feature, so a concurrent remote op for the
+ * same feature is deferred until the author's ack reveals the order. Called from the outbound
+ * logging path (operation-dispatcher) for every local feature op.
+ * @param {string} featureId
+ */
+export function markLocalEditPending(featureId) {
+    if (!featureId) return;
+    pendingLocalEditCount.set(featureId, (pendingLocalEditCount.get(featureId) || 0) + 1);
+}
+
+/** Buffers a remote op while the local user has an un-acked edit on the same entity. */
+function deferRemoteOp(entityId, operation) {
+    let arr = deferredRemoteOps.get(entityId);
+    if (!arr) {
+        arr = [];
+        deferredRemoteOps.set(entityId, arr);
+    }
+    if (arr.length >= MAX_DEFERRED_PER_ENTITY) arr.shift();
+    arr.push(operation);
+}
+
+/**
+ * Resolves a local edit on its push ack: seeds the author's applied serverVersion, decrements
+ * the pending count, and — once no local edit remains in flight — replays any deferred remote
+ * ops. The replayed ops go through the version guard, so the feature converges to the highest
+ * serverVersion regardless of delivery timing (this is what eliminates the ack-vs-peer race).
+ * Never throws (best-effort; called fire-and-forget from the flush path).
+ * @param {string} entityId
+ * @param {number} serverVersion
+ * @returns {Promise<void>}
+ */
+export async function resolveLocalEdit(entityId, serverVersion) {
+    markAppliedVersion(entityId, serverVersion);
+    if (!entityId) return;
+    const remaining = (pendingLocalEditCount.get(entityId) || 0) - 1;
+    if (remaining > 0) {
+        pendingLocalEditCount.set(entityId, remaining);
+        return;
+    }
+    pendingLocalEditCount.delete(entityId);
+    const deferred = deferredRemoteOps.get(entityId);
+    if (!deferred || deferred.length === 0) return;
+    deferredRemoteOps.delete(entityId);
+    for (const op of deferred) {
+        try {
+            await applyRemoteOperation(op);
+        } catch (err) {
+            console.warn('Deferred remote op replay failed:', err);
+        }
+    }
+}
+
+/**
+ * Self-heals the pending-local-edit guard against the operation queue (the source of truth):
+ * clears the deferral for any guarded entity that no longer has an un-acked op queued, and replays
+ * its deferred remote ops. Called after every flush. The per-op count alone leaks when queue
+ * compaction, batch ops, version-less acks, or a poison batch break the increment/decrement
+ * symmetry — a leaked count would permanently defer that entity's remote ops (silent divergence).
+ * @param {Set<string>} remainingEntityIds - entity ids that still have queued (un-acked) ops.
+ * @returns {Promise<void>}
+ */
+export async function reconcilePendingLocalEdits(remainingEntityIds) {
+    const stale = [];
+    for (const entityId of pendingLocalEditCount.keys()) {
+        if (!remainingEntityIds.has(entityId)) stale.push(entityId);
+    }
+    for (const entityId of stale) {
+        pendingLocalEditCount.delete(entityId);
+        const deferred = deferredRemoteOps.get(entityId);
+        if (!deferred || deferred.length === 0) continue;
+        deferredRemoteOps.delete(entityId);
+        for (const op of deferred) {
+            try {
+                await applyRemoteOperation(op);
+            } catch (err) {
+                console.warn('Deferred remote op replay failed:', err);
+            }
+        }
+    }
+}
+
+/** @deprecated Call-site alias of resolveLocalEdit (kept for stability). */
+export const recordLocalAppliedVersion = resolveLocalEdit;
+
 // ============================================================================
 // INITIALIZATION
 // ============================================================================
@@ -61,11 +244,29 @@ export function setRemoteHandlerEventBus(eventBus) {
  * @returns {Promise<void>}
  */
 export async function applyRemoteOperation(operation) {
-    const { entityType, operationType, entityId, mapId, data } = operation;
+    const { entityType, operationType, entityId, mapId, data, serverVersion } = operation;
 
+    // Convergence guard (LWW by server arrival order) for the entity types that blind-replace:
+    //  1. defer the op while the local user has an un-acked edit on the same entity (so a peer's
+    //     op can't overwrite a newer local edit before the ack reveals the order), and
+    //  2. drop an op older than what was already applied.
+    // The applied version is recorded AFTER the handler runs (below). Together these make
+    // concurrent edits to the same entity converge deterministically.
+    const guarded = CONVERGENCE_GUARDED.has(entityType) && !!entityId;
+    if (guarded) {
+        if ((pendingLocalEditCount.get(entityId) || 0) > 0) {
+            deferRemoteOp(entityId, operation);
+            return;
+        }
+        if (!shouldApplyVersion(entityId, serverVersion)) return;
+    }
+
+    let featureApplied = true;
     switch (entityType) {
         case EntityType.FEATURE:
-            await applyRemoteFeatureOp(operationType, entityId, mapId, data);
+            // false = the op was BUFFERED (map not present yet), not applied — don't record its
+            // version below, or a legitimate later op could be wrongly dropped by shouldApplyVersion.
+            featureApplied = await applyRemoteFeatureOp(operationType, entityId, mapId, data, serverVersion);
             break;
         case EntityType.LAYER:
             await applyRemoteLayerOp(operationType, entityId, mapId, data);
@@ -116,8 +317,20 @@ export async function applyRemoteOperation(operation) {
         case EntityType.SETTING:
             await applyRemoteSettingOp(data);
             break;
+        case EntityType.SLIDE:
+            // Slides converge via their parent BRIEFING op (updateBriefing logs the full slides
+            // array, applied by applyRemoteBriefingOp); the standalone slide op is redundant
+            // inbound. No-op here so it doesn't trip the "unknown entity type" warning.
+            break;
         default:
             console.warn(`Remote operation handler: unknown entity type "${entityType}"`);
+    }
+
+    // Record this entity's applied server order (DELETE clears it so a re-create starts fresh).
+    // Skip when a feature op was only buffered (featureApplied === false) — it isn't applied yet.
+    if (guarded && featureApplied) {
+        if (operationType === OperationType.DELETE) lastAppliedVersion.delete(entityId);
+        else markAppliedVersion(entityId, serverVersion);
     }
 
     emit(EventTypes.REMOTE_OPERATION_APPLIED, { operation });
@@ -146,12 +359,16 @@ function findFeatureIndex(features, featureId) {
  * @param {string} mapId - Map UUID
  * @param {Object} data - Feature GeoJSON data
  */
-async function applyRemoteFeatureOp(opType, featureId, mapId, data) {
+async function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersion) {
     const repo = getRepository();
     const mapData = await repo.getMap(mapId);
     if (!mapData) {
-        console.warn(`Remote feature op: map "${mapId}" not found`);
-        return;
+        // The map hasn't been applied locally yet — a feature/create can arrive before its
+        // map/create op (A creates a map and immediately draws on it). Buffer instead of
+        // dropping (which was silent data loss); drainPendingFeatureOps replays it once the
+        // map lands (applyRemoteMapOp CREATE / applyRemoteSnapshot).
+        bufferPendingFeatureOp(mapId, { opType, featureId, data, serverVersion });
+        return false;
     }
 
     const sourceType = data?.properties?.source || 'point';
@@ -221,6 +438,7 @@ async function applyRemoteFeatureOp(opType, featureId, mapId, data) {
     }
 
     emit(EventTypes.LAYERS_CHANGED, { mapName: mapId });
+    return true;
 }
 
 /**
@@ -302,6 +520,8 @@ async function applyRemoteMapOp(opType, mapId, data) {
             const reshaped = data ? await reshapeSnapshotMap(repo, data) : data;
             if (reshaped) await repo.saveMap?.(mapId, reshaped);
             if (reshaped?.name) mapResolver.registerMap(reshaped.name, mapId);
+            // Replay any feature ops that arrived before this map existed (anti silent-drop).
+            await drainPendingFeatureOps(mapId);
             emit(EventTypes.MAP_CREATED, { mapId, map: reshaped });
             break;
         }
@@ -870,6 +1090,13 @@ async function reshapeSnapshotMap(repo, map) {
         }
         if (locked != null) {
             await repo.saveSetting?.(`mapLocked_${mapName}`, locked);
+            // Keep the in-memory lock set (read by isCurrentMapLockedSync — the ACTUAL edit gate)
+            // in sync and notify the UI, so a peer ALREADY viewing the map disables editing
+            // immediately. Persisting only the setting made the lock take effect on that peer
+            // only after switching maps and back.
+            if (locked) memoryStore.lockedMaps.add(mapName);
+            else memoryStore.lockedMaps.delete(mapName);
+            emit(EventTypes.MAP_LOCK_CHANGED, { mapName, locked: !!locked });
         }
     }
 
@@ -914,6 +1141,8 @@ export async function applyRemoteSnapshot(snapshot) {
         if (map && map.id) {
             const reshaped = await reshapeSnapshotMap(repo, map);
             await repo.saveMap(map.id, reshaped);
+            // Replay any live feature ops that arrived (and buffered) before this map existed.
+            await drainPendingFeatureOps(map.id);
             // Groups live in a SEPARATE local store (not part of map data), so saveMap does
             // not carry them. Restore the snapshot's map.groups (array → object keyed by id)
             // into both the group store (by id) and the in-memory cache (by name) so a peer

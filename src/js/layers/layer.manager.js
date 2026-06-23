@@ -283,11 +283,18 @@ class LayerManager {
     reorderLayers(orderedLayerIds, mapName = null) {
         const targetMap = this._resolveMap(mapName);
         const layersMap = this.memoryStore.layers[targetMap];
+        const mapId = mapResolver.resolveToId(targetMap);
 
         orderedLayerIds.forEach((layerId, index) => {
             const layer = layersMap.get(layerId);
-            if (layer) {
+            if (layer && layer.order !== index) {
+                const oldLayer = { ...layer };
                 layer.order = index;
+                layer.updatedAt = Date.now();
+                layer.version = (oldLayer.version || 0) + 1;
+                // Sync the new render order to peers — it was persisted locally but never logged,
+                // so collaborators kept the old layer order.
+                logLayerOperation(OperationType.UPDATE, layerId, mapId, layer, oldLayer);
             }
         });
 

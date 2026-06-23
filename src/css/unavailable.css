@@ -1,0 +1,67 @@
+/* =========================================================================
+   EBGeo unavailable screen — shown at boot when the backend (/api/config) is
+   unreachable. The deploy always has a backend; config is 100% server-sourced.
+   ========================================================================= */
+
+.ebgeo-unavailable {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-toast, 1000);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-5);
+    background: var(--gray-50);
+}
+
+.ebgeo-unavailable__card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 420px;
+    padding: var(--space-8) var(--space-6);
+    background: #fff;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-xl);
+    text-align: center;
+}
+
+.ebgeo-unavailable__logo {
+    width: 96px;
+    height: 96px;
+    margin-bottom: var(--space-3);
+    object-fit: contain;
+}
+
+.ebgeo-unavailable__title {
+    margin: 0 0 var(--space-2);
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--gray-900);
+}
+
+.ebgeo-unavailable__msg {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-normal);
+    color: var(--gray-500);
+}
+
+.ebgeo-unavailable__btn {
+    margin-top: var(--space-4);
+    padding: var(--space-2) var(--space-5);
+    background: var(--primary);
+    border: var(--border-width) solid var(--primary);
+    border-radius: var(--radius-md);
+    color: #fff;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.ebgeo-unavailable__btn:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+}

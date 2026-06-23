@@ -16,23 +16,11 @@ import {
     openClient,
     pollPeerFeature,
     addSharedUser,
+    drawLineUI,
 } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
-
-function applyStoreOp(page, opName, args) {
-    return page.evaluate(async ({ name, a }) => {
-        const store = await import('/src/js/store/index.js');
-        return store[name](...a);
-    }, { name: opName, a: args });
-}
-
-const newLine = (id) => ({
-    type: 'Feature',
-    properties: { id, source: 'line', layerId: 'default', lineColor: '#3f4fb5', lineWidth: 4 },
-    geometry: { type: 'LineString', coordinates: [[-43.2, -22.9], [-43.1, -22.8]] },
-});
 
 describeOrSkip('Scale — three-client broadcast fan-out', () => {
     test('each of three collaborators creates a feature → both others receive it', async ({ browser }) => {
@@ -47,21 +35,18 @@ describeOrSkip('Scale — three-client broadcast fan-out', () => {
         const B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
         const C = await openClient(browser, state.baseUrl, seed.atlasId, userC);
         try {
-            // A creates → B and C both receive.
-            const fa = crypto.randomUUID();
-            await applyStoreOp(A, 'addFeature', ['lines', newLine(fa)]);
+            // A draws a line via the real line tool → B and C both receive it.
+            const fa = await drawLineUI(A, [[-43.20, -22.90], [-43.10, -22.80]]);
             await pollPeerFeature(B, 'lines', fa);
             await pollPeerFeature(C, 'lines', fa);
 
-            // B creates → A and C both receive.
-            const fb = crypto.randomUUID();
-            await applyStoreOp(B, 'addFeature', ['lines', newLine(fb)]);
+            // B draws → A and C both receive.
+            const fb = await drawLineUI(B, [[-43.25, -22.95], [-43.15, -22.85]]);
             await pollPeerFeature(A, 'lines', fb);
             await pollPeerFeature(C, 'lines', fb);
 
-            // C creates → A and B both receive.
-            const fc = crypto.randomUUID();
-            await applyStoreOp(C, 'addFeature', ['lines', newLine(fc)]);
+            // C draws → A and B both receive.
+            const fc = await drawLineUI(C, [[-43.30, -23.00], [-43.20, -22.90]]);
             await pollPeerFeature(A, 'lines', fc);
             await pollPeerFeature(B, 'lines', fc);
         } finally {

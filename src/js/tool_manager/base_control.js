@@ -10,6 +10,8 @@
 
 import { expandBboxWithPadding } from '../utilities/geometry-utils.js';
 import { deepClone } from '../utilities/deep-utils.js';
+import { getEventBus } from '../store/services.js';
+import { EventTypes } from '../events/event_types.js';
 
 /**
  * Base Control class with expanded tool-centric interface.
@@ -412,6 +414,47 @@ class BaseControl {
      */
     getEditHandleSource() {
         return null;
+    }
+
+    // ===== REMOTE IMAGE REGENERATION =====
+
+    /**
+     * Subscribes to remote operations and regenerates the local-only PNG for any feature
+     * of the given source that a peer applies, rebuilding it from the synced props.
+     * The rasterized image is never uploaded, so a peer has no blob to fetch — but it is
+     * deterministically reconstructible from the synced props, so it round-trips create AND
+     * edit without shipping the raster. Stores the unsubscribe fn on `_remoteRegenUnsub`;
+     * call `_unsubscribeRemoteImageRegen()` from the subclass `onRemove` to tear it down.
+     * No-op when the service container isn't up (e.g. headless).
+     * @param {string} source - The feature `properties.source` this tool owns
+     * @param {(feature: Object) => Promise<void>} regenFn - Per-feature image regeneration fn
+     * @private
+     */
+    _subscribeRemoteImageRegen(source, regenFn) {
+        let bus;
+        try {
+            bus = getEventBus();
+        } catch {
+            return;
+        }
+        this._remoteRegenUnsub = bus.on(EventTypes.REMOTE_OPERATION_APPLIED, (payload) => {
+            const op = payload && payload.operation;
+            if (!this.map || !op || op.entityType !== 'feature') return;
+            const feature = op.data;
+            if (!feature || feature.properties?.source !== source) return;
+            regenFn(feature).catch((e) => console.warn(`Remote image regen failed for ${source}:`, e));
+        });
+    }
+
+    /**
+     * Tears down the remote-image-regen subscription set up by `_subscribeRemoteImageRegen`.
+     * @private
+     */
+    _unsubscribeRemoteImageRegen() {
+        if (this._remoteRegenUnsub) {
+            this._remoteRegenUnsub();
+            this._remoteRegenUnsub = null;
+        }
     }
 
 }

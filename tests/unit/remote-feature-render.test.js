@@ -43,6 +43,8 @@ describe('wireRemoteFeatureRender (bug E)', () => {
         expect(busMock.on).toHaveBeenCalledWith(EventTypes.FEATURE_CREATED, expect.any(Function));
         expect(busMock.on).toHaveBeenCalledWith(EventTypes.FEATURE_MODIFIED, expect.any(Function));
         expect(busMock.on).toHaveBeenCalledWith(EventTypes.FEATURE_DELETED, expect.any(Function));
+        // A snapshot (initial open / reconnect) refreshes the source via MAP_MODIFIED.
+        expect(busMock.on).toHaveBeenCalledWith(EventTypes.MAP_MODIFIED, expect.any(Function));
     });
 
     it('refreshes the map sources when a remote feature CREATE arrives', async () => {
@@ -113,6 +115,6 @@ describe('wireRemoteFeatureRender (bug E)', () => {
         fire(EventTypes.FEATURE_CREATED);
 
         expect(scheduled).toBeNull(); // handler unsubscribed → never scheduled
-        expect(busMock.off).toHaveBeenCalledTimes(3);
+        expect(busMock.off).toHaveBeenCalledTimes(4); // FEATURE_CREATED/MODIFIED/DELETED + MAP_MODIFIED
     });
 });

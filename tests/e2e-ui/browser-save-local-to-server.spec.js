@@ -12,7 +12,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { loginUI } from './helpers/collab-helpers.js';
+import { loginUI, drawPointUI } from './helpers/collab-helpers.js';
 
 const state = readState();
 const describeOrSkip = state.skip ? test.describe.skip : test.describe;
@@ -38,22 +38,15 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
         // Cancel the project picker — we want to work on the LOCAL store, not open a server atlas.
         await page.locator('[data-testid="project-picker-cancel"]').click();
 
-        // Wait for the live map, then draw a point into the LOCAL store (logged in, NOT connected).
+        // Wait for the live map, then draw a point into the LOCAL store with the REAL point tool
+        // (logged in, NOT connected).
         await page.waitForFunction(
             () => globalThis.__ebgeoMap && typeof globalThis.__ebgeoMap.loaded === 'function' && globalThis.__ebgeoMap.loaded(),
             { timeout: 20000 },
         );
-        const featureId = await page.evaluate(async () => {
-            const store = await import('/src/js/store/index.js');
-            const id = crypto.randomUUID();
-            const f = {
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: [-43.2, -22.9] },
-                properties: { id, source: 'point', nome: 'Ponto Local' },
-            };
-            await store.addFeature('points', f);
-            return id;
-        });
+        const featureId = await drawPointUI(page, [-43.2, -22.9]);
+        expect(featureId, 'the point tool created the local feature').toBeTruthy();
+        await page.keyboard.press('Escape'); // deactivate the still-active point tool
         // Sanity: feature is in the local store and we are NOT connected to any atlas yet.
         const localCount = await page.evaluate(async () => {
             const store = await import('/src/js/store/index.js');
@@ -97,19 +90,12 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
         expect(result.mapCount).toBeGreaterThan(0);
         expect(result.found).toBe(true);
 
-        // --- Journey continues: EDIT the now-live remote atlas; the edit must sync to the server.
-        //     (The user owns the atlas they just created, so editing must be permitted, and the
-        //     auto-flush must carry the new op up.) ---
-        const live = await page.evaluate(async () => {
-            const store = await import('/src/js/store/index.js');
-            const id = crypto.randomUUID();
-            const out = await store.addFeature('points', {
-                type: 'Feature', geometry: { type: 'Point', coordinates: [-43.3, -23.0] },
-                properties: { id, source: 'point', nome: 'Pos-save' },
-            });
-            return { id, added: !!out };
-        });
-        expect(live.added, 'the owner can edit the atlas they just saved').toBe(true);
+        // --- Journey continues: EDIT the now-live remote atlas with the REAL point tool; the edit
+        //     must sync to the server. (The user owns the atlas they just created, so editing must be
+        //     permitted, and the auto-flush must carry the new op up.) ---
+        const liveId = await drawPointUI(page, [-43.3, -23.0]);
+        expect(liveId, 'the owner can edit the atlas they just saved').toBeTruthy();
+        await page.keyboard.press('Escape'); // deactivate the still-active point tool
 
         const synced = await page.evaluate(async ({ baseUrl, c, fid }) => {
             const { syncEngine } = await import('/src/js/store/sync/sync-engine.js');
@@ -123,7 +109,7 @@ describeOrSkip('Salvar atlas local no servidor (UI, item 2)', () => {
                 await new Promise((r) => setTimeout(r, 300));
             }
             return false;
-        }, { baseUrl: state.baseUrl, c: creds, fid: live.id });
+        }, { baseUrl: state.baseUrl, c: creds, fid: liveId });
         expect(synced, 'the post-save live edit reaches the server via auto-flush').toBe(true);
 
         await ctx.close();

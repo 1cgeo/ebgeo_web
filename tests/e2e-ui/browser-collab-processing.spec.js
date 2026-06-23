@@ -3,26 +3,24 @@
 /**
  * PROCESSING OUTPUT synced cross-client — TWO real browsers + real backend. Client A
  * runs a deterministic geoprocessing algorithm (Convex Hull / "Contorno Externo") over
- * input features it just created, commits the algorithm's OUTPUT feature(s) through the
- * app's REAL store op (addFeature), and client B asserts NATIVE sync carried the
- * processing OUTPUT feature through — no workarounds.
+ * input features it just DREW through the real point tool, executes the algorithm via
+ * the real Processamento sidebar tab UI (which persists the OUTPUT through the app's
+ * store op the same codepath the production runner uses), and client B asserts NATIVE
+ * sync carried the processing OUTPUT feature through — no workarounds.
  *
- * Flow:
+ * UI-first:
  *   1. seed two users + a shared atlas/map (write-shared with B); both OPEN it.
- *   2. On A: create 4 input POINTS via the real store op (addFeature). Then import the
- *      REAL algorithm module (convex-hull.algorithm.js), call its pure
- *      execute(features, params) → [hull polygon], stamp the output with a KNOWN uuid id,
- *      and addFeature('polygons', output) so it travels through native sync.
+ *   2. On A: DRAW 4 corner points + 1 interior point via the real point tool (drawPointUI).
+ *      Then open the Processamento tab, pick "Contorno Externo" (convex hull), and click
+ *      EXECUTAR — the real processing-runner reads the active layer, runs the SAME pure
+ *      algorithm.execute(), and persists the OUTPUT polygon via the store (the syncing
+ *      codepath). The runner generates the output id, so we read it back by diffing A's
+ *      polygons before/after the run.
  *   3. On B: pollPeerFeature('polygons', outputId) — the processing OUTPUT polygon synced
  *      and is present in B's store; assert it really is a closed polygon ring.
  *
- * The execute() is the same pure function the production runner (processing-runner.js)
- * calls — runProcessing() reads layer features, runs algorithm.execute(), then persists
- * the result via addFeatures(). Here we drive the identical execute() and commit via the
- * store facade's addFeature(), which is the codepath that syncs.
- *
- * Seed/login/open plumbing + poll helpers come from ./helpers/collab-helpers.js; structure
- * mirrors browser-collab-shared-atlas.spec.js / browser-collab-feature-mutations.spec.js.
+ * Seed/login/open plumbing + draw + poll helpers come from ./helpers/collab-helpers.js;
+ * structure mirrors browser-collab-native-render.spec.js.
  *
  * Run headed:  npx playwright test browser-collab-processing --headed
  */
@@ -33,6 +31,7 @@ import {
     seedSharedAtlas,
     openClient,
     readFeatures,
+    drawPointUI,
     pollPeerFeature,
 } from './helpers/collab-helpers.js';
 
@@ -48,103 +47,84 @@ const INPUT_POINTS = [
     [-43.20, -22.88], // interior point — should NOT appear on the hull
 ];
 
-/** Adds a single point feature to `page`'s store through the REAL store facade. */
-function addInputPoint(page, id, coordinates) {
-    return page.evaluate(async ({ pid, coords }) => {
-        const store = await import('/src/js/store/index.js');
-        const feature = {
-            type: 'Feature',
-            properties: {
-                id: pid,
-                source: 'point',
-                layerId: 'default',
-                nome: 'Vértice de entrada',
-            },
-            geometry: { type: 'Point', coordinates: coords },
-        };
-        return store.addFeature('points', feature);
-    }, { pid: id, coords: coordinates });
-}
-
 /**
- * On `page`: reads its own input points back from the store, runs the REAL convex-hull
- * algorithm's pure execute() over them, stamps the single output polygon with a KNOWN
- * uuid id, and commits it via the store facade's addFeature('polygons', output) so it
- * syncs natively. Returns the output polygon id + a copy of its committed properties.
+ * Runs Convex Hull via the real Processamento sidebar tab on `page` and returns the
+ * OUTPUT polygon's id (the runner generates it, so diff polygons before/after). The
+ * runner reads the active layer's features, runs the SAME algorithm.execute() the
+ * production path uses, and persists the result via the store (the codepath that syncs).
+ * @returns {Promise<string>}
  */
-function runConvexHullAndCommit(page, inputIds, outputId) {
-    return page.evaluate(async ({ ids, oid }) => {
-        const store = await import('/src/js/store/index.js');
-        // Importing the processing entry point runs algorithms/index.js as a side-effect,
-        // self-registering buffer/voronoi/convex-hull. execute() is module-private and is
-        // only reachable through the registry — the same definition the production runner
-        // (processing-runner.js) invokes. (Re-import is idempotent; no double-register.)
-        const { getAlgorithm } = await import('/src/js/processing/index.js');
+async function runConvexHullUI(page) {
+    const before = new Set((await readFeatures(page, 'polygons')).map((f) => f.id));
 
-        const definition = getAlgorithm('convex-hull');
-        if (!definition || typeof definition.execute !== 'function') {
-            throw new Error('convex-hull algorithm is not registered (no execute())');
-        }
-        const execute = definition.execute;
+    // Open the Processamento ("Análise") tab and pick the Convex Hull card.
+    await page.locator('.sidebar-nav-btn[data-tab="processamento"]').click();
+    await expect(page.locator('.processing-algorithm-list')).toBeVisible({ timeout: 10000 });
+    const card = page.locator('.processing-card[data-algorithm-id="convex-hull"]');
+    await expect(card).toBeVisible({ timeout: 5000 });
+    // Dispatch the real click listener directly: the sidebar animates as the feature
+    // panel opens, which can make a positional click flaky.
+    await card.evaluate((el) => el.click());
 
-        // Read the input points back from the STORE (the home geometry), then keep only
-        // the ones this run authored, mirroring how the runner collects layer features.
-        const current = await store.getCurrentMapFeatures();
-        const wanted = new Set(ids);
-        const inputFeatures = (current.points || []).filter((f) => wanted.has(f.properties?.id));
+    // Its config panel mounts (source layer defaults to the active layer — where the
+    // points were drawn — so EXECUTAR runs over them with no further selection).
+    const panel = page.locator('.processing-panel[data-testid="processing-panel"][data-algorithm-id="convex-hull"]');
+    await expect(panel).toBeVisible({ timeout: 8000 });
+    await panel.locator('.processing-panel__execute-btn').click();
 
-        const output = execute(inputFeatures, {});
-        if (!Array.isArray(output) || output.length !== 1) {
-            throw new Error(`Convex hull produced ${output && output.length} features (expected 1)`);
-        }
+    // The run reports success once the OUTPUT layer + feature are persisted.
+    await expect(panel.locator('.processing-panel__result--success')).toBeVisible({ timeout: 15000 });
 
-        // Stamp the KNOWN id so the peer can identify the OUTPUT feature deterministically,
-        // then commit through the same store facade the runner uses (addFeatures → addFeature).
-        const hull = output[0];
-        hull.properties.id = oid;
-        hull.properties.layerId = 'default';
-        await store.addFeature('polygons', hull);
-
-        return {
-            outputId: oid,
-            geometryType: hull.geometry?.type,
-            ringLength: hull.geometry?.coordinates?.[0]?.length || 0,
-            inputCount: inputFeatures.length,
-        };
-    }, { ids: inputIds, oid: outputId });
+    // The freshly-created OUTPUT polygon (absent before the run).
+    let id = null;
+    await expect.poll(async () => {
+        const fresh = (await readFeatures(page, 'polygons')).find((f) => !before.has(f.id));
+        id = fresh?.id ?? null;
+        return id;
+    }, { timeout: 10000 }).toBeTruthy();
+    return id;
 }
 
 describeOrSkip('Processing OUTPUT syncs cross-client (two real browsers, real algorithm execute())', () => {
-    test('A runs Convex Hull over its points → B receives the OUTPUT polygon (native sync)', async ({ browser }) => {
+    test('A runs Convex Hull over its drawn points → B receives the OUTPUT polygon (native sync)', async ({ browser }) => {
+        // Heavy UI-first flow: two-client boot + FIVE sequential real point-tool draws +
+        // the Processamento run + a direct A-store self-check + one PEER poll (B). The boot
+        // + sequential UI gestures alone approach the 60s default, like the other multi-client
+        // collab specs (browser-collab-mega/-three-client-flow), so widen the budget. The
+        // author self-check polls A's store DIRECTLY (not pollPeerFeature) — see below — so it
+        // no longer wastes the ~20s a never-arriving self `remote.applied` span would cost.
+        test.setTimeout(120000);
         const seed = await seedSharedAtlas(browser, state.baseUrl);
         const A = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
         const B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
 
         try {
-            // 1. A creates the INPUT points via the real store op.
+            // 1. A DRAWS the INPUT points via the real point tool (single canvas click each).
             const inputIds = [];
             for (const coords of INPUT_POINTS) {
-                const id = crypto.randomUUID();
-                inputIds.push(id);
-                await addInputPoint(A, id, coords);
+                inputIds.push(await drawPointUI(A, coords));
             }
             // Sanity: A's store actually holds all the inputs before processing.
             await expect
                 .poll(async () => (await readFeatures(A, 'points')).filter((p) => inputIds.includes(p.id)).length)
                 .toBe(inputIds.length);
 
-            // 2. A runs the REAL convex-hull execute() and commits the OUTPUT polygon
-            //    with a KNOWN id through the store facade (the codepath that syncs).
-            const outputId = crypto.randomUUID();
-            const result = await runConvexHullAndCommit(A, inputIds, outputId);
-            expect(result.inputCount, 'A fed all 5 input points to execute()').toBe(INPUT_POINTS.length);
-            expect(result.outputId).toBe(outputId);
-            expect(result.geometryType, 'convex hull output is a Polygon').toBe('Polygon');
-            // The hull of these points is a closed quadrilateral ring (≥ 5 positions incl. closure).
-            expect(result.ringLength, 'hull ring is a real closed polygon').toBeGreaterThanOrEqual(4);
+            // 2. A runs the REAL convex-hull via the Processamento tab UI; the runner
+            //    commits the OUTPUT polygon through the store (the codepath that syncs).
+            const outputId = await runConvexHullUI(A);
+            expect(outputId, 'the run produced an OUTPUT polygon id').toBeTruthy();
 
-            // The OUTPUT polygon is in A's OWN store too (committed locally before sync).
-            await pollPeerFeature(A, 'polygons', outputId);
+            // The OUTPUT polygon is in A's OWN store (committed locally before sync).
+            // Poll A's store DIRECTLY here — NOT pollPeerFeature: a client never gets a
+            // `remote.applied` span for its own op, so pollPeerFeature(A, …) would burn its
+            // full ~20s trace window before falling back to the store poll, blowing the
+            // budget for nothing. pollPeerFeature is for a true PEER (B) only.
+            await expect
+                .poll(async () => (await readFeatures(A, 'polygons')).some((x) => x.id === outputId), { timeout: 10000 })
+                .toBe(true);
+            const onA = (await readFeatures(A, 'polygons')).find((x) => x.id === outputId);
+            expect(onA, 'A has the processing OUTPUT polygon').toBeTruthy();
+            expect(onA.props?.source, 'convex hull output is a polygon feature').toBe('polygon');
 
             // 3. NATIVE sync: the processing OUTPUT polygon reaches B's store.
             await pollPeerFeature(B, 'polygons', outputId);

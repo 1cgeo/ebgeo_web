@@ -28,6 +28,7 @@ import { operationQueue } from './sync/operation-queue.js';
 import { initSessionEventBridge, initConnectionEventBridge } from './sync/event-bridges.js';
 import { applyRemoteOperation, setRemoteHandlerEventBus } from './sync/remote-operation-handler.js';
 import { initSyncScheduler } from './sync/sync-scheduler.js';
+import { installSyncTrace } from './sync/diag/bus-tap.js';
 
 /**
  * @typedef {Object} Services
@@ -86,6 +87,8 @@ export function initServices() {
     setRemoteHandlerEventBus(eventBus);
     syncGateway.setRemoteOperationHandler(applyRemoteOperation);
     initSyncScheduler(eventBus);
+    // SyncLedger observability tap (one onAny subscription; no-op until tracing is on).
+    installSyncTrace(eventBus);
 
     services = Object.freeze({
         eventBus,

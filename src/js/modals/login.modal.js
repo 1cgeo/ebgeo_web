@@ -49,12 +49,43 @@ export class LoginModal extends ModalBase {
         this._container.classList.add('login-modal__container');
 
         const body = this.getBody();
+        body.appendChild(this._createBrand());
         body.appendChild(this._createForm());
 
         this._setupListeners();
 
         document.body.appendChild(overlay);
         return overlay;
+    }
+
+    /**
+     * Builds the brand header (EBGeo logo + wordmark + tagline) shown above the form.
+     * @private
+     * @returns {HTMLElement}
+     */
+    _createBrand() {
+        const brand = document.createElement('div');
+        brand.className = 'login-modal__brand';
+
+        const logo = document.createElement('img');
+        logo.className = 'login-modal__logo';
+        logo.src = '/images/logo_ebgeo.webp';
+        logo.alt = 'EBGeo';
+        logo.width = 72;
+        logo.height = 72;
+        brand.appendChild(logo);
+
+        const title = document.createElement('h2');
+        title.className = 'login-modal__brand-title';
+        title.textContent = 'EBGeo';
+        brand.appendChild(title);
+
+        const tagline = document.createElement('p');
+        tagline.className = 'login-modal__brand-tagline';
+        tagline.textContent = 'Entre para colaborar nos seus atlas';
+        brand.appendChild(tagline);
+
+        return brand;
     }
 
     /**
