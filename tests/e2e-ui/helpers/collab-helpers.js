@@ -182,6 +182,15 @@ async function drawViaToolUI(page, { toolId, storage, coords, multi }) {
     const btn = page.locator(`.toolbar-group[data-group-id="draw"] .toolbar-tool-btn[data-tool-id="${toolId}"]`);
     await btn.click();
     await expect(btn).toHaveAttribute('data-active', 'true', { timeout: 5000 });
+    // The button flips data-active immediately, but the tool CONTROL's activate() (which wires its
+    // map 'click' handler) lags — in a back-to-back draw loop the first vertex clicks can fire
+    // before the handler is attached, so only some register and the draw never finishes. Wait for
+    // the control to actually report active before clicking.
+    await page.waitForFunction(async (id) => {
+        const s = await import('/src/js/store/index.js');
+        return s.getControl?.(id)?.isActive === true;
+    }, toolId, { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(150);
 
     // Project each lng/lat to a viewport pixel (map projection + canvas offset).
     const pts = await page.evaluate((cs) => {

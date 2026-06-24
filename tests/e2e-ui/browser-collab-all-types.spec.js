@@ -2,9 +2,11 @@
 
 /**
  * EVERY FEATURE TYPE syncs cross-client — TWO real browsers + real backend. Client A
- * creates ONE feature of EACH of the 18 backend-valid types (ALL_FEATURE_SOURCES),
- * each via the app's OWN store op (addFeature on the real store facade), and client B
- * asserts NATIVE sync carried every one of them through — no workarounds.
+ * creates ONE feature of EACH of the 18 backend-valid types (ALL_FEATURE_SOURCES) and
+ * client B asserts NATIVE sync carried every one through — no workarounds. UI-first: the
+ * types with a reliable single-gesture create (point, polygon, military_symbol) are drawn
+ * with the REAL toolbar tools; the rest go through the store op with a documented no-UI
+ * reason (see the UI_DRAWERS doc).
  *
  * The gotcha this spec pins down is the STORAGE-TYPE vs SOURCE split:
  *   - realFeature(source) builds a feature keyed by its SOURCE (singular, e.g. 'point',
@@ -30,7 +32,7 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
-import { seedSharedAtlas, openClient, pollPeerFeature, readFeatures } from './helpers/collab-helpers.js';
+import { seedSharedAtlas, openClient, pollPeerFeature, readFeatures, drawPointUI, drawPolygonUI } from './helpers/collab-helpers.js';
 import { realFeature, ALL_FEATURE_SOURCES } from '../helpers/real-fixtures.js';
 
 const state = readState();
@@ -71,7 +73,59 @@ function sourceToStorage(source) {
     return storage;
 }
 
-describeOrSkip('All 18 feature types sync cross-client (two real browsers, real store ops)', () => {
+/** Map center the UI-drawn features are placed near. */
+const C = [-43.2, -22.9];
+
+/** Closes any feature panel a prior draw's auto-select left overlaying the canvas (retry-Escape). */
+async function dismissPanels(page) {
+    for (let i = 0; i < 6; i++) {
+        if ((await page.locator('.feature-panel[data-expanded="true"]').count()) === 0) break;
+        await page.evaluate(() => document.activeElement?.blur?.());
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(250);
+    }
+    await page.waitForTimeout(250);
+}
+
+/** Places a military symbol via the real military toolbar tool (single canvas click). */
+async function drawMilitarySymbolUI(page) {
+    const before = new Set((await readFeatures(page, 'military_symbols')).map((f) => f.id));
+    await page.evaluate((c) => globalThis.__ebgeoMap.jumpTo({ center: c, zoom: 13 }), C);
+    await page.waitForTimeout(300);
+    await page.locator('.toolbar-group[data-group-id="military"] .toolbar-group-btn').click();
+    await page.locator('.toolbar-group[data-group-id="military"] .toolbar-tool-btn[data-tool-id="militarySymbol"]').click();
+    await page.waitForTimeout(300);
+    const box = await page.locator('.maplibregl-canvas').boundingBox();
+    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
+    let id = null;
+    await expect.poll(async () => {
+        const fresh = (await readFeatures(page, 'military_symbols')).find((f) => !before.has(f.id));
+        id = fresh?.id ?? null;
+        return id;
+    }, { timeout: 10000 }).toBeTruthy();
+    return id;
+}
+
+/**
+ * Sources with a reliable single-gesture REAL UI create (drawn with the real tools below). Every
+ * OTHER source is authored via the store op with a documented no-UI reason:
+ *   line                 → the line tool's profile/preview flow is flaky in this mixed sequential
+ *                          sweep; its real-UI draw is covered GREEN by browser-collab-native-render;
+ *   text                 → click then TYPE the label in the panel;
+ *   image                → opens an OS FILE PICKER;
+ *   circle/ellipse/rectangle/brush → click-DRAG gestures;
+ *   arrow/boundary/occupied_front/coordination_measure → multi-vertex line-style + per-type attrs;
+ *   los/visibility       → ANALYSIS tools (terrain) needing a multi-click setup;
+ *   processed_los/processed_visibility → analysis OUTPUTS, never user-placed.
+ * @type {Record<string, (page: import('@playwright/test').Page) => Promise<string>>}
+ */
+const UI_DRAWERS = Object.freeze({
+    point: (page) => drawPointUI(page, C),
+    polygon: (page) => drawPolygonUI(page, [[-43.22, -22.92], [-43.18, -22.92], [-43.18, -22.88]]),
+    military_symbol: (page) => drawMilitarySymbolUI(page),
+});
+
+describeOrSkip('All 18 feature types sync cross-client (two real browsers, UI draws + store op)', () => {
     test('A creates one feature of every type via addFeature → B receives every one', async ({ browser }) => {
         // Assert against the store's OWN source→storage map so this spec can never drift
         // from the app silently: for every non-processed source, our table must agree with
@@ -100,9 +154,25 @@ describeOrSkip('All 18 feature types sync cross-client (two real browsers, real 
             // type as refused if it never lands after several attempts.
             const created = [];
             for (const source of ALL_FEATURE_SOURCES) {
+                const storage = sourceToStorage(source);
+                const drawUI = UI_DRAWERS[source];
+                if (drawUI) {
+                    // Draw via the REAL toolbar tool. Clear any panel a prior draw left over the
+                    // canvas first so this gesture's clicks aren't intercepted. The tool generates
+                    // the id, which we read back.
+                    await dismissPanels(A);
+                    const uiId = await drawUI(A);
+                    await A.keyboard.press('Escape'); // deactivate the tool before the next gesture
+                    const landedOnA = await A.evaluate(async ({ s, fid }) => {
+                        const store = await import('/src/js/store/index.js');
+                        const all = await store.getCurrentMapFeatures();
+                        return (all[s] || []).some((x) => x.properties?.id === fid);
+                    }, { s: storage, fid: uiId });
+                    created.push({ source, storage, id: uiId, landedOnA: !!uiId && landedOnA });
+                    continue;
+                }
                 const id = crypto.randomUUID();
                 const f = realFeature(source, { id });
-                const storage = sourceToStorage(source);
                 let landedOnA = false;
                 for (let attempt = 0; attempt < 5 && !landedOnA; attempt++) {
                     if (attempt > 0) await A.waitForTimeout(500);

@@ -136,14 +136,18 @@ async function selectFeatureInTreeUI(page, featureId) {
     }
     const row = page.locator(`.feature-item[data-feature-id="${featureId}"] .feature-main`).first();
     await expect(row).toBeVisible({ timeout: 10000 });
-    // Raw DOM click — overlapped rows can hang locator.click. The tree may re-render, so
-    // poll the click + the feature panel opening (handleFeatureClick → zoomAndSelectFeature
-    // populates the canvas selectionManager that the context menu's "Mover para mapa" reads).
+    // Raw DOM click — overlapped rows can hang locator.click. Only click when the panel is NOT
+    // already open: clicking an already-selected row TOGGLES the selection and would CLOSE the
+    // panel, so re-clicking every poll iteration oscillated and flaked under load. The tree can
+    // re-render, so retry the click until the panel (handleFeatureClick → zoomAndSelectFeature,
+    // which populates the canvas selectionManager the "Mover para mapa" menu reads) opens.
     await expect
         .poll(async () => {
+            if ((await page.locator('.feature-panel[data-expanded="true"]').count()) > 0) return 1;
             await row.evaluate((el) => el.click()).catch(() => {});
+            await page.waitForTimeout(500);
             return page.locator('.feature-panel[data-expanded="true"]').count();
-        }, { timeout: 10000 })
+        }, { timeout: 15000, intervals: [700] })
         .toBeGreaterThan(0);
 }
 
