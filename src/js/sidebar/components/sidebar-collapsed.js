@@ -180,8 +180,8 @@ export class SidebarCollapsed {
         // Show all maps - container handles overflow with scroll
         const mapsToShow = recentMaps;
 
-        // Fallback color palette (only used if no persistent color is assigned)
-        const fallbackColor = '#3b82f6';
+        // Fallback (only hit if a map has no resolved color; first map-badge palette hue)
+        const fallbackColor = '#2563eb';
 
         mapsToShow.forEach((mapInfo) => {
             const button = document.createElement('button');

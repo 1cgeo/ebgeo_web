@@ -31,7 +31,7 @@ import {
     getCurrentMapName,
     getAllMapNamesStore,
     getMapOrder,
-    getAllMapBadgeColors,
+    getOrderedMapBadgeColors,
     getControl
 } from '@store/index.js';
 import { createNotesPanelContent } from './panels/notes-panel.js';
@@ -1085,7 +1085,7 @@ export class SidebarControl {
             const allMaps = await getAllMapNamesStore();
             const currentMap = await getCurrentMapName();
             const savedOrder = await getMapOrder();
-            const mapColors = await getAllMapBadgeColors();
+            const mapColors = await getOrderedMapBadgeColors();
 
             // Sort maps: use saved order if available, otherwise maintain existing order
             let sortedMaps;
@@ -1103,7 +1103,9 @@ export class SidebarControl {
                 sortedMaps = allMaps;
             }
 
-            // Create map objects with isActive flag and persistent color
+            // Create map objects with isActive flag + the map's position-based badge color
+            // (same name-keyed source as the maps-tab badges, so a map's color matches across
+            // the current-map card, the maps list, and this recent-map shortcut).
             const recentMaps = sortedMaps.map(name => ({
                 name,
                 thumbnail: null,

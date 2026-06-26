@@ -32,6 +32,7 @@ import {
     isMapTemporalEnabled,
     toggleMapTemporal,
     getControl,
+    getOrderedMapBadgeColors,
 } from '@store/index.js';
 import { EventTypes } from '@events/event_types.js';
 import { showSuccess, showError, showWarning, IDUtils } from '@utils/index.js';
@@ -39,9 +40,14 @@ import { showPrompt, showConfirm, showCombineMapsModal } from '@modals/index.js'
 import { mapLockController } from '@js/locking/index.js';
 import { mapResolver } from '@store/services/map-resolver.service.js';
 import { resolveRedirectTarget } from './remote-map-redirect.js';
-import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { CommentsPanel } from '@js/comment_tool/comments-panel.js';
+
+/**
+ * Defensive fallback when a map has no persisted badge color yet (first palette hue).
+ * getAllMapBadgeColors() normally assigns every existing map a color, so this is rarely hit.
+ */
+const MAP_BADGE_FALLBACK = '#2563eb';
 
 /**
  * Icons specific to maps tab.
@@ -443,13 +449,15 @@ export class MapsTab {
             nameInput.value = this._currentMapName;
         }
 
-        // Update badge: stable initials + deterministic hue keyed on the map name
-        // (the avatar inline color is the one sanctioned non-token color). The first
-        // letter is preserved as textContent so the e2e badge assertion still holds.
+        // Update badge: single uppercase initial + the map's position-based palette color
+        // (the avatar inline color is the one sanctioned non-token color). getOrderedMapBadgeColors
+        // is the SAME name-keyed source the maps-list and recent-map badges read, so all three match.
+        // The first letter is preserved as textContent so the e2e badge assertion still holds.
         const badgeEl = this._currentMapCard.querySelector('#current-map-badge');
         if (badgeEl && this._currentMapName) {
+            const badgeColors = await getOrderedMapBadgeColors();
             badgeEl.textContent = this._currentMapName.charAt(0).toUpperCase();
-            badgeEl.style.backgroundColor = getPresenceColor(this._currentMapName);
+            badgeEl.style.backgroundColor = badgeColors[this._currentMapName] || MAP_BADGE_FALLBACK;
         }
 
         // Update lock state. A read-only remote session (viewer/commenter, or an anonymous
@@ -557,6 +565,10 @@ export class MapsTab {
             }
         });
 
+        // Resolve every map's position-based badge color once (same name-keyed source the
+        // current-map card and recent-map shortcuts read, so a map's color matches everywhere).
+        const badgeColors = await getOrderedMapBadgeColors();
+
         // Build map data with saved position, notes, and lock info
         for (const mapName of sortedMaps) {
             const [hasSavedPosition, hasNotes, locked] = await Promise.all([
@@ -564,7 +576,8 @@ export class MapsTab {
                 hasMapNotes(mapName),
                 isMapLocked(mapName)
             ]);
-            const item = this._createMapListItem(mapName, hasSavedPosition, hasNotes, locked);
+            const badgeColor = badgeColors[mapName] || MAP_BADGE_FALLBACK;
+            const item = this._createMapListItem(mapName, hasSavedPosition, hasNotes, locked, badgeColor);
             this._mapsList.appendChild(item);
         }
 
@@ -578,9 +591,11 @@ export class MapsTab {
      * @param {string} mapName - Map name
      * @param {boolean} hasSavedPosition - Whether the map has a saved position
      * @param {boolean} hasNotes - Whether the map has notes
+     * @param {boolean} locked - Whether the map is locked
+     * @param {string} badgeColor - The map's persistent badge color
      * @returns {HTMLElement}
      */
-    _createMapListItem(mapName, hasSavedPosition = false, hasNotes = false, locked = false) {
+    _createMapListItem(mapName, hasSavedPosition = false, hasNotes = false, locked = false, badgeColor = MAP_BADGE_FALLBACK) {
         const isSelected = mapName === this._currentMapName;
 
         const item = document.createElement('div');
@@ -608,11 +623,11 @@ export class MapsTab {
         // ('Mapa atual' when selected, '' otherwise) — keep it exactly as-is.
         const metaText = isSelected ? 'Mapa atual' : '';
 
-        // Stable initials + deterministic hue keyed on the map name (sanctioned
-        // non-token inline color). Selected badge falls back to the token --primary
-        // via the --selected class, which overrides this inline color in CSS.
-        const initials = escapeHtml(getInitials(mapName));
-        const badgeColor = getPresenceColor(mapName);
+        // Single uppercase initial + the map's persistent palette color (passed in;
+        // sanctioned non-token inline color) — kept consistent across the current-map
+        // card, this list badge, and the collapsed-sidebar recent-map badge. Selection
+        // is shown by the ring on --selected, NOT by recoloring the badge.
+        const initials = escapeHtml(mapName.charAt(0).toUpperCase());
 
         item.innerHTML = `
             <div class="map-list-drag-handle" title="Arrastar para reordenar">

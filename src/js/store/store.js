@@ -395,6 +395,7 @@ export {
     getFrequentColors,
     getMapBadgeColors,
     getAllMapBadgeColors,
+    getOrderedMapBadgeColors,
     isMapLocked,
     isCurrentMapLockedSync,
     toggleMapLock,

@@ -703,10 +703,10 @@
     transform: scale(1.05);
 }
 
-/* Selected: lock to the primary token, overriding the inline presence hue. */
+/* Selected: keep the inline presence hue (consistent with the current-map card and
+   recent-map badges); show selection with a ring only, not by recoloring the badge. */
 .map-list-badge--selected {
-    background: var(--primary) !important;
-    box-shadow: 0 0 0 2px var(--primary-100);
+    box-shadow: 0 0 0 2px var(--primary);
 }
 
 .map-list-info {

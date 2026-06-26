@@ -664,21 +664,23 @@ export function getFrequentColors(limit = 10, scope = 'current') {
 // ===== MAP BADGE COLORS =====
 
 /**
- * Color palette for map badges.
+ * Map-badge palette: 10 visually-distinct hues (all ~600/700 weight, so white text reads
+ * on them), ordered so that consecutive maps get strongly-contrasting neighbors. Colors are
+ * assigned first-available (least-used) and persisted per map, so maps walk this sequence and
+ * stay distinct until the palette is exhausted. This is the SINGLE source of a map's badge
+ * color, shared by the current-map card, the maps-list badge, and the recent-map shortcut.
  */
 const MAP_BADGE_COLORS = [
-    '#3b82f6', // blue
-    '#f59e0b', // amber
-    '#f97316', // orange
-    '#10b981', // emerald
-    '#8b5cf6', // violet
-    '#ec4899', // pink
-    '#06b6d4', // cyan
-    '#84cc16', // lime
-    '#ef4444', // red
-    '#6366f1', // indigo
-    '#14b8a6', // teal
-    '#a855f7', // purple
+    '#2563eb', // blue
+    '#dc2626', // red
+    '#16a34a', // green
+    '#9333ea', // purple
+    '#ea580c', // orange
+    '#0891b2', // cyan
+    '#db2777', // pink
+    '#65a30d', // lime
+    '#4f46e5', // indigo
+    '#ca8a04', // gold
 ];
 
 /**
@@ -799,6 +801,25 @@ export async function getAllMapBadgeColors() {
         await setMapBadgeColors(colors);
     }
 
+    return colors;
+}
+
+/**
+ * Derived (non-persistent) badge colors for the maps UI. Walks the distinct MAP_BADGE_COLORS
+ * sequence by each map's POSITION in the canonical ordered name list, so neighbors never share
+ * a hue and adjacent maps are always visibly different. Keyed by DISPLAY NAME — the exact key
+ * every badge UI uses — so a map's color matches across the current-map card, the maps list,
+ * and the recent-map rail (unlike the persisted store, which is keyed by raw UUID/name storage
+ * keys and therefore misses on name lookups for synced maps).
+ *
+ * @returns {Promise<Object<string,string>>} Map of display name -> hex color
+ */
+export async function getOrderedMapBadgeColors() {
+    const names = await getAllMapNamesStore();
+    const colors = {};
+    names.forEach((name, i) => {
+        colors[name] = MAP_BADGE_COLORS[i % MAP_BADGE_COLORS.length];
+    });
     return colors;
 }
 
