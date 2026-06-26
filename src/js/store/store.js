@@ -440,6 +440,7 @@ export {
     getMapAnalysisLayersStates,
     storeImage,
     getImage,
+    hasImage,
     removeImage
 } from './settings.operations.js';
 

@@ -4,13 +4,14 @@
  * @fileoverview Main layer setup orchestrator for MapLibre.
  */
 
-import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getGridStyle, getCatalogLayers, getControl } from '../store';
+import { getCurrentMapFeatures, getImage, hasImage, getCurrentMapNameSync, getGridStyle, getCatalogLayers, getControl } from '../store';
+import { getImageRegenerator } from './image-regen-registry.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { initGridLayers } from '../grid/index.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
 
-import { generatePointImage, needsPerFeatureImage } from '../draw_tools/point_tool/point-marker-symbols.js';
+import { generatePointImage, needsPerFeatureImage, pointImageSignature } from '../draw_tools/point_tool/point-marker-symbols.js';
 import { parseCustomMarker, registerCustomFeatureImage } from '../draw_tools/point_tool/point-custom-icons.js';
 import { updateAllLayerFilters, invalidateFilterCache, updateMeasurementLabelVisibility } from './visibility-filter.js';
 import { applyLayerOpacities, invalidateOpacityCache } from './layer-opacity-applier.js';
@@ -37,6 +38,16 @@ import {
     setupAuxiliaryLayers,
 } from './styles/index.js';
 import { setupMeasurementLayers } from '../measurement_tool/measurement-labels.js';
+
+/**
+ * Content signature of the per-feature point marker image last registered for a
+ * feature id. Lets setImages() skip re-baking unchanged markers (perf) while
+ * still regenerating when a marker's symbol/color actually changed. Keyed by
+ * feature id; only consulted alongside map.hasImage(id), so a removed image
+ * (deleted feature / cleared project) self-heals to a regeneration.
+ * @type {Map<string, string>}
+ */
+const _pointImageSignatures = new Map();
 
 /**
  * Creates an error placeholder image for failed image loads.
@@ -170,6 +181,28 @@ async function setImages(features, mapInstance) {
     for (const feature of allImageFeatures) {
         const imageId = feature.properties.id;
         if (!imageId || mapInstance.hasImage(imageId)) continue;
+
+        // Military symbols / coordination measures / declinations render a client-generated
+        // PNG that is NEVER uploaded (it's deterministically rebuildable from props). On a
+        // remote snapshot / map switch the local blob is absent, and fetching it from the
+        // backend 404s → error icon. Rebuild from props instead when no local blob exists.
+        const regenerate = getImageRegenerator(feature.properties.source);
+        if (regenerate) {
+            imagePromises.push((async () => {
+                if (await hasImage(imageId)) {
+                    await loadSingleImage(imageId, mapInstance);
+                    return;
+                }
+                try {
+                    await regenerate(feature); // rebuilds + stores + installs the image on the map
+                } catch (err) {
+                    console.warn(`Falha ao regenerar imagem ${imageId} (${feature.properties.source}):`, err);
+                    await addErrorImageIfNeeded(imageId, mapInstance);
+                }
+            })());
+            continue;
+        }
+
         imagePromises.push(loadSingleImage(imageId, mapInstance));
     }
 
@@ -178,18 +211,32 @@ async function setImages(features, mapInstance) {
     // Generate per-feature canvas images for non-circle point markers.
     // Custom icons (uploaded images) register asynchronously from stored blobs;
     // built-in shapes/icons bake a per-feature canvas image synchronously.
+    //
+    // Per-feature images are keyed by feature id, but their pixels depend on the
+    // markerSymbol + baked colors/border. A bare `hasImage(id)` skip can't tell a
+    // stale icon from a current one, so when a point's symbol/color changed and
+    // this re-ran (peer op via wireRemoteFeatureRender, or a base-layer/map switch)
+    // the OLD image kept rendering. Skip only when the cached content signature
+    // still matches; otherwise regenerate (cheap built-in draw / cached custom blob).
     const customIconPromises = [];
     for (const feature of (features.points || [])) {
         const props = feature.properties;
         if (!needsPerFeatureImage(props.markerSymbol)) continue;
-        if (mapInstance.hasImage(props.id)) continue;
+
+        const signature = pointImageSignature(props);
+        if (mapInstance.hasImage(props.id) && _pointImageSignatures.get(props.id) === signature) continue;
 
         const iconId = parseCustomMarker(props.markerSymbol);
         if (iconId) {
-            customIconPromises.push(registerCustomFeatureImage(mapInstance, props.id, iconId));
+            customIconPromises.push(
+                registerCustomFeatureImage(mapInstance, props.id, iconId).then((ok) => {
+                    if (ok) _pointImageSignatures.set(props.id, signature);
+                })
+            );
             continue;
         }
 
+        if (mapInstance.hasImage(props.id)) mapInstance.removeImage(props.id);
         const imageData = generatePointImage(
             props.markerSymbol,
             props.fillColor || '#3f4fb5',
@@ -197,6 +244,7 @@ async function setImages(features, mapInstance) {
             props.lineWidth || 0,
         );
         mapInstance.addImage(props.id, imageData, { pixelRatio: 2 });
+        _pointImageSignatures.set(props.id, signature);
     }
     await Promise.allSettled(customIconPromises);
 }

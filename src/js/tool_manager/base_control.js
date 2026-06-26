@@ -12,6 +12,7 @@ import { expandBboxWithPadding } from '../utilities/geometry-utils.js';
 import { deepClone } from '../utilities/deep-utils.js';
 import { getEventBus } from '../store/services.js';
 import { EventTypes } from '../events/event_types.js';
+import { registerImageRegenerator } from '../layers/image-regen-registry.js';
 
 /**
  * Base Control class with expanded tool-centric interface.
@@ -431,6 +432,10 @@ class BaseControl {
      * @private
      */
     _subscribeRemoteImageRegen(source, regenFn) {
+        // Publish the regenerator so the LOAD path (setImages) can rebuild a missing
+        // local blob from props on snapshot / map-switch — the incremental remote-op
+        // subscription below only fires for live ops, not for a snapshot open/reconnect.
+        registerImageRegenerator(source, regenFn);
         let bus;
         try {
             bus = getEventBus();

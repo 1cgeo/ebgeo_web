@@ -368,6 +368,25 @@ export function needsPerFeatureImage(markerSymbol) {
     return !!markerSymbol && markerSymbol !== 'circle';
 }
 
+/**
+ * Build a content signature for a point's per-feature marker image.
+ * The image PIXELS depend on the marker symbol plus the baked-in fill/border
+ * colors and border width — NOT on the feature id the image is keyed by. Callers
+ * cache this signature so a re-registration path (e.g. a peer's symbol/color
+ * change re-run through setupMapFeatures) can tell a stale icon from a current
+ * one, which `map.hasImage(id)` alone cannot.
+ * @param {Object} props - Point feature properties
+ * @returns {string}
+ */
+export function pointImageSignature(props) {
+    return [
+        props.markerSymbol,
+        props.fillColor || '',
+        props.lineColor || '',
+        props.lineWidth ?? '',
+    ].join('|');
+}
+
 // ============================================================================
 // PUBLIC API
 // ============================================================================
