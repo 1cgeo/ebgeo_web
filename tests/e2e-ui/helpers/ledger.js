@@ -169,6 +169,53 @@ export function findViolations(spans) {
 }
 
 /**
+ * Full-chain invariants that the apply.persist instrumentation makes checkable: every
+ * IndexedDB write the pipeline claims must be CONFIRMED by an apply.persist span on the
+ * acting client. Pure & node-testable. Opt-in (kept OUT of findViolations so the existing
+ * assertLedgerClean behaviour is unchanged); the collab fixture/specs call it explicitly.
+ *
+ *  - I-AP1 (author): an actor that ENQUEUED an op must have confirmed its local IndexedDB
+ *    write (apply.persist) — else the entity was logged for sync but never durably stored.
+ *  - I-AP2 (peer): an actor that APPLIED a remote op for a persisting entity type must have
+ *    confirmed its IndexedDB write — else the peer emitted the lifecycle event without the
+ *    durable write behind it. SLIDE is exempt (its inbound op is a redundant no-op).
+ *
+ * Requires a MERGED ledger (spans carry `actor`, added by collectLedger).
+ * @param {Object[]} spans
+ * @returns {{ invariant: string, detail: string }[]}
+ */
+export function findChainViolations(spans) {
+    const list = Array.isArray(spans) ? spans : [];
+    const NON_PERSISTING = new Set(['slide']);
+
+    // opId -> actor -> { stages:Set, appliedTypes:Set }
+    const byOpActor = new Map();
+    for (const s of list) {
+        if (!s || !s.opId || !s.actor) continue;
+        let am = byOpActor.get(s.opId);
+        if (!am) { am = new Map(); byOpActor.set(s.opId, am); }
+        let rec = am.get(s.actor);
+        if (!rec) { rec = { stages: new Set(), appliedTypes: new Set() }; am.set(s.actor, rec); }
+        rec.stages.add(s.stage);
+        if (s.stage === 'remote.applied' && s.entityType) rec.appliedTypes.add(s.entityType);
+    }
+
+    const violations = [];
+    for (const [opId, am] of byOpActor) {
+        for (const [actor, rec] of am) {
+            if (rec.stages.has('enqueue') && !rec.stages.has('apply.persist')) {
+                violations.push({ invariant: 'I-AP1', detail: `op ${opId}: ${actor} enqueued but never confirmed its IndexedDB write (apply.persist missing)` });
+            }
+            const appliedPersisting = [...rec.appliedTypes].some((t) => !NON_PERSISTING.has(t));
+            if (appliedPersisting && !rec.stages.has('apply.persist')) {
+                violations.push({ invariant: 'I-AP2', detail: `op ${opId}: ${actor} applied a remote op but never confirmed its IndexedDB write (apply.persist missing)` });
+            }
+        }
+    }
+    return violations;
+}
+
+/**
  * Renders a compact human/AI-readable report (markdown) suitable for testInfo.attach.
  * @param {Object} report - Output of reduceLedger.
  * @returns {string}

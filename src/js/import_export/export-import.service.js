@@ -81,10 +81,9 @@ function migrateImportDataToV2(data) {
                 mapData.sync = createSyncMetadata(null);
             }
 
-            // NOTE: map ids are intentionally NOT generated here. Maps are keyed by
-            // name in storage; assigning a UUID id makes addMap register a name->id
-            // resolver mapping that diverges from the actual (name) storage key, which
-            // later duplicates the map under the UUID (phantom map). See addMap().
+            // NOTE: map ids are intentionally NOT generated here — addMap (via createMapCompat)
+            // assigns the UUID and, when sync is active, stores the map UUID-keyed so a later
+            // snapshot re-apply updates the SAME entry (no phantom/duplicate). See addMap().
 
             // Migrate features
             if (mapData.features) {
@@ -150,10 +149,9 @@ function normalizeMapDataForCurrentVersion(mapData) {
         mapData.sync = createSyncMetadata(null);
     }
 
-    // NOTE: map ids are intentionally NOT generated here. Maps are keyed by name in
-    // storage; assigning a UUID id makes addMap register a name->id resolver mapping
-    // that diverges from the actual (name) storage key, later duplicating the map
-    // under the UUID (phantom map on additive import). See addMap().
+    // NOTE: map ids are intentionally NOT generated here — addMap (via createMapCompat)
+    // assigns the UUID and, when sync is active, stores the map UUID-keyed so a later
+    // snapshot re-apply updates the SAME entry (no phantom/duplicate). See addMap().
 
     // Validate catalog layers availability
     let unavailableCatalogLayersCount = 0;

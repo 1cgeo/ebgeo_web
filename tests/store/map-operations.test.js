@@ -49,6 +49,8 @@ vi.mock('../../src/js/store/sync/index.js', () => ({
     logMapPositionOperation: vi.fn(),
     logBaseLayerOperation: vi.fn(),
     logAtlasSetting: vi.fn(),
+    // Sync OFF in unit tests → addMap keeps the name-keyed storage these tests assert.
+    isOperationLoggingEnabled: vi.fn(() => false),
     OperationType: { CREATE: 'CREATE', UPDATE: 'UPDATE', DELETE: 'DELETE' }
 }));
 

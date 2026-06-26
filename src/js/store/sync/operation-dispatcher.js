@@ -145,6 +145,14 @@ export async function logOperation(entityType, operationType, entityId, mapId, d
         // the SAME entity is deferred until this op's ack reveals the server order (deterministic
         // LWW convergence).
         if (CONVERGENCE_GUARDED.has(entityType)) markLocalEditPending(entityId);
+        // Author-side IndexedDB-write confirmation: the entity was persisted FIRST
+        // (persistFn in runTransaction) before this logging runs in deferAsync, so by
+        // now it is durable in IndexedDB. Records the op-keyed peer of the inbound
+        // apply.persist span, closing the full-chain "wrote to local IDB" link.
+        record(TraceStage.APPLY_PERSIST, {
+            opId: operation.id, traceId: operation.traceId, entityType, operationType, entityId, mapId,
+            outcome: TraceOutcome.OK
+        });
         record(TraceStage.ENQUEUE, {
             opId: operation.id, traceId: operation.traceId, entityType, operationType, entityId, mapId,
             lamportTimestamp: operation.lamportTimestamp, outcome: TraceOutcome.OK
@@ -200,6 +208,11 @@ export async function logBatchOperations(operations) {
         const created = createBatchOperations(safe);
         await operationQueue.enqueueAll(created);
         for (const op of created) {
+            // Author-side IndexedDB-write confirmation (see logOperation) — per op in the batch.
+            record(TraceStage.APPLY_PERSIST, {
+                opId: op.id, traceId: op.traceId, entityType: op.entityType, operationType: op.operationType,
+                entityId: op.entityId, mapId: op.mapId, batchId: op.batchId, outcome: TraceOutcome.OK
+            });
             record(TraceStage.ENQUEUE, {
                 opId: op.id, traceId: op.traceId, entityType: op.entityType, operationType: op.operationType,
                 entityId: op.entityId, mapId: op.mapId, batchId: op.batchId, outcome: TraceOutcome.OK

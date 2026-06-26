@@ -231,6 +231,114 @@ export const drawPolygonUI = (page, coords) => drawViaToolUI(page, { toolId: 'po
 /** Places a POINT via the real point tool (single canvas click). @returns {Promise<string>} new id. */
 export const drawPointUI = (page, lngLat) => drawViaToolUI(page, { toolId: 'point', storage: 'points', coords: [lngLat], multi: false });
 
+// ── Real attribute-panel / layers-tree gestures (shared UI drivers) ───────────
+// Extracted so the round-trip / conflict specs drive edits as a USER does, not via
+// store ops. Selectors: layers-tree select (browser-collab-shared-atlas.spec.js), the
+// color picker's native input (tool_manager/helpers/color-picker.helpers.js), the
+// Delete-key + confirm-modal delete (keyboard-shortcuts.spec.js + confirm.modal.js).
+
+/** Opens the layers ("camadas") tab (idempotent — never toggles it closed). */
+export async function openLayersTab(page) {
+    if ((await page.locator('.layer-container').count()) === 0) {
+        await page.locator('.sidebar-nav-btn[data-tab="camadas"]').click();
+    }
+    await expect(page.locator('.layer-container').first()).toBeVisible({ timeout: 10000 });
+}
+
+/** Selects a feature by id through the REAL layers tree → expands the sidebar feature panel. */
+export async function selectFeatureUI(page, featureId) {
+    await openLayersTab(page);
+    for (const icon of await page.locator('.layer-expand-icon.collapsed').all()) {
+        await icon.click().catch(() => {});
+    }
+    const row = page.locator(`.feature-item[data-feature-id="${featureId}"] .feature-main`).first();
+    await expect(row).toBeVisible({ timeout: 10000 });
+    await row.evaluate((el) => el.click());
+    await expect(page.locator('.feature-panel[data-expanded="true"]')).toBeVisible({ timeout: 10000 });
+}
+
+/** Commits the open panel's pending edits the way a user does — clicking "Salvar". */
+export async function savePanelUI(page) {
+    const saveBtn = page.locator('.feature-panel[data-expanded="true"] .attr-modern-btn-save').first();
+    await expect(saveBtn).toBeVisible({ timeout: 5000 });
+    await saveBtn.click();
+}
+
+/** Recolors the currently-selected feature via the panel color picker's native input, then saves. */
+export async function recolorViaPanelUI(page, hex) {
+    const native = page.locator('.feature-panel[data-expanded="true"] .color-picker-native-hidden').first();
+    await expect(native).toBeAttached({ timeout: 5000 });
+    await native.evaluate((el, value) => {
+        el.value = value;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    }, hex);
+    await savePanelUI(page);
+}
+
+/** Selects a feature in the layers tree, then recolors it through the panel (one gesture). */
+export async function selectAndRecolorUI(page, featureId, hex) {
+    await selectFeatureUI(page, featureId);
+    await recolorViaPanelUI(page, hex);
+}
+
+/** Deletes a feature through the REAL UI: select in the layers tree, press Delete, confirm. */
+export async function deleteFeatureUI(page, featureId) {
+    await selectFeatureUI(page, featureId);
+    await page.keyboard.press('Delete');
+    const confirmBtn = page.locator('.confirm-modal-btn-confirm');
+    await expect(confirmBtn).toBeVisible({ timeout: 5000 });
+    await confirmBtn.click();
+}
+
+/**
+ * Renames the currently-selected feature through the sidebar panel's editable name field:
+ * click the display to enter edit mode, type the new name, commit with Enter, then save.
+ */
+export async function renameViaPanelUI(page, newName) {
+    const panel = page.locator('.feature-panel[data-expanded="true"]');
+    await panel.locator('.feature-identification-name').click();
+    const input = panel.locator('.feature-identification-name-input:not(.feature-identification-name-input--hidden)');
+    await expect(input).toBeVisible({ timeout: 5000 });
+    await input.fill(newName);
+    await input.press('Enter');
+    await savePanelUI(page);
+}
+
+/** Selects a feature in the layers tree, then renames it through the panel (one gesture). */
+export async function selectAndRenameUI(page, featureId, newName) {
+    await selectFeatureUI(page, featureId);
+    await renameViaPanelUI(page, newName);
+}
+
+/** Places a MILITARY SYMBOL with the real tool (activate → single click, default SIDC). @returns {Promise<string>} new id. */
+export async function drawMilitarySymbolUI(page, lngLat) {
+    const before = new Set((await readFeatures(page, 'military_symbols')).map((f) => f.id));
+
+    await page.evaluate((c) => globalThis.__ebgeoMap.jumpTo({ center: c, zoom: 14 }), lngLat);
+    await page.waitForTimeout(300); // let the camera settle before projecting
+
+    await page.locator('.toolbar-group[data-group-id="military"] .toolbar-group-btn').click();
+    await expect(page.locator('.toolbar-group[data-group-id="military"] .toolbar-popup'))
+        .toHaveAttribute('data-visible', 'true', { timeout: 5000 });
+    await page.locator('.toolbar-group[data-group-id="military"] .toolbar-tool-btn[data-tool-id="militarySymbol"]').click();
+
+    const pt = await page.evaluate((c) => {
+        const map = globalThis.__ebgeoMap;
+        const rect = map.getCanvas().getBoundingClientRect();
+        const p = map.project(c);
+        return { x: Math.round(rect.left + p.x), y: Math.round(rect.top + p.y) };
+    }, lngLat);
+    await page.mouse.click(pt.x, pt.y);
+
+    let id = null;
+    await expect.poll(async () => {
+        const fresh = (await readFeatures(page, 'military_symbols')).find((f) => !before.has(f.id));
+        id = fresh?.id ?? null;
+        return id;
+    }, { timeout: 10000 }).toBeTruthy();
+    return id;
+}
+
 /**
  * Waits until the peer's store has a feature of `type` with `id`. SyncLedger-gated:
  * first waits deterministically for the peer's `remote.applied` span (the op was applied

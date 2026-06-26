@@ -21,7 +21,7 @@ import { memoryStore } from './memory-store.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
-import { logMapOperation, logMapPositionOperation, logBaseLayerOperation, logAtlasSetting, OperationType } from './sync/index.js';
+import { logMapOperation, logMapPositionOperation, logBaseLayerOperation, logAtlasSetting, OperationType, isOperationLoggingEnabled } from './sync/index.js';
 import { checkPermission, GuardAction } from './sync/permission-guard.js';
 import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import { generateUUID, isValidUUID } from '../utilities/uuid.js';
@@ -176,7 +176,12 @@ export async function addMap(mapName, mapData = null, colorUsageData = null, not
         return null;
     }
 
-    const newMapData = await createMapData(mapName, mapData);
+    // When sync is active (connected to a remote atlas), store the new map UUID-keyed from the
+    // start — the same keying synced/peer maps use — so a later snapshot re-apply (reconnect /
+    // resync / a peer's import-merge-rename) updates the SAME entry instead of duplicating it
+    // (a name-keyed local copy + a UUID-keyed snapshot copy of the same logical map).
+    const syncActive = isOperationLoggingEnabled();
+    const newMapData = await createMapData(mapName, mapData, { uuidKeyed: syncActive });
 
     const mapId = newMapData.id || mapName;
     if (mapId !== mapName) {

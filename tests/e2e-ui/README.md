@@ -65,6 +65,86 @@ trace-gated with a graceful fallback to the original store poll, so the existing
 keep working. Demo spec: `browser-collab-ledger.spec.js`. Tracing turns on via
 `?trace=sync` / `localStorage` (browser) and `EBGEO_TRACE=1` / `NODE_ENV=test` (backend).
 
+## Full-chain specs (the robust collab pattern)
+
+A collab spec should not just assert "the feature eventually showed up on B". It should
+prove, for **each operation**, that it traversed the **entire** multi-user pipeline — and,
+when it doesn't, say **exactly which link broke**. That is what the **full-chain DSL** does.
+
+The six links (mapped to SyncLedger stages + two ground-truths the trace can't fake):
+
+| # | Link | Deterministic signal | Ground-truth |
+|---|------|----------------------|--------------|
+| 1 | author IndexedDB     | `apply.persist` (author) | `repo.getMap()` on A (reads IDB, not memoryStore) |
+| 2 | transport → backend  | `push.ack` (author)      | — |
+| 3 | backend stored       | `server.inserted/applied`| `SELECT … FROM operations WHERE op_id=$1` + entity row |
+| 4 | signal → peers       | `server.broadcast` + `ws.inbound` | — |
+| 5 | peer IndexedDB       | `apply.persist` (peer)   | `repo.getMap()` on each peer |
+| 6 | appeared in browser  | `remote.applied` + `render.source` | MapLibre source |
+
+`apply.persist` is emitted by the app (gated, zero-cost when tracing is off) right after the
+IndexedDB write on **both** sides: author in `operation-dispatcher.js`, peer in
+`remote-operation-handler.js`. `render.source` needs the entity-render probe
+(`window.__EBGEO_TRACE_RENDER__`), which the fixture turns on.
+
+### Writing one — use the `collab` fixture
+
+```js
+import { collabTest, expect, drawLineUI } from './helpers/collab.fixtures.js';
+
+collabTest('a line CREATE traverses all six links to the peer', async ({ collab }) => {
+    const id = await drawLineUI(collab.author, COORDS);          // real UI gesture
+    await collab.expectFullSync({ entityId: id, type: 'lines', operationType: 'create' });
+});
+```
+
+`browser-collab-full-chain.spec.js` is the **canonical template** (create / update / delete +
+three-client fan-out). Copy it to start a new spec.
+
+The fixture (`helpers/collab.fixtures.js`) seeds two users + a shared atlas, opens the author
++ peers (each its own context, tracer + render probe on), resolves the owner token, opens the
+read-only SQL connection, and attaches the unified ledger on teardown. It exposes on `collab`:
+
+- `author`, `peers[]`, `pages`, `atlasId`, `mapId`, `mapName`, `db`, `userA`, `userB`.
+- `expectFullSync(opRef)` — the upsert chain (entity must EXIST at both ends).
+- `expectFullSyncDelete(opRef)` — the delete chain (entity GONE at both ends, Postgres row tombstoned).
+- `expectNotSynced(opRef, {settle, expectDrop})` / `expectBlockedAt(opRef, {reason})` — **negative**
+  path (permission / lock / isolation): the op must NOT reach the peers.
+- `assertLedgerClean()` (I2: no acked-but-no-effect) and `assertChainClean()` (I-AP1/I-AP2:
+  no claimed IndexedDB write left unconfirmed).
+
+`opRef` = `{ entityId, entityType='feature', type (storage bucket, e.g. 'lines'), operationType='create', opId?, timeout? }`.
+
+Scale to **N peers** per describe (three-client fan-out — every peer is verified):
+
+```js
+collabTest.use({ collabOptions: { peers: 2, permission: 'write' } });
+```
+
+### Ground-truth helpers
+
+- `helpers/idb.js` — `readIdbEntity(page, {entityId, entityType, mapId, storage})` reads the
+  **IndexedDB** via the repository (bypasses the in-memory `memoryStore` that `readFeatures`
+  reads). This is links 1 and 5's real check.
+- `helpers/db.js` — `createDb(dbName)` → `queryOperation(opId)`, `queryFeatureRow(entityId)`,
+  `queryEntityRow(table, id)`, `queryServerVersion(atlasId)`. Direct SQL against the throwaway
+  DB (link 3). Independent of the trace, so a missing row breaks link 3 even if the spans exist.
+
+### Migrating an existing collab spec
+
+1. Replace the `seedSharedAtlas` + two `openClient` + `loginUI`/`openAtlasUI` boilerplate with
+   `collabTest(... async ({ collab }) => …)`.
+2. Keep the **UI gesture** (`drawLineUI`/panel edit) to produce the change on `collab.author`.
+3. Replace ad-hoc `pollPeerFeature` / store-poll assertions with one `collab.expectFullSync(...)`
+   (or `expectFullSyncDelete` / `expectNotSynced`).
+4. Negative specs (`permissions`, `lock`, `multimap-isolation`) use `expectNotSynced` /
+   `expectBlockedAt` instead.
+
+> Note: update/delete in the template use the store-op escape hatch for brevity. Where a real
+> panel-driven UI driver exists, prefer it (per the UI-first philosophy above). The README's
+> `renameViaPanelUI`/`deleteFeatureUI` references are aspirational — add those drivers to
+> `collab-helpers.js` as specs need them.
+
 ## How it runs
 
 `playwright.config.js`:

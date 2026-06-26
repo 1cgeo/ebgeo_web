@@ -1,72 +1,49 @@
 // Path: e2e-ui/browser-collab-maps-layers.spec.js
 
 /**
- * MAPS + LAYERS + cross-map MOVE synced cross-client — TWO real browsers + real
- * backend. Client A drives the app's REAL UI (create a map via the Maps tab, create a
- * layer via the Camadas tab, draw a line with the line tool, move it via the
- * "Mover para mapa" context-menu) and client B asserts the change propagated, with no
- * workarounds. Structure mirrors browser-collab-feature-mutations.spec.js.
+ * MAPS + LAYERS + cross-map MOVE synced cross-client — TWO real browsers + real backend,
+ * on the full-chain harness. Client A drives the REAL UI (create a map via the Maps tab,
+ * a layer via the Camadas tab, draw a line, move it via the "Mover para mapa" context
+ * menu) and each entity is verified end-to-end:
  *
- * Covered, in order:
- *   1. A creates a SECOND map "Mapa Secundário" (Maps-tab "Novo mapa" → prompt)
- *                                                              → B's repo lists it.
- *   2. A creates a LAYER on the shared map (Camadas-tab "Nova camada" → prompt)
- *                                                              → the layer reaches the
- *      backend (snapshot pulled from B's own authenticated session — see NOTE below).
- *   3. A adds a LINE to the shared map (line tool), then MOVES it to the second map
- *      (right-click → "Mover para mapa" submenu)              → on B the line is gone
- *      from the shared map and present on "Mapa Secundário".
- *
- * UI gestures (discovered by reading the clean sibling specs + src):
- *   - Create map: maps.tab.js "Novo mapa" header button (data-testid="maps-new-map") →
- *     .prompt-modal-input → .prompt-modal-btn-confirm (createMap emits a map `create`
- *     op). Mirrors maps-tab-navigation.spec.js seedSecondMap. createMap makes the new
- *     map current, so A switches BACK to the shared map (click its map-list card) before
- *     drawing — so the line lands on the shared map. Remote map-create persists to the
- *     peer repo (applyRemoteMapOp → repo.saveMap), so B's getAllMaps() lists it.
- *   - Create layer: features_tab.js "Nova camada" header button
- *     (.layers-tab .sidebar-section-header-btn[title="Nova camada"]) → prompt → confirm.
- *     Mirrors layers-tab-local.spec.js. createLayer emits a layer `create` op. NOTE: the
- *     REMOTE layer-create handler (applyRemoteLayerOp) only EMITS LAYER_CREATED/
- *     LAYERS_CHANGED — it does NOT call repo.saveLayers — and no app listener persists
- *     it, so a remotely-created layer does NOT land in the peer's LOCAL store. We
- *     therefore assert the layer reached the BACKEND snapshot (the authoritative source,
- *     exactly as browser-layer-ops.spec.js does), pulling it from B's own live ApiClient
- *     session. See REPORT note.
- *   - Draw line: drawLineUI (collab-helpers.js) — activate the line tool, click vertices,
- *     right-click to finish; returns the tool-generated feature id.
- *   - Move feature between maps: select the line in the layers tree, right-click the
- *     canvas, hover the "Mover para mapa" submenu, click the target map item
- *     (context-menu.control.js _addMapMoveOptions → mapManager.moveFeaturesToMap).
- *
- * The seed/login/open plumbing + draw/poll helpers come from ./helpers/collab-helpers.js.
+ *   1. create a SECOND map        → full chain to B (entityType 'map', SQL `maps` row)
+ *   2. create a LAYER             → full chain to B (entityType 'layer', SQL `layers` row)
+ *   3. draw a LINE                → full chain to B
+ *   4. MOVE the line to map 2     → on B it leaves the shared map and joins the second
+ *      (a compound op — verified via the peer repo per map, not a single expectFullSync)
  *
  * Run headed:  npx playwright test browser-collab-maps-layers --headed
  */
 
-import { test, expect } from '@playwright/test';
-import { readState } from './state.js';
-import {
-    seedSharedAtlas,
-    openClient,
-    readFeatures,
-    pollPeerFeature,
-    currentMapName,
-    drawLineUI,
-} from './helpers/collab-helpers.js';
-
-const state = readState();
-const describeOrSkip = state.skip ? test.describe.skip : test.describe;
+import { collabTest, expect, readFeatures, currentMapName, drawLineUI } from './helpers/collab.fixtures.js';
 
 const SHARED_MAP = 'Mapa Tático';
 const SECOND_MAP = 'Mapa Secundário';
 const LAYER_NAME = 'Camada Tática';
 
 /**
- * Creates a new local map through the REAL Maps-tab UI (header "Novo mapa" button →
- * prompt → confirm), exactly like maps-tab-navigation.spec.js seedSecondMap. createMap
- * sets the new map current, so the caller must switch back if it needs the prior map.
+ * Resolves the sync UUID of the most recent `entityType`/`operationType` op authored on
+ * this page, read from its trace (the op's entityId is the canonical sync id — the local
+ * map/layer record may be name-keyed, so reading repo `.id` is NOT reliable). Polls until
+ * the op's apply.persist span exists.
  */
+async function syncIdFromTrace(page, entityType, operationType) {
+    let id = null;
+    await expect
+        .poll(async () => {
+            id = await page.evaluate((q) => {
+                const t = window.__ebgeoSyncTrace;
+                if (!t) return null;
+                const spans = t.get((s) => s.stage === 'apply.persist' && s.entityType === q.et && s.operationType === q.ot);
+                return spans.length ? spans[spans.length - 1].entityId : null;
+            }, { et: entityType, ot: operationType });
+            return id;
+        }, { timeout: 10000 })
+        .toBeTruthy();
+    return id;
+}
+
+/** Creates a new map through the real Maps-tab UI (createMap makes it the active map). */
 async function createMapUI(page, name) {
     await page.locator('.sidebar-nav-btn[data-tab="mapas"]').click();
     await expect(page.locator('.maps-tab #current-map-name-input')).toBeVisible({ timeout: 10000 });
@@ -79,22 +56,18 @@ async function createMapUI(page, name) {
     await expect(page.locator(`.maps-tab .map-list-item[data-map-name="${name}"]`)).toBeVisible({ timeout: 5000 });
 }
 
-/** Switches the active map by clicking its card in the Maps-tab list. */
+/** Switches the active map by clicking its card in the Maps-tab list (polls the active map). */
 async function switchToMapUI(page, name) {
     await page.locator('.sidebar-nav-btn[data-tab="mapas"]').click();
     const card = page.locator(`.maps-tab .map-list-item[data-map-name="${name}"]`);
     await expect(card).toBeVisible({ timeout: 10000 });
-    // Raw DOM click — the open Feature panel overlays the sidebar and can intercept
-    // pointer events, hanging locator.click()'s actionability wait (same workaround the
-    // tree-row selection below already uses). The card's own click listener still fires.
     await card.evaluate((el) => el.click());
-    await expect(card).toHaveAttribute('data-selected', 'true', { timeout: 5000 });
+    // Poll the actual active map (more robust than data-selected, which flips only after the
+    // async map switch completes — and the card can re-render under sync load).
+    await expect.poll(async () => currentMapName(page), { timeout: 10000 }).toBe(name);
 }
 
-/**
- * Creates a layer on the ACTIVE map through the REAL Camadas-tab UI (header "Nova camada"
- * button → prompt → confirm), exactly like layers-tab-local.spec.js.
- */
+/** Creates a layer on the ACTIVE map through the real Camadas-tab UI. */
 async function createLayerUI(page, name) {
     await page.locator('.sidebar-nav-btn[data-tab="camadas"]').click();
     const addBtn = page.locator('.layers-tab .sidebar-section-header-btn[title="Nova camada"]');
@@ -107,23 +80,10 @@ async function createLayerUI(page, name) {
     await expect(input).toBeHidden({ timeout: 5000 });
 }
 
-/**
- * Deactivates whatever draw tool is currently active by pressing Escape — the real
- * keyboard gesture (keyboard-shortcuts.js → toolManager.deactivateCurrentTool()). A draw
- * tool (e.g. the line tool) stays ACTIVE after finishing a shape so the user can draw
- * again; while a tool is active the map context menu's right-click handler early-returns
- * (context-menu.control.js _onRightClick → `if (toolManager.hasActiveTool()) return`), so
- * the menu never opens. We must drop the tool before the move gesture. Escape also clears
- * the canvas selection, so the tree-select for the move MUST run AFTER this.
- */
+/** Drops the active draw tool (Escape) so the map context menu can open. */
 async function deactivateToolUI(page) {
-    // Move keyboard focus off any input (the keydown handler ignores Escape while typing —
-    // keyboard-shortcuts.js isTypingInInput) by blurring the active element, then press
-    // Escape. We do NOT left-click the canvas (that would arm a new vertex on the active
-    // line tool); the keydown handler is on `document`, so blurring is enough.
     await page.evaluate(() => document.activeElement && document.activeElement.blur());
     await page.keyboard.press('Escape');
-    // Confirm no draw tool button is left active (the line tool was the one used).
     await expect(page.locator('.toolbar-tool-btn[data-active="true"]')).toHaveCount(0, { timeout: 5000 });
 }
 
@@ -136,11 +96,6 @@ async function selectFeatureInTreeUI(page, featureId) {
     }
     const row = page.locator(`.feature-item[data-feature-id="${featureId}"] .feature-main`).first();
     await expect(row).toBeVisible({ timeout: 10000 });
-    // Raw DOM click — overlapped rows can hang locator.click. Only click when the panel is NOT
-    // already open: clicking an already-selected row TOGGLES the selection and would CLOSE the
-    // panel, so re-clicking every poll iteration oscillated and flaked under load. The tree can
-    // re-render, so retry the click until the panel (handleFeatureClick → zoomAndSelectFeature,
-    // which populates the canvas selectionManager the "Mover para mapa" menu reads) opens.
     await expect
         .poll(async () => {
             if ((await page.locator('.feature-panel[data-expanded="true"]').count()) > 0) return 1;
@@ -151,12 +106,7 @@ async function selectFeatureInTreeUI(page, featureId) {
         .toBeGreaterThan(0);
 }
 
-/**
- * Moves the currently-selected feature(s) to `targetMapName` through the REAL map
- * context menu: right-click the canvas, hover the "Mover para mapa" submenu trigger,
- * then click the target-map item (context-menu.control.js _addMapMoveOptions). The
- * submenu is opened via the real mouseenter listener.
- */
+/** Moves the selected feature(s) to `targetMapName` via the real "Mover para mapa" submenu. */
 async function moveSelectedToMapUI(page, targetMapName) {
     const box = await page.locator('.maplibregl-canvas').boundingBox();
     expect(box).not.toBeNull();
@@ -166,35 +116,16 @@ async function moveSelectedToMapUI(page, targetMapName) {
     await page.mouse.click(cx, cy, { button: 'right' });
     const menu = page.locator('.context-menu');
     await expect(menu).toBeVisible({ timeout: 5000 });
-
     const trigger = menu.locator('.context-menu-submenu-trigger', { hasText: 'Mover para mapa' });
     await expect(trigger).toBeVisible({ timeout: 5000 });
-    await trigger.dispatchEvent('mouseenter'); // reveal the submenu (display:block)
-
+    await trigger.dispatchEvent('mouseenter');
     const mapItem = menu.locator('.context-submenu .context-menu-item', { hasText: targetMapName });
     await expect(mapItem).toBeVisible({ timeout: 5000 });
     await mapItem.click();
     await expect(menu).toBeHidden({ timeout: 5000 });
 }
 
-/** Reads the peer's repo-backed map names (repo.getAllMaps → mapData.name). */
-function readPeerMapNames(page) {
-    return page.evaluate(async () => {
-        const { getRepository } = await import('/src/js/store/repositories/index.js');
-        const all = await getRepository().getAllMaps();
-        const maps = Array.from(all instanceof Map ? all.values() : Object.values(all || {}));
-        return maps.map((m) => m && m.name).filter(Boolean);
-    });
-}
-
-/** Polls until the peer's repo lists a map named `name`. */
-async function pollPeerHasMap(page, name, timeout = 20000) {
-    await expect
-        .poll(async () => (await readPeerMapNames(page)).includes(name), { timeout })
-        .toBe(true);
-}
-
-/** Reads a specific map's features (by storage type) directly from the peer repo. */
+/** Reads a specific map's stored feature ids (by storage type) from the peer repo. */
 function readPeerMapFeatures(page, mapName, type) {
     return page.evaluate(async ({ mn, t }) => {
         const { getRepository } = await import('/src/js/store/repositories/index.js');
@@ -204,101 +135,52 @@ function readPeerMapFeatures(page, mapName, type) {
     }, { mn: mapName, t: type });
 }
 
-/** Polls until the peer repo's `mapName`/`type` features contain `id`. */
-async function pollPeerMapHasFeature(page, mapName, type, id, timeout = 20000) {
-    await expect
-        .poll(async () => (await readPeerMapFeatures(page, mapName, type)).includes(id), { timeout })
-        .toBe(true);
-}
+collabTest.describe('Maps + layers + cross-map move sync cross-client (real UI gestures + full chain)', () => {
+    collabTest('create map → full chain; create layer → full chain; move feature between maps → B reflects it', async ({ collab }) => {
+        collabTest.setTimeout(120000);
+        const A = collab.author;
+        const B = collab.peers[0];
 
-/**
- * Pulls the backend snapshot from the peer's OWN authenticated session and returns the
- * layers array for the shared map. A fresh ApiClient logged in as B (which holds WRITE
- * on the atlas) proves the layer-create op reached the backend — the authoritative
- * source, since remote layer-create does not land in the peer's local store.
- */
-function readBackendMapLayers(page, baseUrl, creds, atlasId, mapName) {
-    return page.evaluate(async ({ base, c, id, mn }) => {
-        const { ApiClient } = await import('/src/js/store/sync/api-client.js');
-        const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        await api.login(c.username, c.password);
-        const pulled = await api.pullSync(id, 0);
-        const maps = pulled.snapshot?.maps || [];
-        const map = maps.find((m) => m.name === mn);
-        return (map?.layers || []).map((l) => ({ id: l.id, name: l.name }));
-    }, { base: baseUrl, c: creds, id: atlasId, mn: mapName });
-}
+        expect(await currentMapName(A)).toBe(SHARED_MAP);
+        expect(await currentMapName(B)).toBe(SHARED_MAP);
 
-/** Polls the backend snapshot (from B's session) until the shared map has a layer named `name`. */
-async function pollBackendMapHasLayer(page, baseUrl, creds, atlasId, mapName, layerName, timeout = 20000) {
-    await expect
-        .poll(
-            async () => (await readBackendMapLayers(page, baseUrl, creds, atlasId, mapName)).some((l) => l.name === layerName),
-            { timeout },
-        )
-        .toBe(true);
-}
+        // 1. A creates a SECOND map via the real Maps-tab UI → full chain to B. The map's sync
+        //    UUID is the op's entityId (read from the trace; the local record is name-keyed).
+        await createMapUI(A, SECOND_MAP);
+        expect(await currentMapName(A), 'creating a map makes it the active map').toBe(SECOND_MAP);
+        const secondMapId = await syncIdFromTrace(A, 'map', 'create');
+        await collab.expectFullSync({ entityId: secondMapId, entityType: 'map', operationType: 'create' });
+        await switchToMapUI(A, SHARED_MAP);
+        expect(await currentMapName(A), 'A is back on the shared map').toBe(SHARED_MAP);
 
-describeOrSkip('Maps + layers + cross-map move sync cross-client (two real browsers, real UI gestures)', () => {
-    test('create second map → B lists it; create layer → backend has it; move feature between maps → B reflects it', async ({ browser }) => {
-        const seed = await seedSharedAtlas(browser, state.baseUrl, { mapName: SHARED_MAP });
-        const A = await openClient(browser, state.baseUrl, seed.atlasId, seed.userA);
-        const B = await openClient(browser, state.baseUrl, seed.atlasId, seed.userB);
+        // 2. A creates a LAYER on the shared map via the real Camadas-tab UI → full chain to B.
+        await collab.clearTraces(); // so the only layer-create span is this one
+        await createLayerUI(A, LAYER_NAME);
+        const layerId = await syncIdFromTrace(A, 'layer', 'create');
+        await collab.expectFullSync({ entityId: layerId, entityType: 'layer', operationType: 'create' });
 
-        try {
-            // Both open onto the shared atlas map (the app auto-activates it).
-            expect(await currentMapName(A)).toBe(SHARED_MAP);
-            expect(await currentMapName(B)).toBe(SHARED_MAP);
+        // 3. A draws a LINE on the shared map → full chain to B.
+        const lineId = await drawLineUI(A, [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]]);
+        expect(lineId, 'the line tool created a line').toBeTruthy();
+        await collab.expectFullSync({ entityId: lineId, type: 'lines', operationType: 'create' });
 
-            // 1. A creates a SECOND map via the Maps-tab "Novo mapa" UI → B's repo
-            //    eventually lists "Mapa Secundário". createMap emits a map `create` op;
-            //    remote map-create persists via repo.saveMap. createMap makes the NEW map
-            //    current, so A switches BACK to the shared map for the layer + line below.
-            await createMapUI(A, SECOND_MAP);
-            expect(await currentMapName(A), 'creating a map makes it the active map').toBe(SECOND_MAP);
-            await pollPeerHasMap(B, SECOND_MAP);
-            await switchToMapUI(A, SHARED_MAP);
-            expect(await currentMapName(A), 'A is back on the shared map').toBe(SHARED_MAP);
+        // 4. A moves its line to the second map via the real "Mover para mapa" submenu. The move
+        //    is a compound op (leave map1, join map2), so verify it via the peer repo per map.
+        await deactivateToolUI(A);
+        await selectFeatureInTreeUI(A, lineId);
+        await moveSelectedToMapUI(A, SECOND_MAP);
 
-            // 2. A creates a LAYER on the SHARED map via the Camadas-tab "Nova camada" UI →
-            //    it reaches the backend snapshot. (Remote layer-create does not land in B's
-            //    local store — see file header.)
-            await createLayerUI(A, LAYER_NAME);
-            await pollBackendMapHasLayer(B, state.baseUrl, seed.userB, seed.atlasId, SHARED_MAP, LAYER_NAME);
+        // Sanity on A: the line left the shared map.
+        await expect
+            .poll(async () => (await readFeatures(A, 'lines')).some((x) => x.id === lineId), { timeout: 10000 })
+            .toBe(false);
 
-            // 3. A draws a LINE on the shared map with the real line tool → B receives it
-            //    (native feature sync). The line tool generates the id; drawLineUI returns it.
-            const lineId = await drawLineUI(A, [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]]);
-            expect(lineId, 'the line tool created a line and returned its id').toBeTruthy();
-            await pollPeerFeature(B, 'lines', lineId);
-
-            // A selects its line in the layers tree and MOVES it to the second map through
-            // the real "Mover para mapa" context-menu submenu. The line tool is still ACTIVE
-            // after the draw (draw tools stay armed to draw again); while a tool is active the
-            // map's right-click handler early-returns and the context menu never opens, so we
-            // drop the tool first (Escape). Escape also clears the selection, hence the
-            // tree-select must come AFTER deactivation.
-            const lineOnA = (await readFeatures(A, 'lines')).find((x) => x.id === lineId);
-            expect(lineOnA, "A's line is in its own store before the move").toBeTruthy();
-            await deactivateToolUI(A);
-            await selectFeatureInTreeUI(A, lineId);
-            await moveSelectedToMapUI(A, SECOND_MAP);
-
-            // Sanity on A: after the move the line left the shared map and joined the second.
-            await expect
-                .poll(async () => (await readFeatures(A, 'lines')).some((x) => x.id === lineId), { timeout: 10000 })
-                .toBe(false);
-            await pollPeerMapHasFeature(A, SECOND_MAP, 'lines', lineId);
-
-            // 3 (assert on B): the line is GONE from the shared map and PRESENT on the second.
-            // Read the second map's features directly from B's repo (no current-map switch).
-            await pollPeerMapHasFeature(B, SECOND_MAP, 'lines', lineId);
-            await expect
-                .poll(async () => (await readFeatures(B, 'lines')).some((x) => x.id === lineId), { timeout: 20000 })
-                .toBe(false);
-        } finally {
-            await A.context().close();
-            await B.context().close();
-        }
+        // On B: the line is GONE from the shared map and PRESENT on the second map.
+        await expect
+            .poll(async () => (await readPeerMapFeatures(B, SECOND_MAP, 'lines')).includes(lineId), { timeout: 20000 })
+            .toBe(true);
+        await expect
+            .poll(async () => (await readFeatures(B, 'lines')).some((x) => x.id === lineId), { timeout: 20000 })
+            .toBe(false);
     });
 });

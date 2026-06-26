@@ -155,9 +155,12 @@ export async function getAllMapKeysCompat() {
  * Compatible with legacy createMapData(mapName, mapData) signature.
  * @param {string} mapNameOrId - Map name or ID
  * @param {Object} [mapData=null] - Initial map data
+ * @param {Object} [opts]
+ * @param {boolean} [opts.uuidKeyed=false] - Store the map under its UUID key (sync active)
+ *   instead of its name. See addMap for why.
  * @returns {Promise<Object>} Created map data
  */
-export async function createMapCompat(mapNameOrId, mapData = null) {
+export async function createMapCompat(mapNameOrId, mapData = null, { uuidKeyed = false } = {}) {
     const repo = getRepository();
     const newMapData = mapData || getEmptyMapData();
     // A fresh map (no caller-supplied data) must take the REQUESTED name — getEmptyMapData
@@ -168,12 +171,16 @@ export async function createMapCompat(mapNameOrId, mapData = null) {
     }
     // Assign a stable UUID so the map can travel as a CRDT map op. Without one, addMap fell
     // back to using the NAME as the op id (non-UUID), so a map created in a shared atlas
-    // never reached the other collaborators. Local/anonymous maps keep being keyed by name;
-    // the id is inert there (sync is off), so the additive contract is preserved.
+    // never reached the other collaborators.
     if (!newMapData.id) {
         newMapData.id = crypto.randomUUID();
     }
-    await repo.saveMap(mapNameOrId, newMapData);
+    // When sync is active, store the map UUID-keyed from the START (like synced/peer maps) so a
+    // later snapshot re-apply (reconnect/resync) updates the SAME entry instead of creating a
+    // DUPLICATE under the UUID key while a name-keyed copy lingers. Local/anonymous maps stay
+    // name-keyed (sync off; the id is inert), preserving the additive contract.
+    const storageKey = uuidKeyed ? newMapData.id : mapNameOrId;
+    await repo.saveMap(storageKey, newMapData);
     return newMapData;
 }
 

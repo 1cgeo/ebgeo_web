@@ -16,7 +16,9 @@ import { createRequire } from 'node:module';
 import { BACKEND_DIR } from './constants.js';
 
 const backendRequire = createRequire(pathToFileURL(`${BACKEND_DIR}/package.json`).href);
-const pgPromise = backendRequire('pg-promise');
+/** pg-promise factory, resolved from the backend's node_modules. Exported so the
+ *  read-only SQL ground-truth helper (helpers/db.js) reuses the same driver. */
+export const pgPromise = backendRequire('pg-promise');
 const MIGRATE_URL = pathToFileURL(`${BACKEND_DIR}/src/database/migrate.js`).href;
 
 const DB_HOST = process.env.DB_HOST || 'localhost';
@@ -28,7 +30,8 @@ const ADMIN_DB_URL =
     process.env.ADMIN_DATABASE_URL ||
     `postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/postgres`;
 
-const appDbUrl = (dbName) => `postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${dbName}`;
+/** Builds the app-role connection URL for a given throwaway DB (exported for helpers/db.js). */
+export const appDbUrl = (dbName) => `postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${dbName}`;
 const superDbUrl = (dbName) =>
     process.env.SUPERUSER_DATABASE_URL ||
     `postgresql://postgres:postgres@${DB_HOST}:${DB_PORT}/${dbName}`;

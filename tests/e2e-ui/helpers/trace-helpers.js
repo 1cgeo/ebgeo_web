@@ -74,3 +74,87 @@ export function opHistory(page, opId) {
 export function clearClientTrace(page) {
     return page.evaluate(() => { if (window.__ebgeoSyncTrace) window.__ebgeoSyncTrace.clear(); });
 }
+
+// ============================================================================
+// Span-returning waits — used by the full-chain DSL. Unlike waitForStage (which
+// throws a generic Playwright timeout), these resolve to the matching SPAN or to
+// `null` on timeout, so the caller can throw a precise "broke at link N" error.
+// ============================================================================
+
+/**
+ * Waits for (and returns) the first span on this page matching stage + entityId
+ * (+ optional operationType). Returns null on timeout.
+ */
+export function waitForEntitySpan(page, { entityId, operationType, stage }, timeout = 15000) {
+    return page.evaluate((q) => {
+        const t = window.__ebgeoSyncTrace;
+        if (!t) return null;
+        return t.waitFor((s) => s.stage === q.stage
+            && s.entityId === q.entityId
+            && (!q.operationType || s.operationType === q.operationType), q.timeout);
+    }, { entityId, operationType, stage, timeout });
+}
+
+/** Waits for (and returns) the first span where stage + opId match. Null on timeout. */
+export function tryWaitStage(page, opId, stage, timeout = 15000) {
+    return page.evaluate((q) => {
+        const t = window.__ebgeoSyncTrace;
+        if (!t) return null;
+        return t.waitFor((s) => s.stage === q.stage && s.opId === q.opId, q.timeout);
+    }, { opId, stage, timeout });
+}
+
+/**
+ * Waits for a flush.push span whose batched `opIds` includes opId. flush.push is
+ * batch-keyed (carries opIds[], not a single opId), so it needs its own matcher.
+ */
+export function waitForFlushPush(page, opId, timeout = 15000) {
+    return page.evaluate((q) => {
+        const t = window.__ebgeoSyncTrace;
+        if (!t) return null;
+        return t.waitFor((s) => s.stage === 'flush.push'
+            && Array.isArray(s.opIds) && s.opIds.includes(q.opId), q.timeout);
+    }, { opId, timeout });
+}
+
+/**
+ * Waits until a feature reached (present=true) or left (present=false) the rendered
+ * MapLibre source, per the render.source probe (entity-keyed; requires the probe flag
+ * __EBGEO_TRACE_RENDER__). Returns the span or null on timeout.
+ */
+export function waitForRenderSource(page, entityId, { present = true, timeout = 15000 } = {}) {
+    return page.evaluate((q) => {
+        const t = window.__ebgeoSyncTrace;
+        if (!t) return null;
+        return t.waitFor((s) => s.stage === 'render.source'
+            && s.entityId === q.entityId && s.inSource === q.present, q.timeout);
+    }, { entityId, present, timeout });
+}
+
+/** Whether the entity-render probe (render.source spans) is enabled on this page. */
+export function renderProbeOn(page) {
+    return page.evaluate(() => !!globalThis.__EBGEO_TRACE_RENDER__);
+}
+
+/** True if this page ever recorded remote.applied for entityId (+ optional opType). */
+export function peerSawRemoteApplied(page, entityId, operationType) {
+    return page.evaluate((q) => {
+        const t = window.__ebgeoSyncTrace;
+        if (!t) return false;
+        return t.get((s) => s.stage === 'remote.applied'
+            && s.entityId === q.entityId
+            && (!q.operationType || s.operationType === q.operationType)).length > 0;
+    }, { entityId, operationType });
+}
+
+/** Returns the first preflush.drop span for entityId (optionally a specific reason), or null. */
+export function findDropSpan(page, entityId, reason) {
+    return page.evaluate((q) => {
+        const t = window.__ebgeoSyncTrace;
+        if (!t) return null;
+        const hits = t.get((s) => s.stage === 'preflush.drop'
+            && s.entityId === q.entityId
+            && (!q.reason || s.reason === q.reason));
+        return hits[0] || null;
+    }, { entityId, reason });
+}

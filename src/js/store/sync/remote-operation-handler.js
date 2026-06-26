@@ -22,6 +22,8 @@ import { getControl } from '../control.registry.js';
 import { mapResolver } from '../services/map-resolver.service.js';
 import { memoryStore } from '../memory-store.js';
 import { EntityType, OperationType } from './operation-types.js';
+import { record } from './diag/trace-core.js';
+import { TraceStage, TraceOutcome } from './diag/trace-stages.js';
 
 // ============================================================================
 // MODULE STATE
@@ -63,8 +65,16 @@ async function drainPendingFeatureOps(mapId) {
         // than what's already applied, and record the applied version on success so a later
         // concurrent op can't overwrite it (LWW by server arrival order).
         if (!shouldApplyVersion(op.featureId, op.serverVersion)) continue;
-        const applied = await applyRemoteFeatureOp(op.opType, op.featureId, mapId, op.data, op.serverVersion);
+        const applied = await applyRemoteFeatureOp(op.opType, op.featureId, mapId, op.data, op.serverVersion, op.opId, op.traceId);
         if (applied) {
+            // Peer-side IndexedDB-write confirmation for a feature whose map arrived late
+            // (buffered then replayed) — the apply.persist that applyRemoteOperation skipped.
+            record(TraceStage.APPLY_PERSIST, {
+                opId: op.opId, traceId: op.traceId,
+                entityType: EntityType.FEATURE, operationType: op.opType,
+                entityId: op.featureId, mapId, serverVersion: op.serverVersion,
+                outcome: TraceOutcome.OK,
+            });
             if (op.opType === OperationType.DELETE) lastAppliedVersion.delete(op.featureId);
             else markAppliedVersion(op.featureId, op.serverVersion);
         }
@@ -262,11 +272,14 @@ export async function applyRemoteOperation(operation) {
     }
 
     let featureApplied = true;
+    // Whether the entity handler actually wrote to IndexedDB (false for the redundant SLIDE
+    // inbound no-op and unknown entity types) — gates the peer-side apply.persist span below.
+    let entityPersisted = true;
     switch (entityType) {
         case EntityType.FEATURE:
             // false = the op was BUFFERED (map not present yet), not applied — don't record its
             // version below, or a legitimate later op could be wrongly dropped by shouldApplyVersion.
-            featureApplied = await applyRemoteFeatureOp(operationType, entityId, mapId, data, serverVersion);
+            featureApplied = await applyRemoteFeatureOp(operationType, entityId, mapId, data, serverVersion, operation.id, operation.traceId);
             break;
         case EntityType.LAYER:
             await applyRemoteLayerOp(operationType, entityId, mapId, data);
@@ -321,8 +334,10 @@ export async function applyRemoteOperation(operation) {
             // Slides converge via their parent BRIEFING op (updateBriefing logs the full slides
             // array, applied by applyRemoteBriefingOp); the standalone slide op is redundant
             // inbound. No-op here so it doesn't trip the "unknown entity type" warning.
+            entityPersisted = false;
             break;
         default:
+            entityPersisted = false;
             console.warn(`Remote operation handler: unknown entity type "${entityType}"`);
     }
 
@@ -331,6 +346,18 @@ export async function applyRemoteOperation(operation) {
     if (guarded && featureApplied) {
         if (operationType === OperationType.DELETE) lastAppliedVersion.delete(entityId);
         else markAppliedVersion(entityId, serverVersion);
+    }
+
+    // Peer-side IndexedDB-write confirmation (full-chain "synced to peer IDB" link): the
+    // entity handler above awaited its repo.saveXxx, so the write is durable now. A FEATURE op
+    // that was only BUFFERED (map absent) has NOT been written — skip it here;
+    // drainPendingFeatureOps emits apply.persist when it actually replays the write.
+    if (entityPersisted && (entityType !== EntityType.FEATURE || featureApplied)) {
+        record(TraceStage.APPLY_PERSIST, {
+            opId: operation.id, traceId: operation.traceId,
+            entityType, operationType, entityId, mapId, serverVersion,
+            outcome: TraceOutcome.OK,
+        });
     }
 
     emit(EventTypes.REMOTE_OPERATION_APPLIED, { operation });
