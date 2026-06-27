@@ -159,6 +159,9 @@ export function getRoomUsers(atlasId) {
         cursorPosition: client.cursorPosition,
         // B-be2: late-joiners get peers' current selection in the join snapshot.
         selectedFeatures: client.selectedFeatures,
+        // Full selection context (surface 2d/3d/360 + scope) so a late-joiner can
+        // render a peer's 3D/360 selection, not just the 2D featureIds.
+        selectionContext: client.selectionContext,
         // Caso E: temporal-presence state mirrors the cursor (in-memory, per-ws).
         temporalState: client.temporalState,
         // Fase 8 (Tarefa 2): a client kept in the room during the away grace

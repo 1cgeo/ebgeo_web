@@ -151,4 +151,23 @@ describe('WebSocket collab — Comentarista (comment tier) authorization', () =>
     assert.equal(rows.length, 1, 'comment row created by the commenter over WS');
     assert.equal(rows[0].status, 'open');
   });
+
+  it("a commenter's selection presence is NOT broadcast to peers (editor-gated)", async () => {
+    // The only thing a Comentarista does to shared state is comment. Live selection
+    // presence is gated to editors (owner/write), so a commenter — like a viewer —
+    // sees peers' selections but never broadcasts its own.
+    const ownerTok = await loginUser(app, owner.username, owner.password);
+    const ownerClient = await connect(ownerTok);
+    const commenterClient = await connect(commenterToken);
+
+    ownerClient.clearMessages();
+    commenterClient.send({ type: 'selection', featureIds: [randomUUID()], mapId: map.id });
+    await sleep(300);
+
+    assert.equal(
+      ownerClient.getMessagesOfType('selection').length,
+      0,
+      'a comment-tier user must not broadcast selection to peers'
+    );
+  });
 });

@@ -65,16 +65,45 @@ export function handleTemporal(ws, data) {
 }
 
 /**
- * Handles feature selection updates.
+ * Handles feature selection updates (live presence awareness, across the 2D map,
+ * 3D and 360 surfaces).
+ *
+ * Gated to editors: only owner/editor (`write`) broadcast their selection. A
+ * Comentarista (`comment`) or Visualizador (`read`) only RECEIVES peers'
+ * selections — it never emits its own. (Cursor/temporal stay ungated; selection
+ * is intentionally stricter, per product decision.) Selection is ephemeral: the
+ * context is held in-memory on the ws object for the join snapshot and never
+ * persisted.
+ *
+ * The payload carries `surface` ('2d'|'3d'|'360') plus its scope: `mapId` for 2D,
+ * `tilesetId` for 3D, `photoName` for 360. `featureMeta` (optional) ships the
+ * per-feature type so a 2D peer can resolve the right highlight without a lookup.
  */
 export function handleSelection(ws, data) {
+  if (ws.permission !== 'owner' && ws.permission !== 'write') {
+    return;
+  }
+
+  const surface = data.surface || '2d';
   ws.selectedFeatures = data.featureIds;
+  ws.selectionContext = {
+    surface,
+    mapId: data.mapId ?? null,
+    featureIds: Array.isArray(data.featureIds) ? data.featureIds : [],
+    ...(Array.isArray(data.featureMeta) ? { featureMeta: data.featureMeta } : {}),
+    ...(data.tilesetId != null ? { tilesetId: data.tilesetId } : {}),
+    ...(data.photoName != null ? { photoName: data.photoName } : {}),
+  };
 
   broadcastToRoom(ws.atlasId, {
     type: 'selection',
     userId: ws.userId,
+    surface,
     featureIds: data.featureIds,
     mapId: data.mapId,
+    ...(Array.isArray(data.featureMeta) ? { featureMeta: data.featureMeta } : {}),
+    ...(data.tilesetId != null ? { tilesetId: data.tilesetId } : {}),
+    ...(data.photoName != null ? { photoName: data.photoName } : {}),
   }, ws);
 }
 

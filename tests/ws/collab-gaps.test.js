@@ -372,7 +372,10 @@ describe('WebSocket Collaboration — gaps', () => {
     });
 
     it('temporalState AND selectedFeatures appear in a late-joiner snapshot (usersOnline)', async () => {
-      const a = await createWsClient(server, tAtlas.id, tReaderTok);
+      // A is the owner (editor): selection is editor-gated, so the publisher must be
+      // a write-capable role for it to land in-memory and reach the snapshot. The
+      // late-joiner B is the reader (a Visualizador still RECEIVES peers' selections).
+      const a = await createWsClient(server, tAtlas.id, tOwnerTok);
       const connectedA = await a.waitForType('connected');
 
       // A publishes temporal state and a selection (in-memory on its ws).
@@ -383,7 +386,7 @@ describe('WebSocket Collaboration — gaps', () => {
       await sleep(150);
 
       // Late-joiner B gets A in its join snapshot WITH both fields populated.
-      const b = await createWsClient(server, tAtlas.id, tOwnerTok);
+      const b = await createWsClient(server, tAtlas.id, tReaderTok);
       const connectedB = await b.waitForType('connected');
 
       const peerA = connectedB.usersOnline.find((u) => u.id === connectedA.userId);
@@ -465,24 +468,30 @@ describe('WebSocket Collaboration — gaps', () => {
 
   // ── ws-13 ────────────────────────────────────────────────────────────────
   describe('ws-13 read-only / public presence broadcast (anon path)', () => {
-    it("reader's cursor & selection reach the owner peer", async () => {
+    it("reader's cursor reaches the owner peer, but its selection is editor-gated", async () => {
       const o = await createWsClient(server, atlas.id, ownerToken);
       const connectedO = await o.waitForType('connected');
       const r = await createWsClient(server, atlas.id, readerToken);
       const connectedR = await r.waitForType('connected');
       void connectedO;
 
+      // Cursor presence stays ungated — a reader's cursor still reaches peers.
       o.clearMessages();
       r.send({ type: 'cursor', position: { lat: -22.9, lng: -43.2 }, mapId: map.id });
       const cursor = await o.waitForType('cursor');
       assert.equal(cursor.userId, connectedR.userId);
 
+      // Selection IS gated: a Visualizador (read) only sees peers' selections, it
+      // never broadcasts its own — the owner must receive nothing.
       o.clearMessages();
       const fid = randomUUID();
       r.send({ type: 'selection', featureIds: [fid], mapId: map.id });
-      const selection = await o.waitForType('selection');
-      assert.equal(selection.userId, connectedR.userId);
-      assert.deepEqual(selection.featureIds, [fid]);
+      await sleep(300);
+      assert.equal(
+        o.getMessagesOfType('selection').length,
+        0,
+        'a read-only user must not broadcast selection to peers'
+      );
 
       o.close();
       r.close();
