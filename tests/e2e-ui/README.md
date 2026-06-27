@@ -54,7 +54,7 @@ genuinely has no single-gesture UI create (e.g. `processed_los`/`processed_visib
 ## SyncLedger trace helpers
 
 The collaboration specs are wired to **SyncLedger** (the additive, env-gated sync
-tracing layer; see `../../docs/proposta-observabilidade-sync.md`). Instead of polling
+tracing layer; see `../../docs/arquitetura-sync.md`). Instead of polling
 the store, prefer the deterministic waits in `helpers/trace-helpers.js`
 (`waitForRemoteEntity`, `waitForStage`, `getClientLedger`) — on timeout they dump the
 ledger naming the **last stage reached**, so a failure says *where* sync died.
