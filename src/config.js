@@ -100,6 +100,23 @@ const config = Object.freeze({
 
   security: Object.freeze({
     allowSelfRegistration: resolveAllowSelfRegistration(nodeEnv, process.env.ALLOW_SELF_REGISTRATION),
+    // Self-registration e-mail confirmation. Channel-agnostic: 'email' (verify via link),
+    // 'admin' (an admin approves the pending account), or 'both' (either path activates it).
+    // Activation always flips users.email_verified; the mode is informational/forward-looking.
+    verificationMode: optional('AUTH_VERIFICATION_MODE', 'both'),
+    verificationTtlHours: parseInt(optional('AUTH_VERIFICATION_TTL_HOURS', '48'), 10),
+  }),
+
+  // Outbound e-mail (verification links). When SMTP is not configured (no host) the mailer
+  // is a no-op that LOGS the link — the default in dev/test and in closed networks without
+  // a relay. appBaseUrl builds the `?verify=<token>` link; falls back to the request origin.
+  mail: Object.freeze({
+    host: optional('SMTP_HOST', ''),
+    port: parseInt(optional('SMTP_PORT', '587'), 10),
+    user: optional('SMTP_USER', ''),
+    pass: optional('SMTP_PASS', ''),
+    from: optional('MAIL_FROM', 'no-reply@ebgeo.local'),
+    appBaseUrl: optional('APP_BASE_URL', ''),
   }),
 
   // Runtime app config (served by GET /api/v1/config). Service URLs and tile

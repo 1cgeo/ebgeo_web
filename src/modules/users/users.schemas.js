@@ -43,6 +43,9 @@ export const updateUserAdminSchema = Joi.object({
   organizacao_militar: Joi.string().max(255).allow(null, ''),
   role: Joi.string().valid('user', 'admin'),
   is_active: Joi.boolean(),
+  // Admin approval of a pending e-mail account (and the no-SMTP fallback path): flipping this true
+  // unblocks login for an account that was created with an unverified e-mail.
+  email_verified: Joi.boolean(),
 });
 
 export const resetPasswordSchema = Joi.object({

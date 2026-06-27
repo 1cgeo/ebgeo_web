@@ -10,10 +10,76 @@ import * as S from './config.static.js';
 
 const C = config.appConfig;
 
-// basemaps is an OBJECT keyed by id (frontend indexes by id), not an array.
+/** The single config_settings row that holds the admin override document. */
+const OVERRIDES_KEY = 'app_config';
+
+/**
+ * Deep-merges `override` onto `base` (override wins; plain objects merge recursively; arrays and
+ * scalars replace). Pure — does not mutate its inputs.
+ */
+function deepMerge(base, override) {
+  if (override === null || typeof override !== 'object' || Array.isArray(override)) {
+    return override === undefined ? base : override;
+  }
+  const out = base && typeof base === 'object' && !Array.isArray(base) ? { ...base } : {};
+  for (const [k, v] of Object.entries(override)) {
+    out[k] = v && typeof v === 'object' && !Array.isArray(v) ? deepMerge(out[k], v) : v;
+  }
+  return out;
+}
+
+/** Reads the admin config override document (partial config; {} when unset). */
+export async function getConfigOverrides() {
+  const { rows } = await query(Q.GET_CONFIG_OVERRIDES, [OVERRIDES_KEY]);
+  return rows[0]?.value ?? {};
+}
+
+/**
+ * Merges a partial override into the stored override document (so a partial save never wipes
+ * untouched sections) and persists it. Returns the merged document.
+ * @param {Object} partial - Validated partial config.
+ * @param {string|null} userId
+ */
+export async function updateConfigOverrides(partial, userId) {
+  const current = await getConfigOverrides();
+  const merged = deepMerge(current, partial);
+  const { rows } = await query(Q.UPSERT_CONFIG_OVERRIDES, [
+    OVERRIDES_KEY,
+    JSON.stringify(merged),
+    userId ?? null,
+  ]);
+  return rows[0].value;
+}
+
+/** Clears ALL config overrides (the revert valve — config reverts to STATIC/ENV on next boot). */
+export async function clearConfigOverrides() {
+  await query(Q.CLEAR_CONFIG_OVERRIDES, [OVERRIDES_KEY]);
+  return {};
+}
+
+// basemaps is an OBJECT keyed by id (frontend indexes by id), not an array. The MapLibre `style`
+// (if an admin set one) is emitted SEPARATELY as basemapStyles — stripped from the metadata here.
 export async function listBasemaps() {
   const { rows } = await query(Q.LIST_BY_CATEGORY, ['basemap']);
-  return Object.fromEntries(rows.map((r) => [r.id, { name: r.name, ...r.config }]));
+  return Object.fromEntries(rows.map((r) => {
+    const meta = { ...(r.config || {}) };
+    delete meta.style;
+    return [r.id, { name: r.name, ...meta }];
+  }));
+}
+
+/**
+ * Builds the MapLibre `basemapStyles` map. The STATIC builders (ENV-injected tile/glyph URLs) are
+ * the default; a basemap resource's `config.style` OVERRIDES it (admin-edited via the catalog). This
+ * keeps the ENV-injection default intact while allowing a per-basemap style override.
+ */
+export async function listBasemapStyles() {
+  const { rows } = await query(Q.LIST_BY_CATEGORY, ['basemap']);
+  const out = { ...S.buildBasemapStyles(C) };
+  for (const r of rows) {
+    if (r.config?.style) out[r.id] = r.config.style;
+  }
+  return out;
 }
 
 export async function listAnalysisLayers() {
@@ -42,16 +108,20 @@ export async function listTilesets() {
  * Builds the full config payload served by GET /api/v1/config.
  */
 export async function getAppConfig() {
-  const [basemaps, analysisLayers, dataLayers, tilesets] = await Promise.all([
+  const [basemaps, basemapStyles, analysisLayers, dataLayers, tilesets, overrides] = await Promise.all([
     listBasemaps(),
+    listBasemapStyles(),
     listAnalysisLayers(),
     listDataLayers(),
     listTilesets(),
+    getConfigOverrides(),
   ]);
 
-  return {
+  const payload = {
     app: S.APP,
-    features: S.FEATURES,
+    // self_registration tells the client whether to show the "Criar conta" affordance — the
+    // /auth/register route is only mounted when allowSelfRegistration is on (off in prod).
+    features: { ...S.FEATURES, self_registration: config.security.allowSelfRegistration },
     services: { tileServerUrl: C.tileServerUrl },
     search: { apiUrl: C.searchApiUrl },
     // Fase 4 (Tarefa 6): base URL the frontend resolves relative 3D asset `url`s
@@ -98,6 +168,9 @@ export async function getAppConfig() {
       linesSource: { type: 'vector', tiles: [`${C.sv360ServiceUrl}/tiles/{z}/{x}/{y}.pbf`] },
       linesSourceLayer: 'fotos_linha',
     },
-    basemapStyles: S.buildBasemapStyles(C),
+    basemapStyles,
   };
+
+  // Admin overrides (app/features/map2d/map3d/service URLs) win over the STATIC/ENV assembly.
+  return deepMerge(payload, overrides);
 }

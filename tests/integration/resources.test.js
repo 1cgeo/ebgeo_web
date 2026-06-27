@@ -388,4 +388,27 @@ describe('Resources API', () => {
       assert.ok(Array.isArray(res.body.data.config.layers));
     });
   });
+
+  describe('Basemap style validation (review fix)', () => {
+    it('rejects a basemap whose config.style is an invalid MapLibre style (400)', async () => {
+      await supertest(app)
+        .post('/api/v1/resources')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ id: 'bm-bad-style', category: 'basemap', name: 'Bad', config: { style: { version: 7 } } })
+        .expect(400);
+    });
+
+    it('accepts a basemap with a valid MapLibre style (201)', async () => {
+      await supertest(app)
+        .post('/api/v1/resources')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          id: 'bm-good-style',
+          category: 'basemap',
+          name: 'Good',
+          config: { style: { version: 8, sources: {}, layers: [] } },
+        })
+        .expect(201);
+    });
+  });
 });

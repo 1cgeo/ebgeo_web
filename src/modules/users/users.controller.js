@@ -49,7 +49,7 @@ export const createUser = asyncHandler(async (req, res) => {
 });
 
 export const updateUser = asyncHandler(async (req, res) => {
-  const user = await usersService.updateUser(req.params.userId, req.body);
+  const user = await usersService.updateUser(req.params.userId, req.body, req.user.id);
   res.json({ data: user });
 });
 

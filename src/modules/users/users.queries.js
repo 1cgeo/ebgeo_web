@@ -48,20 +48,20 @@ export const SEARCH_USERS = `
 // ============================================
 
 export const LIST_ALL_USERS = `
-  SELECT id, username, nome, posto_graduacao, organizacao_militar, role, is_active, created_at, last_login_at
+  SELECT id, username, nome, posto_graduacao, organizacao_militar, role, is_active, email, email_verified, created_at, last_login_at
   FROM users
   ORDER BY created_at DESC
 `;
 
 export const LIST_ACTIVE_USERS = `
-  SELECT id, username, nome, posto_graduacao, organizacao_militar, role, is_active, created_at, last_login_at
+  SELECT id, username, nome, posto_graduacao, organizacao_militar, role, is_active, email, email_verified, created_at, last_login_at
   FROM users
   WHERE is_active = true
   ORDER BY nome
 `;
 
 export const FIND_USER_BY_ID_ADMIN = `
-  SELECT id, username, nome, posto_graduacao, organizacao_militar, role, is_active, created_at, updated_at, last_login_at
+  SELECT id, username, nome, posto_graduacao, organizacao_militar, role, is_active, email, email_verified, created_at, updated_at, last_login_at
   FROM users
   WHERE id = $1
 `;
@@ -90,9 +90,10 @@ export const UPDATE_USER_ADMIN = `
       organizacao_militar = CASE WHEN $7 THEN $6 ELSE organizacao_militar END,
       role = COALESCE($8, role),
       is_active = COALESCE($9, is_active),
+      email_verified = COALESCE($10, email_verified),
       updated_at = NOW()
   WHERE id = $1
-  RETURNING id, username, nome, posto_graduacao, organizacao_militar, role, is_active, created_at, updated_at, last_login_at
+  RETURNING id, username, nome, posto_graduacao, organizacao_militar, role, is_active, email, email_verified, created_at, updated_at, last_login_at
 `;
 
 export const RESET_USER_PASSWORD = `

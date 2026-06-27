@@ -21,6 +21,17 @@ export const registerSchema = Joi.object({
     }),
   password: Joi.string().required().min(6).max(100),
   nome: Joi.string().required().max(255),
+  // Optional: when provided, the account is created pending and must confirm via e-mail
+  // before login. When absent, the account is immediately active (username-only).
+  email: Joi.string().email().max(255),
   posto_graduacao: Joi.string().max(50).allow(null, ''),
   organizacao_militar: Joi.string().max(255).allow(null, ''),
+});
+
+export const verifyEmailSchema = Joi.object({
+  token: Joi.string().uuid().required(),
+});
+
+export const resendVerificationSchema = Joi.object({
+  email: Joi.string().email().max(255).required(),
 });

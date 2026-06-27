@@ -133,9 +133,20 @@ export async function createUser(data) {
 /**
  * Updates a user (admin only).
  */
-export async function updateUser(userId, data) {
+export async function updateUser(userId, data, actingUserId = null) {
   // Check if user exists
   const existing = await getUserById(userId);
+
+  // Self-guard (defense-in-depth alongside the UI): an admin cannot deactivate or demote their OWN
+  // account — that is a last-admin lockout the disabled "Desativar" button is meant to prevent.
+  if (actingUserId && userId === actingUserId) {
+    if (data.is_active === false) {
+      throw new ConflictError('Você não pode desativar a própria conta.');
+    }
+    if (data.role && data.role !== 'admin' && existing.role === 'admin') {
+      throw new ConflictError('Você não pode remover seu próprio papel de admin.');
+    }
+  }
 
   // If changing username, check it's not taken
   if (data.username && data.username.toLowerCase() !== existing.username.toLowerCase()) {
@@ -155,6 +166,7 @@ export async function updateUser(userId, data) {
     data.organizacao_militar !== undefined,
     data.role || null,
     data.is_active !== undefined ? data.is_active : null,
+    data.email_verified !== undefined ? data.email_verified : null,
   ]);
 
   if (rows.length === 0) {

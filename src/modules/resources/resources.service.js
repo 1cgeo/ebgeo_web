@@ -1,7 +1,22 @@
 // Path: src/modules/resources/resources.service.js
 import { query, oneOrNone, one } from '../../database/index.js';
-import { NotFoundError, ConflictError } from '../../utils/errors.js';
+import { NotFoundError, ConflictError, BadRequestError } from '../../utils/errors.js';
+import { validateMapLibreStyle } from '../../utils/maplibre-style-validate.js';
 import * as Q from './resources.queries.js';
+
+/**
+ * Rejects an invalid MapLibre `config.style` (basemap style override) before it can be persisted and
+ * later served verbatim in the public GET /config basemapStyles.
+ * @param {Object|undefined} config
+ */
+function assertValidStyle(config) {
+  if (config && config.style !== undefined) {
+    const result = validateMapLibreStyle(config.style);
+    if (!result.ok) {
+      throw new BadRequestError(`Invalid MapLibre style: ${result.errors.join(' ')}`);
+    }
+  }
+}
 
 /**
  * Lists all active resources, optionally filtered by category.
@@ -35,6 +50,7 @@ export async function createResource(data) {
   if (existing) {
     throw new ConflictError('Resource with this ID already exists');
   }
+  assertValidStyle(data.config);
 
   return one(Q.INSERT, [
     data.id,
@@ -50,6 +66,7 @@ export async function createResource(data) {
  * Updates an existing resource.
  */
 export async function updateResource(id, data) {
+  assertValidStyle(data.config);
   const resource = await oneOrNone(Q.UPDATE, [
     id,
     data.name || null,

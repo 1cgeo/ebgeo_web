@@ -511,4 +511,46 @@ describe('Users Admin API', () => {
       });
     });
   });
+
+  describe('Approval + self-guard (review fixes)', () => {
+    it('admin approves a pending e-mail account via email_verified → login unblocks', async () => {
+      const username = `pending_${Date.now()}`;
+      const reg = await supertest(app)
+        .post('/api/v1/auth/register')
+        .send({ username, password: 'Sup3r-Secret-Pw!', nome: 'Pending', email: `${username}@x.mil` })
+        .expect(201);
+      // Pending: login blocked until verified.
+      await supertest(app)
+        .post('/api/v1/auth/login')
+        .send({ username, password: 'Sup3r-Secret-Pw!' })
+        .expect(401);
+      // Admin approves via email_verified.
+      await supertest(app)
+        .put(`/api/v1/users/${reg.body.data.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ email_verified: true })
+        .expect(200);
+      // Now login succeeds.
+      await supertest(app)
+        .post('/api/v1/auth/login')
+        .send({ username, password: 'Sup3r-Secret-Pw!' })
+        .expect(200);
+    });
+
+    it('an admin cannot deactivate their OWN account via update (409)', async () => {
+      await supertest(app)
+        .put(`/api/v1/users/${admin.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ is_active: false })
+        .expect(409);
+    });
+
+    it('an admin cannot demote their OWN admin role via update (409)', async () => {
+      await supertest(app)
+        .put(`/api/v1/users/${admin.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: 'user' })
+        .expect(409);
+    });
+  });
 });

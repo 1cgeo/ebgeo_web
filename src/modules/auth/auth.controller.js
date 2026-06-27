@@ -25,7 +25,22 @@ export const getMe = asyncHandler(async (req, res) => {
   res.json({ data: user });
 });
 
+/** Request origin for building the verification link: Origin header, else scheme+Host. */
+function requestOrigin(req) {
+  return req.headers.origin || `${req.protocol}://${req.get('host') || ''}`;
+}
+
 export const register = asyncHandler(async (req, res) => {
-  const user = await authService.register(req.body);
+  const user = await authService.register(req.body, requestOrigin(req));
   res.status(201).json({ data: user });
+});
+
+export const verifyEmail = asyncHandler(async (req, res) => {
+  const result = await authService.verifyEmail(req.body.token);
+  res.json({ data: result });
+});
+
+export const resendVerification = asyncHandler(async (req, res) => {
+  const result = await authService.resendVerification(req.body.email, requestOrigin(req));
+  res.json({ data: result });
 });

@@ -5,8 +5,9 @@ import crypto from 'crypto';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { query } from '../../database/index.js';
-import { UnauthorizedError, ConflictError, ForbiddenError } from '../../utils/errors.js';
+import { AppError, UnauthorizedError, ConflictError, ForbiddenError, BadRequestError } from '../../utils/errors.js';
 import { orgIsActive } from '../../utils/org-status.js';
+import { sendVerificationEmail, buildVerificationLink } from '../../utils/mailer.js';
 import * as Q from './auth.queries.js';
 
 const SALT_ROUNDS = 12;
@@ -97,6 +98,12 @@ export async function login(username, password) {
 
   if (!user.is_active) {
     throw new UnauthorizedError('Account is deactivated');
+  }
+
+  // E-mail confirmation gate: an account registered WITH an e-mail must verify it before login.
+  // Accounts without an e-mail (admin-created / legacy / M2M) skip this entirely.
+  if (user.email && !user.email_verified) {
+    throw new AppError('Confirme seu e-mail para entrar.', 401, 'EMAIL_NOT_VERIFIED');
   }
 
   // O1: a member of a deactivated organization cannot start a session.
@@ -210,19 +217,35 @@ export async function getMe(userId) {
 }
 
 /**
- * Registers a new user (self-registration).
+ * Registers a new user (self-registration). When an e-mail is provided the account is created
+ * PENDING (email_verified=false) and a verification token is issued + e-mailed; without an e-mail
+ * the account is immediately active (username-only).
+ * @param {Object} data - Validated register payload.
+ * @param {string} [origin] - Request origin, used to build the verification link when APP_BASE_URL
+ *   is unset.
  */
-export async function register(data) {
-  // Check if username already exists
+export async function register(data, origin = '') {
+  // Uniqueness checks use a SINGLE generic message for both username and e-mail collisions so the
+  // public register endpoint is not an existence oracle (an attacker can't tell which field — or
+  // whether a specific e-mail — is already registered).
   const { rows: existing } = await query(Q.CHECK_USERNAME_EXISTS, [data.username]);
   if (existing.length > 0) {
-    throw new ConflictError('Username already exists');
+    throw new ConflictError('Usuário ou e-mail já cadastrado.');
+  }
+
+  const email = data.email ? data.email.trim() : null;
+  if (email) {
+    const { rows: emailRows } = await query(Q.CHECK_EMAIL_EXISTS, [email]);
+    if (emailRows.length > 0) {
+      throw new ConflictError('Usuário ou e-mail já cadastrado.');
+    }
   }
 
   // Hash password
   const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
 
-  // Create user (role is always 'user' for self-registration; org defaults).
+  // Create user (role is always 'user' for self-registration; org defaults). email_verified starts
+  // false; login only gates when email IS NOT NULL, so a null-email account is active immediately.
   const { rows } = await query(Q.INSERT_USER, [
     data.username,
     passwordHash,
@@ -231,7 +254,73 @@ export async function register(data) {
     data.organizacao_militar || null,
     'user',
     data.organization_id || null, // COALESCE -> default org in SQL
+    email,
+    false,
   ]);
+  const user = rows[0];
 
-  return rows[0];
+  // Verification is best-effort: the account row is already committed, so a token/mail failure must
+  // NOT 500 the request (that would orphan a pending account the user can neither re-register nor log
+  // into). On failure the account simply stays pending and the user can re-trigger via resend.
+  if (email) {
+    try {
+      await issueAndSendVerification(user, email, origin);
+    } catch (err) {
+      logger.error({ err, userId: user.id }, 'Verification e-mail failed (account created; user can resend)');
+    }
+  }
+  return user;
+}
+
+/**
+ * Issues a fresh verification token for a user and e-mails (or logs) the link.
+ * @param {{ id: string, nome: string }} user
+ * @param {string} email
+ * @param {string} origin
+ * @returns {Promise<string>} The token.
+ */
+async function issueAndSendVerification(user, email, origin) {
+  const hours = Number(config.security.verificationTtlHours);
+  const ttlMs = (Number.isFinite(hours) ? hours : 48) * 60 * 60 * 1000;
+  const expiresAt = new Date(Date.now() + ttlMs);
+  const { rows } = await query(Q.INSERT_VERIFICATION_TOKEN, [user.id, expiresAt]);
+  const token = rows[0].token;
+  const link = buildVerificationLink(token, origin);
+  await sendVerificationEmail({ to: email, link, nome: user.nome });
+  return token;
+}
+
+/**
+ * Confirms a verification token: marks the user's e-mail verified and consumes the token.
+ * @param {string} token
+ * @returns {Promise<{ success: true }>}
+ */
+export async function verifyEmail(token) {
+  const { rows } = await query(Q.FIND_VERIFICATION_TOKEN, [token]);
+  const row = rows[0];
+  if (!row || row.consumed_at) {
+    throw new BadRequestError('Token de verificação inválido.');
+  }
+  if (new Date(row.expires_at) < new Date()) {
+    throw new BadRequestError('Token de verificação expirado.');
+  }
+  await query(Q.MARK_EMAIL_VERIFIED, [row.user_id]);
+  await query(Q.CONSUME_VERIFICATION_TOKEN, [token]);
+  return { success: true };
+}
+
+/**
+ * Re-issues a verification e-mail. Always resolves success (never leaks whether the e-mail exists);
+ * only re-sends for a real, not-yet-verified account.
+ * @param {string} email
+ * @param {string} [origin]
+ * @returns {Promise<{ success: true }>}
+ */
+export async function resendVerification(email, origin = '') {
+  const { rows } = await query(Q.FIND_USER_BY_EMAIL, [email]);
+  const user = rows[0];
+  if (user && user.email && !user.email_verified) {
+    await issueAndSendVerification(user, user.email, origin);
+  }
+  return { success: true };
 }

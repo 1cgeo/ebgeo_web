@@ -52,6 +52,12 @@ CREATE TABLE users (
     -- Chave de API M2M (live key na linha quente; histórico/rotação à parte).
     api_key             UUID UNIQUE,
 
+    -- Self-registration e-mail confirmation. NULLABLE: username stays the login key, and
+    -- accounts created without an e-mail (admin-created, legacy, M2M) are immediately active.
+    -- When email IS NOT NULL, login is gated on email_verified (see auth.service login).
+    email               VARCHAR(255),
+    email_verified      BOOLEAN NOT NULL DEFAULT FALSE,
+
     -- Metadata
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -60,6 +66,8 @@ CREATE TABLE users (
 );
 
 CREATE UNIQUE INDEX idx_users_username_lower ON users(LOWER(username));
+-- Case-insensitive unique e-mail (partial: NULL e-mails are allowed and not unique-constrained).
+CREATE UNIQUE INDEX idx_users_email_lower ON users(LOWER(email)) WHERE email IS NOT NULL;
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_organization ON users(organization_id);
 
@@ -77,6 +85,20 @@ CREATE TABLE refresh_tokens (
 
 CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash) WHERE revoked_at IS NULL;
+
+-- ============================================================================
+-- EMAIL VERIFICATION TOKENS (self-registration confirmation). The token UUID is
+-- the secret carried in the verification link; it is single-use (consumed_at) and
+-- expiring (expires_at). Cascades on user delete.
+-- ============================================================================
+CREATE TABLE email_verification_tokens (
+    token       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    consumed_at TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_email_verification_user ON email_verification_tokens(user_id);
 
 -- ============================================================================
 -- API KEY HISTORY (rotação/revogação das chaves M2M)

@@ -2,7 +2,7 @@
 
 export const FIND_USER_BY_USERNAME = `
   SELECT id, username, password_hash, nome, posto_graduacao, organizacao_militar,
-         organization_id, org_role, is_active, role
+         organization_id, org_role, is_active, role, email, email_verified
   FROM users
   WHERE LOWER(username) = LOWER($1)
 `;
@@ -49,8 +49,41 @@ export const CHECK_USERNAME_EXISTS = `
   SELECT id FROM users WHERE LOWER(username) = LOWER($1)
 `;
 
+export const CHECK_EMAIL_EXISTS = `
+  SELECT id FROM users WHERE LOWER(email) = LOWER($1)
+`;
+
+export const FIND_USER_BY_EMAIL = `
+  SELECT id, username, nome, email, email_verified
+  FROM users WHERE LOWER(email) = LOWER($1)
+`;
+
 export const INSERT_USER = `
-  INSERT INTO users (username, password_hash, nome, posto_graduacao, organizacao_militar, role, organization_id)
-  VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::uuid, '00000000-0000-0000-0000-000000000001'::uuid))
-  RETURNING id, username, nome, posto_graduacao, organizacao_militar, organization_id, org_role, role, created_at
+  INSERT INTO users (username, password_hash, nome, posto_graduacao, organizacao_militar, role, organization_id, email, email_verified)
+  VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::uuid, '00000000-0000-0000-0000-000000000001'::uuid), $8, $9)
+  RETURNING id, username, nome, posto_graduacao, organizacao_militar, organization_id, org_role, role, created_at, email, email_verified
+`;
+
+// ============================================
+// Email verification tokens
+// ============================================
+
+export const INSERT_VERIFICATION_TOKEN = `
+  INSERT INTO email_verification_tokens (user_id, expires_at)
+  VALUES ($1, $2)
+  RETURNING token
+`;
+
+export const FIND_VERIFICATION_TOKEN = `
+  SELECT token, user_id, expires_at, consumed_at
+  FROM email_verification_tokens
+  WHERE token = $1
+`;
+
+export const CONSUME_VERIFICATION_TOKEN = `
+  UPDATE email_verification_tokens SET consumed_at = NOW() WHERE token = $1
+`;
+
+export const MARK_EMAIL_VERIFIED = `
+  UPDATE users SET email_verified = TRUE, updated_at = NOW() WHERE id = $1
 `;

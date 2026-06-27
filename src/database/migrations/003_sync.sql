@@ -112,6 +112,19 @@ CREATE TABLE resources (
 CREATE INDEX idx_resources_category ON resources(category);
 CREATE INDEX idx_resources_active ON resources(category) WHERE active = true;
 
+-- ============================================================================
+-- CONFIG SETTINGS (admin overrides for the STATIC/ENV parts of GET /api/v1/config
+-- that have no `resources` row — app/features/map2d/map3d/service URLs). A single
+-- row (key='app_config') holds a PARTIAL config object deep-merged OVER the
+-- assembled payload, so an admin can edit those without a redeploy.
+-- ============================================================================
+CREATE TABLE config_settings (
+    key        TEXT PRIMARY KEY,
+    value      JSONB NOT NULL DEFAULT '{}',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by UUID REFERENCES users(id)
+);
+
 -- Seed inicial (config já no shape de GET /api/v1/config).
 INSERT INTO resources (id, category, name, sort_order, config) VALUES
   ('carta-topografica', 'basemap', 'Topográfica', 1, jsonb_build_object(
