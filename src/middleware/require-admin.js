@@ -6,8 +6,7 @@ import { ForbiddenError, UnauthorizedError } from '../utils/errors.js';
  * Must be used after the auth middleware.
  */
 export function requireAdmin(req, res, next) {
-  // No credential is an authentication problem (401), not authorization (403) —
-  // matches the `authorize` middleware in require-org-role.js.
+  // No credential is an authentication problem (401), not authorization (403).
   if (!req.user) {
     return next(new UnauthorizedError('Authentication required'));
   }

@@ -110,6 +110,12 @@ pré-cria as extensões via `SUPERUSER_DATABASE_URL` (default `postgres:postgres
 opcionais do banco de teste: `TEST_DB_NAME` (`ebgeo_test`), `DB_USER` (`ebgeo`), `DB_PASSWORD`
 (`ebgeo_secret`), `DB_HOST` (`localhost`), `DB_PORT` (`5432`).
 
+> **Máquinas sem o role `ebgeo`** (Postgres local só com o superusuário `postgres:postgres`):
+> rode com override de credenciais —
+> `DB_USER=postgres DB_PASSWORD=postgres npm test`. Para um subconjunto, chame o runner direto
+> com um glob: `DB_USER=postgres DB_PASSWORD=postgres node scripts/run-tests.js "tests/**/*<glob>*.test.js"`
+> (aceita `--keep-db` para preservar o `ebgeo_test` entre rodadas de debug).
+
 ### Credenciais de teste (após `npm run db:seed`)
 
 | Usuário | Senha | Role |

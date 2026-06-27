@@ -286,9 +286,9 @@ function transformCesium3dToFrontend(cesium3dData) {
 
     switch (item.data_type) {
       case 'camera_position':
-        if (item.tileset_id) {
-          result.cameraPositions[item.tileset_id] = entry;
-        }
+        // Key by tilesetId (the normal app path always sets it); fall back to the row id so a
+        // persisted camera position is never SILENTLY dropped from the snapshot.
+        result.cameraPositions[item.tileset_id || item.id] = entry;
         break;
       case 'marker':
         result.markers.push(entry);
@@ -326,9 +326,9 @@ function transformStreetview360ToFrontend(streetview360Data) {
 
     switch (item.data_type) {
       case 'orientation':
-        if (item.photo_name) {
-          result.orientations[item.photo_name] = entry;
-        }
+        // Key by photoName (always set in the normal app path); fall back to the row id so a
+        // persisted orientation is never SILENTLY dropped from the snapshot.
+        result.orientations[item.photo_name || item.id] = entry;
         break;
       case 'marker':
         result.markers.push(entry);

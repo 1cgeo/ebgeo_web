@@ -46,7 +46,7 @@ texto nos guias, os achados de **código** verificados foram tratados assim:
 | **IDOR cross-atlas via sync** — `slide` (create/update/delete) e `group_feature` (create/delete) não escopavam pelo atlas da rota. Agora o filtro de atlas vive na própria query (slide via `briefings.atlas_id`; group_feature via `groups.map_id`→`maps.atlas_id`). Teste negativo em `tests/integration/sync-cross-atlas-access.test.js`. | Sync / segurança | escrita cross-atlas possível → **bloqueada na SQL** |
 | Upload single acima do limite: `MulterError(LIMIT_FILE_SIZE)` agora mapeado por wrapper (`uploadSingleImage`) | Imagens / hardening | **500** → **400** |
 | `POST /images/bulk` com limite de corpo dedicado `MAX_BULK_UPLOAD_MB` (default 50 MB) | Imagens | limite por-imagem inalcançável (413) → **alcançável** |
-| `requireAdmin` sem credencial | Middleware | **403** → **401** (alinha `require-org-role`) |
+| `requireAdmin` sem credencial | Middleware | **403** → **401** (auth ausente → 401, não 403) |
 | `GET /atlas/:id/sync/admin/stats` para atlas inexistente | Sync admin | **200 `data:null`** → **404** |
 | `updateProfile`/`updateUser`: `null`/`''` em `posto_graduacao`/`organizacao_militar` | Users | `COALESCE` ignorava (no-op) → **limpa a coluna** |
 | Upgrade WebSocket valida o `pathname` | Collab | qualquer path aceito → **só `/api/v1/collab`** |
