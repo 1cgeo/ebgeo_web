@@ -122,7 +122,7 @@ The `store/sync/` client is **fully wired** to an optional backend (`ebgeo_backe
 
 **Outbound** — store ops call `logXxxOperation` directly (`operation-dispatcher.js`; feature ops log inside the `runTransaction` deferAsync) → `operation-queue.js` (IndexedDB queue `ebgeo/operation_queue`, compaction, auto-purge) using `operation-factory.js` (Lamport clock + persisted `clientId`). Op types in `operation-types.js`.
 
-**Inbound** — `remote-operation-handler.js` `applyRemoteOperation` routes by entityType, persists via the repo, emits the matching lifecycle event + `REMOTE_OPERATION_APPLIED`. `applyRemoteSnapshot` reshapes the backend snapshot (snake_case→camelCase) on `connect`. 3D/360 inbound is **emit-only** (not persisted in the handler).
+**Inbound** — `remote-operation-handler.js` `applyRemoteOperation` routes by entityType, persists via the repo, emits the matching lifecycle event + `REMOTE_OPERATION_APPLIED`. `applyRemoteSnapshot` reshapes the backend snapshot (snake_case→camelCase) on `connect`. 3D/360 inbound **persists** into the per-map cesium3d/streetview360 side-stores (then emits the `*_CHANGED` event) and is LWW-guarded like features — a peer converges on a live 3D/360 op (NOT emit-only; an earlier note here said otherwise — that was wrong).
 
 **Identity / connection / permissions**
 - `session-context.js` (`sessionContext`) — OFFLINE/ONLINE; JWT `userId`+role (owner/admin/editor/viewer); offline = anonymous `clientId` with full local perms.

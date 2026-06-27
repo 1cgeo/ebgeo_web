@@ -177,7 +177,7 @@ import {
 
 import { checkPermission } from '../../src/js/store/sync/permission-guard.js';
 import { emitStoreError } from '../../src/js/store/store-errors.js';
-import { logMapOperation } from '../../src/js/store/sync/index.js';
+import { logMapOperation, logAtlasSetting } from '../../src/js/store/sync/index.js';
 import { setSettingCompat } from '../../src/js/store/repositories/index.js';
 
 // ============================================================================
@@ -935,5 +935,14 @@ describe('getMapOrder / setMapOrder', () => {
     it('sets map order', async () => {
         await setMapOrder(['MapB', 'MapA']);
         expect(setSettingCompat).toHaveBeenCalledWith('mapOrder', ['MapB', 'MapA']);
+    });
+
+    it('logs the order as an atlas-level setting op so it syncs across peers', async () => {
+        // The maps-list ordering must travel to collaborators: setMapOrder mirrors the local
+        // persist with a `setting` op carrying { mapOrder } (offline-safe no-op when not connected).
+        // This is the outbound leg the inbound apply (remote-operation-handler › mapOrder) and the
+        // 2-peer e2e (browser-collab-map-order) complete.
+        await setMapOrder(['MapB', 'MapA']);
+        expect(logAtlasSetting).toHaveBeenCalledWith({ mapOrder: ['MapB', 'MapA'] });
     });
 });

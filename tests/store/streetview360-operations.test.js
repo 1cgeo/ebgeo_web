@@ -685,7 +685,7 @@ describe('removeMarkers360ByPhoto', () => {
 describe('marker image operations', () => {
     const fakeFile = () => ({ name: 'shot.png', type: 'image/png', size: 1234 });
 
-    it('addMarker360Image appends image with persisted structure, no sync op', async () => {
+    it('addMarker360Image appends the image, bumps sync version, and logs an UPDATE sync op', async () => {
         const marker = await addMarker360('photo-1.jpg', makeMarkerData());
         logMarker360Operation.mockClear();
 
@@ -704,10 +704,15 @@ describe('marker image operations', () => {
         const stored = h.store.get('TestMap').markers[0];
         expect(stored.images).toHaveLength(1);
         expect(stored.images[0].id).toBe('uuid-2');
-        // Image attach bumps the marker's sync version (touch) ...
         expect(stored.sync.version).toBe(2);
-        // ... but does NOT emit a marker sync operation.
-        expect(logMarker360Operation).not.toHaveBeenCalled();
+
+        // The image is inline in the marker's data → attaching it is a marker UPDATE that must sync
+        // to peers (regression: it used to stay local — no op).
+        expect(logMarker360Operation).toHaveBeenCalledTimes(1);
+        const [op, id, , newData] = logMarker360Operation.mock.calls[0];
+        expect(op).toBe(OperationType.UPDATE);
+        expect(id).toBe(marker.id);
+        expect(newData.images.some(i => i.id === image.id)).toBe(true);
     });
 
     it('addMarker360Image returns null for an invalid file (no persist)', async () => {
@@ -739,15 +744,19 @@ describe('marker image operations', () => {
         expect(await getMarker360Images('ghost')).toEqual([]);
     });
 
-    it('removeMarker360Image detaches the image and persists', async () => {
+    it('removeMarker360Image detaches the image, persists, and logs an UPDATE sync op', async () => {
         const marker = await addMarker360('photo-1.jpg', makeMarkerData());
         const image = await addMarker360Image(marker.id, fakeFile());
+        logMarker360Operation.mockClear();
 
         const result = await removeMarker360Image(marker.id, image.id);
         expect(result).toBe(true);
 
         const stored = h.store.get('TestMap').markers[0];
         expect(stored.images).toHaveLength(0);
+        // a successful detach is a marker UPDATE that must sync to peers
+        expect(logMarker360Operation).toHaveBeenCalledTimes(1);
+        expect(logMarker360Operation.mock.calls[0][0]).toBe(OperationType.UPDATE);
     });
 
     it('removeMarker360Image returns false for a missing image', async () => {

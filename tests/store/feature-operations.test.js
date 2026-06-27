@@ -26,8 +26,23 @@ const { mockMapData, mockMapManager, mockLockedMaps } = vi.hoisted(() => {
 // ============================================================================
 
 vi.mock('../../src/js/store/store-errors.js', () => ({
-    StoreErrorEvents: { STORE_PERSIST_ERROR: 'store:persistError' },
+    StoreErrorEvents: {
+        STORE_PERSIST_ERROR: 'store:persistError',
+        STORE_OPERATION_BLOCKED: 'store:operationBlocked'
+    },
     emitStoreError: vi.fn()
+}));
+
+// The role-based write gate (checkPermission) is real here; it only engages on a connected
+// REMOTE atlas. Default LOCAL (false) so every existing test stays on the permissive path.
+vi.mock('../../src/js/store/store-origin.js', () => ({
+    StoreOriginKind: { LOCAL: 'local', REMOTE: 'remote' },
+    isRemoteStoreSync: vi.fn(() => false),
+    getStoreOriginSync: vi.fn(() => ({ kind: 'local', atlasId: null })),
+    loadStoreOrigin: vi.fn(async () => ({ kind: 'local', atlasId: null })),
+    setStoreOrigin: vi.fn(async () => {}),
+    markStoreRemote: vi.fn(async () => {}),
+    markStoreLocal: vi.fn(async () => {})
 }));
 
 vi.mock('../../src/js/store/map.operations.js', () => ({
@@ -82,6 +97,9 @@ import {
 import { isCurrentMapLockedSync } from '../../src/js/store/map.operations.js';
 import { updateMapDataCompat } from '../../src/js/store/repositories/index.js';
 import { logFeatureOperation } from '../../src/js/store/sync/index.js';
+import { emitStoreError } from '../../src/js/store/store-errors.js';
+import { sessionContext, UserRole } from '../../src/js/store/sync/session-context.js';
+import { isRemoteStoreSync } from '../../src/js/store/store-origin.js';
 
 // ============================================================================
 // Helpers
@@ -122,6 +140,57 @@ beforeEach(() => {
         groupManager: {
             removeFeatureFromAllGroups: vi.fn()
         }
+    });
+
+    // Default: offline + local store, so the permission gate is permissive (existing tests).
+    sessionContext._reset();
+    isRemoteStoreSync.mockReturnValue(false);
+});
+
+// ============================================================================
+// addFeature — permission gate on a connected REMOTE atlas
+// ============================================================================
+
+describe('addFeature permission gate (connected remote atlas)', () => {
+    beforeEach(() => {
+        // Simulate the local store holding a connected REMOTE atlas, so the role-based
+        // gate in checkPermission is active (it is a no-op offline / on the local store).
+        isRemoteStoreSync.mockReturnValue(true);
+    });
+
+    it('blocks a viewer: emits STORE_OPERATION_BLOCKED and persists nothing', async () => {
+        sessionContext.setSession({ userId: 'viewer-1', role: UserRole.VIEWER });
+
+        const result = await addFeature('points', makeFeature('f-viewer'), 'TestMap');
+
+        expect(result).toBeUndefined();
+        expect(emitStoreError).toHaveBeenCalledWith(
+            'store:operationBlocked',
+            expect.objectContaining({ operation: 'addFeature' })
+        );
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+        expect(logFeatureOperation).not.toHaveBeenCalled();
+    });
+
+    it('blocks a commenter the same way (comments-only role)', async () => {
+        sessionContext.setSession({ userId: 'commenter-1', role: UserRole.COMMENTER });
+
+        await addFeature('points', makeFeature('f-commenter'), 'TestMap');
+
+        expect(emitStoreError).toHaveBeenCalledWith(
+            'store:operationBlocked',
+            expect.objectContaining({ operation: 'addFeature' })
+        );
+        expect(updateMapDataCompat).not.toHaveBeenCalled();
+    });
+
+    it('allows an editor on the same remote atlas to persist', async () => {
+        sessionContext.setSession({ userId: 'editor-1', role: UserRole.EDITOR });
+
+        await addFeature('points', makeFeature('f-editor'), 'TestMap');
+
+        expect(updateMapDataCompat).toHaveBeenCalledOnce();
+        expect(emitStoreError).not.toHaveBeenCalledWith('store:operationBlocked', expect.anything());
     });
 });
 

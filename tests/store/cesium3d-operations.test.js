@@ -446,7 +446,7 @@ describe('markers', () => {
 // ============================================================================
 
 describe('marker images', () => {
-    it('addMarkerImage persists image with id/name/type/size and emits change event (no sync op)', async () => {
+    it('addMarkerImage persists image, emits change event, and logs an UPDATE sync op', async () => {
         const marker = await addMarker('tsA', { position: {} });
         logMarker3dOperation.mockClear();
         eventBus.emit.mockClear();
@@ -467,9 +467,16 @@ describe('marker images', () => {
         expect(persistedMarker.images).toHaveLength(1);
         expect(persistedMarker.images[0].id).toBe(img.id);
 
-        // image attach emits the change event but does NOT log a sync op
+        // The image lives INLINE in the marker's data, so attaching it is a marker UPDATE that must
+        // sync to peers (regression: it used to stay local — emit only, no op).
         expect(eventBus.emit).toHaveBeenCalledWith('markers3d:changed', { mapName: MAP });
-        expect(logMarker3dOperation).not.toHaveBeenCalled();
+        expect(logMarker3dOperation).toHaveBeenCalledTimes(1);
+        const [op, id, mapId, newData] = logMarker3dOperation.mock.calls[0];
+        expect(op).toBe('UPDATE');
+        expect(id).toBe(marker.id);
+        expect(mapId).toBe('map-uuid-123');
+        expect(newData.images.some(i => i.id === img.id)).toBe(true);
+        expect(newData.sync.version).toBe(2); // version bumped so peers converge by LWW
     });
 
     it('addMarkerImage returns null on invalid file and on missing entity', async () => {
@@ -492,17 +499,55 @@ describe('marker images', () => {
         expect(await getMarkerImages('ghost')).toEqual([]);
     });
 
-    it('removeMarkerImage removes by imageId (true), false when image/marker absent', async () => {
+    it('removeMarkerImage removes by imageId (true) + logs UPDATE, false when image/marker absent', async () => {
         const marker = await addMarker('tsA', { position: {} });
         const img = await addMarkerImage(marker.id, fakeImageFile());
+        logMarker3dOperation.mockClear();
 
         expect(await removeMarkerImage(marker.id, 'no-such-image')).toBe(false);
+        expect(logMarker3dOperation).not.toHaveBeenCalled(); // a no-op removal logs nothing
 
         const ok = await removeMarkerImage(marker.id, img.id);
         expect(ok).toBe(true);
         expect(persisted().markers.find(m => m.id === marker.id).images).toHaveLength(0);
+        // a successful removal is a marker UPDATE that must sync to peers
+        expect(logMarker3dOperation).toHaveBeenCalledTimes(1);
+        expect(logMarker3dOperation.mock.calls[0][0]).toBe('UPDATE');
 
         expect(await removeMarkerImage('ghost', img.id)).toBe(false);
+    });
+});
+
+// ============================================================================
+// Measurement & viewshed images also sync (shared helper, per-collection logger)
+// ============================================================================
+
+describe('measurement & viewshed images sync', () => {
+    it('addMeasurementImage logs a measurement UPDATE op carrying the new image', async () => {
+        const m = await addMeasurement('tsA', {});
+        logMeasurement3dOperation.mockClear();
+
+        const img = await addMeasurementImage(m.id, fakeImageFile());
+
+        expect(img).not.toBeNull();
+        expect(logMeasurement3dOperation).toHaveBeenCalledTimes(1);
+        const [op, id, , newData] = logMeasurement3dOperation.mock.calls[0];
+        expect(op).toBe('UPDATE');
+        expect(id).toBe(m.id);
+        expect(newData.images.some(i => i.id === img.id)).toBe(true);
+    });
+
+    it('addViewshedImage logs a viewshed UPDATE op', async () => {
+        const v = await addViewshed('tsA', {});
+        logViewshed3dOperation.mockClear();
+
+        const img = await addViewshedImage(v.id, fakeImageFile());
+
+        expect(img).not.toBeNull();
+        expect(logViewshed3dOperation).toHaveBeenCalledTimes(1);
+        const [op, id] = logViewshed3dOperation.mock.calls[0];
+        expect(op).toBe('UPDATE');
+        expect(id).toBe(v.id);
     });
 });
 

@@ -25,6 +25,13 @@ deixar a cobertura cair: ao adicionar lógica, adicione o teste junto.
 **Disciplina:** antes de commitar, rode `npm run lint` e `npm test`. Para um
 único arquivo: `npx vitest run tests/unit/<arquivo>.test.js`.
 
+**E2E de browser (Playwright):** a suíte `npm test` acima é Vitest em `node` (sem
+banco). Os testes de browser ficam em `tests/e2e-ui/` e sobem um backend + DB
+descartáveis — exigem PostgreSQL. Rodam com `npm run test:e2e:ui`; em máquina cujo
+Postgres só tem o superusuário `postgres:postgres`, use
+`DB_USER=postgres DB_PASSWORD=postgres npm run test:e2e:ui`. Detalhes e como rodar
+um único spec: **`tests/e2e-ui/README.md`**.
+
 ## Taxonomia (onde cada teste mora)
 
 ```

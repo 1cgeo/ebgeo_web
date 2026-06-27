@@ -688,6 +688,27 @@ describe('Remote 3D / 360 operations — persistence (P9)', () => {
         });
         expect(sv360Store.get('map-1').markers).toHaveLength(0);
     });
+
+    // Convergence: 3D/360 entities are CONVERGENCE_GUARDED, so an UPDATE that arrives LATER but
+    // carries a LOWER serverVersion (a concurrent peer edit that lost the arrival-order race) must
+    // be IGNORED — otherwise two clients diverge on the same 3D entity.
+    it('ignores a stale 3D marker UPDATE (lower serverVersion → LWW convergence)', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.MARKER_3D, operationType: OperationType.CREATE,
+            entityId: 'lww-3d', mapId: 'map-1', serverVersion: 20,
+            data: { id: 'lww-3d', tilesetId: 't1', nome: 'v20' },
+        });
+        const nameOf = () => cesium3dStore.get('map-1').markers.find((m) => m.id === 'lww-3d')?.nome;
+        expect(nameOf()).toBe('v20');
+
+        // A LATER-DELIVERED but OLDER op (serverVersion 10) must be dropped.
+        await applyRemoteOperation({
+            entityType: EntityType.MARKER_3D, operationType: OperationType.UPDATE,
+            entityId: 'lww-3d', mapId: 'map-1', serverVersion: 10,
+            data: { id: 'lww-3d', tilesetId: 't1', nome: 'v10-stale' },
+        });
+        expect(nameOf()).toBe('v20'); // unchanged — the stale op was ignored
+    });
 });
 
 describe('Remote map-setting operations', () => {
@@ -775,6 +796,49 @@ describe('Remote map-setting operations', () => {
             EventTypes.LAYERS_CHANGED,
             expect.objectContaining({ mapName: 'map-1' })
         );
+    });
+});
+
+// The maps-list ORDERING syncs as an atlas-level `setting` op carrying { mapOrder: [names] }
+// (map.operations.setMapOrder → logAtlasSetting). Inbound it must persist under the EXACT local
+// setting key getMapOrder() reads ('mapOrder') and trigger a re-render (LAYERS_CHANGED, mapName:
+// null). This is the inbound half the e2e (browser-collab-map-order) exercises across two peers;
+// it shares the code path of the tested mapBadgeColors / terrainExaggeration setting sync.
+describe('Remote atlas-setting operations — mapOrder (maps-list ordering)', () => {
+    it('persists mapOrder from a live setting op and emits LAYERS_CHANGED', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.SETTING,
+            operationType: OperationType.UPDATE,
+            entityId: 'atlas',
+            data: { mapOrder: ['Mapa B', 'Mapa A', 'Mapa C'] }
+        });
+
+        // Keyed exactly as getMapOrder()/setMapOrder() read/write it.
+        expect(settingStore.get('mapOrder')).toEqual(['Mapa B', 'Mapa A', 'Mapa C']);
+        expect(eventBus.emit).toHaveBeenCalledWith(
+            EventTypes.LAYERS_CHANGED,
+            expect.objectContaining({ mapName: null })
+        );
+    });
+
+    it('rehydrates mapOrder from a snapshot atlas.settings (F5 / new peer)', async () => {
+        await applyRemoteSnapshot({
+            atlas: { settings: { mapOrder: ['Mapa C', 'Mapa A'] } },
+            maps: []
+        });
+
+        expect(settingStore.get('mapOrder')).toEqual(['Mapa C', 'Mapa A']);
+    });
+
+    it('ignores a non-array mapOrder (defensive — never clobbers the local order)', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.SETTING,
+            operationType: OperationType.UPDATE,
+            entityId: 'atlas',
+            data: { mapOrder: 'not-an-array' }
+        });
+
+        expect(settingStore.has('mapOrder')).toBe(false);
     });
 });
 
@@ -1015,6 +1079,33 @@ describe('applyRemoteSnapshot — side-store fidelity (P11)', () => {
         expect(layerStore.get('map-1')).toEqual([{ id: 'L1', name: 'Camada', order: 0, visible: true }]);
         expect(cesium3dStore.get('map-1').markers.map((m) => m.id)).toEqual(['cm1']);
         expect(sv360Store.get('map-1').markers.map((m) => m.id)).toEqual(['sm1']);
+    });
+
+    it('persists EVERY cesium3d / 360 sub-type from the snapshot (not just markers)', async () => {
+        await applyRemoteSnapshot({
+            maps: [{
+                id: 'map-1', name: 'Mapa A',
+                features: { points: [] },
+                cesium3d: {
+                    cameraPositions: { t9: { id: 'cam9', tilesetId: 't9' } },
+                    markers: [{ id: 'cm1', tilesetId: 't1' }],
+                    measurements: [{ id: 'meas1' }],
+                    viewsheds: [{ id: 'vs1' }],
+                },
+                streetview360: {
+                    orientations: { 'photo-a': { id: 'or1', photoName: 'photo-a' } },
+                    markers: [{ id: 'sm1', photoName: 'p' }],
+                },
+            }],
+        });
+        const c = cesium3dStore.get('map-1');
+        expect(c.markers.map((m) => m.id)).toEqual(['cm1']);
+        expect(c.measurements.map((m) => m.id)).toEqual(['meas1']);
+        expect(c.viewsheds.map((v) => v.id)).toEqual(['vs1']);
+        expect(c.cameraPositions.t9.id).toBe('cam9');
+        const s = sv360Store.get('map-1');
+        expect(s.markers.map((m) => m.id)).toEqual(['sm1']);
+        expect(s.orientations['photo-a'].id).toBe('or1');
     });
 });
 

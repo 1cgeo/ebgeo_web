@@ -75,10 +75,20 @@ describe('Permissions', () => {
         expect(ctx.canPerformAction(PermissionAction.LOCK_MAPS)).toBe(true);
     });
 
-    it('viewer cannot edit or delete', () => {
+    it('viewer cannot edit, delete, or comment', () => {
         ctx.setSession({ userId: 'u1', role: UserRole.VIEWER });
         expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(false);
         expect(ctx.canPerformAction(PermissionAction.DELETE)).toBe(false);
+        expect(ctx.canPerformAction(PermissionAction.COMMENT)).toBe(false);
+    });
+
+    it('commenter can comment but cannot edit, delete, or manage users', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.COMMENTER });
+        expect(ctx.canPerformAction(PermissionAction.COMMENT)).toBe(true);
+        expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(false);
+        expect(ctx.canPerformAction(PermissionAction.DELETE)).toBe(false);
+        expect(ctx.canPerformAction(PermissionAction.MANAGE_USERS)).toBe(false);
+        expect(ctx.canPerformAction(PermissionAction.LOCK_MAPS)).toBe(false);
     });
 
     it('editor can edit and delete but not manage users', () => {
@@ -153,6 +163,38 @@ describe('clearSession', () => {
         expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(false);
 
         ctx.clearSession();
+        expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(true);
+    });
+});
+
+// ============================================================================
+// setVisitorSession (anonymous public view-link)
+// ============================================================================
+
+describe('setVisitorSession', () => {
+    it('is an online, read-only VIEWER with no account identity', () => {
+        ctx.setVisitorSession();
+        expect(ctx.mode).toBe(SessionMode.ONLINE);
+        expect(ctx.role).toBe(UserRole.VIEWER);
+        expect(ctx.userId).toBeNull();
+        expect(ctx.isVisitor()).toBe(true);
+        // No account: isAuthenticated must stay false so the account menu stays hidden.
+        expect(ctx.isAuthenticated()).toBe(false);
+    });
+
+    it('cannot edit, delete, or comment (public link is view-only)', () => {
+        ctx.setVisitorSession();
+        expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(false);
+        expect(ctx.canPerformAction(PermissionAction.DELETE)).toBe(false);
+        expect(ctx.canPerformAction(PermissionAction.COMMENT)).toBe(false);
+        expect(ctx.canPerformAction(PermissionAction.MANAGE_USERS)).toBe(false);
+    });
+
+    it('clearSession restores offline full control and drops the visitor flag', () => {
+        ctx.setVisitorSession();
+        ctx.clearSession();
+        expect(ctx.isOffline()).toBe(true);
+        expect(ctx.isVisitor()).toBe(false);
         expect(ctx.canPerformAction(PermissionAction.EDIT)).toBe(true);
     });
 });

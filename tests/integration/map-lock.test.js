@@ -20,6 +20,7 @@ const {
     eventBusMock,
     sessionMock,
     UserRoleMock,
+    storeOriginMock,
     logMapOperationMock,
     showErrorMock,
     EventTypesMock,
@@ -36,7 +37,7 @@ const {
             if (handlers[event]) handlers[event](payload);
         }),
     };
-    const roles = { OWNER: 'owner', ADMIN: 'admin', EDITOR: 'editor', VIEWER: 'viewer' };
+    const roles = { OWNER: 'owner', ADMIN: 'admin', EDITOR: 'editor', COMMENTER: 'commenter', VIEWER: 'viewer' };
     const session = {
         _offline: true,
         _role: null,
@@ -52,6 +53,8 @@ const {
         eventBusMock: bus,
         sessionMock: session,
         UserRoleMock: roles,
+        // The read-only gate also consults whether the store holds a connected remote atlas.
+        storeOriginMock: { isRemoteStoreSync: vi.fn(() => false) },
         logMapOperationMock: vi.fn(),
         showErrorMock: vi.fn(),
         EventTypesMock: {
@@ -72,6 +75,7 @@ vi.mock('@store/sync/session-context.js', () => ({
     UserRole: UserRoleMock,
 }));
 vi.mock('@store/sync/operation-dispatcher.js', () => ({ logMapOperation: logMapOperationMock }));
+vi.mock('@store/store-origin.js', () => ({ isRemoteStoreSync: storeOriginMock.isRemoteStoreSync }));
 vi.mock('@utils/index.js', () => ({ showError: showErrorMock }));
 vi.mock('@events/event_types.js', () => ({ EventTypes: EventTypesMock }));
 
@@ -101,6 +105,8 @@ function resetMocks() {
     sessionMock.isOffline.mockClear();
     sessionMock._offline = true;
     sessionMock._role = null;
+    storeOriginMock.isRemoteStoreSync.mockClear();
+    storeOriginMock.isRemoteStoreSync.mockReturnValue(false);
 }
 
 /** Puts the session into an authenticated (online) state with the given role. */
@@ -159,6 +165,38 @@ describe('map-lock.controller', () => {
         it('is false for an online VIEWER', () => {
             setOnline(UserRoleMock.VIEWER);
             expect(controller.canToggleLock()).toBe(false);
+        });
+    });
+
+    describe('isReadOnly', () => {
+        it('is false on the local store regardless of role (full local control)', () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(false);
+            setOnline(UserRoleMock.VIEWER);
+            expect(controller.isReadOnly()).toBe(false);
+        });
+
+        it('is true for a VIEWER on a connected remote atlas', () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
+            setOnline(UserRoleMock.VIEWER);
+            expect(controller.isReadOnly()).toBe(true);
+        });
+
+        it('is true for a COMMENTER on a connected remote atlas', () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
+            setOnline(UserRoleMock.COMMENTER);
+            expect(controller.isReadOnly()).toBe(true);
+        });
+
+        it('is false for an EDITOR on a connected remote atlas', () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
+            setOnline(UserRoleMock.EDITOR);
+            expect(controller.isReadOnly()).toBe(false);
+        });
+
+        it('is false for an OWNER on a connected remote atlas', () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
+            setOnline(UserRoleMock.OWNER);
+            expect(controller.isReadOnly()).toBe(false);
         });
     });
 

@@ -169,10 +169,21 @@ npx playwright install chromium   # downloads the Chromium build
 Also needs a reachable PostgreSQL with PostGIS (same as the backend test suite:
 superuser `postgres:postgres` for `CREATE EXTENSION`, app role `ebgeo:ebgeo_secret`).
 
+`global-setup` reads `DB_USER` / `DB_PASSWORD` (default `ebgeo` / `ebgeo_secret`) to provision the
+throwaway `ebgeo_ui_e2e` DB. On a machine whose Postgres only has the `postgres:postgres`
+superuser (no `ebgeo` role), **override** them — otherwise the backend won't come up and the
+specs `skip` instead of running.
+
 ## Run
 
 ```bash
-npm run test:e2e:ui
+npm run test:e2e:ui                                   # full browser-E2E suite
+
+# Machine without the `ebgeo` role → point it at your local Postgres:
+DB_USER=postgres DB_PASSWORD=postgres npm run test:e2e:ui
+
+# A single spec (substring match on the filename):
+DB_USER=postgres DB_PASSWORD=postgres npx playwright test browser-authz-ui
 ```
 
 This neither commits nor touches `package-lock.json`.

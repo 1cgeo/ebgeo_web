@@ -124,6 +124,58 @@ describe('Online — Owner', () => {
 });
 
 // ============================================================================
+// Online — Commenter role
+// ============================================================================
+
+describe('Online — Commenter', () => {
+    beforeEach(() => {
+        sessionContext.setSession({ userId: 'user-c', role: UserRole.COMMENTER });
+    });
+
+    it('allows comment operations', () => {
+        expect(checkPermission('CREATE_COMMENT')).toEqual({ allowed: true });
+        expect(checkPermission('UPDATE_COMMENT')).toEqual({ allowed: true });
+        expect(checkPermission('DELETE_COMMENT')).toEqual({ allowed: true });
+    });
+
+    it('blocks editing features/layers/maps (comments-only role)', () => {
+        expect(checkPermission('CREATE_FEATURE').allowed).toBe(false);
+        expect(checkPermission('UPDATE_FEATURE').allowed).toBe(false);
+        expect(checkPermission('DELETE_FEATURE').allowed).toBe(false);
+        expect(checkPermission('CREATE_LAYER').allowed).toBe(false);
+        expect(checkPermission('CREATE_MAP').allowed).toBe(false);
+    });
+
+    it('blocks LOCK_MAP and MANAGE_USERS', () => {
+        const lock = checkPermission('LOCK_MAP');
+        expect(lock.allowed).toBe(false);
+        expect(lock.reason).toContain('commenter');
+        expect(checkPermission('MANAGE_USERS').allowed).toBe(false);
+    });
+});
+
+// ============================================================================
+// Public visitor link (anonymous, read-only) — setVisitorSession + remote store
+// ============================================================================
+
+describe('Public visitor link (anonymous read-only)', () => {
+    beforeEach(() => {
+        // A public-link visitor is always ONLINE on a connected remote atlas.
+        sessionContext.setVisitorSession();
+        isRemoteStoreSync.mockReturnValue(true);
+    });
+
+    it('blocks every write — and even comments', () => {
+        expect(checkPermission('CREATE_FEATURE').allowed).toBe(false);
+        expect(checkPermission('UPDATE_FEATURE').allowed).toBe(false);
+        expect(checkPermission('DELETE_FEATURE').allowed).toBe(false);
+        expect(checkPermission('DELETE_MAP').allowed).toBe(false);
+        expect(checkPermission('CREATE_COMMENT').allowed).toBe(false);
+        expect(checkPermission('LOCK_MAP').allowed).toBe(false);
+    });
+});
+
+// ============================================================================
 // Online but on the LOCAL store (logged in, NOT connected to a server atlas)
 // ============================================================================
 

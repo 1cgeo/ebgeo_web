@@ -489,6 +489,7 @@ export async function addMarker360Image(markerId, file, mapName = null) {
         addedAt: Date.now()
     };
 
+    const previousData = deepClone(marker);
     marker.images.push(image);
     marker.updatedAt = Date.now();
     marker.sync = touchSyncMetadata(marker.sync);
@@ -503,6 +504,9 @@ export async function addMarker360Image(markerId, file, mapName = null) {
             memMarker.sync = marker.sync;
         }
     }
+
+    // The image is inline in the marker's data → attaching it is a marker UPDATE that must sync to peers.
+    await logMarker360Operation(OperationType.UPDATE, markerId, targetMap, marker, previousData);
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
     return image;
@@ -540,6 +544,7 @@ export async function removeMarker360Image(markerId, imageId, mapName = null) {
         return false;
     }
 
+    const previousData = deepClone(marker);
     marker.images.splice(imgIndex, 1);
     marker.updatedAt = Date.now();
     marker.sync = touchSyncMetadata(marker.sync);
@@ -554,6 +559,9 @@ export async function removeMarker360Image(markerId, imageId, mapName = null) {
             memMarker.sync = marker.sync;
         }
     }
+
+    // Removing an inline image is a marker UPDATE that must sync to peers.
+    await logMarker360Operation(OperationType.UPDATE, markerId, targetMap, marker, previousData);
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
     return true;

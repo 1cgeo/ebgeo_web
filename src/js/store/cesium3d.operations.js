@@ -135,9 +135,12 @@ function getUserDefaultStyle(storageKey) {
  * @param {string} collectionKey - Key in cesium3d data ('markers', 'measurements', 'viewsheds')
  * @param {string} changeEvent - Event type to emit
  * @param {string|null} mapName
+ * @param {Function} [logUpdate] - The entity's UPDATE sync logger (e.g. logMarker3dOperation). The
+ *   image lives INLINE in the entity's `images[]`, so attaching it is an entity UPDATE that must
+ *   propagate to peers (the `data` carries the new `images[]`); without this it stayed local.
  * @returns {Promise<Object|null>}
  */
-async function addEntityImage(entityId, file, collectionKey, changeEvent, mapName) {
+async function addEntityImage(entityId, file, collectionKey, changeEvent, mapName, logUpdate) {
     const validation = validateImageFile(file);
     if (!validation.valid) {
         console.warn(`Invalid image: ${validation.reason}`);
@@ -168,12 +171,20 @@ async function addEntityImage(entityId, file, collectionKey, changeEvent, mapNam
         };
 
         const entity = data[collectionKey][entityIndex];
+        // Snapshot the pre-image state (shallow + a copy of images) for the op's oldData.
+        const previousEntity = { ...entity, images: entity.images ? [...entity.images] : [] };
         if (!entity.images) entity.images = [];
         entity.images.push(imageData);
         entity.updatedAt = Date.now();
+        entity.sync = touchSyncMetadata(entity.sync);
 
         await saveCesium3dData(targetMap, data);
         emit(changeEvent, { mapName: targetMap });
+
+        // Persistence-first: only log the UPDATE op after the save succeeds.
+        if (logUpdate) {
+            logUpdate(OperationType.UPDATE, entityId, mapManager.getCurrentMapId(), entity, previousEntity);
+        }
 
         return imageData;
     } catch (error) {
@@ -203,9 +214,11 @@ async function getEntityImages(entityId, collectionKey, mapName) {
  * @param {string} collectionKey
  * @param {string} changeEvent
  * @param {string|null} mapName
+ * @param {Function} [logUpdate] - The entity's UPDATE sync logger (removing an inline image is an
+ *   entity UPDATE that must propagate to peers).
  * @returns {Promise<boolean>}
  */
-async function removeEntityImage(entityId, imageId, collectionKey, changeEvent, mapName) {
+async function removeEntityImage(entityId, imageId, collectionKey, changeEvent, mapName, logUpdate) {
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
@@ -218,12 +231,17 @@ async function removeEntityImage(entityId, imageId, collectionKey, changeEvent, 
     if (!entity.images) return false;
 
     const initialLength = entity.images.length;
+    const previousEntity = { ...entity, images: [...entity.images] };
     entity.images = entity.images.filter(img => img.id !== imageId);
 
     if (entity.images.length < initialLength) {
         entity.updatedAt = Date.now();
+        entity.sync = touchSyncMetadata(entity.sync);
         await saveCesium3dData(targetMap, data);
         emit(changeEvent, { mapName: targetMap });
+        if (logUpdate) {
+            logUpdate(OperationType.UPDATE, entityId, mapManager.getCurrentMapId(), entity, previousEntity);
+        }
         return true;
     }
     return false;
@@ -628,7 +646,7 @@ export async function getCesium3dDataForExport(mapName) {
  * @returns {Promise<Object|null>}
  */
 export async function addMarkerImage(markerId, file, mapName = null) {
-    return addEntityImage(markerId, file, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName);
+    return addEntityImage(markerId, file, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName, logMarker3dOperation);
 }
 
 /**
@@ -651,7 +669,7 @@ export async function getMarkerImages(markerId, mapName = null) {
  * @returns {Promise<boolean>}
  */
 export async function removeMarkerImage(markerId, imageId, mapName = null) {
-    return removeEntityImage(markerId, imageId, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName);
+    return removeEntityImage(markerId, imageId, 'markers', EventTypes.MARKERS_3D_CHANGED, mapName, logMarker3dOperation);
 }
 
 // ===== MEASUREMENT OPERATIONS =====
@@ -837,7 +855,7 @@ export async function removeMeasurement(measurementId, mapName = null) {
  * @returns {Promise<Object|null>}
  */
 export async function addMeasurementImage(measurementId, file, mapName = null) {
-    return addEntityImage(measurementId, file, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName);
+    return addEntityImage(measurementId, file, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName, logMeasurement3dOperation);
 }
 
 /**
@@ -860,7 +878,7 @@ export async function getMeasurementImages(measurementId, mapName = null) {
  * @returns {Promise<boolean>}
  */
 export async function removeMeasurementImage(measurementId, imageId, mapName = null) {
-    return removeEntityImage(measurementId, imageId, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName);
+    return removeEntityImage(measurementId, imageId, 'measurements', EventTypes.MEASUREMENTS_3D_CHANGED, mapName, logMeasurement3dOperation);
 }
 
 // ===== VIEWSHED OPERATIONS =====
@@ -1020,7 +1038,7 @@ export async function removeViewshed(viewshedId, mapName = null) {
  * @returns {Promise<Object|null>}
  */
 export async function addViewshedImage(viewshedId, file, mapName = null) {
-    return addEntityImage(viewshedId, file, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName);
+    return addEntityImage(viewshedId, file, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName, logViewshed3dOperation);
 }
 
 /**
@@ -1043,7 +1061,7 @@ export async function getViewshedImages(viewshedId, mapName = null) {
  * @returns {Promise<boolean>}
  */
 export async function removeViewshedImage(viewshedId, imageId, mapName = null) {
-    return removeEntityImage(viewshedId, imageId, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName);
+    return removeEntityImage(viewshedId, imageId, 'viewsheds', EventTypes.VIEWSHEDS_3D_CHANGED, mapName, logViewshed3dOperation);
 }
 
 // ===== BULK REMOVAL OPERATIONS =====
