@@ -5,6 +5,15 @@ import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../util
 
 const rooms = new Map(); // atlasId -> Set<WebSocket>
 
+// Backpressure thresholds (bytes of un-drained outbound buffer per socket). One slow client must
+// not back up the whole room. Coalescable presence frames (cursor/temporal/selection) are dropped
+// to a backed-up client — the next frame supersedes them, so the drop self-heals. A socket past the
+// hard ceiling is terminated so it reconnects and replays via sync_request; dropping a durable op
+// would silently diverge that peer instead.
+const COALESCABLE_TYPES = new Set(['cursor', 'temporal', 'selection']);
+const BACKPRESSURE_DROP_BYTES = 1 << 20; // 1 MiB — drop coalescable presence frames
+const BACKPRESSURE_KILL_BYTES = 8 << 20; // 8 MiB — terminate a hopelessly backed-up socket
+
 /**
  * Adds a WebSocket to an atlas room.
  */
@@ -48,12 +57,16 @@ export function broadcastToRoom(atlasId, message, excludeWs = null, { skipReadOn
   const room = rooms.get(atlasId);
   if (!room) return { sent: 0, recipients: [] };
 
+  const coalescable = typeof message === 'object' && message !== null && COALESCABLE_TYPES.has(message.type);
   const payload = typeof message === 'string' ? message : JSON.stringify(message);
 
   const recipients = [];
   for (const client of room) {
     if (client === excludeWs || client.readyState !== 1) continue; // WebSocket.OPEN = 1
     if (skipReadOnly && client.permission === 'read') continue;
+    const buffered = client.bufferedAmount || 0;
+    if (buffered > BACKPRESSURE_KILL_BYTES) { client.terminate?.(); continue; } // drowning → reconnect+replay
+    if (coalescable && buffered > BACKPRESSURE_DROP_BYTES) continue; // superseded by the next frame
     client.send(payload);
     recipients.push(client.clientId || client.userId);
   }
@@ -86,6 +99,9 @@ export function broadcastOperations(atlasId, ops, { userId, excludeWs = null } =
   for (const client of room) {
     if (client === excludeWs) { skippedSelf++; continue; }
     if (client.readyState !== 1) { skippedClosed++; continue; }
+    // Durable ops are never dropped; a hopelessly backed-up socket is terminated so it reconnects
+    // and replays missed ops via sync_request (a silent drop would diverge it).
+    if ((client.bufferedAmount || 0) > BACKPRESSURE_KILL_BYTES) { client.terminate?.(); skippedClosed++; continue; }
     if (!hasComment || client.permission !== 'read') {
       client.send(fullPayload);
       recipients.push(client.clientId || client.userId);
