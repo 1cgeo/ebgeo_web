@@ -60,12 +60,14 @@ export function validateImageFile(file) {
  * @param {string} base64Data - Base64 encoded image
  * @param {Object} options - Compression options
  * @param {number} [options.maxDimension] - Max dimension in pixels
- * @param {number} [options.quality] - JPEG quality (0-1)
+ * @param {number} [options.quality] - Output quality (0-1)
+ * @param {string} [options.mimeType='image/jpeg'] - Output type ('image/webp' preserves transparency)
  * @returns {Promise<string>} Compressed base64 image
  */
 export async function compressImage(base64Data, options = {}) {
     const maxDimension = options.maxDimension ?? IMAGE_CONFIG.maxDimension;
     const quality = options.quality ?? IMAGE_CONFIG.compressionQuality;
+    const mimeType = options.mimeType ?? 'image/jpeg';
 
     try {
         const img = await loadImage(base64Data);
@@ -84,7 +86,7 @@ export async function compressImage(base64Data, options = {}) {
         canvas.height = height;
         ctx.drawImage(img, 0, 0, width, height);
 
-        return canvas.toDataURL('image/jpeg', quality);
+        return canvas.toDataURL(mimeType, quality);
     } catch {
         console.warn('ImageUtils: Compression failed, using original');
         return base64Data;
@@ -129,7 +131,7 @@ export async function createThumbnail(base64Data, options = {}) {
  * @param {File} file - File to read
  * @returns {Promise<string>} Base64 data URL
  */
-function readFileAsDataURL(file) {
+export function readFileAsDataURL(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => resolve(e.target.result);

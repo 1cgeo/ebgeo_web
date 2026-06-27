@@ -68,6 +68,31 @@ export class ApiClient {
         this._refreshToken = null;
         /** Guards against infinite refresh recursion. @type {Promise<void>|null} */
         this._refreshing = null;
+        /** Called once when a refresh terminally fails mid-session (auth lost). @type {Function|null} */
+        this._onAuthLost = null;
+        /** Debounce so a burst of failing requests fires the auth-lost handler only once. */
+        this._authLostFired = false;
+    }
+
+    /**
+     * Registers a handler invoked when a token refresh TERMINALLY fails mid-session (the refresh
+     * token is gone/expired) — i.e. the session is lost. Fires at most once until the next successful
+     * `setTokens`. Wired after boot so a boot-time expiry falls to anonymous silently instead.
+     * @param {Function|null} handler
+     */
+    setAuthLostHandler(handler) {
+        this._onAuthLost = handler;
+    }
+
+    /** @private Fires the auth-lost handler at most once per session. */
+    _notifyAuthLost() {
+        if (this._authLostFired) return;
+        this._authLostFired = true;
+        try {
+            this._onAuthLost?.();
+        } catch (error) {
+            console.warn('[ApiClient] auth-lost handler error:', error);
+        }
     }
 
     // ===== TOKEN STATE =====
@@ -79,6 +104,7 @@ export class ApiClient {
     setTokens({ accessToken, refreshToken }) {
         this._accessToken = accessToken || null;
         if (refreshToken !== undefined) this._refreshToken = refreshToken;
+        this._authLostFired = false; // a fresh, valid session — re-arm the auth-lost notification
         this._persistTokens();
     }
 
@@ -272,6 +298,12 @@ export class ApiClient {
                     _retry: false,
                 });
                 this.setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
+            } catch (error) {
+                // The refresh token is gone/expired: the session is terminally lost. Drop the dead
+                // tokens and notify (handler wired post-boot — at boot this falls to anonymous).
+                this.clearTokens();
+                this._notifyAuthLost();
+                throw error;
             } finally {
                 this._refreshing = null;
             }
@@ -472,6 +504,44 @@ export class ApiClient {
      */
     async deleteAtlas(atlasId) {
         return this._request('DELETE', `/atlas/${atlasId}`);
+    }
+
+    /**
+     * Updates atlas metadata (e.g. rename). Requires write permission (backend-enforced).
+     * @param {string} atlasId
+     * @param {Object} payload - Per updateAtlasSchema (e.g. { name }).
+     * @returns {Promise<Object>} The updated atlas.
+     */
+    async updateAtlas(atlasId, payload) {
+        return this._request('PUT', `/atlas/${atlasId}`, { body: payload });
+    }
+
+    /**
+     * Clones an atlas into a new project the caller owns ("fazer uma cópia"). Requires read
+     * permission on the source (backend-enforced).
+     * @param {string} atlasId - Source atlas id.
+     * @param {Object} [payload] - Per cloneAtlasSchema (e.g. { name }).
+     * @returns {Promise<Object>} The created clone.
+     */
+    async cloneAtlas(atlasId, payload = {}) {
+        return this._request('POST', `/atlas/${atlasId}/clone`, { body: payload });
+    }
+
+    /**
+     * Lists the caller's own trashed (soft-deleted) atlases.
+     * @returns {Promise<Array<Object>>}
+     */
+    async listTrashedAtlas() {
+        return this._request('GET', '/atlas/trash');
+    }
+
+    /**
+     * Restores a trashed atlas the caller owns.
+     * @param {string} atlasId
+     * @returns {Promise<Object>} The restored atlas.
+     */
+    async restoreAtlas(atlasId) {
+        return this._request('POST', `/atlas/${atlasId}/restore`);
     }
 
     /**

@@ -13,6 +13,7 @@
 import { apiClient } from '@store/sync/api-client.js';
 import { showConfirm } from '@modals/index.js';
 import { showSuccess, showError } from '@utils';
+import { sectionHeader, ICON_CONFIG } from './admin-dom.js';
 
 /**
  * Builds the "Sistema" tab definition for the admin panel.
@@ -24,6 +25,7 @@ export function createConfigTab() {
         id: 'config',
         label: 'Sistema',
         testid: 'admin-tab-config',
+        icon: ICON_CONFIG,
         mount: (container) => tab.mount(container),
     };
 }
@@ -70,6 +72,9 @@ class ConfigTab {
     _buildForm(eff, overrides) {
         const c = this._container;
         c.replaceChildren();
+        c.appendChild(sectionHeader('Sistema', {
+            subtitle: 'Configurações globais — aplicadas no próximo carregamento da página',
+        }));
 
         const form = document.createElement('form');
         form.className = 'admin-form admin-form--wide';

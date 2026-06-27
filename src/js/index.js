@@ -18,9 +18,13 @@ import { applyRuntimeConfig, resolveBackendBaseUrl } from '@store/sync/runtime-c
 import { syncEngine } from '@store/sync/sync-engine.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
-import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap } from './store';
+import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, getControl } from './store';
 import { sessionContext } from '@store/sync/session-context.js';
 import { startAutoFlush } from '@store/sync/sync-flush.js';
+import { openRemoteAtlas } from './account/open-atlas.service.js';
+import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
+import { initAtlasUrlSync } from './deep-link/atlas-url-sync.js';
+import { IdleTimeoutController } from './session/idle-timeout.controller.js';
 import { showToast } from '@utils';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
 import { initTabLock } from '@utils/tab-lock.js';
@@ -79,6 +83,11 @@ async function initApp() {
     // Phase 2: Services (EventBus, StateManager, LayerManager, GroupManager, MapResolver)
     initServices();
 
+    // Keep the address-bar `?atlas=&map=` reconciled with the live connection from here on. Wired
+    // early (before session restore / connect) so it reflects every open path; it never clears a
+    // pending `?atlas=` deep link while logged-in-but-not-yet-connected (the boot window).
+    initAtlasUrlSync();
+
     // Phase 2.5: Restore a persisted login so the session survives F5 until the JWT/refresh
     // token expires. MUST run before the store boot (initializeApp → initializeWithLastActiveMap)
     // so the boot guard sees the authenticated session and keeps a cached remote atlas rather
@@ -106,13 +115,58 @@ async function initApp() {
     // Tab lock — runs after app is fully loaded so the map is visible behind the overlay
     initTabLock();
 
+    // Session lifecycle guards (logged-in only): idle timeout ends an inactive session with a
+    // warning; a terminally-failed refresh drops to anonymous. Both re-open login cleanly. Wired
+    // AFTER controls so the account control exists; a boot-time expiry already fell to anonymous.
+    new IdleTimeoutController().init();
+    apiClient.setAuthLostHandler(
+        () => getControl('account')?.handleSessionLost?.('Sua sessão expirou. Entre novamente.'),
+    );
+
     // An e-mail-confirmation link (?verify=<token>) is handled first (anonymous, one-shot).
     await handleEmailVerificationFromUrl();
 
-    // A public viewer link in the URL takes precedence for an anonymous visitor; otherwise
-    // reconnect the last remote atlas for a restored authenticated session.
-    if (!(await openPublicAtlasFromUrl())) {
-        reconnectLastAtlas();
+    // Boot routing precedence (see proposta-ui-ux-atlas-drive §10): a public viewer link wins for an
+    // anonymous visitor; then an `?atlas=` deep link (open, or prompt login + resume); otherwise
+    // reconnect the last remote atlas for a restored authenticated session. (`#view=3d/360` is handled
+    // earlier in the map-load path and has absolute precedence; `?verify=` ran above.)
+    if (await openPublicAtlasFromUrl()) return;
+    if (await openAtlasFromUrl()) return;
+    reconnectLastAtlas();
+}
+
+/**
+ * If the URL carries an atlas deep link (`?atlas=<uuid>[&map=<uuid>]`): when logged in with access,
+ * opens that atlas (landing on `&map` when given); when logged out, remembers the target and prompts
+ * login (the account control resumes it on success). Returns true when it took over the boot.
+ * Best-effort: a connect/permission failure shows a clear message and falls through to the normal path.
+ * @returns {Promise<boolean>}
+ */
+async function openAtlasFromUrl() {
+    const link = parseAtlasLink();
+    if (!link) return false;
+
+    if (!sessionContext.isAuthenticated()) {
+        // Remember the target and open the login modal; account.control resumes it after auth.
+        setPendingAtlasLink(link);
+        getControl('account')?.requestLogin?.();
+        return true;
+    }
+
+    try {
+        const opened = await openRemoteAtlas(link.atlasId, { mapId: link.mapId });
+        // User declined the "replace local work" confirm → stay local; drop the deep link so a
+        // reconnect doesn't re-open it, and don't fall through to the last-atlas reconnect.
+        if (!opened) clearAtlasUrl();
+        return true;
+    } catch (error) {
+        const status = error?.status ?? error?.statusCode;
+        if (status === 403) showToast('Você não tem acesso a este projeto.', 'error');
+        else if (status === 404) showToast('Projeto não encontrado.', 'error');
+        else showToast('Não foi possível abrir o projeto do servidor.', 'error');
+        console.warn('[boot] atlas open from URL failed:', error);
+        clearAtlasUrl();
+        return false; // origin reverted to local in openRemoteAtlas → reconnect is a no-op; land local
     }
 }
 

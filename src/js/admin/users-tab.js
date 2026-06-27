@@ -14,6 +14,7 @@ import { apiClient } from '@store/sync/api-client.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { showConfirm } from '@modals/index.js';
 import { showSuccess, showError } from '@utils';
+import { sectionHeader, card, avatar, emptyState, ICON_USERS } from './admin-dom.js';
 
 /**
  * Builds the "Usuários" tab definition for the admin panel.
@@ -25,6 +26,7 @@ export function createUsersTab() {
         id: 'users',
         label: 'Usuários',
         testid: 'admin-tab-users',
+        icon: ICON_USERS,
         mount: (container) => tab.mount(container),
     };
 }
@@ -39,6 +41,8 @@ class UsersTab {
         this._alive = true;
         this._includeInactive = false;
         this._searchTimer = null;
+        this._users = [];   // set before any search input can fire _applyFilter (avoids a load-window crash)
+        this._filter = '';
         this._renderList();
         return () => { this._alive = false; clearTimeout(this._searchTimer); };
     }
@@ -50,12 +54,24 @@ class UsersTab {
         const c = this._container;
         c.replaceChildren();
 
+        const newBtn = button('+ Novo usuário', 'admin-btn admin-btn--primary', 'admin-users-new',
+            () => this._renderForm(null));
+        c.appendChild(sectionHeader('Usuários', {
+            subtitle: 'Contas, papéis e acesso ao sistema',
+            actions: [newBtn],
+        }));
+
         const toolbar = document.createElement('div');
         toolbar.className = 'admin-users__toolbar';
 
-        const newBtn = button('Novo usuário', 'admin-btn admin-btn--primary', 'admin-users-new',
-            () => this._renderForm(null));
-        toolbar.appendChild(newBtn);
+        const search = document.createElement('input');
+        search.type = 'search';
+        search.className = 'admin-input admin-users__search';
+        search.placeholder = 'Buscar por nome ou usuário…';
+        search.dataset.testid = 'admin-users-search';
+        search.value = this._filter || '';
+        search.addEventListener('input', () => { this._filter = search.value; this._applyFilter(); });
+        toolbar.appendChild(search);
 
         const inactiveLabel = document.createElement('label');
         inactiveLabel.className = 'admin-users__inactive-toggle';
@@ -73,14 +89,14 @@ class UsersTab {
 
         c.appendChild(toolbar);
 
-        const tableWrap = document.createElement('div');
-        tableWrap.className = 'admin-users__table-wrap';
-        tableWrap.dataset.testid = 'admin-users-table';
+        const tableWrap = card({ testid: 'admin-users-table', padded: false });
+        tableWrap.classList.add('admin-users__table-wrap');
         const loading = document.createElement('p');
         loading.className = 'admin-users__status';
         loading.textContent = 'Carregando usuários…';
         tableWrap.appendChild(loading);
         c.appendChild(tableWrap);
+        this._tableWrap = tableWrap;
 
         let users;
         try {
@@ -92,7 +108,17 @@ class UsersTab {
             return;
         }
         if (!this._alive) return;
-        this._renderTable(tableWrap, Array.isArray(users) ? users : []);
+        this._users = Array.isArray(users) ? users : [];
+        this._applyFilter();
+    }
+
+    /** @private Re-renders the table from the cached list, applying the search filter. */
+    _applyFilter() {
+        if (!this._tableWrap) return;
+        const q = (this._filter || '').trim().toLowerCase();
+        const visible = !q ? this._users : this._users.filter((u) =>
+            `${u.nome || ''} ${u.username || ''}`.toLowerCase().includes(q));
+        this._renderTable(this._tableWrap, visible);
     }
 
     /**
@@ -103,10 +129,10 @@ class UsersTab {
     _renderTable(wrap, users) {
         wrap.replaceChildren();
         if (users.length === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'admin-users__status';
-            empty.textContent = 'Nenhum usuário.';
-            wrap.appendChild(empty);
+            wrap.appendChild(emptyState(
+                this._filter ? 'Nenhum usuário corresponde à busca.' : 'Nenhum usuário.',
+                this._filter ? undefined : { hint: 'Crie o primeiro com "Novo usuário".' },
+            ));
             return;
         }
 
@@ -115,7 +141,7 @@ class UsersTab {
 
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
-        for (const h of ['Nome', 'Usuário', 'Papel', 'Org. Militar', 'Status', 'Ações']) {
+        for (const h of ['Usuário', 'Papel', 'Org. Militar', 'Status', '']) {
             const th = document.createElement('th');
             th.textContent = h;
             hrow.appendChild(th);
@@ -130,9 +156,31 @@ class UsersTab {
             tr.dataset.testid = 'admin-users-row';
             tr.dataset.userId = u.id;
 
-            tr.appendChild(cell(u.nome || ''));
-            tr.appendChild(cell(u.username || ''));
-            tr.appendChild(cell(u.role === 'admin' ? 'Admin' : 'Usuário'));
+            // Identity: avatar + name + @handle (the username text the e2e matches lives here).
+            const idTd = document.createElement('td');
+            const identity = document.createElement('div');
+            identity.className = 'admin-users__identity';
+            identity.appendChild(avatar(u.nome || u.username, u.id || u.username));
+            const text = document.createElement('div');
+            text.className = 'admin-users__identity-text';
+            const nm = document.createElement('span');
+            nm.className = 'admin-users__name';
+            nm.textContent = u.nome || '—';
+            const handle = document.createElement('span');
+            handle.className = 'admin-users__handle';
+            handle.textContent = `@${u.username || ''}`;
+            text.append(nm, handle);
+            identity.appendChild(text);
+            idTd.appendChild(identity);
+            tr.appendChild(idTd);
+
+            const roleTd = document.createElement('td');
+            const roleChip = document.createElement('span');
+            roleChip.className = `admin-chip admin-chip--${u.role === 'admin' ? 'admin' : 'user'}`;
+            roleChip.textContent = u.role === 'admin' ? 'Admin' : 'Usuário';
+            roleTd.appendChild(roleChip);
+            tr.appendChild(roleTd);
+
             tr.appendChild(cell(u.organizacao_militar || '—'));
 
             const statusCell = document.createElement('td');
@@ -151,12 +199,12 @@ class UsersTab {
 
             const actions = document.createElement('td');
             actions.className = 'admin-users__actions';
-            actions.appendChild(button('Editar', 'admin-btn admin-btn--ghost', 'admin-user-edit',
+            actions.appendChild(button('Editar', 'admin-btn admin-btn--ghost admin-btn--sm', 'admin-user-edit',
                 () => this._renderForm(u)));
-            actions.appendChild(button('Senha', 'admin-btn admin-btn--ghost', 'admin-user-password',
+            actions.appendChild(button('Senha', 'admin-btn admin-btn--ghost admin-btn--sm', 'admin-user-password',
                 () => this._renderPasswordForm(u)));
             if (u.is_active) {
-                const deBtn = button('Desativar', 'admin-btn admin-btn--danger', 'admin-user-deactivate',
+                const deBtn = button('Desativar', 'admin-btn admin-btn--danger admin-btn--sm', 'admin-user-deactivate',
                     () => this._deactivate(u));
                 if (u.id === myId) {
                     deBtn.disabled = true;
@@ -164,7 +212,7 @@ class UsersTab {
                 }
                 actions.appendChild(deBtn);
             } else {
-                actions.appendChild(button('Reativar', 'admin-btn admin-btn--ghost', 'admin-user-reactivate',
+                actions.appendChild(button('Reativar', 'admin-btn admin-btn--ghost admin-btn--sm', 'admin-user-reactivate',
                     () => this._reactivate(u)));
             }
             tr.appendChild(actions);

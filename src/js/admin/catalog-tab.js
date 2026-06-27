@@ -15,6 +15,20 @@ import { apiClient } from '@store/sync/api-client.js';
 import { showConfirm } from '@modals/index.js';
 import { showSuccess, showError } from '@utils';
 import { validateMapLibreStyle } from '@utils/maplibre-style-validate.js';
+import { validateImageFile, readFileAsDataURL, compressImage } from '@utils/image_utils.js';
+import { sectionHeader, card, ICON_CATALOG } from './admin-dom.js';
+
+/** Where a thumbnail data URL is stored in each category's `config` (mirrors the deploy shapes). */
+const THUMB_KEY = {
+    tileset: 'previewThumbnail',
+    data_layer: 'thumbnail',
+    analysis_layer: 'thumbnail',
+    basemap: 'image',
+};
+
+/** Reject an embedded thumbnail whose data URL exceeds this — keeps /api/config from bloating even if
+ * compression silently no-ops (returns the original) on a decode failure. A 420px WebP is ~10-40 KB. */
+const MAX_THUMBNAIL_DATAURL = 256 * 1024;
 
 /** UI categories. `sv360` is special (sv360 admin routes); the rest are `resources` categories. */
 const CATEGORIES = [
@@ -69,6 +83,7 @@ export function createCatalogTab() {
         id: 'catalog',
         label: 'Catálogo',
         testid: 'admin-tab-catalog',
+        icon: ICON_CATALOG,
         mount: (container) => tab.mount(container),
     };
 }
@@ -90,6 +105,9 @@ class CatalogTab {
     _build() {
         const c = this._container;
         c.replaceChildren();
+        c.appendChild(sectionHeader('Catálogo', {
+            subtitle: 'Recursos globais — 3D, 360, dados, análises e basemaps (metadados)',
+        }));
 
         const nav = document.createElement('nav');
         nav.className = 'admin-catalog__nav';
@@ -137,9 +155,8 @@ class CatalogTab {
             () => this._renderResourceForm(category, null)));
         c.appendChild(toolbar);
 
-        const wrap = document.createElement('div');
-        wrap.className = 'admin-users__table-wrap';
-        wrap.dataset.testid = 'admin-catalog-list';
+        const wrap = card({ testid: 'admin-catalog-list', padded: false });
+        wrap.classList.add('admin-users__table-wrap');
         const loading = document.createElement('p');
         loading.className = 'admin-users__status';
         loading.textContent = 'Carregando…';
@@ -219,20 +236,99 @@ class CatalogTab {
         heading.textContent = isEdit ? `Editar: ${resource.name || resource.id}` : 'Novo item';
         form.appendChild(heading);
 
+        const error = document.createElement('div');
+        error.className = 'admin-form__error';
+        error.dataset.testid = 'admin-catalog-error';
+        error.hidden = true;
+        error.setAttribute('role', 'alert');
+
         const idInput = textField(form, 'ID (único)', 'admin-catalog-id', resource?.id ?? '');
         if (isEdit) { idInput.disabled = true; }
         const nameInput = textField(form, 'Nome', 'admin-catalog-name', resource?.name ?? '');
         const descInput = textField(form, 'Descrição', 'admin-catalog-desc', resource?.description ?? '');
         const sortInput = textField(form, 'Ordem', 'admin-catalog-sort', String(resource?.sort_order ?? 0), 'number');
 
-        const configValue = JSON.stringify(resource?.config ?? TEMPLATES[category] ?? {}, null, 2);
-        const configInput = jsonField(form, 'Configuração (JSON)', 'admin-catalog-config', configValue);
+        // Thumbnail upload (all categories): picked file → downscaled → embedded as a base64 data URL
+        // in config (config is anonymous-readable, no out-of-band serving needed). `pendingThumbnail`
+        // stays null until a new file is chosen, so a save that only edited the JSON keeps its value.
+        const thumbKey = THUMB_KEY[category];
+        let pendingThumbnail = null; // a freshly picked thumbnail (data URL)
+        let removeThumbnail = false; // explicit "remove the stored thumbnail"
+        if (thumbKey) {
+            const field = document.createElement('div');
+            field.className = 'admin-form__field';
+            const lab = document.createElement('label');
+            lab.textContent = 'Miniatura (thumbnail)';
+            field.appendChild(lab);
 
-        const error = document.createElement('div');
-        error.className = 'admin-form__error';
-        error.dataset.testid = 'admin-catalog-error';
-        error.hidden = true;
-        error.setAttribute('role', 'alert');
+            const thumb = document.createElement('div');
+            thumb.className = 'admin-thumb';
+            const preview = document.createElement('img');
+            preview.className = 'admin-thumb__preview';
+            preview.alt = '';
+            const current = resource?.config?.[thumbKey];
+            if (current && typeof current === 'string') preview.src = current;
+            else thumb.dataset.empty = 'true';
+            thumb.appendChild(preview);
+
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/png,image/jpeg,image/webp';
+            fileInput.dataset.testid = 'admin-catalog-thumbnail';
+            fileInput.className = 'admin-thumb__input';
+            fileInput.addEventListener('change', async () => {
+                const file = fileInput.files?.[0];
+                if (!file) return;
+                const v = validateImageFile(file);
+                if (!v.valid) { showFormError(error, v.reason); fileInput.value = ''; return; }
+                try {
+                    const raw = await readFileAsDataURL(file);
+                    // WebP keeps transparency (JPEG would flatten it to black) and stays small.
+                    const out = await compressImage(raw, { maxDimension: 420, quality: 0.82, mimeType: 'image/webp' });
+                    if (out.length > MAX_THUMBNAIL_DATAURL) {
+                        showFormError(error, 'Imagem muito grande mesmo após reduzir. Use uma miniatura menor.');
+                        fileInput.value = '';
+                        return;
+                    }
+                    pendingThumbnail = out;
+                    removeThumbnail = false;
+                    preview.src = pendingThumbnail;
+                    delete thumb.dataset.empty;
+                    error.hidden = true;
+                } catch {
+                    showFormError(error, 'Não foi possível processar a imagem.');
+                }
+            });
+            thumb.appendChild(fileInput);
+
+            const controls = document.createElement('div');
+            controls.className = 'admin-thumb__controls';
+            const removeBtn = button('Remover', 'admin-btn admin-btn--ghost admin-btn--sm', 'admin-catalog-thumbnail-remove', () => {
+                removeThumbnail = true;
+                pendingThumbnail = null;
+                fileInput.value = '';
+                preview.removeAttribute('src');
+                thumb.dataset.empty = 'true';
+            });
+            controls.appendChild(removeBtn);
+
+            const hint = document.createElement('p');
+            hint.className = 'admin-form__hint';
+            hint.textContent = 'JPEG, PNG ou WebP — reduzida (WebP) e embutida no catálogo.';
+            field.append(thumb, controls, hint);
+            form.appendChild(field);
+        }
+
+        // Preview VIDEO is 3D-only and out-of-band (large) — referenced by URL, not uploaded.
+        let videoInput = null;
+        if (category === 'tileset') {
+            videoInput = textField(form, 'Vídeo de preview (URL, opcional)', 'admin-catalog-video',
+                resource?.config?.previewVideo ?? '');
+        }
+
+        const configValue = JSON.stringify(resource?.config ?? TEMPLATES[category] ?? {}, null, 2);
+        const configInput = jsonField(form, 'Avançado — configuração (JSON)', 'admin-catalog-config', configValue);
+
         form.appendChild(error);
 
         const actions = document.createElement('div');
@@ -265,6 +361,21 @@ class CatalogTab {
                 if (!v.ok) {
                     showFormError(error, `Estilo MapLibre inválido: ${v.errors.join(' ')}`);
                     return;
+                }
+            }
+
+            // Merge the media fields onto the parsed config. A freshly-picked thumbnail wins; an
+            // explicit "Remover" deletes it; an untouched field keeps the JSON value. The video URL is
+            // set when provided and DELETED when the field is cleared (so removal isn't a no-op).
+            if (config && typeof config === 'object') {
+                if (thumbKey) {
+                    if (removeThumbnail) delete config[thumbKey];
+                    else if (pendingThumbnail) config[thumbKey] = pendingThumbnail;
+                }
+                if (videoInput) {
+                    const vid = videoInput.value.trim();
+                    if (vid) config.previewVideo = vid;
+                    else delete config.previewVideo;
                 }
             }
 
@@ -321,9 +432,8 @@ class CatalogTab {
         note.textContent = 'O envio do bundle 360° é feito fora do painel; aqui você gerencia os metadados (status/exclusão).';
         c.appendChild(note);
 
-        const wrap = document.createElement('div');
-        wrap.className = 'admin-users__table-wrap';
-        wrap.dataset.testid = 'admin-360-list';
+        const wrap = card({ testid: 'admin-360-list', padded: false });
+        wrap.classList.add('admin-users__table-wrap');
         const loading = document.createElement('p');
         loading.className = 'admin-users__status';
         loading.textContent = 'Carregando projetos 360°…';

@@ -77,6 +77,34 @@ describe('ApiClient — auth', () => {
         ]);
     });
 
+    it('fires the auth-lost handler and clears tokens when refresh terminally fails', async () => {
+        const fetchImpl = vi.fn(async (url) => {
+            if (url.endsWith('/auth/refresh')) return resp(401, { error: { code: 'INVALID_REFRESH' } });
+            if (url.endsWith('/atlas')) return resp(401, { error: { code: 'UNAUTHORIZED' } });
+            throw new Error(`unexpected url ${url}`);
+        });
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+        const onAuthLost = vi.fn();
+        api.setAuthLostHandler(onAuthLost);
+
+        await expect(api.listAtlas()).rejects.toBeInstanceOf(ApiError);
+        expect(onAuthLost).toHaveBeenCalledTimes(1);
+        expect(api.isAuthenticated()).toBe(false); // dead tokens dropped
+    });
+
+    it('fires the auth-lost handler at most once across a burst of failures', async () => {
+        const fetchImpl = vi.fn(async () => resp(401, { error: {} }));
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: 'a', refreshToken: 'r' });
+        const onAuthLost = vi.fn();
+        api.setAuthLostHandler(onAuthLost);
+
+        await expect(api.listAtlas()).rejects.toBeTruthy();
+        await expect(api.listAtlas()).rejects.toBeTruthy(); // no refresh token left → no second notify
+        expect(onAuthLost).toHaveBeenCalledTimes(1);
+    });
+
     it('maps a non-2xx error envelope to ApiError', async () => {
         const fetchImpl = vi.fn(async () => resp(403, { error: { code: 'FORBIDDEN', message: 'no access' } }));
         const api = makeClient(fetchImpl);

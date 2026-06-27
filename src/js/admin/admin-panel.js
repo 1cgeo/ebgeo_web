@@ -1,10 +1,10 @@
 // Path: js/admin/admin-panel.js
 
 /**
- * @fileoverview Full-screen admin panel shell (global system admin only).
- * Hosts a tab bar; each tab is a pluggable definition `{ id, label, testid,
- * mount(container) }` whose `mount` may return a cleanup function. The shell owns
- * open/close, tab switching, Esc-to-close, and the ADMIN_PANEL_OPENED/CLOSED events.
+ * @fileoverview Full-screen admin panel shell (global system admin only). An app-shell layout:
+ * a top bar + a LEFT navigation rail + a scrolling content area. Each tab is a pluggable definition
+ * `{ id, label, testid, icon?, mount(container) }` whose `mount` may return a cleanup function. The
+ * shell owns open/close, tab switching, Esc-to-close, and the ADMIN_PANEL_OPENED/CLOSED events.
  * The admin-only gate lives in `index.js#openAdminPanel` (sessionContext.isAdmin()).
  */
 
@@ -12,13 +12,15 @@ import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { setupCleanup, addDomListener, cleanup, removeElement } from '@utils/event-cleanup.js';
 
-const CLOSE_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+const CLOSE_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+const SHIELD_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
 
 /**
  * @typedef {Object} AdminTab
  * @property {string} id - Stable tab id.
  * @property {string} label - pt-BR tab label.
  * @property {string} testid - data-testid for the tab button.
+ * @property {string} [icon] - Optional static SVG markup for the rail icon (no user data).
  * @property {function(HTMLElement): (Function|void)} mount - Renders into the container; may
  *   return a cleanup function called when the tab is left or the panel closes.
  */
@@ -68,19 +70,51 @@ export class AdminPanel {
         getEventBus().emit(EventTypes.ADMIN_PANEL_CLOSED, {});
     }
 
-    /** @private Builds the overlay DOM (header + tab bar + body). */
+    /** @private Builds the overlay DOM (top bar + rail + content area). */
     _build() {
         const overlay = document.createElement('div');
         overlay.className = 'admin-panel';
         overlay.dataset.testid = 'admin-panel';
 
+        overlay.appendChild(this._buildHeader());
+
+        const main = document.createElement('div');
+        main.className = 'admin-panel__main';
+        main.appendChild(this._buildRail());
+
+        const body = document.createElement('div');
+        body.className = 'admin-panel__content';
+        body.dataset.testid = 'admin-body';
+        main.appendChild(body);
+
+        overlay.appendChild(main);
+
+        addDomListener(this, document, 'keydown', (e) => this._onKeydown(e));
+
+        this._overlay = overlay;
+        this._bodyEl = body;
+    }
+
+    /** @private The top bar: brand + title + close. */
+    _buildHeader() {
         const header = document.createElement('header');
         header.className = 'admin-panel__header';
 
+        const brand = document.createElement('div');
+        brand.className = 'admin-panel__brand';
+        const mark = document.createElement('span');
+        mark.className = 'admin-panel__brand-mark';
+        mark.innerHTML = SHIELD_ICON; // static icon, no user data
+        const titles = document.createElement('div');
         const title = document.createElement('h2');
         title.className = 'admin-panel__title';
         title.textContent = 'Administração';
-        header.appendChild(title);
+        const subtitle = document.createElement('p');
+        subtitle.className = 'admin-panel__subtitle';
+        subtitle.textContent = 'Sistema EBGeo';
+        titles.append(title, subtitle);
+        brand.append(mark, titles);
+        header.appendChild(brand);
 
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
@@ -88,44 +122,48 @@ export class AdminPanel {
         closeBtn.dataset.testid = 'admin-close';
         closeBtn.setAttribute('aria-label', 'Fechar');
         closeBtn.innerHTML = CLOSE_ICON; // static icon, no user data
+        addDomListener(this, closeBtn, 'click', () => this.close());
         header.appendChild(closeBtn);
 
-        overlay.appendChild(header);
+        return header;
+    }
 
-        const tabBar = document.createElement('nav');
-        tabBar.className = 'admin-panel__tabs';
-        tabBar.setAttribute('role', 'tablist');
+    /** @private The left navigation rail (vertical tabs). */
+    _buildRail() {
+        const rail = document.createElement('nav');
+        rail.className = 'admin-panel__rail';
+        rail.setAttribute('role', 'tablist');
+        rail.setAttribute('aria-orientation', 'vertical');
         for (const tab of this._tabs) {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'admin-panel__tab';
             btn.dataset.testid = tab.testid;
             btn.setAttribute('role', 'tab');
-            btn.textContent = tab.label;
+            if (tab.icon) {
+                const ic = document.createElement('span');
+                ic.className = 'admin-panel__tab-icon';
+                ic.innerHTML = tab.icon; // static icon, no user data
+                btn.appendChild(ic);
+            }
+            const label = document.createElement('span');
+            label.className = 'admin-panel__tab-label';
+            label.textContent = tab.label;
+            btn.appendChild(label);
             addDomListener(this, btn, 'click', () => this._selectTab(tab.id));
             this._tabButtons.set(tab.id, btn);
-            tabBar.appendChild(btn);
+            rail.appendChild(btn);
         }
-        overlay.appendChild(tabBar);
+        return rail;
+    }
 
-        const body = document.createElement('div');
-        body.className = 'admin-panel__body';
-        body.dataset.testid = 'admin-body';
-        overlay.appendChild(body);
-
-        addDomListener(this, closeBtn, 'click', () => this.close());
-        addDomListener(this, document, 'keydown', (e) => {
-            if (!this._overlay || e.key !== 'Escape') return;
-            // Don't tear down the panel when a dialog/modal is on top (it owns Escape) or while the
-            // user is editing a field — that would discard in-progress input.
-            if (document.querySelector('.modal-overlay, .confirm-modal-overlay, .prompt-modal-overlay')) return;
-            const t = e.target;
-            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
-            this.close();
-        });
-
-        this._overlay = overlay;
-        this._bodyEl = body;
+    /** @private Esc closes the panel — unless a dialog is on top or a field is being edited. */
+    _onKeydown(e) {
+        if (!this._overlay || e.key !== 'Escape') return;
+        if (document.querySelector('.modal-overlay, .confirm-modal-overlay, .prompt-modal-overlay, .idle-warning__overlay')) return;
+        const t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+        this.close();
     }
 
     /**

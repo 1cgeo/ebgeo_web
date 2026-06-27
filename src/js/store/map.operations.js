@@ -346,9 +346,11 @@ export async function setCurrentMap(mapName) {
  * maps carry a real UUID `id` (the local default does not), so we switch to the
  * first UUID-keyed map. No-op when there is none (e.g. a brand-new empty atlas).
  *
+ * @param {string|null} [preferredMapId] - A specific map UUID to activate (e.g. from a `?map=<uuid>`
+ *   deep link). Falls back to the last-active map, then the first named atlas map, when absent or unmatched.
  * @returns {Promise<string|null>} The activated map name, or null when none exists.
  */
-export async function activateAtlasInitialMap() {
+export async function activateAtlasInitialMap(preferredMapId = null) {
     const repo = getRepository();
     const all = await repo.getAllMaps();
     const entries = all instanceof Map ? [...all.entries()] : Object.entries(all || {});
@@ -368,12 +370,14 @@ export async function activateAtlasInitialMap() {
         }
     }
 
-    // Prefer the map the user was last on (so an F5 reconnect returns there), else the first named
-    // atlas map. Resolving BY NAME here is the fix for the UUID-keyed reconnect: setCurrentMap below
-    // persists the NAME so the UI label AND the presence/cursor mapId use the name — not the raw UUID
-    // storage key the boot repository falls back to (which peers, keyed by name, filter out).
+    // Resolution order: an explicitly requested map (e.g. a `?map=<uuid>` deep link) wins; else the
+    // map the user was last on (so an F5 reconnect returns there); else the first named atlas map.
+    // Resolving BY NAME here is the fix for the UUID-keyed reconnect: setCurrentMap below persists the
+    // NAME so the UI label AND the presence/cursor mapId use the name — not the raw UUID storage key
+    // the boot repository falls back to (which peers, keyed by name, filter out).
     const lastName = await getAppSetting('lastActiveMap');
-    let atlasMap = (lastName && uuidMaps.find((m) => m && m.name === lastName))
+    let atlasMap = (preferredMapId && uuidMaps.find((m) => m && m.id === preferredMapId))
+        || (lastName && uuidMaps.find((m) => m && m.name === lastName))
         || uuidMaps.find((m) => m && m.name)
         || uuidMaps[0];
     if (!atlasMap) {

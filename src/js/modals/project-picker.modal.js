@@ -1,288 +1,543 @@
 // Path: js/modals/project-picker.modal.js
 
 /**
- * @fileoverview Project picker modal.
- * Lists backend atlas projects as clickable rows and optionally allows
- * creating a new project. Used by the account orchestrator after login.
+ * @fileoverview Atlas "Drive" — the full-screen project chooser (the "Google Drive of maps"). Lists
+ * the user's server atlases as a card grid with tabs (Recentes / Meus / Compartilhados / Públicos)
+ * and a name search; opening one runs the same onPick pipeline the modal used. Kept under the
+ * `project-picker.modal.js` filename + `showProjectPickerModal` export + the original testids
+ * (`project-picker-modal` / `-item` / `-cancel` / `-create`) so every call site and e2e stays valid.
+ *
+ * Dynamic text via textContent (never innerHTML with atlas data); icons are static SVG.
  */
 
-import { ModalBase } from './modal.base.js';
 import { showCreateAtlasModal } from './create-atlas.modal.js';
-import { addDomListener, addScopedDomListener, clearScopedListeners } from '@utils/event-cleanup.js';
-import { escapeHtml } from '@utils/html-escape.js';
+import { showConfirm } from './confirm.modal.js';
+import { showPrompt } from './prompt.modal.js';
+import { apiClient } from '@store/sync/api-client.js';
+import { syncEngine } from '@store/sync/sync-engine.js';
+import {
+    setupCleanup, addDomListener, addScopedDomListener, clearScopedListeners, cleanup, removeElement,
+} from '@utils/event-cleanup.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
+import { showSuccess, showError } from '@utils';
 
-/**
- * Icons used in the modal.
- */
 const ICONS = {
-    folder: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-    </svg>`,
-    plus: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="12" y1="5" x2="12" y2="19"/>
-        <line x1="5" y1="12" x2="19" y2="12"/>
-    </svg>`,
-    globe: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="10"/>
-        <line x1="2" y1="12" x2="22" y2="12"/>
-        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-    </svg>`
+    plus: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+    dots: `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>`,
+    globe: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+    close: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    search: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
 };
 
-/**
- * Permission chip labels (Google-Docs-style role tags), keyed by the backend's
- * `user_permission` value. Unknown/missing permissions render no chip.
- */
-const PERMISSION_LABELS = Object.freeze({
-    owner: 'Proprietário',
-    write: 'Edição',
-    read: 'Leitura'
-});
+const PERMISSION_LABELS = Object.freeze({ owner: 'Proprietário', write: 'Edição', read: 'Leitura' });
 
-/** Relative-time formatter (pt-BR, "há 2 dias" / "ontem" style). */
+const FILTERS = [
+    { key: 'recentes', label: 'Recentes' },
+    { key: 'meus', label: 'Meus' },
+    { key: 'compartilhados', label: 'Compartilhados comigo' },
+    { key: 'publicos', label: 'Públicos' },
+    { key: 'lixeira', label: 'Lixeira' },
+];
+
 const RELATIVE_TIME_FORMAT = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' });
 
-/**
- * Formats an ISO/parseable timestamp as a pt-BR relative phrase ("há 2 dias",
- * "há 5 minutos"). Falls back to an absolute short date for spans of a week or
- * more, and returns '' for missing/unparseable input (caller omits the part).
- * @param {string|number|Date} [value] - The `updated_at` value.
- * @returns {string} Relative phrase, or '' when undeterminable.
- */
+/** Formats a timestamp as a pt-BR relative phrase, falling back to an absolute date past a week. */
 function formatRelativeTime(value) {
     if (value == null || value === '') return '';
     const then = new Date(value).getTime();
     if (!Number.isFinite(then)) return '';
-
-    const diffMs = then - Date.now();
-    const diffSec = Math.round(diffMs / 1000);
-    const absSec = Math.abs(diffSec);
-
-    const MIN = 60;
-    const HOUR = 3600;
-    const DAY = 86400;
-
-    if (absSec < MIN) return RELATIVE_TIME_FORMAT.format(diffSec, 'second');
-    if (absSec < HOUR) return RELATIVE_TIME_FORMAT.format(Math.round(diffSec / MIN), 'minute');
-    if (absSec < DAY) return RELATIVE_TIME_FORMAT.format(Math.round(diffSec / HOUR), 'hour');
-    if (absSec < DAY * 7) return RELATIVE_TIME_FORMAT.format(Math.round(diffSec / DAY), 'day');
-
-    // A week or more out: an absolute short date reads better than "há 12 dias".
-    return new Date(then).toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-    });
+    const diffSec = Math.round((then - Date.now()) / 1000);
+    const abs = Math.abs(diffSec);
+    if (abs < 60) return RELATIVE_TIME_FORMAT.format(diffSec, 'second');
+    if (abs < 3600) return RELATIVE_TIME_FORMAT.format(Math.round(diffSec / 60), 'minute');
+    if (abs < 86400) return RELATIVE_TIME_FORMAT.format(Math.round(diffSec / 3600), 'hour');
+    if (abs < 86400 * 7) return RELATIVE_TIME_FORMAT.format(Math.round(diffSec / 86400), 'day');
+    return new Date(then).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 /**
- * Project picker modal class.
- * @extends ModalBase
+ * Full-screen atlas Drive.
  */
-export class ProjectPickerModal extends ModalBase {
+export class AtlasDrive {
     /**
-     * @param {Object} options - Modal options
-     * @param {Array<{id:string, name:string, owner_nome?:string, updated_at?:string,
-     *   user_permission?:('owner'|'write'|'read'), is_public?:boolean}>} [options.projects]
-     *   Atlas records (as returned by `apiClient.listAtlas()`) to list.
-     * @param {Function} options.onPick - Called with the picked atlas id; returns a Promise
-     *   (resolve closes the modal).
-     * @param {Function} [options.onCreate] - Optional; called with a new project name when the
-     *   "Novo projeto" button is used; returns a Promise (resolve closes the modal).
+     * @param {Object} options
+     * @param {Array<Object>} [options.projects] - Atlas records from `apiClient.listAtlas()`.
+     * @param {Function} options.onPick - Called with the picked atlas id (Promise; resolve closes).
+     * @param {Function} [options.onCreate] - Called with (name, sharing) for "Novo projeto".
      */
     constructor(options = {}) {
-        super({
-            id: 'project-picker-modal',
-            title: 'Abrir do servidor',
-            icon: ICONS.folder,
-            destroyOnHide: true
-        });
-
         this._projects = Array.isArray(options.projects) ? options.projects : [];
         this._onPick = options.onPick || (() => Promise.resolve());
         this._onCreate = typeof options.onCreate === 'function' ? options.onCreate : null;
         this._busy = false;
+        this._filter = 'recentes';
+        this._query = '';
+        this._trashed = [];
+        this._trashedLoaded = false;
+        this._overlay = null;
+        this._gridEl = null;
+        this._tabButtons = new Map();
+        setupCleanup(this);
     }
 
-    /**
-     * Renders the modal content.
-     * @returns {HTMLElement}
-     */
-    render() {
-        const overlay = super.render();
-        this._overlay.dataset.testid = 'project-picker-modal';
-
-        const body = this.getBody();
-        body.innerHTML = this._createBodyContent();
-
-        this._setupListeners();
-
-        document.body.appendChild(overlay);
-        return overlay;
+    /** Builds + shows the Drive. */
+    show() {
+        if (this._overlay) return;
+        this._previousFocus = document.activeElement; // restore focus to the opener on close (a11y)
+        this._build();
+        document.body.appendChild(this._overlay);
+        document.body.style.overflow = 'hidden';
+        const search = this._overlay.querySelector('.atlas-drive__search-input');
+        if (search) requestAnimationFrame(() => search.focus());
     }
 
-    /**
-     * Creates the body content HTML.
-     * @private
-     * @returns {string}
-     */
-    _createBodyContent() {
-        return `
-            <div class="project-picker">
-                <div class="project-picker__list" role="listbox" aria-label="Projetos do servidor">
-                    ${this._renderProjectsList()}
-                </div>
-                ${this._renderActions()}
-            </div>
-        `;
+    /** Removes the Drive + listeners, returning focus to the control that opened it. */
+    hide() {
+        if (!this._overlay) return;
+        this._closeCardMenu();
+        clearScopedListeners(this, 'grid');
+        cleanup(this);
+        removeElement(this._overlay);
+        this._overlay = null;
+        this._gridEl = null;
+        this._tabButtons.clear();
+        document.body.style.overflow = '';
+        if (this._previousFocus && typeof this._previousFocus.focus === 'function') {
+            this._previousFocus.focus();
+        }
+        this._previousFocus = null;
     }
 
-    /**
-     * Renders the projects list HTML.
-     * @private
-     * @returns {string}
-     */
-    _renderProjectsList() {
-        if (this._projects.length === 0) {
-            return `
-                <div class="project-picker__empty">
-                    Nenhum projeto disponível no servidor
-                </div>
-            `;
+    /** @private */
+    _build() {
+        const overlay = document.createElement('div');
+        overlay.className = 'atlas-drive';
+        overlay.dataset.testid = 'project-picker-modal';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-label', 'Seus projetos');
+
+        overlay.appendChild(this._buildTopbar());
+        overlay.appendChild(this._buildTabs());
+
+        const grid = document.createElement('div');
+        grid.className = 'atlas-drive__grid';
+        grid.dataset.testid = 'project-picker-list';
+        grid.setAttribute('role', 'listbox');
+        grid.setAttribute('aria-label', 'Projetos do servidor');
+        overlay.appendChild(grid);
+
+        addDomListener(this, document, 'keydown', (e) => {
+            // Don't close the Drive when a dialog is layered on top (it owns Escape): generic modals,
+            // confirm/prompt, or the idle-timeout warning.
+            if (e.key === 'Escape' && this._overlay && !document.querySelector('.modal-overlay, .confirm-modal-overlay, .prompt-modal-overlay, .idle-warning__overlay')) {
+                this.hide();
+            }
+        });
+
+        this._overlay = overlay;
+        this._gridEl = grid;
+        this._renderGrid();
+    }
+
+    /** @private Top bar: title + search + new + close. */
+    _buildTopbar() {
+        const bar = document.createElement('header');
+        bar.className = 'atlas-drive__topbar';
+
+        const title = document.createElement('div');
+        const h = document.createElement('h2');
+        h.className = 'atlas-drive__title';
+        h.textContent = 'Seus projetos';
+        const sub = document.createElement('p');
+        sub.className = 'atlas-drive__subtitle';
+        sub.textContent = 'Abra um mapa do servidor ou crie um novo';
+        title.append(h, sub);
+        bar.appendChild(title);
+
+        const tools = document.createElement('div');
+        tools.className = 'atlas-drive__tools';
+
+        const searchWrap = document.createElement('div');
+        searchWrap.className = 'atlas-drive__search';
+        const sIcon = document.createElement('span');
+        sIcon.className = 'atlas-drive__search-icon';
+        sIcon.innerHTML = ICONS.search; // static icon
+        const search = document.createElement('input');
+        search.type = 'search';
+        search.className = 'atlas-drive__search-input';
+        search.placeholder = 'Buscar projeto…';
+        search.dataset.testid = 'project-picker-search';
+        search.addEventListener('input', () => { this._query = search.value; this._renderGrid(); });
+        searchWrap.append(sIcon, search);
+        tools.appendChild(searchWrap);
+
+        if (this._onCreate) {
+            const newBtn = document.createElement('button');
+            newBtn.type = 'button';
+            newBtn.className = 'atlas-drive__btn atlas-drive__btn--primary';
+            newBtn.dataset.testid = 'project-picker-create';
+            newBtn.innerHTML = ICONS.plus; // static icon
+            const t = document.createElement('span');
+            t.textContent = 'Novo projeto';
+            newBtn.appendChild(t);
+            addDomListener(this, newBtn, 'click', () => this._handleCreate());
+            tools.appendChild(newBtn);
         }
 
-        return this._projects.map((project) => this._renderProjectItem(project)).join('');
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'atlas-drive__close';
+        closeBtn.dataset.testid = 'project-picker-cancel';
+        closeBtn.setAttribute('aria-label', 'Fechar');
+        closeBtn.innerHTML = ICONS.close; // static icon
+        addDomListener(this, closeBtn, 'click', () => this.hide());
+        tools.appendChild(closeBtn);
+
+        bar.appendChild(tools);
+        return bar;
+    }
+
+    /** @private Filter tabs. */
+    _buildTabs() {
+        const tabs = document.createElement('nav');
+        tabs.className = 'atlas-drive__tabs';
+        tabs.setAttribute('role', 'tablist');
+        for (const f of FILTERS) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'atlas-drive__tab';
+            btn.dataset.testid = `project-picker-tab-${f.key}`;
+            btn.setAttribute('role', 'tab');
+            btn.textContent = f.label;
+            if (f.key === this._filter) btn.classList.add('atlas-drive__tab--active');
+            addDomListener(this, btn, 'click', () => this._switchFilter(f.key));
+            this._tabButtons.set(f.key, btn);
+            tabs.appendChild(btn);
+        }
+        return tabs;
+    }
+
+    /** @private The atlases matching the active tab + search. */
+    _visible() {
+        const q = this._query.trim().toLowerCase();
+        const list = q ? this._projects.filter((p) => (p?.name ?? '').toLowerCase().includes(q)) : this._projects;
+        switch (this._filter) {
+            case 'meus':
+                return list.filter((p) => p?.user_permission === 'owner');
+            case 'compartilhados':
+                return list.filter((p) => p?.user_permission && p.user_permission !== 'owner');
+            case 'publicos':
+                return list.filter((p) => p?.is_public);
+            case 'recentes':
+            default:
+                return [...list].sort((a, b) => new Date(b?.updated_at ?? 0) - new Date(a?.updated_at ?? 0));
+        }
     }
 
     /**
-     * Renders a single project row, Google-Docs style: avatar + name, a subtitle
-     * line with author and last-modified time, an optional "Público" badge, and a
-     * permission chip on the right.
-     * @private
-     * @param {Object} project - Atlas record from `apiClient.listAtlas()`.
-     * @returns {string}
+     * @private Switches the active tab. The Trash tab lazy-loads the caller's soft-deleted atlases
+     * (a separate endpoint from listAtlas) on first open.
+     * @param {string} key
      */
-    _renderProjectItem(project) {
-        const rawId = String(project?.id ?? '');
-        const id = escapeHtml(rawId);
-        const name = escapeHtml(project?.name ?? '');
-        // Avatar with the atlas initials on a stable per-atlas color (same
-        // palette used for presence), keyed on the atlas id so the badge
-        // hue is recognizable and consistent for a given project.
-        const initials = escapeHtml(getInitials(project?.name ?? ''));
-        const color = escapeHtml(getPresenceColor(rawId));
+    async _switchFilter(key) {
+        this._filter = key;
+        for (const [k, b] of this._tabButtons) b.classList.toggle('atlas-drive__tab--active', k === key);
+        if (key === 'lixeira' && !this._trashedLoaded) {
+            try {
+                const list = await apiClient.listTrashedAtlas();
+                this._trashed = Array.isArray(list) ? list : [];
+                this._trashedLoaded = true;
+            } catch (error) {
+                showError(error?.message || 'Não foi possível carregar a lixeira.');
+            }
+        }
+        this._renderGrid();
+    }
 
-        const permission = project?.user_permission;
-        const subtitle = this._buildSubtitle(project);
-        const publicBadge = project?.is_public
-            ? `<span class="project-picker__public" title="Compartilhado por link público">
-                   ${ICONS.globe}<span>Público</span>
-               </span>`
-            : '';
-        const permissionChip = PERMISSION_LABELS[permission]
-            ? `<span class="project-picker__chip project-picker__chip--${escapeHtml(permission)}">
-                   ${escapeHtml(PERMISSION_LABELS[permission])}
-               </span>`
-            : '';
-        const ariaLabel = escapeHtml(
-            subtitle.text ? `${project?.name ?? ''} — ${subtitle.plain}` : (project?.name ?? '')
+    /** @private Rebuilds the card grid from the current filter/search. */
+    _renderGrid() {
+        if (!this._gridEl) return;
+        // Release the previous cards' listeners before detaching them — _renderGrid runs on every
+        // keystroke/tab-switch/refresh, so without this the tracked-listener bucket grows unbounded.
+        clearScopedListeners(this, 'grid');
+        this._gridEl.replaceChildren();
+        const isTrash = this._filter === 'lixeira';
+        const q = this._query.trim().toLowerCase();
+        const matches = (p) => !q || (p?.name ?? '').toLowerCase().includes(q);
+        // The search box applies on every tab, including Lixeira.
+        const list = (isTrash ? this._trashed.filter(matches) : this._visible());
+        if (list.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'atlas-drive__empty';
+            empty.dataset.testid = 'project-picker-empty';
+            empty.textContent = isTrash
+                ? (this._query ? 'Nenhum projeto na lixeira corresponde à busca.' : 'A lixeira está vazia.')
+                : (this._query ? 'Nenhum projeto corresponde à busca.' : 'Nenhum projeto nesta categoria.');
+            this._gridEl.appendChild(empty);
+            return;
+        }
+        for (const project of list) {
+            this._gridEl.appendChild(isTrash ? this._trashCard(project) : this._card(project));
+        }
+    }
+
+    /** @private A single atlas card (the `project-picker-item`) wrapped with its actions menu button. */
+    _card(project) {
+        const id = String(project?.id ?? '');
+        const wrap = document.createElement('div');
+        wrap.className = 'atlas-drive__card-wrap';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'atlas-drive__card';
+        btn.dataset.testid = 'project-picker-item';
+        btn.dataset.atlasId = id;
+        btn.setAttribute('role', 'option');
+        const sub = this._subtitle(project);
+        btn.setAttribute('aria-label', sub ? `${project?.name ?? ''} — ${sub}` : (project?.name ?? ''));
+
+        const thumb = document.createElement('div');
+        thumb.className = 'atlas-drive__thumb';
+        thumb.style.backgroundColor = getPresenceColor(id);
+        thumb.textContent = getInitials(project?.name ?? '');
+        btn.appendChild(thumb);
+
+        const body = document.createElement('div');
+        body.className = 'atlas-drive__card-body';
+
+        const name = document.createElement('div');
+        name.className = 'atlas-drive__card-name';
+        name.textContent = project?.name ?? '';
+        body.appendChild(name);
+
+        const meta = document.createElement('div');
+        meta.className = 'atlas-drive__card-meta';
+        meta.textContent = this._subtitle(project);
+        body.appendChild(meta);
+
+        const tags = document.createElement('div');
+        tags.className = 'atlas-drive__card-tags';
+        if (PERMISSION_LABELS[project?.user_permission]) {
+            const chip = document.createElement('span');
+            chip.className = `atlas-drive__chip atlas-drive__chip--${project.user_permission}`;
+            chip.textContent = PERMISSION_LABELS[project.user_permission];
+            tags.appendChild(chip);
+        }
+        if (project?.is_public) {
+            const pub = document.createElement('span');
+            pub.className = 'atlas-drive__public';
+            pub.innerHTML = ICONS.globe; // static icon
+            const t = document.createElement('span');
+            t.textContent = 'Público';
+            pub.appendChild(t);
+            tags.appendChild(pub);
+        }
+        body.appendChild(tags);
+
+        btn.appendChild(body);
+        addScopedDomListener(this, 'grid', btn, 'click', () => this._handlePick(id));
+        wrap.appendChild(btn);
+
+        // Actions menu (⋯) — a sibling button (a card is a <button>, so it cannot be nested).
+        const menuBtn = document.createElement('button');
+        menuBtn.type = 'button';
+        menuBtn.className = 'atlas-drive__menu-btn';
+        menuBtn.dataset.testid = 'project-picker-menu';
+        menuBtn.setAttribute('aria-label', 'Mais ações');
+        menuBtn.innerHTML = ICONS.dots; // static icon
+        addScopedDomListener(this, 'grid', menuBtn, 'click', (e) => {
+            e.stopPropagation();
+            this._openCardMenu(project, menuBtn);
+        });
+        wrap.appendChild(menuBtn);
+
+        return wrap;
+    }
+
+    /**
+     * @private Opens the card actions menu near the ⋯ button. Actions are gated by the user's role
+     * on that atlas: rename needs write, trash needs ownership, "make a copy" needs only read.
+     */
+    _openCardMenu(project, anchorBtn) {
+        // Re-clicking the same ⋯ button toggles its menu shut.
+        if (this._cardMenu && this._cardMenuAnchor === anchorBtn) {
+            this._closeCardMenu();
+            return;
+        }
+        this._closeCardMenu();
+        const perm = project?.user_permission;
+        const canWrite = perm === 'owner' || perm === 'write';
+        const canOwn = perm === 'owner';
+
+        const menu = document.createElement('div');
+        menu.className = 'atlas-drive__menu';
+        menu.dataset.testid = 'project-picker-menu-popup';
+        const rect = anchorBtn.getBoundingClientRect();
+        menu.style.top = `${Math.round(rect.bottom + 4)}px`;
+        menu.style.left = `${Math.round(rect.right - 200)}px`;
+
+        const addItem = (label, testid, danger, fn) => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = `atlas-drive__menu-item${danger ? ' atlas-drive__menu-item--danger' : ''}`;
+            item.dataset.testid = testid;
+            item.textContent = label;
+            item.addEventListener('click', () => { this._closeCardMenu(); fn(); });
+            menu.appendChild(item);
+        };
+
+        if (canWrite) addItem('Renomear', 'project-picker-rename', false, () => this._rename(project));
+        addItem('Fazer uma cópia', 'project-picker-duplicate', false, () => this._duplicate(project));
+        if (canOwn) addItem('Mover para lixeira', 'project-picker-trash', true, () => this._trash(project));
+
+        this._overlay.appendChild(menu);
+        this._cardMenu = menu;
+        this._cardMenuAnchor = anchorBtn;
+        this._menuOutside = (e) => {
+            // anchorBtn.contains(target) — the click may land on the button's inner <svg>, which is
+            // NOT === anchorBtn; without contains() the button's own click reads as "outside".
+            if (!menu.contains(e.target) && !anchorBtn.contains(e.target)) this._closeCardMenu();
+        };
+        // Defer so the opening click doesn't immediately close the menu. Handle stored for teardown.
+        this._menuTimer = setTimeout(() => {
+            this._menuTimer = null;
+            document.addEventListener('mousedown', this._menuOutside);
+        }, 0);
+    }
+
+    /** @private */
+    _closeCardMenu() {
+        if (this._menuTimer != null) { clearTimeout(this._menuTimer); this._menuTimer = null; }
+        if (this._cardMenu) { this._cardMenu.remove(); this._cardMenu = null; }
+        this._cardMenuAnchor = null;
+        if (this._menuOutside) { document.removeEventListener('mousedown', this._menuOutside); this._menuOutside = null; }
+    }
+
+    /** @private Re-fetches the atlas list and re-renders the grid (after an action). */
+    async _refresh() {
+        try {
+            const list = await apiClient.listAtlas();
+            this._projects = Array.isArray(list) ? list : [];
+        } catch (error) {
+            showError(error?.message || 'Não foi possível atualizar a lista.');
+        }
+        this._renderGrid();
+    }
+
+    /** @private Rename via a prompt → PUT /atlas/:id. */
+    async _rename(project) {
+        const name = await showPrompt('Renomear projeto', project?.name ?? '');
+        if (name == null) return;
+        const trimmed = name.trim();
+        if (!trimmed || trimmed === project?.name) return;
+        try {
+            await apiClient.updateAtlas(project.id, { name: trimmed });
+            showSuccess('Projeto renomeado.');
+            await this._refresh();
+        } catch (error) {
+            showError(error?.message || 'Falha ao renomear o projeto.');
+        }
+    }
+
+    /** @private Make a copy → POST /atlas/:id/clone. */
+    async _duplicate(project) {
+        try {
+            await apiClient.cloneAtlas(project.id, { name: `${project?.name ?? 'Projeto'} (cópia)` });
+            showSuccess('Cópia criada.');
+            await this._refresh();
+        } catch (error) {
+            showError(error?.message || 'Falha ao duplicar o projeto.');
+        }
+    }
+
+    /** @private Move to trash (soft-delete) → DELETE /atlas/:id. */
+    async _trash(project) {
+        const ok = await showConfirm(
+            `Mover "${project?.name ?? ''}" para a lixeira? Você poderá restaurá-lo depois.`,
+            { destructive: true, confirmText: 'Mover para lixeira' },
         );
-
-        return `
-            <button type="button" class="project-picker__item" role="option"
-                    data-testid="project-picker-item" data-atlas-id="${id}"
-                    aria-label="${ariaLabel}">
-                <span class="project-picker__badge" aria-hidden="true"
-                      style="background-color: ${color};">${initials}</span>
-                <span class="project-picker__main">
-                    <span class="project-picker__name">${name}</span>
-                    ${subtitle.text ? `<span class="project-picker__meta">${subtitle.text}</span>` : ''}
-                </span>
-                <span class="project-picker__tags">
-                    ${publicBadge}
-                    ${permissionChip}
-                </span>
-            </button>
-        `;
+        if (!ok) return;
+        // Trashing the CURRENTLY-CONNECTED atlas: the server broadcasts `atlas_deleted`, which the
+        // client handles by tearing down the session and reopening the picker. Close THIS Drive first
+        // so a second one isn't stacked on top, and skip the local success/refresh (the teardown owns it).
+        const isConnected = syncEngine.atlasId && String(syncEngine.atlasId) === String(project?.id);
+        try {
+            await apiClient.deleteAtlas(project.id);
+            if (isConnected) {
+                this.hide();
+                return;
+            }
+            showSuccess('Projeto movido para a lixeira.');
+            this._trashedLoaded = false; // re-fetch the trash next time it is opened
+            await this._refresh();
+        } catch (error) {
+            showError(error?.message || 'Falha ao mover o projeto para a lixeira.');
+        }
     }
 
-    /**
-     * Builds the subtitle line ("por Você · modificado há 2 dias"). The author is
-     * "Você" for owned atlases, else the owner's display name. The modified part is
-     * omitted when `updated_at` is missing/unparseable.
-     * @private
-     * @param {Object} project
-     * @returns {{ text: string, plain: string }} Escaped HTML and a plain-text variant.
-     */
-    _buildSubtitle(project) {
-        const author = project?.user_permission === 'owner'
-            ? 'Você'
-            : (project?.owner_nome ?? '').trim();
+    /** @private A trashed-atlas card: not openable; offers a Restaurar action. */
+    _trashCard(project) {
+        const id = String(project?.id ?? '');
+        const card = document.createElement('div');
+        card.className = 'atlas-drive__card atlas-drive__card--trash';
+        card.dataset.testid = 'project-picker-trash-item';
+        card.dataset.atlasId = id;
 
+        const thumb = document.createElement('div');
+        thumb.className = 'atlas-drive__thumb';
+        thumb.style.backgroundColor = getPresenceColor(id);
+        thumb.textContent = getInitials(project?.name ?? '');
+        card.appendChild(thumb);
+
+        const body = document.createElement('div');
+        body.className = 'atlas-drive__card-body';
+        const name = document.createElement('div');
+        name.className = 'atlas-drive__card-name';
+        name.textContent = project?.name ?? '';
+        const meta = document.createElement('div');
+        meta.className = 'atlas-drive__card-meta';
+        const when = formatRelativeTime(project?.deleted_at);
+        meta.textContent = when ? `excluído ${when}` : 'na lixeira';
+        const restoreBtn = document.createElement('button');
+        restoreBtn.type = 'button';
+        restoreBtn.className = 'atlas-drive__btn atlas-drive__btn--ghost atlas-drive__restore';
+        restoreBtn.dataset.testid = 'project-picker-restore';
+        restoreBtn.textContent = 'Restaurar';
+        addScopedDomListener(this, 'grid', restoreBtn, 'click', () => this._restore(project));
+        body.append(name, meta, restoreBtn);
+
+        card.appendChild(body);
+        return card;
+    }
+
+    /** @private Restore a trashed atlas → POST /atlas/:id/restore. */
+    async _restore(project) {
+        try {
+            await apiClient.restoreAtlas(project.id);
+            showSuccess('Projeto restaurado.');
+            this._trashed = (this._trashed || []).filter((p) => p.id !== project.id);
+            try {
+                const list = await apiClient.listAtlas();
+                if (Array.isArray(list)) this._projects = list;
+            } catch { /* keep the cached list */ }
+            this._renderGrid();
+        } catch (error) {
+            showError(error?.message || 'Falha ao restaurar o projeto.');
+        }
+    }
+
+    /** @private "por Você · modificado há 2 dias". */
+    _subtitle(project) {
+        const author = project?.user_permission === 'owner' ? 'Você' : (project?.owner_nome ?? '').trim();
         const parts = [];
         if (author) parts.push(`por ${author}`);
-
         const relative = formatRelativeTime(project?.updated_at);
         if (relative) parts.push(`modificado ${relative}`);
-
-        const plain = parts.join(' · ');
-        return { text: escapeHtml(plain), plain };
+        return parts.join(' · ');
     }
 
-    /**
-     * Renders the footer actions HTML.
-     * @private
-     * @returns {string}
-     */
-    _renderActions() {
-        const createBtn = this._onCreate
-            ? `<button type="button" class="prompt-modal-btn prompt-modal-btn-confirm project-picker__create"
-                       data-testid="project-picker-create">
-                   ${ICONS.plus}
-                   <span>Novo projeto</span>
-               </button>`
-            : '';
-
-        return `
-            <div class="project-picker__actions">
-                <button type="button" class="prompt-modal-btn prompt-modal-btn-cancel project-picker__cancel"
-                        data-testid="project-picker-cancel">
-                    Cancelar
-                </button>
-                ${createBtn}
-            </div>
-        `;
-    }
-
-    /**
-     * Sets up event listeners.
-     * @private
-     */
-    _setupListeners() {
-        const body = this.getBody();
-
-        const cancelBtn = body.querySelector('.project-picker__cancel');
-        addDomListener(this, cancelBtn, 'click', () => this.hide());
-
-        const createBtn = body.querySelector('.project-picker__create');
-        if (createBtn) {
-            addDomListener(this, createBtn, 'click', () => this._handleCreate());
-        }
-
-        const items = body.querySelectorAll('.project-picker__item');
-        items.forEach((item) => {
-            addScopedDomListener(this, 'rows', item, 'click', () => {
-                this._handlePick(item.dataset.atlasId);
-            });
-        });
-    }
-
-    /**
-     * Handles picking a project row.
-     * @private
-     * @param {string} atlasId - Selected atlas id
-     */
+    /** @private */
     async _handlePick(atlasId) {
         if (this._busy || !atlasId) return;
         this._busy = true;
@@ -294,12 +549,7 @@ export class ProjectPickerModal extends ModalBase {
         }
     }
 
-    /**
-     * Handles creating a new project. Opens the create-atlas dialog (name + inline sharing
-     * options, §item5); on success it forwards the name + staged sharing to our onCreate and
-     * closes the picker. The create dialog stays open on failure so the user can retry.
-     * @private
-     */
+    /** @private Opens the create-atlas dialog; forwards name + sharing to onCreate, then closes. */
     _handleCreate() {
         if (!this._onCreate) return;
         const onCreate = this._onCreate;
@@ -307,27 +557,18 @@ export class ProjectPickerModal extends ModalBase {
             onCreate: async (name, sharing) => {
                 await onCreate(name, sharing);
                 this.hide();
-            }
+            },
         });
-    }
-
-    /**
-     * Hides the modal, clearing scoped row listeners first.
-     */
-    hide() {
-        clearScopedListeners(this, 'rows');
-        super.hide();
     }
 }
 
 /**
- * Helper to show the project picker modal.
- * @param {Object} options - See {@link ProjectPickerModal} constructor.
- * @returns {ProjectPickerModal} Modal instance
+ * Shows the atlas Drive (full-screen project chooser).
+ * @param {Object} options - See {@link AtlasDrive}.
+ * @returns {AtlasDrive}
  */
 export function showProjectPickerModal(options = {}) {
-    const modal = new ProjectPickerModal(options);
-    modal.render();
-    modal.show();
-    return modal;
+    const drive = new AtlasDrive(options);
+    drive.show();
+    return drive;
 }

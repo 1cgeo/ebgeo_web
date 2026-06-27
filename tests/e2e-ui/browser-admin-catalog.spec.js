@@ -142,4 +142,34 @@ describeOrSkip('Admin panel — Catálogo tab (real browser + real backend)', ()
         }, id);
         expect(styleOk).toBe(true);
     });
+
+    test('uploads a thumbnail for a data layer — embedded as a data URL in config', async ({ page }) => {
+        const admin = await seedAdmin(page, state.baseUrl, state.dbName);
+        await loginAndOpenCatalog(page, state.baseUrl, admin);
+
+        const id = `dl_${Math.random().toString(36).slice(2, 8)}`;
+        await page.locator('[data-testid="admin-cat-data_layer"]').click();
+        await page.locator('[data-testid="admin-catalog-new"]').click();
+        await page.locator('[data-testid="admin-catalog-id"]').fill(id);
+        await page.locator('[data-testid="admin-catalog-name"]').fill('Com Thumb');
+        await page.locator('[data-testid="admin-catalog-config"]').fill('{"source":{"type":"vector","url":"/x"},"sourceLayer":"x"}');
+
+        // Pick a tiny PNG; the form downscales it and embeds it as a data URL (no out-of-band serving).
+        const png = globalThis.Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+        await page.locator('[data-testid="admin-catalog-thumbnail"]')
+            .setInputFiles({ name: 't.png', mimeType: 'image/png', buffer: png });
+        await expect(page.locator('.admin-thumb__preview'))
+            .toHaveAttribute('src', /^data:image/, { timeout: 5000 });
+
+        await page.locator('[data-testid="admin-catalog-save"]').click();
+        await expect(page.locator('[data-testid="admin-catalog-list"]')).toContainText(id, { timeout: 10000 });
+
+        // The stored resource carries the thumbnail as an embedded data URL.
+        const thumb = await page.evaluate(async (rid) => {
+            const { apiClient } = await import('/src/js/store/sync/api-client.js');
+            const items = await apiClient.listResources('data_layer');
+            return (items || []).find((r) => r.id === rid)?.config?.thumbnail ?? null;
+        }, id);
+        expect(thumb).toMatch(/^data:image/);
+    });
 });

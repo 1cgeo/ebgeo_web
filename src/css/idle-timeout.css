@@ -1,0 +1,81 @@
+/* Path: src/css/idle-timeout.css */
+
+/*
+ * Idle session-timeout warning. A focused alert dialog (not the generic modal) shown when the
+ * session is about to expire from inactivity, with a live countdown + "stay connected" choice.
+ * BEM block: .idle-warning.
+ */
+
+.idle-warning__overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-toast); /* above modals — it is session-critical */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    background: rgb(17 24 39 / 55%);
+}
+
+.idle-warning__dialog {
+    width: 100%;
+    max-width: 420px;
+    padding: var(--space-6);
+    background: #fff;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    text-align: center;
+}
+
+.idle-warning__title {
+    margin: 0 0 var(--space-2);
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    color: var(--gray-900);
+}
+
+.idle-warning__message {
+    margin: 0 0 var(--space-6);
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-normal);
+    color: var(--gray-600);
+}
+
+.idle-warning__countdown {
+    color: var(--color-error);
+    font-weight: var(--font-weight-bold);
+}
+
+.idle-warning__actions {
+    display: flex;
+    gap: var(--space-2);
+    justify-content: center;
+}
+
+.idle-warning__btn {
+    padding: var(--space-2) var(--space-4);
+    border: var(--border-width) solid transparent;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+}
+
+.idle-warning__btn--primary {
+    background: var(--primary);
+    color: #fff;
+}
+
+.idle-warning__btn--primary:hover {
+    background: var(--primary-hover);
+}
+
+.idle-warning__btn--ghost {
+    background: #fff;
+    border-color: var(--border-color);
+    color: var(--gray-700);
+}
+
+.idle-warning__btn--ghost:hover {
+    background: var(--gray-100);
+}

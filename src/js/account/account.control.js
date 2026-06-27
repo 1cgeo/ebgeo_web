@@ -12,6 +12,8 @@ import { startAutoFlush, stopAutoFlush } from '@store/sync/sync-flush.js';
 import { clearAllDataStore, activateAtlasInitialMap, markStoreRemote, markStoreLocal, isRemoteStoreSync, hasAnyMapFeatures } from '@store/store.js';
 import { getControl } from '@store';
 import { saveLocalAtlasToServer } from '@js/import_export/save-local-atlas.service.js';
+import { openRemoteAtlas } from '@js/account/open-atlas.service.js';
+import { consumePendingAtlasLink } from '@js/deep-link/atlas-link.js';
 import { showCreateAtlasModal } from '@modals/create-atlas.modal.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
@@ -662,7 +664,16 @@ export class AccountControl {
     }
 
     /**
-     * Open the login modal, authenticate, then advance to the project picker.
+     * Public entry to open the login modal — used by the boot router when a `?atlas=` deep link is
+     * hit while logged out, so the pending atlas resumes after authentication.
+     */
+    requestLogin() {
+        return this._handleLogin();
+    }
+
+    /**
+     * Open the login modal, authenticate, then advance to the project picker (or, when a `?atlas=`
+     * deep link is pending, straight to that atlas).
      * @private
      */
     async _handleLogin() {
@@ -683,6 +694,22 @@ export class AccountControl {
                 // Login resolved: remember the display name and refresh the UI.
                 this._username = credentials.username;
                 this._render();
+                // A `?atlas=` deep link hit while logged out resumes straight to that atlas; otherwise
+                // advance to project selection.
+                const pending = consumePendingAtlasLink();
+                if (pending) {
+                    try {
+                        const opened = await openRemoteAtlas(pending.atlasId, { mapId: pending.mapId });
+                        if (opened) {
+                            showSuccess('Projeto carregado do servidor');
+                            return;
+                        }
+                        // User declined the "replace local work" confirm → fall through to the picker.
+                    } catch (error) {
+                        console.warn('[AccountControl] pending atlas resume failed:', error);
+                        showError('Não foi possível abrir o projeto pedido. Escolha um projeto.');
+                    }
+                }
                 // The modal closes on resolve; advance to project selection.
                 await this.openProjectPicker();
             },
@@ -817,6 +844,29 @@ export class AccountControl {
         } catch (error) {
             showError('Falha ao sair da conta');
             console.error('[AccountControl] logout failed:', error);
+        }
+    }
+
+    /**
+     * Session lost mid-use (idle timeout, or a refresh that finally failed): tear down to a blank
+     * local atlas and re-open login. Guarded against concurrent triggers (idle + a 401 racing).
+     * @param {string} [message] - A toast explaining why the user is back at the login screen.
+     */
+    async handleSessionLost(message) {
+        if (this._sessionLostHandling) return;
+        this._sessionLostHandling = true;
+        try {
+            if (sessionContext.isAuthenticated()) {
+                await this._handleLogout();
+            }
+            if (message) showWarning(message);
+            // The idle-timeout and the lost-auth (401) paths can both reach this near-simultaneously;
+            // don't stack a second login modal if one is already up.
+            if (!document.querySelector('[data-testid="login-modal"]')) {
+                this.requestLogin();
+            }
+        } finally {
+            this._sessionLostHandling = false;
         }
     }
 

@@ -27,6 +27,8 @@
 @import url('./modals-redesign.css');
 @import url('./account.css');
 @import url('./admin.css');
+@import url('./idle-timeout.css');
+@import url('./atlas-drive.css');
 @import url('./sharing.css');
 @import url('./presence.css');
 @import url('./comment.css');

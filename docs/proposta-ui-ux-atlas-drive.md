@@ -78,8 +78,12 @@ redesenho do "Drive" ao domínio remoto.
 
 ### Objetivo
 Substituir o modal por uma **tela cheia** estilo Google Drive, exibida ao entrar logado e acessível
-a qualquer momento. Recursos: abas/filtros (**Meus** / **Compartilhados comigo** / **Públicos** /
-**Recentes**), **busca por nome**, e **thumbnail** por atlas.
+a qualquer momento. Recursos: abas/filtros (**Recentes** / **Meus** / **Compartilhados comigo** /
+**Públicos**) e **busca por nome**.
+
+> **Thumbnail por atlas: DESCOPADO** (decisão do usuário). Não haverá snapshot/upload de miniatura do
+> mapa por atlas. Os cards do Drive usam uma **faixa colorida com iniciais** (cor estável por atlas)
+> como identificador visual. *(O upload de thumbnail do **catálogo**, §9.3, é outra coisa e permanece.)*
 
 ### O que já temos de graça
 O `project-picker.modal.js` já consome `apiClient.listAtlas()` e já distingue dono, papel
@@ -96,12 +100,11 @@ integralmente — muda só a **casca de apresentação** (modal → tela cheia +
 - Novo componente de tela cheia (reusa o modo de visibilidade de UI; ver `ApplicationModeManager`).
 - Abas/filtros sobre `listAtlas()` (dados já vêm com dono/papel/público).
 - Busca client-side por nome (lista costuma ser pequena; sem endpoint novo).
-- Pipeline de thumbnail (captura + persistência + exibição). **Maior item de esforço.**
+- ~~Pipeline de thumbnail (captura + persistência + exibição).~~ **Descopado** (ver acima).
 
 ### Toque no backend
-- Campo de metadado do atlas para o thumbnail (blob ou referência). Migração **aditiva**
-  (`ADD COLUMN`). Sem rota de escrita nova de entidade colaborativa — thumbnail é metadado de atlas,
-  não entidade de sync.
+- Nenhum (o campo de thumbnail do atlas foi descopado). A seleção (`onPick`), o `listAtlas` e os
+  endpoints de rename/clone/delete já existem.
 
 ---
 
@@ -421,7 +424,7 @@ preview.
 
 | # | Frente | Decisão | Esforço | Toque backend |
 |---|--------|---------|---------|---------------|
-| 1 | Drive de atlas | Tela cheia só logado (P12 mantido); abas + busca + thumbnail | **Alto** (thumbnail) | Aditivo (metadado de thumbnail) |
+| 1 | Drive de atlas | Tela cheia só logado (P12 mantido); abas + busca + cards (thumbnail do atlas **descopado**) | **Médio** | Nenhum |
 | 2 | Logout em branco | Já implementado; manter como invariante | **Nenhum** | Nenhum |
 | 3 | URL por atlas | `?atlas=<uuid>&map=<id>` (UUID); branch de boot com precedências | **Médio** | Nenhum |
 | 4 | Expiração | Idle timeout client-side (+ cap absoluto opcional no backend) | **Médio** | Opcional (etapa 2) |
