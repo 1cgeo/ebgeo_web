@@ -19,6 +19,9 @@ import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
 import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
 import { hexToCesiumColor } from '../services/cesium-color.js';
+import { presenceStore } from '@js/presence/presence-store.js';
+import { getPresenceColor } from '@js/presence/presence-colors.js';
+import { sessionContext } from '@store/sync/session-context.js';
 
 // ===== MODULE STATE =====
 
@@ -28,6 +31,11 @@ let currentTilesetId = null;
 let clickHandler = null;
 const markerEntities = new Map(); // markerId -> Cesium.Entity
 let selectedMarkerId = null;
+
+// Remote peers' selections (multiuser presence): markerId -> highlight Entity
+// (a colored ring + name label). Kept fully separate from `markerEntities` and
+// `selectedMarkerId` so a peer's highlight never disturbs the LOCAL selection visual.
+const remoteSelectionEntities = new Map();
 
 // Markers loaded for the current tileset (kept so temporal cursor/toggle changes
 // can re-filter without re-reading the store). markerId -> marker data.
@@ -195,6 +203,9 @@ function removeMarkerEntity(markerId) {
  */
 function clearAllMarkerEntities() {
     if (!currentViewer) return;
+
+    // Remote-selection highlights anchor to marker positions — drop them first.
+    clearRemoteSelections3D();
 
     for (const entity of markerEntities.values()) {
         currentViewer.entities.remove(entity);
@@ -489,6 +500,123 @@ function emitMarkerDeselected() {
     }
 }
 
+// ===== REMOTE SELECTION (MULTIUSER PRESENCE) =====
+
+/**
+ * Builds/refreshes the highlight entities for peers' 3D selections on the current
+ * tileset. Each remotely-selected marker gets a colored ring + name label in the
+ * peer's stable presence color, kept fully separate from the local selection
+ * visual. Self is excluded; markers not present on this tileset are skipped (so the
+ * highlight is naturally scoped to the same map). No-op when the viewer is closed.
+ */
+export function renderRemoteSelections3D() {
+    if (!currentViewer || currentViewer.isDestroyed?.() || !window.Cesium) return;
+
+    const selfClientId = sessionContext.clientId;
+    const selfUserId = sessionContext.userId;
+    const selections = currentTilesetId
+        ? presenceStore.getSelections('3d', currentTilesetId)
+        : [];
+
+    // Flatten to markerId -> { color, name }, excluding self and absent markers.
+    const wanted = new Map();
+    for (const sel of selections) {
+        const ownerKey = String(sel.clientId ?? '');
+        const isSelf = (selfClientId != null && ownerKey === String(selfClientId))
+            || (selfUserId != null && ownerKey === String(selfUserId));
+        if (isSelf) continue;
+
+        const color = getPresenceColor(String(sel.userId || sel.clientId || ''));
+        const name = sel.userName || '';
+        for (const markerId of sel.featureIds) {
+            if (markerEntities.has(markerId)) {
+                wanted.set(String(markerId), { color, name });
+            }
+        }
+    }
+
+    // Remove highlights no longer wanted.
+    for (const markerId of [...remoteSelectionEntities.keys()]) {
+        if (!wanted.has(markerId)) {
+            removeRemoteSelectionEntity(markerId);
+        }
+    }
+
+    // Add/refresh wanted highlights.
+    for (const [markerId, info] of wanted.entries()) {
+        upsertRemoteSelectionEntity(markerId, info.color, info.name);
+    }
+}
+
+/**
+ * Creates or refreshes the highlight entity (ring + name label) for one peer-selected
+ * marker, anchored to the marker's live position.
+ * @param {string} markerId
+ * @param {string} color - Peer presence color (hex).
+ * @param {string} name - Peer display name.
+ */
+function upsertRemoteSelectionEntity(markerId, color, name) {
+    const markerEntity = markerEntities.get(markerId);
+    if (!markerEntity) return;
+
+    const cesiumColor = hexToCesiumColor(color);
+    const existing = remoteSelectionEntities.get(markerId);
+    if (existing) {
+        if (existing.point) existing.point.outlineColor = cesiumColor;
+        if (existing.label) {
+            existing.label.text = name;
+            existing.label.backgroundColor = cesiumColor;
+        }
+        return;
+    }
+
+    const entity = currentViewer.entities.add({
+        id: `remote-sel-3d-${markerId}`,
+        position: markerEntity.position,
+        point: {
+            pixelSize: 28,
+            color: Cesium.Color.TRANSPARENT,
+            outlineColor: cesiumColor,
+            outlineWidth: 3,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            heightReference: Cesium.HeightReference.NONE
+        },
+        label: name ? {
+            text: name,
+            font: '12px Inter, sans-serif',
+            fillColor: Cesium.Color.WHITE,
+            showBackground: true,
+            backgroundColor: cesiumColor,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+            pixelOffset: new Cesium.Cartesian2(0, -52),
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+        } : undefined
+    });
+    remoteSelectionEntities.set(markerId, entity);
+}
+
+/**
+ * Removes a single remote-selection highlight entity.
+ * @param {string} markerId
+ */
+function removeRemoteSelectionEntity(markerId) {
+    const entity = remoteSelectionEntities.get(markerId);
+    if (entity && currentViewer && !currentViewer.isDestroyed?.()) {
+        currentViewer.entities.remove(entity);
+    }
+    remoteSelectionEntities.delete(markerId);
+}
+
+/**
+ * Removes every remote-selection highlight (e.g. on viewer close / marker reload).
+ */
+export function clearRemoteSelections3D() {
+    for (const markerId of [...remoteSelectionEntities.keys()]) {
+        removeRemoteSelectionEntity(markerId);
+    }
+}
+
 // ===== PUBLIC API =====
 
 /**
@@ -513,6 +641,9 @@ export async function renderMarkersForTileset(viewer, tilesetId) {
 
     // Set up click handler for selecting markers (even when tool not active)
     setupMarkerSelectionHandler(viewer);
+
+    // Re-attach any remote peers' selection highlights to the freshly-built markers.
+    renderRemoteSelections3D();
 }
 
 /**
@@ -708,6 +839,9 @@ export async function refreshMarkersForCurrentTileset() {
 
     // Re-render markers for current tileset
     await loadAndRenderMarkers();
+
+    // Re-attach remote peers' selection highlights after the map switch/reload.
+    renderRemoteSelections3D();
 }
 
 /**
@@ -743,7 +877,14 @@ export function initMarkerToolListeners() {
         }
     });
 
-    temporalUnsubscribers.push(offLayers, offCursor, offTemporal);
+    // Multiuser: re-render peers' 3D selection highlights when presence changes.
+    const offSelections = eventBus.on(EventTypes.PRESENCE_SELECTIONS_CHANGED, () => {
+        if (currentViewer && currentTilesetId) {
+            renderRemoteSelections3D();
+        }
+    });
+
+    temporalUnsubscribers.push(offLayers, offCursor, offTemporal, offSelections);
 }
 
 /**

@@ -53,6 +53,7 @@ describe('PresenceStore', () => {
         it('exposes the new presence events', () => {
             expect(EventTypes.PRESENCE_CHANGED).toBe('presence:changed');
             expect(EventTypes.PRESENCE_CURSORS_CHANGED).toBe('presence:cursorsChanged');
+            expect(EventTypes.PRESENCE_SELECTIONS_CHANGED).toBe('presence:selectionsChanged');
         });
     });
 
@@ -123,7 +124,11 @@ describe('PresenceStore', () => {
             expect(user.cursor).toMatchObject({ lng: 10, lat: 20, mapId: 'm1' });
             expect(user.away).toBe(true);
             expect(user.temporal).toEqual({ cursor: 1000, label: 'D+2' });
-            expect(user.selection).toEqual({ featureIds: ['f1', 'f2'], mapId: 'm1' });
+            // Legacy snapshot (selectedFeatures, no selectionContext) → 2D selection.
+            expect(user.selection).toEqual({
+                surface: '2d', featureIds: ['f1', 'f2'], featureMeta: null,
+                mapId: 'm1', tilesetId: null, photoName: null,
+            });
         });
 
         it('defaults snapshot awareness to empty when fields are absent', () => {
@@ -247,7 +252,10 @@ describe('PresenceStore', () => {
             emitSpy.mockClear();
 
             store.setSelection({ clientId: 'c1', featureIds: ['f1', 'f2'], mapId: 'm1' });
-            expect(store.getUsers()[0].selection).toEqual({ featureIds: ['f1', 'f2'], mapId: 'm1' });
+            expect(store.getUsers()[0].selection).toEqual({
+                surface: '2d', featureIds: ['f1', 'f2'], featureMeta: null,
+                mapId: 'm1', tilesetId: null, photoName: null,
+            });
             expect(emitsFor(EventTypes.PRESENCE_CHANGED)).toHaveLength(1);
         });
 
@@ -262,6 +270,105 @@ describe('PresenceStore', () => {
             store.userJoined({ clientId: 'c1' });
             store.setSelection({ clientId: 'c1', featureIds: ['f1'], mapId: 'm9' });
             expect(store.getUsers()[0].currentMap).toBe('m9');
+        });
+    });
+
+    // ===== Multi-surface selection (2D / 3D / 360) =====
+    describe('setSelection — surface + scope (2D / 3D / 360)', () => {
+        it('stores the 2D surface, featureMeta and emits PRESENCE_SELECTIONS_CHANGED', () => {
+            store.userJoined({ clientId: 'c1', userId: 'u1' });
+            emitSpy.mockClear();
+
+            store.setSelection({
+                clientId: 'c1', surface: '2d', featureIds: ['f1'], mapId: 'm1',
+                featureMeta: [{ id: 'f1', type: 'point' }],
+            });
+
+            expect(store.getUsers()[0].selection).toEqual({
+                surface: '2d', featureIds: ['f1'], featureMeta: [{ id: 'f1', type: 'point' }],
+                mapId: 'm1', tilesetId: null, photoName: null,
+            });
+            expect(emitsFor(EventTypes.PRESENCE_SELECTIONS_CHANGED)).toEqual([{ surface: '2d' }]);
+        });
+
+        it('stores the 3D surface scope (tilesetId)', () => {
+            store.userJoined({ clientId: 'c1' });
+            store.setSelection({ clientId: 'c1', surface: '3d', featureIds: ['m-3d'], mapId: 'm1', tilesetId: 't1' });
+            const sel = store.getUsers()[0].selection;
+            expect(sel.surface).toBe('3d');
+            expect(sel.tilesetId).toBe('t1');
+            expect(sel.photoName).toBeNull();
+        });
+
+        it('stores the 360 surface scope (photoName)', () => {
+            store.userJoined({ clientId: 'c1' });
+            store.setSelection({ clientId: 'c1', surface: '360', featureIds: ['poi1'], mapId: 'm1', photoName: 'foto.jpg' });
+            const sel = store.getUsers()[0].selection;
+            expect(sel.surface).toBe('360');
+            expect(sel.photoName).toBe('foto.jpg');
+        });
+
+        it('emits PRESENCE_SELECTIONS_CHANGED for the cleared surface on deselect', () => {
+            store.userJoined({ clientId: 'c1' });
+            store.setSelection({ clientId: 'c1', surface: '3d', featureIds: ['m1'], tilesetId: 't1' });
+            emitSpy.mockClear();
+            // Deselect carries the surface so the overlay knows which surface to clear.
+            store.setSelection({ clientId: 'c1', surface: '3d', featureIds: [], tilesetId: 't1' });
+            expect(store.getUsers()[0].selection).toBeNull();
+            expect(emitsFor(EventTypes.PRESENCE_SELECTIONS_CHANGED)).toEqual([{ surface: '3d' }]);
+        });
+    });
+
+    // ===== getSelections accessor =====
+    describe('getSelections', () => {
+        beforeEach(() => {
+            store.userJoined({ clientId: 'c1', userId: 'u1', userName: 'Alice' });
+            store.userJoined({ clientId: 'c2', userId: 'u2', userName: 'Bob' });
+        });
+
+        it('filters by surface AND scope key (2D mapId, 3D tilesetId, 360 photoName)', () => {
+            store.setSelection({ clientId: 'c1', surface: '2d', featureIds: ['f1'], mapId: 'mapaA' });
+            store.setSelection({ clientId: 'c2', surface: '2d', featureIds: ['f2'], mapId: 'mapaB' });
+
+            const onA = store.getSelections('2d', 'mapaA');
+            expect(onA).toHaveLength(1);
+            expect(onA[0]).toMatchObject({ clientId: 'c1', userName: 'Alice', featureIds: ['f1'] });
+
+            // 3D scope: only the matching tilesetId.
+            store.setSelection({ clientId: 'c1', surface: '3d', featureIds: ['m1'], tilesetId: 't1' });
+            expect(store.getSelections('3d', 't1')).toHaveLength(1);
+            expect(store.getSelections('3d', 'tOTHER')).toHaveLength(0);
+            // Switching c1 to 3D drops its 2D selection — only c2 remains on 2D.
+            expect(store.getSelections('2d', 'mapaA')).toHaveLength(0);
+
+            // 360 scope by photoName.
+            store.setSelection({ clientId: 'c2', surface: '360', featureIds: ['p1'], photoName: 'foto.jpg' });
+            expect(store.getSelections('360', 'foto.jpg')).toHaveLength(1);
+            expect(store.getSelections('360', 'outra.jpg')).toHaveLength(0);
+        });
+
+        it('skips empty selections and does NOT exclude self (overlay filters self)', () => {
+            store.setSelection({ clientId: 'c1', surface: '2d', featureIds: [], mapId: 'mapaA' });
+            expect(store.getSelections('2d', 'mapaA')).toHaveLength(0);
+
+            store.setSelection({ clientId: 'c1', surface: '2d', featureIds: ['f1'], mapId: 'mapaA' });
+            // Self exclusion is the overlay's responsibility — getSelections returns all.
+            expect(store.getSelections('2d', 'mapaA').map((s) => s.clientId)).toEqual(['c1']);
+        });
+    });
+
+    // ===== Snapshot rehydrate via selectionContext (late-joiner) =====
+    describe('setInitial — rehydrates 3D/360 selection from selectionContext', () => {
+        it('reconstructs a peer 3D selection from the join snapshot', () => {
+            store.setInitial([
+                {
+                    id: 'u1', nome: 'Alice',
+                    selectionContext: { surface: '3d', featureIds: ['m1'], mapId: 'mapaA', tilesetId: 't1' },
+                },
+            ]);
+            const sel = store.getUsers()[0].selection;
+            expect(sel).toMatchObject({ surface: '3d', featureIds: ['m1'], tilesetId: 't1' });
+            expect(store.getSelections('3d', 't1')).toHaveLength(1);
         });
     });
 

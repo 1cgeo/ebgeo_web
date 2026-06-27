@@ -176,12 +176,22 @@ export class WsClient {
     }
 
     /**
-     * Sends the current feature selection (presence).
-     * @param {{ featureIds: string[], mapId: string }} payload
+     * Sends the current feature selection (presence) across the 2D/3D/360 surfaces.
+     * `surface` + its scope (mapId for 2D, tilesetId for 3D, photoName for 360) let a
+     * peer render the selection only on the matching surface; `featureMeta` (optional)
+     * ships the per-feature type so a 2D peer resolves the highlight without a lookup.
+     * @param {{ featureIds: string[], mapId: string, surface?: string,
+     *   featureMeta?: Array<{id: string, type: string}>, tilesetId?: string,
+     *   photoName?: string }} payload
      * @returns {boolean}
      */
-    sendSelection({ featureIds, mapId }) {
-        return this._sendRaw({ type: 'selection', featureIds, mapId });
+    sendSelection({ featureIds, mapId, surface, featureMeta, tilesetId, photoName }) {
+        const msg = { type: 'selection', featureIds, mapId };
+        if (surface) msg.surface = surface;
+        if (Array.isArray(featureMeta)) msg.featureMeta = featureMeta;
+        if (tilesetId != null) msg.tilesetId = tilesetId;
+        if (photoName != null) msg.photoName = photoName;
+        return this._sendRaw(msg);
     }
 
     /**

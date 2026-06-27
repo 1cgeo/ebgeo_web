@@ -70,17 +70,6 @@ integralmente — muda só a **casca de apresentação** (modal → tela cheia +
   um deep-link `#view=3d/360` — ver Frente 5 —, que têm precedência).
 - **Anônimo** → cai no mapa local (P12). A tela cheia não é exibida.
 
-### Thumbnail — o ponto difícil
-Não existe nada hoje. Opções:
-
-1. **Snapshot client-side (recomendado).** Capturar o canvas do MapLibre (ex. no flush/desconexão ou
-   sob demanda) → WebP pequeno → sincronizado como **metadado do atlas**. Barato; respeita a regra
-   "backend é aditivo e nunca renderiza". Limitação: captura só o 2D e o estado de quem gerou.
-2. **Render headless no backend.** Puppeteer / `maplibre-gl-native`. Caro e introduz infraestrutura de
-   renderização que o backend hoje **não tem**. Contraria o espírito aditivo. **Não recomendado** na v1.
-
-Decisão pendente de validação: aceitar a limitação "thumbnail = último snapshot 2D de quem salvou"?
-
 ### Trabalho estimado (frontend)
 - Novo componente de tela cheia (reusa o modo de visibilidade de UI; ver `ApplicationModeManager`).
 - Abas/filtros sobre `listAtlas()` (dados já vêm com dono/papel/público).
@@ -264,11 +253,8 @@ Aproveitando que vários só custam UI porque o backend **já suporta**:
    inatividade em 1 min — Continuar conectado?" (padrão bancário/Google). Melhor percepção.
 7. **Renomear inline no card** + **menu de contexto** (botão direito): renomear, compartilhar,
    duplicar, mover p/ lixeira — como no Drive.
-8. **Command palette (Ctrl+K)** — saltar entre atlas/mapas/ferramentas. Encaixa no módulo `keyboard/`.
-9. **Título-documento na barra superior** — nome do atlas clicável p/ renomear (feedback de "onde
+8. **Título-documento na barra superior** — nome do atlas clicável p/ renomear (feedback de "onde
    estou"), como o título no topo do Google Docs.
-10. **Galeria de templates / "Novo atlas em branco"** — onboarding com modelos (ex.: operação,
-    briefing) em vez de só um atlas vazio.
 
 > Nota: itens que tocam o backend devem respeitar as invariantes do `ebgeo_backend/CLAUDE.md` —
 > migrações **aditivas**, **sem rotas REST de escrita** para entidades colaborativas (viajam por sync),
@@ -283,19 +269,3 @@ Aproveitando que vários só custam UI porque o backend **já suporta**:
 - Placemark — <https://github.com/placemark/placemark>
 
 ---
-
-## 10. Questões em aberto
-
-- **Thumbnail:** aceitar "último snapshot 2D de quem salvou" como definição da v1? Quando capturar
-  (flush / desconexão / sob demanda)?
-- **Idle timeout:** valor de *N* (sugestão 30–60 min)? Implementar o cap absoluto no backend já na v1
-  ou deixar para etapa 2?
-- **`map=<id>`:** confirmar UUID na URL (recomendado) vs. nome do mapa.
-- **Drive:** as 4 abas (Meus / Compartilhados / Públicos / Recentes) cobrem o necessário, ou
-  queremos também pastas/coleções (escopo maior, fora desta v1)?
-- **Quais ideias da §9.3 entram na v1?** Candidatas baratas (backend já suporta): Lixeira/Restaurar,
-  Presença no card, Recentes por usuário, Idle timeout com aviso. Candidatas de maior escopo:
-  command palette, galeria de templates, duplicar atlas.
-- **Share avançado (estilo Terria):** queremos, além de `?atlas=&map=`, serializar a **view** (câmera +
-  camadas ativas) num link encurtado? Isso convergiria com o share 3D/360 atual — mas exige um
-  encurtador (server-side) e cuidado para não quebrar a precedência do hash anônimo (Frente 5).

@@ -25,6 +25,10 @@ export class StreetViewRenderer {
         this.cursorNearestMarkerId = null; // Dynamically calculated based on cursor position
         this.hoveredMarkerId = null;
         this.selectedMarkerId = null;
+        // Remote peers' selections (multiuser presence): markerId -> { color, name }.
+        // The per-frame render() rewrites selectedMarkerId (local) but NEVER touches
+        // this map, so a peer's highlight is independent of the local selection.
+        this.remoteSelections = new Map();
         this.visible = true;
 
         // Ground cursor state
@@ -72,6 +76,14 @@ export class StreetViewRenderer {
      */
     setSelectedMarker(id) {
         this.selectedMarkerId = id;
+    }
+
+    /**
+     * Sets the remote peers' selections to highlight (multiuser presence).
+     * @param {Map<string, { color: string, name: string }>} selections - markerId -> peer info
+     */
+    setRemoteSelections(selections) {
+        this.remoteSelections = selections instanceof Map ? selections : new Map();
     }
 
     /**
@@ -176,6 +188,13 @@ export class StreetViewRenderer {
             // Render label if present (can show label without marker)
             if (style?.label && style.showLabel !== false) {
                 this.renderLabel(ctx, style, finalRadius);
+            }
+
+            // Multiuser: highlight if a remote peer has this POI selected (drawn even
+            // when showMarker is false, so the highlight is always visible).
+            const remoteSel = this.remoteSelections.get(id);
+            if (remoteSel) {
+                this.renderRemoteSelection(ctx, finalRadius, remoteSel);
             }
         }
 
@@ -436,6 +455,66 @@ export class StreetViewRenderer {
 
         // Draw text
         ctx.fillStyle = style.labelStyle?.color || '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, 0, 1);
+
+        ctx.restore();
+    }
+
+    /**
+     * Renders a remote peer's selection highlight on a POI: a colored ring in the
+     * peer's presence color plus a name chip below the marker (so it doesn't collide
+     * with the POI's own label, which renders above).
+     * @param {CanvasRenderingContext2D} ctx - Canvas context (already translated to the marker)
+     * @param {number} radius - Marker radius
+     * @param {{ color: string, name: string }} info - Peer color + display name
+     */
+    renderRemoteSelection(ctx, radius, info) {
+        const color = info.color || '#2563eb';
+
+        // Colored ring around the POI.
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(0, 0, radius + NAV_CONSTANTS.SELECTED_GLOW_SIZE + 2, 0, Math.PI * 2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.restore();
+
+        if (info.name) {
+            this.renderRemoteLabel(ctx, info.name, color, radius);
+        }
+    }
+
+    /**
+     * Renders a peer's name chip below a remotely-selected POI.
+     * @param {CanvasRenderingContext2D} ctx - Canvas context
+     * @param {string} text - Peer display name
+     * @param {string} color - Peer presence color (chip background)
+     * @param {number} markerRadius - Marker radius for positioning
+     */
+    renderRemoteLabel(ctx, text, color, markerRadius) {
+        const fontSize = NAV_CONSTANTS.LABEL_FONT_SIZE;
+        const padding = NAV_CONSTANTS.LABEL_PADDING;
+        const borderRadius = NAV_CONSTANTS.LABEL_BORDER_RADIUS;
+
+        ctx.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        const metrics = ctx.measureText(text);
+        const boxWidth = metrics.width + padding * 2;
+        const boxHeight = fontSize + padding * 1.5;
+        // Below the marker (the POI's own label sits above).
+        const offsetY = markerRadius + boxHeight / 2 + 8;
+
+        ctx.save();
+        ctx.translate(0, offsetY);
+
+        ctx.beginPath();
+        ctx.roundRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, borderRadius);
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(text, 0, 1);

@@ -49,7 +49,7 @@ import { ToolbarControl, ActiveToolChip } from './toolbar';
 import { AttributeTableControl } from './attribute_table';
 import { PhoneLayout } from './phone';
 import { AccountControl, SyncStatusControl } from '@js/account/index.js';
-import { OnlineUsersControl, RemoteCursorsLayer, startPresence } from '@js/presence/index.js';
+import { OnlineUsersControl, RemoteCursorsLayer, RemoteSelectionsLayer, startPresence } from '@js/presence/index.js';
 import { CommentOverlay } from '@js/comment_tool/index.js';
 import { LockedBannerControl, mapLockController } from '@js/locking/index.js';
 import { EventTypes } from '@events/event_types.js';
@@ -620,19 +620,24 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     map.addControl(onlineUsersControl, 'top-right');
 
     const remoteCursorsLayer = new RemoteCursorsLayer(map);
+    // Remote-selection overlay: mirrors peers' 2D selections as colored outline
+    // boxes (reuses the SelectionManager to resolve geometry + build boxes).
+    const remoteSelectionsLayer = new RemoteSelectionsLayer(map, selectionManager);
 
     // Bridge the WS transport to the presence store (inbound presence/cursor and
     // throttled outbound cursor). Harmless offline — it only wires handlers.
     startPresence({ map });
 
-    // Drive the cursor overlay from the connection lifecycle: render remote
-    // cursors only while ONLINE; tear them down (and clear presence) otherwise.
-    // CONNECTION_STATE_CHANGED is emitted on the event bus by the sync layer.
+    // Drive the presence overlays from the connection lifecycle: render remote
+    // cursors + selections only while ONLINE; tear them down (and clear presence)
+    // otherwise. CONNECTION_STATE_CHANGED is emitted on the event bus by the sync layer.
     getEventBus().on(EventTypes.CONNECTION_STATE_CHANGED, ({ currentState } = {}) => {
         if (currentState === ConnectionStates.ONLINE) {
             remoteCursorsLayer.start();
+            remoteSelectionsLayer.start();
         } else {
             remoteCursorsLayer.stop();
+            remoteSelectionsLayer.stop();
         }
     });
 
@@ -708,9 +713,10 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         // Backend integration (account orchestrator + sync status badge)
         ['account', accountControl],
         ['syncStatus', syncStatusControl],
-        // Presence / awareness (online roster + live remote cursors)
+        // Presence / awareness (online roster + live remote cursors + selections)
         ['onlineUsers', onlineUsersControl],
         ['remoteCursors', remoteCursorsLayer],
+        ['remoteSelections', remoteSelectionsLayer],
         // Map lock UX (on-map "Mapa bloqueado" banner)
         ['lockedBanner', lockedBannerControl],
         // Spatial comments (pin overlay; managed from the Maps panel or via Shift+C)

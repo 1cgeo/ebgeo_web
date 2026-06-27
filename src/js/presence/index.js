@@ -13,4 +13,5 @@
 export { PresenceStore, presenceStore } from '@js/presence/presence-store.js';
 export { OnlineUsersControl } from '@js/presence/online-users.control.js';
 export { RemoteCursorsLayer } from '@js/presence/remote-cursors.layer.js';
+export { RemoteSelectionsLayer } from '@js/presence/remote-selections.layer.js';
 export { startPresence, stopPresence } from '@js/presence/presence-bridge.js';

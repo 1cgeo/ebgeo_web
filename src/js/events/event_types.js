@@ -222,6 +222,8 @@ export const EventTypes = Object.freeze({
     PRESENCE_CHANGED: 'presence:changed',
     /** A user's cursor moved (live cursors). Payload: { mapId } */
     PRESENCE_CURSORS_CHANGED: 'presence:cursorsChanged',
+    /** A peer's feature/marker selection changed (2D/3D/360). Payload: { surface } */
+    PRESENCE_SELECTIONS_CHANGED: 'presence:selectionsChanged',
 });
 
 /**

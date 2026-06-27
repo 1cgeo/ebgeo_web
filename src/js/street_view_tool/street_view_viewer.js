@@ -21,6 +21,9 @@ import {
 import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
 import { showSuccess } from '@utils/toast_service.js';
 import { LRUCache } from '@utils/lru-cache.js';
+import { presenceStore } from '@js/presence/presence-store.js';
+import { getPresenceColor } from '@js/presence/presence-colors.js';
+import { sessionContext } from '@store/sync/session-context.js';
 import { NAV_CONSTANTS } from './navigation/constants.js';
 import {
     activateKeyboardService360,
@@ -1029,9 +1032,42 @@ async function loadMarkersForCurrentPhoto() {
         const visible = filterMarkersByTemporal(markers);
         lastTemporalPoiSignature = visible.map(m => m.id).join(',');
         streetViewState.navigator.setPOIs(visible);
+        // Re-apply remote peers' selection highlights to the (re)loaded POIs.
+        updateRemoteSelections360();
     } catch (error) {
         console.error('Failed to load markers:', error);
     }
+}
+
+/**
+ * Multiuser presence: rebuilds the renderer's remote-selection map for the current
+ * photo (markerId -> { color, name }) from the presence store, excluding self.
+ * Scoped by photoName, so only peers viewing the same panorama are shown. The
+ * continuous rAF render loop draws the highlights on the next frame.
+ */
+function updateRemoteSelections360() {
+    const navigator = streetViewState.navigator;
+    if (!navigator || !navigator.renderer) return;
+
+    const remote = new Map();
+    const photoName = streetViewState.currentPhotoName;
+    if (photoName) {
+        const selfClientId = sessionContext.clientId;
+        const selfUserId = sessionContext.userId;
+        for (const sel of presenceStore.getSelections('360', photoName)) {
+            const ownerKey = String(sel.clientId ?? '');
+            const isSelf = (selfClientId != null && ownerKey === String(selfClientId))
+                || (selfUserId != null && ownerKey === String(selfUserId));
+            if (isSelf) continue;
+
+            const color = getPresenceColor(String(sel.userId || sel.clientId || ''));
+            const name = sel.userName || '';
+            for (const markerId of sel.featureIds) {
+                remote.set(String(markerId), { color, name });
+            }
+        }
+    }
+    navigator.renderer.setRemoteSelections(remote);
 }
 
 /**
@@ -1295,6 +1331,14 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
     eventBus.off(EventTypes.MAP_TEMPORAL_CHANGED, handleTemporalRefresh);
     eventBus.on(EventTypes.MAP_TEMPORAL_CHANGED, handleTemporalRefresh);
 
+    // Multiuser: refresh peers' 360 selection highlights on presence changes and on
+    // photo navigation (the highlight is scoped to the current panorama).
+    eventBus.off(EventTypes.PRESENCE_SELECTIONS_CHANGED, updateRemoteSelections360);
+    eventBus.on(EventTypes.PRESENCE_SELECTIONS_CHANGED, updateRemoteSelections360);
+
+    eventBus.off(EventTypes.STREETVIEW_360_PHOTO_CHANGED, updateRemoteSelections360);
+    eventBus.on(EventTypes.STREETVIEW_360_PHOTO_CHANGED, updateRemoteSelections360);
+
     // Mark as visible BEFORE init/load so closeViewer360 can always work.
     // resumeRendering() also sets this, but we need it as early as possible
     // to guarantee the close button is functional even if loading fails.
@@ -1433,6 +1477,8 @@ export async function closeViewer360() {
     eventBus.off(EventTypes.LAYERS_CHANGED, handleLayersChanged);
     eventBus.off(EventTypes.TEMPORAL_CURSOR_CHANGED, handleTemporalRefresh);
     eventBus.off(EventTypes.MAP_TEMPORAL_CHANGED, handleTemporalRefresh);
+    eventBus.off(EventTypes.PRESENCE_SELECTIONS_CHANGED, updateRemoteSelections360);
+    eventBus.off(EventTypes.STREETVIEW_360_PHOTO_CHANGED, updateRemoteSelections360);
 
     // Emit event
     eventBus.emit(EventTypes.STREETVIEW_360_CLOSED, {});

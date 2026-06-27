@@ -13,8 +13,9 @@
  * store still degrades gracefully against legacy payloads.
  *
  * Changes are broadcast on the application event bus:
- *   - EventTypes.PRESENCE_CHANGED         { users }   (membership / away changes)
- *   - EventTypes.PRESENCE_CURSORS_CHANGED { mapId }   (cursor moved)
+ *   - EventTypes.PRESENCE_CHANGED            { users }   (membership / away changes)
+ *   - EventTypes.PRESENCE_CURSORS_CHANGED    { mapId }   (cursor moved)
+ *   - EventTypes.PRESENCE_SELECTIONS_CHANGED { surface } (selection changed: 2d/3d/360)
  *
  * @dependencies @store/services.js (getEventBus), @events/event_types.js
  */
@@ -28,7 +29,9 @@ import { EventTypes } from '@events/event_types.js';
  * @property {string} clientId
  * @property {string|null} userName
  * @property {{ lng: number, lat: number, mapId: string|null }|null} cursor
- * @property {{ featureIds: string[], mapId: string|null }|null} selection
+ * @property {{ surface: string, featureIds: string[],
+ *   featureMeta: (Array<{id: string, type: string|null}>|null), mapId: string|null,
+ *   tilesetId: string|null, photoName: string|null }|null} selection
  * @property {boolean} away
  * @property {string|null} currentMap - Id of the map the user is currently viewing.
  * @property {*} temporal - Peer's temporal viewing state (cursor/playing/ctx), or null.
@@ -76,15 +79,39 @@ function normalizeCursor(pos, mapId) {
 }
 
 /**
- * Normalizes a raw featureIds list + mapId into the stored selection shape, or
- * null when there is nothing selected.
+ * Normalizes a raw featureIds list + mapId (+ optional surface/scope context) into
+ * the stored selection shape, or null when there is nothing selected. The `extra`
+ * source (the live frame or the snapshot's selectionContext) carries the surface
+ * ('2d'|'3d'|'360'), per-feature `featureMeta` (id+type, used by the 2D overlay),
+ * and the 3D/360 scope keys (tilesetId/photoName).
  * @param {*} featureIds
  * @param {string|null} mapId
- * @returns {{ featureIds: string[], mapId: string|null }|null}
+ * @param {{ surface?: string, featureMeta?: Array, tilesetId?: *, photoName?: * }} [extra]
+ * @returns {{ surface: string, featureIds: string[], featureMeta: (Array|null),
+ *   mapId: string|null, tilesetId: string|null, photoName: string|null }|null}
  */
-function normalizeSelection(featureIds, mapId) {
+function normalizeSelection(featureIds, mapId, extra) {
     const ids = Array.isArray(featureIds) ? featureIds.map(String) : [];
-    return ids.length > 0 ? { featureIds: ids, mapId: mapId ?? null } : null;
+    if (ids.length === 0) {
+        return null;
+    }
+    const src = extra && typeof extra === 'object' ? extra : {};
+    const featureMeta = Array.isArray(src.featureMeta)
+        ? src.featureMeta
+            .filter((m) => m && m.id !== undefined && m.id !== null)
+            .map((m) => ({
+                id: String(m.id),
+                type: m.type !== undefined && m.type !== null ? String(m.type) : null,
+            }))
+        : null;
+    return {
+        surface: src.surface ? String(src.surface) : '2d',
+        featureIds: ids,
+        featureMeta,
+        mapId: mapId ?? null,
+        tilesetId: src.tilesetId !== undefined && src.tilesetId !== null ? String(src.tilesetId) : null,
+        photoName: src.photoName !== undefined && src.photoName !== null ? String(src.photoName) : null,
+    };
 }
 
 /**
@@ -116,7 +143,7 @@ function normalizeUser(raw, existing) {
     // Snapshot awareness (only present on the join snapshot). When absent we keep
     // the existing awareness state untouched.
     const hasCursor = raw.cursorPosition !== undefined;
-    const hasSelection = raw.selectedFeatures !== undefined;
+    const hasSelection = raw.selectedFeatures !== undefined || raw.selectionContext !== undefined;
     const hasTemporal = raw.temporalState !== undefined;
     const hasStatus = raw.status !== undefined;
 
@@ -128,7 +155,11 @@ function normalizeUser(raw, existing) {
         userName: rawName !== null ? String(rawName) : (existing?.userName ?? null),
         cursor: hasCursor ? normalizeCursor(raw.cursorPosition, raw.mapId ?? null) : (existing?.cursor ?? null),
         selection: hasSelection
-            ? normalizeSelection(raw.selectedFeatures, raw.mapId ?? null)
+            ? normalizeSelection(
+                raw.selectionContext?.featureIds ?? raw.selectedFeatures,
+                raw.selectionContext?.mapId ?? raw.mapId ?? null,
+                raw.selectionContext,
+            )
             : (existing?.selection ?? null),
         away: hasStatus ? raw.status === 'away' : (existing?.away ?? false),
         currentMap,
@@ -237,8 +268,10 @@ export class PresenceStore {
     }
 
     /**
-     * Updates a user's feature selection.
-     * @param {{ userId?: string, clientId?: string, featureIds?: string[], mapId?: string }} msg
+     * Updates a user's feature/marker selection (2D map, 3D or 360 surface).
+     * @param {{ userId?: string, clientId?: string, featureIds?: string[],
+     *   mapId?: string, surface?: string, featureMeta?: Array, tilesetId?: string,
+     *   photoName?: string }} msg
      */
     setSelection(msg) {
         if (!msg || typeof msg !== 'object') {
@@ -249,11 +282,20 @@ export class PresenceStore {
             return;
         }
         const user = this._users.get(key) ?? normalizeUser(msg);
-        user.selection = normalizeSelection(msg.featureIds, msg.mapId ?? null);
+        // The surface this frame is about — captured up front so a deselect (empty
+        // featureIds → null selection) still notifies the surface that just cleared,
+        // letting its overlay drop the peer's highlight.
+        const surface = msg.surface
+            ? String(msg.surface)
+            : (user.selection?.surface ?? '2d');
+        user.selection = normalizeSelection(msg.featureIds, msg.mapId ?? null, msg);
         // Selection frames also carry the active map → keep currentMap fresh.
         this._applyCurrentMap(user, msg.mapId);
         this._users.set(key, user);
+        // The roster (PRESENCE_CHANGED) shows the selection count; the on-surface
+        // overlay listens to the lighter PRESENCE_SELECTIONS_CHANGED.
         this._emitUsers();
+        this._emitSelections(surface);
     }
 
     /**
@@ -406,6 +448,50 @@ export class PresenceStore {
     }
 
     /**
+     * Returns active selections for a surface, scoped to that surface's key: mapId
+     * for '2d', tilesetId for '3d', photoName for '360'. Empty selections are
+     * skipped. Self is NOT excluded here — the overlay filters self by clientId/userId.
+     * @param {'2d'|'3d'|'360'} [surface]
+     * @param {string} [scopeKey]
+     * @returns {Array<{ clientId: string, userId: string|null, userName: string|null,
+     *   surface: string, featureIds: string[],
+     *   featureMeta: (Array<{id: string, type: string|null}>|null),
+     *   mapId: string|null, tilesetId: string|null, photoName: string|null }>}
+     */
+    getSelections(surface, scopeKey) {
+        const out = [];
+        for (const user of this._users.values()) {
+            const sel = user.selection;
+            if (!sel || !Array.isArray(sel.featureIds) || sel.featureIds.length === 0) {
+                continue;
+            }
+            if (surface !== undefined && surface !== null && sel.surface !== surface) {
+                continue;
+            }
+            if (scopeKey !== undefined && scopeKey !== null) {
+                const key = sel.surface === '3d'
+                    ? sel.tilesetId
+                    : (sel.surface === '360' ? sel.photoName : sel.mapId);
+                if (key !== scopeKey) {
+                    continue;
+                }
+            }
+            out.push({
+                clientId: user.clientId,
+                userId: user.userId,
+                userName: user.userName,
+                surface: sel.surface,
+                featureIds: [...sel.featureIds],
+                featureMeta: sel.featureMeta ? sel.featureMeta.map((m) => ({ ...m })) : null,
+                mapId: sel.mapId,
+                tilesetId: sel.tilesetId,
+                photoName: sel.photoName,
+            });
+        }
+        return out;
+    }
+
+    /**
      * Number of users currently tracked.
      * @returns {number}
      */
@@ -447,6 +533,18 @@ export class PresenceStore {
     _emitCursors(mapId) {
         try {
             getEventBus().emit(EventTypes.PRESENCE_CURSORS_CHANGED, { mapId });
+        } catch {
+            // Event bus not initialized — degrade silently.
+        }
+    }
+
+    /**
+     * @private
+     * @param {string|null} surface
+     */
+    _emitSelections(surface) {
+        try {
+            getEventBus().emit(EventTypes.PRESENCE_SELECTIONS_CHANGED, { surface: surface ?? null });
         } catch {
             // Event bus not initialized — degrade silently.
         }

@@ -14,9 +14,15 @@
  *              wsClient 'briefingEdit' -> presenceStore.setBriefingEdit
  *   outbound : map 'mousemove' (throttled ~80ms)        -> wsClient.sendCursor
  *              MAP_LOCK_CHANGED (de-facto map switch)    -> wsClient.sendCursor(mapId) [case C]
- *              StateManager 'selection.features' change  -> wsClient.sendSelection  [case F]
+ *              StateManager 'selection.features' change  -> wsClient.sendSelection (2D)  [case F]
+ *              MARKER_3D_CLICKED / _DESELECTED           -> wsClient.sendSelection (3D)  [case F]
+ *              MARKER_360_CLICKED / _DESELECTED          -> wsClient.sendSelection (360) [case F]
  *              TEMPORAL_CURSOR_CHANGED                   -> wsClient.sendTemporal    [case E]
  *              BRIEFING_EDIT_STARTED / _ENDED            -> wsClient.sendBriefingEdit[case D]
+ *
+ * Selection (case F) is editor-gated: only owner/editor broadcast their selection;
+ * a Comentarista/Visualizador only RECEIVES peers' selections (mirrors the backend
+ * handleSelection gate). Cursor/temporal stay ungated.
  *
  * The bridge owns no UI; the presence overlays/roster consume the store via the
  * PRESENCE_CHANGED / PRESENCE_CURSORS_CHANGED events. Self is excluded by the
@@ -34,6 +40,7 @@
  */
 
 import { wsClient } from '@store/sync/ws-client.js';
+import { checkPermission } from '@store/sync/permission-guard.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import {
     getCurrentMapNameSync,
@@ -146,22 +153,78 @@ function broadcastCurrentMap() {
 }
 
 /**
- * Sends the local feature selection to peers (case F). Reads the live selection
- * from the StateManager and the active map at call time. Best-effort.
+ * Whether the local user may broadcast its selection (case F). Editor-gated: maps
+ * to the EDIT capability, which is permissive on the local store but role-gated on a
+ * connected remote atlas — so a Comentarista/Visualizador never broadcasts. Mirrors
+ * the backend handleSelection gate.
+ * @returns {boolean}
  */
-function broadcastSelection() {
-    if (!wsClient.isConnected()) {
+function canBroadcastSelection() {
+    try {
+        return checkPermission('CREATE_FEATURE').allowed === true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Sends the local 2D feature selection to peers (case F). Reads the live selection
+ * from the StateManager and the active map at call time. Best-effort + editor-gated.
+ */
+function broadcastSelection2D() {
+    if (!wsClient.isConnected() || !canBroadcastSelection()) {
         return;
     }
     let featureIds = [];
+    let featureMeta = [];
     try {
         const selected = getStateManager().getSelectedFeatures() || [];
         featureIds = selected.map((item) => item.id);
+        // Ship the per-feature type so the peer's 2D overlay resolves the highlight
+        // box without a store lookup (selection ids alone don't carry the tool type).
+        featureMeta = selected.map((item) => ({ id: item.id, type: item.type }));
     } catch {
         // StateManager not initialized — nothing selected.
         featureIds = [];
+        featureMeta = [];
     }
-    wsClient.sendSelection({ featureIds, mapId: getCurrentMapNameSync() });
+    wsClient.sendSelection({ surface: '2d', featureIds, featureMeta, mapId: getCurrentMapNameSync() });
+}
+
+/**
+ * Sends the local 3D marker selection to peers (case F). Scoped by tilesetId so a
+ * peer renders it only inside the same 3D model. Best-effort + editor-gated.
+ * @param {string|null} markerId - selected marker id, or null on deselect.
+ * @param {string|null} [tilesetId]
+ */
+function broadcastSelection3D(markerId, tilesetId) {
+    if (!wsClient.isConnected() || !canBroadcastSelection()) {
+        return;
+    }
+    wsClient.sendSelection({
+        surface: '3d',
+        featureIds: markerId ? [String(markerId)] : [],
+        mapId: getCurrentMapNameSync(),
+        tilesetId: tilesetId ?? null,
+    });
+}
+
+/**
+ * Sends the local 360 marker (POI) selection to peers (case F). Scoped by photoName
+ * so a peer renders it only inside the same panorama. Best-effort + editor-gated.
+ * @param {string|null} markerId - selected POI id, or null on deselect.
+ * @param {string|null} [photoName]
+ */
+function broadcastSelection360(markerId, photoName) {
+    if (!wsClient.isConnected() || !canBroadcastSelection()) {
+        return;
+    }
+    wsClient.sendSelection({
+        surface: '360',
+        featureIds: markerId ? [String(markerId)] : [],
+        mapId: getCurrentMapNameSync(),
+        photoName: photoName ?? null,
+    });
 }
 
 /**
@@ -285,16 +348,34 @@ export function startPresence({ map } = {}) {
         if (wsClient.isConnected()) wsClient.sendBriefingEditEnd(briefingId);
     });
 
-    // Case F — selection awareness: the StateManager is the single source of
-    // truth for selection; mirror every change to peers. Subscription returns an
-    // unsubscribe we keep on state and release in stop().
+    // Case F (2D) — selection awareness: the StateManager is the single source of
+    // truth for the 2D selection; mirror every change to peers. Subscription returns
+    // an unsubscribe we keep on state and release in stop().
     try {
-        state._stateUnsub = getStateManager().subscribe('selection.features', () => broadcastSelection());
+        state._stateUnsub = getStateManager().subscribe('selection.features', () => broadcastSelection2D());
     } catch {
         // StateManager not initialized yet (e.g. tests/headless) — selection
         // awareness stays dormant, like the rest of presence does offline.
         state._stateUnsub = null;
     }
+
+    // Case F (3D) — marker selection inside the Cesium viewer. The viewer emits
+    // MARKER_3D_CLICKED with the selected marker + tilesetId, and _DESELECTED on
+    // empty-space click; forward both as a scoped selection frame.
+    subscribe(state, eventBus, EventTypes.MARKER_3D_CLICKED, ({ marker, tilesetId } = {}) => {
+        broadcastSelection3D(marker?.id ?? null, tilesetId ?? null);
+    });
+    subscribe(state, eventBus, EventTypes.MARKER_3D_DESELECTED, ({ tilesetId } = {}) => {
+        broadcastSelection3D(null, tilesetId ?? null);
+    });
+
+    // Case F (360) — POI selection inside the panorama viewer, scoped by photoName.
+    subscribe(state, eventBus, EventTypes.MARKER_360_CLICKED, ({ marker, photoName } = {}) => {
+        broadcastSelection360(marker?.id ?? null, photoName ?? null);
+    });
+    subscribe(state, eventBus, EventTypes.MARKER_360_DESELECTED, ({ photoName } = {}) => {
+        broadcastSelection360(null, photoName ?? null);
+    });
 }
 
 /**

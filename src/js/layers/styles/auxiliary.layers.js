@@ -60,6 +60,24 @@ export function setupAuxiliaryLayers(mapInstance) {
         },
     });
 
+    // Remote selections (multiuser presence): a separate source/layer so peers'
+    // selection outlines never clash with the local red dashed boxes. Color is
+    // data-driven (each peer's stable presence color, stamped per box by
+    // RemoteSelectionsLayer); the distinct dash pattern reads as "someone else's
+    // selection".
+    ensureSource(mapInstance, 'remote-selection-boxes');
+    ensureLayer(mapInstance, {
+        id: 'remote-selection-boxes-layer',
+        type: 'line',
+        source: 'remote-selection-boxes',
+        paint: {
+            'line-color': ['coalesce', ['get', 'color'], '#2563eb'],
+            'line-width': 2.5,
+            'line-dasharray': [1.5, 1],
+            'line-opacity': 0.95,
+        },
+    });
+
     // Snap indicator -- shown when cursor is near a snappable vertex/edge
     ensureSource(mapInstance, SNAP_INDICATOR_SOURCE);
 

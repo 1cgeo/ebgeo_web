@@ -310,8 +310,15 @@ describe('presence-bridge', () => {
             ];
             stateManagerMock._fireSelection();
 
+            // 2D selection frame now carries the surface + per-feature type (featureMeta)
+            // so a peer can rebuild the highlight without a store lookup.
             expect(wsClientMock.sendSelection).toHaveBeenCalledWith({
+                surface: '2d',
                 featureIds: ['f1', 'f2'],
+                featureMeta: [
+                    { id: 'f1', type: 'point' },
+                    { id: 'f2', type: 'line' },
+                ],
                 mapId: 'mapa-1',
             });
         });
