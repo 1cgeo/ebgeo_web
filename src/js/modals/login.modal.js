@@ -26,6 +26,8 @@ export class LoginModal extends ModalBase {
      * @param {function({username: string, password: string}): Promise<*>} options.onSubmit
      *   Submission handler. Resolve to close the modal; reject to keep it open
      *   and display the rejection message inline.
+     * @param {function(): void} [options.onRegister]
+     *   Called when the user clicks "Criar conta"; opens the signup flow.
      */
     constructor(options = {}) {
         super({
@@ -36,6 +38,7 @@ export class LoginModal extends ModalBase {
         });
 
         this._onSubmit = options.onSubmit || (() => Promise.resolve());
+        this._onRegister = options.onRegister || null;
         this._submitting = false;
     }
 
@@ -165,6 +168,24 @@ export class LoginModal extends ModalBase {
 
         form.appendChild(actions);
 
+        // Secondary: create-account affordance — only when a register handler is wired (the caller
+        // wires it only where self-registration is enabled, so this is never a dead-end 404).
+        this._registerBtn = null;
+        if (this._onRegister) {
+            const secondary = document.createElement('div');
+            secondary.className = 'login-modal__secondary';
+
+            const registerBtn = document.createElement('button');
+            registerBtn.type = 'button';
+            registerBtn.className = 'login-modal__link';
+            registerBtn.dataset.testid = 'login-register';
+            registerBtn.textContent = 'Não tem conta? Criar conta';
+            secondary.appendChild(registerBtn);
+
+            form.appendChild(secondary);
+            this._registerBtn = registerBtn;
+        }
+
         this._form = form;
         this._userInput = userInput;
         this._passInput = passInput;
@@ -186,6 +207,13 @@ export class LoginModal extends ModalBase {
         });
 
         addDomListener(this, this._cancelBtn, 'click', () => this._cancel());
+
+        if (this._registerBtn) {
+            addDomListener(this, this._registerBtn, 'click', () => {
+                this._close();
+                if (this._onRegister) this._onRegister();
+            });
+        }
     }
 
     /**
@@ -267,10 +295,11 @@ export class LoginModal extends ModalBase {
  * @param {Object} options
  * @param {function({username: string, password: string}): Promise<*>} options.onSubmit
  *   Submission handler. Resolve to close; reject to keep open with an inline error.
+ * @param {function(): void} [options.onRegister] Opens the signup flow ("Criar conta").
  * @returns {LoginModal} The modal instance.
  */
-export function showLoginModal({ onSubmit } = {}) {
-    const modal = new LoginModal({ onSubmit });
+export function showLoginModal({ onSubmit, onRegister } = {}) {
+    const modal = new LoginModal({ onSubmit, onRegister });
     modal.render();
     modal.show();
     return modal;

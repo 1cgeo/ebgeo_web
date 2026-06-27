@@ -100,6 +100,9 @@ class SessionContext {
         /** @type {string|null} */
         this._role = null;
 
+        /** @type {string|null} Global system role ('user' | 'admin'), independent of per-atlas role. */
+        this._globalRole = null;
+
         /** @type {Object} */
         this._permissions = { ...FULL_PERMISSIONS };
 
@@ -140,6 +143,24 @@ class SessionContext {
      */
     get role() {
         return this._role;
+    }
+
+    /**
+     * Global system role ('user' | 'admin'), independent of the per-atlas `role`. Null when offline
+     * or for an anonymous visitor.
+     * @returns {string|null}
+     */
+    get globalRole() {
+        return this._globalRole;
+    }
+
+    /**
+     * Whether the authenticated user is a GLOBAL system admin (backend `role === 'admin'`). Gates the
+     * admin panel; distinct from per-atlas Gestor/owner permissions.
+     * @returns {boolean}
+     */
+    isAdmin() {
+        return this._globalRole === UserRole.ADMIN;
     }
 
     /**
@@ -208,7 +229,9 @@ class SessionContext {
     /**
      * Sets an authenticated session.
      * Transitions from offline to online mode.
-     * @param {{ userId: string, role: string, username?: string, permissions?: Object }} userInfo
+     * @param {{ userId: string, role: string, globalRole?: string, username?: string, permissions?: Object }} userInfo
+     *   `globalRole` is the system role ('user'|'admin'); when omitted it is PRESERVED, so per-atlas
+     *   role re-sets (e.g. `connect`) do not wipe the admin bit established at login.
      */
     setSession(userInfo) {
         if (!userInfo || !userInfo.userId) {
@@ -221,6 +244,9 @@ class SessionContext {
         this._mode = SessionMode.ONLINE;
         this._userId = userInfo.userId;
         this._role = role;
+        if (userInfo.globalRole !== undefined) {
+            this._globalRole = userInfo.globalRole;
+        }
         this._username = userInfo.username || null;
         this._permissions = userInfo.permissions
             ? { ...defaultPerms, ...userInfo.permissions }
@@ -239,6 +265,7 @@ class SessionContext {
         this._mode = SessionMode.ONLINE;
         this._userId = null;
         this._role = UserRole.VIEWER;
+        this._globalRole = null;
         this._username = null;
         this._isVisitor = true;
         this._permissions = { ...ROLE_PERMISSIONS[UserRole.VIEWER] };
@@ -253,6 +280,7 @@ class SessionContext {
         this._mode = SessionMode.OFFLINE;
         this._userId = null;
         this._role = null;
+        this._globalRole = null;
         this._username = null;
         this._isVisitor = false;
         this._permissions = { ...FULL_PERMISSIONS };
@@ -296,6 +324,7 @@ class SessionContext {
             userId: this._userId,
             clientId: this.clientId,
             role: this._role,
+            globalRole: this._globalRole,
             permissions: { ...this._permissions }
         };
     }
@@ -319,6 +348,8 @@ class SessionContext {
         this._mode = SessionMode.OFFLINE;
         this._userId = null;
         this._role = null;
+        this._globalRole = null;
+        this._username = null;
         this._isVisitor = false;
         this._permissions = { ...FULL_PERMISSIONS };
         this._listeners.clear();

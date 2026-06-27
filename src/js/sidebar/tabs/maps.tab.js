@@ -449,8 +449,8 @@ export class MapsTab {
             nameInput.value = this._currentMapName;
         }
 
-        // Update badge: single uppercase initial + the map's position-based palette color
-        // (the avatar inline color is the one sanctioned non-token color). getOrderedMapBadgeColors
+        // Update badge: single uppercase initial + the map's STABLE name-based palette color (kept on
+        // reorder; the avatar inline color is the one sanctioned non-token color). getOrderedMapBadgeColors
         // is the SAME name-keyed source the maps-list and recent-map badges read, so all three match.
         // The first letter is preserved as textContent so the e2e badge assertion still holds.
         const badgeEl = this._currentMapCard.querySelector('#current-map-badge');

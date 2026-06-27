@@ -124,18 +124,21 @@ class SyncEngine {
         sessionContext.setSession({
             userId: user.id,
             role: user.org_role || 'viewer',
+            globalRole: user.role || 'user',
             username: user.username || user.nome || username,
         });
         return user;
     }
 
     /**
-     * Registers a new user (self-registration; gated server-side).
-     * @param {{ username: string, password: string, nome: string }} payload
+     * Registers a new user (self-registration; gated server-side). Forwards the full payload so the
+     * optional military attributes (and, once enabled, the e-mail) reach the backend untouched.
+     * @param {{ username: string, password: string, nome: string, posto_graduacao?: string,
+     *   organizacao_militar?: string, email?: string }} payload
      * @returns {Promise<Object>} The created user.
      */
-    async register({ username, password, nome }) {
-        return apiClient.register({ username, password, nome });
+    async register(payload) {
+        return apiClient.register(payload);
     }
 
     /**

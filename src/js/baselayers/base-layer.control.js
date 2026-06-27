@@ -97,6 +97,15 @@ class BaseLayerControl {
             await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
             getEventBus().emit(EventTypes.LAYERS_CHANGED, {});
         });
+
+        // A full store wipe (logout / "Limpar Tudo" / non-additive import) resets the store + loads a
+        // BLANK map, but nothing repopulated the MapLibre feature sources — so the OLD map's features
+        // stayed drawn on the canvas after logout. Re-run setupMapFeatures, which setData()s every
+        // feature source from the now-blank current map, leaving no trace of the previous map.
+        if (this._unsubAllCleared) this._unsubAllCleared();
+        this._unsubAllCleared = getEventBus().on(EventTypes.ALL_DATA_CLEARED, async () => {
+            await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
+        });
     }
 
     onAdd(map) {

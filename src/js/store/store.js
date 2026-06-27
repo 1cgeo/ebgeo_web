@@ -211,11 +211,14 @@ export async function clearAllDataStore() {
     // server connect re-marks the store REMOTE (markStoreRemote).
     await markStoreLocal();
 
-    deps.eventBus.emit(EventTypes.ALL_DATA_CLEARED);
-
     const defaultMap = await initializeRepository();
     await mapManager.setCurrentMap(defaultMap);
     await loadMapDataToMemory(defaultMap);
+
+    // Emit AFTER the blank default map is current + loaded, so ALL_DATA_CLEARED listeners (notably the
+    // base-layer control re-running setupMapFeatures) repopulate the live map sources from the now
+    // EMPTY map — clearing every feature the old map left drawn on the canvas (no traces after logout).
+    deps.eventBus.emit(EventTypes.ALL_DATA_CLEARED);
 
     deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 }

@@ -173,6 +173,7 @@ describe('login', () => {
         expect(sessionContextMock.setSession).toHaveBeenCalledWith({
             userId: 'user-1',
             role: 'editor',
+            globalRole: 'user',
             username: 'alice',
         });
         expect(user).toEqual({ id: 'user-1', org_role: 'editor' });
@@ -184,7 +185,19 @@ describe('login', () => {
         expect(sessionContextMock.setSession).toHaveBeenCalledWith({
             userId: 'user-9',
             role: 'viewer',
+            globalRole: 'user',
             username: 'bob',
+        });
+    });
+
+    it('forwards the global role (admin) from the login response', async () => {
+        apiClientMock.login.mockResolvedValueOnce({ id: 'user-7', org_role: 'editor', role: 'admin' });
+        await syncEngine.login({ username: 'root', password: 'pw' });
+        expect(sessionContextMock.setSession).toHaveBeenCalledWith({
+            userId: 'user-7',
+            role: 'editor',
+            globalRole: 'admin',
+            username: 'root',
         });
     });
 });

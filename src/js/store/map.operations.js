@@ -18,6 +18,7 @@ import {
 } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import { memoryStore } from './memory-store.js';
+import { MAP_BADGE_COLORS, mapBadgeColorForName } from './map-badge-colors.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
@@ -367,7 +368,14 @@ export async function activateAtlasInitialMap() {
         }
     }
 
-    let atlasMap = uuidMaps.find((m) => m && m.name) || uuidMaps[0];
+    // Prefer the map the user was last on (so an F5 reconnect returns there), else the first named
+    // atlas map. Resolving BY NAME here is the fix for the UUID-keyed reconnect: setCurrentMap below
+    // persists the NAME so the UI label AND the presence/cursor mapId use the name — not the raw UUID
+    // storage key the boot repository falls back to (which peers, keyed by name, filter out).
+    const lastName = await getAppSetting('lastActiveMap');
+    let atlasMap = (lastName && uuidMaps.find((m) => m && m.name === lastName))
+        || uuidMaps.find((m) => m && m.name)
+        || uuidMaps[0];
     if (!atlasMap) {
         // Brand-new EMPTY atlas: no UUID-keyed map. Create a first atlas map so the user edits a
         // SYNCED map from the start — addMap assigns a UUID and logs a CREATE op that reaches
@@ -663,25 +671,7 @@ export function getFrequentColors(limit = 10, scope = 'current') {
 
 // ===== MAP BADGE COLORS =====
 
-/**
- * Map-badge palette: 10 visually-distinct hues (all ~600/700 weight, so white text reads
- * on them), ordered so that consecutive maps get strongly-contrasting neighbors. Colors are
- * assigned first-available (least-used) and persisted per map, so maps walk this sequence and
- * stay distinct until the palette is exhausted. This is the SINGLE source of a map's badge
- * color, shared by the current-map card, the maps-list badge, and the recent-map shortcut.
- */
-const MAP_BADGE_COLORS = [
-    '#2563eb', // blue
-    '#dc2626', // red
-    '#16a34a', // green
-    '#9333ea', // purple
-    '#ea580c', // orange
-    '#0891b2', // cyan
-    '#db2777', // pink
-    '#65a30d', // lime
-    '#4f46e5', // indigo
-    '#ca8a04', // gold
-];
+// MAP_BADGE_COLORS + mapBadgeColorForName live in ./map-badge-colors.js (pure, Node-testable).
 
 /**
  * Finds the least-used color from the palette given current usage counts.
@@ -805,21 +795,21 @@ export async function getAllMapBadgeColors() {
 }
 
 /**
- * Derived (non-persistent) badge colors for the maps UI. Walks the distinct MAP_BADGE_COLORS
- * sequence by each map's POSITION in the canonical ordered name list, so neighbors never share
- * a hue and adjacent maps are always visibly different. Keyed by DISPLAY NAME — the exact key
- * every badge UI uses — so a map's color matches across the current-map card, the maps list,
- * and the recent-map rail (unlike the persisted store, which is keyed by raw UUID/name storage
- * keys and therefore misses on name lookups for synced maps).
+ * Derived (non-persistent) badge colors for the maps UI, keyed by DISPLAY NAME — the exact key
+ * every badge UI uses — so a map's color matches across the current-map card, the maps list, and
+ * the recent-map rail (unlike the persisted store, which is keyed by raw UUID/name storage keys and
+ * therefore misses on name lookups for synced maps). The color is a STABLE function of the map NAME
+ * (mapBadgeColorForName), so reordering maps NEVER recolors them (the previous position-based
+ * assignment did, which was confusing) and every collaborator sees the same color without syncing.
  *
  * @returns {Promise<Object<string,string>>} Map of display name -> hex color
  */
 export async function getOrderedMapBadgeColors() {
     const names = await getAllMapNamesStore();
     const colors = {};
-    names.forEach((name, i) => {
-        colors[name] = MAP_BADGE_COLORS[i % MAP_BADGE_COLORS.length];
-    });
+    for (const name of names) {
+        colors[name] = mapBadgeColorForName(name);
+    }
     return colors;
 }
 

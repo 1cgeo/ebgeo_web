@@ -106,10 +106,36 @@ async function initApp() {
     // Tab lock — runs after app is fully loaded so the map is visible behind the overlay
     initTabLock();
 
+    // An e-mail-confirmation link (?verify=<token>) is handled first (anonymous, one-shot).
+    await handleEmailVerificationFromUrl();
+
     // A public viewer link in the URL takes precedence for an anonymous visitor; otherwise
     // reconnect the last remote atlas for a restored authenticated session.
     if (!(await openPublicAtlasFromUrl())) {
         reconnectLastAtlas();
+    }
+}
+
+/**
+ * Confirms an account when the URL carries a verification token (`?verify=<token>`). Anonymous and
+ * one-shot: shows the outcome as a toast and strips the param so a reload never retries a consumed
+ * token. Best-effort — never blocks boot.
+ * @returns {Promise<void>}
+ */
+async function handleEmailVerificationFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('verify');
+    if (!token) return;
+    try {
+        await apiClient.verifyEmail(token);
+        showToast('E-mail confirmado! Faça login para entrar.', 'success');
+    } catch {
+        showToast('Não foi possível confirmar o e-mail. O link pode ter expirado.', 'error');
+    } finally {
+        params.delete('verify');
+        const qs = params.toString();
+        const url = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
+        window.history.replaceState({}, '', url);
     }
 }
 
@@ -151,6 +177,7 @@ async function restoreSessionFromStorage() {
         sessionContext.setSession({
             userId: user.id,
             role: user.org_role || 'viewer',
+            globalRole: user.role || 'user',
             username: user.username || user.nome,
         });
     } catch {
@@ -161,7 +188,8 @@ async function restoreSessionFromStorage() {
 /**
  * Re-opens the last remote atlas after a reload, when a session was restored and the local
  * store still holds that (remote) atlas. Best-effort: re-pulls a fresh snapshot, re-marks the
- * store remote, and resumes auto-flush. Does nothing for the offline/local user.
+ * store remote, activates the initial map BY NAME, and resumes auto-flush. Does nothing for the
+ * offline/local user.
  * @returns {Promise<void>}
  */
 async function reconnectLastAtlas() {
@@ -171,6 +199,11 @@ async function reconnectLastAtlas() {
         if (origin.kind !== 'remote' || !origin.atlasId) return;
         await syncEngine.connect(origin.atlasId, { initialPull: true });
         await markStoreRemote(origin.atlasId);
+        // Mirror the project-picker's onPick flow: drop local strays and re-activate the map BY NAME
+        // (preferring the last-active map). The boot repository fell back to a raw UUID storage key,
+        // which showed a UUID in the UI and broadcast cursor/presence under that UUID mapId (peers,
+        // keyed by name, filtered it out) until the user manually switched maps.
+        await activateAtlasInitialMap();
         startAutoFlush();
     } catch (error) {
         console.warn('[boot] atlas reconnect failed:', error);

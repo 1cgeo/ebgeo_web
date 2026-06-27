@@ -1,0 +1,382 @@
+/* Path: src/css/admin.css */
+
+/*
+ * Admin panel (global system admin only).
+ * Full-screen surface with a tab bar + body; the Users tab renders a table and
+ * inline create/edit/password/transfer forms. BEM blocks:
+ *   - .admin-panel   (shell: header + tabs + body)
+ *   - .admin-users   (table + toolbar + badges)
+ *   - .admin-form    (inline create/edit/password/transfer forms)
+ *   - .admin-btn     (action buttons: primary / ghost / danger)
+ */
+
+.admin-panel {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: flex;
+    flex-direction: column;
+    background: var(--gray-50);
+}
+
+.admin-panel__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-6);
+    background: var(--sidebar-bg);
+    color: #fff;
+}
+
+.admin-panel__title {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+}
+
+.admin-panel__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    border-radius: var(--radius-md);
+}
+
+.admin-panel__close:hover {
+    background: rgb(255 255 255 / 15%);
+}
+
+.admin-panel__tabs {
+    display: flex;
+    gap: var(--space-1);
+    padding: 0 var(--space-6);
+    background: #fff;
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.admin-panel__tab {
+    padding: var(--space-3) var(--space-4);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+}
+
+.admin-panel__tab:hover {
+    color: var(--gray-800);
+}
+
+.admin-panel__tab--active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+
+.admin-panel__body {
+    flex: 1;
+    overflow: auto;
+    padding: var(--space-6);
+}
+
+/* ===== Users tab ===== */
+
+.admin-users__toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+}
+
+.admin-users__inactive-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    cursor: pointer;
+}
+
+.admin-users__table-wrap {
+    background: #fff;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.admin-users__status {
+    padding: var(--space-6);
+    margin: 0;
+    color: var(--gray-500);
+    text-align: center;
+}
+
+.admin-users__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+}
+
+.admin-users__table th,
+.admin-users__table td {
+    padding: var(--space-3) var(--space-4);
+    text-align: left;
+    border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.admin-users__table th {
+    background: var(--gray-100);
+    color: var(--gray-700);
+    font-weight: var(--font-weight-semibold);
+}
+
+.admin-users__table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.admin-users__badge {
+    display: inline-block;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+}
+
+.admin-users__badge--active {
+    background: var(--primary-100);
+    color: var(--primary-700);
+}
+
+.admin-users__badge--inactive {
+    background: var(--gray-200);
+    color: var(--gray-600);
+}
+
+.admin-users__badge--pending {
+    margin-left: var(--space-1);
+    background: rgb(245 158 11 / 15%);
+    color: #b45309;
+}
+
+.admin-users__actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+/* ===== Action buttons ===== */
+
+.admin-btn {
+    padding: var(--space-2) var(--space-3);
+    border: var(--border-width) solid transparent;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+}
+
+.admin-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.admin-btn--primary {
+    background: var(--primary);
+    color: #fff;
+}
+
+.admin-btn--primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+}
+
+.admin-btn--ghost {
+    background: #fff;
+    border-color: var(--border-color);
+    color: var(--gray-700);
+}
+
+.admin-btn--ghost:hover:not(:disabled) {
+    background: var(--gray-100);
+}
+
+.admin-btn--danger {
+    background: #fff;
+    border-color: var(--color-error);
+    color: var(--color-error);
+}
+
+.admin-btn--danger:hover:not(:disabled) {
+    background: rgb(239 68 68 / 10%);
+}
+
+/* ===== Inline forms (create / edit / password / transfer) ===== */
+
+.admin-form {
+    max-width: 480px;
+    background: #fff;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+/* Wider form for the multi-section system-config editor. */
+.admin-form--wide {
+    max-width: 640px;
+}
+
+.admin-form__heading {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+}
+
+/* Section headings after the first get a separating rule. */
+.admin-form__heading + .admin-form__field {
+    margin-top: 0;
+}
+
+.admin-form__hint {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--gray-500);
+}
+
+.admin-form__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.admin-form__field label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+}
+
+.admin-form__field input,
+.admin-form__field select {
+    height: var(--touch-target-min);
+    padding: 0 var(--space-3);
+    box-sizing: border-box;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+}
+
+.admin-form__field input:focus,
+.admin-form__field select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+    outline: none;
+}
+
+.admin-form__field--checkbox {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.admin-form__field--checkbox input {
+    height: auto;
+}
+
+.admin-form__error {
+    padding: var(--space-2) var(--space-3);
+    background: rgb(239 68 68 / 10%);
+    border: var(--border-width) solid var(--color-error);
+    border-radius: var(--radius-md);
+    color: var(--color-error);
+    font-size: var(--font-size-sm);
+}
+
+.admin-form__error[hidden] {
+    display: none;
+}
+
+.admin-form__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.admin-transfer__results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-height: 240px;
+    overflow: auto;
+}
+
+.admin-transfer__option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+}
+
+.admin-transfer__option:hover {
+    background: var(--gray-100);
+}
+
+/* ===== Catalog tab ===== */
+
+.admin-catalog__nav {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+}
+
+.admin-catalog__nav-btn {
+    padding: var(--space-2) var(--space-3);
+    background: #fff;
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+}
+
+.admin-catalog__nav-btn:hover {
+    background: var(--gray-100);
+}
+
+.admin-catalog__nav-btn--active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
+/* Monospace JSON editor for the rich `config` blob (MapLibre expressions, etc.). */
+.admin-form__json {
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-3);
+    border: var(--border-width) solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.admin-form__json:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+    outline: none;
+}

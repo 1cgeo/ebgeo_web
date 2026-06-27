@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getEmptyMapData } from '../../src/js/store/repository.utils.js';
+import { mapBadgeColorForName } from '../../src/js/store/map-badge-colors.js';
 
 // ============================================================================
 // Hoisted shared state
@@ -864,7 +865,7 @@ describe('getAllMapBadgeColors', () => {
 });
 
 describe('getOrderedMapBadgeColors', () => {
-    it('assigns colors by position in the canonical ordered name list, keyed by display name', async () => {
+    it('assigns each map a palette color keyed by display name (stable, name-based)', async () => {
         mockMaps.value = {
             'MapA': getEmptyMapData(),
             'MapB': getEmptyMapData(),
@@ -874,28 +875,31 @@ describe('getOrderedMapBadgeColors', () => {
 
         const colors = await getOrderedMapBadgeColors();
 
-        // Each is a distinct palette hue, walked in the saved order (MapC first → palette[0]).
-        const ordered = [colors.MapC, colors.MapA, colors.MapB];
-        ordered.forEach(c => expect(c).toMatch(/^#[0-9a-f]{6}$/i));
-        expect(new Set(ordered).size).toBe(3); // all distinct (no neighbor collisions)
-        expect(colors.MapC).toBe('#2563eb'); // first palette hue
+        // Keyed by display name; each color is a valid palette hue equal to the pure name-based color.
+        for (const name of ['MapA', 'MapB', 'MapC']) {
+            expect(colors[name]).toMatch(/^#[0-9a-f]{6}$/i);
+            expect(colors[name]).toBe(mapBadgeColorForName(name));
+        }
     });
 
-    it('wraps around the 10-color palette: the 11th map reuses the first hue', async () => {
-        mockMaps.value = {};
-        const order = [];
-        for (let i = 0; i < 11; i++) {
-            const name = `Map${i}`;
-            mockMaps.value[name] = getEmptyMapData();
-            order.push(name);
+    it('a map KEEPS its color when the list is reordered (does not recolor on reorder)', async () => {
+        mockMaps.value = {
+            'MapA': getEmptyMapData(),
+            'MapB': getEmptyMapData(),
+            'MapC': getEmptyMapData()
+        };
+
+        mockSettings.value.mapOrder = ['MapC', 'MapA', 'MapB'];
+        const before = await getOrderedMapBadgeColors();
+
+        // Reorder the maps — each map's color must be UNCHANGED (the previous behavior recolored
+        // every map by its new position, which the user found confusing).
+        mockSettings.value.mapOrder = ['MapB', 'MapC', 'MapA'];
+        const after = await getOrderedMapBadgeColors();
+
+        for (const name of ['MapA', 'MapB', 'MapC']) {
+            expect(after[name]).toBe(before[name]);
         }
-        mockSettings.value.mapOrder = order;
-
-        const colors = await getOrderedMapBadgeColors();
-
-        // Index 10 % 10 === 0 → same hue as index 0.
-        expect(colors.Map10).toBe(colors.Map0);
-        expect(colors.Map10).toBe('#2563eb');
     });
 
     it('returns an empty map when there are no maps', async () => {

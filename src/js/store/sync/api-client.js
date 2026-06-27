@@ -289,6 +289,25 @@ export class ApiClient {
     }
 
     /**
+     * Confirms an account via the verification token from the e-mail link. Anonymous.
+     * @param {string} token
+     * @returns {Promise<Object>} { success: true }
+     */
+    async verifyEmail(token) {
+        return this._request('POST', '/auth/verify-email', { body: { token }, auth: false });
+    }
+
+    /**
+     * Re-sends the verification e-mail for an address. Anonymous; always resolves success
+     * (the backend never leaks whether the e-mail exists).
+     * @param {string} email
+     * @returns {Promise<Object>} { success: true }
+     */
+    async resendVerification(email) {
+        return this._request('POST', '/auth/resend-verification', { body: { email }, auth: false });
+    }
+
+    /**
      * Logs out (revokes the refresh token) and clears local tokens. The backend's
      * `/auth/logout` route is auth-strict: it needs the Bearer access token AND the
      * refreshToken in the body. Network errors are swallowed so the local tokens are
@@ -326,6 +345,99 @@ export class ApiClient {
      */
     async getConfig() {
         return this._request('GET', '/config', { auth: false, timeoutMs: this._bootTimeoutMs });
+    }
+
+    /**
+     * Admin: reads the effective config + the current override document (prefills the editor).
+     * @returns {Promise<{ effective: Object, overrides: Object }>}
+     */
+    async getConfigAdmin() {
+        return this._request('GET', '/config/admin');
+    }
+
+    /**
+     * Admin: persists a partial config override (deep-merged server-side over STATIC/ENV).
+     * @param {Object} overrides - Partial { app?, features?, map2d?, map3d?, services?, search? }.
+     * @returns {Promise<{ overrides: Object }>}
+     */
+    async updateConfigOverrides(overrides) {
+        return this._request('PUT', '/config/admin', { body: overrides });
+    }
+
+    /**
+     * Admin: clears ALL config overrides (revert to the deploy STATIC/ENV defaults).
+     * @returns {Promise<{ overrides: Object }>}
+     */
+    async clearConfigOverrides() {
+        return this._request('DELETE', '/config/admin');
+    }
+
+    // ===== CATALOG — RESOURCES (admin metadata CRUD; requireAdmin server-side) =====
+    // These manage the catalog METADATA only (the `config` JSONB: name/url/thumbnail/style/…);
+    // the actual files (3D model bytes, 360 bundles, media) are populated out-of-band.
+
+    /**
+     * Lists catalog resources, optionally filtered by category.
+     * @param {string} [category] - 'basemap'|'data_layer'|'analysis_layer'|'tileset'|'streetview_marker'
+     * @returns {Promise<Array<Object>>}
+     */
+    async listResources(category) {
+        const qs = category ? `?category=${encodeURIComponent(category)}` : '';
+        return this._request('GET', `/resources${qs}`);
+    }
+
+    /**
+     * Creates a catalog resource (metadata).
+     * @param {{ id: string, category: string, name: string, description?: string, config?: Object, sort_order?: number }} payload
+     * @returns {Promise<Object>}
+     */
+    async createResource(payload) {
+        return this._request('POST', '/resources', { body: payload });
+    }
+
+    /**
+     * Updates a catalog resource (partial metadata).
+     * @param {string} id
+     * @param {{ name?: string, description?: string, config?: Object, sort_order?: number }} payload
+     * @returns {Promise<Object>}
+     */
+    async updateResource(id, payload) {
+        return this._request('PUT', `/resources/${encodeURIComponent(id)}`, { body: payload });
+    }
+
+    /**
+     * Soft-deletes a catalog resource.
+     * @param {string} id
+     * @returns {Promise<null>}
+     */
+    async deleteResource(id) {
+        return this._request('DELETE', `/resources/${encodeURIComponent(id)}`);
+    }
+
+    // ===== CATALOG — 360 PROJECTS (admin metadata; the bundle upload is out-of-band) =====
+
+    /** Lists 360 projects (incl. disabled). Bare array contract. @returns {Promise<Array<Object>>} */
+    async listSv360Projects() {
+        return this._request('GET', '/sv360/admin/projects');
+    }
+
+    /**
+     * Enables/disables a 360 project (metadata only).
+     * @param {string} slug
+     * @param {'enabled'|'disabled'} status
+     * @returns {Promise<Object>}
+     */
+    async setSv360ProjectStatus(slug, status) {
+        return this._request('PATCH', `/sv360/admin/projects/${encodeURIComponent(slug)}/status`, { body: { status } });
+    }
+
+    /**
+     * Deletes a 360 project.
+     * @param {string} slug
+     * @returns {Promise<null>}
+     */
+    async deleteSv360Project(slug) {
+        return this._request('DELETE', `/sv360/admin/projects/${encodeURIComponent(slug)}`);
     }
 
     // ===== ATLAS =====
@@ -491,6 +603,88 @@ export class ApiClient {
      */
     async searchUsers(q) {
         return this._request('GET', `/users/search?q=${encodeURIComponent(q)}`);
+    }
+
+    // ===== USERS — ADMIN (requireAdmin server-side; global role 'admin') =====
+
+    /**
+     * Lists all users (admin-only).
+     * @param {{ includeInactive?: boolean }} [opts]
+     * @returns {Promise<Array<Object>>} The users.
+     */
+    async listUsers({ includeInactive = false } = {}) {
+        const qs = includeInactive ? '?includeInactive=true' : '';
+        return this._request('GET', `/users${qs}`);
+    }
+
+    /**
+     * Fetches a single user by id (admin-only).
+     * @param {string} userId
+     * @returns {Promise<Object>}
+     */
+    async getUser(userId) {
+        return this._request('GET', `/users/${userId}`);
+    }
+
+    /**
+     * Creates a user (admin-only). Payload per the backend createUserAdminSchema.
+     * @param {{ username: string, password: string, nome: string, posto_graduacao?: string,
+     *   organizacao_militar?: string, role?: 'user'|'admin' }} payload
+     * @returns {Promise<Object>} The created user.
+     */
+    async createUser(payload) {
+        return this._request('POST', '/users', { body: payload });
+    }
+
+    /**
+     * Updates a user (admin-only). Partial payload per the backend updateUserAdminSchema.
+     * @param {string} userId
+     * @param {{ username?: string, nome?: string, posto_graduacao?: string,
+     *   organizacao_militar?: string, role?: 'user'|'admin', is_active?: boolean }} payload
+     * @returns {Promise<Object>} The updated user.
+     */
+    async updateUser(userId, payload) {
+        return this._request('PUT', `/users/${userId}`, { body: payload });
+    }
+
+    /**
+     * Resets a user's password (admin-only).
+     * @param {string} userId
+     * @param {string} newPassword
+     * @returns {Promise<Object>}
+     */
+    async resetUserPassword(userId, newPassword) {
+        return this._request('POST', `/users/${userId}/reset-password`, { body: { newPassword } });
+    }
+
+    /**
+     * Deactivates (soft-deletes) a user (admin-only). When the user owns atlases, `transferTo`
+     * (a user id) is required so ownership is reassigned; otherwise the backend returns a conflict.
+     * @param {string} userId
+     * @param {{ transferTo?: string }} [opts]
+     * @returns {Promise<Object>}
+     */
+    async deactivateUser(userId, { transferTo } = {}) {
+        const qs = transferTo ? `?transferTo=${encodeURIComponent(transferTo)}` : '';
+        return this._request('DELETE', `/users/${userId}${qs}`);
+    }
+
+    /**
+     * Reactivates a previously deactivated user (admin-only).
+     * @param {string} userId
+     * @returns {Promise<Object>}
+     */
+    async reactivateUser(userId) {
+        return this._request('POST', `/users/${userId}/reactivate`);
+    }
+
+    /**
+     * Rotates another user's M2M API key (admin-only).
+     * @param {string} userId
+     * @returns {Promise<Object>}
+     */
+    async rotateUserApiKey(userId) {
+        return this._request('POST', `/users/${userId}/api-key/rotate`);
     }
 
     // ===== SYNC =====

@@ -433,6 +433,26 @@
     cursor: not-allowed;
 }
 
+/* Secondary affordance row: "Criar conta" (login) / "Já tenho conta" (signup) link. */
+.login-modal__secondary {
+    display: flex;
+    justify-content: center;
+    margin-top: var(--space-1);
+}
+
+.login-modal__link {
+    padding: var(--space-2);
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+}
+
+.login-modal__link:hover {
+    text-decoration: underline;
+}
+
 /* =========================================================================
    PROJECT PICKER (selectable rows + avatar badge + actions + empty state)
    ========================================================================= */

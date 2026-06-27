@@ -1,5 +1,8 @@
 // Path: js/account/account.control.js
 import { showLoginModal } from '@modals/login.modal.js';
+import { showSignupModal } from '@modals/signup.modal.js';
+import { openAdminPanel } from '@js/admin/index.js';
+import config from '@js/config.js';
 import { showProjectPickerModal } from '@modals/project-picker.modal.js';
 import { showConfirm } from '@modals/index.js';
 import { syncEngine } from '@store/sync/sync-engine.js';
@@ -32,6 +35,7 @@ const ICON_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const ICON_SETTINGS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
 const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>';
 const ICON_LOGOUT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>';
+const ICON_ADMIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="10" r="2.5"/><path d="M8.5 16a3.5 3.5 0 0 1 7 0"/></svg>';
 
 /**
  * Fills a dropdown menu button with a leading icon + a text label. The icon is a trusted static
@@ -203,6 +207,18 @@ export class AccountControl {
         this._deleteAtlasBtn.hidden = true;
         this._menu.appendChild(this._deleteAtlasBtn);
 
+        // "Administração" — global system-admin panel (users, config, catalog). Visible ONLY to a
+        // GLOBAL admin (sessionContext.isAdmin()), independent of any connected atlas. The backend
+        // gates every admin route with requireAdmin; this is purely a UI affordance.
+        this._adminBtn = document.createElement('button');
+        this._adminBtn.type = 'button';
+        this._adminBtn.className = 'account-control__btn account-control__btn--admin';
+        this._adminBtn.setAttribute('role', 'menuitem');
+        this._adminBtn.setAttribute('data-testid', 'account-admin-btn');
+        setMenuButtonContent(this._adminBtn, ICON_ADMIN, 'Administração');
+        this._adminBtn.hidden = true;
+        this._menu.appendChild(this._adminBtn);
+
         this._logoutBtn = document.createElement('button');
         this._logoutBtn.type = 'button';
         this._logoutBtn.className = 'account-control__btn account-control__btn--logout';
@@ -221,6 +237,7 @@ export class AccountControl {
         addDomListener(this, this._settingsBtn, 'click', () => this._handleAtlasSettings());
         addDomListener(this, this._saveToServerBtn, 'click', () => this._handleSaveLocalToServer());
         addDomListener(this, this._deleteAtlasBtn, 'click', () => this._handleDeleteAtlas());
+        addDomListener(this, this._adminBtn, 'click', () => this._handleOpenAdmin());
         addDomListener(this, this._logoutBtn, 'click', () => this._handleLogout());
 
         // Dismiss the menu on outside-click / Esc (tracked for cleanup).
@@ -304,6 +321,7 @@ export class AccountControl {
         this._updateSaveToServerVisibility();
         this._updateDeleteAtlasVisibility();
         this._updateSettingsVisibility();
+        this._updateAdminVisibility();
         // Logging out (or switching identity) must never leave the menu open.
         if (!loggedIn) {
             this._closeMenu();
@@ -333,6 +351,7 @@ export class AccountControl {
         this._updateSaveToServerVisibility();
         this._updateDeleteAtlasVisibility();
         this._updateSettingsVisibility();
+        this._updateAdminVisibility();
         // Resolve the current atlas name lazily (fire-and-forget).
         this._renderAtlasName();
     }
@@ -429,6 +448,26 @@ export class AccountControl {
         const canConfigure = !!syncEngine.atlasId
             && (role === 'owner' || role === 'manager' || role === 'admin');
         this._settingsBtn.hidden = !canConfigure;
+    }
+
+    /**
+     * Shows "Administração" only to a GLOBAL system admin (sessionContext.isAdmin()). Unlike the
+     * atlas-scoped items above, this is NOT predicated on a connected atlas — the admin panel is
+     * global. The backend gates every admin route with requireAdmin.
+     * @private
+     */
+    _updateAdminVisibility() {
+        if (!this._adminBtn) return;
+        this._adminBtn.hidden = !sessionContext.isAdmin();
+    }
+
+    /**
+     * Closes the account menu and opens the global admin panel (gate re-checked in openAdminPanel).
+     * @private
+     */
+    _handleOpenAdmin() {
+        this._closeMenu();
+        openAdminPanel();
     }
 
     /**
@@ -635,6 +674,9 @@ export class AccountControl {
             return;
         }
 
+        // Only offer "Criar conta" where self-registration is enabled server-side (the /auth/register
+        // route is unmounted otherwise — showing the button would be a 404 dead-end).
+        const signupEnabled = config?.features?.self_registration === true;
         showLoginModal({
             onSubmit: async (credentials) => {
                 await syncEngine.login(credentials);
@@ -643,7 +685,35 @@ export class AccountControl {
                 this._render();
                 // The modal closes on resolve; advance to project selection.
                 await this.openProjectPicker();
-            }
+            },
+            onRegister: signupEnabled ? () => this._handleRegister() : undefined
+        });
+    }
+
+    /**
+     * Opens the self-registration modal. On success (the account is active immediately while the
+     * e-mail-confirmation flow is not yet enabled), returns the user to the login modal to sign in.
+     * @private
+     */
+    _handleRegister() {
+        showSignupModal({
+            onSubmit: async (data) => {
+                await syncEngine.register(data);
+                // The account is created PENDING: it must confirm the e-mail before logging in.
+                const resend = await showConfirm(
+                    `Conta criada! Enviamos um link de confirmação para ${data.email}. Confirme o e-mail para poder entrar.`,
+                    { confirmText: 'Reenviar e-mail', cancelText: 'Entendi' }
+                );
+                if (resend) {
+                    try {
+                        await apiClient.resendVerification(data.email);
+                        showSuccess('E-mail de confirmação reenviado.');
+                    } catch {
+                        showError('Não foi possível reenviar o e-mail agora.');
+                    }
+                }
+            },
+            onBackToLogin: () => this._handleLogin()
         });
     }
 
@@ -763,6 +833,7 @@ export class AccountControl {
         this._shareBtn = null;
         this._settingsBtn = null;
         this._deleteAtlasBtn = null;
+        this._adminBtn = null;
         this._saveToServerBtn = null;
         this._onDocPointerDown = null;
         this._onKeyDown = null;

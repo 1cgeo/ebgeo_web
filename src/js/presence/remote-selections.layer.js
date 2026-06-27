@@ -23,7 +23,7 @@
  *   @store/sync/session-context.js (sessionContext.clientId/userId — self exclusion)
  *   @store (getCurrentMapNameSync — active-map key, matching the bridge's frames)
  *   @store/services.js (getEventBus)
- *   @events/event_types.js (PRESENCE_SELECTIONS_CHANGED, PRESENCE_CHANGED)
+ *   @events/event_types.js (PRESENCE_SELECTIONS_CHANGED, PRESENCE_CHANGED, LAYERS_CHANGED)
  *   @js/presence/presence-colors.js (getPresenceColor)
  *   @utils/event-cleanup.js (subscribe/cleanup tracking)
  */
@@ -47,8 +47,9 @@ const REMOTE_SELECTION_SOURCE = 'remote-selection-boxes';
  * Lifecycle: construct with the map + the SelectionManager, call start() to begin
  * rendering and stop() to clear the source + listeners. Re-renders on
  * PRESENCE_SELECTIONS_CHANGED (a selection changed), PRESENCE_CHANGED (a peer left,
- * dropping their boxes) and map zoom (box pixel sizes change with zoom, like the
- * local highlight). Rendering is async (source reads), guarded by a generation token.
+ * dropping their boxes), LAYERS_CHANGED (the selected feature's geometry changed —
+ * e.g. a peer DRAGGED it — so the box follows), and map zoom (box pixel sizes change
+ * with zoom). Rendering is async (source reads), guarded by a generation token.
  */
 export class RemoteSelectionsLayer {
     /**
@@ -98,6 +99,13 @@ export class RemoteSelectionsLayer {
         // A peer leaving/away emits PRESENCE_CHANGED (not a selection event); re-render
         // so their boxes are dropped.
         subscribe(this, eventBus, EventTypes.PRESENCE_CHANGED, () => this._render());
+        // The selected feature's GEOMETRY can change without the selection set changing — most
+        // visibly when a peer DRAGS a selected feature. The moved geometry lands in our GeoJSON
+        // sources via the remote-feature-render refresh, which emits LAYERS_CHANGED once the sources
+        // are fresh. Re-read + rebuild the boxes then so a remote selection box FOLLOWS the feature
+        // (debounced to one rAF — LAYERS_CHANGED can burst). FEATURE_MODIFIED alone would fire BEFORE
+        // that refresh and rebuild from stale geometry.
+        subscribe(this, eventBus, EventTypes.LAYERS_CHANGED, () => this._scheduleRender());
 
         if (this._map && typeof this._map.on === 'function') {
             this._map.on('zoom', this._onZoom);
@@ -134,7 +142,14 @@ export class RemoteSelectionsLayer {
      * geographic box geometry must be rebuilt (mirrors SelectionHighlightManager).
      * @private
      */
-    _onZoom = () => {
+    _onZoom = () => this._scheduleRender();
+
+    /**
+     * Coalesce bursty re-render triggers (zoom, LAYERS_CHANGED during a peer drag) into a single
+     * render on the next animation frame.
+     * @private
+     */
+    _scheduleRender() {
         if (this._rafId !== null) {
             cancelAnimationFrame(this._rafId);
         }
@@ -142,7 +157,7 @@ export class RemoteSelectionsLayer {
             this._rafId = null;
             this._render();
         });
-    };
+    }
 
     /**
      * Rebuild every remote box for the active map and write the source. Excludes self.
@@ -204,7 +219,15 @@ export class RemoteSelectionsLayer {
             const { feature, control } = resolved;
             if (!control || typeof control.createSelectionBox !== 'function') return null;
 
-            const boxGeometry = control.createSelectionBox(feature);
+            // Recompute the box from the feature's CURRENT geometry — never reuse a stored, possibly
+            // stale `properties.selectionBox`. A point keeps its home-position box until re-authored,
+            // and a peer's move syncs the new geometry but not (always) the recomputed box; without
+            // this the remote box freezes at the pre-drag position. Clone so the live source feature
+            // is not mutated.
+            const fresh = feature.properties && feature.properties.selectionBox != null
+                ? { ...feature, properties: { ...feature.properties, selectionBox: null } }
+                : feature;
+            const boxGeometry = control.createSelectionBox(fresh);
             if (!boxGeometry) return null;
 
             return {

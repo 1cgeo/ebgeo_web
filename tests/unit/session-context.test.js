@@ -148,6 +148,63 @@ describe('setSession', () => {
     });
 });
 
+// ============================================================================
+// globalRole / isAdmin (global system role, distinct from per-atlas role)
+// ============================================================================
+
+describe('globalRole / isAdmin', () => {
+    it('globalRole is null and isAdmin is false when offline', () => {
+        expect(ctx.globalRole).toBeNull();
+        expect(ctx.isAdmin()).toBe(false);
+    });
+
+    it('isAdmin is true when globalRole is admin', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.EDITOR, globalRole: 'admin' });
+        expect(ctx.globalRole).toBe('admin');
+        expect(ctx.isAdmin()).toBe(true);
+    });
+
+    it('isAdmin is false when globalRole is user', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.OWNER, globalRole: 'user' });
+        expect(ctx.isAdmin()).toBe(false);
+    });
+
+    it('global admin is independent of the per-atlas role (viewer access does not drop admin)', () => {
+        // A system admin opening an atlas where they only have VIEWER access stays a system admin.
+        ctx.setSession({ userId: 'u1', role: UserRole.ADMIN, globalRole: 'admin' });
+        expect(ctx.isAdmin()).toBe(true);
+        // connect() re-sets only the per-atlas role, omitting globalRole → it must be PRESERVED.
+        ctx.setSession({ userId: 'u1', role: UserRole.VIEWER });
+        expect(ctx.role).toBe(UserRole.VIEWER);
+        expect(ctx.isAdmin()).toBe(true);
+    });
+
+    it('globalRole is preserved when a later setSession omits it', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.EDITOR, globalRole: 'admin' });
+        ctx.setSession({ userId: 'u1', role: UserRole.OWNER }); // no globalRole
+        expect(ctx.globalRole).toBe('admin');
+    });
+
+    it('clearSession resets globalRole and isAdmin', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.ADMIN, globalRole: 'admin' });
+        ctx.clearSession();
+        expect(ctx.globalRole).toBeNull();
+        expect(ctx.isAdmin()).toBe(false);
+    });
+
+    it('a visitor is never a global admin', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.EDITOR, globalRole: 'admin' });
+        ctx.setVisitorSession();
+        expect(ctx.globalRole).toBeNull();
+        expect(ctx.isAdmin()).toBe(false);
+    });
+
+    it('getSnapshot includes globalRole', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.EDITOR, globalRole: 'admin' });
+        expect(ctx.getSnapshot().globalRole).toBe('admin');
+    });
+});
+
 describe('clearSession', () => {
     it('returns to offline mode', () => {
         ctx.setSession({ userId: 'u1', role: UserRole.ADMIN });
@@ -275,6 +332,13 @@ describe('getSnapshot', () => {
 // ============================================================================
 
 describe('_reset', () => {
+    it('clears the username (parity with clearSession)', () => {
+        ctx.setSession({ userId: 'u1', role: UserRole.EDITOR, username: 'alice' });
+        expect(ctx.username).toBe('alice');
+        ctx._reset();
+        expect(ctx.username).toBeNull();
+    });
+
     it('returns to initial state and clears listeners', () => {
         const listener = vi.fn();
         ctx.onSessionChanged(listener);
