@@ -32,6 +32,11 @@ const DEFAULT_HEARTBEAT_MS = 25000;
 const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_RECONNECT_MAX_MS = 30000;
 
+/** Coalescable presence frame types — safe to drop under local outbound backpressure. */
+const COALESCABLE_TYPES = new Set(['cursor', 'selection', 'temporal']);
+/** Drop coalescable presence frames when the local outbound buffer exceeds this (bytes). */
+const PRESENCE_BUFFER_LIMIT = 1 << 20; // 1 MiB
+
 /** Close code used for an intentional client-side disconnect. */
 const CLOSE_INTENTIONAL = 1000;
 
@@ -514,6 +519,11 @@ export class WsClient {
     _sendRaw(message) {
         const OPEN = globalThis.WebSocket?.OPEN ?? 1;
         if (!this._socket || this._socket.readyState !== OPEN) return false;
+        // Backpressure: if the local outbound buffer is backed up, drop coalescable presence
+        // frames (the next frame supersedes them) but never durable ops / control frames.
+        if (COALESCABLE_TYPES.has(message?.type) && (this._socket.bufferedAmount || 0) > PRESENCE_BUFFER_LIMIT) {
+            return false;
+        }
         try {
             this._socket.send(JSON.stringify(message));
             return true;

@@ -60,6 +60,9 @@ import {
 /** Throttle window for outbound cursor broadcasts, in milliseconds. */
 const CURSOR_THROTTLE_MS = 80;
 
+/** Throttle window for outbound temporal-cursor broadcasts (fires per rAF during playback). */
+const TEMPORAL_THROTTLE_MS = 80;
+
 /** WS inbound events this bridge owns (restored to no-ops on stop). */
 const OWNED_WS_EVENTS = Object.freeze(['connected', 'presence', 'cursor', 'selection', 'temporal', 'briefingEdit']);
 
@@ -68,12 +71,14 @@ const OWNED_WS_EVENTS = Object.freeze(['connected', 'presence', 'cursor', 'selec
  * event-cleanup helpers, which track DOM listeners, bus subscriptions and timers.
  * @type {{ _started: boolean, _map: (import('maplibre-gl').Map|null),
  *   _cursorThrottle: { last: number, timer: (number|null), pending: (Object|null) },
+ *   _temporalThrottle: { last: number, timer: (number|null), pending: (number|null) },
  *   _stateUnsub: (Function|null) }}
  */
 const state = {
     _started: false,
     _map: null,
     _cursorThrottle: { last: 0, timer: null, pending: null },
+    _temporalThrottle: { last: 0, timer: null, pending: null },
     _stateUnsub: null,
 };
 
@@ -228,6 +233,38 @@ function broadcastSelection360(markerId, photoName) {
 }
 
 /**
+ * Leading + single-trailing coalescing for a high-frequency outbound presence signal.
+ * Mirrors the cursor throttle: fire immediately when the window has elapsed, else keep only the
+ * latest value and flush it once when the window closes (intermediate values are dropped, never
+ * queued). The trailing timer is tracked for cleanup.
+ * @param {{ last: number, timer: (number|null), pending: * }} throttle
+ * @param {number} intervalMs
+ * @param {*} value - latest value; overwrites any pending one.
+ * @param {(v: *) => void} send
+ */
+function scheduleCoalesced(throttle, intervalMs, value, send) {
+    const now = Date.now();
+    const elapsed = now - throttle.last;
+    if (elapsed >= intervalMs) {
+        throttle.last = now;
+        throttle.pending = null;
+        send(value);
+        return;
+    }
+    throttle.pending = value;
+    if (throttle.timer === null) {
+        throttle.timer = setTimeout(() => {
+            throttle.timer = null;
+            const queued = throttle.pending;
+            throttle.pending = null;
+            throttle.last = Date.now();
+            send(queued);
+        }, intervalMs - elapsed);
+        trackTimer(state, throttle.timer, 'timeout');
+    }
+}
+
+/**
  * Sends the local temporal viewing state to peers (case E). The timeline is
  * local per user, so this is awareness only: we ship the cursor plus a
  * precomputed short label (e.g. "D+3") so peers can render it without the
@@ -305,6 +342,7 @@ export function startPresence({ map } = {}) {
     state._started = true;
     state._map = map || null;
     state._cursorThrottle = { last: 0, timer: null, pending: null };
+    state._temporalThrottle = { last: 0, timer: null, pending: null };
 
     setupCleanup(state);
 
@@ -336,7 +374,9 @@ export function startPresence({ map } = {}) {
     // Case E — temporal instant/playback: the timeline is local per user; share
     // the cursor so peers can show "Fulano — em D+3".
     subscribe(state, eventBus, EventTypes.TEMPORAL_CURSOR_CHANGED, ({ cursor } = {}) => {
-        broadcastTemporal(cursor);
+        // Coalesce: TEMPORAL_CURSOR_CHANGED fires per rAF during playback — throttle like the
+        // cursor (leading + single trailing) so playback doesn't flood the socket.
+        scheduleCoalesced(state._temporalThrottle, TEMPORAL_THROTTLE_MS, cursor, broadcastTemporal);
     });
 
     // Case D — briefing-edit indicator: forward the open/close of a briefing

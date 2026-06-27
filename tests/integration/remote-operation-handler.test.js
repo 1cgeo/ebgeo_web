@@ -93,7 +93,14 @@ vi.mock('../../src/js/store/repositories/local.repository.js', () => ({
 // Imports
 // ============================================================================
 
-import { applyRemoteOperation, applyRemoteSnapshot, setRemoteHandlerEventBus } from '../../src/js/store/sync/remote-operation-handler.js';
+import {
+    applyRemoteOperation,
+    applyRemoteSnapshot,
+    setRemoteHandlerEventBus,
+    markLocalEditPending,
+    resolveLocalEdit,
+    reconcilePendingLocalEdits,
+} from '../../src/js/store/sync/remote-operation-handler.js';
 import { EntityType, OperationType } from '../../src/js/store/sync/operation-types.js';
 import { EventTypes } from '../../src/js/events/event_types.js';
 import { memoryStore } from '../../src/js/store/memory-store.js';
@@ -1141,5 +1148,77 @@ describe('Unknown entity type', () => {
             expect.stringContaining('unknown entity type')
         );
         consoleSpy.mockRestore();
+    });
+});
+
+// §11 convergence guard — the DEFER / ACK-REPLAY / SELF-HEAL machinery (beyond the simple
+// version-drop already covered above). This is what makes two concurrent edits to the SAME feature
+// converge to max(serverVersion) WITHOUT per-property merge (feature-level LWW):
+//   markLocalEditPending → a concurrent remote op is DEFERRED while the author's edit is un-acked
+//   → resolveLocalEdit (push ack) seeds the order and replays the deferred op through the version guard
+//   → reconcilePendingLocalEdits (post-flush) self-heals a leaked count (op compacted away / never acked).
+describe('Convergence guard — defer / ack-replay / self-heal (§11)', () => {
+    const updateOp = (id, color, serverVersion) => ({
+        entityType: EntityType.FEATURE,
+        operationType: OperationType.UPDATE,
+        entityId: id,
+        mapId: 'map-1',
+        serverVersion,
+        data: {
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+            properties: { id, source: 'line', lineColor: color },
+        },
+    });
+
+    function seedLine(id, color) {
+        const map = createTestMapData();
+        map.features.lines.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+            properties: { id, source: 'line', lineColor: color },
+        });
+        mapDataStore.set('map-1', map);
+    }
+    const colorOf = (id) =>
+        mapDataStore.get('map-1').features.lines.find((f) => f.properties.id === id)?.properties.lineColor;
+
+    it('defers a concurrent remote op while the local edit is un-acked (not applied yet)', async () => {
+        seedLine('cg-defer', '#000000');   // author's optimistic local value
+        markLocalEditPending('cg-defer');  // author has an un-acked edit on this feature
+
+        // Peer's op for the SAME feature arrives before the author's ack → must be deferred, not applied.
+        await applyRemoteOperation(updateOp('cg-defer', '#ff0000', 30));
+        expect(colorOf('cg-defer')).toBe('#000000');
+
+        // Author's push ack (serverVersion 25) reveals the order and replays the deferred op.
+        // 30 > 25 → the peer's edit wins; both clients converge to the higher serverVersion.
+        await resolveLocalEdit('cg-defer', 25);
+        expect(colorOf('cg-defer')).toBe('#ff0000');
+    });
+
+    it("keeps the author's edit when its serverVersion is higher: the deferred older peer op is dropped", async () => {
+        seedLine('cg-author', '#000000');  // author's optimistic value — should win
+        markLocalEditPending('cg-author');
+
+        await applyRemoteOperation(updateOp('cg-author', '#ff0000', 10)); // older peer op → deferred
+        expect(colorOf('cg-author')).toBe('#000000');
+
+        // Author's ack is serverVersion 25 (> the peer's 10) → on replay the stale peer op is dropped.
+        await resolveLocalEdit('cg-author', 25);
+        expect(colorOf('cg-author')).toBe('#000000'); // converges to v25 (the author's edit)
+    });
+
+    it('self-heals a leaked pending count: reconcile clears it and replays the deferred op', async () => {
+        seedLine('cg-rec', '#000000');
+        markLocalEditPending('cg-rec'); // local edit whose op is later compacted away (never acked)
+
+        await applyRemoteOperation(updateOp('cg-rec', '#00ff00', 40)); // deferred (pending > 0)
+        expect(colorOf('cg-rec')).toBe('#000000');
+
+        // The author's op never reaches the server (e.g. CREATE+DELETE compaction) → no ack ever comes.
+        // After a flush, reconcile sees 'cg-rec' is no longer queued → clears the leak and replays.
+        await reconcilePendingLocalEdits(new Set());
+        expect(colorOf('cg-rec')).toBe('#00ff00');
     });
 });

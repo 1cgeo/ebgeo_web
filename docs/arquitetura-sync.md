@@ -34,8 +34,8 @@ O EBGeo roda **100% offline/anônimo por padrão**. Um **backend opcional** (`eb
 Princípios que governam o desenho (detalhe em `docs/visao-e-principios.md`):
 
 - **Offline-first.** Toda mutação é **persistência-primeiro**: grava no IndexedDB local e *só depois* dispara efeitos (incluindo enfileirar a operação de sync). Se a persistência falha, nada de sync acontece.
-- **Operações, não estado.** Mutações de entidade viajam como **operações CRDT** (`create`/`update`/`delete`), nunca como "salvar o documento inteiro". Não existe rota REST de escrita para feature/map/layer/group/briefing/slide — escrita em runtime é **sync-only**.
-- **Conflito = LWW por ordem de chegada ao servidor.** O vencedor é a operação com o maior `serverVersion` (ordem de chegada), **não** por `timestamp` de parede nem por relógio Lamport. Idempotência por `op_id`.
+- **Operações, não estado.** Mutações de entidade viajam como **operações** (`create`/`update`/`delete`), nunca como "salvar o documento inteiro". Não existe rota REST de escrita para feature/map/layer/group/briefing/slide — escrita em runtime é **sync-only**.
+- **Conflito = LWW por ordem de chegada ao servidor.** O vencedor é a operação com o maior `serverVersion` (ordem de chegada), **não** por `timestamp` de parede nem por relógio Lamport. Idempotência por `op_id`. **Não é um CRDT no sentido estrito:** não há merge conflict-free descentralizado — o servidor central define a ordem total (modelo *server-authoritative*, à la Figma). O `lamportTimestamp` é gravado mas **decorativo** (avança o relógio local; não decide vencedor). A granularidade do LWW é a **feição inteira**, não por propriedade.
 - **Separação local↔remoto por marcador de origem**, não por namespacing de IndexedDB por atlas. Há **um** workspace local (mapa `Principal` + `.ebgeo`); atlas nomeados são um conceito de servidor. Dados de atlas remoto são apagados no logout/disconnect.
 - **Resiliência de rede.** Fila durável no cliente, reconexão com backoff, replay por versão, heartbeat.
 
@@ -162,7 +162,7 @@ URL montada por `api-client.wsUrl()`: `${wsBase}/collab?atlasId=<id>&token=<acce
 | `user_joined`/`user_left`/`user_away`/`user_back` | `presence` | roster |
 | `briefing_edit_started`/`briefing_edit_ended` | `briefingEdit` | awareness de edição de briefing |
 | `adaptive-settings` | `adaptiveSettings` | qualidade de conexão → ajustes |
-| `atlas_deleted`/`atlas_owner_changed`/`atlas_settings_updated` | handlers dedicados | mutações fora do log CRDT |
+| `atlas_deleted`/`atlas_owner_changed`/`atlas_settings_updated` | handlers dedicados | mutações fora do log de operações |
 | `atlas_updated`/`map_duplicated`/`maps_merged` | `serverResync` | dispara **re-pull** de snapshot |
 | `sharing_updated` | `sharingUpdated` | compartilhamento mudou |
 | `error` / *desconhecido* | `error` / drop | erro tipado / `ws.inbound{dropped, unknown_type}` |
@@ -247,7 +247,7 @@ Em `index.js initApp`: instala o bridge de trace, configura o engine, aplica a c
 
 PostgreSQL via `pg-promise` (sem ORM); geometria como **JSONB** no schema de atlas (sem PostGIS aqui). Migrations forward-only em `src/database/migrations/NNN_*.sql`.
 
-### 8.1 A tabela `operations` (log CRDT append-only) — `003_sync.sql`
+### 8.1 A tabela `operations` (log de operações append-only) — `003_sync.sql`
 
 | Coluna | Tipo | Papel |
 |---|---|---|
@@ -345,7 +345,7 @@ A presença é **só em memória** no servidor (a tabela `active_sessions` só r
 - **Buffering de feature-antes-do-mapa.** Ops de feature que chegam antes do mapa são bufferizadas e drenadas quando o mapa aterrissa — robustez contra ordem de chegada.
 - **Serialização de apply.** Inbound é aplicado em cadeia (`_applyChain`) para evitar clobber concorrente do registro de mapa no IndexedDB.
 
-> **Limite conhecido (corrida real, fora do escopo de observabilidade):** `applyRemoteFeatureOp` (UPDATE) faz `features[index] = data`; duas edições concorrentes na **mesma** feição podem, sob carga, deixar A com o valor de B e vice-versa sem reconvergência inbound. É uma corrida gerenciada hoje via `retries` nos testes e **depurável pelo SyncLedger**; candidata a correção em lógica core de sync.
+> **Convergência de edição concorrente — tratada pelo *convergence guard*.** Duas edições concorrentes na **mesma** feição convergem para `max(serverVersion)` (LWW de feição inteira, em `remote-operation-handler.js`): enquanto o autor tem edição local não-ackada, a op remota do peer é **adiada** (`markLocalEditPending` → `deferRemoteOp`) e **replayada** quando o push ack revela a ordem (`resolveLocalEdit`); ops mais antigas que a última aplicada são descartadas (`shouldApplyVersion`); e `reconcilePendingLocalEdits` (pós-flush) cura contadores vazados (compaction / batch / ack sem versão). Coberto por `tests/integration/remote-operation-handler.test.js` ("Convergence guard — defer / ack-replay / self-heal"). *(Uma versão anterior deste doc listava isto como "limite conhecido" — descrevia o estado pré-guard.)*
 
 ---
 
@@ -420,7 +420,7 @@ Pontos que parecem "op perdida" mas são intencionais — codificados como `outc
 - **Locks de camada/grupo/feição são advisory** no cliente; o servidor só barra escrita em **mapa** travado.
 - **3D/360 e settings** persistem nos side-stores e convergem; `mapTemporal` é per-map config (emite op de `map` subtype).
 - **Offline intencional:** sem login, `gateway.gate{offline}` / `preflush.drop{logging_disabled}` são o esperado — o app é offline-first.
-- **`atlas_updated`/`map_duplicated`/`maps_merged`** mutam dados do servidor **fora** do log CRDT → o cliente faz **re-pull** de snapshot (`serverResync`), não apply de op.
+- **`atlas_updated`/`map_duplicated`/`maps_merged`** mutam dados do servidor **fora** do log de operações → o cliente faz **re-pull** de snapshot (`serverResync`), não apply de op.
 
 ---
 
