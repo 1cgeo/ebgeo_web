@@ -21,9 +21,14 @@ router.get('/', auth, ctrl.listAtlas);
 router.post('/', auth, validate({ body: schemas.createAtlasSchema }), ctrl.createAtlas);
 router.post('/import', auth, validate({ body: schemas.importSchema }), ctrl.importAtlas);
 router.get('/public/:link', publicLinkLimiter, ctrl.getPublicAtlas);
+// Trash: list the caller's own soft-deleted atlases. MUST precede '/:atlasId' (literal vs param).
+router.get('/trash', auth, ctrl.listTrash);
 router.get('/:atlasId', auth, requireAtlasPermission('read'), ctrl.getAtlas);
 router.put('/:atlasId', auth, requireAtlasPermission('write'), validate({ body: schemas.updateAtlasSchema }), ctrl.updateAtlas);
 router.delete('/:atlasId', auth, requireAtlasPermission('owner'), ctrl.deleteAtlas);
+// Restore is owner-checked inside the service (the atlas is soft-deleted, so requireAtlasPermission
+// — which only sees live atlases — cannot gate it).
+router.post('/:atlasId/restore', auth, validate({ params: schemas.atlasIdParamsSchema }), ctrl.restoreAtlas);
 
 // Settings (co-Gestor pode configurar o atlas)
 router.get('/:atlasId/settings', auth, requireAtlasPermission('read'), ctrl.getSettings);

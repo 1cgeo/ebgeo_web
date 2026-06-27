@@ -94,6 +94,48 @@ describe('Atlas API', () => {
       .expect(404);
   });
 
+  it('trash + restore — owner lists own trash and restores; others cannot', async () => {
+    const atlas = await createAtlas(db, owner.id, { name: 'Trashable' });
+    await supertest(app)
+      .delete(`/api/v1/atlas/${atlas.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(204);
+
+    // Owner sees it in the trash; the reader (non-owner) never does.
+    const ownerTrash = await supertest(app)
+      .get('/api/v1/atlas/trash')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+    assert.ok(ownerTrash.body.data.some(a => a.id === atlas.id));
+
+    const readerTrash = await supertest(app)
+      .get('/api/v1/atlas/trash')
+      .set('Authorization', `Bearer ${readerToken}`)
+      .expect(200);
+    assert.ok(!readerTrash.body.data.some(a => a.id === atlas.id));
+
+    // Reader cannot restore (the query is scoped to the owner → no rows → 404).
+    await supertest(app)
+      .post(`/api/v1/atlas/${atlas.id}/restore`)
+      .set('Authorization', `Bearer ${readerToken}`)
+      .expect(404);
+
+    // Owner restores it: accessible again, and gone from the trash.
+    await supertest(app)
+      .post(`/api/v1/atlas/${atlas.id}/restore`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+    await supertest(app)
+      .get(`/api/v1/atlas/${atlas.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+    const afterTrash = await supertest(app)
+      .get('/api/v1/atlas/trash')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+    assert.ok(!afterTrash.body.data.some(a => a.id === atlas.id));
+  });
+
   it('PATCH /atlas/:id/settings — owner updates settings', async () => {
     const atlas = await createAtlas(db, owner.id);
 

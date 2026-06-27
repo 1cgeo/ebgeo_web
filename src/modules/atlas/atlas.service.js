@@ -77,6 +77,28 @@ export async function deleteAtlas(atlasId) {
 }
 
 /**
+ * Lists the caller's own trashed (soft-deleted) atlases.
+ */
+export async function listDeletedUserAtlas(userId) {
+  const { rows } = await query(Q.LIST_DELETED_USER_ATLAS, [userId]);
+  return rows;
+}
+
+/**
+ * Restores a trashed atlas the caller owns. The query is scoped to (id, owner, deleted), so a
+ * non-owner / non-deleted / absent atlas matches nothing → 404.
+ */
+export async function restoreAtlas(atlasId, userId) {
+  const { rows } = await query(Q.RESTORE_ATLAS, [atlasId, userId]);
+
+  if (rows.length === 0) {
+    throw new NotFoundError('Atlas');
+  }
+
+  return rows[0];
+}
+
+/**
  * Gets atlas settings.
  */
 export async function getAtlasSettings(atlasId) {

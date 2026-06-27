@@ -30,6 +30,16 @@ export const deleteAtlas = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
+export const listTrash = asyncHandler(async (req, res) => {
+  const result = await atlasService.listDeletedUserAtlas(req.user.id);
+  res.json({ data: result });
+});
+
+export const restoreAtlas = asyncHandler(async (req, res) => {
+  const atlas = await atlasService.restoreAtlas(req.params.atlasId, req.user.id);
+  res.json({ data: atlas });
+});
+
 export const getSettings = asyncHandler(async (req, res) => {
   const settings = await atlasService.getAtlasSettings(req.atlasId);
   res.json({ data: settings });

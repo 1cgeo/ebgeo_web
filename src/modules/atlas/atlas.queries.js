@@ -45,6 +45,27 @@ export const SOFT_DELETE_ATLAS = `
   RETURNING id
 `;
 
+// The caller's OWN trashed atlases (only the owner soft-deletes, so only the owner sees/restores).
+export const LIST_DELETED_USER_ATLAS = `
+  SELECT a.*, u.nome as owner_nome, u.username as owner_username, 'owner' as user_permission
+  FROM atlas a
+  JOIN users u ON u.id = a.owner_id
+  WHERE a.deleted_at IS NOT NULL
+    AND a.owner_id = $1
+  ORDER BY a.deleted_at DESC
+`;
+
+// Restore is scoped to (id, owner, soft-deleted) so the ownership check is atomic: a non-owner or a
+// non-deleted/absent atlas matches zero rows → the service raises 404.
+export const RESTORE_ATLAS = `
+  UPDATE atlas
+  SET deleted_at = NULL,
+      updated_at = NOW(),
+      version = version + 1
+  WHERE id = $1 AND owner_id = $2 AND deleted_at IS NOT NULL
+  RETURNING *
+`;
+
 export const UPDATE_ATLAS_SETTINGS = `
   UPDATE atlas
   SET settings = settings || $2::jsonb,
