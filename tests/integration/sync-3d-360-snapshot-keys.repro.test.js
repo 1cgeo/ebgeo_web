@@ -75,7 +75,7 @@ describe('Snapshot keying for 3D camera positions / 360 orientations (no silent 
     assert.equal(m.cesium3d.cameraPositions[id].id, id);
   });
 
-  it('an orientation with NULL photo_name still appears in the snapshot (keyed by id)', async () => {
+  it('an orientation with NULL photo_name is rejected at write — never materialized, never in the snapshot', async () => {
     const id = randomUUID();
     await push({
       id: randomUUID(), type: 'create', target: 'streetview360', targetId: id, mapId: map.id,
@@ -85,8 +85,16 @@ describe('Snapshot keying for 3D camera positions / 360 orientations (no silent 
 
     const m = await snapshotMap();
     const { rows } = await db.query('SELECT id FROM streetview360_data WHERE id = $1', [id]);
-    assert.equal(rows.length, 1, 'row persisted');
-    assert.ok(m.streetview360.orientations[id], 'null-photo orientation preserved under its id');
-    assert.equal(m.streetview360.orientations[id].id, id);
+    // An orientation is keyed by photoName — a saved view for ONE panorama — and the frontend ONLY
+    // looks them up that way, so a photoName-less orientation is invalid. applyOperation rejects it at
+    // the write boundary: it stays in the append-only operations log (history) but is NEVER
+    // materialized into streetview360_data, so it can never become real data nor reach the snapshot.
+    // (camera_position above keeps its id fallback — that id IS a usable lookup key.)
+    assert.equal(rows.length, 0, 'orphan orientation NOT materialized into streetview360_data');
+    assert.ok(!m.streetview360.orientations[id], 'orphan NOT keyed under its id in the snapshot');
+    assert.ok(
+      !Object.prototype.hasOwnProperty.call(m.streetview360.orientations, 'undefined'),
+      'orphan NOT keyed under "undefined"',
+    );
   });
 });

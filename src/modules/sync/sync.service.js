@@ -326,9 +326,13 @@ function transformStreetview360ToFrontend(streetview360Data) {
 
     switch (item.data_type) {
       case 'orientation':
-        // Key by photoName (always set in the normal app path); fall back to the row id so a
-        // persisted orientation is never SILENTLY dropped from the snapshot.
-        result.orientations[item.photo_name || item.id] = entry;
+        // Orientations are keyed by photoName — a saved camera view for ONE specific panorama. An
+        // orientation WITHOUT a photoName is meaningless to the frontend (which only ever looks them
+        // up by photoName), so it is dropped rather than polluting the map under a row id (which no
+        // lookup would hit) or the literal 'undefined' key.
+        if (item.photo_name) {
+          result.orientations[item.photo_name] = entry;
+        }
         break;
       case 'marker':
         result.markers.push(entry);
@@ -1250,6 +1254,17 @@ async function applyOperation(t, atlasId, op, userId, permission) {
     if (m && m.locked) {
       throw new ConflictError('Map is locked');
     }
+  }
+
+  // Reject a malformed streetview360 orientation that lacks a photoName at the write boundary: an
+  // orientation is a saved camera view for ONE specific panorama, so without a photoName the row is
+  // meaningless to the frontend (which only ever looks orientations up by photoName) and would have no
+  // valid key in the snapshot. It is kept in the append-only operations log (history) but NEVER
+  // materialized into streetview360_data, so the invalid orientation can never become real data.
+  // (The snapshot reshape also drops any such row defensively, for legacy data predating this guard.)
+  if (target === 'streetview360' && type === 'create'
+      && op.data?.data_type === 'orientation' && !op.data?.photo_name) {
+    return 0; // no rows materialized
   }
 
   // §24.8 atlas-level setting (e.g. terrainExaggeration): merge a WHITELISTED patch

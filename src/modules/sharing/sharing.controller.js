@@ -2,6 +2,7 @@
 import { asyncHandler } from '../../utils/async-handler.js';
 import * as sharingService from './sharing.service.js';
 import { broadcastToRoom } from '../collab/collab.rooms.js';
+import { toFrontendRole } from '../../utils/roles.js';
 
 export const getSharingConfig = asyncHandler(async (req, res) => {
   const config = await sharingService.getSharingConfig(req.atlasId);
@@ -32,6 +33,9 @@ export const addUserShare = asyncHandler(async (req, res) => {
     action: 'user_added',
     userId: req.body.userId,
     permission: req.body.permission,
+    // Frontend role for the affected user, so a connected peer re-gates its UI live (per-atlas only;
+    // a global admin keeps full access and ignores this on the client).
+    role: toFrontendRole(req.body.permission),
   });
   res.status(201).json({ data: share });
 });
@@ -47,6 +51,10 @@ export const updateUserShare = asyncHandler(async (req, res) => {
     action: 'user_updated',
     userId: req.params.userId,
     permission: req.body.permission,
+    // Frontend role for the affected user, so a connected peer re-gates its UI live (the safe view
+    // engages on a write→read downgrade; toolbars return on an upgrade). Per-atlas only — a global
+    // admin keeps full access and ignores this on the client.
+    role: toFrontendRole(req.body.permission),
   });
   res.json({ data: share });
 });
