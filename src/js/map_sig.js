@@ -781,41 +781,56 @@ export function initializeApp(map, controlsPromise) {
     // Start loading state from IndexedDB (fast, ~10-50ms).
     const statePromise = initializeWithLastActiveMap();
 
+    // Resolves once the boot 'load' handler has rendered the initial map AND removed the splash.
+    // A remote open/reconnect (which clears + re-pulls the store) MUST await this so its
+    // clearAllDataStore does NOT run CONCURRENTLY with the handler's switchMap() below — that race
+    // hangs the handler before hideLoadingScreen(), leaving the splash stuck (the logged-in
+    // `?atlas=&map=` deep-link symptom). Always resolves (even on a boot error) so it can't deadlock.
+    let resolveBootRendered;
+    const bootRendered = new Promise((resolve) => { resolveBootRendered = resolve; });
+
     // Map load handler — fires when MapLibre finishes rendering tiles.
     // Must be registered synchronously to avoid race with async createControls().
     map.on('load', async () => {
-        map.doubleClickZoom.disable();
-        map.boxZoom.disable();
-        map.dragRotate.disable();
-
-        // Wait for both IndexedDB state and controls to be ready
-        const [, controls] = await Promise.all([statePromise, controlsPromise]);
-        const { baseLayerControl } = controls;
-
-        await baseLayerControl.switchMap(true);
-
-        if (config.map2d.globe_projection) {
-            map.setProjection({ type: 'globe' });
-        }
-
-        // Disable sky/fog - universe background is set via CSS on #map-sig container
-        map.setSky(undefined);
-
-        hideLoadingScreen();
-
-        // Handle deep link from URL hash (opens 360/3D viewer if hash present)
         try {
-            const { handleDeepLink, initDeepLinkListener } = await import('./deep-link/deep-link.js');
-            await handleDeepLink();
-            // Start listening for future hash changes so pasting a shared URL
-            // into an already-open tab also opens the correct viewer.
-            initDeepLinkListener();
+            map.doubleClickZoom.disable();
+            map.boxZoom.disable();
+            map.dragRotate.disable();
+
+            // Wait for both IndexedDB state and controls to be ready
+            const [, controls] = await Promise.all([statePromise, controlsPromise]);
+            const { baseLayerControl } = controls;
+
+            await baseLayerControl.switchMap(true);
+
+            if (config.map2d.globe_projection) {
+                map.setProjection({ type: 'globe' });
+            }
+
+            // Disable sky/fog - universe background is set via CSS on #map-sig container
+            map.setSky(undefined);
+
+            hideLoadingScreen();
+
+            // Handle deep link from URL hash (opens 360/3D viewer if hash present)
+            try {
+                const { handleDeepLink, initDeepLinkListener } = await import('./deep-link/deep-link.js');
+                await handleDeepLink();
+                // Start listening for future hash changes so pasting a shared URL
+                // into an already-open tab also opens the correct viewer.
+                initDeepLinkListener();
+            } catch (error) {
+                console.warn('[deep-link] Failed to handle deep link:', error);
+            }
         } catch (error) {
-            console.warn('[deep-link] Failed to handle deep link:', error);
+            console.error('[boot] map load handler failed:', error);
+            hideLoadingScreen(); // never leave the splash up on a boot error
+        } finally {
+            resolveBootRendered();
         }
     });
 
-    return statePromise;
+    return { statePromise, bootRendered };
 }
 
 // ============================================================================

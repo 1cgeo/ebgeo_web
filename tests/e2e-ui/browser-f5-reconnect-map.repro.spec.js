@@ -2,15 +2,14 @@
 
 /**
  * Regression: after F5 on a connected remote atlas, the active map must be resolved BY NAME, not
- * left on the raw UUID storage key. Bug: reconnectLastAtlas() reconnected but (unlike the project
- * picker's onPick) never ran activateAtlasInitialMap(), so initializeRepository fell back to
- * allMapNames[0] — a UUID key — because the persisted lastActiveMap (a NAME) isn't among the
- * UUID-keyed synced maps. The map then showed a UUID in the UI and broadcast cursor/presence under
- * that UUID mapId, which peers (keyed by NAME) filtered out — so the mouse position never reached
- * them until the user manually switched maps.
+ * left on the raw UUID storage key. A real F5 keeps the `?atlas=&map=` address bar, so the deep-link
+ * boot path re-opens the atlas on the requested map (via activateAtlasInitialMap, which resolves the
+ * map id → NAME). The bug left the active map on a UUID key, so the UI showed a UUID and presence
+ * broadcast under that UUID mapId, which peers (keyed by NAME) filtered out — the mouse position
+ * never reached them until the user manually switched maps.
  *
- * This logs in, picks an atlas with one named synced map, reloads (keeping the session), and asserts
- * the active map is the NAME after reconnect.
+ * This logs in, picks an atlas with one named synced map, reloads (keeping the session + URL), and
+ * asserts the active map is the NAME after the deep-link reconnect.
  */
 
 import { test, expect } from '@playwright/test';
@@ -53,8 +52,13 @@ describeOrSkip('F5 on a connected atlas keeps the map active BY NAME (not a UUID
             .toHaveAttribute('data-state', 'online', { timeout: 20000 });
         await expect.poll(() => currentMapName(page), { timeout: 10000 }).toBe(MAP_NAME);
 
-        // F5 — KEEP localStorage so the session + last remote atlas reconnect on boot.
-        await page.goto('/');
+        // The address bar is the source of truth: opening reflects the atlas/map in the URL.
+        await expect.poll(() => new URL(page.url()).searchParams.get('atlas'), { timeout: 10000 })
+            .toBe(seed.atlasId);
+
+        // F5 — a real reload KEEPS the `?atlas=&map=` URL + localStorage, so the session restores and
+        // the deep-link boot path re-opens the atlas on the same map (a bare `/` would show the chooser).
+        await page.reload();
         await expect(page.locator('[data-testid="sync-status-badge"]'))
             .toHaveAttribute('data-state', 'online', { timeout: 25000 });
 

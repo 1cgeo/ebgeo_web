@@ -20,7 +20,6 @@ import { apiClient } from '@store/sync/api-client.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
 import { initServices, loadStoreOrigin, markStoreRemote, clearAllDataStore, activateAtlasInitialMap, getControl } from './store';
 import { sessionContext } from '@store/sync/session-context.js';
-import { startAutoFlush } from '@store/sync/sync-flush.js';
 import { openRemoteAtlas } from './account/open-atlas.service.js';
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
 import { initAtlasUrlSync } from './deep-link/atlas-url-sync.js';
@@ -113,8 +112,9 @@ async function initApp() {
     const controlsPromise = createControls(map, analysisLayersManager, dataLayersManager);
 
     // Phase 5+6: Register map.on('load') handler synchronously — BEFORE 'load' can fire.
-    // Capture the local-store boot promise so the remote reconnect/open below can await it.
-    const statePromise = initializeApp(map, controlsPromise);
+    // Capture the local-store boot + initial-render promises so the remote reconnect/open below
+    // can await them (so its clearAllDataStore can't race the load handler — see bootRendered).
+    const { statePromise, bootRendered } = initializeApp(map, controlsPromise);
 
     // Wait for controls to finish (preflight + UI setup)
     const controls = await controlsPromise;
@@ -147,14 +147,17 @@ async function initApp() {
     // captured at the very top of initApp — atlas-url-sync has since stripped `?atlas` from the URL
     // for an anonymous visitor, so re-reading it here would be too late.
 
-    // Serialize the local-store boot BEFORE any remote open/reconnect. Otherwise the boot
-    // store-init (default-map creation / last-active selection) interleaves with the reconnect's
-    // clearAllDataStore → snapshot → activate sequence and can leave a stray local "Principal"
-    // alongside the synced maps (intermittent phantom 3rd map on F5). Local IDB only — no network wait.
+    // Serialize the boot BEFORE any remote open/reconnect. bootRendered resolves after the load
+    // handler rendered the initial map + cleared the splash; awaiting it prevents the remote open's
+    // clearAllDataStore from interleaving with the load handler's switchMap (which hangs the splash
+    // on a logged-in `?atlas=&map=` deep link) AND with the boot store-init (which could leave a
+    // stray local "Principal" alongside the synced maps — phantom 3rd map on F5). The race() caps the
+    // wait so a 'load' event that never fires can't deadlock boot. Local IDB only — no network wait.
+    await Promise.race([bootRendered, new Promise((resolve) => setTimeout(resolve, 15000))]);
     await statePromise.catch(() => {});
     if (await openPublicAtlasFromUrl(bootPublicLink)) return;
     if (await openAtlasFromUrl(bootAtlasLink)) return;
-    reconnectLastAtlas();
+    openAtlasChooserOnBoot();
 }
 
 /**
@@ -260,30 +263,24 @@ async function restoreSessionFromStorage() {
 }
 
 /**
- * Re-opens the last remote atlas after a reload, when a session was restored and the local
- * store still holds that (remote) atlas. Best-effort: re-pulls a fresh snapshot, re-marks the
- * store remote, activates the initial map BY NAME, and resumes auto-flush. Does nothing for the
- * offline/local user.
+ * Logged-in boot with NO atlas deep link: present the atlas chooser (project picker) instead of
+ * auto-loading the last atlas. The address bar is the source of truth — `/?atlas=<uuid>` loads that
+ * atlas (handled earlier), a bare `/` lets the user choose. Best-effort; does nothing for the
+ * offline/local (anonymous) user.
  * @returns {Promise<void>}
  */
-async function reconnectLastAtlas() {
+async function openAtlasChooserOnBoot() {
     try {
         if (!sessionContext.isAuthenticated()) return;
+        // The address bar is the source of truth: `/?atlas=<uuid>` loads that atlas (handled above);
+        // a bare `/` must let the user CHOOSE, not silently re-open the last atlas. Discard any
+        // remote-atlas data left in the store from a previous session so the chooser opens over a
+        // blank local workspace instead of a disconnected atlas (clearAllDataStore re-marks LOCAL).
         const origin = await loadStoreOrigin();
-        if (origin.kind !== 'remote' || !origin.atlasId) return;
-        await syncEngine.connect(origin.atlasId, { initialPull: true });
-        await markStoreRemote(origin.atlasId);
-        // Mirror the project-picker's onPick flow: drop local strays and re-activate the map BY NAME
-        // (preferring the last-active map). The boot repository fell back to a raw UUID storage key,
-        // which showed a UUID in the UI and broadcast cursor/presence under that UUID mapId (peers,
-        // keyed by name, filtered it out) until the user manually switched maps.
-        await activateAtlasInitialMap();
-        // Render the now-current atlas map (see openRemoteAtlas) — reconnect skips setupMapFeatures,
-        // so client-generated rasters (military symbols etc.) would intermittently 404 → error icon.
-        await getControl('BaseLayerControl')?.switchMap?.(false);
-        startAutoFlush();
+        if (origin.kind === 'remote') await clearAllDataStore();
+        getControl('account')?.openProjectPicker?.();
     } catch (error) {
-        console.warn('[boot] atlas reconnect failed:', error);
+        console.warn('[boot] atlas chooser failed:', error);
     }
 }
 
