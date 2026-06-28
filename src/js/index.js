@@ -25,6 +25,7 @@ import { openRemoteAtlas } from './account/open-atlas.service.js';
 import { parseAtlasLink, setPendingAtlasLink, clearAtlasUrl } from './deep-link/atlas-link.js';
 import { initAtlasUrlSync } from './deep-link/atlas-url-sync.js';
 import { IdleTimeoutController } from './session/idle-timeout.controller.js';
+import { getViewModeController } from '@ui/view-mode.controller.js';
 import { showToast } from '@utils';
 import { createMap, createControls, initializeApp, setupCleanupHandlers } from './map_sig.js';
 import { initTabLock } from '@utils/tab-lock.js';
@@ -123,10 +124,14 @@ async function initApp() {
         () => getControl('account')?.handleSessionLost?.('Sua sessão expirou. Entre novamente.'),
     );
 
+    // Safe view ↔ edit driver: locks a no-edit role to the view profile and powers the "Editar mapa"
+    // toggle. Wired after controls so the UI elements are registered with the visibility controller.
+    getViewModeController().init();
+
     // An e-mail-confirmation link (?verify=<token>) is handled first (anonymous, one-shot).
     await handleEmailVerificationFromUrl();
 
-    // Boot routing precedence (see proposta-ui-ux-atlas-drive §10): a public viewer link wins for an
+    // Boot routing precedence (see docs/ui-ux-ebgeo.md §1): a public viewer link wins for an
     // anonymous visitor; then an `?atlas=` deep link (open, or prompt login + resume); otherwise
     // reconnect the last remote atlas for a restored authenticated session. (`#view=3d/360` is handled
     // earlier in the map-load path and has absolute precedence; `?verify=` ran above.)

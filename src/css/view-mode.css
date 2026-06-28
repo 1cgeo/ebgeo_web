@@ -1,0 +1,35 @@
+/* Path: src/css/view-mode.css */
+
+/*
+ * Safe "view" mode. `is-view-only` is set on <body> by view-mode.controller.js — automatically for a
+ * role that cannot edit the connected remote atlas (Visualizador/Comentarista), or via the manual
+ * "Editar mapa" toggle (Shift+E). It hides the editing affordances so the surface reads as read-only.
+ */
+
+/* D1 — the create/edit toolbar groups (draw / military / analysis). */
+body.is-view-only .toolbar-group[data-group-id="draw"],
+body.is-view-only .toolbar-group[data-group-id="military"],
+body.is-view-only .toolbar-group[data-group-id="analysis"] {
+    display: none;
+}
+
+/* D2 — the layers/features tree becomes a read-only "Legenda": hide the per-item editing controls
+   (lock, delete, drag, active-layer radio) and the "Nova camada" add button (marked `edit-affordance`
+   so it is hit without also hiding the comment-panel buttons that share its class). Names, counts,
+   expand, and the data-table view stay. */
+body.is-view-only .lock-toggle,
+body.is-view-only .layer-delete-btn,
+body.is-view-only .layer-drag-handle,
+body.is-view-only .feature-drag-handle,
+body.is-view-only .layer-radio,
+body.is-view-only .layer-opacity-row,
+body.is-view-only .edit-affordance {
+    display: none;
+}
+
+/* Layer/feature visibility stays as a read-only indicator (shows the on/off state) but is not
+   togglable — a viewer cannot change the synced `visivel` property. */
+body.is-view-only .visibility-toggle {
+    pointer-events: none;
+    opacity: 0.5;
+}

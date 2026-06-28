@@ -605,6 +605,32 @@
     text-transform: uppercase;
 }
 
+/* "Vendo agora" — a green presence dot on the avatar of a user currently connected to this atlas. */
+.sharing-avatar--online {
+    position: relative;
+}
+
+.sharing-avatar--online::after {
+    content: '';
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-full);
+    background-color: var(--color-success);
+
+    /* White ring to separate the dot from the avatar (no surface/white token exists in design-tokens). */
+    border: 2px solid #fff;
+}
+
+.sharing-presence__avatars {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+}
+
 /* =========================================================================
    ADD PEOPLE — SEARCH + RESULTS
    ========================================================================= */

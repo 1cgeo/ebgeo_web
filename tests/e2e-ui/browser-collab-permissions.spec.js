@@ -25,6 +25,7 @@ import {
     pollPeerFeature,
     setSharePermission,
     drawLineUI,
+    attemptStoreWriteBlocked,
 } from './helpers/collab-helpers.js';
 
 const state = readState();
@@ -44,6 +45,16 @@ const lineCoords = () => [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]];
  * the caller diffs the line set before/after to prove NOTHING was created.
  */
 async function attemptDrawLineBlockedUI(page, coords) {
+    // A no-edit role's draw toolbar is hidden entirely in the safe view (Frente 8 / D1), so the UI
+    // authoring path is gone. To keep the "no new line" assertion meaningful (not vacuous), still
+    // exercise the store-level guardWrite directly with a raw addFeature — it must be blocked for a
+    // no-edit role, so nothing lands and nothing propagates to the owner.
+    const drawGroup = page.locator('.toolbar-group[data-group-id="draw"] .toolbar-group-btn');
+    if (!(await drawGroup.isVisible().catch(() => false))) {
+        await attemptStoreWriteBlocked(page, coords);
+        return;
+    }
+
     await page.evaluate((cs) => {
         const map = globalThis.__ebgeoMap;
         const lngs = cs.map((c) => c[0]); const lats = cs.map((c) => c[1]);
@@ -51,10 +62,10 @@ async function attemptDrawLineBlockedUI(page, coords) {
     }, coords);
     await page.waitForTimeout(300);
 
-    await page.locator('.toolbar-group[data-group-id="draw"] .toolbar-group-btn').click();
+    await drawGroup.click();
     const btn = page.locator('.toolbar-group[data-group-id="draw"] .toolbar-tool-btn[data-tool-id="line"]');
     await btn.click();
-    // The tool may activate even for a read-only peer; the WRITE is what gets gated.
+    // If the tool still activates (a locked map rather than the safe view), the WRITE is what gets gated.
     await page.waitForTimeout(200);
 
     const pts = await page.evaluate((cs) => {

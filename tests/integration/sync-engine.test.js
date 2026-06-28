@@ -315,9 +315,9 @@ describe('connect', () => {
     it('wires WS handlers only once across reconnects', async () => {
         await syncEngine.connect('atlas-1', { initialPull: false });
         await syncEngine.connect('atlas-1', { initialPull: false });
-        // 6 events ('operation','syncResponse','atlasDeleted','atlasOwnerChanged','atlasSettings',
-        // 'serverResync') wired exactly once total.
-        expect(wsClientMock.on).toHaveBeenCalledTimes(6);
+        // 7 events ('operation','syncResponse','atlasDeleted','atlasOwnerChanged','sharingUpdated',
+        // 'atlasSettings','serverResync') wired exactly once total.
+        expect(wsClientMock.on).toHaveBeenCalledTimes(7);
         // Operation logging is now enabled per authenticated connect (not in wire-once), so two
         // connects enable it twice.
         expect(enableOperationLogging).toHaveBeenCalledTimes(2);

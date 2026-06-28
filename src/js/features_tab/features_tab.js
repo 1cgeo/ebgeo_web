@@ -560,7 +560,10 @@ export class FeaturesTab {
         title.textContent = 'Camadas';
 
         const addLayerBtn = document.createElement('button');
-        addLayerBtn.className = 'sidebar-section-header-btn';
+        // `edit-affordance` → hidden in the safe view (view-mode.css). The shared header-btn class is
+        // also used by the comment panel, which must stay available to a Comentarista, so we mark this
+        // specific (editing) button rather than hiding the class globally.
+        addLayerBtn.className = 'sidebar-section-header-btn edit-affordance';
         addLayerBtn.title = 'Nova camada';
         addLayerBtn.innerHTML = this.INLINE_ICONS.ADD;
         addLayerBtn.onclick = () => this._handleAddLayer();

@@ -13,6 +13,7 @@ import { undoLastAction, redoLastAction, getStateManager, isCurrentMapLockedSync
 import { showConfirm } from '@modals/index.js';
 import { showInChannel, showWarning } from '@utils/toast_service.js';
 import { describeUndoRedoAction } from '@store/undo-redo-messages.js';
+import { getViewModeController } from '@ui/view-mode.controller.js';
 
 /**
  * Keyboard shortcuts manager for the SIG map
@@ -137,6 +138,14 @@ class KeyboardShortcuts {
             return;
         }
 
+        // Shift+E toggles the safe "view" mode for users who can edit (à la Felt's "Editar mapa").
+        // A no-edit role is already locked to the view, so the toggle just hints there.
+        if (hasShift && !hasCtrl && key === 'e') {
+            e.preventDefault();
+            getViewModeController().toggleManualView();
+            return;
+        }
+
         if (!hasCtrl && !hasShift) {
             this.handleToolShortcuts(e, key);
         }
@@ -159,7 +168,10 @@ class KeyboardShortcuts {
             case 'delete':
             case 'backspace':
                 e.preventDefault();
-                if (!isCurrentMapLockedSync()) {
+                // A no-edit role (safe view) must not even reach the destructive confirm dialog — the
+                // hidden toolbars aren't enough, since Delete is a bare keystroke. The map lock is the
+                // pre-existing gate; both are belt-and-suspenders over the store-level guardWrite.
+                if (!isCurrentMapLockedSync() && getViewModeController().canEdit()) {
                     await this._confirmAndDeleteSelectedFeatures();
                 }
                 return true;

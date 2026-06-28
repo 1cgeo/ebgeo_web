@@ -15,7 +15,15 @@ import { showInChannel } from '../utilities/toast_service.js';
 /** Minimum interval between "blocked" toasts (ms) */
 const BLOCKED_DEBOUNCE_MS = 3000;
 
-let _lastBlockedToastAt = 0;
+/**
+ * Block reasons that mean "the map is locked" (vs an insufficient-role / read-only block). The store
+ * ops emit `map_locked` (current map) and `target_map_locked` (a move into a locked destination map);
+ * every other reason is a permission string from the permission-guard.
+ */
+const LOCK_REASONS = new Set(['map_locked', 'target_map_locked']);
+
+/** Last toast time PER KIND, so a lock toast doesn't debounce-swallow a differing read-only one. */
+const _lastBlockedToastAt = { lock: 0, denied: 0 };
 
 /**
  * Registers error event listeners on the EventBus.
@@ -43,16 +51,24 @@ export function registerStoreErrorListeners(eventBus) {
         }
     });
 
-    eventBus.on(StoreErrorEvents.STORE_OPERATION_BLOCKED, () => {
-        const now = Date.now();
-        if (now - _lastBlockedToastAt < BLOCKED_DEBOUNCE_MS) return;
+    eventBus.on(StoreErrorEvents.STORE_OPERATION_BLOCKED, (payload) => {
+        // Distinguish the two block kinds the store ops carry (previously both showed the lock
+        // message): a locked map vs insufficient role on a remote atlas (a Visualizador) — the latter
+        // must read as read-only access.
+        const isLock = LOCK_REASONS.has(payload?.reason);
+        const kind = isLock ? 'lock' : 'denied';
 
-        _lastBlockedToastAt = now;
+        const now = Date.now();
+        if (now - _lastBlockedToastAt[kind] < BLOCKED_DEBOUNCE_MS) return;
+        _lastBlockedToastAt[kind] = now;
+
         showInChannel(
             'store-blocked',
-            'Mapa bloqueado. Desbloqueie para editar.',
+            isLock
+                ? 'Mapa bloqueado. Desbloqueie para editar.'
+                : 'Acesso somente leitura — você não pode editar este projeto.',
             'warning',
-            { duration: 2000 }
+            { duration: 2500 }
         );
     });
 }

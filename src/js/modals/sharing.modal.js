@@ -8,7 +8,8 @@
  *     copy-to-clipboard affordance.
  *   - Members: the list of users the atlas is shared with, each with a permission
  *     select (Leitura/Edição → read/write) and a destructive remove button.
- *   - Add people: a debounced user search; picking a result grants 'write' by default.
+ *   - Add people: a debounced user search; picking a result grants 'read' (Leitura) by default
+ *     (DEFAULT_GRANT_PERMISSION — "default lowers, never raises"; elevate via the member dropdown).
  *
  * The modal is standalone — it receives an `atlasId` and talks to the backend via
  * `apiClient` (sharing/searchUsers REST routes). The caller decides whether to show
@@ -22,10 +23,15 @@ import { ModalBase } from './modal.base.js';
 import {
     addScopedDomListener,
     clearScopedListeners,
+    subscribe,
     trackTimer,
 } from '@utils/event-cleanup.js';
 import { escapeHtml } from '@utils/html-escape.js';
 import { getPresenceColor, getInitials } from '@js/presence/presence-colors.js';
+import { presenceStore } from '@js/presence/presence-store.js';
+import { syncEngine } from '@store/sync/sync-engine.js';
+import { getEventBus } from '@store/services.js';
+import { EventTypes } from '@events/event_types.js';
 import { apiClient } from '@store/sync/api-client.js';
 import { showError, showSuccess } from '@utils/toast_service.js';
 import { sessionContext } from '@store/sync/session-context.js';
@@ -37,8 +43,12 @@ const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_MIN_CHARS = 2;
 /** How long the "Copiado" feedback stays on the copy button. */
 const COPY_FEEDBACK_MS = 1800;
-/** Default permission granted when a searched user is picked. */
-const DEFAULT_GRANT_PERMISSION = 'write';
+/**
+ * Default permission granted when a searched user is picked. Deliberately the LOWEST level
+ * ('read') — "a permissão padrão abaixa, nunca eleva" (Felt): granting more than view is an
+ * explicit, deliberate raise via the member dropdown, never an accident of inviting someone.
+ */
+const DEFAULT_GRANT_PERMISSION = 'read';
 /** Permission levels offered in the member dropdown (pt-BR labels, ascending access). */
 const PERMISSION_LEVELS = [
     { value: 'read', label: 'Leitura' },
@@ -112,6 +122,10 @@ export class SharingModal extends ModalBase {
         this._searchTimer = null;
         /** @type {number} Monotonic token so out-of-order search responses are dropped. */
         this._searchSeq = 0;
+        /** @type {boolean} Whether the sharing config finished loading (gates presence re-renders). */
+        this._loaded = false;
+        /** @type {Set<string>} userIds online in this atlas (recomputed on each body render). */
+        this._onlineIds = new Set();
     }
 
     /**
@@ -131,7 +145,29 @@ export class SharingModal extends ModalBase {
         // Fire-and-forget initial fetch (loading state already shown).
         this._load();
 
+        // Live "Vendo agora": refresh on presence membership changes (join/leave/away). PRESENCE_CHANGED
+        // is infrequent (not per cursor move), so re-rendering the body is cheap. subscribe() is tracked
+        // by ModalBase's setupCleanup → auto-unsubscribed in super.hide() (no manual teardown needed).
+        subscribe(this, getEventBus(), EventTypes.PRESENCE_CHANGED, () => this._onPresenceChanged());
+
         return overlay;
+    }
+
+    /**
+     * @private Re-renders the body when presence membership changes, so "Vendo agora" and the online
+     * dots stay live — unless the user is mid-search (don't yank the field out from under them).
+     */
+    _onPresenceChanged() {
+        if (!this._loaded) return;
+        const body = this.getBody();
+        if (!body) return;
+        // Don't re-render out from under an in-progress interaction: a focused search/permission field,
+        // or an open results dropdown (the user is mid-pick).
+        const active = document.activeElement;
+        if (active && body.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
+        const results = body.querySelector('[data-results]');
+        if (results && !results.hidden) return;
+        this._renderBody();
     }
 
     // ===== DATA =====
@@ -144,6 +180,7 @@ export class SharingModal extends ModalBase {
             this._publicLink = cfg?.publicLink ?? null;
             this._owner = cfg?.owner ?? null;
             this._shares = Array.isArray(cfg?.shares) ? cfg.shares : [];
+            this._loaded = true;
             this._renderBody();
         } catch {
             this._renderError();
@@ -183,18 +220,75 @@ export class SharingModal extends ModalBase {
         }
     }
 
-    /** @private Renders the full body (public + members + add) and wires listeners. */
+    /** @private Renders the full body (public + presence + members + add) and wires listeners. */
     _renderBody() {
         clearScopedListeners(this, 'body');
+        this._onlineIds = this._computeOnlineIds();
         const body = this.getBody();
         body.innerHTML = `
             <div class="sharing">
                 ${this._renderPublicSection()}
+                ${this._renderPresenceSection()}
                 ${this._renderMembersSection()}
                 ${this._renderAddSection()}
             </div>
         `;
         this._setupBodyListeners();
+    }
+
+    /**
+     * @private Users currently connected to THIS atlas, EXCLUDING self — empty unless the modal targets
+     * the atlas we are live-connected to (presence is per-connected-atlas; sharing can be opened for
+     * others). Single source of truth for both "Vendo agora" and the per-member online dots; self is
+     * dropped for parity with every other presence surface (online-users.control.js).
+     * @returns {Array<Object>}
+     */
+    _onlineUsers() {
+        if (syncEngine.atlasId !== this._atlasId) return [];
+        const myId = String(sessionContext.userId ?? '');
+        return presenceStore.getUsers()
+            .filter((u) => !u.away && u.userId && String(u.userId) !== myId);
+    }
+
+    /** @private Set of online userIds (drives the per-member online dot). @returns {Set<string>} */
+    _computeOnlineIds() {
+        return new Set(this._onlineUsers().map((u) => String(u.userId)));
+    }
+
+    /**
+     * @private "Vendo agora" — avatars of the OTHER users currently connected to this atlas. Live via
+     * the PRESENCE_CHANGED subscription; hidden when nobody else is connected.
+     */
+    _renderPresenceSection() {
+        const users = this._onlineUsers();
+        if (!users.length) return '';
+        const avatars = users
+            .map((u) => this._avatar(u.userId ?? u.clientId, u.userName ?? 'Usuário', {
+                online: true,
+                title: u.userName ?? 'Usuário',
+            }))
+            .join('');
+        return `
+            <section class="sharing-section sharing-presence" data-testid="sharing-presence">
+                <h3 class="sharing-section__title">Vendo agora</h3>
+                <div class="sharing-presence__avatars">${avatars}</div>
+            </section>
+        `;
+    }
+
+    /**
+     * @private The one place that builds a presence-colored initials avatar (was copy-pasted across the
+     * owner/member/presence rows). The inline background-color is a runtime-computed value (allowed).
+     * @param {string} userId - identity for the deterministic color.
+     * @param {string} name - display name for the initials.
+     * @param {{online?: boolean, title?: string|null}} [opts]
+     */
+    _avatar(userId, name, { online = false, title = null } = {}) {
+        const color = escapeHtml(getPresenceColor(userId));
+        const initials = escapeHtml(getInitials(name));
+        const onlineCls = online ? ' sharing-avatar--online' : '';
+        const attr = title ? `title="${escapeHtml(title)}"` : 'aria-hidden="true"';
+        return `<span class="sharing-avatar${onlineCls}" ${attr} style="background-color: ${color};">${initials}</span>`;
     }
 
     /** @private */
@@ -262,11 +356,9 @@ export class SharingModal extends ModalBase {
         const userId = String(owner?.userId ?? '');
         const nome = owner?.nome ?? owner?.username ?? '';
         const username = owner?.username ?? '';
-        const color = escapeHtml(getPresenceColor(userId));
-        const initials = escapeHtml(getInitials(nome));
         return `
             <div class="sharing-member" data-testid="sharing-owner-item">
-                <span class="sharing-avatar" aria-hidden="true" style="background-color: ${color};">${initials}</span>
+                ${this._avatar(userId, nome, { online: this._onlineIds?.has(userId) })}
                 <div class="sharing-member__info">
                     <span class="sharing-member__name">${escapeHtml(nome)}</span>
                     <span class="sharing-member__username">@${escapeHtml(username)}</span>
@@ -294,8 +386,6 @@ export class SharingModal extends ModalBase {
         const nome = share?.nome ?? share?.username ?? '';
         const username = share?.username ?? '';
         const current = PERMISSION_LEVELS.some((p) => p.value === share?.permission) ? share.permission : 'read';
-        const color = escapeHtml(getPresenceColor(userId));
-        const initials = escapeHtml(getInitials(nome));
         const options = PERMISSION_LEVELS.map((p) =>
             `<option value="${p.value}"${current === p.value ? ' selected' : ''}>${p.label}</option>`
         ).join('');
@@ -307,7 +397,7 @@ export class SharingModal extends ModalBase {
 
         return `
             <div class="sharing-member" data-testid="sharing-member-item" data-user-id="${escapeHtml(userId)}">
-                <span class="sharing-avatar" aria-hidden="true" style="background-color: ${color};">${initials}</span>
+                ${this._avatar(userId, nome, { online: this._onlineIds?.has(userId) })}
                 <div class="sharing-member__info">
                     <span class="sharing-member__name">${escapeHtml(nome)}</span>
                     <span class="sharing-member__username">@${escapeHtml(username)}</span>
@@ -593,7 +683,8 @@ export class SharingModal extends ModalBase {
     }
 
     /**
-     * @private Grants a searched user write access, clears the search, re-reads config.
+     * @private Grants a searched user the default permission (Leitura — DEFAULT_GRANT_PERMISSION),
+     * clears the search, re-reads config.
      * @param {string} userId
      */
     async _handleAdd(userId) {
@@ -621,6 +712,7 @@ export class SharingModal extends ModalBase {
      * Hides the modal, clearing scoped listeners first.
      */
     hide() {
+        // The PRESENCE_CHANGED subscription is tracked via subscribe() → cleaned up by super.hide().
         clearScopedListeners(this, 'body');
         clearScopedListeners(this, 'results');
         if (this._searchTimer) {

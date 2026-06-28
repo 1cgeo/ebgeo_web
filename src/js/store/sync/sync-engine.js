@@ -457,6 +457,20 @@ class SyncEngine {
             }
         });
 
+        // A share for THIS client changed live (`sharing_updated`): re-gate the local role from the
+        // broadcast (which carries the affected user's new frontend `role`) so the safe view engages on
+        // a write→read downgrade and the toolbars return on an upgrade — without a reconnect. Only the
+        // affected user reacts; a global admin keeps full access regardless of per-atlas shares. The
+        // updateRole() fires SESSION_CHANGED, which the view-mode driver and maps tab already consume.
+        wsClient.on('sharingUpdated', (msg) => {
+            const myId = sessionContext.userId;
+            if (!myId || String(msg?.userId) !== String(myId)) return;
+            if (sessionContext.isAdmin()) return;
+            if ((msg.action === 'user_updated' || msg.action === 'user_added') && msg.role) {
+                sessionContext.updateRole(msg.role);
+            }
+        });
+
         // Atlas settings changed server-side (`atlas_settings_updated`) — re-apply the per-atlas
         // config overlay (3D/360/basemap availability), then notify the UI to re-gate.
         wsClient.on('atlasSettings', (msg) => {

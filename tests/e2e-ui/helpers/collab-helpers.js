@@ -231,6 +231,33 @@ export const drawPolygonUI = (page, coords) => drawViaToolUI(page, { toolId: 'po
 /** Places a POINT via the real point tool (single canvas click). @returns {Promise<string>} new id. */
 export const drawPointUI = (page, lngLat) => drawViaToolUI(page, { toolId: 'point', storage: 'points', coords: [lngLat], multi: false });
 
+/**
+ * Attempts a RAW store write (addFeature of a line) via page.evaluate — bypassing the UI — so a
+ * no-edit role's store-level guardWrite is exercised directly. The write MUST be blocked (guardWrite
+ * returns without persisting), so the caller's before/after diff proves nothing was created. Used by
+ * the permission specs now that the safe view (D1) hides the draw toolbar, leaving no UI gesture to drive.
+ * @param {import('@playwright/test').Page} page
+ * @param {Array<[number, number]>} coords
+ */
+export async function attemptStoreWriteBlocked(page, coords) {
+    await page.evaluate(async (cs) => {
+        const store = await import('/src/js/store/index.js');
+        const { generateUUID } = await import('/src/js/utilities/uuid.js');
+        const id = generateUUID();
+        const feature = {
+            type: 'Feature',
+            id,
+            geometry: { type: 'LineString', coordinates: cs },
+            properties: { id, nome: 'blocked-attempt', tipo: 'line', visivel: true },
+        };
+        try {
+            await store.addFeature('lines', feature);
+        } catch {
+            // guardWrite denies a read-only write (returns or throws) → no feature; either is "blocked".
+        }
+    }, coords);
+}
+
 // ── Real attribute-panel / layers-tree gestures (shared UI drivers) ───────────
 // Extracted so the round-trip / conflict specs drive edits as a USER does, not via
 // store ops. Selectors: layers-tree select (browser-collab-shared-atlas.spec.js), the
