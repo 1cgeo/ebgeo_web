@@ -38,7 +38,7 @@ export async function getCatalogItem(table, id) {
 export async function createCatalogItem(table, data) {
   const t = assertTable(table);
   const existing = await oneOrNone(`SELECT id FROM ${t} WHERE id = $1`, [data.id]);
-  if (existing) throw new ConflictError('Catalog item with this ID already exists');
+  if (existing) throw new ConflictError('Já existe um item de catálogo com este ID.');
   assertValidStyle(data.config);
   return one(
     `INSERT INTO ${t} (id, name, description, config, sort_order)

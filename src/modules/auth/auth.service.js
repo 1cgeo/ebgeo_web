@@ -93,11 +93,11 @@ export async function login(username, password) {
 
   if (!user || !isValid) {
     logger.warn({ username }, 'Failed login attempt');
-    throw new UnauthorizedError('Invalid credentials');
+    throw new UnauthorizedError('Usuário ou senha inválidos');
   }
 
   if (!user.is_active) {
-    throw new UnauthorizedError('Account is deactivated');
+    throw new UnauthorizedError('Conta desativada');
   }
 
   // E-mail confirmation gate: an account registered WITH an e-mail must verify it before login.
@@ -108,7 +108,7 @@ export async function login(username, password) {
 
   // O1: a member of a deactivated organization cannot start a session.
   if (!(await orgIsActive(user.organization_id))) {
-    throw new ForbiddenError('Organization is inactive');
+    throw new ForbiddenError('Organização inativa');
   }
 
   // Update last login
@@ -150,7 +150,7 @@ export async function refresh(refreshToken) {
   const { rows } = await query(Q.FIND_REFRESH_TOKEN_ANY, [hash]);
 
   if (rows.length === 0) {
-    throw new UnauthorizedError('Invalid refresh token');
+    throw new UnauthorizedError('Sessão inválida. Entre novamente.');
   }
 
   const storedToken = rows[0];
@@ -160,12 +160,12 @@ export async function refresh(refreshToken) {
   if (storedToken.revoked_at) {
     logger.warn({ userId: storedToken.user_id }, 'Refresh token reuse detected');
     await query(Q.REVOKE_ALL_USER_TOKENS, [storedToken.user_id]);
-    throw new UnauthorizedError('Invalid refresh token');
+    throw new UnauthorizedError('Sessão inválida. Entre novamente.');
   }
 
   // Check expiry
   if (new Date(storedToken.expires_at) < new Date()) {
-    throw new UnauthorizedError('Refresh token expired');
+    throw new UnauthorizedError('Sessão expirada. Entre novamente.');
   }
 
   // Revoke old token (rotation)
@@ -174,14 +174,14 @@ export async function refresh(refreshToken) {
   // Get user data
   const userResult = await query(Q.FIND_USER_BY_ID, [storedToken.user_id]);
   if (userResult.rows.length === 0) {
-    throw new UnauthorizedError('User not found');
+    throw new UnauthorizedError('Usuário não encontrado');
   }
 
   const user = userResult.rows[0];
 
   // O1: a member of a deactivated organization cannot renew a session.
   if (!(await orgIsActive(user.organization_id))) {
-    throw new ForbiddenError('Organization is inactive');
+    throw new ForbiddenError('Organização inativa');
   }
 
   // Generate new tokens
@@ -210,7 +210,7 @@ export async function getMe(userId) {
   const { rows } = await query(Q.FIND_USER_BY_ID, [userId]);
 
   if (rows.length === 0) {
-    throw new UnauthorizedError('User not found');
+    throw new UnauthorizedError('Usuário não encontrado');
   }
 
   return rows[0];

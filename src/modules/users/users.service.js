@@ -56,7 +56,7 @@ export async function updatePassword(userId, currentPassword, newPassword) {
   // Verify current password
   const isValid = await bcrypt.compare(currentPassword, rows[0].password_hash);
   if (!isValid) {
-    throw new UnauthorizedError('Current password is incorrect');
+    throw new UnauthorizedError('A senha atual está incorreta.');
   }
 
   // Hash new password
@@ -111,7 +111,7 @@ export async function createUser(data) {
   // Check if username already exists
   const { rows: existing } = await query(Q.CHECK_USERNAME_EXISTS, [data.username]);
   if (existing.length > 0) {
-    throw new ConflictError('Username already exists');
+    throw new ConflictError('Nome de usuário já existe.');
   }
 
   // Hash password
@@ -152,7 +152,7 @@ export async function updateUser(userId, data, actingUserId = null) {
   if (data.username && data.username.toLowerCase() !== existing.username.toLowerCase()) {
     const { rows: usernameCheck } = await query(Q.CHECK_USERNAME_EXISTS_EXCLUDING, [data.username, userId]);
     if (usernameCheck.length > 0) {
-      throw new ConflictError('Username already exists');
+      throw new ConflictError('Nome de usuário já existe.');
     }
   }
 
@@ -208,7 +208,7 @@ export async function resetPassword(userId, newPassword) {
 export async function deleteUser(userId, adminId, transferToUserId = null, req = null) {
   // Can't delete yourself
   if (userId === adminId) {
-    throw new ForbiddenError('Cannot deactivate your own account');
+    throw new ForbiddenError('Você não pode desativar a própria conta.');
   }
 
   // Fast-fail existence check (read) before opening the transaction.
@@ -223,12 +223,12 @@ export async function deleteUser(userId, adminId, transferToUserId = null, req =
     if (count > 0) {
       if (!transferToUserId) {
         throw new ConflictError(
-          `User has ${count} atlas(es). Provide transferTo parameter to transfer ownership, or the atlas will remain orphaned.`
+          `O usuário possui ${count} atlas. Informe um destinatário para transferir a propriedade, senão os atlas ficariam órfãos.`
         );
       }
       const target = await t.oneOrNone(Q.FIND_USER_BY_ID_ADMIN, [transferToUserId]);
       if (!target) throw new NotFoundError('User');
-      if (!target.is_active) throw new ForbiddenError('Cannot transfer atlas to an inactive user');
+      if (!target.is_active) throw new ForbiddenError('Não é possível transferir o atlas para um usuário inativo.');
       // RETURNING rows -> use t.any (t.none would reject on returned rows).
       await t.any(Q.TRANSFER_ATLAS_OWNERSHIP, [userId, transferToUserId]);
     }

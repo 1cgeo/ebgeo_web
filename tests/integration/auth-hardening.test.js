@@ -38,8 +38,8 @@ describe('Auth hardening', () => {
       .send({ username: user.username, password: 'wrong-password' })
       .expect(401);
 
-    assert.equal(unknown.body.error.message, 'Invalid credentials');
-    assert.equal(wrongPw.body.error.message, 'Invalid credentials');
+    assert.equal(unknown.body.error.message, 'Usuário ou senha inválidos');
+    assert.equal(wrongPw.body.error.message, 'Usuário ou senha inválidos');
   });
 
   it('rejects a token forged with alg:none (algorithm allowlist)', async () => {

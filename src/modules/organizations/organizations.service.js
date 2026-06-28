@@ -16,7 +16,7 @@ export async function getOrganization(id) {
 
 export async function createOrganization(data) {
   const { rows: existing } = await query(Q.CHECK_SLUG, [data.slug]);
-  if (existing.length > 0) throw new ConflictError('Organization slug already exists');
+  if (existing.length > 0) throw new ConflictError('Já existe uma organização com este identificador (slug).');
   const { rows } = await query(Q.INSERT_ORGANIZATION, [data.nome, data.slug, data.sigla || null]);
   return rows[0];
 }
