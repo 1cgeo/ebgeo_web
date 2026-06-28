@@ -38,6 +38,8 @@ export const SEARCH_USERS = `
     AND (
       LOWER(username) LIKE LOWER($1)
       OR LOWER(nome) LIKE LOWER($1)
+      OR LOWER(posto_graduacao) LIKE LOWER($1)
+      OR LOWER(organizacao_militar) LIKE LOWER($1)
     )
   ORDER BY nome
   LIMIT 20

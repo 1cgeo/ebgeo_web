@@ -104,16 +104,31 @@ export async function listTilesets() {
   return rows.map((r) => ({ id: r.id, name: r.name, ...r.config }));
 }
 
+// Personnel domains (admin-managed controlled lists) served to the PUBLIC config so the
+// anonymous signup form can populate its dropdowns before login. `abrev` (postos only)
+// lives in config.abrev.
+export async function listPostos() {
+  const { rows } = await query(Q.LIST_BY_CATEGORY, ['posto']);
+  return rows.map((r) => ({ id: r.id, name: r.name, abrev: r.config?.abrev ?? null, sort_order: r.sort_order }));
+}
+
+export async function listOrganizacoesMilitares() {
+  const { rows } = await query(Q.LIST_BY_CATEGORY, ['organizacao_militar']);
+  return rows.map((r) => ({ id: r.id, name: r.name, sort_order: r.sort_order }));
+}
+
 /**
  * Builds the full config payload served by GET /api/v1/config.
  */
 export async function getAppConfig() {
-  const [basemaps, basemapStyles, analysisLayers, dataLayers, tilesets, overrides] = await Promise.all([
+  const [basemaps, basemapStyles, analysisLayers, dataLayers, tilesets, postos, organizacoesMilitares, overrides] = await Promise.all([
     listBasemaps(),
     listBasemapStyles(),
     listAnalysisLayers(),
     listDataLayers(),
     listTilesets(),
+    listPostos(),
+    listOrganizacoesMilitares(),
     getConfigOverrides(),
   ]);
 
@@ -155,6 +170,9 @@ export async function getAppConfig() {
       },
     },
     tilesets,
+    // Admin-managed personnel domains (controlled lists) for the signup/account forms.
+    postos,
+    organizacoesMilitares,
     // Fase 9 (Tarefa 7): the 360 overlay is a server-rendered VECTOR source (PostGIS
     // ST_AsMVT) served by THIS backend at {serviceUrl}/tiles/{z}/{x}/{y}.pbf. One
     // tile carries two layers: 'fotos' (points) and 'fotos_linha' (per-project

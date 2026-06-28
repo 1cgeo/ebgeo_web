@@ -1,7 +1,15 @@
 // Path: src/modules/resources/resources.schemas.js
 import Joi from 'joi';
 
-const CATEGORIES = ['basemap', 'analysis_layer', 'data_layer', 'tileset', 'streetview_marker'];
+const CATEGORIES = [
+  'basemap',
+  'analysis_layer',
+  'data_layer',
+  'tileset',
+  'streetview_marker',
+  'posto',
+  'organizacao_militar',
+];
 
 export const createSchema = Joi.object({
   id: Joi.string().max(100).required(),
