@@ -637,7 +637,12 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         atlasId,
         op.type,
         op.target,
-        op.targetId,
+        // The operations LOG has entity_id UUID NOT NULL. Atlas-level ops (settings such as
+        // colorUsage / mapBadgeColors / terrainExaggeration) carry a non-UUID sentinel targetId
+        // ('atlas'), which fails the UUID cast (22P02) and 400s the whole push. Record those against
+        // the atlas's OWN id — the entity these ops target — so the log insert succeeds. UUID-keyed
+        // ops (features/layers/maps/etc.) are recorded under their real id, unchanged.
+        FEATURE_UUID_RE.test(op.targetId) ? op.targetId : atlasId,
         op.mapId || null,
         op.changes ? JSON.stringify(op.changes) : null,
         op.data ? JSON.stringify(op.data) : null,
