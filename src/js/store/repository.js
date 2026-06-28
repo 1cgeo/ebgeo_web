@@ -78,7 +78,13 @@ async function clearLegacyStores() {
     await appStore.clear();
     await groupStore.clear();
     await layerStore.clear();
-    await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+    // After clearing, the store is EMPTY — a brand-new repository. It will be rebuilt at the current
+    // schema (getEmptyMapData produces v2.2), so stamp it at the CURRENT version, NOT the legacy 1.7.
+    // This is the fresh-install (null version) and too-old-to-migrate (data discarded) path; either
+    // way there is nothing to migrate, so the Atlas migration chain must be skipped. Pre-existing
+    // repos at a still-supported older version are NOT cleared here and DO migrate (runLegacyMigrations
+    // + detectMigrationNeeded), honoring "migrate old repos per their version; create new ones current".
+    await appStore.setItem('schemaVersion', ATLAS_SCHEMA_VERSION);
 }
 
 /**

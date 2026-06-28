@@ -15,6 +15,7 @@ import {
     isInternalProperty,
     compareVersions
 } from './repository.utils.js';
+import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
 import { resetMemoryStore, memoryStore } from './memory-store.js';
 import { setStoreErrorEventBus } from './store-errors.js';
 import { registerStoreErrorListeners } from './store-error-listener.js';
@@ -206,7 +207,11 @@ export async function clearAllDataStore() {
     clearCesium3dCache();
     clearStreetview360Cache();
 
-    await setAppSetting('schemaVersion', SCHEMA_VERSION);
+    // A cleared store is a BRAND-NEW (empty) repository rebuilt at the current schema by
+    // initializeRepository (getEmptyMapData already produces v2.2 structures) — stamp it at the
+    // CURRENT version so the no-op Atlas migration chain does NOT re-run on every project open.
+    // Migrations are only for OLD pre-existing repositories carrying data at an older version.
+    await setAppSetting('schemaVersion', ATLAS_SCHEMA_VERSION);
     // A full clear always lands on a blank LOCAL atlas (the offline default). A subsequent
     // server connect re-marks the store REMOTE (markStoreRemote).
     await markStoreLocal();
