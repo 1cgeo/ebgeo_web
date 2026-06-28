@@ -203,11 +203,16 @@ export class CommentOverlay {
 
     /**
      * Flies to a comment's pin and opens its thread (used by the Comentários list in the Maps panel).
-     * Ensures comments are visible first.
+     * Ensures comments are visible first. When the comment isn't in the loaded set yet (e.g. the
+     * caller just switched to its map), reloads once before giving up.
      * @param {string} rootId
      */
-    focusComment(rootId) {
-        const root = this._comments[rootId];
+    async focusComment(rootId) {
+        let root = this._comments[rootId];
+        if (!root) {
+            await this._reload();
+            root = this._comments[rootId];
+        }
         if (!root || !Number.isFinite(root.lng) || !Number.isFinite(root.lat)) return;
         if (!this._visible) this.setVisible(true);
         this._map.flyTo({ center: [root.lng, root.lat], zoom: Math.max(this._map.getZoom(), 15) });

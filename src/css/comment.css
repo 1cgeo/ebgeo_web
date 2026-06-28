@@ -494,6 +494,17 @@
     min-width: 0;
 }
 
+/* Which map the comment belongs to (the list spans all maps). */
+.comment-list-item__map {
+    overflow: hidden;
+    margin-bottom: 1px;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .comment-list-item__text {
     overflow: hidden;
     font-size: var(--font-size-sm);

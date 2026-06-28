@@ -423,7 +423,7 @@ export class SharingModal extends ModalBase {
                 <div class="sharing-search">
                     <span class="sharing-search__icon" aria-hidden="true">${ICONS.search}</span>
                     <input type="text" class="sharing-search__input" data-action="search"
-                           data-testid="sharing-user-search" placeholder="Buscar por nome ou usuário…"
+                           data-testid="sharing-user-search" placeholder="Buscar por nome, usuário ou posto…"
                            autocomplete="off" aria-label="Buscar pessoas">
                 </div>
                 <div class="sharing-results" data-results hidden></div>
@@ -452,6 +452,11 @@ export class SharingModal extends ModalBase {
             const username = u?.username ?? '';
             const color = escapeHtml(getPresenceColor(id));
             const initials = escapeHtml(getInitials(nome));
+            // Posto/Graduação · Organização Militar — helps disambiguate homonyms.
+            const meta = [u?.posto_graduacao, u?.organizacao_militar].filter(Boolean).join(' · ');
+            const metaRow = meta
+                ? `<span class="sharing-result__meta">${escapeHtml(meta)}</span>`
+                : '';
             return `
                 <button type="button" class="sharing-result" data-action="add"
                         data-testid="sharing-search-result" data-user-id="${escapeHtml(id)}">
@@ -459,6 +464,7 @@ export class SharingModal extends ModalBase {
                     <span class="sharing-result__info">
                         <span class="sharing-member__name">${escapeHtml(nome)}</span>
                         <span class="sharing-member__username">@${escapeHtml(username)}</span>
+                        ${metaRow}
                     </span>
                 </button>
             `;

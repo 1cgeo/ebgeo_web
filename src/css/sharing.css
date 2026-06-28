@@ -732,6 +732,15 @@
     min-width: 0;
 }
 
+/* Posto/Graduação · Organização Militar line under the username. */
+.sharing-result__meta {
+    font-size: var(--font-size-xs);
+    color: var(--gray-400);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* =========================================================================
    RESPONSIVE — TOUCH
    ========================================================================= */

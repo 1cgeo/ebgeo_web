@@ -48,7 +48,7 @@ import { initKeyboardServiceBriefing, BriefingEditorControl, BriefingPresenterCo
 import { ToolbarControl, ActiveToolChip } from './toolbar';
 import { AttributeTableControl } from './attribute_table';
 import { PhoneLayout } from './phone';
-import { AccountControl, SyncStatusControl } from '@js/account/index.js';
+import { AccountControl, SyncStatusControl, AtlasNameControl } from '@js/account/index.js';
 import { OnlineUsersControl, RemoteCursorsLayer, RemoteSelectionsLayer, startPresence } from '@js/presence/index.js';
 import { CommentOverlay } from '@js/comment_tool/index.js';
 import { LockedBannerControl, mapLockController } from '@js/locking/index.js';
@@ -608,8 +608,11 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
     // "Entrar" opens the login flow only on click). The anonymous/offline
     // path is unaffected.
     const accountControl = new AccountControl();
+    const atlasNameControl = new AtlasNameControl();
     const syncStatusControl = new SyncStatusControl();
     map.addControl(accountControl, 'top-right');
+    // Added between account and sync so the row-reverse bar reads: …sync · atlas name · avatar.
+    map.addControl(atlasNameControl, 'top-right');
     map.addControl(syncStatusControl, 'top-right');
 
     // ===== PRESENCE / AWARENESS (Slice 2: online roster + live remote cursors) =====
@@ -713,6 +716,7 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
         // Backend integration (account orchestrator + sync status badge)
         ['account', accountControl],
         ['syncStatus', syncStatusControl],
+        ['atlasName', atlasNameControl],
         // Presence / awareness (online roster + live remote cursors + selections)
         ['onlineUsers', onlineUsersControl],
         ['remoteCursors', remoteCursorsLayer],
@@ -769,6 +773,9 @@ export async function createControls(map, analysisLayersManager, dataLayersManag
  *
  * @param {maplibregl.Map} map - Map instance
  * @param {Promise<Object>} controlsPromise - Promise that resolves to controls from createControls()
+ * @returns {Promise<string>} Resolves when the local store boot (default-map creation / last-active
+ *   selection) is settled. Callers MUST await this before a remote reconnect/open clears + repopulates
+ *   the store, so the two don't interleave and leave a stray local "Principal" (phantom map on F5).
  */
 export function initializeApp(map, controlsPromise) {
     // Start loading state from IndexedDB (fast, ~10-50ms).
@@ -807,6 +814,8 @@ export function initializeApp(map, controlsPromise) {
             console.warn('[deep-link] Failed to handle deep link:', error);
         }
     });
+
+    return statePromise;
 }
 
 // ============================================================================

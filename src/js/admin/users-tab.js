@@ -14,7 +14,29 @@ import { apiClient } from '@store/sync/api-client.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { showConfirm } from '@modals/index.js';
 import { showSuccess, showError } from '@utils';
+import config from '@js/config.js';
 import { sectionHeader, card, avatar, emptyState, ICON_USERS } from './admin-dom.js';
+
+/**
+ * Builds <select> options from a backend controlled list (config.postos /
+ * config.organizacoesMilitares), with a leading "(nenhum)" and the user's current
+ * value preserved even if it predates the list (legacy free-text).
+ * @param {Array<{name:string, sort_order?:number}>|undefined} list
+ * @param {string} [current]
+ * @returns {Array<{value:string, label:string}>}
+ */
+function buildDomainOptions(list, current) {
+    const opts = [{ value: '', label: '— (nenhum)' }];
+    const seen = new Set();
+    for (const item of (Array.isArray(list) ? list : [])) {
+        if (item && item.name && !seen.has(item.name)) {
+            opts.push({ value: item.name, label: item.name });
+            seen.add(item.name);
+        }
+    }
+    if (current && !seen.has(current)) opts.push({ value: current, label: `${current} (atual)` });
+    return opts;
+}
 
 /**
  * Builds the "Usuários" tab definition for the admin panel.
@@ -246,10 +268,10 @@ class UsersTab {
         const username = textField(form, 'Usuário', 'admin-userform-username', user?.username || '');
         const password = isEdit ? null
             : textField(form, 'Senha', 'admin-userform-password', '', 'password');
-        const posto = textField(form, 'Posto/Graduação (opcional)', 'admin-userform-posto',
-            user?.posto_graduacao || '');
-        const om = textField(form, 'Organização Militar (opcional)', 'admin-userform-om',
-            user?.organizacao_militar || '');
+        const posto = selectField(form, 'Posto/Graduação', 'admin-userform-posto',
+            buildDomainOptions(config.postos, user?.posto_graduacao), user?.posto_graduacao || '');
+        const om = selectField(form, 'Organização Militar', 'admin-userform-om',
+            buildDomainOptions(config.organizacoesMilitares, user?.organizacao_militar), user?.organizacao_militar || '');
 
         const role = selectField(form, 'Papel', 'admin-userform-role',
             [{ value: 'user', label: 'Usuário' }, { value: 'admin', label: 'Admin (sistema)' }],

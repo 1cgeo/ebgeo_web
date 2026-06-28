@@ -3,15 +3,15 @@
 /**
  * @fileoverview "Comentários" section for the Maps sidebar tab.
  *
- * Lists the CURRENT map's spatial comments in two COLLAPSIBLE groups — "Abertos (N)" and
- * "Resolvidos (N)" — inside a dedicated scroll area (so a map with many comments stays usable). The
- * section title shows the total count. A header toggle hides/shows ALL pins on the map, and a "+"
- * starts a new comment. Clicking an item flies to its pin and opens the thread. Reads the per-map
- * comment store and drives the CommentOverlay (via the control registry); reloads on COMMENT_*
- * events and on map switch.
+ * Lists spatial comments from ALL maps in two COLLAPSIBLE groups — "Abertos (N)" and
+ * "Resolvidos (N)" — inside a dedicated scroll area (so many comments stay usable). Each item shows
+ * which map it belongs to. The section title shows the total count. A header toggle hides/shows ALL
+ * pins on the map, and a "+" starts a new comment. Clicking an item switches to its map (if needed),
+ * flies to its pin and opens the thread. Aggregates the per-map comment store and drives the
+ * CommentOverlay (via the control registry); reloads on COMMENT_* events and on map switch.
  */
 
-import { getComments, getCurrentMapNameSync } from '@store';
+import { getComments, getCurrentMapNameSync, getAllMapNamesStore, setCurrentMap } from '@store';
 import { getControl } from '@store/control.registry.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { checkPermission, GuardAction } from '@store/sync/permission-guard.js';
@@ -114,11 +114,31 @@ export class CommentsPanel {
         return sessionContext.isAuthenticated() && checkPermission(GuardAction.CREATE_COMMENT).allowed;
     }
 
-    /** @private Reloads the active map's comments, then re-renders (and re-evaluates visibility). */
+    /** @private Reloads comments across ALL maps (each tagged with its map), then re-renders. */
     async _reload() {
         if (!this._scrollEl) return;
-        const mapName = getCurrentMapNameSync();
-        this._comments = (mapName ? await getComments(mapName) : {}) || {};
+        this._currentMapName = getCurrentMapNameSync();
+
+        // Aggregate every map's comments into one id→comment map, tagging each with the
+        // source map name (`_mapName`) so the list can show it and a click can switch maps.
+        let mapNames = [];
+        try {
+            mapNames = await getAllMapNamesStore();
+        } catch {
+            mapNames = [];
+        }
+        if (!Array.isArray(mapNames) || mapNames.length === 0) {
+            mapNames = this._currentMapName ? [this._currentMapName] : [];
+        }
+
+        const aggregated = {};
+        for (const name of mapNames) {
+            const byId = (await getComments(name)) || {};
+            for (const [id, comment] of Object.entries(byId)) {
+                if (comment) aggregated[id] = { ...comment, _mapName: name };
+            }
+        }
+        this._comments = aggregated;
         if (!this._scrollEl) return;
 
         const hasComments = Object.values(this._comments).some((c) => c && !c.parentId);
@@ -152,7 +172,7 @@ export class CommentsPanel {
         if (roots.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'comments-panel__empty';
-            empty.textContent = 'Nenhum comentário neste mapa.';
+            empty.textContent = 'Nenhum comentário.';
             this._scrollEl.appendChild(empty);
             return;
         }
@@ -215,6 +235,13 @@ export class CommentsPanel {
 
         const body = document.createElement('div');
         body.className = 'comment-list-item__body';
+        // Which map this comment belongs to (the list spans all maps).
+        if (comment._mapName) {
+            const mapTag = document.createElement('div');
+            mapTag.className = 'comment-list-item__map';
+            mapTag.textContent = comment._mapName;
+            body.appendChild(mapTag);
+        }
         const text = document.createElement('div');
         text.className = 'comment-list-item__text';
         text.textContent = comment.text || '';
@@ -232,8 +259,28 @@ export class CommentsPanel {
             item.appendChild(badge);
         }
 
-        addScopedDomListener(this, 'rows', item, 'click', () => this._overlay()?.focusComment(comment.id));
+        addScopedDomListener(this, 'rows', item, 'click', () => this._focusComment(comment));
         return item;
+    }
+
+    /**
+     * @private Focuses a comment, switching to its map first when it belongs to a
+     * different map than the active one (the list spans all maps).
+     * @param {Object} comment - The aggregated comment (carries `_mapName`).
+     */
+    async _focusComment(comment) {
+        const target = comment._mapName;
+        if (target && target !== getCurrentMapNameSync()) {
+            try {
+                await setCurrentMap(target);
+                const baseLayer = getControl('BaseLayerControl');
+                if (baseLayer?.switchMap) await baseLayer.switchMap();
+                getEventBus().emit(EventTypes.LAYERS_CHANGED, { mapName: null });
+            } catch {
+                return;
+            }
+        }
+        await this._overlay()?.focusComment(comment.id);
     }
 
     /** @private Hide/show all comment pins. */

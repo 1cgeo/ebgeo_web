@@ -84,9 +84,18 @@ export class AtlasSettingsModal extends ModalBase {
         }
     }
 
-    /** @private @returns {string[]} All basemap ids known to the deploy config. */
+    /**
+     * @private
+     * @returns {string[]} Deploy-ENABLED basemap ids. The per-atlas overlay can only RESTRICT
+     * which enabled basemaps are allowed (never re-enable a deploy-disabled one), so listing
+     * disabled basemaps here is misleading — they'd show as toggleable yet never render in the
+     * base-layer selector (which filters by `enabled`). Only offer what can actually appear.
+     */
     _allBasemapIds() {
-        return config.basemaps ? Object.keys(config.basemaps) : [];
+        if (!config.basemaps) return [];
+        return Object.entries(config.basemaps)
+            .filter(([, cfg]) => cfg && cfg.enabled !== false)
+            .map(([id]) => id);
     }
 
     /** @private */

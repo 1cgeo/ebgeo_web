@@ -306,12 +306,41 @@
    pill (styled in presence.css). */
 .maplibregl-ctrl-top-right .mapboxgl-ctrl-group.account-control,
 .maplibregl-ctrl-top-right .mapboxgl-ctrl-group.sync-status-badge,
+.maplibregl-ctrl-top-right .mapboxgl-ctrl-group.atlas-name-badge,
 .mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.account-control,
-.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.sync-status-badge {
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.sync-status-badge,
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group.atlas-name-badge {
     background-color: transparent;
     backdrop-filter: none;
     border: none;
     box-shadow: none;
+}
+
+/* Current-atlas name pill between the sync light and the avatar. */
+.atlas-name-badge {
+    display: flex;
+    flex-direction: row !important;
+    align-items: center;
+    gap: var(--space-1);
+    max-width: 180px;
+    padding: 0 var(--space-1);
+    color: var(--gray-600);
+}
+
+.atlas-name-badge__icon {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    color: var(--primary);
+}
+
+.atlas-name-badge__name {
+    overflow: hidden;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* =========================================================================
@@ -319,7 +348,7 @@
    ========================================================================= */
 
 .login-modal__container {
-    max-width: 400px;
+    max-width: 460px;
 }
 
 /* Logo-centric login: hide the default green header bar and lead with the EBGeo brand. */
@@ -327,8 +356,34 @@
     display: none;
 }
 
+/* The signup form can overflow (7 fields) — give its scroll area the app green scrollbar. */
 .login-modal__container .modal-body {
     padding-top: var(--space-6);
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) transparent;
+}
+
+.login-modal__container .modal-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.login-modal__container .modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.login-modal__container .modal-body::-webkit-scrollbar-thumb {
+    background-color: var(--primary);
+    border-radius: var(--radius-full);
+}
+
+.login-modal__container .modal-body::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-hover);
+}
+
+/* Controlled-value combo boxes (posto/OM) reuse the input chrome. */
+.login-modal__select {
+    cursor: pointer;
+    appearance: auto;
 }
 
 .login-modal__brand {

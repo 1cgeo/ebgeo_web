@@ -43,12 +43,16 @@ class SavedPhotosMarkers {
         this.showHoverCursor = this.showHoverCursor.bind(this);
         this.hideHoverCursor = this.hideHoverCursor.bind(this);
         this.handleDataChanged = this.handleDataChanged.bind(this);
+        this.handleDataCleared = this.handleDataCleared.bind(this);
 
         // Listen for data changes
         const eventBus = getEventBus();
         eventBus.on(EventTypes.MARKERS_360_CHANGED, this.handleDataChanged);
         eventBus.on(EventTypes.ORIENTATION_360_SAVED, this.handleDataChanged);
         eventBus.on(EventTypes.ORIENTATION_360_CLEARED, this.handleDataChanged);
+        // On logout / full data wipe, rebuild from the now-empty store so the saved-photo
+        // markers + count badge clear even if the 360 viewer is inactive.
+        eventBus.on(EventTypes.ALL_DATA_CLEARED, this.handleDataCleared);
     }
 
     /**
@@ -130,6 +134,15 @@ class SavedPhotosMarkers {
             console.warn(`Failed to fetch metadata for ${photoName}:`, error);
             return null;
         }
+    }
+
+    /**
+     * Handle a full data wipe (logout/disconnect). Rebuilds from the now-empty
+     * store regardless of active state; with no saved data loadMarkers() removes
+     * the layers, so the stale count badge clears.
+     */
+    async handleDataCleared() {
+        await this.loadMarkers();
     }
 
     /**
@@ -415,6 +428,7 @@ class SavedPhotosMarkers {
         eventBus.off(EventTypes.MARKERS_360_CHANGED, this.handleDataChanged);
         eventBus.off(EventTypes.ORIENTATION_360_SAVED, this.handleDataChanged);
         eventBus.off(EventTypes.ORIENTATION_360_CLEARED, this.handleDataChanged);
+        eventBus.off(EventTypes.ALL_DATA_CLEARED, this.handleDataCleared);
 
         this.hide();
         this.removeLayers();

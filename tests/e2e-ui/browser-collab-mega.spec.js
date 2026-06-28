@@ -75,7 +75,7 @@ const pointLng = (page, id) => page.evaluate(async (i) => {
 // drawMilitarySymbolUI: shared-atlas spec's drawMilitarySymbol gesture;
 // createMapUI/switchMapUI: maps-tab-navigation spec;
 // selectFeatureInTreeUI: shared-atlas selectFeatureById (layers tree row click);
-// renameViaPanelUI: the editable feature-name input the attribute panel renders;
+// renameViaPanelUI: the feature-identification editable name the attribute panel renders;
 // deleteSelectedViaUI: the real Delete key → confirm-modal destructive flow.
 
 /** Places a MILITARY SYMBOL via the real tool (single click, default SIDC). @returns {Promise<string>} new id. */
@@ -151,13 +151,15 @@ async function selectFeatureInTreeUI(page, featureId) {
     await row.evaluate((el) => el.click()); // raw DOM click — actionability can hang on overlapped rows
 }
 
-/** Renames a feature through the real attribute panel: select it, click the editable name, type, Enter. */
+/** Renames a feature through the real attribute panel: select it, click the editable name, type, Enter.
+ *  The panel uses the feature-identification component: a `.feature-identification-name` display that,
+ *  when clicked, reveals the `.feature-identification-name-input` (its `--hidden` modifier is dropped). */
 async function renameViaPanelUI(page, featureId, newName) {
     await selectFeatureInTreeUI(page, featureId);
-    const nameDisplay = page.locator('.feature-name-editable').first();
+    const nameDisplay = page.locator('.feature-identification-name').first();
     await expect(nameDisplay).toBeVisible({ timeout: 10000 });
     await nameDisplay.click();
-    const nameInput = page.locator('.feature-name-input.editing').first();
+    const nameInput = page.locator('.feature-identification-name-input:not(.feature-identification-name-input--hidden)').first();
     await expect(nameInput).toBeVisible({ timeout: 5000 });
     await nameInput.fill(newName);
     await nameInput.press('Enter');
@@ -167,9 +169,13 @@ async function renameViaPanelUI(page, featureId, newName) {
 /** Deletes a feature through the real UI: select it, press Delete, confirm the destructive modal. */
 async function deleteSelectedViaUI(page, featureId) {
     await selectFeatureInTreeUI(page, featureId);
-    await page.locator('.maplibregl-canvas').first().press('Delete');
     const confirmBtn = page.locator('.confirm-modal-btn-confirm');
-    await expect(confirmBtn).toBeVisible({ timeout: 5000 });
+    // The tree-select → Delete-keypress handoff can race (selection not yet registered when the
+    // key fires), so retry the keypress until the destructive confirm modal actually appears.
+    await expect(async () => {
+        await page.locator('.maplibregl-canvas').first().press('Delete');
+        await expect(confirmBtn).toBeVisible({ timeout: 1500 });
+    }).toPass({ timeout: 10000 });
     await confirmBtn.click();
 }
 

@@ -105,6 +105,7 @@ class Add3DModelsViewerControl {
         this.handlePopupClose = this.handlePopupClose.bind(this);
         this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
         this._handleFeaturesChanged = this._handleFeaturesChanged.bind(this);
+        this._handleDataCleared = this._handleDataCleared.bind(this);
 
         setupCleanup(this);
     }
@@ -128,6 +129,10 @@ class Add3DModelsViewerControl {
         subscribe(this, getEventBus(), EventTypes.MEASUREMENTS_3D_CHANGED, this._handleFeaturesChanged);
         subscribe(this, getEventBus(), EventTypes.VIEWSHEDS_3D_CHANGED, this._handleFeaturesChanged);
 
+        // On logout / full data wipe, recompute badges to 0 even when markers are
+        // hidden (otherwise the count badge stays stale after the store is cleared).
+        subscribe(this, getEventBus(), EventTypes.ALL_DATA_CLEARED, this._handleDataCleared);
+
         return this.container;
     }
 
@@ -137,6 +142,18 @@ class Add3DModelsViewerControl {
      */
     async _handleFeaturesChanged() {
         if (this.markersVisible && this.map.getSource(this.sourceId)) {
+            await this._updateBadgeCounts();
+        }
+    }
+
+    /**
+     * Rebuilds the badge source after a full data wipe (logout) so stale counts
+     * reset to 0. Unlike _handleFeaturesChanged this does not gate on markersVisible
+     * — only on the source existing — so the badge clears even when markers are off.
+     * @private
+     */
+    async _handleDataCleared() {
+        if (this.map?.getSource(this.sourceId)) {
             await this._updateBadgeCounts();
         }
     }

@@ -104,8 +104,9 @@ async function initApp() {
     // race condition where map fires 'load' during the preflight fetch timeout.
     const controlsPromise = createControls(map, analysisLayersManager, dataLayersManager);
 
-    // Phase 5+6: Register map.on('load') handler synchronously — BEFORE 'load' can fire
-    initializeApp(map, controlsPromise);
+    // Phase 5+6: Register map.on('load') handler synchronously — BEFORE 'load' can fire.
+    // Capture the local-store boot promise so the remote reconnect/open below can await it.
+    const statePromise = initializeApp(map, controlsPromise);
 
     // Wait for controls to finish (preflight + UI setup)
     const controls = await controlsPromise;
@@ -135,6 +136,11 @@ async function initApp() {
     // anonymous visitor; then an `?atlas=` deep link (open, or prompt login + resume); otherwise
     // reconnect the last remote atlas for a restored authenticated session. (`#view=3d/360` is handled
     // earlier in the map-load path and has absolute precedence; `?verify=` ran above.)
+    // Serialize the local-store boot BEFORE any remote open/reconnect. Otherwise the boot
+    // store-init (default-map creation / last-active selection) interleaves with the reconnect's
+    // clearAllDataStore → snapshot → activate sequence and can leave a stray local "Principal"
+    // alongside the synced maps (intermittent phantom 3rd map on F5). Local IDB only — no network wait.
+    await statePromise.catch(() => {});
     if (await openPublicAtlasFromUrl()) return;
     if (await openAtlasFromUrl()) return;
     reconnectLastAtlas();

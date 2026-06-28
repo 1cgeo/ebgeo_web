@@ -329,17 +329,30 @@ class KeyboardShortcuts {
      */
     async handleCtrlShortcuts(e, key) {
         switch (key) {
-            case 'c':
+            case 'c': {
+                // Only hijack Ctrl+C for feature copy when a feature is selected AND the user is
+                // NOT copying a native text selection (label, coordinate readout, list text, …).
+                // Otherwise fall through to the browser so normal copy keeps working. (Inputs are
+                // already handled upstream by isTypingInInput.)
+                const hasFeatureSelection = this.selectionManager.getAllSelectedFeatures().length > 0;
+                const sel = window.getSelection();
+                const hasTextSelection = !!sel && !sel.isCollapsed && sel.toString().trim().length > 0;
+                if (!hasFeatureSelection || hasTextSelection) return;
                 e.preventDefault();
                 this.clipboardManager.copy();
                 break;
+            }
 
-            case 'v':
+            case 'v': {
+                // Only hijack Ctrl+V when we actually hold copied feature data; otherwise let the
+                // browser paste natively.
+                if (!this.clipboardManager.hasClipboardData()) return;
                 e.preventDefault();
                 if (!isCurrentMapLockedSync()) {
                     await this.clipboardManager.paste();
                 }
                 break;
+            }
         }
     }
 

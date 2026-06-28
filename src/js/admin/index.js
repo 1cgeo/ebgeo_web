@@ -11,6 +11,7 @@ import { AdminPanel } from './admin-panel.js';
 import { createUsersTab } from './users-tab.js';
 import { createConfigTab } from './config-tab.js';
 import { createCatalogTab } from './catalog-tab.js';
+import { createPersonnelTab } from './personnel-tab.js';
 import { sessionContext } from '@store/sync/session-context.js';
 import { showError } from '@utils';
 
@@ -28,7 +29,7 @@ export function openAdminPanel() {
         return undefined;
     }
     if (_panel && _panel.isOpen()) return _panel;
-    _panel = new AdminPanel([createUsersTab(), createConfigTab(), createCatalogTab()]);
+    _panel = new AdminPanel([createUsersTab(), createConfigTab(), createCatalogTab(), createPersonnelTab()]);
     _panel.open();
     return _panel;
 }

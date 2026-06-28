@@ -11,6 +11,7 @@
 
 import { ModalBase } from './modal.base.js';
 import { addDomListener } from '@utils/event-cleanup.js';
+import config from '@js/config.js';
 
 /** Header icon (user-plus / create account). */
 const SIGNUP_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>`;
@@ -124,6 +125,67 @@ export class SignupModal extends ModalBase {
     }
 
     /**
+     * Adds a labelled <select> (controlled-value combo box) to a form.
+     * @private
+     * @param {HTMLElement} form
+     * @param {{ id: string, label: string, testid: string, required?: boolean,
+     *   placeholder?: string }} spec
+     * @param {Array<{ value: string, label: string }>} options
+     * @returns {HTMLSelectElement}
+     */
+    _addSelectField(form, spec, options) {
+        const field = document.createElement('div');
+        field.className = 'login-modal__field settings-field';
+
+        const label = document.createElement('label');
+        label.className = 'settings-field__label';
+        label.setAttribute('for', spec.id);
+        label.textContent = spec.label;
+        field.appendChild(label);
+
+        const select = document.createElement('select');
+        select.id = spec.id;
+        select.className = 'login-modal__input login-modal__select';
+        select.dataset.testid = spec.testid;
+        if (spec.required) select.required = true;
+
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = spec.placeholder || 'Selecione…';
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        select.appendChild(placeholder);
+
+        for (const opt of options) {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.label;
+            select.appendChild(option);
+        }
+
+        field.appendChild(select);
+        form.appendChild(field);
+        return select;
+    }
+
+    /**
+     * Maps a backend controlled-list (config.postos / config.organizacoesMilitares)
+     * to <select> options, ordered by sort_order. The option VALUE is the display
+     * name (what gets stored in users.posto_graduacao / organizacao_militar).
+     * @private
+     * @param {Array<{ name: string, sort_order?: number }>|undefined} list
+     * @returns {Array<{ value: string, label: string }>}
+     */
+    _domainOptions(list) {
+        if (!Array.isArray(list)) return [];
+        return list
+            .filter((item) => item && item.name)
+            .slice()
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+            .map((item) => ({ value: item.name, label: item.name }));
+    }
+
+    /**
      * Builds the signup form DOM.
      * @private
      * @returns {HTMLElement}
@@ -152,14 +214,34 @@ export class SignupModal extends ModalBase {
             id: 'signup-password-confirm', label: 'Confirmar senha', type: 'password',
             autocomplete: 'new-password', testid: 'signup-password-confirm', required: true
         });
-        this._postoInput = this._addField(form, {
-            id: 'signup-posto', label: 'Posto/Graduação (opcional)',
-            testid: 'signup-posto'
-        });
-        this._omInput = this._addField(form, {
-            id: 'signup-om', label: 'Organização Militar (opcional)',
-            testid: 'signup-om'
-        });
+        // Posto/Graduação and Organização Militar are controlled lists served by the
+        // backend (/config). When present they render as required dropdowns; if the
+        // backend served none (misconfig/offline), fall back to a required text input
+        // so signup is never hard-blocked.
+        const postoOpts = this._domainOptions(config.postos);
+        const omOpts = this._domainOptions(config.organizacoesMilitares);
+
+        this._postoInput = postoOpts.length
+            ? this._addSelectField(form, {
+                id: 'signup-posto', label: 'Posto/Graduação',
+                testid: 'signup-posto', required: true,
+                placeholder: 'Selecione o posto/graduação'
+            }, postoOpts)
+            : this._addField(form, {
+                id: 'signup-posto', label: 'Posto/Graduação',
+                testid: 'signup-posto', required: true
+            });
+
+        this._omInput = omOpts.length
+            ? this._addSelectField(form, {
+                id: 'signup-om', label: 'Organização Militar',
+                testid: 'signup-om', required: true,
+                placeholder: 'Selecione a organização militar'
+            }, omOpts)
+            : this._addField(form, {
+                id: 'signup-om', label: 'Organização Militar',
+                testid: 'signup-om', required: true
+            });
 
         // Inline error (hidden until populated)
         const error = document.createElement('div');
@@ -248,6 +330,10 @@ export class SignupModal extends ModalBase {
             this._showError('Preencha nome, usuário, e-mail e senha.');
             return;
         }
+        if (!posto || !om) {
+            this._showError('Selecione o posto/graduação e a organização militar.');
+            return;
+        }
         if (password !== passwordConfirm) {
             this._showError('As senhas não coincidem.');
             return;
@@ -260,8 +346,8 @@ export class SignupModal extends ModalBase {
                 username,
                 email,
                 password,
-                posto_graduacao: posto || undefined,
-                organizacao_militar: om || undefined
+                posto_graduacao: posto,
+                organizacao_militar: om
             });
             this._close();
         } catch (error) {
