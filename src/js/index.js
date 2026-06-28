@@ -278,6 +278,9 @@ async function reconnectLastAtlas() {
         // which showed a UUID in the UI and broadcast cursor/presence under that UUID mapId (peers,
         // keyed by name, filtered it out) until the user manually switched maps.
         await activateAtlasInitialMap();
+        // Render the now-current atlas map (see openRemoteAtlas) — reconnect skips setupMapFeatures,
+        // so client-generated rasters (military symbols etc.) would intermittently 404 → error icon.
+        await getControl('BaseLayerControl')?.switchMap?.(false);
         startAutoFlush();
     } catch (error) {
         console.warn('[boot] atlas reconnect failed:', error);

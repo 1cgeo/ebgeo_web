@@ -12,6 +12,7 @@
  */
 
 import { syncEngine } from '@store/sync/sync-engine.js';
+import { getControl } from '@store';
 import { startAutoFlush, stopAutoFlush } from '@store/sync/sync-flush.js';
 import {
     clearAllDataStore,
@@ -70,6 +71,11 @@ export async function openRemoteAtlas(atlasId, { mapId = null } = {}) {
         await markStoreLocal();
         throw error;
     }
+    // Render the now-current atlas map (base layer + feature sources + client-generated rasters). The
+    // open path sets the current map but, unlike a UI map switch, never ran setupMapFeatures for it —
+    // so military-symbol/coordination/declination rasters intermittently 404'd → error icon. After the
+    // try/catch so a render error can't revert the (successfully opened) atlas origin.
+    await getControl('BaseLayerControl')?.switchMap?.(false);
     startAutoFlush();
     return true;
 }

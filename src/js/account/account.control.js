@@ -577,6 +577,8 @@ export class AccountControl {
                     await markStoreRemote(result.atlasId);
                     await syncEngine.connect(result.atlasId, { initialPull: true });
                     await activateAtlasInitialMap();
+                    // Render the now-current atlas map (see onPick) — the open path skips setupMapFeatures.
+                    await getControl('BaseLayerControl')?.switchMap?.(false);
                     startAutoFlush();
                     this._render();
 
@@ -790,6 +792,12 @@ export class AccountControl {
                     // Land on the atlas's map, not the local default — opening pulls
                     // the maps but leaves the app on "Principal" otherwise.
                     await activateAtlasInitialMap();
+                    // Render the now-current atlas map (base layer + feature sources + client-generated
+                    // rasters). The open path sets the current map but, unlike a UI map switch, never ran
+                    // setupMapFeatures for it — so military-symbol/coordination/declination rasters (rebuilt
+                    // from props, never uploaded) intermittently stayed missing (404 → error icon) on open.
+                    // switchMap(false) does that setup deterministically without moving the camera.
+                    await getControl('BaseLayerControl')?.switchMap?.(false);
                     startAutoFlush();
                     showSuccess('Projeto carregado do servidor');
                 } catch (error) {
@@ -812,6 +820,8 @@ export class AccountControl {
                     await markStoreRemote(atlas.id);
                     await syncEngine.connect(atlas.id, { initialPull: true });
                     await activateAtlasInitialMap();
+                    // Render the now-current atlas map (see onPick) — the open path skips setupMapFeatures.
+                    await getControl('BaseLayerControl')?.switchMap?.(false);
                     startAutoFlush();
                     showSuccess('Projeto criado no servidor');
                 } catch (error) {
