@@ -272,9 +272,23 @@ export class SidebarControl {
         subscribe(this, this._eventBus, EventTypes.VECTOR_INFO_PANEL_OPENED,
             (payload) => this._onVectorInfoPanelOpened(payload));
 
-        // Listen for layer changes to update recent maps
-        subscribe(this, this._eventBus, EventTypes.LAYERS_CHANGED,
-            () => this._updateRecentMaps());
+        // Refresh the collapsed recent-maps rail on the SAME events the maps tab re-renders on, not
+        // just LAYERS_CHANGED. Opening/creating an atlas runs an async sequence (clear → connect →
+        // activate → switchMap → flush) and the store reads the rail depends on (map keys + the
+        // lastActiveMap setting) settle only after the later events fire. Listening to LAYERS_CHANGED
+        // alone caught a mid-sequence stale read (showing the old local default 'Principal' while the
+        // maps tab — which also listens to MAP_LOCK_CHANGED / MAP_MODIFIED / CONNECTION_STATE_CHANGED /
+        // REMOTE_OPERATION_APPLIED — had already converged on the real map).
+        for (const evt of [
+            EventTypes.LAYERS_CHANGED,
+            EventTypes.MAP_LOCK_CHANGED,
+            EventTypes.MAP_MODIFIED,
+            EventTypes.CONNECTION_STATE_CHANGED,
+            EventTypes.SESSION_CHANGED,
+            EventTypes.REMOTE_OPERATION_APPLIED,
+        ]) {
+            subscribe(this, this._eventBus, evt, () => this._updateRecentMaps());
+        }
 
         // Listen for map notes requests
         subscribe(this, this._eventBus, EventTypes.MAP_NOTES_REQUESTED,
