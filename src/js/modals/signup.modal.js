@@ -170,19 +170,19 @@ export class SignupModal extends ModalBase {
 
     /**
      * Maps a backend controlled-list (config.postos / config.organizacoesMilitares)
-     * to <select> options, ordered by sort_order. The option VALUE is the display
-     * name (what gets stored in users.posto_graduacao / organizacao_militar).
+     * to <select> options, ordered by sort_order. The option VALUE is the row id
+     * (FK stored in users.rank_id / organization_id); the label is the display name.
      * @private
-     * @param {Array<{ name: string, sort_order?: number }>|undefined} list
+     * @param {Array<{ id: string, name: string, sort_order?: number }>|undefined} list
      * @returns {Array<{ value: string, label: string }>}
      */
     _domainOptions(list) {
         if (!Array.isArray(list)) return [];
         return list
-            .filter((item) => item && item.name)
+            .filter((item) => item && item.id && item.name)
             .slice()
             .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-            .map((item) => ({ value: item.name, label: item.name }));
+            .map((item) => ({ value: item.id, label: item.name }));
     }
 
     /**
@@ -346,8 +346,8 @@ export class SignupModal extends ModalBase {
                 username,
                 email,
                 password,
-                posto_graduacao: posto,
-                organizacao_militar: om
+                rank_id: posto,
+                organization_id: om
             });
             this._close();
         } catch (error) {

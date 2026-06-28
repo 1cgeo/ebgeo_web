@@ -19,22 +19,26 @@ import { sectionHeader, card, avatar, emptyState, ICON_USERS } from './admin-dom
 
 /**
  * Builds <select> options from a backend controlled list (config.postos /
- * config.organizacoesMilitares), with a leading "(nenhum)" and the user's current
- * value preserved even if it predates the list (legacy free-text).
- * @param {Array<{name:string, sort_order?:number}>|undefined} list
- * @param {string} [current]
+ * config.organizacoesMilitares). The option VALUE is the row id (FK); a leading
+ * "(nenhum)" allows clearing, and the user's current id is preserved (labelled with
+ * its derived name) even if it's no longer in the active list.
+ * @param {Array<{id:string, name:string}>|undefined} list
+ * @param {string} [currentId]
+ * @param {string} [currentLabel]
  * @returns {Array<{value:string, label:string}>}
  */
-function buildDomainOptions(list, current) {
+function buildDomainOptions(list, currentId, currentLabel) {
     const opts = [{ value: '', label: '— (nenhum)' }];
     const seen = new Set();
     for (const item of (Array.isArray(list) ? list : [])) {
-        if (item && item.name && !seen.has(item.name)) {
-            opts.push({ value: item.name, label: item.name });
-            seen.add(item.name);
+        if (item && item.id && !seen.has(item.id)) {
+            opts.push({ value: item.id, label: item.name });
+            seen.add(item.id);
         }
     }
-    if (current && !seen.has(current)) opts.push({ value: current, label: `${current} (atual)` });
+    if (currentId && !seen.has(currentId)) {
+        opts.push({ value: currentId, label: `${currentLabel || currentId} (atual)` });
+    }
     return opts;
 }
 
@@ -269,9 +273,9 @@ class UsersTab {
         const password = isEdit ? null
             : textField(form, 'Senha', 'admin-userform-password', '', 'password');
         const posto = selectField(form, 'Posto/Graduação', 'admin-userform-posto',
-            buildDomainOptions(config.postos, user?.posto_graduacao), user?.posto_graduacao || '');
+            buildDomainOptions(config.postos, user?.rank_id, user?.posto_graduacao), user?.rank_id || '');
         const om = selectField(form, 'Organização Militar', 'admin-userform-om',
-            buildDomainOptions(config.organizacoesMilitares, user?.organizacao_militar), user?.organizacao_militar || '');
+            buildDomainOptions(config.organizacoesMilitares, user?.organization_id, user?.organizacao_militar), user?.organization_id || '');
 
         const role = selectField(form, 'Papel', 'admin-userform-role',
             [{ value: 'user', label: 'Usuário' }, { value: 'admin', label: 'Admin (sistema)' }],
@@ -324,8 +328,8 @@ class UsersTab {
             const payload = {
                 nome: nome.value.trim(),
                 username: username.value.trim(),
-                posto_graduacao: posto.value.trim(),
-                organizacao_militar: om.value.trim(),
+                rank_id: posto.value,
+                organization_id: om.value,
                 role: role.value,
             };
             if (!payload.nome || !payload.username) {

@@ -446,6 +446,49 @@ export class ApiClient {
         return this._request('DELETE', `/resources/${encodeURIComponent(id)}`);
     }
 
+    // ===== PERSONNEL DOMAINS — ranks (postos) + organizations (OMs) =====
+    // Controlled lists consumed by the signup/account forms (FK ids). Admin-managed.
+
+    /** @returns {Promise<Array<{id,nome,nome_abrev,sort_order,is_active}>>} */
+    async listRanks() {
+        return this._request('GET', '/ranks');
+    }
+
+    /** @param {{nome:string, nome_abrev?:string, sort_order?:number}} payload */
+    async createRank(payload) {
+        return this._request('POST', '/ranks', { body: payload });
+    }
+
+    /** @param {string} id @param {{nome?:string, nome_abrev?:string, sort_order?:number, is_active?:boolean}} payload */
+    async updateRank(id, payload) {
+        return this._request('PUT', `/ranks/${encodeURIComponent(id)}`, { body: payload });
+    }
+
+    /** @param {string} id Soft-deactivates the rank. */
+    async deleteRank(id) {
+        return this._request('DELETE', `/ranks/${encodeURIComponent(id)}`);
+    }
+
+    /** @returns {Promise<Array<{id,nome,slug,sigla,is_active}>>} */
+    async listOrganizations() {
+        return this._request('GET', '/organizations');
+    }
+
+    /** @param {{nome:string, slug:string, sigla?:string}} payload */
+    async createOrganization(payload) {
+        return this._request('POST', '/organizations', { body: payload });
+    }
+
+    /** @param {string} id @param {{nome?:string, sigla?:string, is_active?:boolean}} payload */
+    async updateOrganization(id, payload) {
+        return this._request('PUT', `/organizations/${encodeURIComponent(id)}`, { body: payload });
+    }
+
+    /** @param {string} id Soft-deactivates the organization. */
+    async deleteOrganization(id) {
+        return this._request('DELETE', `/organizations/${encodeURIComponent(id)}`);
+    }
+
     // ===== CATALOG — 360 PROJECTS (admin metadata; the bundle upload is out-of-band) =====
 
     /** Lists 360 projects (incl. disabled). Bare array contract. @returns {Promise<Array<Object>>} */

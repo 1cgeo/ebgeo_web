@@ -326,6 +326,18 @@ class CatalogTab {
                 resource?.config?.previewVideo ?? '');
         }
 
+        // Basemaps: expose the two config keys that actually drive the base-layer selector as
+        // first-class controls (instead of only the raw JSON below) — `enabled` (whether it shows
+        // up at all) and `priority` (its order). Merged back into config on save.
+        let enabledInput = null;
+        let priorityInput = null;
+        if (category === 'basemap') {
+            enabledInput = checkboxField(form, 'Habilitado (aparece no seletor de mapa base)',
+                'admin-catalog-enabled', resource?.config?.enabled !== false);
+            priorityInput = textField(form, 'Prioridade (ordem no seletor)', 'admin-catalog-priority',
+                String(resource?.config?.priority ?? resource?.sort_order ?? 0), 'number');
+        }
+
         const configValue = JSON.stringify(resource?.config ?? TEMPLATES[category] ?? {}, null, 2);
         const configInput = jsonField(form, 'Avançado — configuração (JSON)', 'admin-catalog-config', configValue);
 
@@ -376,6 +388,11 @@ class CatalogTab {
                     const vid = videoInput.value.trim();
                     if (vid) config.previewVideo = vid;
                     else delete config.previewVideo;
+                }
+                if (enabledInput) {
+                    config.enabled = enabledInput.checked;
+                    const pr = Number(priorityInput.value.trim());
+                    config.priority = Number.isFinite(pr) ? pr : (config.priority ?? 0);
                 }
             }
 
@@ -565,6 +582,22 @@ function textField(form, label, testid, value, type = 'text') {
     input.dataset.testid = testid;
     input.value = value;
     field.appendChild(input);
+    form.appendChild(field);
+    return input;
+}
+
+function checkboxField(form, label, testid, checked) {
+    const field = document.createElement('div');
+    field.className = 'admin-form__field admin-form__field--checkbox';
+    const lab = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.id = testid;
+    input.dataset.testid = testid;
+    input.checked = !!checked;
+    lab.appendChild(input);
+    lab.appendChild(document.createTextNode(` ${label}`));
+    field.appendChild(lab);
     form.appendChild(field);
     return input;
 }
