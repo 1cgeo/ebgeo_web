@@ -42,6 +42,9 @@ describeOrSkip('Signup → create account + confirm e-mail (real browser + real 
         await page.locator('[data-testid="signup-email"]').fill(email);
         await page.locator('[data-testid="signup-password"]').fill(password);
         await page.locator('[data-testid="signup-password-confirm"]').fill(password);
+        // Posto/Graduação + Organização Militar are required (FK dropdowns from /config).
+        await page.locator('[data-testid="signup-posto"]').selectOption({ label: 'Capitão' });
+        await page.locator('[data-testid="signup-om"]').selectOption({ label: 'Diretoria de Serviço Geográfico' });
         await page.locator('[data-testid="signup-submit"]').click();
 
         // The "verifique seu e-mail" dialog appears; dismiss it ("Entendi").
@@ -95,6 +98,10 @@ describeOrSkip('Signup → create account + confirm e-mail (real browser + real 
         await page.locator('[data-testid="signup-email"]').fill(`${u}@example.mil`);
         await page.locator('[data-testid="signup-password"]').fill('abc123XYZ!');
         await page.locator('[data-testid="signup-password-confirm"]').fill('different456!');
+        // posto/OM are required <select>s — fill them so native validation lets the submit through to
+        // the custom password-match check (which still never hits the backend).
+        await page.locator('[data-testid="signup-posto"]').selectOption({ label: 'Capitão' });
+        await page.locator('[data-testid="signup-om"]').selectOption({ label: 'Diretoria de Serviço Geográfico' });
         await page.locator('[data-testid="signup-submit"]').click();
 
         await expect(page.locator('[data-testid="signup-error"]')).toContainText('senhas não coincidem', { timeout: 5000 });

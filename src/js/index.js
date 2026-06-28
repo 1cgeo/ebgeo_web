@@ -136,13 +136,19 @@ async function initApp() {
     // anonymous visitor; then an `?atlas=` deep link (open, or prompt login + resume); otherwise
     // reconnect the last remote atlas for a restored authenticated session. (`#view=3d/360` is handled
     // earlier in the map-load path and has absolute precedence; `?verify=` ran above.)
+    // Capture the deep-link params BEFORE awaiting statePromise: initializeWithLastActiveMap emits
+    // MAP_LOCK_CHANGED, which makes atlas-url-sync strip `?atlas` for an anonymous user — so reading
+    // the URL after the await would lose the link (no login prompt). Capturing first preserves it.
+    const publicLink = new URLSearchParams(window.location.search).get('atlasPublico');
+    const atlasLink = parseAtlasLink();
+
     // Serialize the local-store boot BEFORE any remote open/reconnect. Otherwise the boot
     // store-init (default-map creation / last-active selection) interleaves with the reconnect's
     // clearAllDataStore → snapshot → activate sequence and can leave a stray local "Principal"
     // alongside the synced maps (intermittent phantom 3rd map on F5). Local IDB only — no network wait.
     await statePromise.catch(() => {});
-    if (await openPublicAtlasFromUrl()) return;
-    if (await openAtlasFromUrl()) return;
+    if (await openPublicAtlasFromUrl(publicLink)) return;
+    if (await openAtlasFromUrl(atlasLink)) return;
     reconnectLastAtlas();
 }
 
@@ -153,8 +159,7 @@ async function initApp() {
  * Best-effort: a connect/permission failure shows a clear message and falls through to the normal path.
  * @returns {Promise<boolean>}
  */
-async function openAtlasFromUrl() {
-    const link = parseAtlasLink();
+async function openAtlasFromUrl(link = parseAtlasLink()) {
     if (!link) return false;
 
     if (!sessionContext.isAuthenticated()) {
@@ -210,9 +215,8 @@ async function handleEmailVerificationFromUrl() {
  * normal last-atlas reconnect is skipped). Best-effort: any failure falls back to the normal path.
  * @returns {Promise<boolean>}
  */
-async function openPublicAtlasFromUrl() {
+async function openPublicAtlasFromUrl(link = new URLSearchParams(window.location.search).get('atlasPublico')) {
     try {
-        const link = new URLSearchParams(window.location.search).get('atlasPublico');
         if (!link || sessionContext.isAuthenticated()) return false;
         const atlas = await apiClient.getPublicAtlas(link);
         apiClient.setEphemeralToken(atlas.publicToken);

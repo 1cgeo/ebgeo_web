@@ -330,12 +330,14 @@ export class SignupModal extends ModalBase {
             this._showError('Preencha nome, usuário, e-mail e senha.');
             return;
         }
-        if (!posto || !om) {
-            this._showError('Selecione o posto/graduação e a organização militar.');
-            return;
-        }
+        // Password match is a basic local check — validate it before the controlled-list selects so
+        // a mismatch is reported regardless of posto/OM.
         if (password !== passwordConfirm) {
             this._showError('As senhas não coincidem.');
+            return;
+        }
+        if (!posto || !om) {
+            this._showError('Selecione o posto/graduação e a organização militar.');
             return;
         }
 
