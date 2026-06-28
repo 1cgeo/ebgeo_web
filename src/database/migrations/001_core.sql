@@ -27,10 +27,59 @@ INSERT INTO organizations (id, nome, slug, sigla)
 VALUES ('00000000-0000-0000-0000-000000000001', 'Organização Padrão', 'default', 'DEFAULT')
 ON CONFLICT (slug) DO NOTHING;
 
+-- Organizações militares (OMs) — a lista controlada de organizações que o cadastro usa
+-- (FK users.organization_id). O admin curam o resto pela aba "Pessoal" (módulo organizations).
+INSERT INTO organizations (nome, slug, sigla) VALUES
+  ('Diretoria de Serviço Geográfico',                          'dsg',    'DSG'),
+  ('Centro de Imagens e Informações Geográficas do Exército',  'cigex',  'CIGEx'),
+  ('1º Centro de Geoinformação',                               '1-cgeo', '1º CGEO'),
+  ('2º Centro de Geoinformação',                               '2-cgeo', '2º CGEO'),
+  ('3º Centro de Geoinformação',                               '3-cgeo', '3º CGEO'),
+  ('4º Centro de Geoinformação',                               '4-cgeo', '4º CGEO'),
+  ('5º Centro de Geoinformação',                               '5-cgeo', '5º CGEO')
+ON CONFLICT (slug) DO NOTHING;
+
+-- ============================================================================
+-- RANKS (postos/graduações — lista controlada do cadastro, FK users.rank_id;
+-- seed de dominio.tipo_posto_grad, code -> sort_order, nome_abrev = abreviação).
+-- ============================================================================
+CREATE TABLE ranks (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code        SMALLINT,
+    nome        VARCHAR(255) NOT NULL,
+    nome_abrev  VARCHAR(50),
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_ranks_active ON ranks(sort_order) WHERE is_active;
+
+INSERT INTO ranks (code, nome, nome_abrev, sort_order) VALUES
+  (1,  'Civil',                  'Civ',     1),
+  (2,  'Mão de Obra Temporária', 'MOT',     2),
+  (3,  'Soldado EV',             'Sd EV',   3),
+  (4,  'Soldado EP',             'Sd EP',   4),
+  (5,  'Cabo',                   'Cb',      5),
+  (6,  'Terceiro Sargento',      '3º Sgt',  6),
+  (7,  'Segundo Sargento',       '2º Sgt',  7),
+  (8,  'Primeiro Sargento',      '1º Sgt',  8),
+  (9,  'Subtenente',             'ST',      9),
+  (10, 'Aspirante',              'Asp',    10),
+  (11, 'Segundo Tenente',        '2º Ten', 11),
+  (12, 'Primeiro Tenente',       '1º Ten', 12),
+  (13, 'Capitão',                'Cap',    13),
+  (14, 'Major',                  'Maj',    14),
+  (15, 'Tenente Coronel',        'TC',     15),
+  (16, 'Coronel',                'Cel',    16),
+  (17, 'General de Brigada',     'Gen Bda',17),
+  (18, 'General de Divisão',     'Gen Div',18),
+  (19, 'General de Exército',    'Gen Ex', 19);
+
 -- ============================================================================
 -- USERS
--- organization_id é NULLABLE por design (tokens legados degradam para null);
--- organizacao_militar (texto livre) é preservada durante a transição multi-org.
+-- rank_id (FK ranks) é o posto/graduação; organization_id (FK organizations) é a OM.
+-- Ambos NULLABLE (contas sem dados / tokens legados degradam para null).
 -- ============================================================================
 CREATE TABLE users (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -41,10 +90,9 @@ CREATE TABLE users (
 
     -- Personal info (Brazilian military context)
     nome                VARCHAR(255) NOT NULL,
-    posto_graduacao     VARCHAR(50),
-    organizacao_militar VARCHAR(255),
+    rank_id             UUID REFERENCES ranks(id),
 
-    -- Multi-org: FK + papel org-scoped (vocabulário UserRole do frontend).
+    -- Multi-org: organization_id é a OM (FK); papel org-scoped (vocabulário UserRole do frontend).
     organization_id     UUID REFERENCES organizations(id),
     org_role            VARCHAR(20) NOT NULL DEFAULT 'viewer'
                           CHECK (org_role IN ('owner','admin','editor','viewer')),

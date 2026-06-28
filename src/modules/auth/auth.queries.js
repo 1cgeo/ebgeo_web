@@ -1,17 +1,25 @@
 // Path: src/modules/auth/auth.queries.js
 
+// posto_graduacao / organizacao_militar are DERIVED display names from the rank_id / organization_id
+// FKs (so the token claim + UI keep seeing strings while storage is normalized).
 export const FIND_USER_BY_USERNAME = `
-  SELECT id, username, password_hash, nome, posto_graduacao, organizacao_militar,
-         organization_id, org_role, is_active, role, email, email_verified
-  FROM users
-  WHERE LOWER(username) = LOWER($1)
+  SELECT u.id, u.username, u.password_hash, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.org_role, u.is_active, u.role,
+         u.email, u.email_verified
+  FROM users u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
+  WHERE LOWER(u.username) = LOWER($1)
 `;
 
 export const FIND_USER_BY_ID = `
-  SELECT id, username, nome, posto_graduacao, organizacao_militar,
-         organization_id, org_role, role, created_at, last_login_at
-  FROM users
-  WHERE id = $1 AND is_active = true
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.org_role, u.role,
+         u.created_at, u.last_login_at
+  FROM users u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
+  WHERE u.id = $1 AND u.is_active = true
 `;
 
 export const UPDATE_LAST_LOGIN = `
@@ -58,10 +66,20 @@ export const FIND_USER_BY_EMAIL = `
   FROM users WHERE LOWER(email) = LOWER($1)
 `;
 
+// rank_id is the posto FK; organization_id is the OM FK (COALESCE -> default org). The CTE re-joins
+// ranks/organizations so RETURNING still emits the derived posto_graduacao / organizacao_militar names.
 export const INSERT_USER = `
-  INSERT INTO users (username, password_hash, nome, posto_graduacao, organizacao_militar, role, organization_id, email, email_verified)
-  VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::uuid, '00000000-0000-0000-0000-000000000001'::uuid), $8, $9)
-  RETURNING id, username, nome, posto_graduacao, organizacao_militar, organization_id, org_role, role, created_at, email, email_verified
+  WITH new_user AS (
+    INSERT INTO users (username, password_hash, nome, rank_id, role, organization_id, email, email_verified)
+    VALUES ($1, $2, $3, $4::uuid, $5, COALESCE($6::uuid, '00000000-0000-0000-0000-000000000001'::uuid), $7, $8)
+    RETURNING *
+  )
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.org_role, u.role,
+         u.created_at, u.email, u.email_verified
+  FROM new_user u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
 `;
 
 // ============================================

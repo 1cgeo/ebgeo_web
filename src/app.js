@@ -19,6 +19,7 @@ import { resourcesRoutes } from './modules/resources/index.js';
 import { configRoutes } from './modules/config/index.js';
 import { nomesRoutes, assets3dRoutes } from './modules/nomes/index.js';
 import { organizationsRoutes } from './modules/organizations/index.js';
+import { ranksRoutes } from './modules/ranks/index.js';
 import { auditRoutes } from './modules/audit/index.js';
 import { zonesRoutes } from './modules/zones/index.js';
 import { sv360Routes } from './modules/streetview360/index.js';
@@ -100,6 +101,7 @@ export function createApp() {
   app.use('/api/v1/resources', resourcesRoutes);
   app.use('/api/v1/nomes', nomesRoutes);
   app.use('/api/v1/organizations', organizationsRoutes);
+  app.use('/api/v1/ranks', ranksRoutes);
   app.use('/api/v1/audit', auditRoutes);
   app.use('/api/v1/zones', zonesRoutes);
   app.use('/api/v1/sv360', sv360Routes);

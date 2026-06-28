@@ -250,8 +250,7 @@ export async function register(data, origin = '') {
     data.username,
     passwordHash,
     data.nome,
-    data.posto_graduacao || null,
-    data.organizacao_militar || null,
+    data.rank_id || null,
     'user',
     data.organization_id || null, // COALESCE -> default org in SQL
     email,

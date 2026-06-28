@@ -211,18 +211,19 @@ describe('Users Admin API', () => {
       assert.equal(res.body.data.role, 'admin');
     });
 
-    it('admin can update posto_graduacao and organizacao_militar', async () => {
+    it('admin can update rank_id and organization_id (derives posto/OM names)', async () => {
+      const maj = (await db.query("SELECT id, nome FROM ranks WHERE nome_abrev = 'Maj' LIMIT 1")).rows[0];
+      const om = (await db.query("SELECT id, nome FROM organizations WHERE sigla = 'DSG' LIMIT 1")).rows[0];
       const res = await supertest(app)
         .put(`/api/v1/users/${regularUser.id}`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          posto_graduacao: 'Maj',
-          organizacao_militar: 'New OM',
-        })
+        .send({ rank_id: maj.id, organization_id: om.id })
         .expect(200);
 
-      assert.equal(res.body.data.posto_graduacao, 'Maj');
-      assert.equal(res.body.data.organizacao_militar, 'New OM');
+      assert.equal(res.body.data.rank_id, maj.id);
+      assert.equal(res.body.data.posto_graduacao, maj.nome);
+      assert.equal(res.body.data.organization_id, om.id);
+      assert.equal(res.body.data.organizacao_militar, om.nome);
     });
 
     it('regular user cannot update other users', async () => {

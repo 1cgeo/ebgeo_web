@@ -247,50 +247,54 @@ describe('Org + Identity + Audit + Users gaps', () => {
 
   // ── users-06 · field-clearing semantics of CASE-WHEN updates ─────────────────
   describe('Field-clearing semantics (admin + self)', () => {
-    it('admin PUT: explicit "" clears posto; omitting posto preserves it', async () => {
-      const u = await createUser(db, { username: uname('clear'), posto_graduacao: 'Maj' });
+    it('admin PUT: explicit null clears rank_id; omitting it preserves it', async () => {
+      const maj = (await db.query("SELECT id FROM ranks WHERE nome_abrev = 'Maj' LIMIT 1")).rows[0];
+      const cel = (await db.query("SELECT id FROM ranks WHERE nome_abrev = 'Cel' LIMIT 1")).rows[0];
+      const u = await createUser(db, { username: uname('clear'), rank_id: maj.id });
 
-      // Explicit '' clears.
+      // Explicit null clears.
       await supertest(app)
         .put(`/api/v1/users/${u.id}`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ posto_graduacao: '' })
+        .send({ rank_id: null })
         .expect(200);
-      let { rows } = await db.query('SELECT posto_graduacao FROM users WHERE id = $1', [u.id]);
-      assert.equal(rows[0].posto_graduacao, null);
+      let { rows } = await db.query('SELECT rank_id FROM users WHERE id = $1', [u.id]);
+      assert.equal(rows[0].rank_id, null);
 
       // Set it again then omit on a name-only update → preserved.
-      await db.query('UPDATE users SET posto_graduacao = $2 WHERE id = $1', [u.id, 'Cel']);
+      await db.query('UPDATE users SET rank_id = $2 WHERE id = $1', [u.id, cel.id]);
       await supertest(app)
         .put(`/api/v1/users/${u.id}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ nome: 'Renamed Only' })
         .expect(200);
-      ({ rows } = await db.query('SELECT posto_graduacao, nome FROM users WHERE id = $1', [u.id]));
-      assert.equal(rows[0].posto_graduacao, 'Cel');
+      ({ rows } = await db.query('SELECT rank_id, nome FROM users WHERE id = $1', [u.id]));
+      assert.equal(rows[0].rank_id, cel.id);
       assert.equal(rows[0].nome, 'Renamed Only');
     });
 
-    it('self PUT /users/me: explicit "" clears posto; omitting preserves it', async () => {
-      const u = await createUser(db, { username: uname('clearme'), posto_graduacao: 'Sgt', password: 'Self@1234' });
+    it('self PUT /users/me: explicit null clears rank_id; omitting preserves it', async () => {
+      const sgt = (await db.query("SELECT id FROM ranks WHERE nome_abrev = '1º Sgt' LIMIT 1")).rows[0];
+      const ten = (await db.query("SELECT id FROM ranks WHERE nome_abrev = '1º Ten' LIMIT 1")).rows[0];
+      const u = await createUser(db, { username: uname('clearme'), rank_id: sgt.id, password: 'Self@1234' });
       const token = await loginUser(app, u.username, 'Self@1234');
 
       await supertest(app)
         .put('/api/v1/users/me')
         .set('Authorization', `Bearer ${token}`)
-        .send({ posto_graduacao: '' })
+        .send({ rank_id: null })
         .expect(200);
-      let { rows } = await db.query('SELECT posto_graduacao FROM users WHERE id = $1', [u.id]);
-      assert.equal(rows[0].posto_graduacao, null);
+      let { rows } = await db.query('SELECT rank_id FROM users WHERE id = $1', [u.id]);
+      assert.equal(rows[0].rank_id, null);
 
-      await db.query('UPDATE users SET posto_graduacao = $2 WHERE id = $1', [u.id, 'Ten']);
+      await db.query('UPDATE users SET rank_id = $2 WHERE id = $1', [u.id, ten.id]);
       await supertest(app)
         .put('/api/v1/users/me')
         .set('Authorization', `Bearer ${token}`)
         .send({ nome: 'Self Renamed' })
         .expect(200);
-      ({ rows } = await db.query('SELECT posto_graduacao FROM users WHERE id = $1', [u.id]));
-      assert.equal(rows[0].posto_graduacao, 'Ten');
+      ({ rows } = await db.query('SELECT rank_id FROM users WHERE id = $1', [u.id]));
+      assert.equal(rows[0].rank_id, ten.id);
     });
   });
 

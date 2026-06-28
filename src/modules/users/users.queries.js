@@ -1,9 +1,17 @@
 // Path: src/modules/users/users.queries.js
+//
+// users.rank_id (FK ranks) and users.organization_id (FK organizations) are the stored values;
+// posto_graduacao / organizacao_militar are DERIVED display names via LEFT JOIN, so the API/UI
+// keep seeing strings while storage is normalized. Write queries take the FK ids and re-join in a
+// CTE so RETURNING still emits the derived names.
 
 export const FIND_USER_BY_ID = `
-  SELECT id, username, nome, posto_graduacao, organizacao_militar, created_at, last_login_at
-  FROM users
-  WHERE id = $1 AND is_active = true
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.created_at, u.last_login_at
+  FROM users u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
+  WHERE u.id = $1 AND u.is_active = true
 `;
 
 export const FIND_USER_WITH_PASSWORD = `
@@ -12,17 +20,23 @@ export const FIND_USER_WITH_PASSWORD = `
   WHERE id = $1 AND is_active = true
 `;
 
-// Nullable fields (posto_graduacao/organizacao_militar) use a "provided" flag so
-// an explicit null/'' CLEARS the column, while an omitted field is left unchanged.
-// (COALESCE alone could never clear a column to NULL.)
+// Nullable FK fields (rank_id/organization_id) use a "provided" flag so an explicit null CLEARS the
+// column, while an omitted field is left unchanged. (COALESCE alone could never clear to NULL.)
 export const UPDATE_USER_PROFILE = `
-  UPDATE users
-  SET nome = COALESCE($2, nome),
-      posto_graduacao = CASE WHEN $4 THEN $3 ELSE posto_graduacao END,
-      organizacao_militar = CASE WHEN $6 THEN $5 ELSE organizacao_militar END,
-      updated_at = NOW()
-  WHERE id = $1
-  RETURNING id, username, nome, posto_graduacao, organizacao_militar, created_at, last_login_at
+  WITH upd AS (
+    UPDATE users
+    SET nome = COALESCE($2, nome),
+        rank_id = CASE WHEN $4 THEN $3::uuid ELSE rank_id END,
+        organization_id = CASE WHEN $6 THEN $5::uuid ELSE organization_id END,
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING *
+  )
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.created_at, u.last_login_at
+  FROM upd u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
 `;
 
 export const UPDATE_USER_PASSWORD = `
@@ -32,16 +46,19 @@ export const UPDATE_USER_PASSWORD = `
 `;
 
 export const SEARCH_USERS = `
-  SELECT id, username, nome, posto_graduacao, organizacao_militar
-  FROM users
-  WHERE is_active = true
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar
+  FROM users u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
+  WHERE u.is_active = true
     AND (
-      LOWER(username) LIKE LOWER($1)
-      OR LOWER(nome) LIKE LOWER($1)
-      OR LOWER(posto_graduacao) LIKE LOWER($1)
-      OR LOWER(organizacao_militar) LIKE LOWER($1)
+      LOWER(u.username) LIKE LOWER($1)
+      OR LOWER(u.nome) LIKE LOWER($1)
+      OR LOWER(r.nome) LIKE LOWER($1)
+      OR LOWER(o.nome) LIKE LOWER($1)
     )
-  ORDER BY nome
+  ORDER BY u.nome
   LIMIT 20
 `;
 
@@ -50,22 +67,34 @@ export const SEARCH_USERS = `
 // ============================================
 
 export const LIST_ALL_USERS = `
-  SELECT id, username, nome, posto_graduacao, organizacao_militar, role, is_active, email, email_verified, created_at, last_login_at
-  FROM users
-  ORDER BY created_at DESC
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active,
+         u.email, u.email_verified, u.created_at, u.last_login_at
+  FROM users u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
+  ORDER BY u.created_at DESC
 `;
 
 export const LIST_ACTIVE_USERS = `
-  SELECT id, username, nome, posto_graduacao, organizacao_militar, role, is_active, email, email_verified, created_at, last_login_at
-  FROM users
-  WHERE is_active = true
-  ORDER BY nome
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active,
+         u.email, u.email_verified, u.created_at, u.last_login_at
+  FROM users u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
+  WHERE u.is_active = true
+  ORDER BY u.nome
 `;
 
 export const FIND_USER_BY_ID_ADMIN = `
-  SELECT id, username, nome, posto_graduacao, organizacao_militar, role, is_active, email, email_verified, created_at, updated_at, last_login_at
-  FROM users
-  WHERE id = $1
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active,
+         u.email, u.email_verified, u.created_at, u.updated_at, u.last_login_at
+  FROM users u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
+  WHERE u.id = $1
 `;
 
 export const CHECK_USERNAME_EXISTS = `
@@ -77,25 +106,40 @@ export const CHECK_USERNAME_EXISTS_EXCLUDING = `
 `;
 
 export const INSERT_USER_ADMIN = `
-  INSERT INTO users (username, password_hash, nome, posto_graduacao, organizacao_militar, role)
-  VALUES ($1, $2, $3, $4, $5, $6)
-  RETURNING id, username, nome, posto_graduacao, organizacao_militar, role, is_active, created_at
+  WITH new_user AS (
+    INSERT INTO users (username, password_hash, nome, rank_id, organization_id, role)
+    VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6)
+    RETURNING *
+  )
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active, u.created_at
+  FROM new_user u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
 `;
 
-// posto_graduacao/organizacao_militar use a "provided" flag (see UPDATE_USER_PROFILE)
-// so an explicit null/'' clears the column; an omitted field is left unchanged.
+// rank_id/organization_id use a "provided" flag (see UPDATE_USER_PROFILE) so an explicit null clears
+// the column; an omitted field is left unchanged.
 export const UPDATE_USER_ADMIN = `
-  UPDATE users
-  SET username = COALESCE($2, username),
-      nome = COALESCE($3, nome),
-      posto_graduacao = CASE WHEN $5 THEN $4 ELSE posto_graduacao END,
-      organizacao_militar = CASE WHEN $7 THEN $6 ELSE organizacao_militar END,
-      role = COALESCE($8, role),
-      is_active = COALESCE($9, is_active),
-      email_verified = COALESCE($10, email_verified),
-      updated_at = NOW()
-  WHERE id = $1
-  RETURNING id, username, nome, posto_graduacao, organizacao_militar, role, is_active, email, email_verified, created_at, updated_at, last_login_at
+  WITH upd AS (
+    UPDATE users
+    SET username = COALESCE($2, username),
+        nome = COALESCE($3, nome),
+        rank_id = CASE WHEN $5 THEN $4::uuid ELSE rank_id END,
+        organization_id = CASE WHEN $7 THEN $6::uuid ELSE organization_id END,
+        role = COALESCE($8, role),
+        is_active = COALESCE($9, is_active),
+        email_verified = COALESCE($10, email_verified),
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING *
+  )
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active,
+         u.email, u.email_verified, u.created_at, u.updated_at, u.last_login_at
+  FROM upd u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
 `;
 
 export const RESET_USER_PASSWORD = `
@@ -113,10 +157,14 @@ export const SOFT_DELETE_USER = `
 `;
 
 export const REACTIVATE_USER = `
-  UPDATE users
-  SET is_active = true, updated_at = NOW()
-  WHERE id = $1
-  RETURNING id, username, nome, posto_graduacao, organizacao_militar, role, is_active, created_at
+  WITH upd AS (
+    UPDATE users SET is_active = true, updated_at = NOW() WHERE id = $1 RETURNING *
+  )
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active, u.created_at
+  FROM upd u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
 `;
 
 export const TRANSFER_ATLAS_OWNERSHIP = `
@@ -149,7 +197,10 @@ export const ROTATE_API_KEY = `
 `;
 
 export const FIND_USER_BY_API_KEY = `
-  SELECT id, username, nome, posto_graduacao, organizacao_militar,
-         organization_id, org_role, role
-  FROM users WHERE api_key = $1 AND is_active = true
+  SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
+         u.organization_id, o.nome AS organizacao_militar, u.org_role, u.role
+  FROM users u
+  LEFT JOIN ranks r ON r.id = u.rank_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
+  WHERE u.api_key = $1 AND u.is_active = true
 `;

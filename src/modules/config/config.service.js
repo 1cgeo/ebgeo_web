@@ -104,17 +104,21 @@ export async function listTilesets() {
   return rows.map((r) => ({ id: r.id, name: r.name, ...r.config }));
 }
 
-// Personnel domains (admin-managed controlled lists) served to the PUBLIC config so the
-// anonymous signup form can populate its dropdowns before login. `abrev` (postos only)
-// lives in config.abrev.
+// Personnel domains served to the PUBLIC config so the anonymous signup form can populate its
+// dropdowns before login. Postos come from the `ranks` table, OMs from the `organizations` table;
+// the option VALUE is the row id (users store rank_id / organization_id FKs).
 export async function listPostos() {
-  const { rows } = await query(Q.LIST_BY_CATEGORY, ['posto']);
-  return rows.map((r) => ({ id: r.id, name: r.name, abrev: r.config?.abrev ?? null, sort_order: r.sort_order }));
+  const { rows } = await query(
+    'SELECT id, nome, nome_abrev, sort_order FROM ranks WHERE is_active = true ORDER BY sort_order, nome',
+  );
+  return rows.map((r) => ({ id: r.id, name: r.nome, abrev: r.nome_abrev ?? null, sort_order: r.sort_order }));
 }
 
 export async function listOrganizacoesMilitares() {
-  const { rows } = await query(Q.LIST_BY_CATEGORY, ['organizacao_militar']);
-  return rows.map((r) => ({ id: r.id, name: r.name, sort_order: r.sort_order }));
+  const { rows } = await query(
+    'SELECT id, nome, sigla FROM organizations WHERE is_active = true ORDER BY nome',
+  );
+  return rows.map((r) => ({ id: r.id, name: r.nome, sigla: r.sigla ?? null }));
 }
 
 /**

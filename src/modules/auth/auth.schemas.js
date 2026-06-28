@@ -24,8 +24,9 @@ export const registerSchema = Joi.object({
   // Optional: when provided, the account is created pending and must confirm via e-mail
   // before login. When absent, the account is immediately active (username-only).
   email: Joi.string().email().max(255),
-  posto_graduacao: Joi.string().max(50).allow(null, ''),
-  organizacao_militar: Joi.string().max(255).allow(null, ''),
+  // FKs: posto (ranks) + OM (organizations). Empty string is normalized to null in the service.
+  rank_id: Joi.string().uuid().allow(null, ''),
+  organization_id: Joi.string().uuid().allow(null, ''),
 });
 
 export const verifyEmailSchema = Joi.object({

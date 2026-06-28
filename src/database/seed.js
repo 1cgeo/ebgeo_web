@@ -26,20 +26,22 @@ async function seed(connectionString) {
       bcrypt.hash('test123', SALT_ROUNDS),
     ]);
 
-    // Create admin user
+    // Create admin user (rank/OM are FKs now; left null for the seed admin)
     const adminResult = await db.one(`
-      INSERT INTO users (username, password_hash, nome, posto_graduacao, organizacao_militar, role)
-      VALUES ('admin', $1, 'Administrador', 'Admin', 'EBGeo', 'admin')
+      INSERT INTO users (username, password_hash, nome, role)
+      VALUES ('admin', $1, 'Administrador', 'admin')
       ON CONFLICT (username) DO UPDATE SET password_hash = $1, role = 'admin'
       RETURNING id, username
     `, [adminPassword]);
     const adminId = adminResult.id;
     console.log(`  ✓ Admin user created/updated: ${adminResult.username}`);
 
-    // Create test user
+    // Create test user with the seeded "Capitão" rank + CIGEx org (resolved by name).
     const testResult = await db.one(`
-      INSERT INTO users (username, password_hash, nome, posto_graduacao, organizacao_militar)
-      VALUES ('cap.silva', $1, 'João Silva', 'Cap', 'CIGEx')
+      INSERT INTO users (username, password_hash, nome, rank_id, organization_id)
+      VALUES ('cap.silva', $1, 'João Silva',
+        (SELECT id FROM ranks WHERE nome_abrev = 'Cap' LIMIT 1),
+        (SELECT id FROM organizations WHERE sigla = 'CIGEx' LIMIT 1))
       ON CONFLICT (username) DO UPDATE SET password_hash = $1
       RETURNING id, username
     `, [testPassword]);

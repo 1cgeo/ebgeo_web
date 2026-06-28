@@ -29,10 +29,10 @@ export async function updateProfile(userId, data) {
   const { rows } = await query(Q.UPDATE_USER_PROFILE, [
     userId,
     data.nome || null,
-    data.posto_graduacao === '' ? null : (data.posto_graduacao ?? null),
-    data.posto_graduacao !== undefined,
-    data.organizacao_militar === '' ? null : (data.organizacao_militar ?? null),
-    data.organizacao_militar !== undefined,
+    data.rank_id === '' ? null : (data.rank_id ?? null),
+    data.rank_id !== undefined,
+    data.organization_id === '' ? null : (data.organization_id ?? null),
+    data.organization_id !== undefined,
   ]);
 
   if (rows.length === 0) {
@@ -122,8 +122,8 @@ export async function createUser(data) {
     data.username,
     passwordHash,
     data.nome,
-    data.posto_graduacao || null,
-    data.organizacao_militar || null,
+    data.rank_id || null,
+    data.organization_id || null,
     data.role || 'user',
   ]);
 
@@ -160,10 +160,10 @@ export async function updateUser(userId, data, actingUserId = null) {
     userId,
     data.username || null,
     data.nome || null,
-    data.posto_graduacao === '' ? null : (data.posto_graduacao ?? null),
-    data.posto_graduacao !== undefined,
-    data.organizacao_militar === '' ? null : (data.organizacao_militar ?? null),
-    data.organizacao_militar !== undefined,
+    data.rank_id === '' ? null : (data.rank_id ?? null),
+    data.rank_id !== undefined,
+    data.organization_id === '' ? null : (data.organization_id ?? null),
+    data.organization_id !== undefined,
     data.role || null,
     data.is_active !== undefined ? data.is_active : null,
     data.email_verified !== undefined ? data.email_verified : null,

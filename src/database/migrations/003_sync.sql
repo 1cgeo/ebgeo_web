@@ -133,8 +133,8 @@ INSERT INTO resources (id, category, name, sort_order, config) VALUES
     'enabled', true, 'image', './images/layers/carta-ortoimagem-thumb.png', 'priority', 2)),
   ('bdgex', 'basemap', 'BDGEx', 3, jsonb_build_object(
     'enabled', true, 'image', './images/layers/bdgex-thumb.png', 'priority', 3)),
-  ('osm', 'basemap', 'OpenStreetMaps', 4, jsonb_build_object('enabled', false, 'priority', 4)),
-  ('imagens', 'basemap', 'Imagens do Google', 5, jsonb_build_object('enabled', false, 'priority', 5)),
+  ('osm', 'basemap', 'OpenStreetMaps', 4, jsonb_build_object('enabled', true, 'priority', 4)),
+  ('imagens', 'basemap', 'Imagens do Google', 5, jsonb_build_object('enabled', true, 'priority', 5)),
   ('hillshade', 'analysis_layer', 'Sombreamento do Relevo', 1, '{}'::jsonb),
   -- Exemplos de camadas de DADOS (vetoriais) e de ANÁLISE (raster). Servidas pelo /api/config
   -- e restringíveis por atlas (settings.available_data_layers / available_analysis_layers).

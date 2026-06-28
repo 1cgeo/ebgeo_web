@@ -15,17 +15,26 @@ export async function createUser(db, overrides = {}) {
     username: `user_${randomUUID().slice(0, 8)}`,
     password: 'Test@1234',
     nome: 'Test User',
-    posto_graduacao: 'Cap',
-    organizacao_militar: 'OM Teste',
     role: 'user',
   };
   const data = { ...defaults, ...overrides };
   const hash = await bcrypt.hash(data.password, SALT_ROUNDS);
 
+  // posto/OM are FKs now. Default to the seeded "Capitão" rank + the default org so derived
+  // posto_graduacao/organizacao_militar are stable; callers may override rank_id/organization_id.
+  let rankId = data.rank_id;
+  if (rankId === undefined) {
+    const { rows: r } = await db.query("SELECT id FROM ranks WHERE nome_abrev = 'Cap' LIMIT 1");
+    rankId = r[0]?.id ?? null;
+  }
+  const orgId = data.organization_id !== undefined
+    ? data.organization_id
+    : '00000000-0000-0000-0000-000000000001';
+
   const { rows } = await db.query(
-    `INSERT INTO users (username, password_hash, nome, posto_graduacao, organizacao_militar, role)
+    `INSERT INTO users (username, password_hash, nome, rank_id, organization_id, role)
      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [data.username, hash, data.nome, data.posto_graduacao, data.organizacao_militar, data.role]
+    [data.username, hash, data.nome, rankId, orgId, data.role]
   );
 
   return { ...rows[0], password: data.password };
