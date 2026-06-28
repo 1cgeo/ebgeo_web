@@ -7,7 +7,6 @@ import {
     createModernLineStyleSelect,
     createSectionDivider,
     createInitialPropertiesMap,
-    createPanelHeader,
     createActionButtons,
 } from '../../tool_manager/helpers/index.js';
 
@@ -19,7 +18,6 @@ import {
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
  * @param {Object} [options={}] - Additional options
- * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  */
 export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, selectionManager, uiManager, options = {}) {
     if (selectedFeatures.length === 0) {
@@ -28,16 +26,6 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
 
     const feature = selectedFeatures[0];
     const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
-
-    createPanelHeader({
-        panel,
-        features: selectedFeatures,
-        featureType: 'line',
-        control: lineControl,
-        selectionManager,
-        uiManager,
-        hideHeader: options.hideHeader
-    });
 
     // Line color picker
     panel.appendChild(createModernColorPicker({

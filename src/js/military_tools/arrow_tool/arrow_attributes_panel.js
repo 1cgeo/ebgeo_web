@@ -7,8 +7,7 @@ import {
     createModernToggle,
     createModernButtons,
     createSectionDivider,
-    createInitialPropertiesMap,
-    createPanelHeader
+    createInitialPropertiesMap
 } from '@tools/helpers/index.js';
 import { splitArrows } from './arrow-merge.js';
 
@@ -20,7 +19,6 @@ import { splitArrows } from './arrow-merge.js';
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
  * @param {Object} [options={}] - Additional options
- * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  */
 export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl, selectionManager, uiManager, options = {}) {
     if (selectedFeatures.length === 0) {
@@ -29,16 +27,6 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     const feature = selectedFeatures[0];
     const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
-
-    createPanelHeader({
-        panel,
-        features: selectedFeatures,
-        featureType: 'arrow',
-        control: arrowControl,
-        selectionManager,
-        uiManager,
-        hideHeader: options.hideHeader
-    });
 
     // Merged arrow indicator
     const isMerged = feature.properties.isMerged && Array.isArray(feature.properties.branches);

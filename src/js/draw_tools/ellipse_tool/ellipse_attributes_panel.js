@@ -7,7 +7,6 @@ import {
     createModernHatchControl,
     createSectionDivider,
     createInitialPropertiesMap,
-    createPanelHeader,
     createActionButtons,
     buildShapeTabsWithLabel,
     createFillAreaButton,
@@ -21,7 +20,6 @@ import {
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
  * @param {Object} [options={}] - Additional options
- * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  */
 export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseControl, selectionManager, uiManager, options = {}) {
     if (selectedFeatures.length === 0) {
@@ -30,16 +28,6 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
 
     const feature = selectedFeatures[0];
     const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
-
-    createPanelHeader({
-        panel,
-        features: selectedFeatures,
-        featureType: 'ellipse',
-        control: ellipseControl,
-        selectionManager,
-        uiManager,
-        hideHeader: options.hideHeader
-    });
 
     // Tabs (Símbolo / Etiqueta)
     panel.appendChild(buildShapeTabsWithLabel({

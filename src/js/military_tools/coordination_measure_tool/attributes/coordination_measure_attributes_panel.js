@@ -8,9 +8,7 @@
 import {
     createModernSlider,
     createModernToggle,
-    createModernButtons,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
+    createModernButtons
 } from '@tools';
 
 import { openPointModal } from './point-selector.modal.js';
@@ -24,7 +22,6 @@ import { openPointModal } from './point-selector.modal.js';
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
  * @param {Object} [options={}] - Additional options
- * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  */
 export function addCoordinationMeasureAttributesToPanel(
     panel,
@@ -43,40 +40,6 @@ export function addCoordinationMeasureAttributesToPanel(
     const initialPropertiesMap = new Map(
         selectedFeatures.map(f => [f.properties.id, { ...f.properties }])
     );
-
-    if (!options.hideHeader) {
-        if (selectedFeatures.length === 1) {
-            const headerComponent = createFeatureHeaderWithOptions(
-                feature.properties.nome,
-                (newName) => {
-                    coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                    uiManager.updateSelectionHighlight();
-                },
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-            panel.appendChild(headerComponent);
-        } else if (selectedFeatures.length > 1) {
-            const multiSelectHeader = document.createElement('div');
-            multiSelectHeader.className = 'feature-header-with-options';
-
-            const infoText = document.createElement('div');
-            infoText.className = 'feature-name-wrapper';
-
-            infoText.textContent = `${selectedFeatures.length} medidas selecionadas`;
-
-            const optionsButton = createFeatureOptionsButton(
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-
-            multiSelectHeader.appendChild(infoText);
-            multiSelectHeader.appendChild(optionsButton);
-            panel.appendChild(multiSelectHeader);
-        }
-    }
 
     if (selectedFeatures.length === 1) {
         const pointButtonContainer = document.createElement('div');

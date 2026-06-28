@@ -7,7 +7,6 @@ import {
     createModernTextarea,
     createSectionDivider,
     createInitialPropertiesMap,
-    createPanelHeader,
     createActionButtons,
     createMarkerSymbolPicker
 } from '../../tool_manager/helpers/index.js';
@@ -36,7 +35,6 @@ const ICONS = {
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
  * @param {Object} [options={}] - Additional options
- * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  */
 export function addPointAttributesToPanel(panel, selectedFeatures, pointControl, selectionManager, uiManager, options = {}) {
     if (selectedFeatures.length === 0) {
@@ -45,16 +43,6 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
 
     const feature = selectedFeatures[0];
     const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
-
-    createPanelHeader({
-        panel,
-        features: selectedFeatures,
-        featureType: 'point',
-        control: pointControl,
-        selectionManager,
-        uiManager,
-        hideHeader: options.hideHeader
-    });
 
     // Tabs (Marcador / Etiqueta)
     _buildStyleTabs(panel, selectedFeatures, feature, pointControl);

@@ -3,9 +3,7 @@
 import {
     createModernSlider,
     createModernColorPicker,
-    createModernButtons,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
+    createModernButtons
 } from '@tools/helpers/index.js';
 
 /**
@@ -16,7 +14,6 @@ import {
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
  * @param {Object} [options={}] - Additional options
- * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  */
 export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occupiedFrontControl, selectionManager, uiManager, options = {}) {
     if (selectedFeatures.length === 0) {
@@ -26,41 +23,6 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
     const feature = selectedFeatures[0];
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
-
-    // Only show header if not hidden (for sidebar integration)
-    if (!options.hideHeader) {
-        if (selectedFeatures.length === 1) {
-            const headerComponent = createFeatureHeaderWithOptions(
-                feature.properties.nome,
-                (newName) => {
-                    occupiedFrontControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                    uiManager.updateSelectionHighlight();
-                },
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-            panel.appendChild(headerComponent);
-        } else if (selectedFeatures.length > 1) {
-            const multiSelectHeader = document.createElement('div');
-            multiSelectHeader.className = 'feature-header-with-options';
-
-            const infoText = document.createElement('div');
-            infoText.className = 'feature-name-wrapper';
-
-            infoText.textContent = `${selectedFeatures.length} frentes ocupadas selecionadas`;
-
-            const optionsButton = createFeatureOptionsButton(
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-
-            multiSelectHeader.appendChild(infoText);
-            multiSelectHeader.appendChild(optionsButton);
-            panel.appendChild(multiSelectHeader);
-        }
-    }
 
     // Color picker
     panel.appendChild(createModernColorPicker({

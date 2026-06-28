@@ -8,7 +8,6 @@ import {
     createModernHatchControl,
     createSectionDivider,
     createInitialPropertiesMap,
-    createPanelHeader,
     createActionButtons,
     buildShapeTabsWithLabel,
     createFillAreaButton,
@@ -22,7 +21,6 @@ import {
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
  * @param {Object} [options={}] - Additional options
- * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  */
 export function addCircleAttributesToPanel(panel, selectedFeatures, circleControl, selectionManager, uiManager, options = {}) {
     if (selectedFeatures.length === 0) {
@@ -31,16 +29,6 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
 
     const feature = selectedFeatures[0];
     const initialPropertiesMap = createInitialPropertiesMap(selectedFeatures);
-
-    createPanelHeader({
-        panel,
-        features: selectedFeatures,
-        featureType: 'circle',
-        control: circleControl,
-        selectionManager,
-        uiManager,
-        hideHeader: options.hideHeader
-    });
 
     // Tabs (Símbolo / Etiqueta)
     panel.appendChild(buildShapeTabsWithLabel({

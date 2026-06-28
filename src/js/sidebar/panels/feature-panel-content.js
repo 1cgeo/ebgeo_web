@@ -818,7 +818,7 @@ export async function createFeaturePanelContent({
                         selectedFeatures,
                         selectionManager,
                         uiManager,
-                        { hideHeader: true }
+                        {}
                     );
                 } catch (error) {
                     console.error(`Error creating attribute panel for ${featureType}:`, error);
@@ -927,7 +927,7 @@ export async function createFeaturePanelContent({
                                 featuresOfType,
                                 selectionManager,
                                 uiManager,
-                                { hideHeader: true, hideButtons: true }
+                                { hideButtons: true }
                             );
                         } catch (error) {
                             console.error(`Error creating attribute panel for ${selectedType}:`, error);

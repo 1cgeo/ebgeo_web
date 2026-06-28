@@ -9,8 +9,6 @@ import {
     createModernToggle,
     createModernButtons,
     createModernInfoBox,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton,
 } from '@tools';
 import { formatSignedDegrees } from '@utils/angle-format.js';
 
@@ -29,40 +27,6 @@ export function addDeclinationAttributesToPanel(panel, selectedFeatures, declina
 
     const feature = selectedFeatures[0];
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
-
-    // Header
-    if (!options.hideHeader) {
-        if (selectedFeatures.length === 1) {
-            const headerComponent = createFeatureHeaderWithOptions(
-                feature.properties.nome,
-                (newName) => {
-                    declinationControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                    uiManager.updateSelectionHighlight();
-                },
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-            panel.appendChild(headerComponent);
-        } else {
-            const multiSelectHeader = document.createElement('div');
-            multiSelectHeader.className = 'feature-header-with-options';
-
-            const infoText = document.createElement('div');
-            infoText.className = 'feature-name-wrapper';
-            infoText.textContent = `${selectedFeatures.length} diagramas de declinação selecionados`;
-
-            const optionsButton = createFeatureOptionsButton(
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-
-            multiSelectHeader.appendChild(infoText);
-            multiSelectHeader.appendChild(optionsButton);
-            panel.appendChild(multiSelectHeader);
-        }
-    }
 
     // Three-norths values (read-only)
     if (selectedFeatures.length === 1) {

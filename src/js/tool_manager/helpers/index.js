@@ -66,8 +66,6 @@ export {
 
 // Feature header
 export {
-    createEditableFeatureName,
-    createFeatureHeaderWithOptions,
     createFeatureOptionsButton,
     cleanupFeatureDropdownListeners
 } from './feature-header.helpers.js';
@@ -80,9 +78,7 @@ export {
 // Base attributes panel utilities
 export {
     createInitialPropertiesMap,
-    createPanelHeader,
-    createActionButtons,
-    getFeatureTypeDisplayName
+    createActionButtons
 } from './base-attributes-panel.js';
 
 // Label tab helper for shapes

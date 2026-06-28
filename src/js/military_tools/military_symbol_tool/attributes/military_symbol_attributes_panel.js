@@ -8,9 +8,7 @@
 import {
     createModernSlider,
     createModernToggle,
-    createModernButtons,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
+    createModernButtons
 } from '@tools';
 
 import { openSymbolModal } from './symbol-selector.modal.js';
@@ -24,7 +22,6 @@ import { openSymbolModal } from './symbol-selector.modal.js';
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
  * @param {Object} [options={}] - Additional options
- * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  * @param {boolean} [options.hideButtons=false] - Whether to hide the action buttons
  */
 export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, militarySymbolControl, selectionManager, uiManager, options = {}) {
@@ -35,39 +32,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     const feature = selectedFeatures[0];
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
-
-    if (!options.hideHeader) {
-        if (selectedFeatures.length === 1) {
-            const headerComponent = createFeatureHeaderWithOptions(
-                feature.properties.nome,
-                (newName) => {
-                    militarySymbolControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                    uiManager.updateSelectionHighlight();
-                },
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-            panel.appendChild(headerComponent);
-        } else if (selectedFeatures.length > 1) {
-            const multiSelectHeader = document.createElement('div');
-            multiSelectHeader.className = 'feature-header-with-options';
-
-            const infoText = document.createElement('div');
-            infoText.className = 'feature-name-wrapper';
-            infoText.textContent = `${selectedFeatures.length} símbolos militares selecionados`;
-
-            const optionsButton = createFeatureOptionsButton(
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            );
-
-            multiSelectHeader.appendChild(infoText);
-            multiSelectHeader.appendChild(optionsButton);
-            panel.appendChild(multiSelectHeader);
-        }
-    }
 
     // Configure symbol button (single selection only)
     if (selectedFeatures.length === 1) {

@@ -11,9 +11,7 @@ import {
     createModernColorPicker,
     createModernSlider,
     createModernButtons,
-    createSectionDivider,
-    createFeatureHeaderWithOptions,
-    createFeatureOptionsButton
+    createSectionDivider
 } from '@tools/helpers/index.js';
 
 import {
@@ -42,7 +40,6 @@ import {
  * @param {Object} selectionManager - Selection manager
  * @param {Object} uiManager - UI manager
  * @param {Object} [options={}] - Options
- * @param {boolean} [options.hideHeader=false] - Hide header
  * @param {boolean} [options.hideButtons=false] - Hide action buttons
  */
 export function addAzimuthDistanceAttributesToPanel(
@@ -61,37 +58,6 @@ export function addAzimuthDistanceAttributesToPanel(
     const initialPropertiesMap = new Map(
         selectedFeatures.map(f => [f.properties.id, { ...f.properties }])
     );
-
-    // Header
-    if (!options.hideHeader) {
-        if (selectedFeatures.length === 1) {
-            panel.appendChild(createFeatureHeaderWithOptions(
-                props.nome || 'Azimute e Dist\u00E2ncia',
-                (newName) => {
-                    control.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                    uiManager.updateSelectionHighlight();
-                },
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            ));
-        } else {
-            const multiSelectHeader = document.createElement('div');
-            multiSelectHeader.className = 'feature-header-with-options';
-
-            const infoText = document.createElement('div');
-            infoText.className = 'feature-name-wrapper';
-            infoText.textContent = `${selectedFeatures.length} features selecionadas`;
-
-            multiSelectHeader.appendChild(infoText);
-            multiSelectHeader.appendChild(createFeatureOptionsButton(
-                selectedFeatures,
-                selectionManager,
-                uiManager
-            ));
-            panel.appendChild(multiSelectHeader);
-        }
-    }
 
     // Polar data and legs (single selection only)
     if (selectedFeatures.length === 1) {
