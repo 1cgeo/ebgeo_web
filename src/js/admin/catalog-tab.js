@@ -406,10 +406,10 @@ class CatalogTab {
             saveBtn.disabled = true;
             try {
                 if (isEdit) {
-                    await apiClient.updateResource(resource.id, payload);
+                    await apiClient.updateResource(category, resource.id, payload);
                     showSuccess('Item atualizado.');
                 } else {
-                    await apiClient.createResource({ id, category, ...payload });
+                    await apiClient.createResource(category, { id, ...payload });
                     showSuccess('Item criado.');
                 }
                 if (this._alive) this._selectCategory(category);
@@ -429,7 +429,7 @@ class CatalogTab {
             { destructive: true, confirmText: 'Excluir' });
         if (!ok) return;
         try {
-            await apiClient.deleteResource(resource.id);
+            await apiClient.deleteResource(this._category, resource.id);
             showSuccess('Item excluído.');
             if (this._alive) this._selectCategory(this._category);
         } catch (err) {

@@ -409,41 +409,61 @@ export class ApiClient {
     // the actual files (3D model bytes, 360 bundles, media) are populated out-of-band.
 
     /**
-     * Lists catalog resources, optionally filtered by category.
-     * @param {string} [category] - 'basemap'|'data_layer'|'analysis_layer'|'tileset'|'streetview_marker'
+     * Maps a catalog `category` (frontend key) to its dedicated REST collection — each resource type
+     * is now its own table/route (no generic `/resources`).
+     * @param {string} category
+     * @returns {string}
+     */
+    _catalogEndpoint(category) {
+        const ep = {
+            basemap: 'basemaps',
+            data_layer: 'data-layers',
+            analysis_layer: 'analysis-layers',
+            tileset: 'tilesets',
+            streetview_marker: 'streetview-markers',
+        }[category];
+        if (!ep) throw new Error(`Unknown catalog category: ${category}`);
+        return ep;
+    }
+
+    /**
+     * Lists catalog items of one type.
+     * @param {string} category - 'basemap'|'data_layer'|'analysis_layer'|'tileset'|'streetview_marker'
      * @returns {Promise<Array<Object>>}
      */
     async listResources(category) {
-        const qs = category ? `?category=${encodeURIComponent(category)}` : '';
-        return this._request('GET', `/resources${qs}`);
+        return this._request('GET', `/${this._catalogEndpoint(category)}`);
     }
 
     /**
-     * Creates a catalog resource (metadata).
-     * @param {{ id: string, category: string, name: string, description?: string, config?: Object, sort_order?: number }} payload
+     * Creates a catalog item (metadata) in its type's table.
+     * @param {string} category
+     * @param {{ id: string, name: string, description?: string, config?: Object, sort_order?: number }} payload
      * @returns {Promise<Object>}
      */
-    async createResource(payload) {
-        return this._request('POST', '/resources', { body: payload });
+    async createResource(category, payload) {
+        return this._request('POST', `/${this._catalogEndpoint(category)}`, { body: payload });
     }
 
     /**
-     * Updates a catalog resource (partial metadata).
+     * Updates a catalog item (partial metadata).
+     * @param {string} category
      * @param {string} id
      * @param {{ name?: string, description?: string, config?: Object, sort_order?: number }} payload
      * @returns {Promise<Object>}
      */
-    async updateResource(id, payload) {
-        return this._request('PUT', `/resources/${encodeURIComponent(id)}`, { body: payload });
+    async updateResource(category, id, payload) {
+        return this._request('PUT', `/${this._catalogEndpoint(category)}/${encodeURIComponent(id)}`, { body: payload });
     }
 
     /**
-     * Soft-deletes a catalog resource.
+     * Soft-deletes a catalog item.
+     * @param {string} category
      * @param {string} id
      * @returns {Promise<null>}
      */
-    async deleteResource(id) {
-        return this._request('DELETE', `/resources/${encodeURIComponent(id)}`);
+    async deleteResource(category, id) {
+        return this._request('DELETE', `/${this._catalogEndpoint(category)}/${encodeURIComponent(id)}`);
     }
 
     // ===== PERSONNEL DOMAINS — ranks (postos) + organizations (OMs) =====
