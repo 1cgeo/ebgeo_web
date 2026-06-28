@@ -112,9 +112,9 @@ describe('Config — admin overrides (F4)', () => {
   it('a basemap resource config.style overrides the static basemapStyles (F6)', async () => {
     const style = { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background' }] };
     await supertest(app)
-      .post('/api/v1/resources')
+      .post('/api/v1/basemaps')
       .set('Authorization', `Bearer ${adminTok}`)
-      .send({ id: 'bm-custom', category: 'basemap', name: 'Custom BM', config: { enabled: true, priority: 9, style } })
+      .send({ id: 'bm-custom', name: 'Custom BM', config: { enabled: true, priority: 9, style } })
       .expect(201);
 
     const cfg = await supertest(app).get('/api/v1/config').expect(200);

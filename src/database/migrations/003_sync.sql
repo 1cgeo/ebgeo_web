@@ -92,25 +92,27 @@ CREATE INDEX idx_sessions_atlas ON active_sessions(atlas_id);
 CREATE INDEX idx_sessions_heartbeat ON active_sessions(last_heartbeat);
 
 -- ============================================================================
--- RESOURCES (basemaps, layers, tilesets, etc). config espelha o shape congelado
--- do GET /api/v1/config (config.js) — antes preenchida pela migração 010.
+-- CATÁLOGO — uma tabela DEDICADA por tipo de recurso (em vez de uma `resources`
+-- genérica com coluna `category`): basemaps, data_layers, analysis_layers, tilesets,
+-- streetview_markers. Mesma forma (id texto, `config` JSONB no shape de GET
+-- /api/v1/config), separadas por tipo p/ clareza e evolução independente. CRUD admin
+-- em /api/v1/<tipo>; servidas no /config público.
 -- ============================================================================
-CREATE TABLE resources (
-    id VARCHAR(100) PRIMARY KEY,
-    category VARCHAR(50) NOT NULL CHECK (category IN (
-      'basemap', 'analysis_layer', 'data_layer', 'tileset', 'streetview_marker'
-    )),
-    name VARCHAR(255) NOT NULL,
+CREATE TABLE basemaps (
+    id          VARCHAR(100) PRIMARY KEY,
+    name        VARCHAR(255) NOT NULL,
     description TEXT,
-    config JSONB DEFAULT '{}',
-    active BOOLEAN DEFAULT true,
-    sort_order INTEGER DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    config      JSONB NOT NULL DEFAULT '{}',
+    active      BOOLEAN NOT NULL DEFAULT true,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_resources_category ON resources(category);
-CREATE INDEX idx_resources_active ON resources(category) WHERE active = true;
+-- Same shape, independent tables (INCLUDING ALL copies PK + defaults + constraints).
+CREATE TABLE data_layers        (LIKE basemaps INCLUDING ALL);
+CREATE TABLE analysis_layers    (LIKE basemaps INCLUDING ALL);
+CREATE TABLE tilesets           (LIKE basemaps INCLUDING ALL);
+CREATE TABLE streetview_markers (LIKE basemaps INCLUDING ALL);
 
 -- ============================================================================
 -- CONFIG SETTINGS (admin overrides for the STATIC/ENV parts of GET /api/v1/config
@@ -126,40 +128,45 @@ CREATE TABLE config_settings (
 );
 
 -- Seed inicial (config já no shape de GET /api/v1/config).
-INSERT INTO resources (id, category, name, sort_order, config) VALUES
-  ('carta-topografica', 'basemap', 'Topográfica', 1, jsonb_build_object(
+INSERT INTO basemaps (id, name, sort_order, config) VALUES
+  ('carta-topografica', 'Topográfica', 1, jsonb_build_object(
     'enabled', true, 'image', './images/layers/carta-topografica-thumb.png', 'priority', 1)),
-  ('carta-ortoimagem', 'basemap', 'Ortoimagem', 2, jsonb_build_object(
+  ('carta-ortoimagem', 'Ortoimagem', 2, jsonb_build_object(
     'enabled', true, 'image', './images/layers/carta-ortoimagem-thumb.png', 'priority', 2)),
-  ('bdgex', 'basemap', 'BDGEx', 3, jsonb_build_object(
+  ('bdgex', 'BDGEx', 3, jsonb_build_object(
     'enabled', true, 'image', './images/layers/bdgex-thumb.png', 'priority', 3)),
-  ('osm', 'basemap', 'OpenStreetMaps', 4, jsonb_build_object('enabled', true, 'priority', 4)),
-  ('imagens', 'basemap', 'Imagens do Google', 5, jsonb_build_object('enabled', true, 'priority', 5)),
-  ('hillshade', 'analysis_layer', 'Sombreamento do Relevo', 1, '{}'::jsonb),
-  -- Exemplos de camadas de DADOS (vetoriais) e de ANÁLISE (raster). Servidas pelo /api/config
-  -- e restringíveis por atlas (settings.available_data_layers / available_analysis_layers).
-  -- Troque pelas camadas reais do deploy (as URLs aqui são placeholders).
-  ('rodovias-federais', 'data_layer', 'Rodovias Federais', 1, jsonb_build_object(
-    'description', 'Malha rodoviária federal',
-    'source', jsonb_build_object('type', 'vector', 'url', 'http://localhost/tiles/rodovias'),
-    'sourceLayer', 'rodovias', 'minzoom', 4, 'maxzoom', 18,
-    'style', jsonb_build_object('border', jsonb_build_object('color', '#E74C3C', 'width', 2, 'opacity', 1)))),
-  ('limites-municipais', 'data_layer', 'Limites Municipais', 2, jsonb_build_object(
-    'description', 'Divisão político-administrativa municipal',
-    'source', jsonb_build_object('type', 'vector', 'url', 'http://localhost/tiles/municipios'),
-    'sourceLayer', 'municipios', 'minzoom', 4, 'maxzoom', 14,
-    'style', jsonb_build_object('border', jsonb_build_object('color', '#6b7280', 'width', 1, 'opacity', 0.8)))),
-  ('declividade', 'analysis_layer', 'Declividade', 2, jsonb_build_object(
+  ('osm', 'OpenStreetMaps', 4, jsonb_build_object('enabled', true, 'priority', 4)),
+  ('imagens', 'Imagens do Google', 5, jsonb_build_object('enabled', true, 'priority', 5));
+
+INSERT INTO analysis_layers (id, name, sort_order, config) VALUES
+  ('hillshade', 'Sombreamento do Relevo', 1, '{}'::jsonb),
+  ('declividade', 'Declividade', 2, jsonb_build_object(
     'description', 'Mapa de declividade do terreno',
     'source', jsonb_build_object('type', 'raster-dem', 'url', 'http://localhost/tiles/dem/{z}/{x}/{y}.png'),
     'bounds', jsonb_build_array(-45, -23, -44, -22),
     'paint', jsonb_build_object('raster-opacity', 0.7))),
-  ('hipsometria', 'analysis_layer', 'Hipsometria', 3, jsonb_build_object(
+  ('hipsometria', 'Hipsometria', 3, jsonb_build_object(
     'description', 'Mapa hipsométrico (altimetria) do terreno',
     'source', jsonb_build_object('type', 'raster-dem', 'url', 'http://localhost/tiles/dem/{z}/{x}/{y}.png'),
     'bounds', jsonb_build_array(-45, -23, -44, -22),
-    'paint', jsonb_build_object('raster-opacity', 0.6))),
-  ('PCL', 'tileset', 'Posto de Comando Logístico', 1, jsonb_build_object(
+    'paint', jsonb_build_object('raster-opacity', 0.6)));
+
+-- Camadas de DADOS (vetoriais) — restringíveis por atlas (settings.available_data_layers).
+-- Troque pelas camadas reais do deploy (as URLs aqui são placeholders).
+INSERT INTO data_layers (id, name, sort_order, config) VALUES
+  ('rodovias-federais', 'Rodovias Federais', 1, jsonb_build_object(
+    'description', 'Malha rodoviária federal',
+    'source', jsonb_build_object('type', 'vector', 'url', 'http://localhost/tiles/rodovias'),
+    'sourceLayer', 'rodovias', 'minzoom', 4, 'maxzoom', 18,
+    'style', jsonb_build_object('border', jsonb_build_object('color', '#E74C3C', 'width', 2, 'opacity', 1)))),
+  ('limites-municipais', 'Limites Municipais', 2, jsonb_build_object(
+    'description', 'Divisão político-administrativa municipal',
+    'source', jsonb_build_object('type', 'vector', 'url', 'http://localhost/tiles/municipios'),
+    'sourceLayer', 'municipios', 'minzoom', 4, 'maxzoom', 14,
+    'style', jsonb_build_object('border', jsonb_build_object('color', '#6b7280', 'width', 1, 'opacity', 0.8))));
+
+INSERT INTO tilesets (id, name, sort_order, config) VALUES
+  ('PCL', 'Posto de Comando Logístico', 1, jsonb_build_object(
     'url', '/3d/PCL/tileset.json', 'heightOffset', 35,
     'description', 'Modelo 3D do Posto de Comando Logístico capturado por drone',
     'keywords', jsonb_build_array('PCL', 'posto comando', 'logística', 'drone'),

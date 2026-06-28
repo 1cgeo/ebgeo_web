@@ -1,6 +1,6 @@
 // Path: tests/integration/images-gaps.test.js
 // Gap-coverage integration tests for the Images + Resources subsystem.
-// Each test asserts the CURRENT behavior verified against src/modules/{images,resources}.
+// Each test asserts the CURRENT behavior verified against src/modules/{images,catalog}.
 //
 // Findings covered: img-01, img-03, img-04, img-06, img-07, res-01, res-02,
 // res-03, res-04, img-09. See StructuredOutput manifest for any skips.
@@ -383,32 +383,32 @@ describe('Images + Resources — gap coverage', () => {
       const rid = `gap-res-${randomUUID().slice(0, 8)}`;
 
       await supertest(app)
-        .post('/api/v1/resources')
+        .post('/api/v1/basemaps')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ id: rid, category: 'basemap', name: 'Soft Delete Me', config: {} })
+        .send({ id: rid, name: 'Soft Delete Me', config: {} })
         .expect(201);
 
       await supertest(app)
-        .delete(`/api/v1/resources/${rid}`)
+        .delete(`/api/v1/basemaps/${rid}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(204);
 
       // gone from listing
       const list = await supertest(app)
-        .get('/api/v1/resources')
+        .get('/api/v1/basemaps')
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
       assert.ok(!list.body.data.map((r) => r.id).includes(rid));
 
       // but the row still exists (active=false), so recreate → 409 forever
       await supertest(app)
-        .post('/api/v1/resources')
+        .post('/api/v1/basemaps')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ id: rid, category: 'basemap', name: 'Resurrect?', config: {} })
+        .send({ id: rid, name: 'Resurrect?', config: {} })
         .expect(409);
 
       // confirm the persisted state: one inactive row
-      const { rows } = await db.query('SELECT active FROM resources WHERE id = $1', [rid]);
+      const { rows } = await db.query('SELECT active FROM basemaps WHERE id = $1', [rid]);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].active, false);
     });
@@ -421,14 +421,14 @@ describe('Images + Resources — gap coverage', () => {
     it('PUT {description:null} is a no-op; PUT {description:""} clears to empty string', async () => {
       const rid = `gap-desc-${randomUUID().slice(0, 8)}`;
       await supertest(app)
-        .post('/api/v1/resources')
+        .post('/api/v1/basemaps')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ id: rid, category: 'basemap', name: 'Desc Test', description: 'foo', config: {} })
+        .send({ id: rid, name: 'Desc Test', description: 'foo', config: {} })
         .expect(201);
 
       // null → COALESCE keeps the old value
       const r1 = await supertest(app)
-        .put(`/api/v1/resources/${rid}`)
+        .put(`/api/v1/basemaps/${rid}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ description: null })
         .expect(200);
@@ -436,13 +436,13 @@ describe('Images + Resources — gap coverage', () => {
 
       // '' → applied (empty string is not COALESCE'd)
       const r2 = await supertest(app)
-        .put(`/api/v1/resources/${rid}`)
+        .put(`/api/v1/basemaps/${rid}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ description: '' })
         .expect(200);
       assert.equal(r2.body.data.description, '', 'empty-string description is applied');
 
-      const { rows } = await db.query('SELECT description FROM resources WHERE id = $1', [rid]);
+      const { rows } = await db.query('SELECT description FROM basemaps WHERE id = $1', [rid]);
       assert.equal(rows[0].description, '');
     });
   });
@@ -452,35 +452,35 @@ describe('Images + Resources — gap coverage', () => {
   // ─────────────────────────────────────────────────────────────────────────
   describe('res-03: resources routes reject anonymous with 401 (auth before admin)', () => {
     it('GET /resources/:id without token → 401', async () => {
-      await supertest(app).get('/api/v1/resources/basemap-osm').expect(401);
+      await supertest(app).get('/api/v1/basemaps/basemap-osm').expect(401);
     });
 
     it('POST /resources without token → 401 (not 500 from requireAdmin)', async () => {
       const res = await supertest(app)
-        .post('/api/v1/resources')
-        .send({ id: 'x', category: 'basemap', name: 'x', config: {} })
+        .post('/api/v1/basemaps')
+        .send({ id: 'x', name: 'x', config: {} })
         .expect(401);
       assert.notEqual(res.status, 500);
     });
 
     it('PUT /resources/:id without token → 401', async () => {
       await supertest(app)
-        .put('/api/v1/resources/basemap-osm')
+        .put('/api/v1/basemaps/basemap-osm')
         .send({ name: 'x' })
         .expect(401);
     });
 
     it('DELETE /resources/:id without token → 401', async () => {
       await supertest(app)
-        .delete('/api/v1/resources/basemap-osm')
+        .delete('/api/v1/basemaps/basemap-osm')
         .expect(401);
     });
 
     it('non-admin write → 403 (auth passes, requireAdmin blocks)', async () => {
       await supertest(app)
-        .post('/api/v1/resources')
+        .post('/api/v1/basemaps')
         .set('Authorization', `Bearer ${regularToken}`)
-        .send({ id: `gap-nonadmin-${randomUUID().slice(0, 8)}`, category: 'basemap', name: 'x', config: {} })
+        .send({ id: `gap-nonadmin-${randomUUID().slice(0, 8)}`, name: 'x', config: {} })
         .expect(403);
     });
   });
@@ -501,11 +501,10 @@ describe('Images + Resources — gap coverage', () => {
       const bigString = 'x'.repeat(1024 * 1024);
 
       const created = await supertest(app)
-        .post('/api/v1/resources')
+        .post('/api/v1/basemaps')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
           id: rid,
-          category: 'basemap',
           name: 'Big Config',
           config: { url: 'https://example.com/{z}/{x}/{y}.png', deep, blob: bigString },
         })
@@ -513,7 +512,7 @@ describe('Images + Resources — gap coverage', () => {
       assert.equal(created.body.data.id, rid);
 
       // Persisted verbatim.
-      const { rows } = await db.query('SELECT config FROM resources WHERE id = $1', [rid]);
+      const { rows } = await db.query('SELECT config FROM basemaps WHERE id = $1', [rid]);
       assert.ok(rows[0].config.blob.length === bigString.length, 'config persisted unbounded');
 
       // Public, no-auth config endpoint echoes the basemap (keyed by id) — the

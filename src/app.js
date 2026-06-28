@@ -15,7 +15,7 @@ import { flexibleAuth } from './middleware/flexible-auth.js';
 import { authRoutes } from './modules/auth/index.js';
 import { usersRoutes } from './modules/users/index.js';
 import { atlasRoutes } from './modules/atlas/index.js';
-import { resourcesRoutes } from './modules/resources/index.js';
+import { makeCatalogRouter } from './modules/catalog/index.js';
 import { configRoutes } from './modules/config/index.js';
 import { nomesRoutes, assets3dRoutes } from './modules/nomes/index.js';
 import { organizationsRoutes } from './modules/organizations/index.js';
@@ -98,7 +98,12 @@ export function createApp() {
   app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1/users', usersRoutes);
   app.use('/api/v1/atlas', atlasRoutes);
-  app.use('/api/v1/resources', resourcesRoutes);
+  // Catálogo — uma rota por tipo de recurso (cada uma é sua própria tabela).
+  app.use('/api/v1/basemaps', makeCatalogRouter('basemaps'));
+  app.use('/api/v1/data-layers', makeCatalogRouter('data_layers'));
+  app.use('/api/v1/analysis-layers', makeCatalogRouter('analysis_layers'));
+  app.use('/api/v1/tilesets', makeCatalogRouter('tilesets'));
+  app.use('/api/v1/streetview-markers', makeCatalogRouter('streetview_markers'));
   app.use('/api/v1/nomes', nomesRoutes);
   app.use('/api/v1/organizations', organizationsRoutes);
   app.use('/api/v1/ranks', ranksRoutes);

@@ -218,8 +218,18 @@ export async function createSlide(db, briefingId, overrides = {}) {
   return rows[0];
 }
 
+/** Maps the old `category` to its dedicated catalog table. */
+const CATEGORY_TABLE = {
+  basemap: 'basemaps',
+  data_layer: 'data_layers',
+  analysis_layer: 'analysis_layers',
+  tileset: 'tilesets',
+  streetview_marker: 'streetview_markers',
+};
+
 /**
- * Creates a resource directly in the DB (for admin tests).
+ * Creates a catalog item directly in its dedicated table (for admin tests). `category` selects the
+ * table (basemap → basemaps, …); it is NOT a column anymore.
  */
 export async function createResource(db, overrides = {}) {
   const defaults = {
@@ -231,11 +241,12 @@ export async function createResource(db, overrides = {}) {
     sort_order: 0,
   };
   const data = { ...defaults, ...overrides };
+  const table = CATEGORY_TABLE[data.category] || 'basemaps';
 
   const { rows } = await db.query(
-    `INSERT INTO resources (id, category, name, description, config, sort_order)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6) RETURNING *`,
-    [data.id, data.category, data.name, data.description, JSON.stringify(data.config), data.sort_order]
+    `INSERT INTO ${table} (id, name, description, config, sort_order)
+     VALUES ($1, $2, $3, $4::jsonb, $5) RETURNING *`,
+    [data.id, data.name, data.description, JSON.stringify(data.config), data.sort_order]
   );
   return rows[0];
 }

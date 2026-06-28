@@ -1,13 +1,5 @@
 // Path: src/modules/config/config.queries.js
 
-// Active resources of one category, ordered for stable payload output.
-export const LIST_BY_CATEGORY = `
-  SELECT id, name, config
-  FROM resources
-  WHERE category = $1 AND active = true
-  ORDER BY sort_order
-`;
-
 // Admin config overrides (single-row partial config; see config_settings).
 export const GET_CONFIG_OVERRIDES = `
   SELECT value FROM config_settings WHERE key = $1

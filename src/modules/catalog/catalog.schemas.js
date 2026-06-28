@@ -1,11 +1,8 @@
-// Path: src/modules/resources/resources.schemas.js
+// Path: src/modules/catalog/catalog.schemas.js
 import Joi from 'joi';
-
-const CATEGORIES = ['basemap', 'analysis_layer', 'data_layer', 'tileset', 'streetview_marker'];
 
 export const createSchema = Joi.object({
   id: Joi.string().max(100).required(),
-  category: Joi.string().valid(...CATEGORIES).required(),
   name: Joi.string().max(255).required(),
   description: Joi.string().allow('', null),
   config: Joi.object().default({}),
@@ -19,6 +16,6 @@ export const updateSchema = Joi.object({
   sort_order: Joi.number().integer(),
 }).min(1);
 
-export const querySchema = Joi.object({
-  category: Joi.string().valid(...CATEGORIES),
+export const idParamsSchema = Joi.object({
+  id: Joi.string().max(100).required(),
 });

@@ -73,16 +73,16 @@ describe('Config endpoint (GET /api/v1/config)', () => {
   });
 
   it('serves an analysis layer once its config is completed with valid bounds (resources-driven)', async () => {
-    const before = await db.query(`SELECT config FROM resources WHERE id = 'hillshade'`);
+    const before = await db.query(`SELECT config FROM analysis_layers WHERE id = 'hillshade'`);
     try {
-      await db.query(`UPDATE resources SET config = $1 WHERE id = 'hillshade'`,
+      await db.query(`UPDATE analysis_layers SET config = $1 WHERE id = 'hillshade'`,
         [JSON.stringify({ bounds: [-74, -34, -34, 6] })]);
       const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
       const hs = cfg.analysisLayers.layers.find((l) => l.id === 'hillshade');
       assert.ok(hs, 'hillshade with valid bounds should now be served');
       assert.deepEqual(hs.bounds, [-74, -34, -34, 6]);
     } finally {
-      await db.query(`UPDATE resources SET config = $1 WHERE id = 'hillshade'`, [before.rows[0].config]);
+      await db.query(`UPDATE analysis_layers SET config = $1 WHERE id = 'hillshade'`, [before.rows[0].config]);
     }
   });
 
@@ -122,13 +122,13 @@ describe('Config endpoint (GET /api/v1/config)', () => {
 
   it('reflects edits to the resources table without code changes', async () => {
     // Mutate a seed basemap, assert reflection, then restore (sequential test files).
-    const before = await db.query(`SELECT config FROM resources WHERE id = 'osm'`);
+    const before = await db.query(`SELECT config FROM basemaps WHERE id = 'osm'`);
     try {
-      await db.query(`UPDATE resources SET config = jsonb_set(config, '{enabled}', 'true') WHERE id = 'osm'`);
+      await db.query(`UPDATE basemaps SET config = jsonb_set(config, '{enabled}', 'true') WHERE id = 'osm'`);
       const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
       assert.equal(cfg.basemaps.osm.enabled, true);
     } finally {
-      await db.query(`UPDATE resources SET config = $1 WHERE id = 'osm'`, [before.rows[0].config]);
+      await db.query(`UPDATE basemaps SET config = $1 WHERE id = 'osm'`, [before.rows[0].config]);
     }
   });
 });

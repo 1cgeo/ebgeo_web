@@ -1,10 +1,11 @@
 // Path: src/modules/config/config.service.js
 // Assembles the runtime app config (frozen config.js shape) from three sources:
-//  - data (tables): basemaps/analysisLayers/dataLayers/tilesets from `resources`
+//  - data (tables): basemaps/analysisLayers/dataLayers/tilesets from their dedicated catalog tables
 //  - env URLs: service/tile/terrain URLs from config.appConfig
 //  - static UI: app/features/map2d/map3d defaults from config.static
 import config from '../../config.js';
 import { query } from '../../database/index.js';
+import { catalogService } from '../catalog/index.js';
 import * as Q from './config.queries.js';
 import * as S from './config.static.js';
 
@@ -60,7 +61,7 @@ export async function clearConfigOverrides() {
 // basemaps is an OBJECT keyed by id (frontend indexes by id), not an array. The MapLibre `style`
 // (if an admin set one) is emitted SEPARATELY as basemapStyles — stripped from the metadata here.
 export async function listBasemaps() {
-  const { rows } = await query(Q.LIST_BY_CATEGORY, ['basemap']);
+  const rows = await catalogService.listCatalog('basemaps');
   return Object.fromEntries(rows.map((r) => {
     const meta = { ...(r.config || {}) };
     delete meta.style;
@@ -74,7 +75,7 @@ export async function listBasemaps() {
  * keeps the ENV-injection default intact while allowing a per-basemap style override.
  */
 export async function listBasemapStyles() {
-  const { rows } = await query(Q.LIST_BY_CATEGORY, ['basemap']);
+  const rows = await catalogService.listCatalog('basemaps');
   const out = { ...S.buildBasemapStyles(C) };
   for (const r of rows) {
     if (r.config?.style) out[r.id] = r.config.style;
@@ -83,7 +84,7 @@ export async function listBasemapStyles() {
 }
 
 export async function listAnalysisLayers() {
-  const { rows } = await query(Q.LIST_BY_CATEGORY, ['analysis_layer']);
+  const rows = await catalogService.listCatalog('analysis_layers');
   // The frozen frontend contract requires every analysis layer to carry a valid
   // `bounds` [west, south, east, north] (the frontend zooms-to-layer with it). A
   // seeded layer with an incomplete config (e.g. the placeholder `hillshade` with
@@ -95,12 +96,12 @@ export async function listAnalysisLayers() {
 }
 
 export async function listDataLayers() {
-  const { rows } = await query(Q.LIST_BY_CATEGORY, ['data_layer']);
+  const rows = await catalogService.listCatalog('data_layers');
   return rows.map((r) => ({ id: r.id, name: r.name, ...r.config }));
 }
 
 export async function listTilesets() {
-  const { rows } = await query(Q.LIST_BY_CATEGORY, ['tileset']);
+  const rows = await catalogService.listCatalog('tilesets');
   return rows.map((r) => ({ id: r.id, name: r.name, ...r.config }));
 }
 

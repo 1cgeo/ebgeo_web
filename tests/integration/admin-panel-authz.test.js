@@ -53,9 +53,9 @@ describe('Admin panel — global-role gate (atlas owner is not a sysadmin)', () 
 
   it('an atlas owner cannot manage global resources — 403', async () => {
     await supertest(app)
-      .post('/api/v1/resources')
+      .post('/api/v1/basemaps')
       .set('Authorization', `Bearer ${atlasOwnerToken}`)
-      .send({ id: `res_${randomUUID().slice(0, 6)}`, category: 'basemap', name: 'X', config: {} })
+      .send({ id: `res_${randomUUID().slice(0, 6)}`, name: 'X', config: {} })
       .expect(403);
   });
 

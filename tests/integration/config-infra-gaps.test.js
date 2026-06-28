@@ -193,8 +193,8 @@ describe('Config + infra — gap coverage', () => {
     it('tileset config.id currently OVERRIDES the DB id (spread-after precedence pinned)', async () => {
       const realId = uniq();
       await db.query(
-        `INSERT INTO resources (id, category, name, config, active, sort_order)
-         VALUES ($1, 'tileset', $2, $3::jsonb, true, 999)`,
+        `INSERT INTO tilesets (id, name, config, active, sort_order)
+         VALUES ($1, $2, $3::jsonb, true, 999)`,
         [realId, 'Spoof Tileset', JSON.stringify({ id: 'SPOOFED', url: '/3d/x/tileset.json' })]
       );
       try {
@@ -205,15 +205,15 @@ describe('Config + infra — gap coverage', () => {
         assert.equal(byReal, undefined, 'DB id is shadowed by config.id today');
         assert.ok(bySpoof, 'config.id overrides the column id (precedence pinned)');
       } finally {
-        await db.query(`DELETE FROM resources WHERE id = $1`, [realId]);
+        await db.query(`DELETE FROM tilesets WHERE id = $1`, [realId]);
       }
     });
 
     it('basemap config.name currently OVERRIDES the column name', async () => {
       const realId = uniq();
       await db.query(
-        `INSERT INTO resources (id, category, name, config, active, sort_order)
-         VALUES ($1, 'basemap', 'ColumnName', $2::jsonb, true, 999)`,
+        `INSERT INTO basemaps (id, name, config, active, sort_order)
+         VALUES ($1, 'ColumnName', $2::jsonb, true, 999)`,
         [realId, JSON.stringify({ name: 'ConfigName', enabled: true })]
       );
       try {
@@ -222,7 +222,7 @@ describe('Config + infra — gap coverage', () => {
         // basemaps spread: { name: r.name, ...r.config } → config.name wins.
         assert.equal(cfg.basemaps[realId].name, 'ConfigName');
       } finally {
-        await db.query(`DELETE FROM resources WHERE id = $1`, [realId]);
+        await db.query(`DELETE FROM basemaps WHERE id = $1`, [realId]);
       }
     });
   });
@@ -233,7 +233,8 @@ describe('Config + infra — gap coverage', () => {
   describe('infra-09 — empty category shapes', () => {
     it('empty tileset category is [] (array) and empty basemap category is {} (object)', async () => {
       // Deactivate all tileset + basemap rows inside this test, then restore.
-      await db.query(`UPDATE resources SET active = false WHERE category IN ('tileset','basemap')`);
+      await db.query(`UPDATE tilesets SET active = false`);
+      await db.query(`UPDATE basemaps SET active = false`);
       try {
         const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
         assert.ok(Array.isArray(cfg.tilesets), 'tilesets must be an array');
@@ -242,18 +243,19 @@ describe('Config + infra — gap coverage', () => {
         assert.ok(!Array.isArray(cfg.basemaps), 'basemaps must be an object, not array');
         assert.deepEqual(cfg.basemaps, {});
       } finally {
-        await db.query(`UPDATE resources SET active = true WHERE category IN ('tileset','basemap')`);
+        await db.query(`UPDATE tilesets SET active = true`);
+        await db.query(`UPDATE basemaps SET active = true`);
       }
     });
 
     it('empty data_layer category serves the {enabled:true, layers:[]} shape', async () => {
       // Deactivate the seeded data_layer rows inside this test, then restore.
-      await db.query(`UPDATE resources SET active = false WHERE category = 'data_layer'`);
+      await db.query(`UPDATE data_layers SET active = false`);
       try {
         const cfg = (await supertest(app).get('/api/v1/config').expect(200)).body.data;
         assert.deepEqual(cfg.dataLayers, { enabled: true, layers: [] });
       } finally {
-        await db.query(`UPDATE resources SET active = true WHERE category = 'data_layer'`);
+        await db.query(`UPDATE data_layers SET active = true`);
       }
     });
   });
