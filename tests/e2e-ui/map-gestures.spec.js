@@ -26,6 +26,11 @@ async function bootMap(page) {
         null,
         { timeout: 20000 },
     );
+    // `map.loaded()` flips true a few seconds BEFORE the boot splash (#initial-loader) detaches:
+    // hideLoadingScreen() runs only after the 'load' handler's switchMap() resolves, then fades
+    // over 500ms. Until it detaches the splash overlays the canvas and swallows real pointer/wheel
+    // gestures (they would no-op). Wait it out before driving the canvas.
+    await expect(page.locator('#initial-loader')).toHaveCount(0, { timeout: 20000 });
 }
 
 const zoom = (page) => page.evaluate(() => globalThis.__ebgeoMap.getZoom());

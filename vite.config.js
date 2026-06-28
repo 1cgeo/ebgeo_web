@@ -325,10 +325,12 @@ export default defineConfig(({ mode: _mode }) => ({
     open: true,
     cors: true,
 
-    // API proxy (if needed)
+    // API proxy (if needed). Target is env-overridable so the Playwright browser-E2E
+    // run can point the same-origin `/api` proxy at its throwaway backend (:3912)
+    // instead of the dev backend (:8080); local `npm run dev` keeps the :8080 default.
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: process.env.EBGEO_DEV_API_TARGET || 'http://localhost:8080',
         changeOrigin: true,
         ws: true
       },

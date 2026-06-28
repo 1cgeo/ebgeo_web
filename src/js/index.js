@@ -41,6 +41,14 @@ import { showUnavailableScreen } from '@ui/unavailable-screen.js';
  * Runs phases sequentially — no side-effects at import time.
  */
 async function initApp() {
+    // Capture the URL deep-link params at the VERY TOP, before any async boot work. The store boot
+    // (initializeWithLastActiveMap, kicked off inside initializeApp) and initAtlasUrlSync emit
+    // MAP_LOCK_CHANGED early, and atlas-url-sync strips `?atlas` for an anonymous visitor — so reading
+    // the URL later (in the boot router below) loses the link and the login prompt never opens.
+    // Reading here, before the first await, is the only point guaranteed to still see the original URL.
+    const bootPublicLink = new URLSearchParams(window.location.search).get('atlasPublico');
+    const bootAtlasLink = parseAtlasLink();
+
     // Phase 0: SyncLedger observability — install the window.__ebgeoSyncTrace bridge and
     // enable capture only if a trace flag is present (?trace=sync / localStorage['ebgeo_trace']
     // / a globalThis.__EBGEO_TRACE__ set by Playwright addInitScript). Flag-gated and zero-cost
@@ -135,20 +143,17 @@ async function initApp() {
     // Boot routing precedence (see docs/ui-ux-ebgeo.md §1): a public viewer link wins for an
     // anonymous visitor; then an `?atlas=` deep link (open, or prompt login + resume); otherwise
     // reconnect the last remote atlas for a restored authenticated session. (`#view=3d/360` is handled
-    // earlier in the map-load path and has absolute precedence; `?verify=` ran above.)
-    // Capture the deep-link params BEFORE awaiting statePromise: initializeWithLastActiveMap emits
-    // MAP_LOCK_CHANGED, which makes atlas-url-sync strip `?atlas` for an anonymous user — so reading
-    // the URL after the await would lose the link (no login prompt). Capturing first preserves it.
-    const publicLink = new URLSearchParams(window.location.search).get('atlasPublico');
-    const atlasLink = parseAtlasLink();
+    // earlier in the map-load path and has absolute precedence; `?verify=` ran above.) The links were
+    // captured at the very top of initApp — atlas-url-sync has since stripped `?atlas` from the URL
+    // for an anonymous visitor, so re-reading it here would be too late.
 
     // Serialize the local-store boot BEFORE any remote open/reconnect. Otherwise the boot
     // store-init (default-map creation / last-active selection) interleaves with the reconnect's
     // clearAllDataStore → snapshot → activate sequence and can leave a stray local "Principal"
     // alongside the synced maps (intermittent phantom 3rd map on F5). Local IDB only — no network wait.
     await statePromise.catch(() => {});
-    if (await openPublicAtlasFromUrl(publicLink)) return;
-    if (await openAtlasFromUrl(atlasLink)) return;
+    if (await openPublicAtlasFromUrl(bootPublicLink)) return;
+    if (await openAtlasFromUrl(bootAtlasLink)) return;
     reconnectLastAtlas();
 }
 

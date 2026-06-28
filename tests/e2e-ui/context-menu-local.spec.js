@@ -35,6 +35,11 @@ async function bootMap(page) {
         null,
         { timeout: 20000 },
     );
+    // `map.loaded()` flips true a few seconds BEFORE the boot splash (#initial-loader) detaches:
+    // hideLoadingScreen() runs only after the 'load' handler's switchMap() resolves, then fades
+    // over 500ms. Until it detaches the splash overlays the canvas and swallows the real
+    // right-click (the contextmenu lands on the splash, not the map). Wait it out first.
+    await expect(page.locator('#initial-loader')).toHaveCount(0, { timeout: 20000 });
 }
 
 const bearing = (page) => page.evaluate(() => Math.abs(globalThis.__ebgeoMap.getBearing()));

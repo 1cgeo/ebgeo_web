@@ -9,7 +9,7 @@
  */
 
 import { defineConfig, devices } from '@playwright/test';
-import { APP_ORIGIN, APP_PORT } from './tests/e2e-ui/constants.js';
+import { APP_ORIGIN, APP_PORT, BACKEND_PORT } from './tests/e2e-ui/constants.js';
 
 // The mega harness (browser-collab-mega) is a long, two-browser DEMONSTRATION piece, not a
 // regression guard — its dimensions are each covered by the focused browser-collab-* specs.
@@ -46,9 +46,13 @@ export default defineConfig({
         reuseExistingServer: !process.env.CI,
         timeout: 120000,
         stdout: 'ignore',
-        // The app's optional /api/config override proxies to the dev backend (:8080),
-        // which is not up during e2e:ui, so Vite logs a benign ECONNREFUSED for that
-        // fallback (the app uses bundled config; specs hit the real backend cross-origin).
+        // Point the Vite same-origin `/api` proxy at the throwaway E2E backend (:3912) the
+        // global-setup spawns. Boot is fail-fast on `GET /api/config` (backend is the single
+        // config source), so the pure-UI specs that boot WITHOUT injecting __EBGEO_BACKEND_URL__
+        // still need a reachable backend — the proxy gives them one same-origin (the dev :8080
+        // backend is not up during e2e). Backend-connected specs that inject the cross-origin URL
+        // bypass the proxy and are unaffected.
+        env: { EBGEO_DEV_API_TARGET: `http://127.0.0.1:${BACKEND_PORT}` },
         // Ignore the webServer stderr so the e2e output stays clean — Vite-startup
         // failures are still caught by the webServer `url` health-check above.
         stderr: 'ignore',
