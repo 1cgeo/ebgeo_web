@@ -163,6 +163,7 @@
    (matches .prompt-modal-btn-confirm: padding-based height + border). */
 .account-control__btn--login {
     height: auto;
+    margin: 5px;
     padding: var(--space-2) var(--space-3);
     background: var(--primary);
     border: var(--border-width) solid var(--primary);

@@ -419,7 +419,7 @@ export class CommentOverlay {
             },
         }));
 
-        this._popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '320px', className: 'comment-popup', anchor: 'bottom', offset: 16 })
+        this._popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '320px', className: 'comment-popup', anchor: 'bottom', offset: 38 })
             .setLngLat([lngLat.lng, lngLat.lat])
             .setDOMContent(card)
             .addTo(this._map);
@@ -475,7 +475,7 @@ export class CommentOverlay {
             }));
         }
 
-        this._popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '340px', className: 'comment-popup', anchor: 'bottom', offset: 16 })
+        this._popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '340px', className: 'comment-popup', anchor: 'bottom', offset: 38 })
             .setLngLat([root.lng, root.lat])
             .setDOMContent(card)
             .addTo(this._map);
