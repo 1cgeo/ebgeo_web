@@ -1,15 +1,20 @@
-// Path: js/modals/layer-style.modal.js
+// Path: js/features_tab/layer-style-panel.component.js
 
 /**
- * @fileoverview Structured (QGIS-like) style editor for catalog analysis/data
- * layers. Per sub-layer (fill / border / label, or the raster layer), each
- * editable paint property is classified as constant, categorized
- * (case/match) or graduated (interpolate/step), and rendered with the matching
- * control. The classification field and the number of categories/stops are
- * read-only — the user edits the existing outputs and breaks only.
+ * @fileoverview Inline (sidebar) structured style editor for catalog
+ * analysis/data layers — the drill-in replacement for the former modal.
+ * Opening it takes over the layers tab: the rest of the tab is hidden and a
+ * back-header + style sections + footer are shown in place; closing restores
+ * the tab content.
  *
- * Edits apply live to the map, persist debounced to the catalog layer's
- * `styleOverrides` (nested by sub-layer), and can be reset to config defaults.
+ * Editing model is unchanged: per sub-layer (fill / border / label, or the
+ * raster layer), each editable paint property is classified as constant,
+ * categorized (case/match) or graduated (interpolate/step) and rendered with
+ * the matching control. The classification field and the number of
+ * categories/stops are read-only — the user edits the existing outputs and
+ * breaks only. Edits apply live to the map, persist debounced to the catalog
+ * layer's `styleOverrides` (nested by sub-layer), and can be reset to config
+ * defaults.
  */
 
 import {
@@ -17,7 +22,6 @@ import {
     addDomListener,
     addScopedDomListener,
     clearScopedListeners,
-    trackTimer,
     cleanup,
     removeElement
 } from '@utils/event-cleanup.js';
@@ -47,6 +51,9 @@ const PERSIST_KEY = 'layer-style';
 /** Scope for the rebuildable body controls, cleared before each repopulate. */
 const BODY_SCOPE = 'body';
 
+/** Host class that hides the rest of the layers tab while editing a style. */
+const EDITING_CLASS = 'layer-style-editing';
+
 /**
  * Lazily-created 2D context used to normalize any CSS color (named, %, hsl) to
  * a concrete rgb/rgba string the pure color parser can decompose.
@@ -75,8 +82,7 @@ function resolveCssColor(value) {
     return colorProbeCtx.fillStyle;
 }
 
-const SETTINGS_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
-const CLOSE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+const BACK_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`;
 
 /** Coerces a possibly-string value to a finite number, defaulting to 0. */
 function asNumber(value) {
@@ -85,25 +91,31 @@ function asNumber(value) {
 }
 
 /**
- * Structured style editor modal for a catalog analysis or data layer.
+ * Structured style editor panel for a catalog analysis or data layer.
+ * Mounts inline into a host element (the layers tab's `.features-tab-content`).
  */
-export class LayerStyleModal {
+export class LayerStylePanel {
     /**
      * @param {Object} config
      * @param {Object} config.layer - Catalog layer state.
+     * @param {HTMLElement} config.host - Layers tab content to mount into.
      * @param {Object} [config.analysisLayersManager]
      * @param {Object} [config.dataLayersManager]
+     * @param {Function} [config.onClose] - Called after the panel is dismissed.
      */
     constructor(config) {
         this._layer = config.layer;
+        this._host = config.host || null;
         this._analysisLayersManager = config.analysisLayersManager || null;
         this._dataLayersManager = config.dataLayersManager || null;
+        this._onClose = config.onClose || null;
 
-        this._overlay = null;
-        this._container = null;
+        this._panel = null;
         this._body = null;
+        this._backBtn = null;
         this._previousActiveElement = null;
         this._closing = false;
+        this._applyScheduled = false;
         this._persist = new DebouncedPersist({ delay: 300 });
 
         // Working copy of persisted overrides; mutated live, persisted debounced.
@@ -121,16 +133,22 @@ export class LayerStyleModal {
         setupCleanup(this);
     }
 
-    /** Shows the modal. @returns {Promise<Object>} resolves with final overrides. */
+    /** Shows the panel. @returns {Promise<Object>} resolves with final overrides. */
     show() {
         return new Promise((resolve) => {
             this._resolvePromise = resolve;
+            if (!this._host) {
+                // No host to mount into — resolve immediately as a no-op.
+                resolve(this._overrides);
+                return;
+            }
             this._previousActiveElement = document.activeElement;
             this._render();
-            document.body.appendChild(this._overlay);
-            requestAnimationFrame(() => {
-                this._overlay.dataset.visible = 'true';
-            });
+            this._host.classList.add(EDITING_CLASS);
+            this._host.appendChild(this._panel);
+            if (this._backBtn) {
+                try { this._backBtn.focus(); } catch { /* focus may be refused */ }
+            }
         });
     }
 
@@ -156,56 +174,35 @@ export class LayerStyleModal {
 
     /** @private */
     _render() {
-        this._overlay = document.createElement('div');
-        this._overlay.className = 'modal-overlay layer-style-modal-overlay';
-        this._overlay.setAttribute('role', 'dialog');
-        this._overlay.setAttribute('aria-modal', 'true');
-        this._overlay.dataset.visible = 'false';
+        this._panel = document.createElement('div');
+        this._panel.className = 'layer-style-panel';
 
-        this._container = document.createElement('div');
-        this._container.className = 'modal-container layer-style-modal-container';
-
-        this._container.appendChild(this._buildHeader());
+        this._panel.appendChild(this._buildHeader());
         this._body = this._buildBody();
-        this._container.appendChild(this._body);
-        this._container.appendChild(this._buildFooter());
-
-        this._overlay.appendChild(this._container);
-
-        addDomListener(this, this._overlay, 'click', (e) => {
-            if (e.target === this._overlay) this._close();
-        });
-        addDomListener(this, document, 'keydown', (e) => {
-            if (e.key === 'Escape') this._close();
-        });
+        this._panel.appendChild(this._body);
+        this._panel.appendChild(this._buildFooter());
     }
 
     /** @private */
     _buildHeader() {
         const header = document.createElement('div');
-        header.className = 'modal-header';
+        header.className = 'layer-style-panel__header';
 
-        const titleWrap = document.createElement('div');
-        titleWrap.className = 'modal-title-wrap';
+        const backBtn = document.createElement('button');
+        backBtn.type = 'button';
+        backBtn.className = 'layer-style-panel__back';
+        backBtn.setAttribute('aria-label', 'Voltar');
+        backBtn.title = 'Voltar';
+        backBtn.innerHTML = BACK_ICON;
+        addDomListener(this, backBtn, 'click', () => this._close());
+        header.appendChild(backBtn);
+        this._backBtn = backBtn;
 
-        const icon = document.createElement('span');
-        icon.className = 'modal-title-icon';
-        icon.innerHTML = SETTINGS_ICON;
-        titleWrap.appendChild(icon);
-
-        const title = document.createElement('h2');
-        title.className = 'modal-title';
+        const title = document.createElement('h3');
+        title.className = 'layer-style-panel__title';
         title.textContent = `Estilo · ${this._layer.name}`;
-        titleWrap.appendChild(title);
-
-        header.appendChild(titleWrap);
-
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'modal-close-btn';
-        closeBtn.setAttribute('aria-label', 'Fechar modal');
-        closeBtn.innerHTML = CLOSE_ICON;
-        addDomListener(this, closeBtn, 'click', () => this._close());
-        header.appendChild(closeBtn);
+        title.title = this._layer.name;
+        header.appendChild(title);
 
         return header;
     }
@@ -213,7 +210,7 @@ export class LayerStyleModal {
     /** @private */
     _buildBody() {
         const body = document.createElement('div');
-        body.className = 'modal-body layer-style-modal__body';
+        body.className = 'layer-style-panel__body';
         this._fillBody(body);
         return body;
     }
@@ -231,7 +228,7 @@ export class LayerStyleModal {
 
         if (sections.length === 0) {
             const empty = document.createElement('p');
-            empty.className = 'layer-style-modal__empty';
+            empty.className = 'layer-style-panel__empty';
             empty.textContent = 'Esta camada não possui estilos configuráveis.';
             body.appendChild(empty);
             return;
@@ -535,21 +532,21 @@ export class LayerStyleModal {
     /** @private */
     _buildFooter() {
         const footer = document.createElement('div');
-        footer.className = 'layer-style-modal__footer';
+        footer.className = 'layer-style-panel__footer';
 
         const resetBtn = document.createElement('button');
         resetBtn.type = 'button';
-        resetBtn.className = 'layer-style-reset-btn';
+        resetBtn.className = 'layer-style-panel__reset';
         resetBtn.textContent = 'Restaurar padrão';
         addDomListener(this, resetBtn, 'click', () => this._resetToDefault());
         footer.appendChild(resetBtn);
 
-        const closeBtn = document.createElement('button');
-        closeBtn.type = 'button';
-        closeBtn.className = 'layer-style-close-btn';
-        closeBtn.textContent = 'Concluir';
-        addDomListener(this, closeBtn, 'click', () => this._close());
-        footer.appendChild(closeBtn);
+        const doneBtn = document.createElement('button');
+        doneBtn.type = 'button';
+        doneBtn.className = 'layer-style-panel__done';
+        doneBtn.textContent = 'Concluir';
+        addDomListener(this, doneBtn, 'click', () => this._close());
+        footer.appendChild(doneBtn);
 
         return footer;
     }
@@ -574,7 +571,7 @@ export class LayerStyleModal {
         this._applyScheduled = true;
         requestAnimationFrame(() => {
             this._applyScheduled = false;
-            if (!this._overlay || !this._manager || !this._innerId) return;
+            if (!this._panel || !this._manager || !this._innerId) return;
             this._manager.applyStyleOverrides(this._innerId, this._overrides);
         });
     }
@@ -599,41 +596,42 @@ export class LayerStyleModal {
 
     /** @private */
     _close() {
-        // Guard against a second Escape/overlay-click during the close animation.
+        // Guard against a second click during teardown.
         if (this._closing) return;
         this._closing = true;
 
         this._persist.flush(PERSIST_KEY);
-        this._overlay.dataset.visible = 'false';
+        this._destroy();
 
-        trackTimer(this, setTimeout(() => {
-            this._destroy();
-            if (this._previousActiveElement) {
-                try { this._previousActiveElement.focus(); } catch { /* element may be gone */ }
-            }
-            if (this._resolvePromise) {
-                this._resolvePromise(this._overrides);
-            }
-        }, 200));
+        if (this._previousActiveElement) {
+            try { this._previousActiveElement.focus(); } catch { /* element may be gone */ }
+        }
+        if (this._onClose) this._onClose();
+        if (this._resolvePromise) {
+            this._resolvePromise(this._overrides);
+        }
     }
 
     /** @private */
     _destroy() {
         this._persist.destroy();
         cleanup(this);
-        removeElement(this._overlay);
-        this._overlay = null;
-        this._container = null;
+        if (this._host) {
+            this._host.classList.remove(EDITING_CLASS);
+        }
+        removeElement(this._panel);
+        this._panel = null;
         this._body = null;
+        this._backBtn = null;
     }
 }
 
 /**
- * Convenience helper to show the modal.
- * @param {Object} config - Same options as LayerStyleModal constructor.
- * @returns {Promise<Object>} Resolves with final overrides when modal closes.
+ * Convenience helper to show the inline style panel.
+ * @param {Object} config - Same options as LayerStylePanel constructor.
+ * @returns {Promise<Object>} Resolves with final overrides when panel closes.
  */
-export async function showLayerStyleModal(config) {
-    const modal = new LayerStyleModal(config);
-    return modal.show();
+export async function showLayerStylePanel(config) {
+    const panel = new LayerStylePanel(config);
+    return panel.show();
 }

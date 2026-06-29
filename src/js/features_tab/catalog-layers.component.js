@@ -24,7 +24,7 @@ import {
 } from '@catalog/catalog.constants.js';
 import { showSuccess, showToast } from '@utils';
 import { escapeHtml } from '@utils/html-escape.js';
-import { showLayerStyleModal } from '@modals';
+import { showLayerStylePanel } from './layer-style-panel.component.js';
 
 /**
  * Icons used in the component.
@@ -43,7 +43,7 @@ const ICONS = {
 };
 
 /**
- * Whether a layer type supports style configuration via the layer-style modal.
+ * Whether a layer type supports style configuration via the layer-style panel.
  * @param {string} type
  * @returns {boolean}
  */
@@ -284,7 +284,7 @@ function attachActiveLayerEvents(item, layer, map, eventBus, analysisLayersManag
     if (settingsBtn) {
         settingsBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            await openLayerStyleModal(layer, analysisLayersManager, dataLayersManager);
+            await openLayerStylePanel(item, layer, analysisLayersManager, dataLayersManager);
         });
     }
 
@@ -372,22 +372,30 @@ function attachRemoveEvent(item, layer, map, eventBus, analysisLayersManager, da
 }
 
 /**
- * Opens the style configuration modal for an analysis or data catalog layer.
- * Reads the latest layer state from the store so the form reflects any
- * previously persisted overrides.
+ * Opens the inline style configuration panel for an analysis or data catalog
+ * layer. The panel takes over the layers tab, so it mounts into the
+ * `.features-tab-content` host resolved from the clicked row. Reads the latest
+ * layer state from the store so the form reflects any previously persisted
+ * overrides.
+ * @param {HTMLElement} item - The clicked catalog layer row
  * @param {Object} layer - Catalog layer state at the moment the row was rendered
  * @param {Object} [analysisLayersManager]
  * @param {Object} [dataLayersManager]
  */
-async function openLayerStyleModal(layer, analysisLayersManager, dataLayersManager) {
+async function openLayerStylePanel(item, layer, analysisLayersManager, dataLayersManager) {
     if (!supportsStyleConfig(layer.type)) return;
+
+    // The panel mounts into (and hides) the whole layers tab content.
+    const host = item.closest('.features-tab-content');
+    if (!host) return;
 
     // Read the freshest layer state in case overrides were updated elsewhere.
     const latest = await getCatalogLayerById(layer.id);
     const targetLayer = latest || layer;
 
-    await showLayerStyleModal({
+    await showLayerStylePanel({
         layer: targetLayer,
+        host,
         analysisLayersManager,
         dataLayersManager
     });

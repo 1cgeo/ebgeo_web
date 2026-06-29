@@ -608,6 +608,276 @@
     color: var(--primary);
 }
 
+/* ===== LAYER STYLE PANEL (inline drill-in) ===== */
+
+/* Drill-in takeover: while editing a layer style, hide the rest of the layers
+   tab so the panel is the only visible content. `!important` defends against a
+   concurrent refresh re-applying an inline `display` on a hidden section
+   (e.g. renderCatalogLayers toggling `.catalog-layers-section`). */
+.features-tab-content.layer-style-editing > :not(.layer-style-panel) {
+    display: none !important;
+}
+
+.layer-style-panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    animation: layer-style-panel-in var(--transition-normal) ease;
+}
+
+@keyframes layer-style-panel-in {
+    from {
+        opacity: 0;
+        transform: translateX(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.layer-style-panel__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
+    padding-bottom: var(--space-2);
+    margin-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.layer-style-panel__back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    color: var(--gray-600);
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.layer-style-panel__back:hover {
+    background: var(--gray-100);
+    color: var(--gray-900);
+}
+
+.layer-style-panel__back svg {
+    width: 20px;
+    height: 20px;
+}
+
+.layer-style-panel__title {
+    margin: 0;
+    min-width: 0;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.layer-style-panel__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    padding-right: var(--space-1);
+}
+
+.layer-style-panel__empty {
+    color: var(--gray-500);
+    font-size: var(--font-size-sm);
+    text-align: center;
+    padding: var(--space-4) 0;
+}
+
+.layer-style-section {
+    gap: var(--space-3);
+}
+
+/* ----- Property block (constant / categorized / graduated) ----- */
+.lsx-prop {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.lsx-prop__head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+.lsx-prop__name {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+}
+
+.lsx-prop__field {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+}
+
+.lsx-note {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    font-style: italic;
+    color: var(--gray-500);
+}
+
+/* ----- Rows for category / stop values ----- */
+.lsx-rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--gray-200);
+}
+
+.lsx-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.lsx-row__label {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lsx-row__prefix {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    font-variant-numeric: tabular-nums;
+}
+
+.lsx-break {
+    width: 88px;
+    padding: var(--space-1) var(--space-2);
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ----- Alpha-aware color control ----- */
+.lsx-color {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.lsx-color__swatch {
+    position: relative;
+    width: 32px;
+    height: 24px;
+    flex-shrink: 0;
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.lsx-color__native {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+}
+
+.lsx-color__alpha {
+    width: 72px;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+/* ----- Numeric range control ----- */
+.lsx-range {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex: 1;
+}
+
+.lsx-range__slider {
+    flex: 1;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.lsx-range__value {
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    min-width: 48px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ----- Footer ----- */
+.layer-style-panel__footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    flex-shrink: 0;
+    padding-top: var(--space-3);
+    margin-top: var(--space-3);
+    border-top: var(--border-width) solid var(--border-color);
+}
+
+.layer-style-panel__reset {
+    padding: var(--space-2) var(--space-3);
+    background: transparent;
+    border: var(--border-width) solid var(--gray-300);
+    border-radius: var(--radius-md);
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.layer-style-panel__reset:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-400);
+}
+
+.layer-style-panel__done {
+    padding: var(--space-2) var(--space-4);
+    background: var(--primary);
+    border: none;
+    border-radius: var(--radius-md);
+    color: white;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.layer-style-panel__done:hover {
+    background: var(--primary-700, var(--primary));
+}
+
 /* ===== ANALYSIS LAYERS ===== */
 
 .analysis-layers-header {
