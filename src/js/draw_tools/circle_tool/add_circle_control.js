@@ -701,7 +701,9 @@ class AddCircleControl extends BaseControl {
             const center = this.geometry.normalizeCenter(f.properties.center);
             f.geometry = this.geometry.generate(center, f.properties.radius);
         });
-        await this.updateFeatures(features, true, true);
+        // Full update (onlyUpdateProperties=false) so the reverted GEOMETRY is written,
+        // not just properties — the onlyUpdateProperties path drops the regenerated geometry.
+        await this.updateFeatures(features, true, false);
     }
     deleteFeatures = async (features) => {
         if (features.length === 0) return;

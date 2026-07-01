@@ -29,7 +29,7 @@ const EXPORT_OPTIONS = {
     },
     garmin: {
         id: 'garmin',
-        name: 'Exportar Garmin KMZ',
+        name: 'Exportar para Garmin',
         description: 'Gerar mapa para GPS Garmin',
         icon: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/><path d="M2 16l3 3 3-3"/><path d="M22 16l-3 3-3-3"/></svg>`,
     },
@@ -565,6 +565,8 @@ export class ExportTab {
         this._pdfExportTab.showLatLongGrid = false;
         this._pdfExportTab.showUTMGrid = false;
         this._pdfExportTab.dpi = 300;
+        this._pdfExportTab.rows = 1;
+        this._pdfExportTab.cols = 1;
 
         // Clear existing content
         this._pdfContentContainer.innerHTML = '';
@@ -588,6 +590,9 @@ export class ExportTab {
 
             // Setup event listeners manually since we control the DOM here
             this._setupPdfEventListeners();
+
+            // Sync mosaic-dependent UI (count, hint, disabled options) with state
+            this._pdfExportTab._updateMosaicUIState();
         } else {
             // Fallback: create simple export button
             this._createFallbackPdfUI();
@@ -629,9 +634,24 @@ export class ExportTab {
                 if (this._pdfExportTab) {
                     this._pdfExportTab.orientation = e.target.value;
                     this._pdfExportTab.updateBounds();
+                    this._pdfExportTab.zoomToPreviewArea();
                 }
             });
         });
+
+        // Mosaic rows / columns
+        const rowsSelect = this._pdfContentContainer.querySelector('#pdf-rows-select');
+        if (rowsSelect) {
+            addDomListener(this, rowsSelect, 'change', (e) => {
+                if (this._pdfExportTab) this._pdfExportTab.onRowsChange(e);
+            });
+        }
+        const colsSelect = this._pdfContentContainer.querySelector('#pdf-cols-select');
+        if (colsSelect) {
+            addDomListener(this, colsSelect, 'change', (e) => {
+                if (this._pdfExportTab) this._pdfExportTab.onColsChange(e);
+            });
+        }
 
         // Export button
         const exportBtn = this._pdfContentContainer.querySelector('#pdf-export-btn');

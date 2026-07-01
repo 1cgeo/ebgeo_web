@@ -170,22 +170,41 @@ class ScreenshotControl {
                 validateStyle: false
             });
 
+            const cleanupTempMap = () => {
+                try { tempMap.remove(); } catch (_e) { /* already removed */ }
+                if (tempContainer.parentNode) {
+                    document.body.removeChild(tempContainer);
+                }
+            };
+
+            // Failsafe: if 'load' never fires (style/tile load failure) the tempMap
+            // (WebGL context) and the off-screen container would leak. Bail out and
+            // clean up after a timeout. `settled` guards against double cleanup.
+            let settled = false;
+            const failsafe = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                console.error('Screenshot temporary map timed out before load');
+                showError('Não foi possível capturar o screenshot');
+                cleanupTempMap();
+            }, 15000);
+
             tempMap.once('load', () => {
                 tempMap.once('idle', () => {
                     setTimeout(() => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(failsafe);
                         try {
                             const canvas = tempMap.getCanvas();
                             const dataURL = canvas.toDataURL('image/png');
 
                             this.downloadImageFromDataURL(dataURL);
-
-                            tempMap.remove();
-                            document.body.removeChild(tempContainer);
                         } catch (error) {
                             console.error('Error in alternative method:', error);
                             showError('Não foi possível capturar o screenshot');
-                            tempMap.remove();
-                            document.body.removeChild(tempContainer);
+                        } finally {
+                            cleanupTempMap();
                         }
                     }, 500);
                 });

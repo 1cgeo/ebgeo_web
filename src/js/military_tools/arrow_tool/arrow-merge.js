@@ -1,6 +1,6 @@
 // Path: js/military_tools/arrow_tool/arrow-merge.js
 
-import { addFeature, removeFeature, getActiveLayerIdSync } from '@store';
+import { addFeature, removeFeature, getActiveLayerIdSync, startBatchUndo, commitBatchUndo } from '@store';
 import { IDUtils, showSuccess, showWarning } from '@utils';
 import AddArrowGeometry from './add_arrow_geometry.js';
 
@@ -145,18 +145,25 @@ export async function mergeArrows(features, map, selectionManager) {
         // Deselect all before modifying
         selectionManager.deselectAllFeatures();
 
-        // Remove original features
         const data = await map.getSource('arrows').getData();
         const idsToRemove = new Set(features.map(f => String(f.properties.id)));
 
-        for (const feature of features) {
-            await removeFeature('arrows', feature.properties.id);
+        // Batch so a single Ctrl+Z undoes the whole merge as one unit.
+        startBatchUndo();
+        try {
+            // Add the merged arrow FIRST so a persist failure cannot lose the
+            // source arrows (worst case is a recoverable extra feature).
+            await addFeature('arrows', mergedFeature);
+
+            // Only after the add succeeded do we remove the originals.
+            for (const feature of features) {
+                await removeFeature('arrows', feature.properties.id);
+            }
+        } finally {
+            commitBatchUndo();
         }
 
         data.features = data.features.filter(f => !idsToRemove.has(String(f.properties.id)));
-
-        // Add merged feature
-        await addFeature('arrows', mergedFeature);
         data.features.push(mergedFeature);
         map.getSource('arrows').setData(data);
 

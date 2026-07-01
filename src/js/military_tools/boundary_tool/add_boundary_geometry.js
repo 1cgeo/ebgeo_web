@@ -33,6 +33,60 @@ class AddBoundaryGeometry extends BaseGeometry {
     }
 
     /**
+     * Clamp a position ratio to the valid placement range.
+     * @param {number} r - Raw ratio
+     * @returns {number} Clamped ratio (defaults to 0.5 when not finite)
+     */
+    clampRatio(r) {
+        const { POSITION_RATIO_MIN, POSITION_RATIO_MAX } = AddBoundaryGeometry.GEOMETRY_CONSTANTS;
+        if (!Number.isFinite(r)) return 0.5;
+        return Math.max(POSITION_RATIO_MIN, Math.min(POSITION_RATIO_MAX, r));
+    }
+
+    /**
+     * Resolve the echelon symbol instances for a boundary.
+     * Each instance has its own position (`ratio`) and label visibility
+     * (`showLabels`); the echelon string and symbol size stay shared.
+     * Falls back to the legacy single `symbol_position_ratio` for older
+     * features and `.ebgeo` files (migration-on-read).
+     * @param {Object} properties - Feature properties
+     * @returns {Array<{ratio: number, showLabels: boolean}>} Normalized instances (always >= 1)
+     */
+    getSymbolInstances(properties) {
+        const raw = properties?.symbol_instances;
+        if (Array.isArray(raw)) {
+            // Keep every object entry and let clampRatio coerce a bad/missing ratio
+            // to a valid one — dropping entries would shift indices out of sync with
+            // the per-instance drag handles (handle index must match array index).
+            const normalized = raw
+                .filter(inst => inst && typeof inst === 'object')
+                .map(inst => ({
+                    ratio: this.clampRatio(inst.ratio),
+                    showLabels: inst.showLabels !== false
+                }));
+            if (normalized.length > 0) {
+                return normalized;
+            }
+        }
+
+        const legacyRatio = Number.isFinite(properties?.symbol_position_ratio)
+            ? properties.symbol_position_ratio
+            : 0.5;
+        return [{ ratio: this.clampRatio(legacyRatio), showLabels: true }];
+    }
+
+    /**
+     * The instance that the shared handles (size, text-distance) anchor to:
+     * the spatially leftmost symbol (lowest ratio), so the handles stay on a
+     * predictable symbol regardless of array/creation order or later drags.
+     * @param {Array<{ratio: number}>} instances - Normalized instances (>= 1)
+     * @returns {{ratio: number, showLabels: boolean}} The anchor instance
+     */
+    getAnchorInstance(instances) {
+        return instances.reduce((leftmost, inst) => (inst.ratio < leftmost.ratio ? inst : leftmost), instances[0]);
+    }
+
+    /**
      * Generate boundary geometry with symbols and gaps
      * @param {Object} properties - Boundary properties including baseCoordinates
      * @returns {Object} GeoJSON MultiLineString geometry
@@ -131,7 +185,7 @@ class AddBoundaryGeometry extends BaseGeometry {
      * @returns {Object} GeoJSON MultiLineString geometry
      */
     generateBoundaryGeometry(properties) {
-        let { baseCoordinates, symbol_position_ratio, symbol_size, echelon } = properties;
+        let { baseCoordinates, symbol_size, echelon } = properties;
 
         baseCoordinates = this.normalizeBaseCoordinates(baseCoordinates);
 
@@ -161,9 +215,10 @@ class AddBoundaryGeometry extends BaseGeometry {
         }
 
         try {
-            const lineWithGap = this.createLineWithGap(baseCoordinates, symbol_position_ratio, symbol_size, echelon);
-            const symbolLines = this.createEchelonSymbolLines(baseCoordinates, symbol_position_ratio, symbol_size, echelon);
-            const allLines = [...lineWithGap, ...symbolLines];
+            const instances = this.getSymbolInstances(properties);
+            const lineWithGaps = this.createLineWithGaps(baseCoordinates, instances, symbol_size, echelon);
+            const symbolLines = this.createEchelonSymbolLines(baseCoordinates, instances, symbol_size, echelon);
+            const allLines = [...lineWithGaps, ...symbolLines];
 
             if (allLines.length === 0) {
                 return {
@@ -187,14 +242,17 @@ class AddBoundaryGeometry extends BaseGeometry {
     }
 
     /**
-     * Create line segments with gap for symbol placement
+     * Create line segments with one gap per symbol instance.
+     * Builds a gap interval around each instance position, merges overlapping
+     * gaps (when symbols sit close together), then returns the complement
+     * segments of the line.
      * @param {Array} coordinates - Base coordinates
-     * @param {number} ratio - Symbol position ratio
+     * @param {Array<{ratio: number}>} instances - Symbol instances
      * @param {number} symbolSize - Symbol size
      * @param {string} echelon - Echelon string
      * @returns {Array} Array of line coordinate arrays
      */
-    createLineWithGap(coordinates, ratio, symbolSize, echelon) {
+    createLineWithGaps(coordinates, instances, symbolSize, echelon) {
         if (coordinates.length < 2) return [];
 
         const validCoords = coordinates.filter(coord =>
@@ -203,64 +261,84 @@ class AddBoundaryGeometry extends BaseGeometry {
         );
 
         if (validCoords.length < 2) {
-            console.warn('Insufficient valid coordinates for line with gap');
+            console.warn('Insufficient valid coordinates for line with gaps');
             return [coordinates];
         }
 
         try {
+            const { MIN_LENGTH_KM, SYMBOL_WIDTH_MULTIPLIER, GAP_WIDTH_MULTIPLIER } = AddBoundaryGeometry.GEOMETRY_CONSTANTS;
             const line = turf.lineString(validCoords);
             const totalLength = turf.length(line, { units: 'kilometers' });
 
-            if (totalLength < AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM) {
+            if (totalLength < MIN_LENGTH_KM) {
                 return [validCoords];
             }
 
             const numSymbols = (echelon && echelon.length > 0) ? echelon.length : 3;
-            const symbolWidth = numSymbols * symbolSize * AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_WIDTH_MULTIPLIER;
-            const gapWidth = symbolWidth * AddBoundaryGeometry.GEOMETRY_CONSTANTS.GAP_WIDTH_MULTIPLIER;
-            const centerDistance = totalLength * ratio;
+            const symbolWidth = numSymbols * symbolSize * SYMBOL_WIDTH_MULTIPLIER;
+            const gapWidth = symbolWidth * GAP_WIDTH_MULTIPLIER;
 
-            const gapStartDistance = Math.max(0, centerDistance - (gapWidth / 2));
-            const gapEndDistance = Math.min(totalLength, centerDistance + (gapWidth / 2));
+            // Build a gap interval [start, end] per instance, clamped to the line.
+            const gaps = instances
+                .map(inst => {
+                    const center = totalLength * inst.ratio;
+                    return [
+                        Math.max(0, center - gapWidth / 2),
+                        Math.min(totalLength, center + gapWidth / 2)
+                    ];
+                })
+                .sort((a, b) => a[0] - b[0]);
 
+            // Merge overlapping/adjacent gaps so close symbols share one gap.
+            const merged = [];
+            for (const gap of gaps) {
+                const last = merged[merged.length - 1];
+                if (last && gap[0] <= last[1]) {
+                    last[1] = Math.max(last[1], gap[1]);
+                } else {
+                    merged.push([...gap]);
+                }
+            }
+
+            // Emit the complement segments (the line minus the gaps).
             const segments = [];
-
-            if (gapStartDistance > AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM) {
-                const startPoint = turf.point(validCoords[0]);
-                const gapStartPoint = turf.along(line, gapStartDistance, { units: 'kilometers' });
-                const segment1 = turf.lineSlice(startPoint, gapStartPoint, line);
-
-                if (segment1.geometry.coordinates.length >= 2) {
-                    segments.push(segment1.geometry.coordinates);
+            const pushSegment = (from, to) => {
+                if (to - from <= MIN_LENGTH_KM) return;
+                const fromPoint = from <= 0
+                    ? turf.point(validCoords[0])
+                    : turf.along(line, from, { units: 'kilometers' });
+                const toPoint = to >= totalLength
+                    ? turf.point(validCoords[validCoords.length - 1])
+                    : turf.along(line, to, { units: 'kilometers' });
+                const slice = turf.lineSlice(fromPoint, toPoint, line);
+                if (slice.geometry.coordinates.length >= 2) {
+                    segments.push(slice.geometry.coordinates);
                 }
-            }
+            };
 
-            if (gapEndDistance < totalLength - AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM) {
-                const gapEndPoint = turf.along(line, gapEndDistance, { units: 'kilometers' });
-                const endPoint = turf.point(validCoords[validCoords.length - 1]);
-                const segment2 = turf.lineSlice(gapEndPoint, endPoint, line);
-
-                if (segment2.geometry.coordinates.length >= 2) {
-                    segments.push(segment2.geometry.coordinates);
-                }
+            let cursor = 0;
+            for (const [start, end] of merged) {
+                pushSegment(cursor, start);
+                cursor = end;
             }
+            pushSegment(cursor, totalLength);
 
             return segments.length > 0 ? segments : [validCoords];
         } catch (error) {
-            console.warn('Error creating line with gap:', error);
+            console.warn('Error creating line with gaps:', error);
             return [validCoords];
         }
     }
 
     /**
-     * Create symbol lines for echelon
+     * Create symbol lines for every echelon instance along the line.
      * @param {Array} coordinates - Base coordinates
-     * @param {number} ratio - Symbol position ratio
+     * @param {Array<{ratio: number}>} instances - Symbol instances
      * @param {number} size - Symbol size
      * @param {string} echelon - Echelon string
      * @returns {Array} Array of symbol line coordinate arrays
      */
-    createEchelonSymbolLines(coordinates, ratio, size, echelon) {
+    createEchelonSymbolLines(coordinates, instances, size, echelon) {
         if (coordinates.length < 2) return [];
 
         const validCoords = coordinates.filter(coord =>
@@ -281,21 +359,52 @@ class AddBoundaryGeometry extends BaseGeometry {
                 return [];
             }
 
-            const centerPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
-
-            const distance1 = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM, totalLength * ratio - AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_POSITION_EPSILON);
-            const distance2 = Math.min(totalLength - AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM, totalLength * ratio + AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_POSITION_EPSILON);
-
-            const p1 = turf.along(line, distance1, { units: 'kilometers' });
-            const p2 = turf.along(line, distance2, { units: 'kilometers' });
-            const localBearing = turf.bearing(p1, p2);
-
-            const { lines } = this.createEchelonSymbol(echelon, centerPoint, size, localBearing);
-            return lines;
+            const allLines = [];
+            for (const inst of instances) {
+                const { lines } = this.buildEchelonAtRatio(line, totalLength, inst.ratio, size, echelon);
+                allLines.push(...lines);
+            }
+            return allLines;
         } catch (error) {
             console.warn('Error creating echelon symbol lines:', error);
             return [];
         }
+    }
+
+    /**
+     * Build the echelon symbol (lines + polygons) at a single position ratio.
+     * @param {Object} line - Turf lineString feature
+     * @param {number} totalLength - Total line length (km)
+     * @param {number} ratio - Position ratio along the line
+     * @param {number} size - Symbol size
+     * @param {string} echelon - Echelon string
+     * @returns {{lines: Array, polygons: Array}} Symbol geometry
+     */
+    buildEchelonAtRatio(line, totalLength, ratio, size, echelon) {
+        const { centerPoint, localBearing } = this.getCenterAndBearing(line, totalLength, ratio);
+        return this.createEchelonSymbol(echelon, centerPoint, size, localBearing);
+    }
+
+    /**
+     * Compute the symbol center point and the local line bearing at a position ratio.
+     * Shared by symbol/circle/text/handle placement so the math lives in one spot.
+     * @param {Object} line - Turf lineString feature
+     * @param {number} totalLength - Total line length (km)
+     * @param {number} ratio - Position ratio along the line
+     * @returns {{centerPoint: Object, localBearing: number}} Center point feature + bearing (deg)
+     */
+    getCenterAndBearing(line, totalLength, ratio) {
+        const { MIN_LENGTH_KM, SYMBOL_POSITION_EPSILON } = AddBoundaryGeometry.GEOMETRY_CONSTANTS;
+        const centerPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
+
+        const distance1 = Math.max(MIN_LENGTH_KM, totalLength * ratio - SYMBOL_POSITION_EPSILON);
+        const distance2 = Math.min(totalLength - MIN_LENGTH_KM, totalLength * ratio + SYMBOL_POSITION_EPSILON);
+
+        const p1 = turf.along(line, distance1, { units: 'kilometers' });
+        const p2 = turf.along(line, distance2, { units: 'kilometers' });
+        const localBearing = turf.bearing(p1, p2);
+
+        return { centerPoint, localBearing };
     }
 
     /**
@@ -356,7 +465,7 @@ class AddBoundaryGeometry extends BaseGeometry {
      */
     generateBoundaryCircles(boundaryFeature) {
         const circles = [];
-        const { echelon, symbol_position_ratio, symbol_size } = boundaryFeature.properties;
+        const { echelon, symbol_size } = boundaryFeature.properties;
 
         // Normalize baseCoordinates to handle string format from persistence
         const baseCoordinates = this.normalizeBaseCoordinates(boundaryFeature.properties.baseCoordinates);
@@ -368,25 +477,24 @@ class AddBoundaryGeometry extends BaseGeometry {
         try {
             const line = turf.lineString(baseCoordinates);
             const totalLength = turf.length(line, { units: 'kilometers' });
-            const centerPoint = turf.along(line, totalLength * symbol_position_ratio, { units: 'kilometers' });
+            const instances = this.getSymbolInstances(boundaryFeature.properties);
 
-            const p1 = turf.along(line, totalLength * symbol_position_ratio - 0.01, { units: 'kilometers' });
-            const p2 = turf.along(line, totalLength * symbol_position_ratio + 0.01, { units: 'kilometers' });
-            const localBearing = turf.bearing(p1, p2);
+            instances.forEach((inst, instanceIndex) => {
+                const { polygons } = this.buildEchelonAtRatio(line, totalLength, inst.ratio, symbol_size, echelon);
 
-            const { polygons } = this.createEchelonSymbol(echelon, centerPoint, symbol_size, localBearing);
-
-            polygons.forEach((polygon, index) => {
-                circles.push({
-                    type: 'Feature',
-                    id: `${boundaryFeature.properties.id}-circle-${index}`,
-                    geometry: polygon.geometry,
-                    properties: {
-                        parent: boundaryFeature.properties.id,
-                        color: boundaryFeature.properties.color,
-                        opacity: boundaryFeature.properties.opacity,
-                        source: 'boundary-circle'
-                    }
+                polygons.forEach((polygon, polyIndex) => {
+                    circles.push({
+                        type: 'Feature',
+                        id: `${boundaryFeature.properties.id}-circle-${instanceIndex}-${polyIndex}`,
+                        geometry: polygon.geometry,
+                        properties: {
+                            parent: boundaryFeature.properties.id,
+                            layerId: boundaryFeature.properties.layerId,
+                            color: boundaryFeature.properties.color,
+                            opacity: boundaryFeature.properties.opacity,
+                            source: 'boundary-circle'
+                        }
+                    });
                 });
             });
         } catch (error) {
@@ -403,7 +511,7 @@ class AddBoundaryGeometry extends BaseGeometry {
      */
     generateBoundaryTexts(boundaryFeature) {
         const textFeatures = [];
-        const { text_top, text_bottom, text_size, symbol_position_ratio, symbol_size, text_distance_ratio } = boundaryFeature.properties;
+        const { text_top, text_bottom, text_size, symbol_size, text_distance_ratio } = boundaryFeature.properties;
 
         // Normalize baseCoordinates to handle string format from persistence
         const baseCoordinates = this.normalizeBaseCoordinates(boundaryFeature.properties.baseCoordinates);
@@ -415,55 +523,62 @@ class AddBoundaryGeometry extends BaseGeometry {
         try {
             const line = turf.lineString(baseCoordinates);
             const totalLength = turf.length(line, { units: 'kilometers' });
-            const centerPoint = turf.along(line, totalLength * symbol_position_ratio, { units: 'kilometers' });
-
-            const p1 = turf.along(line, totalLength * symbol_position_ratio - 0.01, { units: 'kilometers' });
-            const p2 = turf.along(line, totalLength * symbol_position_ratio + 0.01, { units: 'kilometers' });
-            const localBearing = turf.bearing(p1, p2);
-
             const labelOffset = symbol_size * (text_distance_ratio || 0.9);
-            const textPlacementBearing = localBearing - 90;
-            const textRotation = (localBearing <= 0 || localBearing >= 180) ? localBearing + 90 : localBearing - 90;
+            const instances = this.getSymbolInstances(boundaryFeature.properties);
 
-            if (text_top) {
-                const pTop = turf.destination(centerPoint, labelOffset, textPlacementBearing, { units: 'kilometers' });
-                textFeatures.push({
-                    type: 'Feature',
-                    id: `${boundaryFeature.properties.id}-text-top`,
-                    geometry: {
-                        type: 'Point',
-                        coordinates: pTop.geometry.coordinates
-                    },
-                    properties: {
-                        parent: boundaryFeature.properties.id,
-                        text: text_top,
-                        rotation: textRotation,
-                        text_size: text_size,
-                        color: boundaryFeature.properties.color,
-                        source: 'boundary-text'
-                    }
-                });
-            }
+            // Render the shared labels only at instances that opt in (showLabels).
+            instances.forEach((inst, instanceIndex) => {
+                if (!inst.showLabels) return;
 
-            if (text_bottom) {
-                const pBottom = turf.destination(centerPoint, -labelOffset, textPlacementBearing, { units: 'kilometers' });
-                textFeatures.push({
-                    type: 'Feature',
-                    id: `${boundaryFeature.properties.id}-text-bottom`,
-                    geometry: {
-                        type: 'Point',
-                        coordinates: pBottom.geometry.coordinates
-                    },
-                    properties: {
-                        parent: boundaryFeature.properties.id,
-                        text: text_bottom,
-                        rotation: textRotation,
-                        text_size: text_size,
-                        color: boundaryFeature.properties.color,
-                        source: 'boundary-text'
-                    }
-                });
-            }
+                const { centerPoint, localBearing } = this.getCenterAndBearing(line, totalLength, inst.ratio);
+
+                const textPlacementBearing = localBearing - 90;
+                const textRotation = (localBearing <= 0 || localBearing >= 180) ? localBearing + 90 : localBearing - 90;
+
+                if (text_top) {
+                    const pTop = turf.destination(centerPoint, labelOffset, textPlacementBearing, { units: 'kilometers' });
+                    textFeatures.push({
+                        type: 'Feature',
+                        id: `${boundaryFeature.properties.id}-text-top-${instanceIndex}`,
+                        geometry: {
+                            type: 'Point',
+                            coordinates: pTop.geometry.coordinates
+                        },
+                        properties: {
+                            parent: boundaryFeature.properties.id,
+                            layerId: boundaryFeature.properties.layerId,
+                            text: text_top,
+                            rotation: textRotation,
+                            text_size: text_size,
+                            color: boundaryFeature.properties.color,
+                            opacity: boundaryFeature.properties.opacity,
+                            source: 'boundary-text'
+                        }
+                    });
+                }
+
+                if (text_bottom) {
+                    const pBottom = turf.destination(centerPoint, -labelOffset, textPlacementBearing, { units: 'kilometers' });
+                    textFeatures.push({
+                        type: 'Feature',
+                        id: `${boundaryFeature.properties.id}-text-bottom-${instanceIndex}`,
+                        geometry: {
+                            type: 'Point',
+                            coordinates: pBottom.geometry.coordinates
+                        },
+                        properties: {
+                            parent: boundaryFeature.properties.id,
+                            layerId: boundaryFeature.properties.layerId,
+                            text: text_bottom,
+                            rotation: textRotation,
+                            text_size: text_size,
+                            color: boundaryFeature.properties.color,
+                            opacity: boundaryFeature.properties.opacity,
+                            source: 'boundary-text'
+                        }
+                    });
+                }
+            });
         } catch (error) {
             console.warn('Error generating boundary texts:', error);
         }
@@ -549,44 +664,45 @@ class AddBoundaryGeometry extends BaseGeometry {
         }
 
         try {
-            const ratio = feature.properties.symbol_position_ratio || 0.5;
+            const { MIN_LENGTH_KM } = AddBoundaryGeometry.GEOMETRY_CONSTANTS;
+            const instances = this.getSymbolInstances(feature.properties);
             const line = turf.lineString(validCoords);
             const totalLength = turf.length(line, { units: 'kilometers' });
 
-            if (totalLength > AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM) {
-                const symbolPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
-                const symbolHandleId = `boundary-handle-${id}-symbol`;
-                handles.push({
-                    type: 'Feature',
-                    id: symbolHandleId,
-                    geometry: {
-                        type: 'Point',
-                        coordinates: symbolPoint.geometry.coordinates
-                    },
-                    properties: {
-                        parent: id,
-                        type: 'symbol_handle',
-                        role: 'handle',
-                        handleType: 'symbol_handle',
-                        featureId: id,
-                        mode: 'boundary_editing',
-                        meta: 'vertex',
-                        user_isEditingHandle: true
-                    }
+            if (totalLength > MIN_LENGTH_KM) {
+                // One draggable symbol handle per instance (index identifies the instance).
+                instances.forEach((inst, instanceIndex) => {
+                    const point = turf.along(line, totalLength * inst.ratio, { units: 'kilometers' });
+                    handles.push({
+                        type: 'Feature',
+                        id: `boundary-handle-${id}-symbol-${instanceIndex}`,
+                        geometry: {
+                            type: 'Point',
+                            coordinates: point.geometry.coordinates
+                        },
+                        properties: {
+                            parent: id,
+                            index: instanceIndex,
+                            type: 'symbol_handle',
+                            role: 'handle',
+                            handleType: 'symbol_handle',
+                            featureId: id,
+                            mode: 'boundary_editing',
+                            meta: 'vertex',
+                            user_isEditingHandle: true
+                        }
+                    });
                 });
 
-                const size = feature.properties.symbol_size || 2;
-                const distance1 = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM, totalLength * ratio - AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_POSITION_EPSILON);
-                const distance2 = Math.min(totalLength - AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM, totalLength * ratio + AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_POSITION_EPSILON);
+                // Size + text-distance handles are shared, anchored to the leftmost instance.
+                const anchor = this.getAnchorInstance(instances);
+                const { centerPoint: symbolPoint, localBearing } = this.getCenterAndBearing(line, totalLength, anchor.ratio);
 
-                const p1 = turf.along(line, distance1, { units: 'kilometers' });
-                const p2 = turf.along(line, distance2, { units: 'kilometers' });
-                const localBearing = turf.bearing(p1, p2);
+                const size = feature.properties.symbol_size || 2;
                 const sizeHandlePoint = turf.destination(symbolPoint, size / 2, localBearing + 45, { units: 'kilometers' });
-                const sizeHandleId = `boundary-handle-${id}-size`;
                 handles.push({
                     type: 'Feature',
-                    id: sizeHandleId,
+                    id: `boundary-handle-${id}-size`,
                     geometry: {
                         type: 'Point',
                         coordinates: sizeHandlePoint.geometry.coordinates
@@ -603,16 +719,17 @@ class AddBoundaryGeometry extends BaseGeometry {
                     }
                 });
 
+                // Labels render at every instance that opts in, so show the (single,
+                // shared) text-distance handle whenever ANY instance shows labels.
                 const hasText = (feature.properties.text_top || feature.properties.text_bottom);
-                if (hasText) {
+                if (hasText && instances.some(inst => inst.showLabels)) {
                     const textDistanceRatio = feature.properties.text_distance_ratio || 0.8;
-                    const textOffset = (feature.properties.symbol_size || 2) * textDistanceRatio;
+                    const textOffset = size * textDistanceRatio;
                     const textPlacementBearing = localBearing - 90;
                     const textDistanceHandlePoint = turf.destination(symbolPoint, textOffset, textPlacementBearing, { units: 'kilometers' });
-                    const textDistanceHandleId = `boundary-handle-${id}-text-distance`;
                     handles.push({
                         type: 'Feature',
-                        id: textDistanceHandleId,
+                        id: `boundary-handle-${id}-text-distance`,
                         geometry: {
                             type: 'Point',
                             coordinates: textDistanceHandlePoint.geometry.coordinates
@@ -674,7 +791,7 @@ class AddBoundaryGeometry extends BaseGeometry {
 
         switch (handleType) {
             case 'size_handle': {
-                const ratio = feature.properties.symbol_position_ratio || 0.5;
+                const ratio = this.getAnchorInstance(this.getSymbolInstances(feature.properties)).ratio;
                 const line = turf.lineString(coordinates);
                 const totalLength = turf.length(line, { units: 'kilometers' });
                 const centerPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
@@ -688,12 +805,22 @@ class AddBoundaryGeometry extends BaseGeometry {
                 const pointOnLine = turf.nearestPointOnLine(symbolLine, turf.point(newPosition), { units: 'kilometers' });
                 const distance = pointOnLine.properties.location;
                 const symbolTotalLength = turf.length(symbolLine, { units: 'kilometers' });
-                updatedProperties.symbol_position_ratio = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.POSITION_RATIO_MIN, Math.min(AddBoundaryGeometry.GEOMETRY_CONSTANTS.POSITION_RATIO_MAX, distance / symbolTotalLength));
+                const newRatio = this.clampRatio(distance / symbolTotalLength);
+
+                // Move only the dragged instance; keep the others untouched.
+                const instances = this.getSymbolInstances(feature.properties).map(inst => ({ ...inst }));
+                const idx = (handleIndex !== null && handleIndex >= 0 && handleIndex < instances.length)
+                    ? handleIndex
+                    : 0;
+                instances[idx] = { ...instances[idx], ratio: newRatio };
+                updatedProperties.symbol_instances = instances;
+                // Drop the migrated legacy scalar so storage converges to the array model.
+                delete updatedProperties.symbol_position_ratio;
                 break;
             }
 
             case 'text_distance_handle': {
-                const textRatio = feature.properties.symbol_position_ratio || 0.5;
+                const textRatio = this.getAnchorInstance(this.getSymbolInstances(feature.properties)).ratio;
                 const textLine = turf.lineString(coordinates);
                 const textTotalLength = turf.length(textLine, { units: 'kilometers' });
                 const textCenterPoint = turf.along(textLine, textTotalLength * textRatio, { units: 'kilometers' });

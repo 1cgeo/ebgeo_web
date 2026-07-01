@@ -12,6 +12,8 @@ import { EventTypes } from '../events';
 import { validateImageFile, processImageFile } from '../utilities/image_utils.js';
 import { createSyncMetadata, touchSyncMetadata, isActive } from './sync/sync-metadata.js';
 import { generateUUID } from '../utilities/uuid.js';
+import { deepClone } from '../utilities/deep-utils.js';
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
 import {
     logMarker3dOperation,
     logMeasurement3dOperation,
@@ -49,7 +51,10 @@ function getTargetMapName(mapName) {
  */
 async function getCesium3dDataWithCache(mapName) {
     if (memoryStore.cesium3d && memoryStore.cesium3d._mapName === mapName) {
-        return memoryStore.cesium3d;
+        // Return a clone so mutators work on a throwaway copy. If the subsequent
+        // persist fails, the live cache stays consistent with disk (mirrors
+        // getMapDataCompat, which returns a fresh deserialized copy each call).
+        return deepClone(memoryStore.cesium3d);
     }
     return getCesium3dCompat(mapName);
 }
@@ -60,10 +65,21 @@ async function getCesium3dDataWithCache(mapName) {
  * @param {Object} data
  */
 async function saveCesium3dData(mapName, data) {
-    memoryStore.cesium3d = { ...data, _mapName: mapName };
     const dataToSave = { ...data };
     delete dataToSave._mapName;
-    await setCesium3dCompat(mapName, dataToSave);
+    try {
+        // Persistence-first: write to IndexedDB BEFORE updating the in-memory
+        // cache, so a failed write cannot leave the cache diverged from disk.
+        await setCesium3dCompat(mapName, dataToSave);
+    } catch (error) {
+        emitStoreError(StoreErrorEvents.STORE_PERSIST_ERROR, {
+            operation: 'saveCesium3dData',
+            error: error.message || String(error),
+            timestamp: Date.now()
+        });
+        throw error;
+    }
+    memoryStore.cesium3d = { ...data, _mapName: mapName };
 }
 
 /**
@@ -448,6 +464,10 @@ export async function getMarkerById(markerId, mapName = null) {
 
 /**
  * Updates a marker's properties, style, or position.
+ *
+ * Temporal validity (optional, additive) lives on `properties.temporalInicio`
+ * and `properties.temporalFim` (epoch ms); pass them inside `updates.properties`
+ * to persist a marker's visibility window.
  *
  * @param {string} markerId - Marker ID
  * @param {Object} updates - Properties to update { properties, style, position }

@@ -14,8 +14,9 @@ import { createFeatureTabs } from '../components/feature-tabs.js';
 import { createLocationSection } from '../components/feature-location-section.js';
 import { createGroupTypeSelector } from '../components/group-type-selector.js';
 import { createMultiSelectionActions } from '../components/multi-selection-actions.js';
-import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo } from '@store/index.js';
+import { isCurrentMapLockedSync, startBatchUndo, commitBatchUndo, discardBatchUndo, getControl } from '@store/index.js';
 import { renderReadOnlyAttributesSection } from '@js/user_data/attributes_tab_renderer.js';
+import { createTemporalAttributesSection, createTrajectorySection, createTemporalReadonlySection } from '@js/temporal/temporal-attributes-section.js';
 import { COORDINATE_FORMATS, formatCoordinates } from '@utils/index.js';
 import { createModernSelect, createObservationsSection } from '@tools/helpers/index.js';
 import {
@@ -767,6 +768,11 @@ export async function createFeaturePanelContent({
             readOnlyAttrsContainer.className = 'feature-readonly-attributes-section';
             await renderReadOnlyAttributesSection(readOnlyAttrsContainer, featureId, featureType);
             container.appendChild(readOnlyAttrsContainer);
+
+            // Read-only temporal summary (validity window + trajectory), only when
+            // the feature actually carries temporal data.
+            const temporalReadonly = createTemporalReadonlySection({ feature });
+            if (temporalReadonly) container.appendChild(temporalReadonly);
         }
 
         // For mixed types in locked mode: show read-only type summary
@@ -958,6 +964,19 @@ export async function createFeaturePanelContent({
             uiManager
         });
         container.appendChild(locationSection);
+    }
+
+    // 5b. Temporal sections (single selection, editable map): validity window for
+    // all types + trajectory editor for point / military_symbol / coordination_measure.
+    // Clear any previously-shown trajectory first; the section re-shows it for
+    // trajectory features (so selecting a non-trajectory feature hides it).
+    getControl('TrajectoryEditControl')?.hide();
+    if (isSingleSelection && !mapLocked) {
+        container.appendChild(
+            createTemporalAttributesSection({ feature, featureType, selectedFeatures, control })
+        );
+        const trajectorySection = createTrajectorySection({ feature, featureType, map });
+        if (trajectorySection) container.appendChild(trajectorySection);
     }
 
     // 6. Delete button (hidden when map locked)

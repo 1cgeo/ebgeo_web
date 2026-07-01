@@ -36,15 +36,15 @@ class AddEllipseGeometry extends BaseGeometry {
             return false;
         }
 
-        if (typeof majorRadius !== 'number' || majorRadius < 0.01) {
+        if (!Number.isFinite(majorRadius) || majorRadius < 0.01) {
             return false;
         }
 
-        if (typeof minorRadius !== 'number' || minorRadius < 0.01) {
+        if (!Number.isFinite(minorRadius) || minorRadius < 0.01) {
             return false;
         }
 
-        if (typeof bearing !== 'number' || isNaN(bearing)) {
+        if (!Number.isFinite(bearing)) {
             return false;
         }
 

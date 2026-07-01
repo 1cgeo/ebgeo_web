@@ -55,6 +55,7 @@ class AddSectorControl extends BaseControl {
         hatchSpacing: 8,
         hatchLineWidth: 2,
         aperture: 60,
+        bearing: 0,
         ...LABEL_DEFAULT_PROPERTIES,
     };
     // ===== MAPBOX CONTROL INTERFACE =====
@@ -805,7 +806,9 @@ class AddSectorControl extends BaseControl {
             const center = this.geometry.normalizeCenter(f.properties.center);
             f.geometry = this.geometry.generate(center, f.properties.radius, f.properties.bearing, f.properties.aperture);
         });
-        await this.updateFeatures(features, true, true);
+        // Full update (onlyUpdateProperties=false) so the reverted GEOMETRY is written,
+        // not just properties — the onlyUpdateProperties path drops the regenerated geometry.
+        await this.updateFeatures(features, true, false);
     }
 
     deleteFeatures = async (features) => {

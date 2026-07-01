@@ -5,7 +5,6 @@ import {
   updateFeature,
   removeFeature,
   storeImage,
-  removeImage,
   getActiveLayerIdSync
 } from "../../store";
 import { CoordinationMeasureGenerator } from './coordination_measure_generator.js';
@@ -17,6 +16,7 @@ import {
     applyZoomCorrections as applyZoomCorrectionsUtil,
     syncZoomCorrectedProperty,
 } from '../../tool_manager/helpers/zoom-correction.helpers.js';
+import { reanchorOnMove } from '@js/temporal/trajectory-anchor.js';
 
 class AddCoordinationMeasureControl extends BaseControl {
   featureType = 'coordination_measure';
@@ -124,7 +124,10 @@ class AddCoordinationMeasureControl extends BaseControl {
   }
 
   createSelectionBox(feature) {
-    if (feature.properties.selectionBox) {
+    // A moving (trajectory) measure is displaced from its authored position, so the
+    // stored box (computed at home) no longer matches — recompute from live coords.
+    const moving = Array.isArray(feature.properties.trajetoria) && feature.properties.trajetoria.length >= 2;
+    if (feature.properties.selectionBox && !moving) {
       return { geometry: feature.properties.selectionBox };
     }
 
@@ -223,11 +226,15 @@ class AddCoordinationMeasureControl extends BaseControl {
       effectiveZoom
     );
 
+    // Moving a trajectory feature relocates its anchor (kp 0 = the start position).
+    const anchorPatch = reanchorOnMove(feature.properties, newCoordinates, feature.geometry.coordinates);
+
     const updatedFeature = {
       ...feature,
       geometry: this.geometry.generate(newCoordinates),
       properties: {
         ...feature.properties,
+        ...(anchorPatch || null),
         selectionBox: newSelectionBox,
       },
     };
@@ -989,9 +996,9 @@ class AddCoordinationMeasureControl extends BaseControl {
       try {
         const featureId = feature.properties.id;
 
+        // The rasterized blob is released later, on undo-history eviction, so an
+        // Undo can still restore the measure image.
         await removeFeature("coordination_measures", featureId);
-
-        await removeImage(featureId);
 
         const data = await this.map.getSource("coordination_measures").getData();
         const idsToDelete = new Set(

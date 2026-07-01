@@ -765,6 +765,14 @@ body.briefing-panel-active .coordinates-control-3d {
     left: calc((100% - var(--briefing-panel-width)) / 2) !important;
 }
 
+/* Timeline bar: center on the visible map area (left of the briefing panel) so it
+   isn't hidden under the panel — applies to both edit and present modes. The width
+   is capped to the map area so it never overflows under the panel on narrow screens. */
+body.briefing-panel-active .temporal-bar {
+    left: calc((100% - var(--briefing-panel-width)) / 2) !important;
+    width: min(720px, calc(100vw - var(--briefing-panel-width) - 2 * var(--space-4)));
+}
+
 /* Map: absolute positioning within body to respect briefing panel */
 body.briefing-panel-active {
     position: relative;

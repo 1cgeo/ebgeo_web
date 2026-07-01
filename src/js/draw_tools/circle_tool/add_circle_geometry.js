@@ -31,7 +31,11 @@ class AddCircleGeometry extends BaseGeometry {
             return false;
         }
 
-        if (typeof radius !== 'number' || radius < 10) {
+        if (!Number.isFinite(center[0]) || !Number.isFinite(center[1])) {
+            return false;
+        }
+
+        if (typeof radius !== 'number' || !Number.isFinite(radius) || radius < 10) {
             return false;
         }
 

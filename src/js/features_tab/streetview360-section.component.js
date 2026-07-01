@@ -361,17 +361,23 @@ function showUnavailablePopover(photoName, anchorElement) {
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
 
-    // Close button
-    popover.querySelector('.popover-close').addEventListener('click', () => popover.remove());
+    // Shared teardown removes the popover AND the document listener so the latter
+    // is not orphaned when closing via the X button.
+    const closeOnClickOutside = (e) => {
+        if (!popover.contains(e.target) && !anchorElement.contains(e.target)) {
+            removePopover();
+        }
+    };
+    const removePopover = () => {
+        popover.remove();
+        document.removeEventListener('click', closeOnClickOutside);
+    };
 
-    // Close on click outside
+    // Close button
+    popover.querySelector('.popover-close').addEventListener('click', () => removePopover());
+
+    // Close on click outside (async so the opening click doesn't close it)
     setTimeout(() => {
-        const closeOnClickOutside = (e) => {
-            if (!popover.contains(e.target) && !anchorElement.contains(e.target)) {
-                popover.remove();
-                document.removeEventListener('click', closeOnClickOutside);
-            }
-        };
         document.addEventListener('click', closeOnClickOutside);
     }, 0);
 }

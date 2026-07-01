@@ -1193,7 +1193,9 @@ class AddLineControl extends BaseControl {
             f.geometry = this.geometry.generate(coordinates);
         });
 
-        await this.updateFeatures(features, true, true);
+        // Full update (onlyUpdateProperties=false) so the reverted GEOMETRY is written,
+        // not just properties — the onlyUpdateProperties path drops the regenerated geometry.
+        await this.updateFeatures(features, true, false);
     }
 
     deleteFeatures = async (features) => {

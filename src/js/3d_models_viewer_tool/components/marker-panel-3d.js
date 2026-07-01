@@ -32,6 +32,7 @@ import {
     createSectionDivider
 } from '@tools/helpers/index.js';
 import { getTilesetName, createDescriptionSection, buildPhotoGallerySection } from './panel-shared-3d.js';
+import { createTemporalValiditySection } from '@js/temporal/temporal-attributes-section.js';
 
 /**
  * Icons used in the component.
@@ -118,7 +119,21 @@ export function createMarkerPanelContent(marker, tilesetId, onClose) {
         await updateMarkerProperties(currentMarker.id, { position: currentMarker.position });
     });
 
-    // 6. Delete button at the end
+    // 6. Temporal validity section (near location)
+    container.appendChild(
+        createTemporalValiditySection({
+            inicio: currentMarker.properties?.temporalInicio,
+            fim: currentMarker.properties?.temporalFim,
+            onChange: async (prop, epoch) => {
+                const value = Number.isFinite(epoch) ? epoch : null;
+                currentMarker.properties = { ...currentMarker.properties, [prop]: value };
+                const { updateMarkerProperties } = await getMarkerTool();
+                await updateMarkerProperties(currentMarker.id, { properties: { [prop]: value } });
+            },
+        })
+    );
+
+    // 7. Delete button at the end
     buildDeleteButton(container, currentMarker, onClose);
 
     // Cleanup function

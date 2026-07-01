@@ -33,6 +33,19 @@
  * @property {number} [createdAt] - Creation timestamp (epoch ms)
  * @property {number} [updatedAt] - Last update timestamp (epoch ms)
  * @property {number} [version] - Optimistic concurrency version
+ * @property {number} [temporalInicio] - Temporal validity start (epoch ms); absent = no lower bound
+ * @property {number} [temporalFim] - Temporal validity end (epoch ms); absent = no upper bound
+ * @property {Array<{t: number, lng: number, lat: number}>} [trajetoria] - Movement keypoints
+ *   (epoch-ms timestamped positions) for point/military_symbol/coordination_measure; absent = static
+ */
+
+/**
+ * Per-map temporal configuration (persisted in appStore as `temporal_<mapName>`).
+ * @typedef {Object} TemporalConfig
+ * @property {boolean} ativo - Whether the timeline control is enabled for the map
+ * @property {string} unidade - Division unit: MINUTO | HORA | DIA | SEMANA
+ * @property {number|null} inicio - Timeline start (epoch ms); null = auto from features
+ * @property {number|null} fim - Timeline end (epoch ms); null = auto from features
  */
 
 /**
@@ -52,6 +65,7 @@
  * @property {string} name - Layer display name
  * @property {boolean} visible - Visibility state
  * @property {boolean} locked - Lock state
+ * @property {number} [opacity=1] - Layer opacity multiplier (0-1)
  * @property {number} order - Sort order
  */
 

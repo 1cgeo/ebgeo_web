@@ -27,3 +27,5 @@ export {
 } from './v1-to-v2.migration.js';
 
 export { migrateToV2_1 } from './v2-to-v2.1.migration.js';
+
+export { migrateToV2_2 } from './v2.1-to-v2.2.migration.js';

@@ -155,6 +155,14 @@ export const EventTypes = Object.freeze({
     /** Payload: { mapName, locked } */
     MAP_LOCK_CHANGED: 'map:lockChanged',
 
+    // ===== TEMPORAL =====
+    /** Per-map temporal control toggled. Payload: { mapName, enabled } */
+    MAP_TEMPORAL_CHANGED: 'temporal:mapChanged',
+    /** Per-map temporal config (unit/inicio/fim) changed. Payload: { mapName, config } */
+    TEMPORAL_CONFIG_CHANGED: 'temporal:configChanged',
+    /** Timeline cursor moved. Payload: { cursor } (epoch ms) */
+    TEMPORAL_CURSOR_CHANGED: 'temporal:cursorChanged',
+
     // ===== STORE =====
     /** All data cleared from storage. */
     ALL_DATA_CLEARED: 'store:allDataCleared',

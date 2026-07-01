@@ -30,10 +30,18 @@ class MouseCoordinatesControl {
         // Note: _elevationEnabled and _currentElevation now delegated to StateManager
         this._terrainAvailable = false;
         this._debounceTimer = null;
-        this._elevationAbortController = null;
+        // Monotonic id used to ignore stale elevation results. getTerrainElevation /
+        // queryTerrainElevation accept no AbortSignal, so an AbortController was a
+        // no-op; a generation token actually discards superseded results.
+        this._elevationRequestId = 0;
 
         this.gridControl = null;
         this._name = 'MouseCoordinatesControl';
+
+        // Docking: when the temporal bar is active the readout is relocated into
+        // it (see attachTo/detach). Original parent is remembered to restore it.
+        this._originalParent = null;
+        this._embeddedSlot = null;
 
         /** @type {Array<Function>} Cleanup functions for StateManager subscriptions */
         this._unsubscribers = [];
@@ -314,19 +322,18 @@ class MouseCoordinatesControl {
             clearTimeout(this._debounceTimer);
 
             this._debounceTimer = setTimeout(async () => {
-                if (this._elevationAbortController) {
-                    this._elevationAbortController.abort();
-                }
-
-                this._elevationAbortController = new AbortController();
+                const requestId = ++this._elevationRequestId;
 
                 try {
                     const elevation = await getTerrainElevation(this._map, [lng, lat]);
+                    // Discard the result if a newer request (or onRemove) superseded it.
+                    if (this._elevationRequestId !== requestId) {
+                        resolve(null);
+                        return;
+                    }
                     resolve(elevation);
                 } catch (error) {
-                    if (error.name !== 'AbortError') {
-                        console.warn('Failed to get elevation:', error);
-                    }
+                    console.warn('Failed to get elevation:', error);
                     resolve(null);
                 }
             }, 50);
@@ -526,6 +533,33 @@ class MouseCoordinatesControl {
         }
     }
 
+    /**
+     * Dock the coordinates readout into an external slot (e.g. the temporal
+     * bar's bottom row), neutralizing the floating-pill chrome via the
+     * `--embedded` modifier. Idempotent; all coordinate logic keeps running.
+     * @param {HTMLElement} slot - Target element to host the readout.
+     */
+    attachTo(slot) {
+        if (!this._container || !slot || this._embeddedSlot === slot) return;
+        // Remember the floating parent once, so detach() can restore it.
+        if (!this._originalParent) {
+            this._originalParent = this._container.parentNode;
+        }
+        slot.appendChild(this._container);
+        this._container.classList.add('coordinates-control--embedded');
+        this._embeddedSlot = slot;
+    }
+
+    /** Restore the readout to its floating bottom-center position. Idempotent. */
+    detach() {
+        if (!this._container || !this._embeddedSlot) return;
+        this._container.classList.remove('coordinates-control--embedded');
+        if (this._originalParent) {
+            this._originalParent.appendChild(this._container);
+        }
+        this._embeddedSlot = null;
+    }
+
     getCurrentFormat() {
         return this._currentFormat;
     }
@@ -558,9 +592,8 @@ class MouseCoordinatesControl {
             clearTimeout(this._coordinateThrottleTimeout);
             this._coordinateThrottleTimeout = null;
         }
-        if (this._elevationAbortController) {
-            this._elevationAbortController.abort();
-        }
+        // Invalidate any in-flight elevation query so its late result is ignored.
+        this._elevationRequestId++;
 
         // Clear cached references
         this._stateManagerRef = null;

@@ -686,7 +686,10 @@ class AddOccupiedFrontControl extends BaseControl {
             f.geometry = this.geometry.generate(f.properties.baseCoordinates);
         });
 
-        await this.updateFeatures(features, true, true);
+        // Use full update (onlyUpdateProperties=false) so the reverted GEOMETRY is
+        // written too; the onlyUpdateProperties path copies only properties, leaving
+        // the rendered/persisted shape at the edited geometry.
+        await this.updateFeatures(features, true, false);
     }
 
     deleteFeatures = async (features) => {

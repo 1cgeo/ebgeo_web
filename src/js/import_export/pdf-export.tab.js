@@ -7,7 +7,29 @@ import {
     createExportProgressModal,
     getCleanMapStyle,
 } from './export-utils.js'
-import { GRID_MARGIN_MM, UTM_MAX_SCALE_DENOM, parseScaleDenom } from './pdf-export.constants.js'
+import {
+    GRID_MARGIN_MM,
+    UTM_MAX_SCALE_DENOM,
+    parseScaleDenom,
+    MOSAIC_MAX_DIM,
+    MOSAIC_WARN_TILES,
+    MOSAIC_OVERLAP_MM,
+} from './pdf-export.constants.js'
+import {
+    computeMosaicZoom,
+    pageMercatorSpan,
+    pageContainerCssPx,
+    computeTileCenters,
+    computeMosaicBounds,
+    tileBounds,
+} from './pdf-mosaic-geometry.js'
+// Static import: pdf-cartographic-elements is already pinned to the import-export
+// chunk by pdf-mosaic-export.js (static import), so a dynamic import here would not
+// split it into a separate chunk — it only triggered a Rollup mixed-import warning.
+// Cartographic layout is composed on every PDF export (see "Always compose" below).
+import { composeLayout, loadLogoImage } from './pdf-cartographic-elements.js'
+import { isMapTemporalEnabledSync, getControl } from '@store'
+import { isTemporallyVisible } from '@js/temporal/temporal-model.js'
 
 export default class PDFExportTab {
     constructor(map) {
@@ -20,6 +42,11 @@ export default class PDFExportTab {
         this.marginMM = 5;
         this.paperBounds = null;
         this.usableBounds = null;
+
+        // Mosaic (multi-page) options. rows×cols > 1 switches to full-bleed,
+        // multi-page jsPDF export with double-sided assembly aids.
+        this.rows = 1;
+        this.cols = 1;
 
         // Cartographic layout options
         this.showTitle = false;
@@ -61,17 +88,23 @@ export default class PDFExportTab {
         this.onOrientationChange = this.onOrientationChange.bind(this);
         this.onScaleChange = this.onScaleChange.bind(this);
         this.onDPIChange = this.onDPIChange.bind(this);
+        this.onRowsChange = this.onRowsChange.bind(this);
+        this.onColsChange = this.onColsChange.bind(this);
         this.onExportClick = this.onExportClick.bind(this);
         this.onMapMove = this.onMapMove.bind(this);
+        this._onStyleData = this._onStyleData.bind(this);
+    }
 
-        // Auto-recover preview after base layer changes.
-        // setStyle() destroys all custom sources/layers; this re-adds them.
-        this.map.on('styledata', () => {
-            if (this.isVisible && !this.map.getSource('pdf-export-preview')) {
-                this.showPreview();
-                this.updateBounds();
-            }
-        });
+    /**
+     * Re-adds the preview after a base-layer change. setStyle() destroys all custom
+     * sources/layers; this restores them while the tab is open. Registered in show()
+     * and removed in hide() so the listener stays detachable (no app-lifetime leak).
+     */
+    _onStyleData() {
+        if (this.isVisible && !this.map.getSource('pdf-export-preview')) {
+            this.showPreview();
+            this.updateBounds();
+        }
     }
 
     createUI() {
@@ -82,6 +115,14 @@ export default class PDFExportTab {
         const dpiOptions = this.availableDPI.map(dpi =>
             `<option value="${dpi.value}" ${dpi.value === this.dpi ? 'selected' : ''}>${dpi.label}</option>`
         ).join('');
+
+        const dimOptions = (selected) => {
+            let out = '';
+            for (let n = 1; n <= MOSAIC_MAX_DIM; n++) {
+                out += `<option value="${n}" ${n === selected ? 'selected' : ''}>${n}</option>`;
+            }
+            return out;
+        };
 
         return `
             <div class="pdf-export-container">
@@ -108,6 +149,37 @@ export default class PDFExportTab {
                         <input type="radio" name="pdf-orientation" value="portrait">
                         Retrato (A4)
                     </label>
+                </div>
+
+                <div class="pdf-mosaic-section">
+                    <div class="pdf-mosaic-title">Mosaico (várias páginas)</div>
+                    <div class="pdf-mosaic-dims">
+                        <label class="pdf-mosaic-dim">
+                            <span>Linhas</span>
+                            <select id="pdf-rows-select" class="pdf-mosaic-select">
+                                ${dimOptions(this.rows)}
+                            </select>
+                        </label>
+                        <label class="pdf-mosaic-dim">
+                            <span>Colunas</span>
+                            <select id="pdf-cols-select" class="pdf-mosaic-select">
+                                ${dimOptions(this.cols)}
+                            </select>
+                        </label>
+                    </div>
+                    <div class="pdf-mosaic-count" id="pdf-mosaic-count">1 folha A4</div>
+                    <div class="pdf-mosaic-hint" id="pdf-mosaic-hint">
+                        Imprima em <strong>frente e verso</strong>, em tamanho real. As folhas
+                        compartilham uma <strong>sobreposição de ${MOSAIC_OVERLAP_MM} mm</strong>
+                        nas emendas: corte cada folha pela linha vermelha do verso,
+                        <strong>no meio da faixa repetida</strong>, e ponha por baixo da
+                        vizinha — assim a margem que a impressora não imprime some e não fica
+                        <strong>faixa branca</strong>. A capa traz o passo a passo e o verso traz as
+                        etiquetas de montagem (com o mapa para baixo). Ligue a
+                        <strong>Grade Lat/Long ou UTM</strong> para emoldurar o perímetro com as
+                        coordenadas. Título, legenda, barra de escala e seta-norte são posicionados
+                        como se o mosaico fosse um único mapa (podem cair divididos entre folhas).
+                    </div>
                 </div>
 
                 <div class="pdf-cartographic-section">
@@ -161,6 +233,7 @@ export default class PDFExportTab {
         this.zoomToPreviewArea();
 
         this.map.on('move', this.onMapMove);
+        this.map.on('styledata', this._onStyleData);
 
         // Pre-initialize GDAL WASM in background so it's ready when user clicks export
         this._preInitGdal();
@@ -173,6 +246,7 @@ export default class PDFExportTab {
         this.detachEventListeners();
 
         this.map.off('move', this.onMapMove);
+        this.map.off('styledata', this._onStyleData);
     }
 
     attachEventListeners() {
@@ -191,6 +265,16 @@ export default class PDFExportTab {
             input.addEventListener('change', this.onOrientationChange);
         }
 
+        const rowsSelect = document.getElementById('pdf-rows-select');
+        if (rowsSelect) {
+            rowsSelect.addEventListener('change', this.onRowsChange);
+        }
+
+        const colsSelect = document.getElementById('pdf-cols-select');
+        if (colsSelect) {
+            colsSelect.addEventListener('change', this.onColsChange);
+        }
+
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) {
             exportBtn.addEventListener('click', this.onExportClick);
@@ -198,6 +282,7 @@ export default class PDFExportTab {
 
         // Cartographic options
         this._attachCartographicListeners();
+        this._updateMosaicUIState();
     }
 
     detachEventListeners() {
@@ -214,6 +299,16 @@ export default class PDFExportTab {
         const orientationInputs = document.querySelectorAll('input[name="pdf-orientation"]');
         for (const input of orientationInputs) {
             input.removeEventListener('change', this.onOrientationChange);
+        }
+
+        const rowsSelect = document.getElementById('pdf-rows-select');
+        if (rowsSelect) {
+            rowsSelect.removeEventListener('change', this.onRowsChange);
+        }
+
+        const colsSelect = document.getElementById('pdf-cols-select');
+        if (colsSelect) {
+            colsSelect.removeEventListener('change', this.onColsChange);
         }
 
         const exportBtn = document.getElementById('pdf-export-btn');
@@ -307,6 +402,61 @@ export default class PDFExportTab {
     onOrientationChange(event) {
         this.orientation = event.target.value;
         this.updateBounds();
+        this.zoomToPreviewArea();
+    }
+
+    onRowsChange(event) {
+        this.rows = this._clampDim(event.target.value);
+        this._afterDimChange();
+    }
+
+    onColsChange(event) {
+        this.cols = this._clampDim(event.target.value);
+        this._afterDimChange();
+    }
+
+    /** Parses and clamps a dimension select value to [1, MOSAIC_MAX_DIM]. */
+    _clampDim(value) {
+        const n = parseInt(value, 10) || 1;
+        return Math.min(MOSAIC_MAX_DIM, Math.max(1, n));
+    }
+
+    /** Refreshes preview and dependent UI after a rows/cols change. */
+    _afterDimChange() {
+        this._updateMosaicUIState();
+        this.updateBounds();
+        this.zoomToPreviewArea();
+    }
+
+    /** Whether the current selection spans more than one A4 page. */
+    get isMosaic() {
+        return this.rows * this.cols > 1;
+    }
+
+    /**
+     * Reflects mosaic state in the panel: shows the assembly hint and updates the
+     * sheet count + export button label. Title/legend/scale bar/north arrow are
+     * positioned across the whole mosaic (as if it were a single map), so they stay
+     * available in mosaic mode.
+     */
+    _updateMosaicUIState() {
+        const mosaic = this.isMosaic;
+        const total = this.rows * this.cols;
+
+        const countEl = document.getElementById('pdf-mosaic-count');
+        if (countEl) {
+            countEl.textContent = total === 1 ? '1 folha A4' : `${total} folhas A4 (${this.rows}×${this.cols})`;
+        }
+
+        const hintEl = document.getElementById('pdf-mosaic-hint');
+        if (hintEl) {
+            hintEl.classList.toggle('pdf-mosaic-hint--visible', mosaic);
+        }
+
+        const exportBtn = document.getElementById('pdf-export-btn');
+        if (exportBtn) {
+            exportBtn.textContent = mosaic ? 'Exportar mosaico PDF' : 'Exportar PDF';
+        }
     }
 
     /**
@@ -412,6 +562,11 @@ export default class PDFExportTab {
      * @param {Object} center - The center point with lng and lat properties
      */
     updateBoundsAtCenter(center) {
+        if (this.isMosaic) {
+            this._updateMosaicBoundsAtCenter(center);
+            return;
+        }
+
         const bounds = this.calculateBoundsFromScaleAtCenter(this.scale, this.orientation, center);
 
         // Preview is always north-up — no rotation applied.
@@ -457,6 +612,77 @@ export default class PDFExportTab {
                 features: [paperFeature, usableFeature]
             });
         }
+    }
+
+    /**
+     * Builds the multi-page mosaic preview: one rectangle per A4 tile, laid out
+     * with the same Mercator geometry the export uses (so the preview matches the
+     * printed result exactly). Also sets paperBounds to the whole mosaic so
+     * zoomToPreviewArea() frames the full area.
+     * @param {{lng:number, lat:number}} center
+     */
+    _updateMosaicBoundsAtCenter(center) {
+        const span = this._mosaicPageSpan(center.lat);
+        const tiles = computeTileCenters({
+            rows: this.rows, cols: this.cols,
+            centerLng: center.lng, centerLat: center.lat,
+            pageMercW: span.width, pageMercH: span.height,
+            overlapMercW: span.overlap, overlapMercH: span.overlap,
+        });
+
+        const features = tiles.map(t => {
+            const b = tileBounds({
+                centerLng: t.centerLng, centerLat: t.centerLat,
+                pageMercW: span.width, pageMercH: span.height,
+            });
+            return {
+                type: 'Feature',
+                properties: { type: 'paper', row: t.row, col: t.col },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [[
+                        [b.west, b.north], [b.east, b.north],
+                        [b.east, b.south], [b.west, b.south],
+                        [b.west, b.north],
+                    ]],
+                },
+            };
+        });
+
+        const mb = computeMosaicBounds({
+            centerLng: center.lng, centerLat: center.lat,
+            rows: this.rows, cols: this.cols,
+            pageMercW: span.width, pageMercH: span.height,
+            overlapMercW: span.overlap, overlapMercH: span.overlap,
+        });
+        this.paperBounds = {
+            topLeft: [mb.west, mb.north], topRight: [mb.east, mb.north],
+            bottomRight: [mb.east, mb.south], bottomLeft: [mb.west, mb.south],
+        };
+        this.usableBounds = this.paperBounds;
+
+        const source = this.map.getSource('pdf-export-preview');
+        if (source) {
+            source.setData({ type: 'FeatureCollection', features });
+        }
+    }
+
+    /**
+     * Per-page Mercator span (width/height in metres) and the seam overlap (metres)
+     * at the current scale, orientation and the given latitude. Shared by preview
+     * and (implicitly) the export, which recomputes the same values.
+     * @param {number} lat - Centre latitude
+     * @returns {{ width: number, height: number, overlap: number }}
+     */
+    _mosaicPageSpan(lat) {
+        const [pageWmm, pageHmm] = this.orientation === 'landscape' ? [297, 210] : [210, 297];
+        const zoom = computeMosaicZoom(this._parseScaleDenom(), lat);
+        const span = pageMercatorSpan(zoom, pageContainerCssPx(pageWmm), pageContainerCssPx(pageHmm));
+        // Seam overlap (Mercator metres) so the preview tiles overlap exactly like
+        // the exported sheets do.
+        const overlapCss = pageContainerCssPx(MOSAIC_OVERLAP_MM);
+        const overlap = pageMercatorSpan(zoom, overlapCss, overlapCss).width;
+        return { width: span.width, height: span.height, overlap };
     }
 
     zoomToPreviewArea() {
@@ -647,6 +873,68 @@ export default class PDFExportTab {
         };
     }
 
+    /**
+     * Runs the multi-page mosaic export via the jsPDF pipeline. The hidden map,
+     * tile rendering and PDF assembly live in pdf-mosaic-export.js (lazy-loaded);
+     * this method owns the progress modal and cancellation flag.
+     */
+    async _runMosaicExport() {
+        this.showExportModal();
+        this.updateProgress(5, 'Inicializando...');
+
+        try {
+            const total = this.rows * this.cols;
+            if (total > MOSAIC_WARN_TILES) {
+                this.updateProgress(5, `Mosaico grande (${total} folhas) — isso pode levar um tempo...`);
+            }
+
+            const { exportMosaicPdf } = await import('./pdf-mosaic-export.js');
+
+            // Collect legend stats over the WHOLE mosaic area (usableBounds spans the
+            // full mosaic in mosaic mode) so the legend reflects the assembled map.
+            const featuresByType = this.showLegend
+                ? await this._collectFeatureStats(this._buildExportBoundsPolygon())
+                : {};
+
+            const ok = await exportMosaicPdf({
+                map: this.map,
+                cleanStyle: this.getCleanStyle(),
+                center: this.getVisibleCenter(),
+                scale: this.scale,
+                dpi: this.dpi,
+                orientation: this.orientation,
+                rows: this.rows,
+                cols: this.cols,
+                showLatLongGrid: this.showLatLongGrid,
+                showUTMGrid: this.isUTMGridAllowed,
+                showLegend: this.showLegend,
+                showScaleBar: this.showScaleBar,
+                showNorthArrow: this.showNorthArrow,
+                featuresByType,
+                title: this.showTitle ? this.mapTitle : '',
+                includeCover: true,
+                includeVerso: true,
+                updateProgress: (percent, text) => this.updateProgress(percent, text),
+                isCancelled: () => this._exportCancelled,
+            });
+
+            if (ok) {
+                // Capture the modal locally so a quick second export (which reassigns
+                // this._progress) is not dismissed by this stale timeout.
+                const progress = this._progress;
+                setTimeout(() => progress?.remove(), 800);
+            } else {
+                this._progress?.remove();
+            }
+        } catch (error) {
+            if (!this._exportCancelled) {
+                console.error('Error exporting mosaic PDF:', error);
+                showError('Não foi possível exportar o mosaico: ' + error.message);
+            }
+            this._progress?.remove();
+        }
+    }
+
     async onExportClick() {
         // Prevent concurrent exports
         if (this._exporting) return;
@@ -655,14 +943,30 @@ export default class PDFExportTab {
         const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) exportBtn.disabled = true;
 
+        // Multi-page mosaic uses a separate, full-bleed jsPDF pipeline.
+        if (this.isMosaic) {
+            try {
+                await this._runMosaicExport();
+            } finally {
+                this._exporting = false;
+                this._exportCancelled = false;
+                const btn = document.getElementById('pdf-export-btn');
+                if (btn) btn.disabled = false;
+            }
+            return;
+        }
+
         let hiddenMapContainer;
         let hiddenMap;
+        let Gdal = null;
+        let rasterDataset = null;
+        let outputDataset = null;
 
         try {
             this.showExportModal();
             this.updateProgress(10, 'Inicializando...');
 
-            const Gdal = await initGdalJs({ path: this._getGdalPath(), useWorker: false })
+            Gdal = await initGdalJs({ path: this._getGdalPath(), useWorker: false })
 
             if (this._exportCancelled) return;
 
@@ -735,7 +1039,6 @@ export default class PDFExportTab {
             // Always compose cartographic layout (at minimum draws map border)
             let exportCanvas = hiddenMap.getCanvas();
             {
-                const { composeLayout, loadLogoImage } = await import('./pdf-cartographic-elements.js');
                 const logoImage = await loadLogoImage();
                 exportCanvas = composeLayout(exportCanvas, {
                     title: this.showTitle ? this.mapTitle : null,
@@ -775,7 +1078,7 @@ export default class PDFExportTab {
             this.updateProgress(90, 'Gerando PDF...');
 
             const result = await Gdal.open([new File([pngBlob], 'input.png', { type: 'image/png' })]);
-            const rasterDataset = result.datasets[0];
+            rasterDataset = result.datasets[0];
             const bounds = hiddenMap.getBounds();
             let minX = bounds.getWest();
             let minY = bounds.getSouth();
@@ -805,7 +1108,7 @@ export default class PDFExportTab {
                 '-co', `DPI=${this.dpi}`,
                 '-co', `MARGIN=${marginPoints}`,
             ];
-            const outputDataset = await Gdal.gdal_translate(rasterDataset, translateOptions);
+            outputDataset = await Gdal.gdal_translate(rasterDataset, translateOptions);
 
             this.updateProgress(100, 'Fazendo download...');
 
@@ -820,10 +1123,10 @@ export default class PDFExportTab {
             a.click();
             URL.revokeObjectURL(url);
 
-            Gdal.close(rasterDataset);
-            Gdal.close(outputDataset);
-
-            setTimeout(() => this._progress?.remove(), 800);
+            // Capture locally so a quick second export does not get its modal
+            // dismissed by this stale timeout (this._progress may be reassigned).
+            const progress = this._progress;
+            setTimeout(() => progress?.remove(), 800);
 
         } catch (error) {
             if (!this._exportCancelled) {
@@ -832,6 +1135,11 @@ export default class PDFExportTab {
             }
             this._progress?.remove();
         } finally {
+            // Free GDAL WASM datasets on every path (including errors); leaving them
+            // open grows the WASM heap unboundedly across repeated/failed exports.
+            if (Gdal && rasterDataset) Gdal.close(rasterDataset);
+            if (Gdal && outputDataset) Gdal.close(outputDataset);
+
             this._exporting = false;
             this._exportCancelled = false;
             const btn = document.getElementById('pdf-export-btn');
@@ -970,6 +1278,12 @@ export default class PDFExportTab {
             los: 'los', visibility: 'visibility', setores: 'sector',
         };
 
+        // When temporal control is active, exclude features hidden at the current
+        // cursor so the legend mirrors what is actually rendered. NaN cursor (off)
+        // makes isTemporallyVisible() return true for everything.
+        const temporalActive = isMapTemporalEnabledSync();
+        const cursor = temporalActive ? getControl('TemporalControl')?.getCursor() : NaN;
+
         for (const sourceName of sourceTypes) {
             try {
                 const source = this.map.getSource(sourceName);
@@ -981,6 +1295,11 @@ export default class PDFExportTab {
                 let representativeColor = null;
 
                 for (const feature of data.features) {
+                    // Skip features hidden by the active temporal cursor.
+                    if (temporalActive && !isTemporallyVisible(feature.properties, cursor)) {
+                        continue;
+                    }
+
                     const inBounds = boundsPolygon
                         ? this._featureIntersectsBounds(feature, boundsPolygon)
                         : true;

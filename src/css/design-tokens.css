@@ -169,7 +169,7 @@
     --z-floating: 45;
     --z-modal-backdrop: 50;
     --z-modal: 60;
-    --z-toast: 70;
+    --z-toast: 220;
 
     /* 3D viewer - sidebar will be higher in 3D mode */
     --z-3d-viewer: 200;

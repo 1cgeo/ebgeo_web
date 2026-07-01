@@ -177,6 +177,42 @@
     color: #dc3545 !important;
 }
 
+.layer-opacity-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 2px var(--space-3) 6px calc(var(--space-3) + 28px);
+    user-select: none;
+}
+
+.layer-opacity-label {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    flex-shrink: 0;
+}
+
+.layer-opacity-slider {
+    flex: 1;
+    min-width: 60px;
+    height: 4px;
+    cursor: pointer;
+    accent-color: var(--primary);
+}
+
+.layer-opacity-slider:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.layer-opacity-value {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    min-width: 32px;
+    text-align: right;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+
 .layer-content {
     display: flex;
     flex-direction: column;
@@ -751,6 +787,10 @@
 .features-tab-content.map-locked .feature-controls .lock-toggle,
 .features-tab-content.map-locked .group-controls .visibility-toggle,
 .features-tab-content.map-locked .group-controls .lock-toggle {
+    display: none;
+}
+
+.features-tab-content.map-locked .layer-opacity-row {
     display: none;
 }
 

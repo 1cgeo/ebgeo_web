@@ -60,11 +60,15 @@ export async function createWidget(data, layerId) {
 | Data loss risk (IndexedDB) | `throw` + emit `STORE_PERSIST_ERROR` | DB write failure |
 | Non-critical background | `console.warn()` only | Side effect warning |
 
+Store-error events (`STORE_OPERATION_BLOCKED`, `STORE_PERSIST_ERROR`, `STORE_SYNC_ERROR`) are NOT in `event_types.js`. They live in `StoreErrorEvents` (`store/store-errors.js`) and are emitted with the `emitStoreError` helper:
+
 ```javascript
 // Expected failure example
+import { emitStoreError, StoreErrorEvents } from './store-errors.js';
+
 if (isMapLocked(mapName)) {
-    getEventBus().emit(EventTypes.STORE_OPERATION_BLOCKED, {
-        operation: 'createWidget', mapName
+    emitStoreError(StoreErrorEvents.STORE_OPERATION_BLOCKED, {
+        operation: 'createWidget', reason: 'map_locked'
     });
     return;
 }
@@ -86,17 +90,18 @@ Initialize in `store.js` facade via `setWidgetDependencies()`.
 
 ## Metadata
 
-All features auto-track timestamps:
+Feature mutations auto-track sync metadata via the **private** helpers
+`addCreatedTimestamp()` / `touchUpdatedTimestamp()` inside `feature.operations.js`.
+They are NOT exported — do not import them from another module:
 
 ```javascript
-import { addCreatedTimestamp, touchUpdatedTimestamp } from './feature.operations.js';
-
-// On create:
-addCreatedTimestamp(feature);  // sets createdAt, updatedAt, version: 1
-
-// On update:
+// Inside feature.operations.js only:
+addCreatedTimestamp(feature);    // sets createdAt, updatedAt, version: 1
 touchUpdatedTimestamp(feature);  // bumps updatedAt, version++
 ```
+
+For a new entity type, set the same fields (`createdAt`, `updatedAt`, `version`)
+in your own operation file rather than importing these helpers.
 
 ## Export Checklist
 
@@ -109,7 +114,7 @@ touchUpdatedTimestamp(feature);  // bumps updatedAt, version++
 
 - [ ] Uses `runTransaction` for all mutations
 - [ ] `throw` for invalid args, `return + emit` for expected failures
-- [ ] Timestamps via `addCreatedTimestamp` / `touchUpdatedTimestamp`
+- [ ] Sync metadata set (`createdAt` / `updatedAt` / `version`)
 - [ ] Exported from `store.js` facade
 - [ ] New EventTypes defined in `event_types.js`
 - [ ] Dependencies injected, not imported directly from singletons

@@ -1,133 +1,109 @@
 # EBGeo Web
 
-GIS web para o Exercito Brasileiro. MapLibre GL JS (2D) + Cesium (3D) + Three.js (360). Vanilla JS, Vite, IndexedDB via LocalForage.
+GIS web para o Exército Brasileiro. MapLibre GL JS (2D) + Cesium (3D, lazy) + Three.js (360, lazy). Vanilla JS (ES modules, no framework), Vite, IndexedDB via LocalForage.
+
+Detailed references live in `.claude/rules/` (`architecture.md`, `common-tasks.md`, `testing.md`) and `.claude/skills/` (`new-tool`, `store-op`).
+
+## Non-negotiable
+
+- **NEVER commit.** No `git add` / `git commit` / `git push` — the user reviews and commits manually.
+- **Do NOT use preview or browser tools.** The user tests UI manually; verify only via `npm run lint` and `npm test`.
+- **Protected files** (a PreToolUse hook blocks edits): `package-lock.json`, `.env`, `deploy/`, `public/vendors/`.
 
 ## Commands
 
 ```bash
 npm run dev          # Dev server (port 3000)
-npm run build        # Production build via deploy/deploy.sh
-npm run lint         # ESLint + Stylelint (--max-warnings 0)
+npm run build        # Production build (deploy/deploy.sh)
+npm run lint         # ESLint (--max-warnings 0) + Stylelint
 npm run lint:fix     # Auto-fix lint issues
-npm test             # Vitest
+npm test             # Vitest (single run)
 npm run test:watch   # Vitest watch mode
-npm run knip         # Dead code detection
+npm run test:coverage# Coverage report (no blocking threshold)
+npm run knip         # Dead-code detection
 npm run preview      # Preview production build
 npm run clean        # Clean build artifacts
 ```
 
+Edited `.js`/`.css` files are auto-linted by a PostToolUse hook — expect lint output after each write.
+
 ## Imports
 
-Use path aliases — never relative `../../`:
-`@/` (src root), `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`
+Path aliases only — never relative `../../`:
+`@/` (src root), `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`.
+Each module folder exposes a public `index.js` barrel.
 
-Each module folder has an `index.js` barrel for public exports.
+## Language
 
-## Language Rules
-
-- **UI strings** (labels, tooltips, messages): Portuguese (pt-BR) with correct accents
-- **Code comments and JSDoc**: English
-- Feature properties use Portuguese: `nome`, `descricao`, `visivel`, `bloqueado`
+- **UI strings** (labels, tooltips, messages): Portuguese (pt-BR), correct accents.
+- **Code comments / JSDoc**: English.
+- **Feature properties**: Portuguese — `nome`, `descricao`, `visivel`, `bloqueado`.
 
 ## Code Quality
 
-### No Inline Styles in JS
-Use CSS files with BEM classes (`className`, `classList.add/remove`). Never `style.cssText` or `style.xxx = '...'`.
-**Exception**: dynamic values computed at runtime (colors from JS, calculated positions).
-
-### XSS Prevention
-Never `innerHTML` with user data. Use `textContent` or `document.createElement`. Static SVG icons are OK.
-Import `escapeHtml` from `@utils/html-escape.js` when interpolating user data into HTML.
-
-### Event Listener Cleanup
-Use `setupCleanup/subscribe/addDomListener/trackTimer/cleanup` from `@utils/event-cleanup.js`.
-- MapLibre `map.on()` → matching `map.off()` in `onRemove()`
-- Cesium handlers → `.destroy()` in cleanup
-- `setTimeout` → cleared in cleanup
-- Context menu listeners → cleaned in hide/close function
-
-### Required Utilities
-- `deepClone()` from `@utils/deep-utils.js` (not `JSON.parse(JSON.stringify(...))`)
-- `showToast(msg, type)` from `@utils` (not `alert()`)
-- `generateUUID()` from `@utils/uuid.js` for all IDs
-- `EventTypes.XXX` constants (not hardcoded strings)
-
-### File Path Comments
-Every JS file must keep a path comment on line 1: `// Path: js/utilities/viewer3d-state.js` (relative to `src/`). Never remove these.
-
-### Dead Code
-Remove unused imports, commented-out code, and no-op functions. No `_` prefix aliasing.
+- **No inline styles in JS.** Use BEM classes in CSS files (`className`, `classList.add/remove`), never `style.cssText` or `style.xxx = '...'`. Exception: runtime-computed values (colors from JS, calculated positions).
+- **XSS:** never `innerHTML` with user data — use `textContent` or `document.createElement`. Import `escapeHtml` from `@utils/html-escape.js` when interpolating user data into HTML. Static SVG icons are OK.
+- **Event/resource cleanup:** use `setupCleanup/subscribe/addDomListener/trackTimer/cleanup` from `@utils/event-cleanup.js`. Pair every MapLibre `map.on()` with `map.off()` in `onRemove()`; `.destroy()` Cesium handlers in cleanup; clear `setTimeout`/`setInterval`; clean context-menu listeners on hide/close.
+- **Required utilities:** `deepClone()` (`@utils/deep-utils.js`, not `JSON.parse(JSON.stringify(...))`); `showToast(msg, type)` (`@utils`, not `alert()`); `generateUUID()` (`@utils/uuid.js`) for all IDs; `EventTypes.XXX` constants, never hardcoded event strings.
+- **File path comment** on line 1 of every JS file, relative to `src/`: `// Path: js/draw_tools/point_tool/add_point_control.js`. Never remove it.
+- **Dead code:** remove unused imports, commented-out code, and no-op functions. No `_`-prefix aliasing.
 
 ## Key Patterns
 
-### Tool Pattern (3 files)
-Each draw/military tool: `add_*_control.js` (MapLibre IControl) + `add_*_geometry.js` (geometry logic) + `*_attributes_panel.js` (property editor).
+**Tool (3 files)** — each draw/military tool: `add_*_control.js` (MapLibre IControl) + `add_*_geometry.js` (geometry logic) + `*_attributes_panel.js` (property editor). Scaffold with the `new-tool` skill.
 
-### Store Transaction Pattern
-Feature operations use persistence-first coordination. Side effects only run after IndexedDB succeeds:
+**Store transaction** — mutations are persistence-first; side effects run only after IndexedDB succeeds:
 ```javascript
 await runTransaction(async (tx) => {
-    tx.deferSync(() => updateColorTracking(feature));
-    tx.deferAsync(() => logFeatureOperation(...));
-    return async () => { await repo.set(key, data); };
+    tx.deferSync(() => updateColorTracking(feature));  // UI / color tracking
+    tx.deferAsync(() => logFeatureOperation(...));      // logging / sync queue
+    return async () => { await repo.set(key, data); };  // persistence — runs FIRST
 });
 ```
+Order: persistence → deferSync → deferAsync. If persistence throws, no side effects run. Details in the `store-op` skill.
 
-### Store Error Conventions
-- Invalid argument (bug): `throw new Error(msg)`
-- Expected failure (locked map): return + emit `STORE_OPERATION_BLOCKED`
-- Possible data loss (IndexedDB): throw + emit `STORE_PERSIST_ERROR`
+**Store errors** — invalid argument (bug): `throw new Error(msg)`; expected failure (locked map): `return` + emit `STORE_OPERATION_BLOCKED`; data-loss risk (IndexedDB): `throw` + emit `STORE_PERSIST_ERROR`. Store-error events come from `StoreErrorEvents` in `store/store-errors.js`.
 
-### Event System
+**Events**
 ```javascript
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
-eventBus.on(EventTypes.FEATURE_UPDATED, handler);
-eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
+getEventBus().on(EventTypes.FEATURE_UPDATED, handler);
+getEventBus().emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 ```
 
-### Services Initialization
-```javascript
-import { initServices, getEventBus, getStateManager, getLayerManager } from '@store/services.js';
-initServices(); // Must be called before any component
-```
+**Services** — call `initServices()` (from `@store/services.js`) before any component, then use `getEventBus()` / `getStateManager()` / `getLayerManager()`.
 
-### Control Registry
-```javascript
-import { getControl, registerControl } from '@store';
-registerControl('myTool', instance);
-const ctrl = getControl('myTool');
-```
+**Control registry** — `registerControl('myTool', instance)` / `getControl('myTool')` from `@store`.
 
 ## Feature Types
 
-`'point'`, `'line'`, `'polygon'`, `'circle'`, `'ellipse'`, `'rectangle'`, `'sector'`, `'text'`, `'image'`, `'brush'`, `'arrow'`, `'boundary'`, `'occupied_front'`, `'military_symbol'`, `'coordination_measure'`, `'los'`, `'visibility'`
+`point`, `line`, `polygon`, `circle`, `ellipse`, `rectangle`, `sector`, `text`, `image`, `brush`, `arrow`, `boundary`, `occupied_front`, `military_symbol`, `coordination_measure`, `magnetic_declination`, `los`, `visibility`.
 
 ## Data Model
 
-- **Atlas** → top-level project container
-- **Maps** → workspaces within Atlas
-- **Layers** → feature containers (visibility + locked states)
-- **Features** → geographic elements with sync metadata (`createdAt`, `updatedAt`, `version`, `ownerId`, `dirty`, `deleted`)
-- Active layer receives new features. Layers emit `LAYERS_CHANGED`.
-- Projects saved as `.ebgeo` files.
-- Briefing slides use `modelId` (not `tilesetId`) for 3D references.
+- **Atlas** (top-level project container) → **Maps** (workspaces) → **Layers** (feature containers with visibility + locked states) → **Features** (geographic elements with sync metadata: `createdAt`, `updatedAt`, `version`, `ownerId`, `dirty`, `deleted`).
+- The active layer receives new features; layers emit `LAYERS_CHANGED`.
+- Projects are saved as `.ebgeo` files.
+- Briefing slides reference 3D models via `modelId` (not `tilesetId`).
+- **Temporal data** (optional, per feature): `temporalInicio`/`temporalFim` (validity window, epoch ms — absent = permanent) and `trajetoria` (moving-feature keypoints `{t, lng, lat}`, epoch ms; point/military_symbol/coordination_measure). Per-map temporal config is stored separately (see Temporal Module).
 
 ## Application Modes
 
-`NORMAL` (default) | `BRIEFING_EDIT` (editor) | `BRIEFING_PRESENT` (presentation). Mode changes trigger UI visibility profiles via `ApplicationModeManager`.
+`NORMAL` (default) | `BRIEFING_EDIT` (editor) | `BRIEFING_PRESENT` (presentation). Managed by `ApplicationModeManager` (`mode/application-mode.manager.js`); mode changes drive UI visibility profiles.
 
-## CSS Files
+## Temporal Module
 
-All CSS in `src/css/` (~27 files, plus `briefing/` subfolder). `design-tokens.css` defines CSS custom properties (layout dimensions, colors, z-index, transitions) — use tokens instead of hardcoded values. Component CSS uses BEM naming and matches JS module names.
+Timeline control per map (`temporal/`). Lives in `temporal-controller.js` (playback/cursor) + `temporal-render.service.js` (filters + trajectory positions) + `temporal-model.js` (pure math, node-testable) + `temporal-derivation.service.js` (auto symbol attrs) + `trajectory-tool/` (line-tool-style keypoint editing).
 
-## Preview
+- **Per-map config** persisted under `temporal_<mapName>` (appStore, like map-lock), shape `{ ativo, modo, unidade, inicio, fim, origem }`. Ops in `store/temporal.operations.js` (`getMapTemporalConfigSync` for hot paths, `setMapTemporalConfig`, `toggleMapTemporal`). Emits `MAP_TEMPORAL_CHANGED` (on `ativo` flip) + `TEMPORAL_CONFIG_CHANGED`; cursor moves emit `TEMPORAL_CURSOR_CHANGED`.
+- **Pure-lens model:** absolute epoch ms is canonical; `modo` (absoluto/relativo D+N), `unidade`, and `origem` (D-origin) are display lenses that NEVER mutate feature times. Moving features in time is the explicit "Reagendar" action only: `shiftMapTemporalTimes` (store) + `shiftSourcesTemporal` (live source) — it shifts `temporalInicio`/`temporalFim` + every trajectory `t` and re-derives auto DTG.
+- **Hot path (playback):** runs every rAF — keep it lean. Apply is coalesced (in-flight guard); show/hide filters are quantized to the timeline step in `layers/visibility-filter.js` (rebuild only on step boundaries); trajectory interpolation normalizes once per feature per frame. Reset trajectory caches via `resetTrajectoryCache()` on resync.
+- **Derivation is image-only:** auto direction/speed/DTG on military symbols regenerate the symbol PNG (`generateSymbolBlob` + `loadImageToMap`) and MUST NOT write the GeoJSON source or store — that would race the per-frame geometry pass. Rotation is left fully manual (never auto-driven).
 
-**Do NOT use preview tools.** The user tests UI changes manually. Verify code changes via `npm run lint` and `npm test` only.
+## CSS
 
-## Git
-
-**NEVER commit.** The user reviews all changes and commits manually. Do not run `git add`, `git commit`, or `git push`.
+All CSS in `src/css/` (BEM naming; component files mirror JS module names; `briefing/` subfolder). Use the custom properties in `design-tokens.css` (layout dimensions, colors, z-index, transitions) instead of hardcoded values. Animate with `transform: translateX()`, never `left` (avoids layout thrashing).
 
 ## External Dependencies (script tags)
 

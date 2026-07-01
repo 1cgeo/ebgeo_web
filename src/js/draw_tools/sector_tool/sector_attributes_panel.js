@@ -116,6 +116,18 @@ export function addSectorAttributesToPanel(panel, selectedFeatures, sectorContro
                 }
             }));
 
+            // Bearing (azimuth of central axis) — numeric, 0=North clockwise
+            container.appendChild(createModernSlider({
+                label: 'Azimute',
+                min: 0, max: 360, step: 1,
+                value: Math.round(feature.properties.bearing ?? 0),
+                unit: '°',
+                onChange: (value) => {
+                    // 360 wraps to 0 to keep a single canonical value in [0, 360)
+                    sectorControl.updateFeaturesProperty(selectedFeatures, 'bearing', value % 360);
+                }
+            }));
+
             // Aperture slider
             container.appendChild(createModernSlider({
                 label: 'Ângulo de Abertura',

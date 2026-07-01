@@ -21,6 +21,9 @@ export class ModalBase {
      * @param {string} config.id - Modal ID
      * @param {string} config.title - Modal title
      * @param {string} config.icon - Optional header icon SVG
+     * @param {boolean} [config.destroyOnHide] - For transient single-use modals:
+     *   destroy (cleanup + remove overlay) automatically on hide, so the overlay
+     *   and the document keydown listener are not leaked across open/close cycles.
      */
     constructor(config) {
         this._config = config;
@@ -28,6 +31,7 @@ export class ModalBase {
         this._container = null;
         this._isOpen = false;
         this._previousActiveElement = null;
+        this._destroyOnHide = config?.destroyOnHide === true;
 
         setupCleanup(this);
     }
@@ -183,6 +187,14 @@ export class ModalBase {
         this._overlay.dataset.visible = 'false';
         this._overlay.setAttribute('aria-hidden', 'true');
         document.body.style.overflow = '';
+
+        // Transient modals (a fresh instance per open) destroy themselves on close.
+        if (this._destroyOnHide) {
+            cleanup(this);
+            removeElement(this._overlay);
+            this._overlay = null;
+            this._container = null;
+        }
     }
 
     /**

@@ -937,16 +937,24 @@ export class BriefingEditorControl {
                 handle: '.briefing-editor-slide-handle',
                 ghostClass: 'sortable-ghost',
                 onEnd: async () => {
-                    await this._flushAutosave();
+                    try {
+                        await this._flushAutosave();
+                        // The editor may have been closed mid-drag (close() nulls
+                        // this._briefing); bail out instead of dereferencing null.
+                        if (!this._briefing) return;
 
-                    const newOrder = Array.from(this._slideListEl.children)
-                        .map(el => el.dataset.slideId)
-                        .filter(Boolean);
+                        const newOrder = Array.from(this._slideListEl.children)
+                            .map(el => el.dataset.slideId)
+                            .filter(Boolean);
 
-                    await reorderSlides(this._briefing.id, newOrder);
+                        await reorderSlides(this._briefing.id, newOrder);
+                        if (!this._briefing) return;
 
-                    this._briefing = await getBriefingById(this._briefing.id);
-                    this._renderSlideList();
+                        this._briefing = await getBriefingById(this._briefing.id);
+                        this._renderSlideList();
+                    } catch (error) {
+                        console.error('Error reordering slides:', error);
+                    }
                 }
             });
         });
@@ -1090,6 +1098,8 @@ export class BriefingEditorControl {
 
                 slide.photoId = getCurrentPhotoName();
                 slide.modelId = null;
+                // Temporal cursor only applies to 2D slides.
+                slide.temporalCursor = null;
 
             } else if (isViewer3DOpen()) {
                 // Capture from live Cesium 3D viewer camera
@@ -1120,6 +1130,8 @@ export class BriefingEditorControl {
 
                 slide.modelId = getCurrentTilesetId() || slide.modelId;
                 slide.photoId = null;
+                // Temporal cursor only applies to 2D slides.
+                slide.temporalCursor = null;
 
             } else {
                 // Capture from 2D map
@@ -1148,6 +1160,16 @@ export class BriefingEditorControl {
 
                 slide.modelId = null;
                 slide.photoId = null;
+
+                // Capture the temporal timeline cursor when the active map's
+                // temporal control is enabled; otherwise mark as absent (null).
+                // getCursor() can return NaN when off/unbounded, so store only
+                // finite values (null = permanent / no remembered cursor).
+                const temporalControl = getControl('TemporalControl');
+                const cursor = (temporalControl && temporalControl.isEnabled())
+                    ? temporalControl.getCursor()
+                    : NaN;
+                slide.temporalCursor = Number.isFinite(cursor) ? cursor : null;
             }
 
             // Auto-capture current map
@@ -1517,11 +1539,13 @@ export class BriefingEditorControl {
             // Flush pending autosave so addSlide() reads up-to-date data from IndexedDB
             // (prevents losing position changes on the current slide)
             await this._flushAutosave();
+            if (!this._briefing) return; // editor closed during the await
 
             const emptySlide = createEmptySlide();
             // Pre-select the current map so the slide is ready for position capture
             emptySlide.mapId = getCurrentMapNameSync();
             const newSlide = await addSlide(this._briefing.id, emptySlide);
+            if (!this._briefing) return;
 
             this._briefing = await getBriefingById(this._briefing.id);
             this._renderSlideList();
@@ -1549,10 +1573,13 @@ export class BriefingEditorControl {
         );
 
         if (!confirmed) return;
+        if (!this._briefing) return; // editor closed during the confirm dialog
 
         try {
             await this._flushAutosave();
+            if (!this._briefing) return;
             await removeSlide(this._briefing.id, slideId);
+            if (!this._briefing) return;
 
             this._briefing = await getBriefingById(this._briefing.id);
             this._renderSlideList();
@@ -1635,6 +1662,7 @@ export class BriefingEditorControl {
                 return;
             }
 
+            if (!this._briefing) return; // editor closed during the await above
             const existingSlides = this._briefing.slides.map(s => ({ ...s }));
             const allSlides = [...existingSlides, ...newSlides];
             for (let i = 0; i < allSlides.length; i++) {
@@ -1642,6 +1670,7 @@ export class BriefingEditorControl {
             }
 
             await updateBriefing(this._briefing.id, { slides: allSlides });
+            if (!this._briefing) return;
 
             this._briefing = await getBriefingById(this._briefing.id);
             this._renderSlideList();

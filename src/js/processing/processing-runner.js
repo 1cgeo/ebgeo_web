@@ -45,17 +45,20 @@ export async function runProcessing(options) {
     });
 
     try {
-        let inputFeatures;
+        // Always read geometry from the STORE (the stored/home position), never from
+        // the live selection objects — those get rewritten to the interpolated
+        // position during temporal playback, which would make a selected-only run
+        // process a moving feature at the cursor instead of its authored location.
+        // For "use selected" we just intersect the layer's stored features with the
+        // selected ids, so both paths use identical (home) geometry.
+        let inputFeatures = await getLayerFeatures(sourceLayerId);
         if (useSelectedOnly) {
-            const allSelected = stateManager.getSelectedFeatures();
-            inputFeatures = allSelected
-                .map(item => item.feature)
-                .filter(f => {
-                    const fLayerId = f.properties?.layerId || 'default';
-                    return fLayerId === sourceLayerId;
-                });
-        } else {
-            inputFeatures = await getLayerFeatures(sourceLayerId);
+            const selectedIds = new Set(
+                stateManager.getSelectedFeatures()
+                    .map(item => item.feature?.properties?.id)
+                    .filter(id => id != null)
+            );
+            inputFeatures = inputFeatures.filter(f => selectedIds.has(f.properties?.id));
         }
 
         inputFeatures = inputFeatures.filter(f => {

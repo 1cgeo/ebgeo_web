@@ -107,6 +107,26 @@ export default defineConfig(({ mode: _mode }) => ({
           if (id.includes('draw_tools/point_tool/point-marker-symbols')) {
             return 'core';
           }
+          // point-custom-icons.js is also a leaf module (custom-icon runtime
+          // helpers; imports only @utils/store/events — all core, zero draw_tools
+          // imports). It is consumed by core modules (tool_manager/clipboard_manager,
+          // tool_manager/helpers/marker-symbol-picker, layers/layer_setup), so it
+          // must live in core too — otherwise core statically depends on the
+          // draw-tools chunk and recreates the draw-tools <-> core cycle (TDZ
+          // "Cannot access 'X' before initialization" at runtime).
+          if (id.includes('draw_tools/point_tool/point-custom-icons')) {
+            return 'core';
+          }
+          // drawing-touch-helpers.js is a shared leaf module (touch finish/remove
+          // helpers; imports only utilities/pointer-utils — core). Although it lives
+          // under draw_tools/, it is consumed by military-tools (arrow/boundary) and
+          // by temporal/trajectory-tool. Leaving it in the draw-tools chunk creates a
+          // military-tools -> draw-tools edge (and a temporal -> draw-tools edge),
+          // which feed the import-export -> ui-components -> military-tools ->
+          // draw-tools cycle. Routing it to core removes those cross-tool edges.
+          if (id.includes('draw_tools/drawing-touch-helpers')) {
+            return 'core';
+          }
           // Drawing tools
           if (id.includes('draw_tools')) {
             return 'draw-tools';
@@ -122,6 +142,19 @@ export default defineConfig(({ mode: _mode }) => ({
           // Measurement tools (ephemeral distance/area/angle)
           // In core because layer_setup.js (core) imports setupMeasurementLayers
           if (id.includes('measurement_tool')) {
+            return 'core';
+          }
+          // Temporal module (timeline, trajectory, model, derivation).
+          // Mutually entangled with core's store layer: store/feature.operations
+          // and store/temporal.operations import temporal.utils/temporal.constants,
+          // while temporal depends only on core (store/utils/events/layers/
+          // tool_manager + drawing-touch-helpers, now also core). It is consumed by
+          // draw-tools, military-tools, import-export, ui-components and 3D/360.
+          // Without an explicit rule, Rollup scatters temporal modules across those
+          // chunks, landing shared ones in import-export and creating a phantom
+          // draw-tools -> import-export edge. Pinning it to core makes placement
+          // deterministic and cycle-free.
+          if (id.includes('src/js/temporal/')) {
             return 'core';
           }
 
@@ -276,8 +309,14 @@ export default defineConfig(({ mode: _mode }) => ({
     // Source maps: 'hidden' generates maps without exposing them publicly
     sourcemap: 'hidden',
 
-    // Maximum chunk size before warning
-    chunkSizeWarningLimit: 1000
+    // Maximum chunk size before warning.
+    // core sits at ~1105 kB minified (~340 kB gzip) by design: it is the shared
+    // foundation chunk (store, tool_manager, briefing, modals, catalog, temporal, ...)
+    // and cannot be split further without circular chunk dependencies. The temporal
+    // module lives here because it is mutually entangled with the store layer
+    // (store/feature.operations + store/temporal.operations import temporal helpers),
+    // so it cannot be hoisted to a separate chunk without a core <-> temporal cycle.
+    chunkSizeWarningLimit: 1200
   },
 
   // ===== DEVELOPMENT SERVER =====

@@ -10,7 +10,15 @@ import * as THREE from '../../vendor/three/three.module.js';
 import config from '../config.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
-import { getOrientation, saveOrientation, clearOrientation, getMarkers360 } from '@store';
+import {
+    getOrientation,
+    saveOrientation,
+    clearOrientation,
+    getMarkers360,
+    isMapTemporalEnabledSync,
+    getControl
+} from '@store';
+import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
 import { showSuccess } from '@utils/toast_service.js';
 import { LRUCache } from '@utils/lru-cache.js';
 import { NAV_CONSTANTS } from './navigation/constants.js';
@@ -28,6 +36,10 @@ const PHOTO_PROPERTY = 'photo_uuid';
 // Cache limits
 const TEXTURE_CACHE_MAX_SIZE = 30;  // Max textures to keep in memory (~30-50MB depending on resolution)
 const METADATA_CACHE_MAX_SIZE = 100; // Metadata is small, can keep more
+
+// Retry config for image fetches (mitigates HTTP/2 proxy errors)
+const FETCH_MAX_RETRIES = 3;
+const FETCH_RETRY_DELAY_MS = 500;
 
 // ===== GLOBAL STATE MANAGEMENT =====
 const streetViewState = {
@@ -210,6 +222,9 @@ async function initNavigator(container) {
  * @param {number|null} [prevWorldHeading=null] - Previous world heading in degrees to preserve viewing direction
  */
 async function loadPhoto(photoName, prevWorldHeading = null) {
+    // Capture the photo we are navigating FROM before overwriting currentPhotoName,
+    // so the STREETVIEW_360_PHOTO_CHANGED payload carries a real previousPhoto.
+    const previousPhotoName = streetViewState.currentPhotoName;
     const data = await loadMetadataWithCache(photoName);
     streetViewState.currentInfo = data;
     streetViewState.currentPhotoName = photoName;
@@ -253,7 +268,7 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
 
     // Emit photo changed event
     getEventBus().emit(EventTypes.STREETVIEW_360_PHOTO_CHANGED, {
-        previousPhoto: streetViewState.currentPhotoName,
+        previousPhoto: previousPhotoName,
         currentPhoto: photoName
     });
 }
@@ -263,6 +278,36 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
  * Aborted when a new photo starts loading before the previous one finishes.
  */
 let activeTextureAbort = null;
+
+/**
+ * Fetches a URL as a Blob with retry logic to handle transient HTTP/2 proxy errors.
+ * Validates Content-Length to detect truncated responses from proxy issues.
+ * @param {string} url - URL to fetch
+ * @param {object} options - fetch options (may include signal for abort)
+ * @param {number} [retries=FETCH_MAX_RETRIES] - remaining retry attempts
+ * @returns {Promise<Blob>}
+ */
+async function fetchBlobWithRetry(url, options, retries = FETCH_MAX_RETRIES) {
+    try {
+        const response = await fetch(url, options);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const blob = await response.blob();
+        const expectedLength = response.headers.get('Content-Length');
+        if (expectedLength && blob.size !== parseInt(expectedLength, 10)) {
+            throw new Error(`Truncated response: got ${blob.size}/${expectedLength} bytes`);
+        }
+        return blob;
+    } catch (error) {
+        if (error.name === 'AbortError') throw error;
+        if (retries <= 0) throw error;
+        if (options?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        console.warn(`[street-view-viewer] Fetch failed (${retries} retries left): ${error.message}`);
+        await new Promise(r => setTimeout(r, FETCH_RETRY_DELAY_MS));
+        return fetchBlobWithRetry(url, options, retries - 1);
+    }
+}
 
 /**
  * Creates a Three.js texture from a fetched Blob.
@@ -318,28 +363,22 @@ async function loadTexture(data) {
     const controller = new AbortController();
     activeTextureAbort = controller;
 
+    const { getPhotoImageUrl } = await import('./streetview-api.service.js');
+
     // Phase 1: Load preview for instant feedback
     try {
         if (streetViewState.textureCache.has(previewCacheKey)) {
             applyTexture(streetViewState.textureCache.get(previewCacheKey), data);
         } else {
-            const { getPhotoImageUrl } = await import('./streetview-api.service.js');
             const previewUrl = getPhotoImageUrl(photoId, 'preview');
-            const previewResponse = await fetch(previewUrl, { signal: controller.signal });
+            const previewBlob = await fetchBlobWithRetry(previewUrl, { signal: controller.signal });
             if (activeTextureAbort !== controller) return;
 
-            if (!previewResponse.ok) {
-                console.warn(`[street-view-viewer] Preview fetch failed: HTTP ${previewResponse.status} for ${photoId}`);
-            } else {
-                const previewBlob = await previewResponse.blob();
-                if (activeTextureAbort !== controller) return;
+            const previewTexture = await blobToTexture(previewBlob);
+            streetViewState.textureCache.set(previewCacheKey, previewTexture);
 
-                const previewTexture = await blobToTexture(previewBlob);
-                streetViewState.textureCache.set(previewCacheKey, previewTexture);
-
-                if (activeTextureAbort === controller) {
-                    applyTexture(previewTexture, data);
-                }
+            if (activeTextureAbort === controller) {
+                applyTexture(previewTexture, data);
             }
         }
     } catch (error) {
@@ -350,21 +389,14 @@ async function loadTexture(data) {
 
     // Phase 2: Load full-resolution image
     try {
-        const { getPhotoImageUrl } = await import('./streetview-api.service.js');
         const fullUrl = getPhotoImageUrl(photoId, 'full');
-
-        const response = await fetch(fullUrl, { signal: controller.signal });
-
-        if (!response.ok) {
-            throw new Error(`Full-res fetch failed: HTTP ${response.status} for ${photoId}`);
-        }
-
-        const blob = await response.blob();
+        const blob = await fetchBlobWithRetry(fullUrl, { signal: controller.signal });
 
         if (activeTextureAbort !== controller) return;
-        activeTextureAbort = null;
 
         const fullTexture = await blobToTexture(blob);
+        if (activeTextureAbort !== controller) return;
+        activeTextureAbort = null;
         streetViewState.textureCache.set(fullCacheKey, fullTexture);
         applyTexture(fullTexture, data);
 
@@ -394,9 +426,8 @@ async function prefetchTargetPreviews(targets) {
         const cacheKey = `preview:${targetId}`;
         if (streetViewState.textureCache.has(cacheKey)) continue;
 
-        // Low-priority background fetch
-        fetch(getPhotoImageUrl(targetId, 'preview'), { priority: 'low' })
-            .then(r => r.blob())
+        // Low-priority background fetch with retry
+        fetchBlobWithRetry(getPhotoImageUrl(targetId, 'preview'), { priority: 'low' }, 1)
             .then(blob => blobToTexture(blob))
             .then(tex => {
                 // Only cache if not already cached (another navigation may have loaded it)
@@ -696,6 +727,9 @@ function onPointerUp(event) {
 }
 
 function onPointerMoveGlobal(_event) {
+    // This document-level listener is not removed on close (the scene is kept for
+    // resume). Guard so it does no work app-wide once the viewer is hidden.
+    if (!streetViewState.isVisible) return;
     updateCurrentHeading();
 }
 
@@ -962,16 +996,62 @@ async function handleMarkerPositionClicked(data) {
 }
 
 /**
- * Loads and displays markers for the current photo
+ * Filters 360 markers by temporal validity when the active map has the temporal
+ * module enabled. When temporal is off (or the cursor is unavailable/NaN) every
+ * marker is returned unchanged.
+ * @param {Array} markers - Markers for the current photo.
+ * @returns {Array} Markers visible at the current temporal cursor.
  */
+function filterMarkersByTemporal(markers) {
+    if (!isMapTemporalEnabledSync()) return markers;
+
+    const cursor = getControl('TemporalControl')?.getCursor();
+    if (!Number.isFinite(cursor)) return markers;
+
+    return markers.filter(marker => isTemporallyVisible(marker.properties, cursor));
+}
+
+/**
+ * Loads and displays markers for the current photo, applying the temporal
+ * visibility filter. Re-running this (e.g. on cursor change) replaces the
+ * navigator POI set, so markers that fall outside the active temporal window
+ * are removed from the panorama.
+ */
+// Signature (visible marker ids) of the POI set currently applied to the
+// navigator, so temporal refreshes can skip rebuilds when nothing changed.
+let lastTemporalPoiSignature = null;
+
 async function loadMarkersForCurrentPhoto() {
     if (!streetViewState.navigator || !streetViewState.currentPhotoName) return;
 
     try {
         const markers = await getMarkers360(streetViewState.currentPhotoName);
-        streetViewState.navigator.setPOIs(markers);
+        const visible = filterMarkersByTemporal(markers);
+        lastTemporalPoiSignature = visible.map(m => m.id).join(',');
+        streetViewState.navigator.setPOIs(visible);
     } catch (error) {
         console.error('Failed to load markers:', error);
+    }
+}
+
+/**
+ * Re-applies the temporal filter to the current photo's markers when the
+ * timeline cursor moves or the map temporal config changes. TEMPORAL_CURSOR_CHANGED
+ * fires every animation frame during playback, so the POI set is rebuilt only
+ * when the set of visible markers actually changes.
+ */
+async function handleTemporalRefresh() {
+    if (!streetViewState.isVisible || !streetViewState.navigator || !streetViewState.currentPhotoName) return;
+
+    try {
+        const markers = await getMarkers360(streetViewState.currentPhotoName);
+        const visible = filterMarkersByTemporal(markers);
+        const signature = visible.map(m => m.id).join(',');
+        if (signature === lastTemporalPoiSignature) return;
+        lastTemporalPoiSignature = signature;
+        streetViewState.navigator.setPOIs(visible);
+    } catch (error) {
+        console.error('Failed to refresh 360 markers:', error);
     }
 }
 
@@ -1209,6 +1289,12 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
     eventBus.off(EventTypes.LAYERS_CHANGED, handleLayersChanged);
     eventBus.on(EventTypes.LAYERS_CHANGED, handleLayersChanged);
 
+    eventBus.off(EventTypes.TEMPORAL_CURSOR_CHANGED, handleTemporalRefresh);
+    eventBus.on(EventTypes.TEMPORAL_CURSOR_CHANGED, handleTemporalRefresh);
+
+    eventBus.off(EventTypes.MAP_TEMPORAL_CHANGED, handleTemporalRefresh);
+    eventBus.on(EventTypes.MAP_TEMPORAL_CHANGED, handleTemporalRefresh);
+
     // Mark as visible BEFORE init/load so closeViewer360 can always work.
     // resumeRendering() also sets this, but we need it as early as possible
     // to guarantee the close button is functional even if loading fails.
@@ -1276,8 +1362,13 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
             retryOnLoad();
             if (streetViewState.miniMap.getLayer('selected')) {
                 streetViewState.miniMap.off('sourcedata', onSourceData);
+                streetViewState.miniMapSourceDataHandler = null;
             }
         };
+        // Track the handler so closeViewer360 can detach it if the 'selected' layer
+        // never gets created (e.g. viewer closed before tiles load) — otherwise it
+        // keeps firing on the persistent minimap for the rest of the session.
+        streetViewState.miniMapSourceDataHandler = onSourceData;
         streetViewState.miniMap.on('sourcedata', onSourceData);
         // Also try on idle (when map is fully done)
         streetViewState.miniMap.once('idle', retryOnLoad);
@@ -1303,6 +1394,12 @@ export async function closeViewer360() {
 
     // Pause rendering
     pauseRendering();
+
+    // Detach the deep-link minimap retry listener if it never self-removed.
+    if (streetViewState.miniMap && streetViewState.miniMapSourceDataHandler) {
+        streetViewState.miniMap.off('sourcedata', streetViewState.miniMapSourceDataHandler);
+        streetViewState.miniMapSourceDataHandler = null;
+    }
 
     // Remove close button listener
     const closeBtn = document.getElementById('close-street-view-button');
@@ -1334,6 +1431,8 @@ export async function closeViewer360() {
     eventBus.off(EventTypes.MARKER_360_POSITION_CLICKED, handleMarkerPositionClicked);
     eventBus.off(EventTypes.MARKERS_360_CHANGED, loadMarkersForCurrentPhoto);
     eventBus.off(EventTypes.LAYERS_CHANGED, handleLayersChanged);
+    eventBus.off(EventTypes.TEMPORAL_CURSOR_CHANGED, handleTemporalRefresh);
+    eventBus.off(EventTypes.MAP_TEMPORAL_CHANGED, handleTemporalRefresh);
 
     // Emit event
     eventBus.emit(EventTypes.STREETVIEW_360_CLOSED, {});

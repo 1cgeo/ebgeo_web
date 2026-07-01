@@ -933,6 +933,16 @@ class AddArrowControl extends BaseControl {
                 feature.properties[property] = value;
 
                 if (['width', 'headLengthRatio', 'showArrowHead', 'airmobile', 'airmobilePosition', 'baseCoordinates', 'branches'].includes(property)) {
+                    // For merged arrows, generateMergedGeometry reads each branch's own
+                    // value (branch.X || properties.X), so a top-level change is ignored
+                    // unless we also write it into every branch.
+                    const BRANCH_PROPS = ['width', 'headLengthRatio', 'showArrowHead', 'airmobile', 'airmobilePosition'];
+                    if (Array.isArray(sourceFeature.properties.branches) && BRANCH_PROPS.includes(property)) {
+                        for (const branch of sourceFeature.properties.branches) {
+                            branch[property] = value;
+                        }
+                    }
+
                     const newGeometry = this.geometry.generate(
                         sourceFeature.properties.baseCoordinates,
                         sourceFeature.properties
@@ -977,7 +987,10 @@ class AddArrowControl extends BaseControl {
             f.geometry = this.geometry.generate(f.properties.baseCoordinates, f.properties);
         });
 
-        await this.updateFeatures(features, true, true);
+        // Use full update (onlyUpdateProperties=false) so the reverted GEOMETRY is
+        // written too; the onlyUpdateProperties path copies only properties, leaving
+        // the rendered/persisted shape at the edited geometry.
+        await this.updateFeatures(features, true, false);
     }
 
     deleteFeatures = async (features) => {

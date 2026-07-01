@@ -42,7 +42,8 @@ export class ExportModal extends ModalBase {
         super({
             id: 'export-modal',
             title: 'Exportar Projeto',
-            icon: ICONS.download
+            icon: ICONS.download,
+            destroyOnHide: true
         });
 
         this._onExport = options.onExport || (() => {});

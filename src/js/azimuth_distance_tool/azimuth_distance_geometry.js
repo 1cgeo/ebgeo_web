@@ -327,7 +327,8 @@ export async function generatePointFeatures(options) {
         layerId,
         style,
         polarData,
-        observations = []
+        observations = [],
+        currentZoom = 0
     } = options;
 
     if (!waypoints || waypoints.length === 0) {
@@ -360,6 +361,13 @@ export async function generatePointFeatures(options) {
                 fillColor: style?.fillColor || '#16a34a',
                 size: style?.size || 10,
                 opacity: style?.opacity || 1,
+
+                // Anchor zoom-correction to the current zoom (like a drawn point), or
+                // the 2^(zoom-createdAtZoom) factor balloons the marker at any zoom.
+                sizeCreatedAtZoom: currentZoom,
+                calculatedSize: style?.size || 10,
+                labelCreatedAtZoom: currentZoom,
+                labelCalculatedSize: 14,
 
                 // Store polar construction metadata for reference
                 azimuthDistanceData: {

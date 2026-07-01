@@ -1,6 +1,7 @@
 // Path: js/terrain/data-layers.manager.js
 // Manages vector data layers (molduras, etc.) from config.dataLayers
 import config from '../config.js';
+import { LAYOUT_PROPS } from '@layers/layer-style/layer-style.schema.js';
 
 /**
  * Manages vector data layers in the system.
@@ -181,6 +182,109 @@ class DataLayersManager {
         }
     }
 
+    /**
+     * Builds a structured style descriptor for a vector data layer: which
+     * sub-layers exist and the default (config) value of each editable property.
+     * Values may be plain colors/numbers OR data-driven MapLibre expressions
+     * (case/match/interpolate/step), preserved verbatim from config.
+     *
+     * Defaults for absent properties mirror MapLibre's own paint defaults so
+     * that applying a descriptor never changes the look of a property the user
+     * did not edit.
+     * @param {string} layerId
+     * @returns {{kind:'vector', sublayers:Object}}
+     */
+    getStyleDescriptor(layerId) {
+        const style = this.getLayerConfig(layerId)?.style || {};
+        const fill = style.fill;
+        const border = style.border;
+        const label = style.label;
+        const labelPaint = label?.paint || {};
+        const labelLayout = label?.layout || {};
+
+        return {
+            kind: 'vector',
+            sublayers: {
+                fill: {
+                    present: !!fill,
+                    // Mirror _addFillLayer's own fallbacks (|| not ??) so applying
+                    // the descriptor never changes an untouched property.
+                    values: {
+                        'fill-color': fill?.color || 'rgba(0,0,0,0.1)',
+                        'fill-opacity': fill?.opacity ?? 1
+                    }
+                },
+                border: {
+                    present: !!border,
+                    // Mirror _addBorderLayer's fallbacks exactly (|| 1, || '#666666').
+                    values: {
+                        'line-color': border?.color || '#666666',
+                        'line-width': border?.width || 1,
+                        'line-opacity': border?.opacity || 1
+                    }
+                },
+                label: {
+                    present: !!label,
+                    values: {
+                        'text-color': labelPaint['text-color'] ?? '#000000',
+                        'text-halo-color': labelPaint['text-halo-color'] ?? 'rgba(0,0,0,0)',
+                        'text-halo-width': labelPaint['text-halo-width'] ?? 0,
+                        'text-size': labelLayout['text-size'] ?? 16
+                    }
+                }
+            }
+        };
+    }
+
+    /**
+     * Applies user style overrides to the fill / border / label sub-layers,
+     * falling back to config defaults for any property not overridden. Accepts
+     * scalar values or data-driven expressions.
+     * @param {string} layerId
+     * @param {Object} overrides - Nested map { fill:{prop:val}, border:{...}, label:{...} }.
+     */
+    applyStyleOverrides(layerId, overrides) {
+        const descriptor = this.getStyleDescriptor(layerId);
+
+        for (const [subKey, sub] of Object.entries(descriptor.sublayers)) {
+            if (!sub.present) continue;
+
+            const mapLayerId = `data-${layerId}-${subKey}`;
+            if (!this.map.getLayer(mapLayerId)) continue;
+
+            const merged = { ...sub.values, ...(overrides?.[subKey] || {}) };
+            for (const [prop, value] of Object.entries(merged)) {
+                if (LAYOUT_PROPS.has(prop)) {
+                    this._setLayout(mapLayerId, prop, value);
+                } else {
+                    this._setPaint(mapLayerId, prop, value);
+                }
+            }
+        }
+    }
+
+    /** Safely sets a paint property if the layer exists. */
+    _setPaint(layerId, prop, value) {
+        if (value === undefined || value === null) return;
+        if (!this.map.getLayer(layerId)) return;
+        try {
+            this.map.setPaintProperty(layerId, prop, value);
+        } catch (error) {
+            console.warn(`Error setting paint ${prop} on ${layerId}:`, error);
+        }
+    }
+
+    /** Safely sets a layout property if the layer exists. */
+    _setLayout(layerId, prop, value) {
+        if (value === undefined || value === null) return;
+        if (!this.map.getLayer(layerId)) return;
+        try {
+            this.map.setLayoutProperty(layerId, prop, value);
+        } catch (error) {
+            console.warn(`Error setting layout ${prop} on ${layerId}:`, error);
+        }
+    }
+
     /** Adds a source if it does not already exist */
     _addSourceSafe(sourceId, sourceConfig) {
         if (!this.map.getSource(sourceId)) {
@@ -256,7 +360,10 @@ class DataLayersManager {
         const labelLayerId = `data-${layerConfig.id}-label`;
         if (this.map.getLayer(labelLayerId) || !layerConfig.style?.label) return;
 
+        // Honor any author-specified layout (text-size, text-font, anchor, …) —
+        // text-field/visibility are forced afterwards so the layer starts hidden.
         const layout = {
+            ...(layerConfig.style.label.layout || {}),
             'text-field': layerConfig.style.label.textField || ['get', 'name'],
             visibility: 'none'
         };

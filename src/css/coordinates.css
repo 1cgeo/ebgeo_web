@@ -39,6 +39,27 @@
     visibility: visible !important;
 }
 
+/* ===== EMBEDDED (docked into the temporal bar) =====
+   When the temporal bar is active it hosts this readout in its bottom row.
+   Strip the floating-pill chrome (fixed position, background, border, shadow)
+   so it sits flush inside the bar. Two classes + !important to beat the base
+   rules above, which are themselves !important. */
+.coordinates-control.coordinates-control--embedded {
+    position: relative !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: auto !important;
+    transform: none !important;
+    z-index: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
 /* ===== INTERNAL ELEMENTS ===== */
 .coordinates-display {
     display: flex !important;

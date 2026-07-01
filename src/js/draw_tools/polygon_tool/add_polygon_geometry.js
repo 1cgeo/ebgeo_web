@@ -32,14 +32,14 @@ class AddPolygonGeometry extends BaseGeometry {
             return false;
         }
 
-        // Check that all points are valid coordinates
+        // Check that all points are valid, finite coordinates.
+        // Number.isFinite rejects NaN, Infinity and -Infinity (and non-numbers),
+        // which !isNaN(...) would have let through (isNaN(Infinity) === false).
         return coordinates.every(point =>
             Array.isArray(point) &&
             point.length >= 2 &&
-            typeof point[0] === 'number' &&
-            typeof point[1] === 'number' &&
-            !isNaN(point[0]) &&
-            !isNaN(point[1])
+            Number.isFinite(point[0]) &&
+            Number.isFinite(point[1])
         );
     }
 
@@ -431,8 +431,17 @@ class AddPolygonGeometry extends BaseGeometry {
      * @returns {Array} Updated coordinates
      */
     insertVertexAtIndex(coordinates, index, newPoint) {
+        if (!Array.isArray(coordinates)) {
+            return null;
+        }
+
         const newCoordinates = [...coordinates];
-        newCoordinates.splice(index, 0, newPoint);
+        // Clamp the insertion index to [0, length] so a negative or out-of-range
+        // index cannot make splice() insert from the end or silently misbehave.
+        const safeIndex = Number.isFinite(index)
+            ? Math.max(0, Math.min(Math.trunc(index), newCoordinates.length))
+            : newCoordinates.length;
+        newCoordinates.splice(safeIndex, 0, newPoint);
         return newCoordinates;
     }
 

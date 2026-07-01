@@ -633,6 +633,12 @@ class AddImageControl extends BaseControl {
 
         await removeFeature("images", featureId);
 
+        // Release the MapLibre image (GPU texture). The IndexedDB blob is released
+        // later, on undo-history eviction, so an Undo can still restore the image.
+        if (this.map.hasImage(featureId)) {
+          this.map.removeImage(featureId);
+        }
+
         const data = await this.map.getSource("images").getData();
         const idsToDelete = new Set(
           features.map((f) => String(f.properties.id))

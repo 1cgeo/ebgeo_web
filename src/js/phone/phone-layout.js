@@ -68,6 +68,7 @@ const CONTROL_KEY_TO_REGISTRY = {
     arrowControl: 'AddArrowControl',
     boundaryControl: 'AddBoundaryControl',
     occupiedFrontControl: 'AddOccupiedFrontControl',
+    declinationControl: 'AddDeclinationControl',
     losControl: 'AddLOSControl',
     visibilityControl: 'AddVisibilityControl',
     measureDistanceControl: 'MeasurementDistanceControl',
@@ -343,6 +344,16 @@ export class PhoneLayout {
                 this._map.flyTo({ center: result.coordinates, zoom: 14 });
             }
             this._searchOverlay.close();
+
+            // Open the feature in the editor via the shared FEATURE_PANEL_OPENED
+            // handler (onFeaturePanelOpened) rather than duplicating showFeature here
+            // — also covers Multi* features that have no centroid for flyTo.
+            if (result.id && result.featureType) {
+                getEventBus().emit(EventTypes.FEATURE_PANEL_OPENED, {
+                    featureId: result.id,
+                    featureType: result.featureType,
+                });
+            }
         });
     }
 
@@ -893,6 +904,9 @@ export class PhoneLayout {
 
                         results.push({
                             id: props.id,
+                            // Plural storage-type key (getFeatureById indexes features[type]);
+                            // props.source is singular and would miss the collection.
+                            featureType: storageType,
                             text: nome || 'Sem nome',
                             subtitle: layerName,
                             coordinates,
@@ -943,6 +957,19 @@ export class PhoneLayout {
                 return [sumLng / ring.length, sumLat / ring.length];
             }
             return null;
+        case 'MultiPoint':
+            return geometry.coordinates?.length
+                ? [...geometry.coordinates[0]].slice(0, 2)
+                : null;
+        case 'MultiLineString':
+            // Delegate to the first sub-line (e.g. boundary features are MultiLineString).
+            return geometry.coordinates?.length
+                ? this._getFeatureCentroid({ type: 'LineString', coordinates: geometry.coordinates[0] })
+                : null;
+        case 'MultiPolygon':
+            return geometry.coordinates?.length
+                ? this._getFeatureCentroid({ type: 'Polygon', coordinates: geometry.coordinates[0] })
+                : null;
         default:
             return null;
         }

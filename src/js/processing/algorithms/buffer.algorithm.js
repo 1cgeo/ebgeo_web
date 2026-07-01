@@ -13,6 +13,7 @@ import {
     extractBaseCoordinates,
 } from '../processing.constants.js';
 import { buildAlgorithmPanelScaffold } from './panel-builder.js';
+import { mergeTemporalWindows } from '@js/temporal/temporal-model.js';
 
 // ============================================================================
 // CONSTANTS
@@ -152,33 +153,52 @@ function executeBuffer(features, params) {
             const buffered = window.turf.buffer(feature, distance, { units: 'meters' });
 
             if (buffered && buffered.geometry) {
-                const baseCoordinates = extractBaseCoordinates(buffered.geometry.coordinates[0]);
+                // turf.buffer can return a MultiPolygon (e.g. buffering disjoint
+                // MultiLineString/MultiPolygon inputs). The polygon tool expects each
+                // feature's baseCoordinates to be a flat ring of [lng,lat] points, so
+                // emit ONE polygon feature per polygon — otherwise baseCoordinates
+                // taken from coordinates[0] of a MultiPolygon is a malformed array of
+                // rings that corrupts the shape on the first edit/move.
+                const geom = buffered.geometry;
+                const polygons = geom.type === 'MultiPolygon'
+                    ? geom.coordinates
+                    : [geom.coordinates];
 
-                const props = {
-                    ...POLYGON_DEFAULTS,
-                    source: 'polygon',
-                    nome: feature.properties?.nome || '',
-                    descricao: feature.properties?.descricao || '',
-                    visivel: true,
-                    bloqueado: false,
-                    baseCoordinates,
-                };
+                for (const polygonCoords of polygons) {
+                    const baseCoordinates = extractBaseCoordinates(polygonCoords[0]);
+                    // Skip degenerate/empty rings (e.g. a negative buffer that collapsed
+                    // the shape) — they would persist a feature with no editable geometry.
+                    if (!baseCoordinates || baseCoordinates.length === 0) continue;
 
-                if (feature.properties?.attributes) {
-                    props.attributes = structuredClone(feature.properties.attributes);
+                    const props = {
+                        ...POLYGON_DEFAULTS,
+                        source: 'polygon',
+                        nome: feature.properties?.nome || '',
+                        descricao: feature.properties?.descricao || '',
+                        visivel: true,
+                        bloqueado: false,
+                        baseCoordinates,
+                    };
+
+                    if (feature.properties?.attributes) {
+                        props.attributes = structuredClone(feature.properties.attributes);
+                    }
+                    if (feature.properties?.images) {
+                        props.images = structuredClone(feature.properties.images);
+                    }
+                    // Inherit the source feature's temporal validity, else the buffer
+                    // would be silently permanent (shown at every cursor during playback).
+                    Object.assign(props, mergeTemporalWindows([feature.properties]));
+
+                    results.push({
+                        type: 'Feature',
+                        properties: props,
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: polygonCoords,
+                        },
+                    });
                 }
-                if (feature.properties?.images) {
-                    props.images = structuredClone(feature.properties.images);
-                }
-
-                results.push({
-                    type: 'Feature',
-                    properties: props,
-                    geometry: {
-                        type: buffered.geometry.type,
-                        coordinates: buffered.geometry.coordinates,
-                    },
-                });
             }
         } catch (error) {
             console.warn(`Buffer falhou para feição ${feature.properties?.id}:`, error);

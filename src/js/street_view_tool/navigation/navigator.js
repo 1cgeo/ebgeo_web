@@ -13,6 +13,7 @@ import { StreetViewHitTester } from './hit-tester.js';
 import { StreetViewMinimapSync } from './minimap-sync.js';
 import { getEventBus } from '@store/services.js';
 import { EventTypes } from '@events/event_types.js';
+import { showToast } from '@utils';
 
 // Threshold in pixels to distinguish drag from click
 const DRAG_THRESHOLD = 5;
@@ -595,13 +596,20 @@ export class StreetViewNavigator {
             }
         };
 
-        document.addEventListener('pointermove', handleDragMove);
-
-        // Cleanup on pointer up
+        // Cleanup on pointer up OR cancel (touch interruption / browser gesture
+        // takeover). Without pointercancel, handleDragMove leaks on the document.
+        // Exposed via _activeDragCleanup so dispose() can detach an in-flight drag.
         const cleanup = () => {
             document.removeEventListener('pointermove', handleDragMove);
+            document.removeEventListener('pointerup', cleanup);
+            document.removeEventListener('pointercancel', cleanup);
+            this._activeDragCleanup = null;
         };
-        document.addEventListener('pointerup', cleanup, { once: true });
+        this._activeDragCleanup = cleanup;
+
+        document.addEventListener('pointermove', handleDragMove);
+        document.addEventListener('pointerup', cleanup);
+        document.addEventListener('pointercancel', cleanup);
     }
 
     /**
@@ -703,9 +711,12 @@ export class StreetViewNavigator {
      * @param {Object} target - Target object with img property
      */
     navigateToTarget(target) {
-        import('../street_view_viewer.js').then(module => {
-            module.navigateToTarget(target.img);
-        });
+        import('../street_view_viewer.js')
+            .then(module => module.navigateToTarget(target.img))
+            .catch(error => {
+                console.error('Error navigating to target photo:', error);
+                showToast('Erro ao navegar para a foto', 'error');
+            });
     }
 
     /**
@@ -785,6 +796,10 @@ export class StreetViewNavigator {
      */
     dispose() {
         if (!this.initialized) return;
+
+        // Detach any in-flight per-drag document listeners (drag interrupted by
+        // dispose without a pointerup/pointercancel).
+        if (this._activeDragCleanup) this._activeDragCleanup();
 
         // Remove event listeners
         this.container.removeEventListener('mousemove', this.handleMouseMove);

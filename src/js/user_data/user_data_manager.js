@@ -88,6 +88,12 @@ const SYSTEM_PROPERTIES = new Set([
     // User data fields (to avoid recursion)
     'attributes', 'images',
 
+    // Temporal module — validity window, trajectory, and the import-source
+    // attribute names that map to them (kept out of user attributes).
+    'temporalInicio', 'temporalFim', 'temporalinicio', 'temporalfim',
+    'temporal_inicio', 'temporal_fim', 'trajetoria',
+    'begin', 'end', 'when', 'timespan', 'timestamp',
+
     // GeoJSON standard
     'type', 'geometry', 'properties', 'features', 'bbox',
 
@@ -267,6 +273,49 @@ const userDataManager = {
         }
 
         return removed;
+    },
+
+    /**
+     * Renames an attribute key in a SINGLE persistence write (delete old + set new).
+     * Atomic — avoids the data-loss window of removeAttribute() + setAttribute().
+     * @param {string} featureId - Feature identifier
+     * @param {string} featureType - Feature type (singular)
+     * @param {string} oldKey - Existing attribute key
+     * @param {string} newKey - New attribute key
+     * @param {*} value - Value carried over to the new key
+     * @returns {Promise<boolean>} True if the rename was applied
+     */
+    async renameAttribute(featureId, featureType, oldKey, newKey, value) {
+        const validation = this.validateAttributeKey(newKey);
+        if (!validation.valid) {
+            console.warn(`UserDataManager: Invalid attribute key - ${validation.reason}`);
+            return false;
+        }
+
+        const stringValue = value === null || value === undefined ? '' : String(value);
+        let renamed = false;
+
+        await this._updateFeature(featureId, featureType, (feature) => {
+            if (!feature.properties.attributes) {
+                feature.properties.attributes = {};
+            }
+            if (oldKey in feature.properties.attributes) {
+                delete feature.properties.attributes[oldKey];
+            }
+            feature.properties.attributes[newKey] = stringValue;
+            renamed = true;
+            return feature;
+        });
+
+        if (renamed) {
+            this._emitUpdate(featureId, featureType, FeatureUpdateProperty.ATTRIBUTES, {
+                key: newKey,
+                value: stringValue,
+                action: 'renamed',
+            });
+        }
+
+        return renamed;
     },
 
     // ===== IMAGES API =====

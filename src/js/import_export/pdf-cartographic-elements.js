@@ -185,6 +185,353 @@ export function composeLayout(mapCanvas, options) {
     return canvas;
 }
 
+/**
+ * Draws ONLY continuous grid lines onto a full-bleed mosaic tile canvas — no
+ * margin bands, no labels, no map border. Because the grid intervals are global
+ * (absolute multiples of the scale's degree/UTM step) and each tile passes its
+ * own bounds + projection, the lines align exactly across page seams.
+ *
+ * Implemented by reusing the labelled grid drawers with `marginPx = 0`: the
+ * lines are clipped to the [0,0,mapW,mapH] tile rect and every label lands just
+ * outside the canvas (negative / overflow coordinates), so it is never visible.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {Object} options
+ * @param {{west:number,east:number,south:number,north:number}} options.mapBounds
+ * @param {number} options.mapW - Tile canvas width (px)
+ * @param {number} options.mapH - Tile canvas height (px)
+ * @param {Function} options.projectionFn - (lngLat) => { x, y } in canvas pixels
+ * @param {string} options.scale - Scale string like "1:25000"
+ * @param {boolean} options.showLatLong
+ * @param {boolean} options.showUTM
+ * @param {number} [options.dpi=300]
+ */
+export function drawMosaicGridLines(ctx, { mapBounds, mapW, mapH, projectionFn, scale, showLatLong, showUTM, dpi = 300 }) {
+    const scaleDenom = parseScaleDenom(scale || '1:25000');
+    const utmAllowed = showUTM && scaleDenom < UTM_MAX_SCALE_DENOM;
+    if (!mapBounds || !projectionFn || (!showLatLong && !utmAllowed)) return;
+
+    const uiScale = dpi / 200;
+    const hasBothGrids = utmAllowed && showLatLong;
+
+    // UTM first (black, heavier), then lat/long (blue, lighter) on top.
+    if (utmAllowed) {
+        _drawUTMGrid(ctx, mapBounds, mapW, mapH, 0, projectionFn, scaleDenom, uiScale);
+    }
+    if (showLatLong) {
+        _drawLatLongGrid(ctx, mapBounds, mapW, mapH, 0, projectionFn, scaleDenom, hasBothGrids, uiScale);
+    }
+}
+
+/**
+ * Draws a cartographic coordinate border on the OUTER sides of a mosaic tile.
+ * Internal sides (shared seams) get nothing, so the assembled mosaic keeps a
+ * single continuous neat-line + coordinate frame around its perimeter while the
+ * map stays continuous across page joins. Each banded side gets an opaque white
+ * band (covering the bleed strip), a neat-line, and grid labels (DMS for
+ * lat/long, easting/northing for UTM) for every gridline crossing that side.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {Object} options
+ * @param {{west:number,east:number,south:number,north:number}} options.mapBounds
+ * @param {number} options.pageWpx - Full tile canvas width (px)
+ * @param {number} options.pageHpx - Full tile canvas height (px)
+ * @param {{left:boolean,right:boolean,top:boolean,bottom:boolean}} options.bands - Which sides are on the mosaic perimeter
+ * @param {number} options.bandPx - Band width in pixels
+ * @param {Function} options.projectionFn - (lngLat) => { x, y } in canvas pixels
+ * @param {string} options.scale - Scale string like "1:25000"
+ * @param {boolean} options.showLatLong
+ * @param {boolean} options.showUTM
+ * @param {number} [options.dpi=300]
+ */
+export function drawMosaicTileBorder(ctx, { mapBounds, pageWpx, pageHpx, bands, bandPx, projectionFn, scale, showLatLong, showUTM, dpi = 300 }) {
+    const scaleDenom = parseScaleDenom(scale || '1:25000');
+    const utmAllowed = showUTM && scaleDenom < UTM_MAX_SCALE_DENOM;
+    if (!mapBounds || !projectionFn || (!showLatLong && !utmAllowed)) return;
+    if (!bands.left && !bands.right && !bands.top && !bands.bottom) return;
+
+    const inner = {
+        left: bands.left ? bandPx : 0,
+        top: bands.top ? bandPx : 0,
+        right: pageWpx - (bands.right ? bandPx : 0),
+        bottom: pageHpx - (bands.bottom ? bandPx : 0),
+    };
+    const uiScale = dpi / 200;
+
+    // Opaque white bands cover the bleed strip behind the labels.
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    if (bands.top) ctx.fillRect(0, 0, pageWpx, bandPx);
+    if (bands.bottom) ctx.fillRect(0, pageHpx - bandPx, pageWpx, bandPx);
+    if (bands.left) ctx.fillRect(0, 0, bandPx, pageHpx);
+    if (bands.right) ctx.fillRect(pageWpx - bandPx, 0, bandPx, pageHpx);
+    ctx.restore();
+
+    // Neat-line along the inner edge of each banded side.
+    ctx.save();
+    ctx.strokeStyle = '#333333';
+    ctx.lineWidth = Math.max(1, 1.5 * uiScale);
+    ctx.beginPath();
+    if (bands.top) { ctx.moveTo(inner.left, inner.top); ctx.lineTo(inner.right, inner.top); }
+    if (bands.bottom) { ctx.moveTo(inner.left, inner.bottom); ctx.lineTo(inner.right, inner.bottom); }
+    if (bands.left) { ctx.moveTo(inner.left, inner.top); ctx.lineTo(inner.left, inner.bottom); }
+    if (bands.right) { ctx.moveTo(inner.right, inner.top); ctx.lineTo(inner.right, inner.bottom); }
+    ctx.stroke();
+    ctx.restore();
+
+    const both = utmAllowed && showLatLong;
+    // UTM first (closer to the frame), then lat/long farther out when both are on.
+    if (utmAllowed) {
+        _drawMosaicBorderLabels(ctx, 'utm', _utmBorderLines(mapBounds, scaleDenom), inner, bands, projectionFn, uiScale, both);
+    }
+    if (showLatLong) {
+        _drawMosaicBorderLabels(ctx, 'latlong', _latLongBorderLines(mapBounds, scaleDenom), inner, bands, projectionFn, uiScale, both);
+    }
+}
+
+/**
+ * Draws border labels for one grid family on the active sides.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {'utm'|'latlong'} kind
+ * @param {{vertical:Array, horizontal:Array}} lines - Gridlines with {sample:[[lng,lat]...], label}
+ * @param {{left:number,top:number,right:number,bottom:number}} inner - Inner-rect edge coordinates (px)
+ * @param {{left:boolean,right:boolean,top:boolean,bottom:boolean}} bands
+ * @param {Function} projFn
+ * @param {number} uiScale
+ * @param {boolean} both - Whether both grid families are active (stacks labels)
+ */
+function _drawMosaicBorderLabels(ctx, kind, lines, inner, bands, projFn, uiScale, both) {
+    const fontSize = Math.round(12 * uiScale);
+    const baseOff = 6 * uiScale;
+    const off = (kind === 'latlong' && both) ? baseOff + fontSize + 4 * uiScale : baseOff;
+
+    ctx.save();
+    ctx.fillStyle = kind === 'utm' ? 'rgba(0, 0, 0, 0.92)' : 'rgba(0, 70, 160, 0.95)';
+    ctx.font = `${kind === 'utm' ? 'bold ' : ''}${fontSize}px ${FONT_FAMILY}`;
+
+    // Vertical gridlines → labels on the top / bottom bands.
+    for (const line of lines.vertical) {
+        const pts = line.sample.map(projFn);
+        if (bands.top) _drawBorderLabel(ctx, pts, inner.top, 'top', inner.left, inner.right, line.label, off);
+        if (bands.bottom) _drawBorderLabel(ctx, pts, inner.bottom, 'bottom', inner.left, inner.right, line.label, off);
+    }
+    // Horizontal gridlines → labels on the left / right bands (rotated).
+    for (const line of lines.horizontal) {
+        const pts = line.sample.map(projFn);
+        if (bands.left) _drawBorderLabel(ctx, pts, inner.left, 'left', inner.top, inner.bottom, line.label, off);
+        if (bands.right) _drawBorderLabel(ctx, pts, inner.right, 'right', inner.top, inner.bottom, line.label, off);
+    }
+    ctx.restore();
+}
+
+/**
+ * Finds where a projected gridline crosses an inner edge and draws its label in
+ * the band beyond that edge.
+ */
+function _drawBorderLabel(ctx, pts, edgeVal, edgeType, minOrtho, maxOrtho, text, off) {
+    const pt = _findEdgeIntersection(pts, edgeVal, edgeType, minOrtho, maxOrtho);
+    if (!pt) return;
+
+    ctx.save();
+    if (edgeType === 'top') {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(text, pt.x, edgeVal - off);
+    } else if (edgeType === 'bottom') {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(text, pt.x, edgeVal + off);
+    } else if (edgeType === 'left') {
+        ctx.translate(edgeVal - off, pt.y);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(text, 0, 0);
+    } else {
+        ctx.translate(edgeVal + off, pt.y);
+        ctx.rotate(Math.PI / 2);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(text, 0, 0);
+    }
+    ctx.restore();
+}
+
+/**
+ * Builds lat/long gridlines (as lng/lat sample polylines + labels) for a tile.
+ * Vertical = constant longitude; horizontal = constant latitude.
+ * @returns {{vertical:Array, horizontal:Array}}
+ */
+function _latLongBorderLines(mapBounds, scaleDenom) {
+    const { degreesInterval } = _getGridSpacing(scaleDenom);
+    const { west, east, south, north } = mapBounds;
+    const lngPad = (east - west) * 0.1;
+    const latPad = (north - south) * 0.1;
+
+    const vertical = [];
+    const firstLng = Math.ceil(west / degreesInterval) * degreesInterval;
+    for (let lng = firstLng; lng <= east + 1e-9; lng += degreesInterval) {
+        const sample = [];
+        for (let i = 0; i <= GRID_LINE_SAMPLES; i++) {
+            const lat = (south - latPad) + ((north - south) + 2 * latPad) * (i / GRID_LINE_SAMPLES);
+            sample.push([lng, lat]);
+        }
+        vertical.push({ sample, label: _formatDMS(lng, 'lng') });
+    }
+
+    const horizontal = [];
+    const firstLat = Math.ceil(south / degreesInterval) * degreesInterval;
+    for (let lat = firstLat; lat <= north + 1e-9; lat += degreesInterval) {
+        const sample = [];
+        for (let i = 0; i <= GRID_LINE_SAMPLES; i++) {
+            const lng = (west - lngPad) + ((east - west) + 2 * lngPad) * (i / GRID_LINE_SAMPLES);
+            sample.push([lng, lat]);
+        }
+        horizontal.push({ sample, label: _formatDMS(lat, 'lat') });
+    }
+
+    return { vertical, horizontal };
+}
+
+/**
+ * Builds UTM gridlines (sample polylines + labels) for a tile, using the tile's
+ * central UTM zone. Vertical = constant easting; horizontal = constant northing.
+ * @returns {{vertical:Array, horizontal:Array}}
+ */
+function _utmBorderLines(mapBounds, scaleDenom) {
+    const { west, east, south, north } = mapBounds;
+    const { utmMeters } = _getGridSpacing(scaleDenom);
+
+    const zone = _utmZone((west + east) / 2);
+    const isSouth = ((south + north) / 2) < 0;
+    const utmProj = `+proj=utm +zone=${zone} ${isSouth ? '+south ' : ''}+datum=WGS84 +units=m +no_defs`;
+    const wgs84 = '+proj=longlat +datum=WGS84 +no_defs';
+
+    let minE = Infinity, maxE = -Infinity, minN = Infinity, maxN = -Infinity;
+    for (const [lng, lat] of [[west, south], [east, south], [west, north], [east, north]]) {
+        const [e, n] = proj4(wgs84, utmProj, [lng, lat]);
+        if (e < minE) minE = e;
+        if (e > maxE) maxE = e;
+        if (n < minN) minN = n;
+        if (n > maxN) maxN = n;
+    }
+    const ePad = (maxE - minE) * 0.1;
+    const nPad = (maxN - minN) * 0.1;
+
+    const vertical = [];
+    for (let e = Math.ceil(minE / utmMeters) * utmMeters; e <= maxE; e += utmMeters) {
+        const sample = [];
+        for (let i = 0; i <= GRID_LINE_SAMPLES; i++) {
+            const n = (minN - nPad) + ((maxN - minN) + 2 * nPad) * (i / GRID_LINE_SAMPLES);
+            try {
+                sample.push(proj4(utmProj, wgs84, [e, n]));
+            } catch { /* skip invalid projection */ }
+        }
+        if (sample.length >= 2) vertical.push({ sample, label: _formatUTMValue(e, 'E') });
+    }
+
+    const horizontal = [];
+    for (let n = Math.ceil(minN / utmMeters) * utmMeters; n <= maxN; n += utmMeters) {
+        const sample = [];
+        for (let i = 0; i <= GRID_LINE_SAMPLES; i++) {
+            const e = (minE - ePad) + ((maxE - minE) + 2 * ePad) * (i / GRID_LINE_SAMPLES);
+            try {
+                sample.push(proj4(utmProj, wgs84, [e, n]));
+            } catch { /* skip invalid projection */ }
+        }
+        if (sample.length >= 2) horizontal.push({ sample, label: _formatUTMValue(n, 'N') });
+    }
+
+    return { vertical, horizontal };
+}
+
+/**
+ * Overlays the cartographic elements (title, north arrow, scale bar, legend, logo)
+ * onto a single mosaic tile, positioned as if the WHOLE assembled mosaic were one
+ * map. Each element is placed in the assembled-mosaic pixel frame, then the context
+ * is translated by the tile's offset so only the part falling within this tile is
+ * drawn (the canvas clips the rest). An element that straddles a seam therefore
+ * prints split across the neighbouring sheets and re-joins when assembled.
+ *
+ * @param {CanvasRenderingContext2D} ctx - The tile canvas context
+ * @param {Object} o
+ * @param {number} o.offsetX - This tile's left edge in assembled-mosaic px
+ * @param {number} o.offsetY - This tile's top edge in assembled-mosaic px
+ * @param {number} o.mosaicW - Assembled mosaic width (px)
+ * @param {number} o.mosaicH - Assembled mosaic height (px)
+ * @param {number} o.frameInset - Inset from the assembled edge to the neat-line (px);
+ *   equals the perimeter coordinate band when a grid is on, else 0
+ * @param {string|null} o.title
+ * @param {boolean} o.showNorthArrow
+ * @param {boolean} o.showScaleBar
+ * @param {boolean} o.showLegend
+ * @param {Object} o.featuresByType - { type: { count, color } } for the legend
+ * @param {string} o.scale - Scale string like "1:25000"
+ * @param {number} [o.dpi=300]
+ * @param {HTMLImageElement} [o.logoImage]
+ */
+export function drawMosaicCartographicOverlay(ctx, {
+    offsetX, offsetY, mosaicW, mosaicH, frameInset = 0,
+    title, showNorthArrow, showScaleBar, showLegend,
+    featuresByType = {}, scale, dpi = 300, logoImage,
+}) {
+    const uiScale = dpi / 200;
+    const frameLeft = frameInset;
+    const frameTop = frameInset;
+    const frameRight = mosaicW - frameInset;
+    const frameBottom = mosaicH - frameInset;
+    const frameW = frameRight - frameLeft;
+
+    const legendEntries = Object.entries(featuresByType)
+        .map(([type, value]) => (typeof value === 'number' ? [type, value, null] : [type, value.count, value.color || null]))
+        .filter(([, count]) => count > 0);
+
+    // Shift the assembled-mosaic coordinate system into this tile's space.
+    ctx.save();
+    ctx.translate(-offsetX, -offsetY);
+
+    if (title) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawTitle(ctx, title, mosaicW / uiScale, frameTop / uiScale);
+        ctx.restore();
+    }
+
+    if (showNorthArrow) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        const northY = frameTop / uiScale + (title ? (TITLE_HEIGHT + 40) : 30);
+        const northX = frameRight / uiScale - NORTH_ARROW_SIZE - 30;
+        _drawNorthArrow(ctx, northX, northY, 0);
+        ctx.restore();
+    }
+
+    if (showScaleBar) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        const barX = frameLeft / uiScale + 40;
+        const barY = frameBottom / uiScale - SCALE_BAR_HEIGHT - 30;
+        _drawScaleBar(ctx, barX, barY, scale, frameW / uiScale, 200);
+        ctx.restore();
+    }
+
+    if (showLegend && legendEntries.length > 0) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawLegend(ctx, frameRight / uiScale, frameBottom / uiScale, legendEntries);
+        ctx.restore();
+    }
+
+    if (logoImage) {
+        ctx.save();
+        ctx.scale(uiScale, uiScale);
+        _drawLogo(ctx, logoImage, frameLeft / uiScale, frameTop / uiScale);
+        ctx.restore();
+    }
+
+    ctx.restore();
+}
+
 // ============================================================================
 // PRIVATE DRAWING FUNCTIONS
 // ============================================================================
@@ -297,13 +644,15 @@ function _drawNorthArrow(ctx, x, y, bearing) {
 function _drawScaleBar(ctx, x, y, scale, canvasWidth, dpi = 300) {
     const denominator = parseScaleDenom(scale);
 
-    // Calculate a "nice" distance for the scale bar (roughly 1/5 of map width)
+    // Fixed cartographic divisions: each of the 4 segments spans denom/50 metres
+    // (500 m at 1:25.000, 1000 m at 1:50.000, 200 m at 1:10.000, …) — i.e. 20 mm on
+    // paper per division at any scale. canvasWidth only sets the pixel width of that
+    // fixed ground distance.
+    const segments = 4;
+    const divisionMeters = denominator / 50;
+    const niceDistance = divisionMeters * segments;
     const mapWidthMM = canvasWidth / (dpi / 25.4);
     const mapWidthMeters = (mapWidthMM / 1000) * denominator;
-    const targetBarMeters = mapWidthMeters / 5;
-
-    // Round to a nice number
-    const niceDistance = _niceNumber(targetBarMeters);
     const barWidthPx = (niceDistance / mapWidthMeters) * canvasWidth;
 
     // Background
@@ -319,7 +668,6 @@ function _drawScaleBar(ctx, x, y, scale, canvasWidth, dpi = 300) {
     ctx.fillText(_formatScaleText(denominator), x, y);
 
     // Scale bar body (alternating black/white segments)
-    const segments = 4;
     const segWidth = barWidthPx / segments;
     const barY = y + 22;
     const barH = 10;
@@ -999,19 +1347,6 @@ function _drawLegendSwatch(ctx, x, y, type, color) {
             ctx.fillRect(x + 2, y + 2, 12, 12);
             break;
     }
-}
-
-/**
- * Returns a "nice" rounded number for scale bar distances.
- */
-function _niceNumber(value) {
-    const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
-    const fraction = value / magnitude;
-
-    if (fraction <= 1) return magnitude;
-    if (fraction <= 2) return 2 * magnitude;
-    if (fraction <= 5) return 5 * magnitude;
-    return 10 * magnitude;
 }
 
 /**

@@ -54,14 +54,6 @@ const TRANSITION_CONFIG = {
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * Delays execution for a specified time.
- * @param {number} ms - Milliseconds to wait
- * @returns {Promise<void>}
- */
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 /**
  * Safely imports and gets 3D viewer functions.
@@ -155,6 +147,45 @@ class TransitionService {
         this._currentViewerMode = SlideMode.MAP_2D;
         this._currentModelId = null;
         this._currentMapId = null;
+        // Per-instance interruptible-delay state (was module-global, which leaked
+        // across instances). _skipDelays stays true for the rest of the current
+        // transition so a single "skip" press also short-circuits any LATER delay
+        // (e.g. the second of two sequential delays in a 360<->3D transition).
+        this._pendingDelays = new Set();
+        this._skipDelays = false;
+    }
+
+    /**
+     * Interruptible VIEWER_OPEN_DELAY. Resolves immediately once a skip has been
+     * requested for the current transition; otherwise waits `ms`, but can be
+     * resolved early by skipPendingDelays().
+     * @param {number} ms
+     * @returns {Promise<void>}
+     */
+    _delay(ms) {
+        if (this._skipDelays) return Promise.resolve();
+        return new Promise(resolve => {
+            const entry = { resolve, timer: null };
+            entry.timer = setTimeout(() => {
+                this._pendingDelays.delete(entry);
+                resolve();
+            }, ms);
+            this._pendingDelays.add(entry);
+        });
+    }
+
+    /**
+     * Skips the post-flyTo delays of the current transition: resolves any pending
+     * delay now AND makes subsequent delays in this transition resolve immediately
+     * (so "skip" isn't a no-op for transitions with more than one delay).
+     */
+    skipPendingDelays() {
+        this._skipDelays = true;
+        for (const entry of this._pendingDelays) {
+            clearTimeout(entry.timer);
+            entry.resolve();
+        }
+        this._pendingDelays.clear();
     }
 
     /**
@@ -179,6 +210,7 @@ class TransitionService {
         }
 
         this._isTransitioning = true;
+        this._skipDelays = false; // fresh transition; a skip applies only to this one
 
         try {
             // Switch map if needed (before any viewer transition)
@@ -204,6 +236,9 @@ class TransitionService {
             } else {
                 this._currentModelId = null;
             }
+
+            // Restore the slide's remembered temporal cursor (2D slides only).
+            this._restoreTemporalCursor(slide);
 
             return true;
 
@@ -301,7 +336,9 @@ class TransitionService {
      */
     async _apply3DCameraFromSlide(slide) {
         const Cesium = window.Cesium;
-        if (!Cesium || !slide.position?.longitude) return;
+        // Use != null so a valid longitude of exactly 0 (prime meridian) is not
+        // treated as "missing" (which would drop the slide's saved 3D camera).
+        if (!Cesium || slide.position?.longitude == null) return;
 
         try {
             const viewer3d = await get3DViewerModule();
@@ -369,6 +406,21 @@ class TransitionService {
     }
 
     /**
+     * Restores the temporal timeline cursor saved on a 2D slide.
+     * No-op for non-2D slides or slides without a finite saved cursor.
+     * The TemporalControl shows/hides itself based on the active map's config;
+     * here we only move the cursor to the slide's remembered position.
+     * @private
+     * @param {Object} slide - Target slide
+     */
+    _restoreTemporalCursor(slide) {
+        if ((slide.mode || SlideMode.MAP_2D) !== SlideMode.MAP_2D) return;
+        if (!Number.isFinite(slide.temporalCursor)) return;
+
+        getControl('TemporalControl')?.setCursor(slide.temporalCursor);
+    }
+
+    /**
      * Ensures viewer markers are active on the 2D map before opening a viewer.
      * Calls activate() on the corresponding control if not already active.
      * @private
@@ -421,7 +473,7 @@ class TransitionService {
         await this._flyTo2D(slide, options);
 
         if (!options.instant) {
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
 
         if (slide.modelId) {
@@ -439,7 +491,7 @@ class TransitionService {
         await this._flyTo2D(slide, options);
 
         if (!options.instant) {
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
 
         if (slide.photoId) {
@@ -460,7 +512,7 @@ class TransitionService {
         await close3DViewer();
 
         if (!options.instant) {
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
 
         await this._flyTo2D(slide, options);
@@ -503,14 +555,14 @@ class TransitionService {
                 // Fallback: close and reopen
                 console.warn('Cesium setView failed, falling back to reload:', error);
                 await close3DViewer();
-                await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+                await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
                 await open3DViewer(slide.modelId);
                 await this._apply3DCameraFromSlide(slide);
             }
         } else if (slide.modelId) {
             // Different model: close and reopen (features load via loadSingleTileset)
             await close3DViewer();
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
             await open3DViewer(slide.modelId);
             await this._apply3DCameraFromSlide(slide);
         }
@@ -525,13 +577,13 @@ class TransitionService {
         await this._ensureViewerMarkersActive(SlideMode.VIEWER_360);
 
         if (!options.instant) {
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
 
         await this._flyTo2D(slide, options);
 
         if (!options.instant) {
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
 
         if (slide.photoId) {
@@ -552,7 +604,7 @@ class TransitionService {
         await close360Viewer();
 
         if (!options.instant) {
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
 
         await this._flyTo2D(slide, options);
@@ -569,13 +621,13 @@ class TransitionService {
         await this._ensureViewerMarkersActive(SlideMode.VIEWER_3D);
 
         if (!options.instant) {
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
 
         await this._flyTo2D(slide, options);
 
         if (!options.instant) {
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
 
         if (slide.modelId) {
@@ -612,13 +664,13 @@ class TransitionService {
                 await close360Viewer();
 
                 if (!options.instant) {
-                    await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+                    await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
                 }
 
                 await this._flyTo2D(slide, options);
 
                 if (!options.instant) {
-                    await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+                    await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
                 }
 
                 await open360Viewer(slide.photoId);
@@ -653,6 +705,7 @@ class TransitionService {
         }
 
         this._isTransitioning = true;
+        this._skipDelays = false; // fresh transition; a skip applies only to this one
 
         try {
             // Switch map if needed (before any viewer transition)
@@ -700,6 +753,9 @@ class TransitionService {
                 this._currentModelId = null;
             }
 
+            // Restore the slide's remembered temporal cursor (2D slides only).
+            this._restoreTemporalCursor(slide);
+
             return true;
 
         } catch (error) {
@@ -743,7 +799,7 @@ class TransitionService {
         } else {
             // Different marker: close, reopen
             await close360Viewer();
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
             await open360Viewer(slide.photoId);
         }
 
@@ -775,10 +831,10 @@ class TransitionService {
     async _closeCurrentViewer(mode) {
         if (mode === SlideMode.VIEWER_3D) {
             await close3DViewer();
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         } else if (mode === SlideMode.VIEWER_360) {
             await close360Viewer();
-            await delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
+            await this._delay(TRANSITION_CONFIG.VIEWER_OPEN_DELAY);
         }
     }
 

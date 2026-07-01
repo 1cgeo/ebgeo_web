@@ -34,6 +34,7 @@ export function setupCleanup(instance) {
     instance._unsubscribers = [];
     instance._domListeners = [];
     instance._timers = [];
+    instance._scopedListeners = {};
 }
 
 /**
@@ -72,6 +73,50 @@ export function addDomListener(instance, element, event, handler, options = {}) 
     ensureSetup(instance, 'addDomListener');
     element.addEventListener(event, handler, options);
     instance._domListeners.push({ element, event, handler, options });
+}
+
+/**
+ * Add a DOM listener bound to a named, clearable scope (e.g. rebuildable list rows).
+ * Tracked separately from the main _domListeners bucket so an entire scope can be
+ * removed before each rebuild — rows detached via `innerHTML = ''` would otherwise
+ * accumulate listeners and retain detached nodes for the component's lifetime.
+ * @param {Object} instance - The component instance
+ * @param {string} scope - Scope name (e.g. 'rows')
+ * @param {HTMLElement} element - DOM element
+ * @param {string} event - Event name (e.g. 'click')
+ * @param {Function} handler - Event handler function
+ * @param {Object} [options] - addEventListener options
+ *
+ * @example
+ * // before rebuilding a list:
+ * clearScopedListeners(this, 'rows');
+ * this._list.innerHTML = '';
+ * // per row:
+ * addScopedDomListener(this, 'rows', item, 'click', () => this._select(id));
+ */
+export function addScopedDomListener(instance, scope, element, event, handler, options = {}) {
+    if (!element) {
+        console.warn('addScopedDomListener called with null element');
+        return;
+    }
+    if (!instance._scopedListeners) instance._scopedListeners = {};
+    if (!instance._scopedListeners[scope]) instance._scopedListeners[scope] = [];
+    element.addEventListener(event, handler, options);
+    instance._scopedListeners[scope].push({ element, event, handler, options });
+}
+
+/**
+ * Remove every DOM listener registered under a scope (e.g. before a list rebuild).
+ * @param {Object} instance - The component instance
+ * @param {string} scope - Scope name
+ */
+export function clearScopedListeners(instance, scope) {
+    const bucket = instance._scopedListeners?.[scope];
+    if (!bucket) return;
+    for (const { element, event, handler, options } of bucket) {
+        element?.removeEventListener(event, handler, options);
+    }
+    instance._scopedListeners[scope] = [];
 }
 
 /**
@@ -126,6 +171,15 @@ export function cleanup(instance) {
             }
         }
         instance._timers = [];
+    }
+
+    if (instance._scopedListeners) {
+        for (const scope of Object.keys(instance._scopedListeners)) {
+            for (const { element, event, handler, options } of instance._scopedListeners[scope]) {
+                element?.removeEventListener(event, handler, options);
+            }
+        }
+        instance._scopedListeners = {};
     }
 }
 

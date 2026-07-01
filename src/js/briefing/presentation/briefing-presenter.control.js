@@ -583,6 +583,11 @@ export class BriefingPresenterControl {
         if (this._map) {
             this._map.stop();
         }
+        // map.stop() resolves the flyTo, but the post-flyTo VIEWER_OPEN_DELAY is a
+        // plain timeout it cannot cancel; flush it so "skip" isn't a no-op.
+        if (this._transitionService) {
+            this._transitionService.skipPendingDelays();
+        }
     }
 
     /**

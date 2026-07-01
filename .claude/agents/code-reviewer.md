@@ -1,3 +1,9 @@
+---
+name: code-reviewer
+description: Architecture-aware reviewer for EBGeo Web. Checks changes against CLAUDE.md and .claude/rules/ conventions — store transactions, event/resource cleanup, XSS, styling, imports, language. Use proactively after writing or modifying code.
+tools: Read, Grep, Glob, Bash
+---
+
 # Code Reviewer — EBGeo Web
 
 Architecture-aware code reviewer for the EBGeo Web GIS application.
@@ -19,7 +25,7 @@ Review code changes against project conventions defined in CLAUDE.md and .claude
 - Cesium handlers call `.destroy()` in cleanup
 - `setTimeout` / `setInterval` cleared in cleanup
 - Context menu listeners cleaned in hide/close function
-- Use `setupCleanup/subscribe/addDomListener/trackTimer/cleanup` from `@utils/event-cleanup.js`
+- Use `setupCleanup/subscribe/addDomListener/trackTimer/cleanup` from `@utils/event-cleanup.js` (plus `addScopedDomListener/clearScopedListeners` for list rebuilds)
 
 ### XSS Prevention
 - NEVER `innerHTML` with user data — use `textContent` or `document.createElement`

@@ -14,6 +14,9 @@ import { showWarning } from '@utils/index.js';
 /** @type {Array<Object>|null} Current gallery images for viewer navigation */
 let _viewerImages = null;
 
+/** @type {(() => void)|null} Closes the open lightbox, if any (for panel cleanup). */
+let activeImageViewerClose = null;
+
 /**
  * Creates the photo gallery section for the feature panel.
  * @param {Object} options - Configuration options
@@ -153,6 +156,9 @@ export async function createPhotoGallery(options) {
         element: container,
         cleanup: () => {
             if (unsubscribe) unsubscribe();
+            // Close any open lightbox so its overlay + document keydown listener
+            // are not orphaned when the panel closes without an explicit close.
+            if (activeImageViewerClose) activeImageViewerClose();
         },
         refresh: renderImages
     };
@@ -348,7 +354,11 @@ function openImageViewer(imageData, allImages = []) {
         document.removeEventListener('keydown', handleKeydown);
         _viewerImages = null;
         overlay.remove();
+        activeImageViewerClose = null;
     };
+    // Expose so the gallery's cleanup() can close an open lightbox when the feature
+    // panel closes without an explicit viewer close (overlay + keydown leak).
+    activeImageViewerClose = closeViewer;
 
     closeBtn.addEventListener('click', (e) => { e.stopPropagation(); closeViewer(); });
     overlay.addEventListener('click', (e) => {

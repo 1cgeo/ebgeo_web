@@ -6,6 +6,7 @@
  */
 
 import { createSectionDivider } from './section-divider.helpers.js';
+import { showToast } from '@utils';
 
 /**
  * Create a per-segment observations editor.
@@ -90,9 +91,14 @@ export function createObservationsSection({ feature, selectedFeatures, control }
     qanBtn.className = 'attr-modern-btn attr-modern-btn-secondary';
     qanBtn.textContent = 'Exportar QAN';
     qanBtn.addEventListener('click', async () => {
-        const { generateQAN, downloadQANAsHTML } = await import('../../import_export/qan/index.js');
-        const qanData = await generateQAN(feature);
-        downloadQANAsHTML(qanData, feature.properties.nome);
+        try {
+            const { generateQAN, downloadQANAsHTML } = await import('../../import_export/qan/index.js');
+            const qanData = await generateQAN(feature);
+            downloadQANAsHTML(qanData, feature.properties.nome);
+        } catch (error) {
+            console.error('Error exporting QAN:', error);
+            showToast('Erro ao exportar QAN', 'error');
+        }
     });
     qanWrapper.appendChild(qanBtn);
     fragment.appendChild(qanWrapper);
