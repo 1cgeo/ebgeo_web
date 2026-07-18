@@ -98,7 +98,7 @@ src/
 npm run dev              # node --watch
 npm run db:migrate       # aplica migrações
 npm run db:seed          # dados de teste
-npm test                 # cria DB ebgeo_test → migra → roda (unit+integration+ws, ~1263 casos / 126 arquivos) → dropa
+npm test                 # cria DB ebgeo_test → migra → roda (unit+integration+ws) → dropa
 npm run test:unit | test:integration | test:ws
 npm run test:keep-db     # mantém o DB após os testes (debug)
 npm run lint             # eslint  ·  npm run format  (prettier)

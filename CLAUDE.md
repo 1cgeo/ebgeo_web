@@ -27,7 +27,7 @@ frontend.
 ```bash
 npm run dev            # node --watch
 npm run db:migrate     # aplica migrações | npm run db:seed
-npm test               # cria DB ebgeo_test → migra → roda → dropa (unit+integration+ws, ~1263 casos / 126 arquivos)
+npm test               # cria DB ebgeo_test → migra → roda → dropa (unit+integration+ws)
 npm run test:unit | test:integration | test:ws   # subconjuntos
 npm run test:keep-db   # mantém o DB p/ debug
 npm run lint           # eslint (rode antes de finalizar) | npm run format
