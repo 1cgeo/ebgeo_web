@@ -15,10 +15,15 @@
  * Run headed:  npx playwright test browser-collab-point-icon-update --headed
  */
 
-import { collabTest, expect } from './helpers/collab.fixtures.js';
-import { pollPeerFeature, pollPeerFeatureWhere } from './helpers/collab-helpers.js';
+import { collabTest, expect, readFeatures } from './helpers/collab.fixtures.js';
 
 const CENTER = { lng: -43.2, lat: -22.9 };
+
+/** One property of the peer's copy of the point (the value the icon is derived from). */
+async function peerProp(page, id, prop) {
+    const hit = (await readFeatures(page, 'points')).find((x) => x.id === id);
+    return hit?.props?.[prop];
+}
 
 /**
  * Content fingerprint of the per-feature marker image registered on `page`'s map
@@ -68,16 +73,29 @@ collabTest.describe("Peer point icon updates when the author changes an existing
         // per-feature image keyed by the feature id.
         const id = await createMarkerPoint(A, CENTER, { markerSymbol: 'triangle', fillColor: '#ff0000', size: 40 });
         expect(id, 'the point control created a feature').toBeTruthy();
-        await pollPeerFeature(B, 'points', id);
+        // Full chain instead of a peer-store poll: this regression is about what the PEER
+        // renders, so the premise ("B really holds this feature, durably") has to be proven
+        // down to B's IndexedDB — a memoryStore-only arrival would make the image assertions
+        // below meaningless.
+        await collab.expectFullSync({ entityId: id, type: 'points', operationType: 'create' });
 
         let sigTriangle = null;
         await expect.poll(async () => (sigTriangle = await peerImageSig(B, id)), { timeout: 15000 }).toBeTruthy();
 
-        // A changes the marker to a different non-circle symbol + color. The op reaches B,
-        // whose store now reports the new symbol...
+        // A changes the marker to a different non-circle symbol + color. Each change is walked
+        // through the whole pipeline SEPARATELY (and the ring cleared between them) so that the
+        // op each expectFullSync resolves is unambiguous — entity+opType alone does not
+        // identify one update when the same entity is updated twice.
         await changeMarkerProp(A, id, 'markerSymbol', 'star');
+        await collab.expectFullSync({ entityId: id, type: 'points', operationType: 'update' });
+        // The chain proves the op ARRIVED; only this proves it carried the new VALUE. Short
+        // timeout: arrival is already deterministic at this point, so anything slower is a bug.
+        await expect.poll(() => peerProp(B, id, 'markerSymbol'), { timeout: 5000 }).toBe('star');
+
+        await collab.clearTraces();
         await changeMarkerProp(A, id, 'fillColor', '#00ff00');
-        await pollPeerFeatureWhere(B, 'points', id, (p) => p.markerSymbol === 'star' && p.fillColor === '#00ff00');
+        await collab.expectFullSync({ entityId: id, type: 'points', operationType: 'update' });
+        await expect.poll(() => peerProp(B, id, 'fillColor'), { timeout: 5000 }).toBe('#00ff00');
 
         // ...and — the regression — B's REGISTERED IMAGE BYTES must change too. Pre-fix the
         // `hasImage(id)` skip kept the stale triangle image and this never changed.

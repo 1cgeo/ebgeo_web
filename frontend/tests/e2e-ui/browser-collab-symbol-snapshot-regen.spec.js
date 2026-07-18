@@ -44,11 +44,23 @@ collabTest.describe('Client-generated symbol raster survives a snapshot (open/re
         // A places a military symbol (real tool, default SIDC). It syncs to the peer.
         const id = await drawMilitarySymbolUI(A, [CENTER.lng, CENTER.lat]);
         expect(id, 'the military symbol tool created a feature').toBeTruthy();
-        await pollPeerFeature(collab.peers[0], 'military_symbols', id);
+        // Full chain (skipRender: military symbols render through an icon/image layer, not a
+        // GeoJSON source, so link 6 leans on remote.applied + IndexedDB). This matters here
+        // beyond the usual rigour: the snapshot the reopened peer loads below is built from
+        // what the BACKEND stored, so proving the op actually reached Postgres is the premise
+        // of the whole test — a peer that only got the live op would still snapshot nothing.
+        await collab.expectFullSync({
+            entityId: id, type: 'military_symbols', operationType: 'create', skipRender: true,
+        });
 
         // Reopen the peer FRESH: a disconnect + rejoin loads the whole atlas via a SNAPSHOT —
         // exactly the path that skipped symbol-raster regeneration.
         const B2 = await collab.reopenPeer(0);
+        // Deliberately NOT expectFullSync: the fresh peer receives this feature through the
+        // snapshot on connect, not as an operation, so it emits no per-op ws.inbound /
+        // apply.persist / remote.applied spans for it — the full chain has no op to walk.
+        // Arrival via snapshot is exactly what this test needs to wait for, so the store poll
+        // stays.
         await pollPeerFeature(B2, 'military_symbols', id);
 
         // The regression: the snapshot peer must REBUILD the raster from props — a local blob

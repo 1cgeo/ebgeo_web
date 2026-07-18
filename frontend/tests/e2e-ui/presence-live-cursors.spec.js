@@ -131,6 +131,13 @@ describeOrSkip('Live two-way collaboration on the real map (two real browsers + 
             expect(symbolId, "B's symbol was created by the military tool").toBeTruthy();
 
             // 6. NATIVE sync carries each feature to the PEER's store (the cross-client render path).
+            //
+            // Deliberately still `pollPeerFeature` and not the full-chain `expectFullSync`: here
+            // feature arrival is a PRECONDITION for step 7, not this spec's claim (the subject is
+            // presence — cursors and roster). `pollPeerFeature` is itself SyncLedger-gated (it
+            // waits on `remote.applied` before polling the store), so the wait is already
+            // deterministic; migrating would only add Postgres/IndexedDB ground truth to a setup
+            // step that other specs already prove end to end.
             await pollPeerFeature(pageB, 'lines', lineId);
             await pollPeerFeature(pageA, 'military_symbols', symbolId);
 

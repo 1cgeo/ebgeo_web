@@ -29,6 +29,8 @@
 
 import { test, expect } from '@playwright/test';
 import { readState } from './state.js';
+import { waitForEntitySpan, waitForAcked } from './helpers/trace-helpers.js';
+import { createDb, closeDb } from './helpers/db.js';
 import {
     seedSharedAtlas,
     openClient,
@@ -341,13 +343,38 @@ describeOrSkip('Mega harness — full collaboration session end to end', () => {
                 applyStoreOp(A, 'updateFeatureProperty', ['lines', lineId, 'lineColor', '#ff0000']),
                 applyStoreOp(B, 'updateFeatureProperty', ['lines', lineId, 'lineColor', '#0000ff']),
             ]);
-            await expect
-                .poll(async () => {
-                    const ca = await lineColor(A, lineId);
-                    const cb = await lineColor(B, lineId);
-                    return ca && ca === cb ? ca : null;
-                }, { timeout: 25000 })
-                .toMatch(/^#(ff0000|0000ff)$/);
+            // Convergence is asserted against the SERVER, not between the clients.
+            //
+            // This used to poll until `ca === cb` and accept whichever colour they agreed on.
+            // Client agreement is not convergence: there is a window where A's op has reached
+            // both clients while B's is still in flight, so both legitimately show A's colour
+            // before the real winner lands. The poll exited on that way-station. The same
+            // defect was the flake in browser-collab-crdt-conflict.spec.js; this is the third
+            // place it appeared, so it is a pattern, not an accident.
+            //
+            // `enqueue` carries entityId, `push.ack` carries only opId (the server acks by
+            // operation), hence the two-step wait.
+            for (const [page, quem] of [[A, 'A'], [B, 'B']]) {
+                const enq = await waitForEntitySpan(page, { entityId: lineId, operationType: 'update', stage: 'enqueue' }, 25000);
+                expect(enq, `o recolor de ${quem} virou operação na fila`).toBeTruthy();
+                await waitForAcked(page, enq.opId, 25000);
+            }
+            const megaDb = state.dbName ? createDb(state.dbName) : null;
+            try {
+                const frow = megaDb ? await megaDb.queryFeatureRow(lineId) : null;
+                const winner = String(frow?.properties?.lineColor ?? '').toLowerCase();
+                expect(winner, 'o servidor gravou uma das duas cores em disputa').toMatch(/^#(ff0000|0000ff)$/);
+                for (const [page, quem] of [[A, 'A'], [B, 'B']]) {
+                    await expect
+                        .poll(async () => String(await lineColor(page, lineId)).toLowerCase(), {
+                            timeout: 20000,
+                            message: `${quem} convergiu para a cor que o servidor gravou (${winner})`,
+                        })
+                        .toBe(winner);
+                }
+            } finally {
+                if (megaDb) closeDb(megaDb);
+            }
             await demoPause(B);
 
             // 5. MAPS — A creates a second map through the real Maps-tab UI → B lists it.
