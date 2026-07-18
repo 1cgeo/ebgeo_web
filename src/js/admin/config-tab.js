@@ -108,7 +108,6 @@ class ConfigTab {
 
         heading(form, 'Serviços');
         const tileUrl = text(form, 'Tile server (URL)', 'admin-config-tileurl', eff.services?.tileServerUrl ?? '');
-        const searchUrl = text(form, 'API de busca (URL)', 'admin-config-searchurl', eff.search?.apiUrl ?? '');
 
         heading(form, 'Avançado (JSON)');
         const advHint = document.createElement('p');
@@ -190,9 +189,6 @@ class ConfigTab {
 
             if (tileUrl.value.trim() !== (eff.services?.tileServerUrl ?? '')) {
                 payload.services = { tileServerUrl: tileUrl.value.trim() };
-            }
-            if (searchUrl.value.trim() !== (eff.search?.apiUrl ?? '')) {
-                payload.search = { apiUrl: searchUrl.value.trim() };
             }
 
             // Advanced raw overrides (any config path). The curated payload above wins on conflict.

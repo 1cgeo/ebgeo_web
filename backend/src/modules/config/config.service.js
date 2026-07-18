@@ -143,7 +143,13 @@ export async function getAppConfig() {
     // /auth/register route is only mounted when allowSelfRegistration is on (off in prod).
     features: { ...S.FEATURES, self_registration: config.security.allowSelfRegistration },
     services: { tileServerUrl: C.tileServerUrl },
-    search: { apiUrl: C.searchApiUrl },
+    // A chave `search` faz parte do SHAPE CONGELADO e permanece — mas VAZIA: não
+    // carrega mais `apiUrl`. O gazetteer É este backend (GET /nomes/busca) e o
+    // cliente resolve a rota a partir da própria base da API. Havia um
+    // SEARCH_API_URL cujo default apontava para um :3001 que nunca existiu: o
+    // fetch dava connection-refused e a busca silenciosamente nunca retornava
+    // nada. Ligar/desligar continua sendo `features.apisearch`.
+    search: {},
     // Fase 4 (Tarefa 6): base URL the frontend resolves relative 3D asset `url`s
     // against (tileset.json/.glb/.terrain). Env-configurable so deployments can
     // point at an internal host; the catalog stores only relative paths.

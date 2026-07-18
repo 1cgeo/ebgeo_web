@@ -124,7 +124,6 @@ const config = Object.freeze({
   // to point at internal DGEO servers. Defaults are public DEV-only placeholders.
   appConfig: Object.freeze({
     tileServerUrl: optional('TILE_SERVER_URL', ''),
-    searchApiUrl: optional('SEARCH_API_URL', 'http://localhost:3001/busca'),
     terrainUrl: optional('TERRAIN_URL', 'https://demotiles.maplibre.org/terrain-tiles/tiles.json'),
     hillshadeUrl: optional('HILLSHADE_URL', 'https://demotiles.maplibre.org/terrain-tiles/tiles.json'),
     map3dImageryUrl: optional('MAP3D_IMAGERY_URL', 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'),

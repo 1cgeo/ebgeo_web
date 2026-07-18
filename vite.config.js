@@ -333,10 +333,6 @@ export default defineConfig(({ mode: _mode }) => ({
         target: process.env.EBGEO_DEV_API_TARGET || 'http://localhost:8080',
         changeOrigin: true,
         ws: true
-      },
-      '/busca': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
       }
     }
   },

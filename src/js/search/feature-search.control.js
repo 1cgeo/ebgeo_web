@@ -8,6 +8,7 @@
 import config from '@js/config.js';
 import { escapeHtml } from '@utils';
 import { wrapLongitude, clampLatitude } from '@utils/geometry-utils.js';
+import { gazetteerSearchUrl } from './gazetteer-url.js';
 import { getControl } from '@store';
 
 // Maximum number of 3D model results to display
@@ -15,7 +16,7 @@ const MAX_3D_MODEL_RESULTS = 5;
 
 class FeatureSearchControl {
   constructor(uiManager) {
-    this._apiUrl = config.search.apiUrl;
+    this._apiUrl = gazetteerSearchUrl();
     this._marker = null;
     this._uiManager = uiManager;
     this._isExpanded = false;

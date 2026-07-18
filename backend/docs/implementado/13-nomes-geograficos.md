@@ -31,7 +31,7 @@ Pontos importantes para quem integra:
 
 > **Autenticação.** `/feicoes` e `/catalogo3d` exigem `Authorization: Bearer <accessToken>` (`auth`
 > estrito) — sem token, `401`. Já `/busca` é o caminho do campo de busca do mapa
-> (`config.search.apiUrl`) e **NÃO** usa `auth` estrito: funciona anônimo (o `flexibleAuth` global
+> (o cliente deriva a rota da base da API — não há mais `config.search.apiUrl`) e **NÃO** usa `auth` estrito: funciona anônimo (o `flexibleAuth` global
 > popula `req.user` se houver credencial; sem ela, o filtro de acesso embutido no SQL — `$5 userId`
 > nulo — devolve apenas registros públicos).
 

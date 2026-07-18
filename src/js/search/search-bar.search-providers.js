@@ -11,6 +11,7 @@ import { getAllMapNamesStore, getCurrentMapNameSync } from '@store/map.operation
 import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '@store/store.constants.js';
 import { tryParseCoordinates, formatCoordinates } from '@utils/coordinate_converter.js';
 import { wrapLongitude, clampLatitude } from '@utils/geometry-utils.js';
+import { gazetteerSearchUrl } from './gazetteer-url.js';
 import { MAX_RESULTS } from './search-bar.icons.js';
 
 /**
@@ -275,7 +276,7 @@ export async function searchAPI(query, map, signal) {
     const center = map.getCenter();
     const lat = clampLatitude(center.lat);
     const lon = wrapLongitude(center.lng);
-    const url = `${config.search.apiUrl}?q=${encodeURIComponent(query)}&lat=${lat}&lon=${lon}`;
+    const url = `${gazetteerSearchUrl()}?q=${encodeURIComponent(query)}&lat=${lat}&lon=${lon}`;
 
     const response = await fetch(url, { signal });
 

@@ -204,7 +204,6 @@ funcionam em rede militar isolada** nem entre hosts. Em produção, aponte TODAS
 | Variável | Default | Nota |
 |----------|---------|------|
 | `TILE_SERVER_URL` | `` (vazio) | — |
-| `SEARCH_API_URL` | `http://localhost:3001/busca` | Substituir por servidor DGEO interno. |
 | `TERRAIN_URL` / `HILLSHADE_URL` | maplibre demotiles | DEV-only. |
 | `MAP3D_IMAGERY_URL` | OSM | `{z}/{x}/{y}` são placeholders MapLibre (literais). |
 | `MAP3D_TERRAIN_URL` | `http://localhost/...` | Quebra entre hosts se não setado. |

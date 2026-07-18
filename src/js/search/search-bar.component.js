@@ -256,7 +256,7 @@ export class SearchBarComponent {
 
         // Search API (places) - async
         let apiResults = [];
-        if (coordinateResults.length === 0 && config.features?.apisearch !== false && config.search?.apiUrl) {
+        if (coordinateResults.length === 0 && config.features?.apisearch !== false) {
             try {
                 // Cancel any pending request
                 this._cancelPendingRequest();

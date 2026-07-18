@@ -97,7 +97,6 @@ O frontend lê `(await res.json()).data`.
       "tileServerUrl": ""
     },
     "search": {
-      "apiUrl": "http://localhost:3001/busca"
     },
     "assets3dBaseUrl": "/api/v1/assets3d",
     "basemaps": {
@@ -391,7 +390,6 @@ servidores internos **sem rebuild**. Defaults são placeholders DEV-only.
 | Variável | Chave no payload | Default (DEV) |
 |----------|------------------|---------------|
 | `TILE_SERVER_URL` | `services.tileServerUrl` | `""` |
-| `SEARCH_API_URL` | `search.apiUrl` | `http://localhost:3001/busca` |
 | `TERRAIN_URL` | `map2d.terrainSource.url` | demotiles MapLibre |
 | `HILLSHADE_URL` | `map2d.hillshadeSource.url` | demotiles MapLibre |
 | `MAP3D_IMAGERY_URL` | `map3d.providers.imagery.url` | OSM público |

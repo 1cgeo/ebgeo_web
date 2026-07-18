@@ -37,9 +37,10 @@ export const configOverridesSchema = Joi.object({
   services: Joi.object({
     tileServerUrl: Joi.string().max(500).allow(''),
   }).unknown(true),
-  search: Joi.object({
-    apiUrl: Joi.string().max(500).allow(''),
-  }).unknown(true),
+  // `search` não tem mais `apiUrl`: o gazetteer É este backend (GET /nomes/busca),
+  // e o cliente deriva a rota da própria base da API. Ligar/desligar continua em
+  // `features.apisearch`. Mantido como objeto aberto para não quebrar payloads antigos.
+  search: Joi.object().unknown(true),
   streetView360: Joi.object().unknown(true),
   analysisLayers: Joi.object().unknown(true),
   dataLayers: Joi.object().unknown(true),
