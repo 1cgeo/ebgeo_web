@@ -115,10 +115,19 @@ function buildCalibrationUpdate(uuid, fields) {
  * @returns {Promise<Object>} frozen photoMetadataShape
  */
 export async function updateCalibration(uuid, fields, user) {
-  await loadWritablePhoto(uuid, user);
-  const update = buildCalibrationUpdate(uuid, fields);
-  if (update) await query(update.sql, update.params);
-  return rebuildPhotoShape(uuid);
+  // L8 — one transaction, so a photo that turns out to be tombstoned does not
+  // keep the UPDATE. The write gate (GET_PHOTO_FOR_WRITE) deliberately KEEPS
+  // tombstoned rows so ownership still resolves, but the read used to rebuild the
+  // response (GET_PHOTO_BY_ID) excludes them — so the old sequence persisted the
+  // calibration and only THEN threw 404, leaving a write the caller was told
+  // never happened. The batch path already rolled back; this now matches it.
+  return tx(async (t) => {
+    const exec = txExecutor(t);
+    await loadWritablePhoto(uuid, user, exec);
+    const update = buildCalibrationUpdate(uuid, fields);
+    if (update) await exec(update.sql, update.params);
+    return rebuildPhotoShape(uuid, exec);
+  });
 }
 
 /**

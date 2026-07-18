@@ -17,7 +17,19 @@ export const pushOperations = asyncHandler(async (req, res) => {
   // result.results[].currentVersion, keyed by operationId. Without it the broadcast op carried
   // no order and concurrent same-feature edits diverged.
   const versionByOp = new Map((result.results || []).map((r) => [r.operationId, r.currentVersion]));
-  const stamped = req.body.operations.map((op) => ({ ...op, serverVersion: versionByOp.get(op.id) ?? result.serverVersion }));
+
+  // L3 — also stamp the entity id AS RECORDED. An atlas-level op arrives with the
+  // non-UUID sentinel 'atlas' but is logged against the atlas's own UUID, so
+  // broadcasting the raw op handed peers a different entityId than the one they
+  // would later read via incremental pull — the same operation with two identities
+  // depending on the arrival path. (The frontend routes settings ops by entityType
+  // and ignores entityId, so this only makes the two paths agree.)
+  const entityIdByOp = new Map((result.acks || []).map((a) => [a.opId, a.entityId]));
+  const stamped = req.body.operations.map((op) => ({
+    ...op,
+    serverVersion: versionByOp.get(op.id) ?? result.serverVersion,
+    ...(entityIdByOp.get(op.id) ? { entityId: entityIdByOp.get(op.id) } : {}),
+  }));
 
   // Broadcast the pushed operations to WS peers for real-time updates. Comment ops are kept
   // away from read-only viewers (visibility rule); a mixed batch still reaches them minus the

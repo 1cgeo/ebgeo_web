@@ -1,11 +1,12 @@
 // Path: tests/unit/middleware-auth.test.js
-// Tests for auth middleware: token extraction, JWT verification, auth/optionalAuth middleware.
+// Tests for auth middleware: token extraction, JWT verification, auth middleware.
+// (The optionalAuth suite was removed with the middleware itself — it had zero
+//  production call sites and flexibleAuth supersedes it. See L7.)
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
 import { extractBearerToken, verifyAndMapUser, auth } from '../../src/middleware/auth.js';
-import { optionalAuth } from '../../src/middleware/optional-auth.js';
 
 const TEST_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 
@@ -129,40 +130,6 @@ describe('auth() middleware', () => {
     auth(req, res, (err) => {
       assert.ok(err);
       assert.equal(err.statusCode, 401);
-      done();
-    });
-  });
-});
-
-describe('optionalAuth() middleware', () => {
-  it('sets req.user to null and calls next() without token', (_, done) => {
-    const req = mockReq({});
-    const res = mockRes();
-    optionalAuth(req, res, (err) => {
-      assert.equal(err, undefined);
-      assert.equal(req.user, null);
-      done();
-    });
-  });
-
-  it('sets req.user correctly with valid token', (_, done) => {
-    const token = createValidToken({ sub: 'u-opt', username: 'opt_user' });
-    const req = mockReq({ authorization: `Bearer ${token}` });
-    const res = mockRes();
-    optionalAuth(req, res, (err) => {
-      assert.equal(err, undefined);
-      assert.equal(req.user.id, 'u-opt');
-      assert.equal(req.user.username, 'opt_user');
-      done();
-    });
-  });
-
-  it('sets req.user to null (no error) with invalid token', (_, done) => {
-    const req = mockReq({ authorization: 'Bearer bad.token.here' });
-    const res = mockRes();
-    optionalAuth(req, res, (err) => {
-      assert.equal(err, undefined);
-      assert.equal(req.user, null);
       done();
     });
   });

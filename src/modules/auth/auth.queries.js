@@ -92,14 +92,16 @@ export const INSERT_VERIFICATION_TOKEN = `
   RETURNING token
 `;
 
-export const FIND_VERIFICATION_TOKEN = `
-  SELECT token, user_id, expires_at, consumed_at
-  FROM email_verification_tokens
-  WHERE token = $1
-`;
-
-export const CONSUME_VERIFICATION_TOKEN = `
-  UPDATE email_verification_tokens SET consumed_at = NOW() WHERE token = $1
+// Atomic claim (L4): the UPDATE itself is the mutual exclusion. `consumed_at IS
+// NULL` in the WHERE means exactly ONE concurrent caller can transition the row,
+// and RETURNING tells that winner what it claimed. A read-then-write pair could
+// let two requests both pass the check and both consume the same token.
+// `expires_at` comes back so expiry is judged on the row we actually claimed.
+export const CLAIM_VERIFICATION_TOKEN = `
+  UPDATE email_verification_tokens
+  SET consumed_at = NOW()
+  WHERE token = $1 AND consumed_at IS NULL
+  RETURNING user_id, expires_at
 `;
 
 export const MARK_EMAIL_VERIFIED = `

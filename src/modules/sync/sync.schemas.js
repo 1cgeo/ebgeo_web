@@ -21,11 +21,21 @@ const operationSchema = Joi.object({
   mapId: Joi.string().allow(null),
   data: Joi.object().unknown(true).allow(null),
   changes: Joi.object().unknown(true).allow(null),
-  timestamp: Joi.number(),
+  // L1 — REQUIRED, matching the NOT NULL columns they land in
+  // (operations.client_timestamp / operations.client_id). Optional here meant an
+  // op missing either one passed validation and only failed at the INSERT, so a
+  // malformed push surfaced as a 500 instead of a clean 422.
+  //
+  // Safe against the current frontend: every op is built by
+  // `createOperation`/`createBatchOperations` (operation-factory.js), which
+  // populate both unconditionally for EVERY entity type, and nothing strips them
+  // between the queue and the push. Verified before tightening.
+  timestamp: Joi.number().required(),
   // Logical clock. Load-bearing: the frontend calls advanceLamportClock() with this
   // on every inbound op, so it is persisted and echoed back on incremental pull.
+  // Stays OPTIONAL — its column is nullable (legacy ops predate it).
   lamportTimestamp: Joi.number(),
-  clientId: Joi.string(),
+  clientId: Joi.string().required(),
   // SyncLedger gesture id (best-effort observability). Explicitly allowed (rather than
   // relying on .unknown(true)) so it survives validation and rides the broadcast to peers.
   traceId: Joi.string().allow(null),

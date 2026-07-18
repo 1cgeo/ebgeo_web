@@ -9,7 +9,7 @@ export const INSERT_OPERATION = `
 
 // Fetch an already-applied operation by its client op id (for idempotent acks).
 export const GET_OPERATION_BY_OP_ID = `
-  SELECT server_version FROM operations WHERE atlas_id = $1 AND op_id = $2
+  SELECT server_version, entity_id FROM operations WHERE atlas_id = $1 AND op_id = $2
 `;
 
 export const GET_OPERATIONS_SINCE_VERSION = `

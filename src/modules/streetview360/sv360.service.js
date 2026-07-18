@@ -102,7 +102,7 @@ export async function getPhoto(uuid, user) {
  * @throws {NotFoundError} if missing/tombstoned or its project is hidden
  */
 export async function photoByName(nome, user) {
-  const { rows } = await query(Q.GET_PHOTO_BY_NAME, [nome]);
+  const { rows } = await query(Q.GET_PHOTO_BY_NAME, [nome, user?.organization_id ?? null]);
   const photo = rows[0];
   if (!photo) throw new NotFoundError('Photo');
   enforceProjectReadable(photoProject(photo), user, 'Photo');

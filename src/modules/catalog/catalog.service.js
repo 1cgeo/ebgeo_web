@@ -30,7 +30,10 @@ export async function listCatalog(table) {
 
 export async function getCatalogItem(table, id) {
   const t = assertTable(table);
-  const row = await oneOrNone(`SELECT ${COLS} FROM ${t} WHERE id = $1`, [id]);
+  // L12 — `active = true`, matching listCatalogItems. Without it a soft-deleted
+  // item stayed readable by direct id: gone from every listing, yet still served
+  // (and still editable, since updateCatalogItem does not filter either).
+  const row = await oneOrNone(`SELECT ${COLS} FROM ${t} WHERE id = $1 AND active = true`, [id]);
   if (!row) throw new NotFoundError('Catalog item');
   return row;
 }
@@ -50,6 +53,13 @@ export async function createCatalogItem(table, data) {
 export async function updateCatalogItem(table, id, data) {
   const t = assertTable(table);
   assertValidStyle(data.config);
+  // L12 — only the soft-delete filter is added here: a deleted item must not be
+  // editable back into visibility through this route.
+  //
+  // The `description` COALESCE is left ALONE on purpose. The scan flagged it as
+  // "impossible to clear", but that is not quite right: passing `''` does clear
+  // it, and only a literal SQL NULL is unreachable. The null-vs-empty asymmetry
+  // is deliberate as-built behaviour, pinned by `images-gaps.test.js` res-02.
   const row = await oneOrNone(
     `UPDATE ${t} SET
        name = COALESCE($2, name),
@@ -57,7 +67,7 @@ export async function updateCatalogItem(table, id, data) {
        config = COALESCE($4::jsonb, config),
        sort_order = COALESCE($5, sort_order),
        updated_at = NOW()
-     WHERE id = $1 RETURNING ${COLS}`,
+     WHERE id = $1 AND active = true RETURNING ${COLS}`,
     [
       id,
       data.name || null,

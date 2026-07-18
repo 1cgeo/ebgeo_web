@@ -234,8 +234,8 @@ sync/collab/WS, atlas/sharing/images, sv360/nomes/zones/catálogo, utils/db/conf
 regressão — ver o histórico git (`fix(backend): corrige bugs de segurança/correção`,
 `fix(error-handler): …`, `fix(auth,sync): … (P1) + … (P2)`, `fix(backend): corrige P3–P8`).
 P1 e P2 estão documentadas nas seções acima (reconciliação de autorização e sync);
-P3–P8 na tabela abaixo. Restam apenas os **achados de baixo impacto** (L1–L13),
-registrados no fim desta seção e não corrigidos.
+P3–P8 e os achados de baixo impacto L1–L13 nas tabelas abaixo. **Nenhum item da
+varredura permanece em aberto.**
 
 ### Pendências P3–P8 — **corrigidas**
 
@@ -251,23 +251,25 @@ revertendo os fixes com os testes presentes, apenas os testes correspondentes fa
 | P7 | Config | Só DATABASE_URL/JWT_SECRET/PORT/CORS_ORIGIN eram validados; os demais `parseInt` viravam `NaN` silencioso — `MAX_BULK_UPLOAD_MB=abc` → `express.json({limit:'NaNmb'})` (**sem limite de corpo**), `WS_HEARTBEAT_INTERVAL_MS=abc` → `setInterval(NaN)` ≈ 1 ms, `JWT_REFRESH_EXPIRY=1w` → `parseDuration`=0 (todo refresh nasce expirado). | `NUMERIC_ENV_RULES` valida faixa de 17 variáveis inteiras (exigindo string totalmente numérica, pois `parseInt('12abc')`=12) e as durações JWT contra a gramática `[smhd]` com valor > 0. Só variáveis **definidas** são checadas; os defaults são conhecidos-bons. | `config.test.js` |
 | P8 | Presença | `user_left` era transmitido só por `userId`, sem checar se o usuário ainda tinha outro socket vivo na sala (segunda aba, ou reconexão com clientId novo correndo com o close do socket antigo) → peers removiam um usuário ainda online. | `removeConnection` só anuncia quando o socket que saiu era o **último** daquele usuário na sala (`leaveRoom` já rodou, então a sala contém exatamente os sobreviventes). | `collab-shutdown-presence.test.js` |
 
-### Achados de baixo impacto (registro)
+### Achados de baixo impacto L1–L13 — **corrigidos**
 
-| # | Arquivo | Bug | Sev |
-|---|---------|-----|-----|
-| L1 | `sync.schemas.js` | `timestamp`/`clientId` opcionais no Joi, mas colunas `NOT NULL` → 500 em vez de 422. **Toca o envelope congelado de sync — vale um teste de contrato antes de alterar.** | baixo |
-| L2 | `collab.gateway.js` | `WebSocketServer` sem `maxPayload` → aceita frames de até 100 MiB (10× o limite HTTP) antes de qualquer validação | baixo |
-| L3 | `sync.service.js` | `entityId` sentinela (`'atlas'`) reescrito para o UUID do atlas no log, mas o broadcast carrega o sentinel → mesma op com `entityId` diferente por caminho | baixo |
-| L4 | `auth.service.js` (`verifyEmail`) | mark + consume em duas `query()` (não `tx`) → token de verificação não é single-use sob concorrência | baixo |
-| L5 | `environment.js` | `cookieOptions().maxAge` fixo em 15 min, mas `JWT_ACCESS_EXPIRY` é configurável → sessão de cookie quebra se a expiry for maior | baixo |
-| L6 | `migrate.js` | runner de migração sem `pg_advisory_lock` → duas execuções concorrentes correm para aplicar a mesma migração | baixo |
-| L7 | `optional-auth.js` | `optionalAuth` sobrescreve `req.user` (dead code hoje) → clobber da identidade de `flexibleAuth` se adotado | baixo |
-| L8 | `sv360.write.service.js` | calibração PUT numa foto com tombstone persiste o UPDATE e depois responde 404 (inconsistente com o batch, que faz rollback) | baixo |
-| L9 | `sv360.admin.schemas.js` | `orgId` validado como `uuidv4`, mas o org default `…0001` não é v4 → 422 ao escopar a lista admin para a org default | baixo |
-| L10 | `sv360.queries.js` | `GET_PHOTO_BY_NAME` desempata só por `status='enabled'` (não pela org do chamador) → colisão de nome entre projetos disabled pode 404 para membro que tem a foto | baixo |
-| L11 | `sv360-error.js` | handler sv360 não mapeia `23505` → 409 (vira 500), apesar do comentário na query afirmar o contrário | baixo |
-| L12 | `catalog.service.js` | `GET /:id` retorna item soft-deletado (`active=false`); `COALESCE($n,col)` impede limpar `description` | baixo |
-| L13 | `atlas.service.js` | rota de transferência de posse e sua query com filtro de acesso **sem nenhum teste** (positivo ou negativo) | cobertura |
+| # | Arquivo | Correção |
+|---|---------|----------|
+| L1 | `sync.schemas.js` | `timestamp`/`clientId` agora `required()`, casando com as colunas NOT NULL — op malformada vira 422 em vez de 500 no INSERT. Só depois de **verificar no frontend** que `createOperation`/`createBatchOperations` (`operation-factory.js`) populam ambos incondicionalmente para todo tipo de entidade, e que nada os remove entre a fila e o push. `lamportTimestamp` segue opcional (coluna nullable). |
+| L2 | `collab.gateway.js` | `maxPayload` explícito (10 MB, = limite HTTP). O default do `ws` é 100 MiB — 10× o limite HTTP, bufferizado **antes** de qualquer validação. |
+| L3 | `sync.service.js` + `sync.controller.js` | O ack passa a carregar o `entityId` **como gravado**, e o controller o estampa no broadcast. Ops de nível-atlas chegam com o sentinela `'atlas'` e são logadas sob o UUID do atlas, então o peer via WS via um `entityId` diferente do que veria via pull. Verificado no frontend antes: o handler de entrada roteia por `entityType` e ignora `entityId` em ops de SETTING (que também não está em `CONVERGENCE_GUARDED`), então a mudança só faz os dois caminhos concordarem. |
+| L4 | `auth.service.js` + `auth.queries.js` | `verifyEmail` vira uma transação com **claim atômico** (`UPDATE … WHERE consumed_at IS NULL RETURNING`) — a própria UPDATE é a exclusão mútua. Token expirado faz rollback do claim (não é queimado). |
+| L5 | `environment.js` | `cookieOptions().maxAge` DERIVADO de `JWT_ACCESS_EXPIRY` via o novo `utils/duration.js` (extraído de `auth.service`, eliminando a duplicação). O constante de 15 min dessincronizava do expiry configurável, deslogando o usuário com token ainda válido. |
+| L6 | `migrate.js` | `pg_advisory_lock` de sessão no runner: um segundo processo **espera** e então enxerga os `_migrations` já comitados, em vez de correr para aplicar o mesmo arquivo duas vezes (a UNIQUE só falha DEPOIS do DDL rodar). |
+| L7 | `optional-auth.js` | **Removido** (com seus testes). Zero call sites em produção e superado pelo `flexibleAuth`; mantido, sobrescreveria `req.user` se algum dia fosse adotado. |
+| L8 | `sv360.write.service.js` | `updateCalibration` numa transação: uma foto com tombstone não mantém mais o UPDATE persistido antes do 404 (o gate de escrita mantém tombstones de propósito, mas a read que monta a resposta os exclui). Agora casa com o caminho batch. |
+| L9 | `sv360.admin.schemas.js` | `orgId` aceita **qualquer** versão de uuid (nos 2 schemas). A org default (`…0001`) não é v4, então a regra v4-only rejeitava com 422 justamente o valor mais provável. |
+| L10 | `sv360.queries.js` | `GET_PHOTO_BY_NAME` desempata primeiro pela **org do chamador**, depois por `enabled`. Ordenar só por status tornava a escolha arbitrária entre projetos disabled, podendo 404 um membro que legitimamente tem a foto. |
+| L11 | `sv360-error.js` | Mapeia `23505` → 409 e `23503` → 409. O handler de rota intercepta antes do global, então uma violação de unicidade no sv360 virava 500 — contradizendo o comentário da própria query. Mensagem do driver nunca é encaminhada. |
+| L12 | `catalog.service.js` | `getCatalogItem`/`updateCatalogItem` filtram `active = true`: um item soft-deletado sumia das listagens mas seguia legível **e editável** por id. **A outra metade do achado não procedia** — `description` É limpável via `''`; só o NULL do SQL é inalcançável, e essa assimetria null-vs-vazio é comportamento deliberado, fixado por `images-gaps` res-02. O COALESCE foi mantido. |
+| L13 | `atlas.service.js` | (cobertura) 10 testes para a transferência de posse, que não tinha **nenhum** — positivo, gates de autorização, não-membro, membro desativado, dono atual, uuid malformado e atomicidade. Nenhum defeito encontrado: a rota já estava correta. |
+
+**Limitações de teste, registradas honestamente:** o caso HTTP concorrente do L4 não interleava de forma confiável (o guarda real é o teste de atomicidade do claim, com duas conexões); e o teste do L5 não distingue o fix do bug enquanto `JWT_ACCESS_EXPIRY` estiver no default de 15 min, já que derivado e hardcoded coincidem — o peso está nos testes de `parseDuration`.
 
 ## Referências
 

@@ -167,7 +167,10 @@ export const statusBodySchema = Joi.object({
 // GET /admin/projects — optional ?orgId filter (a global admin may scope the list
 // to a single OM). Non-admins ignore it (forced to their own org in the service).
 export const listAdminQuerySchema = Joi.object({
-  orgId: Joi.string().guid({ version: ['uuidv4'] }),
+  // L9 — ANY uuid version, not just v4: the seeded default organization is
+  // `00000000-0000-0000-0000-000000000001`, which is not a v4, so pinning v4
+  // made `?orgId=<default org>` 422 — rejecting the single most likely value.
+  orgId: Joi.string().guid(),
 }).unknown(true);
 
 // PATCH/DELETE /admin/projects/:slug[/status] — optional ?orgId / ?orgSlug used by
@@ -176,6 +179,8 @@ export const listAdminQuerySchema = Joi.object({
 // `validate` middleware + sv360 error handler, instead of a 500 when the value
 // reaches the SQL uuid cast in the service. orgSlug is a free token.
 export const orgScopeQuerySchema = Joi.object({
-  orgId: Joi.string().guid({ version: ['uuidv4'] }),
+  // Any uuid version — same reason as listAdminQuerySchema (L9): the default org
+  // id is not a v4, so a v4-only rule 422s the most common scoping value.
+  orgId: Joi.string().guid(),
   orgSlug: Joi.string().trim().min(1).max(255),
 }).unknown(true);

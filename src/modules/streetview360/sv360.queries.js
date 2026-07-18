@@ -52,8 +52,13 @@ export const GET_PHOTO_BY_ID = `
 `;
 
 // One photo by its original filename. A name may collide across projects, so an
-// enabled project wins the tie. Excludes tombstoned photos.
+// Tie-break for a name shared by several projects (L10). The CALLER'S OWN ORG
+// wins first, then an enabled project. Ordering by status alone made the pick
+// arbitrary among disabled projects: a member whose org genuinely holds the photo
+// could receive another org's row and then be 404'd by the readability gate — a
+// false negative on data they own. Excludes tombstoned photos.
 //   $1 = original_name
+//   $2 = caller's organization_id (nullable; anonymous simply loses the preference)
 export const GET_PHOTO_BY_NAME = `
   SELECT p.id, p.project_id, p.original_name, p.display_name, p.sequence_number,
          ST_Y(p.geom) AS lat, ST_X(p.geom) AS lon, p.ele,
@@ -68,7 +73,7 @@ export const GET_PHOTO_BY_NAME = `
   JOIN sv360.projects pr ON pr.id = p.project_id
   WHERE p.original_name = $1
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
-  ORDER BY (pr.status = 'enabled') DESC
+  ORDER BY (pr.organization_id = $2) DESC, (pr.status = 'enabled') DESC
   LIMIT 1
 `;
 

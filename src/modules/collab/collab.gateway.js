@@ -24,6 +24,10 @@ const CLIENT_ID_RE = /^[a-zA-Z0-9_-]{8,64}$/;
 // close and removes the user immediately.
 const ABNORMAL_CLOSE = 1006;
 
+// Largest collab frame accepted, matching the HTTP JSON body limit (10 MB). See
+// the maxPayload note in attachWebSocket.
+const COLLAB_MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
+
 // Fase 8 (Tarefa 2): pending away-removal timers keyed by `${atlasId}::${clientId}`.
 // On an abnormal close the user is kept in the room as `away` and removed after
 // the grace window; a reconnect with the same clientId cancels the timer.
@@ -190,7 +194,12 @@ export function closeAllSockets() {
  * (used by tests to drive heartbeatSweep / inspect clients).
  */
 export function attachWebSocket(server) {
-  const wss = new WebSocketServer({ noServer: true });
+  // L2 — bound the frame size. `ws` defaults to 100 MiB, so an unauthenticated-
+  // sized frame 10× larger than the HTTP body limit was buffered in memory BEFORE
+  // any validation ran. Collab frames are ops/cursor/selection JSON, so the HTTP
+  // json limit is a generous ceiling; a client that exceeds it is closed with 1009
+  // (message too big) by `ws` itself.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: COLLAB_MAX_PAYLOAD_BYTES });
 
   // P4 — expose the live server so a graceful shutdown can close the collab
   // sockets. Without this, `server.close()` waits forever on a long-lived

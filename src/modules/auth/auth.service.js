@@ -4,10 +4,11 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
-import { query } from '../../database/index.js';
+import { query, tx } from '../../database/index.js';
 import { AppError, UnauthorizedError, ConflictError, ForbiddenError, BadRequestError } from '../../utils/errors.js';
 import { orgIsActive } from '../../utils/org-status.js';
 import { sendVerificationEmail, buildVerificationLink } from '../../utils/mailer.js';
+import { parseDuration } from '../../utils/duration.js';
 import * as Q from './auth.queries.js';
 
 const SALT_ROUNDS = 12;
@@ -16,25 +17,6 @@ const SALT_ROUNDS = 12;
 // Compared against when the username does NOT exist, so login spends the same
 // CPU time whether or not the user is real — eliminating the timing oracle.
 const DUMMY_HASH = bcrypt.hashSync('timing-safe-dummy-password', SALT_ROUNDS);
-
-/**
- * Parses a duration string like "15m" or "7d" into milliseconds.
- */
-function parseDuration(duration) {
-  const match = duration.match(/^(\d+)([smhd])$/);
-  if (!match) return 0;
-
-  const value = parseInt(match[1], 10);
-  const unit = match[2];
-
-  switch (unit) {
-    case 's': return value * 1000;
-    case 'm': return value * 60 * 1000;
-    case 'h': return value * 60 * 60 * 1000;
-    case 'd': return value * 24 * 60 * 60 * 1000;
-    default: return 0;
-  }
-}
 
 /**
  * Generates a JWT access token (single-issuer payload, shared by web/nomes/360).
@@ -295,17 +277,24 @@ async function issueAndSendVerification(user, email, origin) {
  * @returns {Promise<{ success: true }>}
  */
 export async function verifyEmail(token) {
-  const { rows } = await query(Q.FIND_VERIFICATION_TOKEN, [token]);
-  const row = rows[0];
-  if (!row || row.consumed_at) {
-    throw new BadRequestError('Token de verificação inválido.');
-  }
-  if (new Date(row.expires_at) < new Date()) {
-    throw new BadRequestError('Token de verificação expirado.');
-  }
-  await query(Q.MARK_EMAIL_VERIFIED, [row.user_id]);
-  await query(Q.CONSUME_VERIFICATION_TOKEN, [token]);
-  return { success: true };
+  // L4 — claim and verify in ONE transaction, with the claim itself doing the
+  // mutual exclusion (`consumed_at IS NULL` in the WHERE). The previous
+  // read-check-then-write sequence let two concurrent requests both observe an
+  // unconsumed token and both succeed, so the token was not truly single-use.
+  return tx(async (t) => {
+    const claimed = await t.oneOrNone(Q.CLAIM_VERIFICATION_TOKEN, [token]);
+    if (!claimed) {
+      // Unknown token, or another request already claimed it.
+      throw new BadRequestError('Token de verificação inválido.');
+    }
+    if (new Date(claimed.expires_at) < new Date()) {
+      // Roll the claim back so an expired token is not silently burned — the
+      // user can still ask for a new one and this row stays diagnosable.
+      throw new BadRequestError('Token de verificação expirado.');
+    }
+    await t.none(Q.MARK_EMAIL_VERIFIED, [claimed.user_id]);
+    return { success: true };
+  });
 }
 
 /**

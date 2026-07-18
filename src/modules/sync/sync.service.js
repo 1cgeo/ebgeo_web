@@ -688,6 +688,7 @@ export async function pushOperations(atlasId, operations, userId, permission = '
           opId: rawOp.id,
           serverVersion: prev ? prev.server_version : null,
           idempotent: true,
+          entityId: prev ? prev.entity_id : null,
         });
         // SyncLedger: an idempotent re-arrival — the LWW arrival-order truth already
         // exists; record it so a peer's echo/replay is distinguishable from a fresh op.
@@ -707,6 +708,13 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         opId: rawOp.id,
         serverVersion: inserted.server_version,
         idempotent: false,
+        // L3 — the entity id AS RECORDED. Atlas-level ops arrive with the
+        // non-UUID sentinel 'atlas' and are logged against the atlas's own UUID
+        // (entity_id is UUID NOT NULL), so echoing the raw op on the broadcast
+        // gave peers a different entityId depending on whether they received it
+        // live or via incremental pull. The controller stamps this back so both
+        // paths agree.
+        entityId: inserted.entity_id,
       });
 
       // SyncLedger: the op.id ↔ server_version binding (LWW arrival-order truth).
