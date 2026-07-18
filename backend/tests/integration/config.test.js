@@ -104,10 +104,13 @@ describe('Config endpoint (GET /api/v1/config)', () => {
     // O default antigo apontava para um :3001 que nunca existiu.
     assert.equal(cfg.search?.apiUrl, undefined, 'search.apiUrl não deve mais ser publicado');
     // Fase 9: 360 absorbed → serviceUrl is the in-backend mount, not an external :8081 upstream.
-    assert.equal(cfg.streetView360.serviceUrl, 'http://localhost:3000/api/v1/sv360');
+    // RELATIVO por default (como assets3dBaseUrl): o sv360 vive neste backend. O default
+    // absoluto anterior (`http://localhost:3000/...`) só funcionava por acidente — :3000 é o
+    // Vite, que faz proxy de /api para cá.
+    assert.equal(cfg.streetView360.serviceUrl, '/api/v1/sv360');
     // Fase 9 (Tarefa 7): the 360 overlay is a server-rendered VECTOR source (MVT
     // tiles), NOT GeoJSON/PMTiles. Both layers share the same tile template.
-    const expectedTiles = ['http://localhost:3000/api/v1/sv360/tiles/{z}/{x}/{y}.pbf'];
+    const expectedTiles = ['/api/v1/sv360/tiles/{z}/{x}/{y}.pbf'];
     assert.equal(cfg.streetView360.pointsSource.type, 'vector');
     assert.deepEqual(cfg.streetView360.pointsSource.tiles, expectedTiles);
     assert.equal(cfg.streetView360.pointsSourceLayer, 'fotos');

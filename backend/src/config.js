@@ -135,7 +135,13 @@ const config = Object.freeze({
     // the 'fotos' (points) and 'fotos_linha' (per-project trajectory lines) layers.
     // GeoJSON-as-source and PMTiles are DISCONTINUED. The {z}/{x}/{y} are MapLibre
     // placeholders (literals), NOT env. Only the service base is deploy-configured.
-    sv360ServiceUrl: optional('SV360_SERVICE_URL', 'http://localhost:3000/api/v1/sv360'),
+    // Default RELATIVO (mesmo padrão de ASSETS_3D_BASE_URL): o sv360 é um módulo
+    // DESTE backend, montado em /api/v1/sv360 — não um serviço externo. O default
+    // anterior era absoluto (`http://localhost:3000/api/v1/sv360`) e só funcionava
+    // por acidente, porque :3000 é o Vite e ele faz proxy de /api para cá; num
+    // deploy real, ou era configurado à mão ou o browser chamava o próprio host.
+    // A env var permanece para o caso de o 360 ser servido de outra origem.
+    sv360ServiceUrl: optional('SV360_SERVICE_URL', '/api/v1/sv360'),
     // Basemap tile/style URLs (substitutable by internal servers in production):
     osmTileUrl: optional('OSM_TILE_URL', 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'),
     glyphsUrl: optional('MAPLIBRE_GLYPHS_URL', 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf'),
