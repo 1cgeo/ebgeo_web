@@ -128,7 +128,7 @@ export async function openAtlasUI(page, atlasId) {
  * Opens a fresh browser context, logs in via the UI, opens the shared atlas (the app
  * auto-activates the atlas map). Returns the Page (its context is page.context()).
  */
-export async function openClient(browser, baseUrl, atlasId, creds) {
+export async function openClient(browser, baseUrl, atlasId, creds, { expectMapName } = {}) {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     await page.addInitScript((url) => { window.__EBGEO_BACKEND_URL__ = url; }, `${baseUrl}/api/v1`);
@@ -143,6 +143,22 @@ export async function openClient(browser, baseUrl, atlasId, creds) {
     await page.goto('/');
     await loginUI(page, creds.username, creds.password);
     await openAtlasUI(page, atlasId);
+
+    // Readiness, not decoration: `openAtlasUI` returns once the atlas is opened, but the
+    // app activates the atlas map ASYNCHRONOUSLY, so the client can still be sitting on the
+    // local default map when this returns. Under full-suite load that window is wide enough
+    // to be observed: browser-collab-maps-layers.spec.js:145 flaked in two consecutive full
+    // runs on a SETUP assertion, reading "Principal" (the local map) where it expected the
+    // shared one — before the test had done anything. Waiting here fixes the class for every
+    // collab spec instead of patching each one's first assertion.
+    if (expectMapName) {
+        await expect
+            .poll(() => currentMapName(page), {
+                timeout: 20000,
+                message: `o cliente ativou o mapa do atlas ("${expectMapName}") apos abrir`,
+            })
+            .toBe(expectMapName);
+    }
     return page;
 }
 

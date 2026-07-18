@@ -80,11 +80,15 @@ export const collabTest = base.extend({
         }
 
         // 4) Open author + all peers (fresh contexts, trace + render probe on).
-        const author = await openClient(browser, baseUrl, seed.atlasId, seed.userA);
+        // `expectMapName` faz o openClient esperar o mapa do atlas ficar ATIVO antes de
+        // devolver o cliente. Sem isso o spec podia comecar com o peer ainda no mapa local,
+        // e a primeira assercao caia lendo "Principal" (visto em duas suites cheias
+        // seguidas, no maps-layers). Prontidao do harness, nao assercao do teste.
+        const author = await openClient(browser, baseUrl, seed.atlasId, seed.userA, { expectMapName: mapName });
         const peerCredsList = [seed.userB, ...extraCreds];
         const peers = [];
         for (const creds of peerCredsList) {
-            peers.push(await openClient(browser, baseUrl, seed.atlasId, creds));
+            peers.push(await openClient(browser, baseUrl, seed.atlasId, creds, { expectMapName: mapName }));
         }
 
         // 5) Read-only SQL ground-truth connection (null if no dbName, e.g. skip path).
@@ -120,7 +124,9 @@ export const collabTest = base.extend({
              */
             reopenPeer: async (index) => {
                 try { await peers[index].context().close(); } catch { /* already closed */ }
-                const fresh = await openClient(browser, baseUrl, seed.atlasId, peerCredsList[index]);
+                // Mesma prontidao do open inicial: um peer reaberto tambem ativa o mapa do
+                // atlas de forma assincrona, e o late-join e justamente onde se espera carga.
+                const fresh = await openClient(browser, baseUrl, seed.atlasId, peerCredsList[index], { expectMapName: mapName });
                 peers[index] = fresh;
                 return fresh;
             },
