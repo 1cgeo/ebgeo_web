@@ -441,8 +441,8 @@ Dois pontos da modelagem têm infraestrutura no banco mas **não** têm endpoint
 - **Módulo de grupos/membresia** — CRUD de grupos e gestão de quem pertence a cada grupo. O acesso
   via grupo funciona quando as linhas existem no banco, mas não há rotas para gerenciá-las.
 
-Esses itens estão catalogados no documento de pendências e desvios — consulte
-[99 - Pendências](./99-pendencias-e-desvios.md).
+Esses itens estão catalogados em **Gaps Conhecidos** no
+[README](../../README.md#gaps-conhecidos).
 
 ---
 
@@ -462,6 +462,6 @@ Esses itens estão catalogados no documento de pendências e desvios — consult
 ## Documentos Relacionados
 
 - [09 - Admin](./09-admin.md) — gerenciamento de usuários e trilha de auditoria
-- [99 - Pendências](./99-pendencias-e-desvios.md) — follow-ups (permissões de modelo 3D, grupos/membresia)
+- [README — Gaps Conhecidos](../../README.md#gaps-conhecidos) — follow-ups (permissões de modelo 3D, grupos/membresia)
 - [../../README.md](../../README.md) — índice da documentação
 - [../deploy/deploy.md](../deploy/deploy.md) — PostGIS, schema `ng` e carga de dados

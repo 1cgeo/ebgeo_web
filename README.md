@@ -42,7 +42,6 @@ subsistema que vai integrar. As convenções de engenharia ficam na seção
 | 14 | [Catálogo 3D e Assets](./docs/implementado/14-catalogo3d-assets.md) | Distribuição de assets 3D imutáveis + Cesium |
 | 15 | [Acesso Geográfico](./docs/implementado/15-acesso-geografico.md) | Zonas, `access_level`, filtro embutido no SQL |
 | 16 | [StreetView 360](./docs/implementado/16-streetview-360.md) | Projetos/fotos/targets, imagem WebP, calibração, tiles, ingestão |
-| 99 | [Pendências e Desvios](./docs/implementado/99-pendencias-e-desvios.md) | Gaps e follow-ups, organizados por criticidade |
 
 ---
 
@@ -99,7 +98,7 @@ src/
 npm run dev              # node --watch
 npm run db:migrate       # aplica migrações
 npm run db:seed          # dados de teste
-npm test                 # cria DB ebgeo_test → migra → roda (unit+integration+ws, ~1159 casos / 108 arquivos) → dropa
+npm test                 # cria DB ebgeo_test → migra → roda (unit+integration+ws, ~1263 casos / 126 arquivos) → dropa
 npm run test:unit | test:integration | test:ws
 npm run test:keep-db     # mantém o DB após os testes (debug)
 npm run lint             # eslint  ·  npm run format  (prettier)
@@ -253,22 +252,46 @@ URLs de serviço/tiles do `GET /api/config` (basemaps, busca, terrain, 360) tamb
 
 ## Sistema de Permissões
 
-Hierarquia por atlas: `owner` > `write` > `read` (waterfall):
+Hierarquia por atlas — **cinco níveis** (`PERMISSION_LEVELS` em `middleware/permissions.js`):
 
 ```
-1. userId === atlas.owner_id → owner
-2. atlas_shares.permission    → read | write
+read (1) < comment (2) < write (3) < manage (4) < owner (5)
+```
+
+Resolução (waterfall):
+
+```
+1. userId === atlas.owner_id → owner        (sintetizado, NÃO é um share)
+2. atlas_shares.permission    → read | comment | write | manage
 3. atlas.is_public            → read
 4. nenhum                     → 403 Forbidden
 ```
 
+| Nível | Papel (UI) | Pode |
+|-------|-----------|------|
+| `owner` | Dono | tudo, incluindo transferir posse e deletar o atlas |
+| `manage` | co-Gestor | editar + **compartilhar e configurar** o atlas (concede até `manage`; `owner` não é concedível) |
+| `write` | Editor | criar/editar/remover feições, camadas, mapas |
+| `comment` | Comentarista | ver o atlas e agir **somente** sobre comentários espaciais |
+| `read` | Visualizador | somente leitura |
+
+> `owner` é derivado de `atlas.owner_id` e nunca aparece em `atlas_shares` — o CHECK da coluna é
+> `('read','comment','write','manage')`. Ao escrever qualquer gate, use a **hierarquia** (ou
+> `requireAtlasPermission`), nunca uma lista fechada como `permission === 'write' || 'owner'`: isso
+> exclui silenciosamente o `manage`, que está *acima* de `write`.
+
+**Papel no frontend:** o evento WS `connected` traz `role` já mapeado por `toFrontendRole`
+(`utils/roles.js`): `admin`→`admin`, `owner`→`owner`, `manage`→`manager`, `write`→`editor`,
+`comment`→`commenter`, `read`→`viewer`.
+
 **Roles globais:** `user` (cria atlas, acessa recursos) · `admin` (gerencia usuários e recursos do
 sistema). **Identidade org-scoped (Fase 5):** JWT carrega `organization_id` + `org_role ∈
 {owner,editor,viewer,admin}` (emissor único). `flexibleAuth` é global e **não-bloqueante** (Bearer/cookie
-`token`/`x-api-key`, preserva anônimo); rotas estritas usam `auth`.
+`token`/`x-api-key`, preserva anônimo); rotas estritas usam `auth`, que reconcilia `is_active`/`role`
+com o banco a cada request (uma conta desativada ou um admin rebaixado perde acesso na hora).
 
-**Legenda das tabelas:** *User* = autenticado · *Admin* = role `admin` · *Read/Write/Owner* = permissão
-por atlas.
+**Legenda das tabelas:** *User* = autenticado · *Admin* = role `admin` ·
+*Read/Comment/Write/Manage/Owner* = permissão por atlas.
 
 **Deleção de usuários:** desativados (`is_active=false`), nunca removidos. Se possui atlas, transferir
 posse via `?transferTo=<userId>` antes (FKs `owner_id`/`uploaded_by`/`added_by` não têm `ON DELETE`).
@@ -326,15 +349,20 @@ Exceções: rotas `sv360` respondem **nuas** (objeto/array) e usam envelope de e
 | Método | Rota | Permissão |
 |--------|------|-----------|
 | GET | `/api/v1/atlas/:atlasId/briefings` · `/briefings/:briefingId` | Read |
-| GET/POST/PUT/DELETE | `/api/v1/atlas/:atlasId/sharing[...]` (public link + users) | Owner |
+| GET/POST/PUT/DELETE | `/api/v1/atlas/:atlasId/sharing[...]` (public link + users) | Manage |
 | GET/POST/DELETE | `/api/v1/atlas/:atlasId/images[...]` (+ `/images/bulk` base64, até 50) | Read / Write |
 
 ### Sync (CRDT)
 | Método | Rota | Permissão |
 |--------|------|-----------|
-| POST | `/api/v1/atlas/:atlasId/sync` (push de operações) | Write |
+| POST | `/api/v1/atlas/:atlasId/sync` (push de operações) | Comment¹ |
 | GET | `/api/v1/atlas/:atlasId/sync/:version` (snapshot ou ops incrementais) | Read |
 | GET/POST | `/api/v1/atlas/:atlasId/sync/admin/stats` · `/sync/admin/cleanup` | Admin |
+
+> ¹ O gate da **rota** é `comment` (não `write`) apenas para que um Comentarista alcance o handler;
+> `assertOperationAllowed()` então impõe, op a op, que `comment` só escreve comentários espaciais.
+> `read` é barrado já na rota. Além disso: delete de mapa e flip de `locked` exigem `owner` (403), e
+> um mapa `locked=true` recusa (409) qualquer mutação de entidade-filha.
 
 ### Debug / SyncLedger (test/dev — só com o tracer ligado)
 | Método | Rota | Auth |
@@ -437,7 +465,7 @@ presença/idempotência, **não** credencial (autorização vem do JWT).
 | `connection-quality` → `adaptive-settings` | Monitor de qualidade adaptativo |
 | `sync_request`/`sync_response` | Sync via WS (snapshot ou ops) |
 | `user_joined`/`user_left` · `user_away`/`user_back` | Presença. Queda de rede (close `1006`/`terminate`) → `away` por `WS_AWAY_GRACE_MS`; reconexão c/ mesmo `clientId` cancela e emite `user_back`; close limpo ou `leave` (in) → `user_left` imediato. `getRoomUsers` carrega `status: online\|away` |
-| `connected` | `permission` (owner/write/read) **e** `role` (owner/editor/viewer/admin); `sessionId = clientId` |
+| `connected` | `permission` (owner/manage/write/comment/read) **e** `role` (admin/owner/manager/editor/commenter/viewer); `sessionId = clientId` |
 | `atlas_updated`/`atlas_deleted`/`atlas_settings_updated`/`sharing_updated`/`maps_merged` | Broadcast de mutações REST |
 | `briefing_edit_start`/`end` → `..._started`/`..._ended` | Awareness de briefing |
 
@@ -479,10 +507,10 @@ ETag O(1) (sem ler o BLOB) → **304 antes de qualquer I/O** → Range 206/416 �
 
 ## Gaps Conhecidos
 
-Cruzando as ~313 ações da interface (`acoes-interface-multiusuario.md`) com o backend — pendências
-e desvios catalogados por criticidade em
-[99 - Pendências e Desvios](./docs/implementado/99-pendencias-e-desvios.md). **~95% das funcionalidades multiusuário estão
-implementadas.**
+Cruzando as ~313 ações da interface (`acoes-interface-multiusuario.md`) com o backend.
+**~95% das funcionalidades multiusuário estão implementadas.** Nenhum defeito conhecido em aberto —
+a varredura sistemática de 2026-07 (segurança + correção, 5 frentes) teve **todos** os achados
+corrigidos com teste de regressão; ver o histórico em `git log`.
 
 ### Resolvidos
 | Gap | Solução |
@@ -491,17 +519,34 @@ implementadas.**
 | Mover feição entre mapas · duplicar mapa · map reorder · awareness de briefing | `map_id` em `UPDATE_FIELDS`; `/maps/:id/duplicate`; `atlas_updated` (map_order); `briefing_edit_*` |
 | `gridStyle` · `catalogLayer` por-camada · config temporal · merge de mapas | ✅ Fase 1 (baseline `002_atlas`; `POST /maps/:id/merge`) |
 | Idempotência de sync · presença `away`/`remove` + `clientId` | ✅ Fase 0/8 (`op_id` UNIQUE; `user_away`/`user_back`) |
+| **Lock de MAPA imposto no servidor** | `assertOperationAllowed()`: mapa `locked=true` recusa (409) mutação de entidade-filha; delete/flip de `locked` exigem `owner` (403) |
+| **Autorização reconciliada com o banco a cada request** | `getLiveAuthState()` no `auth` estrito: conta desativada → 401, org inativa → 403, `role` global vindo do banco |
+| **Ordem de versão do sync** | `pg_advisory_xact_lock` por atlas no push: a ordem de `server_version` passa a coincidir com a ordem de commit (antes, um pull incremental podia pular uma op comitada) |
 
 ### Abertos (por design / sob demanda)
 | Prioridade | Gap | Status |
 |-----------|-----|--------|
-| P3 | Sub-canais WS por mapa | Pendente (otimização de tráfego) |
+| P3 | Sub-canais WS por mapa | Pendente (otimização de tráfego). Hoje as salas são **por atlas**: cursor/seleção/ops chegam a todos os conectados — o frontend filtra por `mapId`. |
 | P3 | Viewport loading no atlas | Pendente (atlas é JSONB sem PostGIS; sob demanda de performance) |
+| P2 | **Escala single-instance** | Salas/presença/cursores vivem em memória numa instância (`collab.rooms.js`). Em multi-instância, use **sticky-session** no LB até haver Redis pub/sub. Ver [deploy.md](./docs/deploy/deploy.md). |
+| P2 | **Superfície de admin de acesso 3D/grupos** | As tabelas (`ng.model_permissions`, `ng.groups`, `ng.user_groups`) existem e o filtro de leitura já as honra, mas **não há rota CRUD**: conceder acesso a modelo privado ou gerir membresia é tarefa de seed/DBA hoje. |
+| P2 | **Auditoria parcial dos fluxos destrutivos** | Em `audit_trail` hoje: `ORG_*`, `USER_DELETE`, `API_KEY_ROTATE`, `PERMISSION_GRANT`. **Ausentes** (apesar de estarem no CHECK): `LOGIN`/`LOGOUT`, `USER_CREATE`/`USER_UPDATE`/`PASSWORD_RESET`/`ROLE_CHANGE`, `ATLAS_DELETE`, `SHARING_CHANGE`. Infra pronta — basta chamar `createAudit`. |
+| P3 | **URLs de serviço sem fail-fast** | `validateEnvVariables()` valida `DATABASE_URL`/`JWT_SECRET`/`PORT`/`CORS_ORIGIN`, 20 knobs numéricos e as durações JWT — mas **não** alerta se `SEARCH_API_URL`/`SV360_SERVICE_URL`/`MAP3D_TERRAIN_URL` ficarem no default `localhost` em produção. Confira manualmente via `GET /api/config`. |
+| P3 | **Índice GIN parcial de FTS sobre públicos** | `idx_catalogo3d_public_fts` não existe. Há o GIN completo `idx_cat3d_search` (`search_vector`) e o parcial de id `idx_catalogo_3d_public`. Criar só se o volume do catálogo público exigir. |
 | N/A | Undo/Redo; dados temporais por feição | Frontend / OK (viajam em `properties` JSONB) |
 
-**Divergências de contrato:** papéis do frontend (`owner/admin/editor/viewer`) vs. backend
-(`owner/write/read` por-atlas + `user/admin` global; o WS já expõe `role` mapeado). `locked` é
-**advisory** (frontend-only) — o sync nunca bloqueia escrita numa entidade travada.
+### Comportamentos que parecem defeito, mas são intencionais
+
+| Comportamento | Por quê |
+|---------------|---------|
+| **LWW é por ordem de chegada ao servidor, não por timestamp** | `applyOperation` aplica todo UPDATE incondicionalmente; o `client_timestamp` viaja e é devolvido, mas **não** decide o vencedor. Idempotência é por `op_id`. Não é um CRDT de verdade — o servidor define a ordem total. |
+| **Escrita do módulo `sv360` não emite broadcast WS** | O 360 está **fora** do sync/CRDT do atlas. Após uma escrita, recarregue `GET /sv360/photos/:uuid` — não espere evento em tempo real. |
+| **O remetente HTTP não é excluído do broadcast** | Não há socket no contexto HTTP. Mitigado no cliente: ops com `clientId` próprio são descartadas. |
+| **Lock de camada/grupo/feição individual continua advisory** | Só o lock de **MAPA** é imposto no servidor. O frontend ainda reflete os demais localmente. |
+| **DELETE de projeto sv360 é hard-delete** | Não há tombstone de projeto; o "soft" equivalente é `PATCH .../status` com `disabled`. |
+| **Janela de crash entre swap e commit na ingestão 360** | Ingestões concorrentes do mesmo `(orgId, slug)` são serializadas por advisory lock, mas um crash entre o swap do `{slug}.db` e o commit deixa arquivo-novo + metadados-velhos. Benigno: fotos já anunciadas seguem servíveis; reingerir resolve. |
+| **Calibração 360 valida tipo/finitude, sem faixas** | Colunas `DOUBLE PRECISION`/`INTEGER` sem CHECK; o contrato congelado não documenta min/max. `NaN`/`Infinity`/string → 422; qualquer número finito passa. |
+| **Sem CI no GitHub** | Descartado por opção — rode `npm run lint` e `npm test` localmente. |
 
 **Lifecycle de socket é client-driven:** `auth.logout` revoga só o refresh token — **não** fecha sockets de
 `collab` nem limpa presença; um socket só cai no fechamento pelo cliente (`leave`/close) ou quando o sweep de

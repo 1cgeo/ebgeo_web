@@ -118,7 +118,6 @@ response e notas de integração.
 | 14 | [Catálogo 3D e Assets](./14-catalogo3d-assets.md) | Distribuição de assets 3D imutáveis + integração Cesium |
 | 15 | [Acesso Geográfico](./15-acesso-geografico.md) | Zonas de acesso, `access_level`, filtro embutido no SQL |
 | 16 | [StreetView 360](./16-streetview-360.md) | Projetos/fotos/targets, imagem WebP, calibração, tiles, ingestão |
-| 99 | [Pendências e Desvios](./99-pendencias-e-desvios.md) | Gaps abertos, divergências de contrato e follow-ups (por criticidade) |
 
 > Os padrões de engenharia (template de módulo, erro/validação/transação, migração, segurança,
 > testes/DoD) ficam no [README §Convenções de Engenharia](../../README.md#convenções-de-engenharia).

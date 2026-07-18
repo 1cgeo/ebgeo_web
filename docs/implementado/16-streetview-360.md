@@ -558,6 +558,16 @@ Todos no envelope plano `{ "error": "mensagem" }`:
 | `416` | Range inválido em imagem/thumbnail |
 | `422` | Body/parâmetro de validação inválido (tipo, vazio, campo desconhecido) |
 
+### Rotas que NÃO existem
+
+Não dependa destas — a superfície as-built é exatamente a das seções acima:
+
+- **`nearby`** — existe como função no service, mas **sem rota montada**.
+- **`metadata`** / **`position`** — não foram portados do 360 legado.
+
+Escritas do 360 **não emitem broadcast WS**: o módulo está fora do sync/CRDT do atlas. Após uma
+escrita, recarregue `GET /sv360/photos/:uuid` em vez de esperar um evento em tempo real.
+
 ---
 
 ## 11. Configuração no Frontend (`GET /api/config`)

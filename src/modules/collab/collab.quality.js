@@ -38,6 +38,12 @@ export function adaptiveSettingsFor(quality) {
 /**
  * Deep-copies a value, rounding every numeric coordinate to `precision` decimal
  * places. Use for outbound geometry compression only — never before persisting.
+ *
+ * NÃO É DEAD CODE, apesar de não ter call site em `src/`: é um utilitário
+ * transport-only reservado, coberto por teste unitário
+ * (`tests/unit/collab-quality.test.js`). Mantido deliberadamente — não remova
+ * numa limpeza de código não usado.
+ *
  * @param {*} value - GeoJSON geometry (or any nested structure)
  * @param {number} precision - decimal places (default 5 ≈ 1.1 m)
  */

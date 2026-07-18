@@ -9,7 +9,7 @@ frontend.
 
 > Referência completa (rotas, env, migrações, permissões, protocolo WS, convenções detalhadas) está
 > no **[README.md](README.md)**. Guias de integração por subsistema em **[docs/implementado/](docs/implementado/)**
-> (série numerada `00`–`16` + `99-pendencias-e-desvios`). Deploy em
+> (série numerada `00`–`16`). Deploy em
 > **[docs/deploy/deploy.md](docs/deploy/deploy.md)**. Este arquivo é o contrato de comportamento —
 > mantenha-o curto.
 
@@ -27,7 +27,7 @@ frontend.
 ```bash
 npm run dev            # node --watch
 npm run db:migrate     # aplica migrações | npm run db:seed
-npm test               # cria DB ebgeo_test → migra → roda → dropa (unit+integration+ws, ~1159 casos / 108 arquivos)
+npm test               # cria DB ebgeo_test → migra → roda → dropa (unit+integration+ws, ~1263 casos / 126 arquivos)
 npm run test:unit | test:integration | test:ws   # subconjuntos
 npm run test:keep-db   # mantém o DB p/ debug
 npm run lint           # eslint (rode antes de finalizar) | npm run format
@@ -51,6 +51,12 @@ npm run lint           # eslint (rode antes de finalizar) | npm run format
   do atlas (decisão: filtro espacial do atlas seria bbox em JS, não `ST_Intersects`).
 - **Controle de acesso embutido na query SQL** (`ng`/`sv360`): o dado privado não vaza nem com bug de
   app. Toda query com filtro de acesso **exige um teste negativo** (usuário sem permissão não vê).
+- **Permissão por atlas tem CINCO níveis** — `read < comment < write < manage < owner`
+  (`PERMISSION_LEVELS` em `middleware/permissions.js`; `owner` é sintetizado de `atlas.owner_id`, o
+  CHECK da coluna é `read|comment|write|manage`). Sempre gate pela **hierarquia** ou por
+  `requireAtlasPermission`. **Nunca** escreva uma lista fechada tipo
+  `permission === 'write' || permission === 'owner'`: isso exclui o `manage` (co-Gestor), que está
+  *acima* de `write` — foi exatamente assim que a presença de seleção do co-Gestor foi silenciada.
 - **Soft-delete sempre** (`deleted_at`, ou `is_active` p/ usuários; tombstone p/ fotos 360). **Nunca**
   faça hard-DELETE de entidade principal. `atlas.owner_id`/`images.uploaded_by`/`atlas_shares.added_by`
   são FK **sem `ON DELETE`** → reatribua (`?transferTo`) antes de qualquer hard-delete de usuário.

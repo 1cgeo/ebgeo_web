@@ -735,10 +735,15 @@ O estado efêmero (salas, presença, cursores, timers de `away`) vive **em memó
 instância**. O estado durável está no Postgres. Escalar horizontalmente exige sticky-session no load
 balancer (ou uma camada pub/sub — não implementada). Ver [`../deploy/deploy.md`](../deploy/deploy.md).
 
-### `locked` é advisory
+### `locked`: MAPA é imposto; camada/grupo/feição são advisory
 
-`locked` (mapa/camada/grupo/feição) **não** é enforçado pelo servidor — o sync nunca rejeita escrita em
-entidade travada. O bloqueio é frontend-only. Ver [`./05-sync-crdt.md`](./05-sync-crdt.md).
+O lock de **MAPA** é enforçado pelo servidor: com `locked=true`, o sync **recusa (409)** qualquer
+mutação de entidade-filha (feature/layer/group/cesium3d/streetview360/catalog), e tanto o flip de
+`locked` quanto o delete do mapa exigem `owner` (403 para `write`).
+
+O lock de **camada, grupo e feição individual** (com o mapa destravado) continua **advisory** — o
+frontend precisa refleti-lo localmente. Ver [`./05-sync-crdt.md`](./05-sync-crdt.md) e
+`tests/integration/sync-authz-lock.test.js`.
 
 ---
 

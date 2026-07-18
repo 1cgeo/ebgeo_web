@@ -389,19 +389,26 @@ owner > manage > write > comment > read
 
 ### Matriz de Permissões
 
-| Ação | read | write | owner |
-|------|------|-------|-------|
-| Visualizar atlas | ✅ | ✅ | ✅ |
-| Pull de sync | ✅ | ✅ | ✅ |
-| Conectar WebSocket | ✅ | ✅ | ✅ |
-| Ver cursores/presença | ✅ | ✅ | ✅ |
-| Push de operações | ❌ | ✅ | ✅ |
-| Upload de imagens | ❌ | ✅ | ✅ |
-| Atualizar atlas | ❌ | ✅ | ✅ |
-| Clonar atlas | ✅ | ✅ | ✅ |
-| Alterar configurações | ❌ | ❌ | ✅ |
-| Gerenciar compartilhamento | ❌ | ❌ | ✅ |
-| Deletar atlas | ❌ | ❌ | ✅ |
+| Ação | read | comment | write | manage | owner |
+|------|------|---------|-------|--------|-------|
+| Visualizar atlas | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Pull de sync | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Conectar WebSocket | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Ver cursores/presença | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Broadcast da própria seleção | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Escrever comentários espaciais | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Push de operações (não-comentário) | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Upload de imagens | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Atualizar atlas | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Clonar atlas | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Gerenciar compartilhamento | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Alterar configurações do atlas | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Travar/destravar mapa · deletar mapa | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Transferir posse · deletar atlas | ❌ | ❌ | ❌ | ❌ | ✅ |
+
+> `owner` é sintetizado de `atlas.owner_id` e nunca aparece em `atlas_shares` (CHECK:
+> `read|comment|write|manage`). `manage` está **acima** de `write` — um gate escrito como
+> `permission === 'write' || permission === 'owner'` exclui o co-Gestor silenciosamente.
 
 ### Verificando Permissão no Frontend
 

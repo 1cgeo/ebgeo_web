@@ -79,6 +79,12 @@ LIMIT 1
 // The WHERE is a disjunction of access branches so fase-6 only ADDS the spatial
 // zone branch (LEFT JOIN user_zones ON ST_Contains(...) OR uz.id IS NOT NULL)
 // without rewriting this query.
+//
+// ⚠️ O predicado de acesso (CTEs `user_role` + `user_model_permissions`) é
+// DUPLICADO VERBATIM em CATALOGO_COUNT logo abaixo — só muda o placeholder do
+// userId ($4 aqui, $2 lá). Nunca foi extraído para uma função SQL
+// (`fn_user_can_see_model`); ao editar o filtro de acesso, altere OS DOIS ou a
+// contagem passa a divergir da listagem.
 export const CATALOGO_SELECT = `
 WITH user_role AS (
   SELECT EXISTS (SELECT 1 FROM users WHERE id = $4::uuid AND role = 'admin') AS is_admin
