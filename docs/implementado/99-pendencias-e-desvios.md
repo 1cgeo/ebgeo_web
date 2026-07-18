@@ -223,6 +223,46 @@ A lógica vive no cliente (`ebgeo_web`). O backend já oferece o contrato necess
 
 ---
 
+---
+
+## Varredura de bugs do backend — 2026-07-18 (pendências remanescentes)
+
+Varredura sistemática por bugs de correção/segurança em 5 frentes (auth/middleware,
+sync/collab/WS, atlas/sharing/images, sv360/nomes/zones/catálogo, utils/db/config/audit).
+Dez achados foram corrigidos com teste de regressão (ver histórico git: commits
+`fix(backend): corrige bugs de segurança/correção`, `fix(error-handler): …` e
+`fix(auth,sync): … (P1) + … (P2)`). Os itens abaixo são **reais e não corrigidos** —
+exigem decisão de produto ou mudança de maior escopo/risco.
+
+### Pendências (P3–P8)
+
+| # | Arquivo | Bug | Sev | Correção sugerida |
+|---|---------|-----|-----|-------------------|
+| P3 | `sv360.ingest.js` (`ingestBundle`) | Duas ingestões concorrentes do mesmo `(orgId, slug)` não são serializadas; o swap de arquivo roda **antes** da tx Postgres, então uploads interleaved podem deixar o `{slug}.db` em disco e o metadado apontando para bundles diferentes; um `rollbackSwap` pode restaurar o `.bak` errado. | MÉDIO | `pg_advisory_xact_lock(hash(orgId\|\|slug))` antes do swap, ou mutex por-chave em processo. Mesmo padrão já aplicado no push de sync (P2). |
+| P4 | `src/index.js` | O shutdown gracioso não fecha o `WebSocketServer` nem os clientes; com um socket collab aberto (longa duração por design) o callback de `server.close()` nunca dispara → `blobPool.closeAll()`, `pgp.end()` e `process.exit(0)` são pulados; o processo trava até SIGKILL (risco de handles SQLite abertos em restart no Windows). | MÉDIO | Exportar `shutdown()` que fecha os clientes `wss`, com timer de force-exit. |
+| P5 | `src/utils/sqlite-blob-pool.js` | Worker que emite `'error'` não é removido de `this.workers` nem respawnado; o round-robin segue mandando ~1/N das leituras para um worker morto (`postMessage` vira no-op) → promises que nunca resolvem, requests pendurados sem timeout. O handler ainda rejeita os pendings de **todos** os workers, não só do que caiu. | MÉDIO | Dropar/respawnar o worker e rejeitar só os ids pendentes dele. |
+| P6 | `sv360.controller.js` | Imagem/thumbnail saem com `Cache-Control: public, max-age=31536000, immutable` sem `Vary`; um cache compartilhado (CDN/proxy) pode cachear a resposta de um usuário autorizado e reentregar a um anônimo (projeto `disabled`), ou envenenar o thumbnail de um slug com colisão cross-org. | MÉDIO | `private` (ou `Vary: Authorization, Cookie`) para projeto `disabled`; manter `public, immutable` só para `enabled`. |
+| P7 | `src/config.js` (`validateEnvVariables`) | Só DATABASE_URL/JWT_SECRET/PORT/CORS_ORIGIN são validados; os demais `parseInt` viram `NaN` silencioso: `MAX_BULK_UPLOAD_MB=abc` → `express.json({limit:'NaNmb'})` (**sem limite de corpo**); `WS_HEARTBEAT_INTERVAL_MS=abc` → `setInterval(NaN)` ≈ 1 ms (tempestade de queries); `JWT_REFRESH_EXPIRY=1w` → `parseDuration`=0 → todo refresh expira imediatamente. | MÉDIO | Estender a validação fail-fast e garantir `parseDuration` > 0. |
+| P8 | `collab.gateway.js` (`removeConnection`) | `user_left` é transmitido só por `userId`, sem checar se o usuário ainda tem outro socket vivo na sala (reconexão com clientId novo, ou duas abas). Peers removem um usuário que continua online. `user_away`/`user_back` carregam `clientId`, `user_left` não. | MÉDIO | Só emitir `user_left` no último socket do usuário na sala, ou carregar `clientId`. |
+
+### Achados de baixo impacto (registro)
+
+| # | Arquivo | Bug | Sev |
+|---|---------|-----|-----|
+| L1 | `sync.schemas.js` | `timestamp`/`clientId` opcionais no Joi, mas colunas `NOT NULL` → 500 em vez de 422. **Toca o envelope congelado de sync — vale um teste de contrato antes de alterar.** | baixo |
+| L2 | `collab.gateway.js` | `WebSocketServer` sem `maxPayload` → aceita frames de até 100 MiB (10× o limite HTTP) antes de qualquer validação | baixo |
+| L3 | `sync.service.js` | `entityId` sentinela (`'atlas'`) reescrito para o UUID do atlas no log, mas o broadcast carrega o sentinel → mesma op com `entityId` diferente por caminho | baixo |
+| L4 | `auth.service.js` (`verifyEmail`) | mark + consume em duas `query()` (não `tx`) → token de verificação não é single-use sob concorrência | baixo |
+| L5 | `environment.js` | `cookieOptions().maxAge` fixo em 15 min, mas `JWT_ACCESS_EXPIRY` é configurável → sessão de cookie quebra se a expiry for maior | baixo |
+| L6 | `migrate.js` | runner de migração sem `pg_advisory_lock` → duas execuções concorrentes correm para aplicar a mesma migração | baixo |
+| L7 | `optional-auth.js` | `optionalAuth` sobrescreve `req.user` (dead code hoje) → clobber da identidade de `flexibleAuth` se adotado | baixo |
+| L8 | `sv360.write.service.js` | calibração PUT numa foto com tombstone persiste o UPDATE e depois responde 404 (inconsistente com o batch, que faz rollback) | baixo |
+| L9 | `sv360.admin.schemas.js` | `orgId` validado como `uuidv4`, mas o org default `…0001` não é v4 → 422 ao escopar a lista admin para a org default | baixo |
+| L10 | `sv360.queries.js` | `GET_PHOTO_BY_NAME` desempata só por `status='enabled'` (não pela org do chamador) → colisão de nome entre projetos disabled pode 404 para membro que tem a foto | baixo |
+| L11 | `sv360-error.js` | handler sv360 não mapeia `23505` → 409 (vira 500), apesar do comentário na query afirmar o contrário | baixo |
+| L12 | `catalog.service.js` | `GET /:id` retorna item soft-deletado (`active=false`); `COALESCE($n,col)` impede limpar `description` | baixo |
+| L13 | `atlas.service.js` | rota de transferência de posse e sua query com filtro de acesso **sem nenhum teste** (positivo ou negativo) | cobertura |
+
 ## Referências
 
 - [00 - Visão Geral](./00-visao-geral.md) — arquitetura final e decisões transversais.
