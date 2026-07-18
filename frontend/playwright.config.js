@@ -41,10 +41,11 @@ export default defineConfig({
         trace: 'on-first-retry',
     },
     webServer: {
-        // `dev:web` (Vite sozinho), NAO `dev`: este ja sobe o backend real em
-        // global-setup, e `npm run dev` hoje e o stack completo via concurrently,
-        // que nem repassaria o `--port`.
-        command: `npm run dev:web -- --port ${APP_PORT} --strictPort`,
+        // Roda com cwd em frontend/, entao `npm run dev` AQUI e o `vite` do
+        // proprio pacote, nao o stack completo (esse e o `dev` da RAIZ, que sobe
+        // backend junto e nem repassaria o `--port`). O global-setup ja sobe o
+        // backend descartavel.
+        command: `npm run dev -- --port ${APP_PORT} --strictPort`,
         url: APP_ORIGIN,
         reuseExistingServer: !process.env.CI,
         timeout: 120000,
