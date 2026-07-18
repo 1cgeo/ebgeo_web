@@ -50,6 +50,35 @@ const lineGeomKey = (page, id) => page.evaluate(async (i) => {
 
 const hasLine = async (page, id) => (await readFeatures(page, 'lines')).some((x) => x.id === id);
 
+/**
+ * Waits until every client agrees with the value the server holds AT THAT MOMENT, and
+ * returns it.
+ *
+ * Reading the winner once and then polling the clients against that snapshot is a latent
+ * flake, and it bit the F5 test under full-suite load: an operation can still be sitting in
+ * an outbound queue (`enqueued_not_flushed`) and flush later, legitimately moving the
+ * winner AFTER the read. The clients then converge on the new value while the assertion
+ * still demands the old one.
+ *
+ * Sampling server and clients together makes the claim the one that actually matters:
+ * at one instant, everyone agrees. A permanent divergence never satisfies it and the
+ * failure message names both sides.
+ */
+async function convergedValue(db, pages, id, ler, timeout = 25000) {
+    let valor = null;
+    await expect
+        .poll(async () => {
+            const row = await db.queryFeatureRow(id);
+            const servidor = String(row?.properties?.lineColor ?? '').toLowerCase();
+            if (!servidor) return null;
+            const clientes = await Promise.all(pages.map((p) => ler(p)));
+            valor = clientes.every((c) => c === servidor) ? servidor : null;
+            return valor ?? `servidor=${servidor} clientes=${clientes.join(',')}`;
+        }, { timeout, message: 'todos os clientes concordam com o valor que o servidor tem AGORA' })
+        .toMatch(/^#[0-9a-f]{6}$/);
+    return valor;
+}
+
 // The coordinates the real line tool draws (also where the camera is fit before the clicks).
 const LINE_COORDS = [[-43.2, -22.9], [-43.15, -22.85], [-43.1, -22.8]];
 
@@ -109,23 +138,16 @@ collabTest.describe('CRDT conflict — concurrent edits converge (LWW by arrival
         //     propagated to both while B's op is still in flight, so both legitimately show A's
         //     color before the real winner lands. The poll exited on that way-station, and under
         //     load (full suite) the window is wide enough that it did. That is the whole flake.
-        const ops = await collab.db.queryOperationsByEntity(id);
-        const maxV = Math.max(...ops.map((o) => Number(o.server_version)));
-        const frow = await collab.db.queryFeatureRow(id);
-        const winner = String(frow?.properties?.lineColor).toLowerCase();
+        // (3) CONVERGENCE, properly stated: both clients end on the value THE SERVER holds,
+        //     not merely on each other. A stable divergence here is a product bug, not a slow
+        //     test, and this is the assertion that can tell the two apart. Server and clients
+        //     are sampled together (see `convergedValue`) so a late flush that moves the
+        //     winner cannot turn a correct convergence into a false failure.
+        const winner = await convergedValue(collab.db, [A, B], id, (p) => lineProp(p, id, 'lineColor').then((v) => String(v).toLowerCase()));
         expect(winner, 'o servidor gravou uma das duas cores em disputa').toMatch(/^#(ff0000|0000ff)$/);
 
-        // (3) CONVERGENCE, properly stated: BOTH clients end on THE WINNER, not merely on each
-        //     other. A stable divergence here is a product bug, not a slow test, and this is the
-        //     assertion that can tell the two apart.
-        for (const [page, quem] of [[A, 'A'], [B, 'B']]) {
-            await expect
-                .poll(async () => String(await lineProp(page, id, 'lineColor')).toLowerCase(), {
-                    timeout: 15000,
-                    message: `${quem} convergiu para a cor que o servidor gravou (${winner})`,
-                })
-                .toBe(winner);
-        }
+        const ops = await collab.db.queryOperationsByEntity(id);
+        const maxV = Math.max(...ops.map((o) => Number(o.server_version)));
         // (4) DURABILITY: the winner is what each client persisted to IndexedDB (via the
         //     repository, not the in-memory store) — an in-memory-only agreement would not
         //     survive F5 and must not count as convergence.
@@ -171,22 +193,31 @@ collabTest.describe('CRDT conflict — concurrent edits converge (LWW by arrival
             await waitForAcked(page, enq.opId, 25000);
         }
 
-        const frow = await collab.db.queryFeatureRow(id);
-        const winner = String(frow?.properties?.lineColor).toLowerCase();
-        expect(winner).toMatch(/^#(ff0000|0000ff)$/);
-
         // F5 nos dois. O reload mantém URL + localStorage, então a sessão restaura e o
         // atlas reabre; o estado vem do IndexedDB, não da memória do processo anterior.
+        //
+        // A comparação relê o Postgres A CADA amostra, em vez de fixar o vencedor antes do
+        // reload.
+        //
+        // Observado na suíte cheia (não reproduz isolado): o teste falhou com cliente em
+        // #ff0000 e o retrato do servidor em #0000ff, e o ledger da execução trazia uma op
+        // DA FEIÇÃO ainda em `enqueued_not_flushed`. Ou seja, havia operação pendente além
+        // da que eu esperei o ack, e ela pode ser descarregada na reconexão pós-F5,
+        // mudando legitimamente o vencedor DEPOIS da leitura. (De onde vem a op extra é
+        // hipótese, provavelmente o gesto de painel emitindo change e save; não confirmei,
+        // e o teste não depende disso.)
+        //
+        // Fixar o valor antes fazia o teste cobrar um retrato vencido. A invariante que
+        // interessa não é "o cliente bate com o vencedor de alguns segundos atrás", é
+        // **cliente e servidor concordam**, e é o que se afirma agora: se a divergência for
+        // permanente, o poll devolve "cliente=X servidor=Y", que não casa com o padrão, e
+        // o teste falha nomeando os dois lados.
         for (const [page, quem] of [[A, 'A'], [B, 'B']]) {
             await page.reload();
             await expect(page.locator('[data-testid="sync-status-badge"]'))
                 .toHaveAttribute('data-state', 'online', { timeout: 25000 });
-            await expect
-                .poll(async () => String(await lineProp(page, id, 'lineColor')).toLowerCase(), {
-                    timeout: 20000,
-                    message: `${quem} ainda mostra o vencedor (${winner}) depois do F5`,
-                })
-                .toBe(winner);
+            const acordo = await convergedValue(collab.db, [page], id, (p) => lineProp(p, id, 'lineColor').then((v) => String(v).toLowerCase()));
+            expect(acordo, `${quem} concorda com o servidor depois do F5`).toMatch(/^#(ff0000|0000ff)$/);
         }
     });
 
@@ -304,8 +335,7 @@ collabTest.describe('CRDT conflict — tres clientes', () => {
             await waitForAcked(page, enq.opId, 25000);
         }
 
-        const frow = await collab.db.queryFeatureRow(id);
-        const winner = String(frow?.properties?.lineColor).toLowerCase();
+        const winner = await convergedValue(collab.db, [A, B, C], id, (p) => lineProp(p, id, 'lineColor').then((v) => String(v).toLowerCase()));
         expect(winner, 'o servidor gravou uma das três cores em disputa').toMatch(/^#(ff0000|0000ff|00ff00)$/);
 
         // As TRÊS chegaram ao log append-only. A coluna é `op_type`
@@ -318,14 +348,5 @@ collabTest.describe('CRDT conflict — tres clientes', () => {
         const updates = ops.filter((o) => o.op_type === 'update');
         expect(updates.length, 'as três atualizações chegaram ao log').toBeGreaterThanOrEqual(3);
 
-        // Os TRÊS terminam no mesmo valor, e é o do servidor.
-        for (const [page, quem] of [[A, 'A'], [B, 'B'], [C, 'C']]) {
-            await expect
-                .poll(async () => String(await lineProp(page, id, 'lineColor')).toLowerCase(), {
-                    timeout: 20000,
-                    message: `${quem} convergiu para o vencedor do servidor (${winner})`,
-                })
-                .toBe(winner);
-        }
     });
 });
