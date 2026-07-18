@@ -133,7 +133,10 @@ export default [
             'public/**',
             '*.min.js',
             'server/**',
-            '*/vendor/'
+            '*/vendor/',
+            // O backend é um pacote próprio com regras próprias
+            // (backend/eslint.config.js). `npm run lint:backend` cuida dele.
+            'backend/**'
         ]
     }
 ];

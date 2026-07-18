@@ -1,10 +1,12 @@
 {
   "name": "ebgeo",
   "version": "1.0.0",
-  "description": "Sistema de Informação Geográfica do Exército Brasileiro",
+  "description": "Sistema de InformaÃ§Ã£o GeogrÃ¡fica do ExÃ©rcito Brasileiro",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:all": "concurrently -n backend,web -c blue,green \"npm:dev:backend\" \"npm:dev\"",
     "build": "./deploy/deploy.sh",
     "preview": "vite preview",
     "start": "node ./server/server.cjs",
@@ -16,13 +18,18 @@
     "lint:fix": "npm run lint:js:fix && npm run lint:css:fix",
     "lint:js:fix": "eslint . --fix",
     "lint:css:fix": "stylelint \"**/*.css\" --fix --ignore-path .gitignore",
+    "lint:backend": "npm run lint --prefix backend",
+    "lint:all": "npm run lint && npm run lint:backend",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:backend": "npm test --prefix backend",
+    "test:all": "npm test && npm run test:backend",
     "test:e2e": "vitest run --config vitest.e2e.config.js",
     "test:e2e:ui": "playwright test",
     "test:e2e:mega": "playwright test browser-collab-mega --headed",
-    "build_dev": "vite build"
+    "build_dev": "vite build",
+    "install:all": "npm install && npm install --prefix backend"
   },
   "dependencies": {
     "@fastify/compress": "^8.3.1",
@@ -47,6 +54,7 @@
     "@playwright/test": "^1.49.0",
     "@vitejs/plugin-legacy": "^8.0.0",
     "@vitest/coverage-v8": "^4.1.8",
+    "concurrently": "^10.0.3",
     "eslint": "^9.17.0",
     "fast-check": "^4.8.0",
     "globals": "^15.14.0",
@@ -58,7 +66,7 @@
     "vite": "^8.0.0",
     "vitest": "^4.0.18"
   },
-  "author": "1º Centro de Geoinformação",
+  "author": "1Âº Centro de GeoinformaÃ§Ã£o",
   "license": "ISC",
   "engines": {
     "node": ">=18.0.0"

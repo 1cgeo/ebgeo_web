@@ -22,10 +22,16 @@
 
 import { spawn } from 'node:child_process';
 import { rmSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 
-const BACKEND_DIR = 'C:/Users/diniz/OneDrive/Desktop/Desenvolvimento/ebgeo_backend';
+// Resolved FROM THIS REPO — the backend lives in `backend/` of this same monorepo.
+// Was a hardcoded machine-specific path, so this whole E2E layer only ran on one
+// developer's computer. `EBGEO_BACKEND_DIR` overrides it if the backend is elsewhere.
+const BACKEND_DIR =
+    process.env.EBGEO_BACKEND_DIR ||
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../backend');
 const MIGRATE_URL = pathToFileURL(`${BACKEND_DIR}/src/database/migrate.js`).href;
 
 // `pg-promise` is a backend dependency (not a frontend one), so resolve it from
