@@ -21,8 +21,12 @@
  * Run headed:  npx playwright test browser-collab-crdt-conflict --headed
  */
 
-import { collabTest, expect, drawLineUI, readFeatures, selectAndRecolorUI, deleteFeatureUI } from './helpers/collab.fixtures.js';
+import {
+    collabTest, expect, drawLineUI, readFeatures,
+    selectAndRecolorUI, selectFeatureUI, recolorViaPanelUI, deleteFeatureUI,
+} from './helpers/collab.fixtures.js';
 import { collectLedger, reduceLedger } from './helpers/ledger.js';
+import { waitForEntitySpan, waitForAcked } from './helpers/trace-helpers.js';
 import { readIdbEntity } from './helpers/idb.js';
 
 /** Drives a store op on `page` through the app's REAL store facade (no-UI escapes only). */
@@ -62,43 +66,128 @@ collabTest.describe('CRDT conflict — concurrent edits converge (LWW by arrival
         expect(id, 'the line tool created a feature on A').toBeTruthy();
         await collab.expectFullSync({ entityId: id, type: 'lines', operationType: 'create' });
 
-        // Both recolor the same line "simultaneously" through their own panels — fire in
-        // parallel (one gesture per browser) without awaiting cross-sync between them.
+        // Selecionar PRIMEIRO nos dois, em série, e só então recolorir em paralelo.
+        //
+        // O gesto único (`selectAndRecolorUI`) fazia select e recolor juntos, e a update
+        // remota do outro cliente chegava no meio, re-renderizando o painel e derrubando a
+        // seleção: o recolor não acontecia, nenhuma operação era enfileirada, e o teste
+        // caía com "não virou operação na fila". Era corrida do driver de UI, não do sync.
+        // Na hora do select ainda não existe update concorrente (o create já assentou no
+        // expectFullSync acima), então essa parte é segura em série. A concorrência que o
+        // teste precisa é só no COMMIT da cor, que é um clique, e essa continua paralela.
+        await selectFeatureUI(A, id);
+        await selectFeatureUI(B, id);
         await Promise.all([
-            selectAndRecolorUI(A, id, '#ff0000'),
-            selectAndRecolorUI(B, id, '#0000ff'),
+            recolorViaPanelUI(A, '#ff0000'),
+            recolorViaPanelUI(B, '#0000ff'),
         ]);
 
-        // (1) CONVERGENCE: A and B end on the SAME color, and it is one of the two. The panel
-        //     normalizes hex to uppercase, so match case-insensitively.
-        let converged = null;
-        await expect
-            .poll(async () => {
-                const ca = await lineProp(A, id, 'lineColor');
-                const cb = await lineProp(B, id, 'lineColor');
-                converged = ca && cb && ca === cb ? ca : null;
-                return converged;
-            }, { timeout: 25000 })
-            .toMatch(/^#(ff0000|0000ff)$/i);
+        // (1) BOTH recolors must actually REACH THE SERVER before "who won" is even defined.
+        //     `push.ack` is the only stage guaranteed for both: `remote.applied` is NOT, because
+        //     the loser can be legitimately discarded by the peer's convergence guard. Anchoring
+        //     here also removes the outbound-queue race (flush runs on a 1.5s interval).
+        //     Two steps, because the stages are keyed differently: `enqueue` carries `entityId`
+        //     (`operation-dispatcher.js:156-158`) but `push.ack` carries only `opId`
+        //     (`sync-engine.js:66-71`), since the server acks by operation id. So: find the op
+        //     for this entity, then wait for THAT op's ack.
+        for (const [page, quem] of [[A, 'A'], [B, 'B']]) {
+            const enq = await waitForEntitySpan(
+                page,
+                { entityId: id, operationType: 'update', stage: 'enqueue' },
+                25000,
+            );
+            expect(enq, `o recolor de ${quem} virou operação na fila`).toBeTruthy();
+            await waitForAcked(page, enq.opId, 25000);
+        }
 
-        // (2) GROUND-TRUTH: the converged color is the winner the BACKEND stored, and it is the
-        //     value durably in BOTH clients' IndexedDB (via the repository, not memoryStore).
+        // (2) THE SERVER decides the winner: highest server_version wins (arrival order, never
+        //     timestamp/lamport). Read it FIRST and make the clients answer to it.
+        //
+        //     The previous version did the opposite: it polled until A and B merely AGREED with
+        //     each other, then required Postgres to match whatever they had settled on. Agreement
+        //     between clients is NOT convergence — there is a transient window where A's op has
+        //     propagated to both while B's op is still in flight, so both legitimately show A's
+        //     color before the real winner lands. The poll exited on that way-station, and under
+        //     load (full suite) the window is wide enough that it did. That is the whole flake.
+        const ops = await collab.db.queryOperationsByEntity(id);
+        const maxV = Math.max(...ops.map((o) => Number(o.server_version)));
         const frow = await collab.db.queryFeatureRow(id);
-        expect(String(frow?.properties?.lineColor).toLowerCase()).toBe(converged.toLowerCase());
+        const winner = String(frow?.properties?.lineColor).toLowerCase();
+        expect(winner, 'o servidor gravou uma das duas cores em disputa').toMatch(/^#(ff0000|0000ff)$/);
+
+        // (3) CONVERGENCE, properly stated: BOTH clients end on THE WINNER, not merely on each
+        //     other. A stable divergence here is a product bug, not a slow test, and this is the
+        //     assertion that can tell the two apart.
+        for (const [page, quem] of [[A, 'A'], [B, 'B']]) {
+            await expect
+                .poll(async () => String(await lineProp(page, id, 'lineColor')).toLowerCase(), {
+                    timeout: 15000,
+                    message: `${quem} convergiu para a cor que o servidor gravou (${winner})`,
+                })
+                .toBe(winner);
+        }
+        // (4) DURABILITY: the winner is what each client persisted to IndexedDB (via the
+        //     repository, not the in-memory store) — an in-memory-only agreement would not
+        //     survive F5 and must not count as convergence.
         for (const page of [A, B]) {
             const row = await readIdbEntity(page, { entityId: id, entityType: 'feature', mapId: collab.mapId, storage: 'lines' });
             expect(row.found, 'feature present in IndexedDB after convergence').toBe(true);
-            expect(String(row.props.lineColor).toLowerCase()).toBe(converged.toLowerCase());
+            expect(String(row.props.lineColor).toLowerCase()).toBe(winner);
         }
 
-        // (3) LWW = MAX server arrival order. Cross-check the SQL `operations` log against the
+        // (5) LWW = MAX server arrival order. Cross-check the SQL `operations` log against the
         //     ledger's own conflict view (winner by serverVersion — never timestamp/lamport).
-        const ops = await collab.db.queryOperationsByEntity(id);
-        const maxV = Math.max(...ops.map((o) => Number(o.server_version)));
         const spans = await collectLedger(collab.pages, { baseUrl: collab.baseUrl, token: collab.ownerToken, atlasId: collab.atlasId });
         const conflict = reduceLedger(spans).conflicts.find((c) => c.entityId === id);
         expect(conflict, 'the ledger detected the same-entity conflict').toBeTruthy();
         expect(Number(conflict.winnerServerVersion)).toBe(maxV);
+    });
+
+    collabTest('o vencedor do conflito SOBREVIVE ao F5 dos dois clientes', async ({ collab }) => {
+        // Por que este teste existe: convergência que só vale em memória não é
+        // convergência. O `memoryStore` de um cliente pode exibir a cor certa enquanto o
+        // IndexedDB guardou outra; nesse estado o usuário vê o valor correto até apertar
+        // F5 e a divergência ressurgir, que é o pior modo de falha possível (silencioso e
+        // adiado). O teste do conflito acima checa o IndexedDB por leitura direta; este
+        // fecha o laço pelo caminho real, um boot completo relendo do repositório.
+        const A = collab.author;
+        const B = collab.peers[0];
+
+        const id = await drawLineUI(A, LINE_COORDS);
+        expect(id, 'a ferramenta de linha criou a feição em A').toBeTruthy();
+        await collab.expectFullSync({ entityId: id, type: 'lines', operationType: 'create' });
+
+        // Select em serie, recolor em paralelo: mesma razao do teste acima (a update
+        // remota re-renderiza o painel e derruba a selecao se os dois passos forem juntos).
+        await selectFeatureUI(A, id);
+        await selectFeatureUI(B, id);
+        await Promise.all([
+            recolorViaPanelUI(A, '#ff0000'),
+            recolorViaPanelUI(B, '#0000ff'),
+        ]);
+        for (const page of [A, B]) {
+            const enq = await waitForEntitySpan(page, { entityId: id, operationType: 'update', stage: 'enqueue' }, 25000);
+            expect(enq, 'o recolor virou operação na fila').toBeTruthy();
+            await waitForAcked(page, enq.opId, 25000);
+        }
+
+        const frow = await collab.db.queryFeatureRow(id);
+        const winner = String(frow?.properties?.lineColor).toLowerCase();
+        expect(winner).toMatch(/^#(ff0000|0000ff)$/);
+
+        // F5 nos dois. O reload mantém URL + localStorage, então a sessão restaura e o
+        // atlas reabre; o estado vem do IndexedDB, não da memória do processo anterior.
+        for (const [page, quem] of [[A, 'A'], [B, 'B']]) {
+            await page.reload();
+            await expect(page.locator('[data-testid="sync-status-badge"]'))
+                .toHaveAttribute('data-state', 'online', { timeout: 25000 });
+            await expect
+                .poll(async () => String(await lineProp(page, id, 'lineColor')).toLowerCase(), {
+                    timeout: 20000,
+                    message: `${quem} ainda mostra o vencedor (${winner}) depois do F5`,
+                })
+                .toBe(winner);
+        }
     });
 
     collabTest('concurrent geometry move of the SAME line → both clients converge to one geometry', async ({ collab }) => {
@@ -121,20 +210,29 @@ collabTest.describe('CRDT conflict — concurrent edits converge (LWW by arrival
             applyStoreOp(B, 'updateFeature', ['lines', { type: 'Feature', properties: propsB, geometry: geomB }]),
         ]);
 
+        // Mesma correção do teste de cor, pelo mesmo motivo: esperar "A e B concordam" e
+        // depois só conferir que o backend tem UMA DAS DUAS geometrias aceita um estado
+        // transitório como se fosse convergência. O servidor decide primeiro; os clientes
+        // respondem a ele.
         const ka = JSON.stringify(geomA.coordinates);
         const kb = JSON.stringify(geomB.coordinates);
-        await expect
-            .poll(async () => {
-                const a = await lineGeomKey(A, id);
-                const b = await lineGeomKey(B, id);
-                return a && b && a === b ? a : null;
-            }, { timeout: 25000 })
-            .toMatch(new RegExp(`^(${ka.replace(/[[\]]/g, '\\$&')}|${kb.replace(/[[\]]/g, '\\$&')})$`));
-
-        // Ground-truth: the converged geometry is the one the backend stored (LWW winner).
+        for (const [page, quem] of [[A, 'A'], [B, 'B']]) {
+            const enq = await waitForEntitySpan(page, { entityId: id, operationType: 'update', stage: 'enqueue' }, 25000);
+            expect(enq, `o move de ${quem} virou operação na fila`).toBeTruthy();
+            await waitForAcked(page, enq.opId, 25000);
+        }
         const frow = await collab.db.queryFeatureRow(id);
         const backendKey = JSON.stringify(frow?.geometry?.coordinates);
-        expect([ka, kb]).toContain(backendKey);
+        expect([ka, kb], 'o backend gravou uma das duas geometrias em disputa').toContain(backendKey);
+
+        for (const [page, quem] of [[A, 'A'], [B, 'B']]) {
+            await expect
+                .poll(() => lineGeomKey(page, id), {
+                    timeout: 20000,
+                    message: `${quem} convergiu para a geometria que o servidor gravou`,
+                })
+                .toBe(backendKey);
+        }
     });
 
     collabTest('concurrent UPDATE (A) vs DELETE (B) of the SAME line → both clients converge', async ({ collab }) => {
@@ -166,5 +264,68 @@ collabTest.describe('CRDT conflict — concurrent edits converge (LWW by arrival
         const frow = await collab.db.queryFeatureRow(id);
         const backendLive = !!frow && !frow.deleted_at;
         expect(backendLive).toBe(agreed);
+    });
+});
+
+// Fan-out de tres clientes: exige o segundo peer, entao vive em describe proprio
+// (`collabOptions` e por describe, e o default do fixture e peers: 1).
+collabTest.describe('CRDT conflict — tres clientes', () => {
+    collabTest.use({ collabOptions: { peers: 2, permission: 'write' } });
+
+    collabTest('conflito de TRÊS clientes na mesma linha converge para um único vencedor', async ({ collab }) => {
+        // Com dois clientes, "convergiram" e "um sobrescreveu o outro" são
+        // indistinguíveis: só há dois valores possíveis e acertar por acaso é 50%. Com
+        // três, um merge parcial (dois clientes num valor, o terceiro noutro) fica
+        // visível, e é justamente o que a ordenação por chegada no servidor deve impedir.
+        const [A, B, C] = collab.pages;
+
+        const id = await drawLineUI(A, LINE_COORDS);
+        expect(id, 'a ferramenta de linha criou a feição em A').toBeTruthy();
+        await collab.expectFullSync({ entityId: id, type: 'lines', operationType: 'create' });
+
+        // no-UI, deliberado: com TRÊS painéis abertos, cada cliente recebe duas updates
+        // remotas no meio do próprio gesto, e o re-render entre o `selectFeatureUI` e o
+        // `recolorViaPanelUI` derruba a seleção. Isso é limite do driver de UI sob
+        // concorrência tripla, não defeito de sync, e deixava ESTE teste flaky (o remédio
+        // que ele veio aplicar). A alegação daqui é convergência de três operações
+        // concorrentes; o caminho UI->operação já está coberto pelo teste de dois
+        // clientes, com gesto real de painel.
+        const cores = ['#ff0000', '#0000ff', '#00ff00'];
+        const props = await Promise.all(
+            [A, B, C].map(async (p) => (await readFeatures(p, 'lines')).find((x) => x.id === id)?.props),
+        );
+        await Promise.all([A, B, C].map((p, i) => applyStoreOp(p, 'updateFeature', [
+            'lines',
+            { type: 'Feature', properties: { ...props[i], lineColor: cores[i] }, geometry: { type: 'LineString', coordinates: LINE_COORDS } },
+        ])));
+        for (const page of [A, B, C]) {
+            const enq = await waitForEntitySpan(page, { entityId: id, operationType: 'update', stage: 'enqueue' }, 25000);
+            expect(enq, 'o recolor virou operação na fila').toBeTruthy();
+            await waitForAcked(page, enq.opId, 25000);
+        }
+
+        const frow = await collab.db.queryFeatureRow(id);
+        const winner = String(frow?.properties?.lineColor).toLowerCase();
+        expect(winner, 'o servidor gravou uma das três cores em disputa').toMatch(/^#(ff0000|0000ff|00ff00)$/);
+
+        // As TRÊS chegaram ao log append-only. A coluna é `op_type`
+        // (`backend/src/database/migrations/003_sync.sql:19`), não `operation_type`; e o
+        // corpo de um update vai em `changes`, não em `data`, que é só de create.
+        // Nenhuma afirmação aqui sobre o formato interno de `changes`: quem prova
+        // "vencedor = maior server_version" é o cross-check do ledger no teste de dois
+        // clientes, e duplicar isso com um palpite de shape só criaria falha frágil.
+        const ops = await collab.db.queryOperationsByEntity(id);
+        const updates = ops.filter((o) => o.op_type === 'update');
+        expect(updates.length, 'as três atualizações chegaram ao log').toBeGreaterThanOrEqual(3);
+
+        // Os TRÊS terminam no mesmo valor, e é o do servidor.
+        for (const [page, quem] of [[A, 'A'], [B, 'B'], [C, 'C']]) {
+            await expect
+                .poll(async () => String(await lineProp(page, id, 'lineColor')).toLowerCase(), {
+                    timeout: 20000,
+                    message: `${quem} convergiu para o vencedor do servidor (${winner})`,
+                })
+                .toBe(winner);
+        }
     });
 });
