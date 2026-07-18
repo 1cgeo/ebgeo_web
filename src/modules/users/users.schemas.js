@@ -1,10 +1,14 @@
 // Path: src/modules/users/users.schemas.js
 import Joi from 'joi';
 
+// Self-service profile edit. Deliberately does NOT accept `organization_id`:
+// a user must not be able to move themselves into another tenant, which — after
+// the next token refresh mints the new org claim — would grant read access to
+// that org's private ng/sv360 data (access control is embedded by org). Tenant
+// membership is admin-only (updateUserAdminSchema).
 export const updateProfileSchema = Joi.object({
   nome: Joi.string().max(255),
   rank_id: Joi.string().uuid().allow(null, ''),
-  organization_id: Joi.string().uuid().allow(null, ''),
 });
 
 export const updatePasswordSchema = Joi.object({

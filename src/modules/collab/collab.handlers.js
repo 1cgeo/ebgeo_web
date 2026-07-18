@@ -68,8 +68,8 @@ export function handleTemporal(ws, data) {
  * Handles feature selection updates (live presence awareness, across the 2D map,
  * 3D and 360 surfaces).
  *
- * Gated to editors: only owner/editor (`write`) broadcast their selection. A
- * Comentarista (`comment`) or Visualizador (`read`) only RECEIVES peers'
+ * Gated to editors-and-above: owner / manage / write broadcast their selection.
+ * A Comentarista (`comment`) or Visualizador (`read`) only RECEIVES peers'
  * selections — it never emits its own. (Cursor/temporal stay ungated; selection
  * is intentionally stricter, per product decision.) Selection is ephemeral: the
  * context is held in-memory on the ws object for the join snapshot and never
@@ -80,7 +80,7 @@ export function handleTemporal(ws, data) {
  * per-feature type so a 2D peer can resolve the right highlight without a lookup.
  */
 export function handleSelection(ws, data) {
-  if (ws.permission !== 'owner' && ws.permission !== 'write') {
+  if (ws.permission === 'read' || ws.permission === 'comment') {
     return;
   }
 

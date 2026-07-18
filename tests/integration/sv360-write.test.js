@@ -473,6 +473,25 @@ describe('StreetView 360 — write/calibration contract', () => {
     // Read now 404s (excluded via NOT EXISTS deleted_photos).
     await supertest(app).get(url(`/photos/${photoId}`)).set(...auth(ownerToken)).expect(404);
 
+    // The image blob of a tombstoned photo must ALSO 404 (GET_PHOTO_SIZES excludes
+    // deleted_photos) — otherwise a soft-deleted photo's full-res image keeps being
+    // served to anyone, including anonymous callers on an enabled project.
+    await supertest(app)
+      .get(url(`/photos/${photoId}/image`))
+      .query({ quality: 'full' })
+      .set(...auth(ownerToken))
+      .expect(404);
+    await supertest(app)
+      .get(url(`/photos/${photoId}/image`))
+      .query({ quality: 'preview' })
+      .set(...auth(ownerToken))
+      .expect(404);
+    // Anonymous request too (no auth header).
+    await supertest(app)
+      .get(url(`/photos/${photoId}/image`))
+      .query({ quality: 'full' })
+      .expect(404);
+
     // Re-delete: the read gate (GET_PHOTO_BY_ID) excludes tombstoned rows, but the
     // WRITE path (GET_PHOTO_FOR_WRITE) keeps them, so ownership still resolves and
     // the tombstone INSERT is a no-op → 204 (documented idempotent path).

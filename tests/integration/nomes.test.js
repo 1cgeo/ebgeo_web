@@ -114,6 +114,33 @@ describe('Gazetteer (nomes geográficos)', () => {
       .expect(422);
   });
 
+  it('GET /nomes/busca rejects out-of-range lat/lon with 422 (not a PostGIS 500)', async () => {
+    // lat/lon feed a ::geography cast that raises "Coordinate out of range" (500) for
+    // |lat|>90 / |lon|>180 — bound them at the validation border instead. 'Rio' matches
+    // a seeded name so the query would reach the geography cast without the guard.
+    await supertest(app)
+      .get('/api/v1/nomes/busca')
+      .query({ q: 'Rio', lat: 91, lon: -43.2 })
+      .expect(422);
+    await supertest(app)
+      .get('/api/v1/nomes/busca')
+      .query({ q: 'Rio', lat: -22.9, lon: 181 })
+      .expect(422);
+  });
+
+  it('GET /nomes/feicoes rejects out-of-range lat/lon with 422 (not a PostGIS 500)', async () => {
+    await supertest(app)
+      .get('/api/v1/nomes/feicoes')
+      .query({ lat: -91, lon: -43.2, z: 50 })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(422);
+    await supertest(app)
+      .get('/api/v1/nomes/feicoes')
+      .query({ lat: -22.9, lon: -181, z: 50 })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(422);
+  });
+
   it('GET /nomes/feicoes finds the building and tiebreaks by altitude', async () => {
     const inside = await supertest(app)
       .get('/api/v1/nomes/feicoes')

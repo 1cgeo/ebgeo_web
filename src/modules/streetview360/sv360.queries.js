@@ -72,7 +72,9 @@ export const GET_PHOTO_BY_NAME = `
   LIMIT 1
 `;
 
-// O(1) ETag source: sizes + project context, no BLOB read.
+// O(1) ETag source: sizes + project context, no BLOB read. Excludes tombstoned
+// photos so a soft-deleted photo's blob is never served (same rule as
+// GET_PHOTO_BY_ID / GET_PHOTO_BY_NAME).
 //   $1 = photo id (TEXT uuid v5)
 export const GET_PHOTO_SIZES = `
   SELECT p.full_size_bytes, p.preview_size_bytes,
@@ -80,6 +82,7 @@ export const GET_PHOTO_SIZES = `
   FROM sv360.photos p
   JOIN sv360.projects pr ON pr.id = p.project_id
   WHERE p.id = $1
+    AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
 `;
 
 // Directed adjacency for a photo (visible links only), joined to the target

@@ -88,10 +88,16 @@ describe('Images API', () => {
       assert.ok(res.body.data.filename);
       assert.ok(res.body.data.size_bytes || res.body.data.size);
 
+      // The absolute server filesystem path must never cross the API boundary.
+      assert.equal(res.body.data.storage_path, undefined,
+        'upload response must not leak the internal storage_path');
+
       // Verify in database
       const { rows } = await db.query('SELECT * FROM images WHERE id = $1', [res.body.data.id]);
       assert.equal(rows.length, 1);
       assert.equal(rows[0].atlas_id, atlas.id);
+      // …but the column is still persisted server-side.
+      assert.ok(rows[0].storage_path, 'storage_path must still be stored in the DB');
     });
 
     it('writer can upload an image', async () => {
@@ -155,13 +161,19 @@ describe('Images API', () => {
       assert.ok(res.body.data.length > 0);
     });
 
-    it('reader can list images', async () => {
+    it('reader can list images without seeing internal storage paths', async () => {
       const res = await supertest(app)
         .get(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${readerToken}`)
         .expect(200);
 
       assert.ok(Array.isArray(res.body.data));
+      assert.ok(res.body.data.length > 0);
+      // A read-level viewer must not learn the deployment's filesystem layout.
+      for (const img of res.body.data) {
+        assert.equal(img.storage_path, undefined,
+          'list response must not leak storage_path to a reader');
+      }
     });
 
     it('stranger cannot list images', async () => {

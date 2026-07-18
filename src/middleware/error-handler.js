@@ -1,6 +1,7 @@
 // Path: src/middleware/error-handler.js
 import logger from '../utils/logger.js';
 import { AppError, ValidationError } from '../utils/errors.js';
+import { redactUrl } from '../utils/redact-url.js';
 import config from '../config.js';
 
 /**
@@ -8,11 +9,18 @@ import config from '../config.js';
  * Must be registered last in the middleware chain.
  */
 export function errorHandler(err, req, res, next) {
-  // Log all errors
-  logger.error({
+  // Client-caused errors (4xx: Joi, AppError 4xx, body-parser malformed JSON,
+  // etc.) are logged at `warn` so they don't pollute the error stream as if they
+  // were server faults; genuine 5xx stay at `error`. The URL is redacted so a
+  // credential passed via ?api_key= never lands in the logs.
+  const loggedStatus = typeof err.statusCode === 'number'
+    ? err.statusCode
+    : (err.isJoi ? 422 : 500);
+  const logFn = loggedStatus < 500 ? logger.warn : logger.error;
+  logFn.call(logger, {
     err,
     method: req.method,
-    url: req.url,
+    url: redactUrl(req.url),
     userId: req.user?.id,
   }, 'Request error');
 
@@ -61,6 +69,25 @@ export function errorHandler(err, req, res, next) {
     const mapped = PG_ERROR_MAP[err.code];
     return res.status(mapped.statusCode).json({
       error: { code: mapped.code, message: mapped.message },
+    });
+  }
+
+  // Client errors that carry their own status but are not AppErrors — most
+  // commonly body-parser failures (malformed JSON → 400 `entity.parse.failed`,
+  // oversized body → 413 `entity.too.large`). These are the caller's fault, so
+  // label them with a client-error code instead of masquerading as a 500
+  // INTERNAL_ERROR. The message is safe to forward (it describes the request, not
+  // server internals).
+  if (typeof err.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 500) {
+    const CLIENT_CODES = {
+      400: 'BAD_REQUEST',
+      413: 'PAYLOAD_TOO_LARGE',
+    };
+    return res.status(err.statusCode).json({
+      error: {
+        code: CLIENT_CODES[err.statusCode] || 'BAD_REQUEST',
+        message: err.message || 'Bad request',
+      },
     });
   }
 
