@@ -14,7 +14,7 @@ Armadilha número um: `atlas` tem três colunas que parecem versão e não são 
 
 - **`version`** conta edições de metadados via REST. Nada a ver com sync.
 - **`current_version`** é o cursor do log, mantido pelo trigger no INSERT em `operations` (`backend/src/database/migrations/003_sync.sql:54-69`). É o `lastVersion` do pull incremental.
-- **`min_version`** é o piso após poda do log (`backend/src/modules/sync/sync.service.js:816`). Pedir uma versão abaixo dele devolve snapshot completo em vez de erro (`backend/src/modules/sync/sync.service.js:770`) — comportamento silencioso, não falha. Ver [[snapshot-e-pull-incremental]], [[sync-admin-operacoes]].
+- **`min_version`** é o piso após poda do log (`backend/src/modules/sync/sync.service.js:816`). Pedir uma versão abaixo dele devolve snapshot completo em vez de erro (`backend/src/modules/sync/sync.service.js:770`): comportamento silencioso, não falha. Ver [[snapshot-e-pull-incremental]], [[sync-admin-operacoes]].
 
 `server_version` vem de `nextval('atlas_version_seq')`, sequência **global** entre todos os atlas (`backend/src/database/migrations/003_sync.sql:12,31`). Dentro de um atlas é crescente mas **não contígua**: serve para ordenar, nunca para contar operações ou calcular "quantas versões atrás".
 
@@ -22,7 +22,7 @@ Armadilha número um: `atlas` tem três colunas que parecem versão e não são 
 > O trigger faz `SET current_version = NEW.server_version` sem `GREATEST` (`backend/src/database/migrations/003_sync.sql:58`), apesar de a semântica pretendida ser um máximo. Coincide na prática (sequência crescente, push transacional), mas não raciocine sobre inserções concorrentes assumindo máximo.
 
 > [!CONTRADICAO]
-> O comentário `-- 18 valid feature types` acima de `features.feature_type` (`backend/src/database/migrations/002_atlas.sql:168`) contradiz o próprio CHECK logo abaixo, que aceita **20** (`:186-193`). O CHECK manda. Os dois extras são `processed_los`/`processed_visibility`, saídas de análise e não ferramentas — por isso `SOURCE_TYPES` no cliente tem 18. Eles precisam de linha explícita em `FEATURE_TYPE_MAPPINGS` (`src/js/store/store.constants.js:93-98`): o fallback `source + 's'` gerava `processed_loss` e o resultado caía num bucket fantasma no peer, sem nunca renderizar.
+> O comentário `-- 18 valid feature types` acima de `features.feature_type` (`backend/src/database/migrations/002_atlas.sql:168`) contradiz o próprio CHECK logo abaixo, que aceita **20** (`:186-193`). O CHECK manda. Os dois extras são `processed_los`/`processed_visibility`, saídas de análise e não ferramentas; por isso `SOURCE_TYPES` no cliente tem 18. Eles precisam de linha explícita em `FEATURE_TYPE_MAPPINGS` (`src/js/store/store.constants.js:93-98`): o fallback `source + 's'` gerava `processed_loss` e o resultado caía num bucket fantasma no peer, sem nunca renderizar.
 
 ## Deleção é soft, e o CASCADE é decorativo
 
@@ -39,11 +39,11 @@ Contrato: chaves de disponibilidade **nunca** entram por op de sync do tipo `SET
 
 ## Um atlas local, N no servidor (P12)
 
-No IndexedDB o Atlas é **singleton**: chave fixa `current_atlas` (`repositories/local.repository.js:21`). Namespacing por atlas foi **rejeitado**; a separação local↔remoto é um marcador de origem (`store/store-origin.js` — note: em `store/`, não em `store/sync/`), default `local` e ausente para todo usuário pré-existente, de modo que a máquina remota nunca interfere em quem nunca logou. Local = 1 workspace (`Principal` + `.ebgeo`); atlas nomeado e compartilhável é capacidade de servidor. Ver [[dominio-local-vs-remoto]], [[formato-ebgeo-roundtrip]].
+No IndexedDB o Atlas é **singleton**: chave fixa `current_atlas` (`repositories/local.repository.js:21`). Namespacing por atlas foi **rejeitado**; a separação local↔remoto é um marcador de origem (`store/store-origin.js`; note: em `store/`, não em `store/sync/`), default `local` e ausente para todo usuário pré-existente, de modo que a máquina remota nunca interfere em quem nunca logou. Local = 1 workspace (`Principal` + `.ebgeo`); atlas nomeado e compartilhável é capacidade de servidor. Ver [[dominio-local-vs-remoto]], [[formato-ebgeo-roundtrip]].
 
 Consequências que causam bug se ignoradas:
 
-1. **Abrir um atlas do servidor apaga o store** (`account/open-atlas.service.js`). Trocar de atlas é destrutivo por design. Invariante: abrir o atlas B nunca pode deixar visível feição, camada ou mapa do atlas A — por isso o clear inclui o registro do atlas e a fila de operações não flushadas ([[fila-operacoes-outbound]]).
+1. **Abrir um atlas do servidor apaga o store** (`account/open-atlas.service.js`). Trocar de atlas é destrutivo por design. Invariante: abrir o atlas B nunca pode deixar visível feição, camada ou mapa do atlas A; por isso o clear inclui o registro do atlas e a fila de operações não flushadas ([[fila-operacoes-outbound]]).
 2. **A origem é marcada REMOTE antes do connect**, de propósito: se a aba morrer no meio do pull, a guarda de boot vê `remote` e descarta o parcial em vez de promovê-lo a atlas local permanente.
 3. **Dado remoto não sobrevive ao logout** (`enforceLocalStoreWhenLoggedOut`, `src/js/store/store.js:137`). Para levar um atlas do servidor para uso offline, exporte o `.ebgeo` **antes** de desconectar. Não há segunda chance.
 
@@ -59,7 +59,7 @@ Mapas de atlas remoto são chaveados por UUID; o `Principal` local é chaveado p
 
 Metadados de atlas são REST; feições, mapas, camadas, grupos, briefings, slides, 3D, 360 e comentários são **sync-only**, sem rota REST de escrita ([[sintese-rest-vs-sync]], [[envelope-operacao]]). Rotas em `modules/atlas/atlas.routes.js` (53 linhas, autoexplicativas).
 
-O que muda o atlas **fora** do log de operações — `atlas_updated`, `map_duplicated`, `maps_merged` — força **re-pull de snapshot**, não apply de op (`src/js/store/sync/ws-client.js:349-354`). Imagens são o terceiro caminho: blob por REST, referência pelo sync. **Ao adicionar qualquer mutação REST no atlas, decida explicitamente em qual desses mundos ela cai** — esquecer disso produz um cliente que nunca vê a mudança até o próximo F5.
+O que muda o atlas **fora** do log de operações (`atlas_updated`, `map_duplicated`, `maps_merged`) força **re-pull de snapshot**, não apply de op (`src/js/store/sync/ws-client.js:349-354`). Imagens são o terceiro caminho: blob por REST, referência pelo sync. **Ao adicionar qualquer mutação REST no atlas, decida explicitamente em qual desses mundos ela cai**. Esquecer disso produz um cliente que nunca vê a mudança até o próximo F5.
 
 `EntityType.ATLAS` existe no enum de sync mas está morto: mudanças de nível de atlas viajam como `SETTING` com id `'atlas'` mais broadcast `atlas_settings_updated`.
 
@@ -69,7 +69,7 @@ Hierarquia `read < comment < write < manage < owner`, níveis numéricos 1..5 (`
 
 - **`manage` está acima de `write`.** Um gate escrito como `permission === 'write' || permission === 'owner'` parece completo e exclui o co-Gestor silenciosamente. Compare sempre por nível numérico.
 - **`owner` não é compartilhável** (o CHECK de `atlas_shares` só aceita até `manage`). Posse muda apenas por `POST /:id/transfer`.
-- **Atlas inexistente e atlas soft-deletado dão 404, não 403** — `requireAtlasPermission` filtra por `deleted_at IS NULL`, e é por isso que `restore` precisa checar dono dentro do service.
+- **Atlas inexistente e atlas soft-deletado dão 404, não 403**: `requireAtlasPermission` filtra por `deleted_at IS NULL`, e é por isso que `restore` precisa checar dono dentro do service.
 - **O gate de papel só vale para atlas remoto conectado.** O store local é sempre editável, inclusive por usuário logado.
 - **Admin global é owner em todo atlas**, por short-circuit antes de olhar shares.
 
@@ -80,7 +80,7 @@ O link público emite JWT efêmero (1h, `read`, identidade "Visitante") que serv
 ## Detalhes que costumam morder
 
 - **`images` não tem `version` nem `deleted_at`** (`backend/src/database/migrations/002_atlas.sql:309-320`). É a única filha do atlas fora do modelo de soft-delete/sync. Blobs sobem preservando o id (`INSERT_IMAGE_WITH_ID`) para que referências feição→imagem sobrevivam sem reescrita. Ver [[imagens-atlas]].
-- **Comentários não vão para conexões `read`** — o filtro é de transmissão, no snapshot (`backend/src/modules/sync/sync.service.js:442`) e no pull incremental (`:770`), não de renderização. Respostas são entidades próprias com `parent_id`, para não haver clobber LWW numa thread. Ver [[comentario-espacial]].
+- **Comentários não vão para conexões `read`**: o filtro é de transmissão, no snapshot (`backend/src/modules/sync/sync.service.js:442`) e no pull incremental (`:770`), não de renderização. Respostas são entidades próprias com `parent_id`, para não haver clobber LWW numa thread. Ver [[comentario-espacial]].
 - **`maps.locked` é aviso de UI, não lock de concorrência.** Ninguém bloqueia a edição de ninguém (P10).
 - **`catalog_layers` é tabela própria E coluna legada** em `maps`. A coluna permanece para clone/import e clientes antigos; só a entidade por-camada sincroniza.
 - **Slides quebram sozinhos**: `trg_mark_slides_broken` marca `is_broken` quando o mapa referenciado é soft-deletado.

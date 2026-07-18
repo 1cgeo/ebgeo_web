@@ -12,7 +12,7 @@ A divergência não é só de origem, é de vocabulário: o cliente discrimina p
 
 O filtro (admin global, ou permissão direta em `ng.model_permissions`, ou por grupo em `ng.model_group_permissions`) vive dentro do SQL, não na aplicação: dado privado não vaza nem com bug de controller. O custo dessa escolha é que `CATALOGO_SELECT` e `CATALOGO_COUNT` **duplicam o predicado verbatim**, mudando só o placeholder do `userId` (`$4` no SELECT, `$2` no COUNT) porque nunca foi extraído para uma função SQL (`backend/src/modules/nomes/nomes.queries.js:83-87`). **Ao editar o filtro, edite os dois**, ou `total` passa a mentir sobre o que o usuário vê e a paginação ganha páginas fantasma. Os dois rodam em `Promise.all` (`backend/src/modules/nomes/nomes.service.js:20-23`), então a divergência não aparece como erro, só como contagem errada.
 
-Armadilha de eixo: aqui o critério é **permissão por modelo**, não zona geográfica. As zonas (`ng.fn_user_zone_geoms`) valem para `nomes_geograficos` e `edificacoes`, não para o catálogo ([[zonas-acesso-geografico]]) — e nenhum dos dois se relaciona com o papel por atlas ([[permissoes-atlas]]) ou com o papel global ([[gestao-usuarios]]). O comentário em `backend/src/modules/nomes/nomes.queries.js:79-81` deixa o `WHERE` como disjunção justamente para que a branch espacial possa ser somada depois sem reescrever a query.
+Armadilha de eixo: aqui o critério é **permissão por modelo**, não zona geográfica. As zonas (`ng.fn_user_zone_geoms`) valem para `nomes_geograficos` e `edificacoes`, não para o catálogo ([[zonas-acesso-geografico]]), e nenhum dos dois se relaciona com o papel por atlas ([[permissoes-atlas]]) ou com o papel global ([[gestao-usuarios]]). O comentário em `backend/src/modules/nomes/nomes.queries.js:79-81` deixa o `WHERE` como disjunção justamente para que a branch espacial possa ser somada depois sem reescrever a query.
 
 ## Contrato congelado
 
@@ -21,7 +21,7 @@ Armadilha de eixo: aqui o critério é **permissão por modelo**, não zona geog
 
 > **Nota histórica.** guia *13-nomes-geograficos* (absorvido):358-359 mostra `thumbnail`/`url` como URLs absolutas, sugerindo que o campo pode ser absoluto. O contrato testado é relativo, e guia *14-catalogo3d-assets* (absorvido):134-135 o declara congelado assim. Trate como relativo.
 
-Descoberta não é distribuição: o binário (`tileset.json`/`.b3dm`/`.glb`/`.pnts`) vem de outra rota, pública, com ETag/Range/`immutable` ([[assets3d-distribuicao]], [[sintese-cache-http-imutavel]]). Deixe o Cesium emitir as requisições `Range` — envolver o asset num fetch próprio descarta `Accept-Ranges` e destrói o streaming por LOD.
+Descoberta não é distribuição: o binário (`tileset.json`/`.b3dm`/`.glb`/`.pnts`) vem de outra rota, pública, com ETag/Range/`immutable` ([[assets3d-distribuicao]], [[sintese-cache-http-imutavel]]). Deixe o Cesium emitir as requisições `Range`: envolver o asset num fetch próprio descarta `Accept-Ranges` e destrói o streaming por LOD.
 
 ## Cuidados de consumo
 

@@ -17,7 +17,7 @@ O DDL (`backend/src/database/migrations/003_sync.sql:95-115`) rejeita explicitam
 ## Contratos congelados
 
 - **`id` é slug textual escolhido pelo admin, imutável.** É a chave que o frontend indexa e que `atlas.settings.available_*` referencia. Colisão dá 409 (`catalog.service.js:43`); **não existe rota de rename**. Renomear é criar novo e reapontar todos os settings.
-- **`config.style` de basemap é servido verbatim** em `config.basemapStyles` para todo cliente, inclusive anônimo. Um style malformado gravado brica o mapa base de todo mundo no próximo boot — daí a validação no create e no update. O validador do backend (`src/utils/maplibre-style-validate.js`) **espelha** o do cliente (`ebgeo_web/src/js/utilities/maplibre-style-validate.js`); mudou um, mude o outro. Ver [[sintese-contratos-congelados]].
+- **`config.style` de basemap é servido verbatim** em `config.basemapStyles` para todo cliente, inclusive anônimo. Um style malformado gravado brica o mapa base de todo mundo no próximo boot; daí a validação no create e no update. O validador do backend (`src/utils/maplibre-style-validate.js`) **espelha** o do cliente (`ebgeo_web/src/js/utilities/maplibre-style-validate.js`); mudou um, mude o outro. Ver [[sintese-contratos-congelados]].
 - **`analysis_layer` sem `bounds` de 4 elementos é filtrado fora do `/config`** (`backend/src/modules/config/config.service.js:86-96`). Uma camada seedada incompleta já quebrou o boot da aplicação. Consequência que parece bug e não é: você cria pela API, recebe 201, ela aparece em `GET /analysis-layers` e **não aparece no `/config`**. Confira o `bounds` antes de abrir chamado.
 
 ## Soft delete: o caminho sem volta
@@ -30,7 +30,7 @@ O DDL (`backend/src/database/migrations/003_sync.sql:95-115`) rejeita explicitam
 
 ## O que não existe (e parece que existe)
 
-- **Catálogo não passa pelo sync.** É REST puro e global, fora de [[sintese-rest-vs-sync]] e [[sync-admin-operacoes]]. Um admin trocando basemap não gera evento: quem está com o app aberto continua com o config do boot dele. O `no-cache` do `/config` só garante que o **próximo** boot vê a mudança — o oposto do regime de [[sintese-cache-http-imutavel]].
+- **Catálogo não passa pelo sync.** É REST puro e global, fora de [[sintese-rest-vs-sync]] e [[sync-admin-operacoes]]. Um admin trocando basemap não gera evento: quem está com o app aberto continua com o config do boot dele. O `no-cache` do `/config` só garante que o **próximo** boot vê a mudança, o oposto do regime de [[sintese-cache-http-imutavel]].
 - **Escritas de catálogo não são auditadas.** `createAudit` é chamado por `users`, `organizations` e `zones`, e por nenhum arquivo de `modules/catalog/`. Troca de basemap global não deixa rastro em [[auditoria]]. Trabalho a fazer, não algo existente.
 - **`streetview_markers` está órfão.** Tabela criada e rota montada, mas nenhum consumidor lê: o `backend/src/modules/config/config.service.js` não a inclui e o 360 real usa o schema próprio `sv360.*`. Escrever ali não tem efeito visível ([[streetview-360]], [[ingestao-projetos-360]]).
 - **Metadata, não bytes.** Criar um `tileset` com `config.url` para caminho inexistente produz item que aparece na UI e falha ao abrir. Publique o asset primeiro ([[assets3d-distribuicao]], [[catalogo-3d]]).
@@ -44,7 +44,7 @@ O catálogo guarda metadado, com uma exceção: a miniatura, que o painel admin 
 
 **Custo escondido:** a miniatura pesa no payload de `GET /api/config` de **todo** boot, inclusive anônimo ([[config-dinamico]]). Daí o teto de 256 KB no data URL: `compressImage` pode **silenciosamente devolver o original** quando o decode falha, e sem o teto um PNG grande entraria inteiro no `/config`. WebP é escolha consciente (preserva transparência que o JPEG achataria em preto).
 
-A chave da miniatura **muda por categoria** (`previewThumbnail` em tileset, `thumbnail` em data/analysis, `image` em basemap; `src/js/admin/catalog-tab.js:21-27`) — espelha os shapes do deploy, não é uniformizável sem migrar dados.
+A chave da miniatura **muda por categoria** (`previewThumbnail` em tileset, `thumbnail` em data/analysis, `image` em basemap; `src/js/admin/catalog-tab.js:21-27`): espelha os shapes do deploy, não é uniformizável sem migrar dados.
 
 Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo intocado preserva. O **vídeo de preview é exclusivo de `tileset` e fica fora de banda** (só URL, nunca upload); esvaziar o campo faz `delete`, então remover não é no-op.
 

@@ -7,15 +7,15 @@ Repositório de panoramas em `/api/v1/sv360`: é a exceção do backend em envel
 - O módulo `sv360` (backend, `src/modules/streetview360/`) é o acervo de panoramas do servidor: projetos, fotos, grafo de navegação, imagem WebP.
 - A entidade de sync `streetview360` é outra coisa: marcadores e orientações que o usuário salva **por mapa do atlas**, que trafegam pelo [[canal-collab-websocket]] e vivem no side-store do cliente.
 
-O módulo `sv360` está **fora** do sync: nenhuma escrita 360 vira operação, nenhum peer recebe broadcast. Depois de um `PUT .../calibration` o cliente **recarrega** `GET /sv360/photos/:uuid`; quem esperar evento espera para sempre. Ver [[sintese-modulos-fora-do-sync]]. Consequência de esquema: `sv360.photos` tem `updated_at` mas nenhuma coluna `version`, e `sv360.targets` não tem nenhuma das duas (`backend/src/modules/streetview360/sv360.write.service.js:13-15`) — não há como enxertar LWW aqui sem migração.
+O módulo `sv360` está **fora** do sync: nenhuma escrita 360 vira operação, nenhum peer recebe broadcast. Depois de um `PUT .../calibration` o cliente **recarrega** `GET /sv360/photos/:uuid`; quem esperar evento espera para sempre. Ver [[sintese-modulos-fora-do-sync]]. Consequência de esquema: `sv360.photos` tem `updated_at` mas nenhuma coluna `version`, e `sv360.targets` não tem nenhuma das duas (`backend/src/modules/streetview360/sv360.write.service.js:13-15`); não há como enxertar LWW aqui sem migração.
 
 ## Envelope: por que o módulo destoa do resto da API
 
 O backend responde `{ data }` e erro `{ error: { code, message } }` ([[erros-api]], [[sintese-contrato-erros-http]]). O sv360 responde **objeto/array nu** e erro **plano** `{ "error": "mensagem" }`, imposto por um error handler de router montado por último (`backend/src/modules/streetview360/sv360-error.js:15`), que intercepta antes do global. Isso é contrato congelado herdado do viewer legado, não descuido.
 
-Armadilha de cliente: o REST genérico desembrulha `data` sempre que a resposta é objeto não-array contendo essa chave (`ebgeo_web/src/js/store/sync/api-client.js:261`). Hoje nenhum shape do sv360 tem `data`, então tudo passa intacto — mas **acrescentar um campo `data` a qualquer resposta do sv360 mutila o corpo silenciosamente no cliente**, sem erro. Por isso as chamadas sv360 vivem apartadas (`src/js/store/sync/api-client.js:515-535`).
+Armadilha de cliente: o REST genérico desembrulha `data` sempre que a resposta é objeto não-array contendo essa chave (`ebgeo_web/src/js/store/sync/api-client.js:261`). Hoje nenhum shape do sv360 tem `data`, então tudo passa intacto, mas **acrescentar um campo `data` a qualquer resposta do sv360 mutila o corpo silenciosamente no cliente**, sem erro. Por isso as chamadas sv360 vivem apartadas (`src/js/store/sync/api-client.js:515-535`).
 
-Do handler, o que não é óbvio: erro Joi vira **422**, mas os params de tile viram **400** por caminho próprio (`backend/src/modules/streetview360/sv360.routes.js:37-44`), porque o contrato MVT quer 400 em coordenada malformada. E `23505`/`23503` são mapeados para **409** ali dentro (`backend/src/modules/streetview360/sv360-error.js:27-33`) — o handler global já fazia isso, mas o de router intercepta primeiro, e sem essa branch um target duplicado voltava 500.
+Do handler, o que não é óbvio: erro Joi vira **422**, mas os params de tile viram **400** por caminho próprio (`backend/src/modules/streetview360/sv360.routes.js:37-44`), porque o contrato MVT quer 400 em coordenada malformada. E `23505`/`23503` são mapeados para **409** ali dentro (`backend/src/modules/streetview360/sv360-error.js:27-33`); o handler global já fazia isso, mas o de router intercepta primeiro, e sem essa branch um target duplicado voltava 500.
 
 ## Cache: o único ponto onde o "immutable" tem escopo variável
 
@@ -29,7 +29,7 @@ O 304 acontece **antes** de abrir o SQLite e **antes** do semáforo de concorrê
 
 ## Ocultação: 404 é ambíguo por decisão
 
-Projeto `enabled` é público; `disabled` só admin global ou membro da OM dona ([[auth-flexivel]], [[organizacoes-om]], [[permissoes-atlas]]). A regra está **embutida no SQL** das leituras, não só no service, e projeto oculto responde **404**, indistinguível de inexistente. Nas escritas a escada é **404 → 403** (`backend/src/modules/streetview360/sv360.write.service.js:49-52`): quem não lê nem sabe que existe; quem lê mas não escreve (um `viewer` da própria OM) recebe 403. Portanto **não trate 404 do sv360 como "não existe"** — pode ser "existe e não é seu".
+Projeto `enabled` é público; `disabled` só admin global ou membro da OM dona ([[auth-flexivel]], [[organizacoes-om]], [[permissoes-atlas]]). A regra está **embutida no SQL** das leituras, não só no service, e projeto oculto responde **404**, indistinguível de inexistente. Nas escritas a escada é **404 → 403** (`backend/src/modules/streetview360/sv360.write.service.js:49-52`): quem não lê nem sabe que existe; quem lê mas não escreve (um `viewer` da própria OM) recebe 403. Portanto **não trate 404 do sv360 como "não existe"**: pode ser "existe e não é seu".
 
 ## Contrato congelado do metadado
 
@@ -56,7 +56,7 @@ Quirk que confunde na leitura do cliente: a camada de pontos usa o source id lit
 
 ## Upload de bundle: duas defesas antes do primeiro byte
 
-`authDraining` e `requireUploadCapability` rejeitam **antes do multer** e **drenam** o corpo multipart antes de responder (`backend/src/modules/streetview360/sv360.routes.js:241-280`). Sem o dreno, rejeitar cedo derruba a conexão (ECONNRESET) e o cliente nunca vê o 4xx limpo — é a parte que se esquece ao copiar esse padrão para outro upload. Quem não tem capacidade de escrita alguma leva 403 com zero bytes em disco, fechando um DoS autenticado de enchimento de disco ([[upload-imagens-seguranca]]). O `diskStorage` grava no mesmo volume de `SV360_DB_DIR` para que o rename final seja atômico, não cross-device.
+`authDraining` e `requireUploadCapability` rejeitam **antes do multer** e **drenam** o corpo multipart antes de responder (`backend/src/modules/streetview360/sv360.routes.js:241-280`). Sem o dreno, rejeitar cedo derruba a conexão (ECONNRESET) e o cliente nunca vê o 4xx limpo; é a parte que se esquece ao copiar esse padrão para outro upload. Quem não tem capacidade de escrita alguma leva 403 com zero bytes em disco, fechando um DoS autenticado de enchimento de disco ([[upload-imagens-seguranca]]). O `diskStorage` grava no mesmo volume de `SV360_DB_DIR` para que o rename final seja atômico, não cross-device.
 
 `PATCH /admin/projects/:slug/status` é o soft delete de verdade; `DELETE` é hard delete com CASCADE e remoção do `.db`. Fluxo do bundle em [[ingestao-projetos-360]]; aba cliente em `ebgeo_web/src/js/admin/catalog-tab.js:39`, ao lado de [[catalogo-3d]] e [[resources-catalogo]].
 

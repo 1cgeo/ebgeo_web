@@ -32,7 +32,7 @@ Todas as rotas exigem `manage`, não `owner`. Um co-Gestor pode conceder até `m
 
 `GET /sharing` devolve camelCase (`shares[]` montado por `json_build_object` em SQL, o resto mapeado em `backend/src/modules/sharing/sharing.service.js:12-21`). `POST` e `PUT` devolvem a linha crua da tabela (`RETURNING *`), em snake_case: `atlas_id`, `user_id`, `added_at`.
 
-Por isso **não reaproveite o objeto do `POST` para atualizar a lista em memória** — releia o `GET`, que é o que o modal faz (`src/js/modals/sharing.modal.js:176-183`). O `json_agg ... FILTER (WHERE s.id IS NOT NULL)` existe para devolver `[]` e não `[null]` quando não há shares; preserve o `FILTER` ao mexer na query.
+Por isso **não reaproveite o objeto do `POST` para atualizar a lista em memória**: releia o `GET`, que é o que o modal faz (`src/js/modals/sharing.modal.js:176-183`). O `json_agg ... FILTER (WHERE s.id IS NOT NULL)` existe para devolver `[]` e não `[null]` quando não há shares; preserve o `FILTER` ao mexer na query.
 
 ## Re-gate ao vivo: cobre promoção, não remoção
 

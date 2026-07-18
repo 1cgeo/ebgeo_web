@@ -24,9 +24,9 @@ Corolário: não deduza a banda no cliente a partir dos limiares. Reporte o RTT 
 
 O servidor não aplica nenhum dos três nem verifica se o cliente obedeceu.
 
-- `batchIntervalMs` — cadência sugerida para drenar a [[fila-operacoes-outbound]]. Ignorar não quebra nada: o servidor aceita operações na cadência que vier e responde `ack` normalmente ([[ack-idempotencia]]).
-- `geometryPrecision` — casas decimais **apenas para o transporte de saída** (5 casas ≈ 1,1 m, 4 ≈ 11 m). Nunca trunque antes de persistir localmente nem antes de montar o [[envelope-operacao]]: o envelope vira registro canônico e a perda propaga para os peers via [[modelo-conflito-lww]], sem volta.
-- `viewportOnly` — filtragem 100% do cliente. Não muda nada no servidor: o broadcast continua por atlas inteiro, nem por mapa nem por bbox ([[sintese-limites-collab]]).
+- `batchIntervalMs`: cadência sugerida para drenar a [[fila-operacoes-outbound]]. Ignorar não quebra nada: o servidor aceita operações na cadência que vier e responde `ack` normalmente ([[ack-idempotencia]]).
+- `geometryPrecision`: casas decimais **apenas para o transporte de saída** (5 casas ≈ 1,1 m, 4 ≈ 11 m). Nunca trunque antes de persistir localmente nem antes de montar o [[envelope-operacao]]: o envelope vira registro canônico e a perda propaga para os peers via [[modelo-conflito-lww]], sem volta.
+- `viewportOnly`: filtragem 100% do cliente. Não muda nada no servidor: o broadcast continua por atlas inteiro, nem por mapa nem por bbox ([[sintese-limites-collab]]).
 
 ## Armadilhas
 

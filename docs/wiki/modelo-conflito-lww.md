@@ -10,11 +10,11 @@ O [[envelope-operacao]] carrega `timestamp`, `lamportTimestamp` e `clientId`. Ne
 
 ## Por que não é CRDT
 
-Não há merge comutativo descentralizado: o servidor central define ordem total (*server-authoritative*, à la Figma). A alternativa CRDT chegou a existir como módulo `src/crdt` (resolver/merger por timestamp+clientId) e foi **removida por ser código morto** — o caminho real de escrita (`applyOperation`) nunca leu `client_timestamp`. O nome "CRDT" sobrevive em rotas, tabelas e títulos de migração; é resíduo, não descrição. Ver [[sintese-nao-e-crdt]].
+Não há merge comutativo descentralizado: o servidor central define ordem total (*server-authoritative*, à la Figma). A alternativa CRDT chegou a existir como módulo `src/crdt` (resolver/merger por timestamp+clientId) e foi **removida por ser código morto**: o caminho real de escrita (`applyOperation`) nunca leu `client_timestamp`. O nome "CRDT" sobrevive em rotas, tabelas e títulos de migração; é resíduo, não descrição. Ver [[sintese-nao-e-crdt]].
 
 ## Granularidade: feição inteira, por decisão
 
-O LWW é por **entidade**, não por propriedade. Se A muda a cor e B move a geometria da mesma feição, o perdedor perde a mudança **inteira**, não só o campo em conflito. É aceitável porque feições são pequenas e a edição concorrente na mesma feição é rara — mas é decisão explícita, não acidente.
+O LWW é por **entidade**, não por propriedade. Se A muda a cor e B move a geometria da mesma feição, o perdedor perde a mudança **inteira**, não só o campo em conflito. É aceitável porque feições são pequenas e a edição concorrente na mesma feição é rara, mas é decisão explícita, não acidente.
 
 Consequência de projeto, e a regra que se deve seguir: **se um campo novo precisa sobreviver a edição concorrente, ou ele viaja no mesmo payload, ou vira entidade própria.** Foi assim que resposta de comentário virou entidade separada, ver [[comentario-espacial]]. O merge raso que o backend faz em `update` é merge do payload daquela op, nunca reconciliação entre autores.
 
@@ -25,21 +25,21 @@ Consequência de projeto, e a regra que se deve seguir: **se um campo novo preci
 Por isso `server_version` é simultaneamente o cursor do pull incremental ([[snapshot-e-pull-incremental]]) e a verdade da ordenação LWW. As duas coisas dependem do mesmo lock.
 
 > [!CONTRADICAO]
-> Esta página afirmava que havia `SET LOCAL lock_timeout = '5s'` antes da espera do lock, convertendo contenção em 503 retentável. **Não existe:** `grep -rn lock_timeout` no backend não retorna nada. O risco descrito é real e está **não mitigado** — o lock é tomado com a conexão do pool retida, e com `poolMax` default 10 (`config.js:37`) dez pushes concorrentes no mesmo atlas esgotam o pool inteiro, derrubando inclusive `/health` e `/auth/login`. Tratar como dívida aberta, não como resolvido.
+> Esta página afirmava que havia `SET LOCAL lock_timeout = '5s'` antes da espera do lock, convertendo contenção em 503 retentável. **Não existe:** `grep -rn lock_timeout` no backend não retorna nada. O risco descrito é real e está **não mitigado**: o lock é tomado com a conexão do pool retida, e com `poolMax` default 10 (`config.js:37`) dez pushes concorrentes no mesmo atlas esgotam o pool inteiro, derrubando inclusive `/health` e `/auth/login`. Tratar como dívida aberta, não como resolvido.
 
 ## Delete vence update (por ausência de filtro)
 
-`buildUpdateQuery` de feature/layer/group **não** filtra `deleted_at IS NULL` (`backend/src/modules/sync/sync.service.js:1055-1090`), mas também não limpa `deleted_at`. Um UPDATE que chega depois de um DELETE altera colunas de uma linha já morta e **não a ressuscita**; o snapshot segue não a devolvendo. O comportamento correto emerge da ausência de uma cláusula — quem "consertar" acrescentando o filtro não muda nada visível, quem acrescentar `deleted_at = NULL` quebra o modelo.
+`buildUpdateQuery` de feature/layer/group **não** filtra `deleted_at IS NULL` (`backend/src/modules/sync/sync.service.js:1055-1090`), mas também não limpa `deleted_at`. Um UPDATE que chega depois de um DELETE altera colunas de uma linha já morta e **não a ressuscita**; o snapshot segue não a devolvendo. O comportamento correto emerge da ausência de uma cláusula: quem "consertar" acrescentando o filtro não muda nada visível, quem acrescentar `deleted_at = NULL` quebra o modelo.
 
 ## Armadilhas
 
 - **O guard é `>=`, não `>`** (`src/js/store/sync/remote-operation-handler.js:131`). Versões iguais reaplicam. Só ocorre em replay/snapshot e reaplicar é idempotente no efeito. Não "conserte" para `>` sem entender o replay de ops adiadas.
 - **`serverVersion == null` desliga o guard.** Ops sem carimbo (legado, testes sem backend) sempre aplicam. Não confie no guard em cenário sem servidor.
 - **`lastAppliedVersion` é memória de processo.** F5 zera. A reconciliação após reload vem do snapshot / pull incremental, não do guard.
-- **Tipos fora de `CONVERGENCE_GUARDED` não têm guard nenhum no cliente**: `map`, `briefing`, `slide`, `comment`, `catalogLayer`, `setting` e os subtipos de mapa aplicam na ordem de entrega do pacote WS. A ordem do servidor ainda vale para o estado persistido e o snapshot é o desempate. **Ao adicionar um `entityType` que substitui em bloco, inclua-o em `CONVERGENCE_GUARDED`** — o esquecimento não gera erro, só divergência.
+- **Tipos fora de `CONVERGENCE_GUARDED` não têm guard nenhum no cliente**: `map`, `briefing`, `slide`, `comment`, `catalogLayer`, `setting` e os subtipos de mapa aplicam na ordem de entrega do pacote WS. A ordem do servidor ainda vale para o estado persistido e o snapshot é o desempate. **Ao adicionar um `entityType` que substitui em bloco, inclua-o em `CONVERGENCE_GUARDED`**: o esquecimento não gera erro, só divergência.
 - **O ack é a única fonte da ordem-servidor para o autor.** O autor filtra o próprio eco no WS, logo só aprende sua `serverVersion` pela resposta do push. Descartar essa resposta (como já se fez historicamente) quebra a convergência silenciosamente e só aparece em teste de dois usuários. Comportamento que atravessa `src/js/store/sync/ws-client.js`, `src/js/store/sync/sync-engine.js` e `src/js/store/sync/remote-operation-handler.js`, e não é visível em nenhum deles isoladamente.
 - **A compactação da fila quebra a simetria 1-para-1 entre op enfileirada e ack**, e é exatamente por isso que existe `reconcilePendingLocalEdits`. Sem ela, um contador de edição pendente vazado **deferiria para sempre** as ops remotas daquela entidade. Ver [[idempotencia-e-convergence-guard]] e [[fila-operacoes-outbound]].
-- **Um op inválido derruba o lote inteiro.** `mapId` ou `entityId` não-UUID gera `22P02` no Postgres e trava a sincronização de *todos* os tipos, não só do op ruim. É o "poison pill" que justifica os descartes pré-flush em `src/js/store/sync/operation-dispatcher.js:120,133,266` — o mapa local `Principal` é chaveado por nome, então ops nele nunca podem vazar. Ver [[dominio-local-vs-remoto]].
+- **Um op inválido derruba o lote inteiro.** `mapId` ou `entityId` não-UUID gera `22P02` no Postgres e trava a sincronização de *todos* os tipos, não só do op ruim. É o "poison pill" que justifica os descartes pré-flush em `src/js/store/sync/operation-dispatcher.js:120,133,266`: o mapa local `Principal` é chaveado por nome, então ops nele nunca podem vazar. Ver [[dominio-local-vs-remoto]].
 - **`atlas_version_seq` é global**, compartilhada por todos os atlas (`backend/src/database/migrations/003_sync.sql:12`). `server_version` é monotônico dentro de um atlas mas **não contíguo**. Use para ordenar, nunca para contar nem para calcular "quantas ops perdi".
 - **Feição antes do mapa:** um `feature/create` pode chegar antes do `map/create` que o contém. O handler bufferiza por `mapId` e reaplica; ops bufferizadas **não** registram a versão, senão uma op legítima posterior seria descartada pelo guard. Descartar em vez de bufferizar seria perda de dado silenciosa no par.
 - **Deslogado, a fila continua acumulando** até a purga de 7 dias. O log é ligado incondicionalmente no boot; só o flush é gated por conexão. Ver [[sessao-boot-e-ciclo-de-vida]].
@@ -50,7 +50,7 @@ Por isso `server_version` é simultaneamente o cursor do pull incremental ([[sna
 
 Escrita colaborativa é **só por sync**: não existe rota REST de escrita para feature, layer, group, map, briefing, slide, cesium3d ou streetview360. O gate de papel é aplicado em `assertOperationAllowed` antes do INSERT. Ver [[sintese-rest-vs-sync]] e [[permissoes-atlas]].
 
-Idempotência por `UNIQUE (atlas_id, op_id)` + `ON CONFLICT DO NOTHING`: reenviar a fila inteira após reconexão nunca duplica. Detalhe fácil de errar — ops de nível atlas chegam com o sentinela `'atlas'` como `entityId`, mas a coluna é `UUID NOT NULL`; o servidor grava contra o id do próprio atlas e devolve no ack o `entity_id` **como gravado**, para que o par receba o mesmo `entityId` ao vivo e via pull. Mexer nisso desalinha os dois caminhos de entrega.
+Idempotência por `UNIQUE (atlas_id, op_id)` + `ON CONFLICT DO NOTHING`: reenviar a fila inteira após reconexão nunca duplica. Detalhe fácil de errar: ops de nível atlas chegam com o sentinela `'atlas'` como `entityId`, mas a coluna é `UUID NOT NULL`; o servidor grava contra o id do próprio atlas e devolve no ack o `entity_id` **como gravado**, para que o par receba o mesmo `entityId` ao vivo e via pull. Mexer nisso desalinha os dois caminhos de entrega.
 
 `atlas_updated`, `map_duplicated` e `maps_merged` alteram dados **fora** da tabela `operations` e não têm `serverVersion` comparável. O cliente reage a esses sinais com re-pull de snapshot (`serverResync`), nunca com apply de op.
 
@@ -58,7 +58,7 @@ Idempotência por `UNIQUE (atlas_id, op_id)` + `ON CONFLICT DO NOTHING`: reenvia
 
 > **Nota histórica.** guia *05-sync-crdt* (absorvido) §10 e §16 apresentam um cliente que "aplica o que o servidor mandou", com `applyRemote()` retornando `true` sempre e um `applyRemoteOperation` sem checagem de versão. O código descarta ops mais antigas e adia ops sobre entidades com edição local não-ackada. Copiar o pseudocódigo do guia produz divergência em edição concorrente.
 
-> **Nota histórica.** guia *05-sync-crdt* (absorvido) §16 manda o cliente ignorar ops do próprio `clientId` — correto, mas o guia não menciona que o autor precisa então semear a própria versão pelo ack. Sem esse passo, o filtro de eco sozinho quebra o LWW do lado do autor.
+> **Nota histórica.** guia *05-sync-crdt* (absorvido) §16 manda o cliente ignorar ops do próprio `clientId`. Correto, mas o guia não menciona que o autor precisa então semear a própria versão pelo ack. Sem esse passo, o filtro de eco sozinho quebra o LWW do lado do autor.
 
 > **Nota histórica.** guia *acoes-interface-multiusuario* (absorvido) diz "last-write-wins com timestamp do servidor". É por **ordem de chegada**; nenhum timestamp participa da decisão.
 

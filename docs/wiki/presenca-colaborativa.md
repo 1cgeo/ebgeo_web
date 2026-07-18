@@ -54,13 +54,13 @@ No caminho away, `onClose` **mantém o socket morto dentro da sala** (não chama
 
 **Por isso o `clientId` estável é obrigatório aqui.** O servidor gera `crypto.randomUUID()` quando o `clientId` falta ou é malformado: a conexão funciona e a continuidade de presença morre **em silêncio**, no pior formato possível (o fantasma away fica os 2 minutos *e* o socket novo entra como segunda sessão). Detalhes do id em [[client-id-estavel]], mesmo id que serve à [[ack-idempotencia]].
 
-Duas consequências não óbvias do heartbeat: como ele derruba com `terminate()` (que produz 1006), heartbeat gera **away, não left** — uma aba em background com timer estrangulado entra em away a cada ciclo. E o mesmo tick re-reconcilia a autorização contra o banco, então um downgrade de compartilhamento tem staleness limitado a um heartbeat ([[compartilhamento-atlas]]). Pendência conhecida: a **remoção total** de um membro conectado não o desconecta, ele só perde acesso ao reconectar.
+Duas consequências não óbvias do heartbeat: como ele derruba com `terminate()` (que produz 1006), heartbeat gera **away, não left**: uma aba em background com timer estrangulado entra em away a cada ciclo. E o mesmo tick re-reconcilia a autorização contra o banco, então um downgrade de compartilhamento tem staleness limitado a um heartbeat ([[compartilhamento-atlas]]). Pendência conhecida: a **remoção total** de um membro conectado não o desconecta, ele só perde acesso ao reconectar.
 
 Voltar da graça restaura a **presença, não os dados**: não há replay de frames perdidos nem de operações. O cliente precisa mandar `sync_request` com o `lastVersion` e reenviar a fila offline ([[snapshot-e-pull-incremental]], [[idempotencia-e-convergence-guard]]).
 
 ## Teardown: `wsClient.on()` guarda um handler por evento
 
-`stopPresence()` desregistra sobrescrevendo os seis eventos WS com no-ops, porque `wsClient.on()` **substitui** o handler em vez de acumular. O corolário atinge quem nunca leu presença: **dois assinantes do mesmo evento WS não coexistem** — registrar outro handler para `'cursor'` derruba o da presença sem aviso. Todo `on()` novo no bridge precisa do par em `stopPresence()`.
+`stopPresence()` desregistra sobrescrevendo os seis eventos WS com no-ops, porque `wsClient.on()` **substitui** o handler em vez de acumular. O corolário atinge quem nunca leu presença: **dois assinantes do mesmo evento WS não coexistem**: registrar outro handler para `'cursor'` derruba o da presença sem aviso. Todo `on()` novo no bridge precisa do par em `stopPresence()`.
 
 Não existe chamada de `stopPresence` fora do módulo: o bridge vive enquanto o mapa vive. Quem limpa o roster no logout é `src/js/account/account.control.js` com `presenceStore.clear()`, depois de `logoutAndDisconnect()` ([[sessao-boot-e-ciclo-de-vida]]).
 

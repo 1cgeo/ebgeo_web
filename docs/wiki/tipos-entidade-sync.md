@@ -9,13 +9,13 @@ A lista canônica está em `src/js/store/sync/operation-types.js:8-37`; o roteam
 - **`atlas` não é usado em lugar nenhum.** Nenhum `EntityType.ATLAS` aparece no código. Configuração de atlas viaja como `setting`.
 - **`group_feature` não existe no frontend.** O backend tem a tabela e o `tableMap` a suporta, mas o cliente nunca emite esse tipo: associação feição/grupo vai embutida na própria feição ou no grupo. Aparece só no snapshot.
 
-Adicionar um tipo exige três lugares: o enum, um logger no dispatcher e um `case` no handler remoto. **Faltar o `case` não quebra nada visivelmente** — a op sai, chega e morre com um `console.warn` (`src/js/store/sync/remote-operation-handler.js:341`).
+Adicionar um tipo exige três lugares: o enum, um logger no dispatcher e um `case` no handler remoto. **Faltar o `case` não quebra nada visivelmente**: a op sai, chega e morre com um `console.warn` (`src/js/store/sync/remote-operation-handler.js:341`).
 
 ## Os slots do envelope não significam o mesmo em todo tipo
 
 `logOperation(entityType, opType, entityId, mapId, data, prev)` tem três famílias de wrapper com assinaturas diferentes (`src/js/store/sync/operation-dispatcher.js:244-332`), e duas delas subvertem o significado dos campos:
 
-- **Sub-entidades de mapa** (`mapPosition`, `baseLayer`, `mapNotes`, `gridStyle`, `mapTemporal`): `createMapSettingLogger` recebe **um único id** e o usa como `entityId` **e** como `mapId` (`:260-275`). Não têm tabela própria: o backend as converte em `UPDATE` na linha de `maps`. O handler inbound **ignora `operationType`** (`:320-326`) — sub-entidade de mapa só faz sentido como update.
+- **Sub-entidades de mapa** (`mapPosition`, `baseLayer`, `mapNotes`, `gridStyle`, `mapTemporal`): `createMapSettingLogger` recebe **um único id** e o usa como `entityId` **e** como `mapId` (`:260-275`). Não têm tabela própria: o backend as converte em `UPDATE` na linha de `maps`. O handler inbound **ignora `operationType`** (`:320-326`): sub-entidade de mapa só faz sentido como update.
 - **`slide`**: `briefing.operations.js:302/337/367` chamam `logOperation(EntityType.SLIDE, ..., slide.id, briefingId, slide)`. **O slot `mapId` carrega o `briefingId`.** Passa o guard só porque briefingId também é UUID. Nunca trate `op.mapId` de um `slide` como mapa.
 
 Formato do envelope em [[envelope-operacao]]; fila e compactação em [[fila-operacoes-outbound]].
@@ -29,21 +29,21 @@ Em `logOperation` (`src/js/store/sync/operation-dispatcher.js:120` e `:133`), re
 
 Os descartes viram spans `preflush.drop` no [[syncledger]]. Se algo "não sincronizou e não deu erro", olhe aqui primeiro.
 
-> **Nota histórica (contradição resolvida).** O guia *05-sync-crdt* dizia que `mapTemporal` era "gated" e que o frontend não emitia a op, deixando `temporal_config` no default `{}`. Falso desde `src/js/store/temporal.operations.js:107`, que chama `logMapTemporalOperation` a cada `setMapTemporalConfig` — com o UUID resolvido justamente para passar o guard acima (logar o nome dropava todo sync temporal em silêncio). Dados temporais **por feição** nunca dependeram disso: viajam verbatim em `data.properties` de uma op `feature` normal. Ver [[modulo-temporal]].
+> **Nota histórica (contradição resolvida).** O guia *05-sync-crdt* dizia que `mapTemporal` era "gated" e que o frontend não emitia a op, deixando `temporal_config` no default `{}`. Falso desde `src/js/store/temporal.operations.js:107`, que chama `logMapTemporalOperation` a cada `setMapTemporalConfig`, com o UUID resolvido justamente para passar o guard acima (logar o nome dropava todo sync temporal em silêncio). Dados temporais **por feição** nunca dependeram disso: viajam verbatim em `data.properties` de uma op `feature` normal. Ver [[modulo-temporal]].
 
 ## Traduções que o cliente não vê
 
-**3D/360:** o frontend usa seis tipos específicos (`marker3d`, `measurement3d`, `viewshed3d`, `cameraPosition3d`, `orientation360`, `marker360`); o backend guarda tudo em `cesium3d_data` / `streetview360_data` discriminando por `data_type`, e traduz nos dois sentidos. Consequência: **o cliente nunca vê `cesium3d` nem `streetview360` como `entityType`** — por isso o handler tem um `case` por alias, não um genérico. No snapshot, ao contrário, o formato é hierárquico e reagrupado por `data_type`. Ver [[snapshot-e-pull-incremental]], [[catalogo-3d]], [[streetview-360]].
+**3D/360:** o frontend usa seis tipos específicos (`marker3d`, `measurement3d`, `viewshed3d`, `cameraPosition3d`, `orientation360`, `marker360`); o backend guarda tudo em `cesium3d_data` / `streetview360_data` discriminando por `data_type`, e traduz nos dois sentidos. Consequência: **o cliente nunca vê `cesium3d` nem `streetview360` como `entityType`**; por isso o handler tem um `case` por alias, não um genérico. No snapshot, ao contrário, o formato é hierárquico e reagrupado por `data_type`. Ver [[snapshot-e-pull-incremental]], [[catalogo-3d]], [[streetview-360]].
 
 **Shape tolerado sem conversão no cliente:** o backend aceita o que o store real emite, não o shape canônico das colunas. Feature vai como GeoJSON cru (`{ type, geometry, properties }`, tipo em `properties.source`, camada em `properties.layerId`) e o backend deriva `feature_type`/`layer_id`; 3D/360 vão no plano camelCase e são reagrupados. Não "conserte" o cliente para emitir snake_case.
 
-**`catalogLayer` é dual-mode:** único tipo com tabela dedicada **e** coluna legada (`maps.catalog_layers`). O backend decide pelo shape: `catalog_layers` como **array** grava a coluna legada inteira (compat com clone e import); caso contrário opera uma linha por camada. **No snapshot as duas formas coexistem — não assuma que só uma está preenchida.**
+**`catalogLayer` é dual-mode:** único tipo com tabela dedicada **e** coluna legada (`maps.catalog_layers`). O backend decide pelo shape: `catalog_layers` como **array** grava a coluna legada inteira (compat com clone e import); caso contrário opera uma linha por camada. **No snapshot as duas formas coexistem: não assuma que só uma está preenchida.**
 
-**`setting` é sempre atlas-scoped:** `logAtlasSetting` (`:346`) cai no sentinela `'atlas'` quando não resolve o id, e isso é seguro porque o handler do backend escopa pela rota `:atlasId` e **ignora o `entityId`**. O merge em `atlas.settings` é whitelisted: chaves de disponibilidade de recurso nunca entram por aqui — essa é a fronteira entre [[atlas-settings]] e edição colaborativa comum.
+**`setting` é sempre atlas-scoped:** `logAtlasSetting` (`:346`) cai no sentinela `'atlas'` quando não resolve o id, e isso é seguro porque o handler do backend escopa pela rota `:atlasId` e **ignora o `entityId`**. O merge em `atlas.settings` é whitelisted: chaves de disponibilidade de recurso nunca entram por aqui; essa é a fronteira entre [[atlas-settings]] e edição colaborativa comum.
 
 ## Nem todo tipo converge igual
 
-`CONVERGENCE_GUARDED` (`src/js/store/sync/remote-operation-handler.js:115-125`) cobre nove tipos cujo `update` substitui o objeto inteiro. **Ficam de fora deliberadamente:** `map`, `briefing`, `slide`, `comment`, `setting`, `catalogLayer` e as cinco sub-entidades de mapa — para elas vale só o último a chegar, sem defesa contra reordenação. O mesmo conjunto governa a saída: `logOperation` só chama `markLocalEditPending` para tipos guardados (`:147`). Mecanismo em [[idempotencia-e-convergence-guard]], modelo geral em [[modelo-conflito-lww]], o porquê de não ser CRDT em [[sintese-nao-e-crdt]].
+`CONVERGENCE_GUARDED` (`src/js/store/sync/remote-operation-handler.js:115-125`) cobre nove tipos cujo `update` substitui o objeto inteiro. **Ficam de fora deliberadamente:** `map`, `briefing`, `slide`, `comment`, `setting`, `catalogLayer` e as cinco sub-entidades de mapa; para elas vale só o último a chegar, sem defesa contra reordenação. O mesmo conjunto governa a saída: `logOperation` só chama `markLocalEditPending` para tipos guardados (`:147`). Mecanismo em [[idempotencia-e-convergence-guard]], modelo geral em [[modelo-conflito-lww]], o porquê de não ser CRDT em [[sintese-nao-e-crdt]].
 
 **`slide` é emitido mas é no-op inbound** (`src/js/store/sync/remote-operation-handler.js:333-338`): slides convergem pela op do `briefing` pai, porque `updateBriefing` registra o array completo. O `case` existe só para não cair no `warn`. Se você mexer em slides fora de `updateBriefing`, **o peer não vê**.
 
@@ -58,7 +58,7 @@ Errar o lado é o bug mais comum de feature nova: ou o usuário sobrescreve a vi
 Os casos em que a intuição erra:
 
 - **Exagero de terreno é atlas-wide**, não por mapa (`src/js/modals/settings.modal.js:228` → `atlas.settings.terrainExaggeration`). Mudá-lo em um mapa muda em todos.
-- **Visibilidade e bloqueio de feição, camada e grupo não são preferência de visualização** — são propriedade persistida. Esconder uma camada esconde para todo mundo no atlas.
+- **Visibilidade e bloqueio de feição, camada e grupo não são preferência de visualização**: são propriedade persistida. Esconder uma camada esconde para todo mundo no atlas.
 - **Ordem dos mapas, cores de badge e ícones customizados** são `setting` de **atlas**, não de mapa.
 - **Seleção de feições parece local mas é espelhada** como awareness, não como dado ([[presenca-colaborativa]]).
 - **Medições efêmeras (J/H/X) são locais** até "Salvar como feição"; a geometria em construção também só vira `feature` ao concluir.

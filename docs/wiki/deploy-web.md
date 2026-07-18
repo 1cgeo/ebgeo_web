@@ -2,11 +2,13 @@
 
 Publicação do bundle Vite por troca de symlink, servido por NGINX dentro de um container que não enxerga o sistema de arquivos do host.
 
-## `npm run build` não constrói: ele publica
+## Dois modos, e o nome de cada um diz o que ele faz
 
-A armadilha começa no nome. `package.json:10` aponta `build` para `deploy/deploy.sh`, que faz build **e** publica: copia o `dist/`, cria uma release datada e troca o symlink de produção. Quem quer só compilar precisa de `build_dev` (`package.json:31`), que é o `vite build` puro.
+- `npm run dev` sobe o **stack inteiro** (backend `:8080` e Vite `:3000` via `concurrently`). Vite sozinho é `dev:web`, e serve para o Playwright, não para trabalhar: sem backend o boot é fail-fast e a app só mostra "EBGeo indisponível".
+- `npm run build` compila (`vite build`, saída em `dist/`).
+- `npm run deploy` publica (`deploy/deploy.sh`), que é o que esta página descreve.
 
-A inversão é o contrário do que todo hábito de JS espera, e o custo do engano não é simétrico: rodar `build` achando que compila publica sem querer; rodar `build_dev` achando que publica só não publica. Antes de renomear, note que `deploy.sh` é acionado por `npm run build` a partir de qualquer automação que assuma a convenção.
+Até 2026-07-18 isto era invertido de um jeito que custava caro: `build` apontava para o `deploy.sh`, ou seja, **publicava em produção**, e quem quisesse só compilar precisava de um `build_dev`. O engano não era simétrico, rodar `build` achando que compilava publicava sem querer. Havia ainda um `npm run preview` que servia o `dist/` sem proxy de `/api`, então nunca conseguiu mostrar a app funcionando. Ambos foram removidos.
 
 ## Por que symlink em vez de sobrescrever `dist/`
 

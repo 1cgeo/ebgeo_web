@@ -12,9 +12,9 @@ Não copiar `atlas_shares` é o outro lado do mesmo raciocínio: permissão é d
 
 Nada de `operations`, `version`, `created_at`/`updated_at` atravessa. Idempotência por `op_id` e ordem de chegada ([[modelo-conflito-lww]], [[idempotencia-e-convergence-guard]]) são propriedades do atlas de origem e não fazem sentido transplantadas: o clone é um atlas novo para efeito de sync, e o primeiro peer que conectar recebe um [[snapshot-e-pull-incremental]] limpo. Ver [[tabela-operations]].
 
-Efeito colateral desejável: como toda leitura filtra `deleted_at IS NULL`, o clone é também uma **compactação** — tombstones do soft-delete não passam ([[atlas-modelo-de-dados]]).
+Efeito colateral desejável: como toda leitura filtra `deleted_at IS NULL`, o clone é também uma **compactação**: tombstones do soft-delete não passam ([[atlas-modelo-de-dados]]).
 
-Também ficam de fora, por omissão e não por decisão explícita: `is_public`/`public_link` (o clone de um atlas público nasce privado, o que é o comportamento seguro) e `comments` — **as threads de comentário espacial somem sem aviso**, e nem a documentação de origem listava essa exclusão. Quem clona um atlas de revisão encontra os pins vazios ([[comentario-espacial]]).
+Também ficam de fora, por omissão e não por decisão explícita: `is_public`/`public_link` (o clone de um atlas público nasce privado, o que é o comportamento seguro) e `comments`. **As threads de comentário espacial somem sem aviso**, e nem a documentação de origem listava essa exclusão. Quem clona um atlas de revisão encontra os pins vazios ([[comentario-espacial]]).
 
 ## Armadilhas
 
@@ -28,14 +28,14 @@ Também ficam de fora, por omissão e não por decisão explícita: `is_public`/
 
 **Ninguém é notificado.** `duplicateMap` faz broadcast de `map_duplicated` (`backend/src/modules/atlas/atlas.controller.js:71`); o clone não emite nada, porque o atlas destino ainda não existia e portanto não tem sala em [[canal-collab-websocket]]. Clientes só veem o clone ao recarregar a lista.
 
-**Custo: transação única com INSERT linha a linha.** Todo o clone é um loop de inserts unitários dentro de uma `tx()`. Em atlas grande isso segura conexão e locks por bastante tempo, sem modo assíncrono nem progresso — o cliente fica bloqueado esperando o 201.
+**Custo: transação única com INSERT linha a linha.** Todo o clone é um loop de inserts unitários dentro de uma `tx()`. Em atlas grande isso segura conexão e locks por bastante tempo, sem modo assíncrono nem progresso; o cliente fica bloqueado esperando o 201.
 
 ## Acoplamento com `duplicateMap`
 
-`cloneMapSubEntities()` (`backend/src/modules/atlas/atlas.service.js:166`) é compartilhada pelos dois caminhos. Qualquer correção no remapeamento de IDs, na ordem obrigatória (layers → groups → features → group_features → 3D/360) ou nas duas passadas de `parent_id` de grupos afeta **os dois** — e os dois têm gates de permissão diferentes. Teste ambos.
+`cloneMapSubEntities()` (`backend/src/modules/atlas/atlas.service.js:166`) é compartilhada pelos dois caminhos. Qualquer correção no remapeamento de IDs, na ordem obrigatória (layers → groups → features → group_features → 3D/360) ou nas duas passadas de `parent_id` de grupos afeta **os dois**, e os dois têm gates de permissão diferentes. Teste ambos.
 
 ## Onde isso encaixa
 
-Clone é uma das poucas escritas de conteúdo colaborativo feitas por **REST**, e não pelo pipeline de operações ([[sintese-rest-vs-sync]]). A exceção se justifica porque cria entidades num atlas que ainda não tem peers conectados: não há conflito a resolver nem [[envelope-operacao]] a emitir. Para copiar conteúdo entre atlas **já vivos** o caminho não é clone, é exportar/importar ([[atlas-import-offline]], [[formato-ebgeo-roundtrip]]) — usar clone ali criaria um atlas paralelo em vez de mesclar.
+Clone é uma das poucas escritas de conteúdo colaborativo feitas por **REST**, e não pelo pipeline de operações ([[sintese-rest-vs-sync]]). A exceção se justifica porque cria entidades num atlas que ainda não tem peers conectados: não há conflito a resolver nem [[envelope-operacao]] a emitir. Para copiar conteúdo entre atlas **já vivos** o caminho não é clone, é exportar/importar ([[atlas-import-offline]], [[formato-ebgeo-roundtrip]]). Usar clone ali criaria um atlas paralelo em vez de mesclar.
 
 Erros seguem [[erros-api]]. Ver também [[atlas-settings]] (o JSONB de settings vem inteiro) e [[api-rest-atlas]].

@@ -22,7 +22,7 @@ Nenhum deles importa dos outros. Ampliar a lista na app sem tocar a migração n
 
 Cross-file, e não visível lendo `backend/src/modules/images/images.service.js` isoladamente:
 
-- A checagem de tamanho (`backend/src/modules/images/images.service.js:38-41`, `File too large. Maximum size: 10MB`) é **inalcançável** via multipart: o `limits.fileSize` do multer corta antes (`backend/src/modules/images/images.routes.js:35`). O texto que o cliente vê vem do wrapper `uploadSingleImage` (`backend/src/modules/images/images.routes.js:51-62`), que traduz `MulterError` em 400 — sem ele, `LIMIT_FILE_SIZE` cairia no 500 genérico, porque `MulterError` não tem `statusCode`.
+- A checagem de tamanho (`backend/src/modules/images/images.service.js:38-41`, `File too large. Maximum size: 10MB`) é **inalcançável** via multipart: o `limits.fileSize` do multer corta antes (`backend/src/modules/images/images.routes.js:35`). O texto que o cliente vê vem do wrapper `uploadSingleImage` (`backend/src/modules/images/images.routes.js:51-62`), que traduz `MulterError` em 400; sem ele, `LIMIT_FILE_SIZE` cairia no 500 genérico, porque `MulterError` não tem `statusCode`.
 - A mensagem longa de tipo inválido (`backend/src/modules/images/images.service.js:35`) também é morta: o `fileFilter` responde antes, com o texto curto `Invalid file type`.
 
 Ao testar mensagem de erro, teste contra a rota, não contra o service. Ao mudar limite ou allowlist, mude nos dois lugares mesmo sabendo que um deles não executa: eles são a guarda para chamadas diretas ao service.
@@ -52,7 +52,7 @@ A rota é autenticada e serve `attachment`. O token vive em memória no cliente,
 
 O cache é `private, max-age=31536000, immutable` (`backend/src/modules/images/images.controller.js:20`), então **não há cache-busting por query string**: imagem não muda depois de enviada e deletar é hard-delete (`backend/src/modules/images/images.service.js:97-111`). Ver [[sintese-cache-http-imutavel]].
 
-`toPublicImage` (`backend/src/modules/images/images.service.js:22-27`) remove `storage_path`. Não é cosmético: é caminho absoluto de filesystem e vaza o layout do deploy para qualquer leitor do atlas, incluindo visualizador de [[link-publico]]. **Toda query nova que retorne linhas de `images` precisa passar por essa função** — `getImageById` devolve a linha crua de propósito, para uso interno, e não pode virar resposta.
+`toPublicImage` (`backend/src/modules/images/images.service.js:22-27`) remove `storage_path`. Não é cosmético: é caminho absoluto de filesystem e vaza o layout do deploy para qualquer leitor do atlas, incluindo visualizador de [[link-publico]]. **Toda query nova que retorne linhas de `images` precisa passar por essa função**: `getImageById` devolve a linha crua de propósito, para uso interno, e não pode virar resposta.
 
 ## Custo escondido e notas de integração
 

@@ -6,7 +6,7 @@ A ordem de boot em `src/js/index.js` está comentada fase a fase no próprio có
 
 `reconnectLastAtlas` **não existe** (zero ocorrências em `src/`). Ainda assim quatro fontes afirmam que o boot reconecta sozinho o último atlas remoto:
 
-- `.claude/rules/architecture.md:138` — a mais perigosa, porque é carregada como instrução em toda sessão de agente;
+- `.claude/rules/architecture.md:138`, a mais perigosa, porque é carregada como instrução em toda sessão de agente;
 - guia *visao-e-principios* (absorvido) §4 passo 4, guia *ui-ux-ebgeo* (absorvido) §2 ("F5 reconecta o último atlas automaticamente"), guia *arquitetura-sync* (absorvido) §7.4.
 
 O real: `index.js:160` chama `openAtlasChooserOnBoot()`, que **descarta** dado remoto órfão e abre o Atlas Drive (`index.js:279-281`). A decisão está no comentário em `index.js:275-278`: a barra de endereço é a fonte de verdade. `/?atlas=<uuid>` carrega aquele atlas; `/` puro deve **deixar escolher**, não reabrir silenciosamente o último. O marcador de origem serve para descartar resíduo, não para reabrir. Ver [[dominio-local-vs-remoto]], que registra a mesma contradição e a armadilha correlata (`atlasId` é persistido e **nunca lido**).
@@ -43,4 +43,4 @@ Ver [[snapshot-e-pull-incremental]], [[fila-operacoes-outbound]], [[permissoes-a
 
 ## Fontes
 
-Código: `src/js/index.js`, `deep-link/atlas-link.js`, `deep-link/atlas-url-sync.js`, `account/open-atlas.service.js`, `account/account.control.js`, `session/idle-timeout.controller.js`, `store/sync/api-client.js`, `store/store.js`, `store/store-origin.js` — todos com JSDoc que explica o porquê no ponto de uso; prefira o código a qualquer paráfrase.
+Código: `src/js/index.js`, `deep-link/atlas-link.js`, `deep-link/atlas-url-sync.js`, `account/open-atlas.service.js`, `account/account.control.js`, `session/idle-timeout.controller.js`, `store/sync/api-client.js`, `store/store.js`, `store/store-origin.js`. Todos com JSDoc que explica o porquê no ponto de uso; prefira o código a qualquer paráfrase.

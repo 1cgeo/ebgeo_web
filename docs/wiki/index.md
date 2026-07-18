@@ -28,13 +28,9 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 
 ## Tempo real: canal e presença
 
-- [[canal-collab-websocket]] - o canal de colaboração, seus tipos de mensagem e o ciclo de conexão.
-- [[canal-collab-websocket]] - autorização no handshake, broadcast de mutações e ack pelo socket.
+- [[canal-collab-websocket]] - o canal de colaboração: tipos de mensagem, ciclo de conexão, autorização no handshake, broadcast de mutações e ack pelo socket.
 - [[client-id-estavel]] - o identificador de cliente persistido que sustenta idempotência e presença.
-- [[presenca-colaborativa]] - a camada efêmera em memória que propaga roster, cursores e seleções.
-- [[presenca-colaborativa]] - cursores, seleção e os eventos que descrevem quem está na sala.
-- [[presenca-colaborativa]] - presença como requisito de produto nas três superfícies (2D, 3D e 360).
-- [[presenca-colaborativa]] - a janela de graça que separa queda de conexão de saída real.
+- [[presenca-colaborativa]] - a camada efêmera em memória que propaga roster, cursores e seleção nas três superfícies (2D, 3D e 360), com a janela de graça que separa queda de conexão de saída real.
 - [[qualidade-conexao-adaptativa]] - RTT reportado pelo cliente e ajustes de transporte recomendados pelo servidor.
 
 ## Atlas, permissões e compartilhamento
@@ -42,8 +38,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[atlas-modelo-de-dados]] - o atlas como entidade do backend, unidade de isolamento do sync e da sala WebSocket.
 - [[api-rest-atlas]] - a família de endpoints REST de atlas e a permissão mínima por rota.
 - [[atlas-settings]] - o bloco de configuração por atlas que habilita features e restringe camadas e navegação.
-- [[permissoes-atlas]] - tiers de acesso do backend, papéis de UI e onde cada checagem acontece.
-- [[permissoes-atlas]] - os dois vocabulários ortogonais de autorização e como um deriva do outro.
+- [[permissoes-atlas]] - os cinco tiers de acesso, os dois vocabulários ortogonais de autorização (tier de atlas e papel de UI), como um deriva do outro e onde cada checagem acontece.
 - [[compartilhamento-atlas]] - concessão nominal de acesso gravada em atlas_shares.
 - [[link-publico]] - acesso anônimo por link opaco trocado em token de visitante read-only.
 - [[clone-atlas]] - o que a duplicação de atlas leva junto e o que deliberadamente fica de fora.

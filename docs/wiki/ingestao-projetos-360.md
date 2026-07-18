@@ -39,7 +39,7 @@ O módulo está fora do sync/CRDT do atlas ([[sintese-modulos-fora-do-sync]], [[
 `scripts/sv360-import.js:324` reusa o mesmo `mergeProject`, mas mantém a cópia do arquivo **dentro** da transação, porque no import a frio não há leitores vivos. **Não replique essa ordem no caminho online**: lá o arquivo já está sendo servido, e é exatamente por isso que existe o protocolo evict/`.bak`/rename com rollback externo.
 
 ## Fontes
-- `ebgeo_backend/src/modules/streetview360/` — `backend/src/modules/streetview360/sv360.routes.js` (multer, gates, drain), `backend/src/modules/streetview360/sv360.ingest.js` (validação, swap, lock), `backend/src/modules/streetview360/sv360.merge.js` (merge compartilhado), `backend/src/modules/streetview360/sv360.admin.service.js` (posse, thumbnail, status, hard-delete), `backend/src/modules/streetview360/sv360.admin.schemas.js` / `backend/src/modules/streetview360/sv360.admin.queries.js` (schema do manifest e SQL).
+- `ebgeo_backend/src/modules/streetview360/`: `backend/src/modules/streetview360/sv360.routes.js` (multer, gates, drain), `backend/src/modules/streetview360/sv360.ingest.js` (validação, swap, lock), `backend/src/modules/streetview360/sv360.merge.js` (merge compartilhado), `backend/src/modules/streetview360/sv360.admin.service.js` (posse, thumbnail, status, hard-delete), `backend/src/modules/streetview360/sv360.admin.schemas.js` / `backend/src/modules/streetview360/sv360.admin.queries.js` (schema do manifest e SQL).
 - `ebgeo_backend/src/config.js:69-81`: `SV360_DB_DIR`, `SV360_TMP_DIR`, `SV360_MAX_UPLOAD_BYTES`.
 - `ebgeo_backend/scripts/sv360-import.js`: ETL offline, ordem de cópia deliberadamente diferente.
 - guia *16-streetview-360* (absorvido): contrato público das rotas admin (§9).

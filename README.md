@@ -32,33 +32,39 @@ A referência completa do servidor (rotas, env, migrações, permissões, protoc
 
 ## Comandos
 
-### Só o frontend (não precisa de banco)
+### Os dois modos
 
-```bash
-npm run dev          # Servidor de desenvolvimento (porta 3000)
-npm run build        # Build de produção (deploy/deploy.sh)
-npm run lint         # ESLint (--max-warnings 0) + Stylelint
-npm run lint:fix     # Correção automática de lint
-npm test             # Vitest (execução única)
-npm run test:watch   # Vitest em watch
-npm run test:coverage# Relatório de cobertura (sem threshold bloqueante)
-npm run knip         # Detecção de código morto
-npm run preview      # Preview do build de produção
-```
-
-### Monorepo (backend + frontend)
-
-O backend exige **PostgreSQL com PostGIS**; os testes dele criam/dropam um banco `ebgeo_test` e
-precisam de um superusuário para habilitar as extensões (PostGIS é *untrusted*).
+Login é opcional, **servidor não é**: o boot é fail-fast em `GET /api/config` e não há
+fallback estático, então subir só o Vite dá a tela "EBGeo indisponível". Trabalhar aqui
+exige o backend de pé, e ele exige **PostgreSQL com PostGIS**.
 
 ```bash
 npm run install:all  # instala os dois pacotes
-npm run dev:all      # sobe backend + frontend juntos
+npm run dev          # DEV: backend :8080 + Vite :3000, juntos
+npm run build        # PROD: compila para dist/
+npm run deploy       # PROD: publica (deploy/deploy.sh, troca de symlink)
+```
+
+Peças soltas, quando você quer só uma delas:
+
+```bash
+npm run dev:web      # só o Vite (não boota sozinho; é o que o Playwright usa)
 npm run dev:backend  # só o backend (node --watch)
-npm run test:all     # suíte dos dois
-npm run test:backend # só o backend
-npm run lint:all     # lint dos dois
+```
+
+### Verificação
+
+```bash
+npm run lint         # ESLint (--max-warnings 0) + Stylelint
+npm run lint:fix     # correção automática
+npm test             # Vitest (114 arquivos, execução única)
+npm run test:watch   # Vitest em watch
+npm run test:coverage# cobertura (sem threshold bloqueante)
+npm run test:backend # backend: cria e dropa ebgeo_test, exige superusuário
+npm run test:all     # suíte dos dois pacotes
+npm run lint:all     # lint dos dois pacotes
 npm run test:e2e:ui  # Playwright: sobe o backend REAL de backend/ e dirige o browser
+npm run knip         # detecção de código morto
 ```
 
 O E2E resolve o backend a partir de `backend/` no próprio repositório — `EBGEO_BACKEND_DIR`

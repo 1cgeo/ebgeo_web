@@ -25,7 +25,7 @@ Ver [[imagens-atlas]] e [[upload-imagens-seguranca]].
 
 Não escreva `if (401) refresh()` na sua camada: `_request` já refresca e repete uma vez (`src/js/store/sync/api-client.js:231-233`), e o `ApiError` só sobe se o retry também falhar. Três guardas sustentam isso e quebram se alguém "simplificar":
 
-- `refresh()` compartilha uma promessa em voo (`src/js/store/sync/api-client.js:289-311`), senão uma rajada de requisições vira uma rajada de POSTs `/auth/refresh` — que estão sob rate limit compartilhado (ver [[refresh-token-rotacao]]).
+- `refresh()` compartilha uma promessa em voo (`src/js/store/sync/api-client.js:289-311`), senão uma rajada de requisições vira uma rajada de POSTs `/auth/refresh`, que estão sob rate limit compartilhado (ver [[refresh-token-rotacao]]).
 - a própria chamada de refresh vai com `_retry: false` (`src/js/store/sync/api-client.js:295-299`), senão um 401 nela recursa.
 - o handler de auth-lost é ligado **depois** do boot de propósito (`src/js/store/sync/api-client.js:78-81`): token expirado no boot deve cair em anônimo em silêncio, não abrir modal de login por cima da tela de carregamento.
 

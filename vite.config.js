@@ -337,11 +337,10 @@ export default defineConfig(({ mode: _mode }) => ({
     }
   },
 
-  // ===== PREVIEW (local production) =====
-  preview: {
-    port: 4173,
-    strictPort: false
-  },
+  // Sem bloco `preview`: `vite preview` serve o dist/ SEM o proxy de `/api` acima,
+  // e como o boot e fail-fast em GET /api/config a app so mostrava "EBGeo
+  // indisponivel". Era modo quebrado, nao modo de producao. Sao dois modos, so:
+  // `npm run dev` (stack completo) e `npm run build` + `npm run deploy`.
 
   // ===== MODULE RESOLUTION =====
   resolve: {

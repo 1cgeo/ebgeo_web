@@ -10,7 +10,7 @@ Nenhum arquivo isolado mostra o ciclo completo. O incremento está no caminho **
 
 Por que o ack precisa semear a versão do próprio autor: o `ws-client` descarta o eco da própria op (`src/js/store/sync/ws-client.js:397`), logo **o autor nunca aprende a `serverVersion` da própria op pelo WebSocket**. Se o ack não semeasse `lastAppliedVersion`, a op de um peer com versão menor seria aplicada por cima da edição local.
 
-Por que a reconciliação pós-flush é obrigatória e não defensiva: o contador por op vaza sempre que a simetria incremento/decremento quebra (compactação da fila, ops em lote, ack sem versão, batch envenenado). Um contador vazado deixa aquela entidade **permanentemente adiada** — divergência silenciosa, sem erro. A fila de operações é a fonte de verdade da cura, não o contador. Ver [[fila-operacoes-outbound]] e [[ack-idempotencia]].
+Por que a reconciliação pós-flush é obrigatória e não defensiva: o contador por op vaza sempre que a simetria incremento/decremento quebra (compactação da fila, ops em lote, ack sem versão, batch envenenado). Um contador vazado deixa aquela entidade **permanentemente adiada** (divergência silenciosa, sem erro). A fila de operações é a fonte de verdade da cura, não o contador. Ver [[fila-operacoes-outbound]] e [[ack-idempotencia]].
 
 Alternativa rejeitada: resolver conflito por `timestamp` ou pelo relógio de Lamport. O Lamport é registrado e nunca decide (`src/js/store/sync/sync-gateway.js:39`); o vencedor é sempre `max(serverVersion)`. Ver [[sintese-nao-e-crdt]], [[modelo-conflito-lww]] e [[idempotencia-e-convergence-guard]].
 
@@ -30,7 +30,7 @@ Alternativa rejeitada: resolver conflito por `timestamp` ou pelo relógio de Lam
 
 ## Buffer, não drop
 
-Feição pode chegar antes do mapa (A cria um mapa e desenha em seguida). Dropar seria perda de dados silenciosa, então a op é bufferizada e o handler retorna `false` (`:398`). O detalhe não óbvio: esse `false` viaja até `:346` para que uma op **apenas bufferizada não registre `serverVersion`** — registrar faria uma op legítima posterior ser descartada pelo guard. Como o drain contorna `applyRemoteOperation`, ele reaplica o guard à mão (`:67`, `:78-79`).
+Feição pode chegar antes do mapa (A cria um mapa e desenha em seguida). Dropar seria perda de dados silenciosa, então a op é bufferizada e o handler retorna `false` (`:398`). O detalhe não óbvio: esse `false` viaja até `:346` para que uma op **apenas bufferizada não registre `serverVersion`**: registrar faria uma op legítima posterior ser descartada pelo guard. Como o drain contorna `applyRemoteOperation`, ele reaplica o guard à mão (`:67`, `:78-79`).
 
 > **Nota histórica.** guia *05-sync-crdt* (absorvido) §16 mostra `applyRemoteOperation` fazendo `mergeChanges(existing, op.changes)` no UPDATE e `store.delete(op.entityId)` num object store por entityType; o código em `src/js/store/sync/remote-operation-handler.js:431` faz `features[index] = data` (substituição cega da feição inteira, sem `op.changes` e sem criar quando ausente) e guarda as feições **dentro do registro do mapa**, não num store `features` separado. O pseudocódigo do guia é ilustrativo; a granularidade LWW é a feição inteira.
 
@@ -44,7 +44,7 @@ O mesmo padrão morde no `locked`: persistir só o setting fazia o lock valer no
 
 ## Wiring
 
-O handler é registrado em dois pontos: `src/js/store/services.js:87` e `src/js/store/sync/sync-engine.js:400` (`_wireOnce`). A duplicação é intencional — o caminho inbound funciona mesmo antes do engine conectar. Ver [[sessao-boot-e-ciclo-de-vida]].
+O handler é registrado em dois pontos: `src/js/store/services.js:87` e `src/js/store/sync/sync-engine.js:400` (`_wireOnce`). A duplicação é intencional: o caminho inbound funciona mesmo antes do engine conectar. Ver [[sessao-boot-e-ciclo-de-vida]].
 
 O redesenho não acontece aqui: as camadas MapLibre reagem aos eventos de ciclo de vida. `applyRemoteMapOp` emite `LAYERS_CHANGED` além de `MAP_*` porque a lista de mapas, o card do mapa atual e o badge de recentes escutam `LAYERS_CHANGED`, não `MAP_*` (`:571-572`).
 
@@ -53,4 +53,4 @@ O redesenho não acontece aqui: as camadas MapLibre reagem aos eventos de ciclo 
 - guia *arquitetura-sync* (absorvido) §6, §7 e §"LWW por ordem de chegada".
 - guia *05-sync-crdt* (absorvido) §16 e §"Eco do autor" (pseudocódigo divergente, ver contradição).
 - guia *03-sync-inicial* (absorvido): pull híbrido (`sinceVersion = 0` → snapshot completo).
-- `src/js/store/sync/`: `src/js/store/sync/remote-operation-handler.js`, `src/js/store/sync/ws-client.js`, `src/js/store/sync/sync-gateway.js`, `src/js/store/sync/sync-engine.js`, `src/js/store/sync/operation-dispatcher.js` — todos com o porquê comentado no ponto de uso.
+- `src/js/store/sync/`: `src/js/store/sync/remote-operation-handler.js`, `src/js/store/sync/ws-client.js`, `src/js/store/sync/sync-gateway.js`, `src/js/store/sync/sync-engine.js`, `src/js/store/sync/operation-dispatcher.js`. Todos com o porquê comentado no ponto de uso.

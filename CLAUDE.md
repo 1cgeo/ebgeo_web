@@ -38,7 +38,9 @@ Não chancele a própria saída: rodar o teste não é a mudança funcionar; esc
 Os scripts estão em `package.json`; os que não se adivinham:
 
 ```bash
-npm run dev:all       # backend + frontend juntos (Vite :3000, backend :8080)
+npm run dev           # stack completo: backend :8080 + Vite :3000 (dev:web sobe só o Vite,
+                      #   que sozinho não boota: fail-fast em GET /api/config)
+npm run build         # compila para dist/ ;  npm run deploy publica (symlink swap)
 npm run test:backend  # exige PostgreSQL + PostGIS + superusuário; cria e dropa ebgeo_test
 npm run test:e2e:ui   # Playwright com o backend REAL de backend/
 npm run knip          # dead-code

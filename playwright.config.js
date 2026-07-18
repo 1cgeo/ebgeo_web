@@ -41,7 +41,10 @@ export default defineConfig({
         trace: 'on-first-retry',
     },
     webServer: {
-        command: `npm run dev -- --port ${APP_PORT} --strictPort`,
+        // `dev:web` (Vite sozinho), NAO `dev`: este ja sobe o backend real em
+        // global-setup, e `npm run dev` hoje e o stack completo via concurrently,
+        // que nem repassaria o `--port`.
+        command: `npm run dev:web -- --port ${APP_PORT} --strictPort`,
         url: APP_ORIGIN,
         reuseExistingServer: !process.env.CI,
         timeout: 120000,

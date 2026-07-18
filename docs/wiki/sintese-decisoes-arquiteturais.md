@@ -52,8 +52,8 @@ Dado de atlas remoto vive no IndexedDB apenas enquanto conectado, e é apagado n
 
 Isso amarra dois princípios de cobertura que valem como checklist ao adicionar qualquer tipo de dado persistido:
 
-- **P9** — tudo que entra no `.ebgeo` precisa ter caminho de sincronização (sync ⊇ `.ebgeo`). Faltou caminho, é bug de cobertura.
-- **P11** — round-trip `.ebgeo` → servidor → `.ebgeo` **por outro usuário** deve ser sem perda. Toda adição ao *transform* local→servidor exige a contrapartida em `applyRemoteSnapshot` mais um teste de fidelidade. Diferenças aceitáveis e intencionais: IDs remapeados para UUID, novo id de atlas, arredondamento de coordenadas no export. Ver [[snapshot-e-pull-incremental]] e [[aplicacao-operacoes-remotas]].
+- **P9**: tudo que entra no `.ebgeo` precisa ter caminho de sincronização (sync ⊇ `.ebgeo`). Faltou caminho, é bug de cobertura.
+- **P11**: round-trip `.ebgeo` → servidor → `.ebgeo` **por outro usuário** deve ser sem perda. Toda adição ao *transform* local→servidor exige a contrapartida em `applyRemoteSnapshot` mais um teste de fidelidade. Diferenças aceitáveis e intencionais: IDs remapeados para UUID, novo id de atlas, arredondamento de coordenadas no export. Ver [[snapshot-e-pull-incremental]] e [[aplicacao-operacoes-remotas]].
 
 ## Undo/redo é local por sessão, nunca sincroniza
 
@@ -106,14 +106,14 @@ A permissão por atlas é um **terceiro** eixo, resolvido em waterfall: owner �
 ## Decisões menores com consequência grande
 
 - **Link público = somente leitura, e "acesso geral" = só o link.** Não há papel por organização concedido implicitamente; convidar é sempre share explícito por usuário. Decisão de produto para um GIS sensível. O token do link expira em ~1h e o visitante público **não recebe comentários**. Ver [[link-publico]] e [[compartilhamento-atlas]].
-- **Visualizador não recebe comentários do servidor** — é **filtro de transmissão** (snapshot e broadcast não enviam), não esconde-UI. Ver [[comentario-espacial]].
-- **"A permissão padrão abaixa, nunca eleva"** — convite concede Leitura por padrão; elevar é ação deliberada.
-- **Config por atlas é interseção, nunca expansão** — um `atlas.settings` só desliga o que o deploy suporta, jamais liga o que não existe, e é revertido ao desconectar. Ver [[atlas-settings]], [[resources-catalogo]] e [[modos-operacao]].
+- **Visualizador não recebe comentários do servidor**: é **filtro de transmissão** (snapshot e broadcast não enviam), não esconde-UI. Ver [[comentario-espacial]].
+- **"A permissão padrão abaixa, nunca eleva"**: convite concede Leitura por padrão; elevar é ação deliberada.
+- **Config por atlas é interseção, nunca expansão**: um `atlas.settings` só desliga o que o deploy suporta, jamais liga o que não existe, e é revertido ao desconectar. Ver [[atlas-settings]], [[resources-catalogo]] e [[modos-operacao]].
 - **Sem thumbnail/snapshot de atlas** nos cards do Atlas Drive (faixa colorida com iniciais, cor determinística do nome). Decisão de escopo.
 - **Mídia do catálogo embutida em base64** no config, porque não há static público no backend e `deploy/` é protegido.
 - **Ex-dono vira Gestor** na transferência de propriedade, transação atômica, nunca existe estado "sem dono". Ver [[clone-atlas]] e [[gestao-usuarios]].
 - **Sem CI no GitHub** no backend: nada roda lint/test/build em PR. Não há rede de segurança no servidor, rode local antes de publicar a imagem.
-- **Observabilidade de sync é test/dev only** — o SyncLedger é env-gated e em produção é branch morto, com cross-check `!config.isProd` para o caso de `EBGEO_TRACE=1` vazar. Ver [[syncledger]].
+- **Observabilidade de sync é test/dev only**: o SyncLedger é env-gated e em produção é branch morto, com cross-check `!config.isProd` para o caso de `EBGEO_TRACE=1` vazar. Ver [[syncledger]].
 - **Imutabilidade de cache** é padrão carregado: imagens, assets 3D e thumbnails 360 são `immutable` com ETag O(1)/304/Range; tiles MVT do 360 são `max-age=60` porque mudam a cada ingestão. Ver [[sintese-cache-http-imutavel]], [[imagens-atlas]] e [[upload-imagens-seguranca]].
 
 ## O que fica fora do sync
