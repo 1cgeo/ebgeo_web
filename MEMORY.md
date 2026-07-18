@@ -38,13 +38,13 @@ Quando um fato aqui conflitar com o código, **o código vence** e este arquivo 
 - Frontend: `npm test` (vitest, sem banco). Backend: `npm run test:backend` (exige PostgreSQL + PostGIS + superusuário; cria e dropa `ebgeo_test`).
 - E2E: `npm run test:e2e:ui` (Playwright sobe o backend real de `backend/`). É o guarda da fronteira entre os pacotes.
 - **Controle negativo é obrigatório** para teste de regressão: reverter o fix e confirmar que o teste falha. Sem isso não se sabe se o teste prende alguma coisa.
+- **Lint e teste em comando separado, ANTES do `git commit`.** Na mesma linha de comando a saída chega depois do commit já ter passado — verificação que chega depois da ação não é verificação.
 - Topologia de dev: Vite em **:3000**, backend em **:8080** (o Vite faz proxy de `/api`). Inverter derruba o boot.
 - Não use ferramenta de preview/browser para validar UI; o E2E do Playwright é o caminho aprovado.
 
 ## Onde mora o conhecimento
 
-- [`docs/wiki/index.md`](docs/wiki/index.md) — memória semântica (conceitos e arquitetura). Antes de pesquisar do zero, cheque se já existe página.
-- [`docs/guias/`](docs/guias/) — os 17 guias de integração frontend↔backend (00 a 16).
+- [`docs/wiki/index.md`](docs/wiki/index.md) — **é** a documentação do projeto. Os 17 guias de integração e o docs/deploy.md (removido) foram absorvidos e removidos; não procure por eles. Critério das páginas: o código já é a evidência, então a wiki carrega o porquê, a armadilha e o contrato, não a descrição do que o código faz. Antes de pesquisar do zero, cheque se já existe página.
 - [`docs/decisions/DECISIONS.md`](docs/decisions/DECISIONS.md) — decisões de arquitetura.
 - [`livro-razao.md`](livro-razao.md) — o espelho das correções; a retrospectiva lê para achar recorrência.
 - [`docs/doutrina.md`](docs/doutrina.md) — os seis princípios, texto integral.

@@ -17,3 +17,9 @@ O que funcionou, o que falhou, edge cases. Leia antes de executar; atualize depo
 - Reescrever `MEMORY.md` inteiro (context collapse; ver a skill).
 - Gravar estado ("fase X concluída"). O git sabe melhor e isso envenena decisões futuras.
 - Gravar "a ferramenta Y não funciona" — fossiliza numa recusa. Grave o conserto.
+
+## Rodada 2026-07-18 (revisão da wiki)
+
+- **Fatiar geração por tema duplica conceito.** Seis fatias temáticas escreveram o mesmo conceito com slugs diferentes; dedupe por slug não vê duplicata semântica. Quem fatia precisa passar a lista de páginas já existentes para cada fatia, ou aceitar uma fase de fusão depois — e o detector Jaccard do `lint-wiki` é o que fecha a brecha.
+- **Reescrita em massa por subagente regride o que não está no prompt.** A revisão melhorou muito a prosa e, sem que ninguém pedisse, encurtou as citações para o basename, quebrando a verificabilidade. Ao fanout de reescrita, declare explicitamente os invariantes de forma que não podem mudar.
+- **Recorrência entre classes é sinal de constituição, não de skill.** `verificacao-fantasma` (3) e `teste-que-nao-prende` (2) tinham a mesma raiz — checagem que não checa. Anotar em learnings de skill não pegaria; virou seção própria no `CLAUDE.md`.

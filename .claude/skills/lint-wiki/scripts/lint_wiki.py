@@ -119,9 +119,21 @@ def main():
             )
 
     # --- afirmacao sobre codigo sem citar arquivo ---
+    # Este aviso e o detector de COBERTURA VAZIA, nao de estilo: pagina sem
+    # caminho verificavel passa verde no docs-integridade sem que ele cheque
+    # nada. Foi o que pegou as 1.054 citacoes encurtadas para o basename.
     for slug, texto in conteudo.items():
         if not RE_CAMINHO_CODIGO.search(texto):
             avisos.append(f'nao cita nenhum arquivo de codigo: {slug}')
+
+    # --- em-dash: a regra so vale se for mecanica ---
+    # Estava enunciada no wiki-schema e violada em toda parte, inclusive na
+    # pagina que a enuncia. Regra escrita e ignorada treina o agente a ignorar
+    # regra escrita, entao ou vira checagem ou sai.
+    for slug, texto in conteudo.items():
+        n = texto.count('—')
+        if n:
+            avisos.append(f'{n} em-dash (use virgula, dois-pontos ou frase separada): {slug}')
 
     if '--json' in sys.argv:
         print(json.dumps({'erros': erros, 'avisos': avisos, 'paginas': len(conteudo)}, ensure_ascii=False, indent=2))

@@ -102,6 +102,31 @@ src/js/
 - UI components subscribe to `UI_LAYOUT_CHANGED` for position updates
 - `selectFeature()` (`state_manager.js`) replaces the active selection set; the feature panel opens/closes via `FEATURE_PANEL_OPENED/CLOSED`, not by `selectFeature` itself
 
+## Data Model
+
+**Atlas** (container de projeto) → **Maps** (workspaces) → **Layers** (contêiner de feições, com `visivel`/`bloqueado`) → **Features** (com metadado de sync: `createdAt`, `updatedAt`, `version`, `ownerId`, `dirty`, `deleted`).
+
+- A camada ativa recebe feições novas; camadas emitem `LAYERS_CHANGED`.
+- Projetos salvam como `.ebgeo`.
+- Slide de briefing referencia modelo 3D por `modelId` (não `tilesetId`).
+- **Comentário espacial** (colaboração): threads root/reply/resolve em `store/comment.operations.js`; `Shift+C` alterna a colocação.
+- **Dado temporal** (opcional, por feição): `temporalInicio`/`temporalFim` (janela de validade em epoch ms; ausente = permanente) e `trajetoria` (keypoints `{t, lng, lat}`; point/military_symbol/coordination_measure). A config temporal por mapa é persistida à parte.
+
+Tipos de feição: `point`, `line`, `polygon`, `circle`, `ellipse`, `rectangle`, `sector`, `text`, `image`, `brush`, `arrow`, `boundary`, `occupied_front`, `military_symbol`, `coordination_measure`, `magnetic_declination`, `los`, `visibility`.
+
+## Application Modes
+
+`NORMAL` (default) | `BRIEFING_EDIT` | `BRIEFING_PRESENT`, geridos por `ApplicationModeManager` (`mode/application-mode.manager.js`); a troca de modo dirige perfis de visibilidade da UI.
+
+## Temporal Module
+
+Controle de linha do tempo por mapa (`temporal/`): `temporal-controller.js` (playback/cursor) + `temporal-render.service.js` (filtros + posição na trajetória) + `temporal-model.js` (matemática pura, testável em node) + `temporal-derivation.service.js` + `trajectory-tool/`.
+
+- **Config por mapa** sob `temporal_<mapName>` (appStore, como o map-lock), shape `{ ativo, modo, unidade, inicio, fim, origem }`. Ops em `store/temporal.operations.js`. Emite `MAP_TEMPORAL_CHANGED` (no flip de `ativo`), `TEMPORAL_CONFIG_CHANGED` e `TEMPORAL_CURSOR_CHANGED`.
+- **Modelo de lente pura:** o epoch ms absoluto é canônico; `modo` (absoluto/relativo D+N), `unidade` e `origem` são lentes de exibição que **nunca** mutam o tempo da feição. Mover feição no tempo é só a ação explícita "Reagendar" (`shiftMapTemporalTimes` + `shiftSourcesTemporal`), que desloca `temporalInicio`/`temporalFim` e todo `t` de trajetória, e re-deriva o DTG automático.
+- **Hot path (playback)** roda a cada rAF: apply é coalescido (guarda de in-flight); filtros show/hide são quantizados ao passo da timeline em `layers/visibility-filter.js` (rebuild só na fronteira do passo); interpolação de trajetória normaliza uma vez por feição por frame. `resetTrajectoryCache()` no resync.
+- **Derivação é só imagem:** direção/velocidade/DTG automáticos em símbolo militar regeneram o PNG do símbolo e **não podem** escrever a source GeoJSON nem o store — isso competiria com a passada de geometria por frame. Rotação fica manual, nunca automática.
+
 ## Measurement Tools
 
 Ephemeral (non-persistent) tools that do NOT follow the 3-file tool pattern. Shared modules: `measurement-geometry.js` (calculations), `measurement-labels.js` (MapLibre layers), `measurement-results-panel.js` (UI). Shortcuts: J (distance), H (area), X (angle). Distance/area can "Salvar como feicao" to persist.

@@ -1,145 +1,87 @@
-# EBGeo — monorepo
+# EBGeo: constituição
 
-GIS web para o Exército Brasileiro. **Um repositório, dois pacotes:**
+GIS web do Exército Brasileiro. Monorepo, dois pacotes: **web** na raiz (`src/`, `tests/`: Vanilla JS, Vite, MapLibre + Cesium + Three.js, IndexedDB) e **backend** em [`backend/`](backend/) (Express + PostgreSQL/PostGIS + `ws`), com [`backend/CLAUDE.md`](backend/CLAUDE.md) próprio.
 
-| Pacote | Onde | O quê |
-|--------|------|-------|
-| **web** (este arquivo) | raiz (`src/`, `tests/`) | SPA local-first: MapLibre GL JS (2D) + Cesium (3D, lazy) + Three.js (360, lazy). Vanilla JS (ES modules, sem framework), Vite, IndexedDB via LocalForage. |
-| **backend** | [`backend/`](backend/) | Express + PostgreSQL/PostGIS + `ws`. Login, atlas hospedados, compartilhamento e colaboração em tempo real. **Tem CLAUDE.md próprio** — leia [`backend/CLAUDE.md`](backend/CLAUDE.md) antes de mexer lá. |
+Este arquivo carrega **método, armadilha e convenção que diverge do default**. O que se deriva lendo o código não mora aqui: detalhe de arquitetura em [`.claude/rules/`](.claude/rules/), o porquê das decisões em [`docs/wiki/index.md`](docs/wiki/index.md), fatos duráveis em [`MEMORY.md`](MEMORY.md), princípios integrais em [`docs/doutrina.md`](docs/doutrina.md).
 
-**LOGIN é opcional; o SERVIDOR não é.** O app roda **anônimo** (sem login) — dados no IndexedDB, `.ebgeo`, sync inerte — e nenhuma mudança pode quebrar esse caminho. Mas o boot é **fail-fast em `GET /api/config`** (`src/js/index.js`): sem backend alcançável, 3 tentativas e a tela "EBGeo indisponível"; o app não roda. `config.js` é só o *shape* que o servidor hidrata — **não há fallback estático**. Depois do boot, toda a edição segue local-first (ver *Backend & Real-Time Sync*).
+## Os seis princípios (condensados)
 
-Detailed references live in `.claude/rules/` (`architecture.md`, `common-tasks.md`, `testing.md`) and `.claude/skills/` (`new-tool`, `store-op`).
+1. **Competência só compõe se for codificada, nunca lembrada.** O que não virou teste, regra ou learning considera-se perdido.
+2. **O laço se alimenta da realidade, nunca de si mesmo.** Em software a realidade tem três vozes: o **código** (não a prosa que o descreve, inclusive esta), o **teste** (não a intenção de quem o escreveu) e o **comportamento observado** (não o `exit 0`).
+3. **Plasticidade na periferia, rigidez no núcleo.** Contrato congelado e invariante de dados não se mexem sem decisão registrada; o resto é livre.
+4. **Confiança é gradiente, ganho por tarefa e revogável.** Dry-run antes de mutar; pare no irreversível. Esclarecimento de escopo **não é** autorização.
+5. **Melhoria se descobre por seleção, não se decreta.** Controle negativo: reverta o fix e confirme que o teste falha.
+6. **O direito de desaprender é tão sagrado quanto o de aprender.** Podar regra morta e página dormente é manutenção, não perda.
 
-> **Mudança que cruza os dois pacotes** (envelope de sync, `GET /api/config`, permissões, contratos congelados) precisa ser verificada **dos dois lados no mesmo commit** — é justamente o que o monorepo passou a permitir. O E2E (`npm run test:e2e:ui`) sobe o backend real a partir de `backend/` e é o guarda dessa fronteira.
+## Verificação: a lição que mais custou
 
-## Non-negotiable
+Três episódios de `verificacao-fantasma` e dois de `teste-que-nao-prende` no [`livro-razao.md`](livro-razao.md) têm a mesma raiz: **uma checagem que não checa**. As três formas:
 
-- **Do NOT use preview or browser tools.** The user tests UI manually; verify only via `npm run lint` and `npm test`.
-- **Protected files** (a PreToolUse hook blocks edits): `package-lock.json`, `.env`, `deploy/`, `public/vendors/`.
+- **Verificação que chega depois da ação não é verificação.** Rodar lint na mesma linha de comando do `git commit` faz a saída aparecer depois do commit já ter passado. Comando separado, antes.
+- **Conferir um subconjunto e tratar como o conjunto.** `grep` em dois arquivos da raiz deu por completa uma busca que tinha alvos em `backend/`. Onde existe teste que varre tudo, não confira à mão.
+- **Cobertura vazia passa verde.** Teste cuja regra não casa com nada reporta sucesso sem verificar nada. Pergunte sempre *o que este verde estaria provando se o código estivesse errado*.
 
-## Commands
+Não chancele a própria saída: rodar o teste não é a mudança funcionar; escrever a doc não é a doc estar certa.
 
-**Só o frontend** (não precisa de Postgres):
+## Não negociável
+
+- **Não use ferramenta de preview ou browser.** Verificação de lógica é `npm run lint` + `npm test`; de UI, o Playwright (`npm run test:e2e:ui`).
+- **Arquivos protegidos** (hook PreToolUse bloqueia): `package-lock.json`, `.env`, `deploy/`, `public/vendors/`.
+- **Trabalhe no branch atual.** `main` é outra linha do produto; não sincronize sem pedir.
+- **Login é opcional; servidor não é.** O app roda anônimo, mas o boot é fail-fast em `GET /api/config`; sem backend alcançável, tela "EBGeo indisponível". `src/js/config.js` é só o *shape* que o servidor hidrata; **não há fallback estático**. Anônimo ≠ offline.
+- **Permissão por atlas tem CINCO níveis:** `read < comment < write < manage < owner`. Sempre gate pela hierarquia. Lista fechada tipo `perm === 'write' || perm === 'owner'` exclui o `manage` em silêncio e já causou bug real, duas vezes, nos dois pacotes.
+- **Escrita de entidade colaborativa é só via sync.** Não crie rota REST de escrita para feature/map/layer/group/briefing/slide.
+- **Mudança que cruza os dois pacotes** (envelope de sync, `/api/config`, permissões, contrato congelado) é verificada **dos dois lados no mesmo commit**. O E2E sobe o backend real e é o guarda dessa fronteira.
+
+## Comandos
+
+Os scripts estão em `package.json`; os que não se adivinham:
 
 ```bash
-npm run dev          # Dev server (port 3000)
-npm run build        # Production build (deploy/deploy.sh)
-npm run lint         # ESLint (--max-warnings 0) + Stylelint
-npm run lint:fix     # Auto-fix lint issues
-npm test             # Vitest (single run)
-npm run test:watch   # Vitest watch mode
-npm run test:coverage# Coverage report (no blocking threshold)
-npm run knip         # Dead-code detection
-npm run preview      # Preview production build
-npm run clean        # Clean build artifacts
+npm run dev:all       # backend + frontend juntos (Vite :3000, backend :8080)
+npm run test:backend  # exige PostgreSQL + PostGIS + superusuário; cria e dropa ebgeo_test
+npm run test:e2e:ui   # Playwright com o backend REAL de backend/
+npm run knip          # dead-code
 ```
 
-**Monorepo** (backend exige PostgreSQL + PostGIS + superusuário para os testes):
+Arquivos `.js`/`.css` editados passam por lint automático (hook PostToolUse), e a saída aparece depois de cada escrita.
 
-```bash
-npm run install:all  # instala os dois pacotes
-npm run dev:all      # sobe backend + frontend juntos
-npm run dev:backend  # só o backend (node --watch)
-npm run test:all     # suíte dos dois
-npm run test:backend # só o backend (cria/dropa ebgeo_test)
-npm run lint:all     # lint dos dois
-npm run test:e2e:ui  # Playwright: sobe o backend REAL de backend/ e dirige o browser
-```
+## Convenções que divergem do default
 
-Edited `.js`/`.css` files are auto-linted by a PostToolUse hook — expect lint output after each write.
+- **Imports por alias, nunca relativo `../../`:** `@/`, `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`. Cada pasta de módulo expõe um barrel `index.js`.
+- **Idioma:** string de UI em pt-BR com acento correto; comentário e JSDoc em inglês; propriedade de feição em português (`nome`, `descricao`, `visivel`, `bloqueado`).
+- **Comentário de caminho na linha 1** de todo arquivo JS, relativo a `src/`: `// Path: js/draw_tools/point_tool/add_point_control.js`. Nunca remova.
+- **Sem estilo inline em JS.** Classes BEM em arquivo CSS; exceção só para valor computado em runtime (cor vinda do JS, posição calculada).
+- **XSS:** nunca `innerHTML` com dado de usuário. Use `textContent` ou `createElement`; `escapeHtml` de `@utils/html-escape.js` ao interpolar. Ícone SVG estático é ok.
+- **Limpeza de recurso** via `@utils/event-cleanup.js`. Todo `map.on()` do MapLibre pareado com `map.off()` no `onRemove()`; handler do Cesium com `.destroy()`; timer sempre limpo.
+- **Utilitários obrigatórios:** `deepClone()` (não `JSON.parse(JSON.stringify())`), `showToast()` (não `alert()`), `generateUUID()` para todo id, constantes `EventTypes.XXX` (nunca string literal de evento).
+- **CSS** em `src/css/` com os custom properties de `design-tokens.css`. Anime com `transform: translateX()`, nunca `left` (evita layout thrashing).
+- **Sem em-dash na prosa** de documentação; vírgula, parênteses ou frase separada.
 
-## Imports
+## Padrões estruturais
 
-Path aliases only — never relative `../../`:
-`@/` (src root), `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`.
-Each module folder exposes a public `index.js` barrel.
+**Ferramenta de desenho = 3 arquivos:** `add_*_control.js` (IControl do MapLibre) + `add_*_geometry.js` (geometria pura, testável em node) + `*_attributes_panel.js`. Use a skill `new-tool`.
 
-## Language
+**Transação do store é persistence-first**: efeito colateral só roda depois que o IndexedDB confirma. Se a persistência lança, nada mais acontece:
 
-- **UI strings** (labels, tooltips, messages): Portuguese (pt-BR), correct accents.
-- **Code comments / JSDoc**: English.
-- **Feature properties**: Portuguese — `nome`, `descricao`, `visivel`, `bloqueado`.
-
-## Code Quality
-
-- **No inline styles in JS.** Use BEM classes in CSS files (`className`, `classList.add/remove`), never `style.cssText` or `style.xxx = '...'`. Exception: runtime-computed values (colors from JS, calculated positions).
-- **XSS:** never `innerHTML` with user data — use `textContent` or `document.createElement`. Import `escapeHtml` from `@utils/html-escape.js` when interpolating user data into HTML. Static SVG icons are OK.
-- **Event/resource cleanup:** use `setupCleanup/subscribe/addDomListener/trackTimer/cleanup` from `@utils/event-cleanup.js`. Pair every MapLibre `map.on()` with `map.off()` in `onRemove()`; `.destroy()` Cesium handlers in cleanup; clear `setTimeout`/`setInterval`; clean context-menu listeners on hide/close.
-- **Required utilities:** `deepClone()` (`@utils/deep-utils.js`, not `JSON.parse(JSON.stringify(...))`); `showToast(msg, type)` (`@utils`, not `alert()`); `generateUUID()` (`@utils/uuid.js`) for all IDs; `EventTypes.XXX` constants, never hardcoded event strings.
-- **File path comment** on line 1 of every JS file, relative to `src/`: `// Path: js/draw_tools/point_tool/add_point_control.js`. Never remove it.
-- **Dead code:** remove unused imports, commented-out code, and no-op functions. No `_`-prefix aliasing.
-
-## Key Patterns
-
-**Tool (3 files)** — each draw/military tool: `add_*_control.js` (MapLibre IControl) + `add_*_geometry.js` (geometry logic) + `*_attributes_panel.js` (property editor). Scaffold with the `new-tool` skill.
-
-**Store transaction** — mutations are persistence-first; side effects run only after IndexedDB succeeds:
 ```javascript
 await runTransaction(async (tx) => {
-    tx.deferSync(() => updateColorTracking(feature));  // UI / color tracking
-    tx.deferAsync(() => logFeatureOperation(...));      // logging / sync queue
-    return async () => { await repo.set(key, data); };  // persistence — runs FIRST
+    tx.deferSync(() => updateColorTracking(feature));   // UI
+    tx.deferAsync(() => logFeatureOperation(...));       // log / fila de sync
+    return async () => { await repo.set(key, data); };   // persistência: roda PRIMEIRO
 });
 ```
-Order: persistence → deferSync → deferAsync. If persistence throws, no side effects run. Details in the `store-op` skill.
 
-**Store errors** — invalid argument (bug): `throw new Error(msg)`; expected failure (locked map): `return` + emit `STORE_OPERATION_BLOCKED`; data-loss risk (IndexedDB): `throw` + emit `STORE_PERSIST_ERROR`. Store-error events come from `StoreErrorEvents` in `store/store-errors.js`.
+Ordem: persistência → deferSync → deferAsync. Detalhe na skill `store-op`.
 
-**Events**
-```javascript
-import { getEventBus } from '@store/services.js';
-import { EventTypes } from '@events/event_types.js';
-getEventBus().on(EventTypes.FEATURE_UPDATED, handler);
-getEventBus().emit(EventTypes.LAYERS_CHANGED, { mapName: null });
-```
+**Erro de store, três casos:** argumento inválido (bug do chamador) → `throw new Error`; falha esperada (mapa bloqueado) → `return` + emitir `STORE_OPERATION_BLOCKED`; risco de perda de dado (IndexedDB) → `throw` + emitir `STORE_PERSIST_ERROR`.
 
-**Services** — call `initServices()` (from `@store/services.js`) before any component, then use `getEventBus()` / `getStateManager()` / `getLayerManager()`.
+**Serviços:** `initServices()` antes de qualquer componente; depois `getEventBus()` / `getStateManager()` / `getLayerManager()`.
 
-**Control registry** — `registerControl('myTool', instance)` / `getControl('myTool')` from `@store`.
+## Documentação
 
-## Feature Types
+A wiki em [`docs/wiki/`](docs/wiki/index.md) **é** a documentação, e vale um critério só: **o código já é a evidência**. Antes de escrever um parágrafo, pergunte se um engenheiro competente chegaria nele sozinho lendo o código. Se sim, não escreva. Entra o porquê e a alternativa rejeitada, a armadilha, o contrato congelado, o não-óbvio que atravessa arquivos. Regras de manutenção em [`docs/wiki/wiki-schema.md`](docs/wiki/wiki-schema.md).
 
-`point`, `line`, `polygon`, `circle`, `ellipse`, `rectangle`, `sector`, `text`, `image`, `brush`, `arrow`, `boundary`, `occupied_front`, `military_symbol`, `coordination_measure`, `magnetic_declination`, `los`, `visibility`.
+Documentação desatualizada é **pior que ausente**: engana ativamente, e engana em dobro um agente, que a trata como verdade. Por isso ela é verificada por teste ([`tests/unit/docs-integridade.test.js`](tests/unit/docs-integridade.test.js)) e não por disciplina: todo caminho citado e todo wikilink precisam resolver.
 
-## Data Model
-
-- **Atlas** (top-level project container) → **Maps** (workspaces) → **Layers** (feature containers with visibility + locked states) → **Features** (geographic elements with sync metadata: `createdAt`, `updatedAt`, `version`, `ownerId`, `dirty`, `deleted`).
-- The active layer receives new features; layers emit `LAYERS_CHANGED`.
-- Projects are saved as `.ebgeo` files.
-- Briefing slides reference 3D models via `modelId` (not `tilesetId`).
-- **Spatial comments** (collaboration): root/reply/resolve threads via `store/comment.operations.js` (overlay + panel in `comment_tool/`); `Shift+C` toggles placement.
-- **Temporal data** (optional, per feature): `temporalInicio`/`temporalFim` (validity window, epoch ms — absent = permanent) and `trajetoria` (moving-feature keypoints `{t, lng, lat}`, epoch ms; point/military_symbol/coordination_measure). Per-map temporal config is stored separately (see Temporal Module).
-
-## Application Modes
-
-`NORMAL` (default) | `BRIEFING_EDIT` (editor) | `BRIEFING_PRESENT` (presentation). Managed by `ApplicationModeManager` (`mode/application-mode.manager.js`); mode changes drive UI visibility profiles.
-
-## Backend & Real-Time Sync
-
-> The `store/sync/` layer is **fully wired** to the optional `ebgeo_backend` (REST + real `WebSocket`); the app still runs **anonymous** (no login) when nobody logs in — but NOT without a reachable backend: boot is fail-fast on `GET /api/config`. **Full detail (transport, op envelope, boot/restore, Principal name-keying) lives in `.claude/rules/architecture.md` §Sync; operating principles in `docs/wiki/index.md`.** Below are only the non-negotiables.
-
-- **Transport/orchestration** — `api-client.js` (REST `/api/v1`) + `ws-client.js` (`WebSocket` `/api/v1/collab`), driven by `sync-engine.js`; outbound flush in `sync-flush.js` (gated on `connectionState.isOnline()`), inbound apply in `remote-operation-handler.js`. 3D/360 inbound **persists** into the cesium3d/streetview360 side-stores (and emits), so peers converge on live 3D/360 ops.
-- **Backend entity writes are sync-only** — no REST write routes for feature/map/layer/group/briefing/slide; mutations travel as operations (`operation-dispatcher.js` → `operation-queue.js`; types in `operation-types.js`).
-- **Conflict = LWW by server arrival order** (not timestamp); idempotency by `op_id`. Server-authoritative, **not a true CRDT** — the server defines total order; the Lamport clock is recorded but never decides conflicts. LWW granularity is the **whole feature**, not per-property.
-- **Local↔remote split is the store-origin marker** (`store-origin.js`), NOT per-atlas IndexedDB namespacing — multiple named local atlases are a deliberate non-goal (local = one workspace + `.ebgeo`; `docs/wiki/index.md` P12). Remote-atlas data is cleared on logout/disconnect; the role gate applies only to a **connected remote atlas** (the local store is always editable).
-- **Identity/state** — `session-context.js` (OFFLINE/ONLINE + JWT role) + `connection-state.js` (state machine), bridged as `SESSION_CHANGED`/`CONNECTION_STATE_CHANGED`; `permission-guard.js` gates ops (permissive offline). `sync-scheduler.js` is a **no-op shell** (outbound owned by `sync-flush.js`). UI: `account/`, `presence/`, `modals/sharing.modal.js`, `sidebar/tabs/maps.tab.js`.
-- **Client-driven socket lifecycle** — `auth.logout` revokes only the refresh token; the collab socket close + presence teardown happen on the client.
-- **SyncLedger** (sync observability, **test/dev only**, gated) — `store/sync/diag/` stamps a `traceId` per gesture and records correlated spans (keyed by `op.id`) to `window.__ebgeoSyncTrace` via `EventEmitter.onAny`; merges with the backend ring (`/api/v1/debug/trace`) in Playwright. Detail in `.claude/rules/architecture.md` §Sync; end-to-end sync architecture + SyncLedger as-built in `docs/wiki/index.md`.
-
-## Temporal Module
-
-Timeline control per map (`temporal/`). Lives in `temporal-controller.js` (playback/cursor) + `temporal-render.service.js` (filters + trajectory positions) + `temporal-model.js` (pure math, node-testable) + `temporal-derivation.service.js` (auto symbol attrs) + `trajectory-tool/` (line-tool-style keypoint editing).
-
-- **Per-map config** persisted under `temporal_<mapName>` (appStore, like map-lock), shape `{ ativo, modo, unidade, inicio, fim, origem }`. Ops in `store/temporal.operations.js` (`getMapTemporalConfigSync` for hot paths, `setMapTemporalConfig`, `toggleMapTemporal`). Emits `MAP_TEMPORAL_CHANGED` (on `ativo` flip) + `TEMPORAL_CONFIG_CHANGED`; cursor moves emit `TEMPORAL_CURSOR_CHANGED`.
-- **Pure-lens model:** absolute epoch ms is canonical; `modo` (absoluto/relativo D+N), `unidade`, and `origem` (D-origin) are display lenses that NEVER mutate feature times. Moving features in time is the explicit "Reagendar" action only: `shiftMapTemporalTimes` (store) + `shiftSourcesTemporal` (live source) — it shifts `temporalInicio`/`temporalFim` + every trajectory `t` and re-derives auto DTG.
-- **Hot path (playback):** runs every rAF — keep it lean. Apply is coalesced (in-flight guard); show/hide filters are quantized to the timeline step in `layers/visibility-filter.js` (rebuild only on step boundaries); trajectory interpolation normalizes once per feature per frame. Reset trajectory caches via `resetTrajectoryCache()` on resync.
-- **Derivation is image-only:** auto direction/speed/DTG on military symbols regenerate the symbol PNG (`generateSymbolBlob` + `loadImageToMap`) and MUST NOT write the GeoJSON source or store — that would race the per-frame geometry pass. Rotation is left fully manual (never auto-driven).
-
-## CSS
-
-All CSS in `src/css/` (BEM naming; component files mirror JS module names; `briefing/` subfolder). Use the custom properties in `design-tokens.css` (layout dimensions, colors, z-index, transitions) instead of hardcoded values. Animate with `transform: translateX()`, never `left` (avoids layout thrashing).
-
-## External Dependencies (script tags)
-
-MapLibre GL JS, Turf.js, milsymbol, Cesium (on demand), GDAL (PDF export).
+Ao corrigir um desvio, registre uma linha no [`livro-razao.md`](livro-razao.md) dizendo **onde a lição foi codificada**. Correção que recorre significa que a guia não pegou: mude a abordagem, não re-anote.

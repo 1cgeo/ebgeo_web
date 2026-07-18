@@ -4,6 +4,7 @@
 
 - **Jaccard >= 0.45 como limiar de duplicata.** Calibrado nas 7 fusões reais da consolidação de 2026-07-18. Abaixo de 0.35 é vizinhança legítima; entre 0.35 e 0.45 exige julgamento.
 - **Separar contradição histórica de contradição viva.** A primeira leva de auditoria acusou 125 erros, dos quais 117 eram contradições contra guias que tinham acabado de ser apagados. Ruído desse tamanho faz o relatório inteiro ser ignorado. O discriminante é a menção ao documento absorvido.
+- **O aviso "não cita nenhum arquivo de código" é o detector de cobertura vazia**, não uma checagem de estilo. Ele pegou o caso em que a reescrita encurtou 1.054 citações para o basename (`sync.service.js:755`): o teste de integridade só casa caminho com prefixo conhecido, então passava **verde sem verificar nada** naquelas páginas. Aviso caindo de 34 para 14 foi a medida da reancoragem.
 
 ## Achados que o lint devolveu
 
