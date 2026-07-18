@@ -1,108 +1,63 @@
 # Modos de operação do cliente: anônimo, autenticado e público
 
-O frontend opera em três modos, anônimo (dados só no IndexedDB, sem colaboração), autenticado (sync e colaboração completos) e público (publicToken read-only de 1 hora), sendo que sem login ainda se exige o servidor, porque o boot é fail-fast em `GET /api/config`.
+Os três modos não saem de uma flag: emergem do cruzamento de dois estados independentes (identidade e origem do store), e o modo público quebra o predicado que todo mundo usa para testar conexão.
 
-## O eixo que realmente define o modo
+## Os dois eixos (nenhum deles é "o modo")
 
-Modo não é uma flag única. São dois estados independentes que se combinam:
+1. **Identidade** (`store/sync/session-context.js`): OFFLINE ou ONLINE, mais o marcador `_isVisitor`.
+2. **Origem do store** (`store/store-origin.js`): LOCAL ou REMOTE, marcador único persistido, com espelho síncrono para hot path.
 
-1. **Identidade** (`sessionContext`, `store/sync/session-context.js`): `SessionMode.OFFLINE` ou `ONLINE`, mais um marcador `_isVisitor`. `isAuthenticated()` só é verdadeiro quando `mode === ONLINE && userId !== null && !_isVisitor` (`session-context.js:196-198`). O visitante público é ONLINE mas **não** autenticado (`session-context.js:264-270`).
-2. **Origem do store** (`store/store-origin.js`): `LOCAL` ou `REMOTE`, persistida em `__store_origin__` (`store-origin.js:28`), com espelho síncrono para leitura em hot path (`isRemoteStoreSync()`, `store-origin.js:66-68`). Ver [[dominio-local-vs-remoto]] e [[dominio-local-vs-remoto]].
+O split local↔remoto é esse marcador único, não namespacing de IndexedDB por atlas: múltiplos atlas locais nomeados são não-objetivo declarado (local = um workspace + `.ebgeo`). Ver [[dominio-local-vs-remoto]] e [[atlas-modelo-de-dados]].
 
-A consequência prática está no gate de permissão: `checkPermission()` libera tudo quando `sessionContext.isOffline() || !isRemoteStoreSync()` (`store/sync/permission-guard.js:69-71`). Ou seja, **o papel só restringe um atlas remoto conectado**. Um usuário logado como `viewer` global continua podendo desenhar no próprio workspace local. Ver [[permissoes-atlas]] e [[permissoes-atlas]].
+A combinação decide o gate: `checkPermission()` libera tudo quando `isOffline() || !isRemoteStoreSync()` (`store/sync/permission-guard.js:66-73`). **O papel só restringe um atlas remoto conectado.** Sem isso, um usuário cujo papel global é `viewer` não conseguiria desenhar no próprio workspace local. Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
-## 1. Anônimo (sem login)
+## Armadilha 1: anônimo não é offline
 
-- Dados vivem só no IndexedDB, origem `LOCAL`, sem WebSocket, sem presença, sem compartilhamento.
-- Um único workspace local, não vários atlas nomeados. Atlas nomeado é conceito de servidor. O arquivo `.ebgeo` é o veículo de portabilidade local (ver [[formato-ebgeo-roundtrip]] e [[atlas-modelo-de-dados]]).
-- `sync-status.control.js:102` esconde a luz de conexão enquanto `!isAuthenticated()`.
+Sem backend alcançável não existe app, nem anônimo. O boot é fail-fast em `GET /api/config`: 3 tentativas com 1 s, e se nenhuma aplicar, `showUnavailableScreen()` e retorno sem bootar (`src/js/index.js:74-87`). O `src/js/config.js` empacotado é só uma casca hidratada pelo servidor, então bootar sem config significaria bootar com catálogo vazio, pior que não bootar. O retry de 3 existe para que um soluço de rede não derrube o boot; só indisponibilidade real chega à tela. Ver [[config-dinamico]] e [[config-runtime-urls-relativas]].
 
-### Armadilha principal: anônimo não é offline
+## Armadilha 2: `isAuthenticated()` é falso no modo público
 
-O boot é **fail-fast** no config do servidor. `initApp()` tenta `applyRuntimeConfig` 3 vezes com 1 s de intervalo e, se nenhuma tentativa aplicar, chama `showUnavailableScreen()` e **retorna sem bootar** (`src/js/index.js:73-86`). O `config.js` empacotado é só uma casca hidratada pelo `/api/config` (`src/js/ui/unavailable-screen.js:3-8`). Sem backend alcançável não existe app, nem em modo anônimo. Ver [[config-dinamico]] e [[config-runtime-urls-relativas]].
+`isAuthenticated()` exige `ONLINE && userId && !_isVisitor` (`src/js/store/sync/session-context.js:196-198`), e o visitante público é ONLINE sem conta (`src/js/store/sync/session-context.js:264-270`). Qualquer UI que use esse predicado como "estou conectado" erra no modo público. Para conectividade use `connectionState`; para "posso escrever" use o guard.
 
-O retry de 3 tentativas existe para que um soluço transitório de rede não derrube o boot. Só uma indisponibilidade real chega à tela "EBGeo indisponível".
+Esse é o preço deliberado de reusar a sessão para o visitante: em troca, o menu de conta some sozinho e o guard já bloqueia escrita sem código novo. `src/js/account/sync-status.control.js:102` esconde a luz de conexão pelo mesmo predicado, o que é intencional (visitante não tem o que sincronizar).
 
-## 2. Autenticado
+## Armadilha 3: logging de operações é estado global entre conexões
 
-Fluxo de entrada em um atlas remoto, sempre nesta ordem (`account/account.control.js:783-801`, e o mesmo padrão em `:576-582` e `:818-825`):
+`connectPublic` chama `disableOperationLogging()` (`src/js/store/sync/sync-engine.js:227`) porque o token público não pode dar push: ops enfileiradas ficariam órfãs e seriam despejadas no atlas errado num login posterior. Consequência não local: `connect()` autenticado precisa chamar `enableOperationLogging()` explicitamente (`src/js/store/sync/sync-engine.js:169`), senão herda o desligamento de um `connectPublic` anterior na mesma aba. Mexer em um lado sem o outro produz um cliente silenciosamente read-only.
 
-```
-syncEngine.disconnect() → clearAllDataStore() → markStoreRemote(atlasId)
-→ syncEngine.connect(atlasId, { initialPull: true }) → activateAtlasInitialMap() → startAutoFlush()
-```
+O overlay de settings do atlas se aplica ao visitante também (`src/js/store/sync/sync-engine.js:234-235`): ele respeita disponibilidade de 3D/360/basemaps como qualquer membro, ver [[atlas-settings]].
 
-O `clearAllDataStore()` antes do `markStoreRemote` não é opcional: o store é um só, então abrir um atlas remoto descarta o conteúdo anterior. Por isso a UI confirma com o usuário antes quando há trabalho local.
+O token público é efêmero e não persiste: `setEphemeralToken` zera o refresh token (`src/js/store/sync/api-client.js:117-120`). Não há rotação; o link é re-resolvido no boot. Contrato de 1 h do backend em [[link-publico]]. Ele entra na URL do socket como qualquer outro access token (`src/js/store/sync/api-client.js:935-940`), ver [[canal-collab-websocket]].
 
-- Sessão sobrevive a F5: `restoreSessionFromStorage()` roda **antes** do boot do store, para que a guarda de boot enxergue a sessão e não descarte o atlas remoto em cache (`src/js/index.js:99-104, 250-263`). Ver [[autenticacao-jwt]], [[refresh-token-rotacao]] e [[sessao-boot-e-ciclo-de-vida]].
-- Papel por atlas vem do `connected` do WebSocket e sobrescreve o papel global de login (`sync-engine.js:186-198`). O owner é elevado já no snapshot, antes do handshake, para que os botões de configuração apareçam imediatamente no F5 (`sync-engine.js:177-184`).
-- Escrita sai como operação, nunca como REST de escrita de entidade. Ver [[fila-operacoes-outbound]], [[envelope-operacao]] e [[canal-collab-websocket]].
-- Flush é gated em `connectionState.isOnline()` (`sync-flush.js:65`); offline temporário acumula na fila local. Ver [[fila-operacoes-outbound]].
+## Contratos de ordem que não podem inverter
 
-## 3. Público (link de visualização)
+- **Abrir atlas remoto**: `disconnect → clearAllDataStore → markStoreRemote → connect → activateAtlasInitialMap → startAutoFlush` (`account/account.control.js:783-801`). `markStoreRemote` **antes** do connect é intenção durável: se a aba morrer durante o pull, a guarda de boot vê `remote` e descarta o parcial em vez de promovê-lo a atlas local permanente. E o store é um só, por isso a UI confirma antes de descartar trabalho local.
+- **Restaurar sessão antes do boot do store** (`src/js/index.js:99-104`): invertido, a guarda de boot não enxerga a sessão e descarta o atlas remoto em cache.
+- **Owner elevado no snapshot, antes do handshake** (`src/js/store/sync/sync-engine.js:177-184`): sem isso os botões de configuração piscam ausentes no F5. O `connected` do WS ainda sobrescreve o papel global de login com o papel por atlas.
 
-Disparado por `?atlasPublico=<link>` na URL, e **só** quando ninguém está logado (`index.js:226-241`):
+## Subir o workspace local para o servidor
 
-```
-apiClient.getPublicAtlas(link) → setEphemeralToken(atlas.publicToken)
-→ clearAllDataStore() → markStoreRemote(atlas.id) → syncEngine.connectPublic(atlas.id)
-```
+`import_export/save-local-atlas.service.js` sobe os blobs **preservando os ids locais** (o backend aceita o id do cliente), justamente para que as referências das features recém-importadas continuem válidas sem rewrite pós-import. Não existem operações de remapeamento; quebrar essa preservação exigiria inventá-las. O serviço não conecta nem troca a origem do store, isso é da UI chamadora. Ver [[atlas-import-offline]] e [[imagens-atlas]].
 
-Detalhes que importam:
+Imagens fora do allowlist (`image/png`, `image/jpeg`, `image/webp`) viram `skipped`, não falha (`save-local-atlas.service.js:19, 50-53`). Ícones customizados em SVG caem aí, por SVG ser vetor de XSS armazenado: é exclusão de segurança, não bug. Ver [[upload-imagens-seguranca]].
 
-- `setEphemeralToken` zera o refresh token (`api-client.js:117-120`). O token público é descartável e expira sozinho (contrato de 1 h do backend, ver [[link-publico]]). Não há rotação.
-- `connectPublic` chama `disableOperationLogging()` (`sync-engine.js:227`). Isso é anti-vazamento: sem token de push, ops enfileiradas ficariam órfãs e seriam despejadas no atlas errado num login posterior. `connect()` normal faz o inverso, `enableOperationLogging()` (`sync-engine.js:169`), justamente porque um `connectPublic` anterior pode ter desligado.
-- O visitante recebe `setVisitorSession()` (ONLINE + VIEWER + `_isVisitor`), então o guard bloqueia escrita no store remoto e o menu de conta não aparece (`sync-engine.js:230-232`).
-- O overlay de settings do atlas **também** se aplica ao visitante, respeitando disponibilidade de 3D/360/basemaps (`sync-engine.js:234-235`). Ver [[atlas-settings]].
-- O token público entra na URL do socket como qualquer outro: `wsUrl()` monta `?atlasId=&token=&clientId=` com o access token corrente (`api-client.js:935-940`), que nesse momento é o `publicToken`. Ver [[canal-collab-websocket]] e [[client-id-estavel]].
+## Divergências guia↔código já resolvidas
 
-Armadilha: como `isAuthenticated()` é falso para o visitante, qualquer UI que use esse predicado para decidir "estou conectado" vai errar no modo público. Use a origem do store e o `connectionState`, não `isAuthenticated()`.
+O guia absorvido *08-offline-import* erra em três pontos, e quem o reler vai tropeçar nos mesmos:
 
-## Transição anônimo → autenticado (subir o workspace local)
-
-Existe e é implementada, mas não do jeito que o guia descreve. `saveLocalAtlasToServer` (`import_export/save-local-atlas.service.js:91-118`) faz:
-
-1. `buildExportDataObject` dos mapas locais,
-2. `buildServerImportPayload` (`import_export/local-atlas-to-server.js`),
-3. `apiClient.importAtlas(payload)` → `POST /atlas/import` (`api-client.js:617-619`),
-4. upload dos blobs **preservando os ids locais** via `bulkUploadImages` em lotes de 50 (`save-local-atlas.service.js:18, 72-82`; `api-client.js:885-887`).
-
-O serviço **não** conecta nem troca a origem do store, isso fica com a UI chamadora (`save-local-atlas.service.js:11-12`). Ver [[atlas-import-offline]] e [[imagens-atlas]].
-
-Imagens fora do allowlist do servidor (`image/png`, `image/jpeg`, `image/webp`) são reportadas como `skipped`, não como falha (`save-local-atlas.service.js:19, 50-53`). Ícones customizados em SVG caem nesse caso, por SVG ser vetor de XSS armazenado.
-
-> **Nota histórica.** guia *08-offline-import* (absorvido) §4.4 e §4.7 dizem que os `imageId` locais são substituídos por ids de servidor e que é preciso enviar operações de UPDATE nas features de imagem depois do bulk upload. O código em `src/js/import_export/save-local-atlas.service.js:8-10` e `:100-105` sobe os blobs preservando os ids locais (o backend aceita o id do cliente), justamente para que as referências das features importadas continuem válidas **sem rewrite pós-import**. Não há operações de remapeamento.
-
-> **Nota histórica.** guia *08-offline-import* (absorvido) §5.1 modela estado por atlas no IndexedDB (`{ mode, serverId, lastSyncVersion, pendingOperations }` em cada atlas). O código não tem múltiplos atlas locais: existe um marcador único de origem, `__store_origin__` com `{ kind, atlasId }`, em `src/js/store/store-origin.js:28` e `:73-79`, e trocar de atlas remoto passa por `clearAllDataStore()`. Múltiplos atlas locais nomeados são não-objetivo declarado.
-
-> **Nota histórica.** guia *08-offline-import* (absorvido) §5.2 diz que conflitos são "resolvidos via CRDT". O modelo real é LWW por ordem de chegada no servidor, com idempotência por `op_id`; o relógio de Lamport é registrado mas não decide conflito. Ver [[sintese-nao-e-crdt]] e [[modelo-conflito-lww]].
+- §4.4/§4.7 dizem que os `imageId` locais são trocados por ids de servidor e exigem UPDATE nas features depois do upload. Não: ids preservados, sem rewrite (acima).
+- §5.1 modela estado por atlas no IndexedDB (`{ mode, serverId, lastSyncVersion, pendingOperations }`). Não existe: há um marcador único de origem, e trocar de atlas remoto passa por `clearAllDataStore()`.
+- §5.2 diz que conflito é resolvido "via CRDT". É LWW por ordem de chegada no servidor, com idempotência por `op_id`; o relógio de Lamport é registrado e não decide nada. Ver [[sintese-nao-e-crdt]] e [[modelo-conflito-lww]].
 
 ## Tabela de decisão
 
 | Aspecto | Anônimo | Autenticado | Público |
 |---|---|---|---|
-| `sessionContext.mode` | OFFLINE | ONLINE | ONLINE (`_isVisitor`) |
 | `isAuthenticated()` | false | true | **false** |
 | Origem do store | LOCAL | REMOTE (quando conectado) | REMOTE |
 | Backend exigido no boot | **sim** | sim | sim |
-| WebSocket / presença | não | sim | sim (só recebe) |
 | Logging de operações | sim (fila local) | sim | **desligado** |
 | Gate de papel | inativo | ativo no atlas remoto | bloqueia escrita |
 | Token | nenhum | JWT + refresh | efêmero, sem refresh |
 
-## Onde isso encosta
-
-- Fila e envelope de saída: [[fila-operacoes-outbound]], [[envelope-operacao]], [[modelo-conflito-lww]]
-- Entrada de dados na conexão: [[snapshot-e-pull-incremental]], [[aplicacao-operacoes-remotas]]
-- Colaboração viva: [[presenca-colaborativa]], [[presenca-colaborativa]]
-- Compartilhar e clonar: [[compartilhamento-atlas]], [[clone-atlas]], [[sintese-capacidades-por-papel]]
-- Observabilidade do pipeline: [[syncledger]]
-
-## Fontes
-- guia *08-offline-import* (absorvido): definição dos três modos, nota de que sem login ainda se exige servidor, fluxo de import de atlas local (`POST /atlas/import`), bulk upload de imagens (limite de 50, allowlist, mapping), tabela offline vs online. Três pontos divergem do código e estão marcados acima.
-- guia *04-websocket-collab* (absorvido): handshake do canal `/api/v1/collab`, token público read-only de 1 h obtido em `GET /atlas/public/:link`, visitante público sem registro de sessão, eixos `permission` vs `role` no `connected`, `clientId` estável.
-- `src/js/index.js`: boot fail-fast em `/api/config` com 3 tentativas, restauração de sessão, roteamento de boot (`?atlasPublico` antes de `?atlas`), fluxo completo do modo público.
-- `src/js/store/sync/session-context.js`, `permission-guard.js`, `sync-engine.js`, `api-client.js`, `sync-flush.js`: estados de sessão, gate de permissão restrito a store remoto, `connectPublic`, token efêmero, `wsUrl`.
-- `src/js/store/store-origin.js`: marcador único LOCAL/REMOTE que define o split, no lugar de estado por atlas.
-- `src/js/import_export/save-local-atlas.service.js`: ordem real do upload do workspace local e preservação dos ids de imagem.
-- `src/js/account/account.control.js`, `src/js/ui/unavailable-screen.js`, `src/js/account/sync-status.control.js`: sequência de abertura de atlas remoto, tela de indisponibilidade, ocultação do indicador quando anônimo.
+Relacionadas: [[sessao-boot-e-ciclo-de-vida]], [[autenticacao-jwt]], [[refresh-token-rotacao]], [[fila-operacoes-outbound]], [[envelope-operacao]], [[snapshot-e-pull-incremental]], [[aplicacao-operacoes-remotas]], [[presenca-colaborativa]], [[compartilhamento-atlas]], [[clone-atlas]], [[formato-ebgeo-roundtrip]], [[sintese-capacidades-por-papel]], [[syncledger]].

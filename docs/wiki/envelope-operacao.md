@@ -1,84 +1,53 @@
 # Envelope de Operação
 
-Unidade atômica de sincronização do EBGeo: um objeto `{id, entityType, operationType, entityId, mapId, data/changes, timestamp, lamportTimestamp, clientId, traceId}` criado por `operation-factory` e aceito pelo backend em dois vocabulários (frontend e legacy).
+Unidade atômica de sincronização do EBGeo: o objeto criado por `createOperation` (`src/js/store/sync/operation-factory.js:140`) e aceito pelo backend em dois vocabulários. O shape está no próprio arquivo; esta página cobre o que ele não conta.
 
 ## Por que existe
 
-Não há rota REST de escrita para entidades colaborativas (feição, camada, grupo, mapa, briefing, slide, 3D, 360). Toda mutação sincronizável vira uma operação e viaja por push HTTP ou pelo canal WS. Isso concentra ordenação, idempotência e permissão em um único ponto, e é o que permite o modo offline-first: a operação nasce no cliente, é persistida em IndexedDB e só depois sai pela rede (ver [[fila-operacoes-outbound]]).
+Não há rota REST de escrita para entidades colaborativas (feição, camada, grupo, mapa, briefing, slide, 3D, 360). Toda mutação sincronizável vira operação e viaja por push HTTP ou pelo canal WS. Isso concentra ordenação, idempotência e permissão em um único ponto, e é o que viabiliza o offline-first: a operação nasce no cliente, é persistida em IndexedDB e só depois sai pela rede ([[fila-operacoes-outbound]]).
 
-## Shape real emitido pelo cliente
+## O envelope vai verbatim, e isso é intencional
 
-`createOperation()` (`src/js/store/sync/operation-factory.js:140-164`) devolve sempre:
+`flush()` empurra os objetos da fila sem projeção (`src/js/store/sync/sync-engine.js:272`, `src/js/store/sync/api-client.js:841`). Logo `previousData`, `batchId`, `batchIndex` e `traceId` cruzam a rede mesmo sem uso servidor-side.
 
-```jsonc
-{
-  "id":               "<uuid>",             // generateUUID(); chave de idempotencia e de juncao
-  "entityType":       "feature",            // ver EntityType em operation-types.js
-  "operationType":    "create",             // create | update | delete
-  "entityId":         "<uuid>",
-  "mapId":            "<uuid>|null",        // contexto de mapa; null em ops de nivel atlas
-  "data":             { ... } | null,       // payload (tambem no update, ver armadilha abaixo)
-  "previousData":     { ... } | null,       // estado anterior, para undo LOCAL
-  "timestamp":        1700000000000,        // Date.now()
-  "lamportTimestamp": 42,                   // ++lamportClock
-  "clientId":         "<uuid persistente>",
-  "traceId":          "<uuid do gesto>|null"
-}
-```
+Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`ebgeo_backend/src/modules/sync/sync.schemas.js:46`) vence o `stripUnknown: true` do middleware (`middleware/validate.js:5`). Verificado empiricamente no Joi 17.13.3 desta instalação: campos não declarados sobrevivem intactos. O comentário do próprio schema hesita nisso e declara `traceId` explicitamente "rather than relying on .unknown(true)". A hesitação é infundada, mas **remover o `.unknown(true)` apaga silenciosamente `previousData`, `batchId` e `batchIndex` sem erro de validação** e sem nenhum teste vermelho.
 
-Operações em lote (`createBatchOperations`, `operation-factory.js:172-192`) acrescentam `batchId` e `batchIndex`, e compartilham um único `timestamp` de parede; cada item ainda recebe `id` e `lamportTimestamp` próprios.
+## Os campos que enganam
 
-O envelope é gravado **verbatim** na fila e empurrado **verbatim** para o servidor: `flush()` faz `apiClient.pushOperations(atlasId, ops)` com os objetos da fila sem projeção (`sync-engine.js:262-291`, `api-client.js:841-843`). Ou seja, `previousData`, `lamportTimestamp`, `batchId` e `traceId` cruzam a rede; o Joi do backend usa `.unknown(true)`, então campos extras sobrevivem em vez de serem cortados.
-
-## Campo a campo, e o que cada um NÃO faz
-
-- **`id`** é a âncora de tudo: sobrevive intacto por `push → INSERT → broadcast → apply`, é a chave do índice `UNIQUE (atlas_id, op_id)` e a chave de junção do [[syncledger]]. Sem `id` o push é rejeitado com 422. Ver [[idempotencia-e-convergence-guard]] e [[ack-idempotencia]].
-- **`entityType`** vem do enum `EntityType` (`operation-types.js:8-37`) e é validado na criação: tipo inválido faz `createOperation` lançar `Error`, não emitir silenciosamente. Lista e mapeamento para tabelas em [[tipos-entidade-sync]].
-- **`entityId`** obrigatório; ausente lança `Error('Entity ID is required')`.
-- **`mapId`** é o contexto, não o alvo. Ops de nível atlas (`map`, `briefing`, `setting`) passam `null`.
-- **`timestamp`** é display e ordenação **local** da fila. Nunca ordena entre máquinas.
-- **`lamportTimestamp`** avança em `max(local, remoto)+1` a cada apply remoto (`advanceLamportClock`, `operation-factory.js:85-87`, chamado em `sync-gateway.js:48-49`). É persistido e ecoado no pull, mas o reducer de conflito nunca o consulta: o vencedor é decidido por `serverVersion`. Ver [[modelo-conflito-lww]] e [[sintese-nao-e-crdt]].
-- **`clientId`** é estável por navegador (`localStorage['ebgeo_client_id']`, `getClientId()` em `operation-factory.js:41-51`), com fallback em memória quando `localStorage` não existe ou lança (Node, iframe sandbox, modo privativo). Serve para dedupe do próprio eco e para presença. **Não é credencial** (ver [[client-id-estavel]]).
-- **`traceId`** é ambiente: `runTransaction` minta um por gesto e o injeta via `setActionTraceId`, de modo que todas as ops do mesmo gesto compartilhem um id (`store-transaction.js:115-122`). É best-effort, `null` nunca quebra o sync.
-- **`serverVersion` NÃO é campo do cliente.** É carimbado pelo servidor e volta no ack, no broadcast e no pull. É a única chave de ordenação correta ([[tabela-operations]]).
-
-## Os dois vocabulários
-
-O backend aceita o vocabulário frontend (`entityType` / `operationType` / `entityId`) e o legacy (`target` / `type` / `targetId`), normalizando entre eles; a validação exige apenas que pelo menos um de cada par esteja presente, então misturar campos é legal. Nas respostas de pull incremental os nomes voltam sempre no vocabulário frontend. Os dois vocabulários são [[sintese-contratos-congelados]]: remover o legacy quebraria clientes antigos, remover o frontend quebraria este cliente.
+- **`timestamp`** é ordenação **local** apenas. Nunca ordena entre máquinas.
+- **`lamportTimestamp`** avança em `max(local, remoto)+1` (`src/js/store/sync/operation-factory.js:85`, chamado em `src/js/store/sync/sync-gateway.js:48`), é persistido e ecoado no pull, mas o reducer de conflito nunca o consulta: quem vence é o `serverVersion`. O relógio existe e não decide nada. Ver [[modelo-conflito-lww]] e [[sintese-nao-e-crdt]].
+- **`serverVersion` não é campo do cliente.** É carimbado pelo servidor e volta no ack, no broadcast e no pull. É a única chave de ordenação correta ([[tabela-operations]]).
+- **`mapId`** é contexto, não alvo. Ops de nível atlas (`map`, `briefing`, `setting`) passam `null`.
+- **`previousData`** existe para undo **local**. Viaja porque o envelope vai verbatim, não porque o backend precise dele. Não construa merge servidor-side em cima disso.
+- **`clientId`** não é credencial ([[client-id-estavel]]); **`traceId`** é best-effort e `null` nunca quebra o sync ([[syncledger]]).
+- **`id`** é a âncora: sobrevive intacto por `push → INSERT → broadcast → apply`, é a chave de `UNIQUE (atlas_id, op_id)` e a chave de junção do ledger. Ver [[idempotencia-e-convergence-guard]] e [[ack-idempotencia]].
 
 ## Armadilhas
 
-**1. O cliente nunca emite `changes`.** O guia descreve `changes` como o campo de update, mas `createOperation` só produz `data` (`operation-factory.js:151-163`); não há nenhuma ocorrência de `changes` em `src/js/store/sync/*.js`. O backend cobre isso: quando `changes` está ausente num `update`, ele usa `data` como `changes`. Se você ler o guia e esperar `changes` no envelope de saída, vai procurar um campo que não existe.
+**1. O cliente nunca emite `changes`.** `createOperation` só produz `data` (`src/js/store/sync/operation-factory.js:151`); não há uma única ocorrência de `changes` em `src/js/store/sync/`. O backend compensa: num `update` sem `changes`, usa `data` como `changes` (`backend/src/modules/sync/sync.service.js:216`). Quem lê a interface normativa e espera `changes` na saída procura um campo inexistente.
 
-> **Nota histórica.** guia *05-sync-crdt* (absorvido) §1 e §14 apresentam o "Formato Frontend" com `changes` no update e sem `previousData`/`lamportTimestamp`/`batchId`; o código em src/js/store/sync/operation-factory.js:151-163 sempre emite o payload em `data` e sempre inclui `previousData`, `lamportTimestamp` e `traceId`. O próprio §3 do guia ("Compatibilidade com o store do frontend") reconhece o comportamento as-built, mas a interface normativa do §1 continua desalinhada.
+> [!CONTRADICAO] O guia *05-sync-crdt* (absorvido) §1 e §14 apresentam o "Formato Frontend" com `changes` no update e sem `previousData`/`lamportTimestamp`/`batchId`. O código sempre emite payload em `data` e sempre inclui `previousData`, `lamportTimestamp` e `traceId`. O §3 do mesmo guia reconhece o comportamento as-built; o §1 continua desalinhado.
 
-**2. `previousData` é local, não é um contrato de servidor.** Existe para undo no cliente. Ele viaja porque o envelope vai verbatim, não porque o backend precise dele. Não construa lógica de merge servidor-side em cima disso.
+**2. Uma op malformada envenena o lote inteiro.** O push roda numa transação única com advisory lock por atlas: se uma operação falha, o batch inteiro reverte e nada é dequeued, então a fila re-peeka as mesmas ops para sempre. Sync travado, não degradado. Por isso o dispatcher dropa **antes** de enfileirar (`src/js/store/sync/operation-dispatcher.js:105-139`): logging desabilitado, `SETTING` com `entityId` não-UUID fora do sentinel `'atlas'`, e qualquer `mapId` não-UUID (mapa local nome-chaveado, ex. `Principal`, que faria o Postgres devolver 22P02). Ver [[dominio-local-vs-remoto]].
 
-**3. Uma op malformada envenena o lote inteiro.** O push roda numa única transação: se uma operação falhar, o batch inteiro é revertido e nada é dequeued. Por isso o dispatcher dropa preventivamente, antes de enfileirar (`operation-dispatcher.js:105-139`): logging desabilitado, `SETTING` com `entityId` não-UUID que não seja o sentinel `'atlas'`, e qualquer op com `mapId` não-UUID (mapa local nome-chaveado, ex. `Principal`). Um `mapId` não-UUID faz o Postgres devolver 22P02 e trava todo o sync. Os motivos são registrados como span `preflush.drop` com `DropReason` (`diag/trace-stages.js:54-63`). Ver [[dominio-local-vs-remoto]].
+**3. O `entityId` que volta no ack pode não ser o que você mandou.** Ops de nível atlas carregam o sentinel `'atlas'`, mas `entity_id` é `UUID NOT NULL`, então o backend as grava sob o UUID do próprio atlas e devolve esse valor no ack (`backend/src/modules/sync/sync.service.js:672,717`). Sem esse restamp, o mesmo op chegava com `entityId` diferente conforme viesse por broadcast ou por pull incremental.
 
-**4. Compactação altera o envelope antes do envio.** Ao passar do teto da fila, `CREATE + DELETE` remove ambos e `CREATE + UPDATEs` vira um único `CREATE` com o `data` mais recente (`operation-queue.js:324-345`). O `id` que chega ao servidor pode não ser o `id` do gesto original: não assuma correspondência 1:1 entre gestos e linhas em `operations`.
+**4. Compactação quebra a correspondência gesto ↔ linha.** Acima de `MAX_QUEUE_SIZE`, `CREATE + DELETE` remove ambos e `CREATE + UPDATEs` vira um único `CREATE` com o `data` mais recente **preservando o `id` do CREATE** (`src/js/store/sync/operation-queue.js:324-345`). Os ids dos updates somem. Não assuma 1:1 entre gestos e linhas em `operations`.
 
-**5. A ordem da fila vem do `timestamp`.** A chave de armazenamento é `${timestamp}_${id}` (`operation-queue.js:83-85`) e `peek` devolve por chave ordenada. Isso ordena bem dentro de um cliente, mas é irrelevante entre clientes: a ordem canônica é a de chegada ao servidor.
+**5. Os dois tetos de lote são independentes.** O cliente empurra de 100 em 100 (`src/js/store/sync/sync-engine.js:51`); o backend recusa acima de 500 (`backend/src/modules/sync/sync.schemas.js:6`). A folga esconde o acoplamento: subir `FLUSH_BATCH_SIZE` acima de 500 faz todo push virar 422, e pela armadilha 2 isso trava o sync inteiro em vez de falhar um lote.
 
-## Ciclo de vida
+**6. O autor precisa semear a própria versão.** Como ele filtra o próprio eco WS, nunca saberia sua ordem de chegada; por isso `recordPushAcks` alimenta o guard de convergência com o `serverVersion` do ack (`src/js/store/sync/sync-engine.js:60-79`). Sem isso, a op **mais antiga** de um par sobrescreve a do autor.
 
-1. Mutação no store chama `logXxxOperation` dentro do `deferAsync` de `runTransaction` (persistência primeiro).
-2. `logOperation` aplica os gates, cria o envelope, enfileira e marca edição local pendente para os tipos guardados (`operation-dispatcher.js:141-159`).
-3. `sync-flush.js` drena a fila a cada 1,5s (e de forma oportunista em eventos de mudança), apenas quando `connectionState.isOnline()`.
-4. `flush()` empurra em lotes de 100, registra `push.ack` por op e semeia o `serverVersion` do próprio autor no guard de convergência (`sync-engine.js:57-79`) — necessário porque o autor filtra o próprio eco WS e de outro modo nunca saberia sua ordem de chegada.
-5. Servidor persiste, carimba `serverVersion` e faz broadcast; peers aplicam via [[aplicacao-operacoes-remotas]].
+## Contrato congelado
 
-Em tempo real o mesmo envelope também sai pelo WS como `{ type: 'operation', op }` ou `{ type: 'operations', ops }` (`ws-client.js:161-172`); o push HTTP é o caminho de recuperação. Ver [[sintese-rest-vs-websocket]] e [[canal-collab-websocket]].
+Os dois vocabulários (frontend `entityType`/`operationType`/`entityId` e legacy `target`/`type`/`targetId`) são normalizados no backend, com validação exigindo apenas um de cada par, o que torna **misturar campos legal**. Remover o legacy quebra clientes antigos; remover o frontend quebra este cliente. Ver [[sintese-contratos-congelados]].
 
 ## Relacionados
 
-[[tipos-entidade-sync]], [[fila-operacoes-outbound]], [[modelo-conflito-lww]], [[idempotencia-e-convergence-guard]], [[snapshot-e-pull-incremental]], [[tabela-operations]], [[permissoes-atlas]], [[syncledger]], [[modelo-conflito-lww]], [[atlas-modelo-de-dados]].
+[[tipos-entidade-sync]], [[fila-operacoes-outbound]], [[modelo-conflito-lww]], [[idempotencia-e-convergence-guard]], [[snapshot-e-pull-incremental]], [[tabela-operations]], [[permissoes-atlas]], [[aplicacao-operacoes-remotas]], [[sintese-rest-vs-websocket]], [[canal-collab-websocket]], [[atlas-modelo-de-dados]].
 
 ## Fontes
 
-- guia *05-sync-crdt* (absorvido): contrato dos dois vocabulários, validação Joi (`id` obrigatório, máx. 500 ops/push, 422), tabela de entityTypes e sub-entidades de mapa, semântica de push/pull, idempotência por `op_id`, atomicidade do batch, geração de `clientId`.
-- guia *arquitetura-sync* (absorvido) §3: shape canônico do envelope, distinção `serverVersion` vs `timestamp` vs `lamportTimestamp`, papel do `op.id` como âncora, mapeamento de entityTypes no backend.
-- `src/js/store/sync/operation-factory.js`: shape realmente emitido (`previousData`, `lamportTimestamp`, `traceId`, `batchId`/`batchIndex`), validação de tipos, `getClientId` com fallback, relógio Lamport.
-- `src/js/store/sync/operation-dispatcher.js`: gates de pré-flush e seus motivos.
-- `src/js/store/sync/operation-queue.js`: chave `timestamp_id`, ordem de peek, regras de compactação.
-- `src/js/store/sync/sync-engine.js` / `sync-flush.js` / `api-client.js` / `ws-client.js`: push verbatim em lotes de 100, ack por op, gating por conexão, envio pelo WS.
+- `src/js/store/sync/`: `src/js/store/sync/operation-factory.js` (shape as-built), `src/js/store/sync/operation-dispatcher.js` (gates de pré-flush), `src/js/store/sync/operation-queue.js` (chave `timestamp_id`, compactação), `src/js/store/sync/sync-engine.js` (flush verbatim, ack, semeadura do guard).
+- `ebgeo_backend/src/modules/sync/`: `backend/src/modules/sync/sync.schemas.js` (dois vocabulários, `.unknown(true)`, teto 500), `backend/src/modules/sync/sync.service.js` (normalização, advisory lock, restamp de `entityId`).
+- Guias absorvidos *05-sync-crdt* e *arquitetura-sync* §3 (ver contradição acima).

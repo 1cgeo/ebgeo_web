@@ -1,111 +1,53 @@
 # Contrato de Erros da API
 
-Todos os erros trafegam no envelope `{ error: { code, message } }` com códigos padronizados (VALIDATION_ERROR 422, UNAUTHORIZED 401, FORBIDDEN 403, NOT_FOUND 404, INTERNAL_ERROR 500, mais um conjunto de 4xx derivados) cujo tratamento no cliente é dirigido pelo status, notadamente 401 aciona refresh de token e 403/404 distinguem falta de permissão de atlas inexistente.
+Onde o envelope `{ error: { code, message } }` não vale, o que o cliente descarta dele em silêncio, e por que ramificar por `status` e nunca por `code` ou `message`.
 
-## O envelope
+O mapa completo de status por origem está em [[sintese-contrato-erros-http]]. Esta página cobre só as armadilhas que sobram depois de ler o código.
 
-Sucesso e erro usam envelopes distintos e mutuamente exclusivos:
+## O cliente descarta `details` antes de você vê-lo
 
-- sucesso: `{ "data": ... }` (o cliente desembrulha em `_unwrap`, `api-client.js:260-265`; contratos "nus" como o objeto de config e arrays passam direto por não terem a chave `data`)
-- erro: `{ "error": { "code", "message" } }`, opcionalmente com `details`
+O backend produz `details: [{ field, message }]` com **todos** os campos inválidos de uma vez (`backend/src/middleware/error-handler.js:33-36`, `abortEarly: false` em `backend/src/middleware/validate.js:3-6`). O cliente joga fora: `ApiError` guarda apenas `message`, `status` e `code` (`src/js/store/sync/api-client.js:33-38`) e o `throw` em `src/js/store/sync/api-client.js:236-239` lê só `err.code` e `err.message`. Um `grep` por `error.details` em `src/js` não retorna nenhum consumidor.
 
-Nenhuma rota inventa formato próprio: tudo passa pelo `errorHandler` registrado por último na cadeia (`ebgeo_backend/src/middleware/error-handler.js:11`). Um erro só chega ao cliente fora desse envelope se escapar do Express (ex.: proxy/nginx respondendo 502 em HTML). O cliente tolera isso: `_parseBody` (`api-client.js:246-254`) devolve o texto cru quando o corpo não é JSON, e o `ApiError` cai no fallback `HTTP <status>`.
+> [!CONTRADICAO] O checklist de [[sintese-contrato-erros-http]] diz "422 traz `details[]` para marcar campos no formulário". Não hoje: o array morre no transporte. Marcação campo a campo exige antes estender o `ApiError`, e é uma mudança de uma linha que ninguém fez porque nenhum formulário pediu.
 
-## Origem dos códigos
+Efeito colateral de `stripUnknown: true`: campo desconhecido é **removido em silêncio**, não rejeitado. Cliente novo contra servidor antigo recebe 2xx com o campo apagado. Não existe sinal de que isso aconteceu.
 
-As classes de erro em `ebgeo_backend/src/utils/errors.js` fixam o par (status, code):
+## Os dois caminhos de imagem não têm refresh automático
 
-| Classe | HTTP | `code` |
-|---|---|---|
-| `ValidationError` (`errors.js:36`) | 422 | `VALIDATION_ERROR` |
-| `UnauthorizedError` (`errors.js:24`) | 401 | `UNAUTHORIZED` |
-| `ForbiddenError` (`errors.js:18`) | 403 | `FORBIDDEN` |
-| `NotFoundError` (`errors.js:12`) | 404 | `NOT_FOUND` |
-| `ConflictError` (`errors.js:30`) | 409 | `CONFLICT` |
-| `BadRequestError` (`errors.js:43`) | 400 | `BAD_REQUEST` |
+`uploadImage` (`src/js/store/sync/api-client.js:857-873`) e `fetchImageBlob` (`src/js/store/sync/api-client.js:916-923`) montam o `fetch` à mão porque um é multipart e o outro é binário, e por isso **não passam por `_request`**. Consequências que o código não anuncia:
 
-`AppError` marca `isOperational = true` (`errors.js:8`) para separar erro esperado de bug de programação.
+- não há refresh transparente. Um upload longo que atravessa a expiração do access token falha com 401 puro e definitivo.
+- `fetchImageBlob` não parseia o corpo: lança `ApiError('HTTP <status>')` **sem `code`**. Qualquer lógica baseada em `error.code` no caminho de imagens é um `undefined` silencioso. Use `error.status`.
 
-O conjunto de códigos que o cliente pode receber é **maior** que a tabela de 5 do guia, porque o handler também sintetiza códigos a partir do status para erros que não são `AppError` (`error-handler.js:86-107`): `BAD_REQUEST` 400, `PAYLOAD_TOO_LARGE` 413, `UNSUPPORTED_MEDIA_TYPE` 415, `TOO_MANY_REQUESTS` 429 (também emitido direto pelo rate limiter, `middleware/rate-limit.js:6-8`), além de `CONFLICT` 409.
+Ver [[imagens-atlas]] e [[upload-imagens-seguranca]].
 
-> **Nota histórica.** guia *02-atlas-basico* (absorvido):446-454` apresenta uma tabela de 5 códigos como "Códigos Comuns"; o código em `ebgeo_backend/src/middleware/error-handler.js:87-97` e `src/utils/errors.js:30-47` emite ainda `CONFLICT` (409), `BAD_REQUEST` (400), `PAYLOAD_TOO_LARGE` (413), `UNSUPPORTED_MEDIA_TYPE` (415) e `TOO_MANY_REQUESTS` (429). Tratar a lista de 5 como conjunto fechado leva a `switch` incompleto no cliente.
+## O 401 já foi tratado pelo transporte
 
-## Erros de validação (422) e o campo `details`
+Não escreva `if (401) refresh()` na sua camada: `_request` já refresca e repete uma vez (`src/js/store/sync/api-client.js:231-233`), e o `ApiError` só sobe se o retry também falhar. Três guardas sustentam isso e quebram se alguém "simplificar":
 
-Schemas Joi validados por `middleware/validate.js:15-29` usam `abortEarly: false` e `stripUnknown: true`, então um payload ruim volta com **todos** os campos inválidos de uma vez, e campos desconhecidos são silenciosamente removidos em vez de rejeitados. O handler converte o erro Joi em 422 com `details: [{ field, message }]` (`error-handler.js:28-39`), onde `field` é o caminho com pontos (`settings.max_zoom`). `ValidationError` lançada manualmente também propaga `details` se fornecido (`error-handler.js:50-52`).
+- `refresh()` compartilha uma promessa em voo (`src/js/store/sync/api-client.js:289-311`), senão uma rajada de requisições vira uma rajada de POSTs `/auth/refresh` — que estão sob rate limit compartilhado (ver [[refresh-token-rotacao]]).
+- a própria chamada de refresh vai com `_retry: false` (`src/js/store/sync/api-client.js:295-299`), senão um 401 nela recursa.
+- o handler de auth-lost é ligado **depois** do boot de propósito (`src/js/store/sync/api-client.js:78-81`): token expirado no boot deve cair em anônimo em silêncio, não abrir modal de login por cima da tela de carregamento.
 
-Armadilha: o `ApiError` do cliente guarda apenas `message`, `status` e `code` (`src/js/store/sync/api-client.js:33-38`). O array `details` é descartado no `throw` em `api-client.js:236-239`. Quem quiser destacar campo a campo em formulário precisa alterar o `ApiError`, não adianta procurar `error.details` no frontend hoje.
+## `atlasId` malformado não é 404
 
-## 403 versus 404: o que cada um significa
+Rota de atlas sem schema Joi nos params manda o id direto ao Postgres; um não-UUID estoura SQLSTATE `22P02` e sai como **400 BAD_REQUEST** genérico (`backend/src/middleware/error-handler.js:65`), não 404. Um cliente que só trata 403/404 mostra "erro inesperado" para um link quebrado, que é o caso mais comum de todos. Ver o tratamento correto em `src/js/index.js:186-194` (403 / 404 / genérico, e limpa a URL do atlas para que um F5 não repita a falha).
 
-A distinção é deliberada e resolvida em `ebgeo_backend/src/middleware/permissions.js`:
+E o 403 **vaza a existência** do atlas de propósito (`backend/src/middleware/permissions.js:111-113`), para a UI poder dizer "você não tem acesso" em vez de "não existe". É decisão de usabilidade; se o requisito virar não-enumerabilidade, o ponto único de mudança é `backend/src/middleware/permissions.js:111`. Ver [[permissoes-atlas]] e [[compartilhamento-atlas]].
 
-1. atlas inexistente **ou** com `deleted_at` preenchido, o SELECT filtra `deleted_at IS NULL` e retorna zero linhas, `NotFoundError` 404 (`permissions.js:69-75`)
-2. atlas existe mas `resolvePermission` devolve `null` (não é dono, não há share, não é público), `ForbiddenError('Access denied')` 403 (`permissions.js:111-113`)
-3. atlas existe e há permissão, mas abaixo do nível exigido, `ForbiddenError('Insufficient permissions')` 403 (`permissions.js:118-120`)
+## O WebSocket não usa este contrato, e ninguém escuta os erros dele
 
-Ou seja, 403 **vaza a existência** do atlas de propósito, para que a UI possa dizer "você não tem acesso" em vez de "não existe". Isso é uma escolha de usabilidade, não um descuido; se algum dia o requisito virar não-enumerabilidade, o ponto único de mudança é `permissions.js:111`. Detalhes da hierarquia em [[permissoes-atlas]] e [[compartilhamento-atlas]].
+Erros do canal de colaboração são mensagens `{ type: 'error', code, message }` (`collab.handlers.js:19, 117, 155, 168, 202, 279`), com códigos que não existem no REST (`OPERATION_FAILED`, `SYNC_FAILED`). Duas armadilhas empilhadas:
 
-Armadilha: `atlasId` malformado (não-UUID) **não** dá 404. A query vai ao Postgres, estoura SQLSTATE `22P02` e o mapa de erros do PG devolve **400 BAD_REQUEST** com mensagem genérica (`error-handler.js:65`). Um cliente que só trata 403/404 mostra "erro inesperado" para um link quebrado. O mesmo mapa converte `23505` em 409 `CONFLICT` e `23503`/`23502`/`23514`/`22003` em 409/400 (`error-handler.js:60-73`), sempre com mensagem genérica, porque o texto do driver expõe nomes de coluna e constraint.
+1. **Ninguém consome.** `src/js/store/sync/ws-client.js:363-364` emite o canal `'error'`, e nenhum módulo se inscreve nele (`src/js/store/sync/sync-engine.js` e `src/js/presence/presence-bridge.js` assinam `operation`, `presence`, `cursor`, etc., nunca `error`). Uma operação recusada pelo servidor via WS desaparece sem toast, sem log de nível, sem retry.
+2. **Vaza mensagem crua em produção.** `message: err.message` sem gate de `isDev` (`backend/src/modules/collab/collab.handlers.js:157`, `:204`, `:281`), enquanto o REST substitui por texto genérico fora de dev (`error-handler.js:98-100, 114`). A política de não vazar texto de driver e nome de constraint vale só metade do sistema. Ver [[hardening-borda-api]] e [[canal-collab-websocket]].
 
-Admin global tem atalho: `req.user.role === 'admin'` recebe `owner` em qualquer atlas antes de qualquer checagem de share (`permissions.js:82-87`), logo nunca vê 403 em rota de atlas. Ver [[gestao-usuarios]].
+Não reutilize o parser de erro REST no WS, e não presuma que um erro de WS chegou a alguém.
 
-## 401 e o refresh transparente
+> **Nota histórica.** O guia *02-atlas-basico* (absorvido, §8-9) apresenta uma tabela de 5 códigos como "Códigos Comuns". O handler emite ainda `CONFLICT` 409, `BAD_REQUEST` 400, `PAYLOAD_TOO_LARGE` 413, `UNSUPPORTED_MEDIA_TYPE` 415 e `TOO_MANY_REQUESTS` 429 (`backend/src/middleware/error-handler.js:86-107`; o 429 vem direto do limitador, `backend/src/middleware/rate-limit.js:6-8`, sem passar pelo `errorHandler` e portanto sem virar log de request). Tratar a lista de 5 como conjunto fechado gera `switch` incompleto no cliente.
 
-O guia mostra um `switch` no cliente que, no 401, chama `refreshTokens()` manualmente. **O cliente real não faz isso na camada de chamada**: o retry está dentro do transporte. Em `api-client.js:229-240`, um 401 com `_retry` ativo, requisição autenticada e refresh token presente dispara `await this.refresh()` e **repete a requisição uma vez** com `_retry: false`. Só se o retry também falhar o `ApiError` sobe.
+## Regra de ouro
 
-Pontos que evitam laço infinito e tempestade de refresh:
+Ramifique por `status`. Use `code` só para desambiguar dentro de um mesmo status (padrão em `src/js/admin/users-tab.js:447`, que aceita `status === 409 || code === 'CONFLICT'`). Nunca ramifique por `message`: ela muda entre dev e produção pelo mesmo ramo do handler (`backend/src/middleware/error-handler.js:98`) e é genérica em tudo que vem do mapa SQLSTATE.
 
-- `refresh()` compartilha uma única promessa em voo (`_refreshing`, `api-client.js:289-311`), então uma rajada de requisições concorrentes gera um só POST `/auth/refresh`
-- a própria chamada de refresh vai com `auth: false, _retry: false` (`api-client.js:295-299`), logo um 401 nela não se auto-retenta
-- falha terminal limpa os tokens e dispara `_notifyAuthLost()` no máximo uma vez por sessão (`api-client.js:301-306`, guarda `_authLostFired` em `api-client.js:73-74, 88-89`)
-- o handler de auth-lost é ligado **depois** do boot, de propósito: token expirado no boot cai em anônimo silenciosamente em vez de abrir modal de login (`api-client.js:78-81`)
-
-Ver [[refresh-token-rotacao]] e [[autenticacao-jwt]].
-
-Armadilha: dois métodos não passam por `_request` e portanto **não têm refresh automático**, `uploadImage` (`api-client.js:857-873`, multipart) e `fetchImageBlob` (`api-client.js:916-923`, resposta binária). Um upload longo que atravessa a expiração do access token falha com 401 puro. Pior: `fetchImageBlob` lança `ApiError('HTTP <status>')` **sem `code`**, porque não parseia o corpo. Não escreva lógica que dependa de `error.code` no caminho de imagens, use `error.status`. Ver [[imagens-atlas]].
-
-## Tratamento no cliente é por status, não por code
-
-O consumo real é por `error.status` (ou `error.statusCode`), como em `src/js/index.js:186-194`, no deep-link de atlas:
-
-- 403, "Você não tem acesso a este projeto."
-- 404, "Projeto não encontrado."
-- qualquer outro, mensagem genérica, e a URL do atlas é limpa para que um F5 não repita a falha
-
-Isso é o padrão a seguir: o `code` serve para desambiguar dentro de um mesmo status (por exemplo 409 `CONFLICT` em `src/js/admin/users-tab.js:447` checa `err?.status === 409 || err?.code === 'CONFLICT'`), e o status decide o fluxo. Só o transporte trata 401.
-
-## INTERNAL_ERROR e vazamento de informação
-
-Erro não reconhecido vira 500 `INTERNAL_ERROR` (`error-handler.js:109-123`). A `message` é a real **apenas em dev** (`config.isDev`); em produção é `'Something went wrong'`, e o `stack` só é anexado em dev (`error-handler.js:114-121`). O mesmo critério vale para 4xx genéricos: a mensagem original só é repassada se `err.expose === true` (convenção do `http-errors`, seguida pelo body-parser) ou em dev, senão vira `'Bad request'` (`error-handler.js:98-100`).
-
-Consequência prática: nunca escreva a mensagem do backend direto na UI de produção esperando algo útil em 500. Use texto próprio por status. Ver [[hardening-borda-api]].
-
-Log: 4xx (Joi, `AppError` 4xx, body-parser) vai em `warn`, 5xx em `error`, e a URL passa por `redactUrl` para que uma credencial em `?api_key=` não caia no log (`error-handler.js:16-25`). Ver [[api-keys]].
-
-## WebSocket usa outro formato
-
-O canal de colaboração **não** usa este envelope. Erros lá são mensagens `{ type: 'error', code, ... }` (`ebgeo_backend/src/modules/collab/collab.handlers.js:19-20, 117-118, 155-156, 168-169, 202-203, 279-280`), com códigos que não existem no REST, notadamente `OPERATION_FAILED` e `SYNC_FAILED`, além de `VALIDATION_ERROR` e `FORBIDDEN` reaproveitados. Não compartilhe o parser de erro entre REST e WS. Ver [[canal-collab-websocket]], [[canal-collab-websocket]] e [[sintese-rest-vs-sync]].
-
-## Checklist para não errar
-
-- desembrulhe `data` no sucesso, `error` no fracasso, e aceite corpo vazio (204 no logout e no delete de imagem retorna `null`, `api-client.js:225`)
-- ramifique por `status`; use `code` só para desambiguar dentro do status
-- não trate 401 na sua camada, o `_request` já retentou uma vez
-- separe 403 (existe, sem acesso) de 404 (não existe ou deletado) e de 400 (id malformado)
-- não conte com `details` chegando ao frontend hoje
-- não reutilize o parser REST no WebSocket
-
-Relacionados: [[api-rest-atlas]], [[atlas-modelo-de-dados]], [[atlas-settings]], [[clone-atlas]], [[auth-flexivel]], [[sintese-contrato-erros-http]].
-
-## Fontes
-
-- guia *02-atlas-basico* (absorvido): formato do envelope de erro, tabela de códigos comuns, resolução de permissão 403 vs 404, exemplo de tratamento no frontend (§8 e §9)
-- `ebgeo_backend/src/utils/errors.js`: classes de erro e o par (statusCode, code) canônico, incluindo `ConflictError` e `BadRequestError` ausentes do guia
-- `ebgeo_backend/src/middleware/error-handler.js`: envelope único, conversão de erro Joi com `details`, mapa SQLSTATE do Postgres, códigos derivados de status 4xx, política de mensagem/stack em dev vs prod, níveis de log e redação de URL
-- `ebgeo_backend/src/middleware/validate.js`: `abortEarly: false` e `stripUnknown: true` nos schemas Joi
-- `ebgeo_backend/src/middleware/permissions.js`: 404 para atlas ausente ou soft-deleted, 403 para acesso negado e permissão insuficiente, atalho de admin global
-- `ebgeo_backend/src/middleware/rate-limit.js`: 429 `TOO_MANY_REQUESTS`
-- `ebgeo_backend/src/modules/collab/collab.handlers.js`: formato de erro distinto no WebSocket (`OPERATION_FAILED`, `SYNC_FAILED`)
-- `src/js/store/sync/api-client.js`: `ApiError` (perde `details`), desembrulho de `data`, refresh transparente com guarda de recursão e promessa compartilhada, auth-lost único, caminhos de imagem sem refresh automático
-- `src/js/index.js`: consumo real por status no deep-link de atlas (403/404/genérico)
+Relacionados: [[api-rest-atlas]], [[auth-flexivel]], [[autenticacao-jwt]], [[gestao-usuarios]], [[api-keys]], [[sintese-rest-vs-sync]].

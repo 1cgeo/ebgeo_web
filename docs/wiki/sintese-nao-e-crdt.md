@@ -1,83 +1,43 @@
 # Síntese: por que o EBGeo não é um CRDT
 
-Apesar do nome do guia, o sistema é server-authoritative com LWW por ordem de chegada, o módulo CRDT por timestamp+clientId foi removido como código morto e o Lamport clock é decorativo.
+O sistema é server-authoritative com LWW por ordem de chegada; o vocabulário "CRDT" que sobrou no repositório é resíduo de um módulo removido e engana quem confia nele.
 
-## O que o sistema realmente é
+## A decisão, e a alternativa rejeitada
 
-Um **log de operações server-authoritative**, no modelo Figma: o servidor central define a **ordem total**. O vencedor de um conflito é a operação com maior `serverVersion`, carimbado por `nextval('atlas_version_seq')` no Postgres na hora em que a op chega. Não existe merge conflict-free descentralizado, não existe reconciliação entre réplicas sem servidor, não existe estrutura de dados com propriedade de convergência matemática. Detalhe do reducer em [[modelo-conflito-lww]] e [[modelo-conflito-lww]].
+CRDT foi tentado e descartado: o diretório `src/crdt` (resolver/merger por `timestamp`+`clientId`) existiu e foi removido como código morto, porque o caminho real de escrita nunca chegou a comparar `client_timestamp`. O que ficou é o modelo Figma: servidor central define ordem total por `serverVersion`.
 
-O que sobrou de "CRDT" no repositório é vocabulário: comentários em `src/js/store/sync/sync-engine.js:327`, `ws-client.js:355` e `sync-metadata.js:9` ainda dizem "CRDT op log" / "CRDT-like". É apenas o nome informal do log de ops. O diretório `src/crdt` (resolver/merger por timestamp+clientId) **não existe mais**, foi removido por ser código morto, e o caminho de escrita real nunca comparou `client_timestamp`.
+O racional que o código apaga por construção:
 
-## Os três tokens que NÃO decidem o vencedor
+- **Já existe um servidor obrigatório** (auth, atlas, permissões, imagens). Havendo ponto central de qualquer forma, o CRDT cobraria a complexidade de convergência-sem-coordenação, uma propriedade que o produto não usa.
+- **Offline-first é resolvido por fila, não por merge.** A [[fila-operacoes-outbound]] com compactação e flush gateado por conexão cobre o caso real (desconectar e voltar) sem estrutura de dados especial. Ver [[dominio-local-vs-remoto]].
+- **Custo aceito conscientemente:** conflito na mesma feição **perde trabalho**, o perdedor some e a intenção não é reconstruível. Não é bug. Ver [[sintese-decisoes-arquiteturais]] e [[modelo-conflito-lww]].
 
-O envelope da operação ([[envelope-operacao]]) carrega três coisas que parecem árbitros de conflito e não são:
+## As armadilhas do guard de convergência
 
-| Campo | Onde nasce | Para que serve de verdade |
-|---|---|---|
-| `timestamp` (parede) | `operation-factory.js:159` (`Date.now()`) | log, ordenação local, exibição. Sujeito a clock skew, nunca comparado no apply |
-| `lamportTimestamp` | `operation-factory.js:160` (`++lamportClock`) | causalidade registrada. **Decorativo** para conflito |
-| `clientId` | `getClientId()`, ver [[client-id-estavel]] | de-dupe do próprio eco no WS (`ws-client.js:397`) e presença |
+O reducer e os três campos-isca do envelope (`timestamp`, `lamportTimestamp`, `clientId`, nenhum decide vencedor) estão em [[modelo-conflito-lww]] e [[envelope-operacao]]. O que **não** se lê seguindo as chamadas:
 
-O relógio Lamport avança em `max(local, remoto) + 1` a cada apply remoto (`operation-factory.js:85-87`, chamado por `sync-gateway.js:48-49`), é persistido na coluna `lamport_timestamp` e ecoado no pull, mas **nenhum reducer o lê para eleger vencedor**. Isso é uma invariante testável explícita do [[syncledger]] (I3: falha se a ordenação derivar de `timestamp`/`lamport`; I11 exige só a monotonicidade do relógio).
+- **`serverVersion == null` desliga a guarda inteira** (`src/js/store/sync/remote-operation-handler.js:128-132` retorna `true` sem carimbo). Fixture de teste sem `serverVersion` faz o teste de convergência não testar nada, e ele passa verde.
+- **A guarda é parcial, e a lista é opt-in.** `CONVERGENCE_GUARDED` (`src/js/store/sync/remote-operation-handler.js:115-125`) cobre feature, layer, group e as entidades 3D/360. `map`, `briefing`, `slide` e `comment` passam direto pelo `if (guarded)` (`src/js/store/sync/remote-operation-handler.js:265-272`): para eles vale a ordem bruta de chegada do apply. Entidade nova que faz UPDATE blind-replace e não entra no Set **não converge**, e nada acusa. Tipos em [[tipos-entidade-sync]].
+- **O autor só aprende a própria ordem pelo ack.** Ele filtra o próprio eco no WS por `clientId` (`src/js/store/sync/ws-client.js:397`), então `lastAppliedVersion` da entidade que ele editou é semeada exclusivamente por `resolveLocalEdit` no push ack (`src/js/store/sync/remote-operation-handler.js:173-192`). Quebrar o consumo do ack não dá erro visível: o autor simplesmente passa a aceitar ops antigas de peers.
+- **Contagem de edição pendente vaza, e vazar significa divergência silenciosa.** O incremento vem do dispatcher e o decremento do flush; compactação de fila, ops em lote e ack sem versão quebram a simetria, e um contador preso em >0 deferiria as ops remotas daquela entidade **para sempre**. É exatamente por isso que existe o reconcile contra a fila após cada flush (`src/js/store/sync/remote-operation-handler.js:203-221`), e é por isso que ele não é opcional. Ver [[idempotencia-e-convergence-guard]] e [[aplicacao-operacoes-remotas]].
 
-Armadilha prática: ao debugar divergência, ordenar os spans ou as ops por `timestamp`/`lamport` produz uma narrativa plausível e **errada**. Ordene sempre por `serverVersion`.
+O deferir-e-replayar **não é merge**: é serialização, para que o vencedor por `serverVersion` seja aplicado por último.
 
-## Onde o LWW é aplicado no cliente
+## Contrato congelado
 
-`remote-operation-handler.js` mantém `lastAppliedVersion` por `entityId` e descarta ops mais antigas:
-
-```js
-// remote-operation-handler.js:128-132
-function shouldApplyVersion(entityKey, serverVersion) {
-    if (serverVersion == null) return true; // sem carimbo (legacy / sem backend) → sem guarda
-    const prev = lastAppliedVersion.get(entityKey);
-    return prev == null || serverVersion >= prev;
-}
-```
-
-Duas consequências que costumam surpreender:
-
-- **`serverVersion == null` desliga a guarda** (`remote-operation-handler.js:129`). Ops não carimbadas (caminho legado, fixture de teste, backend ausente) aplicam sempre. Ao escrever teste de convergência, carimbe `serverVersion` ou o teste não testa nada.
-- **O guard só vale para tipos guardados.** `CONVERGENCE_GUARDED` (`remote-operation-handler.js:115-125`) cobre feature, layer, group, marker3d, measurement3d, viewshed3d, cameraPosition3d, orientation360, marker360. `map`, `briefing`, `slide`, `comment` e as sub-entidades de mapa passam direto pelo `if (guarded)` em `remote-operation-handler.js:265-273`, sem guarda de versão: para eles vale a ordem de aplicação bruta. Lista completa de tipos em [[tipos-entidade-sync]].
-
-O convergence guard (adiar a op remota enquanto há edição local não-ackada, e replayar no ack via `resolveLocalEdit`, `remote-operation-handler.js:173-191`) **não é merge**: é apenas serialização, para que o vencedor por `serverVersion` seja aplicado por último. Detalhe em [[idempotencia-e-convergence-guard]] e [[aplicacao-operacoes-remotas]].
-
-## Granularidade: a feição inteira, não a propriedade
-
-Um UPDATE substitui em bloco. Duas pessoas editando **propriedades diferentes da mesma feição** ao mesmo tempo não fazem merge: a op de maior `serverVersion` sobrescreve a outra por completo. É exatamente o que um CRDT de verdade evitaria (LWW-Map por campo, ou RGA/Yjs para texto/geometria). Vértices de geometria também são replace total, nunca merge por vértice. Ver [[sintese-limites-collab]].
-
-Idempotência é por `op_id` (`UNIQUE (atlas_id, op_id)` + `ON CONFLICT DO NOTHING`), não por conteúdo. Reenviar a mesma op é seguro, reenviar uma op equivalente com `id` novo não é. Ver [[ack-idempotencia]] e [[tabela-operations]].
-
-## Por que essa escolha
-
-- **Existe um servidor de qualquer jeito** (auth, atlas, permissões, imagens). Se há um ponto central obrigatório, a complexidade de um CRDT paga por uma propriedade (convergência sem coordenação) que o produto não precisa.
-- **O offline-first é resolvido por fila, não por merge.** A [[fila-operacoes-outbound]] em IndexedDB, com compactação (CREATE+DELETE remove ambas, CREATE+UPDATEs mescla) e flush gateado por conexão, cobre o caso real (usuário desconecta e volta), sem estrutura de dados especial. A separação local/remoto é o marcador de origem, ver [[dominio-local-vs-remoto]].
-- **Simplicidade de auditoria.** `serverVersion` monotônico dá um total order legível: o log de ops é a fonte de verdade e o [[snapshot-e-pull-incremental]] é derivável dele.
-- O custo aceito: conflitos concorrentes na mesma feição **perdem trabalho** (o perdedor some), e não há como reconstruir a intenção. Isso é decisão consciente, não bug. Ver [[sintese-decisoes-arquiteturais]].
+- **Ordene sempre por `serverVersion`.** Ao debugar divergência, ordenar spans ou ops por `timestamp`/`lamport` produz narrativa plausível e errada. O invariante I3 do [[syncledger]] falha de propósito se alguma ordenação derivar deles (I11 exige só monotonicidade do relógio).
+- **Granularidade é a feição inteira, nunca a propriedade.** Duas pessoas em campos diferentes da mesma feição não fazem merge; geometria é replace total, jamais merge por vértice. Ver [[sintese-limites-collab]].
+- **Idempotência é por `op_id`, não por conteúdo.** Reenviar a mesma op é seguro; reenviar op equivalente com `id` novo duplica. Ver [[ack-idempotencia]] e [[tabela-operations]].
+- **Escrita de entidade colaborativa não tem rota REST.** Tudo viaja como operação, ver [[canal-collab-websocket]] e [[sintese-rest-vs-sync]].
 
 ## Contradições no repositório
 
-> [!CONTRADICAO 2026-07-18] O cabeçalho de `src/js/store/sync/index.js:30-38` afirma "Last-Writer-Wins with Lamport timestamps for ordering", "LWW by lamportTimestamp + version" para propriedades simples e "LWW per field (field-level granularity)" para layers e maps, além de "FUTURE BACKEND INTEGRATION". O código faz LWW por `serverVersion` apenas (`remote-operation-handler.js:128-132`), a granularidade é a entidade inteira (UPDATE blind-replace, `remote-operation-handler.js:111-113`) e o backend já existe e está ligado. Esse bloco de JSDoc é resíduo do módulo CRDT removido.
+> [!CONTRADICAO 2026-07-18] O cabeçalho de `src/js/store/sync/index.js:30-41` afirma "LWW by lamportTimestamp + version" para propriedades simples, "LWW per field (field-level granularity)" para layers e maps, e "FUTURE BACKEND INTEGRATION". O código faz LWW por `serverVersion` apenas (`src/js/store/sync/remote-operation-handler.js:128-132`), a granularidade é a entidade inteira, e o backend já existe e está ligado. Resíduo do módulo CRDT removido.
 
-> [!CONTRADICAO 2026-07-18] `src/js/store/sync/index.js:37` e `sync-metadata.js:20-35` documentam `setServerTimeOffset()` como compensação de clock skew "para resolução de conflito". Como o conflito nunca lê `timestamp`, o offset não influencia nenhuma decisão de vencedor, é metadado de exibição.
+> [!CONTRADICAO 2026-07-18] `src/js/store/sync/index.js:37` e `src/js/store/sync/sync-metadata.js:18-35` documentam `setServerTimeOffset()` como compensação de clock skew para resolução de conflito. Como o conflito nunca lê `timestamp`, o offset não influencia decisão de vencedor alguma; e nenhum call site o invoca fora do próprio barrel, então na prática ele é zero permanente.
 
-O nome do arquivo guia *05-sync-crdt* (absorvido) também é histórico: o próprio documento abre desmentindo o título (linhas 15-30). Ao ler o guia, trate "CRDT" como sinônimo de "log de operações".
+Os comentários remanescentes com "CRDT op log" (`src/js/store/sync/sync-engine.js:327`, `src/js/store/sync/ws-client.js:355`, `src/js/store/sync/sync-metadata.js:9`) são apenas nome informal do log de ops. O guia absorvido *05-sync-crdt* carrega o mesmo resíduo no título e se desmente no próprio corpo.
 
-## Checklist para não errar
+## Páginas comparadas
 
-1. Ordenou por `timestamp` ou `lamport` em qualquer lugar? Bug.
-2. Espera merge por propriedade em edição concorrente? Não acontece.
-3. Teste de convergência sem `serverVersion` no fixture? A guarda está desligada (`shouldApplyVersion` retorna `true`).
-4. Adicionou entidade nova que faz UPDATE blind-replace? Inclua em `CONVERGENCE_GUARDED`, senão ela não converge.
-5. Reenvio de op: reutilize o mesmo `op.id`, nunca gere um novo.
-6. Escrita de entidade colaborativa via REST? Não existe rota, tudo viaja como operação pelo [[canal-collab-websocket]] e pelo push HTTP, ver [[canal-collab-websocket]].
-
-## Fontes
-
-- guia *05-sync-crdt* (absorvido): declaração explícita de LWW por ordem de chegada, remoção do módulo `src/crdt` como código morto, formatos de envelope (frontend e legacy), tipos de entidade, idempotência por `op_id` (seção 12), limite de 500 ops por push.
-- guia *arquitetura-sync* (absorvido): "não é um CRDT no sentido estrito" e modelo server-authoritative à la Figma (linha 40), `serverVersion` como verdade do LWW (linhas 62-73, 266-267), seção 11 (convergence guard, buffering, serialização de apply), invariantes I3 e I11 do SyncLedger.
-- `src/js/store/sync/remote-operation-handler.js`: `shouldApplyVersion`/`markAppliedVersion` (128-138), `CONVERGENCE_GUARDED` (115-125), aplicação do guard (265-273), `resolveLocalEdit`/`reconcilePendingLocalEdits` (173-220).
-- `src/js/store/sync/operation-factory.js`: `advanceLamportClock` (85-87), carimbo do envelope (151-163, 176-190).
-- `src/js/store/sync/sync-gateway.js`: avanço do Lamport no apply remoto (48-49).
-- `src/js/store/sync/ws-client.js`: de-dupe do próprio eco por `clientId` (397), singleton com `clientId` estável (573).
-- `src/js/store/sync/index.js`: cabeçalho JSDoc desatualizado (30-38), origem das duas contradições registradas acima.
+[[modelo-conflito-lww]], [[idempotencia-e-convergence-guard]], [[aplicacao-operacoes-remotas]], [[envelope-operacao]], [[sintese-limites-collab]], [[sintese-decisoes-arquiteturais]].

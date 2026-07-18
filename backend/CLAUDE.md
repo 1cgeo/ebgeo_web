@@ -12,7 +12,7 @@ app de subir — não existe fallback estático no cliente.
 > Referência completa (rotas, env, migrações, permissões, protocolo WS, convenções detalhadas) está
 > no **[README.md](README.md)**. Guias de integração por subsistema em **[../docs/wiki/](../docs/wiki/index.md)**
 > (série numerada `00`–`16`). Deploy em
-> **[../docs/deploy.md](../docs/deploy.md)**. Este arquivo é o contrato de comportamento —
+> **[../docs/wiki/deploy-backend.md](../docs/wiki/deploy-backend.md)**. Este arquivo é o contrato de comportamento —
 > mantenha-o curto.
 
 ## Stack & layout

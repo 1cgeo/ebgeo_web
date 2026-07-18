@@ -10,7 +10,7 @@ tempo real e sincronização offline-first.
 
 Este README é a **referência completa** do backend (rotas, env, migrações, permissões, protocolo WS,
 convenções de engenharia). Contexto curto para agentes está em **[CLAUDE.md](CLAUDE.md)**; deploy em
-**[../docs/deploy.md](../docs/deploy.md)**.
+**[../docs/wiki/deploy-backend.md](../docs/wiki/deploy-backend.md)**.
 
 ---
 
@@ -21,7 +21,7 @@ Toda a documentação vive em **`../docs/guias/`** (mais o deploy em `docs/deplo
 00 - Visão Geral (arquitetura + índice) e abra o guia do
 subsistema que vai integrar. As convenções de engenharia ficam na seção
 [Convenções de Engenharia](#convenções-de-engenharia) deste README; o deploy em
-[../docs/deploy.md](../docs/deploy.md).
+[../docs/wiki/deploy-backend.md](../docs/wiki/deploy-backend.md).
 
 
 ---
@@ -509,7 +509,7 @@ corrigidos com teste de regressão; ver o histórico em `git log`.
 |-----------|-----|--------|
 | P3 | Sub-canais WS por mapa | Pendente (otimização de tráfego). Hoje as salas são **por atlas**: cursor/seleção/ops chegam a todos os conectados — o frontend filtra por `mapId`. |
 | P3 | Viewport loading no atlas | Pendente (atlas é JSONB sem PostGIS; sob demanda de performance) |
-| P2 | **Escala single-instance** | Salas/presença/cursores vivem em memória numa instância (`collab.rooms.js`). Em multi-instância, use **sticky-session** no LB até haver Redis pub/sub. Ver [deploy.md](../docs/deploy.md). |
+| P2 | **Escala single-instance** | Salas/presença/cursores vivem em memória numa instância (`collab.rooms.js`). Em multi-instância, use **sticky-session** no LB até haver Redis pub/sub. Ver [deploy-backend](../docs/wiki/deploy-backend.md). |
 | P2 | **Superfície de admin de acesso 3D/grupos** | As tabelas (`ng.model_permissions`, `ng.groups`, `ng.user_groups`) existem e o filtro de leitura já as honra, mas **não há rota CRUD**: conceder acesso a modelo privado ou gerir membresia é tarefa de seed/DBA hoje. |
 | P2 | **Auditoria parcial dos fluxos destrutivos** | Em `audit_trail` hoje: `ORG_*`, `USER_DELETE`, `API_KEY_ROTATE`, `PERMISSION_GRANT`. **Ausentes** (apesar de estarem no CHECK): `LOGIN`/`LOGOUT`, `USER_CREATE`/`USER_UPDATE`/`PASSWORD_RESET`/`ROLE_CHANGE`, `ATLAS_DELETE`, `SHARING_CHANGE`. Infra pronta — basta chamar `createAudit`. |
 | P3 | **URLs de serviço sem fail-fast** | `validateEnvVariables()` valida `DATABASE_URL`/`JWT_SECRET`/`PORT`/`CORS_ORIGIN`, 20 knobs numéricos e as durações JWT — mas **não** alerta se `SV360_SERVICE_URL`/`MAP3D_TERRAIN_URL` ficarem no default `localhost` em produção. Confira manualmente via `GET /api/config`. |

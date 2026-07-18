@@ -2,31 +2,31 @@
 
 O Atlas é a fronteira única do sistema: isolamento de dados, permissão, sala de tempo real e ordenação de operações são todos desenhados por `atlas_id`, e o preço dessa escolha é que um projeto nomeado só existe plenamente no servidor.
 
-Schema autoritativo: `ebgeo_backend/src/database/migrations/002_atlas.sql` (entidades) e `003_sync.sql` (log). Entidade do cliente: `src/js/store/atlas/atlas.entity.js`.
+Schema autoritativo: `ebgeo_backend/src/database/migrations/002_atlas.sql` (entidades) e `backend/src/database/migrations/003_sync.sql` (log). Entidade do cliente: `src/js/store/atlas/atlas.entity.js`.
 
 ## Uma fronteira só, e por quê
 
-Dados, permissão (`middleware/permissions.js:57`), sala WS (`collab.rooms.js:6`) e idempotência (`003_sync.sql:52`) usam a mesma chave. Não existe broadcast entre atlas nem query cross-atlas por construção, e é isso que torna as guardas anti-IDOR baratas: `applyOperation` usa `INSERT ... SELECT ... WHERE EXISTS (mapa pertence a ESTE atlas)`, então uma op com `mapId` alheio não escreve nada em vez de escrever no lugar errado. O merge de mapas exige mesmo atlas; o upgrade do WS re-reconcilia autorização a cada heartbeat e fecha com `4003` quando um share é revogado. Ver [[permissoes-atlas]], [[canal-collab-websocket]], [[idempotencia-e-convergence-guard]].
+Dados, permissão (`middleware/permissions.js:57`), sala WS (`backend/src/modules/collab/collab.rooms.js:6`) e idempotência (`backend/src/database/migrations/003_sync.sql:52`) usam a mesma chave. Não existe broadcast entre atlas nem query cross-atlas por construção, e é isso que torna as guardas anti-IDOR baratas: `applyOperation` usa `INSERT ... SELECT ... WHERE EXISTS (mapa pertence a ESTE atlas)`, então uma op com `mapId` alheio não escreve nada em vez de escrever no lugar errado. O merge de mapas exige mesmo atlas; o upgrade do WS re-reconcilia autorização a cada heartbeat e fecha com `4003` quando um share é revogado. Ver [[permissoes-atlas]], [[canal-collab-websocket]], [[idempotencia-e-convergence-guard]].
 
 ## Os três contadores não são a mesma coisa
 
 Armadilha número um: `atlas` tem três colunas que parecem versão e não são comparáveis.
 
 - **`version`** conta edições de metadados via REST. Nada a ver com sync.
-- **`current_version`** é o cursor do log, mantido pelo trigger no INSERT em `operations` (`003_sync.sql:54-69`). É o `lastVersion` do pull incremental.
-- **`min_version`** é o piso após poda do log (`sync.service.js:816`). Pedir uma versão abaixo dele devolve snapshot completo em vez de erro (`sync.service.js:770`) — comportamento silencioso, não falha. Ver [[snapshot-e-pull-incremental]], [[sync-admin-operacoes]].
+- **`current_version`** é o cursor do log, mantido pelo trigger no INSERT em `operations` (`backend/src/database/migrations/003_sync.sql:54-69`). É o `lastVersion` do pull incremental.
+- **`min_version`** é o piso após poda do log (`backend/src/modules/sync/sync.service.js:816`). Pedir uma versão abaixo dele devolve snapshot completo em vez de erro (`backend/src/modules/sync/sync.service.js:770`) — comportamento silencioso, não falha. Ver [[snapshot-e-pull-incremental]], [[sync-admin-operacoes]].
 
-`server_version` vem de `nextval('atlas_version_seq')`, sequência **global** entre todos os atlas (`003_sync.sql:12,31`). Dentro de um atlas é crescente mas **não contígua**: serve para ordenar, nunca para contar operações ou calcular "quantas versões atrás".
-
-> [!CONTRADICAO]
-> O trigger faz `SET current_version = NEW.server_version` sem `GREATEST` (`003_sync.sql:58`), apesar de a semântica pretendida ser um máximo. Coincide na prática (sequência crescente, push transacional), mas não raciocine sobre inserções concorrentes assumindo máximo.
+`server_version` vem de `nextval('atlas_version_seq')`, sequência **global** entre todos os atlas (`backend/src/database/migrations/003_sync.sql:12,31`). Dentro de um atlas é crescente mas **não contígua**: serve para ordenar, nunca para contar operações ou calcular "quantas versões atrás".
 
 > [!CONTRADICAO]
-> O comentário `-- 18 valid feature types` acima de `features.feature_type` (`002_atlas.sql:168`) contradiz o próprio CHECK logo abaixo, que aceita **20** (`:186-193`). O CHECK manda. Os dois extras são `processed_los`/`processed_visibility`, saídas de análise e não ferramentas — por isso `SOURCE_TYPES` no cliente tem 18. Eles precisam de linha explícita em `FEATURE_TYPE_MAPPINGS` (`store.constants.js:93-98`): o fallback `source + 's'` gerava `processed_loss` e o resultado caía num bucket fantasma no peer, sem nunca renderizar.
+> O trigger faz `SET current_version = NEW.server_version` sem `GREATEST` (`backend/src/database/migrations/003_sync.sql:58`), apesar de a semântica pretendida ser um máximo. Coincide na prática (sequência crescente, push transacional), mas não raciocine sobre inserções concorrentes assumindo máximo.
+
+> [!CONTRADICAO]
+> O comentário `-- 18 valid feature types` acima de `features.feature_type` (`backend/src/database/migrations/002_atlas.sql:168`) contradiz o próprio CHECK logo abaixo, que aceita **20** (`:186-193`). O CHECK manda. Os dois extras são `processed_los`/`processed_visibility`, saídas de análise e não ferramentas — por isso `SOURCE_TYPES` no cliente tem 18. Eles precisam de linha explícita em `FEATURE_TYPE_MAPPINGS` (`src/js/store/store.constants.js:93-98`): o fallback `source + 's'` gerava `processed_loss` e o resultado caía num bucket fantasma no peer, sem nunca renderizar.
 
 ## Deleção é soft, e o CASCADE é decorativo
 
-`DELETE /atlas/:id` marca `deleted_at` (`atlas.service.js:69`). As FKs dizem `ON DELETE CASCADE`, mas como nunca há hard-delete, **mapas, feições, briefings e o log de `operations` permanecem no banco**. O atlas some das listagens e a sala fecha; `GET /atlas/trash` + `POST /:id/restore` trazem tudo intacto. Não assuma que deletar um atlas liberou espaço ou apagou dado de usuário. O soft-delete é obrigatório aqui porque o sync precisa **propagar** a exclusão: um DELETE físico não teria o que sincronizar. Ver [[tipos-entidade-sync]].
+`DELETE /atlas/:id` marca `deleted_at` (`backend/src/modules/atlas/atlas.service.js:69`). As FKs dizem `ON DELETE CASCADE`, mas como nunca há hard-delete, **mapas, feições, briefings e o log de `operations` permanecem no banco**. O atlas some das listagens e a sala fecha; `GET /atlas/trash` + `POST /:id/restore` trazem tudo intacto. Não assuma que deletar um atlas liberou espaço ou apagou dado de usuário. O soft-delete é obrigatório aqui porque o sync precisa **propagar** a exclusão: um DELETE físico não teria o que sincronizar. Ver [[tipos-entidade-sync]].
 
 ## Dois "Atlas", dois `settings`
 
@@ -45,27 +45,27 @@ Consequências que causam bug se ignoradas:
 
 1. **Abrir um atlas do servidor apaga o store** (`account/open-atlas.service.js`). Trocar de atlas é destrutivo por design. Invariante: abrir o atlas B nunca pode deixar visível feição, camada ou mapa do atlas A — por isso o clear inclui o registro do atlas e a fila de operações não flushadas ([[fila-operacoes-outbound]]).
 2. **A origem é marcada REMOTE antes do connect**, de propósito: se a aba morrer no meio do pull, a guarda de boot vê `remote` e descarta o parcial em vez de promovê-lo a atlas local permanente.
-3. **Dado remoto não sobrevive ao logout** (`enforceLocalStoreWhenLoggedOut`, `store.js:137`). Para levar um atlas do servidor para uso offline, exporte o `.ebgeo` **antes** de desconectar. Não há segunda chance.
+3. **Dado remoto não sobrevive ao logout** (`enforceLocalStoreWhenLoggedOut`, `src/js/store/store.js:137`). Para levar um atlas do servidor para uso offline, exporte o `.ebgeo` **antes** de desconectar. Não há segunda chance.
 
 ## Identidade de mapa: UUID vs nome
 
 Mapas de atlas remoto são chaveados por UUID; o `Principal` local é chaveado por nome e não tem UUID. Isso atravessa três arquivos, e cada um só enxerga o próprio terço:
 
 1. Op cujo `mapId` de contexto não é UUID é descartada **antes da fila** (`sync/operation-dispatcher.js:133-140`). Sem isso o Postgres rejeita com 22P02 e **uma** op inválida derruba o lote inteiro do flush, travando toda a sincronização. Op de `SETTING` escapa apenas com UUID ou o sentinela literal `'atlas'`.
-2. `activateAtlasInitialMap` **remove** todo mapa não-UUID ao ativar o mapa inicial (`map.operations.js:353-371`). Um `Principal` recriado no boot sombrearia por nome um mapa remoto homônimo, e o usuário, inclusive o dono logo após "Salvar no servidor", cairia num mapa vazio.
+2. `activateAtlasInitialMap` **remove** todo mapa não-UUID ao ativar o mapa inicial (`src/js/store/map.operations.js:353-371`). Um `Principal` recriado no boot sombrearia por nome um mapa remoto homônimo, e o usuário, inclusive o dono logo após "Salvar no servidor", cairia num mapa vazio.
 3. A resolução de mapa é por **nome**, não pela chave de armazenamento: presença e cursor viajam com o nome, e peers filtram o que vier com UUID cru.
 
 ## Dois mundos de mutação, escolha explícita
 
 Metadados de atlas são REST; feições, mapas, camadas, grupos, briefings, slides, 3D, 360 e comentários são **sync-only**, sem rota REST de escrita ([[sintese-rest-vs-sync]], [[envelope-operacao]]). Rotas em `modules/atlas/atlas.routes.js` (53 linhas, autoexplicativas).
 
-O que muda o atlas **fora** do log de operações — `atlas_updated`, `map_duplicated`, `maps_merged` — força **re-pull de snapshot**, não apply de op (`ws-client.js:349-354`). Imagens são o terceiro caminho: blob por REST, referência pelo sync. **Ao adicionar qualquer mutação REST no atlas, decida explicitamente em qual desses mundos ela cai** — esquecer disso produz um cliente que nunca vê a mudança até o próximo F5.
+O que muda o atlas **fora** do log de operações — `atlas_updated`, `map_duplicated`, `maps_merged` — força **re-pull de snapshot**, não apply de op (`src/js/store/sync/ws-client.js:349-354`). Imagens são o terceiro caminho: blob por REST, referência pelo sync. **Ao adicionar qualquer mutação REST no atlas, decida explicitamente em qual desses mundos ela cai** — esquecer disso produz um cliente que nunca vê a mudança até o próximo F5.
 
 `EntityType.ATLAS` existe no enum de sync mas está morto: mudanças de nível de atlas viajam como `SETTING` com id `'atlas'` mais broadcast `atlas_settings_updated`.
 
 ## Permissões: a comparação que engana
 
-Hierarquia `read < comment < write < manage < owner`, níveis numéricos 1..5 (`permissions.js:12`).
+Hierarquia `read < comment < write < manage < owner`, níveis numéricos 1..5 (`backend/src/middleware/permissions.js:12`).
 
 - **`manage` está acima de `write`.** Um gate escrito como `permission === 'write' || permission === 'owner'` parece completo e exclui o co-Gestor silenciosamente. Compare sempre por nível numérico.
 - **`owner` não é compartilhável** (o CHECK de `atlas_shares` só aceita até `manage`). Posse muda apenas por `POST /:id/transfer`.
@@ -79,8 +79,8 @@ O link público emite JWT efêmero (1h, `read`, identidade "Visitante") que serv
 
 ## Detalhes que costumam morder
 
-- **`images` não tem `version` nem `deleted_at`** (`002_atlas.sql:309-320`). É a única filha do atlas fora do modelo de soft-delete/sync. Blobs sobem preservando o id (`INSERT_IMAGE_WITH_ID`) para que referências feição→imagem sobrevivam sem reescrita. Ver [[imagens-atlas]].
-- **Comentários não vão para conexões `read`** — o filtro é de transmissão, no snapshot (`sync.service.js:442`) e no pull incremental (`:770`), não de renderização. Respostas são entidades próprias com `parent_id`, para não haver clobber LWW numa thread. Ver [[comentario-espacial]].
+- **`images` não tem `version` nem `deleted_at`** (`backend/src/database/migrations/002_atlas.sql:309-320`). É a única filha do atlas fora do modelo de soft-delete/sync. Blobs sobem preservando o id (`INSERT_IMAGE_WITH_ID`) para que referências feição→imagem sobrevivam sem reescrita. Ver [[imagens-atlas]].
+- **Comentários não vão para conexões `read`** — o filtro é de transmissão, no snapshot (`backend/src/modules/sync/sync.service.js:442`) e no pull incremental (`:770`), não de renderização. Respostas são entidades próprias com `parent_id`, para não haver clobber LWW numa thread. Ver [[comentario-espacial]].
 - **`maps.locked` é aviso de UI, não lock de concorrência.** Ninguém bloqueia a edição de ninguém (P10).
 - **`catalog_layers` é tabela própria E coluna legada** em `maps`. A coluna permanece para clone/import e clientes antigos; só a entidade por-camada sincroniza.
 - **Slides quebram sozinhos**: `trg_mark_slides_broken` marca `is_broken` quando o mapa referenciado é soft-deletado.
