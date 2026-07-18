@@ -7,7 +7,7 @@ utils/db/config/audit. Cada achado foi verificado lendo o caminho de código de
 ponta a ponta e cruzando com os testes existentes.
 
 - **Baseline:** 1188 casos, 1 falha (teste dependente de plataforma).
-- **Após correções:** 1201 casos, 0 falhas · `npm run lint` limpo.
+- **Após correções:** 1213 casos, 0 falhas · `npm run lint` limpo.
 
 Legenda de status:
 - ✅ **Corrigido** neste branch (`claude/backend-bug-scan-h7wsuy`), com teste de regressão.
@@ -80,23 +80,28 @@ Legenda de status:
 - **Segurança:** intacta em ambas as plataformas — o arquivo fora do ROOT nunca é servido (403 no Windows, 404 no POSIX).
 - **Correção:** asserção tornada portável (nega acesso: 403 ou 404; nunca 200). A rota (`assets3d.service.js`) não foi alterada.
 
+### 9. ✅ Sessão deslizava indefinidamente para usuário desativado/rebaixado — ALTO (segurança)
+
+- **Arquivo:** `src/middleware/flexible-auth.js` (sliding renewal) + `src/middleware/auth.js` (path estrito).
+- **Bug:** o sliding-session re-emitia um token de 15 min só a partir dos claims antigos, sem checagem no banco. Um usuário desativado (`is_active=false`, refresh revogado) que mantivesse requests em voo renovava a sessão **para sempre**; o `auth` estrito só checava `orgIsActive`, nunca `users.is_active`, e `requireAdmin` confiava no `role` do token → admin rebaixado mantinha `admin`.
+- **Cenário:** admin desativa a conta do usuário X. X continua com o cookie e segue trabalhando; a cada request perto do vencimento o servidor re-assina o token → acesso indefinido.
+- **Correção:** novo `getLiveAuthState()` (`src/utils/org-status.js`) reconcilia por request no `auth` estrito — `is_active=false` → 401, org inativa → 403, `role` global adotado do banco. O renewal consulta o mesmo estado e **limpa o cookie** numa sessão morta em vez de re-emitir. Custo: o lookup de PK que já existia (a query org-only virou um join), sem request extra.
+- **Escopo deliberado:** `org_role`/`organization_id` continuam vindo do mapeamento do token (token legado sem claims de org ainda degrada para viewer/null — contrato pinado em `auth-gaps` auth-05), então **troca de tenant** segue limitada à janela de ≤15 min. Princípio público (`public-<uuid>`, sem linha em `users`) é isento — mesma convenção de id não-UUID já usada em `permissions.js`. Linha ausente em `users` **não** é revogação: o sistema só faz soft-delete, então (como em `orgIsActive` para org desconhecida) isso é anomalia, não desativação.
+- **Teste:** `tests/integration/auth-live-reconciliation.test.js` (5 casos, incluindo o guarda de não-regressão "renewal continua funcionando para usuário saudável").
+
+### 10. ✅ Ordem de versão em pushes de sync concorrentes — ALTO (perda de dados)
+
+- **Arquivo:** `src/modules/sync/sync.service.js` (`pushOperations`).
+- **Bug:** `server_version` vem de `nextval('atlas_version_seq')` no INSERT, mas a visibilidade é decidida no COMMIT, e a `tx()` não serializava por atlas. Com pushes concorrentes a ordem de versão podia divergir da ordem de commit e um puller incremental **perdia permanentemente** uma op comitada.
+- **Cenário:** tx A insere (v100) e demora; tx B insere (v101) e comita; um puller vê v101 e grava `lastVersion=101`; A comita — sua op v100 está abaixo do cursor e o pull incremental (`WHERE server_version > $lastVersion`) nunca mais a retorna.
+- **Correção:** `pg_advisory_xact_lock(SYNC_PUSH_LOCK_NAMESPACE, hashtext(atlasId))` no topo da transação, antes do primeiro INSERT. Escopo de transação (liberado no COMMIT/ROLLBACK, sem vazamento em erro) e por atlas, então pushes a atlas distintos seguem paralelos.
+- **Teste:** `tests/integration/sync-push-serialization.test.js` — o push **bloqueia** enquanto outra transação segura o lock do atlas, **não** bloqueia para outro atlas, e nenhuma op é pulada pelo cursor incremental. *(O caso de bloqueio é o guarda real; o de "nenhuma op pulada" documenta a invariante mas não reproduz a corrida de forma determinística.)*
+
 ---
 
 ## Pendentes (reais, não alterados)
 
-### P1. ⏳ Sessão desliza indefinidamente para usuário desativado/rebaixado — ALTO
-
-- **Arquivo:** `src/middleware/flexible-auth.js:69-71` (+ `auth.js:51-73`).
-- **Bug:** o sliding-session re-emite um token de 15 min só a partir dos claims antigos, sem qualquer checagem no banco. Um usuário desativado (`is_active=false`, refresh tokens revogados) que mantenha o cookie renova a sessão para sempre; o `auth` estrito só checa `orgIsActive`, nunca `users.is_active`, e `requireAdmin` confia no `role` do token → admin rebaixado mantém `admin`.
-- **Tensão:** `docs/implementado/99-pendencias-e-desvios.md:76` documenta a não-recheca de `is_active`/`role` por request como "aceito by-design" (janela ≤15 min). Mas o sliding renewal anula essa janela — vira "para sempre". Precisa de decisão: o renewal deve consultar `is_active`/role atual antes de re-emitir?
-- **Teste sugerido:** login → desativar no banco → apresentar token near-expiry (4 min) numa rota estrita ≠ `/me` → esperar 401/403 ou ausência de `Set-Cookie`.
-
-### P2. ⏳ Ordem de versão em pushes de sync concorrentes — ALTO
-
-- **Arquivo:** `src/modules/sync/sync.service.js:627` (+ `003_sync.sql:31`).
-- **Bug:** `server_version` vem de `nextval('atlas_version_seq')` numa `tx()` sem serialização por-atlas. Sob pushes concorrentes, a ordem de versão pode divergir da ordem de commit e um puller incremental pode **perder permanentemente** uma op comitada; `atlas.current_version` pode regredir.
-- **Correção sugerida:** `pg_advisory_xact_lock(hashtext(atlasId))` (ou `SELECT ... FOR UPDATE` na linha do atlas) no topo da transação de `pushOperations`, antes do primeiro INSERT.
-- **Teste sugerido:** integração com uma tx aberta segurando uma op, um push normal concorrente, e um pull que deve retornar a op segurada após o commit.
+*(P1 e P2 foram corrigidos após a redação original — ver a seção "Corrigidos" acima, itens 9 e 10.)*
 
 ### P3. ⏳ Concorrência de ingestão sv360 (swap-then-commit) — MÉDIO
 

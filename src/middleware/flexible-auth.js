@@ -9,6 +9,7 @@ import { extractBearerToken } from './auth.js';
 import { query } from '../database/index.js';
 import { FIND_USER_BY_API_KEY } from '../modules/users/users.queries.js';
 import { issueAccessToken, msUntilExpiry } from '../modules/auth/auth.service.js';
+import { getLiveAuthState } from '../utils/org-status.js';
 import { env } from '../utils/environment.js';
 
 const SLIDING_THRESHOLD_MS = 5 * 60 * 1000;
@@ -66,7 +67,38 @@ export async function flexibleAuth(req, res, next) {
     req.authVia = 'jwt';
 
     // Sliding session: renew if close to expiry.
-    if (msUntilExpiry(payload) < SLIDING_THRESHOLD_MS) {
+    //
+    // P1 — the renewal MUST consult the live DB first. Re-signing the old claims
+    // blindly turned the "≤15min stale" window into "forever": a deactivated user
+    // who kept a request in flight every 15 min renewed their session indefinitely,
+    // and a demoted admin carried `role: admin` forward on every renewal.
+    // Public-share principals (`public-<uuid>` sub, no users row) are never renewed
+    // here — their token is atlas-scoped and short-lived by design.
+    if (msUntilExpiry(payload) < SLIDING_THRESHOLD_MS && UUID_RE.test(payload.sub || '')) {
+      const live = await getLiveAuthState(payload.sub);
+
+      // A missing row is not a revocation (users are only soft-deleted — see the
+      // matching note in auth.js); only an explicit deactivation stops the slide.
+      if (live && (!live.userIsActive || !live.orgIsActive)) {
+        // Dead session: stop the slide and drop the cookie. req.user is cleared so
+        // this request is treated as anonymous; strict routes 401 via `auth`.
+        // clearCookie must receive the same attributes MINUS maxAge (Express
+        // deprecates passing it — the clear always expires immediately).
+        const clearOptions = env.cookieOptions();
+        delete clearOptions.maxAge;
+        res.clearCookie('token', clearOptions);
+        req.user = undefined;
+        req.authVia = undefined;
+        return next();
+      }
+
+      // Re-issue with the CURRENT global role so a demotion propagates instead of
+      // being carried forward forever. `org_role`/`organization_id` keep coming from
+      // the token mapping — a legacy token without org claims must still degrade to
+      // viewer/null (auth-gaps auth-05).
+      if (live) {
+        req.user.role = live.role;
+      }
       res.cookie('token', issueAccessToken(req.user), env.cookieOptions());
     }
     return next();

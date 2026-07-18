@@ -150,6 +150,12 @@ function reshape3d360Payload(rawData, mapping) {
  */
 const FEATURE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Namespace for the per-atlas advisory lock taken by pushOperations (P2). The
+// two-argument form of pg_advisory_xact_lock keys locks by (namespace, key), so
+// this constant keeps sync's lock space from colliding with any other advisory
+// lock the app may take later. Value is ASCII 'SYNC' read as int32.
+const SYNC_PUSH_LOCK_NAMESPACE = 0x53594e43;
+
 function deriveFeatureColumns(rawData) {
   if (!rawData || typeof rawData !== 'object' || !rawData.properties || typeof rawData.properties !== 'object') {
     return rawData;
@@ -625,6 +631,27 @@ export async function pushOperations(atlasId, operations, userId, permission = '
   const acks = [];
 
   await tx(async (t) => {
+    // P2 — serialize pushes per atlas.
+    //
+    // `server_version` is assigned by `nextval('atlas_version_seq')` at INSERT time,
+    // but visibility is decided at COMMIT time. Without this lock two concurrent
+    // pushes can interleave so that version order diverges from commit order:
+    //
+    //   tx A inserts (v100) ─────────────────────── commits
+    //   tx B inserts (v101) ── commits
+    //   puller sees v101, stores lastVersion=101
+    //   …A commits; its v100 op is now < 101 and the incremental pull
+    //     (`WHERE server_version > $lastVersion`) NEVER returns it → op lost for good.
+    //
+    // Taking the lock before the first INSERT makes nextval order == commit order for
+    // a given atlas, so `server_version` is a sound incremental-pull cursor. The lock
+    // is transaction-scoped (released on COMMIT/ROLLBACK, no leak on error) and keyed
+    // per atlas, so pushes to different atlases still run fully in parallel.
+    await t.one('SELECT pg_advisory_xact_lock($1, hashtext($2))', [
+      SYNC_PUSH_LOCK_NAMESPACE,
+      atlasId,
+    ]);
+
     for (const rawOp of operations) {
       // Normalize operation to internal format (accepts both frontend and legacy names)
       const op = normalizeOperation(rawOp);
