@@ -150,6 +150,30 @@ const config = Object.freeze({
   get isTest() { return this.nodeEnv === 'test'; },
 });
 
+// Integer env vars that are `parseInt`-ed into config, with the range each must
+// fall in. Bounds are sanity limits, not policy: they exist to catch typos and
+// pathological values (0 workers, a 1ms heartbeat) before the server accepts a
+// connection. See the loop in validateEnvVariables for why silent NaN is unsafe.
+const NUMERIC_ENV_RULES = Object.freeze({
+  DATABASE_POOL_MIN: { min: 0, max: 1000 },
+  DATABASE_POOL_MAX: { min: 1, max: 1000 },
+  MAX_IMAGE_SIZE_MB: { min: 1, max: 1024 },
+  MAX_BULK_UPLOAD_MB: { min: 1, max: 4096 },
+  ASSETS_3D_MAX_INFLIGHT: { min: 1, max: 1024 },
+  SV360_MAX_INFLIGHT: { min: 1, max: 1024 },
+  SV360_MAX_UPLOAD_BYTES: { min: 1 },
+  SQLITE_BLOB_WORKERS: { min: 1, max: 64 },
+  WS_HEARTBEAT_INTERVAL_MS: { min: 1000, max: 3600000 },
+  WS_HEARTBEAT_TIMEOUT_MS: { min: 100, max: 3600000 },
+  WS_AWAY_GRACE_MS: { min: 0, max: 86400000 },
+  RATE_LIMIT_AUTH_WINDOW_MS: { min: 1000 },
+  RATE_LIMIT_AUTH_MAX: { min: 1 },
+  RATE_LIMIT_PUBLIC_WINDOW_MS: { min: 1000 },
+  RATE_LIMIT_PUBLIC_MAX: { min: 1 },
+  AUTH_VERIFICATION_TTL_HOURS: { min: 1, max: 8760 },
+  SMTP_PORT: { min: 1, max: 65535 },
+});
+
 /**
  * Fail-fast validation of environment variables at boot, grouped by context.
  * Accumulates ALL errors (does not stop at the first) and throws once with a
@@ -190,6 +214,44 @@ export function validateEnvVariables() {
       new URL(process.env.CORS_ORIGIN);
     } catch {
       errors.push('CORS_ORIGIN deve ser uma URL válida');
+    }
+  }
+
+  // Numeric knobs (P7).
+  //
+  // Every one of these is read with `parseInt`, which fails SILENTLY: a typo
+  // yields NaN and the value flows on to produce badly-broken behaviour rather
+  // than an error. The observed cases:
+  //   MAX_BULK_UPLOAD_MB=abc      → express.json({ limit: 'NaNmb' }) → NO body limit
+  //   WS_HEARTBEAT_INTERVAL_MS=abc → setInterval(NaN) ≈ every 1ms → query storm
+  //   DATABASE_POOL_MAX=abc        → invalid pool size
+  // Only SET variables are checked — the built-in defaults are known-good.
+  for (const [name, { min, max }] of Object.entries(NUMERIC_ENV_RULES)) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === '') continue;
+    // parseInt('12abc') === 12, so the raw string must be fully numeric.
+    if (!/^\d+$/.test(raw.trim())) {
+      errors.push(`${name} deve ser um inteiro (recebido: "${raw}")`);
+      continue;
+    }
+    const value = parseInt(raw, 10);
+    if (value < min || (max !== undefined && value > max)) {
+      const range = max !== undefined ? `entre ${min} e ${max}` : `>= ${min}`;
+      errors.push(`${name} deve ser ${range} (recebido: ${value})`);
+    }
+  }
+
+  // Token lifetimes. `parseDuration` (auth.service) returns 0 for anything it
+  // cannot parse — and a 0ms refresh expiry means EVERY refresh token is already
+  // expired when written, i.e. nobody can stay logged in. '1w' is the classic
+  // trap: a natural-looking value that the `[smhd]` grammar does not accept.
+  for (const name of ['JWT_ACCESS_EXPIRY', 'JWT_REFRESH_EXPIRY']) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === '') continue;
+    if (!/^\d+[smhd]$/.test(raw.trim())) {
+      errors.push(`${name} deve ser um número seguido de s|m|h|d (ex.: 15m, 7d) — recebido: "${raw}"`);
+    } else if (parseInt(raw, 10) <= 0) {
+      errors.push(`${name} deve ser maior que zero (recebido: "${raw}")`);
     }
   }
 

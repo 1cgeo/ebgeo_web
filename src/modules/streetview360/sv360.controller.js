@@ -23,7 +23,13 @@ import config from '../../config.js';
 import * as svc from './sv360.service.js';
 import * as blobstore from './sv360.blobstore.js';
 
-const IMMUTABLE = 'public, max-age=31536000, immutable';
+// A shared cache (CDN/proxy) may only store a response that every caller is
+// allowed to see. An `enabled` project is public, so `public` is correct there.
+// A `disabled` project is access-controlled (admin / owning org), and caching it
+// publicly would let a proxy replay one authorized response to an anonymous
+// caller — so those are `private` and carry `Vary` for good measure (P6).
+const IMMUTABLE_PUBLIC = 'public, max-age=31536000, immutable';
+const IMMUTABLE_PRIVATE = 'private, max-age=31536000, immutable';
 const sem = createSemaphore(config.sv360.maxInflight);
 
 // Parses "bytes=start-end" against `size`. Returns {start,end} | 'invalid'.
@@ -43,9 +49,15 @@ function parseRange(range, size) {
   return { start, end };
 }
 
-function setImmutableHeaders(res, etag, contentType) {
+function setImmutableHeaders(res, etag, contentType, projectStatus) {
+  const isPublic = projectStatus === 'enabled';
   res.setHeader('Accept-Ranges', 'bytes');
-  res.setHeader('Cache-Control', IMMUTABLE);
+  res.setHeader('Cache-Control', isPublic ? IMMUTABLE_PUBLIC : IMMUTABLE_PRIVATE);
+  if (!isPublic) {
+    // Belt-and-braces for a proxy that ignores `private`: the response varies by
+    // caller identity, so it must not be reused across credentials.
+    res.setHeader('Vary', 'Authorization, Cookie');
+  }
   res.setHeader('ETag', etag);
   res.setHeader('Content-Type', contentType);
 }
@@ -101,12 +113,13 @@ export const mvtTile = asyncHandler(async (req, res) => {
 // missing/hidden OR the thumbnail file is absent. ETag derives from fs.stat
 // (size + mtime) — there is no Postgres *_size_bytes for the thumbnail.
 export const getThumbnail = asyncHandler(async (req, res, next) => {
-  const filePath = await svc.resolveThumbnailPath(req.params.slug, req.user);
-  if (!filePath) return next(new NotFoundError('Thumbnail'));
+  const thumb = await svc.resolveThumbnailPath(req.params.slug, req.user);
+  if (!thumb) return next(new NotFoundError('Thumbnail'));
+  const { filePath, projectStatus } = thumb;
 
   const st = await stat(filePath);
   const etag = `"${req.params.slug}-${st.size}-${Math.trunc(st.mtimeMs)}"`;
-  setImmutableHeaders(res, etag, 'image/webp');
+  setImmutableHeaders(res, etag, 'image/webp', projectStatus);
 
   // 304 short-circuit BEFORE any read.
   if (req.headers['if-none-match'] === etag) return res.status(304).end();
@@ -130,7 +143,7 @@ export const getPhotoImage = asyncHandler(async (req, res, next) => {
   const quality = req.query?.quality === 'preview' ? 'preview' : 'full';
   const d = await svc.getPhotoImageMeta(req.params.uuid, quality, req.user);
 
-  setImmutableHeaders(res, d.etag, d.contentType);
+  setImmutableHeaders(res, d.etag, d.contentType, d.projectStatus);
 
   // 304 BEFORE any SQLite touch and BEFORE acquiring the semaphore (the ETag is
   // Postgres-derived → O(1)). Range/Content-Length, however, are derived from the

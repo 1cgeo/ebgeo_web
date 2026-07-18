@@ -41,13 +41,18 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { tx } from '../../database/index.js';
+import { task } from '../../database/index.js';
 import { blobPool } from '../../utils/sqlite-blob-pool.js';
 import { mergeProject, deriveDbFilename } from './sv360.merge.js';
 import { manifestSchema } from './sv360.admin.schemas.js';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { BadRequestError, ValidationError } from '../../utils/errors.js';
+
+// Namespace for the per-(orgId, slug) session advisory lock that serializes
+// ingestion (P3). Distinct from the sync push namespace so the two lock spaces
+// can never collide. Value is ASCII 'S360' read as int32.
+const SV360_INGEST_LOCK_NAMESPACE = 0x53333630;
 
 /**
  * Validates a manifest object against the frozen ingestion schema. Rejects:
@@ -384,28 +389,54 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, orgId, s
   const dbFilename = deriveDbFilename(orgId, validated.project.slug);
   const destPath = resolveDbPath(dbFilename);
 
-  // PASSO 1 — install the new {slug}.db, KEEPING the .bak (reversible).
-  const { bakMade } = await installSwap(destPath, dbTmpPath);
+  // P3 — serialize ingestions of the same (orgId, slug).
+  //
+  // The file swap (PASSO 1) happens BEFORE the Postgres transaction (PASSO 2), so
+  // a transaction-scoped lock would be taken too late to protect it. Two
+  // concurrent uploads of the same project could otherwise interleave as:
+  //
+  //   A swaps its file  →  B swaps its file  →  A commits  →  B commits
+  //
+  // leaving B's bytes on disk with A's rollback able to restore the WRONG .bak,
+  // or Postgres describing a bundle that is not the one installed.
+  //
+  // A SESSION-scoped lock on one dedicated connection spans both steps. It is
+  // released in `finally`, and Postgres drops it automatically if the connection
+  // dies, so a crash mid-ingest cannot wedge the slug permanently.
+  return task(async (conn) => {
+    const lockKey = `sv360:${orgId}:${validated.project.slug}`;
+    await conn.one('SELECT pg_advisory_lock($1, hashtext($2))', [SV360_INGEST_LOCK_NAMESPACE, lockKey]);
 
-  // PASSO 2 — Postgres merge in a single tx. The commit is the atomic point.
-  let merged;
-  try {
-    merged = await tx((t) => mergeProject(t, validated, { orgId, source: source ?? 'upload' }));
-  } catch (err) {
-    // Merge failed (409 collision / orphan FK / I/O): undo the file install so
-    // disk matches the rolled-back Postgres state, then rethrow the original 4xx/5xx.
-    rollbackSwap(destPath, bakMade);
-    throw err;
-  }
+    try {
+      // PASSO 1 — install the new {slug}.db, KEEPING the .bak (reversible).
+      const { bakMade } = await installSwap(destPath, dbTmpPath);
 
-  // Merge committed — finalize the swap (drop the .bak; failure here is logged,
-  // never fatal: the new file is already installed and Postgres is consistent).
-  commitSwap(destPath);
+      // PASSO 2 — Postgres merge in a single tx. The commit is the atomic point.
+      // Runs on the lock-holding connection, so the lock covers it.
+      let merged;
+      try {
+        merged = await conn.tx((t) => mergeProject(t, validated, { orgId, source: source ?? 'upload' }));
+      } catch (err) {
+        // Merge failed (409 collision / orphan FK / I/O): undo the file install so
+        // disk matches the rolled-back Postgres state, then rethrow the original 4xx/5xx.
+        rollbackSwap(destPath, bakMade);
+        throw err;
+      }
 
-  return {
-    projectId: merged.projectId,
-    slug: validated.project.slug,
-    dbFilename: merged.dbFilename,
-    photoCount: merged.photoCount,
-  };
+      // Merge committed — finalize the swap (drop the .bak; failure here is logged,
+      // never fatal: the new file is already installed and Postgres is consistent).
+      commitSwap(destPath);
+
+      return {
+        projectId: merged.projectId,
+        slug: validated.project.slug,
+        dbFilename: merged.dbFilename,
+        photoCount: merged.photoCount,
+      };
+    } finally {
+      await conn
+        .one('SELECT pg_advisory_unlock($1, hashtext($2))', [SV360_INGEST_LOCK_NAMESPACE, lockKey])
+        .catch((err) => logger.warn({ err, lockKey }, 'Failed to release sv360 ingest lock'));
+    }
+  });
 }

@@ -140,6 +140,9 @@ export async function getPhotoImageMeta(uuid, quality, user) {
     etag: `"${uuid}-${quality}-${sizeBytes}"`,
     photoId: uuid,
     contentType: 'image/webp',
+    // Drives the cache scope in the controller: a `disabled` project's image is
+    // access-controlled and must never land in a shared cache (P6).
+    projectStatus: row.project_status,
   };
 }
 
@@ -253,7 +256,11 @@ export async function resolveThumbnailPath(slug, user) {
   // resolved project's stored db_filename (already server-derived at ingestion).
   const thumbFile = String(project.db_filename).replace(/\.db$/i, '.webp');
   const filePath = path.resolve(config.sv360.dbDir, path.basename(thumbFile));
-  return existsSync(filePath) ? filePath : null;
+  if (!existsSync(filePath)) return null;
+
+  // `status` travels with the path so the controller can decide the cache scope:
+  // only an `enabled` (public) project may be cached by a SHARED cache. See P6.
+  return { filePath, projectStatus: project.status };
 }
 
 // --- internal -------------------------------------------------------------

@@ -8,7 +8,7 @@ import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { query } from '../../database/index.js';
 import { orgIsActive } from '../../utils/org-status.js';
-import { joinRoom, leaveRoom, getRoomUsers } from './collab.rooms.js';
+import { joinRoom, leaveRoom, getRoomUsers, getRoomClients } from './collab.rooms.js';
 import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
 import * as handlers from './collab.handlers.js';
@@ -157,12 +157,45 @@ export function heartbeatSweep(wss) {
   });
 }
 
+// The WebSocketServer created by the most recent attachWebSocket() call. Held so
+// `closeAllSockets()` can reach it during shutdown (P4).
+let activeWss = null;
+
+/**
+ * Closes every collab socket and the WebSocketServer itself, so a pending
+ * `server.close()` can finish. WS close code 1001 ("going away") tells clients
+ * this is a server shutdown and they should reconnect later, not an error.
+ *
+ * Safe to call when no server was ever attached, and idempotent.
+ * @returns {Promise<void>} resolves once the WebSocketServer is closed.
+ */
+export function closeAllSockets() {
+  const wss = activeWss;
+  if (!wss) return Promise.resolve();
+  activeWss = null;
+
+  for (const client of wss.clients) {
+    try {
+      client.close(1001, 'Server shutting down');
+    } catch {
+      // Already closing/closed — nothing to do.
+    }
+  }
+
+  return new Promise((resolve) => wss.close(() => resolve()));
+}
+
 /**
  * Attaches WebSocket handling to the HTTP server. Returns the WebSocketServer
  * (used by tests to drive heartbeatSweep / inspect clients).
  */
 export function attachWebSocket(server) {
   const wss = new WebSocketServer({ noServer: true });
+
+  // P4 — expose the live server so a graceful shutdown can close the collab
+  // sockets. Without this, `server.close()` waits forever on a long-lived
+  // WebSocket (they are open by design) and its callback never fires.
+  activeWss = wss;
 
   // Handle HTTP upgrade requests
   server.on('upgrade', async (request, socket, head) => {
@@ -401,6 +434,15 @@ function removeConnection(ws) {
   leaveRoom(ws.atlasId, ws);
   if (!ws.isPublic) {
     collabService.deleteSession(ws.userId, ws.atlasId, ws.clientId);
+  }
+
+  // P8 — `user_left` is keyed only by userId, so announcing it unconditionally
+  // tells peers to drop a user who is still online through ANOTHER socket (a
+  // second browser tab, or a reconnect that arrived with a fresh clientId before
+  // the old socket finished closing). Only announce the LAST socket of that user.
+  // leaveRoom already removed this ws, so the room holds exactly the survivors.
+  for (const client of getRoomClients(ws.atlasId)) {
+    if (client.userId === ws.userId) return;
   }
   collabService.broadcastUserLeft(ws.atlasId, ws.userId);
 }

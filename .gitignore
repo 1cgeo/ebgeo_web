@@ -13,6 +13,7 @@ data/images/
 data/test-images/
 data/e2e-images/
 data/assets3d/
+data/sv360/
 data/*.sqlite*
 
 # Logs

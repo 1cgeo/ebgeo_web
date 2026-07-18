@@ -225,25 +225,31 @@ A lógica vive no cliente (`ebgeo_web`). O backend já oferece o contrato necess
 
 ---
 
-## Varredura de bugs do backend — 2026-07-18 (pendências remanescentes)
+## Varredura de bugs do backend — 2026-07-18
 
 Varredura sistemática por bugs de correção/segurança em 5 frentes (auth/middleware,
 sync/collab/WS, atlas/sharing/images, sv360/nomes/zones/catálogo, utils/db/config/audit).
-Dez achados foram corrigidos com teste de regressão (ver histórico git: commits
-`fix(backend): corrige bugs de segurança/correção`, `fix(error-handler): …` e
-`fix(auth,sync): … (P1) + … (P2)`). Os itens abaixo são **reais e não corrigidos** —
-exigem decisão de produto ou mudança de maior escopo/risco.
 
-### Pendências (P3–P8)
+**Todas as pendências levantadas (P1–P8) foram corrigidas**, cada uma com teste de
+regressão — ver o histórico git (`fix(backend): corrige bugs de segurança/correção`,
+`fix(error-handler): …`, `fix(auth,sync): … (P1) + … (P2)`, `fix(backend): corrige P3–P8`).
+P1 e P2 estão documentadas nas seções acima (reconciliação de autorização e sync);
+P3–P8 na tabela abaixo. Restam apenas os **achados de baixo impacto** (L1–L13),
+registrados no fim desta seção e não corrigidos.
 
-| # | Arquivo | Bug | Sev | Correção sugerida |
-|---|---------|-----|-----|-------------------|
-| P3 | `sv360.ingest.js` (`ingestBundle`) | Duas ingestões concorrentes do mesmo `(orgId, slug)` não são serializadas; o swap de arquivo roda **antes** da tx Postgres, então uploads interleaved podem deixar o `{slug}.db` em disco e o metadado apontando para bundles diferentes; um `rollbackSwap` pode restaurar o `.bak` errado. | MÉDIO | `pg_advisory_xact_lock(hash(orgId\|\|slug))` antes do swap, ou mutex por-chave em processo. Mesmo padrão já aplicado no push de sync (P2). |
-| P4 | `src/index.js` | O shutdown gracioso não fecha o `WebSocketServer` nem os clientes; com um socket collab aberto (longa duração por design) o callback de `server.close()` nunca dispara → `blobPool.closeAll()`, `pgp.end()` e `process.exit(0)` são pulados; o processo trava até SIGKILL (risco de handles SQLite abertos em restart no Windows). | MÉDIO | Exportar `shutdown()` que fecha os clientes `wss`, com timer de force-exit. |
-| P5 | `src/utils/sqlite-blob-pool.js` | Worker que emite `'error'` não é removido de `this.workers` nem respawnado; o round-robin segue mandando ~1/N das leituras para um worker morto (`postMessage` vira no-op) → promises que nunca resolvem, requests pendurados sem timeout. O handler ainda rejeita os pendings de **todos** os workers, não só do que caiu. | MÉDIO | Dropar/respawnar o worker e rejeitar só os ids pendentes dele. |
-| P6 | `sv360.controller.js` | Imagem/thumbnail saem com `Cache-Control: public, max-age=31536000, immutable` sem `Vary`; um cache compartilhado (CDN/proxy) pode cachear a resposta de um usuário autorizado e reentregar a um anônimo (projeto `disabled`), ou envenenar o thumbnail de um slug com colisão cross-org. | MÉDIO | `private` (ou `Vary: Authorization, Cookie`) para projeto `disabled`; manter `public, immutable` só para `enabled`. |
-| P7 | `src/config.js` (`validateEnvVariables`) | Só DATABASE_URL/JWT_SECRET/PORT/CORS_ORIGIN são validados; os demais `parseInt` viram `NaN` silencioso: `MAX_BULK_UPLOAD_MB=abc` → `express.json({limit:'NaNmb'})` (**sem limite de corpo**); `WS_HEARTBEAT_INTERVAL_MS=abc` → `setInterval(NaN)` ≈ 1 ms (tempestade de queries); `JWT_REFRESH_EXPIRY=1w` → `parseDuration`=0 → todo refresh expira imediatamente. | MÉDIO | Estender a validação fail-fast e garantir `parseDuration` > 0. |
-| P8 | `collab.gateway.js` (`removeConnection`) | `user_left` é transmitido só por `userId`, sem checar se o usuário ainda tem outro socket vivo na sala (reconexão com clientId novo, ou duas abas). Peers removem um usuário que continua online. `user_away`/`user_back` carregam `clientId`, `user_left` não. | MÉDIO | Só emitir `user_left` no último socket do usuário na sala, ou carregar `clientId`. |
+### Pendências P3–P8 — **corrigidas**
+
+Todas as seis foram corrigidas, cada uma com teste de regressão (controle negativo:
+revertendo os fixes com os testes presentes, apenas os testes correspondentes falham).
+
+| # | Área | Bug | Correção | Teste |
+|---|------|-----|----------|-------|
+| P3 | Ingestão sv360 | Duas ingestões concorrentes do mesmo `(orgId, slug)` não eram serializadas; o swap de arquivo roda **antes** da tx Postgres, então uploads interleaved podiam deixar disco e metadado apontando para bundles diferentes, com `rollbackSwap` restaurando o `.bak` errado. | Advisory lock de **sessão** (`pg_advisory_lock`, namespace `S360`) numa conexão dedicada via `task()`, cobrindo swap **e** tx; liberado em `finally` (e pelo Postgres se a conexão cair, então um crash não trava o slug). Lock de transação não serviria: seria tarde demais para o swap. | `sv360-ingest-serialization.test.js` |
+| P4 | Shutdown | O shutdown não fechava o `WebSocketServer` nem os clientes; com um socket collab aberto (longa duração por design) o callback de `server.close()` nunca disparava → `blobPool.closeAll()`, `pgp.end()` e `process.exit(0)` pulados; processo travado até SIGKILL. | `closeAllSockets()` (collab.gateway) fecha os clientes com **1001 going-away** e o `wss`; `shutdown()` chama isso **antes** de `server.close()`, com timer de force-exit de 10s e guarda de reentrada. | `collab-shutdown-presence.test.js` |
+| P5 | Pool SQLite | Worker que emitia `'error'` continuava em `this.workers`; o round-robin seguia mandando ~1/N das leituras para uma thread morta (`postMessage` vira no-op) → promises pendentes **para sempre** (não há timeout de request). O handler ainda rejeitava os pendings de todos os outros workers, saudáveis. | Cada request registra o worker dono; na morte, só os pendings dele são rejeitados, ele sai da rotação e um substituto é spawnado. Um evict em voo é contabilizado como concluído para o worker morto (senão `evict()` nunca resolveria). | `sqlite-blob-pool.test.js` |
+| P6 | Cache sv360 | Imagem/thumbnail saíam com `Cache-Control: public, immutable` sem `Vary`, **incondicionalmente** — um cache compartilhado (CDN/proxy) podia guardar a resposta de um usuário autorizado de projeto `disabled` e reentregá-la a um anônimo, sem a aplicação ser consultada. | O escopo do cache passa a seguir o escopo de acesso: `enabled` (público) mantém `public, immutable`; `disabled` (controlado) vira `private` + `Vary: Authorization, Cookie`. A regra de acesso em si não mudou. | `sv360-cache-scope.test.js` |
+| P7 | Config | Só DATABASE_URL/JWT_SECRET/PORT/CORS_ORIGIN eram validados; os demais `parseInt` viravam `NaN` silencioso — `MAX_BULK_UPLOAD_MB=abc` → `express.json({limit:'NaNmb'})` (**sem limite de corpo**), `WS_HEARTBEAT_INTERVAL_MS=abc` → `setInterval(NaN)` ≈ 1 ms, `JWT_REFRESH_EXPIRY=1w` → `parseDuration`=0 (todo refresh nasce expirado). | `NUMERIC_ENV_RULES` valida faixa de 17 variáveis inteiras (exigindo string totalmente numérica, pois `parseInt('12abc')`=12) e as durações JWT contra a gramática `[smhd]` com valor > 0. Só variáveis **definidas** são checadas; os defaults são conhecidos-bons. | `config.test.js` |
+| P8 | Presença | `user_left` era transmitido só por `userId`, sem checar se o usuário ainda tinha outro socket vivo na sala (segunda aba, ou reconexão com clientId novo correndo com o close do socket antigo) → peers removiam um usuário ainda online. | `removeConnection` só anuncia quando o socket que saiu era o **último** daquele usuário na sala (`leaveRoom` já rodou, então a sala contém exatamente os sobreviventes). | `collab-shutdown-presence.test.js` |
 
 ### Achados de baixo impacto (registro)
 
