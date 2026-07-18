@@ -28,15 +28,15 @@ Armadilha: `applyRuntimeConfig` em si é fail-safe (retorna `{ applied: false, e
 3. **Tabelas de catálogo** (via `catalogService.listCatalog`): basemaps, camadas de análise, camadas de dados, tilesets, além de `ranks`/`organizations` para os selects de cadastro.
 4. **Overrides de admin** (`config_settings`, chave `app_config`): `deepMerge(payload, overrides)` na última linha (`config.service.js:236`). O admin vence sobre estático e env.
 
-> [!CONTRADICAO 2026-07-18] guia *10-config* (absorvido) §"O payload é montado a partir de três fontes" lista apenas resources + env + estáticos; o código em `backend/src/modules/config/config.service.js:236` aplica ainda uma **quarta** camada, os overrides de admin persistidos em `config_settings` (`config.queries.js:4-17`), que vence todas as outras.
+> **Nota histórica.** guia *10-config* (absorvido) §"O payload é montado a partir de três fontes" lista apenas resources + env + estáticos; o código em `backend/src/modules/config/config.service.js:236` aplica ainda uma **quarta** camada, os overrides de admin persistidos em `config_settings` (`config.queries.js:4-17`), que vence todas as outras.
 
-> [!CONTRADICAO 2026-07-18] guia *10-config* (absorvido) §3 diz que basemaps/analysisLayers/dataLayers/tilesets vêm de uma **única tabela `resources`** (categorias) editada por `/api/v1/resources`; o código usa **uma tabela por tipo** (`backend/src/modules/catalog/catalog.tables.js:5-11`: `basemaps`, `data_layers`, `analysis_layers`, `tilesets`, `streetview_markers`) e **uma rota CRUD por tipo** (`backend/src/app.js:102-106`: `/api/v1/basemaps`, `/api/v1/data-layers`, `/api/v1/analysis-layers`, `/api/v1/tilesets`, `/api/v1/streetview-markers`). Não existe rota `/api/v1/resources`. Ver [[resources-catalogo]].
+> **Nota histórica.** guia *10-config* (absorvido) §3 diz que basemaps/analysisLayers/dataLayers/tilesets vêm de uma **única tabela `resources`** (categorias) editada por `/api/v1/resources`; o código usa **uma tabela por tipo** (`backend/src/modules/catalog/catalog.tables.js:5-11`: `basemaps`, `data_layers`, `analysis_layers`, `tilesets`, `streetview_markers`) e **uma rota CRUD por tipo** (`backend/src/app.js:102-106`: `/api/v1/basemaps`, `/api/v1/data-layers`, `/api/v1/analysis-layers`, `/api/v1/tilesets`, `/api/v1/streetview-markers`). Não existe rota `/api/v1/resources`. Ver [[resources-catalogo]].
 
 ## As chaves emitidas (e as duas que a doc não lista)
 
 Emitidas por `config.service.js:170-233`: `app`, `features`, `services`, `search`, `assets3dBaseUrl`, `basemaps`, `analysisLayers`, `dataLayers`, `map2d`, `map3d`, `tilesets`, `postos`, `organizacoesMilitares`, `streetView360`, `basemapStyles`.
 
-> [!CONTRADICAO 2026-07-18] guia *10-config* (absorvido) §"Contrato congelado" enumera 12 chaves de topo + `assets3dBaseUrl`; o código em `config.service.js:216-218` emite também `postos` e `organizacoesMilitares` (listas controladas de posto/graduação e OM, lidas de `ranks`/`organizations`), publicadas no endpoint **público** justamente para o formulário anônimo de cadastro popular seus selects antes do login. Ver [[gestao-usuarios]] e [[organizacoes-om]].
+> **Nota histórica.** guia *10-config* (absorvido) §"Contrato congelado" enumera 12 chaves de topo + `assets3dBaseUrl`; o código em `config.service.js:216-218` emite também `postos` e `organizacoesMilitares` (listas controladas de posto/graduação e OM, lidas de `ranks`/`organizations`), publicadas no endpoint **público** justamente para o formulário anônimo de cadastro popular seus selects antes do login. Ver [[gestao-usuarios]] e [[organizacoes-om]].
 
 Tipos que não podem ser trocados (contrato congelado, ver [[sintese-contratos-congelados]]):
 
@@ -50,7 +50,7 @@ Tipos que não podem ser trocados (contrato congelado, ver [[sintese-contratos-c
 
 **`search` é objeto vazio.** `search: {}` (`config.service.js:182`). A chave permanece por causa do shape congelado, mas não carrega mais `apiUrl`: o gazetteer **é este backend** (`GET /nomes/busca`) e o cliente deriva a rota da própria base da API. O antigo `SEARCH_API_URL` apontava por default para um `:3001` inexistente, o fetch dava connection-refused e a busca falhava em silêncio. Liga/desliga continua em `features.apisearch`. Ver [[gazetteer-nomes-geograficos]].
 
-> [!CONTRADICAO 2026-07-18] guia *10-config* (absorvido) §2 (tabela de chaves) diz que `search` vem de env e carrega `apiUrl`; o código em `config.service.js:176-182` emite `search: {}` deliberadamente, e `config.admin.schemas.js:43` mantém `search` só como objeto aberto para não quebrar payloads antigos. Atenção: `tests/e2e/config-contract.e2e.test.js:53-57` ainda afirma `cfg.search.apiUrl` como string não vazia, ou seja, essa asserção do contrato e2e está obsoleta em relação ao serviço.
+> **Nota histórica.** guia *10-config* (absorvido) §2 (tabela de chaves) diz que `search` vem de env e carrega `apiUrl`; o código em `config.service.js:176-182` emite `search: {}` deliberadamente, e `config.admin.schemas.js:43` mantém `search` só como objeto aberto para não quebrar payloads antigos. Atenção: `tests/e2e/config-contract.e2e.test.js:53-57` ainda afirma `cfg.search.apiUrl` como string não vazia, ou seja, essa asserção do contrato e2e está obsoleta em relação ao serviço.
 
 **Camada de análise sem `bounds` é descartada.** `listAnalysisLayers` filtra qualquer camada cujo `bounds` não seja array de 4 posições (`config.service.js:93-95`). O motivo está no comentário do próprio código: uma camada semeada com `config: {}` (o placeholder `hillshade`) quebrava o boot do app no zoom-to-layer. Se uma camada "sumiu" do catálogo, o suspeito número um é `bounds` incompleto, não `active = false`.
 
@@ -58,7 +58,7 @@ Tipos que não podem ser trocados (contrato congelado, ver [[sintese-contratos-c
 
 **Terreno 3D só liga se houver URL.** `map3d.providers.terrain.enabled = Boolean(C.map3dTerrainUrl)` (`config.service.js:208`) e `MAP3D_TERRAIN_URL` tem default **vazio** (`backend/src/config.js:157`). Sem terreno, o Cesium usa o elipsoide plano em vez de tentar (e falhar) um provider inexistente.
 
-> [!CONTRADICAO 2026-07-18] guia *10-config* (absorvido) §6 e `docs/deploy.md` §appConfig documentam `MAP3D_TERRAIN_URL` com default `http://localhost/terrain/tilesets/terrain` e `SV360_SERVICE_URL` com default `http://localhost:3000/api/v1/sv360`; o código em `backend/src/config.js:157` usa default **vazio** para o terreno 3D (e publica `enabled: false`) e `backend/src/config.js:171` usa o default **relativo** `/api/v1/sv360`. Ver [[config-runtime-urls-relativas]].
+> **Nota histórica.** guia *10-config* (absorvido) §6 e `docs/deploy.md` §appConfig documentam `MAP3D_TERRAIN_URL` com default `http://localhost/terrain/tilesets/terrain` e `SV360_SERVICE_URL` com default `http://localhost:3000/api/v1/sv360`; o código em `backend/src/config.js:157` usa default **vazio** para o terreno 3D (e publica `enabled: false`) e `backend/src/config.js:171` usa o default **relativo** `/api/v1/sv360`. Ver [[config-runtime-urls-relativas]].
 
 **`basemapStyles`: env-injection é o default, o recurso é o override.** `listBasemapStyles` (`config.service.js:77-84`) começa dos 5 styles montados por `S.buildBasemapStyles(C)` (`config.static.js:124-132`: `carta-topografica`, `osm`, `bdgex`, `imagens`, `carta-ortoimagem`) e só substitui um id quando o recurso daquele basemap tem `config.style`. Ou seja, um style editado no admin **congela** aquele basemap contra a injeção por env: trocar `OSM_TILE_URL` não afeta mais quem tem style próprio salvo.
 
@@ -101,7 +101,7 @@ Todas opcionais, com defaults **DEV-only** (OSM, Google Satellite, demotiles do 
 
 ## Divergência residual da doc sobre fallback
 
-> [!CONTRADICAO 2026-07-18] guia *10-config* (absorvido) (diagrama da §"Visão Geral" e o parágrafo seguinte, "Se o backend estiver indisponível, o frontend mantém o `config.js` local como fallback") afirma que existe fallback local; o código em `src/js/index.js:83-86` mostra a tela "EBGeo indisponível" e aborta o boot, e `src/js/config.js:22-60` é um shell sem dado de deploy. A §7 do próprio guia já diz "NÃO há fallback", ou seja, a contradição é interna ao documento e o comportamento correto é o fail-fast.
+> **Nota histórica.** guia *10-config* (absorvido) (diagrama da §"Visão Geral" e o parágrafo seguinte, "Se o backend estiver indisponível, o frontend mantém o `config.js` local como fallback") afirma que existe fallback local; o código em `src/js/index.js:83-86` mostra a tela "EBGeo indisponível" e aborta o boot, e `src/js/config.js:22-60` é um shell sem dado de deploy. A §7 do próprio guia já diz "NÃO há fallback", ou seja, a contradição é interna ao documento e o comportamento correto é o fail-fast.
 
 ## Checklist para não errar
 

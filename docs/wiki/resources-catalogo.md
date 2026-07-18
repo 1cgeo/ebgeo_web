@@ -90,11 +90,11 @@ O CRUD do catálogo mexe **só no registro**. Os bytes (tileset 3D, bundle 360, 
 
 ## Divergências com a documentação
 
-> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido) §3.2-3.6 documenta uma API genérica `GET/POST/PUT/DELETE /api/v1/resources` com filtro `?category=basemap` e um campo `category` em cada registro. Essa rota **não existe** no código: `grep "v1/resources"` em `src/` não retorna nada, e o mount real são cinco rotas por tipo em `src/app.js:102-106`, sobre cinco tabelas dedicadas (`src/database/migrations/003_sync.sql:101-115`). Não há coluna `category` em lugar nenhum. O cliente já acompanha o modelo novo e traduz a categoria antiga para a rota nova em `ebgeo_web/src/js/store/sync/api-client.js:419-425`.
+> **Nota histórica.** guia *09-admin* (absorvido) §3.2-3.6 documenta uma API genérica `GET/POST/PUT/DELETE /api/v1/resources` com filtro `?category=basemap` e um campo `category` em cada registro. Essa rota **não existe** no código: `grep "v1/resources"` em `src/` não retorna nada, e o mount real são cinco rotas por tipo em `src/app.js:102-106`, sobre cinco tabelas dedicadas (`src/database/migrations/003_sync.sql:101-115`). Não há coluna `category` em lugar nenhum. O cliente já acompanha o modelo novo e traduz a categoria antiga para a rota nova em `ebgeo_web/src/js/store/sync/api-client.js:419-425`.
 
-> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido) §3.2 afirma que "o campo `active` não é incluído na resposta de listagem". O código inclui: `COLS` em `src/modules/catalog/catalog.service.js:9` lista `active` explicitamente e é usado tanto no `listCatalog` quanto no `getCatalogItem`. A parte correta da nota é que a listagem só devolve linhas com `active = true`.
+> **Nota histórica.** guia *09-admin* (absorvido) §3.2 afirma que "o campo `active` não é incluído na resposta de listagem". O código inclui: `COLS` em `src/modules/catalog/catalog.service.js:9` lista `active` explicitamente e é usado tanto no `listCatalog` quanto no `getCatalogItem`. A parte correta da nota é que a listagem só devolve linhas com `active = true`.
 
-> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido) §3.6 descreve o DELETE apenas como "204 No Content", sem dizer que é soft delete. O código faz `UPDATE ... SET active = false` (`src/modules/catalog/catalog.service.js:86`), a linha permanece no banco e não há rota para reverter.
+> **Nota histórica.** guia *09-admin* (absorvido) §3.6 descreve o DELETE apenas como "204 No Content", sem dizer que é soft delete. O código faz `UPDATE ... SET active = false` (`src/modules/catalog/catalog.service.js:86`), a linha permanece no banco e não há rota para reverter.
 
 ## Relacionados
 
@@ -195,7 +195,7 @@ A URL de tiles **não** vive aqui no caso default: ela vem dos builders com URLs
 
 Sem shape de contrato: nenhum consumidor lê essa tabela hoje (ver Armadilhas).
 
-> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido) §3.7 exemplifica `config` de basemap com `{ url, attribution, maxZoom, minZoom }` e de analysis_layer com um array `legend` de faixas coloridas. Nenhuma dessas chaves aparece no seed real (`src/database/migrations/003_sync.sql:130-175`) nem é lida por `src/modules/config/config.service.js:61-107`; basemap usa `enabled`/`image`/`priority` (+`style` opcional) e analysis_layer usa `source`/`bounds`/`paint`. O exemplo de `tileset` do guia é o mais próximo do real, mas `maximumScreenSpaceError` também não consta do seed.
+> **Nota histórica.** guia *09-admin* (absorvido) §3.7 exemplifica `config` de basemap com `{ url, attribution, maxZoom, minZoom }` e de analysis_layer com um array `legend` de faixas coloridas. Nenhuma dessas chaves aparece no seed real (`src/database/migrations/003_sync.sql:130-175`) nem é lida por `src/modules/config/config.service.js:61-107`; basemap usa `enabled`/`image`/`priority` (+`style` opcional) e analysis_layer usa `source`/`bounds`/`paint`. O exemplo de `tileset` do guia é o mais próximo do real, mas `maximumScreenSpaceError` também não consta do seed.
 
 
 ## Mídia do catálogo pelo painel admin: chaves, limites e o que fica fora de banda

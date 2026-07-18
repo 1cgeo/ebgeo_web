@@ -34,7 +34,7 @@ O schema Joi aceita ainda `features.data_layers` e `features.analysis_layers` (l
 
 No cliente, os dois verbos são `apiClient.getAtlasSettings` / `apiClient.updateAtlasSettings` (`src/js/store/sync/api-client.js:639,648`). O gate de UI está em `src/js/account/account.control.js:480-493`, mas quem realmente decide é o backend no PATCH.
 
-> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido) §8 mostra `setSettingsVisible(isOwner)` no exemplo de frontend, sugerindo que configurar é exclusivo do owner. A rota real exige apenas `manage` (`ebgeo_backend/src/modules/atlas/atlas.routes.js:35`), e a própria matriz do mesmo documento lista "Alterar configurações do atlas" como ✅ para `manage`. Trate como `manage`.
+> **Nota histórica.** guia *02-atlas-basico* (absorvido) §8 mostra `setSettingsVisible(isOwner)` no exemplo de frontend, sugerindo que configurar é exclusivo do owner. A rota real exige apenas `manage` (`ebgeo_backend/src/modules/atlas/atlas.routes.js:35`), e a própria matriz do mesmo documento lista "Alterar configurações do atlas" como ✅ para `manage`. Trate como `manage`.
 
 ## Armadilha nº 1: o merge é raso
 
@@ -42,7 +42,7 @@ O guia diz "PATCH permite atualização parcial, apenas os campos enviados serã
 
 Consequência prática: enviar `{"features": {"map_3d": false}}` **substitui o objeto `features` inteiro**, apagando `panoramic_images`, `terrain_3d`, etc. Como o overlay do cliente trata ausente como "ligado" (`!== false`), o efeito não é perda visível imediata, mas qualquer flag previamente desligada volta silenciosamente a ligada.
 
-> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido) §6 apresenta `{"features": {"map_3d": false}, "max_zoom": 15}` como patch parcial seguro; o `||` em `ebgeo_backend/src/modules/atlas/atlas.queries.js:71` é merge raso e descarta as demais chaves de `features`.
+> **Nota histórica.** guia *02-atlas-basico* (absorvido) §6 apresenta `{"features": {"map_3d": false}, "max_zoom": 15}` como patch parcial seguro; o `||` em `ebgeo_backend/src/modules/atlas/atlas.queries.js:71` é merge raso e descarta as demais chaves de `features`.
 
 Por isso o modal do cliente sempre monta e envia o objeto `features` completo, junto com todas as listas de allowlist, em vez de mandar deltas (`src/js/modals/atlas-settings.modal.js:348-350`). Siga o mesmo padrão: leia com GET, mute o objeto local, mande o bloco inteiro.
 
@@ -98,7 +98,7 @@ O modal também só oferece basemaps habilitados no deploy (`_allBasemapIds`, `s
 
 `bounds_2d`, `min_zoom`, `max_zoom` e `default_basemap` são validados pelo backend (`ebgeo_backend/src/modules/atlas/atlas.schemas.js:26-30`, com as regras `min_zoom <= max_zoom` e `default_basemap ∈ basemaps`), persistidos e devolvidos no GET, mas **nenhum módulo do frontend os lê**: uma busca por esses identificadores em `src/js` não retorna ocorrência alguma, e nem `intersectAvailability` nem o modal os tocam. São contrato reservado, não comportamento.
 
-> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido) §6 documenta `bounds_2d`, `min_zoom`, `max_zoom` e `default_basemap` como se afetassem a navegação e o mapa base inicial; hoje o cliente apenas os ignora (`src/js/store/sync/atlas-settings.service.js:73-93` não os considera, e o modal em `src/js/modals/atlas-settings.modal.js:348-350` nem os envia).
+> **Nota histórica.** guia *02-atlas-basico* (absorvido) §6 documenta `bounds_2d`, `min_zoom`, `max_zoom` e `default_basemap` como se afetassem a navegação e o mapa base inicial; hoje o cliente apenas os ignora (`src/js/store/sync/atlas-settings.service.js:73-93` não os considera, e o modal em `src/js/modals/atlas-settings.modal.js:348-350` nem os envia).
 
 ## Outros pontos de contato
 

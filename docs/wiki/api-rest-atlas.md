@@ -32,7 +32,7 @@ Fonte: `src/modules/atlas/atlas.routes.js:20-51`.
 | `/atlas/:atlasId/images/*` | ver [[imagens-atlas]] | sub-router |
 | `/atlas/:atlasId/sync/*` | ver [[snapshot-e-pull-incremental]] | sub-router |
 
-> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido) documenta apenas 8 rotas (list, create, get, update, delete, settings x2, clone). O código em `src/modules/atlas/atlas.routes.js:22-44` expõe também `POST /import`, `GET /trash`, `POST /:atlasId/restore`, `POST /:atlasId/transfer` e `POST /:atlasId/maps/:mapId/duplicate`. O guia está incompleto, não errado.
+> **Nota histórica.** guia *02-atlas-basico* (absorvido) documenta apenas 8 rotas (list, create, get, update, delete, settings x2, clone). O código em `src/modules/atlas/atlas.routes.js:22-44` expõe também `POST /import`, `GET /trash`, `POST /:atlasId/restore`, `POST /:atlasId/transfer` e `POST /:atlasId/maps/:mapId/duplicate`. O guia está incompleto, não errado.
 
 ## Ordem das rotas importa
 
@@ -74,13 +74,13 @@ Todo PUT incrementa `version` e atualiza `updated_at`. A resposta é o atlas com
 
 `UPDATE_ATLAS_SETTINGS` faz `settings = settings || $2::jsonb` (`atlas.queries.js:69-76`). O operador `||` do JSONB mescla **apenas o primeiro nível**: enviar `{ "features": { "map_3d": false } }` substitui o objeto `features` inteiro, zerando `panoramic_images`, `terrain_3d`, `data_layers` e `analysis_layers`.
 
-> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido):291-300` mostra exatamente esse payload parcial e afirma "PATCH permite atualização parcial - apenas os campos enviados serão alterados". O código em `src/modules/atlas/atlas.queries.js:71` faz merge raso via `||`, então um `features` parcial descarta as demais flags.
+> **Nota histórica.** guia *02-atlas-basico* (absorvido):291-300` mostra exatamente esse payload parcial e afirma "PATCH permite atualização parcial - apenas os campos enviados serão alterados". O código em `src/modules/atlas/atlas.queries.js:71` faz merge raso via `||`, então um `features` parcial descarta as demais flags.
 
 O frontend já contorna isso: `src/js/modals/atlas-settings.modal.js:348-350` envia sempre o objeto `features` completo. Qualquer cliente novo deve fazer o mesmo (ler o settings atual, mesclar em memória, mandar o bloco inteiro). Detalhes de forma e validação em [[atlas-settings]].
 
 A validação Joi (`atlas.schemas.js:19-48`) rejeita `min_zoom > max_zoom` e `default_basemap` fora de `basemaps`. O default do banco (`src/database/migrations/002_atlas.sql:19-36`) já traz as cinco flags de `features` como `true` e as listas de disponibilidade vazias, onde **lista vazia significa "sem restrição"**, não "nada permitido".
 
-> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido):110-113` e a tabela de settings listam só três flags de `features` (`map_3d`, `panoramic_images`, `terrain_3d`). O schema em `src/modules/atlas/atlas.schemas.js:20-26` e o default em `002_atlas.sql:20-26` incluem também `data_layers` e `analysis_layers`.
+> **Nota histórica.** guia *02-atlas-basico* (absorvido):110-113` e a tabela de settings listam só três flags de `features` (`map_3d`, `panoramic_images`, `terrain_3d`). O schema em `src/modules/atlas/atlas.schemas.js:20-26` e o default em `002_atlas.sql:20-26` incluem também `data_layers` e `analysis_layers`.
 
 ## DELETE, lixeira e restore
 
@@ -99,7 +99,7 @@ Pontos de atenção:
 - Remover o dono é no-op: o dono não tem linha em `atlas_shares`, então `DELETE /sharing/users/:userId` sobre ele retorna 404 `Share`.
 - Toda mutação de sharing faz broadcast `sharing_updated` na sala, carregando `role` já traduzido para o vocabulário de front (`sharing.controller.js:38`, `:57`), para o par conectado re-gatear a UI ao vivo sem reconectar. Ver [[canal-collab-websocket]] e [[sintese-capacidades-por-papel]].
 
-> [!CONTRADICAO 2026-07-18] guia *07-compartilhamento* (absorvido):32-53` documenta o retorno de `GET /sharing` sem a chave `owner`; `src/modules/sharing/sharing.service.js:15-19` a inclui.
+> **Nota histórica.** guia *07-compartilhamento* (absorvido):32-53` documenta o retorno de `GET /sharing` sem a chave `owner`; `src/modules/sharing/sharing.service.js:15-19` a inclui.
 
 ## Transferência de posse
 
@@ -331,7 +331,7 @@ O campo que sustenta três dos cinco filtros é o `user_permission` de `LIST_USE
 
 O nome default da cópia é montado **no cliente** como `"<nome> (cópia)"` (`project-picker.modal.js:446`), coincidindo com o default do servidor; ver [[clone-atlas]].
 
-> [!CONTRADICAO 2026-07-18] O gate de Renomear no Drive é `perm === 'owner' || perm === 'write'` (`src/js/modals/project-picker.modal.js:369-370`), exatamente a armadilha registrada nesta página e em [[permissoes-atlas]]: `manage` está **acima** de `write` e não bate em nenhum dos dois, então um co-Gestor não enxerga "Renomear" no card, embora o backend aceite o `PUT` dele (`atlas.routes.js:27`). guia *ui-ux-ebgeo* (absorvido) §2 descreve a ação como "gated por papel (renomear = Editor+)", que é a intenção, não o efeito.
+> **Nota histórica.** O gate de Renomear no Drive é `perm === 'owner' || perm === 'write'` (`src/js/modals/project-picker.modal.js:369-370`), exatamente a armadilha registrada nesta página e em [[permissoes-atlas]]: `manage` está **acima** de `write` e não bate em nenhum dos dois, então um co-Gestor não enxerga "Renomear" no card, embora o backend aceite o `PUT` dele (`atlas.routes.js:27`). guia *ui-ux-ebgeo* (absorvido) §2 descreve a ação como "gated por papel (renomear = Editor+)", que é a intenção, não o efeito.
 
 ### Testids congelados
 

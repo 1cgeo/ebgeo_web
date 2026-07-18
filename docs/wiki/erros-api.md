@@ -28,7 +28,7 @@ As classes de erro em `ebgeo_backend/src/utils/errors.js` fixam o par (status, c
 
 O conjunto de códigos que o cliente pode receber é **maior** que a tabela de 5 do guia, porque o handler também sintetiza códigos a partir do status para erros que não são `AppError` (`error-handler.js:86-107`): `BAD_REQUEST` 400, `PAYLOAD_TOO_LARGE` 413, `UNSUPPORTED_MEDIA_TYPE` 415, `TOO_MANY_REQUESTS` 429 (também emitido direto pelo rate limiter, `middleware/rate-limit.js:6-8`), além de `CONFLICT` 409.
 
-> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido):446-454` apresenta uma tabela de 5 códigos como "Códigos Comuns"; o código em `ebgeo_backend/src/middleware/error-handler.js:87-97` e `src/utils/errors.js:30-47` emite ainda `CONFLICT` (409), `BAD_REQUEST` (400), `PAYLOAD_TOO_LARGE` (413), `UNSUPPORTED_MEDIA_TYPE` (415) e `TOO_MANY_REQUESTS` (429). Tratar a lista de 5 como conjunto fechado leva a `switch` incompleto no cliente.
+> **Nota histórica.** guia *02-atlas-basico* (absorvido):446-454` apresenta uma tabela de 5 códigos como "Códigos Comuns"; o código em `ebgeo_backend/src/middleware/error-handler.js:87-97` e `src/utils/errors.js:30-47` emite ainda `CONFLICT` (409), `BAD_REQUEST` (400), `PAYLOAD_TOO_LARGE` (413), `UNSUPPORTED_MEDIA_TYPE` (415) e `TOO_MANY_REQUESTS` (429). Tratar a lista de 5 como conjunto fechado leva a `switch` incompleto no cliente.
 
 ## Erros de validação (422) e o campo `details`
 

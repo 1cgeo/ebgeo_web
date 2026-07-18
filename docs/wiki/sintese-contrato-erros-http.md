@@ -49,7 +49,7 @@ Rate limit responde `429 TOO_MANY_REQUESTS` com mensagem em português fixa (`ra
 
 Regra dura: **429 não é logout e não é refresh**. É backoff. O `_request` do cliente só ramifica em 401, então um 429 vira `ApiError` normal, o que está correto.
 
-> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido) §1.1 diz que o limitador de credenciais é chaveado por "IP + username", de modo que "um IP barulhento não bloqueie todo mundo". O código em `src/middleware/rate-limit.js:32` monta a chave como `` `${req.ip}:${(req.body?.username || '').toLowerCase()}` ``, e o corpo de `/auth/refresh` só tem `refreshToken` (`auth.schemas.js:9-11`). Logo, para refresh (e para verify-email/resend-verification) a chave degenera para `ip:`, um balde único por IP compartilhado entre todas essas rotas. Consequência prática: atrás de NAT ou proxy sem `trust proxy`, 10 refreshes em 15 minutos esgotam o balde de toda a rede.
+> **Nota histórica.** guia *11-seguranca-hardening* (absorvido) §1.1 diz que o limitador de credenciais é chaveado por "IP + username", de modo que "um IP barulhento não bloqueie todo mundo". O código em `src/middleware/rate-limit.js:32` monta a chave como `` `${req.ip}:${(req.body?.username || '').toLowerCase()}` ``, e o corpo de `/auth/refresh` só tem `refreshToken` (`auth.schemas.js:9-11`). Logo, para refresh (e para verify-email/resend-verification) a chave degenera para `ip:`, um balde único por IP compartilhado entre todas essas rotas. Consequência prática: atrás de NAT ou proxy sem `trust proxy`, 10 refreshes em 15 minutos esgotam o balde de toda a rede.
 
 Isso importa porque `refresh()` do cliente trata **qualquer** falha como sessão perdida: 429 no refresh cai no mesmo `catch` que token expirado e derruba a sessão (`api-client.js:300-307`). Refresh concorrente já é serializado por `this._refreshing` (`api-client.js:290`), o que também protege contra a detecção de reuso descrita em [[refresh-token-rotacao]].
 
@@ -62,7 +62,7 @@ O `code` é o mesmo (`NOT_FOUND`), a `message` é o que distingue:
 
 O caso emblemático é `POST /auth/register`: quando `ALLOW_SELF_REGISTRATION` está desligado (default em produção) a rota **não é registrada** (`auth.routes.js:14`), então cai no catch-all e retorna 404, não 403, para não confirmar a existência do endpoint.
 
-> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido) §8 sugere "tentar o endpoint e, ao receber 404, ocultar a opção". O código já expõe o flag diretamente: `src/modules/config/config.service.js:144` publica `features.self_registration` em `GET /api/config`. Sondar a rota é pior por dois motivos: ela está sob o `authLimiter` (`auth.routes.js:15`) e a sonda não tem `username` no corpo, então consome o balde `ip:` compartilhado com `/auth/refresh`. Use o `features` do config ([[config-dinamico]]).
+> **Nota histórica.** guia *11-seguranca-hardening* (absorvido) §8 sugere "tentar o endpoint e, ao receber 404, ocultar a opção". O código já expõe o flag diretamente: `src/modules/config/config.service.js:144` publica `features.self_registration` em `GET /api/config`. Sondar a rota é pior por dois motivos: ela está sob o `authLimiter` (`auth.routes.js:15`) e a sonda não tem `username` no corpo, então consome o balde `ip:` compartilhado com `/auth/refresh`. Use o `features` do config ([[config-dinamico]]).
 
 ## 403 vs 404 em atlas: a existência vaza de propósito
 

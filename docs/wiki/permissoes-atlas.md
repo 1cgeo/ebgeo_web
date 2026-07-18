@@ -40,11 +40,11 @@ A função é total e fail-closed: qualquer entrada não reconhecida cai em `vie
 
 O frontend **não guarda `connected.permission`**: lê apenas `payload.role` e o injeta em `sessionContext.setSession({ role })` (`sync-engine.js:192-198`); daí `ROLE_PERMISSIONS` deriva as flags booleanas que o `permission-guard.js` consulta.
 
-> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido):126-128` diz "Para autorizar escrita no cliente, cheque `permission !== 'read'` (não o `role`)"; o cliente real ignora `permission` por completo e gateia por `role` (`sync-engine.js:192-198` + `session-context.js:60-85`).
+> **Nota histórica.** guia *04-websocket-collab* (absorvido):126-128` diz "Para autorizar escrita no cliente, cheque `permission !== 'read'` (não o `role`)"; o cliente real ignora `permission` por completo e gateia por `role` (`sync-engine.js:192-198` + `session-context.js:60-85`).
 
 Os dois caminhos concordam no caso comum (`viewer` ⇒ `canEdit: false`), e o gate por `role` é até mais fino, porque distingue `commenter` e separa `editor` de `manager`/`owner` em `canManageUsers`/`canLockMaps`, espelhando `assertOperationAllowed`. Ainda assim, para um cliente novo, o campo congelado e canônico é `permission`; `role` é aditivo e pode divergir se alguém alterar `toFrontendRole` sem atualizar as duas pontas.
 
-> [!CONTRADICAO 2026-07-18] guia *visao-e-principios* (absorvido):353 diz que o admin global tem token de frontend `sysadmin`; o código não tem esse valor em lugar nenhum, `UserRole.ADMIN = 'admin'` (`session-context.js:31`) e o bit global é lido de `_globalRole` por `isAdmin()` (`session-context.js:162-164`).
+> **Nota histórica.** guia *visao-e-principios* (absorvido):353 diz que o admin global tem token de frontend `sysadmin`; o código não tem esse valor em lugar nenhum, `UserRole.ADMIN = 'admin'` (`session-context.js:31`) e o bit global é lido de `_globalRole` por `isAdmin()` (`session-context.js:162-164`).
 
 ## Terceiro eixo: papel global da conta
 

@@ -71,11 +71,11 @@ O serviço **não** conecta nem troca a origem do store, isso fica com a UI cham
 
 Imagens fora do allowlist do servidor (`image/png`, `image/jpeg`, `image/webp`) são reportadas como `skipped`, não como falha (`save-local-atlas.service.js:19, 50-53`). Ícones customizados em SVG caem nesse caso, por SVG ser vetor de XSS armazenado.
 
-> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido) §4.4 e §4.7 dizem que os `imageId` locais são substituídos por ids de servidor e que é preciso enviar operações de UPDATE nas features de imagem depois do bulk upload. O código em `src/js/import_export/save-local-atlas.service.js:8-10` e `:100-105` sobe os blobs preservando os ids locais (o backend aceita o id do cliente), justamente para que as referências das features importadas continuem válidas **sem rewrite pós-import**. Não há operações de remapeamento.
+> **Nota histórica.** guia *08-offline-import* (absorvido) §4.4 e §4.7 dizem que os `imageId` locais são substituídos por ids de servidor e que é preciso enviar operações de UPDATE nas features de imagem depois do bulk upload. O código em `src/js/import_export/save-local-atlas.service.js:8-10` e `:100-105` sobe os blobs preservando os ids locais (o backend aceita o id do cliente), justamente para que as referências das features importadas continuem válidas **sem rewrite pós-import**. Não há operações de remapeamento.
 
-> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido) §5.1 modela estado por atlas no IndexedDB (`{ mode, serverId, lastSyncVersion, pendingOperations }` em cada atlas). O código não tem múltiplos atlas locais: existe um marcador único de origem, `__store_origin__` com `{ kind, atlasId }`, em `src/js/store/store-origin.js:28` e `:73-79`, e trocar de atlas remoto passa por `clearAllDataStore()`. Múltiplos atlas locais nomeados são não-objetivo declarado.
+> **Nota histórica.** guia *08-offline-import* (absorvido) §5.1 modela estado por atlas no IndexedDB (`{ mode, serverId, lastSyncVersion, pendingOperations }` em cada atlas). O código não tem múltiplos atlas locais: existe um marcador único de origem, `__store_origin__` com `{ kind, atlasId }`, em `src/js/store/store-origin.js:28` e `:73-79`, e trocar de atlas remoto passa por `clearAllDataStore()`. Múltiplos atlas locais nomeados são não-objetivo declarado.
 
-> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido) §5.2 diz que conflitos são "resolvidos via CRDT". O modelo real é LWW por ordem de chegada no servidor, com idempotência por `op_id`; o relógio de Lamport é registrado mas não decide conflito. Ver [[sintese-nao-e-crdt]] e [[modelo-conflito-lww]].
+> **Nota histórica.** guia *08-offline-import* (absorvido) §5.2 diz que conflitos são "resolvidos via CRDT". O modelo real é LWW por ordem de chegada no servidor, com idempotência por `op_id`; o relógio de Lamport é registrado mas não decide conflito. Ver [[sintese-nao-e-crdt]] e [[modelo-conflito-lww]].
 
 ## Tabela de decisão
 

@@ -26,7 +26,7 @@ Defaults em `config.js:92-99`; montagem em `src/modules/auth/auth.routes.js:15-2
 - **Pulado em teste.** `skip = () => config.isTest && process.env.RATE_LIMIT_FORCE !== '1'` (`rate-limit.js:18`). O store em memória acumularia ao longo da suíte inteira. Um teste que queira exercitar o limitador precisa setar `RATE_LIMIT_FORCE=1` e usar chave isolada.
 - No cliente, `429` **não** é `401`: não dispare logout nem refresh, só backoff.
 
-> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido) §1.1 lista o limitador estrito apenas em `/auth/{login,refresh,register}`; o código em `src/modules/auth/auth.routes.js:18-19` também o aplica a `/auth/verify-email` e `/auth/resend-verification`.
+> **Nota histórica.** guia *11-seguranca-hardening* (absorvido) §1.1 lista o limitador estrito apenas em `/auth/{login,refresh,register}`; o código em `src/modules/auth/auth.routes.js:18-19` também o aplica a `/auth/verify-email` e `/auth/resend-verification`.
 
 ## 2. Login timing-safe e mensagem genérica
 
@@ -45,7 +45,7 @@ Os demais desfechos do login **são** distinguíveis, e cada um merece tratament
 
 O caso `EMAIL_NOT_VERIFIED` tem `code` próprio justamente para a UI oferecer "reenviar confirmação"; ver [[gestao-usuarios]] e [[organizacoes-om]] para o gate de organização inativa.
 
-> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido) §2 e §3.2 documentam as mensagens em inglês (`Invalid credentials`, `Account is deactivated`, `Invalid refresh token`); o código emite português: `Usuário ou senha inválidos` (`auth.service.js:76`), `Conta desativada` (`auth.service.js:80`), `Sessão inválida. Entre novamente.` (`auth.service.js:127`). Nunca faça match por string de mensagem, use o `code`.
+> **Nota histórica.** guia *11-seguranca-hardening* (absorvido) §2 e §3.2 documentam as mensagens em inglês (`Invalid credentials`, `Account is deactivated`, `Invalid refresh token`); o código emite português: `Usuário ou senha inválidos` (`auth.service.js:76`), `Conta desativada` (`auth.service.js:80`), `Sessão inválida. Entre novamente.` (`auth.service.js:127`). Nunca faça match por string de mensagem, use o `code`.
 
 ## 3. JWT: allowlist HS256
 

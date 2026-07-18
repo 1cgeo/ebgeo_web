@@ -28,7 +28,7 @@ Tudo em `src/modules/users/users.routes.js`. Duas famílias no mesmo router, sep
 
 Este é o ponto onde a documentação está mais defasada. `users.rank_id` (FK `ranks`) e `users.organization_id` (FK `organizations`) são o que se **grava**; `posto_graduacao` e `organizacao_militar` são nomes **derivados** por `LEFT JOIN` apenas na leitura (`users.queries.js:3-6, 9-13`). A API continua devolvendo as strings, mas os corpos de escrita exigem UUID.
 
-> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido):104-112` e `:141-150` mostram `POST/PUT /users` recebendo `"posto_graduacao": "Sgt"` e `"organizacao_militar": "CIGEx"`; o código em `src/modules/users/users.schemas.js:41-42` e `:49-50` aceita apenas `rank_id` e `organization_id` (`Joi.string().uuid()`). Enviar as strings resulta em erro de validação, os campos não são reconhecidos.
+> **Nota histórica.** guia *09-admin* (absorvido):104-112` e `:141-150` mostram `POST/PUT /users` recebendo `"posto_graduacao": "Sgt"` e `"organizacao_militar": "CIGEx"`; o código em `src/modules/users/users.schemas.js:41-42` e `:49-50` aceita apenas `rank_id` e `organization_id` (`Joi.string().uuid()`). Enviar as strings resulta em erro de validação, os campos não são reconhecidos.
 
 Corolário: a UI de admin precisa das listas controladas de postos e OMs (ver [[organizacoes-om]] e [[resources-catalogo]]) para resolver nome para UUID antes de submeter.
 
@@ -40,7 +40,7 @@ Corolário: a UI de admin precisa das listas controladas de postos e OMs (ver [[
 
 `updateProfileSchema` aceita apenas `nome` e `rank_id` (`users.schemas.js:12-15`). A ausência de `organization_id` é deliberada e está documentada no próprio código: se o usuário pudesse se mover de tenant, o próximo refresh emitiria um token com a claim de org alvo e ele passaria os portões org-scoped (projetos privados de sv360, login, WS). Movimentação de tenant é ação de admin. Ver [[jwt-emissor-unico]].
 
-> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido):664-665` descreve `PUT /users/me` como "Atualizar perfil" sem restrição; o schema em `src/modules/users/users.schemas.js:12-15` rejeita `organization_id` por design de isolamento de tenant.
+> **Nota histórica.** guia *09-admin* (absorvido):664-665` descreve `PUT /users/me` como "Atualizar perfil" sem restrição; o schema em `src/modules/users/users.schemas.js:12-15` rejeita `organization_id` por design de isolamento de tenant.
 
 ## Criar usuário (admin) vs auto-cadastro
 
@@ -110,7 +110,7 @@ O controller passa `req.user.id` como `actingUserId` (`users.controller.js:52`) 
 
 É defesa em profundidade contra o cenário de "último admin se tranca para fora", complementando o botão desabilitado na UI. Note a assimetria de status: auto-desativação via `PUT` é **409**, via `DELETE` é **403** (`users.service.js:211`). Não é bug, são caminhos distintos, mas o cliente precisa tratar os dois.
 
-> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido):152` diz que na atualização "todos os campos são opcionais" e lista apenas a checagem de `username` duplicado; o código em `src/modules/users/users.service.js:140-149` adiciona duas rejeições 409 para auto-desativação e auto-rebaixamento, e `users.schemas.js:55` aceita também `email_verified`.
+> **Nota histórica.** guia *09-admin* (absorvido):152` diz que na atualização "todos os campos são opcionais" e lista apenas a checagem de `username` duplicado; o código em `src/modules/users/users.service.js:140-149` adiciona duas rejeições 409 para auto-desativação e auto-rebaixamento, e `users.schemas.js:55` aceita também `email_verified`.
 
 ## Listagem e busca
 
@@ -124,7 +124,7 @@ O controller passa `req.user.id` como `actingUserId` (`users.controller.js:52`) 
 
 Mapeamento das classes usadas aqui (`src/utils/errors.js`): `NotFoundError` 404 `NOT_FOUND`, `ForbiddenError` 403 `FORBIDDEN`, `UnauthorizedError` 401 `UNAUTHORIZED`, `ConflictError` 409 `CONFLICT`. Envelope e convenções gerais em [[erros-api]] e [[sintese-contrato-erros-http]].
 
-> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido):94-117` documenta as mensagens de login em inglês (`Invalid credentials`, `Account is deactivated`); o código em `src/modules/auth/auth.service.js:77` e `:81` emite `Usuário ou senha inválidos` e `Conta desativada`. Os `code` (`UNAUTHORIZED`) batem, as `message` não. Nunca faça o cliente ramificar por `message`.
+> **Nota histórica.** guia *11-seguranca-hardening* (absorvido):94-117` documenta as mensagens de login em inglês (`Invalid credentials`, `Account is deactivated`); o código em `src/modules/auth/auth.service.js:77` e `:81` emite `Usuário ou senha inválidos` e `Conta desativada`. Os `code` (`UNAUTHORIZED`) batem, as `message` não. Nunca faça o cliente ramificar por `message`.
 
 ## Fronteiras
 

@@ -367,7 +367,12 @@ export class AtlasDrive {
         }
         this._closeCardMenu();
         const perm = project?.user_permission;
-        const canWrite = perm === 'owner' || perm === 'write';
+        // Hierarquia de CINCO níveis: read < comment < write < manage < owner.
+        // Uma lista fechada `=== 'owner' || === 'write'` exclui o co-Gestor
+        // (`manage`), que está ACIMA de write: o backend aceita o PUT dele
+        // (`atlas.routes.js`), mas o card escondia "Renomear". Mesma armadilha
+        // que já havia silenciado a presença de seleção do co-Gestor no servidor.
+        const canWrite = perm === 'owner' || perm === 'manage' || perm === 'write';
         const canOwn = perm === 'owner';
 
         const menu = document.createElement('div');

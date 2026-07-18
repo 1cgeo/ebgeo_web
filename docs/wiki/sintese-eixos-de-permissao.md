@@ -41,7 +41,7 @@ Ou seja: mesma OM + `org_role` de escrita, ou admin global. O mesmo predicado é
 
 **Armadilha crítica:** a tabela `atlas` **não tem coluna `organization_id`**. `organization_id` só existe em `users` (`src/database/migrations/001_core.sql:96`) e em `sv360.projects` (`005_sv360.sql:16`). Consequência prática: **a OM não isola atlas**. Um usuário de outra OM que receba um share tem acesso pleno ao nível compartilhado, e nenhuma listagem de atlas filtra por org. Não desenhe telas assumindo tenancy de atlas por OM.
 
-> [!CONTRADICAO 2026-07-18] guia *12-multiorg-identidade-auditoria* (absorvido):291` descreve `org_role` como "Capacidade de escrita dentro da OM (espelha o `UserRole` do frontend)", o que sugere um gate de escrita geral. No código o `org_role` só é consultado em `src/modules/streetview360/sv360.write.service.js:36` e `sv360.routes.js:269`; nenhuma rota de atlas, mapa, sync, imagem ou sharing o lê.
+> **Nota histórica.** guia *12-multiorg-identidade-auditoria* (absorvido):291` descreve `org_role` como "Capacidade de escrita dentro da OM (espelha o `UserRole` do frontend)", o que sugere um gate de escrita geral. No código o `org_role` só é consultado em `src/modules/streetview360/sv360.write.service.js:36` e `sv360.routes.js:269`; nenhuma rota de atlas, mapa, sync, imagem ou sharing o lê.
 
 ## Eixo 3: permissão por-atlas
 
@@ -63,7 +63,7 @@ A resolução é uma função pura testável, `resolvePermission({ userId, owner
 
 O mapeamento para o vocabulário do frontend está em `src/utils/roles.js:12-19`, e note a primeira linha: `if (globalRole === 'admin') return 'admin'`, ou seja, o eixo global sobrescreve o eixo por-atlas na hora de rotular a UI. Ver [[sintese-capacidades-por-papel]].
 
-> [!CONTRADICAO 2026-07-18] guia *12-multiorg-identidade-auditoria* (absorvido):293` diz que a permissão por-atlas é `owner` / `write` / `read` (três níveis). O código tem cinco: `read < comment < write < manage < owner` (`src/middleware/permissions.js:12-18`), e `manage` e `comment` são usados em rotas reais (`sharing.routes.js:15-20`, `sync.routes.js:19`).
+> **Nota histórica.** guia *12-multiorg-identidade-auditoria* (absorvido):293` diz que a permissão por-atlas é `owner` / `write` / `read` (três níveis). O código tem cinco: `read < comment < write < manage < owner` (`src/middleware/permissions.js:12-18`), e `manage` e `comment` são usados em rotas reais (`sharing.routes.js:15-20`, `sync.routes.js:19`).
 
 ## Qual eixo decide cada rota
 

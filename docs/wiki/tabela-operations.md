@@ -45,7 +45,7 @@ Duas funções distintas na mesma tabela, e confundir as duas é o erro clássic
 
 O trigger `trg_update_atlas_version` (`003_sync.sql:55-69`) propaga a versão para `atlas.current_version` a cada INSERT, e é isso que o pull lê como `currentVersion` (`sync.service.js:778`), ver [[atlas-modelo-de-dados]].
 
-> [!CONTRADICAO 2026-07-18] guia *arquitetura-sync* (absorvido) §8.1 diz que o trigger "mantém `atlas.current_version = MAX(server_version)`"; o código em `003_sync.sql:59` faz `SET current_version = NEW.server_version`, ou seja, o valor da **última linha inserida**, sem `MAX`. Na prática coincide porque o advisory lock serializa os inserts por atlas; se alguém inserir na tabela fora de `pushOperations`, a igualdade com o máximo deixa de valer.
+> **Nota histórica.** guia *arquitetura-sync* (absorvido) §8.1 diz que o trigger "mantém `atlas.current_version = MAX(server_version)`"; o código em `003_sync.sql:59` faz `SET current_version = NEW.server_version`, ou seja, o valor da **última linha inserida**, sem `MAX`. Na prática coincide porque o advisory lock serializa os inserts por atlas; se alguém inserir na tabela fora de `pushOperations`, a igualdade com o máximo deixa de valer.
 
 Detalhe assimétrico que confunde em debug: `pushOperations` devolve `serverVersion` calculado por `SELECT COALESCE(MAX(server_version),0) FROM operations WHERE atlas_id=$1` (`sync.queries.js:21-25`, usado em `sync.service.js:749`), enquanto o pull devolve `atlas.current_version`. Fontes diferentes para o mesmo número.
 
@@ -78,7 +78,7 @@ O contrato canônico é `data` no create e `changes` no update. O frontend deste
 
 `toFrontendOperation` devolve `id: op.id`, o **PK da linha no servidor** (`sync.service.js:256`). Já o broadcast WebSocket reenvia a op crua do cliente, apenas carimbada com `serverVersion` (`src/modules/collab/collab.handlers.js:197`). Ou seja, o mesmo evento chega com `id` diferente conforme o caminho: ao vivo vem o `op.id` do autor, por pull incremental vem o UUID da linha. Não use esse campo como chave de deduplicação entre os dois caminhos; a deduplicação de eco é por `clientId`. Ver [[canal-collab-websocket]] e [[canal-collab-websocket]].
 
-> [!CONTRADICAO 2026-07-18] guia *05-sync-crdt* (absorvido) §6 mostra a resposta do pull incremental com `"id": "op-uuid"`, sugerindo o id da operação do cliente; o código em `sync.service.js:256` devolve `op.id`, o PK da linha em `operations`, e o `op_id` do cliente não é exposto nessa resposta.
+> **Nota histórica.** guia *05-sync-crdt* (absorvido) §6 mostra a resposta do pull incremental com `"id": "op-uuid"`, sugerindo o id da operação do cliente; o código em `sync.service.js:256` devolve `op.id`, o PK da linha em `operations`, e o `op_id` do cliente não é exposto nessa resposta.
 
 ## Escrita: uma transação por push
 

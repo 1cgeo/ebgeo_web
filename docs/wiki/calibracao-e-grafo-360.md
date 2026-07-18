@@ -36,7 +36,7 @@ Armadilhas de coerção, verificadas rodando os schemas reais contra `VALIDATION
 - `{"calibration_reviewed": "true"}` **passa** e vira `true`.
 - `stripUnknown: true` está ligado globalmente, mas `.unknown(false)` explícito no schema vence: campo desconhecido dá 422, não é silenciosamente removido.
 
-> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido):386` diz que a validação numérica "rejeita `NaN`/`Infinity`/string" e que `calibration_reviewed` é "booleano estrito"; o código em `src/modules/streetview360/sv360.write.schemas.js:25,31` usa `Joi.number()`/`Joi.boolean()` com `convert` no padrão, então `"45"` e `"true"` são **coeridos e aceitos**. `NaN`/`Infinity` esses sim são rejeitados.
+> **Nota histórica.** guia *16-streetview-360* (absorvido):386` diz que a validação numérica "rejeita `NaN`/`Infinity`/string" e que `calibration_reviewed` é "booleano estrito"; o código em `src/modules/streetview360/sv360.write.schemas.js:25,31` usa `Joi.number()`/`Joi.boolean()` com `convert` no padrão, então `"45"` e `"true"` são **coeridos e aceitos**. `NaN`/`Infinity` esses sim são rejeitados.
 
 ## Três formas de escrever calibração
 
@@ -77,13 +77,13 @@ A criação usa os **nomes internos** `distance_m`/`bearing_deg` (`createTargetB
 
 Isso pesa porque no cliente `override_bearing` é o **gatilho** de todo o caminho de override: `navigator.js:391` só projeta por override se `override_bearing != null`, e nesse caso usa `override_distance ?? 5` e `override_height ?? 0` (`:394-396`). Logo, limpar `override_bearing` sozinho desativa silenciosamente a distância e a altura ajustadas manualmente, e limpar a distância sozinho faz a projeção cair para 5 metros default.
 
-> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido):436` descreve o override como "define (número) ou limpa (`null`) ... (≥1 campo)", sugerindo que campos omitidos são preservados; o código em `src/modules/streetview360/sv360.write.service.js:145-151` grava as três colunas em toda chamada, então campo omitido vira `NULL`.
+> **Nota histórica.** guia *16-streetview-360* (absorvido):436` descreve o override como "define (número) ou limpa (`null`) ... (≥1 campo)", sugerindo que campos omitidos são preservados; o código em `src/modules/streetview360/sv360.write.service.js:145-151` grava as três colunas em toda chamada, então campo omitido vira `NULL`.
 
 ### Armadilha nº 2: re-delete de foto devolve 204, não 404
 
 `softDeletePhoto` (`sv360.write.service.js:229-234`) grava tombstone com `ON CONFLICT DO NOTHING` e a posse resolve pela query que **mantém** tombstoned. A segunda chamada é um no-op limpo: 204. O teste de integração fixa isso explicitamente (`tests/integration/sv360-write.test.js:497-501`). A foto some de todas as leituras, inclusive do blob da imagem, inclusive para anônimo em projeto `enabled`.
 
-> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido):463` diz "1ª chamada → 204; chamadas seguintes → 404"; o código (`sv360.write.service.js:229-234` + `GET_PHOTO_FOR_WRITE` em `sv360.write.queries.js:35-38`) e o teste `tests/integration/sv360-write.test.js:497-501` dão **204 idempotente** no re-delete.
+> **Nota histórica.** guia *16-streetview-360* (absorvido):463` diz "1ª chamada → 204; chamadas seguintes → 404"; o código (`sv360.write.service.js:229-234` + `GET_PHOTO_FOR_WRITE` em `sv360.write.queries.js:35-38`) e o teste `tests/integration/sv360-write.test.js:497-501` dão **204 idempotente** no re-delete.
 
 ## Toda escrita devolve o shape congelado, re-lido
 

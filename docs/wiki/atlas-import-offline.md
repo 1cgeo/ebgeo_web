@@ -40,7 +40,7 @@ O servidor insere com o id que recebe (`INSERT INTO maps (id, ...)`, `INSERT INT
 - **UUID-remapping.** `makeIdMapper` (linha 52-63) mantém ids que já são UUID e atribui um UUID novo, memoizado, para qualquer id que não seja. Isso é obrigatório porque **mapas locais são keyed por nome** (`mapNameToId`, linhas 279-282, gera um UUID por nome) e a camada padrão de cada mapa tem o id literal `'default'`. Como `'default'` colide entre mapas, o mapper de camada é **por mapa** (linha 288), não global.
 - **Achatamento** das coleções keyed por objeto (`cesium3d.cameraPositions`, `streetview360.orientations`) nos arrays tipados `cesium3dData` / `streetview360Data` (linhas 189-220), com `data_type` em `camera_position | marker | measurement | viewshed` e `orientation | marker`. Ver [[catalogo-3d]] e [[streetview-360]].
 
-> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido) §3.3 diz "IDs preservados: UUIDs gerados no IndexedDB são mantidos no servidor". O código em `src/js/import_export/local-atlas-to-server.js:52-63,279-282` gera UUIDs **novos** para todo id não-UUID, incluindo o id de todos os mapas (locais são name-keyed) e a camada `'default'`. Só ids que já eram UUID (feições, briefings, slides) sobrevivem intactos.
+> **Nota histórica.** guia *08-offline-import* (absorvido) §3.3 diz "IDs preservados: UUIDs gerados no IndexedDB são mantidos no servidor". O código em `src/js/import_export/local-atlas-to-server.js:52-63,279-282` gera UUIDs **novos** para todo id não-UUID, incluindo o id de todos os mapas (locais são name-keyed) e a camada `'default'`. Só ids que já eram UUID (feições, briefings, slides) sobrevivem intactos.
 
 Consequência prática: **`mapNameToId` do retorno é a única fonte para resolver referências por nome**. Slides referenciam mapa por nome ou por id, e a linha 341 faz `mapNameToId[s.mapId] || (isValidUUID(s.mapId) ? s.mapId : null)`.
 
@@ -61,7 +61,7 @@ Imagens são binários e não vão no payload. O orquestrador `saveLocalAtlasToS
 
 O truque está no backend: `bulkUploadImages` (`images.service.js:187-213`) usa `INSERT_IMAGE_WITH_ID` na primeira ocorrência de cada `localId`, ou seja, o id local **vira** o id de servidor. Por isso não existe fase de rewrite pós-import. Detalhes do endpoint em [[imagens-atlas]] e [[upload-imagens-seguranca]].
 
-> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido) §4.4/§4.5 descreve importar, subir imagens, receber um `mapping` e então **enviar operações de UPDATE** para reescrever `properties.imageId`. O código em `src/js/import_export/save-local-atlas.service.js:100-105` não emite nenhuma operação de update: as imagens são inseridas com o próprio `localId` como PK (`ebgeo_backend/src/modules/images/images.service.js:190-213`), então as refs já importadas continuam válidas. O caminho de duas passadas com `meta.imageIdMap` existe em `local-atlas-to-server.js:270-275` mas **não é usado** por este fluxo.
+> **Nota histórica.** guia *08-offline-import* (absorvido) §4.4/§4.5 descreve importar, subir imagens, receber um `mapping` e então **enviar operações de UPDATE** para reescrever `properties.imageId`. O código em `src/js/import_export/save-local-atlas.service.js:100-105` não emite nenhuma operação de update: as imagens são inseridas com o próprio `localId` como PK (`ebgeo_backend/src/modules/images/images.service.js:190-213`), então as refs já importadas continuam válidas. O caminho de duas passadas com `meta.imageIdMap` existe em `local-atlas-to-server.js:270-275` mas **não é usado** por este fluxo.
 
 Pontos que mordem no upload de imagens:
 

@@ -44,7 +44,7 @@ O motivo das duas últimas guardas é um **poison pill**: o push HTTP roda numa 
 
 Sobre a primeira guarda: o módulo nasce com `enabled = false`, mas `initServices()` chama `enableOperationLogging()` no boot (`store/services.js:81`), então na prática o logging fica ligado desde o início. Só `connectPublic` e `logoutAndDisconnect` o desligam (`sync-engine.js:227,375`). **Consequência importante: `disconnect()` puro (queda de rede) NÃO desliga o logging**, é exatamente por isso que as operações continuam se acumulando durante a desconexão.
 
-> [!CONTRADICAO 2026-07-18] guia *arquitetura-sync* (absorvido):183` diz que `logOperation` "dropa se o logging está desabilitado (não conectado)", sugerindo que anônimo/offline não enfileira. Como o logging já está ligado no boot anônimo, um usuário offline enfileira ops normalmente para qualquer mapa com id UUID. Quem contém a fila offline é a guarda de `mapId` não-UUID (que dropa tudo do `Principal`) e o auto-purge de 7 dias, não o flag de logging.
+> **Nota histórica.** guia *arquitetura-sync* (absorvido):183` diz que `logOperation` "dropa se o logging está desabilitado (não conectado)", sugerindo que anônimo/offline não enfileira. Como o logging já está ligado no boot anônimo, um usuário offline enfileira ops normalmente para qualquer mapa com id UUID. Quem contém a fila offline é a guarda de `mapId` não-UUID (que dropa tudo do `Principal`) e o auto-purge de 7 dias, não o flag de logging.
 
 Um projeto construído inteiramente offline e anônimo não sobe por essa fila, ele sobe por `POST /api/v1/atlas/import`. Ver [[atlas-import-offline]] e [[modos-operacao]].
 
@@ -119,9 +119,9 @@ O código não segue o diagrama do guia. Ordem efetiva:
 
 `lastVersion` avança monotonicamente a partir do `server_version` de cada op inbound (`ws-client.js:384-394`) e do `currentVersion` do `sync_response` (`ws-client.js:314-316`). O comentário no código é explícito: buracos de numeração **não** são tratados como perda (isso gerava tempestades de `sync_request`); perda real só ocorre atravessando uma desconexão, e é justamente o `sync_request` da reconexão que a recupera.
 
-> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido) §2.1 desenha o fluxo como `GET /atlas/:id/sync/:version` (pull REST) → merge → `POST /atlas/:id/sync` (push) → só então reconectar o WS. O código faz o inverso: `ws-client.js:462-476` reconecta o socket primeiro, `ws-client.js:424-427` só então pede o pull via `sync_request`, e `sync-flush.js:65` só libera o push depois da transição para `ONLINE`.
+> **Nota histórica.** guia *08-offline-import* (absorvido) §2.1 desenha o fluxo como `GET /atlas/:id/sync/:version` (pull REST) → merge → `POST /atlas/:id/sync` (push) → só então reconectar o WS. O código faz o inverso: `ws-client.js:462-476` reconecta o socket primeiro, `ws-client.js:424-427` só então pede o pull via `sync_request`, e `sync-flush.js:65` só libera o push depois da transição para `ONLINE`.
 
-> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido) §2.2 descreve um `PendingOperationsManager` sobre o object store `pendingOperations` com campo `pendingSince`, removendo entradas por `ack.opId`. O código usa a instância LocalForage `ebgeo/operation_queue` com chaves `op_{timestamp}_{id}` e sem `pendingSince` (`operation-queue.js:17-20,83-85`), e remove pelos ids enviados (`sync-engine.js:285`). O trecho do guia é pseudocódigo ilustrativo, não o contrato.
+> **Nota histórica.** guia *08-offline-import* (absorvido) §2.2 descreve um `PendingOperationsManager` sobre o object store `pendingOperations` com campo `pendingSince`, removendo entradas por `ack.opId`. O código usa a instância LocalForage `ebgeo/operation_queue` com chaves `op_{timestamp}_{id}` e sem `pendingSince` (`operation-queue.js:17-20,83-85`), e remove pelos ids enviados (`sync-engine.js:285`). O trecho do guia é pseudocódigo ilustrativo, não o contrato.
 
 ### Sem replay, e por quê
 
@@ -131,7 +131,7 @@ O canal não guarda buffer por cliente desconectado ([[canal-collab-websocket]],
 
 Na prática deste cliente, **toda** op de entidade sai por HTTP. `wsClient.sendOperation` / `sendOperations` existem (`ws-client.js:161`, `:170`) mas não têm nenhum call site em `src/`, só em `tests/integration/ws-client.test.js`. O canal WS é usado para inbound de ops, presença, cursor, seleção e `sync_request` ([[canal-collab-websocket]], [[presenca-colaborativa]]).
 
-> [!CONTRADICAO 2026-07-18] guia *05-sync-crdt* (absorvido):494-495` diz "Em tempo real, prefira o canal WebSocket; o push HTTP é o caminho de recuperação", e o pseudo-código do §15 (`:967-970`) envia a op por WS quando conectado, deixando o HTTP só para a fila. O cliente real nunca faz isso: `syncEngine.flush` (`sync-engine.js:262-291`) empurra sempre por `POST /atlas/:id/sync`, e `wsClient.sendOperation` não tem chamador em produção. O guia descreve um contrato de backend suportado, não o comportamento implementado.
+> **Nota histórica.** guia *05-sync-crdt* (absorvido):494-495` diz "Em tempo real, prefira o canal WebSocket; o push HTTP é o caminho de recuperação", e o pseudo-código do §15 (`:967-970`) envia a op por WS quando conectado, deixando o HTTP só para a fila. O cliente real nunca faz isso: `syncEngine.flush` (`sync-engine.js:262-291`) empurra sempre por `POST /atlas/:id/sync`, e `wsClient.sendOperation` não tem chamador em produção. O guia descreve um contrato de backend suportado, não o comportamento implementado.
 
 A escolha tem uma consequência de projeto: como o broadcast do servidor não consegue excluir o autor num push HTTP, o autor recebe o próprio eco pelo WS e o filtra por `clientId` ([[client-id-estavel]]). Ver o trade-off em [[sintese-rest-vs-websocket]] e [[sintese-rest-vs-sync]].
 

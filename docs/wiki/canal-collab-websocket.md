@@ -59,13 +59,13 @@ Roteador do servidor em `collab.gateway.js:384`. Cliente→servidor: `ping`, `cu
 
 O broadcast aos peers **nao e a op crua**: o servidor carimba `serverVersion` em cada op (`collab.handlers.js:146` para a unica, `:197` para o lote), que e a ordem de chegada usada pelo [[modelo-conflito-lww]]. Envelope em [[envelope-operacao]], tipos em [[tipos-entidade-sync]].
 
-> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido) §3.4 diz que o broadcast leva "mesma operacao recebida"; o codigo em `src/modules/collab/collab.handlers.js:146` envia `{...data.op, serverVersion}`.
+> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.4 diz que o broadcast leva "mesma operacao recebida"; o codigo em `src/modules/collab/collab.handlers.js:146` envia `{...data.op, serverVersion}`.
 
 **Regra de visibilidade de comentario:** ops de `entityType === 'comment'` nunca chegam a conexoes `read` (`skipReadOnly` em `collab.rooms.js:56`; lote misto e *dividido* para que o `read` ainda receba as ops nao-comentario, `broadcastOperations`, `collab.rooms.js:84`). Ver [[comentario-espacial]].
 
 **Cursor / selection / temporal.** `cursor` e `temporal` sao livres. `selection` e **gated a editores e acima**: `read` e `comment` tem o frame descartado em silencio, sem `error` (`collab.handlers.js:83`), ou seja, comentarista e visualizador so recebem selecao alheia. O payload de selecao carrega `surface` (`2d|3d|360`) mais o escopo (`mapId`, `tilesetId`, `photoName`) e `featureMeta` opcional, para o peer renderizar o destaque na superficie certa sem lookup.
 
-> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido) §3 e §3.3 apresentam `selection` como broadcast incondicional e omitem `surface`; o codigo em `collab.handlers.js:83` descarta frames de `read`/`comment` e propaga `surface`/`tilesetId`/`photoName`/`featureMeta`.
+> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3 e §3.3 apresentam `selection` como broadcast incondicional e omitem `surface`; o codigo em `collab.handlers.js:83` descarta frames de `read`/`comment` e propaga `surface`/`tilesetId`/`photoName`/`featureMeta`.
 
 **Erros do WS** sao planos: `{type:'error', code, message}`, com `FORBIDDEN`, `VALIDATION_ERROR`, `OPERATION_FAILED`, `SYNC_FAILED`, diferente do envelope REST `{error:{code,message}}` de [[erros-api]]. O cliente encaminha tudo ao handler `error` com `kind: 'server'` (`ws-client.js:363`).
 
@@ -75,7 +75,7 @@ O broadcast aos peers **nao e a op crua**: o servidor carimba `serverVersion` em
 - **Cliente:** pinga a cada **25 s** (`DEFAULT_HEARTBEAT_MS`, `ws-client.js:31`). Se o `pong` do ciclo anterior nao chegou, fecha o proprio socket com **code 4000**, forcando reconexao em vez de conversar com link morto.
 - **Reconexao:** backoff exponencial `1000 * 2^n`, teto de 30 s, **sem limite de tentativas** (`_scheduleReconnect`), so enquanto `_wantConnected` for verdadeiro. `disconnect()` envia `leave` e fecha com 1000.
 
-> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido) §3.1 diz "ping a cada ~30 segundos" e §7 mostra `maxReconnectAttempts = 5`; o codigo usa 25 s (`ws-client.js:31`) e reconecta indefinidamente. guia *arquitetura-sync* (absorvido) ja registra os 25 s corretamente.
+> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.1 diz "ping a cada ~30 segundos" e §7 mostra `maxReconnectAttempts = 5`; o codigo usa 25 s (`ws-client.js:31`) e reconecta indefinidamente. guia *arquitetura-sync* (absorvido) ja registra os 25 s corretamente.
 
 | Close code | Significado | Efeito na presenca |
 |---|---|---|
@@ -139,7 +139,7 @@ Dois gates defensivos: tanto `syncResponse` (`sync-engine.js:407-412`) quanto `a
 
 `connection-quality { rttMs }` classifica a banda (`collab.quality.js:12`: `excellent` <100, `good` <300, `poor` <800, `critical` >=800) e o servidor responde `adaptive-settings` **apenas na transicao de banda** (`collab.handlers.js:219`), com `batchIntervalMs`, `geometryPrecision` e `viewportOnly`. `rttMs` nao-finito ou negativo e ignorado sem resposta.
 
-> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido) §3.8 e o checklist descrevem o cliente reportando `connection-quality` e aplicando `adaptive-settings`; no repositorio nao existe **nenhum envio de `connection-quality`** nem **handler para `adaptiveSettings`** (so as linhas do proprio `ws-client.js:99` e `:341`). O ramo e morto no frontend hoje.
+> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.8 e o checklist descrevem o cliente reportando `connection-quality` e aplicando `adaptive-settings`; no repositorio nao existe **nenhum envio de `connection-quality`** nem **handler para `adaptiveSettings`** (so as linhas do proprio `ws-client.js:99` e `:341`). O ramo e morto no frontend hoje.
 
 Se for implementar: `geometryPrecision` e sugestao de **transporte**, nunca trunque coordenada antes de persistir; o Postgres guarda geometria em precisao cheia (`truncateCoords` e utilitario de saida, deliberadamente sem call site). Ver [[qualidade-conexao-adaptativa]].
 

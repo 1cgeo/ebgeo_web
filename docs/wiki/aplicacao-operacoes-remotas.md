@@ -84,7 +84,7 @@ O `false` é carregado até `:346`: um op apenas bufferizado **não** registra `
 
 `drainPendingFeatureOps(mapId)` (`:59`) replaya na ordem de chegada, e é chamado em dois pontos: `applyRemoteMapOp` CREATE (`:551`) e por mapa em `applyRemoteSnapshot` (`:1172`). Como o replay **contorna** `applyRemoteOperation`, o guard de versão é reaplicado à mão dentro do drain (`:67`, `:78-79`).
 
-> [!CONTRADICAO 2026-07-18] guia *05-sync-crdt* (absorvido) §16 mostra `applyRemoteOperation` fazendo `mergeChanges(existing, op.changes)` no UPDATE e `store.delete(op.entityId)` num object store por entityType; o código em `src/js/store/sync/remote-operation-handler.js:431` faz `features[index] = data` (substituição cega da feição inteira, sem `op.changes` e sem criar quando ausente) e guarda as feições **dentro do registro do mapa**, não num store `features` separado. O pseudocódigo do guia é ilustrativo; a granularidade LWW é a feição inteira.
+> **Nota histórica.** guia *05-sync-crdt* (absorvido) §16 mostra `applyRemoteOperation` fazendo `mergeChanges(existing, op.changes)` no UPDATE e `store.delete(op.entityId)` num object store por entityType; o código em `src/js/store/sync/remote-operation-handler.js:431` faz `features[index] = data` (substituição cega da feição inteira, sem `op.changes` e sem criar quando ausente) e guarda as feições **dentro do registro do mapa**, não num store `features` separado. O pseudocódigo do guia é ilustrativo; a granularidade LWW é a feição inteira.
 
 ## 6. Snapshot e pull: o mesmo destino, outra porta
 

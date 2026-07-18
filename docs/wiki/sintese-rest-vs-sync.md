@@ -70,7 +70,7 @@ A compensação é uma notificação por WebSocket, não uma op: `broadcastToRoo
 
 Consequência prática: quem estiver **offline** no momento do merge só converge quando voltar e receber um snapshot ([[snapshot-e-pull-incremental]]). Se você adicionar outra rota REST que escreva entidades filhas, **é obrigatório** emitir um broadcast que o cliente mapeie para `serverResync`, senão a mudança fica invisível para todo peer conectado.
 
-> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido):495-508` desenha "Map (via sync)" sem ressalva, mas `src/modules/maps/maps.routes.js:17` e `src/modules/atlas/atlas.routes.js:44` expõem `merge` e `duplicate` como escritas REST de mapa e seus filhos.
+> **Nota histórica.** guia *02-atlas-basico* (absorvido):495-508` desenha "Map (via sync)" sem ressalva, mas `src/modules/maps/maps.routes.js:17` e `src/modules/atlas/atlas.routes.js:44` expõem `merge` e `duplicate` como escritas REST de mapa e seus filhos.
 
 ## Notificações REST que o WebSocket carrega
 
@@ -105,7 +105,7 @@ Ordem obrigatória: **suba o blob primeiro, só então grave a feição**. Se a 
 
 `GET /atlas/:id/sharing` responde em **camelCase** (`isPublic`, `publicLink`, `shares[].userId`), confirmado em `src/modules/sharing/sharing.service.js:13-20`. Já `POST /sharing/users` responde o registro cru da tabela em **snake_case** (`user_id`, `added_at`). O exemplo de modal em guia *07-compartilhamento* (absorvido):586,611` lê `data.data.is_public` e `share.user_id` sobre a resposta do `GET`, o que retorna `undefined`.
 
-> [!CONTRADICAO 2026-07-18] guia *07-compartilhamento* (absorvido):586,611` acessa `is_public` e `user_id` na resposta de `GET /sharing`, mas `src/modules/sharing/sharing.service.js:13-20` devolve `isPublic` e `shares[].userId`.
+> **Nota histórica.** guia *07-compartilhamento* (absorvido):586,611` acessa `is_public` e `user_id` na resposta de `GET /sharing`, mas `src/modules/sharing/sharing.service.js:13-20` devolve `isPublic` e `shares[].userId`.
 
 ## Detalhes que o código revela e a prosa não
 

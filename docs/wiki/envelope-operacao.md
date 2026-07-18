@@ -50,7 +50,7 @@ O backend aceita o vocabulário frontend (`entityType` / `operationType` / `enti
 
 **1. O cliente nunca emite `changes`.** O guia descreve `changes` como o campo de update, mas `createOperation` só produz `data` (`operation-factory.js:151-163`); não há nenhuma ocorrência de `changes` em `src/js/store/sync/*.js`. O backend cobre isso: quando `changes` está ausente num `update`, ele usa `data` como `changes`. Se você ler o guia e esperar `changes` no envelope de saída, vai procurar um campo que não existe.
 
-> [!CONTRADICAO 2026-07-18] guia *05-sync-crdt* (absorvido) §1 e §14 apresentam o "Formato Frontend" com `changes` no update e sem `previousData`/`lamportTimestamp`/`batchId`; o código em src/js/store/sync/operation-factory.js:151-163 sempre emite o payload em `data` e sempre inclui `previousData`, `lamportTimestamp` e `traceId`. O próprio §3 do guia ("Compatibilidade com o store do frontend") reconhece o comportamento as-built, mas a interface normativa do §1 continua desalinhada.
+> **Nota histórica.** guia *05-sync-crdt* (absorvido) §1 e §14 apresentam o "Formato Frontend" com `changes` no update e sem `previousData`/`lamportTimestamp`/`batchId`; o código em src/js/store/sync/operation-factory.js:151-163 sempre emite o payload em `data` e sempre inclui `previousData`, `lamportTimestamp` e `traceId`. O próprio §3 do guia ("Compatibilidade com o store do frontend") reconhece o comportamento as-built, mas a interface normativa do §1 continua desalinhada.
 
 **2. `previousData` é local, não é um contrato de servidor.** Existe para undo no cliente. Ele viaja porque o envelope vai verbatim, não porque o backend precise dele. Não construa lógica de merge servidor-side em cima disso.
 

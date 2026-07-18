@@ -1,4 +1,4 @@
-> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido):411` diz que "o servidor armazena a geometria em precisão cheia" enquanto o cliente comprime a saída, mas nenhum lado trunca hoje: `truncateCoords` (`backend/src/modules/collab/collab.quality.js:50`) não tem call site em `backend/src/` (o próprio comentário do arquivo declara isso e pede que não seja removido), e o frontend não implementa truncamento algum. A precisão cheia é preservada por omissão, não por decisão de código.
+> **Nota histórica.** guia *04-websocket-collab* (absorvido):411` diz que "o servidor armazena a geometria em precisão cheia" enquanto o cliente comprime a saída, mas nenhum lado trunca hoje: `truncateCoords` (`backend/src/modules/collab/collab.quality.js:50`) não tem call site em `backend/src/` (o próprio comentário do arquivo declara isso e pede que não seja removido), e o frontend não implementa truncamento algum. A precisão cheia é preservada por omissão, não por decisão de código.
 
 # Monitor adaptativo de qualidade de conexão
 

@@ -54,7 +54,7 @@ Sequência exata (`sv360.controller.js:142-191`):
 
 Armadilha deliberada: `Content-Length`/`Content-Range` derivam do **tamanho real do buffer lido**, não do `size_bytes` do Postgres (`sv360.controller.js:150-155,174`). Em regime normal coincidem, mas durante a janela swap-do-arquivo↔commit da ingestão podem divergir, e confiar no buffer mantém toda resposta protocolarmente correta. Mesma família de contrato dos [[assets3d-distribuicao]] e de [[sintese-cache-http-imutavel]].
 
-> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido) §5/§7 tabela `Cache-Control: public, max-age=31536000, immutable` para toda imagem/thumbnail; o código em `src/modules/streetview360/sv360.controller.js:52-63` escolhe o escopo pelo status do projeto: `enabled` recebe `public, max-age=31536000, immutable`, e `disabled` recebe `private, max-age=31536000, immutable` + `Vary: Authorization, Cookie`. Sem isso um proxy compartilhado poderia replicar para anônimos uma resposta autorizada de projeto oculto.
+> **Nota histórica.** guia *16-streetview-360* (absorvido) §5/§7 tabela `Cache-Control: public, max-age=31536000, immutable` para toda imagem/thumbnail; o código em `src/modules/streetview360/sv360.controller.js:52-63` escolhe o escopo pelo status do projeto: `enabled` recebe `public, max-age=31536000, immutable`, e `disabled` recebe `private, max-age=31536000, immutable` + `Vary: Authorization, Cookie`. Sem isso um proxy compartilhado poderia replicar para anônimos uma resposta autorizada de projeto oculto.
 
 ## Thumbnail do projeto
 

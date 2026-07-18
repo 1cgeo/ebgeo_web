@@ -35,9 +35,9 @@ Os corpos são validados por Joi contra `GRANTABLE_PERMISSIONS = ['read','commen
 
 `POST` e `PUT` devolvem a **linha crua da tabela** (`RETURNING *`), portanto snake_case: `atlas_id`, `user_id`, `added_at`, `added_by`. Escrita e leitura falam dialetos diferentes na mesma feature; não reaproveite o objeto do `POST` para atualizar a lista em memória, releia o `GET` (é o que o modal faz).
 
-> [!CONTRADICAO 2026-07-18] guia *07-compartilhamento* (absorvido):31-54` mostra o response do `GET /sharing` sem o bloco `owner`; o código em `src/modules/sharing/sharing.service.js:12-21` sempre retorna `owner: { userId, username, nome }`, e o modal depende dele (`src/js/modals/sharing.modal.js:181`) para desenhar a linha "Gestor (dono)" e o botão de transferência.
+> **Nota histórica.** guia *07-compartilhamento* (absorvido):31-54` mostra o response do `GET /sharing` sem o bloco `owner`; o código em `src/modules/sharing/sharing.service.js:12-21` sempre retorna `owner: { userId, username, nome }`, e o modal depende dele (`src/js/modals/sharing.modal.js:181`) para desenhar a linha "Gestor (dono)" e o botão de transferência.
 
-> [!CONTRADICAO 2026-07-18] guia *07-compartilhamento* (absorvido):586-615` lê o `GET /sharing` como `data.data.is_public`, `data.data.public_link` e `share.user_id`; o código em `src/modules/sharing/sharing.queries.js:60-74` devolve `isPublic`, `publicLink` e `shares[].userId`. O exemplo do guia lê `undefined` em todos esses campos. O mesmo exemplo só oferece `read` e `write` no dropdown, enquanto `src/js/modals/sharing.modal.js:53-58` oferece os quatro níveis (Leitura, Comentário, Edição, Gestão).
+> **Nota histórica.** guia *07-compartilhamento* (absorvido):586-615` lê o `GET /sharing` como `data.data.is_public`, `data.data.public_link` e `share.user_id`; o código em `src/modules/sharing/sharing.queries.js:60-74` devolve `isPublic`, `publicLink` e `shares[].userId`. O exemplo do guia lê `undefined` em todos esses campos. O mesmo exemplo só oferece `read` e `write` no dropdown, enquanto `src/js/modals/sharing.modal.js:53-58` oferece os quatro níveis (Leitura, Comentário, Edição, Gestão).
 
 ## Armadilhas de comportamento
 
@@ -117,7 +117,7 @@ Pontos que economizam depuração:
 - Como o `LEFT JOIN` é permissivo, um usuário sem posto ou sem OM volta com esses quatro campos em `null`, inclusive o par de nomes. Renderize com fallback, não assuma string.
 - Não há envelope de paginação: `data` é um array puro, no máximo 20 itens (`LIMIT 20`, sem offset). Não existe `total` nem `hasMore` para distinguir "20 resultados" de "20 de muitos".
 
-> [!CONTRADICAO 2026-07-18] guia *07-compartilhamento* (absorvido) §1.3 mostra o item da busca apenas com `id`, `username`, `nome`, `posto_graduacao` e `organizacao_militar`; a query real (`users.queries.js:48-49`) seleciona também `rank_id` e `organization_id`.
+> **Nota histórica.** guia *07-compartilhamento* (absorvido) §1.3 mostra o item da busca apenas com `id`, `username`, `nome`, `posto_graduacao` e `organizacao_militar`; a query real (`users.queries.js:48-49`) seleciona também `rank_id` e `organization_id`.
 
 ## Fontes
 

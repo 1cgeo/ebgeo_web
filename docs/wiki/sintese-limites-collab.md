@@ -10,7 +10,7 @@ O registro de salas é literalmente `atlasId -> Set<WebSocket>` (`backend/src/mo
 - Operações são fan-out para a sala inteira via `broadcastToRoom` / `broadcastOperations` (`collab.rooms.js:56`, `:84`), independentemente do mapa. Um atlas com muitos mapas paga banda de todos eles em cada aba conectada.
 - O emissor é excluído por identidade de socket (`client === excludeWs`). O push por REST (`POST /atlas/:id/sync`) **não tem socket para excluir**, então o próprio cliente recebe o eco e precisa descartá-lo pelo `clientId` (`src/js/store/sync/ws-client.js:397-403`). Ver [[client-id-estavel]] e [[canal-collab-websocket]].
 
-> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido) §10 diz que "Operações CRDT são sempre broadcast para todos (necessário para consistência)". O código não faz isso para comentários espaciais: `collab.rooms.js:105-114` divide o lote e envia só as ops não-comentário a clientes `permission === 'read'`, e `collab.handlers.js:145-149` passa `skipReadOnly` para op única de comentário. Um visualizador, por design, **não converge** em comentários. Ver [[comentario-espacial]] e [[permissoes-atlas]].
+> **Nota histórica.** guia *04-websocket-collab* (absorvido) §10 diz que "Operações CRDT são sempre broadcast para todos (necessário para consistência)". O código não faz isso para comentários espaciais: `collab.rooms.js:105-114` divide o lote e envia só as ops não-comentário a clientes `permission === 'read'`, e `collab.handlers.js:145-149` passa `skipReadOnly` para op única de comentário. Um visualizador, por design, **não converge** em comentários. Ver [[comentario-espacial]] e [[permissoes-atlas]].
 
 ## 2. Sem replay: reconexão é pull, não buffer
 
@@ -53,7 +53,7 @@ Do lado do cliente, `sync-engine.js:262-289` faz `peek` de um lote, e só chama 
 
 Armadilha correlata no ack: `results[].success` é **hardcoded `true`** (`sync.service.js:770-776`). Não existe sinal de falha por operação, só o `idempotent` (que indica reenvio já registrado). Falha aparece como erro do lote inteiro, nunca como `success: false`.
 
-> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido) §3.4 descreve `result.success` como um resultado por operação ("`true` quando a op foi registrada"), sugerindo que pode vir `false`. O código em `backend/src/modules/sync/sync.service.js:772` sempre emite `success: true`; um erro aborta a transação e nenhum ack é produzido. Não escreva lógica de dequeue que dependa de `success: false`. Ver [[ack-idempotencia]] e [[idempotencia-e-convergence-guard]].
+> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.4 descreve `result.success` como um resultado por operação ("`true` quando a op foi registrada"), sugerindo que pode vir `false`. O código em `backend/src/modules/sync/sync.service.js:772` sempre emite `success: true`; um erro aborta a transação e nenhum ack é produzido. Não escreva lógica de dequeue que dependa de `success: false`. Ver [[ack-idempotencia]] e [[idempotencia-e-convergence-guard]].
 
 Também há um limite de concorrência: pushes do mesmo atlas são serializados por `pg_advisory_xact_lock` com `lock_timeout` de 5s; ao estourar, o cliente recebe 503 retentável (`sync.service.js:654-670`).
 

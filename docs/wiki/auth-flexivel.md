@@ -46,7 +46,7 @@ Regras da renovação, exatamente como o código faz:
 - Só o **`role` global** é adotado do banco (`flexible-auth.js:100`). `org_role`/`organization_id` continuam vindo do token, deliberadamente, para preservar o degrade de tokens legados.
 - Principals de link público (`sub` no formato `public-<uuid>`, não-UUID) **nunca** deslizam: a guarda `UUID_RE.test(payload.sub)` em `flexible-auth.js:77` os exclui. O token deles é escopado ao atlas e curto por design. Ver [[link-publico]] e [[permissoes-atlas]].
 
-> [!CONTRADICAO 2026-07-18] guia *12-multiorg-identidade-auditoria* (absorvido) (Parte 3) diz que a sliding session ocorre "quando o JWT **do cookie**" está perto de expirar; o código em `flexible-auth.js:56` resolve `token = cookie || Bearer` e a renovação em `flexible-auth.js:77-103` roda igualmente para o token vindo do header `Authorization`, gravando um `Set-Cookie` numa chamada que não usava cookie nenhum. O guia também não menciona a revalidação viva contra o banco nem o `clearCookie` de sessão morta.
+> **Nota histórica.** guia *12-multiorg-identidade-auditoria* (absorvido) (Parte 3) diz que a sliding session ocorre "quando o JWT **do cookie**" está perto de expirar; o código em `flexible-auth.js:56` resolve `token = cookie || Bearer` e a renovação em `flexible-auth.js:77-103` roda igualmente para o token vindo do header `Authorization`, gravando um `Set-Cookie` numa chamada que não usava cookie nenhum. O guia também não menciona a revalidação viva contra o banco nem o `clearCookie` de sessão morta.
 
 ## Relação com o middleware estrito `auth`
 

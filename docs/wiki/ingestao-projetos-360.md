@@ -59,7 +59,7 @@ Ids de foto são UUID **v5** e o backend só valida o **formato**, não recalcul
 
 A thumbnail segue a mesma chave: é gravada como `{orgId}__{slug}.webp`, derivada de `result.dbFilename` (`sv360.admin.service.js:263-276`), e servida resolvendo o `db_filename` do projeto (`sv360.service.js:254-258`). Falha ao gravar a thumbnail **não** falha a ingestão, o projeto já está no ar.
 
-> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido):333` e o comentário em `sv360.service.js:306-309` dizem que o arquivo escrito na ingestão é `{slug}.webp`; o código grava `{orgId}__{slug}.webp` (`sv360.admin.service.js:269`). O `:slug` da URL continua sendo só o slug, a tradução para o nome org-keyed acontece no servidor.
+> **Nota histórica.** guia *16-streetview-360* (absorvido):333` e o comentário em `sv360.service.js:306-309` dizem que o arquivo escrito na ingestão é `{slug}.webp`; o código grava `{orgId}__{slug}.webp` (`sv360.admin.service.js:269`). O `:slug` da URL continua sendo só o slug, a tradução para o nome org-keyed acontece no servidor.
 
 ## Merge: último upload manda
 

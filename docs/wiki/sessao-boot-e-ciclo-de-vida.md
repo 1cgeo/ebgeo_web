@@ -27,7 +27,7 @@ Ordem literal em `index.js:141-160`:
 
 O hash `#view=3d` / `#view=360` (`deep-link/deep-link.js`) é ortogonal aos query params e é tratado antes, no caminho de load do mapa.
 
-> [!CONTRADICAO 2026-07-18] guia *visao-e-principios* (absorvido):167` (passo 4) e guia *ui-ux-ebgeo* (absorvido) §2 ("O boot não passa pelo Drive: F5 reconecta o último atlas automaticamente") dizem que o boot reconecta o último atlas remoto via `reconnectLastAtlas`. O código não tem mais essa função: `src/js/index.js:160` chama `openAtlasChooserOnBoot()`, que em `index.js:279-281` **descarta** o dado remoto órfão (`clearAllDataStore()` quando a origem é `remote`) e **abre o Atlas Drive** para o usuário escolher. guia *arquitetura-sync* (absorvido):240` e `.claude/rules/architecture.md:138` repetem a versão antiga.
+> **Nota histórica.** guia *visao-e-principios* (absorvido):167` (passo 4) e guia *ui-ux-ebgeo* (absorvido) §2 ("O boot não passa pelo Drive: F5 reconecta o último atlas automaticamente") dizem que o boot reconecta o último atlas remoto via `reconnectLastAtlas`. O código não tem mais essa função: `src/js/index.js:160` chama `openAtlasChooserOnBoot()`, que em `index.js:279-281` **descarta** o dado remoto órfão (`clearAllDataStore()` quando a origem é `remote`) e **abre o Atlas Drive** para o usuário escolher. guia *arquitetura-sync* (absorvido):240` e `.claude/rules/architecture.md:138` repetem a versão antiga.
 
 O motivo da mudança está no próprio comentário do código (`index.js:275-278`): a barra de endereço é a fonte de verdade. `/?atlas=<uuid>` carrega aquele atlas; `/` puro deve **deixar escolher**, não reabrir silenciosamente o último.
 

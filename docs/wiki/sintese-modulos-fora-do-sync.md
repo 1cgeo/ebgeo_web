@@ -61,11 +61,11 @@ Erros das rotas sv360 admin: `_request` extrai `parsed.error?.message` (`src/js/
 
 ## Divergências entre a documentação e o código
 
-> [!CONTRADICAO 2026-07-18] guia *13-nomes-geograficos* (absorvido) manda enviar `Authorization: Bearer` e (idealmente) `zoom` em `/nomes/busca`; o código em src/js/search/search-bar.search-providers.js:279 e src/js/search/feature-search.control.js:185 envia apenas `q`, `lat` e `lon`, sem header de autorização. Efeito real: a barra de busca é sempre anônima (só topônimos `public`, mesmo com usuário logado que tenha zona) e o raio de decaimento fica fixo em 50 km, com o ajuste por tipo desligado.
+> **Nota histórica.** guia *13-nomes-geograficos* (absorvido) manda enviar `Authorization: Bearer` e (idealmente) `zoom` em `/nomes/busca`; o código em src/js/search/search-bar.search-providers.js:279 e src/js/search/feature-search.control.js:185 envia apenas `q`, `lat` e `lon`, sem header de autorização. Efeito real: a barra de busca é sempre anônima (só topônimos `public`, mesmo com usuário logado que tenha zona) e o raio de decaimento fica fixo em 50 km, com o ajuste por tipo desligado.
 
-> [!CONTRADICAO 2026-07-18] guia *13-nomes-geograficos* (absorvido) descreve `/nomes/catalogo3d` e `/nomes/feicoes` como as fontes do painel 3D e do identify; nenhuma das duas rotas é chamada em `src/js` (grep sem ocorrências). O catálogo 3D do app vem de `config.tilesets`, servido pelo `/api/config` e lido em src/js/store/sync/atlas-settings.service.js:188.
+> **Nota histórica.** guia *13-nomes-geograficos* (absorvido) descreve `/nomes/catalogo3d` e `/nomes/feicoes` como as fontes do painel 3D e do identify; nenhuma das duas rotas é chamada em `src/js` (grep sem ocorrências). O catálogo 3D do app vem de `config.tilesets`, servido pelo `/api/config` e lido em src/js/store/sync/atlas-settings.service.js:188.
 
-> [!CONTRADICAO 2026-07-18] guia *15-acesso-geografico* (absorvido) instrui "refaça as consultas ao trocar de usuário ou após mudança de permissão"; o código não refaz nada: `_projectsCache` (src/js/street_view_tool/streetview-api.service.js:145) só é invalidado por `fetchProjects(true)`, chamado exclusivamente pelo `preflightCheck` do boot (src/js/map_sig.js:555), e nenhum módulo desses escuta `SESSION_CHANGED`.
+> **Nota histórica.** guia *15-acesso-geografico* (absorvido) instrui "refaça as consultas ao trocar de usuário ou após mudança de permissão"; o código não refaz nada: `_projectsCache` (src/js/street_view_tool/streetview-api.service.js:145) só é invalidado por `fetchProjects(true)`, chamado exclusivamente pelo `preflightCheck` do boot (src/js/map_sig.js:555), e nenhum módulo desses escuta `SESSION_CHANGED`.
 
 ## Regras para não errar
 

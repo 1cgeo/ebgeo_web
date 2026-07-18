@@ -80,7 +80,7 @@ Cada `PUT` gera auditoria de negócio `action: PERMISSION_GRANT`, `target_type: 
 - **Os endpoints de permissão não checam existência da zona.** `GET /zones/:id/permissions` numa zona fantasma responde 200 com `{users:[],groups:[]}`, não 404. `PUT` na mesma zona fantasma com um usuário real bate na FK de `zone_id` e volta 409 CONFLICT (`zones-gaps.test.js:180-207`). Só `GET /zones/:id` e `DELETE /zones/:id` dão 404 de verdade (`zones.service.js:29`, `:52`, `:58`).
 - **`:id` não-UUID é 422 antes do controller**, com `details` apontando o campo `id` (`zones.schemas.js:23-25`).
 
-> [!CONTRADICAO 2026-07-18] guia *15-acesso-geografico* (absorvido) §4 tabela de erros lista apenas 401/403/404/422 para as rotas de zona, e §2.x anuncia `404 NOT_FOUND` para "zona inexistente (GET/PUT/DELETE)"; o código em `src/modules/zones/zones.service.js:62-92` não faz checagem de existência nas rotas de permissões, então `GET /zones/:id/permissions` numa zona inexistente responde 200 vazio e `PUT` responde **409 CONFLICT** (violação de FK mapeada), status ausente da tabela do documento. Comportamento fixado em `tests/integration/zones-gaps.test.js:180-207`.
+> **Nota histórica.** guia *15-acesso-geografico* (absorvido) §4 tabela de erros lista apenas 401/403/404/422 para as rotas de zona, e §2.x anuncia `404 NOT_FOUND` para "zona inexistente (GET/PUT/DELETE)"; o código em `src/modules/zones/zones.service.js:62-92` não faz checagem de existência nas rotas de permissões, então `GET /zones/:id/permissions` numa zona inexistente responde 200 vazio e `PUT` responde **409 CONFLICT** (violação de FK mapeada), status ausente da tabela do documento. Comportamento fixado em `tests/integration/zones-gaps.test.js:180-207`.
 
 ## Follow-ups: infraestrutura no banco sem rota REST
 

@@ -40,7 +40,7 @@ Regra dura: **overlays nunca mutam presença**. Eles leem `getCursors/getSelecti
 | `cursor` / `selection` / `temporal` (`collab.handlers.js:39-107`) | `userId` | userId |
 | `user_away` / `user_back` (`collab.service.js:79-95`) | `userId` **+ `clientId`** | **clientId** |
 
-> [!CONTRADICAO 2026-07-18] guia *arquitetura-sync* (absorvido):330` diz "Tudo é keyed por `clientId`". O código contradiz: com os frames reais do backend, praticamente toda entrada fica chaveada por `userId`. Só `user_away`/`user_back` carregam `clientId`, e é exatamente aí que o caminho quebra (ver abaixo).
+> **Nota histórica.** guia *arquitetura-sync* (absorvido):330` diz "Tudo é keyed por `clientId`". O código contradiz: com os frames reais do backend, praticamente toda entrada fica chaveada por `userId`. Só `user_away`/`user_back` carregam `clientId`, e é exatamente aí que o caminho quebra (ver abaixo).
 
 Disso decorrem duas consequências já visíveis no código:
 
@@ -55,7 +55,7 @@ O servidor **não** tem sub-canal por mapa: toda mensagem de presença vai para 
 
 **O campo `mapId` é um nome.** O bridge carimba `getCurrentMapNameSync()` nos frames de saída (`presence-bridge.js:144`, `:157`, `:196`) e os overlays resolvem o mapa ativo com a mesma função (`remote-cursors.layer.js:63-69`, `remote-selections.layer.js:70`), então o par bate. Se alguém "corrigir" um lado para UUID sem corrigir o outro, o filtro nunca casa e **nenhum cursor remoto renderiza**, sem erro no console. Contexto do dualismo nome/UUID em [[dominio-local-vs-remoto]].
 
-> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido) §3.2 e guia *06-presenca-imagens* (absorvido) §1.1 documentam `mapId` como UUID do mapa (`"mapId": "map-uuid"`); `presence-bridge.js:144` envia o nome. O backend trata o campo como opaco (só reencaminha), então funciona, mas o contrato real é "chave de mapa acordada entre clientes", não UUID.
+> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.2 e guia *06-presenca-imagens* (absorvido) §1.1 documentam `mapId` como UUID do mapa (`"mapId": "map-uuid"`); `presence-bridge.js:144` envia o nome. O backend trata o campo como opaco (só reencaminha), então funciona, mas o contrato real é "chave de mapa acordada entre clientes", não UUID.
 
 **Throttle e coalescing:** `map.on('mousemove')` → leading + um único trailing por janela de **80 ms** (`CURSOR_THROTTLE_MS`, `presence-bridge.js:61`; handler em `:299-331`), não os 50 ms do exemplo do guia. O trailing guarda só a última posição (`:316-330`); intermediárias são descartadas, nunca enfileiradas, porque presença atrasada é pior que presença perdida.
 
@@ -120,7 +120,7 @@ Por isso o `clientId` estável é obrigatório aqui: a chave do timer é `atlasI
 
 Do lado cliente, `WsClient.disconnect()` manda `{type:'leave'}` e fecha com `1000` (`ws-client.js:131-132`), então saída deliberada nunca vira `away`; F5 e fechar aba produzem close limpo (`1001`/`1000`) e também removem na hora. Voltar da graça restaura a presença, **não os dados**: não há replay de frames perdidos, o cliente precisa mandar `sync_request` com o `lastVersion` e reenviar a fila offline, tratando `result.idempotent: true` como sucesso ([[snapshot-e-pull-incremental]], [[fila-operacoes-outbound]], [[idempotencia-e-convergence-guard]]).
 
-> [!CONTRADICAO 2026-07-18] guia *ui-ux-ebgeo* (absorvido) e guia *visao-e-principios* (absorvido):239` descrevem o badge `ausente` aparecendo no roster durante a graça, mas com o frame real isso não acontece: `user_away` traz `clientId` (`collab.service.js:79-86`), `resolveKey` prefere `clientId` (`presence-store.js:53-55`), a entrada existente está chaveada por `userId`, e `_setAway` faz `this._users.get(key)` e **retorna sem efeito** quando não acha (`presence-store.js:507-518`). O badge só é exercitado por testes que injetam a mutação à mão (`tests/integration/presence-store.test.js:198`, `tests/e2e-ui/presence.spec.js:296-300`). O efeito visível da graça (o usuário não some e reaparece) continua correto, porque a remoção só ocorre no fim da graça, no servidor. Ao mexer nessa área, normalize a chave antes de comparar.
+> **Nota histórica.** guia *ui-ux-ebgeo* (absorvido) e guia *visao-e-principios* (absorvido):239` descrevem o badge `ausente` aparecendo no roster durante a graça, mas com o frame real isso não acontece: `user_away` traz `clientId` (`collab.service.js:79-86`), `resolveKey` prefere `clientId` (`presence-store.js:53-55`), a entrada existente está chaveada por `userId`, e `_setAway` faz `this._users.get(key)` e **retorna sem efeito** quando não acha (`presence-store.js:507-518`). O badge só é exercitado por testes que injetam a mutação à mão (`tests/integration/presence-store.test.js:198`, `tests/e2e-ui/presence.spec.js:296-300`). O efeito visível da graça (o usuário não some e reaparece) continua correto, porque a remoção só ocorre no fim da graça, no servidor. Ao mexer nessa área, normalize a chave antes de comparar.
 
 O heartbeat (`WS_HEARTBEAT_INTERVAL_MS`, padrão 30 s, `config.js:84`) tem duplo papel: derruba socket que não pongou **e** re-reconcilia a autorização contra o banco a cada tick, então um downgrade ou revogação de compartilhamento tem staleness limitado a um heartbeat (`collab.gateway.js:284-289`, ver [[compartilhamento-atlas]]). Como `terminate()` produz `1006`, o heartbeat gera `away`, não `left`: uma aba em background com timer estrangulado entra em `away` a cada ciclo. Pendência conhecida (guia *ui-ux-ebgeo* (absorvido):220-223`): a **remoção total** de um membro conectado não o desconecta, ele só perde acesso ao reconectar.
 
@@ -138,7 +138,7 @@ Não existe chamada de `stopPresence` fora do próprio módulo: o bridge vive en
 
 ## O que não existe, apesar dos guias
 
-> [!CONTRADICAO 2026-07-18] guia *06-presenca-imagens* (absorvido) §1.3 descreve um `CursorManager` que auto-esconde o cursor após 5 s sem movimento (`setTimeout` + `setOpacity(0)`); o `RemoteCursorsLayer` real (`remote-cursors.layer.js:116-161`) **não tem timer nenhum**: o marcador some quando o peer sai da sala, troca de mapa ou some do store, nunca por inatividade. O código do guia também é Leaflet (`L.divIcon`, `L.marker`) enquanto o app usa `maplibregl.Marker` — trate aquele trecho como pseudocódigo.
+> **Nota histórica.** guia *06-presenca-imagens* (absorvido) §1.3 descreve um `CursorManager` que auto-esconde o cursor após 5 s sem movimento (`setTimeout` + `setOpacity(0)`); o `RemoteCursorsLayer` real (`remote-cursors.layer.js:116-161`) **não tem timer nenhum**: o marcador some quando o peer sai da sala, troca de mapa ou some do store, nunca por inatividade. O código do guia também é Leaflet (`L.divIcon`, `L.marker`) enquanto o app usa `maplibregl.Marker` — trate aquele trecho como pseudocódigo.
 
 Também não existem, por design: replay de frames de presença perdidos, lock de edição a partir do indicador de briefing e escala multi-instância.
 

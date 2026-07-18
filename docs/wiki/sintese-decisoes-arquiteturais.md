@@ -63,7 +63,7 @@ Ctrl+Z desfaz só o que o **próprio** usuário fez. Op recebida de outro colabo
 
 Não há rota REST de escrita para feature/layer/group/briefing/slide. Mutações viajam como operações. REST cuida de metadados de atlas, compartilhamento e imagens. Ver [[sintese-rest-vs-sync]], [[api-rest-atlas]] e [[tabela-operations]].
 
-> [!CONTRADICAO 2026-07-18] guia *00-visao-geral* (absorvido):68` afirma que maps/briefings e demais entidades do atlas têm "escrita só via sync". O código expõe três escritas estruturais por REST, deliberadamente atômicas e portanto impróprias para o modelo de op: `POST /atlas/:atlasId/maps/:mapId/merge` (`backend/src/modules/maps/maps.routes.js:17`), `POST /atlas/:atlasId/maps/:mapId/duplicate` (`backend/src/modules/atlas/atlas.routes.js:44`) e o bulk `POST /atlas/import` (`backend/src/modules/atlas/atlas.routes.js:22`). Leia a regra como "escrita **incremental** só via sync".
+> **Nota histórica.** guia *00-visao-geral* (absorvido):68` afirma que maps/briefings e demais entidades do atlas têm "escrita só via sync". O código expõe três escritas estruturais por REST, deliberadamente atômicas e portanto impróprias para o modelo de op: `POST /atlas/:atlasId/maps/:mapId/merge` (`backend/src/modules/maps/maps.routes.js:17`), `POST /atlas/:atlasId/maps/:mapId/duplicate` (`backend/src/modules/atlas/atlas.routes.js:44`) e o bulk `POST /atlas/import` (`backend/src/modules/atlas/atlas.routes.js:22`). Leia a regra como "escrita **incremental** só via sync".
 
 ## WebSocket sem backplane — a limitação de escala aceita
 

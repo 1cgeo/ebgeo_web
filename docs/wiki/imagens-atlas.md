@@ -31,7 +31,7 @@ A permissão vem de `requireAtlasPermission` (hierarquia `read < comment < write
 
 Resposta 201: `{ data: { id, atlas_id, filename, mime_type, size_bytes, uploaded_by, created_at } }`.
 
-> [!CONTRADICAO 2026-07-18] guia *06-presenca-imagens* (absorvido) §2.3 mostra `storage_path` na resposta; o código em `src/modules/images/images.service.js:22-27` remove esse campo via `toPublicImage()` antes de cruzar a borda da API (caminho absoluto de disco vaza o layout do deploy, e viewers de atlas público conseguem listar imagens). `listImages` também usa `toPublicImage` (`images.service.js:115`); `getImageById` não usa, mas é uso interno.
+> **Nota histórica.** guia *06-presenca-imagens* (absorvido) §2.3 mostra `storage_path` na resposta; o código em `src/modules/images/images.service.js:22-27` remove esse campo via `toPublicImage()` antes de cruzar a borda da API (caminho absoluto de disco vaza o layout do deploy, e viewers de atlas público conseguem listar imagens). `listImages` também usa `toPublicImage` (`images.service.js:115`); `getImageById` não usa, mas é uso interno.
 
 ### Validação, tipos e limites
 
@@ -47,7 +47,7 @@ Armadilha: o endpoint é autenticado por header `Authorization`, então **não d
 
 ## Como a feature referencia a imagem
 
-> [!CONTRADICAO 2026-07-18] guia *06-presenca-imagens* (absorvido) §2.5/Parte 3 e guia *08-offline-import* (absorvido) §4.2 dizem que a referência fica em `properties.imageId`; o código do frontend grava o id em **`properties.id`** (`src/js/draw_tools/image_tool/add_image_control.js:355`) e o renderer lê de lá (`src/js/layers/layer_setup.js:182`). Não existe `properties.imageId` no código. Quem for consumir a feature no servidor deve olhar `properties.id`.
+> **Nota histórica.** guia *06-presenca-imagens* (absorvido) §2.5/Parte 3 e guia *08-offline-import* (absorvido) §4.2 dizem que a referência fica em `properties.imageId`; o código do frontend grava o id em **`properties.id`** (`src/js/draw_tools/image_tool/add_image_control.js:355`) e o renderer lê de lá (`src/js/layers/layer_setup.js:182`). Não existe `properties.imageId` no código. Quem for consumir a feature no servidor deve olhar `properties.id`.
 
 Na prática, para uma feature `image` **o id da imagem é o id da feature**: `addImageFeature` faz upload, usa `uploaded?.id` como `imageId` e usa esse mesmo valor como `properties.id` (`add_image_control.js:304-308`). Isso é deliberado e é o que permite o import preservar ids (adiante).
 
@@ -76,7 +76,7 @@ Armadilha: uma feature de imagem criada offline e sincronizada depois carrega um
 
 O comportamento decisivo está em `images.service.js:190-213`: a **primeira ocorrência de cada `localId` é inserida COM esse id** (`INSERT_IMAGE_WITH_ID`), ou seja, o servidor preserva o id do cliente. Só um `localId` duplicado dentro do mesmo lote recebe id novo gerado, e o `mapping` colapsa last-wins.
 
-> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido) §4.7 ("IDs locais são substituídos por IDs do servidor") e §4.4 (fase 4 "enviar operação de UPDATE para atualizar `properties.imageId`") descrevem um rewrite pós-import; o backend em `src/modules/images/images.queries.js:13-17` preserva o `localId` como id do servidor, e o orquestrador do frontend `src/js/import_export/save-local-atlas.service.js:103-105` faz o import do atlas ANTES do upload das imagens **exatamente para não precisar de rewrite**. Não existe fase de UPDATE de referência no código.
+> **Nota histórica.** guia *08-offline-import* (absorvido) §4.7 ("IDs locais são substituídos por IDs do servidor") e §4.4 (fase 4 "enviar operação de UPDATE para atualizar `properties.imageId`") descrevem um rewrite pós-import; o backend em `src/modules/images/images.queries.js:13-17` preserva o `localId` como id do servidor, e o orquestrador do frontend `src/js/import_export/save-local-atlas.service.js:103-105` faz o import do atlas ANTES do upload das imagens **exatamente para não precisar de rewrite**. Não existe fase de UPDATE de referência no código.
 
 A ordem correta, em `save-local-atlas.service.js:97-105`:
 

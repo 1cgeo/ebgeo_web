@@ -60,7 +60,7 @@ Este é o ponto onde o código é mais rico que a prosa. O `assets3d` é rota **
 
 O raciocínio está no comentário do código: um cache compartilhado só pode guardar resposta que qualquer chamador poderia ver. Se um panorama de projeto `disabled` saísse como `public`, um proxy poderia replicar para anônimo a resposta autorizada de um admin. O `Vary` é cinto e suspensório para proxies que ignoram `private`. Ver [[auth-flexivel]] e [[organizacoes-om]] para quem enxerga o quê, e [[hardening-borda-api]] para o resto da postura de borda.
 
-> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido) §5 documenta `Cache-Control: public, max-age=31536000, immutable` como valor fixo da imagem 360; o código em `sv360.controller.js:52-63` emite `private, max-age=31536000, immutable` + `Vary: Authorization, Cookie` quando o projeto está `disabled`. A doc descreve apenas o caso `enabled`.
+> **Nota histórica.** guia *16-streetview-360* (absorvido) §5 documenta `Cache-Control: public, max-age=31536000, immutable` como valor fixo da imagem 360; o código em `sv360.controller.js:52-63` emite `private, max-age=31536000, immutable` + `Vary: Authorization, Cookie` quando o projeto está `disabled`. A doc descreve apenas o caso `enabled`.
 
 ## O que fica de fora, e por quê
 
@@ -84,7 +84,7 @@ E, como lembrete de escopo: nada disso passa pelo sync de operações. Ver [[sin
 
 Os caminhos guardados no catálogo 3D (`url`, `thumbnail`) são **relativos**, e o `previewThumbnail` do metadado 360 também é relativo e sem o prefixo `/api/v1`. A ideia é resolver contra `assets3dBaseUrl` e `streetView360.serviceUrl` do `/api/config`, o que torna os dados portáveis entre ambientes sem rebuild ([[config-runtime-urls-relativas]], [[assets3d-distribuicao]]).
 
-> [!CONTRADICAO 2026-07-18] O checklist de guia *14-catalogo3d-assets* (absorvido) afirma que o cliente lê `assets3dBaseUrl` do `/api/config` e concatena com `m.url`. No `ebgeo_web` as-built não existe nenhuma referência a `assets3dBaseUrl`; `3d_models_viewer_tool/map_3d.js:259` passa `tilesetConfig.url` direto ao `Cesium3DTileset.fromUrl`, com a URL já completa vinda do catálogo de `tilesets` da config. A concatenação com base é o contrato oferecido pelo backend, não o caminho exercido pelo frontend hoje.
+> **Nota histórica.** O checklist de guia *14-catalogo3d-assets* (absorvido) afirma que o cliente lê `assets3dBaseUrl` do `/api/config` e concatena com `m.url`. No `ebgeo_web` as-built não existe nenhuma referência a `assets3dBaseUrl`; `3d_models_viewer_tool/map_3d.js:259` passa `tilesetConfig.url` direto ao `Cesium3DTileset.fromUrl`, com a URL já completa vinda do catálogo de `tilesets` da config. A concatenação com base é o contrato oferecido pelo backend, não o caminho exercido pelo frontend hoje.
 
 O lado 360 do frontend segue o contrato: `street_view_tool/streetview-api.service.js:76` monta `${getServiceUrl()}/photos/${photoId}/image?quality=${quality}`, ou seja, base da config mais rota relativa.
 

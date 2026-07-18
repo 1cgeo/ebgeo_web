@@ -69,13 +69,13 @@ O `COUNT` roda em paralelo com o `SELECT` (`Promise.all` em `nomes.service.js:20
 
 Nunca hardcode `/api/v1/assets3d` no cliente: o ponto do campo é permitir apontar para um host de estáticos interno sem rebuild e sem reescrever os dados do catálogo ([[config-runtime-urls-relativas]], [[config-dinamico]]).
 
-> [!CONTRADICAO 2026-07-18] guia *13-nomes-geograficos* (absorvido):358-359` mostra `thumbnail`/`url` como URLs absolutas (`https://.../tileset.json`), sugerindo que o campo pode ser absoluto. O contrato real, testado em `backend/tests/integration/nomes-catalogo3d-gaps.test.js:173`, é o caminho relativo armazenado, devolvido sem prefixo, e guia *14-catalogo3d-assets* (absorvido):134-135` o declara congelado como relativo. Trate como relativo.
+> **Nota histórica.** guia *13-nomes-geograficos* (absorvido):358-359` mostra `thumbnail`/`url` como URLs absolutas (`https://.../tileset.json`), sugerindo que o campo pode ser absoluto. O contrato real, testado em `backend/tests/integration/nomes-catalogo3d-gaps.test.js:173`, é o caminho relativo armazenado, devolvido sem prefixo, e guia *14-catalogo3d-assets* (absorvido):134-135` o declara congelado como relativo. Trate como relativo.
 
 ## O que o frontend faz hoje
 
 O visualizador 3D do EBGeo Web **não consome esta rota**. `src/js/3d_models_viewer_tool/map_3d.js:872` resolve o modelo com `config.tilesets.find(t => t.id === tilesetId)`, ou seja, a lista de modelos vem de `config.tilesets`, servido pelo `/api/config` a partir da tabela de catálogo `tilesets` (`backend/src/modules/config/config.service.js:133-136`, ver [[resources-catalogo]]). Não há nenhuma referência a `catalogo3d` nem a `assets3dBaseUrl` em `src/`.
 
-> [!CONTRADICAO 2026-07-18] guia *14-catalogo3d-assets* (absorvido):12-15` afirma que `/nomes/catalogo3d` é "a fonte única de descoberta" dos modelos 3D. No código atual do cliente, a descoberta é `config.tilesets` (`src/js/3d_models_viewer_tool/map_3d.js:872`), populada pela tabela `tilesets` do catálogo de resources; `ng.catalogo_3d` é um segundo catálogo, com controle de acesso por modelo, ainda não integrado ao visualizador. São duas fontes distintas, com modelos de permissão distintos, e quem for integrar precisa decidir qual manda.
+> **Nota histórica.** guia *14-catalogo3d-assets* (absorvido):12-15` afirma que `/nomes/catalogo3d` é "a fonte única de descoberta" dos modelos 3D. No código atual do cliente, a descoberta é `config.tilesets` (`src/js/3d_models_viewer_tool/map_3d.js:872`), populada pela tabela `tilesets` do catálogo de resources; `ng.catalogo_3d` é um segundo catálogo, com controle de acesso por modelo, ainda não integrado ao visualizador. São duas fontes distintas, com modelos de permissão distintos, e quem for integrar precisa decidir qual manda.
 
 ## Erros e observabilidade
 

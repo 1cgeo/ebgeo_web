@@ -32,7 +32,7 @@ gesto → runTransaction → logXxxOperation → operationQueue (IndexedDB)
 
 `WsClient.sendOperation`/`sendOperations` existem (`ws-client.js:161`, `ws-client.js:170`) mas **não têm nenhum chamador em `src/js`**, apenas testes. São superfície de protocolo mantida por compatibilidade, não caminho quente.
 
-> [!CONTRADICAO 2026-07-18] guia *05-sync-crdt* (absorvido) §5 diz "Em tempo real, prefira o canal WebSocket; o push HTTP é o caminho de recuperação"; o cliente real faz o inverso: o push HTTP é o caminho **normal** (`sync-flush.js:130` → `sync-engine.js:272`) e o WS não é usado para outbound de operações (`ws-client.js:161` sem chamador). O mesmo vale para a implementação de referência de guia *04-websocket-collab* (absorvido) §7, que envia ops por `sendOperation`.
+> **Nota histórica.** guia *05-sync-crdt* (absorvido) §5 diz "Em tempo real, prefira o canal WebSocket; o push HTTP é o caminho de recuperação"; o cliente real faz o inverso: o push HTTP é o caminho **normal** (`sync-flush.js:130` → `sync-engine.js:272`) e o WS não é usado para outbound de operações (`ws-client.js:161` sem chamador). O mesmo vale para a implementação de referência de guia *04-websocket-collab* (absorvido) §7, que envia ops por `sendOperation`.
 
 Consequência prática: a latência de propagação de uma edição tem um piso do intervalo de flush (mitigado pelo flush por evento), e o **ack canônico do autor é a resposta HTTP**, não a mensagem `ack` do WS. Ver [[envelope-operacao]], [[fila-operacoes-outbound]] e [[ack-idempotencia]].
 

@@ -71,9 +71,9 @@ Defaults de URL são placeholders DEV-only (OSM, Google, BDGEx, demotiles) e nã
 - `MAP3D_TERRAIN_URL` default `''` (`config.js:157`): vazio faz o `config.service` publicar `enabled: false` (elipsoide plano) em vez de pedir ao Cesium um provider inalcançável.
 - `SV360_SERVICE_URL` default `/api/v1/sv360` (`config.js:171`), relativo, porque o 360 é módulo deste mesmo backend.
 
-> [!CONTRADICAO 2026-07-18] docs/deploy.md §4 e guia *10-config* (absorvido) §6 listam `MAP3D_TERRAIN_URL` com default `http://localhost/terrain/tilesets/terrain` e `SV360_SERVICE_URL` com default `http://localhost:3000/api/v1/sv360`; `backend/src/config.js:157` usa `''` e `backend/src/config.js:171` usa `/api/v1/sv360`.
+> **Nota histórica.** docs/deploy.md §4 e guia *10-config* (absorvido) §6 listam `MAP3D_TERRAIN_URL` com default `http://localhost/terrain/tilesets/terrain` e `SV360_SERVICE_URL` com default `http://localhost:3000/api/v1/sv360`; `backend/src/config.js:157` usa `''` e `backend/src/config.js:171` usa `/api/v1/sv360`.
 
-> [!CONTRADICAO 2026-07-18] guia *10-config* (absorvido) §3 e docs/deploy.md descrevem o catálogo (basemaps, camadas, tilesets) vindo de uma **tabela única `resources`**; no código não existe tabela `resources`: cada tipo tem sua própria tabela (`basemaps`, `data_layers`, `analysis_layers`, `tilesets`, `streetview_markers`, criadas em `backend/src/database/migrations/003_sync.sql:101` e whitelisted em `backend/src/modules/catalog/catalog.tables.js:5-11`), lidas via `catalogService.listCatalog(...)` em `backend/src/modules/config/config.service.js:64-134`. Ver [[resources-catalogo]].
+> **Nota histórica.** guia *10-config* (absorvido) §3 e docs/deploy.md descrevem o catálogo (basemaps, camadas, tilesets) vindo de uma **tabela única `resources`**; no código não existe tabela `resources`: cada tipo tem sua própria tabela (`basemaps`, `data_layers`, `analysis_layers`, `tilesets`, `streetview_markers`, criadas em `backend/src/database/migrations/003_sync.sql:101` e whitelisted em `backend/src/modules/catalog/catalog.tables.js:5-11`), lidas via `catalogService.listCatalog(...)` em `backend/src/modules/config/config.service.js:64-134`. Ver [[resources-catalogo]].
 
 ## Stores binários e volumes
 

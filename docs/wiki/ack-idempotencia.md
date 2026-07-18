@@ -68,7 +68,7 @@ Os `results[]` são consumidos apenas para observabilidade: `recordPushAcks` (`s
 
 No caminho WebSocket, `ws-client.js:292-312` trata `ack` e `ack_batch`, grava spans `PUSH_ACK` e reemite um evento interno `'ack'` normalizado (`{opIds, serverVersion, results}`). Esse evento **não tem assinante** no app, e `sendOperation`/`sendOperations` (`ws-client.js:162,171`) não têm chamador fora do próprio módulo. Ou seja: o ack WS é um contrato de servidor plenamente implementado e um caminho cliente atualmente inerte. Se você passar a enviar ops por WS, aí sim o dequeue precisa consumir `results[]`, porque `ack` e `ack_batch` chegam assíncronos e fora de ordem em relação ao envio.
 
-> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido):120-126` mostra o dequeue iterando `result.data.acks` e chamando `remove(ack.opId)`; o cliente real em `src/js/store/sync/sync-engine.js:285` faz `operationQueue.dequeue(opIds)` com os ids do lote enviado e ignora `results`/`acks` para fins de dequeue (usa-os só no SyncLedger, `sync-engine.js:284`).
+> **Nota histórica.** guia *08-offline-import* (absorvido):120-126` mostra o dequeue iterando `result.data.acks` e chamando `remove(ack.opId)`; o cliente real em `src/js/store/sync/sync-engine.js:285` faz `operationQueue.dequeue(opIds)` com os ids do lote enviado e ignora `results`/`acks` para fins de dequeue (usa-os só no SyncLedger, `sync-engine.js:284`).
 
 ## Regras práticas
 

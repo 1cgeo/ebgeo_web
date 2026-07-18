@@ -45,7 +45,7 @@ Pontos que costumam ser lidos errado:
 - **Raio de relevância** (critério 7): zoom 10 = 50 km, zoom 16 ≈ 781 m, zoom 4 = 3.200 km. Zoom alto encolhe o raio, então "perto vence" mesmo para feições irrelevantes.
 - **Neutralização do tipo** (critério 6): `zoom_factor` vai de 0 (zoom ≤ 4) a 1 (zoom ≥ 18). Com `zoom_factor = 1`, o termo vira `0.5 * 0.10 = 0.05` fixo para todo mundo, ou seja, o tipo deixa de diferenciar. Com `zoom_factor = 0`, o tipo entra com força **máxima** (`tipo_peso` puro, de 0.1 a 1.0).
 
-> [!CONTRADICAO 2026-07-18] guia *13-nomes-geograficos* (absorvido):115` diz que, sem `zoom`, o backend "desliga o ajuste por tipo". O código faz o oposto: sem `zoom`, `zoom_factor = 0` (`nomes.queries.js:13`) e o critério 6 usa `tipo_peso` integral (`nomes.queries.js:46`), que é a configuração de **máxima** diferenciação por tipo. O que fica desligado é o *ajuste por zoom* sobre o tipo, não o tipo.
+> **Nota histórica.** guia *13-nomes-geograficos* (absorvido):115` diz que, sem `zoom`, o backend "desliga o ajuste por tipo". O código faz o oposto: sem `zoom`, `zoom_factor = 0` (`nomes.queries.js:13`) e o critério 6 usa `tipo_peso` integral (`nomes.queries.js:46`), que é a configuração de **máxima** diferenciação por tipo. O que fica desligado é o *ajuste por zoom* sobre o tipo, não o tipo.
 
 `tipo_peso` não vem do FME, é derivado do texto de `tipo` por uma hierarquia EDGV em trigger (`004_ng.sql:107-136`): cidade 1.0, vila/povoado 0.9, rio/lago/represa 0.85, serra/morro/ilha/pico/ponta/praia 0.8, descendo até religioso/cemitério 0.15 e `ELSE 0.1`.
 
