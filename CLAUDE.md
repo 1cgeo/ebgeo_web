@@ -1,8 +1,17 @@
-# EBGeo Web
+# EBGeo — monorepo
 
-GIS web para o Exército Brasileiro. MapLibre GL JS (2D) + Cesium (3D, lazy) + Three.js (360, lazy). Vanilla JS (ES modules, no framework), Vite, IndexedDB via LocalForage. Runs fully **offline/anonymous** by default; an **optional backend** (`ebgeo_backend` — Express + PostgreSQL + `ws`) adds login, server-hosted atlases, sharing, and **real-time multi-user collaboration** (see *Backend & Real-Time Sync*).
+GIS web para o Exército Brasileiro. **Um repositório, dois pacotes:**
+
+| Pacote | Onde | O quê |
+|--------|------|-------|
+| **web** (este arquivo) | raiz (`src/`, `tests/`) | SPA local-first: MapLibre GL JS (2D) + Cesium (3D, lazy) + Three.js (360, lazy). Vanilla JS (ES modules, sem framework), Vite, IndexedDB via LocalForage. |
+| **backend** | [`backend/`](backend/) | Express + PostgreSQL/PostGIS + `ws`. Login, atlas hospedados, compartilhamento e colaboração em tempo real. **Tem CLAUDE.md próprio** — leia [`backend/CLAUDE.md`](backend/CLAUDE.md) antes de mexer lá. |
+
+O app roda **100% offline/anônimo por padrão**; o backend é **aditivo** e nenhuma mudança pode quebrar o caminho anônimo (ver *Backend & Real-Time Sync*).
 
 Detailed references live in `.claude/rules/` (`architecture.md`, `common-tasks.md`, `testing.md`) and `.claude/skills/` (`new-tool`, `store-op`).
+
+> **Mudança que cruza os dois pacotes** (envelope de sync, `GET /api/config`, permissões, contratos congelados) precisa ser verificada **dos dois lados no mesmo commit** — é justamente o que o monorepo passou a permitir. O E2E (`npm run test:e2e:ui`) sobe o backend real a partir de `backend/` e é o guarda dessa fronteira.
 
 ## Non-negotiable
 
@@ -10,6 +19,8 @@ Detailed references live in `.claude/rules/` (`architecture.md`, `common-tasks.m
 - **Protected files** (a PreToolUse hook blocks edits): `package-lock.json`, `.env`, `deploy/`, `public/vendors/`.
 
 ## Commands
+
+**Só o frontend** (não precisa de Postgres):
 
 ```bash
 npm run dev          # Dev server (port 3000)
@@ -22,6 +33,18 @@ npm run test:coverage# Coverage report (no blocking threshold)
 npm run knip         # Dead-code detection
 npm run preview      # Preview production build
 npm run clean        # Clean build artifacts
+```
+
+**Monorepo** (backend exige PostgreSQL + PostGIS + superusuário para os testes):
+
+```bash
+npm run install:all  # instala os dois pacotes
+npm run dev:all      # sobe backend + frontend juntos
+npm run dev:backend  # só o backend (node --watch)
+npm run test:all     # suíte dos dois
+npm run test:backend # só o backend (cria/dropa ebgeo_test)
+npm run lint:all     # lint dos dois
+npm run test:e2e:ui  # Playwright: sobe o backend REAL de backend/ e dirige o browser
 ```
 
 Edited `.js`/`.css` files are auto-linted by a PostToolUse hook — expect lint output after each write.

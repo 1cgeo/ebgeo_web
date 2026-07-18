@@ -13,7 +13,7 @@ colaboração é fluida: ninguém trava esperando o outro, cada um desfaz as pr�
 trabalho converge sozinho.
 
 > Documentos relacionados: arquitetura do cliente em [`.claude/rules/architecture.md`](../.claude/rules/architecture.md)
-> (seção *Sync / Real-Time Collaboration*); contrato e rotas do servidor em `ebgeo_backend/README.md`;
+> (seção *Sync / Real-Time Collaboration*); contrato e rotas do servidor em [`backend/README.md`](../backend/README.md);
 > mapeamento ação-a-ação em [`acoes-interface-multiusuario.md`](./acoes-interface-multiusuario.md).
 
 ---

@@ -426,7 +426,7 @@ Pontos que parecem "op perdida" mas são intencionais — codificados como `outc
 
 ## 14. Mapa de arquivos para referência rápida
 
-### Frontend — `ebgeo_web/src/js/store/sync/`
+### Frontend — `src/js/store/sync/`
 
 | Arquivo | Responsabilidade |
 |---|---|
@@ -453,7 +453,7 @@ Pontos que parecem "op perdida" mas são intencionais — codificados como `outc
 
 Relacionados: `store/store-transaction.js` (mint do `traceId`, persistência-primeiro), `presence/` (presença), `account/` (login/connect/logout + luz de sync).
 
-### Backend — `ebgeo_backend/src/`
+### Backend — `backend/src/`
 
 | Caminho | Responsabilidade |
 |---|---|
