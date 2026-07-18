@@ -24,9 +24,12 @@ export const BACKEND_PORT = 3912;
  * never in CI). `EBGEO_BACKEND_DIR` still overrides it, for a checkout that keeps
  * the backend somewhere else.
  */
+// Tres niveis: tests/e2e-ui/ -> tests/ -> frontend/ -> raiz do monorepo. Eram dois
+// ate o pacote web virar frontend/ (2026-07-18), quando isto passou a apontar para
+// um `frontend/backend/` inexistente.
 export const BACKEND_DIR =
     process.env.EBGEO_BACKEND_DIR ||
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../backend');
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../backend');
 
 /**
  * Cross-process handoff file: globalSetup writes {skip,baseUrl,pid,dbName} here,
