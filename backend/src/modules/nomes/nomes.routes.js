@@ -1,0 +1,19 @@
+// Path: src/modules/nomes/nomes.routes.js
+import { Router } from 'express';
+import { auth } from '../../middleware/auth.js';
+import { validate } from '../../middleware/validate.js';
+import { nomesAccessLog } from '../../middleware/nomes-access-log.js';
+import * as ctrl from './nomes.controller.js';
+import * as schemas from './nomes.schemas.js';
+
+const router = Router();
+
+// /busca is the frontend's gazetteer search (config.search.apiUrl) and must work
+// for the ANONYMOUS path: no strict `auth` here. The global flexibleAuth still
+// populates req.user when a credential is present, and the BUSCA SQL filters by
+// access embedded ($5 userId null => public names only) — defense in depth.
+router.get('/busca', nomesAccessLog, validate({ query: schemas.buscaSchema }), ctrl.busca);
+router.get('/feicoes', auth, nomesAccessLog, validate({ query: schemas.feicoesSchema }), ctrl.feicoes);
+router.get('/catalogo3d', auth, nomesAccessLog, validate({ query: schemas.catalogoSchema }), ctrl.catalogo3d);
+
+export { router as nomesRoutes };

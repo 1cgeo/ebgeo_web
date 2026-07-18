@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+
+# Test environment (keep .env.test.example, ignore actual .env.test)
+# .env.test is committed with safe defaults for local testing
+
+# Runtime data
+data/images/
+data/test-images/
+data/e2e-images/
+data/assets3d/
+data/sv360/
+data/*.sqlite*
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+
+# package-lock.json is committed (npm ci in CI requires it).
+yarn.lock
+pnpm-lock.yaml
