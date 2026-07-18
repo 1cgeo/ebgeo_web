@@ -10,6 +10,14 @@ function optional(key, fallback) {
   return process.env[key] || fallback;
 }
 
+/** Inteiro opcional: ausente/ilegível → undefined (o consumidor decide o default). */
+function optionalInt(key) {
+  const raw = process.env[key];
+  if (raw === undefined || raw === '') return undefined;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 const nodeEnv = optional('NODE_ENV', 'development');
 
 /**
@@ -46,7 +54,13 @@ const config = Object.freeze({
   }),
 
   cors: Object.freeze({
-    origin: optional('CORS_ORIGIN', 'http://localhost:8080'),
+    // O default é a origem do FRONTEND (Vite em :3000), não a do backend. Estava
+    // `:8080` — a porta do próprio backend —, o que liberava uma origem que nunca
+    // faz requisição cross-origin e bloqueava a que faz. Em dev o browser fala com
+    // o Vite, que faz proxy de /api, então na prática é same-origin; isso só
+    // aparece quando o front é servido de outra origem (o caso do E2E, que já
+    // passa CORS_ORIGIN explícito).
+    origin: optional('CORS_ORIGIN', 'http://localhost:3000'),
   }),
 
   images: Object.freeze({
@@ -126,8 +140,21 @@ const config = Object.freeze({
     tileServerUrl: optional('TILE_SERVER_URL', ''),
     terrainUrl: optional('TERRAIN_URL', 'https://demotiles.maplibre.org/terrain-tiles/tiles.json'),
     hillshadeUrl: optional('HILLSHADE_URL', 'https://demotiles.maplibre.org/terrain-tiles/tiles.json'),
+    // Só se aplicam quando a URL é um TEMPLATE `{z}/{x}/{y}` (fonte por tiles);
+    // numa URL TileJSON o próprio manifesto declara os zooms.
+    terrainMinzoom: optionalInt('TERRAIN_MINZOOM'),
+    terrainMaxzoom: optionalInt('TERRAIN_MAXZOOM'),
+    hillshadeMinzoom: optionalInt('HILLSHADE_MINZOOM'),
+    hillshadeMaxzoom: optionalInt('HILLSHADE_MAXZOOM'),
     map3dImageryUrl: optional('MAP3D_IMAGERY_URL', 'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'),
-    map3dTerrainUrl: optional('MAP3D_TERRAIN_URL', 'http://localhost/terrain/tilesets/terrain'),
+    // Sem default: o terreno do Cesium é um serviço de DEPLOY (em produção,
+    // relativo — ex.: `/cms/terrain-cesium/`). O default anterior era
+    // `http://localhost/terrain/tilesets/terrain` — absoluto, sem porta e
+    // inexistente —, e como `terrain.enabled` era fixo em true, toda instalação
+    // sem essa env pedia ao Cesium um CesiumTerrainProvider inalcançável. Vazio
+    // faz o config.service publicar `enabled: false` (elipsoide plano), que é o
+    // comportamento correto de quem não tem terreno.
+    map3dTerrainUrl: optional('MAP3D_TERRAIN_URL', ''),
     // Fase 9: the 360 is ABSORBED into this backend (no external :8081 upstream).
     // serviceUrl is the in-backend mount; previewThumbnail (relative) concatenates
     // with it. The frontend now consumes a server-rendered VECTOR source: the MVT

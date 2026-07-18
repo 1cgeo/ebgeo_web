@@ -95,6 +95,36 @@ export async function listAnalysisLayers() {
     .filter((layer) => Array.isArray(layer.bounds) && layer.bounds.length === 4);
 }
 
+/**
+ * Monta uma fonte `raster-dem` no shape que o MapLibre espera — e o frontend a
+ * repassa VERBATIM para `map.addSource()`.
+ *
+ * O MapLibre aceita duas formas e elas NÃO são intercambiáveis:
+ *  - TileJSON:  { url: 'https://…/tiles.json' }
+ *  - template:  { tiles: ['https://…/{z}/{x}/{y}'], minzoom, maxzoom }
+ *
+ * Antes só a primeira era emitida, então um deploy cujo terreno é servido por
+ * template (o caso real: `/cms/martin/fathom_terrain/{z}/{x}/{y}`) não tinha como
+ * ser expresso via env — a URL ia parar em `url:` e o MapLibre não a resolvia.
+ * A presença de `{z}` distingue as duas.
+ *
+ * @param {string} url
+ * @param {number|undefined} minzoom
+ * @param {number|undefined} maxzoom
+ * @returns {Object|undefined} fonte raster-dem, ou undefined se não houver URL.
+ */
+function rasterDemSource(url, minzoom, maxzoom) {
+  if (!url) return undefined;
+  if (!url.includes('{z}')) return { type: 'raster-dem', url, tileSize: 256 };
+  return {
+    type: 'raster-dem',
+    tiles: [url],
+    tileSize: 256,
+    ...(Number.isFinite(minzoom) ? { minzoom } : {}),
+    ...(Number.isFinite(maxzoom) ? { maxzoom } : {}),
+  };
+}
+
 export async function listDataLayers() {
   const rows = await catalogService.listCatalog('data_layers');
   return rows.map((r) => ({ id: r.id, name: r.name, ...r.config }));
@@ -159,8 +189,8 @@ export async function getAppConfig() {
     dataLayers: { enabled: true, layers: dataLayers },
     map2d: {
       ...S.MAP2D_BASE,
-      terrainSource: { type: 'raster-dem', url: C.terrainUrl, tileSize: 256 },
-      hillshadeSource: { type: 'raster-dem', url: C.hillshadeUrl, tileSize: 256 },
+      terrainSource: rasterDemSource(C.terrainUrl, C.terrainMinzoom, C.terrainMaxzoom),
+      hillshadeSource: rasterDemSource(C.hillshadeUrl, C.hillshadeMinzoom, C.hillshadeMaxzoom),
     },
     map3d: {
       bounds: S.MAP3D_BOUNDS,
@@ -173,7 +203,9 @@ export async function getAppConfig() {
           options: { maximumLevel: 18, minimumLevel: 0, tileWidth: 256, tileHeight: 256 },
         },
         terrain: {
-          enabled: true,
+          // Só habilita quando há URL configurada — sem terreno o Cesium usa o
+          // elipsoide plano, em vez de tentar (e falhar) um provider inexistente.
+          enabled: Boolean(C.map3dTerrainUrl),
           type: 'Cesium',
           url: C.map3dTerrainUrl,
           options: { requestVertexNormals: true },
