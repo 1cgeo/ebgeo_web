@@ -2,9 +2,15 @@
 
 /**
  * @fileoverview E2E contract test for GET /api/v1/config. Asserts the live backend
- * returns the frozen top-level config shape the frontend reads at boot, with real
- * (non-empty) values from the resource seed. Public route — no auth required, but we
- * still build an isolated ApiClient per file.
+ * returns the frozen top-level config SHAPE the frontend reads at boot. Public route,
+ * no auth required, but we still build an isolated ApiClient per file.
+ *
+ * Shape and invariants, NOT deployment values. This file used to assert that URLs were
+ * non-empty and that terrain was enabled, which only held on a fully provisioned host;
+ * it was written when those defaults were absolute `http://localhost` URLs that
+ * "worked" through the dev proxy. Once the defaults became empty/relative (the correct
+ * unconfigured behaviour), the assertions turned into false failures. Where a value
+ * matters, assert the invariant that ties it to another field instead.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -47,14 +53,21 @@ describe.skipIf(E2E_SKIP)('config-contract (e2e)', () => {
         }
     });
 
-    it('services + search carry usable string URLs', () => {
+    it('services carries a string tileServerUrl; search fica no shape, vazio', () => {
         expect(typeof cfg.services).toBe('object');
+        // String sempre, possivelmente VAZIA: vazio é o sinal deliberado de "não
+        // configurado" (`backend/src/config.js:140`). Exigir comprimento > 0 era
+        // exigir um deployment completo de um teste de contrato.
         expect(typeof cfg.services.tileServerUrl).toBe('string');
-        expect(cfg.services.tileServerUrl.length).toBeGreaterThan(0);
 
+        // `search` permanece no shape congelado e VAZIO de propósito: o
+        // `SEARCH_API_URL` tinha default apontando para um `:3001` que nunca
+        // existiu (busca dava connection-refused e não retornava nada, em
+        // silêncio), e foi removido junto com o campo. O gazetteer é este mesmo
+        // backend. Afirmar a AUSÊNCIA de `apiUrl` prende a correção: se alguém
+        // reintroduzir o campo, este teste cai.
         expect(typeof cfg.search).toBe('object');
-        expect(typeof cfg.search.apiUrl).toBe('string');
-        expect(cfg.search.apiUrl.length).toBeGreaterThan(0);
+        expect(cfg.search).not.toHaveProperty('apiUrl');
     });
 
     it('basemaps is an object keyed by id (not an array), each with a name', () => {
@@ -91,9 +104,21 @@ describe.skipIf(E2E_SKIP)('config-contract (e2e)', () => {
         expect(typeof cfg.map3d).toBe('object');
         expect(typeof cfg.map3d.viewer).toBe('object');
         expect(typeof cfg.map3d.providers).toBe('object');
-        expect(cfg.map3d.providers.imagery.enabled).toBe(true);
-        expect(typeof cfg.map3d.providers.imagery.url).toBe('string');
-        expect(cfg.map3d.providers.terrain.enabled).toBe(true);
+
+        const { imagery, terrain } = cfg.map3d.providers;
+        expect(imagery.enabled).toBe(true);
+        expect(typeof imagery.url).toBe('string');
+
+        // O INVARIANTE, não o valor: o terreno só liga quando há URL configurada
+        // (`backend/src/modules/config/config.service.js:208`, `Boolean(map3dTerrainUrl)`),
+        // porque sem URL o Cesium usa o elipsoide plano em vez de tentar um
+        // provider inexistente. Isto vale em deployment configurado e não
+        // configurado. A versão anterior exigia `enabled === true`, herança do
+        // tempo em que o default era um `http://localhost` absoluto que só
+        // funcionava por acidente do proxy de dev; com o default vazio correto,
+        // o teste passou a falhar em qualquer máquina sem terreno instalado.
+        expect(typeof terrain.url).toBe('string');
+        expect(terrain.enabled).toBe(Boolean(terrain.url));
     });
 
     it('does NOT wrap the payload in a { data } envelope (getConfig unwraps it)', () => {
