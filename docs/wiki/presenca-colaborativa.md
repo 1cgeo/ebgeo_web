@@ -2,7 +2,7 @@
 
 Camada efêmera em memória que propaga roster, cursores, seleções (2D/3D/360), cursor temporal e awareness de briefing entre pares de uma sala de atlas. Esta página cobre só o que não se lê no código: as convenções que o próprio JSDoc descreve errado, as armadilhas que atravessam cliente e servidor, e os limites operacionais.
 
-Mapa dos arquivos: `src/js/presence/` (bridge, store, overlays, cores) e `ebgeo_backend/src/modules/collab/`. Os cabeçalhos JSDoc de `src/js/presence/presence-bridge.js` e `src/js/presence/presence-store.js` já listam frames inbound/outbound e eventos emitidos; não repetimos aqui.
+Mapa dos arquivos: `src/js/presence/` (bridge, store, overlays, cores) e `ebgeo_backend/src/modules/collab/`. Os cabeçalhos JSDoc de `frontend/src/js/presence/presence-bridge.js` e `frontend/src/js/presence/presence-store.js` já listam frames inbound/outbound e eventos emitidos; não repetimos aqui.
 
 ## Por que presença é requisito, não enfeite
 
@@ -10,33 +10,33 @@ O modelo é **sem locks**: edição simultânea livre, conflito resolvido por [[
 
 Nada dela passa pela fila de operações, pelo IndexedDB ou pelo Postgres. Não vira linha em [[tabela-operations]], não entra na [[fila-operacoes-outbound]], não participa do LWW. Não confunda com [[envelope-operacao]] (persistido, idempotente) nem com [[comentario-espacial]] (entidade sincronizada de verdade). Só existe em atlas remoto conectado ([[atlas-modelo-de-dados]]); no modo local/anônimo o bridge fica montado e inerte ([[dominio-local-vs-remoto]], [[modos-operacao]]).
 
-**Descartável por construção, e isso é deliberado.** `broadcastCursor` faz `if (!wsClient.isConnected()) return;` (`src/js/presence/presence-bridge.js:141`) e nunca enfileira: misturar presença com a fila offline faria o usuário reviver cursores de dez minutos atrás no reconnect. No servidor, `cursor`/`selection`/`temporal` estão em `COALESCABLE_TYPES` e são **descartados** quando `bufferedAmount` passa do teto de drop, enquanto o mesmo laço termina (`terminate()`) o socket afogado por operações duráveis para forçar reconnect e replay (`backend/src/modules/collab/collab.rooms.js:55-75`). Perder um cursor é invisível; perder uma operação é divergência.
+**Descartável por construção, e isso é deliberado.** `broadcastCursor` faz `if (!wsClient.isConnected()) return;` (`frontend/src/js/presence/presence-bridge.js:141`) e nunca enfileira: misturar presença com a fila offline faria o usuário reviver cursores de dez minutos atrás no reconnect. No servidor, `cursor`/`selection`/`temporal` estão em `COALESCABLE_TYPES` e são **descartados** quando `bufferedAmount` passa do teto de drop, enquanto o mesmo laço termina (`terminate()`) o socket afogado por operações duráveis para forçar reconnect e replay (`backend/src/modules/collab/collab.rooms.js:55-75`). Perder um cursor é invisível; perder uma operação é divergência.
 
 ## A armadilha central: a chave não é `clientId`
 
-O JSDoc de `src/js/presence/presence-store.js:11-13` afirma que o estado é chaveado por `clientId`, e a guia de arquitetura repetia isso. **É falso com os frames reais do backend.** `resolveKey()` prefere `clientId` (`src/js/presence/presence-store.js:48-64`), mas o servidor só manda `clientId` em `user_away` e `user_back` (`backend/src/modules/collab/collab.service.js:74-95`); `connected.usersOnline`, `user_joined`, `user_left`, `cursor`, `selection` e `temporal` carregam apenas `id`/`userId`. Na prática **quase toda entrada fica chaveada por `userId`**.
+O JSDoc de `frontend/src/js/presence/presence-store.js:11-13` afirma que o estado é chaveado por `clientId`, e a guia de arquitetura repetia isso. **É falso com os frames reais do backend.** `resolveKey()` prefere `clientId` (`frontend/src/js/presence/presence-store.js:48-64`), mas o servidor só manda `clientId` em `user_away` e `user_back` (`backend/src/modules/collab/collab.service.js:74-95`); `connected.usersOnline`, `user_joined`, `user_left`, `cursor`, `selection` e `temporal` carregam apenas `id`/`userId`. Na prática **quase toda entrada fica chaveada por `userId`**.
 
 Três consequências que só aparecem cruzando os arquivos:
 
-1. **O badge `ausente` nunca aparece em produção.** `user_away` traz `clientId`, `resolveKey` prefere `clientId`, a entrada existente está sob `userId`, e `_setAway` faz `this._users.get(key)` e **retorna sem efeito** quando não acha (`src/js/presence/presence-store.js:507-518`). Só é exercitado por testes que injetam a mutação à mão (`tests/integration/presence-store.test.js:198`). O efeito visível da graça continua correto porque a remoção acontece no servidor, não no badge. Ao mexer aqui, normalize a chave antes de comparar.
-2. **Exclusão do self precisa dos dois ids.** O snapshot `connected` inclui você (o `joinRoom` roda antes do `getRoomUsers`) e o `clientId` do [[client-id-estavel]] é outro id que não bate com a chave usada. Por isso o roster exclui por `sessionContext.userId` (`src/js/presence/online-users.control.js:226-232`) e os overlays excluem pelos **dois** (`src/js/presence/remote-cursors.layer.js:118-142`). Trocar para só `clientId` faz o usuário ver o próprio cursor.
+1. **O badge `ausente` nunca aparece em produção.** `user_away` traz `clientId`, `resolveKey` prefere `clientId`, a entrada existente está sob `userId`, e `_setAway` faz `this._users.get(key)` e **retorna sem efeito** quando não acha (`frontend/src/js/presence/presence-store.js:507-518`). Só é exercitado por testes que injetam a mutação à mão (`frontend/tests/integration/presence-store.test.js:198`). O efeito visível da graça continua correto porque a remoção acontece no servidor, não no badge. Ao mexer aqui, normalize a chave antes de comparar.
+2. **Exclusão do self precisa dos dois ids.** O snapshot `connected` inclui você (o `joinRoom` roda antes do `getRoomUsers`) e o `clientId` do [[client-id-estavel]] é outro id que não bate com a chave usada. Por isso o roster exclui por `sessionContext.userId` (`frontend/src/js/presence/online-users.control.js:226-232`) e os overlays excluem pelos **dois** (`frontend/src/js/presence/remote-cursors.layer.js:118-142`). Trocar para só `clientId` faz o usuário ver o próprio cursor.
 3. **Duas abas do mesmo usuário colapsam numa entrada** e são filtradas como self: suas outras abas não aparecem no roster. O backend, ao contrário, trata abas como sockets distintos, e por isso `removeConnection` só anuncia `user_left` quando sai o **último** socket daquele userId (`backend/src/modules/collab/collab.gateway.js:440-460`). Anunciar incondicionalmente derrubaria o usuário do roster dos pares enquanto ele ainda está online.
 
-A cor também deriva dessa chave: `getPresenceColor` é hash djb2 determinístico sobre paleta fixa (`src/js/presence/presence-colors.js:44-52`), o que faz avatar, cursor e caixa de seleção do mesmo par baterem entre superfícies e entre máquinas **sem coordenação com o servidor**. Alternar entre `userId` e `clientId` troca a cor da pessoa no meio da sessão. Colisão em 14 slots é esperada e aceita.
+A cor também deriva dessa chave: `getPresenceColor` é hash djb2 determinístico sobre paleta fixa (`frontend/src/js/presence/presence-colors.js:44-52`), o que faz avatar, cursor e caixa de seleção do mesmo par baterem entre superfícies e entre máquinas **sem coordenação com o servidor**. Alternar entre `userId` e `clientId` troca a cor da pessoa no meio da sessão. Colisão em 14 slots é esperada e aceita.
 
 ## Contrato congelado: `mapId` de presença é NOME de mapa
 
-Não há sub-canal por mapa no servidor; toda mensagem vai para a sala inteira e **filtrar é do cliente**. O bridge carimba `getCurrentMapNameSync()` na saída (`src/js/presence/presence-bridge.js:144,157,196`) e os overlays resolvem o mapa ativo com a mesma função. As duas pontas precisam usar a mesma. Se alguém "corrigir" um lado para UUID, o filtro nunca casa e **nenhum cursor remoto renderiza, sem erro no console**. Contexto do dualismo nome/UUID em [[dominio-local-vs-remoto]].
+Não há sub-canal por mapa no servidor; toda mensagem vai para a sala inteira e **filtrar é do cliente**. O bridge carimba `getCurrentMapNameSync()` na saída (`frontend/src/js/presence/presence-bridge.js:144,157,196`) e os overlays resolvem o mapa ativo com a mesma função. As duas pontas precisam usar a mesma. Se alguém "corrigir" um lado para UUID, o filtro nunca casa e **nenhum cursor remoto renderiza, sem erro no console**. Contexto do dualismo nome/UUID em [[dominio-local-vs-remoto]].
 
 > **Nota histórica.** As guias 04-websocket-collab §3.2 e 06-presenca-imagens §1.1 documentam `mapId` como UUID (`"mapId": "map-uuid"`). O backend trata o campo como opaco (só reencaminha), então funciona; o contrato real é "chave de mapa acordada entre clientes".
 
-Corolário: `getCursors()` sem argumento devolve cursores de **todos** os mapas, por isso o overlay recusa renderizar quando o mapa ativo é `null` (`src/js/presence/remote-cursors.layer.js:124-129`).
+Corolário: `getCursors()` sem argumento devolve cursores de **todos** os mapas, por isso o overlay recusa renderizar quando o mapa ativo é `null` (`frontend/src/js/presence/remote-cursors.layer.js:124-129`).
 
-Mapa ativo pega carona no cursor porque o backend **não tem handler `map_active`**: uma troca de mapa manda um cursor sem posição carregando só o novo `mapId` (`src/js/presence/presence-bridge.js:153-158`). Quem for adicionar um sinal de "mapa atual" precisa saber que já existe esse canal implícito.
+Mapa ativo pega carona no cursor porque o backend **não tem handler `map_active`**: uma troca de mapa manda um cursor sem posição carregando só o novo `mapId` (`frontend/src/js/presence/presence-bridge.js:153-158`). Quem for adicionar um sinal de "mapa atual" precisa saber que já existe esse canal implícito.
 
 ## Seleção: a única presença com gate de papel
 
-Cursor e temporal são ungated de propósito (decisão de produto anotada em `backend/src/modules/collab/collab.handlers.js:70-78`). Seleção é editor-gated **dos dois lados**: cliente (`src/js/presence/presence-bridge.js:167-173`) e servidor (`backend/src/modules/collab/collab.handlers.js:82-85`). O cliente evita tráfego inútil; o servidor é a autoridade, para cliente adulterado não furar o gate. Comentarista e Visualizador recebem seleções mas nunca transmitem. Ver [[permissoes-atlas]] e [[sintese-capacidades-por-papel]]; para autorizar escrita cheque `permission !== 'read'`, não `role`. Como o gate mapeia para a capacidade EDIT, é permissivo no store local e restritivo só em atlas remoto conectado.
+Cursor e temporal são ungated de propósito (decisão de produto anotada em `backend/src/modules/collab/collab.handlers.js:70-78`). Seleção é editor-gated **dos dois lados**: cliente (`frontend/src/js/presence/presence-bridge.js:167-173`) e servidor (`backend/src/modules/collab/collab.handlers.js:82-85`). O cliente evita tráfego inútil; o servidor é a autoridade, para cliente adulterado não furar o gate. Comentarista e Visualizador recebem seleções mas nunca transmitem. Ver [[permissoes-atlas]] e [[sintese-capacidades-por-papel]]; para autorizar escrita cheque `permission !== 'read'`, não `role`. Como o gate mapeia para a capacidade EDIT, é permissivo no store local e restritivo só em atlas remoto conectado.
 
 Detalhes que evitam bug:
 
@@ -62,7 +62,7 @@ Voltar da graça restaura a **presença, não os dados**: não há replay de fra
 
 `stopPresence()` desregistra sobrescrevendo os seis eventos WS com no-ops, porque `wsClient.on()` **substitui** o handler em vez de acumular. O corolário atinge quem nunca leu presença: **dois assinantes do mesmo evento WS não coexistem**: registrar outro handler para `'cursor'` derruba o da presença sem aviso. Todo `on()` novo no bridge precisa do par em `stopPresence()`.
 
-Não existe chamada de `stopPresence` fora do módulo: o bridge vive enquanto o mapa vive. Quem limpa o roster no logout é `src/js/account/account.control.js` com `presenceStore.clear()`, depois de `logoutAndDisconnect()` ([[sessao-boot-e-ciclo-de-vida]]).
+Não existe chamada de `stopPresence` fora do módulo: o bridge vive enquanto o mapa vive. Quem limpa o roster no logout é `frontend/src/js/account/account.control.js` com `presenceStore.clear()`, depois de `logoutAndDisconnect()` ([[sessao-boot-e-ciclo-de-vida]]).
 
 Regra dura complementar: **overlays nunca mutam presença**, só leem e reconciliam. E o store guarda a figura completa, inclusive você; quem exclui self é a UI.
 
@@ -72,7 +72,7 @@ Regra dura complementar: **overlays nunca mutam presença**, só leem e reconcil
 
 Também não existem, por design: replay de frames de presença perdidos, lock a partir do indicador de briefing, e escala multi-instância.
 
-Existe classificação adaptativa de qualidade (`backend/src/modules/collab/collab.quality.js`) e o cliente reemite a resposta como `adaptiveSettings` (`src/js/store/sync/ws-client.js:341`), mas **nenhum módulo do frontend assina esse evento hoje**: o gancho existe, o consumidor não ([[qualidade-conexao-adaptativa]]).
+Existe classificação adaptativa de qualidade (`backend/src/modules/collab/collab.quality.js`) e o cliente reemite a resposta como `adaptiveSettings` (`frontend/src/js/store/sync/ws-client.js:341`), mas **nenhum módulo do frontend assina esse evento hoje**: o gancho existe, o consumidor não ([[qualidade-conexao-adaptativa]]).
 
 ## Limite operacional: uma instância
 

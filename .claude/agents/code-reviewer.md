@@ -41,7 +41,7 @@ Review code changes against project conventions defined in CLAUDE.md and .claude
 ### Imports & Dead Code
 - Path aliases (`@js/`, `@store/`, `@utils/`, `@tools/`, ...) in code that is new or
   being touched. Do NOT flag `../../` in untouched legacy code: 64 of 567 files under
-  `src/js/` still use it and no lint rule forbids it. Flagging pre-existing style as
+  `frontend/src/js/` still use it and no lint rule forbids it. Flagging pre-existing style as
   if it were a defect of the change under review is noise that buries the real findings.
 - No unused imports or commented-out code
 - No `_` prefix aliasing

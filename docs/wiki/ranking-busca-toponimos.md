@@ -29,7 +29,7 @@ Três consequências que não se leem em nenhum arquivo isoladamente:
 
 `zoom` é opcional (`backend/src/modules/nomes/nomes.schemas.js:11`) e controla dois eixos independentes (`backend/src/modules/nomes/nomes.queries.js:12-13`): o raio de relevância da proximidade (`decay_dist`, 50 km no zoom 10, ~780 m no zoom 16) e a neutralização do peso por tipo (`zoom_factor`, 0 no zoom ≤ 4, 1 no zoom ≥ 18).
 
-**O frontend não envia `zoom`** (`src/js/search/search-bar.search-providers.js:279` monta a URL só com `q`, `lat` e `lon`). Toda busca do EBGeo Web roda com raio fixo de 50 km e `zoom_factor = 0`, independentemente do zoom do mapa. A máquina de zoom existe, é testável e está desligada por omissão do chamador.
+**O frontend não envia `zoom`** (`frontend/src/js/search/search-bar.search-providers.js:279` monta a URL só com `q`, `lat` e `lon`). Toda busca do EBGeo Web roda com raio fixo de 50 km e `zoom_factor = 0`, independentemente do zoom do mapa. A máquina de zoom existe, é testável e está desligada por omissão do chamador.
 
 > **Nota histórica.** O guia *13-nomes-geograficos* (absorvido) diz que, sem `zoom`, o backend "desliga o ajuste por tipo". O código faz o oposto: `zoom_factor = 0` (`backend/src/modules/nomes/nomes.queries.js:13`) faz o critério 6 usar `tipo_peso` integral (`backend/src/modules/nomes/nomes.queries.js:46`), que é a configuração de diferenciação **máxima** por tipo. O que fica desligado é o ajuste por zoom sobre o tipo, não o tipo. Consequência: ligar `zoom` hoje **reduziria** a influência do tipo em zoom alto, ao contrário do que a leitura ingênua sugere.
 
@@ -45,12 +45,12 @@ A troca é tentadora e está proibida: `%` usa um limiar de sessão em vez do 0.
 
 ## Integração: a busca de 2 letras que falha calada
 
-A barra dispara com 2 caracteres (`src/js/search/search-bar.component.js:168` só ignora `value.length < 2`), o backend exige 3 (`backend/src/modules/nomes/nomes.schemas.js:8`). O 422 vira `throw` em `src/js/search/search-bar.search-providers.js:283-285` e morre como `console.warn` em `src/js/search/search-bar.component.js:266-271`. Toda busca de 2 letras é uma requisição inútil que falha em silêncio. Ver [[erros-api]] e [[auth-flexivel]].
+A barra dispara com 2 caracteres (`frontend/src/js/search/search-bar.component.js:168` só ignora `value.length < 2`), o backend exige 3 (`backend/src/modules/nomes/nomes.schemas.js:8`). O 422 vira `throw` em `frontend/src/js/search/search-bar.search-providers.js:283-285` e morre como `console.warn` em `frontend/src/js/search/search-bar.component.js:266-271`. Toda busca de 2 letras é uma requisição inútil que falha em silêncio. Ver [[erros-api]] e [[auth-flexivel]].
 
 Módulo read-only, fora do sync do atlas: sem `version`, sem operação, sem broadcast. Ver [[sintese-modulos-fora-do-sync]] e [[deploy-backend]].
 
 ## Fontes
 - `ebgeo_backend/src/modules/nomes/nomes.queries.js`: SQL do ranking, corte de 500, filtro de acesso pré-corte.
 - `ebgeo_backend/src/database/migrations/004_ng.sql`: `f_unaccent`, índice GIN trigram, hierarquia `tipo_peso`.
-- `ebgeo_web/src/js/search/search-bar.search-providers.js`, `src/js/search/search-bar.component.js`: ausência de `zoom`, gatilho em 2 chars.
+- `ebgeo_web/src/js/search/search-bar.search-providers.js`, `frontend/src/js/search/search-bar.component.js`: ausência de `zoom`, gatilho em 2 chars.
 - guia *13-nomes-geograficos* (absorvido): pesos e contrato do endpoint; divergência sobre `zoom` registrada acima.

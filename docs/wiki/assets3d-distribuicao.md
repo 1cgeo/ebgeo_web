@@ -4,7 +4,7 @@ Rota pública que serve tilesets e binários 3D como arquivos imutáveis, com do
 
 ## A rota é pública por decisão, não por esquecimento
 
-O subsistema é partido em descoberta (autenticada, `GET /api/v1/nomes/catalogo3d`, ver [[catalogo-3d]]) e distribuição (pública, `/api/v1/assets3d/*`). A rota de assets é montada antes das autenticadas (`src/app.js:95`) e o router não tem middleware próprio (`backend/src/modules/nomes/assets3d.routes.js:8`). O único auth no caminho é o `flexibleAuth` global (`src/app.js:68`), que é não bloqueante.
+O subsistema é partido em descoberta (autenticada, `GET /api/v1/nomes/catalogo3d`, ver [[catalogo-3d]]) e distribuição (pública, `/api/v1/assets3d/*`). A rota de assets é montada antes das autenticadas (`backend/src/app.js:95`) e o router não tem middleware próprio (`backend/src/modules/nomes/assets3d.routes.js:8`). O único auth no caminho é o `flexibleAuth` global (`backend/src/app.js:68`), que é não bloqueante.
 
 Consequência congelada: **`/assets3d/*` nunca retorna 401/403 por falta de token.** A proteção é "quem não conhece a URL não baixa", com a descoberta gateada por [[autenticacao-jwt]] e [[zonas-acesso-geografico]]. Isso não é controle de acesso ao binário. Se um modelo for sigiloso, a URL dele é o segredo, e URL não é segredo bom.
 
@@ -42,7 +42,7 @@ Detalhe deliberado de ordem: o 304 e o 416 acontecem **antes** do `acquire` (`:4
 
 **Igualdade exata.** O ramo SQLite busca por `rel_path` exato, então traversal é inócuo ali por construção, mas variantes de caminho (`./aman/x.json`, `aman//x.json`, qualquer coisa com `..` colapsável) **erram o índice e caem silenciosamente no filesystem**. Se o asset só existe no store, o resultado é um 404 sem explicação óbvia. As chaves são gravadas em posix pelo CLI, inclusive quando o import roda no Windows.
 
-**A guarda anti-traversal existe só no ramo filesystem** (`backend/src/modules/nomes/assets3d.service.js:28-31`). Se alguém trocar a busca exata por prefixo ou `LIKE`, a guarda precisa ser adicionada lá, porque hoje não existe. E como `path.posix.normalize` colapsa os `..` contra a raiz, quase toda tentativa termina dentro da raiz apontando para arquivo inexistente: a resposta é **404, não 403**. O 403 sobrou para o resíduo que ainda escapa após a normalização, e o teste de integração reflete isso aceitando `403 || 404` (`tests/integration/assets3d.test.js:69-70`). Não escreva alerta de segurança em cima do 403; ele quase nunca dispara.
+**A guarda anti-traversal existe só no ramo filesystem** (`backend/src/modules/nomes/assets3d.service.js:28-31`). Se alguém trocar a busca exata por prefixo ou `LIKE`, a guarda precisa ser adicionada lá, porque hoje não existe. E como `path.posix.normalize` colapsa os `..` contra a raiz, quase toda tentativa termina dentro da raiz apontando para arquivo inexistente: a resposta é **404, não 403**. O 403 sobrou para o resíduo que ainda escapa após a normalização, e o teste de integração reflete isso aceitando `403 || 404` (`backend/tests/integration/assets3d.test.js:69-70`). Não escreva alerta de segurança em cima do 403; ele quase nunca dispara.
 
 ## Range: multi-range vira 416, não 200
 

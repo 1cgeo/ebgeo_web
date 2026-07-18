@@ -1,6 +1,6 @@
 # Sessão, boot e ciclo de vida da conexão
 
-A ordem de boot em `src/js/index.js` está comentada fase a fase no próprio código; esta página guarda só o que o código não consegue dizer: a documentação desatualizada que ainda contradiz o boot, e os invariantes que quebram de longe.
+A ordem de boot em `frontend/src/js/index.js` está comentada fase a fase no próprio código; esta página guarda só o que o código não consegue dizer: a documentação desatualizada que ainda contradiz o boot, e os invariantes que quebram de longe.
 
 ## [!CONTRADICAO] O boot NÃO reconecta o último atlas
 
@@ -17,17 +17,17 @@ Enquanto essas fontes não forem corrigidas, qualquer agente ou pessoa que plane
 
 O código comenta cada decisão no ponto em que ela acontece. O que ele não comenta é o que quebra **em outro arquivo**:
 
-- **Todo modal novo com handler de Escape** precisa excluir `.idle-warning__overlay` da própria condição, como fazem `src/js/modals/project-picker.modal.js:133` e `src/js/admin/admin-panel.js:163`. Quando o aviso de inatividade está no ar ele tem que ser o único a reagir ao Esc (Esc = "estou aqui", `src/js/session/idle-timeout.controller.js:174`). Um modal novo que esqueça isso faz o Esc fechar o modal e deixar a sessão expirar em silêncio.
-- **`?map=` só aceita UUID** (`src/js/deep-link/atlas-url-sync.js:35`). Escrever um nome ali expõe nome interno e rebaixa um link bom. As duas assimetrias de `buildAtlasSearch` que parecem bug e não são (mapId falsy preserva o `?map=` existente; limpar não remove `atlasPublico`) estão explicadas em `src/js/deep-link/atlas-link.js:38-58`.
-- **Não existe fallback de config.** O boot morre na tela "EBGeo indisponível" após 3 tentativas. O `src/js/config.js` embarcado é só o *shape* que o backend hidrata. Ver [[config-dinamico]] e [[config-runtime-urls-relativas]].
+- **Todo modal novo com handler de Escape** precisa excluir `.idle-warning__overlay` da própria condição, como fazem `frontend/src/js/modals/project-picker.modal.js:133` e `frontend/src/js/admin/admin-panel.js:163`. Quando o aviso de inatividade está no ar ele tem que ser o único a reagir ao Esc (Esc = "estou aqui", `frontend/src/js/session/idle-timeout.controller.js:174`). Um modal novo que esqueça isso faz o Esc fechar o modal e deixar a sessão expirar em silêncio.
+- **`?map=` só aceita UUID** (`frontend/src/js/deep-link/atlas-url-sync.js:35`). Escrever um nome ali expõe nome interno e rebaixa um link bom. As duas assimetrias de `buildAtlasSearch` que parecem bug e não são (mapId falsy preserva o `?map=` existente; limpar não remove `atlasPublico`) estão explicadas em `frontend/src/js/deep-link/atlas-link.js:38-58`.
+- **Não existe fallback de config.** O boot morre na tela "EBGeo indisponível" após 3 tentativas. O `frontend/src/js/config.js` embarcado é só o *shape* que o backend hidrata. Ver [[config-dinamico]] e [[config-runtime-urls-relativas]].
 - **Ordem no store**: restaurar sessão precisa vir antes do boot guard, senão o guard descarta o atlas remoto em cache de um usuário legitimamente logado (`store/store.js:137-156`). O guard é no-op para o usuário local, essa é a garantia aditiva.
 
 ## Custo escondido e limites
 
-- Requisições de boot (config + `getMe`) têm timeout de 8 s; **pull de snapshot e push de operações são intencionalmente sem timeout** (`src/js/store/sync/api-client.js:41-49`), para não abortar transferência grande em rede ruim. Não "conserte" isso adicionando timeout.
+- Requisições de boot (config + `getMe`) têm timeout de 8 s; **pull de snapshot e push de operações são intencionalmente sem timeout** (`frontend/src/js/store/sync/api-client.js:41-49`), para não abortar transferência grande em rede ruim. Não "conserte" isso adicionando timeout.
 - A barreira `Promise.race([bootRendered, 15 s])` (`index.js:156`) é espera **só de IndexedDB**, nada de rede. O teto existe contra deadlock se o evento `load` nunca disparar.
-- O link pendente pós-login vive em escopo de módulo (`src/js/deep-link/atlas-link.js:100-112`), o que basta porque boot e login não têm reload entre si. Deixa de bastar no instante em que algum fluxo de login recarregar a página.
-- Token de link público é efêmero e não persistido (`src/js/store/sync/api-client.js:117-120`): o link é re-resolvido a cada boot. Ver [[link-publico]].
+- O link pendente pós-login vive em escopo de módulo (`frontend/src/js/deep-link/atlas-link.js:100-112`), o que basta porque boot e login não têm reload entre si. Deixa de bastar no instante em que algum fluxo de login recarregar a página.
+- Token de link público é efêmero e não persistido (`frontend/src/js/store/sync/api-client.js:117-120`): o link é re-resolvido a cada boot. Ver [[link-publico]].
 
 ## Sequências onde a ordem é o contrato
 
@@ -43,4 +43,4 @@ Ver [[snapshot-e-pull-incremental]], [[fila-operacoes-outbound]], [[permissoes-a
 
 ## Fontes
 
-Código: `src/js/index.js`, `deep-link/atlas-link.js`, `deep-link/atlas-url-sync.js`, `account/open-atlas.service.js`, `account/account.control.js`, `session/idle-timeout.controller.js`, `store/sync/api-client.js`, `store/store.js`, `store/store-origin.js`. Todos com JSDoc que explica o porquê no ponto de uso; prefira o código a qualquer paráfrase.
+Código: `frontend/src/js/index.js`, `deep-link/atlas-link.js`, `deep-link/atlas-url-sync.js`, `account/open-atlas.service.js`, `account/account.control.js`, `session/idle-timeout.controller.js`, `store/sync/api-client.js`, `store/store.js`, `store/store-origin.js`. Todos com JSDoc que explica o porquê no ponto de uso; prefira o código a qualquer paráfrase.

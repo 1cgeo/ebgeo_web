@@ -7,8 +7,12 @@ militares (APP-6 / milsymbol), briefings (Story Map), análise de terreno, 3D e 
 
 | Pacote | Onde | Stack |
 |--------|------|-------|
-| **web** | raiz (`src/`, `tests/`) | Vanilla JS (ES modules, sem framework) · Vite · MapLibre GL JS (2D) · Cesium (3D, lazy) · Three.js (360, lazy) · Turf.js · IndexedDB via LocalForage |
+| **web** | [`frontend/`](frontend/) | Vanilla JS (ES modules, sem framework) · Vite · MapLibre GL JS (2D) · Cesium (3D, lazy) · Three.js (360, lazy) · Turf.js · IndexedDB via LocalForage |
 | **backend** | [`backend/`](backend/) | Express 4 · pg-promise (SQL direto, sem ORM) · `ws` · PostgreSQL + PostGIS · JWT |
+
+Cada pacote é autocontido, com seu próprio `package.json`, `node_modules` e `.gitignore`. A raiz só
+orquestra: os scripts dela delegam com `--prefix`, e o único lugar onde os dois se encontram é o
+E2E do Playwright, que sobe o backend real.
 
 A referência completa do servidor (rotas, env, migrações, permissões, protocolo WS) está em
 [`backend/README.md`](backend/README.md); os guias de integração em
@@ -26,7 +30,7 @@ A referência completa do servidor (rotas, env, migrações, permissões, protoc
 > **Login opcional, servidor obrigatório no boot.** O backend é **aditivo** no sentido de que a app
 > é idêntica para quem não faz login, e nenhuma mudança pode quebrar esse caminho anônimo. Ele **não**
 > é opcional para subir: `GET /api/config` é a fonte única de config/catálogo e o boot é **fail-fast**
-> (`src/js/index.js` — 3 tentativas, depois a tela "EBGeo indisponível"). O `src/js/config.js`
+> (`frontend/src/js/index.js` — 3 tentativas, depois a tela "EBGeo indisponível"). O `frontend/src/js/config.js`
 > empacotado é apenas o *shape* que o servidor hidrata; **não há fallback estático**. Passado o boot,
 > a edição permanece local-first: escreve no IndexedDB e sincroniza depois.
 

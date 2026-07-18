@@ -24,8 +24,16 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const FERRAMENTAS = {
-    js: { bin: 'node_modules/eslint/bin/eslint.js', args: ['--no-warn-ignored', '--max-warnings', '0'] },
-    css: { bin: 'node_modules/stylelint/bin/stylelint.mjs', args: [] },
+    js: {
+        bin: 'node_modules/eslint/bin/eslint.js',
+        config: 'eslint.config.js',
+        args: ['--no-warn-ignored', '--max-warnings', '0'],
+    },
+    css: {
+        bin: 'node_modules/stylelint/bin/stylelint.mjs',
+        config: 'stylelint.config.js',
+        args: [],
+    },
 };
 
 function reportar(texto) {
@@ -60,16 +68,41 @@ process.stdin.on('end', () => {
     // repo have no applicable config and would only emit noise.
     if (!path.resolve(caminho).startsWith(path.resolve(raiz))) process.exit(0);
 
-    const { bin, args } = FERRAMENTAS[ext[1]];
-    const binAbs = path.join(raiz, bin);
-    // Invoke the tool's JS entry with this same Node binary: no `npx`, no
-    // shell, no .cmd shim. One less thing that can fail differently on Windows.
-    if (!existsSync(binAbs)) reportar(`Lint NAO rodou: ${bin} nao existe (npm install?).`);
+    const { bin, config, args } = FERRAMENTAS[ext[1]];
+
+    // Monorepo: each package has its own node_modules AND its own lint config
+    // (frontend/, backend/). Walk up from the edited file to the nearest package
+    // that CONFIGURES this linter, and run there. Anchoring on the repo root
+    // broke the moment the web package moved into frontend/.
+    //
+    // The config, not the binary, is what defines a lint target. Keying on the
+    // binary conflated two different things: "the linter is broken" (must be
+    // loud) and "this file is not a lint target" (must be quiet). Files like
+    // these hooks live outside every package and are simply not targets.
+    let dir = path.dirname(path.resolve(caminho));
+    const teto = path.resolve(raiz);
+    let pacote = null;
+    for (;;) {
+        if (existsSync(path.join(dir, config))) {
+            pacote = dir;
+            break;
+        }
+        if (dir === teto) break;
+        const pai = path.dirname(dir);
+        if (pai === dir) break;
+        dir = pai;
+    }
+    if (!pacote) process.exit(0); // fora de qualquer pacote com lint: nao e alvo
+
+    const binAbs = path.join(pacote, bin);
+    if (!existsSync(binAbs)) {
+        reportar(`Lint NAO rodou: ${pacote} configura ${config} mas nao tem ${bin} (npm install?).`);
+    }
 
     let saida = '';
     try {
         saida = execFileSync(process.execPath, [binAbs, ...args, caminho], {
-            cwd: raiz,
+            cwd: pacote,
             encoding: 'utf8',
             stdio: ['ignore', 'pipe', 'pipe'],
         });

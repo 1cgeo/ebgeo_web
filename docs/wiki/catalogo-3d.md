@@ -4,9 +4,9 @@
 
 ## Duas fontes de modelos 3D, e o cliente usa a outra
 
-> **Nota histórica.** guia *14-catalogo3d-assets* (absorvido):12-15 afirma que `/nomes/catalogo3d` é "a fonte única de descoberta" dos modelos 3D. No cliente atual não há uma única referência a `catalogo3d` nem a `assets3dBaseUrl` em `src/`: o visualizador resolve por `config.tilesets.find(t => t.id === tilesetId)` (`src/js/3d_models_viewer_tool/map_3d.js:872`), lista servida pelo `/api/config` a partir da tabela `tilesets` do catálogo de resources ([[resources-catalogo]]). São dois catálogos distintos, com modelos de permissão distintos.
+> **Nota histórica.** guia *14-catalogo3d-assets* (absorvido):12-15 afirma que `/nomes/catalogo3d` é "a fonte única de descoberta" dos modelos 3D. No cliente atual não há uma única referência a `catalogo3d` nem a `assets3dBaseUrl` em `src/`: o visualizador resolve por `config.tilesets.find(t => t.id === tilesetId)` (`frontend/src/js/3d_models_viewer_tool/map_3d.js:872`), lista servida pelo `/api/config` a partir da tabela `tilesets` do catálogo de resources ([[resources-catalogo]]). São dois catálogos distintos, com modelos de permissão distintos.
 
-A divergência não é só de origem, é de vocabulário: o cliente discrimina por `type === 'glb'` (`src/js/3d_models_viewer_tool/map_3d.js:877`), enquanto `ng.catalogo_3d` tem CHECK em `'Tiles 3D' | 'Modelos 3D' | 'Nuvem de Pontos'` (`backend/src/database/migrations/004_ng.sql:91`). Quem integrar precisa decidir qual manda e mapear os dois vocabulários, não apenas trocar a URL do fetch. E `config.tilesets` não tem controle de acesso por modelo; `ng.catalogo_3d` tem. Migrar o cliente para o catálogo `ng` é um endurecimento de segurança, não uma refatoração cosmética.
+A divergência não é só de origem, é de vocabulário: o cliente discrimina por `type === 'glb'` (`frontend/src/js/3d_models_viewer_tool/map_3d.js:877`), enquanto `ng.catalogo_3d` tem CHECK em `'Tiles 3D' | 'Modelos 3D' | 'Nuvem de Pontos'` (`backend/src/database/migrations/004_ng.sql:91`). Quem integrar precisa decidir qual manda e mapear os dois vocabulários, não apenas trocar a URL do fetch. E `config.tilesets` não tem controle de acesso por modelo; `ng.catalogo_3d` tem. Migrar o cliente para o catálogo `ng` é um endurecimento de segurança, não uma refatoração cosmética.
 
 ## Predicado de acesso duplicado entre SELECT e COUNT
 

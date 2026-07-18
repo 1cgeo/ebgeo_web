@@ -20,6 +20,9 @@ set -euo pipefail
 # ---- Configuração -----------------------------------------------------------
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# O pacote web virou frontend/ em 2026-07-18, espelhando backend/. O build sai
+# em frontend/dist, nao mais na raiz.
+WEB_DIR="$PROJECT_DIR/frontend"
 DEPLOY_DIR="$PROJECT_DIR/deploy"
 RELEASES_DIR="$DEPLOY_DIR/releases"
 CURRENT_LINK="$DEPLOY_DIR/current"
@@ -77,11 +80,13 @@ mkdir -p "$RELEASES_DIR"
 if [ "${1:-}" != "--skip-build" ]; then
     log "Executando build..."
     cd "$PROJECT_DIR"
-    vite build || fail "Build falhou"
+    # Via npm, nao `vite` direto: o binario esta em frontend/node_modules/.bin,
+    # que so entra no PATH pelo npm do proprio pacote.
+    npm run build --prefix frontend || fail "Build falhou"
 fi
 
 # Verificar dist/
-DIST_DIR="$PROJECT_DIR/dist"
+DIST_DIR="$WEB_DIR/dist"
 [ -f "$DIST_DIR/index.html" ] || fail "dist/index.html não encontrado"
 
 # Criar release

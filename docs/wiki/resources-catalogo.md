@@ -17,7 +17,7 @@ O DDL (`backend/src/database/migrations/003_sync.sql:95-115`) rejeita explicitam
 ## Contratos congelados
 
 - **`id` é slug textual escolhido pelo admin, imutável.** É a chave que o frontend indexa e que `atlas.settings.available_*` referencia. Colisão dá 409 (`catalog.service.js:43`); **não existe rota de rename**. Renomear é criar novo e reapontar todos os settings.
-- **`config.style` de basemap é servido verbatim** em `config.basemapStyles` para todo cliente, inclusive anônimo. Um style malformado gravado brica o mapa base de todo mundo no próximo boot; daí a validação no create e no update. O validador do backend (`src/utils/maplibre-style-validate.js`) **espelha** o do cliente (`ebgeo_web/src/js/utilities/maplibre-style-validate.js`); mudou um, mude o outro. Ver [[sintese-contratos-congelados]].
+- **`config.style` de basemap é servido verbatim** em `config.basemapStyles` para todo cliente, inclusive anônimo. Um style malformado gravado brica o mapa base de todo mundo no próximo boot; daí a validação no create e no update. O validador do backend (`backend/src/utils/maplibre-style-validate.js`) **espelha** o do cliente (`ebgeo_web/src/js/utilities/maplibre-style-validate.js`); mudou um, mude o outro. Ver [[sintese-contratos-congelados]].
 - **`analysis_layer` sem `bounds` de 4 elementos é filtrado fora do `/config`** (`backend/src/modules/config/config.service.js:86-96`). Uma camada seedada incompleta já quebrou o boot da aplicação. Consequência que parece bug e não é: você cria pela API, recebe 201, ela aparece em `GET /analysis-layers` e **não aparece no `/config`**. Confira o `bounds` antes de abrir chamado.
 
 ## Soft delete: o caminho sem volta
@@ -26,7 +26,7 @@ O DDL (`backend/src/database/migrations/003_sync.sql:95-115`) rejeita explicitam
 
 **Não há rota de reativar.** Ressuscitar é operação de banco. Se você precisa disso, é rota nova, não um `PUT`.
 
-**Armadilha do `UPDATE`:** todo campo usa `COALESCE($n, coluna)`, então `null` significa "não mexa", não "limpe". Para `description`, `''` limpa; NULL literal é inalcançável pela API. Assimetria deliberada, pinada pelo teste `res-02` em `tests/integration/images-gaps.test.js`. Não troque o COALESCE sem alterar o teste.
+**Armadilha do `UPDATE`:** todo campo usa `COALESCE($n, coluna)`, então `null` significa "não mexa", não "limpe". Para `description`, `''` limpa; NULL literal é inalcançável pela API. Assimetria deliberada, pinada pelo teste `res-02` em `backend/tests/integration/images-gaps.test.js`. Não troque o COALESCE sem alterar o teste.
 
 ## O que não existe (e parece que existe)
 
@@ -40,11 +40,11 @@ O shape de cada `config` não tem validação: o Joi só exige objeto (`backend/
 
 ## A exceção deliberada: miniatura embutida em base64
 
-O catálogo guarda metadado, com uma exceção: a miniatura, que o painel admin embute no próprio `config` como data URL (`src/js/admin/catalog-tab.js:251, 382-386`). O motivo é que o backend não serve estático público e `deploy/` é protegido ([[sintese-decisoes-arquiteturais]]).
+O catálogo guarda metadado, com uma exceção: a miniatura, que o painel admin embute no próprio `config` como data URL (`frontend/src/js/admin/catalog-tab.js:251,382-386`). O motivo é que o backend não serve estático público e `deploy/` é protegido ([[sintese-decisoes-arquiteturais]]).
 
 **Custo escondido:** a miniatura pesa no payload de `GET /api/config` de **todo** boot, inclusive anônimo ([[config-dinamico]]). Daí o teto de 256 KB no data URL: `compressImage` pode **silenciosamente devolver o original** quando o decode falha, e sem o teto um PNG grande entraria inteiro no `/config`. WebP é escolha consciente (preserva transparência que o JPEG achataria em preto).
 
-A chave da miniatura **muda por categoria** (`previewThumbnail` em tileset, `thumbnail` em data/analysis, `image` em basemap; `src/js/admin/catalog-tab.js:21-27`): espelha os shapes do deploy, não é uniformizável sem migrar dados.
+A chave da miniatura **muda por categoria** (`previewThumbnail` em tileset, `thumbnail` em data/analysis, `image` em basemap; `frontend/src/js/admin/catalog-tab.js:21-27`): espelha os shapes do deploy, não é uniformizável sem migrar dados.
 
 Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo intocado preserva. O **vídeo de preview é exclusivo de `tileset` e fica fora de banda** (só URL, nunca upload); esvaziar o campo faz `delete`, então remover não é no-op.
 

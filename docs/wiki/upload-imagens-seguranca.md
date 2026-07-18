@@ -48,7 +48,7 @@ Relevante para [[atlas-import-offline]]: a primeira ocorrência de um `localId` 
 
 ## Download: por que `<img src=URL>` nunca vai funcionar
 
-A rota é autenticada e serve `attachment`. O token vive em memória no cliente, não em cookie que uma tag `<img>` enviaria. O caminho correto é `fetchImageBlob` (`src/js/store/sync/api-client.js:916`): `GET` com `Authorization: Bearer`, `res.blob()`, e o chamador cria um `blob:` URL. `imageUrl()` (`src/js/store/sync/api-client.js:895`) existe só para montar a URL, não para colar em `src`.
+A rota é autenticada e serve `attachment`. O token vive em memória no cliente, não em cookie que uma tag `<img>` enviaria. O caminho correto é `fetchImageBlob` (`frontend/src/js/store/sync/api-client.js:916`): `GET` com `Authorization: Bearer`, `res.blob()`, e o chamador cria um `blob:` URL. `imageUrl()` (`frontend/src/js/store/sync/api-client.js:895`) existe só para montar a URL, não para colar em `src`.
 
 O cache é `private, max-age=31536000, immutable` (`backend/src/modules/images/images.controller.js:20`), então **não há cache-busting por query string**: imagem não muda depois de enviada e deletar é hard-delete (`backend/src/modules/images/images.service.js:97-111`). Ver [[sintese-cache-http-imutavel]].
 
@@ -57,6 +57,6 @@ O cache é `private, max-age=31536000, immutable` (`backend/src/modules/images/i
 ## Custo escondido e notas de integração
 
 - O parser JSON global é 10 MB; o lote ganha um parser dedicado de 50 MB escolhido **no despacho** (`backend/src/app.js:59-66`), porque um segundo `express.json` seria no-op depois que `req.body` existe. Sem essa ordem, o limite por imagem documentado seria inalcançável dentro de um lote. Máximo de 50 itens (`backend/src/modules/images/images.schemas.js:17`): o cliente precisa fatiar.
-- `src/js/store/sync/image-sync.js` é best-effort: erro vira `null` e o chamador degrada para id local ou "sem imagem", nunca lança. Isso é o que preserva o modo offline (ver [[dominio-local-vs-remoto]] e [[modos-operacao]]).
+- `frontend/src/js/store/sync/image-sync.js` é best-effort: erro vira `null` e o chamador degrada para id local ou "sem imagem", nunca lança. Isso é o que preserva o modo offline (ver [[dominio-local-vs-remoto]] e [[modos-operacao]]).
 - Imagens **não** viajam pelo canal de operações: REST puro, só a referência (`photoId` / `markerSymbol`) sincroniza com a feição. Ver [[sintese-rest-vs-sync]] e [[api-rest-atlas]].
 - Permissão de atlas: `write` para POST/DELETE, `read` para GET. Ver [[permissoes-atlas]] e [[atlas-modelo-de-dados]].

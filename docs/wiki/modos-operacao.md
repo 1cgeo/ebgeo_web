@@ -13,27 +13,27 @@ A combinação decide o gate: `checkPermission()` libera tudo quando `isOffline(
 
 ## Armadilha 1: anônimo não é offline
 
-Sem backend alcançável não existe app, nem anônimo. O boot é fail-fast em `GET /api/config`: 3 tentativas com 1 s, e se nenhuma aplicar, `showUnavailableScreen()` e retorno sem bootar (`src/js/index.js:74-87`). O `src/js/config.js` empacotado é só uma casca hidratada pelo servidor, então bootar sem config significaria bootar com catálogo vazio, pior que não bootar. O retry de 3 existe para que um soluço de rede não derrube o boot; só indisponibilidade real chega à tela. Ver [[config-dinamico]] e [[config-runtime-urls-relativas]].
+Sem backend alcançável não existe app, nem anônimo. O boot é fail-fast em `GET /api/config`: 3 tentativas com 1 s, e se nenhuma aplicar, `showUnavailableScreen()` e retorno sem bootar (`frontend/src/js/index.js:74-87`). O `frontend/src/js/config.js` empacotado é só uma casca hidratada pelo servidor, então bootar sem config significaria bootar com catálogo vazio, pior que não bootar. O retry de 3 existe para que um soluço de rede não derrube o boot; só indisponibilidade real chega à tela. Ver [[config-dinamico]] e [[config-runtime-urls-relativas]].
 
 ## Armadilha 2: `isAuthenticated()` é falso no modo público
 
-`isAuthenticated()` exige `ONLINE && userId && !_isVisitor` (`src/js/store/sync/session-context.js:196-198`), e o visitante público é ONLINE sem conta (`src/js/store/sync/session-context.js:264-270`). Qualquer UI que use esse predicado como "estou conectado" erra no modo público. Para conectividade use `connectionState`; para "posso escrever" use o guard.
+`isAuthenticated()` exige `ONLINE && userId && !_isVisitor` (`frontend/src/js/store/sync/session-context.js:196-198`), e o visitante público é ONLINE sem conta (`frontend/src/js/store/sync/session-context.js:264-270`). Qualquer UI que use esse predicado como "estou conectado" erra no modo público. Para conectividade use `connectionState`; para "posso escrever" use o guard.
 
-Esse é o preço deliberado de reusar a sessão para o visitante: em troca, o menu de conta some sozinho e o guard já bloqueia escrita sem código novo. `src/js/account/sync-status.control.js:102` esconde a luz de conexão pelo mesmo predicado, o que é intencional (visitante não tem o que sincronizar).
+Esse é o preço deliberado de reusar a sessão para o visitante: em troca, o menu de conta some sozinho e o guard já bloqueia escrita sem código novo. `frontend/src/js/account/sync-status.control.js:102` esconde a luz de conexão pelo mesmo predicado, o que é intencional (visitante não tem o que sincronizar).
 
 ## Armadilha 3: logging de operações é estado global entre conexões
 
-`connectPublic` chama `disableOperationLogging()` (`src/js/store/sync/sync-engine.js:227`) porque o token público não pode dar push: ops enfileiradas ficariam órfãs e seriam despejadas no atlas errado num login posterior. Consequência não local: `connect()` autenticado precisa chamar `enableOperationLogging()` explicitamente (`src/js/store/sync/sync-engine.js:169`), senão herda o desligamento de um `connectPublic` anterior na mesma aba. Mexer em um lado sem o outro produz um cliente silenciosamente read-only.
+`connectPublic` chama `disableOperationLogging()` (`frontend/src/js/store/sync/sync-engine.js:227`) porque o token público não pode dar push: ops enfileiradas ficariam órfãs e seriam despejadas no atlas errado num login posterior. Consequência não local: `connect()` autenticado precisa chamar `enableOperationLogging()` explicitamente (`frontend/src/js/store/sync/sync-engine.js:169`), senão herda o desligamento de um `connectPublic` anterior na mesma aba. Mexer em um lado sem o outro produz um cliente silenciosamente read-only.
 
-O overlay de settings do atlas se aplica ao visitante também (`src/js/store/sync/sync-engine.js:234-235`): ele respeita disponibilidade de 3D/360/basemaps como qualquer membro, ver [[atlas-settings]].
+O overlay de settings do atlas se aplica ao visitante também (`frontend/src/js/store/sync/sync-engine.js:234-235`): ele respeita disponibilidade de 3D/360/basemaps como qualquer membro, ver [[atlas-settings]].
 
-O token público é efêmero e não persiste: `setEphemeralToken` zera o refresh token (`src/js/store/sync/api-client.js:117-120`). Não há rotação; o link é re-resolvido no boot. Contrato de 1 h do backend em [[link-publico]]. Ele entra na URL do socket como qualquer outro access token (`src/js/store/sync/api-client.js:935-940`), ver [[canal-collab-websocket]].
+O token público é efêmero e não persiste: `setEphemeralToken` zera o refresh token (`frontend/src/js/store/sync/api-client.js:117-120`). Não há rotação; o link é re-resolvido no boot. Contrato de 1 h do backend em [[link-publico]]. Ele entra na URL do socket como qualquer outro access token (`frontend/src/js/store/sync/api-client.js:935-940`), ver [[canal-collab-websocket]].
 
 ## Contratos de ordem que não podem inverter
 
 - **Abrir atlas remoto**: `disconnect → clearAllDataStore → markStoreRemote → connect → activateAtlasInitialMap → startAutoFlush` (`account/account.control.js:783-801`). `markStoreRemote` **antes** do connect é intenção durável: se a aba morrer durante o pull, a guarda de boot vê `remote` e descarta o parcial em vez de promovê-lo a atlas local permanente. E o store é um só, por isso a UI confirma antes de descartar trabalho local.
-- **Restaurar sessão antes do boot do store** (`src/js/index.js:99-104`): invertido, a guarda de boot não enxerga a sessão e descarta o atlas remoto em cache.
-- **Owner elevado no snapshot, antes do handshake** (`src/js/store/sync/sync-engine.js:177-184`): sem isso os botões de configuração piscam ausentes no F5. O `connected` do WS ainda sobrescreve o papel global de login com o papel por atlas.
+- **Restaurar sessão antes do boot do store** (`frontend/src/js/index.js:99-104`): invertido, a guarda de boot não enxerga a sessão e descarta o atlas remoto em cache.
+- **Owner elevado no snapshot, antes do handshake** (`frontend/src/js/store/sync/sync-engine.js:177-184`): sem isso os botões de configuração piscam ausentes no F5. O `connected` do WS ainda sobrescreve o papel global de login com o papel por atlas.
 
 ## Subir o workspace local para o servidor
 

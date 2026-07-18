@@ -22,11 +22,11 @@ Não envolva nada disso em `{ data }` para "padronizar": quebra o frontend. Ver 
 
 `/busca` **não** usa o middleware `auth`; `/feicoes` e `/catalogo3d` usam (`backend/src/modules/nomes/nomes.routes.js:15-17`). Isso é deliberado, para o caminho anônimo funcionar: o `flexibleAuth` global popula `req.user` quando há credencial e o controller passa `req.user?.id` adiante (`backend/src/modules/nomes/nomes.controller.js:9`); sem credencial vai `null` e o filtro embutido no SQL devolve só o público. Ver [[auth-flexivel]] e [[autenticacao-jwt]].
 
-O que morde: os dois call sites do cliente web fazem `fetch` **sem header `Authorization`** (`src/js/search/search-bar.search-providers.js:281`, `src/js/search/feature-search.control.js:182`). Ou seja, mesmo com usuário logado, a busca de topônimos hoje enxerga apenas `access_level = 'public'`. Se alguém reclamar que "não acho o nome privado da minha zona", a causa é essa, não o SQL.
+O que morde: os dois call sites do cliente web fazem `fetch` **sem header `Authorization`** (`frontend/src/js/search/search-bar.search-providers.js:281`, `frontend/src/js/search/feature-search.control.js:182`). Ou seja, mesmo com usuário logado, a busca de topônimos hoje enxerga apenas `access_level = 'public'`. Se alguém reclamar que "não acho o nome privado da minha zona", a causa é essa, não o SQL.
 
 Nenhum código do web consome hoje `/feicoes` nem `/catalogo3d` (grep por `nomes/feicoes` e `catalogo3d` em `src/` não retorna nada). São capacidades servidas para outros consumidores 3D.
 
-A URL da busca não é mais configurável: deriva da base da API (`src/js/search/gazetteer-url.js:24-26`), para funcionar em dev (proxy `/api` do Vite), produção (mesma origem) e E2E. O antigo `SEARCH_API_URL` tinha default apontando para um serviço que nunca existiu, e como os dois call sites toleram erro, a busca falhava **em silêncio** (`src/js/search/gazetteer-url.js:6-16`). Ver [[config-runtime-urls-relativas]].
+A URL da busca não é mais configurável: deriva da base da API (`frontend/src/js/search/gazetteer-url.js:24-26`), para funcionar em dev (proxy `/api` do Vite), produção (mesma origem) e E2E. O antigo `SEARCH_API_URL` tinha default apontando para um serviço que nunca existiu, e como os dois call sites toleram erro, a busca falhava **em silêncio** (`frontend/src/js/search/gazetteer-url.js:6-16`). Ver [[config-runtime-urls-relativas]].
 
 ## Ranking e busca: o que surpreende
 
@@ -38,7 +38,7 @@ Os pesos dos 7 critérios somam 1.00, foram portados verbatim do serviço de ori
 
 ## Armadilha de SRID
 
-`ng.nomes_geograficos` é `POINT, 4674` (SIRGAS 2000) e `ng.edificacoes` é `POLYGON, 4326` (`backend/src/database/migrations/004_ng.sql:37`, `:62`). A diferença é deliberada e coberta por teste (`tests/integration/nomes.test.js:62-67`). Por isso `/busca` constrói o ponto em 4674 e `/feicoes` em 4326, e o filtro de zona de `/feicoes` precisa de `ST_Transform(uz.geom, 4326)`, já que as zonas são 4674 (`backend/src/modules/nomes/nomes.queries.js:64`, `:71`).
+`ng.nomes_geograficos` é `POINT, 4674` (SIRGAS 2000) e `ng.edificacoes` é `POLYGON, 4326` (`backend/src/database/migrations/004_ng.sql:37`, `:62`). A diferença é deliberada e coberta por teste (`backend/tests/integration/nomes.test.js:62-67`). Por isso `/busca` constrói o ponto em 4674 e `/feicoes` em 4326, e o filtro de zona de `/feicoes` precisa de `ST_Transform(uz.geom, 4326)`, já que as zonas são 4674 (`backend/src/modules/nomes/nomes.queries.js:64`, `:71`).
 
 Ao mexer em qualquer query aqui, confira o SRID antes de copiar-colar de uma rota para a outra.
 
@@ -55,11 +55,11 @@ Assimetria proposital: `catalogo_3d` tem permissão linha a linha (direta ou por
 
 **A armadilha mais cara do módulo:** o predicado de acesso do catálogo (CTEs `user_role` + `user_model_permissions`) está **duplicado verbatim** entre `CATALOGO_SELECT` e `CATALOGO_COUNT`, mudando só o placeholder do `userId` (`$4` no select, `$2` no count). Nunca foi extraído para uma função SQL. Os dois rodam em `Promise.all` justamente para que `total` não minta sobre o que o usuário pode ver (`backend/src/modules/nomes/nomes.service.js:20-23`); ao editar o filtro, edite **os dois**, ou a contagem passa a divergir da listagem (`backend/src/modules/nomes/nomes.queries.js:83-87`, `:119`).
 
-Metadados e distribuição dos assets estão fora daqui: ver [[catalogo-3d]] e [[assets3d-distribuicao]]. `/api/v1/assets3d` serve o binário sem auth (imutável, Range/ETag) e a descoberta é que fica gated pelo catálogo autenticado (`src/app.js:93-95`); ver [[sintese-cache-http-imutavel]].
+Metadados e distribuição dos assets estão fora daqui: ver [[catalogo-3d]] e [[assets3d-distribuicao]]. `/api/v1/assets3d` serve o binário sem auth (imutável, Range/ETag) e a descoberta é que fica gated pelo catálogo autenticado (`backend/src/app.js:93-95`); ver [[sintese-cache-http-imutavel]].
 
 ## Log sem valores, por decisão
 
-Todas as três rotas passam por `nomesAccessLog`, que loga `userId`, `ip`, `path` e apenas as **chaves** da query string, nunca os valores (`src/middleware/nomes-access-log.js:12-19`). Num gazetteer militar, o termo buscado e a coordenada clicada são sensíveis e não devem parar num agregador de logs. Auditoria a nível de valor, se um dia for exigida, é assunto da trilha de auditoria: ver [[auditoria]].
+Todas as três rotas passam por `nomesAccessLog`, que loga `userId`, `ip`, `path` e apenas as **chaves** da query string, nunca os valores (`backend/src/middleware/nomes-access-log.js:12-19`). Num gazetteer militar, o termo buscado e a coordenada clicada são sensíveis e não devem parar num agregador de logs. Auditoria a nível de valor, se um dia for exigida, é assunto da trilha de auditoria: ver [[auditoria]].
 
 ## O passo pós-carga que ninguém pode esquecer
 
@@ -78,5 +78,5 @@ SELECT ng.refresh_busca();
 ## Fontes
 
 - guias *13-nomes-geograficos* e *15-acesso-geografico* (absorvidos): escopo read-only, contratos congelados, semântica de `z_distance`/`xy_distance` e raio de 3 m, passo `refresh_busca()`, modelo de acesso por zona-polígono e garantia de que `total` conta só o visível.
-- `ebgeo_backend/src/modules/nomes/*`, `src/database/migrations/004_ng.sql`, `src/middleware/nomes-access-log.js`, `tests/integration/nomes.test.js`.
+- `ebgeo_backend/src/modules/nomes/*`, `backend/src/database/migrations/004_ng.sql`, `backend/src/middleware/nomes-access-log.js`, `backend/tests/integration/nomes.test.js`.
 - `ebgeo_web/src/js/search/{gazetteer-url,search-bar.search-providers,feature-search.control}.js`: derivação da URL e o fato de o cliente chamar sem token e sem `zoom`.

@@ -27,7 +27,12 @@ import { Buffer } from 'node:buffer';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+// Raiz do MONOREPO, tres niveis acima (frontend/tests/unit/ -> frontend/ -> raiz),
+// nao a raiz do pacote: a doc vigiada (docs/, CLAUDE.md, .claude/) e do monorepo.
+// Quando o pacote web virou frontend/ em 2026-07-18 isto apontava para frontend/,
+// e a lista de documentos silenciosamente zerou. O teste "lista os documentos
+// vigiados" existe exatamente para isso e foi ele que acusou.
+const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 /** Documentos sob vigilância: os que orientam humano e agente. */
 const ALVOS = [
@@ -59,11 +64,20 @@ function coletarMarkdown(dir, acc = []) {
 const DOCS = [...ALVOS.filter((f) => existsSync(join(RAIZ, f))), ...PASTAS.flatMap((p) => coletarMarkdown(p))];
 
 /**
- * Caminhos de código citados em backticks — `src/js/store/store.js`,
- * `backend/src/config.js`. Exige uma extensão conhecida para não confundir com
- * nomes de conceito, e ignora globs/placeholders (`*`, `<`, `{`).
+ * Caminhos de código citados em backticks: `frontend/src/js/store/store.js`,
+ * `backend/src/config.js:290-292`. Exige uma extensão conhecida para não
+ * confundir com nomes de conceito, e ignora globs/placeholders (`*`, `<`, `{`).
+ *
+ * O sufixo `:linha` é OPCIONAL e capturado à parte, de propósito. Sem ele a
+ * regex exigia a crase logo após a extensão, então toda citação no formato
+ * `arquivo:linha` escapava da checagem: 1116 citações não verificadas contra
+ * 210 verificadas, e `arquivo:linha` é justamente o formato que o
+ * `docs/wiki/wiki-schema.md` manda usar. O teste passava verde medindo a
+ * minoria. Só o caminho é validado; o número da linha não dá para verificar
+ * aqui, e fingir que dá seria o mesmo erro de novo.
  */
-const RE_CAMINHO = /`((?:src|tests|backend|docs|scripts|deploy|public)\/[A-Za-z0-9._/-]+\.(?:js|cjs|mjs|json|sql|css|md|yml|sh))`/g;
+const RE_CAMINHO =
+    /`((?:frontend|backend|src|tests|docs|scripts|deploy|public)\/[A-Za-z0-9._/-]+\.(?:js|cjs|mjs|json|sql|css|md|yml|sh))(?::\d+(?:[\s,-]*\d+)*)?`/g;
 
 /** Links markdown relativos: [texto](caminho.md) ou (./x.js), sem URL nem âncora pura. */
 const RE_LINK = /\]\((\.{0,2}\/?[A-Za-z0-9._/-]+\.(?:md|js|sql|json|sh|yml))(?:#[^)]*)?\)/g;

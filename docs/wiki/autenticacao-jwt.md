@@ -20,7 +20,7 @@ Principais de link público (`sub` no formato `public-<uuid>`, que não é UUID 
 
 Reapresentar um refresh já revogado é lido como cadeia de rotação comprometida e **revoga a família inteira** do usuário (`backend/src/modules/auth/auth.service.js:142-146`). Por isso o lookup usa `FIND_REFRESH_TOKEN_ANY`, que inclui revogados: sem isso não daria para distinguir "nunca existiu" de "reusado".
 
-Daí a armadilha operacional mais cara do módulo: duas requisições disparando refresh com o mesmo token fazem a segunda cair na detecção de reuso e **derrubar todas as sessões**. O `ApiClient` resolve com um único refresh em voo compartilhado (`src/js/store/sync/api-client.js`, promessa `_refreshing`). **Qualquer código novo que fale com a API deve passar por esse cliente**, nunca `fetch` direto com o refresh token. Ciclo completo em [[refresh-token-rotacao]].
+Daí a armadilha operacional mais cara do módulo: duas requisições disparando refresh com o mesmo token fazem a segunda cair na detecção de reuso e **derrubar todas as sessões**. O `ApiClient` resolve com um único refresh em voo compartilhado (`frontend/src/js/store/sync/api-client.js`, promessa `_refreshing`). **Qualquer código novo que fale com a API deve passar por esse cliente**, nunca `fetch` direto com o refresh token. Ciclo completo em [[refresh-token-rotacao]].
 
 Duas consequências que geram bug de UI:
 
@@ -36,8 +36,8 @@ Trate `429` como backoff puro, **nunca** como gatilho de logout ou de novo refre
 ## Contratos congelados e decisões deliberadas
 
 - **Aliases `org` e `login` no payload** existem só para o módulo 360 consumir o token de emissor único sem alteração (`backend/src/modules/auth/auth.service.js:34-37`). São contrato congelado ([[sintese-contratos-congelados]]).
-- **Allowlist `['HS256']`** aplicada nos três pontos de verificação: REST estrito, auth flexível e handshake do WebSocket (`src/config.js:45`). Token com `alg: none` ou assimétrico é rejeitado. Adicionar um algoritmo aqui vale para os três.
-- **`posto_graduacao` e `organizacao_militar` são derivados por `LEFT JOIN`**, não colunas. O claim JWT chama-se `posto`, a resposta REST chama-se `posto_graduacao`: nomes **diferentes** para o mesmo dado. O frontend monta a identidade a partir do objeto `user` da resposta, não das claims (`src/js/store/sync/session-context.js`); não há decode de JWT no cliente.
+- **Allowlist `['HS256']`** aplicada nos três pontos de verificação: REST estrito, auth flexível e handshake do WebSocket (`backend/src/config.js:45`). Token com `alg: none` ou assimétrico é rejeitado. Adicionar um algoritmo aqui vale para os três.
+- **`posto_graduacao` e `organizacao_militar` são derivados por `LEFT JOIN`**, não colunas. O claim JWT chama-se `posto`, a resposta REST chama-se `posto_graduacao`: nomes **diferentes** para o mesmo dado. O frontend monta a identidade a partir do objeto `user` da resposta, não das claims (`frontend/src/js/store/sync/session-context.js`); não há decode de JWT no cliente.
 - **Texto livre legado e FK coexistem** durante a transição: a leitura devolve strings (`organizacao_militar`), mas os corpos de escrita exigem UUID (`organization_id`). Ler um, escrever o outro é o padrão ([[gestao-usuarios]]).
 - **Tokens persistem os dois em `localStorage`** sob a chave `ebgeo_auth`, degradando para memória só quando `localStorage` não existe. É deliberado (a sessão precisa sobreviver ao F5), mas quem auditar segurança deve saber que o access token está no disco do navegador.
 - O handler `auth-lost` é conectado **depois do boot**, de propósito: um token expirado na inicialização cai silenciosamente no caminho anônimo em vez de abrir modal de sessão perdida. Ver [[sessao-boot-e-ciclo-de-vida]].

@@ -10,7 +10,7 @@ Scaffolds a draw or military tool following the project's 3-file pattern.
 ## Folder Structure
 
 ```
-src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
+frontend/src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
   ├── index.js                       # Barrel exports
   ├── add_<name>_control.js          # Extends BaseControl
   ├── add_<name>_geometry.js         # Extends BaseGeometry
@@ -84,7 +84,7 @@ src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
 - [ ] English code comments and JSDoc
 - [ ] Import aliases (`@store`, `@tools`, `@utils`) in new code. Be aware this is
       **convention, not enforcement**: there is no `no-restricted-imports` rule, and
-      64 of 567 files under `src/js/` still import via `../../`, the reference tool
+      64 of 567 files under `frontend/src/js/` still import via `../../`, the reference tool
       below among them. Copy its structure, not its import style.
 - [ ] Event cleanup in `onRemove()` (map.off, timers, handlers)
 - [ ] XSS: use `textContent`, never `innerHTML` with user data
@@ -94,7 +94,7 @@ src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
 
 ## Reference
 
-Look at `src/js/draw_tools/point_tool/` for a complete working example of the
+Look at `frontend/src/js/draw_tools/point_tool/` for a complete working example of the
 structure, wiring and panel. One caveat: it predates the alias convention and
-imports via `../../store` (`src/js/draw_tools/point_tool/add_point_control.js:3-7`),
+imports via `../../store` (`frontend/src/js/draw_tools/point_tool/add_point_control.js:3-7`),
 so it is the model for everything **except** import style.

@@ -39,20 +39,20 @@ Comentários espaciais são retirados do que chega a um `read`, tanto no snapsho
 O boot por `?atlasPublico=<link>` só dispara se ninguém estiver logado (`index.js:226-228`). Dentro dele, três decisões não óbvias:
 
 - **`clearAllDataStore()` roda sem confirmação** (`index.js:231`). Abrir um link público numa aba que tinha desenho local anônimo **descarta o desenho**. Ver [[dominio-local-vs-remoto]] e [[sessao-boot-e-ciclo-de-vida]].
-- **`connectPublic` desliga o log de operações** (`src/js/store/sync/sync-engine.js:227`). Se o visitante enfileirasse ops, elas ficariam órfãs na fila e seriam empurradas para o atlas errado num login posterior ([[fila-operacoes-outbound]]).
-- **O token é efêmero em memória e zera o refresh token** (`src/js/store/sync/api-client.js:117-120`), porque a fonte de verdade num F5 é o link na URL, não o storage. Não há caminho especial de WS: o mesmo `wsUrl()` leva o token de visitante ([[client-id-estavel]]).
+- **`connectPublic` desliga o log de operações** (`frontend/src/js/store/sync/sync-engine.js:227`). Se o visitante enfileirasse ops, elas ficariam órfãs na fila e seriam empurradas para o atlas errado num login posterior ([[fila-operacoes-outbound]]).
+- **O token é efêmero em memória e zera o refresh token** (`frontend/src/js/store/sync/api-client.js:117-120`), porque a fonte de verdade num F5 é o link na URL, não o storage. Não há caminho especial de WS: o mesmo `wsUrl()` leva o token de visitante ([[client-id-estavel]]).
 
-O overlay de configuração por atlas continua valendo para o visitante (`src/js/store/sync/sync-engine.js:235`), então restrições de 3D/360/basemaps de [[atlas-settings]] se aplicam.
+O overlay de configuração por atlas continua valendo para o visitante (`frontend/src/js/store/sync/sync-engine.js:235`), então restrições de 3D/360/basemaps de [[atlas-settings]] se aplicam.
 
 ## Lacunas conhecidas
 
 - **Não existe renovação do token.** `setEphemeralToken` não arma timer e nada rechama `getPublicAtlas` depois do boot. O socket aberto sobrevive (a permissão é revalidada contra o banco, não contra o `exp`), mas uma **reconexão** após 1 hora falha com 401 no upgrade (`backend/src/modules/collab/collab.gateway.js:240-244`); a única recuperação é recarregar a página.
-- **A UI copia o token cru, não uma URL.** `src/js/modals/sharing.modal.js:542-551` escreve `cfg.publicLink` no clipboard; o usuário precisa montar `…/?atlasPublico=<token>` na mão. É a lacuna mais visível da feature hoje.
+- **A UI copia o token cru, não uma URL.** `frontend/src/js/modals/sharing.modal.js:542-551` escreve `cfg.publicLink` no clipboard; o usuário precisa montar `…/?atlasPublico=<token>` na mão. É a lacuna mais visível da feature hoje.
 - **A resposta vaza mais que o mínimo.** `res.json({ data: atlas })` devolve `SELECT a.*` mais `owner_nome`/`owner_username` (`backend/src/modules/atlas/atlas.controller.js:59-62`, `backend/src/modules/atlas/atlas.queries.js:78-83`), sem projeção e sem auth, atrás apenas do `publicLinkLimiter`. Identidade do dono, `owner_id` e o próprio `public_link` saem para chamador anônimo. Se um dia a projeção for reduzida, o boot só exige de fato `id` e `publicToken`. Consequência para consumidores: o corpo é snake_case do banco com **um** campo camelCase enxertado (`publicToken`, grudado em `backend/src/modules/atlas/atlas.service.js:156`).
 
 ## Divergências com o guia
 
-> **Nota histórica.** O guia *07-compartilhamento* (absorvido) descreve a URL pública como caminho (`/atlas/public/abc123xyz`, via `location.pathname`), um `PublicTokenManager` que renova o token 5 minutos antes de expirar, e uma resposta enxuta sem `owner`. Nenhum dos três existe: o front usa query string (`index.js:226`, fixado em `tests/unit/atlas-link.test.js:73-77`), não há renovação, e `backend/src/modules/sharing/sharing.service.js:12-21` devolve o bloco `owner` que o modal consome (`src/js/modals/sharing.modal.js:181`). O caminho `/atlas/public/:link` existe apenas como rota de API (`backend/src/modules/atlas/atlas.routes.js:23`).
+> **Nota histórica.** O guia *07-compartilhamento* (absorvido) descreve a URL pública como caminho (`/atlas/public/abc123xyz`, via `location.pathname`), um `PublicTokenManager` que renova o token 5 minutos antes de expirar, e uma resposta enxuta sem `owner`. Nenhum dos três existe: o front usa query string (`index.js:226`, fixado em `frontend/tests/unit/atlas-link.test.js:73-77`), não há renovação, e `backend/src/modules/sharing/sharing.service.js:12-21` devolve o bloco `owner` que o modal consome (`frontend/src/js/modals/sharing.modal.js:181`). O caminho `/atlas/public/:link` existe apenas como rota de API (`backend/src/modules/atlas/atlas.routes.js:23`).
 
 ## Ver também
 

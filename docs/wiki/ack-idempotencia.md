@@ -20,7 +20,7 @@ Portanto:
 
 ## O ack não é só observabilidade (e a armadilha que nasce daí)
 
-Ler `recordPushAcks` de relance sugere tracing puro. Não é: em `src/js/store/sync/sync-engine.js:76-77` o `currentVersion` de cada `result` é injetado em `recordLocalAppliedVersion` (alias de `resolveLocalEdit`, `src/js/store/sync/remote-operation-handler.js:224`). O autor filtra o próprio eco de WebSocket e por isso **só aprende a ordem de chegada da própria op pelo ack**. `currentVersion` é insumo de LWW, não um número informativo.
+Ler `recordPushAcks` de relance sugere tracing puro. Não é: em `frontend/src/js/store/sync/sync-engine.js:76-77` o `currentVersion` de cada `result` é injetado em `recordLocalAppliedVersion` (alias de `resolveLocalEdit`, `frontend/src/js/store/sync/remote-operation-handler.js:224`). O autor filtra o próprio eco de WebSocket e por isso **só aprende a ordem de chegada da própria op pelo ack**. `currentVersion` é insumo de LWW, não um número informativo.
 
 A consequência atravessa backend e frontend e não é visível em nenhum dos dois isoladamente:
 
@@ -36,9 +36,9 @@ Ou seja, purgar o log de operações ([[sync-admin-operacoes]]) não só reabre 
 
 ## O caminho WebSocket está implementado e inerte
 
-O outbound do frontend é só REST. `src/js/store/sync/ws-client.js:292-312` trata `ack` e `ack_batch` e reemite um evento interno `'ack'` que **não tem assinante**; `sendOperation`/`sendOperations` (`src/js/store/sync/ws-client.js:161,170`) não têm chamador fora do módulo. Antes de migrar o outbound para WS: o dequeue por lote deixa de ser válido, porque `ack`/`ack_batch` chegam assíncronos e fora de ordem em relação ao envio, e aí `results[]` passa a ser obrigatório para decidir o que remover da fila. Ver [[canal-collab-websocket]] e [[sintese-rest-vs-websocket]].
+O outbound do frontend é só REST. `frontend/src/js/store/sync/ws-client.js:292-312` trata `ack` e `ack_batch` e reemite um evento interno `'ack'` que **não tem assinante**; `sendOperation`/`sendOperations` (`frontend/src/js/store/sync/ws-client.js:161,170`) não têm chamador fora do módulo. Antes de migrar o outbound para WS: o dequeue por lote deixa de ser válido, porque `ack`/`ack_batch` chegam assíncronos e fora de ordem em relação ao envio, e aí `results[]` passa a ser obrigatório para decidir o que remover da fila. Ver [[canal-collab-websocket]] e [[sintese-rest-vs-websocket]].
 
-> **Nota histórica.** guia *08-offline-import* (absorvido):120-126 mostra o dequeue iterando `result.data.acks` e chamando `remove(ack.opId)`. O cliente real (`src/js/store/sync/sync-engine.js:285`) faz `operationQueue.dequeue(opIds)` com os ids que enviou e ignora `results`/`acks` para fins de dequeue. Isso é correto **apenas** porque não existe falha parcial; se o servidor um dia admitir `success:false` por item, este dequeue passa a apagar ops não gravadas.
+> **Nota histórica.** guia *08-offline-import* (absorvido):120-126 mostra o dequeue iterando `result.data.acks` e chamando `remove(ack.opId)`. O cliente real (`frontend/src/js/store/sync/sync-engine.js:285`) faz `operationQueue.dequeue(opIds)` com os ids que enviou e ignora `results`/`acks` para fins de dequeue. Isso é correto **apenas** porque não existe falha parcial; se o servidor um dia admitir `success:false` por item, este dequeue passa a apagar ops não gravadas.
 
 ## Fontes
 - `ebgeo_backend/src/modules/sync/sync.service.js` (`pushOperations`), `backend/src/modules/collab/collab.handlers.js`, `backend/src/modules/sync/sync.controller.js`.

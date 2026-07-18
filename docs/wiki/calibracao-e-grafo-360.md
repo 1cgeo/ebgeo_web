@@ -16,7 +16,7 @@ Todo numérico é `Joi.number()` sem `min`/`max`, e as colunas são `DOUBLE PREC
 
 ## Armadilha: o comentário do próprio código mente sobre coerção
 
-`backend/src/modules/streetview360/sv360.write.schemas.js:22-24` diz que `finiteNumber` "rejects NaN/Infinity/strings" e na linha seguinte admite que coerce `"45" -> 45`. A segunda metade é a verdadeira: com o `convert` padrão do Joi e o `VALIDATION_OPTIONS` de `src/middleware/validate.js:3-6`, `{"heading": "45"}` e `{"calibration_reviewed": "true"}` **passam**. Não use a API como validador de tipo do seu cliente. `NaN`/`Infinity` esses sim são rejeitados.
+`backend/src/modules/streetview360/sv360.write.schemas.js:22-24` diz que `finiteNumber` "rejects NaN/Infinity/strings" e na linha seguinte admite que coerce `"45" -> 45`. A segunda metade é a verdadeira: com o `convert` padrão do Joi e o `VALIDATION_OPTIONS` de `backend/src/middleware/validate.js:3-6`, `{"heading": "45"}` e `{"calibration_reviewed": "true"}` **passam**. Não use a API como validador de tipo do seu cliente. `NaN`/`Infinity` esses sim são rejeitados.
 
 Detalhe oposto ao esperado: `stripUnknown: true` é global, mas o `.unknown(false)` explícito de cada schema vence, então campo desconhecido dá 422 em vez de ser removido em silêncio.
 
@@ -26,23 +26,23 @@ Detalhe oposto ao esperado: `stripUnknown: true` é global, mas o `.unknown(fals
 
 `UPDATE_TARGET_OVERRIDE` grava as três colunas em toda chamada, com `overrides.override_X ?? null` (`backend/src/modules/streetview360/sv360.write.service.js:145-151`). Um `PUT` com apenas `{"override_bearing": 90}` **zera** `override_distance` e `override_height`. O `.min(1)` do schema (`backend/src/modules/streetview360/sv360.write.schemas.js:94-100`) sugere patch parcial e é justamente o convite ao erro: envie sempre os três.
 
-O estrago é assimétrico porque no cliente `override_bearing` é o **gatilho** de todo o caminho manual: `src/js/street_view_tool/navigation/navigator.js:391` só projeta por override se ele for não-nulo, e aí usa `override_distance ?? 5` e `override_height ?? 0` (`:394-396`). Logo, limpar só o bearing desativa em silêncio distância e altura ajustadas; limpar só a distância derruba a projeção para 5 metros default.
+O estrago é assimétrico porque no cliente `override_bearing` é o **gatilho** de todo o caminho manual: `frontend/src/js/street_view_tool/navigation/navigator.js:391` só projeta por override se ele for não-nulo, e aí usa `override_distance ?? 5` e `override_height ?? 0` (`:394-396`). Logo, limpar só o bearing desativa em silêncio distância e altura ajustadas; limpar só a distância derruba a projeção para 5 metros default.
 
 > **Nota histórica.** guia *16-streetview-360* (absorvido):436` descreve o override como "define (número) ou limpa (`null`) ... (≥1 campo)", sugerindo que campo omitido é preservado; `backend/src/modules/streetview360/sv360.write.service.js:145-151` grava as três colunas sempre, então campo omitido vira `NULL`.
 
 ## Armadilha: `mesh_rotation_y` tem dois defaults incompatíveis
 
-O viewer trata `mesh_rotation_y` ausente como **180**, não 0 (`src/js/street_view_tool/street_view_viewer.js:120-121`), porque 180° alinha o centro da equirretangular com o +X da câmera. Mas a ingestão de bundle grava `num(p.mesh_rotation_y) ?? 0` (`backend/src/modules/streetview360/sv360.merge.js:190`) e a leitura sempre emite a coluna (`backend/src/modules/streetview360/sv360.service.js:294`). Resultado: um manifest que omite o campo persiste `0`, o fallback do viewer nunca dispara, e a foto aparece girada 180°. O `?? 180` só protege metadado legado de arquivo estático.
+O viewer trata `mesh_rotation_y` ausente como **180**, não 0 (`frontend/src/js/street_view_tool/street_view_viewer.js:120-121`), porque 180° alinha o centro da equirretangular com o +X da câmera. Mas a ingestão de bundle grava `num(p.mesh_rotation_y) ?? 0` (`backend/src/modules/streetview360/sv360.merge.js:190`) e a leitura sempre emite a coluna (`backend/src/modules/streetview360/sv360.service.js:294`). Resultado: um manifest que omite o campo persiste `0`, o fallback do viewer nunca dispara, e a foto aparece girada 180°. O `?? 180` só protege metadado legado de arquivo estático.
 
 Some-se a isso que **não existe alias `rotation-y`**: `mesh_rotation_y` só é corrigível pela rota agregada `PUT /photos/:uuid/calibration`. Quem só conhece os aliases granulares conclui que o campo é imutável.
 
-Ao mexer em rotação, lembre que a malha usa ordem Euler **ZXY** (`src/js/street_view_tool/street_view_viewer.js:470`) e a câmera **YXZ** (`:155`): trocar a ordem em um dos dois quebra a calibração de todo o acervo. `ele` é informativo e não entra na projeção.
+Ao mexer em rotação, lembre que a malha usa ordem Euler **ZXY** (`frontend/src/js/street_view_tool/street_view_viewer.js:470`) e a câmera **YXZ** (`:155`): trocar a ordem em um dos dois quebra a calibração de todo o acervo. `ele` é informativo e não entra na projeção.
 
 ## Por que a posse ignora o tombstone
 
 `GET_PHOTO_FOR_WRITE` deliberadamente **não** exclui fotos com tombstone (`backend/src/modules/streetview360/sv360.write.queries.js:30-44`), para que a posse resolva no caminho de delete e o re-delete siga idempotente. O efeito colateral: calibrar uma foto tombstoned passa pela posse, executa o UPDATE, e só então o rebuild (que filtra tombstone) lança 404. É por isso que `updateCalibration` roda dentro de `tx()` (`backend/src/modules/streetview360/sv360.write.service.js:117-131`); sem a transação a escrita persistia enquanto o cliente ouvia que nada aconteceu.
 
-> **Nota histórica.** guia *16-streetview-360* (absorvido):463` diz "1ª chamada → 204; chamadas seguintes → 404" no delete de foto; `backend/src/modules/streetview360/sv360.write.service.js:229-234` (tombstone com `ON CONFLICT DO NOTHING`) e o teste `tests/integration/sv360-write.test.js:497-501` dão **204 idempotente** no re-delete.
+> **Nota histórica.** guia *16-streetview-360* (absorvido):463` diz "1ª chamada → 204; chamadas seguintes → 404" no delete de foto; `backend/src/modules/streetview360/sv360.write.service.js:229-234` (tombstone com `ON CONFLICT DO NOTHING`) e o teste `backend/tests/integration/sv360-write.test.js:497-501` dão **204 idempotente** no re-delete.
 
 O link do grafo, ao contrário da foto, é **hard-delete**, o único do módulo: adjacência é regenerável a partir da geometria e não merece tombstone.
 
@@ -59,4 +59,4 @@ Mas nada disso sobrevive ao próximo upload. `mergeProject` é "último upload m
 - calibração ajustada via REST em produção é **perdida** no próximo upload de manifest, a menos que o manifest já a contenha. O caminho REST é para correção pontual, não para estado durável.
 - o purge alcança os tombstones do projeto: uma foto apagada por REST **volta a existir** se o bundle seguinte não a trouxer em `deleted_photos[]`.
 
-O frontend web é consumidor somente-leitura (`src/js/street_view_tool/streetview-api.service.js` só faz `GET`/`HEAD`); quem escreve é o estúdio `ebgeo_360`. A base de URL vem de `streetView360.serviceUrl` do `/api/config` e o `previewThumbnail` é relativo, sem `/api/v1`, para ser concatenado a ela (`backend/src/modules/streetview360/sv360.service.js:305-310`). Ver [[config-runtime-urls-relativas]] e [[sintese-cache-http-imutavel]].
+O frontend web é consumidor somente-leitura (`frontend/src/js/street_view_tool/streetview-api.service.js` só faz `GET`/`HEAD`); quem escreve é o estúdio `ebgeo_360`. A base de URL vem de `streetView360.serviceUrl` do `/api/config` e o `previewThumbnail` é relativo, sem `/api/v1`, para ser concatenado a ela (`backend/src/modules/streetview360/sv360.service.js:305-310`). Ver [[config-runtime-urls-relativas]] e [[sintese-cache-http-imutavel]].

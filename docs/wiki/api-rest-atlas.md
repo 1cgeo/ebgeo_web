@@ -8,7 +8,7 @@ Uma regra de manutenção que a leitura casual não protege: rota literal nova s
 
 ## A hierarquia de permissão é numérica, e isso derruba gates ingênuos
 
-`read(1) < comment(2) < write(3) < manage(4) < owner(5)` (`src/middleware/permissions.js:12-18`). O ponto que quebra implementação: **`manage` está ACIMA de `write`**. Qualquer gate escrito por igualdade (`perm === 'write' || perm === 'owner'`) exclui o co-Gestor em silêncio. Compare por nível. Ver [[permissoes-atlas]].
+`read(1) < comment(2) < write(3) < manage(4) < owner(5)` (`backend/src/middleware/permissions.js:12-18`). O ponto que quebra implementação: **`manage` está ACIMA de `write`**. Qualquer gate escrito por igualdade (`perm === 'write' || perm === 'owner'`) exclui o co-Gestor em silêncio. Compare por nível. Ver [[permissoes-atlas]].
 
 > **Nota histórica.** O próprio frontend cai nessa armadilha: `ebgeo_web/src/js/modals/project-picker.modal.js:369-370` faz `perm === 'owner' || perm === 'write'`, então o co-Gestor não vê "Renomear" no card embora o backend aceite o `PUT` dele (`backend/src/modules/atlas/atlas.routes.js:27`). O guia *ui-ux-ebgeo* (absorvido) §2 descreve a ação como "gated por papel (renomear = Editor+)", que é a intenção, não o efeito.
 
@@ -34,7 +34,7 @@ O middleware deposita `req.atlasOwnerId` separado de `req.user.id`, e `transferO
 
 > **Nota histórica.** O guia *02-atlas-basico* (absorvido):291-300 mostra exatamente esse payload parcial e afirma "PATCH permite atualização parcial - apenas os campos enviados serão alterados". O código faz merge raso (`backend/src/modules/atlas/atlas.queries.js:71`).
 
-O frontend contorna enviando sempre o bloco completo (`src/js/modals/atlas-settings.modal.js:348-350`). **Todo cliente novo deve fazer o mesmo**: ler o settings atual, mesclar em memória, mandar o objeto inteiro.
+O frontend contorna enviando sempre o bloco completo (`frontend/src/js/modals/atlas-settings.modal.js:348-350`). **Todo cliente novo deve fazer o mesmo**: ler o settings atual, mesclar em memória, mandar o objeto inteiro.
 
 Duas convenções que o schema não explicita: **lista de disponibilidade vazia significa "sem restrição"**, não "nada permitido" (`backend/src/database/migrations/002_atlas.sql:19-36`); e a validação Joi rejeita `min_zoom > max_zoom` e `default_basemap` fora de `basemaps` (`backend/src/modules/atlas/atlas.schemas.js:19-48`). Forma completa em [[atlas-settings]].
 
@@ -85,9 +85,9 @@ Origem fora do atlas devolve **404**, não 403: guarda anti-IDOR que evita vazar
 
 ## Envelope, erro e refresh
 
-Sucesso é sempre `{ data }`; 204 vem sem corpo (o cliente precisa tolerar, `src/js/store/sync/api-client.js:225`). O desembrulho tem um passe-livre para contratos "nus" (arrays e o objeto de config, sem chave `data`) em `_unwrap` (`src/js/store/sync/api-client.js:255-261`): se um endpoint novo devolver array, ele passa direto, o que é intencional mas fácil de quebrar ao "padronizar".
+Sucesso é sempre `{ data }`; 204 vem sem corpo (o cliente precisa tolerar, `frontend/src/js/store/sync/api-client.js:225`). O desembrulho tem um passe-livre para contratos "nus" (arrays e o objeto de config, sem chave `data`) em `_unwrap` (`frontend/src/js/store/sync/api-client.js:255-261`): se um endpoint novo devolver array, ele passa direto, o que é intencional mas fácil de quebrar ao "padronizar".
 
-`_request` faz **um** refresh transparente em 401 e repete a chamada uma única vez (`_retry: false` na segunda, `src/js/store/sync/api-client.js:228-241`). Não há segunda tentativa: falha de refresh sobe como erro. Ver [[refresh-token-rotacao]] e [[autenticacao-jwt]].
+`_request` faz **um** refresh transparente em 401 e repete a chamada uma única vez (`_retry: false` na segunda, `frontend/src/js/store/sync/api-client.js:228-241`). Não há segunda tentativa: falha de refresh sobe como erro. Ver [[refresh-token-rotacao]] e [[autenticacao-jwt]].
 
 ## Acesso público
 
@@ -107,7 +107,7 @@ Acoplamento a vigiar: o enum de `feature_type` do schema (`backend/src/modules/a
 
 ## Atlas Drive (project-picker)
 
-O seletor de projetos (`src/js/modals/project-picker.modal.js`, classe `AtlasDrive`) é a única superfície que consome quase toda esta família. Três decisões que não se leem no código:
+O seletor de projetos (`frontend/src/js/modals/project-picker.modal.js`, classe `AtlasDrive`) é a única superfície que consome quase toda esta família. Três decisões que não se leem no código:
 
 - Apesar de virar tela cheia, **preserva deliberadamente o contrato antigo do modal** (nome do arquivo, export `showProjectPickerModal`, testids, API `onPick`/`onCreate`) para não quebrar os specs e2e existentes. Os `data-testid` `project-picker-*` são **contrato de teste**: renomear qualquer um quebra e2e.
 - As abas são filtros client-side sobre a **mesma** resposta de `GET /atlas` (exceto a Lixeira, com endpoint próprio e carga lazy). Três dos cinco filtros dependem de `user_permission`, que só existe em `LIST_USER_ATLAS`, daí a aba "Públicos" mostrar apenas atlas públicos aos quais você já tem acesso, nunca os demais.
@@ -117,4 +117,4 @@ Quando o Drive abre no boot e o destino de dado remoto órfão: [[sessao-boot-e-
 
 ## Fontes
 
-Guias absorvidos *02-atlas-basico* e *07-compartilhamento* (origem das contradições acima). Código: `ebgeo_backend/src/modules/{atlas,sharing,maps}/`, `src/middleware/permissions.js`, `src/database/migrations/002_atlas.sql`; `ebgeo_web/src/js/store/sync/api-client.js` e `src/js/modals/{atlas-settings,project-picker}.modal.js`.
+Guias absorvidos *02-atlas-basico* e *07-compartilhamento* (origem das contradições acima). Código: `ebgeo_backend/src/modules/{atlas,sharing,maps}/`, `backend/src/middleware/permissions.js`, `backend/src/database/migrations/002_atlas.sql`; `ebgeo_web/src/js/store/sync/api-client.js` e `src/js/modals/{atlas-settings,project-picker}.modal.js`.

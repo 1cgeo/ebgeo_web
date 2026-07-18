@@ -26,14 +26,14 @@ O claim é emitido no login e degrada para `viewer` em tokens legados (`backend/
 
 **O `sub` não-UUID é um sinal semântico, não um detalhe de formato.** Token público carrega `sub` no formato `public-<uuid>` e isso é lido como bandeira em dois arquivos independentes: `backend/src/middleware/permissions.js:92` pula a consulta de shares, `backend/src/middleware/auth.js:80` pula a reconciliação com o banco (não há linha em `users` para reconciliar). **Contrato congelado:** trocar o formato do `sub` público por um UUID puro faz o visitante bater numa reconciliação impossível e quebra os dois caminhos de uma vez. Ver [[link-publico]].
 
-**O frontend colapsa os três eixos num vocabulário só** (`UserRole`, alimentado pelo `role` do `connected`), mas guarda o bit de admin global separado em `_globalRole` (`src/js/store/sync/session-context.js:154-163`), preservado entre re-sets de papel por atlas. Não recompute "é admin" a partir do papel por atlas: `toFrontendRole` já achatou os dois em `admin` e a informação de origem se perde.
+**O frontend colapsa os três eixos num vocabulário só** (`UserRole`, alimentado pelo `role` do `connected`), mas guarda o bit de admin global separado em `_globalRole` (`frontend/src/js/store/sync/session-context.js:154-163`), preservado entre re-sets de papel por atlas. Não recompute "é admin" a partir do papel por atlas: `toFrontendRole` já achatou os dois em `admin` e a informação de origem se perde.
 
 ## Regras práticas para não errar
 
 - Nunca derive capacidade de edição de atlas de `org_role`. Use `req.atlasPermission` no backend ou o `permission` do `connected` no cliente.
 - Nunca assuma isolamento de atlas por OM.
 - Rota nova de atlas: gateie no nível **mais baixo** que a operação exige e ponha o gate fino na service (padrão `assertOperationAllowed`, `backend/src/modules/sync/sync.service.js:600-620`), não na rota. É por isso que push de sync é gateado em `comment` e não em `write`.
-- O gate de papel do cliente só vale para atlas remoto conectado (`src/js/store/sync/permission-guard.js:71`); o workspace local é sempre editável. Ver [[dominio-local-vs-remoto]] e [[modos-operacao]].
+- O gate de papel do cliente só vale para atlas remoto conectado (`frontend/src/js/store/sync/permission-guard.js:71`); o workspace local é sempre editável. Ver [[dominio-local-vs-remoto]] e [[modos-operacao]].
 - A auditoria grava só um subconjunto das ações do CHECK; não conte com `PERMISSION_GRANT`/`SHARING_CHANGE` em todo fluxo. Ver [[auditoria]].
 - Credencial chega por `x-api-key`, cookie `token` ou Bearer, e o middleware global **nunca bloqueia**: quem barra é a rota. Ver [[auth-flexivel]], [[api-keys]] e [[hardening-borda-api]].
 

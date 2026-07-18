@@ -2,7 +2,7 @@
 
 O Atlas é a fronteira única do sistema: isolamento de dados, permissão, sala de tempo real e ordenação de operações são todos desenhados por `atlas_id`, e o preço dessa escolha é que um projeto nomeado só existe plenamente no servidor.
 
-Schema autoritativo: `ebgeo_backend/src/database/migrations/002_atlas.sql` (entidades) e `backend/src/database/migrations/003_sync.sql` (log). Entidade do cliente: `src/js/store/atlas/atlas.entity.js`.
+Schema autoritativo: `ebgeo_backend/src/database/migrations/002_atlas.sql` (entidades) e `backend/src/database/migrations/003_sync.sql` (log). Entidade do cliente: `frontend/src/js/store/atlas/atlas.entity.js`.
 
 ## Uma fronteira só, e por quê
 
@@ -22,7 +22,7 @@ Armadilha número um: `atlas` tem três colunas que parecem versão e não são 
 > O trigger faz `SET current_version = NEW.server_version` sem `GREATEST` (`backend/src/database/migrations/003_sync.sql:58`), apesar de a semântica pretendida ser um máximo. Coincide na prática (sequência crescente, push transacional), mas não raciocine sobre inserções concorrentes assumindo máximo.
 
 > [!CONTRADICAO]
-> O comentário `-- 18 valid feature types` acima de `features.feature_type` (`backend/src/database/migrations/002_atlas.sql:168`) contradiz o próprio CHECK logo abaixo, que aceita **20** (`:186-193`). O CHECK manda. Os dois extras são `processed_los`/`processed_visibility`, saídas de análise e não ferramentas; por isso `SOURCE_TYPES` no cliente tem 18. Eles precisam de linha explícita em `FEATURE_TYPE_MAPPINGS` (`src/js/store/store.constants.js:93-98`): o fallback `source + 's'` gerava `processed_loss` e o resultado caía num bucket fantasma no peer, sem nunca renderizar.
+> O comentário `-- 18 valid feature types` acima de `features.feature_type` (`backend/src/database/migrations/002_atlas.sql:168`) contradiz o próprio CHECK logo abaixo, que aceita **20** (`:186-193`). O CHECK manda. Os dois extras são `processed_los`/`processed_visibility`, saídas de análise e não ferramentas; por isso `SOURCE_TYPES` no cliente tem 18. Eles precisam de linha explícita em `FEATURE_TYPE_MAPPINGS` (`frontend/src/js/store/store.constants.js:93-98`): o fallback `source + 's'` gerava `processed_loss` e o resultado caía num bucket fantasma no peer, sem nunca renderizar.
 
 ## Deleção é soft, e o CASCADE é decorativo
 
@@ -45,21 +45,21 @@ Consequências que causam bug se ignoradas:
 
 1. **Abrir um atlas do servidor apaga o store** (`account/open-atlas.service.js`). Trocar de atlas é destrutivo por design. Invariante: abrir o atlas B nunca pode deixar visível feição, camada ou mapa do atlas A; por isso o clear inclui o registro do atlas e a fila de operações não flushadas ([[fila-operacoes-outbound]]).
 2. **A origem é marcada REMOTE antes do connect**, de propósito: se a aba morrer no meio do pull, a guarda de boot vê `remote` e descarta o parcial em vez de promovê-lo a atlas local permanente.
-3. **Dado remoto não sobrevive ao logout** (`enforceLocalStoreWhenLoggedOut`, `src/js/store/store.js:137`). Para levar um atlas do servidor para uso offline, exporte o `.ebgeo` **antes** de desconectar. Não há segunda chance.
+3. **Dado remoto não sobrevive ao logout** (`enforceLocalStoreWhenLoggedOut`, `frontend/src/js/store/store.js:137`). Para levar um atlas do servidor para uso offline, exporte o `.ebgeo` **antes** de desconectar. Não há segunda chance.
 
 ## Identidade de mapa: UUID vs nome
 
 Mapas de atlas remoto são chaveados por UUID; o `Principal` local é chaveado por nome e não tem UUID. Isso atravessa três arquivos, e cada um só enxerga o próprio terço:
 
 1. Op cujo `mapId` de contexto não é UUID é descartada **antes da fila** (`sync/operation-dispatcher.js:133-140`). Sem isso o Postgres rejeita com 22P02 e **uma** op inválida derruba o lote inteiro do flush, travando toda a sincronização. Op de `SETTING` escapa apenas com UUID ou o sentinela literal `'atlas'`.
-2. `activateAtlasInitialMap` **remove** todo mapa não-UUID ao ativar o mapa inicial (`src/js/store/map.operations.js:353-371`). Um `Principal` recriado no boot sombrearia por nome um mapa remoto homônimo, e o usuário, inclusive o dono logo após "Salvar no servidor", cairia num mapa vazio.
+2. `activateAtlasInitialMap` **remove** todo mapa não-UUID ao ativar o mapa inicial (`frontend/src/js/store/map.operations.js:353-371`). Um `Principal` recriado no boot sombrearia por nome um mapa remoto homônimo, e o usuário, inclusive o dono logo após "Salvar no servidor", cairia num mapa vazio.
 3. A resolução de mapa é por **nome**, não pela chave de armazenamento: presença e cursor viajam com o nome, e peers filtram o que vier com UUID cru.
 
 ## Dois mundos de mutação, escolha explícita
 
 Metadados de atlas são REST; feições, mapas, camadas, grupos, briefings, slides, 3D, 360 e comentários são **sync-only**, sem rota REST de escrita ([[sintese-rest-vs-sync]], [[envelope-operacao]]). Rotas em `modules/atlas/atlas.routes.js` (53 linhas, autoexplicativas).
 
-O que muda o atlas **fora** do log de operações (`atlas_updated`, `map_duplicated`, `maps_merged`) força **re-pull de snapshot**, não apply de op (`src/js/store/sync/ws-client.js:349-354`). Imagens são o terceiro caminho: blob por REST, referência pelo sync. **Ao adicionar qualquer mutação REST no atlas, decida explicitamente em qual desses mundos ela cai**. Esquecer disso produz um cliente que nunca vê a mudança até o próximo F5.
+O que muda o atlas **fora** do log de operações (`atlas_updated`, `map_duplicated`, `maps_merged`) força **re-pull de snapshot**, não apply de op (`frontend/src/js/store/sync/ws-client.js:349-354`). Imagens são o terceiro caminho: blob por REST, referência pelo sync. **Ao adicionar qualquer mutação REST no atlas, decida explicitamente em qual desses mundos ela cai**. Esquecer disso produz um cliente que nunca vê a mudança até o próximo F5.
 
 `EntityType.ATLAS` existe no enum de sync mas está morto: mudanças de nível de atlas viajam como `SETTING` com id `'atlas'` mais broadcast `atlas_settings_updated`.
 

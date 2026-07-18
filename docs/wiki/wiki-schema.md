@@ -8,7 +8,7 @@ As regras perenes de **como** a wiki é mantida, separadas do diretório de pág
 - **Wiki**: estas páginas. O agente é dono e mantém.
 - **Schema**: as regras abaixo.
 
-Cuidado com o vão de verificação aqui: o teste de integridade só valida link para **arquivo** com extensão conhecida (`tests/unit/docs-integridade.test.js`), então link para diretório (como o `../guias/` que esta seção manteve por horas depois da pasta sumir) apodrece sem quebrar nada.
+Cuidado com o vão de verificação aqui: o teste de integridade só valida link para **arquivo** com extensão conhecida (`frontend/tests/unit/docs-integridade.test.js`), então link para diretório (como o `../guias/` que esta seção manteve por horas depois da pasta sumir) apodrece sem quebrar nada.
 
 ## O critério: o código já é a evidência
 
@@ -47,7 +47,7 @@ Regra prática de proporção: se uma página é majoritariamente descrição do
 
 - Slug em **ASCII kebab-case, sem acento** (o slug é nome de arquivo; há teste que falha se houver acento dentro de um wikilink).
 - No topo de cada página, **uma linha de resumo** de uma frase.
-- Interligue as páginas com wikilink (colchete duplo em volta do slug). Todo wikilink precisa resolver para uma página existente; [`tests/unit/docs-integridade.test.js`](../../tests/unit/docs-integridade.test.js) falha se não resolver. O Claude Code não tem resolvedor nativo de wikilink (ele o resolve por grep), e é esse teste que devolve ao formato a verificabilidade que ele não tem sozinho.
+- Interligue as páginas com wikilink (colchete duplo em volta do slug). Todo wikilink precisa resolver para uma página existente; [`frontend/tests/unit/docs-integridade.test.js`](../../frontend/tests/unit/docs-integridade.test.js) falha se não resolver. O Claude Code não tem resolvedor nativo de wikilink (ele o resolve por grep), e é esse teste que devolve ao formato a verificabilidade que ele não tem sozinho.
 - Ao afirmar algo sobre o código, **cite `arquivo:linha`**. Esses caminhos também são verificados pelo teste: renomeou o arquivo, o teste acusa.
 - Teto prático: acima de ~300 linhas, divida. Página que ninguém relê inteira apodrece por partes.
 - Sem em-dash na prosa; use vírgula, parênteses ou frases separadas.

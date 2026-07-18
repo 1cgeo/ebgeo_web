@@ -6,15 +6,15 @@ Um único token HS256 (`issueAccessToken`, `ebgeo_backend/src/modules/auth/auth.
 
 São duplicatas literais de `organization_id` e `username` (`backend/src/modules/auth/auth.service.js:36-37`). Existem porque a alternativa foi rejeitada: alterar o módulo 360 ([[streetview-360]]), que lê `{sub, org, role, login}` as-is. Ver [[sintese-contratos-congelados]].
 
-Ao mexer em `organization_id` ou `username`, atualize o alias na mesma edição. Só `tests/integration/auth-gaps.test.js:173-175` protege isso; nenhum teste do web ou do gazetteer ([[gazetteer-nomes-geograficos]]) quebra se o alias dessincronizar, e o 360 falha em silêncio.
+Ao mexer em `organization_id` ou `username`, atualize o alias na mesma edição. Só `backend/tests/integration/auth-gaps.test.js:173-175` protege isso; nenhum teste do web ou do gazetteer ([[gazetteer-nomes-geograficos]]) quebra se o alias dessincronizar, e o 360 falha em silêncio.
 
 ## Os aliases são write-only, e é isso que convida ao erro
 
-O backend nunca lê `org` nem `login`: a verificação mapeia só os claims canônicos (`src/middleware/auth.js:31-40`, e o `mapPayload` gêmeo em `src/middleware/flexible-auth.js:30-40`). Quem abrir o middleware vai concluir que os dois claims são código morto. Removê-los deixa a suíte do backend inteira verde e derruba o 360 em produção. Ver [[auth-flexivel]].
+O backend nunca lê `org` nem `login`: a verificação mapeia só os claims canônicos (`backend/src/middleware/auth.js:31-40`, e o `mapPayload` gêmeo em `backend/src/middleware/flexible-auth.js:30-40`). Quem abrir o middleware vai concluir que os dois claims são código morto. Removê-los deixa a suíte do backend inteira verde e derruba o 360 em produção. Ver [[auth-flexivel]].
 
 ## `posto` não tem coluna, tem JOIN
 
-O claim `posto` lê `user.posto_graduacao` (`backend/src/modules/auth/auth.service.js:30`), mas `posto_graduacao` **não existe na tabela `users`**: é `r.nome AS posto_graduacao` vindo de um `LEFT JOIN ranks` (`src/modules/auth/auth.queries.js:6` e `:16`, `src/modules/users/users.queries.js:200`).
+O claim `posto` lê `user.posto_graduacao` (`backend/src/modules/auth/auth.service.js:30`), mas `posto_graduacao` **não existe na tabela `users`**: é `r.nome AS posto_graduacao` vindo de um `LEFT JOIN ranks` (`backend/src/modules/auth/auth.queries.js:6` e `:16`, `backend/src/modules/users/users.queries.js:200`).
 
 Consequência: qualquer query nova que alimente `issueAccessToken` sem repetir o JOIN emite `posto: undefined`, e `jwt.sign` **omite** claims `undefined` em vez de gravar `null`. O 360 recebe um token sem o campo, não com o campo vazio. A renovação deslizante só preserva o campo porque `mapPayload` faz o caminho de volta (`posto` → `posto_graduacao`) antes do re-mint.
 

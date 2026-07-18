@@ -8,14 +8,15 @@ Quando um fato aqui conflitar com o código, **o código vence** e este arquivo 
 
 ## O que é o projeto
 
-- Monorepo: **web** na raiz (`src/`, `tests/` — Vanilla JS + Vite + MapLibre + Cesium + Three.js) e **backend** em `backend/` (Express + pg-promise + `ws` + PostgreSQL/PostGIS). GIS militar do Exército Brasileiro com colaboração multiusuário em tempo real.
+- Monorepo de dois pacotes simétricos: **web** em `frontend/` (Vanilla JS + Vite + MapLibre + Cesium + Three.js) e **backend** em `backend/` (Express + pg-promise + `ws` + PostgreSQL/PostGIS). GIS militar do Exército Brasileiro com colaboração multiusuário em tempo real.
+- O web morou na raiz até 2026-07-18, quando virou `frontend/`. Consequência permanente: `git log -- frontend/src/...` não enxerga o histórico anterior ao movimento; use `--follow` no arquivo, ou o caminho antigo (`git log --all -- src/js/...`). O backend, integrado por subtree, **manteve** os caminhos originais e não tem esse problema.
 - O backend veio de um repositório separado (`1cgeo/ebgeo_backend`), integrado por `git subtree` em 2026-07-18 no branch `integracao_backend`. Os 44 commits foram preservados, **mantendo os caminhos originais**: `git log --all -- src/middleware/auth.js` acha o histórico; `--follow` não atravessa o enxerto.
 - `main` é outra linha do produto. **Não sincronize `integracao_backend` com `main`** sem pedir.
 - Cada pacote tem CLAUDE.md próprio; [`backend/CLAUDE.md`](backend/CLAUDE.md) é o contrato de comportamento de quem mexe no servidor.
 
 ## Invariantes de arquitetura (não violar sem decisão registrada)
 
-- **Login é opcional; servidor não é.** O app roda anônimo (sem conta), mas o boot é fail-fast em `GET /api/config`: sem backend alcançável, tela "EBGeo indisponível". Não existe fallback estático — `src/js/config.js` é só o *shape* que o servidor hidrata.
+- **Login é opcional; servidor não é.** O app roda anônimo (sem conta), mas o boot é fail-fast em `GET /api/config`: sem backend alcançável, tela "EBGeo indisponível". Não existe fallback estático — `frontend/src/js/config.js` é só o *shape* que o servidor hidrata.
 - **Permissão por atlas tem CINCO níveis**: `read < comment < write < manage < owner`. `owner` é sintetizado de `atlas.owner_id`; o CHECK da coluna é `read|comment|write|manage`. Sempre gate pela hierarquia. Lista fechada tipo `permission === 'write' || 'owner'` exclui o `manage` em silêncio, e já causou bug real.
 - **Escrita de entidade colaborativa é só via sync** (`POST /atlas/:id/sync` ou WS `operation`). Não crie rota REST de escrita para feature/layer/group/map/briefing/slide/3D/360.
 - **Conflito = LWW por ordem de chegada ao servidor**, não por timestamp; idempotência por `op_id`. Não é CRDT de verdade: o servidor define a ordem total.

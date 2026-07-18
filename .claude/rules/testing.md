@@ -1,12 +1,12 @@
 # Testing Rules
 
-Full guide: `tests/TESTING.md`. Quick rules for working in this repo:
+Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
 
 ## When to add tests
 - New pure logic (math, geometry, parsing, conversion, formatting) → add a unit
   test in `tests/unit/`, including **at least one edge case** (not just happy path).
 - Fixed a bug → add a regression test `tests/<area>/<bug>.repro.test.js` that
-  documents the root cause (model: `tests/integration/import-phantom-map.repro.test.js`).
+  documents the root cause (model: `frontend/tests/integration/import-phantom-map.repro.test.js`).
 - Don't hand-test in the chat what a unit test can pin down.
 
 ## How to write them
@@ -18,9 +18,9 @@ Full guide: `tests/TESTING.md`. Quick rules for working in this repo:
   `NaN` — use `Number.isFinite`.
 - For math/geometry/coordinates prefer **fast-check** invariants (round-trip,
   idempotence, output-range) over hand-picked examples.
-- Reuse factories in `tests/helpers/test-utils.js`. To test a `*_geometry.js`
+- Reuse factories in `frontend/tests/helpers/test-utils.js`. To test a `*_geometry.js`
   that imports the `@tools` barrel, mock `@tools` with a trivial `BaseGeometry`
-  (see `tests/unit/sector-geometry.test.js`). Stub `globalThis.turf` only with
+  (see `frontend/tests/unit/sector-geometry.test.js`). Stub `globalThis.turf` only with
   the methods used.
 
 ## Before claiming done
@@ -34,15 +34,20 @@ Full guide: `tests/TESTING.md`. Quick rules for working in this repo:
   (The GitHub Pages workflow was removed on 2026-07-18 along with the dead
   `prepare-deploy.js` it depended on; see [[deploy-web]].) Coverage is
   `npm run test:coverage` (report-only, no threshold).
-- The two Claude Code hooks in `.claude/settings.json` are real guards, not
-  decoration: `.claude/hooks/block-protected.js` refuses writes to protected
-  paths, `.claude/hooks/lint-on-write.js` lints every `.js`/`.css` write. Both
-  were DEAD for months (they read a `$TOOL_INPUT_FILE_PATH` that Claude Code
-  never sets). **If you change either, probe it** — write to `deploy/` and
-  confirm the refusal. A guard is only worth what its last probe proved.
+- One Claude Code hook remains (`.claude/settings.json`):
+  `.claude/hooks/lint-on-write.js` lints every `.js`/`.css` write and reports back.
+  It was DEAD for months, reading a `$TOOL_INPUT_FILE_PATH` that Claude Code never
+  sets, while CLAUDE.md promised its output appeared after every write. **If you
+  change it, probe it**: write a file with a known error and confirm the report
+  arrives. A guard is worth only what its last probe proved.
+- It resolves the linter by walking up from the edited file to the nearest package
+  that CONFIGURES it (`eslint.config.js` / `stylelint.config.js`), which is what
+  makes it work in both packages. Silence means clean; a broken install says so out
+  loud. Do not "fix" a noisy hook by making it fail quiet, which is how the
+  previous one hid.
 
 ## Collaboration / sync e2e
 - For multi-user (collab/sync) behavior, prefer the **SyncLedger** deterministic waits
-  (`tests/e2e-ui/helpers/trace-helpers.js` — `waitForRemoteEntity`/`waitForStage`) over
+  (`frontend/tests/e2e-ui/helpers/trace-helpers.js` — `waitForRemoteEntity`/`waitForStage`) over
   store polling; on timeout they name the last sync stage reached. See
-  `tests/e2e-ui/README.md` §"SyncLedger trace helpers".
+  `frontend/tests/e2e-ui/README.md` §"SyncLedger trace helpers".

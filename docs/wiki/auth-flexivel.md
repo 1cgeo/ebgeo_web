@@ -6,7 +6,7 @@ Middleware global que **identifica sem autorizar**: popula `req.user` quando há
 
 Qualquer falha (formato inválido, JWT expirado, assinatura errada, Postgres fora do ar) termina em `next()` sem `req.user`. O `catch` mudo em `backend/src/middleware/flexible-auth.js:105-107` não é preguiça: é o que impede que um banco indisponível derrube as rotas que não precisam de banco ([[gazetteer-nomes-geograficos]], catálogo público, `/api/config`, [[streetview-360]]). Trocar isso por um `next(err)` "para não engolir erro" quebra o modo anônimo inteiro.
 
-Quem barra é a rota, via `auth`/`requireAdmin` (`src/middleware/auth.js:55`), com os códigos de [[sintese-contrato-erros-http]] e [[erros-api]]. Ver [[autenticacao-jwt]] e [[sintese-eixos-de-permissao]].
+Quem barra é a rota, via `auth`/`requireAdmin` (`backend/src/middleware/auth.js:55`), com os códigos de [[sintese-contrato-erros-http]] e [[erros-api]]. Ver [[autenticacao-jwt]] e [[sintese-eixos-de-permissao]].
 
 ## As três armadilhas de precedência
 
@@ -16,15 +16,15 @@ O código convida ao erro em `backend/src/middleware/flexible-auth.js:42-57`, e 
 - **Cookie ganha do Bearer**, silenciosamente (`token = req.cookies?.token || extractBearerToken(req)`, linha 56). Browser com cookie velho e SPA mandando Bearer novo: vale o velho. É a causa provável de "deslogou sozinho" em aba antiga.
 - **Chave malformada não toca o banco** (guarda `UUID_RE`, linha 46). Anti-DoS de borda, ver [[hardening-borda-api]]. Consequência: mudar o formato da API key exige mudar essa regex, senão toda chave nova vira anônima antes de chegar ao Postgres.
 
-`?api_key=` é transporte suportado, e é por isso (e só por isso) que `api_key` está na lista de redação de log em `src/utils/redact-url.js:6`. Removeu o transporte, remova a entrada; removeu a entrada sem remover o transporte, vazou credencial permanente em texto puro no pino.
+`?api_key=` é transporte suportado, e é por isso (e só por isso) que `api_key` está na lista de redação de log em `backend/src/utils/redact-url.js:6`. Removeu o transporte, remova a entrada; removeu a entrada sem remover o transporte, vazou credencial permanente em texto puro no pino.
 
 ## O buraco de organização no caminho da API key
 
-`FIND_USER_BY_API_KEY` (`src/modules/users/users.queries.js:199-206`) exige `u.is_active = true` e **nada sobre a organização**. Já o caminho JWT estrito devolve `403 Organization is inactive` (`backend/src/middleware/auth.js:97-99`). Efeito que não aparece em nenhum dos dois arquivos isoladamente: um portador de API key de OM desativada **autentica** no `flexibleAuth` e chega com `req.user` populado em qualquer rota de auth opcional; só é barrado quando encosta numa rota estrita. Rota que lê `req.user` sem exigir `auth` está confiando num vínculo de OM que pode estar morto. Ver [[api-keys]], [[gestao-usuarios]] e [[organizacoes-om]].
+`FIND_USER_BY_API_KEY` (`backend/src/modules/users/users.queries.js:199-206`) exige `u.is_active = true` e **nada sobre a organização**. Já o caminho JWT estrito devolve `403 Organization is inactive` (`backend/src/middleware/auth.js:97-99`). Efeito que não aparece em nenhum dos dois arquivos isoladamente: um portador de API key de OM desativada **autentica** no `flexibleAuth` e chega com `req.user` populado em qualquer rota de auth opcional; só é barrado quando encosta numa rota estrita. Rota que lê `req.user` sem exigir `auth` está confiando num vínculo de OM que pode estar morto. Ver [[api-keys]], [[gestao-usuarios]] e [[organizacoes-om]].
 
 ## Sliding session: o incidente e o que ficou de fora
 
-O porquê da revalidação viva antes de reassinar está documentado no próprio código (`backend/src/middleware/flexible-auth.js:69-76` e `src/utils/org-status.js:23-30`): reassinar claims antigos transformava a janela de "no máximo 15 min desatualizado" em "para sempre". Leia lá, não aqui.
+O porquê da revalidação viva antes de reassinar está documentado no próprio código (`backend/src/middleware/flexible-auth.js:69-76` e `backend/src/utils/org-status.js:23-30`): reassinar claims antigos transformava a janela de "no máximo 15 min desatualizado" em "para sempre". Leia lá, não aqui.
 
 O que o código **não** diz:
 
@@ -46,4 +46,4 @@ O caminho anônimo/público não paga query nenhuma. O caminho estrito paga exat
 
 ## Fontes
 
-Guia *12-multiorg-identidade-auditoria* (absorvido), Partes 3 e 4. Código: `ebgeo_backend/src/middleware/flexible-auth.js`, `middleware/auth.js`, `utils/org-status.js`, `utils/environment.js`, `modules/users/users.queries.js`, `utils/redact-url.js`; bordas testadas em `tests/unit/middleware-auth.test.js`.
+Guia *12-multiorg-identidade-auditoria* (absorvido), Partes 3 e 4. Código: `ebgeo_backend/src/middleware/flexible-auth.js`, `middleware/auth.js`, `utils/org-status.js`, `utils/environment.js`, `modules/users/users.queries.js`, `utils/redact-url.js`; bordas testadas em `backend/tests/unit/middleware-auth.test.js`.

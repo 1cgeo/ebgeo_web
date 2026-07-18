@@ -11,8 +11,8 @@ Use a skill `new-tool`. Esta seção já teve uma cópia resumida do procediment
 1. Criar `src/js/processing/algorithms/<name>.algorithm.js`.
 2. Campos obrigatórios da definição: `id`, `name`, `description`, `icon`, `category`,
    `supportedGeometryTypes` (array), `createPanel(deps)`, `execute(features, params)`.
-   Typedef completo em `src/js/processing/algorithms/algorithm.interface.js`, exemplo em
-   `src/js/processing/algorithms/buffer.algorithm.js`.
+   Typedef completo em `frontend/src/js/processing/algorithms/algorithm.interface.js`, exemplo em
+   `frontend/src/js/processing/algorithms/buffer.algorithm.js`.
 3. Chamar `registerAlgorithm({...})` no load do módulo **e** adicionar o import de
    efeito colateral `import './<name>.algorithm.js';` em `algorithms/index.js`.
    Sem o segundo passo o módulo nunca é carregado e o registro nunca roda: não há
@@ -26,7 +26,7 @@ Use a skill `new-tool`. Esta seção já teve uma cópia resumida do procediment
    `migrateToV21`. Migrações existentes: `v1-to-v2`, `v2-to-v2.1`, `v2.1-to-v2.2`.
 2. Em `migration.service.js`, importar e adicionar a chamada condicional dentro de
    `safelyMigrate()`. O encadeamento é por número de versão, não por registry.
-3. **Subir `ATLAS_SCHEMA_VERSION` em `src/js/store/atlas/atlas.entity.js:12`** (hoje
+3. **Subir `ATLAS_SCHEMA_VERSION` em `frontend/src/js/store/atlas/atlas.entity.js:12`** (hoje
    `'2.2'`). Este é o passo que falta com mais facilidade e falha em silêncio:
    `needsMigration` compara a versão do repositório com essa constante
    (`migration.service.js:51`) e **retorna cedo** se ela não subiu, então

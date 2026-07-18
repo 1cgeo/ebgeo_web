@@ -52,7 +52,7 @@ Comportamentos reais que o contrato feliz não descreve:
 
 - **Permissões de modelo 3D** (`ng.model_permissions`, `ng.model_group_permissions`, `backend/src/database/migrations/004_ng.sql:193-214`) e o toggle de `access_level` do modelo: o filtro de leitura já as respeita, mas a concessão é feita direto no banco.
 - **Grupos e membresia** (`ng.groups` + `ng.user_groups`, `backend/src/database/migrations/004_ng.sql:178-191`): o ramo por grupo funciona quando as linhas existem, mas não há CRUD. Grupo aqui é entidade do schema `ng`, independente de [[organizacoes-om]] e dos papéis de atlas de [[permissoes-atlas]].
-- **Nenhuma tela de zonas no frontend.** `ebgeo_web` não referencia `/api/v1/zones`; o único consumo do gazetteer é `src/js/search/gazetteer-url.js:25`. Quem construir o editor começa do zero, e deve emitir GeoJSON `Polygon` puro em 4674, `[lon, lat]`, anel fechado: nada de `Feature`, `FeatureCollection` ou `MultiPolygon`.
+- **Nenhuma tela de zonas no frontend.** `ebgeo_web` não referencia `/api/v1/zones`; o único consumo do gazetteer é `frontend/src/js/search/gazetteer-url.js:25`. Quem construir o editor começa do zero, e deve emitir GeoJSON `Polygon` puro em 4674, `[lon, lat]`, anel fechado: nada de `Feature`, `FeatureCollection` ou `MultiPolygon`.
 
 Nada disso passa pelo sync de atlas: gazetteer e zonas são REST puro, sem WebSocket, sem `version`, sem snapshot ([[sintese-modulos-fora-do-sync]], [[sintese-eixos-de-permissao]]).
 
@@ -63,4 +63,4 @@ Nada disso passa pelo sync de atlas: gazetteer e zonas são REST puro, sem WebSo
 ## Fontes
 
 - guias *15-acesso-geografico* e *13-nomes-geograficos* (absorvidos).
-- `ebgeo_backend`: `src/modules/nomes/nomes.queries.js`, `src/modules/zones/*.js`, `src/database/migrations/004_ng.sql`, `tests/integration/zones-gaps.test.js`.
+- `ebgeo_backend`: `backend/src/modules/nomes/nomes.queries.js`, `src/modules/zones/*.js`, `backend/src/database/migrations/004_ng.sql`, `backend/tests/integration/zones-gaps.test.js`.

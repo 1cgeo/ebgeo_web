@@ -4,7 +4,7 @@ Um processo Node 20 (HTTP + WebSocket no mesmo servidor) atrás de NGINX, com Po
 
 ## Uma instância, não por acaso
 
-`src/index.js:13-16` anexa o WebSocket ao mesmo servidor HTTP. Isso não é só economia de porta: o estado de salas/presença é um `Map` em memória por processo, **sem backplane**, então 2+ réplicas quebram o broadcast cross-instância ([[canal-collab-websocket]], [[presenca-colaborativa]]). O rate limiting (`express-rate-limit`) também é in-memory por instância, então com réplicas o limite efetivo multiplica pelo número delas.
+`backend/src/index.js:13-16` anexa o WebSocket ao mesmo servidor HTTP. Isso não é só economia de porta: o estado de salas/presença é um `Map` em memória por processo, **sem backplane**, então 2+ réplicas quebram o broadcast cross-instância ([[canal-collab-websocket]], [[presenca-colaborativa]]). O rate limiting (`express-rate-limit`) também é in-memory por instância, então com réplicas o limite efetivo multiplica pelo número delas.
 
 Em produção: **uma instância** (scaling vertical). Horizontalizar exige sticky sessions + pub/sub antes, não depois. Custo aceito: os caminhos quentes de BLOB 3D/360 dividem event loop, heap e CPU com atlas/sync/WS.
 
@@ -18,7 +18,7 @@ PostGIS **nunca** entra no schema do atlas. A decisão é deliberada: filtro esp
 
 ## Migrações: o que quebra
 
-Runner `node src/database/migrate.js` (`npm run db:migrate`), forward-only, tracking por **nome de arquivo** em `_migrations`, cada arquivo numa transação junto com o `INSERT` de tracking (`src/database/migrate.js:66-82`).
+Runner `node src/database/migrate.js` (`npm run db:migrate`), forward-only, tracking por **nome de arquivo** em `_migrations`, cada arquivo numa transação junto com o `INSERT` de tracking (`backend/src/database/migrate.js:66-82`).
 
 - **Nunca renomeie nem renumere** migração já aplicada: o tracking é por nome, renomear reaplica o DDL.
 - Baseline congelada em 5 arquivos (`001_core` a `005_sv360`); correção é sempre um **novo** número.
@@ -39,7 +39,7 @@ O piso é **Node 20.19.0** (`backend/package.json:6`), não 20.0.0: o boot usa `
 
 ## Boot fail-fast: por que a validação existe
 
-`validateEnvVariables()` roda em `src/index.js:11`, **antes** de qualquer conexão, e deliberadamente **não** em `backend/src/app.js` (a suíte importa o app via supertest e não deve exigir env completa). Acumula todos os erros e lança um único `Configuração inválida:` (`config.js:290-292`).
+`validateEnvVariables()` roda em `backend/src/index.js:11`, **antes** de qualquer conexão, e deliberadamente **não** em `backend/src/app.js` (a suíte importa o app via supertest e não deve exigir env completa). Acumula todos os erros e lança um único `Configuração inválida:` (`config.js:290-292`).
 
 Cada regra existe por um estrago observado, não por higiene (`config.js:216-292`):
 
@@ -74,7 +74,7 @@ Armadilhas que custam dados:
 - O `docker-compose.yml:35-42` só persiste `ebgeo_pgdata` e `ebgeo_images`. `assets3d*` e `sv360*` são **efêmeros** nesse stack e somem no recreate. Adicione volumes antes de produção.
 - O `db_filename` do 360 é **derivado no servidor** de `(orgId, slug)`. Restaurar arquivos com o nome legado `{slug}.db` quebra o serving mesmo com o Postgres íntegro.
 
-**Controle de RSS:** `better-sqlite3` materializa o BLOB inteiro como `Buffer` no heap, sem stream incremental. O `SELECT` roda num pool de worker threads (`SQLITE_BLOB_WORKERS`, default `min(4, cpus-1)`, `src/utils/sqlite-blob-pool.js:150`) e o ETag O(1) com 304 acontece **antes** de qualquer leitura de BLOB ([[sintese-cache-http-imutavel]]). Os semáforos `ASSETS_3D_MAX_INFLIGHT` e `SV360_MAX_INFLIGHT` (default 8) são o controle direto de memória: subi-los em container apertado estoura o heap.
+**Controle de RSS:** `better-sqlite3` materializa o BLOB inteiro como `Buffer` no heap, sem stream incremental. O `SELECT` roda num pool de worker threads (`SQLITE_BLOB_WORKERS`, default `min(4, cpus-1)`, `backend/src/utils/sqlite-blob-pool.js:150`) e o ETag O(1) com 304 acontece **antes** de qualquer leitura de BLOB ([[sintese-cache-http-imutavel]]). Os semáforos `ASSETS_3D_MAX_INFLIGHT` e `SV360_MAX_INFLIGHT` (default 8) são o controle direto de memória: subi-los em container apertado estoura o heap.
 
 ## NGINX: quatro itens não negociáveis
 
@@ -106,7 +106,7 @@ Baseline em [[hardening-borda-api]] e [[upload-imagens-seguranca]]. Do ponto de 
 
 ## Shutdown: a ordem é o ponto
 
-`SIGTERM`/`SIGINT` disparam `shutdown()` (`src/index.js:37-63`), que fecha **primeiro** os sockets de collab, depois `server.close()`, depois `blobPool.closeAll()` e `pgp.end()`.
+`SIGTERM`/`SIGINT` disparam `shutdown()` (`backend/src/index.js:37-63`), que fecha **primeiro** os sockets de collab, depois `server.close()`, depois `blobPool.closeAll()` e `pgp.end()`.
 
 Os sockets de colaboração são long-lived por design, então `server.close()` (que espera toda conexão terminar) nunca chamava o callback enquanto houvesse um aberto: `blobPool.closeAll()` e `pgp.end()` eram simplesmente pulados. No Windows isso deixava handles SQLite abertos e **quebrava o start seguinte**. O force-exit de 10s (`SHUTDOWN_TIMEOUT_MS`, `index.js:25,42-45`) usa `unref()` para o próprio timer não segurar o processo.
 
@@ -136,7 +136,7 @@ Ambos os importadores são invocação direta de `node`, sem npm script (`backen
 
 ## Seed de desenvolvimento: nunca em produção
 
-`npm run db:seed` (`src/database/seed.js`) cria `admin`/`admin123` (role `admin`) e `cap.silva`/`test123`, mais o "Atlas de Exemplo" pertencente ao **admin** e compartilhado com `cap.silva` em `write`, o que dá um par pronto para exercitar [[compartilhamento-atlas]] e [[presenca-colaborativa]].
+`npm run db:seed` (`backend/src/database/seed.js`) cria `admin`/`admin123` (role `admin`) e `cap.silva`/`test123`, mais o "Atlas de Exemplo" pertencente ao **admin** e compartilhado com `cap.silva` em `write`, o que dá um par pronto para exercitar [[compartilhamento-atlas]] e [[presenca-colaborativa]].
 
 O "nunca em produção" não é higiene genérica: é uma conta administrativa com senha em texto no repositório. E o seed é idempotente por `ON CONFLICT (username) DO UPDATE SET password_hash`, então rodar de novo **reseta as senhas** para o valor de fábrica, mesmo que alguém as tenha trocado (`backend/src/database/seed.js:33,45`). A parte do atlas é pulada se já existir com `deleted_at IS NULL`, mas as senhas caem do mesmo jeito.
 

@@ -1,0 +1,37 @@
+# ==============================================================================
+# Pacote web. Padrões relativos a frontend/ (o .gitignore da raiz não os alcança:
+# padrão com barra no meio é ancorado no arquivo que o declara).
+# ==============================================================================
+
+# Dependências e lockfile
+node_modules/
+package-lock.json
+
+# Build
+dist/
+src_total
+
+# Playwright (E2E de browser em tests/e2e-ui/)
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Testes e qualidade
+coverage/
+.eslintcache
+
+# ==============================================================================
+# Assets pesados (3D, Street View, catálogo)
+# ==============================================================================
+public/3d/
+public/street_view/IMG/*.webp
+public/street_view/IMG/*.jpg
+public/street_view/METADATA/*.json
+public/images/catalogo/*
+public/js/controls_sig/vector_multiescala.js
+public/js/controls_sig/orto_multiescala.js
+360/
+
+# Misc
+preview.webm

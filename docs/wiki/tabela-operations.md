@@ -2,7 +2,7 @@
 
 Log append-only no PostgreSQL onde `server_version` (sequência global `atlas_version_seq`) é a única chave de ordenação do LWW, e `UNIQUE(atlas_id, op_id)` a única garantia de idempotência.
 
-DDL, colunas e índices em `src/database/migrations/003_sync.sql:12-52` (backend `ebgeo_backend`); o INSERT idempotente em `src/modules/sync/sync.queries.js:3-8`. Esta página cobre só o que o DDL não conta.
+DDL, colunas e índices em `backend/src/database/migrations/003_sync.sql:12-52` (backend `ebgeo_backend`); o INSERT idempotente em `backend/src/modules/sync/sync.queries.js:3-8`. Esta página cobre só o que o DDL não conta.
 
 ## Por que ela é a única porta de escrita
 
@@ -15,7 +15,7 @@ A tabela acumula duas funções distintas, e confundi-las é o erro clássico: *
 `atlas_version_seq` é **uma única sequência para todos os atlas**. Consequências:
 
 - monotônica **dentro de um atlas**, mas **não contígua**: um atlas pode ir de 100 para 4712 porque outros consumiram a sequência no meio. Nunca conte ops por diferença de versão, nunca assuma `v+1`. Rollback também queima valores; buracos são esperados.
-- `nextval` acontece no INSERT, mas a **visibilidade** acontece no COMMIT. Sem serialização, duas transações concorrentes podem comitar fora da ordem das versões e uma op fica **para sempre** invisível ao pull incremental. Por isso `pushOperations` toma `pg_advisory_xact_lock` **antes do primeiro INSERT** (`src/modules/sync/sync.service.js:650`).
+- `nextval` acontece no INSERT, mas a **visibilidade** acontece no COMMIT. Sem serialização, duas transações concorrentes podem comitar fora da ordem das versões e uma op fica **para sempre** invisível ao pull incremental. Por isso `pushOperations` toma `pg_advisory_xact_lock` **antes do primeiro INSERT** (`backend/src/modules/sync/sync.service.js:650`).
 
 > Não remova nem mova esse advisory lock para depois do INSERT. É ele que torna `server_version` um cursor de pull válido, e a falha que ele evita é silenciosa (op perdida, sem erro). O lock é transaction-scoped e chaveado por atlas, então pushes de atlas diferentes seguem paralelos.
 
@@ -41,11 +41,11 @@ Como `entity_id` é `UUID NOT NULL`, ops de nível de atlas (settings, que chega
 
 ## data vs changes: o contrato e o cliente real divergem
 
-O contrato canônico é `data` no create e `changes` no update. O frontend deste repo **sempre usa `data`**, inclusive em update (`src/js/store/sync/operation-factory.js:151-163`), então na base real `changes` fica quase sempre NULL e o backend trata `data` como `changes` quando falta. `previousData`, que o factory emite, não tem coluna e é descartado. Ao consumir op vinda do pull, leia os dois campos (ver [[envelope-operacao]] e [[aplicacao-operacoes-remotas]]).
+O contrato canônico é `data` no create e `changes` no update. O frontend deste repo **sempre usa `data`**, inclusive em update (`frontend/src/js/store/sync/operation-factory.js:151-163`), então na base real `changes` fica quase sempre NULL e o backend trata `data` como `changes` quando falta. `previousData`, que o factory emite, não tem coluna e é descartado. Ao consumir op vinda do pull, leia os dois campos (ver [[envelope-operacao]] e [[aplicacao-operacoes-remotas]]).
 
 ## O campo id do pull não é o op_id
 
-`toFrontendOperation` devolve `id: op.id`, o **PK da linha no servidor** (`backend/src/modules/sync/sync.service.js:256`), enquanto o broadcast WebSocket reenvia a op crua do cliente apenas carimbada com `serverVersion` (`src/modules/collab/collab.handlers.js:197`). O mesmo evento chega com `id` diferente conforme o caminho. Não use esse campo como chave de deduplicação entre os dois; a deduplicação de eco é por `clientId`, ver [[canal-collab-websocket]] e [[client-id-estavel]].
+`toFrontendOperation` devolve `id: op.id`, o **PK da linha no servidor** (`backend/src/modules/sync/sync.service.js:256`), enquanto o broadcast WebSocket reenvia a op crua do cliente apenas carimbada com `serverVersion` (`backend/src/modules/collab/collab.handlers.js:197`). O mesmo evento chega com `id` diferente conforme o caminho. Não use esse campo como chave de deduplicação entre os dois; a deduplicação de eco é por `clientId`, ver [[canal-collab-websocket]] e [[client-id-estavel]].
 
 > **Nota histórica.** O guia *05-sync-crdt* (absorvido) §6 mostra o pull incremental com `"id": "op-uuid"`, sugerindo o id da op do cliente; `backend/src/modules/sync/sync.service.js:256` devolve o PK da linha, e o `op_id` do cliente não é exposto nessa resposta.
 
@@ -64,5 +64,5 @@ Não é um CRDT. O Lamport clock é persistido só para ecoar no pull e deixar o
 ## Fontes
 
 - guias *arquitetura-sync* e *05-sync-crdt* (absorvidos): §8.1/§8.2 e contrato do envelope, idempotência, acks, pull híbrido.
-- `ebgeo_backend`: `src/database/migrations/003_sync.sql`, `src/modules/sync/{sync.queries,sync.service,sync.schemas}.js`, `src/modules/collab/collab.handlers.js`.
+- `ebgeo_backend`: `backend/src/database/migrations/003_sync.sql`, `src/modules/sync/{sync.queries,sync.service,sync.schemas}.js`, `backend/src/modules/collab/collab.handlers.js`.
 - `ebgeo_web`: `src/js/store/sync/{operation-factory,remote-operation-handler}.js`.

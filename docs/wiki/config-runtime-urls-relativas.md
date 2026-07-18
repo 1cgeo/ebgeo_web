@@ -8,10 +8,10 @@ Um `tileset.json` ou uma thumbnail 360 são servidos de hosts diferentes em dev,
 
 ## O objeto config é mutado in place, nunca substituído
 
-`src/js/config.js` é uma casca: só defaults estruturais e `tilesets: []` / `streetView360: {}` vazios. `applyRuntimeConfig()` (`src/js/store/sync/runtime-config.js:62-73`) faz deep-merge **dentro** do objeto importado por todo o app.
+`frontend/src/js/config.js` é uma casca: só defaults estruturais e `tilesets: []` / `streetView360: {}` vazios. `applyRuntimeConfig()` (`frontend/src/js/store/sync/runtime-config.js:62-73`) faz deep-merge **dentro** do objeto importado por todo o app.
 
-- **Nunca capture um valor de config em constante de módulo.** No topo do módulo você lê a casca vazia. Por isso `src/js/street_view_tool/streetview-api.service.js:15-17` encapsula em `getServiceUrl()`, relido a cada chamada.
-- Arrays são sobrescritos inteiros, nunca concatenados (`src/js/store/sync/runtime-config.js:42-52`). Um `/api/config` parcial preserva as chaves que omite.
+- **Nunca capture um valor de config em constante de módulo.** No topo do módulo você lê a casca vazia. Por isso `frontend/src/js/street_view_tool/streetview-api.service.js:15-17` encapsula em `getServiceUrl()`, relido a cada chamada.
+- Arrays são sobrescritos inteiros, nunca concatenados (`frontend/src/js/store/sync/runtime-config.js:42-52`). Um `/api/config` parcial preserva as chaves que omite.
 - O módulo em si é fail-safe (retorna `{applied:false}`), mas o boot é fail-fast: `index.js:73-86` tenta 3 vezes com 1 s de intervalo e, falhando todas, mostra a tela "EBGeo indisponível" e não roda. Não existe modo "config estático de fallback".
 
 ## Quatro convenções coexistindo
@@ -37,15 +37,15 @@ Como interpretar sem errar: `assets3dBaseUrl` é o contrato de quem consome `GET
 
 > **[!CONTRADICAO] Nota histórica.** O guia *16-streetview-360* (absorvido, §2) documenta a lista de projetos em snake_case (`center_lat`, `center_long`, `entry_photo_id`) e sem `previewThumbnail`, e o backend realmente devolve as linhas cruas do Postgres. Mas `street_view_tool/streetview_markers.js:125` lê `p.center.lon` e `:131` lê `p.previewThumbnail`, campos que essa rota não emite. O cliente espera um shape camelCase legado, herdado do antigo serviço estático de arquivos.
 
-O efeito é pior que um erro: é um sumiço silencioso. Em `loadMarkers()` o acesso a `p.center.lon` lança dentro do `.map()`, é engolido pelo `try/catch` de `src/js/street_view_tool/streetview_markers.js:137-140`, e os marcadores 360 simplesmente não aparecem com um `console.error` genérico. Em `src/js/catalog/catalog.service.js:202` o guarda `p.center ? ... : null` degrada para item sem localização e thumbnail default.
+O efeito é pior que um erro: é um sumiço silencioso. Em `loadMarkers()` o acesso a `p.center.lon` lança dentro do `.map()`, é engolido pelo `try/catch` de `frontend/src/js/street_view_tool/streetview_markers.js:137-140`, e os marcadores 360 simplesmente não aparecem com um `console.error` genérico. Em `frontend/src/js/catalog/catalog.service.js:202` o guarda `p.center ? ... : null` degrada para item sem localização e thumbnail default.
 
 Antes de "consertar a concatenação do `previewThumbnail`", confirme de qual payload o campo veio: o relativo confirmado (sem prefixo `/api/v1`) existe no **metadado da foto** (`/photos/:uuid`), não na lista de projetos.
 
-Outra armadilha do mesmo módulo: se `streetView360.serviceUrl` não vier no config, `src/js/map_sig.js:551-552` desliga `features.imagens_panoramicas` **antes** do preflight. Config faltando parece feature desabilitada, sem erro visível. Ver [[streetview-360]] e [[ingestao-projetos-360]].
+Outra armadilha do mesmo módulo: se `streetView360.serviceUrl` não vier no config, `frontend/src/js/map_sig.js:551-552` desliga `features.imagens_panoramicas` **antes** do preflight. Config faltando parece feature desabilitada, sem erro visível. Ver [[streetview-360]] e [[ingestao-projetos-360]].
 
 ## Regras que não seguem do código
 
-- Não hardcode `/api/v1/assets3d` nem `/api/v1/sv360`. Use `resolveBackendBaseUrl()` (`src/js/store/sync/runtime-config.js:22-24`), que honra o override `globalThis.__EBGEO_BACKEND_URL__` dos testes E2E. Hardcodar quebra o E2E, não a produção, então a falha aparece tarde.
+- Não hardcode `/api/v1/assets3d` nem `/api/v1/sv360`. Use `resolveBackendBaseUrl()` (`frontend/src/js/store/sync/runtime-config.js:22-24`), que honra o override `globalThis.__EBGEO_BACKEND_URL__` dos testes E2E. Hardcodar quebra o E2E, não a produção, então a falha aparece tarde.
 - Trocar a base **não** invalida cache do navegador do caminho antigo: os binários são imutáveis com cache de 1 ano e ETag/304/Range ([[sintese-cache-http-imutavel]]). A troca só muda o caminho.
 - Nenhum desses caminhos trafega pelo sync do atlas: 3D e 360 são módulos REST fora do WebSocket ([[sintese-modulos-fora-do-sync]]). Depois de uma escrita de calibração, recarregue o metadado; não espere evento ([[calibracao-e-grafo-360]]).
 - O envelope do `sv360` é **nu** (objeto/array) e o erro é plano `{error: "msg"}`, diferente do resto da API ([[erros-api]], [[sintese-contratos-congelados]]).

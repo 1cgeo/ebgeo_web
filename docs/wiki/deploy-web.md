@@ -33,11 +33,11 @@ Duas peças do caminho de deploy **não estão versionadas aqui** e por isso nã
 
 Mudança em qualquer um dos dois é invisível a este repositório e a todos os testes. Ver [[deploy-backend]] para o outro lado do mesmo host.
 
-## `deploy/` é protegido
+## `deploy/` roda contra produção
 
-`.claude/hooks/block-protected.js` recusa Edit/Write sob `deploy/`: é script que roda contra a máquina de produção, e o custo de um erro assistido ali não se compara ao de um erro em `src/`. O `.gitignore` versiona o `deploy.sh` e ignora `deploy/releases/` e `deploy/current`, que são artefatos do host.
+Não há mais bloqueio automático (o hook `PreToolUse` foi removido em 2026-07-18), então a cautela aqui é humana: este script troca o symlink que o NGINX serve, e o custo de um erro não se compara ao de um erro em `frontend/src/`. O `.gitignore` da raiz versiona o `deploy.sh` e ignora `deploy/releases/` e `deploy/current`, que são artefatos do host.
 
 ## Histórico
 
 - 2026-02-18: modelo de releases + symlink swap substitui a sobrescrita direta de `dist/`. Origem desta página, um tutorial solto dentro de `deploy/`, absorvido e removido em 2026-07-18.
-- 2026-07-18: removidos `prepare-deploy.js` e o workflow de GitHub Pages, um caminho de publicação paralelo e morto. O script escrevia um `src/js/config.js` estático, premissa que o boot fail-fast em `GET /api/config` invalidou ([[config-dinamico]]), e desde a adoção de `"type": "module"` ele nem executava.
+- 2026-07-18: removidos `prepare-deploy.js` e o workflow de GitHub Pages, um caminho de publicação paralelo e morto. O script escrevia um `frontend/src/js/config.js` estático, premissa que o boot fail-fast em `GET /api/config` invalidou ([[config-dinamico]]), e desde a adoção de `"type": "module"` ele nem executava.

@@ -8,13 +8,13 @@ O produto nasceu local-first (IndexedDB + arquivos `.ebgeo`) e o backend foi acr
 
 Os mecanismos que sustentam isso não são disciplina de código, são gates concretos:
 
-- O marcador de origem começa em `local` e é **ausente** para todo usuário pré-existente (`src/js/store/store-origin.js:31`, `DEFAULT_ORIGIN`), então a maquinaria remota só engata após um connect explícito. Ver [[dominio-local-vs-remoto]].
-- O gate de papel só vale em atlas remoto conectado: `sessionContext.isOffline() || !isRemoteStoreSync()` libera tudo (`src/js/store/sync/permission-guard.js:71`). Sem isso, um usuário logado com papel global `viewer` não conseguiria desenhar no próprio store local. Ver [[permissoes-atlas]].
+- O marcador de origem começa em `local` e é **ausente** para todo usuário pré-existente (`frontend/src/js/store/store-origin.js:31`, `DEFAULT_ORIGIN`), então a maquinaria remota só engata após um connect explícito. Ver [[dominio-local-vs-remoto]].
+- O gate de papel só vale em atlas remoto conectado: `sessionContext.isOffline() || !isRemoteStoreSync()` libera tudo (`frontend/src/js/store/sync/permission-guard.js:71`). Sem isso, um usuário logado com papel global `viewer` não conseguiria desenhar no próprio store local. Ver [[permissoes-atlas]].
 - O log/flush de operações é gated por conexão, então deslogado nada é transmitido. Ver [[fila-operacoes-outbound]].
 
 ### A exceção única e deliberada: bootstrap de config
 
-O servidor **é** pré-requisito para o app *subir*. `GET /api/config` é fonte única de config e catálogo, e o boot é fail-fast: 3 tentativas com 1s de intervalo e, sem resposta, a tela "EBGeo indisponível" (`src/js/index.js:73-86`). Não existe config estático de reserva; o `config.js` embarcado é só o *shape* que o servidor hidrata.
+O servidor **é** pré-requisito para o app *subir*. `GET /api/config` é fonte única de config e catálogo, e o boot é fail-fast: 3 tentativas com 1s de intervalo e, sem resposta, a tela "EBGeo indisponível" (`frontend/src/js/index.js:73-86`). Não existe config estático de reserva; o `config.js` embarcado é só o *shape* que o servidor hidrata.
 
 **Armadilha de vocabulário:** onde a documentação diz "offline", leia **"sem login"**, não "sem servidor". O caminho "sem backend algum" não é mais suportado, e o caminho **anônimo com backend no ar** é o que os testes cobrem. Ver [[config-dinamico]] e [[config-runtime-urls-relativas]].
 
@@ -42,7 +42,7 @@ O raciocínio: namespacing por atlas no IndexedDB seria um refactor pesado da ca
 Dois corolários que causam bug se ignorados:
 
 - O store guarda **um atlas por vez**. Trocar de atlas é destrutivo e ordenado: desconecta o anterior, limpa todo o store, conecta o novo. Não há merge implícito. Ver [[atlas-modelo-de-dados]].
-- Mapas de atlas remoto são chaveados por **UUID**; o mapa local padrão `Principal` é chaveado por nome e não tem UUID. Op cujo `mapId` de contexto não é UUID é **descartada antes de entrar na fila** (`src/js/store/sync/operation-dispatcher.js:133-136`), e o mesmo vale para op de SETTING com id não-UUID (`:120-123`). Isso serve a dois propósitos: impedir vazamento de feição local para atlas do servidor, e evitar que **uma única op inválida envenene o lote de flush e trave toda a sincronização** (o Postgres rejeita mapId não-UUID com 22P02). Ver [[fila-operacoes-outbound]] e [[tipos-entidade-sync]].
+- Mapas de atlas remoto são chaveados por **UUID**; o mapa local padrão `Principal` é chaveado por nome e não tem UUID. Op cujo `mapId` de contexto não é UUID é **descartada antes de entrar na fila** (`frontend/src/js/store/sync/operation-dispatcher.js:133-136`), e o mesmo vale para op de SETTING com id não-UUID (`:120-123`). Isso serve a dois propósitos: impedir vazamento de feição local para atlas do servidor, e evitar que **uma única op inválida envenene o lote de flush e trave toda a sincronização** (o Postgres rejeita mapId não-UUID com 22P02). Ver [[fila-operacoes-outbound]] e [[tipos-entidade-sync]].
 
 ## Dado remoto é efêmero por decisão
 

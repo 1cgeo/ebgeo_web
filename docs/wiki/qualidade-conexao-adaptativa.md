@@ -8,9 +8,9 @@ Lógica em `backend/src/modules/collab/collab.quality.js`; estado e emissão em 
 
 O laço não fecha em nenhum dos dois extremos do cliente:
 
-- `src/js/store/sync/ws-client.js:340` traduz `adaptive-settings` no evento local `adaptiveSettings`, e **nenhum módulo se inscreve** (não há outra ocorrência em `src/`).
-- O cliente **nunca envia** `connection-quality`. Não há emissor, e o heartbeat (`src/js/store/sync/ws-client.js:484-492`) só alterna o flag `_pongPending` sem carimbar timestamp, logo o RTT sequer é calculado.
-- O flush é fixo em 1500 ms (`src/js/store/sync/sync-flush.js:126`), que por coincidência é o valor da banda `poor`. Na prática o app roda permanentemente na cadência de link ruim.
+- `frontend/src/js/store/sync/ws-client.js:340` traduz `adaptive-settings` no evento local `adaptiveSettings`, e **nenhum módulo se inscreve** (não há outra ocorrência em `src/`).
+- O cliente **nunca envia** `connection-quality`. Não há emissor, e o heartbeat (`frontend/src/js/store/sync/ws-client.js:484-492`) só alterna o flag `_pongPending` sem carimbar timestamp, logo o RTT sequer é calculado.
+- O flush é fixo em 1500 ms (`frontend/src/js/store/sync/sync-flush.js:126`), que por coincidência é o valor da banda `poor`. Na prática o app roda permanentemente na cadência de link ruim.
 
 Isso é pendência conhecida, não regressão. Ao ligar: carimbe o `ping` e meça no `pong` dentro do laço de heartbeat existente, e **reinicie** o auto-flush com o novo intervalo em vez de criar um segundo timer (`startAutoFlush` é idempotente e ignora a chamada se já houver timer, então um `startAutoFlush` novo sem `stop` antes é silenciosamente descartado).
 

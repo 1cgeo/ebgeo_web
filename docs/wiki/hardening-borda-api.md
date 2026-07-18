@@ -2,7 +2,7 @@
 
 As decisões e armadilhas da borda do backend: rate limiting por IP+username, login sem oráculo de enumeração, allowlist HS256, helmet/CSP/HSTS e boot fail-fast.
 
-Nada aqui muda contratos de dados nem quebra o caminho anônimo. O que muda é a borda: status novos (`429`, `503`), mensagens deliberadamente pobres em informação, e um backend que se recusa a subir mal configurado. Os mecanismos se leem em `src/middleware/rate-limit.js`, `src/app.js:37-49` e `src/config.js:184-261`; esta página só cobre o que esses arquivos não contam. Upload em [[upload-imagens-seguranca]], rotação de refresh em [[refresh-token-rotacao]], envelope de erro em [[erros-api]] e o quadro completo de status em [[sintese-contrato-erros-http]].
+Nada aqui muda contratos de dados nem quebra o caminho anônimo. O que muda é a borda: status novos (`429`, `503`), mensagens deliberadamente pobres em informação, e um backend que se recusa a subir mal configurado. Os mecanismos se leem em `backend/src/middleware/rate-limit.js`, `backend/src/app.js:37-49` e `backend/src/config.js:184-261`; esta página só cobre o que esses arquivos não contam. Upload em [[upload-imagens-seguranca]], rotação de refresh em [[refresh-token-rotacao]], envelope de erro em [[erros-api]] e o quadro completo de status em [[sintese-contrato-erros-http]].
 
 ## Rate limiting: a chave composta e o que ela custa
 
@@ -77,4 +77,4 @@ Duas consequências:
 ## Fontes
 
 - guia *11-seguranca-hardening* (absorvido): estrutura dos mecanismos de borda; mensagens em inglês já superadas pelo código.
-- `ebgeo_backend`: `src/middleware/rate-limit.js`, `src/config.js`, `src/app.js`, `src/index.js`, `src/modules/auth/{auth.service.js,auth.routes.js}`, `src/middleware/{auth.js,flexible-auth.js,error-handler.js}`, `src/modules/collab/collab.gateway.js`.
+- `ebgeo_backend`: `backend/src/middleware/rate-limit.js`, `backend/src/config.js`, `backend/src/app.js`, `backend/src/index.js`, `src/modules/auth/{auth.service.js,auth.routes.js}`, `src/middleware/{auth.js,flexible-auth.js,error-handler.js}`, `backend/src/modules/collab/collab.gateway.js`.

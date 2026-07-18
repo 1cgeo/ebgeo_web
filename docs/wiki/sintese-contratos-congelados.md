@@ -21,9 +21,9 @@ Detalhe por superfície em [[gazetteer-nomes-geograficos]], [[catalogo-3d]], [[a
 
 ## A armadilha do unwrap
 
-`ApiClient._unwrap` (`src/js/store/sync/api-client.js:260-265`) desembrulha qualquer objeto que tenha a chave `data`. Isso salva os contratos nus por acidente feliz (array e objeto sem `data` passam direto), mas **destrói `/nomes/catalogo3d`**: o envelope tem `data`, então o unwrap devolve só o array e joga fora `total`/`page`/`nr_records`, sem erro. Hoje nenhum call site sofre porque o frontend não chama essa rota (ver contradição abaixo), mas quem chamar precisa de um caminho que não passe pelo unwrap.
+`ApiClient._unwrap` (`frontend/src/js/store/sync/api-client.js:260-265`) desembrulha qualquer objeto que tenha a chave `data`. Isso salva os contratos nus por acidente feliz (array e objeto sem `data` passam direto), mas **destrói `/nomes/catalogo3d`**: o envelope tem `data`, então o unwrap devolve só o array e joga fora `total`/`page`/`nr_records`, sem erro. Hoje nenhum call site sofre porque o frontend não chama essa rota (ver contradição abaixo), mas quem chamar precisa de um caminho que não passe pelo unwrap.
 
-O gazetteer contorna isso não usando o `ApiClient`: `src/js/search/gazetteer-url.js` deriva a URL da mesma base e os dois call sites fazem `fetch` cru validando com `Array.isArray(data) ? ... : []` (`src/js/search/search-bar.search-providers.js:287`, `src/js/search/feature-search.control.js:185`). Esse é o padrão a copiar para contrato nu.
+O gazetteer contorna isso não usando o `ApiClient`: `frontend/src/js/search/gazetteer-url.js` deriva a URL da mesma base e os dois call sites fazem `fetch` cru validando com `Array.isArray(data) ? ... : []` (`frontend/src/js/search/search-bar.search-providers.js:287`, `frontend/src/js/search/feature-search.control.js:185`). Esse é o padrão a copiar para contrato nu.
 
 ## Shapes que não podem mudar
 
@@ -39,13 +39,13 @@ O gazetteer contorna isso não usando o `ApiClient`: `src/js/search/gazetteer-ur
 
 > [!CONTRADICAO 2026-07-18] O guia 14 (§2, §5) descreve a descoberta 3D como `GET /nomes/catalogo3d` mais `assets3dBaseUrl + m.url`. Nenhum arquivo de `src/` chama essa rota ou lê `assets3dBaseUrl`. O ebgeo_web descobre modelos por `config.tilesets`, populado pelo `/api/config`: `3d_models_viewer_tool/map_3d.js:872-880` faz `config.tilesets.find(t => t.id === tilesetId)` e decide o loader por `type === 'glb'`. O shape é outro (`{ id, name, type, locate: { lon, lat, height }, … }`, não o `{ type: 'Tiles 3D', lon, lat, heightoffset, … }` do catálogo). São dois contratos 3D vivos ao mesmo tempo, não um.
 
-> [!CONTRADICAO 2026-07-18] O guia 16 manda tratar o sv360 como caso à parte do cliente HTTP, mas três rotas admin do 360 passam pelo cliente genérico (`src/js/store/sync/api-client.js:516`, `:526`, `:535`). O parser de erro faz `parsed.error?.message` (`src/js/store/sync/api-client.js:235-239`); com o envelope plano, `parsed.error` é **string** e `.message` é `undefined`. Resultado: `admin/catalog-tab.js:466`, `:534` e `:549` exibem "HTTP 404" no lugar de "Project not found", e o `code` chega `undefined`.
+> [!CONTRADICAO 2026-07-18] O guia 16 manda tratar o sv360 como caso à parte do cliente HTTP, mas três rotas admin do 360 passam pelo cliente genérico (`frontend/src/js/store/sync/api-client.js:516`, `:526`, `:535`). O parser de erro faz `parsed.error?.message` (`frontend/src/js/store/sync/api-client.js:235-239`); com o envelope plano, `parsed.error` é **string** e `.message` é `undefined`. Resultado: `admin/catalog-tab.js:466`, `:534` e `:549` exibem "HTTP 404" no lugar de "Project not found", e o `code` chega `undefined`.
 
 > [!CONTRADICAO 2026-07-18] O guia 16 (§4) diz que o id da foto é UUID v5. `street_view_tool/streetview-api.service.js:20` usa regex de **v4** (`4[0-9a-f]{3}` no nibble de versão). Para um id v5 real, `isUUID()` retorna `false`: `getPhotoDisplayName` (`:127`) desiste sem consultar a API e devolve o UUID cru como nome exibido, e `resolveToUUID` (`:109`) cai no fallback `/photos/by-name/<uuid>`.
 
-**Armadilha, `zoom` nunca é enviado.** O guia 13 recomenda mandar `zoom` para calibrar o decaimento por distância. Nenhum call site manda (`src/js/search/search-bar.search-providers.js:279`, `src/js/search/feature-search.control.js:182` montam a query só com `q`, `lat`, `lon`). O backend cai no raio padrão de 50 km e desliga o ajuste por tipo, então em zoom alto a busca não prioriza o que está perto. Não é bug de contrato, é qualidade deixada na mesa.
+**Armadilha, `zoom` nunca é enviado.** O guia 13 recomenda mandar `zoom` para calibrar o decaimento por distância. Nenhum call site manda (`frontend/src/js/search/search-bar.search-providers.js:279`, `frontend/src/js/search/feature-search.control.js:182` montam a query só com `q`, `lat`, `lon`). O backend cai no raio padrão de 50 km e desliga o ajuste por tipo, então em zoom alto a busca não prioriza o que está perto. Não é bug de contrato, é qualidade deixada na mesa.
 
-**Robustez, não contrato.** `normalizeProjects` (`src/js/street_view_tool/streetview-api.service.js:155-157`) aceita array nu e um legado `{ projects: [...] }`. Barato e defensivo, mas só o array nu é as-built. Não escreva código novo contra o legado.
+**Robustez, não contrato.** `normalizeProjects` (`frontend/src/js/street_view_tool/streetview-api.service.js:155-157`) aceita array nu e um legado `{ projects: [...] }`. Barato e defensivo, mas só o array nu é as-built. Não escreva código novo contra o legado.
 
 ## Regras operacionais
 

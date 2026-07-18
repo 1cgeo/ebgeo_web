@@ -2,7 +2,7 @@
 
 Dois vocabulários ortogonais convivem: o tier `permission` por atlas (backend, `read < comment < write < manage < owner`), que é quem realmente autoriza, e o `role` de identidade (frontend, `owner/admin/manager/editor/commenter/viewer`), que só rotula e alimenta flags de UI. Um terceiro eixo, o papel global da conta, corta os dois.
 
-Tabelas de níveis e capacidades: `ebgeo_backend/src/middleware/permissions.js:12-18` e `src/js/store/sync/session-context.js:60-85`. Consolidadas em [[sintese-capacidades-por-papel]] e [[sintese-eixos-de-permissao]].
+Tabelas de níveis e capacidades: `ebgeo_backend/src/middleware/permissions.js:12-18` e `frontend/src/js/store/sync/session-context.js:60-85`. Consolidadas em [[sintese-capacidades-por-papel]] e [[sintese-eixos-de-permissao]].
 
 ## Por que dois vocabulários
 
@@ -10,7 +10,7 @@ Tabelas de níveis e capacidades: `ebgeo_backend/src/middleware/permissions.js:1
 
 Não invente um terceiro vocabulário nem traduza um no outro fora de `toFrontendRole` (`ebgeo_backend/src/utils/roles.js:12-19`), que é a única fonte da derivação e é entregue no payload `connected` do WebSocket.
 
-**O frontend não guarda `connected.permission`.** Lê só `payload.role` (`src/js/store/sync/sync-engine.js:192-198`) e deriva as flags booleanas dali. Um guia anterior mandava gatear o cliente por `permission !== 'read'`; o cliente real ignora `permission` por completo. Os dois caminhos concordam no caso comum, e o gate por `role` é até mais fino (distingue `commenter`, separa `editor` de `manager`), mas para qualquer cliente novo o campo congelado e canônico é `permission`; `role` é aditivo e diverge se alguém mexer em `toFrontendRole` sem atualizar as duas pontas.
+**O frontend não guarda `connected.permission`.** Lê só `payload.role` (`frontend/src/js/store/sync/sync-engine.js:192-198`) e deriva as flags booleanas dali. Um guia anterior mandava gatear o cliente por `permission !== 'read'`; o cliente real ignora `permission` por completo. Os dois caminhos concordam no caso comum, e o gate por `role` é até mais fino (distingue `commenter`, separa `editor` de `manager`), mas para qualquer cliente novo o campo congelado e canônico é `permission`; `role` é aditivo e diverge se alguém mexer em `toFrontendRole` sem atualizar as duas pontas.
 
 `toFrontendRole` é fail-closed: entrada não reconhecida vira `viewer`. Bom padrão, mas um tier novo degrada silenciosamente em vez de estourar.
 
@@ -21,7 +21,7 @@ Quatro camadas independentes, nenhuma substitui a outra:
 1. **Rota / handshake** (`backend/src/middleware/permissions.js:57-132`, `backend/src/modules/collab/collab.gateway.js:52-107`). Cascata dono → share → público → 403.
 2. **Handler grosso** (`backend/src/modules/collab/collab.handlers.js:83-85`, `:115-121`). `read` não escreve; `read` **e** `comment` não emitem seleção.
 3. **Checagem fina por op** (`assertOperationAllowed`, `backend/src/modules/sync/sync.service.js:600-620`), dentro do loop de push, valendo igual para WS e REST.
-4. **Guard de papel no cliente** (`src/js/store/sync/permission-guard.js`). Puramente UX.
+4. **Guard de papel no cliente** (`frontend/src/js/store/sync/permission-guard.js`). Puramente UX.
 
 **O ponto não-óbvio:** a rota de push exige apenas `comment`, não `write`, para que Comentaristas cheguem lá. Ela é permissiva de propósito, e quem impede o vazamento de escrita é a camada 3. Mexer no gate de rota para "endurecer" não adiciona segurança e quebra comentário; mexer em `assertOperationAllowed` sim é mudança de segurança. Ver [[envelope-operacao]] e [[tabela-operations]].
 
@@ -31,29 +31,29 @@ Na saída o eixo também vale: `broadcastOperations` nunca entrega ops de `comme
 
 `permission` é resolvido no handshake, mas um socket vive horas. `reconcileAuthorization` roda a cada heartbeat (`backend/src/modules/collab/collab.gateway.js:115-140`): revogação, despublicação ou org desativada fecham com `4003` (close limpo, o peer some na hora em vez de ficar `away`); um rebaixamento apenas atualiza `ws.permission`, e a próxima escrita é recusada.
 
-**Não existe frame de "sua permissão mudou" no eixo `permission`.** Quem avisa a UI é `sharing_updated`, no eixo `role`. No cliente, aplique-o com `updateRole()` (`src/js/store/sync/session-context.js:297-302`), nunca `setSession`, que zeraria `userId`/`username` e apagaria o avatar. Ver [[canal-collab-websocket]].
+**Não existe frame de "sua permissão mudou" no eixo `permission`.** Quem avisa a UI é `sharing_updated`, no eixo `role`. No cliente, aplique-o com `updateRole()` (`frontend/src/js/store/sync/session-context.js:297-302`), nunca `setSession`, que zeraria `userId`/`username` e apagaria o avatar. Ver [[canal-collab-websocket]].
 
 ## O guard do cliente só vale para atlas remoto conectado
 
-`src/js/store/sync/permission-guard.js:71-73` retorna `allowed` quando `isOffline() || !isRemoteStoreSync()`. É a linha mais importante do arquivo: o papel **não** gateia o store local, mesmo logado. Sem ela, um usuário autenticado com `org_role` `viewer` não conseguiria desenhar no próprio espaço local. O discriminante é o marcador de origem do store, não namespacing por atlas. Ver [[dominio-local-vs-remoto]] e [[modos-operacao]].
+`frontend/src/js/store/sync/permission-guard.js:71-73` retorna `allowed` quando `isOffline() || !isRemoteStoreSync()`. É a linha mais importante do arquivo: o papel **não** gateia o store local, mesmo logado. Sem ela, um usuário autenticado com `org_role` `viewer` não conseguiria desenhar no próprio espaço local. O discriminante é o marcador de origem do store, não namespacing por atlas. Ver [[dominio-local-vs-remoto]] e [[modos-operacao]].
 
 O guard falha **suave**: as store ops chamam `checkPermission`, emitem `STORE_OPERATION_BLOCKED` e retornam. `assertPermission` existe mas não tem call site fora do barrel `sync/index.js:131`. Antes de usá-la, saiba que ela lança onde o resto do sistema apenas bloqueia.
 
 ## Armadilhas
 
 - **`manage` está ACIMA de `write`, mas `manage` não é `owner`.** Um gate escrito como `permission === 'write' || permission === 'owner'` exclui o co-Gestor silenciosamente. Sempre compare por nível numérico. O Co-Gestor compartilha e configura ([[atlas-settings]]) mas não apaga nem trava mapa, e é para `manage` que o ex-dono é rebaixado numa transferência de posse (`backend/src/modules/atlas/atlas.service.js:537-538`).
-- **Três respostas divergentes para "quem trava mapa".** O backend exige estritamente `owner` (`backend/src/modules/sync/sync.service.js:614-620`); `ROLE_PERMISSIONS` dá `canLockMaps` a owner, manager e admin; e a UI (`LOCK_CAPABLE_ROLES`, `src/js/locking/map-lock.controller.js:39`) só libera owner e admin. Um `manager` passa no guard do cliente, é barrado pela UI, e seria barrado pelo servidor de qualquer forma. Alinhe as três ao mexer em qualquer uma.
+- **Três respostas divergentes para "quem trava mapa".** O backend exige estritamente `owner` (`backend/src/modules/sync/sync.service.js:614-620`); `ROLE_PERMISSIONS` dá `canLockMaps` a owner, manager e admin; e a UI (`LOCK_CAPABLE_ROLES`, `frontend/src/js/locking/map-lock.controller.js:39`) só libera owner e admin. Um `manager` passa no guard do cliente, é barrado pela UI, e seria barrado pelo servidor de qualquer forma. Alinhe as três ao mexer em qualquer uma.
 - **Admin global nunca chega com permissão baixa.** Tanto o gateway WS (`backend/src/modules/collab/collab.gateway.js:83-85`) quanto o middleware REST (`backend/src/middleware/permissions.js:82-87`) curto-circuitam admin para `owner` antes de consultar shares. Não escreva código que dependa de ver `permission: "read"` junto com `role: "admin"`.
-- **`sharing_updated` deriva role sem o papel global.** `backend/src/modules/sharing/sharing.controller.js:38,57` chama `toFrontendRole(permission)` **sem o segundo argumento**; um admin global com share explícito de `read` se auto-rebaixaria ao aplicar esse `role`. A proteção é inteiramente do lado do cliente (ignora o frame se `isAdmin()`, e filtra por `userId` próprio, `src/js/store/sync/sync-engine.js:466-471`). Qualquer novo consumidor precisa repetir as duas guardas.
-- **Dois "admin" diferentes.** `sessionContext.isAdmin()` lê `_globalRole`; `src/js/account/account.control.js` e `src/js/locking/map-lock.controller.js` comparam `sessionContext.role === 'admin'`, que é o papel por atlas. Podem discordar.
-- **`sessionContext.role` logo após o login é o `org_role`**, não o papel do atlas; só vira o papel real depois do `connected`. `globalRole` é preservado quando `setSession` roda sem ele (`src/js/store/sync/session-context.js:247-249`) justamente para o `connect` não apagar o bit de admin. Ver [[organizacoes-om]] e [[gestao-usuarios]].
-- **Visitante de link público é ONLINE mas `isAuthenticated()` é `false`**, então nunca comenta (`src/js/store/comment.operations.js:33-37`). `connectPublic` também chama `disableOperationLogging()`: sem isso as ops ficariam órfãs na fila e seriam empurradas para o atlas errado num login posterior. Ver [[link-publico]] e [[fila-operacoes-outbound]].
+- **`sharing_updated` deriva role sem o papel global.** `backend/src/modules/sharing/sharing.controller.js:38,57` chama `toFrontendRole(permission)` **sem o segundo argumento**; um admin global com share explícito de `read` se auto-rebaixaria ao aplicar esse `role`. A proteção é inteiramente do lado do cliente (ignora o frame se `isAdmin()`, e filtra por `userId` próprio, `frontend/src/js/store/sync/sync-engine.js:466-471`). Qualquer novo consumidor precisa repetir as duas guardas.
+- **Dois "admin" diferentes.** `sessionContext.isAdmin()` lê `_globalRole`; `frontend/src/js/account/account.control.js` e `frontend/src/js/locking/map-lock.controller.js` comparam `sessionContext.role === 'admin'`, que é o papel por atlas. Podem discordar.
+- **`sessionContext.role` logo após o login é o `org_role`**, não o papel do atlas; só vira o papel real depois do `connected`. `globalRole` é preservado quando `setSession` roda sem ele (`frontend/src/js/store/sync/session-context.js:247-249`) justamente para o `connect` não apagar o bit de admin. Ver [[organizacoes-om]] e [[gestao-usuarios]].
+- **Visitante de link público é ONLINE mas `isAuthenticated()` é `false`**, então nunca comenta (`frontend/src/js/store/comment.operations.js:33-37`). `connectPublic` também chama `disableOperationLogging()`: sem isso as ops ficariam órfãs na fila e seriam empurradas para o atlas errado num login posterior. Ver [[link-publico]] e [[fila-operacoes-outbound]].
 - **Visualizador não recebe comentários**, é filtro de transmissão no snapshot e no broadcast, não esconde-UI. Ver [[comentario-espacial]].
 - **Offline = permissões plenas.** `clearSession()` volta a OFFLINE com `FULL_PERMISSIONS`. Não confunda "sem papel" com "sem acesso".
 - **A permissão padrão abaixa, nunca eleva.** Convite entra em `read`, e valor não reconhecido cai para `read` em vez de escalar.
 - **Clonar exige só `read`**, mas o clone torna quem clonou o `owner` da cópia ([[clone-atlas]]).
 
-> [!CONTRADICAO 2026-07-18] O princípio P1 ("o store local é sempre editável") é respeitado pela store op (`src/js/store/map.operations.js:852`) e pelo guard, mas `src/js/locking/map-lock.controller.js:71-76` (`canToggleLock`) gateia por papel assim que a sessão é ONLINE, sem consultar `isRemoteStoreSync()` como faz `isReadOnly()` logo abaixo. Um `editor` logado recebe "Apenas o dono pode bloquear o mapa" no próprio mapa **local**.
+> [!CONTRADICAO 2026-07-18] O princípio P1 ("o store local é sempre editável") é respeitado pela store op (`frontend/src/js/store/map.operations.js:852`) e pelo guard, mas `frontend/src/js/locking/map-lock.controller.js:71-76` (`canToggleLock`) gateia por papel assim que a sessão é ONLINE, sem consultar `isRemoteStoreSync()` como faz `isReadOnly()` logo abaixo. Um `editor` logado recebe "Apenas o dono pode bloquear o mapa" no próprio mapa **local**.
 
 ## Adicionou um nível de permissão?
 
@@ -61,11 +61,11 @@ Cinco lugares, e esquecer qualquer um degrada para `viewer` sem erro: `PERMISSIO
 
 ## Toast de bloqueio: o set que decide a mensagem
 
-`STORE_OPERATION_BLOCKED` carrega um `reason`, e `src/js/store/store-error-listener.js:23` classifica com `LOCK_REASONS = new Set(['map_locked', 'target_map_locked'])`. **Toda razão fora do set cai no ramo de "somente leitura"**. Uma razão nova de trava precisa ser adicionada ao set, senão o usuário lê "somente leitura" em um mapa que só está travado.
+`STORE_OPERATION_BLOCKED` carrega um `reason`, e `frontend/src/js/store/store-error-listener.js:23` classifica com `LOCK_REASONS = new Set(['map_locked', 'target_map_locked'])`. **Toda razão fora do set cai no ramo de "somente leitura"**. Uma razão nova de trava precisa ser adicionada ao set, senão o usuário lê "somente leitura" em um mapa que só está travado.
 
-O debounce de 3 s é contado **por tipo** (`lock` e `denied` com timestamps separados) exatamente para que um toast de trava não engula o de somente-leitura que chegou logo depois. O mesmo texto de somente-leitura aparece no toggle voluntário de modo seguro (`src/js/ui/view-mode.controller.js:68`), de propósito.
+O debounce de 3 s é contado **por tipo** (`lock` e `denied` com timestamps separados) exatamente para que um toast de trava não engula o de somente-leitura que chegou logo depois. O mesmo texto de somente-leitura aparece no toggle voluntário de modo seguro (`frontend/src/js/ui/view-mode.controller.js:68`), de propósito.
 
-O modo seguro deriva "posso editar" do **mesmo** `checkPermission('UPDATE_FEATURE')` que as store ops usam (`src/js/ui/view-mode.controller.js:44-46`), então nunca há UI habilitada para uma ação que o store recusaria. O toggle voluntário é descartado ao mudar de atlas ou sessão, para não vazar para um workspace que nunca pediu por ele.
+O modo seguro deriva "posso editar" do **mesmo** `checkPermission('UPDATE_FEATURE')` que as store ops usam (`frontend/src/js/ui/view-mode.controller.js:44-46`), então nunca há UI habilitada para uma ação que o store recusaria. O toggle voluntário é descartado ao mudar de atlas ou sessão, para não vazar para um workspace que nunca pediu por ele.
 
 ## Relação com o resto do sync
 

@@ -2,7 +2,7 @@
 
 ## Project Structure
 
-Um `ls src/js/` conta a estrutura melhor que qualquer árvore aqui, e a árvore que morava nesta seção provou o ponto: ficou 92 linhas desatualizadas, omitindo `admin/` e `session/` inteiros. O que segue é só o que a listagem NÃO conta.
+Um `ls frontend/src/js/` conta a estrutura melhor que qualquer árvore aqui, e a árvore que morava nesta seção provou o ponto: ficou 92 linhas desatualizadas, omitindo `admin/` e `session/` inteiros. O que segue é só o que a listagem NÃO conta.
 
 - **Entrada**: `index.js` (boot, fail-fast em `GET /api/config`) e `map_sig.js` (init do mapa e registro de controles). Toda ferramenta nova passa por `map_sig.js` em **três** registries distintos, não um: ver a skill `new-tool`.
 - **`store/`** é o núcleo. `store.js` é fachada que reexporta as `*.operations.js`; `services.js` é o container de DI e precisa de `initServices()` antes de qualquer componente. Dois arquivos que a árvore antiga omitia e são load-bearing: `store.constants.js` (`SOURCE_TYPES` + `FEATURE_TYPE_MAPPINGS`, editado a cada ferramenta nova) e `store-origin.js` (o marcador que separa local de remoto, base de quase todo comportamento de sync).
@@ -20,7 +20,7 @@ Um `ls src/js/` conta a estrutura melhor que qualquer árvore aqui, e a árvore 
 
 **Atlas** (container de projeto) → **Maps** (workspaces) → **Layers** (contêiner de feições, com `visivel`/`bloqueado`) → **Features**.
 
-O metadado de sync **não é uniforme entre entidades**, e tratá-lo como uniforme é erro fácil: Atlas/Map/Group carregam os seis campos (`createdAt`, `updatedAt`, `version`, `ownerId`, `dirty`, `deleted`), enquanto **feição carrega só três** (`createdAt`, `updatedAt`, `version`), postos por `addCreatedTimestamp` (`src/js/store/feature.operations.js:29-41`). A divisão está declarada em `src/js/store/sync/index.js:11-15`.
+O metadado de sync **não é uniforme entre entidades**, e tratá-lo como uniforme é erro fácil: Atlas/Map/Group carregam os seis campos (`createdAt`, `updatedAt`, `version`, `ownerId`, `dirty`, `deleted`), enquanto **feição carrega só três** (`createdAt`, `updatedAt`, `version`), postos por `addCreatedTimestamp` (`frontend/src/js/store/feature.operations.js:29-41`). A divisão está declarada em `frontend/src/js/store/sync/index.js:11-15`.
 
 - A camada ativa recebe feições novas; camadas emitem `LAYERS_CHANGED`.
 - Projetos salvam como `.ebgeo`.
@@ -53,7 +53,7 @@ Points can render a text label (`showLabel`) with props `labelText`, `labelColor
 
 ## Sync / Real-Time Collaboration
 
-The `store/sync/` client is **fully wired** to an optional backend (`ebgeo_backend`: Express + PostgreSQL + `ws`, JWT auth). The app still runs **anonymous** (nobody logged in) — but NOT without a reachable backend: boot is fail-fast on `GET /api/config` (`src/js/index.js`), with no static fallback. *(This section previously described the layer as "no-op / offline-only / no backend exists" — that is no longer true.)* Operations carry a Lamport clock (advances the local clock only — **not used for conflict resolution**; this is server-authoritative LWW-by-arrival, **not a true CRDT**); queue compaction: CREATE+DELETE=remove both, CREATE+UPDATEs=merge.
+The `store/sync/` client is **fully wired** to an optional backend (`ebgeo_backend`: Express + PostgreSQL + `ws`, JWT auth). The app still runs **anonymous** (nobody logged in) — but NOT without a reachable backend: boot is fail-fast on `GET /api/config` (`frontend/src/js/index.js`), with no static fallback. *(This section previously described the layer as "no-op / offline-only / no backend exists" — that is no longer true.)* Operations carry a Lamport clock (advances the local clock only — **not used for conflict resolution**; this is server-authoritative LWW-by-arrival, **not a true CRDT**); queue compaction: CREATE+DELETE=remove both, CREATE+UPDATEs=merge.
 
 **Transport & orchestration**
 - `api-client.js` — REST `/api/v1` (login/refresh/logout, `listAtlas`/`createAtlas`/`getAtlas`, sharing, `searchUsers`, `pushOperations`/`pullSync`, images). Tokens **persist in `localStorage`** via `_persistTokens` (`api-client.js:140-147`), so a session survives F5.
@@ -95,7 +95,7 @@ Unmapped paths (e.g. `keyboard`, `map/map.manager`) fall into the entry bundle.
 
 ## Event Types Reference
 
-A lista canônica é `src/js/events/event_types.js`, acessada por `EventTypes.XXX` (nunca string literal). A cópia parcial que morava aqui se anunciava "não exaustiva", o que a impedia de servir como contrato e deixava só o efeito de apodrecer. Ficam os dois pares que o nome não distingue:
+A lista canônica é `frontend/src/js/events/event_types.js`, acessada por `EventTypes.XXX` (nunca string literal). A cópia parcial que morava aqui se anunciava "não exaustiva", o que a impedia de servir como contrato e deixava só o efeito de apodrecer. Ficam os dois pares que o nome não distingue:
 
 - **`FEATURE_MODIFIED` vs `FEATURE_UPDATED`** — o primeiro é mudança de geometria/estilo; o segundo é mudança de user-data, atributo ou imagem. Assinar o errado é bug silencioso.
-- **`StoreErrorEvents` não vive em `event_types.js`** — os três (`STORE_PERSIST_ERROR`, `STORE_SYNC_ERROR`, `STORE_OPERATION_BLOCKED`) são definidos em `src/js/store/store-errors.js`. Procurar no arquivo errado dá a impressão de que não existem.
+- **`StoreErrorEvents` não vive em `event_types.js`** — os três (`STORE_PERSIST_ERROR`, `STORE_SYNC_ERROR`, `STORE_OPERATION_BLOCKED`) são definidos em `frontend/src/js/store/store-errors.js`. Procurar no arquivo errado dá a impressão de que não existem.

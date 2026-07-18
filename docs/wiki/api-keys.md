@@ -12,7 +12,7 @@ Chave UUID única por usuário para integração máquina-a-máquina, não expir
 
 `backend/src/middleware/flexible-auth.js:44-54` faz curto-circuito duro: se `x-api-key` (ou `?api_key=`) está presente, a função retorna `next()` **sempre**, e cookie e `Authorization: Bearer` nunca chegam a ser lidos.
 
-O código convida ao erro porque o ramo parece um simples "tenta a API key primeiro". Não é: uma chave já rotacionada, ou uma string que não é UUID, deixa a requisição **anônima** mesmo com um Bearer válido no mesmo request, e as rotas estritas respondem `401`. Sintoma clássico: um cliente que guarda a chave antiga num interceptor global passa a receber 401 em tudo depois da rotação, e o Bearer "que estava lá" não salva. Chave malformada nem consulta o banco (`UUID_RE` barra antes) e é tratada como anônimo, comportamento fixado em `tests/integration/identity.test.js:79-80`. Ver [[auth-flexivel]].
+O código convida ao erro porque o ramo parece um simples "tenta a API key primeiro". Não é: uma chave já rotacionada, ou uma string que não é UUID, deixa a requisição **anônima** mesmo com um Bearer válido no mesmo request, e as rotas estritas respondem `401`. Sintoma clássico: um cliente que guarda a chave antiga num interceptor global passa a receber 401 em tudo depois da rotação, e o Bearer "que estava lá" não salva. Chave malformada nem consulta o banco (`UUID_RE` barra antes) e é tratada como anônimo, comportamento fixado em `backend/tests/integration/identity.test.js:79-80`. Ver [[auth-flexivel]].
 
 ## O comportamento que só emerge de dois middlewares
 
@@ -27,7 +27,7 @@ Consequência prática, invisível em qualquer arquivo isolado: em **rotas flex�
 `ROTATE_API_KEY` (`backend/src/modules/users/users.queries.js:186-197`) é um único statement com CTE, e dois efeitos dele não são óbvios lendo o SQL:
 
 - **É também o endpoint de criação.** O predicado `api_key IS NOT NULL` faz o usuário que nunca teve chave arquivar zero linhas enquanto o `UPDATE` gera a primeira. Não existe rota separada de "gerar chave", e não procure por uma.
-- **Não há janela com duas chaves válidas.** A antiga para de autenticar no mesmo instante em que a nova nasce, fixado em `tests/integration/identity.test.js:69-70`. Não planeje migração de cliente contando com sobreposição: o corte é instantâneo.
+- **Não há janela com duas chaves válidas.** A antiga para de autenticar no mesmo instante em que a nova nasce, fixado em `backend/tests/integration/identity.test.js:69-70`. Não planeje migração de cliente contando com sobreposição: o corte é instantâneo.
 
 A resposta `{ apiKey }` é a **única** vez que a chave nova aparece. Não há rota de leitura, e nenhuma query do módulo `users` (perfil, listagem admin, busca) seleciona `api_key`. Perdeu, rotaciona de novo.
 
@@ -48,4 +48,4 @@ Sobre erros da rota admin ([[erros-api]], [[sintese-contrato-erros-http]]): o `4
 
 - guia *12-multiorg-identidade-auditoria* (absorvido): Parte 3 (precedência do `flexibleAuth`, sliding session, chave inválida = anônimo) e Parte 4 (contrato dos dois endpoints de rotação, resposta irrecuperável, auditoria, histórico).
 - guia *09-admin* (absorvido): posicionamento das duas rotas de rotação no inventário administrativo.
-- Código do `ebgeo_backend` (manda sobre a prosa): `src/middleware/{flexible-auth,auth,error-handler}.js`, `src/modules/users/{users.queries,users.service,users.controller,users.routes}.js`, `src/database/migrations/001_core.sql`, `src/utils/redact-url.js`, `tests/integration/identity.test.js`.
+- Código do `ebgeo_backend` (manda sobre a prosa): `src/middleware/{flexible-auth,auth,error-handler}.js`, `src/modules/users/{users.queries,users.service,users.controller,users.routes}.js`, `backend/src/database/migrations/001_core.sql`, `backend/src/utils/redact-url.js`, `backend/tests/integration/identity.test.js`.

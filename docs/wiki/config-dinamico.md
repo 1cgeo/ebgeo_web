@@ -4,11 +4,11 @@ Endpoint público que substitui o `config.js` estático. O que ele monta se lê 
 
 ## Por que o boot é fail-fast (e por que isso não fere o offline-first)
 
-`src/js/config.js` não é config: é um shell de shape com catálogo vazio e um piso estrutural mínimo em `map2d`/`map3d`, só as chaves que `src/js/map_sig.js`/`src/js/3d_models_viewer_tool/map_3d.js` leem sem guarda (o spread de `sourceTileLodParams` e de `viewer` lança em `undefined`). Não existe config estático de reserva, por decisão: um fallback local significaria a app subir com catálogo velho ou vazio sem ninguém perceber, e foi julgado pior que não subir.
+`frontend/src/js/config.js` não é config: é um shell de shape com catálogo vazio e um piso estrutural mínimo em `map2d`/`map3d`, só as chaves que `frontend/src/js/map_sig.js`/`frontend/src/js/3d_models_viewer_tool/map_3d.js` leem sem guarda (o spread de `sourceTileLodParams` e de `viewer` lança em `undefined`). Não existe config estático de reserva, por decisão: um fallback local significaria a app subir com catálogo velho ou vazio sem ninguém perceber, e foi julgado pior que não subir.
 
 Consequência aceita: o servidor é pré-requisito para o app *subir*, não para *operar*. Essa é a exceção única e deliberada ao offline-first (ver [[dominio-local-vs-remoto]] e [[sessao-boot-e-ciclo-de-vida]]).
 
-**Armadilha central.** `applyRuntimeConfig` é fail-safe: devolve `{ applied: false, error }` e nunca lança (`src/js/store/sync/runtime-config.js:62-73`). Quem transforma falha em morte do boot é o laço de 3 tentativas em `src/js/index.js:73-86`. Se você chamar `applyRuntimeConfig` de qualquer outro lugar e ignorar `applied`, a app segue com o shell vazio (nenhum basemap, catálogo vazio) e sem erro visível. O código convida ao erro aqui.
+**Armadilha central.** `applyRuntimeConfig` é fail-safe: devolve `{ applied: false, error }` e nunca lança (`frontend/src/js/store/sync/runtime-config.js:62-73`). Quem transforma falha em morte do boot é o laço de 3 tentativas em `frontend/src/js/index.js:73-86`. Se você chamar `applyRuntimeConfig` de qualquer outro lugar e ignorar `applied`, a app segue com o shell vazio (nenhum basemap, catálogo vazio) e sem erro visível. O código convida ao erro aqui.
 
 **Contrato de mutação.** O merge é *in place* dentro do objeto importado: o binding `config` é importado em toda a app e nunca é substituído, só mutado. Por isso os overlays posteriores (atlas) também mutam o mesmo objeto, e por isso ler `config` antes do merge de boot devolve o shell.
 
@@ -31,7 +31,7 @@ Ver [[sintese-contratos-congelados]]. O que quebra o frontend se mudar:
 - **`search` permanece como chave, vazia.** O `apiUrl` foi removido: o gazetteer **é este backend** e o cliente deriva a rota da própria base da API. O antigo `SEARCH_API_URL` tinha default apontando para um `:3001` inexistente, o fetch dava connection-refused e a busca falhava em silêncio. Liga/desliga continua em `features.apisearch`. Ver [[gazetteer-nomes-geograficos]].
 - **`postos` e `organizacoesMilitares` são públicos de propósito**, apesar de serem dados de pessoal: o formulário anônimo de cadastro precisa popular os selects **antes** do login. Ver [[gestao-usuarios]] e [[organizacoes-om]].
 
-> [!CONTRADICAO 2026-07-18] `tests/e2e/config-contract.e2e.test.js:50-57` exige `cfg.search.apiUrl` como string não vazia e `cfg.services.tileServerUrl.length > 0`; `backend/src/modules/config/config.service.js:182` emite `search: {}` e `backend/src/config.js:140` dá default `''` a `TILE_SERVER_URL`. O teste que deveria guardar o contrato congelado está desatualizado em relação a ele.
+> [!CONTRADICAO 2026-07-18] `frontend/tests/e2e/config-contract.e2e.test.js:50-57` exige `cfg.search.apiUrl` como string não vazia e `cfg.services.tileServerUrl.length > 0`; `backend/src/modules/config/config.service.js:182` emite `search: {}` e `backend/src/config.js:140` dá default `''` a `TILE_SERVER_URL`. O teste que deveria guardar o contrato congelado está desatualizado em relação a ele.
 
 ## Regras de montagem que causam bug se ignoradas
 
@@ -55,7 +55,7 @@ Contexto que explica por que os styles moram no backend: no `config.js` antigo a
 
 ## Overlay por atlas: restringe, nunca habilita
 
-`applyAtlasSettings` (`src/js/store/sync/atlas-settings.service.js:100-125`) sobrepõe `atlas.settings` no mesmo objeto `config`. A regra é **interseção**: capacidade do deploy ∩ permissão do atlas. Nenhuma configuração de atlas consegue ligar o que o deploy desligou (3D removido do build não volta por setting). Detalhe do modelo em [[atlas-settings]]; quem configura, em [[permissoes-atlas]].
+`applyAtlasSettings` (`frontend/src/js/store/sync/atlas-settings.service.js:100-125`) sobrepõe `atlas.settings` no mesmo objeto `config`. A regra é **interseção**: capacidade do deploy ∩ permissão do atlas. Nenhuma configuração de atlas consegue ligar o que o deploy desligou (3D removido do build não volta por setting). Detalhe do modelo em [[atlas-settings]]; quem configura, em [[permissoes-atlas]].
 
 Armadilhas:
 
@@ -80,4 +80,4 @@ Config não tem push por WebSocket: é pull sob demanda, com `Cache-Control: no-
 
 - Guias absorvidos: *10-config* (contrato congelado, mapa env → chave, semântica MVT), *visao-e-principios* (config como exceção ao offline-first), *ui-ux-ebgeo* (backend como fonte única; cadeia atlas-settings → config → catálogo). Divergências marcadas acima.
 - `backend/src/config.js`: a tabela de env do `appConfig` é o próprio arquivo.
-- Código (autoridade sobre a prosa): `backend/src/modules/config/`, `backend/src/modules/catalog/`, `backend/src/{app,config}.js`, `src/js/{index,config}.js`, `src/js/store/sync/{runtime-config,api-client,atlas-settings.service}.js`, `tests/e2e/config-contract.e2e.test.js`.
+- Código (autoridade sobre a prosa): `backend/src/modules/config/`, `backend/src/modules/catalog/`, `backend/src/{app,config}.js`, `src/js/{index,config}.js`, `src/js/store/sync/{runtime-config,api-client,atlas-settings.service}.js`, `frontend/tests/e2e/config-contract.e2e.test.js`.

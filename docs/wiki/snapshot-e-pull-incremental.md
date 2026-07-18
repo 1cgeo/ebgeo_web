@@ -1,6 +1,6 @@
 # Sync Híbrido: Snapshot e Pull Incremental
 
-`GET /atlas/:id/sync/:version` devolve snapshot completo ou lista de operações incrementais, discriminado por `isSnapshot`. Contrato em `ebgeo_backend/src/modules/sync/sync.service.js:765`; consumo em `src/js/store/sync/sync-engine.js`.
+`GET /atlas/:id/sync/:version` devolve snapshot completo ou lista de operações incrementais, discriminado por `isSnapshot`. Contrato em `ebgeo_backend/src/modules/sync/sync.service.js:765`; consumo em `frontend/src/js/store/sync/sync-engine.js`.
 
 ## Por que dois modos
 
@@ -13,29 +13,29 @@ O log de operações não é infinito: o cleanup admin apaga o rabo antigo e sob
 - **`isSnapshot` nunca é opcional.** Um cliente que pede `/sync/150` recebe snapshot se um cleanup subiu `min_version` acima de 150. O cliente não tem como prever isso, então todo consumidor de `pullSync` precisa suportar as duas respostas, sempre. Decidir o caminho de aplicação pela versão que você pediu é o erro clássico aqui.
 - **`currentVersion` é cursor exclusivo** (o corte é `server_version > cursor`). Guarde verbatim, sem `+1` nem `-1`. No incremental ele é o maior `serverVersion` do lote, não o próximo.
 - **REST diz `operations`, WebSocket diz `ops`.** Mesmo híbrido, nomes diferentes (`backend/src/modules/collab/collab.handlers.js:271`). Um parser reaproveitado entre os dois transportes lê `undefined` e aplica zero operações **sem erro**. Ver [[canal-collab-websocket]].
-- **`server_version` vem de sequência global do atlas e é não contígua por design** (`src/js/store/sync/ws-client.js:392`). Buraco na numeração é op de outro atlas, não op perdida. Uma versão anterior tratava buraco como perda e gerava tempestades de `sync_request`. Perda real só ocorre atravessando desconexão.
-- **`initialPull: false` deixa `_lastVersion` em 0**, porque a atribuição está dentro do `if` (`src/js/store/sync/sync-engine.js:156-162`). O socket abre com `lastVersion: 0` e o `sync_request` seguinte pede o mundo inteiro.
+- **`server_version` vem de sequência global do atlas e é não contígua por design** (`frontend/src/js/store/sync/ws-client.js:392`). Buraco na numeração é op de outro atlas, não op perdida. Uma versão anterior tratava buraco como perda e gerava tempestades de `sync_request`. Perda real só ocorre atravessando desconexão.
+- **`initialPull: false` deixa `_lastVersion` em 0**, porque a atribuição está dentro do `if` (`frontend/src/js/store/sync/sync-engine.js:156-162`). O socket abre com `lastVersion: 0` e o `sync_request` seguinte pede o mundo inteiro.
 
 ## O caminho de recuperação real é o WebSocket
 
-`syncEngine.pull()` (`src/js/store/sync/sync-engine.js:313`), o pull incremental HTTP, **não tem nenhum chamador em `src/js`**, só um teste de integração. As três chamadas vivas de `pullSync` (`connect`, `connectPublic` de [[link-publico]], `resync`) usam sempre versão 0, ou seja, sempre snapshot. A recuperação incremental de fato acontece pelo canal WS: ao reabrir o socket vindo de RECONNECTING, `src/js/store/sync/ws-client.js:426` dispara `requestSync(this._lastVersion)`.
+`syncEngine.pull()` (`frontend/src/js/store/sync/sync-engine.js:313`), o pull incremental HTTP, **não tem nenhum chamador em `src/js`**, só um teste de integração. As três chamadas vivas de `pullSync` (`connect`, `connectPublic` de [[link-publico]], `resync`) usam sempre versão 0, ou seja, sempre snapshot. A recuperação incremental de fato acontece pelo canal WS: ao reabrir o socket vindo de RECONNECTING, `frontend/src/js/store/sync/ws-client.js:426` dispara `requestSync(this._lastVersion)`.
 
-Dois cuidados no handler de `sync_response` (`src/js/store/sync/sync-engine.js:407`) que não devem ser removidos:
+Dois cuidados no handler de `sync_response` (`frontend/src/js/store/sync/sync-engine.js:407`) que não devem ser removidos:
 
 1. **Gate `connectionState.isOnline()` antes de persistir** (`:412`). Descarta um `sync_response` tardio caindo na janela disconnect→clear de um logout ou troca de atlas. O caminho de op inbound já era protegido pelo `syncGateway`; o de snapshot não era, e sem o gate um snapshot atrasado grava dados do atlas remoto num store sendo destruído (ver [[dominio-local-vs-remoto]]).
-2. **Avanço de versão nos dois lugares** (`:421-423`). `setLastVersion` é monotônico (`src/js/store/sync/ws-client.js:150`: só aceita maior), o que impede que um frame fora de ordem regrida o cursor e cause replay eterno.
+2. **Avanço de versão nos dois lugares** (`:421-423`). `setLastVersion` é monotônico (`frontend/src/js/store/sync/ws-client.js:150`: só aceita maior), o que impede que um frame fora de ordem regrida o cursor e cause replay eterno.
 
 `resync()` força snapshot fresco e existe para as mutações que o servidor faz **fora** do log (`atlas_updated`, `map_duplicated`, `maps_merged`): um pull incremental jamais as veria.
 
 ## Snapshot é upsert, não substituição
 
-`applyRemoteSnapshot` grava cada mapa e briefing do snapshot e **nunca apaga entidade local ausente dele** (`src/js/store/sync/remote-operation-handler.js:1150`). Por isso toda troca de atlas na UI chama `clearAllDataStore()` **antes** de `syncEngine.connect(...)` (`account/open-atlas.service.js:59`, `account/account.control.js:576`, `:785`, `:818`, `index.js:231`). Um novo caminho de abertura de atlas que esqueça o clear mistura os mapas do atlas anterior com os do novo. Pelo mesmo motivo, um `resync()` no meio da sessão não remove localmente o que um peer deletou por fora do log.
+`applyRemoteSnapshot` grava cada mapa e briefing do snapshot e **nunca apaga entidade local ausente dele** (`frontend/src/js/store/sync/remote-operation-handler.js:1150`). Por isso toda troca de atlas na UI chama `clearAllDataStore()` **antes** de `syncEngine.connect(...)` (`account/open-atlas.service.js:59`, `account/account.control.js:576`, `:785`, `:818`, `index.js:231`). Um novo caminho de abertura de atlas que esqueça o clear mistura os mapas do atlas anterior com os do novo. Pelo mesmo motivo, um `resync()` no meio da sessão não remove localmente o que um peer deletou por fora do log.
 
 Outras consequências desse desenho:
 
 - **Snapshot não passa pelo LWW por-entidade.** Ele é o estado autoritativo do servidor e sobrescreve, inclusive edição local ainda não flushada. A fila outbound continua íntegra e reenvia (idempotente por `op_id`). Ver [[modelo-conflito-lww]], [[idempotencia-e-convergence-guard]], [[fila-operacoes-outbound]].
 - **Viewer read-only recebe snapshot podado**: comentários espaciais são omitidos e ops de comentário filtradas no incremental. O side-store local fica vazio; não é bug. Ver [[permissoes-atlas]].
-- **`pullSync` não tem timeout** (`src/js/store/sync/api-client.js:831` não passa `timeoutMs`). Deliberado (P6): transferência grande em rede ruim não deve ser abortada. Só as chamadas críticas de boot têm limite.
+- **`pullSync` não tem timeout** (`frontend/src/js/store/sync/api-client.js:831` não passa `timeoutMs`). Deliberado (P6): transferência grande em rede ruim não deve ser abortada. Só as chamadas críticas de boot têm limite.
 
 ## Redistribuição para os side-stores
 
@@ -52,7 +52,7 @@ O snapshot mistura deliberadamente snake_case (herdado das colunas) com camelCas
 1. **`layers[]` não tem objeto `sync`**: os metadados vêm planos no topo, ao contrário de atlas/map/group/briefing/3D/360. Código genérico com `entity.sync.version` quebra só em camadas.
 2. **`currentVersion` aparece duas vezes**, dentro de `snapshot` e ao lado dele. O cursor a guardar é o de fora.
 3. **`catalog_layers` (coluna do mapa) e `catalogLayers[]` (entidades com `sync`) coexistem** no mesmo mapa; não assuma que só um está preenchido ([[tipos-entidade-sync]]).
-4. **As chaves das coleções de feição não são `tipo + 's'`.** Quatro são irregulares e congeladas: `sector`→`setores`, `boundary`→`boundarys` (plural incorreto), `los` e `visibility` invariáveis (`src/js/store/store.constants.js:77`). O backend materializa o snapshot já nesses buckets e o cliente grava direto; bucket com nome errado não gera erro, a feição simplesmente some da tela. Quem decide a renderização é `properties.source` (singular), não a chave do bucket.
+4. **As chaves das coleções de feição não são `tipo + 's'`.** Quatro são irregulares e congeladas: `sector`→`setores`, `boundary`→`boundarys` (plural incorreto), `los` e `visibility` invariáveis (`frontend/src/js/store/store.constants.js:77`). O backend materializa o snapshot já nesses buckets e o cliente grava direto; bucket com nome errado não gera erro, a feição simplesmente some da tela. Quem decide a renderização é `properties.source` (singular), não a chave do bucket.
 5. **Metadados de sync de feição vivem dentro de `properties`**, não num objeto `sync` como nas demais entidades. `dirty` e `deleted` vêm sempre `false`: são campos do modelo local, materializados só para o shape bater, e não carregam informação do servidor.
 
 Ver [[sintese-contratos-congelados]], [[atlas-modelo-de-dados]], [[catalogo-3d]], [[streetview-360]].

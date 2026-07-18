@@ -20,7 +20,7 @@ Implementação em `backend/src/modules/auth/auth.service.js:127-178` (rotação
 
 **O índice parcial não cobre o lookup real.** `idx_refresh_tokens_hash` é `WHERE revoked_at IS NULL` (`backend/src/database/migrations/001_core.sql:135`), logo não serve à busca que precisa ver revogados. Quem sustenta essa query é o índice único implícito de `token_hash UNIQUE`. Não remova o `UNIQUE` achando que o índice parcial cobre.
 
-**Refresh concorrente é indistinguível de roubo.** Dois requests com o mesmo token: o primeiro rotaciona, o segundo cai na detecção e derruba todos os dispositivos do usuário. Duas defesas no cliente, ambas frágeis se removidas: `apiClient.refresh()` compartilha um único refresh em voo (`src/js/store/sync/api-client.js:286-312`) e o tab lock (`index.js:126`) impede duas abas lendo o mesmo `localStorage`.
+**Refresh concorrente é indistinguível de roubo.** Dois requests com o mesmo token: o primeiro rotaciona, o segundo cai na detecção e derruba todos os dispositivos do usuário. Duas defesas no cliente, ambas frágeis se removidas: `apiClient.refresh()` compartilha um único refresh em voo (`frontend/src/js/store/sync/api-client.js:286-312`) e o tab lock (`index.js:126`) impede duas abas lendo o mesmo `localStorage`.
 
 **Rotação não é transacional.** Revogar o antigo (`backend/src/modules/auth/auth.service.js:154`) e inserir o novo (`backend/src/modules/auth/auth.service.js:175`) são duas `query` soltas, embora o helper `tx` esteja importado e usado em outros pontos do mesmo arquivo (`backend/src/modules/auth/auth.service.js:284`). Falha entre as duas deixa o usuário sem refresh válido: é fail-safe (força login), não fail-open, mas explica sessões que morrem sem motivo aparente depois de um blip no banco.
 
@@ -32,7 +32,7 @@ Implementação em `backend/src/modules/auth/auth.service.js:127-178` (rotação
 
 ## O que a revogação em massa NÃO faz
 
-Não invalida access tokens já emitidos. Depois de trocar senha, resetar senha ou desativar usuário, o access roubado continua válido até `exp` (15 min default) e o socket de colaboração já aberto continua aberto, porque o token só é lido no handshake (`src/js/store/sync/api-client.js:936-938`) e nunca revalidado. **Corte imediato de sessão não existe hoje**; encurtar `JWT_ACCESS_EXPIRY` é o único ajuste disponível. Ver [[canal-collab-websocket]].
+Não invalida access tokens já emitidos. Depois de trocar senha, resetar senha ou desativar usuário, o access roubado continua válido até `exp` (15 min default) e o socket de colaboração já aberto continua aberto, porque o token só é lido no handshake (`frontend/src/js/store/sync/api-client.js:936-938`) e nunca revalidado. **Corte imediato de sessão não existe hoje**; encurtar `JWT_ACCESS_EXPIRY` é o único ajuste disponível. Ver [[canal-collab-websocket]].
 
 Logout revoga **um token só** (`backend/src/modules/auth/auth.service.js:183-186`): as outras sessões seguem vivas. Ver [[sessao-boot-e-ciclo-de-vida]].
 
@@ -46,12 +46,12 @@ Logout revoga **um token só** (`backend/src/modules/auth/auth.service.js:183-18
 4. Depois de trocar a senha, espere `401` nas outras sessões.
 5. Não reutilize o fluxo de refresh para integrações máquina-a-máquina; para isso existem [[api-keys]].
 
-Detalhe não óbvio do boot: o handler de `authLost` é ligado **depois** do boot (`index.js:132-134`), de propósito, para que expiração detectada durante a inicialização caia em anônimo silenciosamente em vez de abrir modal. Ver [[modos-operacao]] e [[auth-flexivel]]. O fluxo de link público usa `setEphemeralToken()`, que não persiste (`src/js/store/sync/api-client.js:117-120`); ver [[link-publico]].
+Detalhe não óbvio do boot: o handler de `authLost` é ligado **depois** do boot (`index.js:132-134`), de propósito, para que expiração detectada durante a inicialização caia em anônimo silenciosamente em vez de abrir modal. Ver [[modos-operacao]] e [[auth-flexivel]]. O fluxo de link público usa `setEphemeralToken()`, que não persiste (`frontend/src/js/store/sync/api-client.js:117-120`); ver [[link-publico]].
 
 ## Divergências documentação ↔ código
 
 > **Nota histórica.** Os guias absorvidos documentam mensagens de erro em inglês (`Invalid refresh token`, `Refresh token expired`); o código emite pt-BR (`backend/src/modules/auth/auth.service.js:135`, `145`, `150`). Os `code` e status HTTP continuam corretos: **não faça matching por `message`**.
 
-> **Nota histórica.** O guia *01-autenticacao* prescreve access token em memória ou `sessionStorage` e só o refresh em `localStorage`; `src/js/store/sync/api-client.js:143-157` persiste **os dois** no mesmo item de `localStorage`. É deliberado (o boot valida via `getMe`), mas amplia a superfície de XSS: quem consegue script na página leva o access token pronto.
+> **Nota histórica.** O guia *01-autenticacao* prescreve access token em memória ou `sessionStorage` e só o refresh em `localStorage`; `frontend/src/js/store/sync/api-client.js:143-157` persiste **os dois** no mesmo item de `localStorage`. É deliberado (o boot valida via `getMe`), mas amplia a superfície de XSS: quem consegue script na página leva o access token pronto.
 
 Nenhum dos guias absorvidos documenta o gate de OM inativa no refresh nem o balde de rate limit compartilhado por IP.

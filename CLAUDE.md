@@ -1,6 +1,6 @@
 # EBGeo: constituição
 
-GIS web do Exército Brasileiro. Monorepo, dois pacotes: **web** na raiz (`src/`, `tests/`: Vanilla JS, Vite, MapLibre + Cesium + Three.js, IndexedDB) e **backend** em [`backend/`](backend/) (Express + PostgreSQL/PostGIS + `ws`), com [`backend/CLAUDE.md`](backend/CLAUDE.md) próprio.
+GIS web do Exército Brasileiro. Monorepo de dois pacotes simétricos: **web** em [`frontend/`](frontend/) (Vanilla JS, Vite, MapLibre + Cesium + Three.js, IndexedDB) e **backend** em [`backend/`](backend/) (Express + PostgreSQL/PostGIS + `ws`), com [`backend/CLAUDE.md`](backend/CLAUDE.md) próprio. A raiz só orquestra: os scripts dela delegam com `--prefix`, e cada pacote tem seu `package.json`, seu `node_modules` e seu `.gitignore`.
 
 Este arquivo carrega **método, armadilha e convenção que diverge do default**. O que se deriva lendo o código não mora aqui: detalhe de arquitetura em [`.claude/rules/`](.claude/rules/), o porquê das decisões em [`docs/wiki/index.md`](docs/wiki/index.md), fatos duráveis em [`MEMORY.md`](MEMORY.md), princípios integrais em [`docs/doutrina.md`](docs/doutrina.md).
 
@@ -26,9 +26,9 @@ Não chancele a própria saída: rodar o teste não é a mudança funcionar; esc
 ## Não negociável
 
 - **Não use ferramenta de preview ou browser.** Verificação de lógica é `npm run lint` + `npm test`; de UI, o Playwright (`npm run test:e2e:ui`).
-- **Arquivos protegidos** (hook PreToolUse bloqueia): `package-lock.json`, `.env`, `deploy/`, `public/vendors/`.
+- **Trate como frágil, sem hook para segurar:** `deploy/` (roda contra produção), `.env`, lockfile e `frontend/public/vendors/`. O bloqueio automático foi removido em 2026-07-18 a pedido; agora é julgamento, então confirme antes de escrever nesses caminhos.
 - **Trabalhe no branch atual.** `main` é outra linha do produto; não sincronize sem pedir.
-- **Login é opcional; servidor não é.** O app roda anônimo, mas o boot é fail-fast em `GET /api/config`; sem backend alcançável, tela "EBGeo indisponível". `src/js/config.js` é só o *shape* que o servidor hidrata; **não há fallback estático**. Anônimo ≠ offline.
+- **Login é opcional; servidor não é.** O app roda anônimo, mas o boot é fail-fast em `GET /api/config`; sem backend alcançável, tela "EBGeo indisponível". `frontend/src/js/config.js` é só o *shape* que o servidor hidrata; **não há fallback estático**. Anônimo ≠ offline.
 - **Permissão por atlas tem CINCO níveis:** `read < comment < write < manage < owner`. Sempre gate pela hierarquia. Lista fechada tipo `perm === 'write' || perm === 'owner'` exclui o `manage` em silêncio e já causou bug real, duas vezes, nos dois pacotes.
 - **Escrita de entidade colaborativa é só via sync.** Não crie rota REST de escrita para feature/map/layer/group/briefing/slide.
 - **Mudança que cruza os dois pacotes** (envelope de sync, `/api/config`, permissões, contrato congelado) é verificada **dos dois lados no mesmo commit**. O E2E sobe o backend real e é o guarda dessa fronteira.
@@ -50,14 +50,14 @@ Arquivos `.js`/`.css` editados passam por lint automático (hook PostToolUse), e
 
 ## Convenções que divergem do default
 
-- **Imports por alias em código novo** (não há regra de lint; 64 dos 567 arquivos de `src/js/` ainda usam `../../`, e migrá-los é decisão pendente, não dívida silenciosa): `@/`, `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`. Cada pasta de módulo expõe um barrel `index.js`.
+- **Imports por alias em código novo** (não há regra de lint; 64 dos 567 arquivos de `frontend/src/js/` ainda usam `../../`, e migrá-los é decisão pendente, não dívida silenciosa): `@/`, `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`. Cada pasta de módulo expõe um barrel `index.js`.
 - **Idioma:** string de UI em pt-BR com acento correto; comentário e JSDoc em inglês; propriedade de feição em português (`nome`, `descricao`, `visivel`, `bloqueado`).
-- **Comentário de caminho na linha 1** de todo arquivo JS, relativo a `src/`: `// Path: js/draw_tools/point_tool/add_point_control.js`. Nunca remova.
+- **Comentário de caminho na linha 1** de todo arquivo JS, relativo ao `src/` do pacote: `// Path: js/draw_tools/point_tool/add_point_control.js`. Nunca remova.
 - **Sem estilo inline em JS.** Classes BEM em arquivo CSS; exceção só para valor computado em runtime (cor vinda do JS, posição calculada).
 - **XSS:** nunca `innerHTML` com dado de usuário. Use `textContent` ou `createElement`; `escapeHtml` de `@utils/html-escape.js` ao interpolar. Ícone SVG estático é ok.
 - **Limpeza de recurso** via `@utils/event-cleanup.js`. Todo `map.on()` do MapLibre pareado com `map.off()` no `onRemove()`; handler do Cesium com `.destroy()`; timer sempre limpo.
 - **Utilitários obrigatórios:** `deepClone()` (não `JSON.parse(JSON.stringify())`), `showToast()` (não `alert()`), `generateUUID()` para todo id, constantes `EventTypes.XXX` (nunca string literal de evento).
-- **CSS** em `src/css/` com os custom properties de `design-tokens.css`. Anime com `transform: translateX()`, nunca `left` (evita layout thrashing).
+- **CSS** em `frontend/src/css/` com os custom properties de `design-tokens.css`. Anime com `transform: translateX()`, nunca `left` (evita layout thrashing).
 - **Sem em-dash na prosa** de documentação; vírgula, parênteses ou frase separada.
 
 ## Padrões estruturais
@@ -84,6 +84,6 @@ Ordem: persistência → deferSync → deferAsync. Detalhe na skill `store-op`.
 
 A wiki em [`docs/wiki/`](docs/wiki/index.md) **é** a documentação, e vale um critério só: **o código já é a evidência**. Antes de escrever um parágrafo, pergunte se um engenheiro competente chegaria nele sozinho lendo o código. Se sim, não escreva. Entra o porquê e a alternativa rejeitada, a armadilha, o contrato congelado, o não-óbvio que atravessa arquivos. Regras de manutenção em [`docs/wiki/wiki-schema.md`](docs/wiki/wiki-schema.md).
 
-Documentação desatualizada é **pior que ausente**: engana ativamente, e engana em dobro um agente, que a trata como verdade. Por isso ela é verificada por teste ([`tests/unit/docs-integridade.test.js`](tests/unit/docs-integridade.test.js)) e não por disciplina: todo caminho citado e todo wikilink precisam resolver.
+Documentação desatualizada é **pior que ausente**: engana ativamente, e engana em dobro um agente, que a trata como verdade. Por isso ela é verificada por teste ([`frontend/tests/unit/docs-integridade.test.js`](frontend/tests/unit/docs-integridade.test.js)) e não por disciplina: todo caminho citado e todo wikilink precisam resolver.
 
 Ao corrigir um desvio, registre uma linha no [`livro-razao.md`](livro-razao.md) dizendo **onde a lição foi codificada**. Correção que recorre significa que a guia não pegou: mude a abordagem, não re-anote.
