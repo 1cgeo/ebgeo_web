@@ -424,9 +424,9 @@ por origens permitidas).
 
 ### Notas de integração no frontend
 
-- Útil na **inicialização** para decidir entre modo online e modo offline (ver o fluxo de
-  decisão em [01 - Autenticação](./01-autenticacao.md)). `200` → backend pronto; `503` ou
-  erro de rede → caia para offline-first.
+- **Serve para monitoramento/orquestração, não para o boot do frontend.** O app decide por
+  `GET /api/config` (fail-fast: 3 tentativas → tela "EBGeo indisponível"); não existe modo
+  offline para o qual cair, e o frontend hoje **não chama** `/health` em lugar nenhum.
 - Não use `/health` em loop agressivo; é leve, mas dispara uma query a cada chamada.
 
 ---
@@ -507,7 +507,7 @@ backend mal configurado simplesmente não sobe. Detalhes de configuração em
 - [ ] Tratar revogação em massa (troca de senha) como "relogar nas outras sessões"
 - [ ] Filtrar upload para `png/jpeg/webp` (sem SVG) no input
 - [ ] Baixar imagem via `fetch` + `blob:` (anexo, não inline); usar `ETag`/`If-None-Match`
-- [ ] Usar `GET /health` na inicialização para escolher online/offline
+- [ ] ~~Usar `GET /health` na inicialização para escolher online/offline~~ — fora de escopo: o boot é fail-fast em `GET /api/config`
 - [ ] Não assumir que `/auth/register` existe (pode ser `404`)
 
 ---

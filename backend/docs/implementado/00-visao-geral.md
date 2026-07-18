@@ -70,7 +70,7 @@ controller → service → queries → schemas). Algumas caixas lógicas do diag
 
 ### Modos de operação (do ponto de vista do frontend)
 
-1. **Offline** — sem backend; dados locais no IndexedDB. Tudo funciona.
+1. **Anônimo** — sem login; dados locais no IndexedDB. O **servidor precisa estar alcançável no boot** (o frontend é fail-fast em `GET /api/config`), mas nenhuma credencial é exigida.
 2. **Autenticado** — login, sync com o servidor, colaboração em tempo real.
 3. **Público** — link público, somente leitura, token temporário (1h) para REST e WebSocket.
 

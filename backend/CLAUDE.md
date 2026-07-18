@@ -5,7 +5,9 @@ auth JWT, persistência PostgreSQL/PostGIS, colaboração em tempo real e sync o
 
 **Constraint fundamental:** o backend é **aditivo** — a app deve funcionar idêntica para usuário
 **não autenticado**. Nenhuma mudança pode quebrar o caminho anônimo nem os contratos congelados do
-frontend.
+frontend. Isso vale para o LOGIN, não para a disponibilidade: o boot do frontend é **fail-fast** em
+`GET /api/config` (fonte única de config/catálogo), então derrubar ou quebrar esse endpoint impede o
+app de subir — não existe fallback estático no cliente.
 
 > Referência completa (rotas, env, migrações, permissões, protocolo WS, convenções detalhadas) está
 > no **[README.md](README.md)**. Guias de integração por subsistema em **[docs/implementado/](docs/implementado/)**

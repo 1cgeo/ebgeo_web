@@ -7,7 +7,7 @@ GIS web para o Exército Brasileiro. **Um repositório, dois pacotes:**
 | **web** (este arquivo) | raiz (`src/`, `tests/`) | SPA local-first: MapLibre GL JS (2D) + Cesium (3D, lazy) + Three.js (360, lazy). Vanilla JS (ES modules, sem framework), Vite, IndexedDB via LocalForage. |
 | **backend** | [`backend/`](backend/) | Express + PostgreSQL/PostGIS + `ws`. Login, atlas hospedados, compartilhamento e colaboração em tempo real. **Tem CLAUDE.md próprio** — leia [`backend/CLAUDE.md`](backend/CLAUDE.md) antes de mexer lá. |
 
-O app roda **100% offline/anônimo por padrão**; o backend é **aditivo** e nenhuma mudança pode quebrar o caminho anônimo (ver *Backend & Real-Time Sync*).
+**LOGIN é opcional; o SERVIDOR não é.** O app roda **anônimo** (sem login) — dados no IndexedDB, `.ebgeo`, sync inerte — e nenhuma mudança pode quebrar esse caminho. Mas o boot é **fail-fast em `GET /api/config`** (`src/js/index.js`): sem backend alcançável, 3 tentativas e a tela "EBGeo indisponível"; o app não roda. `config.js` é só o *shape* que o servidor hidrata — **não há fallback estático**. Depois do boot, toda a edição segue local-first (ver *Backend & Real-Time Sync*).
 
 Detailed references live in `.claude/rules/` (`architecture.md`, `common-tasks.md`, `testing.md`) and `.claude/skills/` (`new-tool`, `store-op`).
 
@@ -117,7 +117,7 @@ getEventBus().emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 
 ## Backend & Real-Time Sync
 
-> The `store/sync/` layer is **fully wired** to the optional `ebgeo_backend` (REST + real `WebSocket`); the app still runs fully offline/anonymous when nobody logs in. **Full detail (transport, op envelope, boot/restore, Principal name-keying) lives in `.claude/rules/architecture.md` §Sync; operating principles in `docs/visao-e-principios.md`.** Below are only the non-negotiables.
+> The `store/sync/` layer is **fully wired** to the optional `ebgeo_backend` (REST + real `WebSocket`); the app still runs **anonymous** (no login) when nobody logs in — but NOT without a reachable backend: boot is fail-fast on `GET /api/config`. **Full detail (transport, op envelope, boot/restore, Principal name-keying) lives in `.claude/rules/architecture.md` §Sync; operating principles in `docs/visao-e-principios.md`.** Below are only the non-negotiables.
 
 - **Transport/orchestration** — `api-client.js` (REST `/api/v1`) + `ws-client.js` (`WebSocket` `/api/v1/collab`), driven by `sync-engine.js`; outbound flush in `sync-flush.js` (gated on `connectionState.isOnline()`), inbound apply in `remote-operation-handler.js`. 3D/360 inbound **persists** into the cesium3d/streetview360 side-stores (and emits), so peers converge on live 3D/360 ops.
 - **Backend entity writes are sync-only** — no REST write routes for feature/map/layer/group/briefing/slide; mutations travel as operations (`operation-dispatcher.js` → `operation-queue.js`; types in `operation-types.js`).

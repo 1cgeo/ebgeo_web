@@ -69,7 +69,7 @@ subsistema que vai integrar. As convenções de engenharia ficam na seção
 | Nomes geográficos, catálogo 3D, panoramas 360 | REST read-only (PostGIS) |
 
 ### Modos de operação
-1. **Offline** — sem backend, dados locais no IndexedDB.
+1. **Anônimo** — sem login, dados locais no IndexedDB. O servidor precisa estar alcançável no boot (o frontend é fail-fast em `GET /api/config`).
 2. **Autenticado** — login, sync com servidor, colaboração.
 3. **Público** — link público, somente leitura, token temporário (1h).
 

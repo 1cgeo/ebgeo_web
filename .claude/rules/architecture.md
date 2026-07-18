@@ -112,7 +112,7 @@ Points can render a text label (`showLabel`) with props `labelText`, `labelColor
 
 ## Sync / Real-Time Collaboration
 
-The `store/sync/` client is **fully wired** to an optional backend (`ebgeo_backend`: Express + PostgreSQL + `ws`, JWT auth). The app still runs fully offline/anonymous when nobody logs in. *(This section previously described the layer as "no-op / offline-only / no backend exists" — that is no longer true.)* Operations carry a Lamport clock (advances the local clock only — **not used for conflict resolution**; this is server-authoritative LWW-by-arrival, **not a true CRDT**); queue compaction: CREATE+DELETE=remove both, CREATE+UPDATEs=merge.
+The `store/sync/` client is **fully wired** to an optional backend (`ebgeo_backend`: Express + PostgreSQL + `ws`, JWT auth). The app still runs **anonymous** (nobody logged in) — but NOT without a reachable backend: boot is fail-fast on `GET /api/config` (`src/js/index.js`), with no static fallback. *(This section previously described the layer as "no-op / offline-only / no backend exists" — that is no longer true.)* Operations carry a Lamport clock (advances the local clock only — **not used for conflict resolution**; this is server-authoritative LWW-by-arrival, **not a true CRDT**); queue compaction: CREATE+DELETE=remove both, CREATE+UPDATEs=merge.
 
 **Transport & orchestration**
 - `api-client.js` — REST `/api/v1` (login/refresh/logout, `listAtlas`/`createAtlas`/`getAtlas`, sharing, `searchUsers`, `pushOperations`/`pullSync`, images). Tokens in-memory (`_accessToken`/`_refreshToken`).

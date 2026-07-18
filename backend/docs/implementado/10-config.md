@@ -416,13 +416,15 @@ servidores internos **sem rebuild**. Defaults são placeholders DEV-only.
 | Situação | Comportamento |
 |----------|---------------|
 | Sem token / token inválido | **Irrelevante** — o endpoint é público; sempre responde 200 |
-| Banco indisponível | 500 (a montagem lê `resources`); o frontend deve cair no `config.js` local |
+| Banco indisponível | 500 (a montagem lê `resources`) — o frontend trata como **falha de boot**: 3 tentativas (1s) e a tela "EBGeo indisponível". **Não há fallback** |
 | Edição via `/resources` | Refletida na **próxima** chamada (sem cache); rota de edição exige `admin` |
 
 ### Notas de integração no frontend
 
-- **Sempre tenha um fallback**: o `config.js` local embarcado no build cobre o caso
-  de o backend estar fora do ar (offline-first). Faça `merge` do remoto por cima.
+- **NÃO há fallback.** O `config.js` embarcado é apenas o *shape* que este endpoint hidrata
+  (`applyRuntimeConfig` faz deep-merge do payload dentro dele **antes** de qualquer leitura); ele não
+  carrega dado de deploy. Se `/api/config` falhar, o boot aborta com a tela "EBGeo indisponível"
+  (`src/js/index.js`) — nunca cai num config estático.
 - Trate a resposta como `res.data` (envelope `{ data }`), não a raiz.
 - Re-busque a config após o operador editar recursos no admin — não há push/WS para
   config; é pull sob demanda.

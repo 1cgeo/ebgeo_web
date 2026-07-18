@@ -29,7 +29,9 @@
 
 ## 1. Visão geral e princípios
 
-O EBGeo roda **100% offline/anônimo por padrão**. Um **backend opcional** (`ebgeo_backend`) adiciona login, atlas hospedados no servidor, compartilhamento e **colaboração multiusuário em tempo real**. A camada `store/sync/` no cliente está **totalmente conectada** ao backend; quando ninguém faz login, ela permanece inerte e o app funciona localmente sobre IndexedDB + arquivos `.ebgeo`.
+O EBGeo roda **anônimo por padrão** (sem login). O backend adiciona login, atlas hospedados no servidor, compartilhamento e **colaboração multiusuário em tempo real**. A camada `store/sync/` no cliente está **totalmente conectada** ao backend; quando ninguém faz login, ela permanece inerte e a edição acontece localmente sobre IndexedDB + arquivos `.ebgeo`.
+
+> **Login opcional ≠ servidor opcional.** O boot é **fail-fast** em `GET /api/config` (fonte única de config/catálogo): sem backend alcançável, o app mostra "EBGeo indisponível" e não roda. Ver §8.4.
 
 Princípios que governam o desenho (detalhe em `docs/visao-e-principios.md`):
 

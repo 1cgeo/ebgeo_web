@@ -16,14 +16,19 @@ A referência completa do servidor (rotas, env, migrações, permissões, protoc
 
 ## Modos de operação
 
-1. **Offline / anônimo (padrão)** — funciona 100% sem backend; todos os dados ficam no IndexedDB local.
-   Projetos são exportados/importados como arquivos `.ebgeo`.
+1. **Anônimo (padrão)** — sem login: todos os dados ficam no IndexedDB local e projetos são
+   exportados/importados como arquivos `.ebgeo`. **O servidor precisa estar alcançável no boot** —
+   ver a nota abaixo.
 2. **Autenticado** — login JWT, atlas hospedados no servidor, **colaboração multiusuário em tempo real**
    (sync de feições/mapas/camadas via REST + WebSocket), presença e compartilhamento.
 3. **Público** — abertura de um atlas por link público, somente leitura.
 
-O backend é **opcional e aditivo** — a app continua idêntica para o usuário não autenticado.
-Nenhuma mudança pode quebrar o caminho anônimo.
+> **Login opcional, servidor obrigatório no boot.** O backend é **aditivo** no sentido de que a app
+> é idêntica para quem não faz login, e nenhuma mudança pode quebrar esse caminho anônimo. Ele **não**
+> é opcional para subir: `GET /api/config` é a fonte única de config/catálogo e o boot é **fail-fast**
+> (`src/js/index.js` — 3 tentativas, depois a tela "EBGeo indisponível"). O `src/js/config.js`
+> empacotado é apenas o *shape* que o servidor hidrata; **não há fallback estático**. Passado o boot,
+> a edição permanece local-first: escreve no IndexedDB e sincroniza depois.
 
 ## Comandos
 

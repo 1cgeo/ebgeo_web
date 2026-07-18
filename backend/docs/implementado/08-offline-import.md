@@ -8,12 +8,16 @@ Este documento cobre o modo offline, reconexão e upload de atlas criado localme
 
 O frontend deve suportar três modos:
 
-### 1.1 Modo Offline (Sem Backend)
+### 1.1 Modo Anônimo (Sem Login)
 
 - Todos os dados ficam no IndexedDB
 - Não há autenticação
 - Não há colaboração
-- Funciona 100% local
+- A **edição** é 100% local (escreve local, sincroniza depois)
+
+> **Sem login ≠ sem servidor.** O boot do frontend é fail-fast em `GET /api/config`: sem backend
+> alcançável o app mostra "EBGeo indisponível" e não roda. O fluxo de import abaixo (acumular local
+> → logar → subir) continua válido; o que não existe é operar com o servidor fora do ar.
 
 ### 1.2 Modo Autenticado
 
@@ -1056,8 +1060,10 @@ class AtlasManager {
 ## Checklist de Implementação
 
 ### Modo Offline
-- [ ] Detecção de backend indisponível
-- [ ] Funcionamento completo sem backend
+- [x] Detecção de backend indisponível — implementada como **tela de bloqueio** ("EBGeo
+      indisponível") no boot fail-fast, não como degradação para modo offline
+- [ ] ~~Funcionamento completo sem backend~~ — **fora de escopo**: o servidor é a fonte única de
+      config/catálogo e é exigido no boot
 - [ ] Indicador visual de modo offline
 
 ### Reconexão

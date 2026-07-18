@@ -2,10 +2,17 @@
 
 Este documento descreve **como o sistema deve funcionar** e os **princípios** que guiam a
 integração com o backend. Ele existe para que ninguém, ao evoluir o produto, quebre os casos de
-uso que já estão em operação — em especial o **usuário que trabalha 100% offline**.
+uso que já estão em operação — em especial o **usuário que trabalha sem login**, com seu workspace
+local e arquivos `.ebgeo`.
 
-O ponto central: **login e backend são uma CAMADA ADITIVA.** Tudo que funcionava sem servidor
-continua funcionando idêntico. O modo conectado é uma capacidade a mais, nunca um pré-requisito.
+O ponto central: **o LOGIN é uma CAMADA ADITIVA.** Tudo que funcionava sem conta continua funcionando
+idêntico; o modo conectado é uma capacidade a mais, nunca um pré-requisito.
+
+> **Exceção única e deliberada — o bootstrap de config.** O servidor É pré-requisito para o app
+> *subir*: `GET /api/config` é a fonte única de config/catálogo e o boot é fail-fast (3 tentativas →
+> tela "EBGeo indisponível"; `src/js/index.js`). Não existe config estático de reserva. Passado o
+> boot, todo o caminho de edição permanece local-first. Onde este documento diz "offline", leia
+> **"sem login"**, não "sem servidor".
 
 **Norte do produto: o "Google Docs / Google Sheets dos mapas".** Vários usuários editam o mesmo
 atlas ao vivo, sem locks, com presença em tempo real e resolução automática de conflitos. A
@@ -147,8 +154,9 @@ projetos selecionáveis e compartilháveis) é uma capacidade do **servidor** (c
 
 Ordem no boot (`src/js/index.js`):
 
-1. **Configura** o cliente HTTP e mescla `GET /api/config` (à prova de falha: backend fora ⇒ segue
-   no config estático).
+1. **Configura** o cliente HTTP e mescla `GET /api/config` — **fail-fast**, não à prova de falha:
+   3 tentativas (1s) e, sem resposta, a tela "EBGeo indisponível". Não existe config estático de
+   reserva; o `config.js` embarcado é só o *shape* que o servidor hidrata.
 2. **Restaura a sessão** (`restoreSessionFromStorage`): lê o token do `localStorage`, valida em
    `GET /auth/me` (com refresh transparente em 401). Sem token ou em qualquer erro ⇒ permanece
    anônimo, **sem tocar o caminho offline**.
@@ -255,7 +263,9 @@ já estava em operação no IndexedDB.
 
 ## 9. Invariantes (regras para não quebrar o sistema)
 
-1. **Nunca** torne o servidor pré-requisito de uma ação que hoje funciona offline.
+1. **Nunca** torne o servidor pré-requisito de uma ação de edição que hoje funciona localmente.
+   **Exceção única e deliberada: o bootstrap de config** (`GET /api/config`) — depois do boot, toda a
+   edição continua local-first.
 2. **Nunca** persista dado de atlas remoto fora do domínio efêmero, nem deixe-o sobreviver ao
    logout/desconexão.
 3. **Nunca** deixe dado de um atlas visível em outro (cheque o isolamento ao mexer em store/sync).
@@ -263,7 +273,8 @@ já estava em operação no IndexedDB.
 5. Mudança de schema é **aditiva** e tem **teste de regressão** garantindo que dados antigos abrem.
 6. Toda transição entre modos preserva o trabalho do usuário (avisar + oferecer `.ebgeo` antes de
    qualquer descarte de dado **local**).
-7. O caminho offline deve passar nos testes **sem** backend disponível.
+7. O caminho **anônimo** (sem login, com backend no ar) deve passar nos testes. O caminho sem
+   backend algum não é mais suportado — ver a exceção do bootstrap acima.
 8. **Undo/redo nunca sincroniza** nem inclui operações remotas — é estritamente local por sessão (P8).
 9. **Toda informação que entra no `.ebgeo` precisa ter caminho de sincronização** (cobertura de sync ⊇
    cobertura de `.ebgeo`, P9); ao adicionar um novo tipo de dado persistido, cubra os dois caminhos.
@@ -375,7 +386,7 @@ entidade**, distinguidas por `parentId`; cada resposta é uma entidade própria 
 **não se sobrescrevem** (P10, LWW por chegada). A raiz é um **pin** na coordenada com as 2 iniciais do
 autor; clicar abre a thread (respostas + resolver/reabrir + excluir). Comentário **resolvido sai do
 mapa** — fica só no painel lateral (Maps). Permissões: criar/responder = Comentarista+; editar/resolver/
-excluir = **autor ou Editor+**. **Funciona 100% offline** (a ferramenta aparece; o gating de papel só
+excluir = **autor ou Editor+**. **Funciona sem login** (a ferramenta aparece; o gating de papel só
 existe conectado, P1). Persiste e sincroniza, então **entra no `.ebgeo`** (P9, nível Editor+) e faz
 round-trip (P11); a não-entrega ao Visualizador é diferença **intencional**, como os IDs remapeados.
 

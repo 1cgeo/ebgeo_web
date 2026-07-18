@@ -6,9 +6,10 @@
 > produto (offline-first, isolamento por atlas, P12) veja `visao-e-principios.md`; para a arquitetura
 > de sincronização veja `arquitetura-sync.md` e `.claude/rules/architecture.md`.
 
-O modelo mental é um **"Google Docs de mapas"**: o app roda **100% offline e anônimo** por padrão (um
-workspace local + arquivos `.ebgeo`), e um **backend opcional** adiciona login, atlas hospedados no
-servidor, compartilhamento e **colaboração multiusuário em tempo real**. Tudo abaixo descreve as duas
+O modelo mental é um **"Google Docs de mapas"**: o app roda **anônimo** por padrão (um workspace
+local + arquivos `.ebgeo`), e o **login** adiciona atlas hospedados no servidor, compartilhamento e
+**colaboração multiusuário em tempo real**. *Anônimo não quer dizer sem servidor*: o boot é
+fail-fast em `GET /api/config`, então o backend precisa estar alcançável mesmo sem ninguém logado. Tudo abaixo descreve as duas
 realidades — o que aparece anônimo/local e o que aparece logado/conectado.
 
 ---
