@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { query } from '../../database/index.js';
-import { orgIsActive } from '../../utils/org-status.js';
+import { orgIsActive, getLiveAuthState } from '../../utils/org-status.js';
 import { joinRoom, leaveRoom, getRoomUsers, getRoomClients } from './collab.rooms.js';
 import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
@@ -117,9 +117,29 @@ async function resolvePermission(atlasId, userId, payload) {
  */
 export async function reconcileAuthorization(ws) {
   try {
-    if (!ws.isPublic && ws.organizationId && !(await orgIsActive(ws.organizationId))) {
-      ws.close(4003, 'organization deactivated');
-      return;
+    // A conta em si (não só a org). O gate P1 vivia apenas no `auth` estrito do
+    // HTTP, então um socket JÁ ABERTO sobrevivia à desativação do usuário
+    // indefinidamente: `deleteUser` revoga só o refresh token, e o sweep nunca
+    // reexaminava `users.is_active`. O papel global também vem daqui — um admin
+    // rebaixado mantinha acesso owner a todo atlas via `resolvePermission`.
+    if (!ws.isPublic) {
+      const live = await getLiveAuthState(ws.userId);
+      if (live) {
+        if (!live.userIsActive) {
+          ws.close(4003, 'account deactivated');
+          return;
+        }
+        if (!live.orgIsActive) {
+          ws.close(4003, 'organization deactivated');
+          return;
+        }
+        // Adota o papel VIVO antes de resolver a permissão.
+        ws.userRole = live.role;
+      } else if (ws.organizationId && !(await orgIsActive(ws.organizationId))) {
+        // Sem linha em `users` (princípio sintético): cai no gate org-only.
+        ws.close(4003, 'organization deactivated');
+        return;
+      }
     }
     const current = await resolvePermission(ws.atlasId, ws.userId, {
       isPublic: ws.isPublic,
@@ -356,14 +376,27 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
 
   logger.info({ userId: user.id, atlasId, permission }, 'WebSocket connected');
 
-  // Set up message handler
+  // Set up message handler.
+  //
+  // As mensagens de UM socket são processadas EM SÉRIE (encadeadas numa promise).
+  // Antes, `handleMessage` era disparado sem `await`: um cliente em rajada abria N
+  // `pushOperations` concorrentes no mesmo atlas, e como cada um retém uma conexão
+  // do pool enquanto espera o advisory lock, um único socket conseguia esgotar o
+  // pool (poolMax=10) e travar o processo inteiro. Serializar por socket preserva a
+  // ordem das ops do cliente e limita cada conexão a uma escrita em voo.
   ws.on('message', (rawData) => {
+    let data;
     try {
-      const data = JSON.parse(rawData.toString());
-      handleMessage(ws, data);
+      data = JSON.parse(rawData.toString());
     } catch (err) {
       logger.error({ err, userId: ws.userId }, 'Failed to parse WebSocket message');
+      return;
     }
+    ws._messageChain = (ws._messageChain || Promise.resolve())
+      .then(() => handleMessage(ws, data))
+      .catch((err) => {
+        logger.error({ err, userId: ws.userId, type: data?.type }, 'WebSocket message handler failed');
+      });
   });
 
   // Set up close handler (the close code distinguishes a clean leave from a
@@ -381,7 +414,7 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
 /**
  * Routes incoming messages to appropriate handlers.
  */
-function handleMessage(ws, data) {
+async function handleMessage(ws, data) {
   switch (data.type) {
     case 'ping':
       handlers.handlePing(ws);
@@ -400,15 +433,15 @@ function handleMessage(ws, data) {
       break;
 
     case 'operation':
-      handlers.handleOperation(ws, data);
+      await handlers.handleOperation(ws, data);
       break;
 
     case 'operations':
-      handlers.handleOperations(ws, data);
+      await handlers.handleOperations(ws, data);
       break;
 
     case 'sync_request':
-      handlers.handleSyncRequest(ws, data);
+      await handlers.handleSyncRequest(ws, data);
       break;
 
     case 'connection-quality':

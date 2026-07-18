@@ -62,14 +62,54 @@ describe('Collab WS live re-authorization (reconcileAuthorization)', () => {
   });
 
   it('CLOSES the socket (4003) when the member\'s organization is deactivated', async () => {
+    // A org vem do BANCO, nao do claim do socket: reconcileAuthorization le
+    // getLiveAuthState(userId). Por isso o usuario precisa REALMENTE pertencer a
+    // org desativada — um socket que apenas alega pertencer a ela e ignorado, e
+    // isso e a intencao: o token pode estar velho, o banco e a fonte de verdade.
     const { rows } = await db.query(
       `INSERT INTO organizations (nome, slug, is_active) VALUES ($1, $2, false) RETURNING id`,
       ['Dead OM', `dead-om-${randomUUID().slice(0, 8)}`]
     );
     const deadOrgId = rows[0].id;
-    const ws = fakeSocket({ atlasId: atlas.id, userId: owner.id, permission: 'owner', organizationId: deadOrgId });
+    const doomed = await createUser(db, { username: `reauthz_org_${randomUUID().slice(0, 6)}` });
+    await db.query('UPDATE users SET organization_id = $1 WHERE id = $2', [deadOrgId, doomed.id]);
+    await createShare(db, atlas.id, doomed.id, 'read', owner.id);
+
+    const ws = fakeSocket({ atlasId: atlas.id, userId: doomed.id, permission: 'read', organizationId: deadOrgId });
     await reconcileAuthorization(ws);
     assert.equal(ws.closed?.code, 4003, 'a member of a deactivated org must be disconnected');
+  });
+
+  it('CLOSES the socket (4003) when the USER is deactivated (P1 alcanca o WS)', async () => {
+    // O gate P1 vivia so no `auth` estrito do HTTP: um socket JA ABERTO sobrevivia
+    // a desativacao da conta indefinidamente, porque deleteUser revoga apenas o
+    // refresh token e o sweep nunca reexaminava users.is_active.
+    const doomed = await createUser(db, { username: `reauthz_off_${randomUUID().slice(0, 6)}` });
+    await createShare(db, atlas.id, doomed.id, 'write', owner.id);
+    const ws = fakeSocket({ atlasId: atlas.id, userId: doomed.id, permission: 'write' });
+
+    await reconcileAuthorization(ws);
+    assert.equal(ws.closed, null, 'conta ativa permanece conectada');
+
+    await db.query('UPDATE users SET is_active = false WHERE id = $1', [doomed.id]);
+    await reconcileAuthorization(ws);
+    assert.equal(ws.closed?.code, 4003, 'uma conta desativada deve ser desconectada');
+  });
+
+  it('adota o papel global VIVO — admin rebaixado perde o acesso owner', async () => {
+    // resolvePermission devolve 'owner' em QUALQUER atlas quando role === 'admin'.
+    // Antes o papel vinha do payload do token (ws.userRole), entao um admin
+    // rebaixado mantinha acesso total ate o token expirar.
+    const demoted = await createUser(db, { username: `reauthz_adm_${randomUUID().slice(0, 6)}` });
+    await db.query(`UPDATE users SET role = 'admin' WHERE id = $1`, [demoted.id]);
+    const ws = fakeSocket({ atlasId: atlas.id, userId: demoted.id, permission: 'read', userRole: 'admin' });
+
+    await reconcileAuthorization(ws);
+    assert.equal(ws.permission, 'owner', 'admin global resolve como owner');
+
+    await db.query(`UPDATE users SET role = 'user' WHERE id = $1`, [demoted.id]);
+    await reconcileAuthorization(ws);
+    assert.equal(ws.closed?.code, 4003, 'sem share e sem admin, o socket cai');
   });
 
   it('owner keeps owner; an unpublished public socket gets closed', async () => {

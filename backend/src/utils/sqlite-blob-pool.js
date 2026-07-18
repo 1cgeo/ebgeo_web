@@ -12,7 +12,7 @@ export class SqliteBlobPool {
     this.size = Math.max(1, size);
     this.workers = [];
     this.pending = new Map();
-    this.evicts = new Map(); // evictId -> { remaining, resolve }
+    this.evicts = new Map(); // evictId -> { pending: Set<Worker>, resolve }
     this.nextId = 1;
     this.nextEvictId = 1;
     this.rr = 0;
@@ -41,7 +41,7 @@ export class SqliteBlobPool {
     w.on('message', (msg) => {
       if (msg.type === 'closed') return;
       if (msg.type === 'evicted') {
-        this._settleEvict(msg.evictId);
+        this._settleEvict(msg.evictId, w);
         return;
       }
       const p = this.pending.get(msg.id);
@@ -58,11 +58,13 @@ export class SqliteBlobPool {
   }
 
   /** Counts one confirmation toward an in-flight evict, resolving it when complete. */
-  _settleEvict(evictId) {
+  _settleEvict(evictId, worker) {
     const e = this.evicts.get(evictId);
     if (!e) return;
-    e.remaining -= 1;
-    if (e.remaining <= 0) {
+    // Idempotente por worker: um ack duplicado (ou um ack seguido da morte do
+    // mesmo worker) não pode adiantar a conclusão.
+    e.pending.delete(worker);
+    if (e.pending.size === 0) {
       this.evicts.delete(evictId);
       e.resolve();
     }
@@ -84,9 +86,9 @@ export class SqliteBlobPool {
       }
     }
 
-    // A dead worker will never confirm a pending evict; count it as done so
-    // `evict()` cannot hang waiting on a thread that no longer exists.
-    for (const evictId of [...this.evicts.keys()]) this._settleEvict(evictId);
+    // Um worker morto nunca confirmará um evict pendente; retira-o do conjunto
+    // para que `evict()` não espere por uma thread que não existe mais.
+    for (const evictId of [...this.evicts.keys()]) this._settleEvict(evictId, dead);
 
     this.workers[idx] = this._spawn();
   }
@@ -123,7 +125,11 @@ export class SqliteBlobPool {
     if (!this.workers.length) return Promise.resolve();
     const evictId = this.nextEvictId++;
     return new Promise((resolve) => {
-      this.evicts.set(evictId, { remaining: this.workers.length, resolve });
+      // Conjunto de workers PENDENTES (não um contador): um worker que acka e
+      // depois morre era contado DUAS vezes — uma pelo ack, outra pelo
+      // _replaceWorker — e o evict resolvia com outro worker ainda segurando o
+      // handle SQLite, justo antes de um rename atômico.
+      this.evicts.set(evictId, { pending: new Set(this.workers), resolve });
       for (const w of this.workers) w.postMessage({ type: 'evict', evictId, dbPath });
     });
   }

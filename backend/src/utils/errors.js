@@ -45,3 +45,14 @@ export class BadRequestError extends AppError {
     super(message, 400, 'BAD_REQUEST');
   }
 }
+
+/**
+ * 503 — sobrecarga TRANSITÓRIA: o cliente deve tentar de novo.
+ * Distinto do 500: nada quebrou, o recurso só está temporariamente ocupado
+ * (ex.: o advisory lock por atlas do push de sync estourou o `lock_timeout`).
+ */
+export class ServiceUnavailableError extends AppError {
+  constructor(message = 'Service temporarily unavailable') {
+    super(message, 503, 'SERVICE_UNAVAILABLE');
+  }
+}

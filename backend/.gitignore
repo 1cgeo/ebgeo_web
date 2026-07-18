@@ -32,5 +32,9 @@ Thumbs.db
 coverage/
 
 # package-lock.json is committed (npm ci in CI requires it).
+# A regra `package-lock.json` do .gitignore da RAIZ não é ancorada e alcança este
+# diretório; sem esta negação, `git add backend/` ignoraria o lockfile em SILÊNCIO
+# (exit 0, sem aviso) e o `npm ci` do Dockerfile quebraria.
+!package-lock.json
 yarn.lock
 pnpm-lock.yaml

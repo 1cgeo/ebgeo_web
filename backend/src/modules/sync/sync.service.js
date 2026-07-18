@@ -1,6 +1,6 @@
 // Path: src/modules/sync/sync.service.js
 import { query, tx, task } from '../../database/index.js';
-import { ForbiddenError, ConflictError } from '../../utils/errors.js';
+import { ForbiddenError, ConflictError, ServiceUnavailableError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
 
@@ -647,10 +647,27 @@ export async function pushOperations(atlasId, operations, userId, permission = '
     // a given atlas, so `server_version` is a sound incremental-pull cursor. The lock
     // is transaction-scoped (released on COMMIT/ROLLBACK, no leak on error) and keyed
     // per atlas, so pushes to different atlases still run fully in parallel.
-    await t.one('SELECT pg_advisory_xact_lock($1, hashtext($2))', [
-      SYNC_PUSH_LOCK_NAMESPACE,
-      atlasId,
-    ]);
+    // `lock_timeout` ANTES de esperar: a conexão do pool já está retida enquanto
+    // bloqueamos, então uma espera ilimitada converte contenção num atlas em
+    // ESGOTAMENTO DO POOL — com poolMax=10, dez pushes concorrentes no mesmo atlas
+    // travam o processo inteiro, inclusive /auth/login e o /health (que usa o
+    // mesmo pool e ficaria pendurado na fila em vez de responder 503).
+    // Falhar em 5s vira um 503 retentável em vez de uma parada global.
+    await t.none("SET LOCAL lock_timeout = '5s'");
+    try {
+      await t.one('SELECT pg_advisory_xact_lock($1, hashtext($2))', [
+        SYNC_PUSH_LOCK_NAMESPACE,
+        atlasId,
+      ]);
+    } catch (err) {
+      // 55P03 = lock_not_available (o lock_timeout acima disparou).
+      if (err && err.code === '55P03') {
+        throw new ServiceUnavailableError(
+          'Servidor ocupado processando outra sincronização deste atlas. Tente novamente.'
+        );
+      }
+      throw err;
+    }
 
     for (const rawOp of operations) {
       // Normalize operation to internal format (accepts both frontend and legacy names)

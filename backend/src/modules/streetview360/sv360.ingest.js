@@ -434,9 +434,24 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, orgId, s
         photoCount: merged.photoCount,
       };
     } finally {
-      await conn
-        .one('SELECT pg_advisory_unlock($1, hashtext($2))', [SV360_INGEST_LOCK_NAMESPACE, lockKey])
-        .catch((err) => logger.warn({ err, lockKey }, 'Failed to release sv360 ingest lock'));
+      // O lock é de SESSÃO e vive na conexão do pool: se o unlock falhar (ou
+      // retornar false) sem derrubar a conexão, ela volta ao pool COM o lock preso
+      // e o slug fica travado para sempre — toda ingestão futura espera
+      // indefinidamente e acumula conexões. Inspecionamos o retorno (não só o
+      // erro) e, no pior caso, liberamos tudo desta sessão.
+      try {
+        const row = await conn.one('SELECT pg_advisory_unlock($1, hashtext($2)) AS released', [
+          SV360_INGEST_LOCK_NAMESPACE,
+          lockKey,
+        ]);
+        if (row.released !== true) {
+          logger.warn({ lockKey }, 'sv360 ingest lock was not held at unlock; clearing session locks');
+          await conn.any('SELECT pg_advisory_unlock_all()');
+        }
+      } catch (err) {
+        logger.warn({ err, lockKey }, 'Failed to release sv360 ingest lock; clearing session locks');
+        await conn.any('SELECT pg_advisory_unlock_all()').catch(() => {});
+      }
     }
   });
 }
