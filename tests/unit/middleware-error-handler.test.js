@@ -176,4 +176,59 @@ describe('errorHandler middleware', () => {
     assert.equal(res.statusCode, 413);
     assert.equal(res.body.error.code, 'PAYLOAD_TOO_LARGE');
   });
+
+  // --- The client-error code must be derived from the status, never contradict it ---
+  it('labels a non-AppError 404 as NOT_FOUND, not BAD_REQUEST', () => {
+    // A 4xx raised by third-party middleware (http-errors style) must not be
+    // handed to the client with a code that disagrees with its status — clients
+    // key off error.code.
+    const notFound = Object.assign(new Error('Not Found'), { statusCode: 404, expose: true });
+    const res = mockRes();
+    errorHandler(notFound, mockReq(), res, () => {});
+
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body.error.code, 'NOT_FOUND', 'code must match the status, not default to BAD_REQUEST');
+  });
+
+  it('labels a non-AppError 415 as UNSUPPORTED_MEDIA_TYPE', () => {
+    const unsupported = Object.assign(new Error('unsupported content-type'), {
+      statusCode: 415,
+      expose: true,
+    });
+    const res = mockRes();
+    errorHandler(unsupported, mockReq(), res, () => {});
+
+    assert.equal(res.statusCode, 415);
+    assert.equal(res.body.error.code, 'UNSUPPORTED_MEDIA_TYPE');
+  });
+
+  // --- Raw messages only cross the boundary when explicitly marked safe ---
+  it('forwards the message of an `expose: true` error (body-parser convention)', () => {
+    // http-errors (what body-parser throws) sets expose=true for 4xx, marking the
+    // message as safe to show the caller.
+    const parseErr = Object.assign(new SyntaxError('Unexpected token } in JSON'), {
+      statusCode: 400,
+      expose: true,
+      type: 'entity.parse.failed',
+    });
+    const res = mockRes();
+    errorHandler(parseErr, mockReq(), res, () => {});
+
+    assert.equal(res.body.error.message, 'Unexpected token } in JSON');
+  });
+
+  it('masks the message of a 4xx that does NOT set expose (may hold server internals)', () => {
+    // A third-party error carrying a 4xx status but no expose flag is not
+    // guaranteed to be client-safe — it must not leak outside dev.
+    const leaky = Object.assign(new Error('/var/app/secret/path failed to open'), {
+      statusCode: 403,
+    });
+    const res = mockRes();
+    errorHandler(leaky, mockReq(), res, () => {});
+
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.error.code, 'FORBIDDEN');
+    assert.equal(res.body.error.message, 'Bad request', 'unexposed message must be masked');
+    assert.doesNotMatch(res.body.error.message, /secret/, 'internal path must never leak');
+  });
 });

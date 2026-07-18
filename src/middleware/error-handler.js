@@ -76,17 +76,32 @@ export function errorHandler(err, req, res, next) {
   // commonly body-parser failures (malformed JSON → 400 `entity.parse.failed`,
   // oversized body → 413 `entity.too.large`). These are the caller's fault, so
   // label them with a client-error code instead of masquerading as a 500
-  // INTERNAL_ERROR. The message is safe to forward (it describes the request, not
-  // server internals).
+  // INTERNAL_ERROR.
+  //
+  // The code is derived from the status so it never contradicts it (a 404 must
+  // not be labeled BAD_REQUEST). The message is only forwarded when `err.expose`
+  // is set — the `http-errors` convention that body-parser follows to mark a
+  // message as safe for the client; anything else falls back to a generic string,
+  // matching how the rest of this handler refuses to leak raw error text in prod.
   if (typeof err.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 500) {
     const CLIENT_CODES = {
       400: 'BAD_REQUEST',
+      401: 'UNAUTHORIZED',
+      403: 'FORBIDDEN',
+      404: 'NOT_FOUND',
+      409: 'CONFLICT',
       413: 'PAYLOAD_TOO_LARGE',
+      415: 'UNSUPPORTED_MEDIA_TYPE',
+      422: 'VALIDATION_ERROR',
+      429: 'TOO_MANY_REQUESTS',
     };
+    const safeMessage = (err.expose === true || config.isDev)
+      ? err.message
+      : 'Bad request';
     return res.status(err.statusCode).json({
       error: {
         code: CLIENT_CODES[err.statusCode] || 'BAD_REQUEST',
-        message: err.message || 'Bad request',
+        message: safeMessage || 'Bad request',
       },
     });
   }
