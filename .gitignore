@@ -75,4 +75,10 @@ public/js/controls_sig/orto_multiescala.js
 # Misc
 # ==============================================================================
 preview.webm
-nul
+
+# ==============================================================================
+# Agente (Claude Code)
+# ==============================================================================
+# Permissões locais por desenvolvedor: caminho de máquina e domínios liberados
+# em pesquisas pontuais. O que vale para o time mora em .claude/settings.json.
+.claude/settings.local.json

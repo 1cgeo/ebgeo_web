@@ -24,11 +24,22 @@ Full guide: `tests/TESTING.md`. Quick rules for working in this repo:
   the methods used.
 
 ## Before claiming done
-- Run `npm run lint` and `npm test` (per CLAUDE.md, that is the only verification
-  — do NOT use preview tools). Never commit.
-- There is **no test CI and no git hooks** — tests are run manually. (The only
-  GitHub workflow, `.github/workflows/deploy.yml`, deploys GitHub Pages; it does
-  not run tests.) Coverage is `npm run test:coverage` (report-only, no threshold).
+- **Logic**: `npm run lint` and `npm test`, as separate commands run BEFORE any
+  commit. On one command line the lint output lands after the commit already
+  succeeded, which is not verification.
+- **UI**: no preview or interactive-browser tool. The approved loop is a
+  Playwright capture driving the real app and backend, then READING the produced
+  image. Delete the temporary spec afterwards. `npm run test:e2e:ui`.
+- There is **no CI of any kind and no git hooks** — everything is run manually.
+  (The GitHub Pages workflow was removed on 2026-07-18 along with the dead
+  `prepare-deploy.js` it depended on; see [[deploy-web]].) Coverage is
+  `npm run test:coverage` (report-only, no threshold).
+- The two Claude Code hooks in `.claude/settings.json` are real guards, not
+  decoration: `.claude/hooks/block-protected.js` refuses writes to protected
+  paths, `.claude/hooks/lint-on-write.js` lints every `.js`/`.css` write. Both
+  were DEAD for months (they read a `$TOOL_INPUT_FILE_PATH` that Claude Code
+  never sets). **If you change either, probe it** — write to `deploy/` and
+  confirm the refusal. A guard is only worth what its last probe proved.
 
 ## Collaboration / sync e2e
 - For multi-user (collab/sync) behavior, prefer the **SyncLedger** deterministic waits

@@ -4,9 +4,11 @@ As regras perenes de **como** a wiki é mantida, separadas do diretório de pág
 
 ## Camadas
 
-- **Fontes**: os guias em [`../guias/`](../guias/) e os documentos de arquitetura em [`../`](../). São o material bruto; a wiki é o curado.
+- **Fonte**: o **código**. Os 17 guias de integração e o antigo guia de deploy eram material bruto e foram absorvidos e removidos em 2026-07-18; não existe mais camada de documento intermediário, e nenhuma página deve citar uma.
 - **Wiki**: estas páginas. O agente é dono e mantém.
 - **Schema**: as regras abaixo.
+
+Cuidado com o vão de verificação aqui: o teste de integridade só valida link para **arquivo** com extensão conhecida (`tests/unit/docs-integridade.test.js`), então link para diretório (como o `../guias/` que esta seção manteve por horas depois da pasta sumir) apodrece sem quebrar nada.
 
 ## O critério: o código já é a evidência
 

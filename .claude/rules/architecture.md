@@ -2,99 +2,13 @@
 
 ## Project Structure
 
-```
-src/js/
-├── index.js                 # Entry point
-├── map_sig.js               # Map init, control registration
-├── config.js / config.helpers.js / config-loader.js
-│
-├── store/                   # Central data store
-│   ├── index.js             # Public barrel (re-exports store.js + services)
-│   ├── store.js             # Facade with all operation re-exports
-│   ├── services.js          # DI container (initServices, getters)
-│   ├── memory-store.js      # In-memory runtime state
-│   ├── repository.js        # IndexedDB persistence
-│   ├── control.registry.js  # registerControl / getControl
-│   ├── store-state-manager.js  # Undo/redo, color tracking
-│   ├── store-transaction.js    # Persistence-first transactions
-│   ├── store-errors.js         # Error conventions (StoreErrorEvents)
-│   ├── feature.operations.js   # Feature CRUD
-│   ├── layer.operations.js     # Layer CRUD
-│   ├── group.operations.js     # Grouping
-│   ├── map.operations.js       # Map CRUD
-│   ├── briefing.operations.js  # Briefing CRUD
-│   ├── comment.operations.js   # Spatial comments (root/reply/resolve)
-│   ├── catalog.operations.js   # External-layer catalog state
-│   ├── customIcons.operations.js  # User custom point icons
-│   ├── settings.operations.js  # App/user settings
-│   ├── cesium3d.operations.js  # 3D operations
-│   ├── streetview360.operations.js
-│   ├── temporal.operations.js  # Per-map temporal config (temporal_<mapName>); shiftMapTemporalTimes lives in feature.operations.js
-│   ├── atlas/               # Atlas entity (top-level project container)
-│   ├── repositories/        # Repository abstraction (interface, local, factory)
-│   ├── services/             # map-resolver.service.js (name↔UUID with LRU)
-│   ├── migration/            # Schema migrations (v1→v2, v2→v2.1, v2.1→v2.2; auto, version-conditional on startup)
-│   └── sync/                 # Real-time sync CLIENT (wired, NOT no-op): REST api-client + WebSocket ws-client,
-│                             #   sync-engine orchestration, op queue + Lamport, remote-op apply, session/connection state
-│
-├── events/                  # event_bus.js, event_types.js, event_emitter.js
-├── state/                   # state_manager.js (UI state: sidebar, panels)
-│
-├── tool_manager/            # Base classes + tool orchestration + UI helpers
-│   ├── tool_manager.js / ui_manager.js   # Active-tool + attribute-panel orchestration
-│   ├── base_control.js / base_geometry.js
-│   ├── selection_manager.js / clipboard_manager.js / move_handler.js / group_manager.js
-│   ├── helpers/             # Panel building blocks (color-picker, slider, etc.)
-│   └── managers/            # profile-panel, selection-highlight
-│
-├── draw_tools/              # point, line, polygon, circle, ellipse, rectangle,
-│                            # sector, text, image, brush (each: control+geometry+panel)
-├── military_tools/          # military_symbol, coordination_measure, arrow, boundary,
-│                            # occupied_front, declination
-├── analysis_tools/          # los_tool, visibility_tool
-├── azimuth_distance_tool/   # Azimuth & distance navigation
-├── measurement_tool/        # Ephemeral 2D measurements (distance/area/angle)
-├── snapping/                # Vertex/edge/endpoint snapping service
-├── selection_tools/         # Selection interaction tools
-├── vector_info/             # Vector feature info panel
-├── temporal/                # Timeline module (per-map): controller, render service,
-│                            # pure model, derivation, trajectory-tool (keypoint editing)
-│
-├── sidebar/                 # Collapsible sidebar (tabs: Maps, Layers, Briefings, Import, Export)
-├── toolbar/                 # Grouped tool buttons with popups
-├── bottom-controls/         # Feature toggles (terrain, 3D, street view)
-├── base-layer-selector/     # Base map picker
-├── modals/                  # Modal dialogs
-├── search/                  # Global search bar
-├── context-menu/            # Right-click menus
-├── catalog/                 # External layer catalog
-├── comment_tool/            # Spatial comments (overlay + comments panel)
-├── attribute_table/         # Data grid with filtering
-├── features_tab/            # Layer/feature tree list
-│
-├── 3d_models_viewer_tool/   # Cesium 3D (lazy loaded)
-├── street_view_tool/        # Three.js 360 viewer (lazy loaded)
-├── briefing/                # Story Map editor + presenter
-├── import_export/           # GeoJSON, KML, CSV, SHP, .ebgeo, PDF
-├── processing/              # Geospatial algorithms (Buffer, Voronoi, Convex Hull; registry pattern)
-│
-├── layers/                  # MapLibre style definitions + layer manager
-├── baselayers/              # Base map styles (BDGEx, OSM, satellite, topo)
-├── terrain/                 # Terrain/hillshade controls
-├── map/                     # map.manager.js, animation.service.js, drag-rotate.handler.js
-├── mode/                    # Application mode state machine
-├── coordinates/             # Mouse coordinate display
-├── grid/                    # UTM grid overlay
-├── keyboard/                # Keyboard shortcuts
-├── locking/                 # Map lock (controller + locked banner control)
-├── deep-link/               # Shareable URL state (deep linking)
-├── phone/                   # Mobile/phone-specific UI
-├── account/                 # Login + account menu + project-picker entry; sync status light
-├── presence/                # Online-users roster + remote cursors + presence store (collaboration)
-├── user_data/               # Custom attributes + image management
-├── ui/                      # Shared UI utilities
-└── utilities/               # Helpers (uuid, deep-utils, toast, event-cleanup, etc.)
-```
+Um `ls src/js/` conta a estrutura melhor que qualquer árvore aqui, e a árvore que morava nesta seção provou o ponto: ficou 92 linhas desatualizadas, omitindo `admin/` e `session/` inteiros. O que segue é só o que a listagem NÃO conta.
+
+- **Entrada**: `index.js` (boot, fail-fast em `GET /api/config`) e `map_sig.js` (init do mapa e registro de controles). Toda ferramenta nova passa por `map_sig.js` em **três** registries distintos, não um: ver a skill `new-tool`.
+- **`store/`** é o núcleo. `store.js` é fachada que reexporta as `*.operations.js`; `services.js` é o container de DI e precisa de `initServices()` antes de qualquer componente. Dois arquivos que a árvore antiga omitia e são load-bearing: `store.constants.js` (`SOURCE_TYPES` + `FEATURE_TYPE_MAPPINGS`, editado a cada ferramenta nova) e `store-origin.js` (o marcador que separa local de remoto, base de quase todo comportamento de sync).
+- **Barrel por pasta**: cada pasta de módulo expõe `index.js`, e é por ele que os aliases resolvem.
+- **Colocações que surpreendem** (a pasta não sugere o chunk): `measurement_tool` e `keyboard-service-3d` caem em `core`, não nos seus chunks óbvios. A ordem das regras em `vite.config.js:38-46` existe para evitar ciclo e está comentada lá, que é onde a explicação pertence.
+- **Lazy**: `3d_models_viewer_tool/` (Cesium), `street_view_tool/` (Three.js) e `import_export/` só carregam sob demanda.
 
 ## UI Architecture
 
@@ -104,7 +18,9 @@ src/js/
 
 ## Data Model
 
-**Atlas** (container de projeto) → **Maps** (workspaces) → **Layers** (contêiner de feições, com `visivel`/`bloqueado`) → **Features** (com metadado de sync: `createdAt`, `updatedAt`, `version`, `ownerId`, `dirty`, `deleted`).
+**Atlas** (container de projeto) → **Maps** (workspaces) → **Layers** (contêiner de feições, com `visivel`/`bloqueado`) → **Features**.
+
+O metadado de sync **não é uniforme entre entidades**, e tratá-lo como uniforme é erro fácil: Atlas/Map/Group carregam os seis campos (`createdAt`, `updatedAt`, `version`, `ownerId`, `dirty`, `deleted`), enquanto **feição carrega só três** (`createdAt`, `updatedAt`, `version`), postos por `addCreatedTimestamp` (`src/js/store/feature.operations.js:29-41`). A divisão está declarada em `src/js/store/sync/index.js:11-15`.
 
 - A camada ativa recebe feições novas; camadas emitem `LAYERS_CHANGED`.
 - Projetos salvam como `.ebgeo`.
@@ -140,7 +56,7 @@ Points can render a text label (`showLabel`) with props `labelText`, `labelColor
 The `store/sync/` client is **fully wired** to an optional backend (`ebgeo_backend`: Express + PostgreSQL + `ws`, JWT auth). The app still runs **anonymous** (nobody logged in) — but NOT without a reachable backend: boot is fail-fast on `GET /api/config` (`src/js/index.js`), with no static fallback. *(This section previously described the layer as "no-op / offline-only / no backend exists" — that is no longer true.)* Operations carry a Lamport clock (advances the local clock only — **not used for conflict resolution**; this is server-authoritative LWW-by-arrival, **not a true CRDT**); queue compaction: CREATE+DELETE=remove both, CREATE+UPDATEs=merge.
 
 **Transport & orchestration**
-- `api-client.js` — REST `/api/v1` (login/refresh/logout, `listAtlas`/`createAtlas`/`getAtlas`, sharing, `searchUsers`, `pushOperations`/`pullSync`, images). Tokens in-memory (`_accessToken`/`_refreshToken`).
+- `api-client.js` — REST `/api/v1` (login/refresh/logout, `listAtlas`/`createAtlas`/`getAtlas`, sharing, `searchUsers`, `pushOperations`/`pullSync`, images). Tokens **persist in `localStorage`** via `_persistTokens` (`api-client.js:140-147`), so a session survives F5.
 - `ws-client.js` — real `WebSocket` to `/api/v1/collab?atlasId&token&clientId`; heartbeat (ping/pong), exponential-backoff reconnect, `sync_request` replay, inbound op de-dupe by own `clientId`.
 - `sync-engine.js` (`syncEngine`) — lifecycle: `login` → `connect(atlasId,{initialPull})` (snapshot + WS) → `flush`/`pull` → `disconnect`/`logoutAndDisconnect`.
 - `sync-flush.js` — outbound flush (1.5s interval + `FLUSH_TRIGGER_EVENTS`), gated on `connectionState.isOnline()`; batches via `apiClient.pushOperations`. `runtime-config.js` resolves base URL; `image-sync.js` syncs image blobs.
@@ -150,7 +66,7 @@ The `store/sync/` client is **fully wired** to an optional backend (`ebgeo_backe
 **Inbound** — `remote-operation-handler.js` `applyRemoteOperation` routes by entityType, persists via the repo, emits the matching lifecycle event + `REMOTE_OPERATION_APPLIED`. `applyRemoteSnapshot` reshapes the backend snapshot (snake_case→camelCase) on `connect`. 3D/360 inbound **persists** into the per-map cesium3d/streetview360 side-stores (then emits the `*_CHANGED` event) and is LWW-guarded like features — a peer converges on a live 3D/360 op (NOT emit-only; an earlier note here said otherwise — that was wrong).
 
 **Identity / connection / permissions**
-- `session-context.js` (`sessionContext`) — OFFLINE/ONLINE; JWT `userId`+role (owner/admin/editor/viewer); offline = anonymous `clientId` with full local perms.
+- `session-context.js` (`sessionContext`) — OFFLINE/ONLINE; JWT `userId` + role. **São SEIS papéis**, não quatro: `owner`, `admin`, `manager`, `editor`, `commenter`, `viewer` (`session-context.js:29-36`, permissões em `:60-78`). Esta linha já listou quatro, omitindo `manager` e `commenter`: é a mesma lista fechada que a constituição proíbe e que já causou bug real duas vezes. Gate pela hierarquia, nunca por igualdade. Offline = `clientId` anônimo com permissão local total.
 - `connection-state.js` (`connectionState`) — real state machine `OFFLINE→CONNECTING→ONLINE→RECONNECTING`, driven by `ws-client.js`.
 - `event-bridges.js` — bridges both singletons to `SESSION_CHANGED` / `CONNECTION_STATE_CHANGED`.
 - `permission-guard.js` — role gate (permissive offline). `sync-gateway.js` — inbound relay (early-returns when offline). `sync-scheduler.js` — **now a no-op shell** kept for call-site stability (outbound owned by `sync-flush.js`).
@@ -179,14 +95,7 @@ Unmapped paths (e.g. `keyboard`, `map/map.manager`) fall into the entry bundle.
 
 ## Event Types Reference
 
-App events are defined in `events/event_types.js` and accessed via `EventTypes.XXX`. Representative categories (not exhaustive):
-- **Entity lifecycle**: `FEATURE_CREATED/MODIFIED/DELETED`, `LAYER_CREATED/MODIFIED/DELETED`, `MAP_CREATED/MODIFIED/DELETED`, `GROUP_CREATED/MODIFIED/DELETED`, `BRIEFING_CREATED/UPDATED/DELETED`. Plus `LAYERS_CHANGED` (active-map layer set changed) and `FEATURE_UPDATED` (feature user-data/attribute/image changes — distinct from `FEATURE_MODIFIED`).
-- **UI coordination**: `SIDEBAR_EXPANDED/COLLAPSED`, `SIDEBAR_TAB_CHANGED`, `FEATURE_PANEL_OPENED/CLOSED`, `UI_LAYOUT_CHANGED`, `UI_CLOSE_ALL_POPUPS`, `TOOLBAR_GROUP_OPENED/CLOSED`, `BASE_LAYER_CHANGED`, `MAP_LOCK_CHANGED`
-- **Briefing**: `BRIEFING_EDIT_STARTED/ENDED`, `BRIEFING_PRESENT_STARTED/ENDED`, `BRIEFING_SLIDE_CHANGED`
-- **Processing**: `PROCESSING_STARTED/COMPLETED/ERROR`
-- **Temporal**: `MAP_TEMPORAL_CHANGED` (per-map control toggled), `TEMPORAL_CONFIG_CHANGED` (unit/bounds/origin changed), `TEMPORAL_CURSOR_CHANGED` (cursor moved — emitted per playback frame)
-- **Session/Sync**: `SESSION_CHANGED`, `CONNECTION_STATE_CHANGED` (live collaboration state), `REMOTE_OPERATION_APPLIED` (a peer's op was applied to the local store)
-- **3D viewer**: `VIEWER_3D_OPENED/CLOSED`, `MARKER_3D_CLICKED`, `VIEWSHED_3D_CLICKED/DESELECTED`, `VIEWSHEDS_3D_CHANGED`
-- **360 viewer**: `STREETVIEW_360_OPENED/CLOSED`, `MARKER_360_*`, `ORIENTATION_360_*`
+A lista canônica é `src/js/events/event_types.js`, acessada por `EventTypes.XXX` (nunca string literal). A cópia parcial que morava aqui se anunciava "não exaustiva", o que a impedia de servir como contrato e deixava só o efeito de apodrecer. Ficam os dois pares que o nome não distingue:
 
-**Store-error events** are separate — defined in `store/store-errors.js` as `StoreErrorEvents` (not `event_types.js`): `STORE_PERSIST_ERROR`, `STORE_SYNC_ERROR`, `STORE_OPERATION_BLOCKED`.
+- **`FEATURE_MODIFIED` vs `FEATURE_UPDATED`** — o primeiro é mudança de geometria/estilo; o segundo é mudança de user-data, atributo ou imagem. Assinar o errado é bug silencioso.
+- **`StoreErrorEvents` não vive em `event_types.js`** — os três (`STORE_PERSIST_ERROR`, `STORE_SYNC_ERROR`, `STORE_OPERATION_BLOCKED`) são definidos em `src/js/store/store-errors.js`. Procurar no arquivo errado dá a impressão de que não existem.

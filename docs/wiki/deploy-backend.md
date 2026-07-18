@@ -83,6 +83,8 @@ Armadilhas que custam dados:
 3. `client_max_body_size` casando com `SV360_MAX_UPLOAD_BYTES` (default 2 GiB), senão o NGINX dá 413 antes de o backend ver o corpo. O body JSON do app é 10 MB (`backend/src/app.js:59`), exceto `/images/bulk`, com parser dedicado de `MAX_BULK_UPLOAD_MB` (`backend/src/app.js:60-66`).
 4. Cache de borda diferenciado: tiles MVT do 360 são `max-age=60` (mudam a cada ingestão), imagens/assets/thumbnails são imutáveis com `max-age=31536000`. Não recomprima binários imutáveis nem quebre `Range` no proxy.
 
+O mesmo NGINX serve o bundle web a partir de um symlink trocado a cada publicação, com uma armadilha própria: [[deploy-web]].
+
 `trust proxy` **não** é configurado no código. Atrás do NGINX, `req.ip` é o IP do proxy, o que degrada a parte IP da chave do rate limiter e agrupa todo o tráfego do link público sob um único IP ([[hardening-borda-api]], [[link-publico]]).
 
 ## Superfície anônima herdada da ordem de montagem

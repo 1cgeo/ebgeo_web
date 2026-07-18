@@ -27,9 +27,10 @@ src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
    import { getEventBus } from '@store/services.js';
 
    export default class Add<Name>Control extends BaseControl {
+     featureType = '<name>';   // class field, before the constructor
+
      constructor(toolManager) {
        super(toolManager);
-       this.featureType = '<name>';
        this.geometry = new Add<Name>Geometry();
      }
 
@@ -81,7 +82,10 @@ src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
 
 - [ ] Portuguese UI strings (`nome`, `descricao`, `visivel`, `bloqueado`)
 - [ ] English code comments and JSDoc
-- [ ] Import aliases (`@store`, `@tools`, `@utils`) — no relative `../../`
+- [ ] Import aliases (`@store`, `@tools`, `@utils`) in new code. Be aware this is
+      **convention, not enforcement**: there is no `no-restricted-imports` rule, and
+      64 of 567 files under `src/js/` still import via `../../`, the reference tool
+      below among them. Copy its structure, not its import style.
 - [ ] Event cleanup in `onRemove()` (map.off, timers, handlers)
 - [ ] XSS: use `textContent`, never `innerHTML` with user data
 - [ ] CSS: BEM classes in CSS file, no inline styles
@@ -90,4 +94,7 @@ src/js/draw_tools/<name>_tool/       # or military_tools/<name>_tool/
 
 ## Reference
 
-Look at `src/js/draw_tools/point_tool/` for a complete working example.
+Look at `src/js/draw_tools/point_tool/` for a complete working example of the
+structure, wiring and panel. One caveat: it predates the alias convention and
+imports via `../../store` (`src/js/draw_tools/point_tool/add_point_control.js:3-7`),
+so it is the model for everything **except** import style.

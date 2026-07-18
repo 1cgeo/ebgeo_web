@@ -40,6 +40,11 @@ Se o controle negativo for caro ou impossível, **diga isso** em vez de omitir �
 .claude/skills/<nome>/
 ├── SKILL.md        # frontmatter (name, description) + o método
 ├── learnings.md    # o que funcionou, o que falhou, edge cases (LEIA antes, ATUALIZE depois)
+│                   # Nasce no PRIMEIRO aprendizado real, não junto com a skill:
+│                   # hoje só lint-wiki e retrospectiva têm um, e está certo assim.
+│                   # Arquivo vazio criado por simetria vira ruído que se lê e
+│                   # não ensina nada. Ausência aqui significa "ainda não houve",
+│                   # não "esqueceram".
 ├── references/     # opcional: material de apoio carregado sob demanda
 └── scripts/        # opcional: automação determinística
 ```

@@ -6,7 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "file=\"$TOOL_INPUT_FILE_PATH\"; if echo \"$file\" | grep -qiE '(package-lock\\.json|\\.env|deploy/|public/vendors/)'; then echo 'BLOCKED: Protected file — edit manually'; exit 1; fi"
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/block-protected.js"],
+            "timeout": 10
           }
         ]
       }
@@ -17,7 +19,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "file=\"$TOOL_INPUT_FILE_PATH\"; if echo \"$file\" | grep -qiE '\\.js$'; then npx eslint --no-warn-ignored --max-warnings 0 \"$file\" 2>&1 | head -30; elif echo \"$file\" | grep -qiE '\\.css$'; then npx stylelint \"$file\" 2>&1 | head -30; fi"
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/lint-on-write.js"],
+            "timeout": 60
           }
         ]
       }

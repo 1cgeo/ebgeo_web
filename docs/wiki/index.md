@@ -89,6 +89,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[formato-ebgeo-roundtrip]] - o contêiner portável do trabalho local e as invariantes de round-trip.
 - [[modulo-temporal]] - a dimensão de tempo por mapa e a fronteira entre estado compartilhado e estado local.
 - [[deploy-backend]] - um processo Node atrás de NGINX, três schemas e stores binários fora do banco.
+- [[deploy-web]] - publicação do bundle por troca de symlink, e por que ele precisa ser relativo.
 
 ## Sínteses e quadros de decisão
 

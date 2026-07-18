@@ -38,7 +38,10 @@ const ALVOS = [
     'backend/CLAUDE.md',
     'backend/README.md',
 ];
-const PASTAS = ['docs', '.claude/rules', '.claude/skills'];
+// `.claude/agents` entrou depois: a auditoria de 2026-07-18 achou erro real em
+// arquivo de agente (e no extinto launch.json) justamente por estarem fora desta
+// lista. Cobertura que para na borda de um diretório é cobertura que não cobre.
+const PASTAS = ['docs', '.claude/rules', '.claude/skills', '.claude/agents'];
 
 /** Coleta recursivamente os .md das pastas vigiadas, ignorando node_modules. */
 function coletarMarkdown(dir, acc = []) {

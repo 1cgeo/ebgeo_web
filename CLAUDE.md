@@ -48,7 +48,7 @@ Arquivos `.js`/`.css` editados passam por lint automático (hook PostToolUse), e
 
 ## Convenções que divergem do default
 
-- **Imports por alias, nunca relativo `../../`:** `@/`, `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`. Cada pasta de módulo expõe um barrel `index.js`.
+- **Imports por alias em código novo** (não há regra de lint; 64 dos 567 arquivos de `src/js/` ainda usam `../../`, e migrá-los é decisão pendente, não dívida silenciosa): `@/`, `@js/`, `@store/`, `@utils/`, `@tools/`, `@toolbar/`, `@modals/`, `@sidebar/`, `@layers/`, `@catalog/`, `@ui/`, `@events/`, `@state/`, `@css/`. Cada pasta de módulo expõe um barrel `index.js`.
 - **Idioma:** string de UI em pt-BR com acento correto; comentário e JSDoc em inglês; propriedade de feição em português (`nome`, `descricao`, `visivel`, `bloqueado`).
 - **Comentário de caminho na linha 1** de todo arquivo JS, relativo a `src/`: `// Path: js/draw_tools/point_tool/add_point_control.js`. Nunca remova.
 - **Sem estilo inline em JS.** Classes BEM em arquivo CSS; exceção só para valor computado em runtime (cor vinda do JS, posição calculada).
