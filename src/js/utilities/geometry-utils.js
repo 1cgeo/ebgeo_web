@@ -173,6 +173,48 @@ export function normalizeCoordinates(coordinates) {
     return Array.isArray(coordinates) ? coordinates : null;
 }
 
+/**
+ * Wrap a longitude into the canonical [-180, 180] range.
+ *
+ * MapLibre's `map.getCenter()` returns an UNWRAPPED longitude: panning east past
+ * the antimeridian yields 187.3, and repeated wraps yield values like -420. Any
+ * value handed to a backend that validates WGS84 bounds (or casts to PostGIS
+ * ::geography) must be wrapped first.
+ *
+ * Matches MapLibre's own `LngLat.wrap()` semantics, including the edge case where
+ * +180 maps to -180.
+ *
+ * @param {number} lng - Longitude in degrees, possibly unwrapped
+ * @returns {number} Longitude in [-180, 180), or NaN if the input is not finite
+ *
+ * @example
+ * wrapLongitude(187.3);   // Returns -172.7
+ * wrapLongitude(-43.2);   // Returns -43.2 (already in range)
+ */
+export function wrapLongitude(lng) {
+    if (!Number.isFinite(lng)) return NaN;
+    return ((((lng + 180) % 360) + 360) % 360) - 180;
+}
+
+/**
+ * Clamp a latitude into the valid WGS84 range [-90, 90].
+ *
+ * Web Mercator already bounds a map's latitude to roughly ±85, so this is a
+ * defensive guard for coordinates that arrive from elsewhere (user input,
+ * imported data) before they reach a backend that rejects out-of-range values.
+ *
+ * @param {number} lat - Latitude in degrees
+ * @returns {number} Latitude in [-90, 90], or NaN if the input is not finite
+ *
+ * @example
+ * clampLatitude(91);     // Returns 90
+ * clampLatitude(-22.9);  // Returns -22.9 (already in range)
+ */
+export function clampLatitude(lat) {
+    if (!Number.isFinite(lat)) return NaN;
+    return Math.min(90, Math.max(-90, lat));
+}
+
 // ============================================================================
 // DISTANCE CALCULATIONS
 // ============================================================================

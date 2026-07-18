@@ -7,6 +7,7 @@
 
 import config from '@js/config.js';
 import { escapeHtml } from '@utils';
+import { wrapLongitude, clampLatitude } from '@utils/geometry-utils.js';
 import { getControl } from '@store';
 
 // Maximum number of 3D model results to display
@@ -172,8 +173,12 @@ class FeatureSearchControl {
       this._container.classList.add('searching');
 
       try {
+        // getCenter() returns an unwrapped longitude — past the antimeridian it
+        // exceeds ±180, which the gazetteer rejects (422). Wrap/clamp first.
         const center = this._map.getCenter();
-        const response = await fetch(`${this._apiUrl}?q=${encodeURIComponent(query)}&lat=${center.lat}&lon=${center.lng}`);
+        const lat = clampLatitude(center.lat);
+        const lon = wrapLongitude(center.lng);
+        const response = await fetch(`${this._apiUrl}?q=${encodeURIComponent(query)}&lat=${lat}&lon=${lon}`);
 
         if (response.ok) {
           const data = await response.json();

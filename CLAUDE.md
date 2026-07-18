@@ -6,7 +6,6 @@ Detailed references live in `.claude/rules/` (`architecture.md`, `common-tasks.m
 
 ## Non-negotiable
 
-- **NEVER commit.** No `git add` / `git commit` / `git push` — the user reviews and commits manually.
 - **Do NOT use preview or browser tools.** The user tests UI manually; verify only via `npm run lint` and `npm test`.
 - **Protected files** (a PreToolUse hook blocks edits): `package-lock.json`, `.env`, `deploy/`, `public/vendors/`.
 

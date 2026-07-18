@@ -10,6 +10,7 @@ import { getCurrentMapFeatures } from '@store/feature.operations.js';
 import { getAllMapNamesStore, getCurrentMapNameSync } from '@store/map.operations.js';
 import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '@store/store.constants.js';
 import { tryParseCoordinates, formatCoordinates } from '@utils/coordinate_converter.js';
+import { wrapLongitude, clampLatitude } from '@utils/geometry-utils.js';
 import { MAX_RESULTS } from './search-bar.icons.js';
 
 /**
@@ -268,8 +269,13 @@ export async function searchStreetViewMarkers(query) {
  * @returns {Promise<Array>} Search results
  */
 export async function searchAPI(query, map, signal) {
+    // getCenter() returns an unwrapped longitude — past the antimeridian it
+    // exceeds ±180, which the gazetteer rejects (422) before it ever reaches the
+    // ::geography cast. Wrap/clamp so a wrapped-around map still searches.
     const center = map.getCenter();
-    const url = `${config.search.apiUrl}?q=${encodeURIComponent(query)}&lat=${center.lat}&lon=${center.lng}`;
+    const lat = clampLatitude(center.lat);
+    const lon = wrapLongitude(center.lng);
+    const url = `${config.search.apiUrl}?q=${encodeURIComponent(query)}&lat=${lat}&lon=${lon}`;
 
     const response = await fetch(url, { signal });
 

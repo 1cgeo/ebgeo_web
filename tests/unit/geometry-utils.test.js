@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
+import fc from 'fast-check';
 import {
     pixelsToDegrees,
     degreesToPixels,
     createPointBoundingBox,
     normalizeCoordinates,
     calculateDistance,
-    calculateBearing
+    calculateBearing,
+    wrapLongitude,
+    clampLatitude
 } from '../../src/js/utilities/geometry-utils.js';
 
 // ============================================================================
@@ -192,5 +195,133 @@ describe('calculateBearing', () => {
         const bearing = calculateBearing(p1, p2);
         expect(bearing).toBeGreaterThanOrEqual(0);
         expect(bearing).toBeLessThan(360);
+    });
+});
+
+// ============================================================================
+// wrapLongitude / clampLatitude
+// ============================================================================
+
+describe('wrapLongitude', () => {
+    it('leaves an in-range longitude untouched', () => {
+        expect(wrapLongitude(-43.2)).toBeCloseTo(-43.2, 10);
+        expect(wrapLongitude(0)).toBe(0);
+        expect(wrapLongitude(179.9)).toBeCloseTo(179.9, 10);
+    });
+
+    it('wraps a longitude past the antimeridian back into range', () => {
+        // The real-world bug: panning east past +180 yields an unwrapped lng.
+        expect(wrapLongitude(187.3)).toBeCloseTo(-172.7, 10);
+        expect(wrapLongitude(-187.3)).toBeCloseTo(172.7, 10);
+    });
+
+    it('wraps a multiply-wrapped longitude (several pans around the globe)', () => {
+        expect(wrapLongitude(-420)).toBeCloseTo(-60, 10);
+        expect(wrapLongitude(720)).toBe(0);
+        expect(wrapLongitude(541)).toBeCloseTo(-179, 10);
+    });
+
+    it('maps the +180 boundary to -180, matching MapLibre LngLat.wrap()', () => {
+        expect(wrapLongitude(180)).toBe(-180);
+        expect(wrapLongitude(-180)).toBe(-180);
+        expect(wrapLongitude(540)).toBe(-180);
+    });
+
+    it('returns NaN for non-finite input instead of a bogus number', () => {
+        expect(wrapLongitude(NaN)).toBeNaN();
+        expect(wrapLongitude(Infinity)).toBeNaN();
+        expect(wrapLongitude(-Infinity)).toBeNaN();
+        expect(wrapLongitude(undefined)).toBeNaN();
+        expect(wrapLongitude(null)).toBeNaN();
+    });
+
+    it('always produces a value the backend accepts: [-180, 180]', () => {
+        fc.assert(
+            fc.property(
+                fc.double({ min: -1e6, max: 1e6, noNaN: true, noDefaultInfinity: true }),
+                (lng) => {
+                    const wrapped = wrapLongitude(lng);
+                    expect(wrapped).toBeGreaterThanOrEqual(-180);
+                    expect(wrapped).toBeLessThanOrEqual(180);
+                }
+            )
+        );
+    });
+
+    it('is idempotent — wrapping an already-wrapped value changes nothing', () => {
+        fc.assert(
+            fc.property(
+                fc.double({ min: -1e6, max: 1e6, noNaN: true, noDefaultInfinity: true }),
+                (lng) => {
+                    const once = wrapLongitude(lng);
+                    expect(wrapLongitude(once)).toBeCloseTo(once, 10);
+                }
+            )
+        );
+    });
+
+    it('preserves the geographic position (congruent mod 360)', () => {
+        fc.assert(
+            fc.property(
+                fc.double({ min: -1e4, max: 1e4, noNaN: true, noDefaultInfinity: true }),
+                (lng) => {
+                    const delta = wrapLongitude(lng) - lng;
+                    // The shift must be a whole number of full turns.
+                    const turns = delta / 360;
+                    expect(Math.abs(turns - Math.round(turns))).toBeLessThan(1e-9);
+                }
+            )
+        );
+    });
+});
+
+describe('clampLatitude', () => {
+    it('leaves an in-range latitude untouched', () => {
+        expect(clampLatitude(-22.9)).toBeCloseTo(-22.9, 10);
+        expect(clampLatitude(0)).toBe(0);
+        expect(clampLatitude(85)).toBe(85);
+    });
+
+    it('clamps beyond the poles to the ±90 boundary', () => {
+        expect(clampLatitude(91)).toBe(90);
+        expect(clampLatitude(-91)).toBe(-90);
+        expect(clampLatitude(1000)).toBe(90);
+    });
+
+    it('keeps the exact pole values', () => {
+        expect(clampLatitude(90)).toBe(90);
+        expect(clampLatitude(-90)).toBe(-90);
+    });
+
+    it('returns NaN for non-finite input (a `?? 0` guard would not catch this)', () => {
+        expect(clampLatitude(NaN)).toBeNaN();
+        expect(clampLatitude(Infinity)).toBeNaN();
+        expect(clampLatitude(-Infinity)).toBeNaN();
+        expect(clampLatitude(undefined)).toBeNaN();
+    });
+
+    it('always produces a value the backend accepts: [-90, 90]', () => {
+        fc.assert(
+            fc.property(
+                fc.double({ min: -1e6, max: 1e6, noNaN: true, noDefaultInfinity: true }),
+                (lat) => {
+                    const clamped = clampLatitude(lat);
+                    expect(clamped).toBeGreaterThanOrEqual(-90);
+                    expect(clamped).toBeLessThanOrEqual(90);
+                }
+            )
+        );
+    });
+
+    it('is idempotent', () => {
+        fc.assert(
+            fc.property(
+                fc.double({ min: -1e6, max: 1e6, noNaN: true, noDefaultInfinity: true }),
+                (lat) => {
+                    const once = clampLatitude(lat);
+                    expect(clampLatitude(once)).toBe(once);
+                }
+            )
+        );
     });
 });
