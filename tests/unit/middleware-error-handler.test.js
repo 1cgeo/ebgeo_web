@@ -147,4 +147,33 @@ describe('errorHandler middleware', () => {
     assert.equal(res.body.error.message, 'Something went wrong', 'raw message must be masked');
     assert.equal(res.body.error.stack, undefined, 'stack must never be exposed outside dev');
   });
+
+  // --- Non-AppError client errors (body-parser) keep their 4xx status but must be
+  //     labeled as client errors, not masqueraded as INTERNAL_ERROR ---
+  it('maps a body-parser 400 (malformed JSON) → BAD_REQUEST, not INTERNAL_ERROR', () => {
+    // express.json throws an Error with statusCode 400 + type 'entity.parse.failed'.
+    const parseErr = Object.assign(new SyntaxError('Unexpected token } in JSON'), {
+      statusCode: 400,
+      status: 400,
+      type: 'entity.parse.failed',
+    });
+    const res = mockRes();
+    errorHandler(parseErr, mockReq(), res, () => {});
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error.code, 'BAD_REQUEST', 'client-caused 400 must not be INTERNAL_ERROR');
+  });
+
+  it('maps a body-parser 413 (payload too large) → PAYLOAD_TOO_LARGE', () => {
+    const tooLarge = Object.assign(new Error('request entity too large'), {
+      statusCode: 413,
+      status: 413,
+      type: 'entity.too.large',
+    });
+    const res = mockRes();
+    errorHandler(tooLarge, mockReq(), res, () => {});
+
+    assert.equal(res.statusCode, 413);
+    assert.equal(res.body.error.code, 'PAYLOAD_TOO_LARGE');
+  });
 });

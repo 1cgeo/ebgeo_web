@@ -330,13 +330,19 @@ describe('Nomes + Catálogo 3D — audit gaps', () => {
       await expect('x.unknownext', 'application/octet-stream');
     });
 
-    // ---- assets3d-11: traversal 403 + public no-auth + 404 ----
-    it('a path that escapes ROOT after normalization is 403 Forbidden', async () => {
-      // URL-encoded backslashes (%5C) decode to '\' which path.posix.normalize
-      // does NOT collapse, yet path.resolve treats them as separators on this
-      // platform → the target escapes ROOT → ForbiddenError (403).
+    // ---- assets3d-11: traversal is denied + public no-auth + 404 ----
+    it('a path that tries to escape ROOT is denied and never leaks the file', async () => {
+      // URL-encoded backslashes (%5C) decode to '\'. On Windows path.resolve
+      // treats '\' as a separator → the target escapes ROOT → 403 Forbidden. On
+      // POSIX '\' is an ordinary filename char, so the segment stays inside ROOT
+      // and simply doesn't exist → 404. Both outcomes deny access; the security
+      // invariant is that the out-of-ROOT file is NEVER served (no 200, no body).
       const res = await supertest(app).get('/api/v1/assets3d/..%5C..%5Cpackage.json');
-      assert.equal(res.status, 403, `escape must be 403, got ${res.status}`);
+      assert.ok(
+        res.status === 403 || res.status === 404,
+        `escape must be denied (403/404), got ${res.status}`
+      );
+      assert.notEqual(res.status, 200, 'a path escaping ROOT must never be served');
     });
 
     it('the asset route is PUBLIC (no Authorization header → 200, never 401)', async () => {

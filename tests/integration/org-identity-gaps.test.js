@@ -298,6 +298,35 @@ describe('Org + Identity + Audit + Users gaps', () => {
     });
   });
 
+  // ── users-07b · self PUT /users/me cannot move the user to another tenant ─────
+  describe('self PUT /users/me organization_id is not self-assignable', () => {
+    it('ignores organization_id in a self profile update (no cross-tenant hop)', async () => {
+      // A regular user must not be able to self-join another org: after the next
+      // token refresh that would mint the new org claim and grant read access to
+      // the target org's private ng/sv360 data (access control is org-embedded).
+      const u = await createUser(db, { username: uname('orghop'), password: 'Hop@1234' });
+      const token = await loginUser(app, u.username, 'Hop@1234');
+
+      // A distinct target organization.
+      const otherOrg = (await db.query(
+        `INSERT INTO organizations (nome, slug, sigla) VALUES ($1, $2, $3) RETURNING id`,
+        [`Other OM ${randomUUID().slice(0, 6)}`, `other-${randomUUID().slice(0, 8)}`, 'OTH']
+      )).rows[0];
+
+      // The request succeeds (organization_id is simply stripped as an unknown key)…
+      await supertest(app)
+        .put('/api/v1/users/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ nome: 'Still Mine', organization_id: otherOrg.id })
+        .expect(200);
+
+      // …but the tenant is unchanged in the DB.
+      const { rows } = await db.query('SELECT organization_id FROM users WHERE id = $1', [u.id]);
+      assert.equal(rows[0].organization_id, '00000000-0000-0000-0000-000000000001');
+      assert.notEqual(rows[0].organization_id, otherOrg.id);
+    });
+  });
+
   // ── users-08 · searchUsers excludes inactive + LIKE wildcards literal ────────
   describe('searchUsers visibility and wildcard handling', () => {
     it('does not return a deactivated user', async () => {

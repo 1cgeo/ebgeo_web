@@ -13,6 +13,19 @@ import * as Q from './images.queries.js';
 // not rely on it for features. Reintroduce only with explicit sanitization.
 const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
+/**
+ * Strips server-internal columns from an image row before it crosses the API
+ * boundary. `storage_path` is an absolute filesystem path (leaks the deployment
+ * layout) and must never reach a client — including read-level / public-atlas
+ * viewers who can list an atlas's images.
+ */
+function toPublicImage(row) {
+  if (!row) return row;
+  // eslint-disable-next-line no-unused-vars
+  const { storage_path, ...pub } = row;
+  return pub;
+}
+
 export async function uploadImage(atlasId, file, userId) {
   if (!file) {
     throw new BadRequestError('No file uploaded');
@@ -45,7 +58,7 @@ export async function uploadImage(atlasId, file, userId) {
     userId,
   ]);
 
-  return rows[0];
+  return toPublicImage(rows[0]);
 }
 
 export async function getImageById(atlasId, imageId) {
@@ -99,7 +112,7 @@ export async function deleteImage(atlasId, imageId) {
 
 export async function listImages(atlasId) {
   const { rows } = await query(Q.LIST_IMAGES_BY_ATLAS, [atlasId]);
-  return rows;
+  return rows.map(toPublicImage);
 }
 
 /**

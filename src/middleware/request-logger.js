@@ -1,5 +1,6 @@
 // Path: src/middleware/request-logger.js
 import logger from '../utils/logger.js';
+import { redactUrl } from '../utils/redact-url.js';
 
 /**
  * Request logging middleware using Pino.
@@ -11,7 +12,7 @@ export function requestLogger(req, res, next) {
     const duration = Date.now() - start;
     const logData = {
       method: req.method,
-      url: req.url,
+      url: redactUrl(req.url),
       statusCode: res.statusCode,
       duration,
       userId: req.user?.id,
