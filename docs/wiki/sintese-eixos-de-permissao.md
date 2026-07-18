@@ -10,7 +10,7 @@ Quadro comparativo entre o role global (user/admin), o org_role org-scoped (owne
 | `org_role` (org-scoped) | `owner`, `admin`, `editor`, `viewer` | coluna `users.org_role`, claim `org_role` | **Somente** o módulo 360 (escrita/calibração de projetos da própria OM). Nada mais. |
 | `permission` (por-atlas) | `owner`, `manage`, `write`, `comment`, `read` | `atlas.owner_id` + `atlas_shares.permission` + `atlas.is_public` | Praticamente todo o resto: atlas, mapas, briefings, imagens, sharing, sync e WebSocket |
 
-São ortogonais de verdade: um `role: user` com `org_role: viewer` pode ser `owner` de um atlas, e um `org_role: admin` não ganha nada num atlas alheio. Ver [[permissao-vs-papel]] e [[permissoes-atlas]].
+São ortogonais de verdade: um `role: user` com `org_role: viewer` pode ser `owner` de um atlas, e um `org_role: admin` não ganha nada num atlas alheio. Ver [[permissoes-atlas]] e [[permissoes-atlas]].
 
 ## Eixo 1: role global
 
@@ -41,7 +41,7 @@ Ou seja: mesma OM + `org_role` de escrita, ou admin global. O mesmo predicado é
 
 **Armadilha crítica:** a tabela `atlas` **não tem coluna `organization_id`**. `organization_id` só existe em `users` (`src/database/migrations/001_core.sql:96`) e em `sv360.projects` (`005_sv360.sql:16`). Consequência prática: **a OM não isola atlas**. Um usuário de outra OM que receba um share tem acesso pleno ao nível compartilhado, e nenhuma listagem de atlas filtra por org. Não desenhe telas assumindo tenancy de atlas por OM.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/12-multiorg-identidade-auditoria.md:291` descreve `org_role` como "Capacidade de escrita dentro da OM (espelha o `UserRole` do frontend)", o que sugere um gate de escrita geral. No código o `org_role` só é consultado em `src/modules/streetview360/sv360.write.service.js:36` e `sv360.routes.js:269`; nenhuma rota de atlas, mapa, sync, imagem ou sharing o lê.
+> [!CONTRADICAO 2026-07-18] guia *12-multiorg-identidade-auditoria* (absorvido):291` descreve `org_role` como "Capacidade de escrita dentro da OM (espelha o `UserRole` do frontend)", o que sugere um gate de escrita geral. No código o `org_role` só é consultado em `src/modules/streetview360/sv360.write.service.js:36` e `sv360.routes.js:269`; nenhuma rota de atlas, mapa, sync, imagem ou sharing o lê.
 
 ## Eixo 3: permissão por-atlas
 
@@ -63,7 +63,7 @@ A resolução é uma função pura testável, `resolvePermission({ userId, owner
 
 O mapeamento para o vocabulário do frontend está em `src/utils/roles.js:12-19`, e note a primeira linha: `if (globalRole === 'admin') return 'admin'`, ou seja, o eixo global sobrescreve o eixo por-atlas na hora de rotular a UI. Ver [[sintese-capacidades-por-papel]].
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/12-multiorg-identidade-auditoria.md:293` diz que a permissão por-atlas é `owner` / `write` / `read` (três níveis). O código tem cinco: `read < comment < write < manage < owner` (`src/middleware/permissions.js:12-18`), e `manage` e `comment` são usados em rotas reais (`sharing.routes.js:15-20`, `sync.routes.js:19`).
+> [!CONTRADICAO 2026-07-18] guia *12-multiorg-identidade-auditoria* (absorvido):293` diz que a permissão por-atlas é `owner` / `write` / `read` (três níveis). O código tem cinco: `read < comment < write < manage < owner` (`src/middleware/permissions.js:12-18`), e `manage` e `comment` são usados em rotas reais (`sharing.routes.js:15-20`, `sync.routes.js:19`).
 
 ## Qual eixo decide cada rota
 
@@ -100,7 +100,7 @@ O handshake resolve a permissão com uma cópia da mesma lógica (`collab.gatewa
 Dois detalhes que costumam morder:
 
 1. **A permissão é re-resolvida a cada heartbeat** (`collab.gateway.js:110-138`). Um share revogado, um atlas despublicado ou uma org desativada fecham o socket com código 4003; um rebaixamento (write para read) apenas atualiza `ws.permission` e a próxima escrita é rejeitada. Não trate a permissão do handshake como imutável pela vida da sessão.
-2. **Os handlers repetem o gate**: `collab.handlers.js:83` bloqueia `read` e `comment` juntos numa via, `:115` e `:166` bloqueiam só `read` em outras, e o broadcast filtra clientes `read` (`collab.rooms.js:66`, `:105`). Ver [[canal-collab-websocket]] e [[websocket-collab]].
+2. **Os handlers repetem o gate**: `collab.handlers.js:83` bloqueia `read` e `comment` juntos numa via, `:115` e `:166` bloqueiam só `read` em outras, e o broadcast filtra clientes `read` (`collab.rooms.js:66`, `:105`). Ver [[canal-collab-websocket]] e [[canal-collab-websocket]].
 
 Um token público (link compartilhado) recebe `sub` no formato `public-<uuid>`, que **não** é UUID puro. Isso é usado como sinal em dois lugares: `permissions.js:92` pula a consulta de shares, e `auth.js:80` pula a reconciliação com o banco (não existe linha em `users` para reconciliar). Ver [[link-publico]].
 
@@ -117,7 +117,7 @@ if (sessionContext.isOffline() || !isRemoteStoreSync()) {
 }
 ```
 
-Ou seja, **o gate de papel só vale para um atlas remoto conectado**; o workspace local é sempre editável, mesmo logado como viewer. Ver [[store-origin-local-remoto]], [[dominio-local-vs-remoto]] e [[modos-operacao]].
+Ou seja, **o gate de papel só vale para um atlas remoto conectado**; o workspace local é sempre editável, mesmo logado como viewer. Ver [[dominio-local-vs-remoto]], [[dominio-local-vs-remoto]] e [[modos-operacao]].
 
 ## Regras práticas para não errar
 
@@ -130,9 +130,9 @@ Ou seja, **o gate de papel só vale para um atlas remoto conectado**; o workspac
 
 ## Fontes
 
-- `docs/guias/12-multiorg-identidade-auditoria.md`: definição dos claims `organization_id`/`org_role`, aliases congelados `org`/`login`, fallback de tokens legados, auth flexível, rotação de API key e auditoria; a tabela "dois eixos ortogonais" e a lista de níveis por-atlas foram corrigidas contra o código.
-- `docs/guias/09-admin.md`: roles `user`/`admin`, rotas administrativas de usuários e resources, administração de sync e a tabela de referência rota/permissão.
-- `docs/guias/01-autenticacao.md`: payload do JWT, ciclo de login/refresh/logout e o fato de que todo novo usuário nasce `role: user`.
+- guia *12-multiorg-identidade-auditoria* (absorvido): definição dos claims `organization_id`/`org_role`, aliases congelados `org`/`login`, fallback de tokens legados, auth flexível, rotação de API key e auditoria; a tabela "dois eixos ortogonais" e a lista de níveis por-atlas foram corrigidas contra o código.
+- guia *09-admin* (absorvido): roles `user`/`admin`, rotas administrativas de usuários e resources, administração de sync e a tabela de referência rota/permissão.
+- guia *01-autenticacao* (absorvido): payload do JWT, ciclo de login/refresh/logout e o fato de que todo novo usuário nasce `role: user`.
 - `ebgeo_backend/src/middleware/permissions.js`: `PERMISSION_LEVELS`, `resolvePermission`, bypass de admin global, tratamento de sub não-UUID.
 - `ebgeo_backend/src/middleware/auth.js` e `require-admin.js`: reconciliação do role global com o banco, isenção de principals públicos, contrato 401 vs 403.
 - `ebgeo_backend/src/utils/roles.js`: mapeamento permissão + role global para o vocabulário de UI.

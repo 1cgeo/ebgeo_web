@@ -14,7 +14,7 @@ O backend armazena e decide com **permissão por atlas** (`read | comment | writ
 | `comment` | `commenter` |
 | `read`, público, nenhuma | `viewer` |
 
-`globalRole === 'admin'` **curto-circuita tudo** e vira `admin` (`roles.js:13`), e no gate REST um admin global recebe `req.atlasPermission = 'owner'` em qualquer atlas (`middleware/permissions.js:82-87`). Detalhe do eixo em [[permissao-vs-papel]] e [[sintese-eixos-de-permissao]].
+`globalRole === 'admin'` **curto-circuita tudo** e vira `admin` (`roles.js:13`), e no gate REST um admin global recebe `req.atlasPermission = 'owner'` em qualquer atlas (`middleware/permissions.js:82-87`). Detalhe do eixo em [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
 Hierarquia numérica canônica, `read:1 < comment:2 < write:3 < manage:4 < owner:5` (`middleware/permissions.js:12-18`). Resolução em `resolvePermission` (`permissions.js:30-48`): dono, depois `atlas_shares`, depois `is_public → read`, senão `null` (403). Atlas inexistente ou soft-deletado dá 404.
 
@@ -30,14 +30,14 @@ Ainda dentro de comentário há um segundo gate, de **autoria**: `isEditor = per
 - Operações não-comentário passam em `assertOperationAllowed` (`sync.service.js:600-620`).
 - Upload/delete de imagem: `requireAtlasPermission('write')` (`modules/images/images.routes.js`); listagem e GET ficam em `read`. Ver [[imagens-atlas]] e [[upload-imagens-seguranca]].
 - `PUT /atlas/:atlasId` (nome, descrição, `map_order`) exige `write` (`modules/atlas/atlas.routes.js:27`), assim como `POST /:atlasId/maps/:mapId/duplicate` (`atlas.routes.js:44`).
-- **Broadcast da própria seleção** é editor-and-above: `handleSelection` retorna cedo para `read` e `comment` (`modules/collab/collab.handlers.js:83-85`). Visualizador e Comentarista **recebem** seleção de terceiros mas nunca emitem a sua. Cursor e estado temporal ficam ungated de propósito. Ver [[presenca-tempo-real]] e [[presenca-colaborativa]].
+- **Broadcast da própria seleção** é editor-and-above: `handleSelection` retorna cedo para `read` e `comment` (`modules/collab/collab.handlers.js:83-85`). Visualizador e Comentarista **recebem** seleção de terceiros mas nunca emitem a sua. Cursor e estado temporal ficam ungated de propósito. Ver [[presenca-colaborativa]] e [[presenca-colaborativa]].
 
 **`write` → `manage`: governança do atlas.** Todo o módulo de compartilhamento é `manage`, não owner-only: `GET /sharing`, `POST/DELETE /sharing/public`, `POST /sharing/users`, `PUT|DELETE /sharing/users/:userId` (`modules/sharing/sharing.routes.js:15-20`). E `PATCH /atlas/:atlasId/settings` também é `manage` (`atlas.routes.js:35`), enquanto o `GET` correspondente é `read` (`atlas.routes.js:34`). Ver [[compartilhamento-atlas]], [[link-publico]] e [[atlas-settings]].
 
 **`manage` → `owner`: os quatro atos irreversíveis.**
 - `DELETE /atlas/:atlasId` (soft-delete) exige `owner` (`atlas.routes.js:28`).
 - `POST /atlas/:atlasId/transfer` exige `owner`; o ex-dono é rebaixado para `manage` (`atlas.routes.js:37-38`).
-- **Deletar mapa** e **travar/destravar mapa** são owner-only no nível da operação, não da rota: `sync.service.js:611` (`op.type === 'delete'` em `target === 'map'`) e `sync.service.js:614-618` (update de `map` cujo merge de `changes`/`data` contém `locked !== undefined`). Ver [[sync-lww-operacoes]] e [[tipos-entidade-sync]].
+- **Deletar mapa** e **travar/destravar mapa** são owner-only no nível da operação, não da rota: `sync.service.js:611` (`op.type === 'delete'` em `target === 'map'`) e `sync.service.js:614-618` (update de `map` cujo merge de `changes`/`data` contém `locked !== undefined`). Ver [[modelo-conflito-lww]] e [[tipos-entidade-sync]].
 
 Clonar é o outlier na direção oposta: `POST /:atlasId/clone` exige apenas `read` (`atlas.routes.js:41`), então qualquer Visualizador leva uma cópia da qual se torna dono. Ver [[clone-atlas]].
 
@@ -45,9 +45,9 @@ Clonar é o outlier na direção oposta: `POST /:atlasId/clone` exige apenas `re
 
 `manage` é **mais alto** que `write` na hierarquia. Qualquer gate escrito como `permission === 'write' || permission === 'owner'` exclui o co-Gestor em silêncio, porque `manage` não bate em nenhum dos dois. O snippet de exemplo do próprio guia comete isso.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/02-atlas-basico.md:420-427` sugere no frontend `const canEdit = ['write','owner'].includes(msg.permission)` e amarra settings e botão de compartilhar a `isOwner`. Isso está errado por dois motivos no código real: (a) exclui `manage`, que é justamente quem pode configurar e compartilhar (`sharing.routes.js:15-20`, `atlas.routes.js:35`); (b) o payload `connected` carrega **dois** campos, `permission` (congelado, vocabulário do backend) e `role` (vocabulário do frontend), `collab.gateway.js:344-352`. O cliente real gateia por `role`, não por `permission`, veja `src/js/account/account.control.js:415` e `:451` (`role === 'owner' || 'manager' || 'admin'`).
+> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido):420-427` sugere no frontend `const canEdit = ['write','owner'].includes(msg.permission)` e amarra settings e botão de compartilhar a `isOwner`. Isso está errado por dois motivos no código real: (a) exclui `manage`, que é justamente quem pode configurar e compartilhar (`sharing.routes.js:15-20`, `atlas.routes.js:35`); (b) o payload `connected` carrega **dois** campos, `permission` (congelado, vocabulário do backend) e `role` (vocabulário do frontend), `collab.gateway.js:344-352`. O cliente real gateia por `role`, não por `permission`, veja `src/js/account/account.control.js:415` e `:451` (`role === 'owner' || 'manager' || 'admin'`).
 
-Contrato do handshake em [[canal-collab-websocket]] e [[websocket-collab]].
+Contrato do handshake em [[canal-collab-websocket]] e [[canal-collab-websocket]].
 
 ## Como o cliente aplica isso
 
@@ -59,12 +59,12 @@ O gate coarse é `checkPermission` (`src/js/store/sync/permission-guard.js:66-85
 if (sessionContext.isOffline() || !isRemoteStoreSync()) return { allowed: true };
 ```
 
-O papel **só** vale para um atlas remoto conectado. Estar logado como `viewer` não impede desenhar no store local, senão o usuário não conseguiria trabalhar no próprio workspace. Ver [[store-origin-local-remoto]] e [[dominio-local-vs-remoto]].
+O papel **só** vale para um atlas remoto conectado. Estar logado como `viewer` não impede desenhar no store local, senão o usuário não conseguiria trabalhar no próprio workspace. Ver [[dominio-local-vs-remoto]] e [[dominio-local-vs-remoto]].
 
 Duas divergências de granularidade que valem atenção prática:
 
 1. `GuardAction.LOCK_MAP → canLockMaps` (`permission-guard.js:31`) e `manager` tem `canLockMaps: true` (`session-context.js:63`), mas o backend só aceita lock do `owner` (`sync.service.js:616`). Na prática quem decide na UI é `LOCK_CAPABLE_ROLES = [OWNER, ADMIN]` (`src/js/locking/map-lock.controller.js:39`, usado em `:75`), que bate com o backend. A tabela de capacidades é permissiva demais nesse ponto; não use `canLockMaps` como fonte de verdade.
-2. `GuardAction.DELETE_MAP → canDelete` (`permission-guard.js:30`) e `editor` tem `canDelete: true`. Um Editor consegue enfileirar o delete de mapa localmente e só toma 403 no flush (`sync.service.js:611`). Confira o comportamento de fila e retry em [[fila-operacoes-pendentes]] e [[erros-api]].
+2. `GuardAction.DELETE_MAP → canDelete` (`permission-guard.js:30`) e `editor` tem `canDelete: true`. Um Editor consegue enfileirar o delete de mapa localmente e só toma 403 no flush (`sync.service.js:611`). Confira o comportamento de fila e retry em [[fila-operacoes-outbound]] e [[erros-api]].
 
 `isReadOnly()` (`map-lock.controller.js:87-89`) trata `viewer` e `commenter` como somente-leitura no mapa remoto: o cadeado aparece travado e não é alternável.
 
@@ -115,7 +115,7 @@ Admin global lê essa tabela inteira como `owner` (`permissions.js:82-87`). Ver 
 
 ## Fontes
 
-- `docs/guias/02-atlas-basico.md`: hierarquia `owner > manage > write > comment > read`, algoritmo de resolução de permissão, matriz de permissões por ação, aviso sobre `manage` acima de `write`, e o snippet de frontend que contradiz o código.
-- `docs/guias/07-compartilhamento.md`: rotas de compartilhamento e link público com permissão `manage`, formato e validade do `publicToken` (1h, read-only, "Visitante"), tabela de limitações do acesso público, fluxo completo do usuário público.
+- guia *02-atlas-basico* (absorvido): hierarquia `owner > manage > write > comment > read`, algoritmo de resolução de permissão, matriz de permissões por ação, aviso sobre `manage` acima de `write`, e o snippet de frontend que contradiz o código.
+- guia *07-compartilhamento* (absorvido): rotas de compartilhamento e link público com permissão `manage`, formato e validade do `publicToken` (1h, read-only, "Visitante"), tabela de limitações do acesso público, fluxo completo do usuário público.
 - `ebgeo_backend/src/middleware/permissions.js`, `src/utils/roles.js`, `src/modules/{atlas,sharing,sync,images,collab}/…`: gates reais por rota e por operação, curto-circuito do admin global, mapeamento permissão→papel.
 - `ebgeo_web/src/js/store/sync/{permission-guard,session-context,sync-engine}.js`, `src/js/locking/map-lock.controller.js`, `src/js/account/account.control.js`: capacidades booleanas do cliente, escopo local vs remoto do gate, visibilidade dos botões de Gestor.

@@ -45,7 +45,7 @@ Pontos que costumam ser lidos errado:
 - **Raio de relevância** (critério 7): zoom 10 = 50 km, zoom 16 ≈ 781 m, zoom 4 = 3.200 km. Zoom alto encolhe o raio, então "perto vence" mesmo para feições irrelevantes.
 - **Neutralização do tipo** (critério 6): `zoom_factor` vai de 0 (zoom ≤ 4) a 1 (zoom ≥ 18). Com `zoom_factor = 1`, o termo vira `0.5 * 0.10 = 0.05` fixo para todo mundo, ou seja, o tipo deixa de diferenciar. Com `zoom_factor = 0`, o tipo entra com força **máxima** (`tipo_peso` puro, de 0.1 a 1.0).
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/13-nomes-geograficos.md:115` diz que, sem `zoom`, o backend "desliga o ajuste por tipo". O código faz o oposto: sem `zoom`, `zoom_factor = 0` (`nomes.queries.js:13`) e o critério 6 usa `tipo_peso` integral (`nomes.queries.js:46`), que é a configuração de **máxima** diferenciação por tipo. O que fica desligado é o *ajuste por zoom* sobre o tipo, não o tipo.
+> [!CONTRADICAO 2026-07-18] guia *13-nomes-geograficos* (absorvido):115` diz que, sem `zoom`, o backend "desliga o ajuste por tipo". O código faz o oposto: sem `zoom`, `zoom_factor = 0` (`nomes.queries.js:13`) e o critério 6 usa `tipo_peso` integral (`nomes.queries.js:46`), que é a configuração de **máxima** diferenciação por tipo. O que fica desligado é o *ajuste por zoom* sobre o tipo, não o tipo.
 
 `tipo_peso` não vem do FME, é derivado do texto de `tipo` por uma hierarquia EDGV em trigger (`004_ng.sql:107-136`): cidade 1.0, vila/povoado 0.9, rio/lago/represa 0.85, serra/morro/ilha/pico/ponta/praia 0.8, descendo até religioso/cemitério 0.15 e `ELSE 0.1`.
 
@@ -71,7 +71,7 @@ Existe um índice GIN trigram sobre `ng.f_unaccent(nome)` (`004_ng.sql:43-44`), 
 Este módulo é read-only e vive fora do sync do atlas: sem `version`, sem operação, sem broadcast. Ver [[sintese-modulos-fora-do-sync]] e [[catalogo-3d]].
 
 ## Fontes
-- `docs/guias/13-nomes-geograficos.md`: contrato do endpoint, tabela dos 7 critérios e pesos, dedup por cluster, nota operacional do `refresh_busca()`, contrato de array nu.
+- guia *13-nomes-geograficos* (absorvido): contrato do endpoint, tabela dos 7 critérios e pesos, dedup por cluster, nota operacional do `refresh_busca()`, contrato de array nu.
 - `ebgeo_backend/src/modules/nomes/nomes.queries.js`: SQL real do ranking (CTEs `q`/`candidatos`/`dedup`, top-500, expressões dos 7 termos).
 - `ebgeo_backend/src/modules/nomes/nomes.schemas.js` e `nomes.routes.js`: validação (3..200, zoom 1..20, ±90/±180) e ausência de `auth` estrito em `/busca`.
 - `ebgeo_backend/src/modules/nomes/nomes.service.js` e `nomes.controller.js`: repasse sem reordenação e resposta sem envelope.

@@ -112,8 +112,67 @@ Nunca `401`. O `401` só aparece na descoberta (`/nomes/catalogo3d`). Formato de
 - O padrão de BLOB em SQLite + worker pool + semáforo é o mesmo usado pelo 360 (`SV360_MAX_INFLIGHT`, `src/config.js:72`); ver [[streetview-360]] e [[ingestao-projetos-360]]. Para blobs de usuário (que **são** sincronizados), o caminho é outro: [[imagens-atlas]].
 - O contrato "URLs de asset são relativas" é congelado: ver [[sintese-contratos-congelados]] e [[sintese-decisoes-arquiteturais]].
 
+
+## Trocas HTTP literais (200 / 304 / 206 / 416)
+
+## Trocas HTTP literais (200 / 304 / 206 / 416)
+
+O contrato descrito acima, com os headers exatos que a rota emite:
+
+**200 — asset inteiro**
+
+```http
+GET /api/v1/assets3d/aman/tileset.json
+
+→ 200 OK
+  Content-Type: application/json
+  Content-Length: 20480
+  ETag: "20480-1705312200000"
+  Cache-Control: public, max-age=31536000, immutable
+  Accept-Ranges: bytes
+```
+
+O ETag do ramo filesystem é literalmente `"{size}-{floor(mtimeMs)}"`; no ramo SQLite é o sha1 do conteúdo. Em ambos vem entre aspas duplas e a comparação com `If-None-Match` é `===` estrito.
+
+**304 — revalidação**
+
+```http
+GET /api/v1/assets3d/aman/tileset.json
+If-None-Match: "20480-1705312200000"
+
+→ 304 Not Modified
+  (sem corpo)
+```
+
+**206 — Range válido**
+
+```http
+GET /api/v1/assets3d/aman/data.b3dm
+Range: bytes=0-1023
+
+→ 206 Partial Content
+  Content-Range: bytes 0-1023/524288
+  Content-Length: 1024
+  Accept-Ranges: bytes
+```
+
+O `Content-Range` do 206 usa a forma `bytes {início}-{fim}/{tamanhoTotal}`, com `fim` **inclusivo** — `bytes=0-1023` devolve 1024 bytes, não 1023.
+
+**416 — Range inválido**
+
+```http
+GET /api/v1/assets3d/aman/data.b3dm
+Range: bytes=0-9,20-29
+
+→ 416 Range Not Satisfiable
+  Content-Range: bytes */524288
+  (corpo vazio)
+```
+
+O 416 sempre traz `Content-Range: bytes */{tamanho}` e corpo vazio. Cliente que recebe 416 deve refazer **sem** o header `Range`, nunca reinterpretar a faixa.
+
 ## Fontes
-- `docs/guias/14-catalogo3d-assets.md`: contrato HTTP da rota, tabela de Content-Type, fluxo Cesium, resolução via `assets3dBaseUrl`, dual-mode e tabela de erros.
+- guia *14-catalogo3d-assets* (absorvido): contrato HTTP da rota, tabela de Content-Type, fluxo Cesium, resolução via `assets3dBaseUrl`, dual-mode e tabela de erros.
 - `src/modules/nomes/assets3d.controller.js`: ordem store→filesystem, semáforo e liberação em finish/close, `parseRange`, headers imutáveis, 304/206/416.
 - `src/modules/nomes/assets3d.service.js`: anti-traversal com `path.posix.normalize`, ETag O(1) por `fs.stat`, mapa de Content-Type.
 - `src/modules/nomes/assets3d.store.js`: schema `assets`, conexão readonly+mmap, ETag sha1 na carga, leitura de BLOB via worker pool.

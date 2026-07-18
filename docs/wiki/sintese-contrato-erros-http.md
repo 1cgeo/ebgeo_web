@@ -14,7 +14,7 @@ Toda resposta de erro que passa pelo `errorHandler` sai como:
 
 Três lugares fogem do envelope e são armadilha clássica:
 
-- **Handshake do WebSocket.** Falha de token/permissão no upgrade escreve uma linha HTTP crua e destrói o socket, sem corpo JSON (`collab.gateway.js:243`, `:253`, `:261`). Ver [[canal-collab-websocket]] e [[websocket-collab]].
+- **Handshake do WebSocket.** Falha de token/permissão no upgrade escreve uma linha HTTP crua e destrói o socket, sem corpo JSON (`collab.gateway.js:243`, `:253`, `:261`). Ver [[canal-collab-websocket]] e [[canal-collab-websocket]].
 - **Sucesso 204.** `POST /auth/logout` devolve 204 sem corpo, e `_request` retorna `null` antes de tentar parsear (`api-client.js:225`).
 - **Contratos "nus" congelados.** `GET /api/config` e `GET /nomes/busca` não têm chave `data`, e portanto também não têm o envelope habitual no caminho feliz (ver [[sintese-contratos-congelados]], [[config-runtime-urls-relativas]]).
 
@@ -49,7 +49,7 @@ Rate limit responde `429 TOO_MANY_REQUESTS` com mensagem em português fixa (`ra
 
 Regra dura: **429 não é logout e não é refresh**. É backoff. O `_request` do cliente só ramifica em 401, então um 429 vira `ApiError` normal, o que está correto.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/11-seguranca-hardening.md` §1.1 diz que o limitador de credenciais é chaveado por "IP + username", de modo que "um IP barulhento não bloqueie todo mundo". O código em `src/middleware/rate-limit.js:32` monta a chave como `` `${req.ip}:${(req.body?.username || '').toLowerCase()}` ``, e o corpo de `/auth/refresh` só tem `refreshToken` (`auth.schemas.js:9-11`). Logo, para refresh (e para verify-email/resend-verification) a chave degenera para `ip:`, um balde único por IP compartilhado entre todas essas rotas. Consequência prática: atrás de NAT ou proxy sem `trust proxy`, 10 refreshes em 15 minutos esgotam o balde de toda a rede.
+> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido) §1.1 diz que o limitador de credenciais é chaveado por "IP + username", de modo que "um IP barulhento não bloqueie todo mundo". O código em `src/middleware/rate-limit.js:32` monta a chave como `` `${req.ip}:${(req.body?.username || '').toLowerCase()}` ``, e o corpo de `/auth/refresh` só tem `refreshToken` (`auth.schemas.js:9-11`). Logo, para refresh (e para verify-email/resend-verification) a chave degenera para `ip:`, um balde único por IP compartilhado entre todas essas rotas. Consequência prática: atrás de NAT ou proxy sem `trust proxy`, 10 refreshes em 15 minutos esgotam o balde de toda a rede.
 
 Isso importa porque `refresh()` do cliente trata **qualquer** falha como sessão perdida: 429 no refresh cai no mesmo `catch` que token expirado e derruba a sessão (`api-client.js:300-307`). Refresh concorrente já é serializado por `this._refreshing` (`api-client.js:290`), o que também protege contra a detecção de reuso descrita em [[refresh-token-rotacao]].
 
@@ -62,11 +62,11 @@ O `code` é o mesmo (`NOT_FOUND`), a `message` é o que distingue:
 
 O caso emblemático é `POST /auth/register`: quando `ALLOW_SELF_REGISTRATION` está desligado (default em produção) a rota **não é registrada** (`auth.routes.js:14`), então cai no catch-all e retorna 404, não 403, para não confirmar a existência do endpoint.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/11-seguranca-hardening.md` §8 sugere "tentar o endpoint e, ao receber 404, ocultar a opção". O código já expõe o flag diretamente: `src/modules/config/config.service.js:144` publica `features.self_registration` em `GET /api/config`. Sondar a rota é pior por dois motivos: ela está sob o `authLimiter` (`auth.routes.js:15`) e a sonda não tem `username` no corpo, então consome o balde `ip:` compartilhado com `/auth/refresh`. Use o `features` do config ([[config-dinamico]]).
+> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido) §8 sugere "tentar o endpoint e, ao receber 404, ocultar a opção". O código já expõe o flag diretamente: `src/modules/config/config.service.js:144` publica `features.self_registration` em `GET /api/config`. Sondar a rota é pior por dois motivos: ela está sob o `authLimiter` (`auth.routes.js:15`) e a sonda não tem `username` no corpo, então consome o balde `ip:` compartilhado com `/auth/refresh`. Use o `features` do config ([[config-dinamico]]).
 
 ## 403 vs 404 em atlas: a existência vaza de propósito
 
-`requireAtlasPermission` devolve **404** quando o atlas não existe ou está soft-deleted (`permissions.js:73-75`), e **403** quando existe mas o principal não alcança o nível exigido (`permissions.js:111-119`, `Access denied` para permissão nula, `Insufficient permissions` para nível insuficiente). Portanto um 403 confirma que aquele UUID de atlas existe. Admin global recebe nível `owner` em qualquer atlas (`permissions.js:82-87`). Hierarquia e mapeamento de papéis em [[permissoes-atlas]], [[permissao-vs-papel]] e [[sintese-eixos-de-permissao]].
+`requireAtlasPermission` devolve **404** quando o atlas não existe ou está soft-deleted (`permissions.js:73-75`), e **403** quando existe mas o principal não alcança o nível exigido (`permissions.js:111-119`, `Access denied` para permissão nula, `Insufficient permissions` para nível insuficiente). Portanto um 403 confirma que aquele UUID de atlas existe. Admin global recebe nível `owner` em qualquer atlas (`permissions.js:82-87`). Hierarquia e mapeamento de papéis em [[permissoes-atlas]], [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
 Requisições sem credencial não são barradas globalmente: `flexibleAuth` popula `req.user` quando há Bearer, cookie ou api key e segue anônimo caso contrário (`app.js:70`), quem barra é a rota. Ver [[auth-flexivel]] e [[api-keys]].
 
@@ -122,9 +122,9 @@ Note também que as rotas de sync **não** têm rate limit, então 429 nunca apa
 
 ## Fontes
 
-- `docs/guias/11-seguranca-hardening.md`: rate limiting (janelas, headers `RateLimit-*`), login timing-safe e mensagem genérica, allowlist HS256, hardening de upload/download de imagens, health check 503, gate de self-registration e a tabela resumo de status.
-- `docs/guias/12-multiorg-identidade-auditoria.md`: tabela canônica 401/403/404/409/422 do módulo multi-org, comportamento não-bloqueante do `flexibleAuth` e erros das rotas de organização e de API key.
-- `docs/guias/09-admin.md`: matriz de erros de desativação de usuário (403 auto-desativação, 404 usuário ou destinatário, 409 usuário com atlas sem `transferTo`).
-- `docs/guias/01-autenticacao.md`: fluxo login/refresh/logout, padrão de retry em 401, rotação obrigatória do refresh token e 409 de username duplicado no registro.
+- guia *11-seguranca-hardening* (absorvido): rate limiting (janelas, headers `RateLimit-*`), login timing-safe e mensagem genérica, allowlist HS256, hardening de upload/download de imagens, health check 503, gate de self-registration e a tabela resumo de status.
+- guia *12-multiorg-identidade-auditoria* (absorvido): tabela canônica 401/403/404/409/422 do módulo multi-org, comportamento não-bloqueante do `flexibleAuth` e erros das rotas de organização e de API key.
+- guia *09-admin* (absorvido): matriz de erros de desativação de usuário (403 auto-desativação, 404 usuário ou destinatário, 409 usuário com atlas sem `transferTo`).
+- guia *01-autenticacao* (absorvido): fluxo login/refresh/logout, padrão de retry em 401, rotação obrigatória do refresh token e 409 de username duplicado no registro.
 - Código do backend (`src/utils/errors.js`, `src/middleware/{error-handler,validate,rate-limit,auth,permissions}.js`, `src/app.js`, `src/modules/{auth,users,sync,images,collab,config}/`): pares status/código reais, ordem dos ramos do handler, mapa SQLSTATE, chave real do rate limiter e atomicidade do push.
 - Código do frontend (`src/js/store/sync/{api-client,sync-engine,sync-flush}.js`, `src/js/admin/users-tab.js`): construção do `ApiError`, refresh transparente em 401, perda de sessão em refresh falho e o comportamento de poison batch da fila.

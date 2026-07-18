@@ -58,7 +58,7 @@ Isso significa que **refresh concorrente é indistinguível de roubo**. Dois req
 
 Só a desativação é transacional com o resto da operação; os dois casos de senha revogam em uma query separada logo após o `UPDATE`. Ver [[gestao-usuarios]] e [[auditoria]].
 
-**O que a revogação em massa NÃO faz:** não invalida access tokens já emitidos. Um access token roubado continua válido até `exp` (até 15 min), e o socket de colaboração já aberto continua aberto, porque o token vai na query string apenas no handshake (`api-client.js:935-939`) e não é revalidado depois. Ver [[canal-collab-websocket]] e [[websocket-collab]]. Se o requisito for corte imediato, ele não existe hoje; encurtar `JWT_ACCESS_EXPIRY` é o único ajuste disponível.
+**O que a revogação em massa NÃO faz:** não invalida access tokens já emitidos. Um access token roubado continua válido até `exp` (até 15 min), e o socket de colaboração já aberto continua aberto, porque o token vai na query string apenas no handshake (`api-client.js:935-939`) e não é revalidado depois. Ver [[canal-collab-websocket]] e [[canal-collab-websocket]]. Se o requisito for corte imediato, ele não existe hoje; encurtar `JWT_ACCESS_EXPIRY` é o único ajuste disponível.
 
 Logout é revogação **de um token só** (`auth.service.js:183-186`): as outras sessões do usuário continuam vivas. A rota exige access token válido (`auth` middleware, `auth.routes.js:22`) e devolve `204`. Ver [[sessao-boot-e-ciclo-de-vida]].
 
@@ -84,16 +84,16 @@ Checklist para não errar:
 
 ## Divergências entre a documentação e o código
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/11-seguranca-hardening.md` §2, §3.2 e `§10` documentam mensagens em inglês (`Invalid credentials`, `Invalid refresh token`, `Refresh token expired`, `Account is deactivated`); o código emite pt-BR: `Usuário ou senha inválidos` (`auth.service.js:78`), `Conta desativada` (`auth.service.js:82`), `Sessão inválida. Entre novamente.` para token inexistente e para reuso (`auth.service.js:135` e `145`) e `Sessão expirada. Entre novamente.` para expirado (`auth.service.js:150`). Os `code` e status HTTP da tabela continuam corretos; não faça matching por `message`.
+> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido) §2, §3.2 e `§10` documentam mensagens em inglês (`Invalid credentials`, `Invalid refresh token`, `Refresh token expired`, `Account is deactivated`); o código emite pt-BR: `Usuário ou senha inválidos` (`auth.service.js:78`), `Conta desativada` (`auth.service.js:82`), `Sessão inválida. Entre novamente.` para token inexistente e para reuso (`auth.service.js:135` e `145`) e `Sessão expirada. Entre novamente.` para expirado (`auth.service.js:150`). Os `code` e status HTTP da tabela continuam corretos; não faça matching por `message`.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/01-autenticacao.md` §3 prescreve access token em "memória ou sessionStorage" e só o refresh em `localStorage`; `src/js/store/sync/api-client.js:143-157` persiste **os dois** no mesmo item de `localStorage`. É uma escolha deliberada (o boot valida a sessão via `getMe`), mas amplia a superfície de XSS: quem consegue script na página leva o access token pronto.
+> [!CONTRADICAO 2026-07-18] guia *01-autenticacao* (absorvido) §3 prescreve access token em "memória ou sessionStorage" e só o refresh em `localStorage`; `src/js/store/sync/api-client.js:143-157` persiste **os dois** no mesmo item de `localStorage`. É uma escolha deliberada (o boot valida a sessão via `getMe`), mas amplia a superfície de XSS: quem consegue script na página leva o access token pronto.
 
 O guia 11 §3.3 lista corretamente as quatro portas de revogação em massa, e §3.2 descreve corretamente a semântica de família. Nenhum dos dois documenta o gate de organização inativa no refresh (`403`, `auth.service.js:165-167`) nem o balde de rate limit compartilhado por IP descrito acima.
 
 ## Fontes
 
-- `docs/guias/11-seguranca-hardening.md`: §3 (rotação, detecção de reuso, revogação em massa), §1 (rate limit em `/auth/refresh`), §4 (allowlist HS256), §10 (tabela de status de erro).
-- `docs/guias/01-autenticacao.md`: contrato dos endpoints `/auth/login`, `/auth/refresh`, `/auth/logout`, formato da resposta e recomendação de armazenamento de tokens.
+- guia *11-seguranca-hardening* (absorvido): §3 (rotação, detecção de reuso, revogação em massa), §1 (rate limit em `/auth/refresh`), §4 (allowlist HS256), §10 (tabela de status de erro).
+- guia *01-autenticacao* (absorvido): contrato dos endpoints `/auth/login`, `/auth/refresh`, `/auth/logout`, formato da resposta e recomendação de armazenamento de tokens.
 - `ebgeo_backend/src/modules/auth/auth.service.js`, `auth.queries.js`, `auth.routes.js`, `auth.schemas.js`, `auth.controller.js`: implementação real da rotação, detecção de reuso e revogação.
 - `ebgeo_backend/src/modules/users/users.service.js`, `src/middleware/rate-limit.js`, `src/config.js`, `src/database/migrations/001_core.sql`: revogações em massa, chave do limitador, TTLs e esquema da tabela.
 - `ebgeo_web/src/js/store/sync/api-client.js` e `src/js/index.js`: persistência de tokens, refresh coalescido, retry em 401 e handler de sessão perdida.

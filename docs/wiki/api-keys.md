@@ -4,7 +4,7 @@ Chave UUID única por usuário para integração máquina-a-máquina, rotacioná
 
 ## Modelo de dados
 
-A chave viva mora na linha quente de `users`: `api_key UUID UNIQUE` (`src/database/migrations/001_core.sql:101`). Uma chave viva por usuário, sem escopo, sem expiração, sem nome/rótulo. Não existe conceito de "várias chaves por usuário" nem de chave com permissão reduzida: a chave carrega **exatamente** a identidade do usuário, portanto todo o poder dele (ver [[permissao-vs-papel]] e [[sintese-eixos-de-permissao]]).
+A chave viva mora na linha quente de `users`: `api_key UUID UNIQUE` (`src/database/migrations/001_core.sql:101`). Uma chave viva por usuário, sem escopo, sem expiração, sem nome/rótulo. Não existe conceito de "várias chaves por usuário" nem de chave com permissão reduzida: a chave carrega **exatamente** a identidade do usuário, portanto todo o poder dele (ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]]).
 
 O histórico fica em `api_key_history` (`001_core.sql:154-163`):
 
@@ -123,6 +123,6 @@ Erros da rota admin, conforme [[erros-api]] e [[sintese-contrato-erros-http]]:
 
 ## Fontes
 
-- `docs/guias/12-multiorg-identidade-auditoria.md`: Parte 3 (ordem de precedência do `flexibleAuth`, sliding session, chave inválida = anônimo) e Parte 4 (contrato dos dois endpoints de rotação, resposta `{ apiKey }` irrecuperável, auditoria `API_KEY_ROTATE`, histórico com `revoked_at`/`revoked_by`); Parte 5 para o shape do evento de auditoria.
-- `docs/guias/09-admin.md`: tabela de rotas admin, posicionando `/users/me/api-key/rotate` (User) e `/users/:userId/api-key/rotate` (Admin) no inventário de endpoints administrativos.
+- guia *12-multiorg-identidade-auditoria* (absorvido): Parte 3 (ordem de precedência do `flexibleAuth`, sliding session, chave inválida = anônimo) e Parte 4 (contrato dos dois endpoints de rotação, resposta `{ apiKey }` irrecuperável, auditoria `API_KEY_ROTATE`, histórico com `revoked_at`/`revoked_by`); Parte 5 para o shape do evento de auditoria.
+- guia *09-admin* (absorvido): tabela de rotas admin, posicionando `/users/me/api-key/rotate` (User) e `/users/:userId/api-key/rotate` (Admin) no inventário de endpoints administrativos.
 - Código do `ebgeo_backend` (manda sobre a prosa): `src/middleware/flexible-auth.js`, `src/middleware/auth.js`, `src/modules/users/{users.queries,users.service,users.controller,users.routes}.js`, `src/database/migrations/001_core.sql`, `src/middleware/error-handler.js`, `src/utils/redact-url.js`, `tests/integration/identity.test.js`.

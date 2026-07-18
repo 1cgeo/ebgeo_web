@@ -4,9 +4,9 @@ Endpoint que sobe um atlas inteiro criado no IndexedDB para a conta do usuário 
 
 ## Por que este endpoint existe
 
-O app roda local antes de qualquer login (ver [[modos-operacao]] e [[dominio-local-vs-remoto]]). O store local é um workspace único, name-keyed, sem noção de atlas nomeado ([[store-origin-local-remoto]]). Quando o usuário decide "subir para o servidor", não dá para reproduzir esse estado como uma sequência de operações de sync: seriam milhares de envelopes ([[envelope-operacao]]) e nenhuma garantia de atomicidade. Daí um endpoint REST de bulk, fora do caminho de sync ([[sintese-rest-vs-sync]]).
+O app roda local antes de qualquer login (ver [[modos-operacao]] e [[dominio-local-vs-remoto]]). O store local é um workspace único, name-keyed, sem noção de atlas nomeado ([[dominio-local-vs-remoto]]). Quando o usuário decide "subir para o servidor", não dá para reproduzir esse estado como uma sequência de operações de sync: seriam milhares de envelopes ([[envelope-operacao]]) e nenhuma garantia de atomicidade. Daí um endpoint REST de bulk, fora do caminho de sync ([[sintese-rest-vs-sync]]).
 
-O import é a **única** rota REST que escreve entidades de mapa/feição/camada em massa. Depois dele, toda mutação volta a viajar como operação ([[sync-lww-operacoes]]).
+O import é a **única** rota REST que escreve entidades de mapa/feição/camada em massa. Depois dele, toda mutação volta a viajar como operação ([[modelo-conflito-lww]]).
 
 ## Contrato
 
@@ -40,7 +40,7 @@ O servidor insere com o id que recebe (`INSERT INTO maps (id, ...)`, `INSERT INT
 - **UUID-remapping.** `makeIdMapper` (linha 52-63) mantém ids que já são UUID e atribui um UUID novo, memoizado, para qualquer id que não seja. Isso é obrigatório porque **mapas locais são keyed por nome** (`mapNameToId`, linhas 279-282, gera um UUID por nome) e a camada padrão de cada mapa tem o id literal `'default'`. Como `'default'` colide entre mapas, o mapper de camada é **por mapa** (linha 288), não global.
 - **Achatamento** das coleções keyed por objeto (`cesium3d.cameraPositions`, `streetview360.orientations`) nos arrays tipados `cesium3dData` / `streetview360Data` (linhas 189-220), com `data_type` em `camera_position | marker | measurement | viewshed` e `orientation | marker`. Ver [[catalogo-3d]] e [[streetview-360]].
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/08-offline-import.md` §3.3 diz "IDs preservados: UUIDs gerados no IndexedDB são mantidos no servidor". O código em `src/js/import_export/local-atlas-to-server.js:52-63,279-282` gera UUIDs **novos** para todo id não-UUID, incluindo o id de todos os mapas (locais são name-keyed) e a camada `'default'`. Só ids que já eram UUID (feições, briefings, slides) sobrevivem intactos.
+> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido) §3.3 diz "IDs preservados: UUIDs gerados no IndexedDB são mantidos no servidor". O código em `src/js/import_export/local-atlas-to-server.js:52-63,279-282` gera UUIDs **novos** para todo id não-UUID, incluindo o id de todos os mapas (locais são name-keyed) e a camada `'default'`. Só ids que já eram UUID (feições, briefings, slides) sobrevivem intactos.
 
 Consequência prática: **`mapNameToId` do retorno é a única fonte para resolver referências por nome**. Slides referenciam mapa por nome ou por id, e a linha 341 faz `mapNameToId[s.mapId] || (isValidUUID(s.mapId) ? s.mapId : null)`.
 
@@ -61,7 +61,7 @@ Imagens são binários e não vão no payload. O orquestrador `saveLocalAtlasToS
 
 O truque está no backend: `bulkUploadImages` (`images.service.js:187-213`) usa `INSERT_IMAGE_WITH_ID` na primeira ocorrência de cada `localId`, ou seja, o id local **vira** o id de servidor. Por isso não existe fase de rewrite pós-import. Detalhes do endpoint em [[imagens-atlas]] e [[upload-imagens-seguranca]].
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/08-offline-import.md` §4.4/§4.5 descreve importar, subir imagens, receber um `mapping` e então **enviar operações de UPDATE** para reescrever `properties.imageId`. O código em `src/js/import_export/save-local-atlas.service.js:100-105` não emite nenhuma operação de update: as imagens são inseridas com o próprio `localId` como PK (`ebgeo_backend/src/modules/images/images.service.js:190-213`), então as refs já importadas continuam válidas. O caminho de duas passadas com `meta.imageIdMap` existe em `local-atlas-to-server.js:270-275` mas **não é usado** por este fluxo.
+> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido) §4.4/§4.5 descreve importar, subir imagens, receber um `mapping` e então **enviar operações de UPDATE** para reescrever `properties.imageId`. O código em `src/js/import_export/save-local-atlas.service.js:100-105` não emite nenhuma operação de update: as imagens são inseridas com o próprio `localId` como PK (`ebgeo_backend/src/modules/images/images.service.js:190-213`), então as refs já importadas continuam válidas. O caminho de duas passadas com `meta.imageIdMap` existe em `local-atlas-to-server.js:270-275` mas **não é usado** por este fluxo.
 
 Pontos que mordem no upload de imagens:
 
@@ -80,15 +80,112 @@ O import não conecta nada. Quem faz a troca é `account.control.js:_handleSaveL
 2. `saveLocalAtlasToServer` (lê o store local, **tem que vir antes do wipe**)
 3. `_applyAtlasSharing(result.atlasId, sharing)`
 4. `clearAllDataStore()` → `markStoreRemote(result.atlasId)` → `syncEngine.connect(atlasId, { initialPull: true })` ([[snapshot-e-pull-incremental]], [[sessao-boot-e-ciclo-de-vida]])
-5. `activateAtlasInitialMap()` + `switchMap(false)` + `startAutoFlush()` ([[fila-operacoes-outbound]], [[websocket-collab]])
+5. `activateAtlasInitialMap()` + `switchMap(false)` + `startAutoFlush()` ([[fila-operacoes-outbound]], [[canal-collab-websocket]])
 
 Inverter 2 e 4 apaga os dados antes de subi-los. O toast final usa `stats` e soma `imageStats.skipped + failed` para avisar "N imagem(ns) não enviada(s)", que é a única sinalização de perda parcial que o usuário recebe.
 
-Sobre o atlas resultante e seu ciclo de vida, ver [[atlas]], [[atlas-modelo-de-dados]], [[api-rest-atlas]] e [[atlas-settings]].
+Sobre o atlas resultante e seu ciclo de vida, ver [[atlas-modelo-de-dados]], [[atlas-modelo-de-dados]], [[api-rest-atlas]] e [[atlas-settings]].
+
+
+## Shape exato do payload e da resposta 201
+
+## Shape exato do payload e da resposta 201
+
+A prosa acima descreve quais campos o `importSchema` aceita; abaixo está o envelope literal, que é contrato congelado do endpoint.
+
+### Request mínimo
+
+```json
+{
+  "atlas": {
+    "name": "Meu Atlas Offline",
+    "description": "Descrição opcional",
+    "settings": {}
+  },
+  "maps": [
+    {
+      "id": "local-map-uuid",
+      "name": "Mapa Principal",
+      "base_layer": "carta-topografica",
+      "center_lat": -15.7,
+      "center_long": -47.9,
+      "zoom": 12,
+      "bearing": 0,
+      "pitch": 0,
+      "features": [
+        {
+          "id": "local-feat-uuid",
+          "feature_type": "point",
+          "geometry": { "type": "Point", "coordinates": [-47.9, -15.7] },
+          "properties": { "name": "Marco" },
+          "layer_id": null
+        }
+      ],
+      "layers": [],
+      "groups": [],
+      "groupFeatures": [],
+      "cesium3dData": [],
+      "streetview360Data": []
+    }
+  ],
+  "briefings": [
+    {
+      "id": "local-briefing-uuid",
+      "name": "Briefing",
+      "description": null,
+      "settings": {},
+      "slides": [
+        {
+          "id": "local-slide-uuid",
+          "title": "Slide 1",
+          "content": "...",
+          "mode": "2d",
+          "map_id": "local-map-uuid",
+          "position": {},
+          "orientation": {}
+        }
+      ]
+    }
+  ]
+}
+```
+
+Os arrays aninhados de mapa (`features`, `layers`, `groups`, `groupFeatures`, `cesium3dData`, `streetview360Data`) são todos opcionais mas, se presentes, precisam vir com esses nomes exatos em camelCase — o restante do payload é snake_case. `mode` de slide é validado contra `2d | 3d | 360`; `feature_type` contra os 20 `VALID_FEATURE_TYPES`.
+
+### Response 201
+
+```json
+{
+  "data": {
+    "id": "server-atlas-uuid",
+    "name": "Meu Atlas Offline",
+    "description": "Descrição opcional",
+    "settings": {},
+    "map_order": ["local-map-uuid"],
+    "version": 1,
+    "current_version": 1,
+    "created_at": "...",
+    "summary": {
+      "mapsImported": 1,
+      "featuresImported": 1,
+      "layersImported": 0,
+      "groupsImported": 0,
+      "cesium3dImported": 0,
+      "streetview360Imported": 0,
+      "briefingsImported": 1,
+      "slidesImported": 1
+    }
+  }
+}
+```
+
+O `SELECT` de retorno projeta exatamente `id, name, description, settings, map_order, version, current_version, created_at` (`atlas.service.js:757`) — nada de `owner_id` ou timestamps de update. `current_version` é o valor que o cliente deve guardar como `lastVersion` antes de conectar o socket ([[snapshot-e-pull-incremental]]).
+
+**Armadilha do `summary`:** ele tem oito contadores e `groupFeatures` **não** é um deles. Os vínculos feição↔grupo são inseridos com `ON CONFLICT DO NOTHING` e não aparecem em nenhum contador, então uma perda de vínculos é invisível na resposta. Conferir perda por `summary` só funciona para as oito categorias listadas.
 
 ## Fontes
 
-- `docs/guias/08-offline-import.md`: cenário, contrato do endpoint, tabela de características do import, fluxo de bulk upload de imagens e transição offline → online (com duas divergências marcadas acima).
+- guia *08-offline-import* (absorvido): cenário, contrato do endpoint, tabela de características do import, fluxo de bulk upload de imagens e transição offline → online (com duas divergências marcadas acima).
 - `ebgeo_backend/src/modules/atlas/atlas.routes.js:22`, `atlas.controller.js:64-67`: registro da rota (só `auth`), owner = usuário autenticado, 201.
 - `ebgeo_backend/src/modules/atlas/atlas.schemas.js:73-191`: `importSchema`, os 20 `VALID_FEATURE_TYPES`, campos aceitos por mapa (incluindo `grid_style`/`temporal_config`), validação apenas de formato UUID nas referências.
 - `ebgeo_backend/src/modules/atlas/atlas.service.js:551-767`: transação única, ordem de inserção, `map_order`, `summary`.

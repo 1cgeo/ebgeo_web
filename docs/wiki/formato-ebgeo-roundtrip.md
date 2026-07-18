@@ -4,10 +4,10 @@ O `.ebgeo` é o contêiner portável do trabalho local e a ponte entre os dois m
 
 ## Por que o formato existe
 
-No modelo local só existe **um** espaço de trabalho no IndexedDB (P12). "Vários projetos" localmente não são vários atlas nomeados, são vários arquivos `.ebgeo` exportados e importados. O conceito de atlas nomeado é capacidade do servidor (ver [[atlas]] e [[dominio-local-vs-remoto]]). Consequências práticas:
+No modelo local só existe **um** espaço de trabalho no IndexedDB (P12). "Vários projetos" localmente não são vários atlas nomeados, são vários arquivos `.ebgeo` exportados e importados. O conceito de atlas nomeado é capacidade do servidor (ver [[atlas-modelo-de-dados]] e [[dominio-local-vs-remoto]]). Consequências práticas:
 
 - O `.ebgeo` é a única forma durável de guardar trabalho na máquina.
-- Dado de atlas remoto é **efêmero** no cliente (limpo em logout/desconexão, ver [[store-origin-local-remoto]]). Regra de ouro: baixe o `.ebgeo` antes de sair se quiser a cópia local.
+- Dado de atlas remoto é **efêmero** no cliente (limpo em logout/desconexão, ver [[dominio-local-vs-remoto]]). Regra de ouro: baixe o `.ebgeo` antes de sair se quiser a cópia local.
 - "Salvar projeto" enquanto conectado exporta o **estado remoto atual** como `.ebgeo`. É a forma suportada de tirar uma foto de um atlas do servidor.
 
 ## Formato do arquivo (físico)
@@ -94,7 +94,7 @@ O serviço **não** conecta nem troca o store. Quem chama faz `clearAllDataStore
 
 - **Comentários espaciais não sobem no "Salvar no servidor".** `data.comments` é exportado e importado no `.ebgeo` (`export-import.service.js:1125`, `:693`, `:731`) e volta do snapshot, mas `buildServerImportPayload` não emite nenhum campo de comentário: o payload de mapa em `local-atlas-to-server.js:298-318` não tem `comments`. Comentários criados **offline** e depois enviados via "Salvar no servidor" se perdem. Comentários criados **ao vivo** sincronizam normal, pela via de operação.
 
-> [!CONTRADICAO 2026-07-18] `docs/visao-e-principios.md:390-391` afirma que o comentário espacial "entra no `.ebgeo` (P9) e faz round-trip (P11)". O round-trip só fecha pela via de operação ao vivo. Pelo caminho em lote local→servidor, `src/js/import_export/local-atlas-to-server.js:298-318` não inclui comentários e eles somem.
+> [!CONTRADICAO 2026-07-18] guia *visao-e-principios* (absorvido):390-391` afirma que o comentário espacial "entra no `.ebgeo` (P9) e faz round-trip (P11)". O round-trip só fecha pela via de operação ao vivo. Pelo caminho em lote local→servidor, `src/js/import_export/local-atlas-to-server.js:298-318` não inclui comentários e eles somem.
 
 - **Ícones customizados SVG não sobem.** `ALLOWED_MIME` em `save-local-atlas.service.js:19` aceita só png/jpeg/webp; o exportador do `.ebgeo` aceita `image/svg+xml` (`export-import.service.js:228-243`). SVGs entram em `imageStats.skipped` e o `markerSymbol` fica apontando para um id sem blob no servidor.
 - **Coleta de imagens no ZIP é ampla:** `handleExport` adiciona `feature.properties.id` de **toda** feição ao conjunto `usedImages` (`:437-443`), não só das feições de imagem. Ids sem blob apenas falham no `getImage` e são ignorados, mas não leia esse conjunto como "lista de imagens".
@@ -103,7 +103,7 @@ O serviço **não** conecta nem troca o store. Quem chama faz `clearAllDataStore
 
 Modo **não-aditivo** substitui tudo (limpa o store, restaura `currentMap`, `mapOrder`, base layer). Modo **aditivo** desconflita nomes de mapa com sufixo `_1`, `_2`, regenera ids de feição e de camada mantendo `'default'` como `'default'`, e é limitado a 100 mapas no total (`export-import.service.js:640-694`).
 
-> [!CONTRADICAO 2026-07-18] `docs/acoes-interface-multiusuario.md:26` diz que ao importar `.ebgeo` sobre um projeto conectado "o servidor deve resolver IDs duplicados, gerar novos UUIDs se necessário". No código, a regeneração de ids é inteiramente **do cliente**, em `src/js/import_export/export-import.service.js:648-655` (`IDUtils.regenerateMapIds` com o `layerIdMapping` montado antes). O servidor não desconflita nada; a propagação aos pares acontece porque `addMap`/`addFeature` enfileiram operações normalmente.
+> [!CONTRADICAO 2026-07-18] guia *acoes-interface-multiusuario* (absorvido):26` diz que ao importar `.ebgeo` sobre um projeto conectado "o servidor deve resolver IDs duplicados, gerar novos UUIDs se necessário". No código, a regeneração de ids é inteiramente **do cliente**, em `src/js/import_export/export-import.service.js:648-655` (`IDUtils.regenerateMapIds` com o `layerIdMapping` montado antes). O servidor não desconflita nada; a propagação aos pares acontece porque `addMap`/`addFeature` enfileiram operações normalmente.
 
 ## Checklist ao adicionar um dado persistido novo
 
@@ -116,9 +116,9 @@ Modo **não-aditivo** substitui tudo (limpa o store, restaura `currentMap`, `map
 Ver também [[atlas-import-offline]], [[sintese-decisoes-arquiteturais]] e [[modos-operacao]].
 
 ## Fontes
-- `docs/visao-e-principios.md`: P9, P11 e P12 na íntegra, diferenças aceitáveis do round-trip, ordem das fases de "Salvar atlas local no servidor", regra de ouro do dado remoto efêmero, comentário espacial e P9/P11.
-- `docs/ui-ux-ebgeo.md`: posição do `.ebgeo` entre os formatos de import/export e o `store-origin` como marcador local↔remoto.
-- `docs/acoes-interface-multiusuario.md`: classificação das ações Abrir / Importar projeto / Salvar projeto e a expectativa (não cumprida) de desconflito de ids no servidor.
+- guia *visao-e-principios* (absorvido): P9, P11 e P12 na íntegra, diferenças aceitáveis do round-trip, ordem das fases de "Salvar atlas local no servidor", regra de ouro do dado remoto efêmero, comentário espacial e P9/P11.
+- guia *ui-ux-ebgeo* (absorvido): posição do `.ebgeo` entre os formatos de import/export e o `store-origin` como marcador local↔remoto.
+- guia *acoes-interface-multiusuario* (absorvido): classificação das ações Abrir / Importar projeto / Salvar projeto e a expectativa (não cumprida) de desconflito de ids no servidor.
 - `src/js/import_export/export-import.service.js`: formato físico (ZIP + XOR + `EBGXOR`), versionamento, conteúdo do `data.json`, exportação opcional por mapa, importação aditiva e não-aditiva.
 - `src/js/import_export/local-atlas-to-server.js`: transform para o payload de bulk import, remapeamento de UUID, achatamento de 3D/360, ausência de comentários.
 - `src/js/import_export/save-local-atlas.service.js`: ordenação import→upload, allowlist de MIME, chunking de imagens.

@@ -51,7 +51,7 @@ Consequência prática: a checagem de tamanho do service (`images.service.js:38-
 
 `bulkUploadImages` (`images.service.js:123-236`) itera item a item e empurra o motivo para `failed[]` sem abortar os demais: base64 inválido, tamanho, conteúdo divergente, ou o `err.message` de uma exceção inesperada. O retorno é `{ uploaded, failed, mapping }`, e `mapping` (`localId` → `serverId`) é o que o cliente usa para reescrever referências de feição.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/11-seguranca-hardening.md` (§5.1) mostra um `failed[]` contendo `"Invalid file type: image/svg+xml"`, sugerindo que um MIME fora da allowlist gera falha parcial. No código real, `validate({ body: bulkUploadSchema })` roda antes do controller (`src/modules/images/images.routes.js:66`) e o Joi exige `mimeType` na allowlist (`src/modules/images/images.schemas.js:12`), então um único item com SVG **derruba o lote inteiro**, e com **422 `VALIDATION_ERROR`**, não 400 (`src/middleware/error-handler.js:18,28-31`). O ramo `Invalid file type: <mime>` em `src/modules/images/images.service.js:142` é inalcançável pela rota HTTP.
+> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido) (§5.1) mostra um `failed[]` contendo `"Invalid file type: image/svg+xml"`, sugerindo que um MIME fora da allowlist gera falha parcial. No código real, `validate({ body: bulkUploadSchema })` roda antes do controller (`src/modules/images/images.routes.js:66`) e o Joi exige `mimeType` na allowlist (`src/modules/images/images.schemas.js:12`), então um único item com SVG **derruba o lote inteiro**, e com **422 `VALIDATION_ERROR`**, não 400 (`src/middleware/error-handler.js:18,28-31`). O ramo `Invalid file type: <mime>` em `src/modules/images/images.service.js:142` é inalcançável pela rota HTTP.
 
 Implicação de integração: filtre o MIME **no cliente** antes de montar o lote. Um item ruim não custa um item, custa a requisição toda. Contrato de erros em [[erros-api]] e [[sintese-contrato-erros-http]].
 
@@ -77,14 +77,56 @@ Como o cache é `immutable`, não há cache-busting por query string: imagem nã
 
 ## Notas para o cliente EBGeo
 
-- O gateway de imagens no frontend é `src/js/store/sync/image-sync.js`, uma seam fina sobre `apiClient` com o `atlasId` injetado pelo sync engine em `setImageSyncAtlas`. Upload e fetch são **best-effort**: erro vira `null` e o chamador degrada para id local ou "sem imagem", nunca lança. Isso preserva o modo offline (ver [[store-origin-local-remoto]] e [[modos-operacao]]).
-- Upload e download exigem permissão de atlas (`write` para POST/DELETE, `read` para GET), ver [[permissoes-atlas]] e [[atlas]].
+- O gateway de imagens no frontend é `src/js/store/sync/image-sync.js`, uma seam fina sobre `apiClient` com o `atlasId` injetado pelo sync engine em `setImageSyncAtlas`. Upload e fetch são **best-effort**: erro vira `null` e o chamador degrada para id local ou "sem imagem", nunca lança. Isso preserva o modo offline (ver [[dominio-local-vs-remoto]] e [[modos-operacao]]).
+- Upload e download exigem permissão de atlas (`write` para POST/DELETE, `read` para GET), ver [[permissoes-atlas]] e [[atlas-modelo-de-dados]].
 - Imagens **não** viajam pelo canal de operações: são REST puro, e só a **referência** (`photoId` / `markerSymbol`) sincroniza como parte da feição. Ver [[sintese-rest-vs-sync]] e [[api-rest-atlas]].
 - No `<input type="file">` use `accept="image/png,image/jpeg,image/webp"`. Não elimina a validação do servidor, mas evita a viagem perdida.
 
+
+## Shape da resposta do lote (`POST /images/bulk`)
+
+## Shape da resposta do lote (`POST /images/bulk`)
+
+O lote responde **200** mesmo com itens rejeitados, e o corpo tem três chaves. Note a assimetria com o upload single: aqui os campos são **camelCase e reduzidos** (`serverId`, `size`), enquanto o single devolve a linha inteira em snake_case via `toPublicImage` (`id`, `atlas_id`, `mime_type`, `size_bytes`). Quem escrever um parser único para os dois caminhos erra.
+
+```json
+{
+  "data": {
+    "uploaded": [
+      {
+        "localId": "9c1f…",
+        "serverId": "9c1f…",
+        "filename": "mapa.png",
+        "size": 20480
+      }
+    ],
+    "failed": [
+      { "localId": "a2b0…", "error": "Content does not match declared type" }
+    ],
+    "mapping": { "9c1f…": "9c1f…" }
+  }
+}
+```
+
+No caminho feliz `serverId === localId` (preservação de PK, ver seção anterior); só duplicata de `localId` dentro do mesmo lote produz `serverId` novo.
+
+### Strings exatas de `failed[].error`
+
+São textos crus do service (`images.service.js:141-181`, `227-232`), não passam pelo `errorHandler` e **não** têm `code`. Ramifique por prefixo, nunca por igualdade com a mensagem inteira (duas delas interpolam valores).
+
+| `error` | Causa | Alcançável por HTTP? |
+|---|---|---|
+| `Invalid file type: <mime>` | MIME fora da allowlist | **Não** — o Joi da rota derruba o lote inteiro com `422 VALIDATION_ERROR` antes (ver contradição acima) |
+| `Invalid base64 data` | `data` não decodifica | Sim |
+| `File too large: <N>MB (max: 10MB)` | `buffer.length > MAX_IMAGE_SIZE_MB` | Sim |
+| `Content does not match declared type` | magic bytes divergem do `mimeType` declarado | Sim |
+| `<err.message>` ou `Unknown error` | exceção inesperada no item (ex.: colisão de PK global ao re-salvar o mesmo atlas local) | Sim |
+
+Consequência de integração: **`201`/`200` no lote não significa sucesso**. O cliente precisa ler `failed[]` e reconciliar; um item ausente de `mapping` é uma referência de feição que vai apontar para blob inexistente no servidor.
+
 ## Fontes
 
-- `docs/guias/11-seguranca-hardening.md` (§5): allowlist sem SVG, validação em duas camadas, mensagens de erro, headers de download, limites `MAX_IMAGE_SIZE_MB`/`MAX_BULK_UPLOAD_MB`, notas de integração.
+- guia *11-seguranca-hardening* (absorvido) (§5): allowlist sem SVG, validação em duas camadas, mensagens de erro, headers de download, limites `MAX_IMAGE_SIZE_MB`/`MAX_BULK_UPLOAD_MB`, notas de integração.
 - `ebgeo_backend/src/modules/images/images.service.js`: allowlist, magic bytes, unlink no rejeito, falha parcial do lote, preservação de `localId`, `toPublicImage`.
 - `ebgeo_backend/src/modules/images/images.routes.js`: multer (storage, `limits`, `fileFilter`), wrapper `uploadSingleImage`, guardas de permissão.
 - `ebgeo_backend/src/modules/images/images.controller.js`: headers de attachment/cache e `res.sendFile`.

@@ -46,7 +46,7 @@ Aqui a prosa e o código divergem. A string `assets3dBaseUrl` **não aparece em 
 3. O cliente entrega `tilesetConfig.url` verbatim ao Cesium: `Cesium3DTileset.fromUrl(tilesetConfig.url, ...)` em `src/js/3d_models_viewer_tool/map_3d.js:259` e `url: tilesetConfig.url` para glTF em `map_3d.js:321`.
 4. O template do painel admin grava um caminho raiz-relativo tipo `/catalogo/modelos_catalogo/3d/EXEMPLO/tileset.json` (`src/js/admin/catalog-tab.js:44-54`), resolvido pelo **navegador contra a origem da página**, não contra qualquer base do config.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/14-catalogo3d-assets.md` (§2, §5 e o checklist) diz que o frontend deve ler `assets3dBaseUrl` e concatenar `assets3dBaseUrl + m.url`; no ebgeo_web o `url` de `config.tilesets` é passado sem prefixo algum ao Cesium em `src/js/3d_models_viewer_tool/map_3d.js:259` e `:321`, e `assets3dBaseUrl` não é lido em lugar nenhum de `src/`.
+> [!CONTRADICAO 2026-07-18] guia *14-catalogo3d-assets* (absorvido) (§2, §5 e o checklist) diz que o frontend deve ler `assets3dBaseUrl` e concatenar `assets3dBaseUrl + m.url`; no ebgeo_web o `url` de `config.tilesets` é passado sem prefixo algum ao Cesium em `src/js/3d_models_viewer_tool/map_3d.js:259` e `:321`, e `assets3dBaseUrl` não é lido em lugar nenhum de `src/`.
 
 Como interpretar isso sem errar: `assets3dBaseUrl` é o contrato para **quem consome `GET /nomes/catalogo3d`** (fluxo de descoberta + `/assets3d/*`), que o web app hoje não consome. Se você editar a metadata do catálogo pelo painel admin, grave a `url` **já servível a partir da origem** (ex.: `/api/v1/assets3d/aman/tileset.json`) ou uma URL absoluta, porque ninguém vai prefixá-la. E se um dia o web app migrar para o `/nomes/catalogo3d`, aí sim a concatenação passa a ser obrigatória. Ver [[catalogo-3d]] e [[assets3d-distribuicao]].
 
@@ -60,7 +60,7 @@ Detalhe correlato: as thumbnails de tileset **não** passam por base nenhuma. `a
 - `streetview_markers.js:131,134` leem `p.previewThumbnail` e `p.entryPhotoId`
 - `catalog.service.js:197-202` leem `p.previewThumbnail`, `p.captureDate`, `p.center`
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/16-streetview-360.md` §2 documenta a lista de projetos em snake_case (`center_lat`, `center_long`, `entry_photo_id`) e sem `previewThumbnail`, mas `src/js/street_view_tool/streetview_markers.js:125` lê `p.center.lon` e `:131` lê `p.previewThumbnail`, campos que o backend não emite nessa rota.
+> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido) §2 documenta a lista de projetos em snake_case (`center_lat`, `center_long`, `entry_photo_id`) e sem `previewThumbnail`, mas `src/js/street_view_tool/streetview_markers.js:125` lê `p.center.lon` e `:131` lê `p.previewThumbnail`, campos que o backend não emite nessa rota.
 
 Efeito: em `loadMarkers()` o acesso a `p.center.lon` lança dentro do `.map()`, é engolido pelo `try/catch` de `streetview_markers.js:137-140` e os marcadores 360 simplesmente não aparecem, com um `console.error` genérico. Em `catalog.service.js` o guarda `p.center ? ... : null` degrada silenciosamente para item sem localização e thumbnail default. Antes de "consertar a concatenação do `previewThumbnail`", confirme de qual payload o campo veio: o relativo confirmado existe no **metadado da foto** (`/photos/:uuid`), não na lista de projetos.
 
@@ -77,7 +77,7 @@ Efeito: em `loadMarkers()` o acesso a `p.center.lon` lança dentro do `.map()`, 
 
 ## Fontes
 
-- `docs/guias/14-catalogo3d-assets.md`: contrato `assets3dBaseUrl` + `url` relativa do catálogo 3D, rota pública `/assets3d/*` (ETag/304/Range/immutable), env `ASSETS_3D_BASE_URL`, dual-mode SQLite/filesystem.
-- `docs/guias/16-streetview-360.md`: bloco `streetView360` do `/api/config` (§11), `previewThumbnail` relativo sem prefixo `/api/v1` (§4), envelope nu e erro plano, shape da lista de projetos (§2).
+- guia *14-catalogo3d-assets* (absorvido): contrato `assets3dBaseUrl` + `url` relativa do catálogo 3D, rota pública `/assets3d/*` (ETag/304/Range/immutable), env `ASSETS_3D_BASE_URL`, dual-mode SQLite/filesystem.
+- guia *16-streetview-360* (absorvido): bloco `streetView360` do `/api/config` (§11), `previewThumbnail` relativo sem prefixo `/api/v1` (§4), envelope nu e erro plano, shape da lista de projetos (§2).
 - Código ebgeo_web: `src/js/config.js`, `src/js/store/sync/runtime-config.js`, `src/js/street_view_tool/streetview-api.service.js`, `streetview_markers.js`, `src/js/catalog/catalog.service.js`, `src/js/3d_models_viewer_tool/map_3d.js`, `src/js/admin/catalog-tab.js`, `src/js/map_sig.js`.
 - Código ebgeo_backend: `src/config.js`, `src/modules/config/config.service.js`, `src/modules/streetview360/sv360.service.js`, `sv360.queries.js`.

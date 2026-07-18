@@ -8,8 +8,8 @@ O produto nasceu local-first (IndexedDB + arquivos `.ebgeo`) e o backend foi acr
 
 Os mecanismos que sustentam isso não são disciplina de código, são gates concretos:
 
-- O marcador de origem começa em `local` e é **ausente** para todo usuário pré-existente (`src/js/store/store-origin.js:31`, `DEFAULT_ORIGIN`), então a maquinaria remota só engata após um connect explícito. Ver [[store-origin-local-remoto]] e [[dominio-local-vs-remoto]].
-- O gate de papel só vale em atlas remoto conectado: `sessionContext.isOffline() || !isRemoteStoreSync()` libera tudo (`src/js/store/sync/permission-guard.js:71`). Sem isso, um usuário logado com papel global `viewer` não conseguiria desenhar no próprio store local. Ver [[permissao-vs-papel]].
+- O marcador de origem começa em `local` e é **ausente** para todo usuário pré-existente (`src/js/store/store-origin.js:31`, `DEFAULT_ORIGIN`), então a maquinaria remota só engata após um connect explícito. Ver [[dominio-local-vs-remoto]] e [[dominio-local-vs-remoto]].
+- O gate de papel só vale em atlas remoto conectado: `sessionContext.isOffline() || !isRemoteStoreSync()` libera tudo (`src/js/store/sync/permission-guard.js:71`). Sem isso, um usuário logado com papel global `viewer` não conseguiria desenhar no próprio store local. Ver [[permissoes-atlas]].
 - O log/flush de operações é gated por conexão, então deslogado nada é transmitido. Ver [[fila-operacoes-outbound]].
 
 ### A exceção única e deliberada: bootstrap de config
@@ -24,7 +24,7 @@ A colaboração é **server-authoritative last-write-wins pela ordem de chegada 
 
 Consequências práticas que um engenheiro precisa internalizar:
 
-- O relógio de Lamport viaja no envelope mas **não decide conflito** algum. Ele registra causalidade, o servidor define a ordem total. Ver [[envelope-operacao]] e [[sync-lww-operacoes]].
+- O relógio de Lamport viaja no envelope mas **não decide conflito** algum. Ele registra causalidade, o servidor define a ordem total. Ver [[envelope-operacao]] e [[modelo-conflito-lww]].
 - A granularidade do LWW é a **feição inteira**, não por propriedade. Dois usuários editando propriedades diferentes da mesma feição ao mesmo tempo não fazem merge, o último a chegar sobrescreve.
 - Delete (soft) vence updates subsequentes na ordem de chegada.
 - Idempotência é por `op_id` do cliente, então reenvio é seguro por construção. Ver [[idempotencia-e-convergence-guard]] e [[ack-idempotencia]].
@@ -41,8 +41,8 @@ O raciocínio: namespacing por atlas no IndexedDB seria um refactor pesado da ca
 
 Dois corolários que causam bug se ignorados:
 
-- O store guarda **um atlas por vez**. Trocar de atlas é destrutivo e ordenado: desconecta o anterior, limpa todo o store, conecta o novo. Não há merge implícito. Ver [[atlas]] e [[atlas-modelo-de-dados]].
-- Mapas de atlas remoto são chaveados por **UUID**; o mapa local padrão `Principal` é chaveado por nome e não tem UUID. Op cujo `mapId` de contexto não é UUID é **descartada antes de entrar na fila** (`src/js/store/sync/operation-dispatcher.js:133-136`), e o mesmo vale para op de SETTING com id não-UUID (`:120-123`). Isso serve a dois propósitos: impedir vazamento de feição local para atlas do servidor, e evitar que **uma única op inválida envenene o lote de flush e trave toda a sincronização** (o Postgres rejeita mapId não-UUID com 22P02). Ver [[fila-operacoes-pendentes]] e [[tipos-entidade-sync]].
+- O store guarda **um atlas por vez**. Trocar de atlas é destrutivo e ordenado: desconecta o anterior, limpa todo o store, conecta o novo. Não há merge implícito. Ver [[atlas-modelo-de-dados]] e [[atlas-modelo-de-dados]].
+- Mapas de atlas remoto são chaveados por **UUID**; o mapa local padrão `Principal` é chaveado por nome e não tem UUID. Op cujo `mapId` de contexto não é UUID é **descartada antes de entrar na fila** (`src/js/store/sync/operation-dispatcher.js:133-136`), e o mesmo vale para op de SETTING com id não-UUID (`:120-123`). Isso serve a dois propósitos: impedir vazamento de feição local para atlas do servidor, e evitar que **uma única op inválida envenene o lote de flush e trave toda a sincronização** (o Postgres rejeita mapId não-UUID com 22P02). Ver [[fila-operacoes-outbound]] e [[tipos-entidade-sync]].
 
 ## Dado remoto é efêmero por decisão
 
@@ -63,7 +63,7 @@ Ctrl+Z desfaz só o que o **próprio** usuário fez. Op recebida de outro colabo
 
 Não há rota REST de escrita para feature/layer/group/briefing/slide. Mutações viajam como operações. REST cuida de metadados de atlas, compartilhamento e imagens. Ver [[sintese-rest-vs-sync]], [[api-rest-atlas]] e [[tabela-operations]].
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/00-visao-geral.md:68` afirma que maps/briefings e demais entidades do atlas têm "escrita só via sync". O código expõe três escritas estruturais por REST, deliberadamente atômicas e portanto impróprias para o modelo de op: `POST /atlas/:atlasId/maps/:mapId/merge` (`backend/src/modules/maps/maps.routes.js:17`), `POST /atlas/:atlasId/maps/:mapId/duplicate` (`backend/src/modules/atlas/atlas.routes.js:44`) e o bulk `POST /atlas/import` (`backend/src/modules/atlas/atlas.routes.js:22`). Leia a regra como "escrita **incremental** só via sync".
+> [!CONTRADICAO 2026-07-18] guia *00-visao-geral* (absorvido):68` afirma que maps/briefings e demais entidades do atlas têm "escrita só via sync". O código expõe três escritas estruturais por REST, deliberadamente atômicas e portanto impróprias para o modelo de op: `POST /atlas/:atlasId/maps/:mapId/merge` (`backend/src/modules/maps/maps.routes.js:17`), `POST /atlas/:atlasId/maps/:mapId/duplicate` (`backend/src/modules/atlas/atlas.routes.js:44`) e o bulk `POST /atlas/import` (`backend/src/modules/atlas/atlas.routes.js:22`). Leia a regra como "escrita **incremental** só via sync".
 
 ## WebSocket sem backplane — a limitação de escala aceita
 
@@ -75,9 +75,9 @@ Isso significa, em termos duros:
 - O WS está acoplado ao mesmo processo HTTP (`createServer(app)` + handler de `upgrade`), então não dá para escalar WS separado do HTTP.
 - O **durável** (atlas, ops, sync, metadados 360) está no Postgres. Só o fan-out em tempo real é por-instância. A perda numa horizontalização mal feita é silenciosa, não é erro.
 
-**Caminho de menor risco em produção: uma instância do backend (escala vertical).** Horizontalizar exige sticky sessions mais backplane **antes**, não depois. O mesmo defeito de arquitetura afeta o rate limiter (`express-rate-limit` in-memory por instância, logo o limite multiplica pelo número de réplicas). Ver [[websocket-collab]], [[canal-collab-websocket]] e [[presenca-tempo-real]].
+**Caminho de menor risco em produção: uma instância do backend (escala vertical).** Horizontalizar exige sticky sessions mais backplane **antes**, não depois. O mesmo defeito de arquitetura afeta o rate limiter (`express-rate-limit` in-memory por instância, logo o limite multiplica pelo número de réplicas). Ver [[canal-collab-websocket]], [[canal-collab-websocket]] e [[presenca-colaborativa]].
 
-Compensações já implementadas dentro da instância única: backpressure por socket, com frames coalescáveis (`cursor`, `temporal`, `selection`) descartados a 1 MiB de buffer não drenado e socket terminado a 8 MiB (`backend/src/modules/collab/collab.rooms.js:13-15`). A escolha é deliberada: descartar frame de presença se auto-cura no próximo frame, descartar op durável divergiria o par em silêncio; por isso o socket travado é morto para reconectar e reaplicar via `sync_request`. Ver [[qualidade-conexao-adaptativa]] e [[presenca-away-vs-saida]].
+Compensações já implementadas dentro da instância única: backpressure por socket, com frames coalescáveis (`cursor`, `temporal`, `selection`) descartados a 1 MiB de buffer não drenado e socket terminado a 8 MiB (`backend/src/modules/collab/collab.rooms.js:13-15`). A escolha é deliberada: descartar frame de presença se auto-cura no próximo frame, descartar op durável divergiria o par em silêncio; por isso o socket travado é morto para reconectar e reaplicar via `sync_request`. Ver [[qualidade-conexao-adaptativa]] e [[presenca-colaborativa]].
 
 ## StreetView 360 absorvido
 
@@ -134,8 +134,8 @@ Nem tudo que o app faz atravessa o motor de operações. Gazetteer, catálogo 3D
 
 ## Fontes
 
-- `docs/visao-e-principios.md`: princípios P1-P12, dois domínios de dados, exceção do bootstrap de config, ciclo de vida, isolamento entre atlas, resiliência offline-first, papéis e comentário espacial, seção de decisões/não-objetivos.
-- `docs/guias/00-visao-geral.md`: decisões D1-D5, constraint do backend aditivo e contratos congelados, tabela "quem fala com o quê", três modos de operação, convenções de envelope/auth/permissões.
-- `docs/ui-ux-ebgeo.md`: estados de sessão, URL como fonte de verdade, idle timeout, Atlas Drive, modo de visualização segura, matriz de papéis na UI, decisões-chave e pendências conhecidas.
+- guia *visao-e-principios* (absorvido): princípios P1-P12, dois domínios de dados, exceção do bootstrap de config, ciclo de vida, isolamento entre atlas, resiliência offline-first, papéis e comentário espacial, seção de decisões/não-objetivos.
+- guia *00-visao-geral* (absorvido): decisões D1-D5, constraint do backend aditivo e contratos congelados, tabela "quem fala com o quê", três modos de operação, convenções de envelope/auth/permissões.
+- guia *ui-ux-ebgeo* (absorvido): estados de sessão, URL como fonte de verdade, idle timeout, Atlas Drive, modo de visualização segura, matriz de papéis na UI, decisões-chave e pendências conhecidas.
 - `docs/deploy.md`: topologia de deploy, schemas e migrações forward-only, stores binários fora do Postgres, NGINX/WebSocket, limitação de escala sem backplane, JWT de emissor único, backup/restore, troubleshooting.
 - Código verificado: `src/js/index.js` (fail-fast de config), `src/js/store/store-origin.js` (marcador de origem), `src/js/store/sync/permission-guard.js` (gate só em atlas remoto), `src/js/store/sync/operation-dispatcher.js` (drop de op não-UUID), `backend/src/modules/collab/collab.rooms.js` (salas em memória, backpressure), `backend/src/modules/sync/sync.controller.js` (LWW por ordem de chegada), `backend/src/modules/maps/maps.routes.js` e `backend/src/modules/atlas/atlas.routes.js` (exceções REST à escrita sync-only), `backend/src/app.js` e `backend/src/config.js` (absorção do sv360).

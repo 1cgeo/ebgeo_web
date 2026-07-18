@@ -46,7 +46,7 @@ Regras da renovação, exatamente como o código faz:
 - Só o **`role` global** é adotado do banco (`flexible-auth.js:100`). `org_role`/`organization_id` continuam vindo do token, deliberadamente, para preservar o degrade de tokens legados.
 - Principals de link público (`sub` no formato `public-<uuid>`, não-UUID) **nunca** deslizam: a guarda `UUID_RE.test(payload.sub)` em `flexible-auth.js:77` os exclui. O token deles é escopado ao atlas e curto por design. Ver [[link-publico]] e [[permissoes-atlas]].
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/12-multiorg-identidade-auditoria.md` (Parte 3) diz que a sliding session ocorre "quando o JWT **do cookie**" está perto de expirar; o código em `flexible-auth.js:56` resolve `token = cookie || Bearer` e a renovação em `flexible-auth.js:77-103` roda igualmente para o token vindo do header `Authorization`, gravando um `Set-Cookie` numa chamada que não usava cookie nenhum. O guia também não menciona a revalidação viva contra o banco nem o `clearCookie` de sessão morta.
+> [!CONTRADICAO 2026-07-18] guia *12-multiorg-identidade-auditoria* (absorvido) (Parte 3) diz que a sliding session ocorre "quando o JWT **do cookie**" está perto de expirar; o código em `flexible-auth.js:56` resolve `token = cookie || Bearer` e a renovação em `flexible-auth.js:77-103` roda igualmente para o token vindo do header `Authorization`, gravando um `Set-Cookie` numa chamada que não usava cookie nenhum. O guia também não menciona a revalidação viva contra o banco nem o `clearCookie` de sessão morta.
 
 ## Relação com o middleware estrito `auth`
 
@@ -59,11 +59,11 @@ Portanto: o caminho anônimo/público nunca paga a query extra; o caminho estrit
 - SPA: continue usando `Authorization: Bearer <accessToken>` e o fluxo de [[refresh-token-rotacao]]; é o caminho recomendado e o que [[sessao-boot-e-ciclo-de-vida]] descreve.
 - Cookie `token`: útil para server-rendered e multi-aba; exige CORS com `credentials: true`, já configurado em `src/app.js:49`.
 - `x-api-key`: máquina-a-máquina (scripts, serviços). Não use no browser: sem `httpOnly`, sem expiração, e a rotação invalida a chave anterior na mesma transação, sem janela de convivência (ver [[api-keys]]).
-- O canal WebSocket **não** passa por `flexibleAuth`: o token vai na query da conexão e é validado no gateway (ver [[canal-collab-websocket]] e [[websocket-collab]]).
+- O canal WebSocket **não** passa por `flexibleAuth`: o token vai na query da conexão e é validado no gateway (ver [[canal-collab-websocket]] e [[canal-collab-websocket]]).
 
 ## Fontes
 
-- `docs/guias/12-multiorg-identidade-auditoria.md`: Parte 3 (ordem de precedência, semântica não-bloqueante, sliding session de 5 min, notas de integração frontend/M2M) e Parte 4 (API key única por usuário, exigência de `is_active`).
+- guia *12-multiorg-identidade-auditoria* (absorvido): Parte 3 (ordem de precedência, semântica não-bloqueante, sliding session de 5 min, notas de integração frontend/M2M) e Parte 4 (API key única por usuário, exigência de `is_active`).
 - `ebgeo_backend/src/middleware/flexible-auth.js`: implementação real, short-circuit da API key, guarda UUID, revalidação viva antes da renovação, `clearCookie` de sessão morta, isenção de principals públicos.
 - `ebgeo_backend/src/middleware/auth.js`: middleware estrito, `extractBearerToken`, reconciliação `getLiveAuthState`, isenção `public-<uuid>`.
 - `ebgeo_backend/src/utils/org-status.js`: `getLiveAuthState` / `orgIsActive` e as regras de linha ausente.

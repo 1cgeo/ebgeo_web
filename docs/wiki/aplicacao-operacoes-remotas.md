@@ -38,7 +38,7 @@ Consequência prática do ponto 3: **o autor nunca aprende a `serverVersion` da 
 - **Early-return se `!connectionState.isOnline()`** (span `gateway.gate{offline}`). `isOnline()` é estritamente o estado `ONLINE` (`connection-state.js:62`), não `RECONNECTING`. Ops que chegassem durante reconexão são descartadas de propósito; a recuperação é o `sync_request` do handshake.
 - `advanceLamportClock(op.lamportTimestamp)`. O relógio de Lamport é **registrado, nunca usado para resolver conflito** (ver [[sintese-nao-e-crdt]] e [[modelo-conflito-lww]]).
 
-O gate existe para que a janela disconnect→clear (logout, troca de atlas) não persista dados remotos num store sendo destruído. Ver [[store-origin-local-remoto]].
+O gate existe para que a janela disconnect→clear (logout, troca de atlas) não persista dados remotos num store sendo destruído. Ver [[dominio-local-vs-remoto]].
 
 ## 3. Convergence guard (antes do switch)
 
@@ -84,7 +84,7 @@ O `false` é carregado até `:346`: um op apenas bufferizado **não** registra `
 
 `drainPendingFeatureOps(mapId)` (`:59`) replaya na ordem de chegada, e é chamado em dois pontos: `applyRemoteMapOp` CREATE (`:551`) e por mapa em `applyRemoteSnapshot` (`:1172`). Como o replay **contorna** `applyRemoteOperation`, o guard de versão é reaplicado à mão dentro do drain (`:67`, `:78-79`).
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/05-sync-crdt.md` §16 mostra `applyRemoteOperation` fazendo `mergeChanges(existing, op.changes)` no UPDATE e `store.delete(op.entityId)` num object store por entityType; o código em `src/js/store/sync/remote-operation-handler.js:431` faz `features[index] = data` (substituição cega da feição inteira, sem `op.changes` e sem criar quando ausente) e guarda as feições **dentro do registro do mapa**, não num store `features` separado. O pseudocódigo do guia é ilustrativo; a granularidade LWW é a feição inteira.
+> [!CONTRADICAO 2026-07-18] guia *05-sync-crdt* (absorvido) §16 mostra `applyRemoteOperation` fazendo `mergeChanges(existing, op.changes)` no UPDATE e `store.delete(op.entityId)` num object store por entityType; o código em `src/js/store/sync/remote-operation-handler.js:431` faz `features[index] = data` (substituição cega da feição inteira, sem `op.changes` e sem criar quando ausente) e guarda as feições **dentro do registro do mapa**, não num store `features` separado. O pseudocódigo do guia é ilustrativo; a granularidade LWW é a feição inteira.
 
 ## 6. Snapshot e pull: o mesmo destino, outra porta
 
@@ -111,7 +111,7 @@ O redesenho não é feito aqui. As camadas MapLibre reagem aos eventos de ciclo 
 
 ## Armadilhas ao mexer aqui
 
-- **Nunca chame o guard de permissão, o log de operação ou o undo** no caminho inbound (contrato no cabeçalho do arquivo, `:11-15`). Logar geraria loop de feedback; o servidor já validou permissão; undo é local por usuário. Ver [[permissao-vs-papel]].
+- **Nunca chame o guard de permissão, o log de operação ou o undo** no caminho inbound (contrato no cabeçalho do arquivo, `:11-15`). Logar geraria loop de feedback; o servidor já validou permissão; undo é local por usuário. Ver [[permissoes-atlas]].
 - **Nunca aplique ops em paralelo.** Qualquer novo chamador de `applyRemoteOperation` fora do `_applyChain` (por exemplo um `for` com `Promise.all`) reintroduz o clobber de IndexedDB. `pull()` e `sync_response` usam `for ... await` sequencial de propósito (`sync-engine.js:318`, `:416`).
 - **Persista sempre, não apenas emita.** Se você adicionar um `entityType`, escreva no mesmo store e com a mesma chave que o setter local usa, e confira se o consumidor lê por id ou por nome.
 - **Não ordene por `timestamp` nem por `lamport`.** O vencedor é sempre `max(serverVersion)`. Ver [[modelo-conflito-lww]] e [[idempotencia-e-convergence-guard]].
@@ -120,9 +120,9 @@ O redesenho não é feito aqui. As camadas MapLibre reagem aos eventos de ciclo 
 
 ## Fontes
 
-- `docs/arquitetura-sync.md` §6 (Fluxo INBOUND), §7 (snapshot/pull/boot), §"LWW por ordem de chegada" e a tabela de mensagens WS: a espinha do fluxo, o convergence guard e o mapa de responsabilidades por arquivo.
-- `docs/guias/05-sync-crdt.md` §16 e §"Eco do autor": modelo conceitual de apply remoto (pseudocódigo divergente do código, ver contradição) e a regra de self-echo.
-- `docs/guias/03-sync-inicial.md`: contrato do pull híbrido (`sinceVersion = 0` → snapshot completo) e o fato de o snapshot já vir no shape do IndexedDB do frontend.
+- guia *arquitetura-sync* (absorvido) §6 (Fluxo INBOUND), §7 (snapshot/pull/boot), §"LWW por ordem de chegada" e a tabela de mensagens WS: a espinha do fluxo, o convergence guard e o mapa de responsabilidades por arquivo.
+- guia *05-sync-crdt* (absorvido) §16 e §"Eco do autor": modelo conceitual de apply remoto (pseudocódigo divergente do código, ver contradição) e a regra de self-echo.
+- guia *03-sync-inicial* (absorvido): contrato do pull híbrido (`sinceVersion = 0` → snapshot completo) e o fato de o snapshot já vir no shape do IndexedDB do frontend.
 - `src/js/store/sync/remote-operation-handler.js`: convergence guard, buffer de feature-antes-do-mapa, todos os handlers por entidade, `reshapeSnapshotMap`, `applyRemoteSnapshot`.
 - `src/js/store/sync/ws-client.js`: roteamento por `type`, cursor `_lastVersion`, filtro de self-echo, cadeia `_applyChain`.
 - `src/js/store/sync/sync-gateway.js`: gate por `connectionState.isOnline()` e avanço do relógio de Lamport.

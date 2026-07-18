@@ -47,7 +47,7 @@ Uma função SQL `STABLE` que devolve as zonas visíveis a um usuário, unindo g
 
 ## CRUD de zonas (`/api/v1/zones`)
 
-Todas as sete rotas são `auth` + `requireAdmin` (`src/modules/zones/zones.routes.js:11-17`). Aqui, ao contrário das leituras do gazetteer, o papel vem da **claim do JWT** (`req.user.role !== 'admin'`, `src/middleware/require-admin.js:14`), não de releitura na tabela. Sem credencial é 401, autenticado sem papel é 403 (`require-admin.js:10-16`). Ver [[permissao-vs-papel]] e [[autenticacao-jwt]].
+Todas as sete rotas são `auth` + `requireAdmin` (`src/modules/zones/zones.routes.js:11-17`). Aqui, ao contrário das leituras do gazetteer, o papel vem da **claim do JWT** (`req.user.role !== 'admin'`, `src/middleware/require-admin.js:14`), não de releitura na tabela. Sem credencial é 401, autenticado sem papel é 403 (`require-admin.js:10-16`). Ver [[permissoes-atlas]] e [[autenticacao-jwt]].
 
 | Verbo | Efeito | Observação de contrato |
 |---|---|---|
@@ -80,7 +80,7 @@ Cada `PUT` gera auditoria de negócio `action: PERMISSION_GRANT`, `target_type: 
 - **Os endpoints de permissão não checam existência da zona.** `GET /zones/:id/permissions` numa zona fantasma responde 200 com `{users:[],groups:[]}`, não 404. `PUT` na mesma zona fantasma com um usuário real bate na FK de `zone_id` e volta 409 CONFLICT (`zones-gaps.test.js:180-207`). Só `GET /zones/:id` e `DELETE /zones/:id` dão 404 de verdade (`zones.service.js:29`, `:52`, `:58`).
 - **`:id` não-UUID é 422 antes do controller**, com `details` apontando o campo `id` (`zones.schemas.js:23-25`).
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/15-acesso-geografico.md` §4 tabela de erros lista apenas 401/403/404/422 para as rotas de zona, e §2.x anuncia `404 NOT_FOUND` para "zona inexistente (GET/PUT/DELETE)"; o código em `src/modules/zones/zones.service.js:62-92` não faz checagem de existência nas rotas de permissões, então `GET /zones/:id/permissions` numa zona inexistente responde 200 vazio e `PUT` responde **409 CONFLICT** (violação de FK mapeada), status ausente da tabela do documento. Comportamento fixado em `tests/integration/zones-gaps.test.js:180-207`.
+> [!CONTRADICAO 2026-07-18] guia *15-acesso-geografico* (absorvido) §4 tabela de erros lista apenas 401/403/404/422 para as rotas de zona, e §2.x anuncia `404 NOT_FOUND` para "zona inexistente (GET/PUT/DELETE)"; o código em `src/modules/zones/zones.service.js:62-92` não faz checagem de existência nas rotas de permissões, então `GET /zones/:id/permissions` numa zona inexistente responde 200 vazio e `PUT` responde **409 CONFLICT** (violação de FK mapeada), status ausente da tabela do documento. Comportamento fixado em `tests/integration/zones-gaps.test.js:180-207`.
 
 ## Follow-ups: infraestrutura no banco sem rota REST
 
@@ -108,10 +108,148 @@ Nada disso passa pelo sync de atlas: o gazetteer e as zonas são REST puro, sem 
 
 As três rotas do gazetteer passam por `nomesAccessLog` (`src/middleware/nomes-access-log.js`), que loga `userId`, `ip`, `path` e **apenas as chaves** de query, deliberadamente sem os valores: para um gazetteer militar, o termo buscado e a coordenada clicada são sensíveis e não devem cair em agregador de log (`nomes-access-log.js:7-10`). Auditoria com valores é papel do `audit_trail`. Ver [[hardening-borda-api]].
 
+
+## Contratos de request/response do CRUD de zonas
+
+## Contratos de request/response do CRUD de zonas
+
+A tabela de verbos acima diz o *efeito*; abaixo estão as formas exatas, que não se derivam do nome da rota. Envelope padrão `{ "data": ... }` ([[erros-api]]).
+
+### Campos aceitos e limites
+
+`POST /zones` e `PUT /zones/:id` compartilham literalmente o mesmo schema (`zones.schemas.js:16`):
+
+| Campo | Obrigatório | Regras (`zones.schemas.js:9-13`) |
+|---|---|---|
+| `name` | Não | string, **máx. 100 caracteres**, aceita `null`/`''` |
+| `description` | Não | string sem limite de tamanho, aceita `null`/`''` |
+| `geom` | **Sim** | objeto GeoJSON `Polygon` (`type` + `coordinates` aninhado de números), `.unknown(true)` |
+
+`PUT /zones/:id/permissions` (`zones.schemas.js:18-21`):
+
+| Campo | Obrigatório | Regras |
+|---|---|---|
+| `users` | Não, default `[]` | array de UUIDs válidos (Joi `.uuid()`) |
+| `groups` | Não, default `[]` | array de UUIDs válidos (Joi `.uuid()`) |
+
+O `default([])` é o que torna `PUT {}` equivalente a revogar tudo, não a um no-op.
+
+### `GET /zones` — 200, metadados sem geometria
+
+```json
+{
+  "data": [
+    {
+      "id": "8f3b1c2a-...",
+      "name": "Área de Operações Norte",
+      "description": "Zona de acesso restrito da operação",
+      "created_at": "2026-06-20T13:45:00.000Z"
+    },
+    {
+      "id": "1a2b3c4d-...",
+      "name": "Quartel-General",
+      "description": null,
+      "created_at": "2026-06-18T09:10:00.000Z"
+    }
+  ]
+}
+```
+
+### `GET /zones/:id` — 200, único lugar onde `geom` volta
+
+```json
+{
+  "data": {
+    "id": "8f3b1c2a-...",
+    "name": "Área de Operações Norte",
+    "description": "Zona de acesso restrito da operação",
+    "created_at": "2026-06-20T13:45:00.000Z",
+    "geom": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [-47.95, -15.80],
+          [-47.85, -15.80],
+          [-47.85, -15.70],
+          [-47.95, -15.70],
+          [-47.95, -15.80]
+        ]
+      ]
+    }
+  }
+}
+```
+
+### `POST /zones` — request e 201
+
+Request:
+
+```json
+{
+  "name": "Área de Operações Norte",
+  "description": "Zona de acesso restrito da operação",
+  "geom": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [-47.95, -15.80],
+        [-47.85, -15.80],
+        [-47.85, -15.70],
+        [-47.95, -15.70],
+        [-47.95, -15.80]
+      ]
+    ]
+  }
+}
+```
+
+Resposta 201 (**sem** `geom`, mesmo tendo acabado de recebê-la; para ver a geometria gravada, faça `GET /zones/:id`):
+
+```json
+{
+  "data": {
+    "id": "8f3b1c2a-...",
+    "name": "Área de Operações Norte",
+    "description": "Zona de acesso restrito da operação",
+    "created_at": "2026-06-20T13:45:00.000Z"
+  }
+}
+```
+
+`PUT /zones/:id` usa o mesmo corpo e devolve 200 com o mesmo shape de metadados (`created_at` preservado, é a data de criação e não de atualização).
+
+### Permissões — `GET` e `PUT` têm o mesmo shape
+
+Arrays de UUID crus, sem objeto envolvente e sem nome de usuário; para resolver UUID em nome, cruze com [[gestao-usuarios]].
+
+```json
+{
+  "data": {
+    "users": ["u-1111-...", "u-3333-..."],
+    "groups": ["g-aaaa-..."]
+  }
+}
+```
+
+O `PUT` ecoa o conjunto efetivado, o que permite usar a resposta como novo estado local sem refetch.
+
+### Corpo de erro de geometria
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid zone geometry (ST_IsValid failed)"
+  }
+}
+```
+
+Ao contrário dos 422 de Joi, este **não** traz `details` por campo: é mensagem única, então a UI não consegue apontar qual vértice está errado.
+
 ## Fontes
 
-- `docs/guias/15-acesso-geografico.md`: modelo dos três eixos de direito, contratos do CRUD `/api/v1/zones`, semântica replace-set, follow-ups não implementados.
-- `docs/guias/13-nomes-geograficos.md`: efeito do filtro nas três rotas do gazetteer, contratos congelados de resposta, caminho anônimo do `/busca`.
+- guia *15-acesso-geografico* (absorvido): modelo dos três eixos de direito, contratos do CRUD `/api/v1/zones`, semântica replace-set, follow-ups não implementados.
+- guia *13-nomes-geograficos* (absorvido): efeito do filtro nas três rotas do gazetteer, contratos congelados de resposta, caminho anônimo do `/busca`.
 - `ebgeo_backend/src/modules/nomes/nomes.queries.js`: predicados de acesso reais (`BUSCA:22-26`, `FEICOES:67-72`, `CATALOGO_SELECT:112-113`, `CATALOGO_COUNT:138-139`) e a duplicação verbatim SELECT/COUNT.
 - `ebgeo_backend/src/modules/zones/*.js`: rotas, schemas Joi, validação `ST_IsValid`, transação de replace-set com auditoria.
 - `ebgeo_backend/src/database/migrations/004_ng.sql`: DDL das zonas/grupos/permissões, defaults de `access_level`, definição de `ng.fn_user_zone_geoms`.

@@ -20,7 +20,7 @@ Tudo em `src/modules/users/users.routes.js`. Duas famílias no mesmo router, sep
 | `POST /users/:userId/reactivate` | `auth` + `requireAdmin` | |
 | `POST /users/:userId/api-key/rotate` | `auth` + `requireAdmin` | |
 
-`requireAdmin` (`src/middleware/require-admin.js:8-19`) devolve **401** quando não há `req.user` e **403 FORBIDDEN** quando `req.user.role !== 'admin'`. O papel testado aqui é o papel **global** (`user`/`admin`), não o papel por atlas nem o `org_role`, ver [[permissao-vs-papel]] e [[sintese-eixos-de-permissao]].
+`requireAdmin` (`src/middleware/require-admin.js:8-19`) devolve **401** quando não há `req.user` e **403 FORBIDDEN** quando `req.user.role !== 'admin'`. O papel testado aqui é o papel **global** (`user`/`admin`), não o papel por atlas nem o `org_role`, ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
 **A ordem das rotas importa.** `/me` e `/search` são declarados antes de `/:userId` (`users.routes.js:12-16` vs `:21`); inverter isso faria `/users/me` cair no handler admin e falhar a validação de UUID (`userIdParamsSchema`). Não reordene.
 
@@ -28,7 +28,7 @@ Tudo em `src/modules/users/users.routes.js`. Duas famílias no mesmo router, sep
 
 Este é o ponto onde a documentação está mais defasada. `users.rank_id` (FK `ranks`) e `users.organization_id` (FK `organizations`) são o que se **grava**; `posto_graduacao` e `organizacao_militar` são nomes **derivados** por `LEFT JOIN` apenas na leitura (`users.queries.js:3-6, 9-13`). A API continua devolvendo as strings, mas os corpos de escrita exigem UUID.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/09-admin.md:104-112` e `:141-150` mostram `POST/PUT /users` recebendo `"posto_graduacao": "Sgt"` e `"organizacao_militar": "CIGEx"`; o código em `src/modules/users/users.schemas.js:41-42` e `:49-50` aceita apenas `rank_id` e `organization_id` (`Joi.string().uuid()`). Enviar as strings resulta em erro de validação, os campos não são reconhecidos.
+> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido):104-112` e `:141-150` mostram `POST/PUT /users` recebendo `"posto_graduacao": "Sgt"` e `"organizacao_militar": "CIGEx"`; o código em `src/modules/users/users.schemas.js:41-42` e `:49-50` aceita apenas `rank_id` e `organization_id` (`Joi.string().uuid()`). Enviar as strings resulta em erro de validação, os campos não são reconhecidos.
 
 Corolário: a UI de admin precisa das listas controladas de postos e OMs (ver [[organizacoes-om]] e [[resources-catalogo]]) para resolver nome para UUID antes de submeter.
 
@@ -40,7 +40,7 @@ Corolário: a UI de admin precisa das listas controladas de postos e OMs (ver [[
 
 `updateProfileSchema` aceita apenas `nome` e `rank_id` (`users.schemas.js:12-15`). A ausência de `organization_id` é deliberada e está documentada no próprio código: se o usuário pudesse se mover de tenant, o próximo refresh emitiria um token com a claim de org alvo e ele passaria os portões org-scoped (projetos privados de sv360, login, WS). Movimentação de tenant é ação de admin. Ver [[jwt-emissor-unico]].
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/09-admin.md:664-665` descreve `PUT /users/me` como "Atualizar perfil" sem restrição; o schema em `src/modules/users/users.schemas.js:12-15` rejeita `organization_id` por design de isolamento de tenant.
+> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido):664-665` descreve `PUT /users/me` como "Atualizar perfil" sem restrição; o schema em `src/modules/users/users.schemas.js:12-15` rejeita `organization_id` por design de isolamento de tenant.
 
 ## Criar usuário (admin) vs auto-cadastro
 
@@ -110,7 +110,7 @@ O controller passa `req.user.id` como `actingUserId` (`users.controller.js:52`) 
 
 É defesa em profundidade contra o cenário de "último admin se tranca para fora", complementando o botão desabilitado na UI. Note a assimetria de status: auto-desativação via `PUT` é **409**, via `DELETE` é **403** (`users.service.js:211`). Não é bug, são caminhos distintos, mas o cliente precisa tratar os dois.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/09-admin.md:152` diz que na atualização "todos os campos são opcionais" e lista apenas a checagem de `username` duplicado; o código em `src/modules/users/users.service.js:140-149` adiciona duas rejeições 409 para auto-desativação e auto-rebaixamento, e `users.schemas.js:55` aceita também `email_verified`.
+> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido):152` diz que na atualização "todos os campos são opcionais" e lista apenas a checagem de `username` duplicado; o código em `src/modules/users/users.service.js:140-149` adiciona duas rejeições 409 para auto-desativação e auto-rebaixamento, e `users.schemas.js:55` aceita também `email_verified`.
 
 ## Listagem e busca
 
@@ -124,7 +124,7 @@ O controller passa `req.user.id` como `actingUserId` (`users.controller.js:52`) 
 
 Mapeamento das classes usadas aqui (`src/utils/errors.js`): `NotFoundError` 404 `NOT_FOUND`, `ForbiddenError` 403 `FORBIDDEN`, `UnauthorizedError` 401 `UNAUTHORIZED`, `ConflictError` 409 `CONFLICT`. Envelope e convenções gerais em [[erros-api]] e [[sintese-contrato-erros-http]].
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/11-seguranca-hardening.md:94-117` documenta as mensagens de login em inglês (`Invalid credentials`, `Account is deactivated`); o código em `src/modules/auth/auth.service.js:77` e `:81` emite `Usuário ou senha inválidos` e `Conta desativada`. Os `code` (`UNAUTHORIZED`) batem, as `message` não. Nunca faça o cliente ramificar por `message`.
+> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido):94-117` documenta as mensagens de login em inglês (`Invalid credentials`, `Account is deactivated`); o código em `src/modules/auth/auth.service.js:77` e `:81` emite `Usuário ou senha inválidos` e `Conta desativada`. Os `code` (`UNAUTHORIZED`) batem, as `message` não. Nunca faça o cliente ramificar por `message`.
 
 ## Fronteiras
 
@@ -132,9 +132,9 @@ Gestão de usuários é **REST puro**. Nada aqui viaja como operação de sync, 
 
 ## Fontes
 
-- `docs/guias/09-admin.md`: catálogo das rotas admin de usuários, semântica de `includeInactive`, comportamento e tabela de erros da desativação com `transferTo`, fluxo narrativo do ciclo de vida (criar, resetar, desativar, reativar).
-- `docs/guias/01-autenticacao.md`: contrato do auto-cadastro (`POST /auth/register`), validações de `username`/`password`/`nome`, regra de que novos usuários sempre nascem `role: user`, e o gate `ALLOW_SELF_REGISTRATION` com 404 quando desligado.
-- `docs/guias/11-seguranca-hardening.md`: revogação em massa de refresh tokens em troca/reset de senha e desativação, rate limit das rotas de credencial, e a escolha de 404 (não 403) para o registro desabilitado.
+- guia *09-admin* (absorvido): catálogo das rotas admin de usuários, semântica de `includeInactive`, comportamento e tabela de erros da desativação com `transferTo`, fluxo narrativo do ciclo de vida (criar, resetar, desativar, reativar).
+- guia *01-autenticacao* (absorvido): contrato do auto-cadastro (`POST /auth/register`), validações de `username`/`password`/`nome`, regra de que novos usuários sempre nascem `role: user`, e o gate `ALLOW_SELF_REGISTRATION` com 404 quando desligado.
+- guia *11-seguranca-hardening* (absorvido): revogação em massa de refresh tokens em troca/reset de senha e desativação, rate limit das rotas de credencial, e a escolha de 404 (não 403) para o registro desabilitado.
 - `ebgeo_backend/src/modules/users/{routes,controller,service,schemas,queries}.js`: contrato real dos corpos (`rank_id`/`organization_id` como UUID), padrão valor+flag para limpar nuláveis, transação da desativação, auto-guarda 409 do `PUT`, `LIMIT 20` da busca.
 - `ebgeo_backend/src/modules/auth/{auth.routes,auth.service,auth.queries,auth.schemas}.js` e `src/config.js`: montagem condicional do `/register`, `resolveAllowSelfRegistration`, default de organização no auto-cadastro, portões de `is_active` e `email_verified` no login.
 - `ebgeo_backend/src/middleware/{auth,require-admin}.js` e `src/utils/org-status.js`: reconciliação por requisição do estado vivo do usuário (desativação e demoção com efeito imediato), isenção do principal de link público.

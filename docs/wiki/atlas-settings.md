@@ -4,9 +4,9 @@ Bloco de configuração por atlas que habilita features (3D, 360, terreno) e res
 
 ## O que é
 
-`atlas.settings` é uma coluna `jsonb` da tabela `atlas`, criada com um objeto default no `POST /api/v1/atlas`. Ela não viaja pelo log de operações do sync: é lida e escrita por REST (ver [[api-rest-atlas]]) e propagada aos pares conectados por um frame WebSocket dedicado. Ou seja, settings é metadado do [[atlas]], não entidade sincronizada como feature/map/layer (ver [[tipos-entidade-sync]]).
+`atlas.settings` é uma coluna `jsonb` da tabela `atlas`, criada com um objeto default no `POST /api/v1/atlas`. Ela não viaja pelo log de operações do sync: é lida e escrita por REST (ver [[api-rest-atlas]]) e propagada aos pares conectados por um frame WebSocket dedicado. Ou seja, settings é metadado do [[atlas-modelo-de-dados]], não entidade sincronizada como feature/map/layer (ver [[tipos-entidade-sync]]).
 
-Forma completa (do default de criação, `docs/guias/02-atlas-basico.md` §2):
+Forma completa (do default de criação, guia *02-atlas-basico* (absorvido) §2):
 
 ```json
 {
@@ -34,7 +34,7 @@ O schema Joi aceita ainda `features.data_layers` e `features.analysis_layers` (l
 
 No cliente, os dois verbos são `apiClient.getAtlasSettings` / `apiClient.updateAtlasSettings` (`src/js/store/sync/api-client.js:639,648`). O gate de UI está em `src/js/account/account.control.js:480-493`, mas quem realmente decide é o backend no PATCH.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/02-atlas-basico.md` §8 mostra `setSettingsVisible(isOwner)` no exemplo de frontend, sugerindo que configurar é exclusivo do owner. A rota real exige apenas `manage` (`ebgeo_backend/src/modules/atlas/atlas.routes.js:35`), e a própria matriz do mesmo documento lista "Alterar configurações do atlas" como ✅ para `manage`. Trate como `manage`.
+> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido) §8 mostra `setSettingsVisible(isOwner)` no exemplo de frontend, sugerindo que configurar é exclusivo do owner. A rota real exige apenas `manage` (`ebgeo_backend/src/modules/atlas/atlas.routes.js:35`), e a própria matriz do mesmo documento lista "Alterar configurações do atlas" como ✅ para `manage`. Trate como `manage`.
 
 ## Armadilha nº 1: o merge é raso
 
@@ -42,7 +42,7 @@ O guia diz "PATCH permite atualização parcial, apenas os campos enviados serã
 
 Consequência prática: enviar `{"features": {"map_3d": false}}` **substitui o objeto `features` inteiro**, apagando `panoramic_images`, `terrain_3d`, etc. Como o overlay do cliente trata ausente como "ligado" (`!== false`), o efeito não é perda visível imediata, mas qualquer flag previamente desligada volta silenciosamente a ligada.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/02-atlas-basico.md` §6 apresenta `{"features": {"map_3d": false}, "max_zoom": 15}` como patch parcial seguro; o `||` em `ebgeo_backend/src/modules/atlas/atlas.queries.js:71` é merge raso e descarta as demais chaves de `features`.
+> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido) §6 apresenta `{"features": {"map_3d": false}, "max_zoom": 15}` como patch parcial seguro; o `||` em `ebgeo_backend/src/modules/atlas/atlas.queries.js:71` é merge raso e descarta as demais chaves de `features`.
 
 Por isso o modal do cliente sempre monta e envia o objeto `features` completo, junto com todas as listas de allowlist, em vez de mandar deltas (`src/js/modals/atlas-settings.modal.js:348-350`). Siga o mesmo padrão: leia com GET, mute o objeto local, mande o bloco inteiro.
 
@@ -72,7 +72,7 @@ Mapeamento de nomes entre backend e frontend: `features.panoramic_images` vira `
 1. **Conectar.** `syncEngine.connect` e `connectPublic` chamam `_applyAtlasSettingsOverlay` (`src/js/store/sync/sync-engine.js:201,235,247-255`). Ele prefere `snapshot.atlas.settings` já vindo do pull (ver [[snapshot-e-pull-incremental]]) e só cai para `GET .../settings` se o snapshot não trouxer. Falha é best-effort: mantém a config de deploy intacta.
 2. **Primeira aplicação captura o baseline** de deploy (`captureBaseline`, `atlas-settings.service.js:32-54`). `applyAtlasSettings` é idempotente: recalcula sempre a partir do baseline, nunca compõe restrição sobre restrição.
 3. **Atualização em tempo real.** O frame `atlas_settings_updated` chega pelo canal collab (ver [[canal-collab-websocket]]), é despachado em `src/js/store/sync/ws-client.js:349-351` e reaplicado em `sync-engine.js:474-487`.
-4. **Desconectar.** `disconnect()` chama `revertAtlasSettings()`, restaurando o baseline e limpando `_baseline` (`sync-engine.js:353-362`, `atlas-settings.service.js:144-167`). Coerente com a separação de [[store-origin-local-remoto]] e [[dominio-local-vs-remoto]]: no store local não existe overlay.
+4. **Desconectar.** `disconnect()` chama `revertAtlasSettings()`, restaurando o baseline e limpando `_baseline` (`sync-engine.js:353-362`, `atlas-settings.service.js:144-167`). Coerente com a separação de [[dominio-local-vs-remoto]] e [[dominio-local-vs-remoto]]: no store local não existe overlay.
 
 ### Armadilha nº 2: frame tardio após desconexão
 
@@ -98,17 +98,17 @@ O modal também só oferece basemaps habilitados no deploy (`_allBasemapIds`, `s
 
 `bounds_2d`, `min_zoom`, `max_zoom` e `default_basemap` são validados pelo backend (`ebgeo_backend/src/modules/atlas/atlas.schemas.js:26-30`, com as regras `min_zoom <= max_zoom` e `default_basemap ∈ basemaps`), persistidos e devolvidos no GET, mas **nenhum módulo do frontend os lê**: uma busca por esses identificadores em `src/js` não retorna ocorrência alguma, e nem `intersectAvailability` nem o modal os tocam. São contrato reservado, não comportamento.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/02-atlas-basico.md` §6 documenta `bounds_2d`, `min_zoom`, `max_zoom` e `default_basemap` como se afetassem a navegação e o mapa base inicial; hoje o cliente apenas os ignora (`src/js/store/sync/atlas-settings.service.js:73-93` não os considera, e o modal em `src/js/modals/atlas-settings.modal.js:348-350` nem os envia).
+> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido) §6 documenta `bounds_2d`, `min_zoom`, `max_zoom` e `default_basemap` como se afetassem a navegação e o mapa base inicial; hoje o cliente apenas os ignora (`src/js/store/sync/atlas-settings.service.js:73-93` não os considera, e o modal em `src/js/modals/atlas-settings.modal.js:348-350` nem os envia).
 
 ## Outros pontos de contato
 
 - **Clone**: as configurações do atlas são copiadas para o novo atlas (`ebgeo_backend/src/modules/atlas/atlas.service.js:283-291`); compartilhamentos e link público não. Ver [[clone-atlas]].
 - **Link público**: o visitante anônimo recebe o mesmo overlay, pois `connectPublic` também o aplica (`sync-engine.js:235`). Um visitante respeita as mesmas restrições de 3D/360/basemap. Ver [[link-publico]].
 - **Erros**: PATCH inválido retorna `VALIDATION_ERROR` 422; sem `manage`, 403 `FORBIDDEN`. Formato em [[erros-api]].
-- Alterar settings não gera operação no log; não há resolução LWW aqui (comparar com [[sync-lww-operacoes]]). O último PATCH vence, e `version` do atlas só é incrementada.
+- Alterar settings não gera operação no log; não há resolução LWW aqui (comparar com [[modelo-conflito-lww]]). O último PATCH vence, e `version` do atlas só é incrementada.
 
 ## Fontes
-- `docs/guias/02-atlas-basico.md`: forma completa do objeto `settings`, tabela de campos, endpoints GET/PATCH e permissões mínimas, matriz de permissões e formato de erro.
+- guia *02-atlas-basico* (absorvido): forma completa do objeto `settings`, tabela de campos, endpoints GET/PATCH e permissões mínimas, matriz de permissões e formato de erro.
 - `ebgeo_backend/src/modules/atlas/{atlas.routes,atlas.schemas,atlas.controller,atlas.queries,atlas.service}.js`: gates `read`/`manage`, schema Joi real (inclui `data_layers`/`analysis_layers`), merge raso `settings || $2::jsonb`, broadcast `atlas_settings_updated`, cópia no clone.
 - `src/js/store/sync/atlas-settings.service.js`: semântica de interseção, baseline, listas vazias como "sem restrição", substituição in place, allowlist 360 fora de `config`, getters de deploy.
 - `src/js/store/sync/sync-engine.js` e `ws-client.js`: aplicação no connect/connectPublic, reaplicação no frame WS, guard de frame tardio, revert no disconnect.

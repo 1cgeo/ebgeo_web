@@ -77,15 +77,15 @@ Cobertura: `tests/integration/remote-operation-handler.test.js` (bloco "Converge
 Nenhuma divergência entre os documentos lidos e o código. Registro apenas duas notas de código:
 
 - `applyRemoteFeatureOp` é declarada com 5 parâmetros (`remote-operation-handler.js:389`) mas chamada com 7 (`:68`, `:282`, passando `opId` e `traceId`); os dois extras são ignorados dentro da função e os spans de [[syncledger]] correspondentes são emitidos pelos chamadores.
-- `docs/arquitetura-sync.md:350` já corrige uma versão anterior de si mesmo que listava a convergência concorrente como "limite conhecido"; esse texto descrevia o estado pré-guard e não vale mais.
+- guia *arquitetura-sync* (absorvido):350` já corrige uma versão anterior de si mesmo que listava a convergência concorrente como "limite conhecido"; esse texto descrevia o estado pré-guard e não vale mais.
 
 ## Relacionados
 
-[[envelope-operacao]], [[modelo-conflito-lww]], [[fila-operacoes-outbound]], [[aplicacao-operacoes-remotas]], [[tabela-operations]], [[ack-idempotencia]], [[snapshot-e-pull-incremental]], [[sync-lww-operacoes]], [[sintese-nao-e-crdt]], [[syncledger]].
+[[envelope-operacao]], [[modelo-conflito-lww]], [[fila-operacoes-outbound]], [[aplicacao-operacoes-remotas]], [[tabela-operations]], [[ack-idempotencia]], [[snapshot-e-pull-incremental]], [[modelo-conflito-lww]], [[sintese-nao-e-crdt]], [[syncledger]].
 
 ## Fontes
-- `docs/guias/05-sync-crdt.md`: seção 12 (idempotência por `op_id`, ack `idempotent`, `op_id` nunca nulo por validação 422) e seção 15 (dispatcher, por que reenviar a fila inteira é seguro).
-- `docs/arquitetura-sync.md`: §11 (LWW + idempotência + guardas de convergência), passo 5/6 do fluxo de push (`recordPushAcks`, `ON CONFLICT`), §tabela `operations`, lista `CONVERGENCE_GUARDED`.
+- guia *05-sync-crdt* (absorvido): seção 12 (idempotência por `op_id`, ack `idempotent`, `op_id` nunca nulo por validação 422) e seção 15 (dispatcher, por que reenviar a fila inteira é seguro).
+- guia *arquitetura-sync* (absorvido): §11 (LWW + idempotência + guardas de convergência), passo 5/6 do fluxo de push (`recordPushAcks`, `ON CONFLICT`), §tabela `operations`, lista `CONVERGENCE_GUARDED`.
 - `src/js/store/sync/remote-operation-handler.js`: implementação do guard (defer, `shouldApplyVersion`, `resolveLocalEdit`, `reconcilePendingLocalEdits`, buffer de feições órfãs).
 - `src/js/store/sync/sync-engine.js`: `recordPushAcks` e `_reconcileConvergenceGuard` no flush.
 - `src/js/store/sync/operation-dispatcher.js`: ponto de `markLocalEditPending`.

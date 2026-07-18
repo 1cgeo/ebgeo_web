@@ -38,7 +38,7 @@ Ambos em `logOperation` e replicados em `logBatchOperations` (`operation-dispatc
 1. **`setting` com id não-UUID e diferente de `'atlas'`** (`operation-dispatcher.js:120`). Chaves locais como `lastActiveMap` são estado de visualização por cliente e o Postgres rejeitaria com 22P02. Motivo: `DropReason.NON_UUID_SETTING_ID`.
 2. **Qualquer op com `mapId` presente e não-UUID** (`operation-dispatcher.js:133`). É o anti-vazamento do mapa local `Principal`, que é chaveado por nome. Motivo: `DropReason.NON_UUID_MAPID`. Ops de nível-atlas passam `mapId = null` e não são afetadas.
 
-Os descartes viram spans `preflush.drop` no [[syncledger]]. Se algo "não sincronizou e não deu erro", esse é o primeiro lugar a olhar. A separação entre o que é local e o que é remoto está em [[store-origin-local-remoto]] e [[dominio-local-vs-remoto]].
+Os descartes viram spans `preflush.drop` no [[syncledger]]. Se algo "não sincronizou e não deu erro", esse é o primeiro lugar a olhar. A separação entre o que é local e o que é remoto está em [[dominio-local-vs-remoto]] e [[dominio-local-vs-remoto]].
 
 ## Sub-entidades de mapa
 
@@ -54,7 +54,7 @@ Cinco tipos que não têm tabela própria, o backend os converte em `UPDATE` na 
 
 Na entrada, todos os cinco caem no mesmo `case` agrupado e vão para `applyRemoteMapSettingOp(entityType, mapId, data)` (`remote-operation-handler.js:320-326`, implementação em `:848`). Note que esse handler ignora `operationType`: sub-entidade de mapa só faz sentido como update.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/05-sync-crdt.md:122` e `:130-134` dizem que `mapTemporal` é "gated" e que "o frontend ainda não emite a op de sync", deixando `temporal_config` no default `{}`. O código emite: `src/js/store/temporal.operations.js:107` chama `logMapTemporalOperation(OperationType.UPDATE, mapManager.getMapId(target), next)` a cada `setMapTemporalConfig`, com o UUID resolvido justamente para passar o guard. A config temporal por mapa **sincroniza**. Continua verdade que dados temporais **por feição** (`temporalInicio`, `temporalFim`, `trajetoria`) viajam verbatim dentro de `data.properties` numa op `feature` normal, sem depender disso. Ver [[modulo-temporal]].
+> [!CONTRADICAO 2026-07-18] guia *05-sync-crdt* (absorvido):122` e `:130-134` dizem que `mapTemporal` é "gated" e que "o frontend ainda não emite a op de sync", deixando `temporal_config` no default `{}`. O código emite: `src/js/store/temporal.operations.js:107` chama `logMapTemporalOperation(OperationType.UPDATE, mapManager.getMapId(target), next)` a cada `setMapTemporalConfig`, com o UUID resolvido justamente para passar o guard. A config temporal por mapa **sincroniza**. Continua verdade que dados temporais **por feição** (`temporalInicio`, `temporalFim`, `trajetoria`) viajam verbatim dentro de `data.properties` numa op `feature` normal, sem depender disso. Ver [[modulo-temporal]].
 
 ## Aliases 3D/360 e o `data_type`
 
@@ -86,7 +86,7 @@ No snapshot as duas formas coexistem: `map.catalogLayers[]` (por-camada, com `sy
 
 `logAtlasSetting(patch)` (`operation-dispatcher.js:346`) resolve o id do atlas best-effort e cai no sentinela `'atlas'` se não conseguir. Isso é seguro porque **o handler de `setting` do backend escopa pela rota (`:atlasId`) e ignora o `entityId`**. O merge em `atlas.settings` é whitelisted, chaves de disponibilidade de recurso nunca entram por aqui (`arquitetura-sync.md:283`), o que é a fronteira entre [[atlas-settings]] e edição colaborativa comum.
 
-Chamadores reais: `mapOrder` e `mapBadgeColors` (`map.operations.js:161`, `:723`), `customIcons` (`customIcons.operations.js:131`), `colorUsage` (`repository.js:424`), `terrainExaggeration` (`modals/settings.modal.js:228`). Todos podem ser chamados incondicionalmente porque o logger é no-op quando o logging está desligado (offline). Ver [[atlas]] e [[atlas-modelo-de-dados]].
+Chamadores reais: `mapOrder` e `mapBadgeColors` (`map.operations.js:161`, `:723`), `customIcons` (`customIcons.operations.js:131`), `colorUsage` (`repository.js:424`), `terrainExaggeration` (`modals/settings.modal.js:228`). Todos podem ser chamados incondicionalmente porque o logger é no-op quando o logging está desligado (offline). Ver [[atlas-modelo-de-dados]] e [[atlas-modelo-de-dados]].
 
 ## Nem todo tipo converge igual
 
@@ -94,7 +94,7 @@ Chamadores reais: `mapOrder` e `mapBadgeColors` (`map.operations.js:161`, `:723`
 
 `feature`, `layer`, `group`, `marker3d`, `measurement3d`, `viewshed3d`, `cameraPosition3d`, `orientation360`, `marker360`.
 
-**Ficam de fora, deliberadamente:** `map`, `briefing`, `slide`, `comment`, `setting`, `catalogLayer` e as cinco sub-entidades de mapa. Para elas vale apenas o último a chegar, sem defesa contra reordenação. Detalhe do mecanismo em [[idempotencia-e-convergence-guard]], modelo geral em [[modelo-conflito-lww]] e [[sync-lww-operacoes]], e o porquê disso não ser CRDT em [[sintese-nao-e-crdt]].
+**Ficam de fora, deliberadamente:** `map`, `briefing`, `slide`, `comment`, `setting`, `catalogLayer` e as cinco sub-entidades de mapa. Para elas vale apenas o último a chegar, sem defesa contra reordenação. Detalhe do mecanismo em [[idempotencia-e-convergence-guard]], modelo geral em [[modelo-conflito-lww]] e [[modelo-conflito-lww]], e o porquê disso não ser CRDT em [[sintese-nao-e-crdt]].
 
 O mesmo conjunto governa o lado de saída: `logOperation` só chama `markLocalEditPending(entityId)` para tipos guardados (`operation-dispatcher.js:147`).
 
@@ -106,7 +106,7 @@ Isso significa que uma op `slide` isolada que chegue de um peer **não altera na
 
 ## `comment` e a fronteira de permissão
 
-`comment` é map-scoped (carrega o UUID do mapa) e é o único tipo com um degrau de permissão próprio: `permission-guard.js:41-43` mapeia create/update/delete de comentário para `PermissionAction.COMMENT`, acessível a partir do papel Comentarista, enquanto as demais entidades exigem `write`. O backend repete a checagem por operação (`assertOperationAllowed`): um usuário `comment`-tier só escreve comentários. Ver [[comentario-espacial]], [[permissoes-atlas]] e [[permissao-vs-papel]].
+`comment` é map-scoped (carrega o UUID do mapa) e é o único tipo com um degrau de permissão próprio: `permission-guard.js:41-43` mapeia create/update/delete de comentário para `PermissionAction.COMMENT`, acessível a partir do papel Comentarista, enquanto as demais entidades exigem `write`. O backend repete a checagem por operação (`assertOperationAllowed`): um usuário `comment`-tier só escreve comentários. Ver [[comentario-espacial]], [[permissoes-atlas]] e [[permissoes-atlas]].
 
 ## Tabela de roteamento no backend
 
@@ -133,12 +133,106 @@ O log persistido é o mesmo para todos os tipos, ver [[tabela-operations]].
 7. **Contar com o guard de convergência em `map`/`briefing`/`comment`.** Eles não estão em `CONVERGENCE_GUARDED`.
 8. **Compactação da fila agrupa por `entityType:entityId`** (`operation-queue.js:272`). Como as sub-entidades de mapa compartilham `entityId === mapId`, elas só não colidem porque o `entityType` difere, um tipo novo que reuse o id do mapa passa a competir por esse grupo.
 
-Identidade do emissor em [[client-id-estavel]]; confirmação e dedupe em [[ack-idempotencia]]; transporte em [[websocket-collab]]; aplicação no destino em [[aplicacao-operacoes-remotas]]; contratos que não podem mudar em [[sintese-contratos-congelados]].
+Identidade do emissor em [[client-id-estavel]]; confirmação e dedupe em [[ack-idempotencia]]; transporte em [[canal-collab-websocket]]; aplicação no destino em [[aplicacao-operacoes-remotas]]; contratos que não podem mudar em [[sintese-contratos-congelados]].
+
+
+## Payload de `create` por entityType (shape do `data`)
+
+## Payload de `create` por entityType (shape do `data`)
+
+O conteúdo de `data` é **snake_case, no vocabulário das colunas do backend**, não o camelCase do store local. O envelope em volta está em [[envelope-operacao]]; aqui só o miolo.
+
+| entityType | Chaves esperadas em `data` |
+|---|---|
+| `feature` | `feature_type`, `geometry` (GeoJSON), `properties` (JSONB livre), `layer_id` (ou `null`) |
+| `layer` | `name`, `visible`, `locked`, `sort_order`, `style` |
+| `group` | `name`, `visible`, `locked`, `style`, `parent_id` (aninhamento) |
+| `group_feature` | `group_id`, `feature_id` |
+| `map` | `name`, `base_layer`, `center_lat`, `center_long`, `zoom`, `bearing`, `pitch`, `analysis_layers`, `catalog_layers` |
+| `briefing` | `name`, `description`, `settings` (ex. `{ panelPosition, panelWidth }`) |
+| `slide` | `briefing_id`, `title`, `content`, `mode` (`2d`/`3d`/`360`), `map_id`, `position`, `orientation`, `temporal_cursor` |
+| `marker3d` e irmãos 3D | `tileset_id`, `position` (`{ longitude, latitude, height }`), `properties` |
+| `catalogLayer` | shape livre da camada (`name`, `source`, `url`, `visible`, ...) — ver dual-mode acima |
+
+Exemplo canônico (feature):
+
+```json
+{
+  "id": "op-uuid",
+  "entityType": "feature",
+  "operationType": "create",
+  "entityId": "feat-uuid",
+  "mapId": "map-uuid",
+  "timestamp": 1699999999999,
+  "clientId": "client-uuid",
+  "data": {
+    "feature_type": "point",
+    "geometry": { "type": "Point", "coordinates": [-47.9, -15.7] },
+    "properties": { "name": "Posto de Observação", "color": "#FF0000" },
+    "layer_id": null
+  }
+}
+```
+
+### Tolerâncias de shape que o backend aceita sem conversão no cliente
+
+O store real não emite exatamente o shape canônico, e o backend absorve a diferença:
+
+1. **Feature como GeoJSON cru.** `{ "type": "Feature", "geometry": …, "properties": … }`, com o tipo em `properties.source` e a camada em `properties.layerId`. O backend deriva `feature_type` e `layer_id` quando eles não estão no topo de `data`.
+2. **3D/360 no shape plano camelCase.** `{ id, tilesetId | photoName, position, properties, style, sync }` é reagrupado para `{ data_type, tileset_id | photo_name, data: { …resto } }`.
+3. **`temporal_cursor` do slide (v2.2)** é persistido no create/update e devolvido no snapshot como `temporalCursor`, junto de `order` e `sync` por slide. Ver [[modulo-temporal]].
+4. **`lamportTimestamp`** é persistido e **ecoado** no pull incremental — é dele que o cliente avança o relógio de Lamport em toda op de entrada.
+
+> Armadilha: `slide` só tem efeito inbound pela op do `briefing` pai (ver seção acima), então essas chaves de `data` importam no que o servidor grava, não no que o peer aplica.
+
+
+## Estado de UI: o que é compartilhado e o que é local por usuário
+
+## Estado de UI: o que é compartilhado e o que é local por usuário
+
+O enum de `EntityType` diz o que *pode* virar operação, mas não responde a pergunta que aparece toda vez que se mexe na interface: **este controle é preferência de quem clicou ou é estado do mapa que todos veem?** O inventário abaixo é a classificação canônica por superfície de UI. Errar o lado é o bug mais comum de feature nova: ou o usuário sobrescreve a visão dos pares sem querer, ou uma configuração que deveria ser do mapa morre no cliente.
+
+### Compartilhado (vira operação, LWW por ordem de chegada)
+
+| Controle na UI | Como viaja | Escopo |
+|---|---|---|
+| Seletor de camada base | `baseLayer` (sub-entidade de mapa) | mapa |
+| Grade Lat/Long ou UTM, e desligar a grade | `gridStyle` → `{ format, visible }` | mapa |
+| Salvar / limpar posição do mapa (centro, zoom, bearing, pitch) | `mapPosition` | mapa |
+| Notas do mapa (rich text) | `mapNotes` → `{ title, description }` | mapa |
+| Ativar controle temporal, unidade, modo, limites, origem | `mapTemporal` | mapa |
+| Visibilidade e bloqueio de camada, ordem de renderização | op `layer` | mapa |
+| Visibilidade (`visivel`) e bloqueio (`bloqueado`) de feição, inclusive em lote | op `feature` por feição | mapa |
+| Visibilidade/remoção de camada do catálogo e de camada de análise | op `catalogLayer` (ou array legado em `maps.catalog_layers`) | mapa |
+| Visibilidade e bloqueio de grupo (propaga às feições) | op `group` | mapa |
+| Ordem dos mapas, cores de badge, ícones customizados, exagero de terreno | op `setting` (`mapOrder`, `mapBadgeColors`, `customIcons`, `terrainExaggeration`) | **atlas**, não mapa |
+
+Duas armadilhas de escopo nessa tabela: **exagero de terreno é atlas-wide** (`atlas.settings.terrainExaggeration`), então mudá-lo em um mapa muda em todos; e **visibilidade de feição/camada não é preferência de visualização**, é propriedade persistida — esconder uma camada esconde para todo mundo no atlas.
+
+### Local por usuário (nunca vira operação, por design)
+
+| Controle na UI | Observação |
+|---|---|
+| Camada ativa (radio na aba Camadas) | cada usuário recebe suas feições novas na própria camada ativa |
+| Seleção de feições, multi-seleção, zoom para seleção | espelhada como *awareness*, não como dado ([[presenca-colaborativa]]) |
+| Ferramenta ativa, geometria em construção, cancelar com Escape | só o resultado ao concluir vira `feature` |
+| Snap ligado/desligado (G) | preferência de desenho |
+| Medições efêmeras de distância/área/ângulo (J/H/X) | só sincroniza se o usuário usar "Salvar como feição" |
+| Cursor temporal, play/pause, velocidade, modo revelar | ver [[modulo-temporal]] |
+| Toggle de terreno, de visualizador 3D e de visualizador 360 | modo de visualização; o *conteúdo* 3D/360 sincroniza, a exibição não |
+| Formato de coordenadas (DD/DMS/MGRS/UTM), toggle de elevação e de zoom | display do canto inferior esquerdo |
+| Expandir/colapsar camada, grupo, tileset, foto 360 | estado de árvore |
+| Tabela de atributos: ordenação, busca, chips de tipo, "apenas selecionados", hover, tamanho do painel | filtro visual; edição de célula é que vira `feature` |
+| Navegação da apresentação de briefing e o lock temporário (`setBriefingLockOverride`) | quem apresenta não trava o mapa dos outros |
+| Configuração de exportação (PDF, DPI, escala, elementos cartográficos, bbox do Garmin KMZ) e deep-links copiados | nada disso toca o atlas |
+| Pan, zoom, rotação, pitch, mapa ativo | navegação; o mapa ativo aparece só como presença |
+
+Regra para código novo: se o controle responde "o que **eu** estou olhando", ele é local e não deve chamar nenhum `logXxxOperation`; se responde "como o mapa **é**", ele precisa de um `EntityType` e de um `case` inbound. Estado local que escapa para `logSettingOperation` é descartado no pré-flush pelo guard de `setting` não-UUID, silenciosamente.
 
 ## Fontes
-- `docs/guias/05-sync-crdt.md`: tabela de targets/EntityTypes, sub-entidades de mapa e colunas, mapeamento de aliases 3D/360 para `data_type`, dual-mode do `catalogLayer`, exemplos de payload por tipo, tolerância de shape do store real.
-- `docs/guias/03-sync-inicial.md`: formato do snapshot e o `getStoreForEntityType` de referência (inclui `group_feature` e `catalog_layer`, que o frontend não emite).
-- `docs/arquitetura-sync.md`: lista canônica do `EntityType`, `ENTITY_TYPE_MAP`/`REVERSE_ENTITY_TYPE_MAP`, `tableMap` do backend, lock gate por alvo filho, regras de create/update/delete/setting, reagrupamento hierárquico 3D/360 no snapshot.
+- guia *05-sync-crdt* (absorvido): tabela de targets/EntityTypes, sub-entidades de mapa e colunas, mapeamento de aliases 3D/360 para `data_type`, dual-mode do `catalogLayer`, exemplos de payload por tipo, tolerância de shape do store real.
+- guia *03-sync-inicial* (absorvido): formato do snapshot e o `getStoreForEntityType` de referência (inclui `group_feature` e `catalog_layer`, que o frontend não emite).
+- guia *arquitetura-sync* (absorvido): lista canônica do `EntityType`, `ENTITY_TYPE_MAP`/`REVERSE_ENTITY_TYPE_MAP`, `tableMap` do backend, lock gate por alvo filho, regras de create/update/delete/setting, reagrupamento hierárquico 3D/360 no snapshot.
 - `src/js/store/sync/operation-types.js`: enum congelado e validadores.
 - `src/js/store/sync/operation-dispatcher.js`: guards de preflush, as três famílias de logger, `logAtlasSetting`.
 - `src/js/store/sync/remote-operation-handler.js`: switch de roteamento inbound, `CONVERGENCE_GUARDED`, no-op do `slide`.

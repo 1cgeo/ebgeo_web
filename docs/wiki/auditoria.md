@@ -63,7 +63,7 @@ O CHECK aceita 15 ações (`001_core.sql:172-177`): `LOGIN`, `LOGOUT`, `USER_CRE
 Implicações concretas, não conte com o CHECK como se fosse cobertura:
 
 - **`LOGIN`/`LOGOUT` não existem na trilha.** Auditoria de sessão não está implementada. Quem precisa disso hoje só tem o log operacional.
-- **`ATLAS_DELETE` e `SHARING_CHANGE` não são emitidas**, apesar de [[atlas]] e [[compartilhamento-atlas]] serem mutações sensíveis.
+- **`ATLAS_DELETE` e `SHARING_CHANGE` não são emitidas**, apesar de [[atlas-modelo-de-dados]] e [[compartilhamento-atlas]] serem mutações sensíveis.
 - **`PERMISSION_REVOKE` nunca é emitida.** `setZonePermissions` é replace-set e grava `PERMISSION_GRANT` sempre, inclusive quando o array chega vazio, o que na prática é uma revogação total (`zones.service.js:74-90`). Para saber se houve revogação é preciso comparar `details.before` com `details.after`, não olhar a `action`. Ver [[zonas-acesso-geografico]].
 - `target_type` `GROUP`, `MODEL` e `SYSTEM` estão no CHECK mas nenhum call site os usa.
 
@@ -125,11 +125,11 @@ As linhas saem em **snake_case** (`action`, `actor_id`, `target_type`, ...), sem
 
 O cliente web **não consome `/api/v1/audit`**: não há nenhuma referência a essa rota em `ebgeo_web/src/`. A tela de auditoria do painel de administrador ainda é item de checklist, não código. Quem for construí-la precisa tratar os três pontos acima (envelope aninhado, paginação 1-based, omitir filtros vazios) e tolerar `actor_id` sem usuário correspondente.
 
-Nada disso passa pelo pipeline de operações de [[sync-lww-operacoes]] ou pelo [[envelope-operacao]]: auditoria é REST puro, admin-only, e não gera nem consome operações de colaboração. Para o que o admin pode fazer sobre o sync em si, ver [[sync-admin-operacoes]] e [[hardening-borda-api]].
+Nada disso passa pelo pipeline de operações de [[modelo-conflito-lww]] ou pelo [[envelope-operacao]]: auditoria é REST puro, admin-only, e não gera nem consome operações de colaboração. Para o que o admin pode fazer sobre o sync em si, ver [[sync-admin-operacoes]] e [[hardening-borda-api]].
 
 ## Fontes
 
-- `docs/guias/12-multiorg-identidade-auditoria.md`: Parte 5 (shape do evento, lista de ações do CHECK, subconjunto realmente gravado, contrato de `GET /api/v1/audit`, envelope aninhado, paginação 1-based, tabela consolidada de erros).
+- guia *12-multiorg-identidade-auditoria* (absorvido): Parte 5 (shape do evento, lista de ações do CHECK, subconjunto realmente gravado, contrato de `GET /api/v1/audit`, envelope aninhado, paginação 1-based, tabela consolidada de erros).
 - `ebgeo_backend/src/database/migrations/001_core.sql:165-192`: DDL de `audit_trail`, CHECKs de `action` e `target_type`, ausência de FK em `actor_id`, índices.
 - `ebgeo_backend/src/utils/audit.js`: assinatura de `createAudit`, argumento `t` opcional, fallback `ip = 'system'`, serialização de `details`.
 - `ebgeo_backend/src/modules/audit/{routes,controller,service,queries,schemas}.js`: cadeia `auth`/`requireAdmin`/`validate`, SQL de filtros opcionais, offset 1-based, envelope duplo.

@@ -26,7 +26,7 @@ Defaults em `config.js:92-99`; montagem em `src/modules/auth/auth.routes.js:15-2
 - **Pulado em teste.** `skip = () => config.isTest && process.env.RATE_LIMIT_FORCE !== '1'` (`rate-limit.js:18`). O store em memória acumularia ao longo da suíte inteira. Um teste que queira exercitar o limitador precisa setar `RATE_LIMIT_FORCE=1` e usar chave isolada.
 - No cliente, `429` **não** é `401`: não dispare logout nem refresh, só backoff.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/11-seguranca-hardening.md` §1.1 lista o limitador estrito apenas em `/auth/{login,refresh,register}`; o código em `src/modules/auth/auth.routes.js:18-19` também o aplica a `/auth/verify-email` e `/auth/resend-verification`.
+> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido) §1.1 lista o limitador estrito apenas em `/auth/{login,refresh,register}`; o código em `src/modules/auth/auth.routes.js:18-19` também o aplica a `/auth/verify-email` e `/auth/resend-verification`.
 
 ## 2. Login timing-safe e mensagem genérica
 
@@ -45,7 +45,7 @@ Os demais desfechos do login **são** distinguíveis, e cada um merece tratament
 
 O caso `EMAIL_NOT_VERIFIED` tem `code` próprio justamente para a UI oferecer "reenviar confirmação"; ver [[gestao-usuarios]] e [[organizacoes-om]] para o gate de organização inativa.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/11-seguranca-hardening.md` §2 e §3.2 documentam as mensagens em inglês (`Invalid credentials`, `Account is deactivated`, `Invalid refresh token`); o código emite português: `Usuário ou senha inválidos` (`auth.service.js:76`), `Conta desativada` (`auth.service.js:80`), `Sessão inválida. Entre novamente.` (`auth.service.js:127`). Nunca faça match por string de mensagem, use o `code`.
+> [!CONTRADICAO 2026-07-18] guia *11-seguranca-hardening* (absorvido) §2 e §3.2 documentam as mensagens em inglês (`Invalid credentials`, `Account is deactivated`, `Invalid refresh token`); o código emite português: `Usuário ou senha inválidos` (`auth.service.js:76`), `Conta desativada` (`auth.service.js:80`), `Sessão inválida. Entre novamente.` (`auth.service.js:127`). Nunca faça match por string de mensagem, use o `code`.
 
 ## 3. JWT: allowlist HS256
 
@@ -53,7 +53,7 @@ O caso `EMAIL_NOT_VERIFIED` tem `code` próprio justamente para a UI oferecer "r
 
 - REST estrito: `src/middleware/auth.js:30`
 - Auth não bloqueante (anônimo preservado): `src/middleware/flexible-auth.js:61`, ver [[auth-flexivel]]
-- Handshake do WebSocket: `src/modules/collab/collab.gateway.js:241`, ver [[websocket-collab]] e [[canal-collab-websocket]]
+- Handshake do WebSocket: `src/modules/collab/collab.gateway.js:241`, ver [[canal-collab-websocket]] e [[canal-collab-websocket]]
 
 Sem a allowlist, `jsonwebtoken` aceitaria o `alg` declarado **no próprio token**, abrindo o ataque clássico de `alg: none` e a confusão HS/RS. A emissão é igualmente pinada (`algorithm: 'HS256'`, `auth.service.js:40`).
 
@@ -76,7 +76,7 @@ Entenda o escopo: essa CSP protege as **respostas da API** (JSON), não a págin
 
 `GET /api/v1/health` (`app.js:78-87`) é readiness de verdade: executa `SELECT 1 AS ok` no banco. Sucesso devolve `{ "status": "ok" }`; falha devolve `503` com `code: SERVICE_UNAVAILABLE` e mensagem `Database unavailable`. É montado antes de qualquer rota autenticada e não passa por auth.
 
-Serve para orquestração e monitoramento, **não** para o boot do frontend. O app decide por `GET /api/config` (ver [[config-runtime-urls-relativas]] e [[config-dinamico]]), com fail-fast; não existe modo offline para o qual cair quando existe backend configurado (a distinção local/remoto é outra coisa, ver [[store-origin-local-remoto]] e [[dominio-local-vs-remoto]]). O frontend hoje não chama `/health` em lugar nenhum. Não faça polling agressivo: cada chamada dispara uma query.
+Serve para orquestração e monitoramento, **não** para o boot do frontend. O app decide por `GET /api/config` (ver [[config-runtime-urls-relativas]] e [[config-dinamico]]), com fail-fast; não existe modo offline para o qual cair quando existe backend configurado (a distinção local/remoto é outra coisa, ver [[dominio-local-vs-remoto]] e [[dominio-local-vs-remoto]]). O frontend hoje não chama `/health` em lugar nenhum. Não faça polling agressivo: cada chamada dispara uma query.
 
 ## 6. Boot fail-fast de ambiente
 
@@ -124,7 +124,7 @@ O `429` é escrito diretamente pelo handler do limitador e **não** passa pelo `
 
 ## Fontes
 
-- `docs/guias/11-seguranca-hardening.md`: estrutura dos mecanismos de borda (rate limiting, timing-safe, HS256, helmet, health, fail-fast, self-registration) e notas de integração para o cliente.
+- guia *11-seguranca-hardening* (absorvido): estrutura dos mecanismos de borda (rate limiting, timing-safe, HS256, helmet, health, fail-fast, self-registration) e notas de integração para o cliente.
 - `ebgeo_backend/src/middleware/rate-limit.js`: chaves, janelas, `skip` em teste, `validate: false`, handler do 429.
 - `ebgeo_backend/src/config.js`: defaults de `rateLimit`, allowlist `algorithms: ['HS256']`, `resolveAllowSelfRegistration`, corpo de `validateEnvVariables`.
 - `ebgeo_backend/src/app.js`: configuração do helmet/CSP/HSTS/CORP, CORS, health check com `SELECT 1`, 404 genérico.

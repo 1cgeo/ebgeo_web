@@ -36,7 +36,7 @@ Armadilhas de coerção, verificadas rodando os schemas reais contra `VALIDATION
 - `{"calibration_reviewed": "true"}` **passa** e vira `true`.
 - `stripUnknown: true` está ligado globalmente, mas `.unknown(false)` explícito no schema vence: campo desconhecido dá 422, não é silenciosamente removido.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/16-streetview-360.md:386` diz que a validação numérica "rejeita `NaN`/`Infinity`/string" e que `calibration_reviewed` é "booleano estrito"; o código em `src/modules/streetview360/sv360.write.schemas.js:25,31` usa `Joi.number()`/`Joi.boolean()` com `convert` no padrão, então `"45"` e `"true"` são **coeridos e aceitos**. `NaN`/`Infinity` esses sim são rejeitados.
+> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido):386` diz que a validação numérica "rejeita `NaN`/`Infinity`/string" e que `calibration_reviewed` é "booleano estrito"; o código em `src/modules/streetview360/sv360.write.schemas.js:25,31` usa `Joi.number()`/`Joi.boolean()` com `convert` no padrão, então `"45"` e `"true"` são **coeridos e aceitos**. `NaN`/`Infinity` esses sim são rejeitados.
 
 ## Três formas de escrever calibração
 
@@ -77,13 +77,13 @@ A criação usa os **nomes internos** `distance_m`/`bearing_deg` (`createTargetB
 
 Isso pesa porque no cliente `override_bearing` é o **gatilho** de todo o caminho de override: `navigator.js:391` só projeta por override se `override_bearing != null`, e nesse caso usa `override_distance ?? 5` e `override_height ?? 0` (`:394-396`). Logo, limpar `override_bearing` sozinho desativa silenciosamente a distância e a altura ajustadas manualmente, e limpar a distância sozinho faz a projeção cair para 5 metros default.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/16-streetview-360.md:436` descreve o override como "define (número) ou limpa (`null`) ... (≥1 campo)", sugerindo que campos omitidos são preservados; o código em `src/modules/streetview360/sv360.write.service.js:145-151` grava as três colunas em toda chamada, então campo omitido vira `NULL`.
+> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido):436` descreve o override como "define (número) ou limpa (`null`) ... (≥1 campo)", sugerindo que campos omitidos são preservados; o código em `src/modules/streetview360/sv360.write.service.js:145-151` grava as três colunas em toda chamada, então campo omitido vira `NULL`.
 
 ### Armadilha nº 2: re-delete de foto devolve 204, não 404
 
 `softDeletePhoto` (`sv360.write.service.js:229-234`) grava tombstone com `ON CONFLICT DO NOTHING` e a posse resolve pela query que **mantém** tombstoned. A segunda chamada é um no-op limpo: 204. O teste de integração fixa isso explicitamente (`tests/integration/sv360-write.test.js:497-501`). A foto some de todas as leituras, inclusive do blob da imagem, inclusive para anônimo em projeto `enabled`.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/16-streetview-360.md:463` diz "1ª chamada → 204; chamadas seguintes → 404"; o código (`sv360.write.service.js:229-234` + `GET_PHOTO_FOR_WRITE` em `sv360.write.queries.js:35-38`) e o teste `tests/integration/sv360-write.test.js:497-501` dão **204 idempotente** no re-delete.
+> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido):463` diz "1ª chamada → 204; chamadas seguintes → 404"; o código (`sv360.write.service.js:229-234` + `GET_PHOTO_FOR_WRITE` em `sv360.write.queries.js:35-38`) e o teste `tests/integration/sv360-write.test.js:497-501` dão **204 idempotente** no re-delete.
 
 ## Toda escrita devolve o shape congelado, re-lido
 
@@ -99,9 +99,88 @@ O frontend web é **consumidor somente-leitura**: `src/js/street_view_tool/stree
 
 A base de URL vem do bloco `streetView360.serviceUrl` do `/api/config`, e o `previewThumbnail` do metadado é relativo, sem o prefixo `/api/v1`, para ser concatenado a ela (`sv360.service.js:305-310`). Ver [[config-runtime-urls-relativas]] e [[sintese-cache-http-imutavel]] para o contrato de cache das imagens.
 
+
+## Exemplos de payload (escrita)
+
+## Exemplos de payload (escrita)
+
+### Calibração agregada, `PUT /photos/:uuid/calibration`
+
+Qualquer subconjunto, mínimo 1 campo (`.min(1)`, `.unknown(false)`, `sv360.write.schemas.js:25-55`):
+
+```json
+{
+  "heading": 88.0,
+  "height": 1.75,
+  "mesh_rotation_x": 0,
+  "mesh_rotation_y": 0,
+  "mesh_rotation_z": 1.2,
+  "distance_scale": 1,
+  "marker_scale": 1,
+  "floor_level": 0,
+  "calibration_reviewed": true
+}
+```
+
+Os aliases carregam só o campo homônimo do body, por exemplo `PUT /photos/:uuid/height` recebe `{ "height": 1.75 }` e `PUT /photos/:uuid/reviewed` recebe `{ "calibration_reviewed": true }`. Mapeamento de coluna: `height` grava em `camera_height` (`sv360.write.queries.js:18-28`).
+
+### Lote, `POST /photos/batch-calibration`
+
+Máximo **500 itens**, cada um com `uuid` mais pelo menos um campo de calibração:
+
+```json
+{
+  "photos": [
+    { "uuid": "1d8e...-uuidv5", "heading": 88.0 },
+    { "uuid": "9a44...-uuidv5", "height": 1.7, "calibration_reviewed": true }
+  ]
+}
+```
+
+Resposta **200** mesmo com falha total:
+
+```json
+{
+  "updated": [ { "camera": { "...": "shape congelado" }, "targets": [] } ],
+  "failed": [ { "uuid": "bad-uuid", "error": "Photo not found" } ]
+}
+```
+
+### Criação de link, `POST /photos/:uuid/targets`
+
+```json
+{
+  "target_id": "9a44...-uuidv5",
+  "is_next": true,
+  "is_original": false,
+  "distance_m": 8.2,
+  "bearing_deg": 92.0
+}
+```
+
+Aqui valem os nomes internos `distance_m`/`bearing_deg` e o booleano `is_next`, enquanto a leitura devolve `distance`/`bearing` e `next`. O schema também aceita `hidden` e os `override_*` já na inserção (`sv360.write.schemas.js:110-120`).
+
+### Override, `PUT /photos/:uuid/targets/:targetId/override`
+
+```json
+{
+  "override_bearing": 90,
+  "override_distance": 7.5,
+  "override_height": 0
+}
+```
+
+Envie sempre os três: a gravação é substituição total, campo omitido vira `NULL` (ver armadilha nº 1 acima). Para limpar, mande `null` explícito.
+
+### Visibilidade, `PUT /photos/:uuid/targets/:targetId/visibility`
+
+```json
+{ "hidden": true }
+```
+
 ## Fontes
 
-- `docs/guias/16-streetview-360.md`: superfície de rotas de escrita (§8), escada 404→403, tabela de aliases, contrato do lote, shape congelado do metadado, códigos de erro e rotas que não existem.
+- guia *16-streetview-360* (absorvido): superfície de rotas de escrita (§8), escada 404→403, tabela de aliases, contrato do lote, shape congelado do metadado, códigos de erro e rotas que não existem.
 - `ebgeo_backend/src/modules/streetview360/sv360.write.schemas.js`: decisão explícita de não impor faixas numéricas; schemas por endpoint; campos extras aceitos na criação de target.
 - `ebgeo_backend/src/modules/streetview360/sv360.write.service.js`: `canWriteProject`/`enforceProjectWritable`, transação da calibração, substituição total dos overrides, savepoint por item no lote, soft-delete idempotente.
 - `ebgeo_backend/src/modules/streetview360/sv360.write.queries.js`: whitelist de colunas, `GET_PHOTO_FOR_WRITE` mantendo tombstones, hard-delete de link, tombstone `ON CONFLICT DO NOTHING`.

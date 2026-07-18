@@ -10,7 +10,7 @@ O registro de salas é literalmente `atlasId -> Set<WebSocket>` (`backend/src/mo
 - Operações são fan-out para a sala inteira via `broadcastToRoom` / `broadcastOperations` (`collab.rooms.js:56`, `:84`), independentemente do mapa. Um atlas com muitos mapas paga banda de todos eles em cada aba conectada.
 - O emissor é excluído por identidade de socket (`client === excludeWs`). O push por REST (`POST /atlas/:id/sync`) **não tem socket para excluir**, então o próprio cliente recebe o eco e precisa descartá-lo pelo `clientId` (`src/js/store/sync/ws-client.js:397-403`). Ver [[client-id-estavel]] e [[canal-collab-websocket]].
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/04-websocket-collab.md` §10 diz que "Operações CRDT são sempre broadcast para todos (necessário para consistência)". O código não faz isso para comentários espaciais: `collab.rooms.js:105-114` divide o lote e envia só as ops não-comentário a clientes `permission === 'read'`, e `collab.handlers.js:145-149` passa `skipReadOnly` para op única de comentário. Um visualizador, por design, **não converge** em comentários. Ver [[comentario-espacial]] e [[permissoes-atlas]].
+> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido) §10 diz que "Operações CRDT são sempre broadcast para todos (necessário para consistência)". O código não faz isso para comentários espaciais: `collab.rooms.js:105-114` divide o lote e envia só as ops não-comentário a clientes `permission === 'read'`, e `collab.handlers.js:145-149` passa `skipReadOnly` para op única de comentário. Um visualizador, por design, **não converge** em comentários. Ver [[comentario-espacial]] e [[permissoes-atlas]].
 
 ## 2. Sem replay: reconexão é pull, não buffer
 
@@ -20,9 +20,9 @@ Armadilha real: **`serverVersion` vem de uma sequência global compartilhada ent
 
 ## 3. Estado efêmero vive na memória de uma instância
 
-Salas, presença, cursores e timers de `away` são estruturas em memória do processo: `rooms` (`collab.rooms.js:6`) e `awayTimers` (`collab.gateway.js:34`, populado em `:522-530`). Não há Redis nem pub/sub no backend. Escalar horizontalmente exige sticky-session no balanceador, ou perde-se presença e broadcast entre instâncias (dois usuários no mesmo atlas em processos diferentes simplesmente não se veem). O estado durável está no Postgres ([[tabela-operations]]); o efêmero morre com o processo. Ver [[deploy-backend]] e [[presenca-tempo-real]].
+Salas, presença, cursores e timers de `away` são estruturas em memória do processo: `rooms` (`collab.rooms.js:6`) e `awayTimers` (`collab.gateway.js:34`, populado em `:522-530`). Não há Redis nem pub/sub no backend. Escalar horizontalmente exige sticky-session no balanceador, ou perde-se presença e broadcast entre instâncias (dois usuários no mesmo atlas em processos diferentes simplesmente não se veem). O estado durável está no Postgres ([[tabela-operations]]); o efêmero morre com o processo. Ver [[deploy-backend]] e [[presenca-colaborativa]].
 
-A janela de graça `away` é `WS_AWAY_GRACE_MS` (default 120000 ms, `backend/src/config.js:97-103`) e o timer é `unref()`ado, então não segura o shutdown: um restart do backend derruba todos os `away` pendentes sem emitir `user_left`. Ver [[presenca-away-vs-saida]].
+A janela de graça `away` é `WS_AWAY_GRACE_MS` (default 120000 ms, `backend/src/config.js:97-103`) e o timer é `unref()`ado, então não segura o shutdown: um restart do backend derruba todos os `away` pendentes sem emitir `user_left`. Ver [[presenca-colaborativa]].
 
 ## 4. Locks: só o mapa é imposto pelo servidor
 
@@ -49,23 +49,23 @@ Logo: em rede ruim, presença degrada de forma invisível e a conexão pode ser 
 
 `pushOperations` roda tudo dentro de uma transação com advisory lock por atlas (`sync.service.js:653-672`) e **não** tem try/catch por operação: qualquer `ConflictError` (mapa travado) ou `ForbiddenError` no meio do laço (`:672-760`) faz rollback do lote todo.
 
-Do lado do cliente, `sync-engine.js:262-289` faz `peek` de um lote, e só chama `operationQueue.dequeue(opIds)` **depois** de um push bem-sucedido; um lote rejeitado não é removido e o próximo flush re-peeka os mesmos ops. Isso é correto para erro transitório e é um **poison batch** para erro permanente: se um op da fila mira um mapa que foi travado por outro usuário, a fila outbound para de avançar até o mapa ser destravado ou a fila ser limpa. Ver [[fila-operacoes-outbound]] e [[fila-operacoes-pendentes]].
+Do lado do cliente, `sync-engine.js:262-289` faz `peek` de um lote, e só chama `operationQueue.dequeue(opIds)` **depois** de um push bem-sucedido; um lote rejeitado não é removido e o próximo flush re-peeka os mesmos ops. Isso é correto para erro transitório e é um **poison batch** para erro permanente: se um op da fila mira um mapa que foi travado por outro usuário, a fila outbound para de avançar até o mapa ser destravado ou a fila ser limpa. Ver [[fila-operacoes-outbound]] e [[fila-operacoes-outbound]].
 
 Armadilha correlata no ack: `results[].success` é **hardcoded `true`** (`sync.service.js:770-776`). Não existe sinal de falha por operação, só o `idempotent` (que indica reenvio já registrado). Falha aparece como erro do lote inteiro, nunca como `success: false`.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/04-websocket-collab.md` §3.4 descreve `result.success` como um resultado por operação ("`true` quando a op foi registrada"), sugerindo que pode vir `false`. O código em `backend/src/modules/sync/sync.service.js:772` sempre emite `success: true`; um erro aborta a transação e nenhum ack é produzido. Não escreva lógica de dequeue que dependa de `success: false`. Ver [[ack-idempotencia]] e [[idempotencia-e-convergence-guard]].
+> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido) §3.4 descreve `result.success` como um resultado por operação ("`true` quando a op foi registrada"), sugerindo que pode vir `false`. O código em `backend/src/modules/sync/sync.service.js:772` sempre emite `success: true`; um erro aborta a transação e nenhum ack é produzido. Não escreva lógica de dequeue que dependa de `success: false`. Ver [[ack-idempotencia]] e [[idempotencia-e-convergence-guard]].
 
 Também há um limite de concorrência: pushes do mesmo atlas são serializados por `pg_advisory_xact_lock` com `lock_timeout` de 5s; ao estourar, o cliente recebe 503 retentável (`sync.service.js:654-670`).
 
 ## 7. Permissão fica cacheada no socket
 
-O socket resolve a permissão no handshake e vive por horas. A reconciliação com o banco (revogação de share, downgrade, atlas despublicado, organização desativada) acontece no sweep de heartbeat (`collab.gateway.js:173-182`, `reconcileAuthorization`), a cada `WS_HEARTBEAT_INTERVAL_MS` (default 30000 ms). Ou seja: **a janela de staleness de autorização é de até ~30 s**. Um usuário revogado pode escrever nesse intervalo. Ver [[permissao-vs-papel]] e [[sintese-eixos-de-permissao]].
+O socket resolve a permissão no handshake e vive por horas. A reconciliação com o banco (revogação de share, downgrade, atlas despublicado, organização desativada) acontece no sweep de heartbeat (`collab.gateway.js:173-182`, `reconcileAuthorization`), a cada `WS_HEARTBEAT_INTERVAL_MS` (default 30000 ms). Ou seja: **a janela de staleness de autorização é de até ~30 s**. Um usuário revogado pode escrever nesse intervalo. Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
 O mesmo sweep é o mecanismo de morte por inatividade: sem pong desde o ciclo anterior, `terminate()` (close 1006), que vira `away`, não `user_left`.
 
 ## 8. "Offline" não significa "sem servidor"
 
-O modo anônimo é local para **dados** (IndexedDB, [[store-origin-local-remoto]]), não para **boot**. O frontend é fail-fast em `GET /api/config`: sem backend alcançável ele mostra a tela "EBGeo indisponível" e não roda (`src/js/index.js:63-65`), porque o servidor é a fonte única de config e catálogo ([[config-dinamico]], [[config-runtime-urls-relativas]]). O checklist de `08-offline-import.md` registra "Funcionamento completo sem backend" explicitamente como fora de escopo.
+O modo anônimo é local para **dados** (IndexedDB, [[dominio-local-vs-remoto]]), não para **boot**. O frontend é fail-fast em `GET /api/config`: sem backend alcançável ele mostra a tela "EBGeo indisponível" e não roda (`src/js/index.js:63-65`), porque o servidor é a fonte única de config e catálogo ([[config-dinamico]], [[config-runtime-urls-relativas]]). O checklist de `08-offline-import.md` registra "Funcionamento completo sem backend" explicitamente como fora de escopo.
 
 O caminho suportado continua sendo: acumular local, logar, subir o atlas via `POST /atlas/import` (`src/js/store/sync/api-client.js:617-618`), depois enviar imagens em bulk e corrigir os `imageId` por operação de update. Ver [[atlas-import-offline]], [[imagens-atlas]] e [[modos-operacao]].
 
@@ -75,6 +75,6 @@ Antes de suspeitar de perda de mensagem, colete os spans correlacionados por `op
 
 ## Fontes
 
-- `docs/guias/04-websocket-collab.md`: §10 (limitações declaradas: sala por atlas, sem replay, single-instance, lock de mapa imposto vs camada/grupo/feição advisory), §3.4/§3.5 (contrato de `ack`/`ack_batch` e `result`), §4 (semântica away vs remove, `WS_AWAY_GRACE_MS`), §8 (filtro de cursor por `mapId` no cliente), §9 (recuperação por `sync_request`).
-- `docs/guias/08-offline-import.md`: Parte 1 (três modos de operação e a nota "sem login ≠ sem servidor"), Parte 2 (fila de operações pendentes e fluxo de reconexão), Parte 3 e 4 (import de atlas local e bulk upload de imagens), checklist final (funcionamento sem backend declarado fora de escopo).
+- guia *04-websocket-collab* (absorvido): §10 (limitações declaradas: sala por atlas, sem replay, single-instance, lock de mapa imposto vs camada/grupo/feição advisory), §3.4/§3.5 (contrato de `ack`/`ack_batch` e `result`), §4 (semântica away vs remove, `WS_AWAY_GRACE_MS`), §8 (filtro de cursor por `mapId` no cliente), §9 (recuperação por `sync_request`).
+- guia *08-offline-import* (absorvido): Parte 1 (três modos de operação e a nota "sem login ≠ sem servidor"), Parte 2 (fila de operações pendentes e fluxo de reconexão), Parte 3 e 4 (import de atlas local e bulk upload de imagens), checklist final (funcionamento sem backend declarado fora de escopo).
 - Código verificado: `backend/src/modules/collab/collab.rooms.js`, `collab.gateway.js`, `collab.handlers.js`, `backend/src/modules/sync/sync.service.js`, `backend/src/utils/errors.js`, `backend/src/config.js`, `src/js/store/sync/ws-client.js`, `sync-engine.js`, `api-client.js`, `src/js/index.js`, `src/js/presence/remote-cursors.layer.js`, `src/js/store/layer.operations.js`, `src/js/draw_tools/*/add_*_control.js`.

@@ -31,7 +31,7 @@ Para `imagesDb` o `fileFilter` aceita **qualquer** mimetype (`sv360.routes.js:81
 
 `requireUploadCapability` (`sv360.routes.js:265-272`) roda **antes** de `uploadBundle` (o multer). Quem não é `role === 'admin'` nem tem `org_role ∈ {owner, admin, editor}` recebe **403 sem que um byte chegue ao disco**. Isso fecha um DoS de disk-fill autenticado: um `viewer` autenticado poderia empurrar 2 GiB para o tmp antes de qualquer checagem de posse. Ver [[hardening-borda-api]] e o paralelo em [[upload-imagens-seguranca]].
 
-Esse gate é um **pré-filtro grosseiro**, não a checagem de posse. A posse por organização continua no service (`resolveUploadOrgId`, `sv360.admin.service.js:67-88`): admin global pode mirar qualquer OM via `manifest.project.orgSlug`; um admin de dados de OM é **forçado** à própria org e leva 403 se o manifest apontar para outra. Ver [[organizacoes-om]] e [[permissao-vs-papel]].
+Esse gate é um **pré-filtro grosseiro**, não a checagem de posse. A posse por organização continua no service (`resolveUploadOrgId`, `sv360.admin.service.js:67-88`): admin global pode mirar qualquer OM via `manifest.project.orgSlug`; um admin de dados de OM é **forçado** à própria org e leva 403 se o manifest apontar para outra. Ver [[organizacoes-om]] e [[permissoes-atlas]].
 
 Tanto o 401 (`authDraining`) quanto o 403 passam por `drainThen` (`sv360.routes.js:241-257`), que **drena o corpo multipart** antes de responder. Sem isso, rejeitar cedo fecha a conexão e o cliente vê `ECONNRESET` em vez do 4xx limpo. Se você adicionar um novo middleware de rejeição nessa rota, ele também precisa drenar.
 
@@ -59,7 +59,7 @@ Ids de foto são UUID **v5** e o backend só valida o **formato**, não recalcul
 
 A thumbnail segue a mesma chave: é gravada como `{orgId}__{slug}.webp`, derivada de `result.dbFilename` (`sv360.admin.service.js:263-276`), e servida resolvendo o `db_filename` do projeto (`sv360.service.js:254-258`). Falha ao gravar a thumbnail **não** falha a ingestão, o projeto já está no ar.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/16-streetview-360.md:333` e o comentário em `sv360.service.js:306-309` dizem que o arquivo escrito na ingestão é `{slug}.webp`; o código grava `{orgId}__{slug}.webp` (`sv360.admin.service.js:269`). O `:slug` da URL continua sendo só o slug, a tradução para o nome org-keyed acontece no servidor.
+> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido):333` e o comentário em `sv360.service.js:306-309` dizem que o arquivo escrito na ingestão é `{slug}.webp`; o código grava `{orgId}__{slug}.webp` (`sv360.admin.service.js:269`). O `:slug` da URL continua sendo só o slug, a tradução para o nome org-keyed acontece no servidor.
 
 ## Merge: último upload manda
 
@@ -109,7 +109,7 @@ Ingestões concorrentes do mesmo `(orgId, slug)` são serializadas por um **advi
 - A URL base do módulo chega ao frontend pelo `/api/config` (`streetView360.serviceUrl`), ver [[config-runtime-urls-relativas]] e [[config-dinamico]].
 
 ## Fontes
-- `docs/guias/16-streetview-360.md`: contrato público das rotas admin (§9), envelope nu/plano, tabela de erros, política de acesso e posse.
+- guia *16-streetview-360* (absorvido): contrato público das rotas admin (§9), envelope nu/plano, tabela de erros, política de acesso e posse.
 - `ebgeo_backend/src/modules/streetview360/sv360.routes.js`: campos multipart, limites do multer, `drainThen`/`authDraining`/`requireUploadCapability`.
 - `ebgeo_backend/src/modules/streetview360/sv360.ingest.js`: `validateManifest`, `validateImagesDb`, protocolo `installSwap`/`commitSwap`/`rollbackSwap`, advisory lock de sessão, janela de crash.
 - `ebgeo_backend/src/modules/streetview360/sv360.merge.js`: `deriveDbFilename`, collision guard, UPSERT preservando status/created_at, purge+reinsert.

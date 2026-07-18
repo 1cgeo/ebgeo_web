@@ -80,8 +80,8 @@ O gazetteer não usa o `ApiClient`: `gazetteer-url.js:24-26` deriva a URL da mes
 
 ## Fontes
 
-- `docs/guias/13-nomes-geograficos.md`: array nu do `/busca`, os 7 pesos do ranking, contrato `200 + { message }` do `/feicoes`, envelope `{ total, page, nr_records, data }` do catálogo, política de auth por rota.
-- `docs/guias/14-catalogo3d-assets.md`: campos do item de catálogo, resolução relativa contra `assets3dBaseUrl`, contrato de cache/Range/ETag do `/assets3d/*`, round-trip verbatim de `style`.
-- `docs/guias/15-acesso-geografico.md`: predicado de acesso embutido no SQL, garantia de que `total` só conta o visível, replace-set de permissões de zona.
-- `docs/guias/16-streetview-360.md`: envelope nu + erro plano, shape congelado do metadado de foto, assimetria `bearing`/`bearing_deg`, ETag `{uuid}-{quality}-{size}`, escada 404→403 na escrita.
+- guia *13-nomes-geograficos* (absorvido): array nu do `/busca`, os 7 pesos do ranking, contrato `200 + { message }` do `/feicoes`, envelope `{ total, page, nr_records, data }` do catálogo, política de auth por rota.
+- guia *14-catalogo3d-assets* (absorvido): campos do item de catálogo, resolução relativa contra `assets3dBaseUrl`, contrato de cache/Range/ETag do `/assets3d/*`, round-trip verbatim de `style`.
+- guia *15-acesso-geografico* (absorvido): predicado de acesso embutido no SQL, garantia de que `total` só conta o visível, replace-set de permissões de zona.
+- guia *16-streetview-360* (absorvido): envelope nu + erro plano, shape congelado do metadado de foto, assimetria `bearing`/`bearing_deg`, ETag `{uuid}-{quality}-{size}`, escada 404→403 na escrita.
 - Código (manda sobre a prosa): `src/js/store/sync/api-client.js` (unwrap e parser de erro), `src/js/search/gazetteer-url.js` + `search-bar.search-providers.js` + `feature-search.control.js` (consumo do array nu, ausência de `zoom`), `src/js/street_view_tool/streetview-api.service.js` (regex v4, normalizeProjects), `src/js/3d_models_viewer_tool/{map_3d.js,add_3d_models_viewer_control.js}` (descoberta 3D real via `config.tilesets`), `src/js/admin/catalog-tab.js` (perda da mensagem de erro do sv360), e no backend `src/modules/nomes/{nomes.controller.js,nomes.routes.js}`, `src/modules/streetview360/sv360-error.js`, `src/app.js:90-91`.

@@ -76,7 +76,7 @@ comuns e regras de teste) vive em:
 - **`.claude/rules/`** — `architecture.md` (estrutura + módulos + sync/colaboração),
   `common-tasks.md` (receitas), `testing.md` (regras de teste).
 - **`.claude/skills/`** — `new-tool` (scaffold de ferramenta), `store-op` (operação de store).
-- **`docs/`** — especificações, incluindo `docs/acoes-interface-multiusuario.md` (multiusuário).
+- **`docs/`** — especificações, incluindo `docs/wiki/index.md` (multiusuário).
 
 ### Modelo de dados (resumo)
 

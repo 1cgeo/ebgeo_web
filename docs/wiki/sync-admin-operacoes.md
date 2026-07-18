@@ -19,7 +19,7 @@ Montadas sob o router de atlas (`src/modules/atlas/atlas.routes.js:49`, `router.
 
 Declaradas em `src/modules/sync/sync.routes.js:13-14`.
 
-**Armadilha 1, o gate é papel global, não papel no atlas.** `requireAdmin` (`src/middleware/require-admin.js`) só olha `req.user.role !== 'admin'`; não há `requireAtlasPermission`. Portanto o dono de um atlas que não seja admin da plataforma **não** consegue limpar o próprio log, e um admin global consegue limpar qualquer atlas sem ser membro dele. Isso é um eixo de permissão distinto do de [[permissoes-atlas]] e de [[permissao-vs-papel]]. Sem credencial o middleware devolve 401, com credencial não-admin devolve 403 (contrato em [[erros-api]]).
+**Armadilha 1, o gate é papel global, não papel no atlas.** `requireAdmin` (`src/middleware/require-admin.js`) só olha `req.user.role !== 'admin'`; não há `requireAtlasPermission`. Portanto o dono de um atlas que não seja admin da plataforma **não** consegue limpar o próprio log, e um admin global consegue limpar qualquer atlas sem ser membro dele. Isso é um eixo de permissão distinto do de [[permissoes-atlas]] e de [[permissoes-atlas]]. Sem credencial o middleware devolve 401, com credencial não-admin devolve 403 (contrato em [[erros-api]]).
 
 **Armadilha 2, a ordem das rotas é carregada.** `/admin/stats` e `/admin/cleanup` precisam vir antes de `GET /:version` (comentário explícito em `sync.routes.js:12`). Se `GET /:version` capturasse `admin`, o controller faria `parseInt('admin', 10) || 0` (`sync.controller.js:44`), ou seja `sinceVersion = 0`, e devolveria um snapshot inteiro em vez de 404.
 
@@ -70,7 +70,7 @@ Note a assimetria de fronteiras: o delete é `<` e o `min_version` recebe exatam
 - `sinceVersion === 0 || sinceVersion < minVersion` → snapshot completo (`isSnapshot: true`), já filtrado por tier (viewer não recebe [[comentario-espacial]]).
 - Caso contrário → incremental via `server_version > $2` (`sync.queries.js:15-19`). Um cliente exatamente em `sinceVersion === minVersion` **ainda pega incremental**, não snapshot.
 
-Isso vale igualmente para o replay do canal de tempo real: `sync_request` no [[canal-collab-websocket]] chama o mesmo `pullOperations` (`src/modules/collab/collab.handlers.js:259`). Ou seja, um cleanup agressivo também transforma reconexões de [[websocket-collab]] em downloads de snapshot inteiro, inclusive as reconexões causadas por queda de rede. O cliente aplica isso via `applyRemoteSnapshot` ([[aplicacao-operacoes-remotas]]), que substitui estado local, e não via merge incremental de [[sync-lww-operacoes]].
+Isso vale igualmente para o replay do canal de tempo real: `sync_request` no [[canal-collab-websocket]] chama o mesmo `pullOperations` (`src/modules/collab/collab.handlers.js:259`). Ou seja, um cleanup agressivo também transforma reconexões de [[canal-collab-websocket]] em downloads de snapshot inteiro, inclusive as reconexões causadas por queda de rede. O cliente aplica isso via `applyRemoteSnapshot` ([[aplicacao-operacoes-remotas]]), que substitui estado local, e não via merge incremental de [[modelo-conflito-lww]].
 
 Operações locais ainda na [[fila-operacoes-outbound]] do cliente não são perdidas pelo cleanup, elas são enviadas depois e recebem versões novas; a garantia de não duplicar continua sendo a de [[idempotencia-e-convergence-guard]], que não depende do histórico podado.
 
@@ -87,7 +87,7 @@ Não há chamada a `sync/admin/stats` nem a `sync/admin/cleanup` no cliente web 
 
 ## Fontes
 
-- `docs/guias/09-admin.md` (Parte 4, linhas 563-641): endpoints, forma do JSON de request/response, semântica dos campos de stats, impacto do cleanup e recomendação de cron; checklist de UI ainda pendente.
+- guia *09-admin* (absorvido) (Parte 4, linhas 563-641): endpoints, forma do JSON de request/response, semântica dos campos de stats, impacto do cleanup e recomendação de cron; checklist de UI ainda pendente.
 - `ebgeo_backend/src/modules/sync/sync.routes.js:12-14`: montagem das rotas admin e a razão da ordem antes de `/:version`.
 - `ebgeo_backend/src/modules/sync/sync.controller.js:49-70`: 404 para atlas inexistente, coerção de `keepFromVersion`/`keepDays`.
 - `ebgeo_backend/src/modules/sync/sync.service.js:770-877`: regra de snapshot por `min_version`, algoritmo do cleanup, no-ops e cálculo de stats.

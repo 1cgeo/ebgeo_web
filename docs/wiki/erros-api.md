@@ -28,7 +28,7 @@ As classes de erro em `ebgeo_backend/src/utils/errors.js` fixam o par (status, c
 
 O conjunto de códigos que o cliente pode receber é **maior** que a tabela de 5 do guia, porque o handler também sintetiza códigos a partir do status para erros que não são `AppError` (`error-handler.js:86-107`): `BAD_REQUEST` 400, `PAYLOAD_TOO_LARGE` 413, `UNSUPPORTED_MEDIA_TYPE` 415, `TOO_MANY_REQUESTS` 429 (também emitido direto pelo rate limiter, `middleware/rate-limit.js:6-8`), além de `CONFLICT` 409.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/02-atlas-basico.md:446-454` apresenta uma tabela de 5 códigos como "Códigos Comuns"; o código em `ebgeo_backend/src/middleware/error-handler.js:87-97` e `src/utils/errors.js:30-47` emite ainda `CONFLICT` (409), `BAD_REQUEST` (400), `PAYLOAD_TOO_LARGE` (413), `UNSUPPORTED_MEDIA_TYPE` (415) e `TOO_MANY_REQUESTS` (429). Tratar a lista de 5 como conjunto fechado leva a `switch` incompleto no cliente.
+> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido):446-454` apresenta uma tabela de 5 códigos como "Códigos Comuns"; o código em `ebgeo_backend/src/middleware/error-handler.js:87-97` e `src/utils/errors.js:30-47` emite ainda `CONFLICT` (409), `BAD_REQUEST` (400), `PAYLOAD_TOO_LARGE` (413), `UNSUPPORTED_MEDIA_TYPE` (415) e `TOO_MANY_REQUESTS` (429). Tratar a lista de 5 como conjunto fechado leva a `switch` incompleto no cliente.
 
 ## Erros de validação (422) e o campo `details`
 
@@ -85,7 +85,7 @@ Log: 4xx (Joi, `AppError` 4xx, body-parser) vai em `warn`, 5xx em `error`, e a U
 
 ## WebSocket usa outro formato
 
-O canal de colaboração **não** usa este envelope. Erros lá são mensagens `{ type: 'error', code, ... }` (`ebgeo_backend/src/modules/collab/collab.handlers.js:19-20, 117-118, 155-156, 168-169, 202-203, 279-280`), com códigos que não existem no REST, notadamente `OPERATION_FAILED` e `SYNC_FAILED`, além de `VALIDATION_ERROR` e `FORBIDDEN` reaproveitados. Não compartilhe o parser de erro entre REST e WS. Ver [[websocket-collab]], [[canal-collab-websocket]] e [[sintese-rest-vs-sync]].
+O canal de colaboração **não** usa este envelope. Erros lá são mensagens `{ type: 'error', code, ... }` (`ebgeo_backend/src/modules/collab/collab.handlers.js:19-20, 117-118, 155-156, 168-169, 202-203, 279-280`), com códigos que não existem no REST, notadamente `OPERATION_FAILED` e `SYNC_FAILED`, além de `VALIDATION_ERROR` e `FORBIDDEN` reaproveitados. Não compartilhe o parser de erro entre REST e WS. Ver [[canal-collab-websocket]], [[canal-collab-websocket]] e [[sintese-rest-vs-sync]].
 
 ## Checklist para não errar
 
@@ -96,11 +96,11 @@ O canal de colaboração **não** usa este envelope. Erros lá são mensagens `{
 - não conte com `details` chegando ao frontend hoje
 - não reutilize o parser REST no WebSocket
 
-Relacionados: [[api-rest-atlas]], [[atlas]], [[atlas-settings]], [[clone-atlas]], [[auth-flexivel]], [[sintese-contrato-erros-http]].
+Relacionados: [[api-rest-atlas]], [[atlas-modelo-de-dados]], [[atlas-settings]], [[clone-atlas]], [[auth-flexivel]], [[sintese-contrato-erros-http]].
 
 ## Fontes
 
-- `docs/guias/02-atlas-basico.md`: formato do envelope de erro, tabela de códigos comuns, resolução de permissão 403 vs 404, exemplo de tratamento no frontend (§8 e §9)
+- guia *02-atlas-basico* (absorvido): formato do envelope de erro, tabela de códigos comuns, resolução de permissão 403 vs 404, exemplo de tratamento no frontend (§8 e §9)
 - `ebgeo_backend/src/utils/errors.js`: classes de erro e o par (statusCode, code) canônico, incluindo `ConflictError` e `BadRequestError` ausentes do guia
 - `ebgeo_backend/src/middleware/error-handler.js`: envelope único, conversão de erro Joi com `details`, mapa SQLSTATE do Postgres, códigos derivados de status 4xx, política de mensagem/stack em dev vs prod, níveis de log e redação de URL
 - `ebgeo_backend/src/middleware/validate.js`: `abortEarly: false` e `stripUnknown: true` nos schemas Joi

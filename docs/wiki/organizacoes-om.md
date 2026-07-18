@@ -8,7 +8,7 @@ A tabela `organizations` (`src/database/migrations/001_core.sql:15-23`) tem `id 
 
 O baseline semeia uma **org default determinística** (`00000000-0000-0000-0000-000000000001`, slug `default`, sigla `DEFAULT`, `001_core.sql:26-28`) e sete OMs reais (DSG, CIGEx, 1º a 5º CGEO, `001_core.sql:32-40`), todas com `ON CONFLICT (slug) DO NOTHING`, de modo que rodar a migração de novo é idempotente. O id fixo da default existe justamente para backfill e testes, e é usado literalmente como constante SQL no cadastro (ver abaixo) e no ETL do 360 (`src/modules/streetview360/sv360.merge.js:25`).
 
-`users.organization_id UUID REFERENCES organizations(id)` é **nullable** (`001_core.sql:96`), com índice `idx_users_organization` (`001_core.sql:120`). Ao lado dele mora `org_role VARCHAR(20) NOT NULL DEFAULT 'viewer' CHECK (org_role IN ('owner','admin','editor','viewer'))` (`001_core.sql:97-98`), o papel org-scoped, ortogonal ao `role` global (`user`/`admin`) e à permissão por atlas. Ver [[permissao-vs-papel]] e [[sintese-eixos-de-permissao]].
+`users.organization_id UUID REFERENCES organizations(id)` é **nullable** (`001_core.sql:96`), com índice `idx_users_organization` (`001_core.sql:120`). Ao lado dele mora `org_role VARCHAR(20) NOT NULL DEFAULT 'viewer' CHECK (org_role IN ('owner','admin','editor','viewer'))` (`001_core.sql:97-98`), o papel org-scoped, ortogonal ao `role` global (`user`/`admin`) e à permissão por atlas. Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
 ## API `/api/v1/organizations`
 
@@ -49,7 +49,7 @@ Pontos onde o gate roda:
 - Login: `ForbiddenError('Organização inativa')` (`src/modules/auth/auth.service.js:92`).
 - Refresh: mesmo bloqueio (`auth.service.js:165`), então a rotação de [[refresh-token-rotacao]] também morre.
 - [[auth-flexivel]]: `flexible-auth.js:78-82` derruba a sessão deslizante quando `!live.userIsActive || !live.orgIsActive`.
-- WebSocket de colaboração ([[canal-collab-websocket]], [[websocket-collab]]): upgrade recusado com `403` em `collab.gateway.js:252-255`, e sockets já abertos são fechados com código `4003 'organization deactivated'` na reconciliação periódica (`collab.gateway.js:120-122`).
+- WebSocket de colaboração ([[canal-collab-websocket]], [[canal-collab-websocket]]): upgrade recusado com `403` em `collab.gateway.js:252-255`, e sockets já abertos são fechados com código `4003 'organization deactivated'` na reconciliação periódica (`collab.gateway.js:120-122`).
 
 O mesmo middleware `auth` adota o `role` **global** ao vivo para impedir que um admin rebaixado use claim velha, mas **não** sobrescreve `org_role`/`organization_id` (`auth.js:100-105`): mudança de tenant continua limitada à janela de até 15 minutos do access token. Se você mover um usuário de OM, a nova OM só vale de fato após o próximo refresh.
 
@@ -68,7 +68,7 @@ Apesar de a org ser descrita como "dona dos dados", o escopo por tenant no códi
 - Escrita no 360 é gated por `org_role ∈ {owner, admin, editor}` na org dona (`sv360.write.service.js:36`, `sv360.routes.js:269`), o único lugar onde `org_role` decide algo no backend.
 - Listas de domínio do cadastro: `GET /api/v1/config` publica as OMs ativas (`SELECT id, nome, sigla FROM organizations WHERE is_active = true ORDER BY nome`, `src/modules/config/config.service.js:119-124`) para o dropdown anônimo do signup. Ver [[config-dinamico]].
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/12-multiorg-identidade-auditoria.md:26` diz que "uma organização representa a OM (Organização Militar) dona dos dados", mas a tabela `atlas` só tem `owner_id UUID NOT NULL REFERENCES users(id)` e nenhuma coluna `organization_id` (`ebgeo_backend/src/database/migrations/002_atlas.sql:10-17`). Atlas, mapas, camadas e feições **não** são escopados por org: o acesso a eles vem de `atlas_shares` (`002_atlas.sql:59-66`). Hoje a org particiona apenas usuários e projetos 360. Ver [[atlas]] e [[permissoes-atlas]].
+> [!CONTRADICAO 2026-07-18] guia *12-multiorg-identidade-auditoria* (absorvido):26` diz que "uma organização representa a OM (Organização Militar) dona dos dados", mas a tabela `atlas` só tem `owner_id UUID NOT NULL REFERENCES users(id)` e nenhuma coluna `organization_id` (`ebgeo_backend/src/database/migrations/002_atlas.sql:10-17`). Atlas, mapas, camadas e feições **não** são escopados por org: o acesso a eles vem de `atlas_shares` (`002_atlas.sql:59-66`). Hoje a org particiona apenas usuários e projetos 360. Ver [[atlas-modelo-de-dados]] e [[permissoes-atlas]].
 
 `ng` (nomes geográficos) também não é escopado por org: é gated por usuário/grupo via concessões de zona (`ng.fn_user_zone_geoms`), conforme o comentário em `users.schemas.js:9-10`. Ver [[zonas-acesso-geografico]] e [[gazetteer-nomes-geograficos]].
 
@@ -76,7 +76,7 @@ Apesar de a org ser descrita como "dona dos dados", o escopo por tenant no códi
 
 O access token carrega `organization_id` e `org_role`, mais os aliases congelados `org` e `login` consumidos as-is pelo módulo 360 (`auth.service.js:32-36`). Fallback de token legado: `organization_id ?? null` e `org_role || 'viewer'` (`src/middleware/auth.js:38-39`, `flexible-auth.js:37-38`, `auth.service.js:116-117`). Detalhes em [[jwt-emissor-unico]] e [[autenticacao-jwt]]; a mesma credencial pode chegar por Bearer, cookie ou [[api-keys]] via [[auth-flexivel]].
 
-No frontend, `org_role` vira o papel de sessão no login e no restore de boot (`ebgeo_web/src/js/store/sync/sync-engine.js:126` e `src/js/index.js:256`, ambos `user.org_role || 'viewer'`), mas ao conectar num atlas o papel **por atlas** do payload do WS sobrescreve esse valor (`sync-engine.js:189-197`). Ou seja: `org_role` é só o default de UI antes de haver atlas conectado, e não deve ser usado para decidir permissão de escrita em atlas. Ver [[sessao-boot-e-ciclo-de-vida]] e [[permissao-vs-papel]].
+No frontend, `org_role` vira o papel de sessão no login e no restore de boot (`ebgeo_web/src/js/store/sync/sync-engine.js:126` e `src/js/index.js:256`, ambos `user.org_role || 'viewer'`), mas ao conectar num atlas o papel **por atlas** do payload do WS sobrescreve esse valor (`sync-engine.js:189-197`). Ou seja: `org_role` é só o default de UI antes de haver atlas conectado, e não deve ser usado para decidir permissão de escrita em atlas. Ver [[sessao-boot-e-ciclo-de-vida]] e [[permissoes-atlas]].
 
 ## UI de administração
 
@@ -100,7 +100,7 @@ Criar, atualizar e desativar uma OM gravam `ORG_CREATE`, `ORG_UPDATE` e `ORG_DEL
 - Ao listar OMs para seleção, filtre `is_active` no cliente, porque `GET /organizations` devolve tudo.
 
 ## Fontes
-- `docs/guias/12-multiorg-identidade-auditoria.md`: shape da organização, contrato das 5 rotas, org default fixa, política de soft-delete, claims `organization_id`/`org_role` e aliases congelados, tabela de erros consolidada.
+- guia *12-multiorg-identidade-auditoria* (absorvido): shape da organização, contrato das 5 rotas, org default fixa, política de soft-delete, claims `organization_id`/`org_role` e aliases congelados, tabela de erros consolidada.
 - `ebgeo_backend/src/modules/organizations/*.js`: rotas, guardas (`auth`/`requireAdmin`), schemas Joi, SQL com `COALESCE`, check de slug duplicado, chamadas de auditoria.
 - `ebgeo_backend/src/database/migrations/001_core.sql`: DDL de `organizations`, seed da org default e das OMs, FK `users.organization_id` + `org_role`.
 - `ebgeo_backend/src/database/migrations/002_atlas.sql`: ausência de `organization_id` em `atlas` (base da contradição registrada).

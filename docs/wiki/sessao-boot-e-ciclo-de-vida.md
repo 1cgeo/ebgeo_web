@@ -27,7 +27,7 @@ Ordem literal em `index.js:141-160`:
 
 O hash `#view=3d` / `#view=360` (`deep-link/deep-link.js`) é ortogonal aos query params e é tratado antes, no caminho de load do mapa.
 
-> [!CONTRADICAO 2026-07-18] `docs/visao-e-principios.md:167` (passo 4) e `docs/ui-ux-ebgeo.md` §2 ("O boot não passa pelo Drive: F5 reconecta o último atlas automaticamente") dizem que o boot reconecta o último atlas remoto via `reconnectLastAtlas`. O código não tem mais essa função: `src/js/index.js:160` chama `openAtlasChooserOnBoot()`, que em `index.js:279-281` **descarta** o dado remoto órfão (`clearAllDataStore()` quando a origem é `remote`) e **abre o Atlas Drive** para o usuário escolher. `docs/arquitetura-sync.md:240` e `.claude/rules/architecture.md:138` repetem a versão antiga.
+> [!CONTRADICAO 2026-07-18] guia *visao-e-principios* (absorvido):167` (passo 4) e guia *ui-ux-ebgeo* (absorvido) §2 ("O boot não passa pelo Drive: F5 reconecta o último atlas automaticamente") dizem que o boot reconecta o último atlas remoto via `reconnectLastAtlas`. O código não tem mais essa função: `src/js/index.js:160` chama `openAtlasChooserOnBoot()`, que em `index.js:279-281` **descarta** o dado remoto órfão (`clearAllDataStore()` quando a origem é `remote`) e **abre o Atlas Drive** para o usuário escolher. guia *arquitetura-sync* (absorvido):240` e `.claude/rules/architecture.md:138` repetem a versão antiga.
 
 O motivo da mudança está no próprio comentário do código (`index.js:275-278`): a barra de endereço é a fonte de verdade. `/?atlas=<uuid>` carrega aquele atlas; `/` puro deve **deixar escolher**, não reabrir silenciosamente o último.
 
@@ -48,7 +48,7 @@ Sempre `history.replaceState`, nunca `pushState` (`atlas-link.js:77-83`): a URL 
 
 O token do link público é **efêmero e não persistido** (`setEphemeralToken`, `api-client.js:117-120`): o link na URL é re-resolvido a cada boot.
 
-**Boot guard** — `enforceLocalStoreWhenLoggedOut()` roda como primeira linha de `initializeWithLastActiveMap()` (`store/store.js:137-156`, chamado em `store.js:164`). Se a origem é `remote` **e** ninguém está autenticado, ele limpa todos os side-stores (mapas, imagens, settings, grupos, camadas, cesium3d, streetview360, briefings, comentários, atlas), esvazia a `operationQueue` e volta a origem para `local`. Para o usuário local a condição é falsa e a função é **no-op**, essa é a garantia aditiva. Ver [[store-origin-local-remoto]] e [[dominio-local-vs-remoto]].
+**Boot guard** — `enforceLocalStoreWhenLoggedOut()` roda como primeira linha de `initializeWithLastActiveMap()` (`store/store.js:137-156`, chamado em `store.js:164`). Se a origem é `remote` **e** ninguém está autenticado, ele limpa todos os side-stores (mapas, imagens, settings, grupos, camadas, cesium3d, streetview360, briefings, comentários, atlas), esvazia a `operationQueue` e volta a origem para `local`. Para o usuário local a condição é falsa e a função é **no-op**, essa é a garantia aditiva. Ver [[dominio-local-vs-remoto]] e [[dominio-local-vs-remoto]].
 
 A origem default é `local` e **ausente** para todo usuário pré-existente (`store/store-origin.js:31`, `store-origin.js:44-54`), então a máquina remota nunca engaja sem um connect explícito.
 
@@ -57,7 +57,7 @@ A origem default é `local` e **ausente** para todo usuário pré-existente (`st
 `account/open-atlas.service.js:41-81`, usado pelo deep link e pelo resume pós-login (o picker tem wrapper próprio, mesmos passos):
 
 1. Se a origem é local **e** há feições, confirma antes de destruir (`open-atlas.service.js:45-51`), oferecendo baixar `.ebgeo` (ver [[formato-ebgeo-roundtrip]]).
-2. `stopAutoFlush()` + `syncEngine.disconnect()` se já havia atlas: **um socket por atlas**, o servidor não tem "trocar" (ver [[websocket-collab]]).
+2. `stopAutoFlush()` + `syncEngine.disconnect()` se já havia atlas: **um socket por atlas**, o servidor não tem "trocar" (ver [[canal-collab-websocket]]).
 3. `clearAllDataStore()`.
 4. `markStoreRemote(atlasId)` **antes** do connect. É intenção durável: se a aba morrer no meio do pull, o boot guard vê `remote` e descarta o parcial em vez de rotulá-lo como atlas local permanente.
 5. `connect(atlasId, { initialPull: true })` + `activateAtlasInitialMap(mapId)`. Ver [[snapshot-e-pull-incremental]].
@@ -65,7 +65,7 @@ A origem default é `local` e **ausente** para todo usuário pré-existente (`st
 7. `BaseLayerControl.switchMap(false)` **fora** do try, para que um erro de render não reverta a origem de um atlas aberto com sucesso. Esse passo existe porque o caminho de abertura define o mapa corrente mas nunca rodou `setupMapFeatures`, e os rasters de símbolo militar davam 404 intermitente.
 8. `startAutoFlush()`, ver [[fila-operacoes-outbound]].
 
-Erros são traduzidos no chamador: 403 "Você não tem acesso a este projeto", 404 "Projeto não encontrado" (`index.js:186-194`). Ver [[permissoes-atlas]] e [[permissao-vs-papel]].
+Erros são traduzidos no chamador: 403 "Você não tem acesso a este projeto", 404 "Projeto não encontrado" (`index.js:186-194`). Ver [[permissoes-atlas]] e [[permissoes-atlas]].
 
 ## Expiração por inatividade
 
@@ -94,8 +94,8 @@ O mesmo destino serve para um 401 terminal: `apiClient` chama `_notifyAuthLost()
 
 ## Fontes
 
-- `docs/visao-e-principios.md`: §2 dois domínios de dados, P1/P7/P12, §4 ciclo de vida (boot, login, logout, F5), §6 isolamento entre atlas, exceção deliberada do bootstrap de config.
-- `docs/ui-ux-ebgeo.md`: §1 três estados de sessão, URL como fonte de verdade, idle timeout de 30 min com aviso; §2 Atlas Drive (a afirmação de que o boot reconecta sozinho está desatualizada).
-- `docs/guias/10-config.md`: `GET /api/v1/config` público, envelope `{ data }`, contrato congelado das 12 chaves, tratamento de erro (500 ⇒ falha de boot, 3 tentativas, sem fallback).
-- `docs/guias/00-visao-geral.md`: constraint do backend aditivo, JWT access + refresh de emissor único, config dinâmico como parte do backend único.
+- guia *visao-e-principios* (absorvido): §2 dois domínios de dados, P1/P7/P12, §4 ciclo de vida (boot, login, logout, F5), §6 isolamento entre atlas, exceção deliberada do bootstrap de config.
+- guia *ui-ux-ebgeo* (absorvido): §1 três estados de sessão, URL como fonte de verdade, idle timeout de 30 min com aviso; §2 Atlas Drive (a afirmação de que o boot reconecta sozinho está desatualizada).
+- guia *10-config* (absorvido): `GET /api/v1/config` público, envelope `{ data }`, contrato congelado das 12 chaves, tratamento de erro (500 ⇒ falha de boot, 3 tentativas, sem fallback).
+- guia *00-visao-geral* (absorvido): constraint do backend aditivo, JWT access + refresh de emissor único, config dinâmico como parte do backend único.
 - Código: `src/js/index.js`, `src/js/deep-link/atlas-link.js`, `src/js/deep-link/atlas-url-sync.js`, `src/js/account/open-atlas.service.js`, `src/js/account/account.control.js`, `src/js/session/idle-timeout.controller.js`, `src/js/store/sync/api-client.js`, `src/js/store/store.js`, `src/js/store/store-origin.js`.

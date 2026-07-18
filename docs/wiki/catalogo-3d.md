@@ -59,7 +59,7 @@ O predicado de acesso é parte da query, não da camada de aplicação (defesa e
 1. **admin global** (`users.role = 'admin'`), ou
 2. quem tem **permissão direta** (`ng.model_permissions`) ou **por grupo** (`ng.model_group_permissions` + `ng.user_groups`) sobre aquele `model_id`.
 
-Ver `nomes.queries.js:88-113`. Detalhe importante: para o catálogo 3D o critério é **permissão por modelo**, **não** zona geográfica. As zonas (`ng.fn_user_zone_geoms`) valem para `nomes_geograficos` e `edificacoes`, não aqui ([[zonas-acesso-geografico]]). Isso é diferente do eixo de papéis por atlas ([[permissao-vs-papel]]) e do papel global do usuário ([[gestao-usuarios]]).
+Ver `nomes.queries.js:88-113`. Detalhe importante: para o catálogo 3D o critério é **permissão por modelo**, **não** zona geográfica. As zonas (`ng.fn_user_zone_geoms`) valem para `nomes_geograficos` e `edificacoes`, não aqui ([[zonas-acesso-geografico]]). Isso é diferente do eixo de papéis por atlas ([[permissoes-atlas]]) e do papel global do usuário ([[gestao-usuarios]]).
 
 O `COUNT` roda em paralelo com o `SELECT` (`Promise.all` em `nomes.service.js:20-23`) e **duplica verbatim** o mesmo predicado, só trocando o placeholder do `userId` (`$4` no SELECT, `$2` no COUNT). O comentário em `nomes.queries.js:83-87` avisa: o predicado nunca foi extraído para uma função SQL, então **ao editar o filtro de acesso, edite os dois**, senão `total` passa a mentir sobre o que o usuário vê (paginação com páginas fantasma).
 
@@ -69,13 +69,13 @@ O `COUNT` roda em paralelo com o `SELECT` (`Promise.all` em `nomes.service.js:20
 
 Nunca hardcode `/api/v1/assets3d` no cliente: o ponto do campo é permitir apontar para um host de estáticos interno sem rebuild e sem reescrever os dados do catálogo ([[config-runtime-urls-relativas]], [[config-dinamico]]).
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/13-nomes-geograficos.md:358-359` mostra `thumbnail`/`url` como URLs absolutas (`https://.../tileset.json`), sugerindo que o campo pode ser absoluto. O contrato real, testado em `backend/tests/integration/nomes-catalogo3d-gaps.test.js:173`, é o caminho relativo armazenado, devolvido sem prefixo, e `docs/guias/14-catalogo3d-assets.md:134-135` o declara congelado como relativo. Trate como relativo.
+> [!CONTRADICAO 2026-07-18] guia *13-nomes-geograficos* (absorvido):358-359` mostra `thumbnail`/`url` como URLs absolutas (`https://.../tileset.json`), sugerindo que o campo pode ser absoluto. O contrato real, testado em `backend/tests/integration/nomes-catalogo3d-gaps.test.js:173`, é o caminho relativo armazenado, devolvido sem prefixo, e guia *14-catalogo3d-assets* (absorvido):134-135` o declara congelado como relativo. Trate como relativo.
 
 ## O que o frontend faz hoje
 
 O visualizador 3D do EBGeo Web **não consome esta rota**. `src/js/3d_models_viewer_tool/map_3d.js:872` resolve o modelo com `config.tilesets.find(t => t.id === tilesetId)`, ou seja, a lista de modelos vem de `config.tilesets`, servido pelo `/api/config` a partir da tabela de catálogo `tilesets` (`backend/src/modules/config/config.service.js:133-136`, ver [[resources-catalogo]]). Não há nenhuma referência a `catalogo3d` nem a `assets3dBaseUrl` em `src/`.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/14-catalogo3d-assets.md:12-15` afirma que `/nomes/catalogo3d` é "a fonte única de descoberta" dos modelos 3D. No código atual do cliente, a descoberta é `config.tilesets` (`src/js/3d_models_viewer_tool/map_3d.js:872`), populada pela tabela `tilesets` do catálogo de resources; `ng.catalogo_3d` é um segundo catálogo, com controle de acesso por modelo, ainda não integrado ao visualizador. São duas fontes distintas, com modelos de permissão distintos, e quem for integrar precisa decidir qual manda.
+> [!CONTRADICAO 2026-07-18] guia *14-catalogo3d-assets* (absorvido):12-15` afirma que `/nomes/catalogo3d` é "a fonte única de descoberta" dos modelos 3D. No código atual do cliente, a descoberta é `config.tilesets` (`src/js/3d_models_viewer_tool/map_3d.js:872`), populada pela tabela `tilesets` do catálogo de resources; `ng.catalogo_3d` é um segundo catálogo, com controle de acesso por modelo, ainda não integrado ao visualizador. São duas fontes distintas, com modelos de permissão distintos, e quem for integrar precisa decidir qual manda.
 
 ## Erros e observabilidade
 
@@ -97,10 +97,103 @@ Todas as três rotas do gazetteer passam por `nomesAccessLog` (`backend/src/midd
 - Ao mexer no filtro de acesso, alterar `CATALOGO_SELECT` **e** `CATALOGO_COUNT`.
 - `404` do binário (asset ausente com catálogo apontando para ele) deve ocultar/logar o modelo, não quebrar a cena.
 
+
+## Exemplo de resposta (payload completo)
+
+## Exemplo de resposta (payload completo)
+
+A wiki lista os campos de `data[]`; abaixo o payload literal, útil para montar fixture de teste e conferir tipos (números crus, não strings; `palavras_chave` é array; `style` é objeto JSONB, não string):
+
+```http
+GET /api/v1/nomes/catalogo3d?q=aman&page=1&nr_records=10
+Authorization: Bearer <accessToken>
+```
+
+```json
+{
+  "total": 1,
+  "page": 1,
+  "nr_records": 10,
+  "data": [
+    {
+      "id": "model-uuid",
+      "name": "AMAN - Campus",
+      "description": "Modelo 3D do campus da AMAN",
+      "thumbnail": "/aman/thumb.png",
+      "url": "/aman/tileset.json",
+      "lon": -44.45,
+      "lat": -22.46,
+      "height": 440,
+      "heading": 0,
+      "pitch": 0,
+      "roll": 0,
+      "type": "Tiles 3D",
+      "heightoffset": 0,
+      "maximumscreenspaceerror": 16,
+      "data_criacao": "2024-01-15T10:30:00.000Z",
+      "municipio": "Resende",
+      "estado": "RJ",
+      "palavras_chave": ["aman", "campus", "exército"],
+      "style": { "pointSize": 3, "color": "color('white')" },
+      "rank": 0.6079
+    }
+  ]
+}
+```
+
+Notas de leitura do exemplo:
+
+- Nomes de campo do catálogo são **todos minúsculos, sem camelCase** (`heightoffset`, `maximumscreenspaceerror`, `data_criacao`, `palavras_chave`). Quem mapeia para opções do Cesium precisa renomear na mão.
+- `url` e `thumbnail` aparecem **sem** o prefixo `/api/v1/assets3d` — é o contrato congelado de caminho relativo.
+- `rank` só é significativo quando há `q`; sem `q` vem `0` em todos os itens.
+- `style` é o objeto verbatim que vai direto para `new Cesium3DTileStyle(...)`; o exemplo acima é o caso típico de nuvem de pontos.
+
+
+## Mapeamento catálogo → cena Cesium
+
+## Mapeamento catálogo → cena Cesium
+
+Como o cliente web ainda não consome esta rota (ver §O que o frontend faz hoje), não há código no repositório do qual deduzir o mapeamento. O contrato pretendido, campo a campo:
+
+| Campo do catálogo | Destino no Cesium |
+|---|---|
+| `url` | `assets3dBaseUrl + url` → `Cesium3DTileset.fromUrl(url)` ou `model.uri` da entidade |
+| `type = 'Tiles 3D'` \| `'Nuvem de Pontos'` | `Cesium3DTileset` em `viewer.scene.primitives` |
+| `type = 'Modelos 3D'` | entidade glTF/glb: `viewer.entities.add({ position, model: { uri } })` |
+| `maximumscreenspaceerror` | opção `maximumScreenSpaceError` (fallback `16` quando ausente) |
+| `lon` / `lat` / `height` + `heightoffset` | posição de origem, com o offset somado **depois** do posicionamento |
+| `heading` / `pitch` / `roll` | orientação, em **graus** (converter para radianos) |
+| `style` (quando não `null`) | `tileset.style = new Cesium3DTileStyle(style)` |
+
+```javascript
+async function loadCatalog3D(viewer, accessToken, assets3dBaseUrl) {
+  const res = await fetch('/api/v1/nomes/catalogo3d?nr_records=100', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const { data: models } = await res.json();
+
+  for (const m of models) {
+    const url = `${assets3dBaseUrl}${m.url}`;
+
+    if (m.type === 'Tiles 3D' || m.type === 'Nuvem de Pontos') {
+      const tileset = await Cesium.Cesium3DTileset.fromUrl(url, {
+        maximumScreenSpaceError: m.maximumscreenspaceerror ?? 16,
+      });
+      if (m.style) tileset.style = new Cesium.Cesium3DTileStyle(m.style);
+      viewer.scene.primitives.add(tileset);
+    } else if (m.type === 'Modelos 3D') {
+      // glTF/glb posicionado por lon/lat/height + heading/pitch/roll
+    }
+  }
+}
+```
+
+Deixe o Cesium emitir as requisições `Range` aos binários — não pré-baixe nem envolva a rota num fetch que descarte `Accept-Ranges` (ver [[assets3d-distribuicao]]).
+
 ## Fontes
 
-- `docs/guias/13-nomes-geograficos.md`: contrato do endpoint (params, envelope congelado, semântica de `rank`/`total`), posicionamento do módulo como read-only e fora do sync, resumo do acesso filtrado.
-- `docs/guias/14-catalogo3d-assets.md`: separação descoberta/distribuição, resolução de `url` contra `assets3dBaseUrl`, campos usados pela cena Cesium, `style` como `Cesium3DTileStyle`, notas de integração.
+- guia *13-nomes-geograficos* (absorvido): contrato do endpoint (params, envelope congelado, semântica de `rank`/`total`), posicionamento do módulo como read-only e fora do sync, resumo do acesso filtrado.
+- guia *14-catalogo3d-assets* (absorvido): separação descoberta/distribuição, resolução de `url` contra `assets3dBaseUrl`, campos usados pela cena Cesium, `style` como `Cesium3DTileStyle`, notas de integração.
 - `backend/src/modules/nomes/{nomes.routes.js,nomes.controller.js,nomes.service.js,nomes.queries.js,nomes.schemas.js}`: gate de auth, envelope, offset, SQL de full-text, predicado de acesso duplicado SELECT/COUNT.
 - `backend/src/database/migrations/004_ng.sql`: schema de `ng.catalogo_3d`, CHECK de `type` e índices.
 - `backend/src/modules/config/config.service.js`, `backend/src/config.js`: origem de `assets3dBaseUrl` e da lista `tilesets`.

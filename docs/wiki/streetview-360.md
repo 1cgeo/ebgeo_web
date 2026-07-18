@@ -28,7 +28,7 @@ projeto enabled  -> público
 projeto disabled -> só role === 'admin' global OU membro da organization_id dona
 ```
 
-A regra está **embutida no SQL** das leituras (defesa em profundidade), e um projeto oculto responde **404**, indistinguível de inexistente, para não vazar existência. Fotos com tombstone somem de toda leitura. Ver [[organizacoes-om]] e [[permissao-vs-papel]].
+A regra está **embutida no SQL** das leituras (defesa em profundidade), e um projeto oculto responde **404**, indistinguível de inexistente, para não vazar existência. Fotos com tombstone somem de toda leitura. Ver [[organizacoes-om]] e [[permissoes-atlas]].
 
 ## Metadado da foto (contrato congelado)
 
@@ -54,7 +54,7 @@ Sequência exata (`sv360.controller.js:142-191`):
 
 Armadilha deliberada: `Content-Length`/`Content-Range` derivam do **tamanho real do buffer lido**, não do `size_bytes` do Postgres (`sv360.controller.js:150-155,174`). Em regime normal coincidem, mas durante a janela swap-do-arquivo↔commit da ingestão podem divergir, e confiar no buffer mantém toda resposta protocolarmente correta. Mesma família de contrato dos [[assets3d-distribuicao]] e de [[sintese-cache-http-imutavel]].
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/16-streetview-360.md` §5/§7 tabela `Cache-Control: public, max-age=31536000, immutable` para toda imagem/thumbnail; o código em `src/modules/streetview360/sv360.controller.js:52-63` escolhe o escopo pelo status do projeto: `enabled` recebe `public, max-age=31536000, immutable`, e `disabled` recebe `private, max-age=31536000, immutable` + `Vary: Authorization, Cookie`. Sem isso um proxy compartilhado poderia replicar para anônimos uma resposta autorizada de projeto oculto.
+> [!CONTRADICAO 2026-07-18] guia *16-streetview-360* (absorvido) §5/§7 tabela `Cache-Control: public, max-age=31536000, immutable` para toda imagem/thumbnail; o código em `src/modules/streetview360/sv360.controller.js:52-63` escolhe o escopo pelo status do projeto: `enabled` recebe `public, max-age=31536000, immutable`, e `disabled` recebe `private, max-age=31536000, immutable` + `Vary: Authorization, Cookie`. Sem isso um proxy compartilhado poderia replicar para anônimos uma resposta autorizada de projeto oculto.
 
 ## Thumbnail do projeto
 
@@ -108,8 +108,211 @@ Restante do admin: `GET /admin/projects` (inclui `disabled`; admin global filtra
 
 Não programe contra elas: `nearby` existe como função de service e query (`sv360.service.js:158`, `sv360.queries.js:115`) mas **sem rota montada** em `sv360.routes.js`; `metadata` e `position` do 360 legado não foram portados.
 
+
+## Superfície de rotas (referência)
+
+## Superfície de rotas (referência)
+
+Tabela as-built do módulo. Base `/api/v1/sv360`, montada em `sv360.routes.js:310`. "Opcional" é o `flexibleAuth` global do router (`sv360.routes.js:94`); "estrito" é o middleware `auth` por rota (`sv360.routes.js:152-228`, `241-305`).
+
+### Leitura
+
+| Método | Caminho | Auth | Resposta |
+|---|---|---|---|
+| `GET` | `/projects` | opcional | array nu de projetos (anônimo vê só `enabled`) |
+| `GET` | `/projects/:slug` | opcional | objeto nu do projeto; 404 se oculto ou inexistente |
+| `GET` | `/photos/:uuid` | opcional | metadado congelado (câmera + `targets`) |
+| `GET` | `/photos/by-name/:nome` | opcional | idem, busca por `original_name` |
+| `GET` | `/photos/:uuid/image?quality=full\|preview` | opcional | WebP (`quality` default `full`) |
+| `GET` | `/tiles/:z/:x/:y.pbf` | opcional | MVT (`z` em `0..24`, `x`/`y` dentro de `2^z`, fora disso 400) |
+| `GET` | `/tiles/fotos.geojson` | opcional | FeatureCollection nu (compat) |
+| `GET` | `/thumbnails/:slug.webp` | opcional | WebP do filesystem |
+
+Desempate do `by-name`: se o mesmo `original_name` existir em mais de um projeto, um projeto `enabled` vence.
+
+### Escrita e calibração (auth estrito, posse por OM)
+
+| Método | Caminho | Sucesso |
+|---|---|---|
+| `PUT` | `/photos/:uuid/calibration` | 200, metadado re-lido |
+| `PUT` | `/photos/:uuid/height` | 200 |
+| `PUT` | `/photos/:uuid/rotation-x` | 200 |
+| `PUT` | `/photos/:uuid/rotation-z` | 200 |
+| `PUT` | `/photos/:uuid/distance-scale` | 200 |
+| `PUT` | `/photos/:uuid/marker-scale` | 200 |
+| `PUT` | `/photos/:uuid/reviewed` | 200 |
+| `POST` | `/photos/batch-calibration` | 200 com `{updated, failed}` |
+| `POST` | `/photos/:uuid/targets` | 201, shape da foto de origem |
+| `PUT` | `/photos/:uuid/targets/:targetId/override` | 200 |
+| `PUT` | `/photos/:uuid/targets/:targetId/visibility` | 200 |
+| `DELETE` | `/photos/:uuid/targets/:targetId` | 204 (hard-delete do link) |
+| `DELETE` | `/photos/:uuid` | 204 (soft-delete por tombstone) |
+
+Não há alias `rotation-y`. Detalhe operacional em [[calibracao-e-grafo-360]].
+
+### Admin (auth estrito, posse por OM)
+
+| Método | Caminho | Sucesso |
+|---|---|---|
+| `POST` | `/admin/projects/upload` | 201 com `{projectId, slug, dbFilename, photoCount}` |
+| `GET` | `/admin/projects?orgId=<uuid>` | 200, array nu incluindo `disabled` |
+| `PATCH` | `/admin/projects/:slug/status?orgId=\|orgSlug=` | 200 com o projeto |
+| `DELETE` | `/admin/projects/:slug` | 204 (hard-delete) |
+
+Fluxo do bundle em [[ingestao-projetos-360]].
+
+### Códigos de erro do módulo
+
+Todos no envelope plano `{ "error": "mensagem" }`.
+
+| Código | Quando |
+|---|---|
+| `400` | parâmetro de tile fora de faixa, JSON/manifest ausente ou quebrado |
+| `401` | rota de escrita/admin sem token válido |
+| `403` | lê mas não escreve (`viewer` da OM, cross-org) |
+| `404` | inexistente, com tombstone, ou oculto para o chamador |
+| `409` | target duplicado ou cross-project, colisão de id de foto, slug ambíguo entre OMs |
+| `416` | Range inválido em imagem ou thumbnail |
+| `422` | body ou parâmetro inválido (tipo, vazio, campo desconhecido) |
+
+
+## Exemplos de payload (shapes de leitura)
+
+## Exemplos de payload (shapes de leitura)
+
+Os campos abaixo são o contrato congelado; a lista em prosa não substitui o exemplo, porque o que quebra o viewer é a forma exata (plano vs aninhado, `null` vs ausente).
+
+### `GET /projects` (array nu)
+
+```json
+[
+  {
+    "id": "3f2a...-uuid",
+    "slug": "quartel-general",
+    "name": "Quartel General",
+    "center_lat": -15.79,
+    "center_long": -47.88,
+    "entry_photo_id": "1d8e...-uuidv5",
+    "photo_count": 240,
+    "status": "enabled"
+  }
+]
+```
+
+Note `center_long`, não `center_lng`. `GET /projects/:slug` devolve o mesmo objeto acrescido de `organization_id` e `db_filename`.
+
+### `GET /photos/:uuid` (shape congelado, `buildPhotoMetadata`, `sv360.service.js:283-326`)
+
+```json
+{
+  "camera": {
+    "id": "1d8e...-uuidv5",
+    "img": "IMG_0420.jpg",
+    "display_name": "Pátio Norte",
+    "lon": -47.881,
+    "lat": -15.792,
+    "ele": 1012.4,
+    "heading": 87.5,
+    "height": 1.7,
+    "mesh_rotation_y": 0,
+    "mesh_rotation_x": 0,
+    "mesh_rotation_z": 0,
+    "distance_scale": 1,
+    "marker_scale": 1,
+    "floor_level": 0,
+    "calibration_reviewed": false
+  },
+  "projectSlug": "quartel-general",
+  "captureDate": "2025-03-14T13:02:00.000Z",
+  "previewThumbnail": "/thumbnails/quartel-general.webp",
+  "targets": [
+    {
+      "id": "9a44...-uuidv5",
+      "img": "IMG_0421.jpg",
+      "lon": -47.8809,
+      "lat": -15.7919,
+      "ele": 1012.6,
+      "display_name": "Pátio Norte 2",
+      "icon": "next",
+      "next": true,
+      "is_original": true,
+      "distance": 8.2,
+      "bearing": 92.0,
+      "override_bearing": null,
+      "override_distance": null,
+      "override_height": null
+    }
+  ]
+}
+```
+
+Pontos que costumam ser lidos errado: em `targets` o booleano de sequência chama `next` (não `is_next`, que é o nome interno), `icon` é sempre a constante `"next"`, e os três `override_*` são número **ou `null`**, nunca ausentes. `previewThumbnail` vem sem `/api/v1`, então com `serviceUrl = <backend>/api/v1/sv360` ele resolve para `.../api/v1/sv360/thumbnails/quartel-general.webp`.
+
+### `GET /tiles/fotos.geojson` (compat)
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-47.881, -15.792] },
+      "properties": {
+        "id": "1d8e...-uuidv5",
+        "projectSlug": "quartel-general",
+        "img": "IMG_0420.jpg",
+        "display_name": "Pátio Norte",
+        "sequence_number": 1,
+        "heading": 87.5,
+        "ele": 1012.4
+      }
+    }
+  ]
+}
+```
+
+### Bloco `streetView360` do `GET /api/config`
+
+```json
+{
+  "streetView360": {
+    "serviceUrl": "https://<backend>/api/v1/sv360",
+    "pointsSource": {
+      "type": "vector",
+      "tiles": ["https://<backend>/api/v1/sv360/tiles/{z}/{x}/{y}.pbf"]
+    },
+    "linesSource": {
+      "type": "vector",
+      "tiles": ["https://<backend>/api/v1/sv360/tiles/{z}/{x}/{y}.pbf"]
+    },
+    "pointsSourceLayer": "fotos",
+    "linesSourceLayer": "fotos_linha"
+  }
+}
+```
+
+Ver [[config-dinamico]] e [[config-runtime-urls-relativas]].
+
+
+## Checklist de integração
+
+## Checklist de integração
+
+Para quem for escrever um cliente novo do módulo:
+
+- [ ] Tratar respostas do `sv360` como **nuas** (objeto/array), nunca `{data}`
+- [ ] Tratar erro como **plano** `{ "error": "msg" }`, lendo `parsed.error` como string (não `error.message`)
+- [ ] Ler `streetView360` do `/api/config` a cada uso, sem capturar `serviceUrl` em constante de módulo
+- [ ] Consumir a fonte MVT (`pointsSource`/`linesSource`, camadas `fotos`/`fotos_linha`), tolerando tile vazio com 200
+- [ ] Carregar `/photos/:uuid` respeitando o shape congelado (câmera plana, Euler ZXY, chão plano, `ele` informativo)
+- [ ] Resolver `previewThumbnail` concatenando com `serviceUrl`
+- [ ] Servir a imagem 360 pelo cache do browser (ETag/304) e usar Range só quando útil
+- [ ] Na escrita, enviar `Authorization` e tratar a escada 401 / 403 / 404 sem assumir que 404 significa "não existe"
+- [ ] No upload admin, montar multipart `manifest` + `imagesDb` + `thumbnail` e tratar 201 / 400 / 409 / 422
+- [ ] Depois de qualquer escrita, **recarregar** o metadado: não há broadcast WebSocket ([[sintese-modulos-fora-do-sync]])
+
 ## Fontes
-- `docs/guias/16-streetview-360.md`: superfície de rotas, contrato congelado do metadado, protocolo de imagem/thumbnail, política de acesso, escada 404→403, ingestão e checklist de integração.
+- guia *16-streetview-360* (absorvido): superfície de rotas, contrato congelado do metadado, protocolo de imagem/thumbnail, política de acesso, escada 404→403, ingestão e checklist de integração.
 - `ebgeo_backend/src/modules/streetview360/sv360.routes.js`: ordem de rotas, flexibleAuth global + auth estrito local, validação 400 de tile, gate de upload com dreno do multipart.
 - `ebgeo_backend/src/modules/streetview360/sv360.controller.js`: escopo de cache público/privado por status (divergência com o doc), ETag O(1), 304/206/416, semáforo, MVT.
 - `ebgeo_backend/src/modules/streetview360/sv360.service.js`: `buildPhotoMetadata` (shape congelado), ETag da imagem, thumbnail org-keyed, `nearby` sem rota.

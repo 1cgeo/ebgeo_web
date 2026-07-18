@@ -51,13 +51,13 @@ Não copiar shares é o mesmo raciocínio: permissão é do container, não do c
 
 **Imagens quebram.** As features clonadas mantêm em `properties` os IDs de imagem do atlas de origem, mas nenhuma linha de `images` é criada para o clone, e o download é escopado por atlas (`FIND_IMAGE_BY_ID` = `WHERE id = $1 AND atlas_id = $2`, `backend/src/modules/images/images.queries.js:20`; rota gateada por `requireAtlasPermission('read')` sobre o `atlasId` da URL). Logo `GET /atlas/<cloneId>/images/<imageIdOriginal>` responde **404 `Image`** (`images.service.js:68`). Não é "arquivo não duplicado", é referência morta.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/02-atlas-basico.md:368` diz que no clone "referências são mantidas mas os arquivos não são duplicados", sugerindo que a imagem continua resolvível. O código não copia sequer a linha de `images`, e `backend/src/modules/images/images.queries.js:20` filtra por `atlas_id`, então a referência mantida no `properties` da feature é irresolvível a partir do clone (404).
+> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido):368` diz que no clone "referências são mantidas mas os arquivos não são duplicados", sugerindo que a imagem continua resolvível. O código não copia sequer a linha de `images`, e `backend/src/modules/images/images.queries.js:20` filtra por `atlas_id`, então a referência mantida no `properties` da feature é irresolvível a partir do clone (404).
 
 **Ordem de mapas e slides não é preservada.** `SELECT * FROM maps WHERE atlas_id = $1 AND deleted_at IS NULL` (`atlas.service.js:296`) e o `SELECT` de slides (`atlas.service.js:357`) não têm `ORDER BY`. O `map_order` / `slide_order` do clone é montado na ordem de retorno do Postgres, que não é garantida e ignora o `map_order`/`slide_order` da origem. Um atlas com mapas reordenados manualmente pode sair com a ordem embaralhada. Se for corrigir, ordene pela posição no array de ordem da origem antes de inserir.
 
 **Comentários somem sem aviso.** A lista de exclusões do guia não menciona `comments`, e o código também não os copia. Quem esperava clonar um atlas de revisão junto com as threads vai encontrar os pins vazios.
 
-**Não há broadcast.** Diferente de `duplicateMap`, que emite `map_duplicated` na sala do atlas (`atlas.controller.js:71`), o clone não notifica ninguém, porque o atlas destino não existia e não tem sala em [[websocket-collab]]. Clientes só veem o clone ao recarregar a lista (`project-picker.modal.js:448` chama `_refresh()`).
+**Não há broadcast.** Diferente de `duplicateMap`, que emite `map_duplicated` na sala do atlas (`atlas.controller.js:71`), o clone não notifica ninguém, porque o atlas destino não existia e não tem sala em [[canal-collab-websocket]]. Clientes só veem o clone ao recarregar a lista (`project-picker.modal.js:448` chama `_refresh()`).
 
 **Transação longa, insert linha a linha.** Todo o clone é um loop de `INSERT` unitário dentro de uma transação única (`atlas.service.js:210-219` etc.). Em atlas grande isso segura conexão e locks por bastante tempo. Não existe modo assíncrono nem progresso; o cliente fica esperando o 201.
 
@@ -69,10 +69,10 @@ Não copiar shares é o mesmo raciocínio: permissão é do container, não do c
 
 Clone é uma das poucas escritas de conteúdo colaborativo feitas por **REST**, e não pelo pipeline de operações ([[sintese-rest-vs-sync]]). Ela é permitida porque cria entidades num atlas que ainda não tem peers conectados, então não há conflito a resolver nem [[envelope-operacao]] a emitir. Para copiar conteúdo entre atlas já vivos, o caminho não é clone; é exportar/importar ([[atlas-import-offline]], [[formato-ebgeo-roundtrip]]).
 
-Erros seguem o envelope padrão ([[erros-api]]): 404 se o atlas de origem não existe ou está soft-deletado (`FIND_ATLAS_BY_ID` filtra `deleted_at IS NULL`, `atlas.queries.js:9`), 403 sem permissão de leitura, 401 sem token. Ver também [[atlas]] e [[api-rest-atlas]].
+Erros seguem o envelope padrão ([[erros-api]]): 404 se o atlas de origem não existe ou está soft-deletado (`FIND_ATLAS_BY_ID` filtra `deleted_at IS NULL`, `atlas.queries.js:9`), 403 sem permissão de leitura, 401 sem token. Ver também [[atlas-modelo-de-dados]] e [[api-rest-atlas]].
 
 ## Fontes
-- `docs/guias/02-atlas-basico.md` (§7): endpoint, permissão mínima `read`, corpo `{ name }`, resposta 201, listas oficiais de "inclui" e "não inclui".
+- guia *02-atlas-basico* (absorvido) (§7): endpoint, permissão mínima `read`, corpo `{ name }`, resposta 201, listas oficiais de "inclui" e "não inclui".
 - `backend/src/modules/atlas/atlas.service.js`: `cloneAtlas()` e `cloneMapSubEntities()`, ordem de clonagem, mapeamentos de ID, duas passadas de `parent_id`, reescrita de `map_order`/`slide_order`, ausência de `ORDER BY`.
 - `backend/src/modules/atlas/atlas.routes.js:41,44`: gate `requireAtlasPermission('read')` no clone vs `write` no duplicate de mapa.
 - `backend/src/modules/atlas/atlas.controller.js:54-73`: novo dono = chamador, 201, ausência de broadcast no clone.

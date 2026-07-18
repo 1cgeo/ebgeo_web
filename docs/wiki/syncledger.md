@@ -31,12 +31,12 @@ Estágios (`trace-stages.js:20-41`), na ordem do fluxo:
 
 `outcome ∈ { ok, dropped, filtered, failed, idempotent, no-effect }` (`:44-51`). `DropReason` nomeia o porquê: `logging_disabled`, `non_uuid_mapId`, `non_uuid_setting_id`, `batch_filtered`, `echo_self`, `offline`, `parse_error`, `unknown_type` (`:54-63`).
 
-> **Armadilha:** `flush.skip` e `presence` estão declarados no enum mas **nenhum call site do frontend os emite hoje** (nenhum `TraceStage.FLUSH_SKIP` / `TraceStage.PRESENCE` fora de `trace-stages.js`). Esperar por eles em teste trava até o timeout. Para presença, use os sinais de [[presenca-tempo-real]] diretamente.
+> **Armadilha:** `flush.skip` e `presence` estão declarados no enum mas **nenhum call site do frontend os emite hoje** (nenhum `TraceStage.FLUSH_SKIP` / `TraceStage.PRESENCE` fora de `trace-stages.js`). Esperar por eles em teste trava até o timeout. Para presença, use os sinais de [[presenca-colaborativa]] diretamente.
 
 ## Onde cada span é emitido (as-built)
 
 - `action.origin` — `store-transaction.js:122`.
-- `preflush.drop` — `operation-dispatcher.js:109` (`logging_disabled`, o caso offline/anônimo), `:121` (`non_uuid_setting_id`), `:134` (`non_uuid_mapId`), `:182`/`:201`/`:267` (batch). Esses drops são a defesa contra o "poison batch": um `mapId` não-UUID faz o Postgres devolver 22P02 e **uma** op derruba o batch inteiro do flush, travando todo o sync. Ver [[store-origin-local-remoto]].
+- `preflush.drop` — `operation-dispatcher.js:109` (`logging_disabled`, o caso offline/anônimo), `:121` (`non_uuid_setting_id`), `:134` (`non_uuid_mapId`), `:182`/`:201`/`:267` (batch). Esses drops são a defesa contra o "poison batch": um `mapId` não-UUID faz o Postgres devolver 22P02 e **uma** op derruba o batch inteiro do flush, travando todo o sync. Ver [[dominio-local-vs-remoto]].
 - `apply.persist` (lado autor) — `operation-dispatcher.js:152` e `:212`. Como a persistência roda **antes** do logging (que está no `deferAsync`), quando esse span é gravado o dado já é durável no IndexedDB. É o par op-keyed do `apply.persist` de entrada, e fecha o elo "escreveu no IDB local".
 - `enqueue` — `operation-dispatcher.js:156` / `:216`, entrada na [[fila-operacoes-outbound]].
 - `flush.push` — `sync-engine.js:267` (ok) e `:277` (`failed`, com os `opIds` que emperraram; o batch rejeitado **não** é desenfileirado).
@@ -83,7 +83,7 @@ Duas armadilhas de matching:
 
 `tests/e2e-ui/helpers/ledger.js` funde os anéis: `collectLedger` drena cada página (rotulando `clientA`, `clientB`, …) e, se receber `baseUrl`/`token`/`atlasId`, o anel do backend (rotulado `server`); o anel do servidor é enriquecimento best-effort e falha em silêncio (`ledger.js:24-44`). `reduceLedger` é **puro** (sem Playwright, sem DOM), portanto testável sob Node.
 
-Ordenação causal: `serverVersion` primeiro, depois `ts`, depois `seq` por ator. **Nunca ordene por relógio de parede entre atores** (`ledger.js:47-52`). Isso é coerente com o [[modelo-conflito-lww]]: quem vence é `max(serverVersion)`, não o `timestamp` nem o Lamport (ver [[sintese-nao-e-crdt]] e [[sync-lww-operacoes]]).
+Ordenação causal: `serverVersion` primeiro, depois `ts`, depois `seq` por ator. **Nunca ordene por relógio de parede entre atores** (`ledger.js:47-52`). Isso é coerente com o [[modelo-conflito-lww]]: quem vence é `max(serverVersion)`, não o `timestamp` nem o Lamport (ver [[sintese-nao-e-crdt]] e [[modelo-conflito-lww]]).
 
 `suspectCause` traduz o último estágio alcançado em causa raiz legível: `dropped:<reason>`, `flush_failed_poison_batch`, `acked_but_no_effect`, `gated_offline_on_peer`, `pushed_no_ack`, `enqueued_not_flushed`, `applied_nowhere` (`ledger.js:109-119`).
 
@@ -98,16 +98,16 @@ Ambas exigem um ledger **já fundido** (spans com `actor`). Outras invariantes d
 
 ## O que não é bug
 
-Vários "sumiços" são intencionais e aparecem como `outcome`/`reason` explícitos, não como falha (invariante I10): drop `non_uuid_mapId` no mapa local `Principal` (anti-leak), `ws.self-echo` do próprio autor, `gateway.gate{offline}` e `preflush.drop{logging_disabled}` no modo offline-first anônimo. Mutações fora do log de ops (`atlas_updated`, `map_duplicated`, `maps_merged`) provocam re-pull de snapshot no cliente, não apply de op, então não terão cadeia de span de op (ver [[snapshot-e-pull-incremental]] e [[atlas]]).
+Vários "sumiços" são intencionais e aparecem como `outcome`/`reason` explícitos, não como falha (invariante I10): drop `non_uuid_mapId` no mapa local `Principal` (anti-leak), `ws.self-echo` do próprio autor, `gateway.gate{offline}` e `preflush.drop{logging_disabled}` no modo offline-first anônimo. Mutações fora do log de ops (`atlas_updated`, `map_duplicated`, `maps_merged`) provocam re-pull de snapshot no cliente, não apply de op, então não terão cadeia de span de op (ver [[snapshot-e-pull-incremental]] e [[atlas-modelo-de-dados]]).
 
-> [!CONTRADICAO 2026-07-18] `docs/arquitetura-sync.md` §12.3 lista os spans instrumentados como `operation-dispatcher.js` (`preflush.drop` + `enqueue`), `sync-engine.js`, `ws-client.js` e `sync-gateway.js`, e não menciona `apply.persist`. O código emite `apply.persist` em quatro pontos: `src/js/store/sync/operation-dispatcher.js:152` e `:212` (lado autor) e `src/js/store/sync/remote-operation-handler.js:72` e `:356` (lado peer). O doc está desatualizado em relação ao wire de cadeia completa.
+> [!CONTRADICAO 2026-07-18] guia *arquitetura-sync* (absorvido) §12.3 lista os spans instrumentados como `operation-dispatcher.js` (`preflush.drop` + `enqueue`), `sync-engine.js`, `ws-client.js` e `sync-gateway.js`, e não menciona `apply.persist`. O código emite `apply.persist` em quatro pontos: `src/js/store/sync/operation-dispatcher.js:152` e `:212` (lado autor) e `src/js/store/sync/remote-operation-handler.js:72` e `:356` (lado peer). O doc está desatualizado em relação ao wire de cadeia completa.
 
-> [!CONTRADICAO 2026-07-18] `docs/arquitetura-sync.md` §12.3 aponta o espelho de backend para `src/utils/sync-trace.js`, enquanto o JSDoc de `src/js/store/sync/diag/trace-stages.js:7` aponta o espelho do contrato de estágios para `ebgeo_backend/src/modules/collab/trace/trace-stages.js`. São dois arquivos distintos (ring vs. enum) ou um deles moveu; ao mexer no enum, confirme o caminho real no repo do backend antes de confiar em qualquer dos dois.
+> [!CONTRADICAO 2026-07-18] guia *arquitetura-sync* (absorvido) §12.3 aponta o espelho de backend para `src/utils/sync-trace.js`, enquanto o JSDoc de `src/js/store/sync/diag/trace-stages.js:7` aponta o espelho do contrato de estágios para `ebgeo_backend/src/modules/collab/trace/trace-stages.js`. São dois arquivos distintos (ring vs. enum) ou um deles moveu; ao mexer no enum, confirme o caminho real no repo do backend antes de confiar em qualquer dos dois.
 
 ## Fontes
 
-- `docs/arquitetura-sync.md` (§12 e §13): ideia central, contrato de estágios, invariantes I1-I11, como ligar, comportamentos por design.
-- `docs/guias/05-sync-crdt.md` (§1): `traceId` como campo opcional do envelope, ecoado no broadcast.
+- guia *arquitetura-sync* (absorvido) (§12 e §13): ideia central, contrato de estágios, invariantes I1-I11, como ligar, comportamentos por design.
+- guia *05-sync-crdt* (absorvido) (§1): `traceId` como campo opcional do envelope, ecoado no broadcast.
 - `src/js/store/sync/diag/trace-stages.js`, `trace-core.js`, `bus-tap.js`: enum de estágios/outcomes/reasons, ring buffer e resolver de flag, tap `onAny` e probe de render.
 - `src/js/store/store-transaction.js`, `src/js/store/sync/operation-factory.js`: mint e propagação do `traceId`.
 - `src/js/store/sync/{operation-dispatcher,sync-engine,ws-client,sync-gateway,remote-operation-handler}.js`: call sites reais de cada span.

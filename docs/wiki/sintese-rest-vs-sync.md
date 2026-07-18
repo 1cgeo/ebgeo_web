@@ -39,7 +39,7 @@ Sync serve para mudanças **de granularidade fina, frequentes e concorrentes**, 
 
 REST serve para mudanças **raras, estruturais e não concorrentes**, onde a semântica de "última escrita vence por feição" seria errada ou perigosa: quem pode ver o atlas, quais basemaps ele expõe, quem é o dono. Um op de sync com granularidade "atlas inteiro" reabriria a porta para um editor sobrescrever a lista de compartilhamentos.
 
-O corolário de segurança: **o gate de escrita das duas superfícies é diferente de propósito**. Sync exige no mínimo `comment` na rota (`sync.routes.js:19`) e depois refina por op em `assertOperationAllowed` (`sync.service.js:600-620`); REST de sharing e settings exige `manage` na rota. Um usuário `write` nunca alcança a superfície REST de governança. Veja [[permissao-vs-papel]] e [[sintese-eixos-de-permissao]].
+O corolário de segurança: **o gate de escrita das duas superfícies é diferente de propósito**. Sync exige no mínimo `comment` na rota (`sync.routes.js:19`) e depois refina por op em `assertOperationAllowed` (`sync.service.js:600-620`); REST de sharing e settings exige `manage` na rota. Um usuário `write` nunca alcança a superfície REST de governança. Veja [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
 ## A armadilha central: `atlas.settings` tem dois donos
 
@@ -70,7 +70,7 @@ A compensação é uma notificação por WebSocket, não uma op: `broadcastToRoo
 
 Consequência prática: quem estiver **offline** no momento do merge só converge quando voltar e receber um snapshot ([[snapshot-e-pull-incremental]]). Se você adicionar outra rota REST que escreva entidades filhas, **é obrigatório** emitir um broadcast que o cliente mapeie para `serverResync`, senão a mudança fica invisível para todo peer conectado.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/02-atlas-basico.md:495-508` desenha "Map (via sync)" sem ressalva, mas `src/modules/maps/maps.routes.js:17` e `src/modules/atlas/atlas.routes.js:44` expõem `merge` e `duplicate` como escritas REST de mapa e seus filhos.
+> [!CONTRADICAO 2026-07-18] guia *02-atlas-basico* (absorvido):495-508` desenha "Map (via sync)" sem ressalva, mas `src/modules/maps/maps.routes.js:17` e `src/modules/atlas/atlas.routes.js:44` expõem `merge` e `duplicate` como escritas REST de mapa e seus filhos.
 
 ## Notificações REST que o WebSocket carrega
 
@@ -85,7 +85,7 @@ Mesmo quando a mudança é puramente do atlas, o REST avisa o [[canal-collab-web
 | `sharing_updated` | rotas de sharing | atualiza o modal |
 | `map_duplicated` / `maps_merged` | duplicate/merge | `serverResync` |
 
-Referências: `atlas.controller.js:23,29,50,71,81` e `ws-client.js:343-361`. A distinção "op versus frame de notificação" é o eixo de [[sintese-rest-vs-websocket]]; o transporte em si está em [[websocket-collab]].
+Referências: `atlas.controller.js:23,29,50,71,81` e `ws-client.js:343-361`. A distinção "op versus frame de notificação" é o eixo de [[sintese-rest-vs-websocket]]; o transporte em si está em [[canal-collab-websocket]].
 
 ## Imagens: o único objeto que atravessa as duas superfícies
 
@@ -95,7 +95,7 @@ Ordem obrigatória: **suba o blob primeiro, só então grave a feição**. Se a 
 
 ## Pegadinhas do gate de permissão
 
-- **`manage` está acima de `write`.** Um gate escrito como `permission === 'write' || permission === 'owner'` exclui o co-Gestor em silêncio. O exemplo de frontend em `docs/guias/02-atlas-basico.md:420` (`['write','owner'].includes(msg.permission)`) tem exatamente esse defeito, e o próprio documento avisa disso logo abaixo (linha 409-411). Não copie o trecho.
+- **`manage` está acima de `write`.** Um gate escrito como `permission === 'write' || permission === 'owner'` exclui o co-Gestor em silêncio. O exemplo de frontend em guia *02-atlas-basico* (absorvido):420` (`['write','owner'].includes(msg.permission)`) tem exatamente esse defeito, e o próprio documento avisa disso logo abaixo (linha 409-411). Não copie o trecho.
 - **`owner` nunca vem de `atlas_shares`.** É sintetizado de `atlas.owner_id`; o CHECK da tabela aceita apenas `read|comment|write|manage` (`sharing.routes.js:11-14`). A posse só muda pela rota de transferência.
 - **Deletar mapa e travar/destravar mapa são `owner`**, embora sejam ops de sync, não REST. A checagem está em `assertOperationAllowed` (`sync.service.js:611-620`), inspecionando `op.type === 'delete'` e `changes.locked`.
 - **O gate da rota de push é `comment`, não `write`**, de propósito, para que o Comentarista alcance a rota; o refinamento por op bloqueia tudo que não seja `target === 'comment'` (`sync.routes.js:19`, `sync.service.js:606`). Veja [[comentario-espacial]].
@@ -103,14 +103,14 @@ Ordem obrigatória: **suba o blob primeiro, só então grave a feição**. Se a 
 
 ## Detalhe de resposta que quebra código
 
-`GET /atlas/:id/sharing` responde em **camelCase** (`isPublic`, `publicLink`, `shares[].userId`), confirmado em `src/modules/sharing/sharing.service.js:13-20`. Já `POST /sharing/users` responde o registro cru da tabela em **snake_case** (`user_id`, `added_at`). O exemplo de modal em `docs/guias/07-compartilhamento.md:586,611` lê `data.data.is_public` e `share.user_id` sobre a resposta do `GET`, o que retorna `undefined`.
+`GET /atlas/:id/sharing` responde em **camelCase** (`isPublic`, `publicLink`, `shares[].userId`), confirmado em `src/modules/sharing/sharing.service.js:13-20`. Já `POST /sharing/users` responde o registro cru da tabela em **snake_case** (`user_id`, `added_at`). O exemplo de modal em guia *07-compartilhamento* (absorvido):586,611` lê `data.data.is_public` e `share.user_id` sobre a resposta do `GET`, o que retorna `undefined`.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/07-compartilhamento.md:586,611` acessa `is_public` e `user_id` na resposta de `GET /sharing`, mas `src/modules/sharing/sharing.service.js:13-20` devolve `isPublic` e `shares[].userId`.
+> [!CONTRADICAO 2026-07-18] guia *07-compartilhamento* (absorvido):586,611` acessa `is_public` e `user_id` na resposta de `GET /sharing`, mas `src/modules/sharing/sharing.service.js:13-20` devolve `isPublic` e `shares[].userId`.
 
 ## Detalhes que o código revela e a prosa não
 
 - **`EntityType.ATLAS` existe mas é código morto.** Declarado em `src/js/store/sync/operation-types.js:9` e **não referenciado em nenhum lugar** do frontend. Atlas não é entidade de sync; use REST. Não "reative" essa constante achando que existe um caminho pronto.
-- **`atlas.version` e `current_version` são contadores diferentes.** As escritas REST incrementam `version` (o versionamento otimista do atlas) e nunca tocam `current_version`, que é a ordem de chegada usada pelo sync. Ver [[sync-lww-operacoes]] e [[fila-operacoes-outbound]].
+- **`atlas.version` e `current_version` são contadores diferentes.** As escritas REST incrementam `version` (o versionamento otimista do atlas) e nunca tocam `current_version`, que é a ordem de chegada usada pelo sync. Ver [[modelo-conflito-lww]] e [[fila-operacoes-outbound]].
 - **O `deleteAtlas` é soft-delete.** Marca `deleted_at`, incrementa `version`, fecha a sala. Mapas, features e briefings **permanecem no banco**, não há cascade. Por isso existe `GET /atlas/trash` e `POST /:id/restore` (`atlas.routes.js:25,31`), e por isso o restore é checado dentro do serviço, `requireAtlasPermission` só enxerga atlas vivos.
 - **O snapshot filtra comentários por papel.** `pullOperations` remove ops de `comment` para quem é `read` (`sync.service.js:797-799`), tanto no incremental quanto no snapshot.
 - **O acesso público usa um JWT temporário de 1h, read-only**, obtido em `GET /atlas/public/:link` sem autenticação, com rate limit próprio (`publicLinkLimiter`, `atlas.routes.js:23`). Ele serve tanto para REST quanto para o WebSocket. Veja [[link-publico]] e [[autenticacao-jwt]].
@@ -125,12 +125,12 @@ Ordem obrigatória: **suba o blob primeiro, só então grave a feição**. Se a 
 
 ## Ver também
 
-[[atlas]] · [[atlas-modelo-de-dados]] · [[aplicacao-operacoes-remotas]] · [[compartilhamento-atlas]] · [[store-origin-local-remoto]] · [[sintese-modulos-fora-do-sync]] · [[sintese-limites-collab]] · [[sync-admin-operacoes]] · [[formato-ebgeo-roundtrip]]
+[[atlas-modelo-de-dados]] · [[atlas-modelo-de-dados]] · [[aplicacao-operacoes-remotas]] · [[compartilhamento-atlas]] · [[dominio-local-vs-remoto]] · [[sintese-modulos-fora-do-sync]] · [[sintese-limites-collab]] · [[sync-admin-operacoes]] · [[formato-ebgeo-roundtrip]]
 
 ## Fontes
 
-- `docs/guias/02-atlas-basico.md`: CRUD REST do atlas, formato de settings, hierarquia e matriz de permissões, escopo do clone, diagrama "Atlas (REST) → filhos (sync)", envelope de erro.
-- `docs/guias/07-compartilhamento.md`: rotas de sharing e link público (todas `manage`), token público read-only de 1h, limitações do acesso público, formato das respostas.
+- guia *02-atlas-basico* (absorvido): CRUD REST do atlas, formato de settings, hierarquia e matriz de permissões, escopo do clone, diagrama "Atlas (REST) → filhos (sync)", envelope de erro.
+- guia *07-compartilhamento* (absorvido): rotas de sharing e link público (todas `manage`), token público read-only de 1h, limitações do acesso público, formato das respostas.
 - `ebgeo_backend/src/modules/atlas/atlas.routes.js` e `atlas.controller.js`: rotas REST reais, gates por rota, broadcasts `atlas_updated`/`atlas_settings_updated`/`atlas_deleted`/`map_duplicated`/`atlas_owner_changed`.
 - `ebgeo_backend/src/modules/maps/maps.routes.js`, `maps.controller.js`, `maps.service.js`: rotas de mapa somente-leitura mais a exceção `merge` e as tabelas filhas que ela move.
 - `ebgeo_backend/src/modules/briefings/briefings.routes.js`: briefings somente-leitura por REST.

@@ -5,7 +5,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 ## Por onde começar
 
 - [[atlas-modelo-de-dados]] - o contêiner de topo do projeto e o modelo de dados inteiro em uma página.
-- [[sync-lww-operacoes]] - como a colaboração funciona: mutações viram operações e o servidor ordena tudo.
+- [[modelo-conflito-lww]] - como a colaboração funciona: mutações viram operações e o servidor ordena tudo.
 - [[dominio-local-vs-remoto]] - a separação entre workspace local e cópia de atlas do servidor, base para entender quase todo comportamento do cliente.
 - [[sintese-nao-e-crdt]] - o esclarecimento que evita o mal-entendido mais caro do projeto.
 - [[sintese-decisoes-arquiteturais]] - as escolhas estruturais e os não-objetivos declarados.
@@ -19,31 +19,31 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[snapshot-e-pull-incremental]] - quando o servidor devolve snapshot completo e quando devolve operações incrementais.
 - [[fila-operacoes-outbound]] - da mutação local ao push HTTP: transação, fila IndexedDB, compaction e flush.
 - [[aplicacao-operacoes-remotas]] - o caminho inbound até persistir no store e redesenhar o mapa.
-- [[fila-operacoes-pendentes]] - o que acontece com as operações acumuladas offline e a sequência de reconexão.
+- [[fila-operacoes-outbound]] - o que acontece com as operações acumuladas offline e a sequência de reconexão.
 - [[ack-idempotencia]] - o ack por operação e por que idempotent:true conta como sucesso.
 - [[tabela-operations]] - o log append-only no PostgreSQL e a sequência global que define a ordem.
 - [[sync-admin-operacoes]] - estatísticas e cleanup do log de operações, com efeito de forçar snapshot.
 - [[syncledger]] - a camada de tracing test/dev que torna o pipeline multiusuário verificável ponta a ponta.
-- [[store-origin-local-remoto]] - o marcador de origem e o anti-leak do mapa local Principal.
+- [[dominio-local-vs-remoto]] - o marcador de origem e o anti-leak do mapa local Principal.
 
 ## Tempo real: canal e presença
 
-- [[websocket-collab]] - o canal de colaboração, seus tipos de mensagem e o ciclo de conexão.
+- [[canal-collab-websocket]] - o canal de colaboração, seus tipos de mensagem e o ciclo de conexão.
 - [[canal-collab-websocket]] - autorização no handshake, broadcast de mutações e ack pelo socket.
 - [[client-id-estavel]] - o identificador de cliente persistido que sustenta idempotência e presença.
 - [[presenca-colaborativa]] - a camada efêmera em memória que propaga roster, cursores e seleções.
-- [[presenca-tempo-real]] - cursores, seleção e os eventos que descrevem quem está na sala.
-- [[presenca-colaboracao]] - presença como requisito de produto nas três superfícies (2D, 3D e 360).
-- [[presenca-away-vs-saida]] - a janela de graça que separa queda de conexão de saída real.
+- [[presenca-colaborativa]] - cursores, seleção e os eventos que descrevem quem está na sala.
+- [[presenca-colaborativa]] - presença como requisito de produto nas três superfícies (2D, 3D e 360).
+- [[presenca-colaborativa]] - a janela de graça que separa queda de conexão de saída real.
 - [[qualidade-conexao-adaptativa]] - RTT reportado pelo cliente e ajustes de transporte recomendados pelo servidor.
 
 ## Atlas, permissões e compartilhamento
 
-- [[atlas]] - o atlas como entidade do backend, unidade de isolamento do sync e da sala WebSocket.
+- [[atlas-modelo-de-dados]] - o atlas como entidade do backend, unidade de isolamento do sync e da sala WebSocket.
 - [[api-rest-atlas]] - a família de endpoints REST de atlas e a permissão mínima por rota.
 - [[atlas-settings]] - o bloco de configuração por atlas que habilita features e restringe camadas e navegação.
 - [[permissoes-atlas]] - tiers de acesso do backend, papéis de UI e onde cada checagem acontece.
-- [[permissao-vs-papel]] - os dois vocabulários ortogonais de autorização e como um deriva do outro.
+- [[permissoes-atlas]] - os dois vocabulários ortogonais de autorização e como um deriva do outro.
 - [[compartilhamento-atlas]] - concessão nominal de acesso gravada em atlas_shares.
 - [[link-publico]] - acesso anônimo por link opaco trocado em token de visitante read-only.
 - [[clone-atlas]] - o que a duplicação de atlas leva junto e o que deliberadamente fica de fora.

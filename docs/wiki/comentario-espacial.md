@@ -31,15 +31,15 @@ Armadilhas reais no código:
 1. `sessionContext.isAuthenticated()`, porque um comentário precisa de autor;
 2. `checkPermission(GuardAction.CREATE_COMMENT | UPDATE_COMMENT | DELETE_COMMENT)`, que mapeia para a capability `COMMENT` (`src/js/store/sync/permission-guard.js:41-43`).
 
-A regra mais fina "autor ou Editor+" para editar/resolver/excluir **não** está no guard, está na UI: `_canModify` libera para quem tem `canEdit`, senão só se `comment.authorId === sessionContext.userId` (`src/js/comment_tool/comment-overlay.js:171-176`). Ver [[permissoes-atlas]] e [[permissao-vs-papel]].
+A regra mais fina "autor ou Editor+" para editar/resolver/excluir **não** está no guard, está na UI: `_canModify` libera para quem tem `canEdit`, senão só se `comment.authorId === sessionContext.userId` (`src/js/comment_tool/comment-overlay.js:171-176`). Ver [[permissoes-atlas]] e [[permissoes-atlas]].
 
-> [!CONTRADICAO 2026-07-18] `docs/visao-e-principios.md` §11 diz "Funciona sem login (a ferramenta aparece; o gating de papel só existe conectado, P1)" e lista "Comentário disponível offline" nas decisões fechadas. O código faz o oposto: `guardComment` bloqueia com `reason: 'not-authenticated'` em `src/js/store/comment.operations.js:34-37`, e a ferramenta recusa entrar em modo de colocação exibindo "Faça login para adicionar comentários" em `src/js/comment_tool/comment-overlay.js:123-126`. Anônimo/offline apenas **vê** comentários (por exemplo os vindos de um `.ebgeo` importado). Isso vale inclusive para o visitante de [[link-publico]], que é ONLINE mas com `isAuthenticated()` falso por construção (`src/js/store/sync/session-context.js:258-266`).
+> [!CONTRADICAO 2026-07-18] guia *visao-e-principios* (absorvido) §11 diz "Funciona sem login (a ferramenta aparece; o gating de papel só existe conectado, P1)" e lista "Comentário disponível offline" nas decisões fechadas. O código faz o oposto: `guardComment` bloqueia com `reason: 'not-authenticated'` em `src/js/store/comment.operations.js:34-37`, e a ferramenta recusa entrar em modo de colocação exibindo "Faça login para adicionar comentários" em `src/js/comment_tool/comment-overlay.js:123-126`. Anônimo/offline apenas **vê** comentários (por exemplo os vindos de um `.ebgeo` importado). Isso vale inclusive para o visitante de [[link-publico]], que é ONLINE mas com `isAuthenticated()` falso por construção (`src/js/store/sync/session-context.js:258-266`).
 
 ## Sync
 
 Tipo de entidade `COMMENT: 'comment'` (`src/js/store/sync/operation-types.js:34`), logado por `logCommentOperation` (`src/js/store/sync/operation-dispatcher.js:307-308`). É uma op **map-scoped**: carrega o `mapId` do mapa. Ver [[envelope-operacao]] e [[tipos-entidade-sync]].
 
-Consequência direta do escopo por mapa: no mapa local `Principal` (chaveado por nome, não UUID) o dispatcher **descarta a op antes do flush** (`operation-dispatcher.js:133-137`, `DropReason.NON_UUID_MAPID`), porque o backend rejeitaria um `mapId` não-UUID e derrubaria o lote inteiro. Comentar num mapa local persiste, mas nunca sai da máquina. Ver [[fila-operacoes-outbound]] e [[store-origin-local-remoto]].
+Consequência direta do escopo por mapa: no mapa local `Principal` (chaveado por nome, não UUID) o dispatcher **descarta a op antes do flush** (`operation-dispatcher.js:133-137`, `DropReason.NON_UUID_MAPID`), porque o backend rejeitaria um `mapId` não-UUID e derrubaria o lote inteiro. Comentar num mapa local persiste, mas nunca sai da máquina. Ver [[fila-operacoes-outbound]] e [[dominio-local-vs-remoto]].
 
 Entrada remota: `applyRemoteCommentOp` grava no side-store e emite `COMMENT_CREATED`/`COMMENT_UPDATED`/`COMMENT_DELETED` (`src/js/store/sync/remote-operation-handler.js:658-671`) — mesma simetria de [[aplicacao-operacoes-remotas]].
 
@@ -47,7 +47,7 @@ No [[snapshot-e-pull-incremental]] há uma diferença de forma que já causou bu
 
 ## O Visualizador não recebe, não é esconde-UI
 
-Para conexão de nível `read`, snapshot e broadcast do servidor **não enviam comentários**. É filtro de transmissão, então o dado nunca chega ao IndexedDB do Visualizador. Isso é intencional e é a razão de o campo `map.comments` poder vir ausente do snapshot (comentado em `remote-operation-handler.js:1204-1205`). Não tente "consertar" isso no cliente. Ver [[websocket-collab]] e [[sintese-capacidades-por-papel]].
+Para conexão de nível `read`, snapshot e broadcast do servidor **não enviam comentários**. É filtro de transmissão, então o dado nunca chega ao IndexedDB do Visualizador. Isso é intencional e é a razão de o campo `map.comments` poder vir ausente do snapshot (comentado em `remote-operation-handler.js:1204-1205`). Não tente "consertar" isso no cliente. Ver [[canal-collab-websocket]] e [[sintese-capacidades-por-papel]].
 
 ## UI
 
@@ -65,9 +65,9 @@ Comentários entram no arquivo por mapa (`src/js/import_export/export-import.ser
 
 ## Relacionados
 
-[[atlas-modelo-de-dados]], [[sync-lww-operacoes]], [[presenca-colaboracao]], [[compartilhamento-atlas]], [[modos-operacao]], [[sintese-nao-e-crdt]]
+[[atlas-modelo-de-dados]], [[modelo-conflito-lww]], [[presenca-colaborativa]], [[compartilhamento-atlas]], [[modos-operacao]], [[sintese-nao-e-crdt]]
 
 ## Fontes
-- `docs/visao-e-principios.md` (§11): modelo de papéis, matriz de capacidades, decisão raiz/resposta como entidades separadas (P10), "resolvido sai do mapa", filtro de transmissão para o Visualizador, schema no baseline `002_atlas.sql` com o texto no `data` JSONB, comentário fora do link público.
-- `docs/ui-ux-ebgeo.md` (§Comentários espaciais, §Papéis): overlay + painel, `Shift+C`, comentário como forma de participação do Comentarista, gating de broadcast de seleção por edição.
+- guia *visao-e-principios* (absorvido) (§11): modelo de papéis, matriz de capacidades, decisão raiz/resposta como entidades separadas (P10), "resolvido sai do mapa", filtro de transmissão para o Visualizador, schema no baseline `002_atlas.sql` com o texto no `data` JSONB, comentário fora do link público.
+- guia *ui-ux-ebgeo* (absorvido) (§Comentários espaciais, §Papéis): overlay + painel, `Shift+C`, comentário como forma de participação do Comentarista, gating de broadcast de seleção por edição.
 - Código (autoridade sobre a prosa): `src/js/store/comment.operations.js`, `src/js/comment_tool/comment-overlay.js`, `src/js/comment_tool/comments-panel.js`, `src/js/store/sync/{permission-guard,operation-types,operation-dispatcher,remote-operation-handler,session-context}.js`, `src/js/store/repositories/local.repository.js`, `src/js/import_export/export-import.service.js`, `src/js/keyboard/keyboard-shortcuts.js`.

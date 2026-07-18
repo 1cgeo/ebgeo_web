@@ -1,4 +1,4 @@
-> [!CONTRADICAO 2026-07-18] `docs/guias/04-websocket-collab.md:411` diz que "o servidor armazena a geometria em precisão cheia" enquanto o cliente comprime a saída, mas nenhum lado trunca hoje: `truncateCoords` (`backend/src/modules/collab/collab.quality.js:50`) não tem call site em `backend/src/` (o próprio comentário do arquivo declara isso e pede que não seja removido), e o frontend não implementa truncamento algum. A precisão cheia é preservada por omissão, não por decisão de código.
+> [!CONTRADICAO 2026-07-18] guia *04-websocket-collab* (absorvido):411` diz que "o servidor armazena a geometria em precisão cheia" enquanto o cliente comprime a saída, mas nenhum lado trunca hoje: `truncateCoords` (`backend/src/modules/collab/collab.quality.js:50`) não tem call site em `backend/src/` (o próprio comentário do arquivo declara isso e pede que não seja removido), e o frontend não implementa truncamento algum. A precisão cheia é preservada por omissão, não por decisão de código.
 
 # Monitor adaptativo de qualidade de conexão
 
@@ -12,7 +12,7 @@ Três arquivos, nada mais:
 - `backend/src/modules/collab/collab.handlers.js:214` — `handleConnectionQuality(ws, data)`, o único ponto que guarda estado.
 - `backend/src/modules/collab/collab.gateway.js:447` — o `case 'connection-quality'` no dispatch de mensagens do [[canal-collab-websocket]].
 
-Do lado do cliente, `src/js/store/sync/ws-client.js:340` apenas reencaminha a mensagem como evento local `adaptiveSettings`. Ver [[websocket-collab]] para o protocolo completo.
+Do lado do cliente, `src/js/store/sync/ws-client.js:340` apenas reencaminha a mensagem como evento local `adaptiveSettings`. Ver [[canal-collab-websocket]] para o protocolo completo.
 
 ## Classificação
 
@@ -49,12 +49,12 @@ Pontos que costumam pegar quem integra:
 - **Reconexão zera tudo.** O socket novo é outro objeto, logo a próxima amostra reemite. Isso é desejável (a rede provavelmente mudou), mas significa que o cliente **não deve** guardar os settings entre conexões sem revalidar.
 - **`rttMs` inválido é engolido em silêncio.** Não-finito ou negativo faz `return` sem `error` de volta. Um cliente com bug de medição fica preso na banda antiga e não recebe sinal nenhum. Se o RTT parou de mudar de banda, verifique primeiro se você está mandando `NaN`.
 - **O servidor nunca mede RTT.** O heartbeat do servidor (`WS_HEARTBEAT_INTERVAL_MS`) serve para matar conexão morta, não para latência. A medição é responsabilidade exclusiva do cliente, tipicamente cronometrando `ping` -> `pong`.
-- **A mensagem é unicast.** Vai só para o socket que reportou, não entra em broadcast de sala, ao contrário de cursor/seleção da [[presenca-tempo-real]].
+- **A mensagem é unicast.** Vai só para o socket que reportou, não entra em broadcast de sala, ao contrário de cursor/seleção da [[presenca-colaborativa]].
 
 ## Os três settings, e o que eles realmente significam
 
 - `batchIntervalMs` — de quanto em quanto tempo o cliente deveria drenar a [[fila-operacoes-outbound]]. É recomendação: o servidor aceita operações na cadência que o cliente mandar e responde `ack` normalmente (ver [[ack-idempotencia]]). Ignorar não quebra nada, só desperdiça banda em link ruim.
-- `geometryPrecision` — casas decimais de coordenada sugeridas **apenas para o transporte de saída**. 5 casas equivalem a cerca de 1,1 m, 4 casas a cerca de 11 m. Nunca trunque antes de persistir localmente nem antes de montar o [[envelope-operacao]] que vai virar registro canônico: a perda seria permanente e propagaria para os peers via [[sync-lww-operacoes]], sem volta.
+- `geometryPrecision` — casas decimais de coordenada sugeridas **apenas para o transporte de saída**. 5 casas equivalem a cerca de 1,1 m, 4 casas a cerca de 11 m. Nunca trunque antes de persistir localmente nem antes de montar o [[envelope-operacao]] que vai virar registro canônico: a perda seria permanente e propagaria para os peers via [[modelo-conflito-lww]], sem volta.
 - `viewportOnly` — sugestão de restringir o que o cliente processa/desenha à viewport atual. Não altera nada no servidor: o broadcast continua sendo por atlas inteiro, não por mapa nem por bbox (ver [[sintese-limites-collab]]). A filtragem é 100% do cliente.
 
 Ou seja: **nenhum dos três é aplicado pelo servidor**. São recomendações, e o servidor não verifica se o cliente obedeceu.
@@ -73,13 +73,13 @@ O checklist do guia (`04-websocket-collab.md:764`) lista isso como item a fazer 
 
 1. Não deduza a banda no cliente a partir da tabela. Reporte o RTT e obedeça à resposta: os limiares podem mudar no servidor sem quebrar cliente.
 2. Não trate ausência de `adaptive-settings` como erro. Silêncio significa "banda inalterada", que é o caso comum.
-3. Não amarre reconexão de socket a mudança de banda. `critical` não é motivo para derrubar a conexão; a máquina de estados de conexão e o `sync_request` de recuperação são assunto de [[snapshot-e-pull-incremental]] e do backoff descrito em [[websocket-collab]].
+3. Não amarre reconexão de socket a mudança de banda. `critical` não é motivo para derrubar a conexão; a máquina de estados de conexão e o `sync_request` de recuperação são assunto de [[snapshot-e-pull-incremental]] e do backoff descrito em [[canal-collab-websocket]].
 4. Se for instrumentar, o span de transporte já existe no [[syncledger]]; a qualidade de conexão não gera span próprio hoje.
 5. `truncateCoords` é transport-only e não tem call site em `backend/src/`. Está coberto por `backend/tests/unit/collab-quality.test.js` e marcado explicitamente como "não é dead code, não remova" (`collab.quality.js:44-48`). Um `npm run knip` ou limpeza automática vai querer apagá-la.
 
 ## Fontes
 
-- `docs/guias/04-websocket-collab.md`: §3.8 (protocolo `connection-quality`/`adaptive-settings`, tabela de bandas, notas de integração), tabela de tipos de mensagem (linhas 150 e 158), esqueleto de cliente (`reportQuality`, `onAdaptiveSettings`) e checklist de integração (linha 764).
+- guia *04-websocket-collab* (absorvido): §3.8 (protocolo `connection-quality`/`adaptive-settings`, tabela de bandas, notas de integração), tabela de tipos de mensagem (linhas 150 e 158), esqueleto de cliente (`reportQuality`, `onAdaptiveSettings`) e checklist de integração (linha 764).
 - `backend/src/modules/collab/collab.quality.js`: limiares de classificação, settings por banda, ramo `default`, e `truncateCoords` com a nota de preservação deliberada.
 - `backend/src/modules/collab/collab.handlers.js:214-228`: validação de `rttMs`, estado por socket (`ws.qualityClass`, `ws.rttMs`), emissão unicast só na transição.
 - `backend/src/modules/collab/collab.gateway.js:447`: roteamento da mensagem no dispatch.

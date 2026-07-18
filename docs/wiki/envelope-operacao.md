@@ -50,11 +50,11 @@ O backend aceita o vocabulário frontend (`entityType` / `operationType` / `enti
 
 **1. O cliente nunca emite `changes`.** O guia descreve `changes` como o campo de update, mas `createOperation` só produz `data` (`operation-factory.js:151-163`); não há nenhuma ocorrência de `changes` em `src/js/store/sync/*.js`. O backend cobre isso: quando `changes` está ausente num `update`, ele usa `data` como `changes`. Se você ler o guia e esperar `changes` no envelope de saída, vai procurar um campo que não existe.
 
-> [!CONTRADICAO 2026-07-18] docs/guias/05-sync-crdt.md §1 e §14 apresentam o "Formato Frontend" com `changes` no update e sem `previousData`/`lamportTimestamp`/`batchId`; o código em src/js/store/sync/operation-factory.js:151-163 sempre emite o payload em `data` e sempre inclui `previousData`, `lamportTimestamp` e `traceId`. O próprio §3 do guia ("Compatibilidade com o store do frontend") reconhece o comportamento as-built, mas a interface normativa do §1 continua desalinhada.
+> [!CONTRADICAO 2026-07-18] guia *05-sync-crdt* (absorvido) §1 e §14 apresentam o "Formato Frontend" com `changes` no update e sem `previousData`/`lamportTimestamp`/`batchId`; o código em src/js/store/sync/operation-factory.js:151-163 sempre emite o payload em `data` e sempre inclui `previousData`, `lamportTimestamp` e `traceId`. O próprio §3 do guia ("Compatibilidade com o store do frontend") reconhece o comportamento as-built, mas a interface normativa do §1 continua desalinhada.
 
 **2. `previousData` é local, não é um contrato de servidor.** Existe para undo no cliente. Ele viaja porque o envelope vai verbatim, não porque o backend precise dele. Não construa lógica de merge servidor-side em cima disso.
 
-**3. Uma op malformada envenena o lote inteiro.** O push roda numa única transação: se uma operação falhar, o batch inteiro é revertido e nada é dequeued. Por isso o dispatcher dropa preventivamente, antes de enfileirar (`operation-dispatcher.js:105-139`): logging desabilitado, `SETTING` com `entityId` não-UUID que não seja o sentinel `'atlas'`, e qualquer op com `mapId` não-UUID (mapa local nome-chaveado, ex. `Principal`). Um `mapId` não-UUID faz o Postgres devolver 22P02 e trava todo o sync. Os motivos são registrados como span `preflush.drop` com `DropReason` (`diag/trace-stages.js:54-63`). Ver [[store-origin-local-remoto]].
+**3. Uma op malformada envenena o lote inteiro.** O push roda numa única transação: se uma operação falhar, o batch inteiro é revertido e nada é dequeued. Por isso o dispatcher dropa preventivamente, antes de enfileirar (`operation-dispatcher.js:105-139`): logging desabilitado, `SETTING` com `entityId` não-UUID que não seja o sentinel `'atlas'`, e qualquer op com `mapId` não-UUID (mapa local nome-chaveado, ex. `Principal`). Um `mapId` não-UUID faz o Postgres devolver 22P02 e trava todo o sync. Os motivos são registrados como span `preflush.drop` com `DropReason` (`diag/trace-stages.js:54-63`). Ver [[dominio-local-vs-remoto]].
 
 **4. Compactação altera o envelope antes do envio.** Ao passar do teto da fila, `CREATE + DELETE` remove ambos e `CREATE + UPDATEs` vira um único `CREATE` com o `data` mais recente (`operation-queue.js:324-345`). O `id` que chega ao servidor pode não ser o `id` do gesto original: não assuma correspondência 1:1 entre gestos e linhas em `operations`.
 
@@ -72,12 +72,12 @@ Em tempo real o mesmo envelope também sai pelo WS como `{ type: 'operation', op
 
 ## Relacionados
 
-[[tipos-entidade-sync]], [[fila-operacoes-outbound]], [[modelo-conflito-lww]], [[idempotencia-e-convergence-guard]], [[snapshot-e-pull-incremental]], [[tabela-operations]], [[permissoes-atlas]], [[syncledger]], [[sync-lww-operacoes]], [[atlas]].
+[[tipos-entidade-sync]], [[fila-operacoes-outbound]], [[modelo-conflito-lww]], [[idempotencia-e-convergence-guard]], [[snapshot-e-pull-incremental]], [[tabela-operations]], [[permissoes-atlas]], [[syncledger]], [[modelo-conflito-lww]], [[atlas-modelo-de-dados]].
 
 ## Fontes
 
-- `docs/guias/05-sync-crdt.md`: contrato dos dois vocabulários, validação Joi (`id` obrigatório, máx. 500 ops/push, 422), tabela de entityTypes e sub-entidades de mapa, semântica de push/pull, idempotência por `op_id`, atomicidade do batch, geração de `clientId`.
-- `docs/arquitetura-sync.md` §3: shape canônico do envelope, distinção `serverVersion` vs `timestamp` vs `lamportTimestamp`, papel do `op.id` como âncora, mapeamento de entityTypes no backend.
+- guia *05-sync-crdt* (absorvido): contrato dos dois vocabulários, validação Joi (`id` obrigatório, máx. 500 ops/push, 422), tabela de entityTypes e sub-entidades de mapa, semântica de push/pull, idempotência por `op_id`, atomicidade do batch, geração de `clientId`.
+- guia *arquitetura-sync* (absorvido) §3: shape canônico do envelope, distinção `serverVersion` vs `timestamp` vs `lamportTimestamp`, papel do `op.id` como âncora, mapeamento de entityTypes no backend.
 - `src/js/store/sync/operation-factory.js`: shape realmente emitido (`previousData`, `lamportTimestamp`, `traceId`, `batchId`/`batchIndex`), validação de tipos, `getClientId` com fallback, relógio Lamport.
 - `src/js/store/sync/operation-dispatcher.js`: gates de pré-flush e seus motivos.
 - `src/js/store/sync/operation-queue.js`: chave `timestamp_id`, ordem de peek, regras de compactação.

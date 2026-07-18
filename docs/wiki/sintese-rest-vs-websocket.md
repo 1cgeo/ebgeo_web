@@ -32,7 +32,7 @@ gesto → runTransaction → logXxxOperation → operationQueue (IndexedDB)
 
 `WsClient.sendOperation`/`sendOperations` existem (`ws-client.js:161`, `ws-client.js:170`) mas **não têm nenhum chamador em `src/js`**, apenas testes. São superfície de protocolo mantida por compatibilidade, não caminho quente.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/05-sync-crdt.md` §5 diz "Em tempo real, prefira o canal WebSocket; o push HTTP é o caminho de recuperação"; o cliente real faz o inverso: o push HTTP é o caminho **normal** (`sync-flush.js:130` → `sync-engine.js:272`) e o WS não é usado para outbound de operações (`ws-client.js:161` sem chamador). O mesmo vale para a implementação de referência de `docs/guias/04-websocket-collab.md` §7, que envia ops por `sendOperation`.
+> [!CONTRADICAO 2026-07-18] guia *05-sync-crdt* (absorvido) §5 diz "Em tempo real, prefira o canal WebSocket; o push HTTP é o caminho de recuperação"; o cliente real faz o inverso: o push HTTP é o caminho **normal** (`sync-flush.js:130` → `sync-engine.js:272`) e o WS não é usado para outbound de operações (`ws-client.js:161` sem chamador). O mesmo vale para a implementação de referência de guia *04-websocket-collab* (absorvido) §7, que envia ops por `sendOperation`.
 
 Consequência prática: a latência de propagação de uma edição tem um piso do intervalo de flush (mitigado pelo flush por evento), e o **ack canônico do autor é a resposta HTTP**, não a mensagem `ack` do WS. Ver [[envelope-operacao]], [[fila-operacoes-outbound]] e [[ack-idempotencia]].
 
@@ -61,27 +61,27 @@ Outros sinais WS com efeito colateral REST/local, todos ligados em `sync-engine.
 - `atlas_settings_updated` → reaplica o overlay de restrições por atlas (`sync-engine.js:475`), com gate de `isOnline()` para não recapturar o config já restaurado após um disconnect. Ver [[atlas-settings]].
 - `sharing_updated` → re-gate do papel local sem reconectar, só para o usuário afetado (`sync-engine.js:463`). Ver [[compartilhamento-atlas]] e [[permissoes-atlas]].
 - `atlas_deleted` → `disconnect()` para o auto-reconnect não perseguir sala morta (`sync-engine.js:427`).
-- `sync_response` → aplicado apenas se ainda online (`sync-engine.js:411`), senão um snapshot atrasado repersiste dados remotos num store em teardown. Ver [[store-origin-local-remoto]].
+- `sync_response` → aplicado apenas se ainda online (`sync-engine.js:411`), senão um snapshot atrasado repersiste dados remotos num store em teardown. Ver [[dominio-local-vs-remoto]].
 
 ## Recuperação: dois caminhos, escolhidos pela duração da falha
 
 - **Socket caiu, sessão viva**: reconnect com backoff 1s→30s (`ws-client.js:462-476`) e, ao reabrir, `requestSync(lastVersion)` **pelo WS** (`ws-client.js:425-427`). Não há replay de mensagens bufferizadas por cliente; o replay é sempre por versão.
 - **App fechou / F5 / relogin**: o boot refaz o caminho REST completo, `pullSync(atlasId, 0)` no `connect`. Ver [[sessao-boot-e-ciclo-de-vida]].
 
-O corte snapshot vs incremental é do servidor: `version == 0` ou `version < min_version` devolve snapshot, senão ops incrementais. Um cleanup administrativo sobe `min_version` e força snapshot para clientes atrasados. Ver [[snapshot-e-pull-incremental]] e [[fila-operacoes-pendentes]].
+O corte snapshot vs incremental é do servidor: `version == 0` ou `version < min_version` devolve snapshot, senão ops incrementais. Um cleanup administrativo sobe `min_version` e força snapshot para clientes atrasados. Ver [[snapshot-e-pull-incremental]] e [[fila-operacoes-outbound]].
 
 ## Timeouts, backpressure e outras armadilhas de transporte
 
 - **Push e pull são propositalmente sem timeout**; só as chamadas de boot (`getMe`, `getConfig`) usam `BOOT_TIMEOUT_MS = 8000` (`api-client.js:49`, `api-client.js:369`, `api-client.js:379`). Abortar um push por timeout arriscaria reenvio duplicado, seguro por idempotência mas ruidoso; abortar um snapshot grande quebraria o boot em rede lenta.
 - **401 no REST dispara um refresh único e repete a chamada** (`api-client.js:233`). O WS não tem esse caminho: o token vai na query do handshake e a autorização é reconciliada a cada heartbeat do servidor, então uma revogação de share fecha o socket.
-- **Backpressure só descarta presença**: se `bufferedAmount` passa de 1 MiB, frames `cursor`/`selection`/`temporal` são dropados (`ws-client.js:36-38`, `ws-client.js:524`), nunca ops nem frames de controle. É correto porque o frame seguinte de presença supera o anterior. Ver [[presenca-tempo-real]] e [[qualidade-conexao-adaptativa]].
+- **Backpressure só descarta presença**: se `bufferedAmount` passa de 1 MiB, frames `cursor`/`selection`/`temporal` são dropados (`ws-client.js:36-38`, `ws-client.js:524`), nunca ops nem frames de controle. É correto porque o frame seguinte de presença supera o anterior. Ver [[presenca-colaborativa]] e [[qualidade-conexao-adaptativa]].
 - **`_sendRaw` retorna `false` em vez de lançar quando o socket não está aberto** (`ws-client.js:521`). Quem chama presença pode ignorar; quem chamasse operação teria que reenfileirar, mais um motivo para o outbound durável viver no HTTP.
 - **Heartbeat do cliente é 25s** (`ws-client.js:31`), abaixo da varredura de 30s do servidor, e um ping sem pong fecha o socket com código 4000 (`ws-client.js:486-488`).
 
 ## O que nunca deve trocar de canal
 
 - **Imagens** ficam em REST próprio, com o blob fora do envelope de operação; a feature só referencia o id (`image-sync.js`). Enfiar blob em op estouraria o limite de 500 ops por push e o log de operações. Ver [[imagens-atlas]].
-- **Presença nunca vira operação**: não persiste, não entra no log, não tem `serverVersion`. Ver [[presenca-colaborativa]] e [[presenca-away-vs-saida]].
+- **Presença nunca vira operação**: não persiste, não entra no log, não tem `serverVersion`. Ver [[presenca-colaborativa]] e [[presenca-colaborativa]].
 - **Escrita de entidade nunca vira rota REST própria**: não existe rota REST de escrita para feature/map/layer/group/briefing/slide, tudo é sync-only. Ver [[sintese-rest-vs-sync]] e [[tipos-entidade-sync]].
 - **Atlas, sharing, settings e config nunca viram operação**: são REST puro. Ver [[api-rest-atlas]] e [[config-runtime-urls-relativas]].
 
@@ -91,14 +91,14 @@ REST usa envelope `{ error: { code, message } }`; o WS usa mensagem plana `{ typ
 
 ## Por que dois canais, e não um
 
-Um só canal falharia nos dois extremos. Só REST perderia o tempo real (polling de sala custaria caro e a presença ficaria inviável). Só WS perderia a durabilidade: sem resposta HTTP transacional, o dequeue da fila dependeria de um ack que se perde junto com o socket, e o pull por versão precisaria de um protocolo de replay próprio. A divisão atual coloca a **verdade** no HTTP (transação única no servidor, ack por op, versão) e a **notificação** no WS. Ver [[websocket-collab]], [[canal-collab-websocket]], [[sintese-nao-e-crdt]], [[sintese-limites-collab]] e [[modos-operacao]].
+Um só canal falharia nos dois extremos. Só REST perderia o tempo real (polling de sala custaria caro e a presença ficaria inviável). Só WS perderia a durabilidade: sem resposta HTTP transacional, o dequeue da fila dependeria de um ack que se perde junto com o socket, e o pull por versão precisaria de um protocolo de replay próprio. A divisão atual coloca a **verdade** no HTTP (transação única no servidor, ack por op, versão) e a **notificação** no WS. Ver [[canal-collab-websocket]], [[canal-collab-websocket]], [[sintese-nao-e-crdt]], [[sintese-limites-collab]] e [[modos-operacao]].
 
 ## Fontes
 
-- `docs/guias/05-sync-crdt.md`: push/pull HTTP (endpoints, limite de 500 ops, `results[]`/`acks[]`, transação única), idempotência por `op_id`, LWW por chegada, merge de mapas e broadcast `maps_merged`, endpoints admin de cleanup e efeito no `min_version`.
-- `docs/arquitetura-sync.md`: seção 4 (os dois canais e a tabela de endpoints/mensagens), fluxos outbound/inbound, `serverVersion` como chave de ordenação, convergence guard, comportamentos por design (§13).
-- `docs/guias/03-sync-inicial.md`: fluxo de abertura de atlas (pull 0 depois WS), corte snapshot vs incremental e a comparação entre os dois modos.
-- `docs/guias/04-websocket-collab.md`: protocolo `/api/v1/collab` (tipos de mensagem, `connected`, `ack`/`ack_batch`, `sync_request`), away vs saída, qualidade adaptativa, mutações REST broadcast, limitações (sala por atlas, sem replay, single-instance).
-- `docs/guias/06-presenca-imagens.md`: presença como canal efêmero e imagens em REST separado (endpoints, limite de 10 MB, SVG recusado).
-- `docs/guias/08-offline-import.md`: modos anônimo/autenticado/público, fluxo de reconexão (pull depois push) e gestão da fila pendente.
+- guia *05-sync-crdt* (absorvido): push/pull HTTP (endpoints, limite de 500 ops, `results[]`/`acks[]`, transação única), idempotência por `op_id`, LWW por chegada, merge de mapas e broadcast `maps_merged`, endpoints admin de cleanup e efeito no `min_version`.
+- guia *arquitetura-sync* (absorvido): seção 4 (os dois canais e a tabela de endpoints/mensagens), fluxos outbound/inbound, `serverVersion` como chave de ordenação, convergence guard, comportamentos por design (§13).
+- guia *03-sync-inicial* (absorvido): fluxo de abertura de atlas (pull 0 depois WS), corte snapshot vs incremental e a comparação entre os dois modos.
+- guia *04-websocket-collab* (absorvido): protocolo `/api/v1/collab` (tipos de mensagem, `connected`, `ack`/`ack_batch`, `sync_request`), away vs saída, qualidade adaptativa, mutações REST broadcast, limitações (sala por atlas, sem replay, single-instance).
+- guia *06-presenca-imagens* (absorvido): presença como canal efêmero e imagens em REST separado (endpoints, limite de 10 MB, SVG recusado).
+- guia *08-offline-import* (absorvido): modos anônimo/autenticado/público, fluxo de reconexão (pull depois push) e gestão da fila pendente.
 - Código: `src/js/store/sync/{sync-flush,sync-engine,ws-client,sync-gateway,api-client,image-sync}.js` (o outbound HTTP-only, os gates, os timeouts e o backpressure vieram daqui, não da prosa).

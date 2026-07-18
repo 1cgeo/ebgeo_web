@@ -18,30 +18,11 @@ convenções de engenharia). Contexto curto para agentes está em **[CLAUDE.md](
 
 Toda a documentação vive em **`../docs/guias/`** (mais o deploy em `docs/deploy/`), como uma
 **série numerada de guias de integração** frontend-backend. Comece pelo
-[00 - Visão Geral](../docs/guias/00-visao-geral.md) (arquitetura + índice) e abra o guia do
+00 - Visão Geral (arquitetura + índice) e abra o guia do
 subsistema que vai integrar. As convenções de engenharia ficam na seção
 [Convenções de Engenharia](#convenções-de-engenharia) deste README; o deploy em
 [../docs/deploy.md](../docs/deploy.md).
 
-| # | Documento | O que cobre |
-|---|-----------|-------------|
-| 00 | [Visão Geral](../docs/guias/00-visao-geral.md) | Arquitetura, decisões, índice da documentação |
-| 01 | [Autenticação](../docs/guias/01-autenticacao.md) | Login, registro, refresh token, logout, JWT |
-| 02 | [Atlas Básico](../docs/guias/02-atlas-basico.md) | CRUD de atlas, listagem, permissões por atlas |
-| 03 | [Sync Inicial](../docs/guias/03-sync-inicial.md) | Pull inicial, snapshot vs operações |
-| 04 | [WebSocket Colaboração](../docs/guias/04-websocket-collab.md) | Conexão WS, mensagens, presença, cursores |
-| 05 | [Sync CRDT](../docs/guias/05-sync-crdt.md) | Push/pull de operações, idempotência, merge, LWW |
-| 06 | [Presença e Imagens](../docs/guias/06-presenca-imagens.md) | Cursor/seleção; upload/download de imagens |
-| 07 | [Compartilhamento](../docs/guias/07-compartilhamento.md) | Links públicos, sharing com usuários |
-| 08 | [Offline e Import](../docs/guias/08-offline-import.md) | Modo offline, reconexão, import bulk |
-| 09 | [Administração](../docs/guias/09-admin.md) | Gerência de usuários e resources (admin) |
-| 10 | [Configuração (`config.js`)](../docs/guias/10-config.md) | `GET /api/config` — config dinâmico do frontend |
-| 11 | [Segurança e Hardening](../docs/guias/11-seguranca-hardening.md) | Rate limit, JWT, validação de upload, helmet, health |
-| 12 | [Multi-org / Identidade / Auditoria](../docs/guias/12-multiorg-identidade-auditoria.md) | Organizações, API keys, auditoria, identidade org-scoped |
-| 13 | [Nomes Geográficos (Gazetteer)](../docs/guias/13-nomes-geograficos.md) | Busca de topônimos, clique 3D, catálogo 3D |
-| 14 | [Catálogo 3D e Assets](../docs/guias/14-catalogo3d-assets.md) | Distribuição de assets 3D imutáveis + Cesium |
-| 15 | [Acesso Geográfico](../docs/guias/15-acesso-geografico.md) | Zonas, `access_level`, filtro embutido no SQL |
-| 16 | [StreetView 360](../docs/guias/16-streetview-360.md) | Projetos/fotos/targets, imagem WebP, calibração, tiles, ingestão |
 
 ---
 
@@ -246,7 +227,7 @@ de teste de regressão; toda query com filtro de acesso precisa de teste com usu
 | `EBGEO_TRACE` | *(ausente)* | SyncLedger: liga o ring de trace + monta `GET/DELETE /api/v1/debug/trace`. `=1` (ou `NODE_ENV=test`); **nunca em prod** |
 
 URLs de serviço/tiles do `GET /api/config` (basemaps, busca, terrain, 360) também vêm de env — ver
-[`.env.example`](.env.example) e [10-config](../docs/guias/10-config.md).
+[`.env.example`](.env.example) e 10-config.
 
 ---
 
@@ -399,7 +380,7 @@ Exceções: rotas `sv360` respondem **nuas** (objeto/array) e usam envelope de e
 Respostas **nuas**, erro **plano** `{error}`. Leitura via `flexibleAuth` (projeto `enabled` é público;
 `disabled` só admin/org-dona, senão 404). Escrita via `auth` estrito + posse no service (escada 404→403).
 Detalhes e internals (ingestão swap-then-commit, `db_filename` derivado, MVT) em
-[16 - StreetView 360](../docs/guias/16-streetview-360.md).
+16 - StreetView 360.
 
 | Método | Rota | Auth |
 |--------|------|------|
@@ -484,7 +465,7 @@ ETag O(1) (sem ler o BLOB) → **304 antes de qualquer I/O** → Range 206/416 �
   `ng.catalogo_3d`. Carga: `node scripts/assets3d-import.js <dir>`.
 - **StreetView 360** (`sv360`): BLOBs WebP num **SQLite por projeto** `{slug}.db` (`db_filename`
   derivado `${orgId}__{slug}.db`). Ingestão de bundle é **swap-then-commit** (commit do Postgres é o
-  ponto atômico). Ver [16 - StreetView 360](../docs/guias/16-streetview-360.md).
+  ponto atômico). Ver 16 - StreetView 360.
 
 ---
 

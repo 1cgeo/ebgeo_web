@@ -74,7 +74,7 @@ E o fallback é **do token, não do banco**: mesmo que a linha `users` diga `org
 
 O claim `role` do JWT pode ficar até 15 minutos obsoleto. Por isso, na rota estrita, `auth` consulta `getLiveAuthState` e **sobrescreve `req.user.role` com o valor vivo do banco** (`src/middleware/auth.js:84-108`); usuário inativo vira `401 Account is inactive`, organização inativa vira `403 Organization is inactive`.
 
-Deliberadamente **não** reconciliados: `org_role` e `organization_id` (comentário em `auth.js:103-107`). Um usuário movido de OM ou promovido dentro da OM continua com os valores antigos por até uma janela de token. Se seu recurso precisa reagir na hora a mudança de OM, não confie no claim, consulte o banco. Ver [[organizacoes-om]], [[gestao-usuarios]] e [[permissao-vs-papel]].
+Deliberadamente **não** reconciliados: `org_role` e `organization_id` (comentário em `auth.js:103-107`). Um usuário movido de OM ou promovido dentro da OM continua com os valores antigos por até uma janela de token. Se seu recurso precisa reagir na hora a mudança de OM, não confie no claim, consulte o banco. Ver [[organizacoes-om]], [[gestao-usuarios]] e [[permissoes-atlas]].
 
 A mesma reconciliação roda antes da renovação deslizante do cookie (`flexible-auth.js:77-102`), justamente porque re-assinar claims antigos a cada 15 minutos transformava "obsoleto por 15min" em "obsoleto para sempre".
 
@@ -86,7 +86,7 @@ A mesma reconciliação roda antes da renovação deslizante do cookie (`flexibl
 | `org_role` (OM) | `owner`, `admin`, `editor`, `viewer` | Claim, sem reconciliação viva |
 | Permissão por atlas | `owner`, `write`, `read` | Resolvida à parte, por atlas ([[permissoes-atlas]], [[compartilhamento-atlas]]) |
 
-Nada no JWT decide permissão de atlas. O `permission` do canal colaborativo é resolvido contra o banco no handshake ([[canal-collab-websocket]], [[websocket-collab]]). Síntese dos eixos em [[sintese-eixos-de-permissao]] e [[sintese-capacidades-por-papel]].
+Nada no JWT decide permissão de atlas. O `permission` do canal colaborativo é resolvido contra o banco no handshake ([[canal-collab-websocket]], [[canal-collab-websocket]]). Síntese dos eixos em [[sintese-eixos-de-permissao]] e [[sintese-capacidades-por-papel]].
 
 ## O token público de compartilhamento é outro animal
 
@@ -128,8 +128,8 @@ Se você criar outro tipo de principal sintético, mantenha o `sub` fora do form
 
 ## Fontes
 
-- `docs/guias/12-multiorg-identidade-auditoria.md`: Parte 2 (payload do emissor único, tabela de claims, contrato congelado dos aliases, dois eixos de papel, degradação de tokens legados) e Parte 3 (ordem de precedência da auth flexível, sessão deslizante).
-- `docs/guias/01-autenticacao.md`: shape do payload, TTLs (access 15 min / refresh 7 dias), resposta de login com `organization_id`/`org_role`, justificativa dos aliases para o 360.
-- `docs/guias/11-seguranca-hardening.md`: allowlist HS256 no REST e no handshake WS, mensagens `Invalid token` vs `Token expired`, requisito de `JWT_SECRET` ≥ 32 caracteres em produção.
+- guia *12-multiorg-identidade-auditoria* (absorvido): Parte 2 (payload do emissor único, tabela de claims, contrato congelado dos aliases, dois eixos de papel, degradação de tokens legados) e Parte 3 (ordem de precedência da auth flexível, sessão deslizante).
+- guia *01-autenticacao* (absorvido): shape do payload, TTLs (access 15 min / refresh 7 dias), resposta de login com `organization_id`/`org_role`, justificativa dos aliases para o 360.
+- guia *11-seguranca-hardening* (absorvido): allowlist HS256 no REST e no handshake WS, mensagens `Invalid token` vs `Token expired`, requisito de `JWT_SECRET` ≥ 32 caracteres em produção.
 - Código (`ebgeo_backend`): `src/modules/auth/auth.service.js`, `src/middleware/auth.js`, `src/middleware/flexible-auth.js`, `src/utils/org-status.js`, `src/modules/atlas/atlas.service.js`, `src/modules/collab/collab.gateway.js`, `src/config.js`, `src/database/migrations/001_core.sql`, `tests/integration/auth-gaps.test.js`.
 - Código (`ebgeo_web`): `src/js/store/sync/session-context.js`, `src/js/store/sync/api-client.js` (confirmam que o frontend não decodifica o JWT).

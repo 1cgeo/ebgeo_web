@@ -71,9 +71,9 @@ Defaults de URL são placeholders DEV-only (OSM, Google, BDGEx, demotiles) e nã
 - `MAP3D_TERRAIN_URL` default `''` (`config.js:157`): vazio faz o `config.service` publicar `enabled: false` (elipsoide plano) em vez de pedir ao Cesium um provider inalcançável.
 - `SV360_SERVICE_URL` default `/api/v1/sv360` (`config.js:171`), relativo, porque o 360 é módulo deste mesmo backend.
 
-> [!CONTRADICAO 2026-07-18] docs/deploy.md §4 e docs/guias/10-config.md §6 listam `MAP3D_TERRAIN_URL` com default `http://localhost/terrain/tilesets/terrain` e `SV360_SERVICE_URL` com default `http://localhost:3000/api/v1/sv360`; `backend/src/config.js:157` usa `''` e `backend/src/config.js:171` usa `/api/v1/sv360`.
+> [!CONTRADICAO 2026-07-18] docs/deploy.md §4 e guia *10-config* (absorvido) §6 listam `MAP3D_TERRAIN_URL` com default `http://localhost/terrain/tilesets/terrain` e `SV360_SERVICE_URL` com default `http://localhost:3000/api/v1/sv360`; `backend/src/config.js:157` usa `''` e `backend/src/config.js:171` usa `/api/v1/sv360`.
 
-> [!CONTRADICAO 2026-07-18] docs/guias/10-config.md §3 e docs/deploy.md descrevem o catálogo (basemaps, camadas, tilesets) vindo de uma **tabela única `resources`**; no código não existe tabela `resources`: cada tipo tem sua própria tabela (`basemaps`, `data_layers`, `analysis_layers`, `tilesets`, `streetview_markers`, criadas em `backend/src/database/migrations/003_sync.sql:101` e whitelisted em `backend/src/modules/catalog/catalog.tables.js:5-11`), lidas via `catalogService.listCatalog(...)` em `backend/src/modules/config/config.service.js:64-134`. Ver [[resources-catalogo]].
+> [!CONTRADICAO 2026-07-18] guia *10-config* (absorvido) §3 e docs/deploy.md descrevem o catálogo (basemaps, camadas, tilesets) vindo de uma **tabela única `resources`**; no código não existe tabela `resources`: cada tipo tem sua própria tabela (`basemaps`, `data_layers`, `analysis_layers`, `tilesets`, `streetview_markers`, criadas em `backend/src/database/migrations/003_sync.sql:101` e whitelisted em `backend/src/modules/catalog/catalog.tables.js:5-11`), lidas via `catalogService.listCatalog(...)` em `backend/src/modules/config/config.service.js:64-134`. Ver [[resources-catalogo]].
 
 ## Stores binários e volumes
 
@@ -100,7 +100,7 @@ Armadilhas que custam dados:
 Um `location /` para o upstream, com quatro itens não negociáveis:
 
 1. `proxy_set_header Authorization $http_authorization` (o `flexibleAuth` lê o Bearer, ver [[autenticacao-jwt]]).
-2. `proxy_http_version 1.1` + `Upgrade` + `Connection "upgrade"`, senão o WS não conecta. O handler de upgrade valida o pathname e responde **404** para qualquer caminho diferente de `/api/v1/collab`, e exige `atlasId` e `token` na query (400 se faltar). Ver [[websocket-collab]].
+2. `proxy_http_version 1.1` + `Upgrade` + `Connection "upgrade"`, senão o WS não conecta. O handler de upgrade valida o pathname e responde **404** para qualquer caminho diferente de `/api/v1/collab`, e exige `atlasId` e `token` na query (400 se faltar). Ver [[canal-collab-websocket]].
 3. `client_max_body_size` casando com `SV360_MAX_UPLOAD_BYTES` (default 2 GiB). Descasar dá 413 no NGINX antes de o backend ver o corpo. O body **JSON** do app é limitado a 10 MB (`app.js:59`), exceto `/images/bulk`, que usa parser dedicado de `MAX_BULK_UPLOAD_MB` (`app.js:60-66`).
 4. Cache de borda diferenciado: tiles MVT do 360 são `max-age=60` (mudam a cada ingestão), imagens/assets/thumbnails são imutáveis com `max-age=31536000`. Não recomprima binários imutáveis nem quebre `Range` no proxy.
 
@@ -140,9 +140,85 @@ Ambos os importadores são invocação direta de `node`, sem npm script (`backen
 - `node scripts/assets3d-import.js <sourceDir>`: grava a árvore inteira no SQLite numa única transação, upsert por `rel_path`, offline e idempotente. Metadados de descoberta ficam em `ng.catalogo_3d`, não nos arquivos.
 - `node scripts/sv360-import.js <index.db> [src] [dest]`: ETL do legado para o schema `sv360`, um `tx()` por projeto, projeto corrompido vai para `skipped[]` sem abortar o resto. **Exit code 2 significa import parcial**, tratar como alerta e não como sucesso. `orgSlug` inexistente e não-legado dá 409, crie a OM antes ([[organizacoes-om]]).
 
+
+## Mapa de montagem: prefixo de rota → módulo
+
+## Mapa de montagem: prefixo de rota → módulo
+
+O diagrama de arquitetura desenha caixas lógicas que **não** correspondem 1:1 a diretórios. Três desalinhamentos custam tempo de navegação: `catalogo3d`/`assets3d` moram dentro de `nomes/`; o diretório do 360 chama-se `streetview360/` mas monta em `/api/v1/sv360`; e `features`/`layers`/`groups`/`slides` **não têm diretório algum** (são manipulados pelo dispatch de `sync`).
+
+Montagem de topo (`backend/src/app.js:78-118`):
+
+| Prefixo | Diretório | Nota |
+|---|---|---|
+| `/api/v1/config` + alias `/api/config` | `modules/config/` | público, montado antes das rotas autenticadas |
+| `/api/v1/health` | inline no `app.js:78` | `SELECT 1`, readiness real |
+| `/api/v1/assets3d` | `modules/nomes/` (`assets3d.routes.js`) | exportado por `nomes/index.js`, sem auth próprio |
+| `/api/v1/auth` | `modules/auth/` | |
+| `/api/v1/users` | `modules/users/` | |
+| `/api/v1/atlas` | `modules/atlas/` | ver sub-montagens abaixo |
+| `/api/v1/basemaps`, `/data-layers`, `/analysis-layers`, `/tilesets`, `/streetview-markers` | `modules/catalog/` | um `makeCatalogRouter(<tabela>)` por tipo |
+| `/api/v1/nomes` | `modules/nomes/` | inclui `/nomes/catalogo3d` |
+| `/api/v1/organizations` | `modules/organizations/` | |
+| `/api/v1/ranks` | `modules/ranks/` | |
+| `/api/v1/audit` | `modules/audit/` | |
+| `/api/v1/zones` | `modules/zones/` | |
+| `/api/v1/sv360` | `modules/streetview360/` | nome do diretório ≠ prefixo |
+| `/api/v1/debug` | `modules/debug/` | só com `EBGEO_TRACE`/`NODE_ENV=test` |
+| `/api/v1/collab` (WebSocket) | `modules/collab/` | não é `app.use`, é handler de `upgrade` no mesmo servidor HTTP |
+
+Sub-montagens dentro do atlas (`modules/atlas/atlas.routes.js:47-51`) — é por isso que não existe `app.use('/api/v1/sync')` de topo:
+
+```
+/api/v1/atlas/:atlasId/sharing    → modules/sharing/
+/api/v1/atlas/:atlasId/images     → modules/images/
+/api/v1/atlas/:atlasId/sync       → modules/sync/
+/api/v1/atlas/:atlasId/maps       → modules/maps/
+/api/v1/atlas/:atlasId/briefings  → modules/briefings/
+```
+
+Consequência de ordem: tudo que está sob `/atlas/:atlasId/**` herda a resolução de atlas e o gate de permissão da rota pai, enquanto `config`, `assets3d` e a leitura do `sv360` são alcançáveis anonimamente por estarem fora dessa árvore (ver [[hardening-borda-api]] e [[auth-flexivel]]).
+
+
+## Credenciais do seed de desenvolvimento
+
+## Credenciais do seed de desenvolvimento
+
+`npm run db:seed` (`src/database/seed.js`) é idempotente — usa `ON CONFLICT (username) DO UPDATE SET password_hash`, então rodar de novo **reseta a senha** dos dois usuários abaixo para o valor de fábrica. Nunca rode em produção.
+
+| Usuário | Senha | `role` | Posto / OM |
+|---|---|---|---|
+| `admin` | `admin123` | `admin` | nenhum (`rank_id` e `organization_id` ficam nulos) |
+| `cap.silva` | `test123` | `user` (default) | `Cap` / `CIGEx`, resolvidos por subquery em `ranks.nome_abrev` e `organizations.sigla` |
+
+Detalhes que importam ao montar o ambiente:
+
+- As senhas são hasheadas com bcrypt e `SALT_ROUNDS = 12` (`seed.js:9`), o mesmo custo do runtime.
+- `cap.silva` depende de as migrações já terem populado `ranks` e `organizations`; sem a linha `Cap` ou `CIGEx`, a subquery devolve `NULL` e o usuário nasce sem posto/OM em vez de falhar.
+- Nenhum dos dois tem `email`, então o portão de confirmação de e-mail nunca dispara e ambos logam de imediato (ver [[autenticacao-jwt]] e [[gestao-usuarios]]).
+- O seed também cria o atlas `Atlas de Exemplo`, pertencente a `cap.silva`, apenas se ainda não existir um com esse nome e `deleted_at IS NULL`.
+
+
+## O que o seed de desenvolvimento cria
+
+### O que o `db:seed` cria
+
+`npm run db:seed` (`src/database/seed.js`) é idempotente por `ON CONFLICT (username) DO UPDATE`, ou seja, rodar de novo **reseta a senha** dos usuários abaixo. Credenciais fixas no código:
+
+| Usuário | Senha | `role` global | Posto / OM |
+|---|---|---|---|
+| `admin` | `admin123` | `admin` | nenhum (`rank_id`/`organization_id` nulos) |
+| `cap.silva` | `test123` | `user` | `Cap` / `CIGEx`, resolvidos por `SELECT` em `ranks`/`organizations` |
+
+Além dos usuários, cria o atlas "Atlas de Exemplo" (dono `admin`) e o compartilha com `cap.silva`, o que dá um par pronto para testar [[compartilhamento-atlas]] e [[presenca-colaborativa]] sem montar dados à mão. Se o atlas já existir com `deleted_at IS NULL`, essa parte é pulada (as senhas continuam sendo resetadas).
+
+Dependência de ordem: o seed do `cap.silva` resolve `rank_id`/`organization_id` por nome (`nome_abrev = 'Cap'`, `sigla = 'CIGEx'`), portanto exige as migrações de [[organizacoes-om]] já aplicadas; sem elas o usuário nasce sem posto e sem OM, não com erro.
+
+Senha em texto no repositório e papel `admin` garantido são o motivo do "nunca em produção" — não é higiene genérica, é uma conta administrativa de credencial pública.
+
 ## Fontes
 
 - `docs/deploy.md`: topologia de deploy, tabela completa de env vars, ordem de migração, mapa de volumes, config NGINX, backup/restore, tabela de troubleshooting.
-- `docs/guias/00-visao-geral.md`: papel do backend único, isolamento por schema, decisões D1-D5 (360 absorvido, JS puro, admin em projeto separado), modos anônimo/autenticado/público ([[modos-operacao]]).
-- `docs/guias/10-config.md`: contrato congelado das 12 chaves de topo do `/api/config`, origem de cada chave, env vars de URL.
+- guia *00-visao-geral* (absorvido): papel do backend único, isolamento por schema, decisões D1-D5 (360 absorvido, JS puro, admin em projeto separado), modos anônimo/autenticado/público ([[modos-operacao]]).
+- guia *10-config* (absorvido): contrato congelado das 12 chaves de topo do `/api/config`, origem de cada chave, env vars de URL.
 - `backend/src/index.js`, `backend/src/app.js`, `backend/src/config.js`, `backend/src/database/migrate.js`, `backend/Dockerfile`, `backend/docker-compose.yml`, `backend/package.json`, `backend/src/database/migrations/*.sql`, `backend/src/modules/catalog/catalog.tables.js`, `backend/src/utils/sqlite-blob-pool.js`: comportamento real de boot, validação, migração, catálogo e shutdown (base das contradições marcadas acima).

@@ -44,7 +44,7 @@ created_at / updated_at TIMESTAMPTZ
 
 ## Permissões
 
-Leitura exige apenas autenticação; escrita exige `role = admin` (`catalog.routes.js:16-21`). É papel **global** de usuário, não permissão de atlas: um `owner` de atlas sem `role=admin` não edita catálogo. Ver [[permissao-vs-papel]] e [[gestao-usuarios]]. A autenticação é o JWT padrão ([[autenticacao-jwt]]).
+Leitura exige apenas autenticação; escrita exige `role = admin` (`catalog.routes.js:16-21`). É papel **global** de usuário, não permissão de atlas: um `owner` de atlas sem `role=admin` não edita catálogo. Ver [[permissoes-atlas]] e [[gestao-usuarios]]. A autenticação é o JWT padrão ([[autenticacao-jwt]]).
 
 ## Soft delete e a assimetria do `active`
 
@@ -90,23 +90,158 @@ O CRUD do catálogo mexe **só no registro**. Os bytes (tileset 3D, bundle 360, 
 
 ## Divergências com a documentação
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/09-admin.md` §3.2-3.6 documenta uma API genérica `GET/POST/PUT/DELETE /api/v1/resources` com filtro `?category=basemap` e um campo `category` em cada registro. Essa rota **não existe** no código: `grep "v1/resources"` em `src/` não retorna nada, e o mount real são cinco rotas por tipo em `src/app.js:102-106`, sobre cinco tabelas dedicadas (`src/database/migrations/003_sync.sql:101-115`). Não há coluna `category` em lugar nenhum. O cliente já acompanha o modelo novo e traduz a categoria antiga para a rota nova em `ebgeo_web/src/js/store/sync/api-client.js:419-425`.
+> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido) §3.2-3.6 documenta uma API genérica `GET/POST/PUT/DELETE /api/v1/resources` com filtro `?category=basemap` e um campo `category` em cada registro. Essa rota **não existe** no código: `grep "v1/resources"` em `src/` não retorna nada, e o mount real são cinco rotas por tipo em `src/app.js:102-106`, sobre cinco tabelas dedicadas (`src/database/migrations/003_sync.sql:101-115`). Não há coluna `category` em lugar nenhum. O cliente já acompanha o modelo novo e traduz a categoria antiga para a rota nova em `ebgeo_web/src/js/store/sync/api-client.js:419-425`.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/09-admin.md` §3.2 afirma que "o campo `active` não é incluído na resposta de listagem". O código inclui: `COLS` em `src/modules/catalog/catalog.service.js:9` lista `active` explicitamente e é usado tanto no `listCatalog` quanto no `getCatalogItem`. A parte correta da nota é que a listagem só devolve linhas com `active = true`.
+> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido) §3.2 afirma que "o campo `active` não é incluído na resposta de listagem". O código inclui: `COLS` em `src/modules/catalog/catalog.service.js:9` lista `active` explicitamente e é usado tanto no `listCatalog` quanto no `getCatalogItem`. A parte correta da nota é que a listagem só devolve linhas com `active = true`.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/09-admin.md` §3.6 descreve o DELETE apenas como "204 No Content", sem dizer que é soft delete. O código faz `UPDATE ... SET active = false` (`src/modules/catalog/catalog.service.js:86`), a linha permanece no banco e não há rota para reverter.
+> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido) §3.6 descreve o DELETE apenas como "204 No Content", sem dizer que é soft delete. O código faz `UPDATE ... SET active = false` (`src/modules/catalog/catalog.service.js:86`), a linha permanece no banco e não há rota para reverter.
 
 ## Relacionados
 
 - [[config-dinamico]], [[config-runtime-urls-relativas]]: como o catálogo chega ao cliente.
 - [[atlas-settings]]: recorte por atlas sobre o catálogo global.
 - [[catalogo-3d]], [[assets3d-distribuicao]], [[streetview-360]]: consumidores dos tipos `tileset` e 360.
-- [[gestao-usuarios]], [[permissao-vs-papel]], [[organizacoes-om]]: o papel `admin` que destrava a escrita.
+- [[gestao-usuarios]], [[permissoes-atlas]], [[organizacoes-om]]: o papel `admin` que destrava a escrita.
 - [[api-rest-atlas]], [[erros-api]]: convenções REST e formato de erro.
+
+
+## Shape do `config` por categoria
+
+## Shape do `config` por categoria
+
+O Joi valida apenas que `config` é um objeto (`catalog.schemas.js:8`), então o contrato real de cada categoria é o que o consumidor espera. O seed de `003_sync.sql:130-175` é a referência canônica do shape (está "já no shape de `GET /api/v1/config`", como diz o comentário do próprio DDL).
+
+### `basemaps` — metadado do seletor, não a fonte de tiles
+
+```json
+{
+  "id": "carta-topografica",
+  "name": "Topográfica",
+  "sort_order": 1,
+  "config": {
+    "enabled": true,
+    "image": "./images/layers/carta-topografica-thumb.png",
+    "priority": 1
+  }
+}
+```
+
+| Campo | Uso |
+|---|---|
+| `enabled` | liga/desliga no seletor de mapa base |
+| `image` | thumbnail do seletor (caminho relativo ao frontend) |
+| `priority` | ordem de exibição no seletor (distinta de `sort_order`, que ordena a listagem REST) |
+| `style` | opcional; style MapLibre completo que **sobrescreve** o builder estático em `config.basemapStyles` (validado por `validateMapLibreStyle`) |
+
+A URL de tiles **não** vive aqui no caso default: ela vem dos builders com URLs injetadas por ENV (`config.service.js:77-85`). Só um `config.style` explícito muda a fonte.
+
+### `analysis_layers` — precisa de `source` + `bounds`
+
+```json
+{
+  "id": "declividade",
+  "name": "Declividade",
+  "config": {
+    "description": "Mapa de declividade do terreno",
+    "source": { "type": "raster-dem", "url": "http://host/tiles/dem/{z}/{x}/{y}.png" },
+    "bounds": [-45, -23, -44, -22],
+    "paint": { "raster-opacity": 0.7 }
+  }
+}
+```
+
+`bounds` é array de **4 números** ([oeste, sul, leste, norte]) e é obrigatório na prática: sem ele a camada é filtrada fora de `/api/v1/config` (`config.service.js:86-96`), mesmo devolvendo 201 na criação. O `hillshade` do seed nasce com `config = '{}'` justamente por ser tratado à parte pelo cliente.
+
+### `data_layers` — vetorial com `sourceLayer` e faixa de zoom
+
+```json
+{
+  "id": "rodovias-federais",
+  "name": "Rodovias Federais",
+  "config": {
+    "description": "Malha rodoviária federal",
+    "source": { "type": "vector", "url": "http://host/tiles/rodovias" },
+    "sourceLayer": "rodovias",
+    "minzoom": 4,
+    "maxzoom": 18,
+    "style": { "border": { "color": "#E74C3C", "width": 2, "opacity": 1 } }
+  }
+}
+```
+
+### `tilesets` — 3D, com metadado de ficha e ponto de voo
+
+```json
+{
+  "id": "PCL",
+  "name": "Posto de Comando Logístico",
+  "config": {
+    "url": "/3d/PCL/tileset.json",
+    "heightOffset": 35,
+    "description": "Modelo 3D capturado por drone",
+    "keywords": ["PCL", "posto comando", "drone"],
+    "data_captura": "15/03/2024",
+    "local": "Resende, RJ",
+    "previewVideo": "/3d/videos/preview.webm",
+    "previewThumbnail": "/3d/videos/thumbnail.jpg",
+    "locate": { "lon": -44.4733, "lat": -22.4397, "height": 1000 }
+  }
+}
+```
+
+`url` aponta para o asset publicado fora de banda ([[assets3d-distribuicao]]); `locate` é o alvo do "voar até" e `heightOffset` corrige a altitude do modelo. Ver [[catalogo-3d]].
+
+### `streetview_markers`
+
+Sem shape de contrato: nenhum consumidor lê essa tabela hoje (ver Armadilhas).
+
+> [!CONTRADICAO 2026-07-18] guia *09-admin* (absorvido) §3.7 exemplifica `config` de basemap com `{ url, attribution, maxZoom, minZoom }` e de analysis_layer com um array `legend` de faixas coloridas. Nenhuma dessas chaves aparece no seed real (`src/database/migrations/003_sync.sql:130-175`) nem é lida por `src/modules/config/config.service.js:61-107`; basemap usa `enabled`/`image`/`priority` (+`style` opcional) e analysis_layer usa `source`/`bounds`/`paint`. O exemplo de `tileset` do guia é o mais próximo do real, mas `maximumScreenSpaceError` também não consta do seed.
+
+
+## Mídia do catálogo pelo painel admin: chaves, limites e o que fica fora de banda
+
+## Mídia do catálogo pelo painel admin: chaves, limites e o que fica fora de banda
+
+O catálogo guarda metadado, não bytes, com **uma exceção deliberada**: a miniatura, que o painel admin embute no próprio `config` como data URL base64 (`src/js/admin/catalog-tab.js:251`, `:382-386`). O motivo é que o backend não serve estático público e `deploy/` é protegido (ver [[sintese-decisoes-arquiteturais]]). Consequência direta: a miniatura pesa no payload de `GET /api/config` de **todo** boot, inclusive anônimo ([[config-dinamico]]).
+
+### Onde a miniatura é gravada, por categoria
+
+A chave dentro de `config` muda por categoria, espelhando os shapes reais do deploy (`catalog-tab.js:21-27`):
+
+| Categoria (UI) | Tipo de recurso | Chave da miniatura |
+|---|---|---|
+| 3D (modelos) | `tileset` | `previewThumbnail` |
+| Dados | `data_layer` | `thumbnail` |
+| Análises | `analysis_layer` | `thumbnail` |
+| Basemaps | `basemap` | `image` |
+| 360 | `sv360` | nenhuma (rotas admin do 360, ver [[ingestao-projetos-360]]) |
+
+### Limites numéricos do upload
+
+| Limite | Valor | Fonte |
+|---|---|---|
+| Tipos aceitos no seletor | `image/png`, `image/jpeg`, `image/webp` | `catalog-tab.js:276` |
+| Dimensão máxima após downscale | 420 px | `catalog-tab.js:287` |
+| Qualidade / formato de saída | 0.82, sempre `image/webp` | `catalog-tab.js:287` |
+| Teto do data URL final | **256 KB** (`256 * 1024`) | `catalog-tab.js:31` |
+| Tamanho típico resultante | ~10 a 40 KB | `catalog-tab.js:29-30` |
+
+WebP é escolha consciente: preserva transparência, que JPEG achataria em preto. O teto de 256 KB existe porque `compressImage` pode **silenciosamente devolver o original** quando o decode falha; sem o teto, um PNG grande entraria inteiro no `/api/config`. Estourando o teto, o upload é recusado com "Imagem muito grande mesmo após reduzir" e nada é gravado (`catalog-tab.js:288-292`).
+
+### Semântica de gravação dos campos de mídia
+
+Ao salvar (`catalog-tab.js:379-391`):
+
+- miniatura nova escolhida **vence** o JSON digitado;
+- "Remover" faz `delete config[chave]`;
+- campo intocado preserva o valor que já estava no JSON;
+- **vídeo de preview é exclusivo de `tileset`** e fica fora de banda: é só uma URL em `config.previewVideo`, nunca upload. Campo esvaziado faz `delete`, então remover não é no-op (`catalog-tab.js:322-326`, `:387-390`).
+
+Como o catálogo não passa pelo sync, quem já está com o app aberto continua com o config do boot dele; a mídia nova só aparece no próximo carregamento.
 
 ## Fontes
 
-- `docs/guias/09-admin.md`: categorias de resource, semântica de permissão (leitura autenticada / escrita admin), exemplos de `config` por categoria, tabela geral de rotas. Contradito quanto à forma da API (`/resources` genérica com `category`), ao `active` na listagem e à natureza do delete.
+- guia *09-admin* (absorvido): categorias de resource, semântica de permissão (leitura autenticada / escrita admin), exemplos de `config` por categoria, tabela geral de rotas. Contradito quanto à forma da API (`/resources` genérica com `category`), ao `active` na listagem e à natureza do delete.
 - `ebgeo_backend/src/modules/catalog/catalog.tables.js`: whitelist das cinco tabelas e o `assertTable` que guarda a interpolação SQL.
 - `ebgeo_backend/src/modules/catalog/catalog.service.js`: CRUD real, filtro `active`, soft delete, semântica do COALESCE, validação de style.
 - `ebgeo_backend/src/modules/catalog/catalog.routes.js` e `catalog.controller.js`: fábrica de router por tabela e gate `auth` / `requireAdmin`.

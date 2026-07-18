@@ -64,7 +64,7 @@ Ramos de acesso, por tabela:
 
 Dois detalhes que valem o byte:
 
-- **Admin é reconferido no banco**, com `EXISTS (SELECT 1 FROM users WHERE id = $N AND role = 'admin')` (`nomes.queries.js:24`, `:69`, `:90`, `:122`), e não pela claim do JWT. Um token antigo com `role` desatualizado não vira acesso indevido aqui. Ver [[permissao-vs-papel]].
+- **Admin é reconferido no banco**, com `EXISTS (SELECT 1 FROM users WHERE id = $N AND role = 'admin')` (`nomes.queries.js:24`, `:69`, `:90`, `:122`), e não pela claim do JWT. Um token antigo com `role` desatualizado não vira acesso indevido aqui. Ver [[permissoes-atlas]].
 - **`fn_user_zone_geoms(NULL)` devolve vazio por construção** (`004_ng.sql:246-256`), então o caminho anônimo degrada para "só público" mesmo se alguém remover o guard `$N::uuid IS NOT NULL` da aplicação.
 
 Não há push de invalidação: trocou de usuário ou mudou permissão de zona, refaça as consultas.
@@ -83,7 +83,7 @@ SELECT ng.refresh_busca();
 
 A função faz `UPDATE ng.nomes_geograficos SET tipo = tipo` (re-dispara o trigger de `tipo_peso`) e chama `ng.recomputar_clusters()`, que é um `ST_ClusterDBSCAN(geom, eps := 0.045, minpoints := 1)` particionado por `nome, tipo` (`004_ng.sql:154-169`). **Nenhum trigger calcula `cluster_id`**: `refresh_busca` é a única fonte desse campo. Esquecer o passo não gera erro, degrada em silêncio. Ver [[deploy-backend]].
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/13-nomes-geograficos.md:452-454` diz que pular `ng.refresh_busca()` produz "duplicatas no resultado"; o efeito real do código é o oposto. A dedup é `SELECT DISTINCT ON (nome, tipo, cluster_id)` (`src/modules/nomes/nomes.queries.js:31`), e `DISTINCT ON` no PostgreSQL trata NULLs como iguais. Com `cluster_id` NULL em toda a tabela, todas as ocorrências de um mesmo `nome`+`tipo` colapsam em **uma única linha** (a mais próxima), inclusive homônimos legítimos a centenas de quilômetros de distância, que somem do resultado. O sintoma é sub-dedup invertida (resultados faltando), não duplicatas.
+> [!CONTRADICAO 2026-07-18] guia *13-nomes-geograficos* (absorvido):452-454` diz que pular `ng.refresh_busca()` produz "duplicatas no resultado"; o efeito real do código é o oposto. A dedup é `SELECT DISTINCT ON (nome, tipo, cluster_id)` (`src/modules/nomes/nomes.queries.js:31`), e `DISTINCT ON` no PostgreSQL trata NULLs como iguais. Com `cluster_id` NULL em toda a tabela, todas as ocorrências de um mesmo `nome`+`tipo` colapsam em **uma única linha** (a mais próxima), inclusive homônimos legítimos a centenas de quilômetros de distância, que somem do resultado. O sintoma é sub-dedup invertida (resultados faltando), não duplicatas.
 
 > [!CONTRADICAO 2026-07-18] `src/database/migrations/004_ng.sql:163-164` justifica o `UPDATE tipo = tipo` afirmando que "COPY bypasses BEFORE INSERT triggers"; no PostgreSQL, `COPY` **dispara** triggers de linha `BEFORE INSERT` (só regras e triggers de statement ficam de fora), e além disso `tipo_peso` tem `DEFAULT 0.1` (`004_ng.sql:36`) e a query usa `COALESCE(d.tipo_peso, 0.1)` (`nomes.queries.js:46`). A metade `tipo_peso` do racional é frágil; a metade `cluster_id` é incondicionalmente verdadeira e sozinha já torna `refresh_busca()` obrigatório. Não remova a chamada com base na primeira metade.
 
@@ -98,10 +98,82 @@ A função faz `UPDATE ng.nomes_geograficos SET tipo = tipo` (re-dispara o trigg
 - Rodar `SELECT ng.refresh_busca()` depois de cada carga FME.
 - Não filtrar registros privados no cliente: eles não chegam.
 
+
+## Contrato de request/response de `/nomes/feicoes`
+
+## Contrato de request/response de `/nomes/feicoes`
+
+`GET /api/v1/nomes/feicoes` — `Authorization: Bearer <accessToken>` obrigatório.
+
+### Query params
+
+| Param | Tipo | Obrigatório | Descrição |
+|-------|------|-------------|-----------|
+| `lat` | number | sim | Latitude do clique. |
+| `lon` | number | sim | Longitude do clique. |
+| `z` | number | sim | Altitude do clique, usada para desempatar prédios sobrepostos. |
+
+```
+GET /api/v1/nomes/feicoes?lat=-22.9068&lon=-43.1729&z=15
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+```
+
+### Response 200 — edificação encontrada
+
+Campos exatos devolvidos (objeto nu, sem envelope `{ data }`):
+
+```json
+{
+  "id": "a3f1c8e0-1234-4abc-9def-0123456789ab",
+  "nome": "Edifício Central",
+  "municipio": "Rio de Janeiro",
+  "estado": "RJ",
+  "tipo": "edificacao",
+  "altitude_base": 0,
+  "altitude_topo": 42,
+  "z_distance": 0,
+  "xy_distance": 1.27
+}
+```
+
+| Campo | Descrição |
+|-------|-----------|
+| `z_distance` | `0` se `z` está dentro de `[altitude_base, altitude_topo]`; senão a distância vertical até a faixa. Chave primária de desempate. |
+| `xy_distance` | Distância horizontal em metros do clique à geometria, sempre ≤ 3 m (raio do `ST_DWithin`). Desempate secundário. |
+
+### Response 200 — nada encontrado (contrato congelado)
+
+```json
+{ "message": "Nenhuma edificação encontrada nas proximidades." }
+```
+
+Não é `404`, não é array vazio. O cliente distingue os dois casos pela presença de `id`.
+
+### Erros
+
+| Código | Quando | Corpo |
+|--------|--------|-------|
+| `401` | Sem token / token inválido (rota usa `auth` estrito). | envelope de erro padrão |
+| `422` | `lat`, `lon` ou `z` ausentes/não numéricos (ou `lat`/`lon` fora de ±90/±180). | `{ "error": { "code": "VALIDATION_ERROR", "message": "Validation failed", "details": [...] } }` |
+
+```javascript
+async function feicaoNoClique(lat, lon, z) {
+  const params = new URLSearchParams({ lat, lon, z });
+  const res = await fetch(`/api/v1/nomes/feicoes?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (!res.ok) throw new Error('feicoes falhou');
+
+  const result = await res.json();
+  if (result.message) return null;   // nada encontrado (200 com { message })
+  return result;                     // { id, nome, ..., z_distance, xy_distance }
+}
+```
+
 ## Fontes
 
-- `docs/guias/13-nomes-geograficos.md`: escopo read-only do gazetteer, as três rotas e seus contratos congelados, tabela de pesos do ranking, semântica de `z_distance`/`xy_distance` e raio de 3 m, envelope do catálogo 3D, passo obrigatório `refresh_busca()`.
-- `docs/guias/15-acesso-geografico.md`: modelo de acesso por zona-polígono, ordem dos ramos (admin, permissão direta de modelo, `ST_Contains` de zona), efeito por endpoint e a garantia de que `total` conta só o visível.
+- guia *13-nomes-geograficos* (absorvido): escopo read-only do gazetteer, as três rotas e seus contratos congelados, tabela de pesos do ranking, semântica de `z_distance`/`xy_distance` e raio de 3 m, envelope do catálogo 3D, passo obrigatório `refresh_busca()`.
+- guia *15-acesso-geografico* (absorvido): modelo de acesso por zona-polígono, ordem dos ramos (admin, permissão direta de modelo, `ST_Contains` de zona), efeito por endpoint e a garantia de que `total` conta só o visível.
 - `ebgeo_backend/src/modules/nomes/*` (routes, schemas, controller, service, queries): auth assimétrica, limites Joi de lat/lon, corte `LIMIT 500` antes do score, SRIDs, duplicação do predicado select/count.
 - `ebgeo_backend/src/database/migrations/004_ng.sql`: DDL do schema `ng`, triggers de `tipo_peso` e `search_vector`, DBSCAN, `fn_user_zone_geoms`, tabelas de zona e de permissão de modelo.
 - `ebgeo_backend/src/middleware/nomes-access-log.js` e `src/app.js`: log estruturado sem valores e montagem das rotas.

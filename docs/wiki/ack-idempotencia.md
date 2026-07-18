@@ -15,7 +15,7 @@ O insert do log de operações é `ON CONFLICT (atlas_id, op_id) DO NOTHING` (`s
 
 Consequências diretas do formato da chave:
 
-- A chave é **(atlas, op_id)**, não o `op_id` sozinho. A mesma operação replayada contra outro atlas é aplicada de novo. Ver [[tabela-operations]] e [[atlas]].
+- A chave é **(atlas, op_id)**, não o `op_id` sozinho. A mesma operação replayada contra outro atlas é aplicada de novo. Ver [[tabela-operations]] e [[atlas-modelo-de-dados]].
 - `op_id` é enviado como `rawOp.id ?? null` (`sync.service.js:668`). Em Postgres, `NULL` é distinto de `NULL` em índice único, então **uma op sem `id` nunca é deduplicada**. Emitir envelope sem `id` quebra silenciosamente a idempotência. Ver [[envelope-operacao]].
 - A dedupe vive na tabela `operations`. Purga de log antiga (ver [[sync-admin-operacoes]]) remove o registro que servia de guarda, então um replay muito atrasado voltaria a aplicar.
 
@@ -38,7 +38,7 @@ Transportes:
 - WS `operation` responde `{ type: 'ack', opId, serverVersion, result }`, com `result = results[0]` (`collab.handlers.js:131-140`).
 - WS `operations` responde `{ type: 'ack_batch', opIds, serverVersion, results }`, com `results[i]` correspondendo a `ops[i]` na ordem enviada (`collab.handlers.js:184-191`).
 
-Detalhes do canal em [[canal-collab-websocket]] e [[websocket-collab]]; a divisão de responsabilidade entre os dois transportes em [[sintese-rest-vs-websocket]].
+Detalhes do canal em [[canal-collab-websocket]] e [[canal-collab-websocket]]; a divisão de responsabilidade entre os dois transportes em [[sintese-rest-vs-websocket]].
 
 ## Armadilha: `success` nunca é `false`
 
@@ -47,7 +47,7 @@ Detalhes do canal em [[canal-collab-websocket]] e [[websocket-collab]]; a divis�
 Portanto:
 
 - Não escreva lógica de retry por item baseada em `success`. Se você recebeu 200/`ack`, todos os itens daquele lote passaram.
-- Um lote envenenado (uma op inválida) bloqueia todas as outras do lote. Trate o erro do push como "lote inteiro pendente", nunca como parcial. Ver [[erros-api]] e [[fila-operacoes-pendentes]].
+- Um lote envenenado (uma op inválida) bloqueia todas as outras do lote. Trate o erro do push como "lote inteiro pendente", nunca como parcial. Ver [[erros-api]] e [[fila-operacoes-outbound]].
 - Permissão é avaliada por operação dentro da transação, mas o efeito é de lote. Ver [[permissoes-atlas]].
 
 O sinal real de "aplicou algo" não é `success`, é a combinação `idempotent === false` mais o `rowsAffected` que o [[syncledger]] registra no span `SERVER_APPLIED`: um update que casou zero linhas é "acked sem efeito", o invariante I2 (`sync.service.js:732-742`).
@@ -68,7 +68,7 @@ Os `results[]` são consumidos apenas para observabilidade: `recordPushAcks` (`s
 
 No caminho WebSocket, `ws-client.js:292-312` trata `ack` e `ack_batch`, grava spans `PUSH_ACK` e reemite um evento interno `'ack'` normalizado (`{opIds, serverVersion, results}`). Esse evento **não tem assinante** no app, e `sendOperation`/`sendOperations` (`ws-client.js:162,171`) não têm chamador fora do próprio módulo. Ou seja: o ack WS é um contrato de servidor plenamente implementado e um caminho cliente atualmente inerte. Se você passar a enviar ops por WS, aí sim o dequeue precisa consumir `results[]`, porque `ack` e `ack_batch` chegam assíncronos e fora de ordem em relação ao envio.
 
-> [!CONTRADICAO 2026-07-18] `docs/guias/08-offline-import.md:120-126` mostra o dequeue iterando `result.data.acks` e chamando `remove(ack.opId)`; o cliente real em `src/js/store/sync/sync-engine.js:285` faz `operationQueue.dequeue(opIds)` com os ids do lote enviado e ignora `results`/`acks` para fins de dequeue (usa-os só no SyncLedger, `sync-engine.js:284`).
+> [!CONTRADICAO 2026-07-18] guia *08-offline-import* (absorvido):120-126` mostra o dequeue iterando `result.data.acks` e chamando `remove(ack.opId)`; o cliente real em `src/js/store/sync/sync-engine.js:285` faz `operationQueue.dequeue(opIds)` com os ids do lote enviado e ignora `results`/`acks` para fins de dequeue (usa-os só no SyncLedger, `sync-engine.js:284`).
 
 ## Regras práticas
 
@@ -79,8 +79,8 @@ No caminho WebSocket, `ws-client.js:292-312` trata `ack` e `ack_batch`, grava sp
 5. `serverVersion` do ack é a ordem de chegada autoritativa; use-a como cursor, não o timestamp do cliente.
 
 ## Fontes
-- `docs/guias/04-websocket-collab.md`: protocolo `ack`/`ack_batch`, tabela de campos de `result`, contrato congelado `result` (objeto) vs `results[]` (array na ordem enviada), instrução de tratar `idempotent:true` como sucesso.
-- `docs/guias/08-offline-import.md`: fluxo de reconexão (pull então push), fila pendente em IndexedDB, exemplo de dequeue por acks (divergente do cliente real).
+- guia *04-websocket-collab* (absorvido): protocolo `ack`/`ack_batch`, tabela de campos de `result`, contrato congelado `result` (objeto) vs `results[]` (array na ordem enviada), instrução de tratar `idempotent:true` como sucesso.
+- guia *08-offline-import* (absorvido): fluxo de reconexão (pull então push), fila pendente em IndexedDB, exemplo de dequeue por acks (divergente do cliente real).
 - `ebgeo_backend/src/modules/sync/sync.service.js`: `pushOperations`, insert idempotente, montagem de `acks[]`/`results[]`, spans do SyncLedger.
 - `ebgeo_backend/src/modules/sync/sync.queries.js` e `src/database/migrations/003_sync.sql`: `ON CONFLICT (atlas_id, op_id) DO NOTHING` e o índice único que sustenta a dedupe.
 - `ebgeo_backend/src/modules/collab/collab.handlers.js` e `src/modules/sync/sync.controller.js`: emissão de `ack`/`ack_batch` e da resposta REST.
