@@ -129,11 +129,47 @@ async function ensureExtensions() {
   }
 }
 
+// DESTRUTIVO — dropa e recria o banco de dev do zero.
+//
+// Necessário porque as migrações são rastreadas por NOME DE ARQUIVO, não por
+// conteúdo: quando 001–005 foram consolidadas/reescritas no lugar (pré-release),
+// todo banco criado ANTES disso ficou preso no schema antigo, com o runner
+// reportando alegremente "already applied". O sintoma é uma tabela que sumiu do
+// nada (ex.: `basemaps` não existe → GET /api/config responde 500).
+//
+// Só faz sentido em DESENVOLVIMENTO. Em produção, um schema defasado se resolve
+// com uma migração nova (forward-only), nunca com drop.
+async function recreateDatabase() {
+  const admin = pgp(APP_ADMIN_URL);
+  try {
+    // `any` (não `none`): este SELECT retorna uma linha por conexão derrubada.
+    await admin.any(
+      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
+      [DB_NAME]
+    );
+    await admin.none(`DROP DATABASE IF EXISTS ${DB_NAME}`);
+    console.log(`🗑️  Banco "${DB_NAME}" removido`);
+    await admin.none(`CREATE DATABASE ${DB_NAME}`);
+    console.log(`✅ Banco "${DB_NAME}" recriado (dono: ${DB_USER})`);
+  } finally {
+    await admin.$pool.end();
+  }
+}
+
 async function main() {
   const action = process.argv[2] || 'create';
-  if (action !== 'create') {
-    console.error(`Ação desconhecida: ${action}. Use: create`);
+  if (!['create', 'recreate'].includes(action)) {
+    console.error(`Ação desconhecida: ${action}. Use: create | recreate`);
     process.exit(1);
+  }
+
+  if (action === 'recreate') {
+    console.log(`⚠️  DESTRUTIVO: recriando "${DB_NAME}" do zero (todos os dados serão perdidos)…`);
+    await recreateDatabase();
+    await ensureSchemaOwner();
+    await ensureExtensions();
+    console.log('\nPronto. Agora rode: npm run db:migrate && npm run db:seed');
+    return;
   }
 
   console.log(`Provisionando banco de desenvolvimento "${DB_NAME}"…`);
