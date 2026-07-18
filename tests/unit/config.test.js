@@ -64,7 +64,7 @@ describe('config — validateEnvVariables', () => {
     };
     try {
       process.env.NODE_ENV = 'production';
-      process.env.CORS_ORIGIN = 'https://ebgeo.eb.mil.br';
+      process.env.CORS_ORIGIN = 'https://ebgeo.example.mil.br';
       process.env.JWT_SECRET = 'x'.repeat(40);
       assert.doesNotThrow(() => validateEnvVariables());
     } finally {
