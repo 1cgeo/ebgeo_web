@@ -1,196 +1,77 @@
 # Import de atlas offline (POST /atlas/import)
 
-Endpoint que sobe um atlas inteiro criado no IndexedDB para a conta do usuário em uma transação atômica, preservando os UUIDs locais e respeitando a ordem de inserção que garante a integridade referencial.
+Rota REST de bulk que sobe um store local inteiro como um novo atlas em uma transação única, com IDs remapeados no cliente e preservados no servidor, e que **não é idempotente**.
 
-## Por que este endpoint existe
+## Por que existe uma rota REST aqui
 
-O app roda local antes de qualquer login (ver [[modos-operacao]] e [[dominio-local-vs-remoto]]). O store local é um workspace único, name-keyed, sem noção de atlas nomeado ([[dominio-local-vs-remoto]]). Quando o usuário decide "subir para o servidor", não dá para reproduzir esse estado como uma sequência de operações de sync: seriam milhares de envelopes ([[envelope-operacao]]) e nenhuma garantia de atomicidade. Daí um endpoint REST de bulk, fora do caminho de sync ([[sintese-rest-vs-sync]]).
+O app roda local antes de qualquer login ([[modos-operacao]], [[dominio-local-vs-remoto]]). Subir esse estado como sequência de operações de sync foi rejeitado por dois motivos: seriam milhares de envelopes ([[envelope-operacao]]) e não haveria atomicidade (um atlas meio criado é pior que nenhum). Daí a exceção ao [[sintese-rest-vs-sync]]: esta é a **única** rota REST que escreve entidades de mapa/feição/camada em massa. Depois dela toda mutação volta a viajar como operação ([[modelo-conflito-lww]]).
 
-O import é a **única** rota REST que escreve entidades de mapa/feição/camada em massa. Depois dele, toda mutação volta a viajar como operação ([[modelo-conflito-lww]]).
+A rota tem só `auth` + `validate` (`backend/src/modules/atlas/atlas.routes.js:22`), sem `requireAtlasPermission`, e não poderia ter: o atlas ainda não existe. Dono é o chamador ([[permissoes-atlas]], [[compartilhamento-atlas]], [[autenticacao-jwt]]).
 
-## Contrato
+`temporal_config` e `grid_style` estão no `mapSchema` (`backend/src/modules/atlas/atlas.schemas.js:151-152`) por decisão explícita: o payload de import cobre o **mesmo** conjunto do [[formato-ebgeo-roundtrip]], não um subconjunto, para o [[modulo-temporal]] sobreviver ao round-trip local para servidor.
 
-`POST /api/v1/atlas/import`, `Authorization: Bearer <accessToken>` ([[autenticacao-jwt]]).
+## O Joi valida formato, não referência
 
-Registrada em `atlas.routes.js:22` com **apenas** `auth` + `validate(importSchema)`. Não há `requireAtlasPermission`, e nem poderia haver: o atlas ainda não existe. O dono é `req.user.id` (`atlas.controller.js:64-67`), que também responde **201** com `{ data: { ...atlas, summary } }`. Sobre papéis do atlas criado, ver [[permissoes-atlas]] e [[compartilhamento-atlas]].
+Este é o ponto em que o schema convida a errar. `layer_id`, `map_id`, `parent_id`, `group_id` e `feature_id` são validados apenas como **formato UUID**. O Joi nunca confere se o alvo existe no próprio payload. A integridade referencial vem inteira de duas outras coisas: a ordem de inserção dentro de `tx()` (layers antes de features, groups antes de group_features; `backend/src/modules/atlas/atlas.service.js:551-767`) e as FKs do PostgreSQL.
 
-Corpo: `{ atlas: { name, description, settings }, maps: [...], briefings: [...] }` (`atlas.schemas.js:183-191`).
+Consequência: uma referência inválida **não** perde uma linha, ela derruba a transação inteira e o atlas não nasce. A única inserção tolerante é `group_features`, com `ON CONFLICT DO NOTHING` (`atlas.service.js:671`).
 
-O `mapSchema` (`atlas.schemas.js:137-161`) aceita bem mais do que "centro e zoom": `notes_title`, `notes_description`, `analysis_layers`, `catalog_layers`, `locked`, `grid_style` e `temporal_config`, além dos arrays aninhados `features`, `layers`, `groups`, `groupFeatures`, `cesium3dData`, `streetview360Data`. O `temporal_config` foi adicionado explicitamente para que o [[modulo-temporal]] sobreviva ao round-trip local → servidor (comentário em `atlas.schemas.js:151-152`). Ou seja: o payload de import cobre o mesmo conjunto que o [[formato-ebgeo-roundtrip]], e não um subconjunto.
+E é justamente aí que a perda fica invisível: o `summary` da resposta tem oito contadores e `groupFeatures` **não** é um deles. Vínculos feição para grupo somem sem aparecer em contador nenhum. Conferir perda pelo `summary` só funciona para as oito categorias contadas.
 
-## Ordem de inserção e integridade referencial
+## IDs: preservados pelo servidor, reescritos pelo cliente
 
-`importAtlas` (`atlas.service.js:551-767`) roda inteiro dentro de `tx()`. A ordem é:
+O servidor insere com o id que recebe. Só que o payload que chega já foi remapeado por `buildServerImportPayload` (`src/js/import_export/local-atlas-to-server.js:265`), e é aí que mora a confusão.
 
-1. `INSERT INTO atlas` (linha 556)
-2. por mapa: `maps` → `layers` (2.1, linha 613) → `groups` (2.2, linha 632) → `features` (2.3, linha 650) → `group_features` (2.4, linha 667) → `cesium3d_data` (2.5) → `streetview360_data` (2.6)
-3. `UPDATE atlas SET map_order` com os ids dos mapas na ordem recebida (linha 711)
-4. `briefings` → `slides` (linha 715+)
-
-**Armadilha:** o Joi só valida *formato* UUID de `layer_id`, `map_id`, `parent_id`, `group_id`, `feature_id` (permitindo `null`). Ele **não** confere se esses ids existem no próprio payload. A integridade vem da ordem acima mais as FKs do PostgreSQL. Uma referência inválida vira erro de FK e derruba a transação inteira, não uma linha. `group_features` usa `ON CONFLICT DO NOTHING` (linha 671) e é a única inserção tolerante.
-
-`summary` conta cada categoria inserida e volta na resposta: use isso para conferir perdas em vez de confiar no que você acha que mandou.
-
-## IDs: preservados pelo servidor, remapeados pelo cliente
-
-O servidor insere com o id que recebe (`INSERT INTO maps (id, ...)`, `INSERT INTO features (id, ...)`). Nesse sentido "IDs preservados" é verdade. Mas o payload que chega já passou por um remapeamento no cliente.
-
-`buildServerImportPayload` (`import_export/local-atlas-to-server.js:265`) é puro e síncrono, e faz dois trabalhos que ninguém deve refazer à mão:
-
-- **UUID-remapping.** `makeIdMapper` (linha 52-63) mantém ids que já são UUID e atribui um UUID novo, memoizado, para qualquer id que não seja. Isso é obrigatório porque **mapas locais são keyed por nome** (`mapNameToId`, linhas 279-282, gera um UUID por nome) e a camada padrão de cada mapa tem o id literal `'default'`. Como `'default'` colide entre mapas, o mapper de camada é **por mapa** (linha 288), não global.
-- **Achatamento** das coleções keyed por objeto (`cesium3d.cameraPositions`, `streetview360.orientations`) nos arrays tipados `cesium3dData` / `streetview360Data` (linhas 189-220), com `data_type` em `camera_position | marker | measurement | viewshed` e `orientation | marker`. Ver [[catalogo-3d]] e [[streetview-360]].
+- **Mapas locais são name-keyed** e ganham UUID novo (`local-atlas-to-server.js:279-282`). Por isso `mapNameToId` do retorno é a **única** fonte para resolver referência por nome (slides referenciam mapa por nome ou por id; `local-atlas-to-server.js:341`).
+- **O mapper de camada é por mapa, não global** (`local-atlas-to-server.js:288`). Motivo não óbvio: a camada padrão tem o id literal `'default'` em todo mapa, então um mapper global fundiria as camadas padrão de todos os mapas em uma só.
 
 > **Nota histórica.** guia *08-offline-import* (absorvido) §3.3 diz "IDs preservados: UUIDs gerados no IndexedDB são mantidos no servidor". O código em `src/js/import_export/local-atlas-to-server.js:52-63,279-282` gera UUIDs **novos** para todo id não-UUID, incluindo o id de todos os mapas (locais são name-keyed) e a camada `'default'`. Só ids que já eram UUID (feições, briefings, slides) sobrevivem intactos.
 
-Consequência prática: **`mapNameToId` do retorno é a única fonte para resolver referências por nome**. Slides referenciam mapa por nome ou por id, e a linha 341 faz `mapNameToId[s.mapId] || (isValidUUID(s.mapId) ? s.mapId : null)`.
+## Import não é idempotente (ao contrário do sync)
 
-## Feições descartadas silenciosamente
+`features.id` é `UUID PRIMARY KEY` **global**, não escopado por atlas (`backend/src/database/migrations/002_atlas.sql:165`), e feições que já eram UUID são preservadas. Salvar o **mesmo** store local no servidor duas vezes colide na PK e derruba a transação inteira. Não há `op_id` nem convergence guard aqui ([[idempotencia-e-convergence-guard]]): reenviar não é seguro e não existe retry cego deste endpoint.
 
-`buildFeatures` (linha 93-128) deriva o `feature_type` de `properties.source`, caindo em `BUCKET_TO_SOURCE` como fallback. Feição sem `geometry` ou com tipo fora de `VALID_FEATURE_TYPES` é **descartada** e apenas incrementa `stats.droppedFeatures`. O bucket `coordenadas` (leituras efêmeras de azimute/coordenada) não tem tipo no servidor e por isso está deliberadamente ausente do mapa, ou seja, some no import por design.
+`images.id` tem o mesmo problema (`002_atlas.sql:310`), com falha pior porque é **parcial**: o INSERT cai no `catch`, a imagem entra em `failed` e o atlas é criado assim mesmo, com referências quebradas.
 
-A lista de 20 tipos do cliente (linhas 22-28) é um espelho manual de `VALID_FEATURE_TYPES` no backend (`atlas.schemas.js:73-83`), que por sua vez espelha o CHECK `features.valid_feature_type` em `002_atlas.sql`. **São três cópias que precisam mudar juntas.** Adicionar um tipo de feição sem tocar nas três faz a feição ser descartada no cliente ou o import inteiro tomar 400 ([[erros-api]]).
+## Feições que somem em silêncio
+
+`buildFeatures` (`local-atlas-to-server.js:93-128`) descarta sem erro a feição sem `geometry` ou com tipo fora da allowlist, apenas incrementando `stats.droppedFeatures`. O bucket `coordenadas` (leituras efêmeras de azimute e coordenada) não tem tipo no servidor e some **por design**.
+
+A lista de 20 tipos existe em **três cópias manuais** que precisam mudar juntas: `local-atlas-to-server.js:22-28`, `VALID_FEATURE_TYPES` no Joi (`atlas.schemas.js:73-83`) e o CHECK `features.valid_feature_type` em `002_atlas.sql`. Adicionar um tipo de feição sem tocar nas três faz a feição ser descartada no cliente, ou o import inteiro tomar 400 ([[erros-api]]).
 
 ## Imagens: a ordem real inverte o que o guia descreve
 
-Imagens são binários e não vão no payload. O orquestrador `saveLocalAtlasToServer` (`import_export/save-local-atlas.service.js:91-119`) faz:
+O truque está no backend: `bulkUploadImages` usa `INSERT_IMAGE_WITH_ID` na primeira ocorrência de cada `localId` (`backend/src/modules/images/images.service.js:191-210`), ou seja, o id local **vira** o id de servidor. Por isso o orquestrador (`src/js/import_export/save-local-atlas.service.js:91-119`) pode importar **antes** de subir os blobs e não precisa de fase de rewrite. Ver [[imagens-atlas]] e [[upload-imagens-seguranca]].
 
-1. `exportService.buildExportDataObject(mapsToExport)`
-2. `buildServerImportPayload(exportData, { name, description })` **sem** `imageIdMap`
-3. `apiClient.importAtlas(payload)` (as referências de imagem ainda são os ids locais)
-4. `uploadImagesInChunks` em lotes de 50, **preservando os ids locais**
+> **Nota histórica.** guia *08-offline-import* (absorvido) §4.4/§4.5 descreve importar, subir imagens, receber um `mapping` e então **enviar operações de UPDATE** para reescrever `properties.imageId`. O código em `src/js/import_export/save-local-atlas.service.js:100-105` não emite nenhuma operação de update: as imagens são inseridas com o próprio `localId` como PK, então as refs já importadas continuam válidas. O caminho de duas passadas com `meta.imageIdMap` existe em `local-atlas-to-server.js:270-275` mas **não é usado** por este fluxo.
 
-O truque está no backend: `bulkUploadImages` (`images.service.js:187-213`) usa `INSERT_IMAGE_WITH_ID` na primeira ocorrência de cada `localId`, ou seja, o id local **vira** o id de servidor. Por isso não existe fase de rewrite pós-import. Detalhes do endpoint em [[imagens-atlas]] e [[upload-imagens-seguranca]].
+Onde isso morde:
 
-> **Nota histórica.** guia *08-offline-import* (absorvido) §4.4/§4.5 descreve importar, subir imagens, receber um `mapping` e então **enviar operações de UPDATE** para reescrever `properties.imageId`. O código em `src/js/import_export/save-local-atlas.service.js:100-105` não emite nenhuma operação de update: as imagens são inseridas com o próprio `localId` como PK (`ebgeo_backend/src/modules/images/images.service.js:190-213`), então as refs já importadas continuam válidas. O caminho de duas passadas com `meta.imageIdMap` existe em `local-atlas-to-server.js:270-275` mas **não é usado** por este fluxo.
+- **`localId` duplicado no mesmo lote**: a segunda ocorrência não pode reusar a PK, recebe id novo e o `mapping` colapsa em last-wins (`images.service.js:191-210`). A ref da feição correspondente fica pendurada.
+- **SVG é perdido sem erro**: `ALLOWED_MIME` é png/jpeg/webp (`save-local-atlas.service.js:19,51-54`), porque SVG é vetor de XSS armazenado (o CHECK do banco também o recusa). Ícone customizado em SVG entra como `skipped`.
+- **Magic bytes têm que bater com o mime declarado** (`images.service.js:175`). Confiar cegamente em `blob.type` reprova a imagem.
+- O blob só vai para disco **depois** do INSERT (`images.service.js:217`), deliberadamente, para que a colisão de PK global acima não deixe arquivo órfão.
 
-Pontos que mordem no upload de imagens:
+## Depois do import: a ordem que não é negociável
 
-- **`localId` duplicado no mesmo lote**: a segunda ocorrência não pode reusar a PK, recebe um id novo e o `mapping` colapsa em last-wins (`images.service.js:187-192`). A ref da feição correspondente fica pendurada.
-- **PK global de `images`** (`002_atlas.sql:310`). Salvar o *mesmo* atlas local no servidor **duas vezes** colide na segunda: o INSERT falha, cai no `catch` e a imagem entra em `failed`. O atlas é criado assim mesmo, com refs quebradas.
-- O mesmo raciocínio vale, pior, para **feições**: `features.id` também é `UUID PRIMARY KEY` global (`002_atlas.sql:164-165`) e feições que já eram UUID são preservadas. Um segundo import do mesmo store local colide na PK e **derruba a transação inteira**. Import não é idempotente, ao contrário do sync ([[idempotencia-e-convergence-guard]]).
-- **SVG não é aceito** (vetor de XSS armazenado). `collectImageUploads` filtra por `ALLOWED_MIME` = png/jpeg/webp (`save-local-atlas.service.js:19,51-54`) e reporta como `skipped`, então ícones customizados em SVG são perdidos sem erro.
-- O backend ainda valida **magic bytes** e exige `detected.mime === image.mimeType` (`images.service.js:174-181`). Declarar mime errado a partir de `blob.type` reprova a imagem.
-- O blob só é escrito em disco **depois** do INSERT, para não deixar arquivo órfão quando a PK colide (`images.service.js:215-217`).
+O import não conecta nada. A troca do store acontece em `src/js/account/account.control.js:552-596`: `saveLocalAtlasToServer` (que **lê** o store local) tem que rodar **antes** de `clearAllDataStore`, `markStoreRemote` e `connect` ([[snapshot-e-pull-incremental]], [[sessao-boot-e-ciclo-de-vida]], [[fila-operacoes-outbound]], [[canal-collab-websocket]]). Inverter apaga os dados antes de subi-los, e como o import não é repetível não há como refazer.
 
-## Depois do import: virar o store
+O toast final soma `imageStats.skipped + failed`. É a **única** sinalização de perda parcial que o usuário recebe, e ela não cobre `droppedFeatures` nem os vínculos de grupo.
 
-O import não conecta nada. Quem faz a troca é `account.control.js:_handleSaveLocalToServer` (linhas 552-596), nesta ordem, que não é negociável:
+## Contrato congelado
 
-1. `syncEngine.disconnect()` defensivo se houver socket aberto
-2. `saveLocalAtlasToServer` (lê o store local, **tem que vir antes do wipe**)
-3. `_applyAtlasSharing(result.atlasId, sharing)`
-4. `clearAllDataStore()` → `markStoreRemote(result.atlasId)` → `syncEngine.connect(atlasId, { initialPull: true })` ([[snapshot-e-pull-incremental]], [[sessao-boot-e-ciclo-de-vida]])
-5. `activateAtlasInitialMap()` + `switchMap(false)` + `startAutoFlush()` ([[fila-operacoes-outbound]], [[canal-collab-websocket]])
+- Os arrays aninhados de mapa (`features`, `layers`, `groups`, `groupFeatures`, `cesium3dData`, `streetview360Data`) são **camelCase dentro de um payload snake_case**. É inconsistente e é contrato: renomear quebra cliente antigo.
+- O `SELECT` de retorno projeta oito colunas fixas (`atlas.service.js:757`), sem `owner_id` nem timestamps de update. `current_version` é o valor que o cliente guarda como `lastVersion` antes de abrir o socket ([[snapshot-e-pull-incremental]]).
 
-Inverter 2 e 4 apaga os dados antes de subi-los. O toast final usa `stats` e soma `imageStats.skipped + failed` para avisar "N imagem(ns) não enviada(s)", que é a única sinalização de perda parcial que o usuário recebe.
-
-Sobre o atlas resultante e seu ciclo de vida, ver [[atlas-modelo-de-dados]], [[atlas-modelo-de-dados]], [[api-rest-atlas]] e [[atlas-settings]].
-
-
-## Shape exato do payload e da resposta 201
-
-## Shape exato do payload e da resposta 201
-
-A prosa acima descreve quais campos o `importSchema` aceita; abaixo está o envelope literal, que é contrato congelado do endpoint.
-
-### Request mínimo
-
-```json
-{
-  "atlas": {
-    "name": "Meu Atlas Offline",
-    "description": "Descrição opcional",
-    "settings": {}
-  },
-  "maps": [
-    {
-      "id": "local-map-uuid",
-      "name": "Mapa Principal",
-      "base_layer": "carta-topografica",
-      "center_lat": -15.7,
-      "center_long": -47.9,
-      "zoom": 12,
-      "bearing": 0,
-      "pitch": 0,
-      "features": [
-        {
-          "id": "local-feat-uuid",
-          "feature_type": "point",
-          "geometry": { "type": "Point", "coordinates": [-47.9, -15.7] },
-          "properties": { "name": "Marco" },
-          "layer_id": null
-        }
-      ],
-      "layers": [],
-      "groups": [],
-      "groupFeatures": [],
-      "cesium3dData": [],
-      "streetview360Data": []
-    }
-  ],
-  "briefings": [
-    {
-      "id": "local-briefing-uuid",
-      "name": "Briefing",
-      "description": null,
-      "settings": {},
-      "slides": [
-        {
-          "id": "local-slide-uuid",
-          "title": "Slide 1",
-          "content": "...",
-          "mode": "2d",
-          "map_id": "local-map-uuid",
-          "position": {},
-          "orientation": {}
-        }
-      ]
-    }
-  ]
-}
-```
-
-Os arrays aninhados de mapa (`features`, `layers`, `groups`, `groupFeatures`, `cesium3dData`, `streetview360Data`) são todos opcionais mas, se presentes, precisam vir com esses nomes exatos em camelCase — o restante do payload é snake_case. `mode` de slide é validado contra `2d | 3d | 360`; `feature_type` contra os 20 `VALID_FEATURE_TYPES`.
-
-### Response 201
-
-```json
-{
-  "data": {
-    "id": "server-atlas-uuid",
-    "name": "Meu Atlas Offline",
-    "description": "Descrição opcional",
-    "settings": {},
-    "map_order": ["local-map-uuid"],
-    "version": 1,
-    "current_version": 1,
-    "created_at": "...",
-    "summary": {
-      "mapsImported": 1,
-      "featuresImported": 1,
-      "layersImported": 0,
-      "groupsImported": 0,
-      "cesium3dImported": 0,
-      "streetview360Imported": 0,
-      "briefingsImported": 1,
-      "slidesImported": 1
-    }
-  }
-}
-```
-
-O `SELECT` de retorno projeta exatamente `id, name, description, settings, map_order, version, current_version, created_at` (`atlas.service.js:757`) — nada de `owner_id` ou timestamps de update. `current_version` é o valor que o cliente deve guardar como `lastVersion` antes de conectar o socket ([[snapshot-e-pull-incremental]]).
-
-**Armadilha do `summary`:** ele tem oito contadores e `groupFeatures` **não** é um deles. Os vínculos feição↔grupo são inseridos com `ON CONFLICT DO NOTHING` e não aparecem em nenhum contador, então uma perda de vínculos é invisível na resposta. Conferir perda por `summary` só funciona para as oito categorias listadas.
+Ver também [[atlas-modelo-de-dados]], [[atlas-settings]], [[api-rest-atlas]], [[catalogo-3d]] e [[streetview-360]].
 
 ## Fontes
 
-- guia *08-offline-import* (absorvido): cenário, contrato do endpoint, tabela de características do import, fluxo de bulk upload de imagens e transição offline → online (com duas divergências marcadas acima).
-- `ebgeo_backend/src/modules/atlas/atlas.routes.js:22`, `atlas.controller.js:64-67`: registro da rota (só `auth`), owner = usuário autenticado, 201.
-- `ebgeo_backend/src/modules/atlas/atlas.schemas.js:73-191`: `importSchema`, os 20 `VALID_FEATURE_TYPES`, campos aceitos por mapa (incluindo `grid_style`/`temporal_config`), validação apenas de formato UUID nas referências.
-- `ebgeo_backend/src/modules/atlas/atlas.service.js:551-767`: transação única, ordem de inserção, `map_order`, `summary`.
-- `ebgeo_backend/src/modules/images/images.service.js:118-236` e `images.schemas.js:9-17`, `images.routes.js:66`: bulk upload, preservação do `localId` como PK, limite de 50, magic bytes, tratamento de duplicata e falha parcial.
-- `ebgeo_backend/src/database/migrations/002_atlas.sql:164,309`: PKs globais de `features` e `images` (base do problema de re-import).
-- `ebgeo_web/src/js/import_export/local-atlas-to-server.js`: remapeamento de UUID, mapper de camada por mapa, achatamento 3D/360, descarte de feições, `mapNameToId`.
-- `ebgeo_web/src/js/import_export/save-local-atlas.service.js:91-119`: ordem real import → upload de blobs, chunk de 50, filtro de MIME, `imageStats`.
-- `ebgeo_web/src/js/account/account.control.js:552-596`: sequência de troca do store local pelo atlas remoto após o import.
+- guia *08-offline-import* (absorvido): cenário, contrato, bulk upload de imagens e transição offline para online (duas divergências marcadas acima).
+- `backend/src/modules/atlas/atlas.service.js:551-767`: transação única, ordem de inserção, `map_order`, `summary`.
+- `backend/src/modules/atlas/atlas.schemas.js:73-191`: `importSchema`, os 20 tipos, validação só de formato UUID nas referências.
+- `backend/src/modules/images/images.service.js:118-236`: preservação do `localId` como PK, duplicata no lote, magic bytes, escrita pós-INSERT.
+- `backend/src/database/migrations/002_atlas.sql:165,310`: PKs globais de `features` e `images`, base da não idempotência.
+- `src/js/import_export/local-atlas-to-server.js`: remapeamento de UUID, mapper de camada por mapa, descarte de feições, `mapNameToId`.
+- `src/js/import_export/save-local-atlas.service.js:91-119`: ordem import para upload, chunk de 50, filtro de MIME.
+- `src/js/account/account.control.js:552-596`: sequência de troca do store local pelo atlas remoto.

@@ -23,7 +23,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
-import { join, dirname, resolve, relative } from 'node:path';
+import { Buffer } from 'node:buffer';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -140,7 +141,9 @@ describe('integridade da documentação', () => {
         for (const doc of DOCS) {
             const texto = readFileSync(join(RAIZ, doc), 'utf8');
             for (const m of texto.matchAll(RE_WIKILINK)) {
-                if (/[^\x00-\x7F]/.test(m[1])) comAcento.push(`${doc} → [[${m[1]}]]`);
+                // Faixa ASCII IMPRIMÍVEL: evita caractere de controle na própria
+                // regex (que o eslint barra) e é o que um slug pode conter.
+                if (/[^ -~]/.test(m[1])) comAcento.push(`${doc} → [[${m[1]}]]`);
             }
         }
         expect(comAcento, `wikilink com caractere não-ASCII:\n${comAcento.join('\n')}`).toEqual([]);
