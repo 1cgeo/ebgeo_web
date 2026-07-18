@@ -405,7 +405,7 @@ servidores internos **sem rebuild**. Defaults são placeholders DEV-only.
 > O boot **não** falha nem avisa se essas URLs continuarem em `localhost`/placeholder
 > público em produção — os defaults são intencionais para dev/offline. Em produção
 > militar, defina todas para os servidores internos da DGEO. Lista completa de env de
-> deploy em [../deploy/deploy.md](../deploy/deploy.md).
+> deploy em [../deploy.md](../deploy.md).
 
 ---
 
@@ -432,5 +432,5 @@ servidores internos **sem rebuild**. Defaults são placeholders DEV-only.
 ## Referências
 
 - [09 - Administração](./09-admin.md) — CRUD admin da tabela `resources`.
-- [../deploy/deploy.md](../deploy/deploy.md) — variáveis de ambiente de deploy (URLs, CORS, NGINX), incl. as `*_URL` da config dinâmica e o módulo 360 absorvido.
-- [../../README.md](../../README.md) — índice da documentação.
+- [../deploy.md](../deploy.md) — variáveis de ambiente de deploy (URLs, CORS, NGINX), incl. as `*_URL` da config dinâmica e o módulo 360 absorvido.
+- [../../README.md](../../backend/README.md) — índice da documentação.

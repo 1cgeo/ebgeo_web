@@ -463,5 +463,5 @@ Esses itens estão catalogados em **Gaps Conhecidos** no
 
 - [09 - Admin](./09-admin.md) — gerenciamento de usuários e trilha de auditoria
 - [README — Gaps Conhecidos](../../README.md#gaps-conhecidos) — follow-ups (permissões de modelo 3D, grupos/membresia)
-- [../../README.md](../../README.md) — índice da documentação
-- [../deploy/deploy.md](../deploy/deploy.md) — PostGIS, schema `ng` e carga de dados
+- [../../README.md](../../backend/README.md) — índice da documentação
+- [../deploy.md](../deploy.md) — PostGIS, schema `ng` e carga de dados

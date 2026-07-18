@@ -451,7 +451,7 @@ SELECT ng.refresh_busca();
 Essa função recalcula os pesos por tipo (`tipo_peso`) e os clusters de deduplicação (DBSCAN). A carga
 em massa (`COPY`) **não dispara** os triggers que preenchem esses campos — esquecer este passo deixa
 `cluster_id`/`tipo_peso` nulos e **degrada a busca silenciosamente, sem erro** (ranking ruim,
-duplicatas no resultado). Detalhes de operação no [guia de deploy](../deploy/deploy.md).
+duplicatas no resultado). Detalhes de operação no [guia de deploy](../deploy.md).
 
 ---
 

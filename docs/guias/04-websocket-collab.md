@@ -733,7 +733,7 @@ cliente desconectado.
 
 O estado efêmero (salas, presença, cursores, timers de `away`) vive **em memória de uma única
 instância**. O estado durável está no Postgres. Escalar horizontalmente exige sticky-session no load
-balancer (ou uma camada pub/sub — não implementada). Ver [`../deploy/deploy.md`](../deploy/deploy.md).
+balancer (ou uma camada pub/sub — não implementada). Ver [`../deploy.md`](../deploy.md).
 
 ### `locked`: MAPA é imposto; camada/grupo/feição são advisory
 

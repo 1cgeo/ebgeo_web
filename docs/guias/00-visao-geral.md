@@ -121,7 +121,7 @@ response e notas de integração.
 
 > Os padrões de engenharia (template de módulo, erro/validação/transação, migração, segurança,
 > testes/DoD) ficam no [README §Convenções de Engenharia](../../README.md#convenções-de-engenharia).
-> O guia operacional completo está em [../deploy/deploy.md](../deploy/deploy.md).
+> O guia operacional completo está em [../deploy.md](../deploy.md).
 
 ---
 
@@ -154,6 +154,6 @@ aparece para admin, permissão direta ou geometria contida numa zona do usuário
 
 ## Referências
 
-- [README.md](../../README.md) — referência completa: rotas, env, migrações, permissões, protocolo WS, convenções de engenharia.
-- [../deploy/deploy.md](../deploy/deploy.md) — guia de deploy do backend único (build, env, migrações, stores/volumes, NGINX, health, backup) + contrato JWT de emissor único.
+- [README.md](../../backend/README.md) — referência completa: rotas, env, migrações, permissões, protocolo WS, convenções de engenharia.
+- [../deploy.md](../deploy.md) — guia de deploy do backend único (build, env, migrações, stores/volumes, NGINX, health, backup) + contrato JWT de emissor único.
 - `CLAUDE.md` (raiz) — contexto curto para agentes: mapa do código, rotas, migrações e decisões correntes.

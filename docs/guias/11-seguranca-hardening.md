@@ -397,7 +397,7 @@ por origens permitidas).
 
 > **CORS:** o backend habilita CORS para `CORS_ORIGIN` (default `http://localhost:8080`)
 > com `credentials: true`. Configure a origem do frontend no deploy. Ver
-> [../deploy/deploy.md](../deploy/deploy.md).
+> [../deploy.md](../deploy.md).
 
 ---
 
@@ -481,7 +481,7 @@ Configuração inválida:
 
 Isto é operacional (deploy), **não** algo que o cliente HTTP veja — mas explica por que um
 backend mal configurado simplesmente não sobe. Detalhes de configuração em
-[../deploy/deploy.md](../deploy/deploy.md).
+[../deploy.md](../deploy.md).
 
 ---
 
@@ -518,5 +518,5 @@ backend mal configurado simplesmente não sobe. Detalhes de configuração em
 - [04 - WebSocket e Colaboração](./04-websocket-collab.md) - Handshake e token no WS
 - [06 - Presença e Imagens](./06-presenca-imagens.md) - Fluxo funcional de imagens
 - [10 - Config Dinâmico](./10-config.md) - Configuração de runtime servida ao frontend
-- [../deploy/deploy.md](../deploy/deploy.md) - Env vars, CORS, migrações, segurança em deploy
-- [../../README.md](../../README.md) - Índice da documentação
+- [../deploy.md](../deploy.md) - Env vars, CORS, migrações, segurança em deploy
+- [../../README.md](../../backend/README.md) - Índice da documentação

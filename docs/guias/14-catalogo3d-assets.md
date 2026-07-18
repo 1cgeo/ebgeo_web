@@ -368,4 +368,4 @@ scripts/assets3d-import.js <dir>`).
 
 - [10 - Config](./10-config.md) - `GET /api/config`, `assets3dBaseUrl` e URLs de terrain por ambiente
 - [13 - Nomes Geográficos](./13-nomes-geograficos.md) - Descoberta completa (busca, paginação, filtro de acesso por modelo)
-- [../deploy/deploy.md](../deploy/deploy.md) - Stores/volumes de assets 3D, carga de dados e env vars
+- [../deploy.md](../deploy.md) - Stores/volumes de assets 3D, carga de dados e env vars

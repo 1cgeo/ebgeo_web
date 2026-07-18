@@ -10,9 +10,9 @@ frontend. Isso vale para o LOGIN, não para a disponibilidade: o boot do fronten
 app de subir — não existe fallback estático no cliente.
 
 > Referência completa (rotas, env, migrações, permissões, protocolo WS, convenções detalhadas) está
-> no **[README.md](README.md)**. Guias de integração por subsistema em **[docs/implementado/](docs/implementado/)**
+> no **[README.md](README.md)**. Guias de integração por subsistema em **[../docs/guias/](../docs/guias/)**
 > (série numerada `00`–`16`). Deploy em
-> **[docs/deploy/deploy.md](docs/deploy/deploy.md)**. Este arquivo é o contrato de comportamento —
+> **[../docs/deploy.md](../docs/deploy.md)**. Este arquivo é o contrato de comportamento —
 > mantenha-o curto.
 
 ## Stack & layout
@@ -79,7 +79,7 @@ npm run lint           # eslint (rode antes de finalizar) | npm run format
 - **`sv360` está FORA do sync/CRDT/WS** do atlas: BLOBs WebP em SQLite por projeto (`{slug}.db`, worker
   pool + ETag O(1) + semáforo), erros em envelope **plano** `{ error }` (não `{error:{code,message}}`),
   `db_filename` **derivado no servidor** (`${orgId}__{slug}.db`), ingestão swap-then-commit. Detalhes em
-  [docs/implementado/16-streetview-360.md](docs/implementado/16-streetview-360.md).
+  [../docs/guias/16-streetview-360.md](../docs/guias/16-streetview-360.md).
 
 ## Convenções de código
 

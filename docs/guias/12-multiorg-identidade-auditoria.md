@@ -640,4 +640,4 @@ Todas as rotas desta camada usam o envelope de erro padrão do backend:
 - [01 - Autenticação](./01-autenticacao.md) - Login, refresh, registro e o JWT base
 - [09 - Administração](./09-admin.md) - Gerenciamento de usuários e resources (roles, transferência de atlas)
 - [11 - Segurança e Hardening](./11-seguranca-hardening.md) - Hardening, rate limiting, validação e política de tokens
-- [../deploy/deploy.md](../deploy/deploy.md) - Variáveis de ambiente, JWT de emissor único, stores/volumes
+- [../deploy.md](../deploy.md) - Variáveis de ambiente, JWT de emissor único, stores/volumes
