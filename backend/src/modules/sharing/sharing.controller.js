@@ -10,13 +10,13 @@ export const getSharingConfig = asyncHandler(async (req, res) => {
 });
 
 export const enablePublicSharing = asyncHandler(async (req, res) => {
-  const result = await sharingService.enablePublicSharing(req.atlasId);
+  const result = await sharingService.enablePublicSharing(req.atlasId, req.user?.id ?? null, req);
   broadcastToRoom(req.atlasId, { type: 'sharing_updated', action: 'public_enabled' });
   res.json({ data: result });
 });
 
 export const disablePublicSharing = asyncHandler(async (req, res) => {
-  await sharingService.disablePublicSharing(req.atlasId);
+  await sharingService.disablePublicSharing(req.atlasId, req.user?.id ?? null, req);
   broadcastToRoom(req.atlasId, { type: 'sharing_updated', action: 'public_disabled' });
   res.status(204).send();
 });
@@ -26,7 +26,8 @@ export const addUserShare = asyncHandler(async (req, res) => {
     req.atlasId,
     req.body.userId,
     req.body.permission,
-    req.user.id
+    req.user.id,
+    req
   );
   broadcastToRoom(req.atlasId, {
     type: 'sharing_updated',
@@ -44,7 +45,9 @@ export const updateUserShare = asyncHandler(async (req, res) => {
   const share = await sharingService.updateUserShare(
     req.atlasId,
     req.params.userId,
-    req.body.permission
+    req.body.permission,
+    req.user?.id ?? null,
+    req
   );
   broadcastToRoom(req.atlasId, {
     type: 'sharing_updated',
@@ -60,7 +63,7 @@ export const updateUserShare = asyncHandler(async (req, res) => {
 });
 
 export const removeUserShare = asyncHandler(async (req, res) => {
-  await sharingService.removeUserShare(req.atlasId, req.params.userId);
+  await sharingService.removeUserShare(req.atlasId, req.params.userId, req.user?.id ?? null, req);
   broadcastToRoom(req.atlasId, {
     type: 'sharing_updated',
     action: 'user_removed',

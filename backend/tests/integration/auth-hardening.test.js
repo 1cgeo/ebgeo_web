@@ -67,6 +67,20 @@ describe('Auth hardening', () => {
       .expect(200);
     const t2 = rot.body.data.refreshToken;
 
+    // Age the rotation past the concurrency grace window (REFRESH_RACE_GRACE_MS in
+    // auth.service.js). Since rotation became an atomic claim, a replay arriving
+    // WITHIN a few seconds of the rotation is treated as one client double-submitting
+    // — the shape a double F5 or a network retry produces — and is refused without
+    // raising the theft alarm. Theft is what this test is about, so it has to place
+    // the replay where a stolen token realistically gets used: later. The assertions
+    // below are unchanged; only the timing is made explicit.
+    // The window itself is covered from both sides in auth-refresh-race.repro.test.js.
+    await db.query(
+      `UPDATE refresh_tokens SET revoked_at = NOW() - INTERVAL '1 hour'
+       WHERE user_id = $1 AND revoked_at IS NOT NULL`,
+      [user.id]
+    );
+
     // Reusing the now-revoked T1 is detected -> 401
     await supertest(app)
       .post('/api/v1/auth/refresh')

@@ -27,9 +27,18 @@ export const GuardAction = Object.freeze({
 
     CREATE_MAP: PermissionAction.EDIT,
     UPDATE_MAP: PermissionAction.EDIT,
-    DELETE_MAP: PermissionAction.DELETE,
+    DELETE_MAP: PermissionAction.DELETE_MAP,
     LOCK_MAP: PermissionAction.LOCK_MAPS,
-    COMBINE_MAPS: PermissionAction.EDIT,
+    // Combining EMPTIES the source maps into a target and cannot be undone: which
+    // feature came from which map is not recorded anywhere. That makes it a
+    // management action, gated exactly like DELETE_MAP, and it matches the server,
+    // where POST /maps/:id/merge requires 'manage'.
+    //
+    // It was mapped to EDIT and, worse, never consulted — the only reference to this
+    // key in the whole repository was its own definition, so an Editor could combine
+    // maps freely under the CREATE_FEATURE gate the local implementation happens to
+    // use. Now enforced in map.manager.combineSelectedMapsIntoTarget.
+    COMBINE_MAPS: PermissionAction.DELETE_MAP,
 
     CREATE_GROUP: PermissionAction.EDIT,
     UPDATE_GROUP: PermissionAction.EDIT,

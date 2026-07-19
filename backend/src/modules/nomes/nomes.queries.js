@@ -19,9 +19,16 @@ candidatos AS (
     ST_Distance(n.geom::geography, ST_SetSRID(ST_MakePoint($3, $2), 4674)::geography) AS dist
   FROM ng.nomes_geograficos n, q
   WHERE similarity(ng.f_unaccent(n.nome), q.term) > 0.25
+    -- is_active is part of the ACCESS FILTER, not a nicety. flexibleAuth only
+    -- reconciles against the DB in the last 5 minutes of a token's life, so between a
+    -- deactivation and that window a disabled account still carries a valid JWT. The
+    -- sibling routes (/feicoes, /catalogo3d) refuse it at once; this one kept serving
+    -- PRIVATE place names, contradicting the header of this very file, which assigns
+    -- the SQL the job of not leaking private data "even with an app bug".
+    -- (No backticks in this comment: the query is a JS template literal.)
     AND ( n.access_level = 'public'
-          OR ($5::uuid IS NOT NULL AND (
-                EXISTS (SELECT 1 FROM users WHERE id = $5 AND role = 'admin')
+          OR ($5::uuid IS NOT NULL AND EXISTS (SELECT 1 FROM users WHERE id = $5 AND is_active = true) AND (
+                EXISTS (SELECT 1 FROM users WHERE id = $5 AND role = 'admin' AND is_active = true)
                 OR EXISTS (SELECT 1 FROM ng.fn_user_zone_geoms($5) uz WHERE ST_Contains(uz.geom, n.geom))
           )) )
   ORDER BY sim DESC, dist ASC

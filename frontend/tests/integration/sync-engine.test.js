@@ -41,6 +41,7 @@ const h = vi.hoisted(() => {
             wsUrl: vi.fn(() => 'ws://test/collab'),
         },
         configureApiClientMock: vi.fn(),
+        showWarningMock: vi.fn(),
         wsClientMock: {
             _handlers: {},
             on: vi.fn(function (event, handler) { this._handlers[event] = handler; return this; }),
@@ -127,6 +128,15 @@ vi.mock('../../src/js/store/sync/connection-state.js', () => ({
 
 vi.mock('../../src/js/store/services.js', () => ({
     getEventBus: vi.fn(() => h.eventBusMock),
+}));
+
+// The engine warns the user when the server refuses an operation per-op.
+vi.mock('../../src/js/utilities/toast_service.js', () => ({
+    showWarning: h.showWarningMock,
+    showToast: vi.fn(),
+    showError: vi.fn(),
+    showSuccess: vi.fn(),
+    showInChannel: vi.fn(),
 }));
 
 // ============================================================================
@@ -356,6 +366,132 @@ describe('connect', () => {
         await wsClientMock._handlers.syncResponse({ isSnapshot: false, ops, currentVersion: 3 });
         expect(applyRemoteOperation).toHaveBeenCalledTimes(2);
         expect(syncEngine.lastVersion).toBe(3);
+    });
+
+    // ========================================================================
+    // Structural marker ops (backend maps.service.js MAP_MERGE_ENTITY_TYPE)
+    // ========================================================================
+    // A map merge moves rows in bulk over REST, so no per-entity op describes it.
+    // Live peers learn of it from the `maps_merged` broadcast; a peer that was
+    // OFFLINE during the merge only sees the marker op in its reconnect replay, and
+    // must answer it with a snapshot. Applying the tail would leave it stale — which
+    // is what happened before the marker existed, except the replay was then empty
+    // and the peer believed it was up to date.
+
+    it('a map_merge marker in the replay triggers a resync instead of a per-op apply', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        apiClientMock.pullSync.mockClear();
+        applyRemoteOperation.mockClear();
+
+        apiClientMock.pullSync.mockResolvedValueOnce({
+            snapshot: { maps: { merged: true } },
+            currentVersion: 42,
+        });
+
+        await wsClientMock._handlers.syncResponse({
+            isSnapshot: false,
+            ops: [
+                { entityType: 'feature', entityId: 'f1' },
+                { entityType: 'map_merge', entityId: 'dest-1', data: { destMapId: 'dest-1' } },
+            ],
+            currentVersion: 9,
+        });
+
+        // Snapshot from version 0 — the marker cannot be applied entity by entity.
+        expect(apiClientMock.pullSync).toHaveBeenCalledWith('atlas-1', 0);
+        expect(applyRemoteSnapshot).toHaveBeenCalledWith({ maps: { merged: true } });
+        expect(applyRemoteOperation).not.toHaveBeenCalled();
+        // The version comes from the snapshot, not from the superseded tail.
+        expect(syncEngine.lastVersion).toBe(42);
+    });
+
+    it('an ordinary replay is unaffected by the marker check', async () => {
+        // Guards the blast radius: the resync must fire only on the marker, not on
+        // every batch, or each reconnect would drag a full snapshot.
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        apiClientMock.pullSync.mockClear();
+        applyRemoteOperation.mockClear();
+
+        await wsClientMock._handlers.syncResponse({
+            isSnapshot: false,
+            ops: [{ entityType: 'feature', entityId: 'f1' }, { entityType: 'layer', entityId: 'l1' }],
+            currentVersion: 7,
+        });
+
+        expect(apiClientMock.pullSync).not.toHaveBeenCalled();
+        expect(applyRemoteOperation).toHaveBeenCalledTimes(2);
+        expect(syncEngine.lastVersion).toBe(7);
+    });
+});
+
+// ============================================================================
+// Per-operation policy denials (backend sync.service.js operationDenialReason)
+// ============================================================================
+// The server acks a refused operation with 200 + `rejected` + `reason` so ONE denial
+// no longer rolls back its siblings and no longer freezes the outbound queue forever.
+// Dequeuing it is correct — retrying a policy denial can never succeed — but doing so
+// SILENTLY is its own defect: the entity is already gone from the local store, the
+// server kept it, and the next snapshot brings it back with no explanation. The user
+// watches their action undo itself minutes later. The server sends `reason` precisely
+// so the client can say why.
+
+describe('rejected operations are surfaced to the user', () => {
+    it('warns with the server reason when an op is refused', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        // No entityType/entityId on purpose: the convergence-guard bookkeeping is a
+        // different concern and its module is not mocked here. This test is about
+        // whether the refusal reaches the user.
+        queueState.ops = [{ id: 'op-1' }];
+        apiClientMock.pushOperations.mockResolvedValueOnce({
+            results: [{
+                operationId: 'op-1',
+                success: false,
+                rejected: true,
+                reason: 'Apenas o dono ou um co-Gestor do atlas pode excluir um mapa',
+            }],
+            serverVersion: 5,
+        });
+
+        await syncEngine.flush();
+
+        expect(h.showWarningMock).toHaveBeenCalledWith(
+            'Apenas o dono ou um co-Gestor do atlas pode excluir um mapa'
+        );
+        // Still dequeued: a policy denial must not be retried forever.
+        expect(queueState.dequeued).toContain('op-1');
+    });
+
+    it('does not warn when everything was accepted', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [{ id: 'op-1' }, { id: 'op-2' }];
+        apiClientMock.pushOperations.mockResolvedValueOnce({
+            results: [
+                { operationId: 'op-1', success: true },
+                { operationId: 'op-2', success: true },
+            ],
+            serverVersion: 6,
+        });
+
+        await syncEngine.flush();
+        expect(h.showWarningMock).not.toHaveBeenCalled();
+    });
+
+    it('collapses repeated reasons into a single warning', async () => {
+        // A batch can carry several denials with the same cause; N identical toasts
+        // is noise, not information.
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [{ id: 'op-1' }, { id: 'op-2' }, { id: 'op-3' }];
+        apiClientMock.pushOperations.mockResolvedValueOnce({
+            results: [
+                { operationId: 'op-1', success: false, rejected: true, reason: 'mesma razão' },
+                { operationId: 'op-2', success: false, rejected: true, reason: 'mesma razão' },
+                { operationId: 'op-3', success: true },
+            ],
+            serverVersion: 7,
+        });
+
+        await syncEngine.flush();
+        expect(h.showWarningMock).toHaveBeenCalledTimes(1);
     });
 });
 

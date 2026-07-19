@@ -13,6 +13,12 @@ import * as Q from './auth.queries.js';
 
 const SALT_ROUNDS = 12;
 
+// How long after a rotation a loser of the atomic claim is treated as a concurrent
+// duplicate rather than as token theft. Covers a client firing several refreshes at
+// once (double F5, two tabs, network retry); short enough that a replay arriving
+// later still trips reuse detection. See the grace-window note in refresh().
+const REFRESH_RACE_GRACE_MS = 10_000;
+
 // A valid bcrypt hash of a throwaway password, computed once at load.
 // Compared against when the username does NOT exist, so login spends the same
 // CPU time whether or not the user is real — eliminating the timing oracle.
@@ -127,31 +133,58 @@ export async function login(username, password) {
 export async function refresh(refreshToken) {
   const hash = crypto.createHash('sha256').update(refreshToken).digest('hex');
 
-  // Look up the token INCLUDING revoked ones, to distinguish "never existed"
-  // from "existed and was revoked" (reuse of a revoked token = possible theft).
-  const { rows } = await query(Q.FIND_REFRESH_TOKEN_ANY, [hash]);
+  // Claim the token by revoking it, atomically. The UPDATE's `revoked_at IS NULL`
+  // IS the mutual exclusion: exactly one concurrent caller can transition the row,
+  // so one token can never yield two families. This replaces a read-check-then-write
+  // triple (find → inspect revoked_at → revoke) whose three unsynchronized
+  // round-trips let every racing caller observe an unrevoked row and pass the reuse
+  // check together — defeating the very control that turns a stolen token into a
+  // family-wide revocation.
+  const claimed = await query(Q.CLAIM_REFRESH_TOKEN, [hash]);
 
-  if (rows.length === 0) {
+  if (claimed.rows.length === 0) {
+    // Nothing claimed: the token never existed, or it is expired, or it was already
+    // rotated. Only the last case is evidence of anything. Read it back to tell them
+    // apart, exactly as the old code did before deciding.
+    const { rows } = await query(Q.FIND_REFRESH_TOKEN_ANY, [hash]);
+    if (rows.length === 0) {
+      throw new UnauthorizedError('Sessão inválida. Entre novamente.');
+    }
+
+    const spent = rows[0];
+
+    // Expiry is judged BEFORE reuse. An expired token is already powerless, so
+    // presenting one is not evidence of theft, and treating it as such would turn
+    // every ordinary resume-after-expiry into a family-wide logout.
+    if (new Date(spent.expires_at) < new Date()) {
+      throw new UnauthorizedError('Sessão expirada. Entre novamente.');
+    }
+
+    // Concurrency grace window (OAuth 2.1 BCP §4.14.2). One client legitimately
+    // firing several refreshes at once — double F5, two tabs, a network retry —
+    // produces exactly this shape: one winner and N losers holding the token that
+    // was rotated microseconds ago. Without the window every such burst reads as
+    // theft and logs the user out of everything, including the winner's brand-new
+    // token, which is strictly worse than the problem being guarded against.
+    //
+    // The cost is stated plainly: an attacker replaying INSIDE the window escapes
+    // the alarm. They still get nothing — they lost the claim, so no tokens are
+    // issued — but the victim's family is not proactively revoked. Outside the
+    // window, which is where a stolen token realistically gets used, detection is
+    // unchanged.
+    const revokedAgo = Date.now() - new Date(spent.revoked_at).getTime();
+    if (spent.revoked_at && revokedAgo <= REFRESH_RACE_GRACE_MS) {
+      throw new UnauthorizedError('Sessão inválida. Entre novamente.');
+    }
+
+    // Reuse detection: a live token reappearing long after rotation means the chain
+    // was compromised. Revoke the whole family, forcing a fresh login.
+    logger.warn({ userId: spent.user_id }, 'Refresh token reuse detected');
+    await query(Q.REVOKE_ALL_USER_TOKENS, [spent.user_id]);
     throw new UnauthorizedError('Sessão inválida. Entre novamente.');
   }
 
-  const storedToken = rows[0];
-
-  // Reuse detection: a revoked token reappearing means the rotation chain was
-  // compromised. Revoke the whole family, forcing a fresh login.
-  if (storedToken.revoked_at) {
-    logger.warn({ userId: storedToken.user_id }, 'Refresh token reuse detected');
-    await query(Q.REVOKE_ALL_USER_TOKENS, [storedToken.user_id]);
-    throw new UnauthorizedError('Sessão inválida. Entre novamente.');
-  }
-
-  // Check expiry
-  if (new Date(storedToken.expires_at) < new Date()) {
-    throw new UnauthorizedError('Sessão expirada. Entre novamente.');
-  }
-
-  // Revoke old token (rotation)
-  await query(Q.REVOKE_REFRESH_TOKEN, [hash]);
+  const storedToken = claimed.rows[0];
 
   // Get user data
   const userResult = await query(Q.FIND_USER_BY_ID, [storedToken.user_id]);
@@ -220,6 +253,26 @@ export async function register(data, origin = '') {
     const { rows: emailRows } = await query(Q.CHECK_EMAIL_EXISTS, [email]);
     if (emailRows.length > 0) {
       throw new ConflictError('Usuário ou e-mail já cadastrado.');
+    }
+  }
+
+  // The client picks its own organization here (the OM dropdown), and the value went
+  // straight into the INSERT unchecked, so a caller could name any UUID — including a
+  // soft-deactivated or nonexistent org — and become a member of it.
+  //
+  // SCOPE, stated plainly: this check rejects orgs that do not exist or are inactive.
+  // It does NOT stop someone from self-selecting a real, active OM they do not belong
+  // to; that remains possible by design, because the signup dropdown is a
+  // self-declaration. Membership is not decorative — it grants read of that org's
+  // unpublished (`disabled`) 360 projects via isProjectReadable — and every active
+  // org's UUID is served by the anonymous GET /api/config to populate that dropdown.
+  // Closing it properly needs an approval step; deliberately deferred (see
+  // bugs-backend.md #33). The exposure today is limited to deployments with
+  // ALLOW_SELF_REGISTRATION on, which is off in production.
+  if (data.organization_id) {
+    const { rows: org } = await query(Q.FIND_ACTIVE_ORGANIZATION, [data.organization_id]);
+    if (org.length === 0) {
+      throw new BadRequestError('Organização militar inválida ou inativa.');
     }
   }
 

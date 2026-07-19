@@ -68,7 +68,7 @@ export const SEARCH_USERS = `
 
 export const LIST_ALL_USERS = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active,
+         u.organization_id, o.nome AS organizacao_militar, u.role, u.org_role, u.is_active,
          u.email, u.email_verified, u.created_at, u.last_login_at
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
@@ -78,7 +78,7 @@ export const LIST_ALL_USERS = `
 
 export const LIST_ACTIVE_USERS = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active,
+         u.organization_id, o.nome AS organizacao_militar, u.role, u.org_role, u.is_active,
          u.email, u.email_verified, u.created_at, u.last_login_at
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
@@ -89,7 +89,7 @@ export const LIST_ACTIVE_USERS = `
 
 export const FIND_USER_BY_ID_ADMIN = `
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active,
+         u.organization_id, o.nome AS organizacao_militar, u.role, u.org_role, u.is_active,
          u.email, u.email_verified, u.created_at, u.updated_at, u.last_login_at
   FROM users u
   LEFT JOIN ranks r ON r.id = u.rank_id
@@ -107,12 +107,12 @@ export const CHECK_USERNAME_EXISTS_EXCLUDING = `
 
 export const INSERT_USER_ADMIN = `
   WITH new_user AS (
-    INSERT INTO users (username, password_hash, nome, rank_id, organization_id, role)
-    VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6)
+    INSERT INTO users (username, password_hash, nome, rank_id, organization_id, role, org_role)
+    VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, COALESCE($7, 'viewer'))
     RETURNING *
   )
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active, u.created_at
+         u.organization_id, o.nome AS organizacao_militar, u.role, u.org_role, u.is_active, u.created_at
   FROM new_user u
   LEFT JOIN ranks r ON r.id = u.rank_id
   LEFT JOIN organizations o ON o.id = u.organization_id
@@ -130,12 +130,13 @@ export const UPDATE_USER_ADMIN = `
         role = COALESCE($8, role),
         is_active = COALESCE($9, is_active),
         email_verified = COALESCE($10, email_verified),
+        org_role = COALESCE($11, org_role),
         updated_at = NOW()
     WHERE id = $1
     RETURNING *
   )
   SELECT u.id, u.username, u.nome, u.rank_id, r.nome AS posto_graduacao,
-         u.organization_id, o.nome AS organizacao_militar, u.role, u.is_active,
+         u.organization_id, o.nome AS organizacao_militar, u.role, u.org_role, u.is_active,
          u.email, u.email_verified, u.created_at, u.updated_at, u.last_login_at
   FROM upd u
   LEFT JOIN ranks r ON r.id = u.rank_id
@@ -172,6 +173,14 @@ export const TRANSFER_ATLAS_OWNERSHIP = `
   SET owner_id = $2, updated_at = NOW()
   WHERE owner_id = $1 AND deleted_at IS NULL
   RETURNING id
+`;
+
+// After a transfer, the new owner must not also hold a share row on the same atlas:
+// LIST_USER_ATLAS resolves COALESCE(share, owner), so the share would outrank the
+// synthesized 'owner' and report the new owner with their previous, lesser
+// permission. Ownership comes from owner_id alone.
+export const DELETE_SHARES_FOR_NEW_OWNER = `
+  DELETE FROM atlas_shares WHERE atlas_id = ANY($1::uuid[]) AND user_id = $2
 `;
 
 export const COUNT_USER_ATLAS = `

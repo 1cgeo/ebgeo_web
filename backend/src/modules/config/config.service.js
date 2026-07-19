@@ -4,6 +4,7 @@
 //  - env URLs: service/tile/terrain URLs from config.appConfig
 //  - static UI: app/features/map2d/map3d defaults from config.static
 import config from '../../config.js';
+import { ValidationError } from '../../utils/errors.js';
 import { query } from '../../database/index.js';
 import { catalogService } from '../catalog/index.js';
 import * as Q from './config.queries.js';
@@ -36,6 +37,35 @@ export async function getConfigOverrides() {
 }
 
 /**
+ * Enforces cross-field invariants on the EFFECTIVE config, which is what the app receives.
+ *
+ * Joi validates the PARTIAL body at the route, and `map2d`'s min<=max check only fires when both
+ * keys are in the same payload. Neither the merge nor the static base is in scope there, so two
+ * gaps stayed open: the invariant could be split across successive saves, and — the reachable one
+ * — a lone `{"map2d":{"minZoom":20}}` conflicts with the STATIC `MAP2D_BASE.maxZoom` (17.9) that
+ * `getAppConfig` layers underneath. Validating the merged OVERRIDES alone would not catch that,
+ * because the overrides document has no maxZoom at all; only the effective document does.
+ *
+ * It matters because the failure is total and silent: the frontend hands both values straight to
+ * the MapLibre constructor, which throws, and boot is fail-fast on GET /api/config with no static
+ * fallback. The app stops loading for everyone, anonymous included, while the admin sees a 200.
+ * The admin panel produces exactly this payload through normal use, since it sends only the field
+ * that changed.
+ *
+ * @param {Object} merged - The full override document about to be persisted.
+ * @throws {ValidationError} When the resulting effective config would be inconsistent.
+ */
+function assertEffectiveInvariants(merged) {
+  const map2d = { ...S.MAP2D_BASE, ...(merged.map2d || {}) };
+  if (map2d.minZoom != null && map2d.maxZoom != null && map2d.minZoom > map2d.maxZoom) {
+    throw new ValidationError(
+      `map2d.minZoom (${map2d.minZoom}) não pode ser maior que map2d.maxZoom (${map2d.maxZoom}). `
+      + 'Considerando os valores em vigor, não apenas os enviados nesta requisição.'
+    );
+  }
+}
+
+/**
  * Merges a partial override into the stored override document (so a partial save never wipes
  * untouched sections) and persists it. Returns the merged document.
  * @param {Object} partial - Validated partial config.
@@ -44,6 +74,7 @@ export async function getConfigOverrides() {
 export async function updateConfigOverrides(partial, userId) {
   const current = await getConfigOverrides();
   const merged = deepMerge(current, partial);
+  assertEffectiveInvariants(merged);
   const { rows } = await query(Q.UPSERT_CONFIG_OVERRIDES, [
     OVERRIDES_KEY,
     JSON.stringify(merged),

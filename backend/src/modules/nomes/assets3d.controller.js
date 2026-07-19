@@ -3,8 +3,8 @@
 // catalog). Dual-mode: the SQLite store is tried first; the filesystem `dir` is
 // the fallback. Both use ETag O(1)/304/Range. The SQLite path materializes the
 // BLOB in the heap, so it is bounded by a semaphore; the FS path streams.
-import { createReadStream } from 'node:fs';
 import { asyncHandler } from '../../utils/async-handler.js';
+import { streamFileToResponse } from '../../utils/stream-file.js';
 import { NotFoundError } from '../../utils/errors.js';
 import { createSemaphore } from '../../utils/semaphore.js';
 import config from '../../config.js';
@@ -94,8 +94,8 @@ export const serveAsset = asyncHandler(async (req, res, next) => {
     res.status(206);
     res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${fmeta.size}`);
     res.setHeader('Content-Length', range.end - range.start + 1);
-    return createReadStream(fmeta.path, { start: range.start, end: range.end }).pipe(res);
+    return streamFileToResponse(res, next, fmeta.path, { start: range.start, end: range.end });
   }
   res.setHeader('Content-Length', fmeta.size);
-  return createReadStream(fmeta.path).pipe(res);
+  return streamFileToResponse(res, next, fmeta.path);
 });

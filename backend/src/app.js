@@ -33,6 +33,14 @@ import { isTraceEnabled } from './utils/sync-trace.js';
 export function createApp() {
   const app = express();
 
+  // Must be set before any IP-keyed middleware reads `req.ip`. Without it Express
+  // reports the nginx address for every request, which silently turns each rate
+  // limiter into ONE global bucket: 30 public-link requests a minute for the whole
+  // internet, and — worse — an auth bucket keyed by username alone, so anyone who
+  // knows a username can hold that account locked out indefinitely from any IP.
+  // See config.trustProxy for the hop count and the danger of over-trusting.
+  app.set('trust proxy', config.trustProxy);
+
   // Global middleware (order matters)
   app.use(helmet({
     contentSecurityPolicy: {

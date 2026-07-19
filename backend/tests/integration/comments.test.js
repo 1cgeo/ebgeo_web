@@ -155,14 +155,20 @@ describe('Spatial comments — sync + visibility', () => {
     assert.equal((await row(id)).status, 'resolved', 'status preserved when the payload omits it');
   });
 
-  it('a non-UUID authorId does NOT poison the batch (dropped to null)', async () => {
+  // The poison-pill property this test was written for still holds, and is now
+  // stronger: since 2026-07-19 `author_id` comes from the AUTHENTICATED principal and
+  // the payload's `authorId` is ignored outright, so no value a client can put there
+  // — malformed or not — reaches a `::uuid` cast. The old assertion (`author_id` ends
+  // null) described the previous mechanism, where the client's field was the source.
+  // See comment-authorship.repro.test.js.
+  it('a garbage authorId neither poisons the batch nor decides authorship', async () => {
     const id = randomUUID();
     const op = commentOp(id, commenter.id);
     op.data.authorId = 'not-a-uuid';
     await push(commenterTok, op, 200);
     const r = await row(id);
-    assert.ok(r, 'comment still created');
-    assert.equal(r.author_id, null, 'invalid authorId dropped to null');
+    assert.ok(r, 'comment still created — the batch is not aborted by 22P02');
+    assert.equal(r.author_id, commenter.id, 'authorship is the authenticated user, not the payload');
   });
 
   it('a reply to a non-existent parent soft-fails (no row, no FK poison)', async () => {

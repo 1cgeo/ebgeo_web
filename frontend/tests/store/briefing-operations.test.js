@@ -175,6 +175,15 @@ beforeEach(() => {
 // createEmptySlide / createEmptyBriefing (pure structure)
 // ============================================================================
 
+// These field names are half of a CROSS-PACKAGE contract, not a local detail. The
+// backend's sync-slide-client-payload.repro.test.js rebuilds this exact payload by hand
+// to prove the server accepts what the client really sends; if the names below change,
+// that file must change with them or it silently stops proving anything.
+//
+// The seam is worth naming because it already failed once: this suite asserted camelCase
+// with no briefing_id, the backend suite asserted snake_case WITH briefing_id, both were
+// green, and slides never reached Postgres for years. Each side pinned itself correctly
+// and nothing pinned the contract between them.
 describe('createEmptySlide', () => {
     it('returns a fully-shaped slide with the given order and 2D defaults', () => {
         const slide = createEmptySlide(3);

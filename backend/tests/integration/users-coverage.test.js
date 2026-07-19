@@ -165,22 +165,26 @@ describe('Users — coverage', () => {
   // transfer-before-hard-delete edge cases (atlas.owner_id FK has no ON DELETE)
   // ===========================================================================
   describe('DELETE /users/:userId — transfer edge cases', () => {
-    it('transferTo === the deleted user keeps the atlas pointed at that (now inactive) id', async () => {
-      // The transfer UPDATE sets owner_id = owner_id (no-op), then the same user
-      // is soft-deleted. This documents that self-transfer satisfies the
-      // transferTo requirement without moving ownership anywhere.
+    // Was: "transferTo === the deleted user keeps the atlas pointed at that (now
+    // inactive) id", asserting 200 and an atlas left owned by a deactivated account.
+    // Its own comment said it "documents that self-transfer satisfies the transferTo
+    // requirement without moving ownership anywhere" — which is a description of the
+    // orphaning bug, written as though it were the specification. The state it froze
+    // is precisely what the ConflictError one branch above exists to prevent.
+    // Since 2026-07-19 self-transfer is refused; see user-delete-transfer.repro.test.js.
+    it('transferTo === the deleted user is refused, so the atlas is never orphaned', async () => {
       const source = await createUser(db, { username: uniq() });
       const atlas = await createAtlas(db, source.id, { name: `self-xfer ${uniq()}` });
 
       await supertest(app)
         .delete(`/api/v1/users/${source.id}?transferTo=${source.id}`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .expect(200);
+        .expect(409);
 
       const owner = (await db.query('SELECT owner_id FROM atlas WHERE id = $1', [atlas.id])).rows[0].owner_id;
-      assert.equal(owner, source.id, 'atlas still owned by the (now inactive) source after self-transfer');
+      assert.equal(owner, source.id, 'ownership unchanged');
       const active = (await db.query('SELECT is_active FROM users WHERE id = $1', [source.id])).rows[0].is_active;
-      assert.equal(active, false, 'source user soft-deleted');
+      assert.equal(active, true, 'and the user stays active — a refused delete must not half-apply');
     });
 
     it('NEGATIVE: deleting a user who owns an atlas WITHOUT transferTo -> 409 and nothing mutates', async () => {

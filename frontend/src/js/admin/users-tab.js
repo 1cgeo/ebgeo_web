@@ -281,6 +281,20 @@ class UsersTab {
             [{ value: 'user', label: 'Usuário' }, { value: 'admin', label: 'Admin (sistema)' }],
             user?.role || 'user');
 
+        // Papel DENTRO da OM, distinto do papel global acima. Sem este campo a coluna
+        // `org_role` não tinha escritor em lugar nenhum dos dois pacotes: todo usuário
+        // ficava no default 'viewer' para sempre e o gate de escrita do StreetView 360
+        // por organização (owner/admin/editor) nunca passava, deixando a edição de
+        // projeto 360 restrita a admin global na prática.
+        const orgRole = selectField(form, 'Papel na OM', 'admin-userform-orgrole',
+            [
+                { value: 'viewer', label: 'Visualizador' },
+                { value: 'editor', label: 'Editor (edita projetos 360 da OM)' },
+                { value: 'admin', label: 'Administrador da OM' },
+                { value: 'owner', label: 'Responsável pela OM' },
+            ],
+            user?.org_role || 'viewer');
+
         let active = null;
         let emailVerified = null;
         if (isEdit) {
@@ -331,6 +345,7 @@ class UsersTab {
                 rank_id: posto.value,
                 organization_id: om.value,
                 role: role.value,
+                org_role: orgRole.value,
             };
             if (!payload.nome || !payload.username) {
                 showFormError(error, 'Preencha nome e usuário.');

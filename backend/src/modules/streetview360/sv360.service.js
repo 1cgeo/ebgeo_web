@@ -73,7 +73,30 @@ export async function getProject(slug, user) {
   const project = rows[0];
   if (!project) throw new NotFoundError('Project');
   enforceProjectReadable(project, user); // belt-and-suspenders (SQL already filtered)
-  return project;
+  return publicProjectView(project, user);
+}
+
+/**
+ * Strips server-internal fields from a project row before it leaves the API.
+ *
+ * The controller used to serialize the raw row, and the route is `flexibleAuth`, so an
+ * anonymous caller reading any `enabled` project also received `db_filename` and
+ * `organization_id`. Since `deriveDbFilename` builds `${orgId}__${slug}.db`, that pair
+ * hands out the owning organization's internal UUID and the exact filename on disk
+ * under SV360_DB_DIR — neither of which any client needs, and both of which describe
+ * the server's storage layout.
+ *
+ * No contract test pinned this response shape, which is how the fields got out
+ * unreviewed; `sv360-contract.test.js` mentions `db_filename` only in fixture INSERTs.
+ * Admins keep the full row: the admin surface manages those files by name.
+ */
+const PROJECT_INTERNAL_FIELDS = ['db_filename', 'organization_id'];
+
+function publicProjectView(project, user) {
+  if (user?.role === 'admin') return project;
+  const out = { ...project };
+  for (const f of PROJECT_INTERNAL_FIELDS) delete out[f];
+  return out;
 }
 
 /**

@@ -14,6 +14,12 @@ router.get('/', auth, requireAtlasPermission('read'), ctrl.listMaps);
 router.get('/:mapId', auth, requireAtlasPermission('read'), ctrl.getMap);
 
 // Atomic structural operation: merge sub-entities of source maps into :mapId.
-router.post('/:mapId/merge', auth, requireAtlasPermission('write'), validate({ body: schemas.mergeMapsSchema }), ctrl.mergeMaps);
+//
+// Gated at 'manage', matching map DELETE on the sync path. It used to require only
+// 'write', which had it backwards: delete is SOFT and recoverable via `deleted_at`,
+// while merge re-parents six child tables and records the previous `map_id` nowhere,
+// so which sub-entity came from which map is lost for good. The less reversible
+// operation must not need the lower permission.
+router.post('/:mapId/merge', auth, requireAtlasPermission('manage'), validate({ body: schemas.mergeMapsSchema }), ctrl.mergeMaps);
 
 export { router as mapsRoutes };

@@ -512,7 +512,13 @@ describe('Sync CRDT — confirmed gaps', () => {
 
   // --- sync-15 (catalogLayer tombstone: update no-op, id-reuse blocked) ------
   describe('catalogLayer tombstone semantics (LWW + ON CONFLICT DO NOTHING)', () => {
-    it('update after delete does not resurrect; create reusing id stays tombstoned', async () => {
+    // Asymmetry by design, aligned with every other entity since 2026-07-19:
+    //   update after delete -> still a no-op (guarded by `deleted_at IS NULL`),
+    //   create reusing the id -> RESURRECTS (this is the undo/re-add path).
+    // Re-adding a catalog layer that was previously removed from a map is an
+    // ordinary gesture, and leaving it tombstoned made the layer un-re-addable
+    // for the lifetime of the map while still acking success.
+    it('update after delete does not resurrect; create reusing id revives the row', async () => {
       const atlas = await createAtlas(db, user.id);
       const map = await createMap(db, atlas.id);
       const layerId = randomUUID();
@@ -540,15 +546,16 @@ describe('Sync CRDT — confirmed gaps', () => {
       assert.ok(rows[0].deleted_at, 'still deleted (update did not resurrect)');
       assert.equal(rows[0].data.name, 'orig', 'data unchanged');
 
-      // (b) create reusing id -> ON CONFLICT DO NOTHING leaves the tombstone
+      // (b) create reusing the id -> revives the row and adopts the new payload
       await pushOps(app, atlas.id, token, [{
         id: randomUUID(), type: 'create', target: 'catalogLayer', targetId: layerId, mapId: map.id,
         data: { name: 'fresh', visible: true }, timestamp: Date.now(), clientId: 'c',
       }]).expect(200);
 
       ({ rows } = await db.query('SELECT data, deleted_at FROM catalog_layers WHERE id = $1', [layerId]));
-      assert.ok(rows[0].deleted_at, 'still tombstoned (id reuse blocked)');
-      assert.equal(rows[0].data.name, 'orig', 'data still original');
+      assert.equal(rows.length, 1, 'still exactly one row');
+      assert.equal(rows[0].deleted_at, null, 'revived: deleted_at cleared');
+      assert.equal(rows[0].data.name, 'fresh', 'the re-add payload wins over the pre-delete data');
     });
   });
 

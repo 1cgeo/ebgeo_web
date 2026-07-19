@@ -23,10 +23,12 @@ import {
     setCesium3dDataForImport,
     getStreetview360DataForExport,
     setStreetview360DataForImport,
-    getEmptyCesium3dData
+    getEmptyCesium3dData,
+    isMapLocked
 } from '../store';
 
 import { IDUtils } from '../utilities';
+import { checkPermission, GuardAction } from '../store/sync/permission-guard.js';
 import { DEFAULT_MAP_NAME } from '../store/store.constants.js';
 
 const MAP_LIMIT = 100;
@@ -190,6 +192,28 @@ class MapManager {
 
     // ===== MAP COMBINATION =====
     async combineSelectedMapsIntoTarget(selectedMapNames, targetMapName) {
+        // Combining is a MANAGEMENT action, gated like deleting a map, and the server
+        // agrees: POST /maps/:id/merge requires 'manage'. Except the server route is
+        // never called — this client combines locally and syncs the result as ordinary
+        // feature ops — so without this check the whole gate was unreachable and an
+        // Editor could still empty other people's maps under CREATE_FEATURE.
+        //
+        // It belongs here rather than in the tab: this method is the single choke
+        // point for the operation, and a UI-only guard is bypassed by any other caller.
+        const perm = checkPermission(GuardAction.COMBINE_MAPS);
+        if (!perm.allowed) {
+            throw new Error(perm.reason);
+        }
+
+        // The tab filters LOCKED maps out of the source list but never checks the
+        // TARGET, so a locked map could still receive everything — the one thing the
+        // lock exists to prevent. The sync path refuses child writes on a locked map
+        // and the merge route answers 409; this is the same rule, applied where the
+        // operation actually happens.
+        if (await isMapLocked(targetMapName)) {
+            throw new Error(`O mapa "${targetMapName}" está bloqueado. Desbloqueie antes de combinar.`);
+        }
+
         const originalCurrentMap = await getCurrentMapName();
         const idMappings = {};
 

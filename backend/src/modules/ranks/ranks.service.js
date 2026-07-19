@@ -27,9 +27,10 @@ export async function updateRank(id, data) {
   const { rows } = await query(Q.UPDATE_RANK, [
     id,
     data.nome ?? null,
-    data.nome_abrev ?? null,
+    data.nome_abrev === '' ? null : (data.nome_abrev ?? null),
     data.sort_order ?? null,
     data.is_active ?? null,
+    data.nome_abrev !== undefined, // provided? — lets an explicit null clear the column
   ]);
   if (rows.length === 0) throw new NotFoundError('Rank');
   return rows[0];

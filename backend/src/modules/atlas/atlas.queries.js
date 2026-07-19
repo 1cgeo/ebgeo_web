@@ -25,10 +25,16 @@ export const LIST_USER_ATLAS = `
   ORDER BY a.updated_at DESC
 `;
 
+// Nullable text columns use a "provided" FLAG (see UPDATE_USER_PROFILE, which solved
+// this first and documents why: "COALESCE alone could never clear to NULL"). COALESCE
+// collapses the two meanings of null — "field absent from the PATCH" and "clear this
+// field" — into one, so the API accepted null (the Joi schemas say .allow(null, ''))
+// and silently kept the old value, answering 200 with the un-cleared row. The client
+// then confirms a deletion that never happened.
 export const UPDATE_ATLAS = `
   UPDATE atlas
   SET name = COALESCE($2, name),
-      description = COALESCE($3, description),
+      description = CASE WHEN $5 THEN $3 ELSE description END,
       map_order = COALESCE($4::uuid[], map_order),
       updated_at = NOW(),
       version = version + 1

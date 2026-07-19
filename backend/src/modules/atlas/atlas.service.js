@@ -52,8 +52,11 @@ export async function updateAtlas(atlasId, data) {
   const { rows } = await query(Q.UPDATE_ATLAS, [
     atlasId,
     data.name || null,
-    data.description !== undefined ? data.description : null,
+    // [value, provided?]: an explicit null/'' CLEARS the column, an omitted field
+    // leaves it alone. COALESCE could not tell those apart.
+    data.description === '' ? null : (data.description ?? null),
     data.map_order || null,
+    data.description !== undefined,
   ]);
 
   if (rows.length === 0) {
@@ -303,8 +306,13 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
 
     for (const map of maps) {
       const newMap = await t.one(
-        `INSERT INTO maps (atlas_id, name, base_layer, center_lat, center_long, zoom, bearing, pitch, notes_title, notes_description, analysis_layers, catalog_layers, locked)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        // grid_style and temporal_config are part of a map's identity (the UTM grid and the
+        // whole temporal module: window, mode, unit, origin). They were added to the table
+        // and to the sync snapshot, but the clone/duplicate column lists were never
+        // updated, so a cloned atlas silently lost its grid and its timeline. The import
+        // path already carries them, with a comment saying so.
+        `INSERT INTO maps (atlas_id, name, base_layer, center_lat, center_long, zoom, bearing, pitch, notes_title, notes_description, analysis_layers, catalog_layers, locked, grid_style, temporal_config)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb)
          RETURNING id`,
         [
           newAtlas.id,
@@ -320,6 +328,8 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
           JSON.stringify(map.analysis_layers),
           JSON.stringify(map.catalog_layers),
           map.locked || false,
+          JSON.stringify(map.grid_style || {}),
+          JSON.stringify(map.temporal_config || {}),
         ]
       );
       mapIdMapping[map.id] = newMap.id;
@@ -413,8 +423,9 @@ export async function duplicateMap(atlasId, mapId) {
 
     // Create new map
     const newMap = await t.one(
-      `INSERT INTO maps (atlas_id, name, base_layer, center_lat, center_long, zoom, bearing, pitch, notes_title, notes_description, analysis_layers, catalog_layers, locked)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      // Same omission as cloneAtlas: grid_style/temporal_config were missing here too.
+      `INSERT INTO maps (atlas_id, name, base_layer, center_lat, center_long, zoom, bearing, pitch, notes_title, notes_description, analysis_layers, catalog_layers, locked, grid_style, temporal_config)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb)
        RETURNING *`,
       [
         atlasId,
@@ -430,6 +441,8 @@ export async function duplicateMap(atlasId, mapId) {
         JSON.stringify(map.analysis_layers || {}),
         JSON.stringify(map.catalog_layers || []),
         map.locked || false,
+        JSON.stringify(map.grid_style || {}),
+        JSON.stringify(map.temporal_config || {}),
       ]
     );
 
@@ -567,6 +580,23 @@ export async function importAtlas(userId, data) {
 
     const atlasId = newAtlas.id;
     const mapIds = [];
+
+    // Every foreign key in the payload must resolve to an entity created BY THIS
+    // IMPORT. The loops below used to insert client-supplied ids verbatim, and the FK
+    // constraint only requires the referenced row to EXIST — not to be yours. So a
+    // payload could name a group and a feature belonging to somebody else's atlas and
+    // link them there: the write showed up in the VICTIM's snapshot, because
+    // GET_GROUP_FEATURES joins through `groups.map_id`. Any user with plain 'read' on
+    // a shared or public atlas already knows those UUIDs from the snapshot they are
+    // entitled to.
+    //
+    // The route deliberately has no `requireAtlasPermission` (it creates a NEW atlas),
+    // which is exactly why the payload's references must be constrained to the payload
+    // itself: there is no atlas-scoped gate to fall back on. `cloneMapSubEntities`
+    // already does this via its id mappings; the import path never got the guard.
+    const importedMapIds = new Set();
+    const importedGroupIds = new Set();
+    const importedFeatureIds = new Set();
     const summary = {
       mapsImported: 0,
       featuresImported: 0,
@@ -607,6 +637,7 @@ export async function importAtlas(userId, data) {
       );
 
       mapIds.push(map.id);
+      importedMapIds.add(map.id);
       summary.mapsImported++;
 
       // 2.1 Import layers (before features, to allow layer_id references)
@@ -628,7 +659,10 @@ export async function importAtlas(userId, data) {
         summary.layersImported++;
       }
 
-      // 2.2 Import groups
+      // 2.2 Import groups. Collect the ids FIRST so a parent declared later in the
+      // same array still resolves (order within the payload is the client's choice).
+      for (const group of map.groups || []) importedGroupIds.add(group.id);
+
       for (const group of map.groups || []) {
         await t.none(
           `INSERT INTO groups (id, map_id, name, visible, locked, style, parent_id)
@@ -640,13 +674,15 @@ export async function importAtlas(userId, data) {
             group.visible !== false,
             group.locked === true,
             JSON.stringify(group.style || {}),
-            group.parent_id || null,
+            importedGroupIds.has(group.parent_id) ? group.parent_id : null,
           ]
         );
         summary.groupsImported++;
       }
 
       // 2.3 Import features
+      for (const feature of map.features || []) importedFeatureIds.add(feature.id);
+
       for (const feature of map.features || []) {
         await t.none(
           `INSERT INTO features (id, map_id, feature_type, geometry, properties, layer_id)
@@ -663,8 +699,12 @@ export async function importAtlas(userId, data) {
         summary.featuresImported++;
       }
 
-      // 2.4 Import group-feature associations
+      // 2.4 Import group-feature associations. Both ends must have been created by
+      // this import; a pair naming anything else is silently skipped rather than
+      // failing the whole import, since a partially-foreign payload is the attack
+      // shape, not a user error worth reporting back.
       for (const gf of map.groupFeatures || []) {
+        if (!importedGroupIds.has(gf.group_id) || !importedFeatureIds.has(gf.feature_id)) continue;
         await t.none(
           `INSERT INTO group_features (group_id, feature_id)
            VALUES ($1, $2)
@@ -741,7 +781,7 @@ export async function importAtlas(userId, data) {
             slide.title || null,
             slide.content || null,
             slide.mode || '2d',
-            slide.map_id || null,
+            importedMapIds.has(slide.map_id) ? slide.map_id : null,
             slide.model_id || null,
             slide.photo_id || null,
             JSON.stringify(slide.position || {}),

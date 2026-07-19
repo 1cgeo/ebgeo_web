@@ -87,6 +87,48 @@ describe('Online — Editor', () => {
     it('blocks MANAGE_USERS (editor cannot manage)', () => {
         expect(checkPermission('MANAGE_USERS').allowed).toBe(false);
     });
+
+    // Deleting a MAP is a management action (it takes every child entity with it),
+    // unlike deleting a feature. The client used to allow it and the server refused,
+    // so the button was offered and the op then froze the whole outbound queue.
+    // Server side of the same contract: backend sync.service.js operationDenialReason.
+    it('blocks DELETE_MAP (deleting a whole map is a management action)', () => {
+        expect(checkPermission('DELETE_MAP').allowed).toBe(false);
+    });
+
+    it('still allows DELETE_FEATURE (the two delete actions are distinct)', () => {
+        expect(checkPermission('DELETE_FEATURE')).toEqual({ allowed: true });
+    });
+});
+
+// ============================================================================
+// Online — Manager role (co-Gestor)
+// ============================================================================
+// This block did not exist. `manager` is the tier the constitution warns about in
+// two places for being silently dropped by closed-list checks, and it had zero
+// coverage here: every gate could have excluded it without a single test failing.
+
+describe('Online — Manager (co-Gestor)', () => {
+    beforeEach(() => {
+        sessionContext.setSession({ userId: 'user-mgr', role: UserRole.MANAGER });
+    });
+
+    it('allows DELETE_MAP (manage tier and above may delete a map)', () => {
+        expect(checkPermission('DELETE_MAP')).toEqual({ allowed: true });
+    });
+
+    it('allows CREATE_FEATURE and DELETE_FEATURE', () => {
+        expect(checkPermission('CREATE_FEATURE')).toEqual({ allowed: true });
+        expect(checkPermission('DELETE_FEATURE')).toEqual({ allowed: true });
+    });
+
+    it('allows MANAGE_USERS (co-Gestor manages sharing)', () => {
+        expect(checkPermission('MANAGE_USERS')).toEqual({ allowed: true });
+    });
+
+    it('allows LOCK_MAP', () => {
+        expect(checkPermission('LOCK_MAP')).toEqual({ allowed: true });
+    });
 });
 
 // ============================================================================

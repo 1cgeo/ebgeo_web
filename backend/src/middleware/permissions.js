@@ -9,7 +9,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * read < comment < write < manage < owner. `comment` (Comentarista) sees the atlas and
  * may only act on spatial comments; `manage` (co-Gestor) can share + configure the atlas.
  */
-const PERMISSION_LEVELS = {
+export const PERMISSION_LEVELS = {
   read: 1,
   comment: 2,
   write: 3,
@@ -76,6 +76,19 @@ export function requireAtlasPermission(requiredLevel) {
 
       const atlas = atlasResult.rows[0];
       const userId = req.user?.id || null;
+
+      // A public-link visitor token is scoped to the atlas it was minted for
+      // (atlas.service.js signs an `atlasId` claim). Enforce that scope here, which
+      // is what the WS gateway has always done (collab.gateway.js:55-57). Without
+      // it, such a principal skipped the share lookup and fell straight through to
+      // the isPublic branch below, so ONE public link granted read on EVERY public
+      // atlas whose UUID was known. Checked before the admin shortcut on purpose:
+      // a visitor token carries no real identity and must never reach it.
+      if (req.user?.isPublic) {
+        if (req.user.publicAtlasId !== atlasId) {
+          return next(new ForbiddenError('Este link público não dá acesso a este atlas'));
+        }
+      }
 
       // Global admins have full (owner-level) access to every atlas so they can
       // support/debug and manage any user's project.

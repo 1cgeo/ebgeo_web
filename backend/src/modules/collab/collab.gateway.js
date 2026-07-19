@@ -228,6 +228,27 @@ export function attachWebSocket(server) {
 
   // Handle HTTP upgrade requests
   server.on('upgrade', async (request, socket, head) => {
+    // Node removes ITS OWN 'error' listener from the socket before emitting 'upgrade'
+    // (_http_server.js), and everything below awaits the database before reaching
+    // handleUpgrade. Without a listener of our own, a client RST inside that window
+    // emits 'error' on a listener-less EventEmitter, which Node throws as an uncaught
+    // exception and kills the process; the try/catch below cannot catch it because the
+    // emission is asynchronous. This is the step the `ws` README prescribes for exactly
+    // this reason. See tests/ws/collab-upgrade-crash.repro.test.js.
+    const onSocketError = (err) => {
+      logger.debug({ err }, 'collab upgrade: socket error before handshake (client went away)');
+    };
+    socket.on('error', onSocketError);
+
+    // Never write to a socket the peer already tore down: that would emit a second
+    // error (ERR_STREAM_DESTROYED) from inside the rejection path itself.
+    const reject = (statusLine) => {
+      if (!socket.destroyed && socket.writable) {
+        socket.write(`HTTP/1.1 ${statusLine}\r\n\r\n`);
+      }
+      socket.destroy();
+    };
+
     try {
       // Parse URL
       const url = new URL(request.url, `http://${request.headers.host}`);
@@ -235,8 +256,7 @@ export function attachWebSocket(server) {
       // Only the collab channel is served here; reject upgrades to any other path
       // so this handler never hijacks a future WS endpoint on the same server.
       if (url.pathname !== COLLAB_WS_PATH) {
-        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
-        socket.destroy();
+        reject('404 Not Found');
         return;
       }
 
@@ -250,8 +270,7 @@ export function attachWebSocket(server) {
       const clientId = (rawClientId && CLIENT_ID_RE.test(rawClientId)) ? rawClientId : null;
 
       if (!atlasId || !token) {
-        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
-        socket.destroy();
+        reject('400 Bad Request');
         return;
       }
 
@@ -260,8 +279,7 @@ export function attachWebSocket(server) {
       try {
         payload = jwt.verify(token, config.jwt.secret, { algorithms: config.jwt.algorithms });
       } catch (err) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
+        reject('401 Unauthorized');
         return;
       }
 
@@ -270,18 +288,20 @@ export function attachWebSocket(server) {
 
       // O1: a member of a deactivated organization cannot open a collab socket.
       if (!isPublicUser && payload.organization_id && !(await orgIsActive(payload.organization_id))) {
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-        socket.destroy();
+        reject('403 Forbidden');
         return;
       }
 
       // Resolve permission
       const permission = await resolvePermission(atlasId, userId, payload);
       if (!permission) {
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-        socket.destroy();
+        reject('403 Forbidden');
         return;
       }
+
+      // Handshake is going through: hand the socket to ws, which installs its own
+      // error handling from here on. Leaving ours attached would double-handle.
+      socket.removeListener('error', onSocketError);
 
       // Complete upgrade
       wss.handleUpgrade(request, socket, head, (ws) => {
@@ -297,8 +317,7 @@ export function attachWebSocket(server) {
       });
     } catch (err) {
       logger.error({ err }, 'WebSocket upgrade error');
-      socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
-      socket.destroy();
+      reject('500 Internal Server Error');
     }
   });
 

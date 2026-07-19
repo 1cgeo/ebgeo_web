@@ -49,8 +49,35 @@ export const REVOKE_REFRESH_TOKEN = `
   UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1
 `;
 
+// Atomic claim for rotation, same shape as CLAIM_VERIFICATION_TOKEN below and for
+// the same reason: `revoked_at IS NULL` in the WHERE makes the UPDATE itself the
+// mutual exclusion, so exactly ONE concurrent caller can rotate a given token, and
+// RETURNING tells that winner what it claimed.
+//
+// The previous read-then-write pair (FIND_REFRESH_TOKEN_ANY, decide, then
+// REVOKE_REFRESH_TOKEN with no guard and no RETURNING) let several callers all
+// observe `revoked_at = NULL`, all pass the reuse check, and all issue a new family
+// from one token — which is precisely the control that reuse detection exists to
+// enforce. `expires_at` comes back so expiry is judged on the row actually claimed.
+// `expires_at > NOW()` is part of the claim on purpose: an expired token must be
+// refused WITHOUT being mutated. Checking expiry after the claim would revoke the
+// row as a side effect of rejecting it, which contradicts the contract asserted by
+// auth-gaps auth-08 (expiry is not reuse and must leave `revoked_at` NULL).
+export const CLAIM_REFRESH_TOKEN = `
+  UPDATE refresh_tokens
+  SET revoked_at = NOW()
+  WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW()
+  RETURNING user_id, expires_at
+`;
+
 export const REVOKE_ALL_USER_TOKENS = `
   UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL
+`;
+
+// Self-registration accepts a client-chosen organization_id (the OM dropdown). This
+// confirms the target exists and is active before the INSERT binds a user to it.
+export const FIND_ACTIVE_ORGANIZATION = `
+  SELECT id FROM organizations WHERE id = $1 AND is_active = TRUE
 `;
 
 export const CHECK_USERNAME_EXISTS = `

@@ -30,11 +30,17 @@ export const INSERT_USER_SHARE = `
   RETURNING *
 `;
 
+// Returns the PREVIOUS permission alongside the new row: a permission change is only
+// auditable if the record says what it changed FROM. The self-join reads the pre-UPDATE
+// snapshot (Postgres evaluates the FROM against the rows as they were), which keeps it
+// a single atomic statement instead of a read-then-write pair.
 export const UPDATE_USER_SHARE = `
-  UPDATE atlas_shares
+  UPDATE atlas_shares s
   SET permission = $3
-  WHERE atlas_id = $1 AND user_id = $2
-  RETURNING *
+  FROM atlas_shares prev
+  WHERE s.atlas_id = $1 AND s.user_id = $2
+    AND prev.atlas_id = s.atlas_id AND prev.user_id = s.user_id
+  RETURNING s.*, prev.permission AS previous_permission
 `;
 
 export const DELETE_USER_SHARE = `

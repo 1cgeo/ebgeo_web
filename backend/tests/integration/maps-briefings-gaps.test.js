@@ -282,7 +282,14 @@ describe('Maps + Briefings — audit gaps', () => {
       .expect(403);
   });
 
-  it('maps-02b: a public token reads OTHER public atlases (current cross-atlas behavior)', async () => {
+  // Was: "a public token reads OTHER public atlases (current cross-atlas behavior)",
+  // asserting a 200 — a characterization test that recorded the defect as behaviour.
+  // Its own comment named the mechanism exactly ("never matches the token's embedded
+  // atlasId"), so the gap was described and then frozen into an assertion instead of
+  // being reported. Since 2026-07-19 the HTTP path enforces the token's atlasId
+  // claim, as the WS gateway always did; full rationale in
+  // public-token-atlas-scope.repro.test.js.
+  it('maps-02b: a public token CANNOT read other public atlases (scoped to its own)', async () => {
     // Atlas A public + token
     const oa = await createUser(db, { username: U() });
     const atlasA = await createAtlas(db, oa.id, { name: `A ${U()}` });
@@ -296,13 +303,21 @@ describe('Maps + Briefings — audit gaps', () => {
     const mapB = await createMap(db, atlasB.id, { name: 'b-map' });
     await makeAtlasPublic(db, atlasB.id);
 
-    // A's public token reads B's maps because requireAtlasPermission resolves
-    // 'read' from atlas.is_public and never matches the token's embedded atlasId.
-    const res = await supertest(app)
+    // A's token is scoped to A: requireAtlasPermission compares the token's
+    // atlasId claim against the requested atlas before resolving anything.
+    await supertest(app)
       .get(`/api/v1/atlas/${atlasB.id}/maps`)
       .set('Authorization', `Bearer ${tokenA}`)
+      .expect(403);
+
+    // ...and it still works for the atlas it WAS issued for, so the guard is a
+    // scope check and not a blanket refusal of public tokens.
+    const own = await supertest(app)
+      .get(`/api/v1/atlas/${atlasA.id}/maps`)
+      .set('Authorization', `Bearer ${tokenA}`)
       .expect(200);
-    assert.ok(res.body.data.some((m) => m.id === mapB.id));
+    assert.ok(own.body.data.some((m) => m.name === 'a-map'), 'own atlas still readable');
+    assert.ok(mapB, 'fixture guard: atlas B really has a map that stayed unreachable');
   });
 
   // ---------------------------------------------------------------------------

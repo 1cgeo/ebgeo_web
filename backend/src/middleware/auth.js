@@ -37,6 +37,11 @@ export function verifyAndMapUser(token) {
       // Legacy tokens (pre-org claim) fall back gracefully.
       organization_id: payload.organization_id ?? null,
       org_role: payload.org_role || 'viewer',
+      // Atlas scope of a public-link visitor token. See the note in
+      // flexible-auth.js mapPayload — both mappers must carry this, since either
+      // one can be the path that populates req.user.
+      isPublic: payload.isPublic === true,
+      publicAtlasId: payload.isPublic === true ? (payload.atlasId ?? null) : null,
     };
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
@@ -75,7 +80,11 @@ export async function auth(req, res, next) {
     // Public-share principals are exempt: their token carries a synthetic
     // `public-<uuid>` sub with no `users` row by design (atlas.service mints it), so
     // there is no DB identity to reconcile. Their authority comes from the signed
-    // token plus the atlas's is_public flag, enforced by requireAtlasPermission.
+    // token's `atlasId` claim plus that atlas's is_public flag, both enforced by
+    // requireAtlasPermission. That claim check was MISSING on the HTTP path until
+    // 2026-07-19 while this comment already asserted it, so one visitor token read
+    // every public atlas; the WS gateway had it all along. If you touch this exempt
+    // branch, confirm the scope check in permissions.js still runs.
     // Same non-UUID convention already used in permissions.js.
     if (!PRINCIPAL_UUID_RE.test(req.user.id || '')) {
       return next();

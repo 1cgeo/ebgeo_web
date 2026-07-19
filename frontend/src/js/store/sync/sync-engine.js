@@ -46,9 +46,25 @@ import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
 import { record } from './diag/trace-core.js';
 import { TraceStage, TraceOutcome } from './diag/trace-stages.js';
+import { showWarning } from '../../utilities/toast_service.js';
 
 /** Max operations pushed per HTTP batch when flushing the queue. */
 const FLUSH_BATCH_SIZE = 100;
+
+/**
+ * Entity types of MARKER operations: a structural change made over REST that moved
+ * rows in bulk, so no per-entity operation describes it.
+ *
+ * Live peers already learn about these from the `maps_merged` broadcast, which
+ * triggers a resync. A peer that was OFFLINE during the change missed that
+ * broadcast, and before the marker existed its reconnect replay was empty by
+ * construction: no op had been written, so `atlas.current_version` had not moved and
+ * the incremental pull answered "nothing new". It kept showing features under the
+ * old map until a manual reload.
+ *
+ * Shared contract with the backend (MAP_MERGE_ENTITY_TYPE in maps.service.js).
+ */
+const STRUCTURAL_RESYNC_OPS = new Set(['map_merge']);
 
 /**
  * Records a `push.ack` span per op from the server's push response — binding each
@@ -60,9 +76,24 @@ const FLUSH_BATCH_SIZE = 100;
 function recordPushAcks(resp, ops) {
     if (!resp) return;
     const results = resp.results || resp.acks || [];
+    const rejections = [];
     ops.forEach((op, i) => {
         const r = results.find((x) => x && (x.operationId === op.id || x.opId === op.id)) || results[i] || {};
         const sv = r.currentVersion ?? r.serverVersion ?? resp.serverVersion;
+
+        // A policy denial (map delete without the `manage` tier, lock/unlock without
+        // owner) is acked per-operation with 200 + rejected, so the batch is NOT
+        // retried — retrying a denial can never succeed, and retrying it forever is
+        // what used to freeze the whole outbound queue.
+        //
+        // But being dequeued silently is its own defect: the entity is already gone
+        // from the local store, the server kept it, and the next snapshot brings it
+        // back with no explanation. The user sees their action undo itself minutes
+        // later. The server sends a `reason` precisely so the client can say what
+        // happened; it was being discarded here.
+        if (r.rejected === true || r.success === false) {
+            rejections.push(r.reason || 'O servidor recusou uma alteração.');
+        }
         record(TraceStage.PUSH_ACK, {
             opId: op.id,
             traceId: op.traceId,
@@ -77,6 +108,16 @@ function recordPushAcks(resp, ops) {
             recordLocalAppliedVersion(op.entityId, sv);
         }
     });
+
+    // One toast per distinct reason, not per operation: a batch can carry several
+    // denials with the same cause and stacking N identical toasts is noise.
+    for (const reason of new Set(rejections)) {
+        try {
+            showWarning(reason);
+        } catch {
+            // Headless (tests, worker): no UI to tell.
+        }
+    }
 }
 
 /**
@@ -315,6 +356,17 @@ class SyncEngine {
         if (result?.snapshot) {
             await applyRemoteSnapshot(result.snapshot);
         } else if (result?.operations) {
+            // Same structural-marker guard as the syncResponse handler. Without it a
+            // `map_merge` marker would fall through to applyRemoteOperation's
+            // `default:` branch — a console.warn and a silent no-op — leaving this peer
+            // stale with no sign anything was missed. Harmless today only because
+            // pull() has no caller left in src/; a guard that exists in one of two
+            // twin paths is the kind of asymmetry that becomes a bug the day the dead
+            // path is revived.
+            if (result.operations.some((op) => STRUCTURAL_RESYNC_OPS.has(op?.entityType))) {
+                await this.resync();
+                return;
+            }
             for (const op of result.operations) {
                 await applyRemoteOperation(op);
             }
@@ -413,7 +465,18 @@ class SyncEngine {
             if (msg?.isSnapshot) {
                 await applyRemoteSnapshot(msg.snapshot);
             } else {
-                for (const op of (msg?.ops || [])) {
+                const ops = msg?.ops || [];
+                // A structural REST change (map merge) moves rows in bulk, so no
+                // per-entity op describes it. The backend logs a MARKER op instead
+                // (see MAP_MERGE_ENTITY_TYPE in backend maps.service.js), which this
+                // peer resolves the same way the live `maps_merged` broadcast is
+                // resolved: by taking a snapshot. Applying the rest of the tail
+                // first would be wasted work, since the snapshot supersedes it.
+                if (ops.some((op) => STRUCTURAL_RESYNC_OPS.has(op?.entityType))) {
+                    await this.resync();
+                    return; // resync() re-reads the version from the snapshot
+                }
+                for (const op of ops) {
                     await applyRemoteOperation(op);
                 }
             }

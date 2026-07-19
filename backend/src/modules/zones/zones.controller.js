@@ -11,16 +11,16 @@ export const getZone = asyncHandler(async (req, res) => {
 });
 
 export const createZone = asyncHandler(async (req, res) => {
-  const zone = await zonesService.createZone(req.body, req.user.id);
+  const zone = await zonesService.createZone(req.body, req.user.id, req);
   res.status(201).json({ data: zone });
 });
 
 export const updateZone = asyncHandler(async (req, res) => {
-  res.json({ data: await zonesService.updateZone(req.params.id, req.body) });
+  res.json({ data: await zonesService.updateZone(req.params.id, req.body, req.user?.id ?? null, req) });
 });
 
 export const deleteZone = asyncHandler(async (req, res) => {
-  await zonesService.deleteZone(req.params.id);
+  await zonesService.deleteZone(req.params.id, req.user?.id ?? null, req);
   res.status(204).send();
 });
 

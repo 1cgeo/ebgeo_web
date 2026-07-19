@@ -39,6 +39,12 @@ export const UserRole = Object.freeze({
 export const PermissionAction = Object.freeze({
     EDIT: 'canEdit',
     DELETE: 'canDelete',
+    // Deleting a MAP is separate from deleting a feature/layer: it is a management
+    // action (it takes every child entity with it), so an Editor has canDelete but
+    // not canDeleteMap. Keeping both on the same flag made the client offer a button
+    // the server refused, and the refused op used to freeze the whole outbound queue.
+    // Server side of this contract: sync.service.js operationDenialReason().
+    DELETE_MAP: 'canDeleteMap',
     COMMENT: 'canComment',
     MANAGE_USERS: 'canManageUsers',
     LOCK_MAPS: 'canLockMaps'
@@ -48,6 +54,7 @@ export const PermissionAction = Object.freeze({
 const FULL_PERMISSIONS = Object.freeze({
     canEdit: true,
     canDelete: true,
+    canDeleteMap: true,
     canComment: true,
     canManageUsers: true,
     canLockMaps: true
@@ -64,6 +71,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     [UserRole.EDITOR]: Object.freeze({
         canEdit: true,
         canDelete: true,
+        canDeleteMap: false,
         canComment: true,
         canManageUsers: false,
         canLockMaps: false
@@ -71,6 +79,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     [UserRole.COMMENTER]: Object.freeze({
         canEdit: false,
         canDelete: false,
+        canDeleteMap: false,
         canComment: true,
         canManageUsers: false,
         canLockMaps: false
@@ -78,6 +87,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     [UserRole.VIEWER]: Object.freeze({
         canEdit: false,
         canDelete: false,
+        canDeleteMap: false,
         canComment: false,
         canManageUsers: false,
         canLockMaps: false

@@ -72,8 +72,21 @@ export async function updatePassword(userId, currentPassword, newPassword) {
 /**
  * Searches users by name or username.
  */
+/**
+ * Escapes the LIKE wildcards so the search is LITERAL.
+ *
+ * Not SQL injection — the value travels as $1 — but PATTERN injection: a `%` or `_`
+ * typed by the user acquired wildcard meaning. It broke ordinary searches (usernames
+ * here routinely contain `_`, e.g. the `share_owner` fixtures) and turned `q = '%%'`
+ * into a full-table scan bounded only by LIMIT 20. Backslash is escaped first, or it
+ * would double-escape the escapes that follow.
+ */
+function escapeLike(value) {
+  return String(value).replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
 export async function searchUsers(searchQuery) {
-  const pattern = `%${searchQuery}%`;
+  const pattern = `%${escapeLike(searchQuery)}%`;
   const { rows } = await query(Q.SEARCH_USERS, [pattern]);
   return rows;
 }
@@ -125,6 +138,7 @@ export async function createUser(data) {
     data.rank_id || null,
     data.organization_id || null,
     data.role || 'user',
+    data.org_role || null, // SQL COALESCEs to 'viewer'
   ]);
 
   return rows[0];
@@ -167,6 +181,7 @@ export async function updateUser(userId, data, actingUserId = null) {
     data.role || null,
     data.is_active !== undefined ? data.is_active : null,
     data.email_verified !== undefined ? data.email_verified : null,
+    data.org_role || null,
   ]);
 
   if (rows.length === 0) {
@@ -226,11 +241,43 @@ export async function deleteUser(userId, adminId, transferToUserId = null, req =
           `O usuário possui ${count} atlas. Informe um destinatário para transferir a propriedade, senão os atlas ficariam órfãos.`
         );
       }
+      // Transferring to the user being deactivated is a no-op that LOOKS like a
+      // success: `TRANSFER_ATLAS_OWNERSHIP` runs `SET owner_id = $2 WHERE owner_id =
+      // $1` with $1 === $2, and the target still reads is_active = true because the
+      // soft delete happens further down. The service then reported N transfers that
+      // never occurred, leaving a live atlas owned by an inactive account — exactly
+      // what the ConflictError above exists to prevent. Nobody but a global admin
+      // could act on it afterwards, since only the owner may transfer or delete an
+      // atlas and an inactive owner is refused at the `auth` middleware.
+      // Mirrors atlas.service.js:499, which rejects newOwnerId === currentOwnerId.
+      if (transferToUserId === userId) {
+        throw new ConflictError(
+          'O destinatário não pode ser o próprio usuário que está sendo desativado: '
+          + 'os atlas ficariam órfãos.'
+        );
+      }
+
       const target = await t.oneOrNone(Q.FIND_USER_BY_ID_ADMIN, [transferToUserId]);
       if (!target) throw new NotFoundError('User');
       if (!target.is_active) throw new ForbiddenError('Não é possível transferir o atlas para um usuário inativo.');
       // RETURNING rows -> use t.any (t.none would reject on returned rows).
-      await t.any(Q.TRANSFER_ATLAS_OWNERSHIP, [userId, transferToUserId]);
+      const transferred = await t.any(Q.TRANSFER_ATLAS_OWNERSHIP, [userId, transferToUserId]);
+
+      // Drop any share the recipient already held on the atlases they just
+      // inherited. Ownership comes from `owner_id` alone, but `LIST_USER_ATLAS`
+      // resolves `COALESCE(s.permission, ...owner...)`, so a surviving share OUTRANKS
+      // the synthesized 'owner' and the new owner is listed with their old, lesser
+      // permission. The server gate stays correct (resolvePermission checks owner
+      // first), but the listing lies and the frontend reads it with a closed equality
+      // (`user_permission === 'owner'`), so the atlas disappears from "Meus atlas"
+      // and shows as read-only under "Compartilhados".
+      // Mirrors atlas.service.js:529-532, same reasoning.
+      if (transferred.length > 0) {
+        await t.none(Q.DELETE_SHARES_FOR_NEW_OWNER, [
+          transferred.map((a) => a.id),
+          transferToUserId,
+        ]);
+      }
     }
 
     const deleted = await t.oneOrNone(Q.SOFT_DELETE_USER, [userId]);

@@ -15,7 +15,9 @@ export const getMap = asyncHandler(async (req, res) => {
 });
 
 export const mergeMaps = asyncHandler(async (req, res) => {
-  const result = await mapsService.mergeMaps(req.atlasId, req.params.mapId, req.body.sourceMapIds);
+  const result = await mapsService.mergeMaps(
+    req.atlasId, req.params.mapId, req.body.sourceMapIds, req.user?.id ?? null
+  );
   broadcastToRoom(req.atlasId, {
     type: 'maps_merged',
     destMapId: req.params.mapId,

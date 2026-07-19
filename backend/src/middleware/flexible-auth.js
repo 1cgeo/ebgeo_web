@@ -36,6 +36,13 @@ function mapPayload(p) {
     role: p.role || 'user',
     organization_id: p.organization_id ?? null,
     org_role: p.org_role || 'viewer',
+    // A public-link visitor token is scoped to ONE atlas by its `atlasId` claim.
+    // Dropping it here is what let a visitor of atlas A read atlas B: the claim
+    // existed and was honoured by the WS gateway, but never reached
+    // requireAtlasPermission, which then fell through to the generic isPublic
+    // branch. Kept in sync with the identical mapping in middleware/auth.js.
+    isPublic: p.isPublic === true,
+    publicAtlasId: p.isPublic === true ? (p.atlasId ?? null) : null,
   };
 }
 

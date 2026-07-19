@@ -8,9 +8,12 @@
 //   - cross-atlas (inAtlas / atlas-scoped) guard for BRIEFING (update+delete) and
 //     CATALOG_LAYER per-layer (create/update/delete) — neither is in the existing
 //     cross-atlas suite;
-//   - soft-delete + tombstone for a GENERIC entity (feature/layer): re-create with
-//     the SAME id after delete must NOT resurrect (ON CONFLICT (id) DO NOTHING),
-//     and the snapshot must exclude the tombstoned row;
+//   - soft-delete then re-create with the SAME id RESURRECTS the row (feature/layer):
+//     this is the undo (Ctrl+Z) path, where the client replays the original feature
+//     object with its original properties.id. Until 2026-07-19 the server did the
+//     opposite (ON CONFLICT (id) DO NOTHING kept the tombstone) and still acked
+//     success, so undo-after-delete silently diverged: alive on the client, dead on
+//     the server, then killed locally by the next snapshot. See bugs-backend.md.
 //   - map sub-type assembly persists temporal_config / grid_style to the right column;
 //   - negative access: a READ-share user cannot create a catalog_layer.
 // Every test asserts the persisted DB row and/or the HTTP/ack response — never a
@@ -141,39 +144,55 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // 3. Soft-delete + tombstone for a GENERIC entity (no resurrection on re-create).
+  // 3. Soft-delete then re-create with the SAME id RESURRECTS (the undo path).
+  //    The client's undo of a delete replays the original feature object, which
+  //    still carries its original properties.id (store-state-manager.js:616,
+  //    `case 'remove': addFeature(action.feature)`), so the server sees a CREATE
+  //    whose targetId already exists as a tombstone. It must revive the row and
+  //    adopt the replayed payload, otherwise the user's Ctrl+Z is silently lost.
   // ---------------------------------------------------------------------------
-  describe('soft-delete + tombstone: re-create with same id does not resurrect', () => {
-    it('feature delete then re-create same id stays deleted and is omitted from snapshot', async () => {
+  describe('soft-delete then re-create with same id resurrects (undo path)', () => {
+    it('feature delete then re-create same id revives the row, adopts the new payload and returns to the snapshot', async () => {
       const fId = randomUUID();
       await push(atlas.id, token, [{
         id: randomUUID(), type: 'create', target: 'feature', targetId: fId, mapId: map.id,
         data: geoFeature(fId, { name: 'v1' }), timestamp: Date.now(), clientId: 'c',
       }]);
+      const { rows: afterCreate } = await db.query('SELECT version FROM features WHERE id = $1', [fId]);
+      const versionAtCreate = afterCreate[0].version;
+
       await push(atlas.id, token, [{
         id: randomUUID(), type: 'delete', target: 'feature', targetId: fId, mapId: map.id,
         timestamp: Date.now(), clientId: 'c',
       }]);
+      const { rows: afterDelete } = await db.query('SELECT deleted_at FROM features WHERE id = $1', [fId]);
+      assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the row');
 
-      // Re-create with the SAME id (ON CONFLICT (id) DO NOTHING → tombstone survives).
+      // The undo: same id, replayed payload.
       await push(atlas.id, token, [{
         id: randomUUID(), type: 'create', target: 'feature', targetId: fId, mapId: map.id,
         data: geoFeature(fId, { name: 'RESURRECTED' }), timestamp: Date.now(), clientId: 'c',
       }]);
 
-      const { rows } = await db.query('SELECT deleted_at, properties FROM features WHERE id = $1', [fId]);
-      assert.equal(rows.length, 1, 'still exactly one row (re-create did not insert a second)');
-      assert.ok(rows[0].deleted_at, 'row stays soft-deleted (no resurrection)');
-      assert.equal(rows[0].properties.name, 'v1', 'original data preserved, re-create payload dropped');
+      const { rows } = await db.query(
+        'SELECT deleted_at, properties, version FROM features WHERE id = $1', [fId]
+      );
+      assert.equal(rows.length, 1, 'still exactly one row (resurrect updates, never inserts a duplicate)');
+      assert.equal(rows[0].deleted_at, null, 'row is revived: deleted_at cleared');
+      assert.equal(rows[0].properties.name, 'RESURRECTED', 'the replayed payload wins over the pre-delete data');
+      assert.ok(
+        rows[0].version > versionAtCreate,
+        `version must advance past ${versionAtCreate} so peers pull the revival (got ${rows[0].version})`
+      );
 
-      // Snapshot must exclude the tombstoned feature.
+      // The peer-visible half: a revived feature is back in the snapshot.
       const snap = await snapshot(atlas.id, token);
       const snapMap = snap.maps.find((m) => m.id === map.id);
       const pointIds = snapMap.features.points.map((p) => p.properties.id);
-      assert.ok(!pointIds.includes(fId), 'tombstoned feature absent from snapshot');
+      assert.ok(pointIds.includes(fId), 'resurrected feature is present in the snapshot again');
     });
 
-    it('layer delete then re-create same id stays deleted and is omitted from snapshot', async () => {
+    it('layer delete then re-create same id revives the row, adopts the new name and returns to the snapshot', async () => {
       const lId = randomUUID();
       await push(atlas.id, token, [{
         id: randomUUID(), type: 'create', target: 'layer', targetId: lId, mapId: map.id,
@@ -183,19 +202,129 @@ describe('Sync service coverage — untested CRDT behaviors', () => {
         id: randomUUID(), type: 'delete', target: 'layer', targetId: lId, mapId: map.id,
         timestamp: Date.now(), clientId: 'c',
       }]);
+      const { rows: afterDelete } = await db.query('SELECT deleted_at FROM layers WHERE id = $1', [lId]);
+      assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the layer');
+
       await push(atlas.id, token, [{
         id: randomUUID(), type: 'create', target: 'layer', targetId: lId, mapId: map.id,
         data: { name: 'reborn-layer' }, timestamp: Date.now(), clientId: 'c',
       }]);
 
       const { rows } = await db.query('SELECT deleted_at, name FROM layers WHERE id = $1', [lId]);
-      assert.equal(rows.length, 1);
-      assert.ok(rows[0].deleted_at, 'layer stays tombstoned');
-      assert.equal(rows[0].name, 'orig-layer', 're-create payload dropped');
+      assert.equal(rows.length, 1, 'still exactly one row');
+      assert.equal(rows[0].deleted_at, null, 'layer is revived: deleted_at cleared');
+      assert.equal(rows[0].name, 'reborn-layer', 'the replayed payload wins over the pre-delete name');
 
       const snap = await snapshot(atlas.id, token);
       const snapMap = snap.maps.find((m) => m.id === map.id);
-      assert.ok(!snapMap.layers.some((l) => l.id === lId), 'tombstoned layer absent from snapshot');
+      assert.ok(snapMap.layers.some((l) => l.id === lId), 'resurrected layer is present in the snapshot again');
+    });
+
+    // The same undo path exists for every soft-deleted entity the client can create.
+    // Fixing only feature/layer would leave the asymmetry that causes this class of bug
+    // in the first place: same effect, different guard depending on the entity.
+    it('group delete then re-create same id revives the row and adopts the new name', async () => {
+      const gId = randomUUID();
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'create', target: 'group', targetId: gId, mapId: map.id,
+        data: { name: 'orig-group' }, timestamp: Date.now(), clientId: 'c',
+      }]);
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'delete', target: 'group', targetId: gId, mapId: map.id,
+        timestamp: Date.now(), clientId: 'c',
+      }]);
+      const { rows: afterDelete } = await db.query('SELECT deleted_at FROM groups WHERE id = $1', [gId]);
+      assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the group');
+
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'create', target: 'group', targetId: gId, mapId: map.id,
+        data: { name: 'reborn-group' }, timestamp: Date.now(), clientId: 'c',
+      }]);
+
+      const { rows } = await db.query('SELECT deleted_at, name FROM groups WHERE id = $1', [gId]);
+      assert.equal(rows.length, 1, 'still exactly one row');
+      assert.equal(rows[0].deleted_at, null, 'group is revived: deleted_at cleared');
+      assert.equal(rows[0].name, 'reborn-group', 'the replayed payload wins over the pre-delete name');
+    });
+
+    it('map delete then re-create same id revives the row and adopts the new name', async () => {
+      const mId = randomUUID();
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'create', target: 'map', targetId: mId,
+        data: { name: 'orig-map' }, timestamp: Date.now(), clientId: 'c',
+      }]);
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'delete', target: 'map', targetId: mId,
+        timestamp: Date.now(), clientId: 'c',
+      }]);
+      const { rows: afterDelete } = await db.query('SELECT deleted_at FROM maps WHERE id = $1', [mId]);
+      assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the map');
+
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'create', target: 'map', targetId: mId,
+        data: { name: 'reborn-map' }, timestamp: Date.now(), clientId: 'c',
+      }]);
+
+      const { rows } = await db.query('SELECT deleted_at, name FROM maps WHERE id = $1', [mId]);
+      assert.equal(rows.length, 1, 'still exactly one row');
+      assert.equal(rows[0].deleted_at, null, 'map is revived: deleted_at cleared');
+      assert.equal(rows[0].name, 'reborn-map', 'the replayed payload wins over the pre-delete name');
+    });
+
+    it('briefing delete then re-create same id revives the row and adopts the new name', async () => {
+      const bId = randomUUID();
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'create', target: 'briefing', targetId: bId,
+        data: { name: 'orig-briefing' }, timestamp: Date.now(), clientId: 'c',
+      }]);
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'delete', target: 'briefing', targetId: bId,
+        timestamp: Date.now(), clientId: 'c',
+      }]);
+      const { rows: afterDelete } = await db.query('SELECT deleted_at FROM briefings WHERE id = $1', [bId]);
+      assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the briefing');
+
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'create', target: 'briefing', targetId: bId,
+        data: { name: 'reborn-briefing' }, timestamp: Date.now(), clientId: 'c',
+      }]);
+
+      const { rows } = await db.query('SELECT deleted_at, name FROM briefings WHERE id = $1', [bId]);
+      assert.equal(rows.length, 1, 'still exactly one row');
+      assert.equal(rows[0].deleted_at, null, 'briefing is revived: deleted_at cleared');
+      assert.equal(rows[0].name, 'reborn-briefing', 'the replayed payload wins over the pre-delete name');
+    });
+
+    it('slide delete then re-create same id revives the row and adopts the new title', async () => {
+      const brId = randomUUID();
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'create', target: 'briefing', targetId: brId,
+        data: { name: 'slide-host-briefing' }, timestamp: Date.now(), clientId: 'c',
+      }]);
+      const sId = randomUUID();
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'create', target: 'slide', targetId: sId,
+        data: { briefing_id: brId, title: 'orig-slide' }, timestamp: Date.now(), clientId: 'c',
+      }]);
+      const { rows: created } = await db.query('SELECT id FROM slides WHERE id = $1', [sId]);
+      assert.equal(created.length, 1, 'precondition: the slide was really created');
+
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'delete', target: 'slide', targetId: sId,
+        timestamp: Date.now(), clientId: 'c',
+      }]);
+      const { rows: afterDelete } = await db.query('SELECT deleted_at FROM slides WHERE id = $1', [sId]);
+      assert.ok(afterDelete[0].deleted_at, 'precondition: the delete really tombstoned the slide');
+
+      await push(atlas.id, token, [{
+        id: randomUUID(), type: 'create', target: 'slide', targetId: sId,
+        data: { briefing_id: brId, title: 'reborn-slide' }, timestamp: Date.now(), clientId: 'c',
+      }]);
+
+      const { rows } = await db.query('SELECT deleted_at, title FROM slides WHERE id = $1', [sId]);
+      assert.equal(rows.length, 1, 'still exactly one row');
+      assert.equal(rows[0].deleted_at, null, 'slide is revived: deleted_at cleared');
+      assert.equal(rows[0].title, 'reborn-slide', 'the replayed payload wins over the pre-delete title');
     });
   });
 

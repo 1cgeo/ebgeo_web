@@ -1,7 +1,9 @@
 // Path: tests/integration/sync-authz-lock.test.js
 // Per-operation authorization + map-lock enforcement on the sync push (multiuser
-// spec §1.4/§1.5/§1.9/§2.5/§17.8). The doc reserves map-delete and map lock/unlock
-// for the atlas OWNER, and a locked map must block writes to its child entities.
+// spec §1.4/§1.5/§1.9/§2.5/§17.8). Since 2026-07-19 map-delete is gated by HIERARCHY
+// at manage and above (owner + co-Gestor), not by equality against 'owner', which had
+// been excluding the co-Gestor in silence; lock/unlock stays owner-only on purpose.
+// A locked map must still block writes to its child entities.
 // Every access filter gets a NEGATIVE (no-permission) test per CLAUDE.md.
 
 import { describe, it, before, after } from 'node:test';
@@ -55,16 +57,42 @@ describe('Sync authorization + map-lock enforcement', () => {
     assert.ok(rows[0].deleted_at, 'owner soft-deletes the map');
   });
 
-  it('a WRITE user CANNOT delete a map (403, map untouched) — negative', async () => {
-    await push(editorTok, op('map', 'delete', map.id), 403);
+  // The refusal is now reported PER OPERATION (200 + success:false) instead of
+  // failing the whole batch with 403. The authorization itself is unchanged and is
+  // still asserted below: what changed is that one denied op no longer rolls back
+  // its siblings, which used to freeze the client's queue forever. Tier violations
+  // (read/comment) still 403 the batch. See sync-denied-op-poison.repro.test.js.
+
+  it('a WRITE user CANNOT delete a map (refused per-op, map untouched) — negative', async () => {
+    const res = await push(editorTok, op('map', 'delete', map.id), 200);
     assert.equal((await mapRow()).deleted_at, null, 'map must NOT be soft-deleted by a write user');
+    const ack = res.body.data.results[0];
+    assert.equal(ack.success, false, 'the op is acked as refused, never as applied');
+    assert.match(ack.reason, /co-Gestor/i, 'the ack names the required tier, so the client can surface it');
+  });
+
+  // The co-Gestor (manage tier) is the whole point of gating by hierarchy instead of
+  // by equality against 'owner'. `permission !== 'owner'` excluded manage in silence,
+  // which is the closed-list trap the constitution forbids in two places.
+  it('a MANAGE user CAN delete a map (hierarchy, not equality to owner)', async () => {
+    const manager = await createUser(db, { username: `authz_mgr_${randomUUID().slice(0, 8)}` });
+    const managerTok = await loginUser(app, manager.username, manager.password);
+    await createShare(db, atlas.id, manager.id, 'manage', owner.id);
+    const victim = await createMap(db, atlas.id, { name: 'Manager Deletes This' });
+
+    const res = await push(managerTok, op('map', 'delete', victim.id), 200);
+    assert.equal(res.body.data.results[0].success, true, 'the co-Gestor op is applied, not refused');
+
+    const { rows } = await db.query('SELECT deleted_at FROM maps WHERE id = $1', [victim.id]);
+    assert.ok(rows[0].deleted_at, 'the map is soft-deleted by the co-Gestor');
   });
 
   // ---- Authorization: map lock/unlock is owner-only ----
 
-  it('a WRITE user CANNOT lock a map (403, locked unchanged) — negative', async () => {
-    await push(editorTok, op('map', 'update', map.id, { data: { locked: true } }), 403);
+  it('a WRITE user CANNOT lock a map (refused per-op, locked unchanged) — negative', async () => {
+    const res = await push(editorTok, op('map', 'update', map.id, { data: { locked: true } }), 200);
     assert.equal((await mapRow()).locked, false, 'a write user must NOT flip locked');
+    assert.equal(res.body.data.results[0].success, false, 'the op is acked as refused');
   });
 
   it('OWNER can lock a map', async () => {

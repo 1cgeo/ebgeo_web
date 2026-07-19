@@ -3,6 +3,7 @@ import { query, tx, task } from '../../database/index.js';
 import { ForbiddenError, ConflictError, ServiceUnavailableError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
+import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 
 /**
  * Whitelisted `setting` op keys whose value is a KEYED OBJECT that must be
@@ -178,6 +179,152 @@ function deriveFeatureColumns(rawData) {
 }
 
 /**
+ * Reconciles the slide payload the real client emits with the columns the server stores.
+ *
+ * The client builds a slide with `createEmptySlide()` (camelCase: `mapId`, `modelId`,
+ * `photoId`, `temporalCursor`) and logs it with the PARENT BRIEFING id in the envelope's
+ * `mapId` slot — `logOperation(SLIDE, CREATE, slide.id, briefingId, slide)` — so the
+ * payload never carries a `briefing_id` at all. Without this normalization the insert's
+ * `WHERE EXISTS (... briefings WHERE id = $2 ...)` matched nothing: zero rows written and
+ * the op still acked as SUCCESS, so the slide lived on the client and never existed on the
+ * server. Live peers hid it, because the parent briefing op relays the whole slides array
+ * over the WS; the loss only surfaced after a reload rebuilt the briefing from the empty
+ * slides table.
+ *
+ * Server dialect wins wherever both are present, so the 20+ suites that speak snake_case
+ * (and any queued op already in that shape) are untouched. Same tolerance the layer insert
+ * applies with `data.sort_order ?? data.order`.
+ *
+ * Runs for create AND update: `normalizeOperation` falls `changes` back to `data`, so an
+ * un-normalized update would silently drop every camelCase-only field. `briefing_id` is
+ * harmless in an update payload since `UPDATE_FIELDS.slide` does not list it.
+ *
+ * @param {Object} rawData - Slide payload as sent by the client
+ * @param {string|null} envelopeMapId - `op.mapId`, which for a slide op carries the briefing id
+ */
+function normalizeSlidePayload(rawData, envelopeMapId) {
+  if (!rawData || typeof rawData !== 'object') return rawData;
+
+  const patch = {};
+  const fill = (snake, camel) => {
+    if (rawData[snake] === undefined && rawData[camel] !== undefined) patch[snake] = rawData[camel];
+  };
+
+  fill('map_id', 'mapId');
+  fill('model_id', 'modelId');
+  fill('photo_id', 'photoId');
+  fill('temporal_cursor', 'temporalCursor');
+
+  // `slides.map_id` is `UUID REFERENCES maps(id)`, but the frontend's `slide.mapId`
+  // holds the map's DISPLAY NAME, not its id (briefing-editor.control.js sets it from
+  // getCurrentMapNameSync(), from mapNames[0], and from an <option value=name>).
+  //
+  // Feeding a name to a UUID column raises 22P02, which aborts the transaction around
+  // the ENTIRE push batch. The client only re-queues on a non-2xx, so it would replay
+  // the poisoned batch forever — that user's sync stops permanently and silently, and
+  // the editor sets the field by itself, with autosave, so no deliberate action is
+  // needed to trigger it.
+  //
+  // Dropping an unusable value to null loses the slide↔map association, which is
+  // exactly the behaviour that existed before slides persisted at all, and is the same
+  // guard applied to comment authorId (asUuidOrNull) and feature layer_id
+  // (FEATURE_UUID_RE). Carrying the real UUID is a client-side change; until then,
+  // losing an association beats freezing a user's sync.
+  // A non-UUID value is the map's NAME. It is moved aside rather than discarded, so
+  // the apply path can resolve it against this atlas's maps (see resolveSlideMapId).
+  // Resolution cannot happen here: this function is synchronous and has no database.
+  const mapIdValue = patch.map_id !== undefined ? patch.map_id : rawData.map_id;
+  if (mapIdValue !== undefined && mapIdValue !== null
+      && !(typeof mapIdValue === 'string' && FEATURE_UUID_RE.test(mapIdValue))) {
+    patch.map_id = null;
+    if (typeof mapIdValue === 'string' && mapIdValue.trim() !== '') {
+      patch._mapName = mapIdValue;
+    }
+  }
+
+  if (rawData.briefing_id === undefined) {
+    const parent = rawData.briefingId ?? envelopeMapId ?? undefined;
+    if (parent !== undefined) patch.briefing_id = parent;
+  }
+
+  return Object.keys(patch).length ? { ...rawData, ...patch } : rawData;
+}
+
+/**
+ * Derives `briefings.slide_order` from the slides array the client actually sends.
+ *
+ * The server treats `slide_order` (uuid[]) as the canonical ordering — the snapshot
+ * reports each slide's `order` as `slide_order.indexOf(slide.id)`. The client has no
+ * such concept: `slide_order` appears nowhere in the frontend, which instead keeps an
+ * `order` integer on each slide inside the briefing's `slides` array. So the column was
+ * always written empty and every slide round-tripped with order -1, leaving a briefing's
+ * slides in arbitrary sequence after any reload.
+ *
+ * Deriving it here keeps ONE canonical representation on the server instead of teaching
+ * the client a second one, and repairs briefings whose ops are already queued.
+ *
+ * Ids are filtered to UUIDs: `slide_order` is cast `::uuid[]`, and a single malformed id
+ * would raise 22P02 and reject the ENTIRE push batch, not just this op.
+ *
+ * @param {Object} rawData - Briefing payload as sent by the client
+ */
+/**
+ * Resolves a slide's map reference, which the two packages spell differently.
+ *
+ * The frontend's `slide.mapId` is the map's DISPLAY NAME (briefing-editor.control.js
+ * fills it from getCurrentMapNameSync(), from mapNames[0], and from an
+ * `<option value=name>`), while `slides.map_id` is `UUID REFERENCES maps(id)`. The two
+ * never met: the association simply never round-tripped, and feeding the name straight
+ * into the column poisons the whole push batch with a 22P02.
+ *
+ * The server is the only place that holds both, so it translates. On the way in, a
+ * name becomes the UUID of the same-named map IN THIS ATLAS; on the way out,
+ * getAtlasSnapshot maps the UUID back to the name.
+ *
+ * AMBIGUITY, stated rather than hidden: map names are not unique per atlas (no
+ * constraint), so two maps can share one. The tie-break is the oldest, which is
+ * deterministic and stable across replays — and the client is already ambiguous in
+ * exactly the same way, since its whole model selects maps by name.
+ *
+ * An unresolvable name yields null: the association is lost, which is precisely the
+ * behaviour that existed before slides persisted at all, and is infinitely preferable
+ * to freezing that user's sync forever.
+ *
+ * @param {Object} t - Transaction context
+ * @param {string} atlasId
+ * @param {Object} data - Normalized slide payload (may carry the `_mapName` hint)
+ * @returns {Promise<string|null>} The map UUID, or null.
+ */
+async function resolveSlideMapId(t, atlasId, data) {
+  if (data.map_id) return data.map_id;
+  if (!data._mapName) return null;
+
+  const row = await t.oneOrNone(
+    `SELECT id FROM maps
+     WHERE atlas_id = $1 AND name = $2 AND deleted_at IS NULL
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [atlasId, data._mapName]
+  );
+  return row ? row.id : null;
+}
+
+function normalizeBriefingPayload(rawData) {
+  if (!rawData || typeof rawData !== 'object') return rawData;
+  if (rawData.slide_order !== undefined || !Array.isArray(rawData.slides)) return rawData;
+
+  const slide_order = rawData.slides
+    .filter((s) => s && typeof s.id === 'string' && FEATURE_UUID_RE.test(s.id))
+    // `order` is the client's ordering field; fall back to array position when absent
+    // so a payload without it keeps the sequence it arrived in rather than collapsing.
+    .map((s, i) => ({ id: s.id, order: Number.isFinite(s.order) ? s.order : i }))
+    .sort((a, b) => a.order - b.order)
+    .map((s) => s.id);
+
+  return { ...rawData, slide_order };
+}
+
+/**
  * Normalizes operation field names from frontend format to internal format.
  * Frontend uses: entityType, operationType, entityId
  * Internal uses: target, type, targetId (for DB compatibility)
@@ -208,6 +355,12 @@ function normalizeOperation(op) {
   } else if (rawEntityType === 'feature') {
     // Feature ops carry a raw GeoJSON Feature; derive the flat type/layer columns.
     data = deriveFeatureColumns(data);
+  } else if (rawEntityType === 'slide') {
+    // Slide ops arrive camelCase with the parent briefing id in the envelope's mapId slot.
+    data = normalizeSlidePayload(data, op.mapId);
+  } else if (rawEntityType === 'briefing') {
+    // Briefing ops carry a slides array but no slide_order, which is what the server orders by.
+    data = normalizeBriefingPayload(data);
   }
 
   // The frontend's shared create/update factory ALWAYS puts the payload in `data`
@@ -465,6 +618,14 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner') {
           mapId: c.map_id,
           parentId: c.parent_id,
           status: c.status,
+          // The AUTHORITATIVE author, from the column, placed AFTER the `...c.data`
+          // spread so it wins over whatever `authorId` the client wrote into the
+          // JSONB. Since 2026-07-19 the column is stamped from the authenticated
+          // principal, but the JSONB copy is still client-supplied — and the client's
+          // edit gate reads `comment.authorId` (comment-overlay.js `_canModify`) while
+          // the server checks the column. Leaving them to disagree means a forged id
+          // shows an Edit button that then fails silently on push.
+          authorId: c.author_id ?? null,
           sync: buildSyncMetadata(c),
         });
       }
@@ -547,15 +708,51 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner') {
       map.sync = buildSyncMetadata(map);
     }
 
-    // Get all briefings with slides
+    // Get all briefings with slides.
+    //
+    // `mapId` is emitted as the map's NAME, not its UUID, because that is what the
+    // field means on the client: the briefing editor matches it against an
+    // `<option value=name>` and the presenter compares it to the active map's name
+    // (`currentMap === slide.mapId`). Returning the raw UUID here would round-trip a
+    // value the client cannot use — the dropdown would never match and a 2D slide
+    // would silently stop switching to its map during a presentation. The write path
+    // performs the inverse translation (resolveSlideMapId).
+    const mapNameById = new Map(maps.map((m) => [m.id, m.name]));
+
     const briefings = await t.query(Q.GET_ATLAS_BRIEFINGS, [atlasId]);
     for (const briefing of briefings) {
       const rawSlides = await t.query(Q.GET_BRIEFING_SLIDES, [briefing.id]);
-      // slide_order (UUID[]) is the canonical ordering; surface `order` (index),
-      // the camelCase `temporalCursor`, and per-slide sync metadata for the frontend.
+      // slide_order (UUID[]) is the canonical ordering; surface `order` (index), the
+      // camelCase aliases the frontend slide model uses, and per-slide sync metadata.
+      //
+      // The snake_case columns are kept alongside so nothing that already reads them
+      // breaks. The camelCase half is not cosmetic: applyRemoteSnapshot saves each
+      // briefing VERBATIM into IndexedDB, and the frontend slide model is camelCase
+      // (createEmptySlide: mapId/modelId/photoId/temporalCursor). Returning only
+      // snake_case would restore every slide stripped of its map, model and photo.
+      // Only `temporalCursor` was aliased here before, because until slides actually
+      // began persisting this branch never ran on a non-empty result.
+      // The ARRAY order is load-bearing, not just the `order` field: the briefing
+      // editor and the presenter index `briefing.slides[i]` directly
+      // (briefing-editor.control.js, briefing-presenter.control.js). GET_BRIEFING_SLIDES
+      // has no ORDER BY, so Postgres returns them in whatever order it likes — which
+      // did not matter while slides never persisted at all, and became a real
+      // "presentation plays out of sequence" bug the moment they did. Slides missing
+      // from slide_order (indexOf -> -1) sort last instead of first, and ties keep
+      // their relative position.
       const order = Array.isArray(briefing.slide_order) ? briefing.slide_order : [];
+      const rank = (id) => {
+        const i = order.indexOf(id);
+        return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+      };
+      rawSlides.sort((a, b) => rank(a.id) - rank(b.id));
+
       briefing.slides = rawSlides.map((slide) => ({
         ...slide,
+        // The NAME, per the note above — the client's `mapId` is a display name.
+        mapId: mapNameById.get(slide.map_id) ?? null,
+        modelId: slide.model_id ?? null,
+        photoId: slide.photo_id ?? null,
         temporalCursor: slide.temporal_cursor ?? null,
         order: order.indexOf(slide.id),
         sync: buildSyncMetadata(slide),
@@ -606,17 +803,43 @@ function assertOperationAllowed(op, permission) {
   if (permission === 'comment' && op.target !== 'comment') {
     throw new ForbiddenError('Comentaristas só podem criar ou editar comentários');
   }
+}
 
-  if (op.target !== 'map') return;
-  if (op.type === 'delete' && permission !== 'owner') {
-    throw new ForbiddenError('Only the atlas owner can delete a map');
+/**
+ * Per-operation POLICY denial, as opposed to the tier denial above. Returns a reason
+ * string when the operation must not be applied, or null when it may proceed.
+ *
+ * Why this is separate from assertOperationAllowed: a tier violation (a read-only or
+ * comment-tier principal pushing writes) means the whole batch is untrustworthy, so it
+ * still throws and 403s the push. A policy denial is different: the principal is a
+ * legitimate writer whose SINGLE operation is not permitted. Throwing for that aborted
+ * the surrounding tx() and rolled back the ENTIRE batch, and because the client only
+ * re-queues on a non-2xx response, every later edit of that user piled up behind the
+ * rejected op and never reached the server again. One refused map delete froze that
+ * client's sync permanently, with no message in the UI.
+ *
+ * Returning a reason instead lets the batch continue and the op be acked as rejected,
+ * which the client dequeues (retrying a policy denial can never succeed).
+ * @returns {string|null}
+ */
+function operationDenialReason(op, permission) {
+  if (op.target !== 'map') return null;
+  // Gate by HIERARCHY, never by equality. `permission !== 'owner'` silently excluded
+  // `manage` (the co-Gestor), which is the closed-list trap the constitution forbids
+  // in two places for having caused real bugs twice. Deleting a map is a management
+  // action: manage and above, editor and below refused.
+  if (op.type === 'delete' && PERMISSION_LEVELS[permission] < PERMISSION_LEVELS.manage) {
+    return 'Apenas o dono ou um co-Gestor do atlas pode excluir um mapa';
   }
   if (op.type === 'update' && !op._subType) {
     const merged = { ...op.changes, ...op.data };
+    // Lock/unlock stays owner-only (deliberately narrower than delete): it is a
+    // coordination override, not a management action.
     if (merged.locked !== undefined && permission !== 'owner') {
-      throw new ForbiddenError('Only the atlas owner can lock or unlock a map');
+      return 'Apenas o dono do atlas pode bloquear ou desbloquear um mapa';
     }
   }
+  return null;
 }
 
 /**
@@ -673,8 +896,30 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       // Normalize operation to internal format (accepts both frontend and legacy names)
       const op = normalizeOperation(rawOp);
 
-      // Authorization: map-delete and map lock/unlock are owner-only (multiuser spec).
+      // Tier authorization: a read-only / comment-tier principal pushing writes
+      // invalidates the whole batch (403).
       assertOperationAllowed(op, permission);
+
+      // Per-op policy (map delete, map lock/unlock): refuse THIS operation without
+      // aborting the transaction, so one denied op cannot freeze the client's queue.
+      const denialReason = operationDenialReason(op, permission);
+      if (denialReason) {
+        acks.push({
+          opId: rawOp.id,
+          serverVersion: null,
+          idempotent: false,
+          rejected: true,
+          reason: denialReason,
+        });
+        if (isTraceEnabled()) {
+          recordSpan(atlasId, TraceStage.SERVER_APPLIED, {
+            opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
+            entityId: op.entityId, mapId: op.mapId, rowsAffected: 0,
+            outcome: TraceOutcome.NO_EFFECT, reason: denialReason,
+          });
+        }
+        continue;
+      }
 
       // Insert operation into log (idempotent: ON CONFLICT (atlas_id, op_id) DO NOTHING).
       const inserted = await t.oneOrNone(Q.INSERT_OPERATION, [
@@ -769,10 +1014,13 @@ export async function pushOperations(atlasId, operations, userId, permission = '
   // Per-operation ack contract (for confident offline dequeue). `acks` is kept
   // as a backward-compatible alias of the same data.
   const results = acks.map((a) => ({
-    success: true,
+    // `false` only for a policy-rejected op (see operationDenialReason). Everything
+    // that reached the apply step is reported as success, as before.
+    success: a.rejected !== true,
     operationId: a.opId,
     idempotent: a.idempotent === true,
     currentVersion: a.serverVersion != null ? parseInt(a.serverVersion, 10) : serverVersion,
+    ...(a.rejected === true ? { rejected: true, reason: a.reason } : {}),
   }));
 
   return { results, acks, serverVersion };
@@ -1198,10 +1446,20 @@ async function applyCatalogLayerOp(t, atlasId, op, type) {
   // Per-layer rows are pinned to a map of THIS atlas (cross-atlas IDOR guard).
   if (type === 'create') {
     await t.none(
+      // The conflict target is (map_id, id), not (id): the client's layer id is a
+      // catalog-wide constant ('hillshade'), so the same id legitimately exists in
+      // many maps. Keyed by id alone, the second map to add a layer was a silent
+      // no-op. Resurrect on conflict for the same reason create does elsewhere:
+      // re-adding a previously removed catalog layer must bring it back.
       `INSERT INTO catalog_layers (id, map_id, data)
        SELECT $1, $2, $3::jsonb
        WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $4)
-       ON CONFLICT (id) DO NOTHING`,
+       ON CONFLICT (map_id, id) DO UPDATE
+         SET data       = EXCLUDED.data,
+             deleted_at = NULL,
+             updated_at = NOW(),
+             version    = catalog_layers.version + 1
+         WHERE catalog_layers.deleted_at IS NOT NULL`,
       [op.targetId, op.mapId, JSON.stringify(op.data || {}), atlasId]
     );
   } else if (type === 'update') {
@@ -1245,7 +1503,23 @@ async function applyCommentOp(t, atlasId, op, type, userId, permission) {
     // (invalid uuid) would abort the whole flush batch (the poison-pill class already guarded for
     // mapId in the frontend dispatcher). A reply whose parent no longer exists soft-fails (inserts
     // zero rows via the EXISTS guard) instead of raising a 23503 FK violation.
-    const authorId = asUuidOrNull(data.authorId);
+    // Authorship comes from the AUTHENTICATED principal, never from the payload.
+    //
+    // This used to be `asUuidOrNull(data.authorId)` — the UUID the client put in its
+    // own operation — while `userId` (the real `req.user.id`, threaded down from
+    // pushOperations) sat unused two parameters away. Anyone able to push could
+    // therefore post a spatial comment attributed to someone else, and the same
+    // `data` JSONB still carries the display identity (authorName/Initials/Color)
+    // verbatim, so the forgery renders convincingly in the UI.
+    //
+    // It also silently disarmed the ownership gate that update/delete rely on
+    // (`author_id = $6`): a comment stamped with a foreign id becomes uneditable by
+    // its actual writer.
+    //
+    // The display fields inside `data` are left as sent — they are cosmetic and the
+    // client owns its own rendering — but `author_id`, the column every authorization
+    // check reads, is now the server's word.
+    const authorId = asUuidOrNull(userId);
     const parentId = asUuidOrNull(data.parentId);
     await t.none(`
       INSERT INTO comments (id, atlas_id, map_id, parent_id, author_id, lng, lat, status, data)
@@ -1420,6 +1694,18 @@ async function applyOperation(t, atlasId, op, userId, permission) {
 
   switch (type) {
     case 'create': {
+      // RESURRECT-ON-CREATE (decided 2026-07-19, reverses the earlier tombstone-is-final
+      // behavior). The client's undo of a delete replays the ORIGINAL entity, keeping its
+      // original id (store-state-manager.js:616, `case 'remove': addFeature(action.feature)`),
+      // so a Ctrl+Z after a delete arrives here as a create whose targetId is a tombstone.
+      // With the previous `ON CONFLICT (id) DO NOTHING` that was a silent no-op still acked
+      // as success, so the entity stayed alive on the client, dead on the server, and was
+      // killed locally by the next snapshot: permanent data loss in the most common gesture
+      // of the product.
+      //
+      // The `WHERE <table>.deleted_at IS NOT NULL` guard is load-bearing: it keeps the old
+      // DO NOTHING semantics for rows that are still ALIVE, so a replayed/stale create can
+      // never clobber newer data on a live row. Only tombstones are revived.
       // Handle create operations for different targets
       if (target === 'feature' && op.data && op.mapId) {
         const data = op.data;
@@ -1429,7 +1715,14 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           INSERT INTO features (id, map_id, feature_type, geometry, properties, layer_id)
           SELECT $1, $2, $3, $4::jsonb, $5::jsonb, $6
           WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $7)
-          ON CONFLICT (id) DO NOTHING
+          ON CONFLICT (id) DO UPDATE
+            SET geometry   = EXCLUDED.geometry,
+                properties = EXCLUDED.properties,
+                layer_id   = EXCLUDED.layer_id,
+                deleted_at = NULL,
+                updated_at = NOW(),
+                version    = features.version + 1
+            WHERE features.deleted_at IS NOT NULL
         `, [
           op.targetId,
           op.mapId,
@@ -1446,7 +1739,16 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           INSERT INTO groups (id, map_id, name, visible, locked, style, parent_id)
           SELECT $1, $2, $3, $4, $5, $6::jsonb, $7
           WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $8)
-          ON CONFLICT (id) DO NOTHING
+          ON CONFLICT (id) DO UPDATE
+            SET name       = EXCLUDED.name,
+                visible    = EXCLUDED.visible,
+                locked     = EXCLUDED.locked,
+                style      = EXCLUDED.style,
+                parent_id  = EXCLUDED.parent_id,
+                deleted_at = NULL,
+                updated_at = NOW(),
+                version    = groups.version + 1
+            WHERE groups.deleted_at IS NOT NULL
         `, [
           op.targetId,
           op.mapId,
@@ -1463,7 +1765,17 @@ async function applyOperation(t, atlasId, op, userId, permission) {
           INSERT INTO layers (id, map_id, name, visible, locked, opacity, sort_order, style)
           SELECT $1, $2, $3, $4, $5, $6, $7, $8::jsonb
           WHERE EXISTS (SELECT 1 FROM maps WHERE id = $2 AND atlas_id = $9)
-          ON CONFLICT (id) DO NOTHING
+          ON CONFLICT (id) DO UPDATE
+            SET name       = EXCLUDED.name,
+                visible    = EXCLUDED.visible,
+                locked     = EXCLUDED.locked,
+                opacity    = EXCLUDED.opacity,
+                sort_order = EXCLUDED.sort_order,
+                style      = EXCLUDED.style,
+                deleted_at = NULL,
+                updated_at = NOW(),
+                version    = layers.version + 1
+            WHERE layers.deleted_at IS NOT NULL
         `, [
           op.targetId,
           op.mapId,
@@ -1491,7 +1803,25 @@ async function applyOperation(t, atlasId, op, userId, permission) {
         await t.none(`
           INSERT INTO maps (id, atlas_id, name, base_layer, center_lat, center_long, zoom, bearing, pitch, notes_title, notes_description, analysis_layers, catalog_layers, grid_style, temporal_config, locked)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16)
-          ON CONFLICT (id) DO NOTHING
+          ON CONFLICT (id) DO UPDATE
+            SET name               = EXCLUDED.name,
+                base_layer         = EXCLUDED.base_layer,
+                center_lat         = EXCLUDED.center_lat,
+                center_long        = EXCLUDED.center_long,
+                zoom               = EXCLUDED.zoom,
+                bearing            = EXCLUDED.bearing,
+                pitch              = EXCLUDED.pitch,
+                notes_title        = EXCLUDED.notes_title,
+                notes_description  = EXCLUDED.notes_description,
+                analysis_layers    = EXCLUDED.analysis_layers,
+                catalog_layers     = EXCLUDED.catalog_layers,
+                grid_style         = EXCLUDED.grid_style,
+                temporal_config    = EXCLUDED.temporal_config,
+                locked             = EXCLUDED.locked,
+                deleted_at         = NULL,
+                updated_at         = NOW(),
+                version            = maps.version + 1
+            WHERE maps.deleted_at IS NOT NULL
         `, [
           op.targetId,
           atlasId,
@@ -1515,7 +1845,15 @@ async function applyOperation(t, atlasId, op, userId, permission) {
         await t.none(`
           INSERT INTO briefings (id, atlas_id, name, description, settings, slide_order)
           VALUES ($1, $2, $3, $4, $5::jsonb, $6::uuid[])
-          ON CONFLICT (id) DO NOTHING
+          ON CONFLICT (id) DO UPDATE
+            SET name        = EXCLUDED.name,
+                description = EXCLUDED.description,
+                settings    = EXCLUDED.settings,
+                slide_order = EXCLUDED.slide_order,
+                deleted_at  = NULL,
+                updated_at  = NOW(),
+                version     = briefings.version + 1
+            WHERE briefings.deleted_at IS NOT NULL
         `, [
           op.targetId,
           atlasId,
@@ -1526,13 +1864,30 @@ async function applyOperation(t, atlasId, op, userId, permission) {
         ]);
       } else if (target === 'slide' && op.data) {
         const data = op.data;
+        // The client sends the map's NAME in `mapId`; the column is a UUID. Translate
+        // here, where the transaction is available. See resolveSlideMapId.
+        data.map_id = await resolveSlideMapId(t, atlasId, data);
         // Guard the insert: only attach the slide when its briefing belongs to the
         // route's atlas. A cross-atlas briefing_id yields zero inserted rows.
         await t.none(`
           INSERT INTO slides (id, briefing_id, title, content, mode, map_id, model_id, photo_id, position, orientation, temporal_cursor)
           SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb
           WHERE EXISTS (SELECT 1 FROM briefings WHERE id = $2 AND atlas_id = $12)
-          ON CONFLICT (id) DO NOTHING
+          ON CONFLICT (id) DO UPDATE
+            SET briefing_id      = EXCLUDED.briefing_id,
+                title            = EXCLUDED.title,
+                content          = EXCLUDED.content,
+                mode             = EXCLUDED.mode,
+                map_id           = EXCLUDED.map_id,
+                model_id         = EXCLUDED.model_id,
+                photo_id         = EXCLUDED.photo_id,
+                position         = EXCLUDED.position,
+                orientation      = EXCLUDED.orientation,
+                temporal_cursor  = EXCLUDED.temporal_cursor,
+                deleted_at       = NULL,
+                updated_at       = NOW(),
+                version          = slides.version + 1
+            WHERE slides.deleted_at IS NOT NULL
         `, [
           op.targetId,
           data.briefing_id,
@@ -1582,6 +1937,14 @@ async function applyOperation(t, atlasId, op, userId, permission) {
     }
 
     case 'update': {
+      // Same NAME→UUID translation as the create path: an edited slide carries the
+      // map's display name, and buildUpdateQuery is synchronous, so the lookup has to
+      // happen here while the transaction is in scope. Done BEFORE the cross-atlas
+      // check below, so the resolved id is what gets validated.
+      if (target === 'slide' && op.changes) {
+        op.changes.map_id = await resolveSlideMapId(t, atlasId, op.changes);
+      }
+
       // A feature/slide carries a settable map_id; moving it to a map of ANOTHER
       // atlas would inject/exfiltrate across tenants. Require the destination map
       // to belong to THIS atlas (null map_id = clearing the ref, always allowed).

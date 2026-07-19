@@ -103,6 +103,19 @@ const config = Object.freeze({
     awayGraceMs: parseInt(optional('WS_AWAY_GRACE_MS', '120000'), 10),
   }),
 
+  // How many reverse proxies sit in front of the app, for Express `trust proxy`.
+  //
+  // This is NOT cosmetic: with it unset, `req.ip` is the proxy's address for every
+  // request, so every IP-keyed rate limiter collapses into a single global bucket.
+  // The documented deployment puts nginx in front (docs/wiki/deploy-backend.md,
+  // "NGINX: quatro itens nao negociaveis"), hence the default of 1 hop.
+  //
+  // Set it to 0 when the app is exposed directly. Trusting a hop that does not
+  // exist is the opposite failure: X-Forwarded-For becomes client-controlled, and
+  // an attacker can then forge a fresh key per request and skip the limits
+  // entirely. One hop trusted must mean one hop present.
+  trustProxy: parseInt(optional('TRUST_PROXY_HOPS', '1'), 10),
+
   rateLimit: Object.freeze({
     // Credential routes (login/refresh/register): strict.
     authWindowMs: parseInt(optional('RATE_LIMIT_AUTH_WINDOW_MS', '900000'), 10), // 15 min

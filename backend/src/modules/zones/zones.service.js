@@ -30,33 +30,57 @@ export async function getZone(id) {
   return rows[0];
 }
 
-export async function createZone(data, createdBy) {
+// A zone's GEOMETRY is an access boundary: whether a private place name is visible
+// depends on whether it falls inside a zone the caller holds permission on. Redrawing
+// a polygon therefore changes who sees what, exactly as granting or revoking would,
+// and used to leave no record. Only setZonePermissions audited, which made the gap
+// easy to miss — the permission LIST was tracked while the SHAPE it applies to was not.
+// Each audit shares the transaction of the change it describes.
+
+export async function createZone(data, createdBy, req = null) {
   await assertValidGeom(data.geom);
-  const { rows } = await query(Q.INSERT_ZONE, [
-    data.name || null,
-    data.description || null,
-    JSON.stringify(data.geom),
-    createdBy,
-  ]);
-  return rows[0];
+  return tx(async (t) => {
+    const zone = await t.one(Q.INSERT_ZONE, [
+      data.name || null,
+      data.description || null,
+      JSON.stringify(data.geom),
+      createdBy,
+    ]);
+    await createAudit(req, {
+      action: 'ZONE_CREATE', actorId: createdBy, targetType: 'ZONE',
+      targetId: zone.id, targetName: zone.name ?? null,
+    }, t);
+    return zone;
+  });
 }
 
-export async function updateZone(id, data) {
+export async function updateZone(id, data, actorId = null, req = null) {
   await assertValidGeom(data.geom);
-  const { rows } = await query(Q.UPDATE_ZONE, [
-    id,
-    data.name || null,
-    data.description || null,
-    JSON.stringify(data.geom),
-  ]);
-  if (rows.length === 0) throw new NotFoundError('Zone');
-  return rows[0];
+  return tx(async (t) => {
+    const zone = await t.oneOrNone(Q.UPDATE_ZONE, [
+      id,
+      data.name || null,
+      data.description || null,
+      JSON.stringify(data.geom),
+    ]);
+    if (!zone) throw new NotFoundError('Zone');
+    await createAudit(req, {
+      action: 'ZONE_UPDATE', actorId, targetType: 'ZONE',
+      targetId: id, targetName: zone.name ?? null,
+    }, t);
+    return zone;
+  });
 }
 
-export async function deleteZone(id) {
-  const { rows } = await query(Q.DELETE_ZONE, [id]);
-  if (rows.length === 0) throw new NotFoundError('Zone');
-  return { success: true };
+export async function deleteZone(id, actorId = null, req = null) {
+  return tx(async (t) => {
+    const removed = await t.oneOrNone(Q.DELETE_ZONE, [id]);
+    if (!removed) throw new NotFoundError('Zone');
+    await createAudit(req, {
+      action: 'ZONE_DELETE', actorId, targetType: 'ZONE', targetId: id,
+    }, t);
+    return { success: true };
+  });
 }
 
 export async function getZonePermissions(id) {

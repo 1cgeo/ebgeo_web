@@ -25,8 +25,9 @@ export async function updateOrganization(id, data) {
   const { rows } = await query(Q.UPDATE_ORGANIZATION, [
     id,
     data.nome ?? null,
-    data.sigla ?? null,
+    data.sigla === '' ? null : (data.sigla ?? null),
     data.is_active ?? null,
+    data.sigla !== undefined, // provided? — lets an explicit null clear the column
   ]);
   if (rows.length === 0) throw new NotFoundError('Organization');
   return rows[0];

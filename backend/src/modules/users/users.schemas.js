@@ -41,6 +41,9 @@ export const createUserAdminSchema = Joi.object({
   rank_id: Joi.string().uuid().allow(null, ''),
   organization_id: Joi.string().uuid().allow(null, ''),
   role: Joi.string().valid('user', 'admin').default('user'),
+  // See the note on updateUserAdminSchema.org_role: the column had no writer at all
+  // until 2026-07-19, which left the sv360 org-scoped write gate permanently closed.
+  org_role: Joi.string().valid('owner', 'admin', 'editor', 'viewer').default('viewer'),
 });
 
 export const updateUserAdminSchema = Joi.object({
@@ -53,6 +56,13 @@ export const updateUserAdminSchema = Joi.object({
   // Admin approval of a pending e-mail account (and the no-SMTP fallback path): flipping this true
   // unblocks login for an account that was created with an unverified e-mail.
   email_verified: Joi.boolean(),
+  // Role WITHIN the user's organization, distinct from the global `role` above.
+  // Until 2026-07-19 no code path in either package ever wrote this column: it was
+  // read in eight places and set by none, so every user sat on the DEFAULT 'viewer'
+  // forever and `canWriteProject` (sv360.write.service.js:36, which requires
+  // owner/admin/editor) could never pass. Editing a 360 project was therefore
+  // global-admin-only in practice and the whole org-scoped gate was dead code.
+  org_role: Joi.string().valid('owner', 'admin', 'editor', 'viewer'),
 });
 
 export const resetPasswordSchema = Joi.object({
