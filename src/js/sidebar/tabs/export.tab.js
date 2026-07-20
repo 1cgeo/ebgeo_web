@@ -33,6 +33,12 @@ const EXPORT_OPTIONS = {
         description: 'Gerar mapa para GPS Garmin',
         icon: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/><path d="M2 16l3 3 3-3"/><path d="M22 16l-3 3-3-3"/></svg>`,
     },
+    kmz: {
+        id: 'kmz',
+        name: 'Exportar KMZ',
+        description: 'Mapa vetorial para Google Earth',
+        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+    },
     image: {
         id: 'image',
         name: 'Exportar Imagem',
@@ -69,6 +75,10 @@ export class ExportTab {
         this._garminContentExpanded = false;
         this._garminContentContainer = null;
         this._garminExport = null;
+        this._kmzOptionButton = null;
+        this._kmzContentExpanded = false;
+        this._kmzContentContainer = null;
+        this._kmzSection = null;
         this._is3DViewerOpen = false;
         this._is360ViewerOpen = false;
 
@@ -118,6 +128,16 @@ export class ExportTab {
         this._garminContentContainer.className = 'export-garmin-content';
         this._garminContentContainer.dataset.visible = 'false';
         container.appendChild(this._garminContentContainer);
+
+        // KMZ Export option
+        this._kmzOptionButton = this._createExportOption(EXPORT_OPTIONS.kmz, () => this._toggleKmzContent());
+        container.appendChild(this._kmzOptionButton);
+
+        // KMZ expanded content container
+        this._kmzContentContainer = document.createElement('div');
+        this._kmzContentContainer.className = 'export-kmz-content';
+        this._kmzContentContainer.dataset.visible = 'false';
+        container.appendChild(this._kmzContentContainer);
 
         // Image Export option
         this._imageOptionButton = this._createExportOption(EXPORT_OPTIONS.image, () => this._handleImageExport());
@@ -214,12 +234,24 @@ export class ExportTab {
             if (this._garminContentExpanded) {
                 this._collapseGarminContent();
             }
+
+            // Disable vector KMZ export option
+            if (this._kmzOptionButton) {
+                this._kmzOptionButton.classList.add('disabled-3d-mode');
+            }
+            if (this._kmzContentExpanded) {
+                this._collapseKmzContent();
+            }
         } else {
             // Re-enable PDF export option
             this._pdfOptionButton.classList.remove('disabled-3d-mode');
             // Re-enable Garmin export option
             if (this._garminOptionButton) {
                 this._garminOptionButton.classList.remove('disabled-3d-mode');
+            }
+            // Re-enable vector KMZ export option
+            if (this._kmzOptionButton) {
+                this._kmzOptionButton.classList.remove('disabled-3d-mode');
             }
         }
     }
@@ -323,6 +355,55 @@ export class ExportTab {
             this._pdfExportTab.hidePreview();
         }
         this._pdfExportTab.map.off('move', this._pdfExportTab.onMapMove);
+    }
+
+    // ===== VECTOR KMZ EXPORT =====
+
+    /**
+     * Toggles the vector KMZ export content.
+     * @private
+     */
+    _toggleKmzContent() {
+        if (this._isViewerBlocked('KMZ')) return;
+
+        this._kmzContentExpanded = !this._kmzContentExpanded;
+        this._kmzContentContainer.dataset.visible = this._kmzContentExpanded.toString();
+
+        const arrow = this._kmzOptionButton?.querySelector('.export-option-arrow svg');
+        if (arrow) {
+            arrow.style.transform = this._kmzContentExpanded ? 'rotate(90deg)' : 'rotate(0deg)';
+        }
+
+        if (this._kmzContentExpanded) {
+            this._renderKmzContent();
+        }
+    }
+
+    /**
+     * Builds the KMZ panel on first expansion.
+     * @private
+     */
+    async _renderKmzContent() {
+        if (this._kmzSection) return;
+
+        const { KmzExportSection } = await import('./kmz-export.section.js');
+        this._kmzSection = new KmzExportSection({ container: this._kmzContentContainer });
+        await this._kmzSection.render();
+    }
+
+    /**
+     * Collapses the KMZ content.
+     * @private
+     */
+    _collapseKmzContent() {
+        this._kmzContentExpanded = false;
+        if (this._kmzContentContainer) {
+            this._kmzContentContainer.dataset.visible = 'false';
+        }
+        const arrow = this._kmzOptionButton?.querySelector('.export-option-arrow svg');
+        if (arrow) {
+            arrow.style.transform = 'rotate(0deg)';
+        }
     }
 
     // ===== GARMIN KMZ EXPORT =====
@@ -887,6 +968,9 @@ export class ExportTab {
         if (this._garminContentExpanded) {
             this._collapseGarminContent();
         }
+        if (this._kmzContentExpanded) {
+            this._collapseKmzContent();
+        }
     }
 
     /**
@@ -899,6 +983,10 @@ export class ExportTab {
         // Cleanup Garmin export
         this._hideGarminPreview();
 
+        // Cleanup vector KMZ panel listeners
+        this._kmzSection?.destroy();
+        this._kmzSection = null;
+
         cleanup(this);
         removeElement(this._container);
         this._container = null;
@@ -907,5 +995,7 @@ export class ExportTab {
         this._imageOptionButton = null;
         this._garminOptionButton = null;
         this._garminContentContainer = null;
+        this._kmzOptionButton = null;
+        this._kmzContentContainer = null;
     }
 }
