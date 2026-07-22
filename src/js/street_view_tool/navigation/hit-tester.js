@@ -26,18 +26,42 @@ export class StreetViewHitTester {
     }
 
     /**
-     * Tests if a point hits any marker
+     * Tests if a point hits any marker, and returns the BEST match rather than
+     * the first one found.
+     *
+     * "First that contains the point, nearest first" looks reasonable and is
+     * wrong: the click areas are deliberately larger than the drawings, so a
+     * near icon's area swallows the centre of the one behind it and that target
+     * becomes unreachable. Measured on the museum's first photo, the second icon
+     * of the queue sat 46 px from the first, whose click radius is 49.5 px.
+     *
+     * Comparing distance normalised by each marker's own radius makes every icon
+     * own its neighbourhood: on its own centre it always wins.
+     *
      * @param {number} screenX - Screen X coordinate
      * @param {number} screenY - Screen Y coordinate
      * @returns {Object|null} The hit marker or null
      */
     testPoint(screenX, screenY) {
+        let best = null;
+        let bestScore = Infinity;
+
         for (const marker of this.markers) {
-            if (this.isPointInMarker(screenX, screenY, marker)) {
-                return marker;
+            if (!this.isPointInMarker(screenX, screenY, marker)) continue;
+
+            const hitRadius = marker.hitRadius
+                ?? (marker.radius * NAV_CONSTANTS.HIT_RADIUS_MULTIPLIER);
+            const dx = screenX - marker.screenX;
+            const dy = screenY - marker.screenY;
+            const score = Math.hypot(dx, dy) / Math.max(1e-6, hitRadius);
+
+            if (score < bestScore) {
+                bestScore = score;
+                best = marker;
             }
         }
-        return null;
+
+        return best;
     }
 
     /**
@@ -63,28 +87,26 @@ export class StreetViewHitTester {
     }
 
     /**
-     * Checks if a point is inside a marker's visual ellipse.
-     * Navigation markers are rendered as ellipses via ctx.scale(1, flattenY),
-     * so hit testing must account for the Y-axis compression.
+     * Checks if a point is inside a marker.
+     *
+     * A plain circle: the flattened ellipse belonged to the ground model, where
+     * markers pretended to be discs lying on the floor.
+     *
      * @param {number} screenX - Screen X coordinate
      * @param {number} screenY - Screen Y coordinate
      * @param {Object} marker - Marker object
      * @returns {boolean} True if point is inside
      */
     isPointInMarker(screenX, screenY, marker) {
-        const { screenX: mx, screenY: my, radius, flattenY } = marker;
+        const { screenX: mx, screenY: my, radius } = marker;
 
-        const hitRadius = radius * NAV_CONSTANTS.HIT_RADIUS_MULTIPLIER;
+        // The navigator computes hitRadius when it knows the canvas size, which
+        // is what lets the target have a floor; fall back to the plain multiplier.
+        const hitRadius = marker.hitRadius ?? (radius * NAV_CONSTANTS.HIT_RADIUS_MULTIPLIER);
         const dx = screenX - mx;
         const dy = screenY - my;
 
-        // Elliptical hit test: (dx/rx)^2 + (dy/ry)^2 <= 1
-        // rx = hitRadius, ry = hitRadius * flattenY
-        const fy = flattenY || 1;
-        const normX = dx / hitRadius;
-        const normY = dy / (hitRadius * fy);
-
-        return (normX * normX + normY * normY) <= 1;
+        return (dx * dx + dy * dy) <= hitRadius * hitRadius;
     }
 
     /**
