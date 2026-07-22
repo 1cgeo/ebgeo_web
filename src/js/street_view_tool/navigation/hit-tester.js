@@ -65,28 +65,6 @@ export class StreetViewHitTester {
     }
 
     /**
-     * Finds the closest marker to a point within a maximum distance
-     * @param {number} screenX - Screen X coordinate
-     * @param {number} screenY - Screen Y coordinate
-     * @param {number} maxDistance - Maximum distance in pixels
-     * @returns {Object|null} The closest marker or null
-     */
-    findClosest(screenX, screenY, maxDistance) {
-        let closestMarker = null;
-        let closestDistance = maxDistance;
-
-        for (const marker of this.markers) {
-            const distance = this.getDistanceToMarker(screenX, screenY, marker);
-            if (distance < closestDistance) {
-                closestDistance = distance;
-                closestMarker = marker;
-            }
-        }
-
-        return closestMarker;
-    }
-
-    /**
      * Checks if a point is inside a marker.
      *
      * A plain circle: the flattened ellipse belonged to the ground model, where
@@ -107,40 +85,5 @@ export class StreetViewHitTester {
         const dy = screenY - my;
 
         return (dx * dx + dy * dy) <= hitRadius * hitRadius;
-    }
-
-    /**
-     * Gets the distance from a point to a marker's center
-     * @param {number} screenX - Screen X coordinate
-     * @param {number} screenY - Screen Y coordinate
-     * @param {Object} marker - Marker object
-     * @returns {number} Distance in pixels
-     */
-    getDistanceToMarker(screenX, screenY, marker) {
-        const dx = screenX - marker.screenX;
-        const dy = screenY - marker.screenY;
-        return Math.sqrt(dx * dx + dy * dy);
-    }
-
-    /**
-     * Gets all markers within a certain distance from a point
-     * @param {number} screenX - Screen X coordinate
-     * @param {number} screenY - Screen Y coordinate
-     * @param {number} maxDistance - Maximum distance in pixels
-     * @returns {Array} Array of markers within distance
-     */
-    getMarkersNear(screenX, screenY, maxDistance) {
-        return this.markers.filter(marker => {
-            const distance = this.getDistanceToMarker(screenX, screenY, marker);
-            return distance <= maxDistance;
-        });
-    }
-
-    /**
-     * Gets all markers that are currently visible
-     * @returns {Array} Array of visible markers
-     */
-    getVisibleMarkers() {
-        return this.markers.filter(marker => marker.visible !== false);
     }
 }

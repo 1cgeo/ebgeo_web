@@ -3,7 +3,7 @@
 /**
  * @fileoverview Main orchestrator for Street View 360 navigation system.
  * Coordinates the projector, renderer, hit tester, and minimap sync.
- * Implements Google Street View-like navigation behavior with ground cursor.
+ * Draws navigation targets as a relative band on the corrected horizon.
  */
 
 import { NAV_CONSTANTS } from './constants.js';
@@ -53,7 +53,6 @@ export class StreetViewNavigator {
         this.selectedPOIId = null;
         this.markerToolActive = false;
         this.nearestTargetId = null;
-        this.cursorNearestTargetId = null; // Dynamically calculated based on cursor position
 
         // Drag detection state
         this.pointerDownPos = null;
@@ -214,7 +213,7 @@ export class StreetViewNavigator {
         const yaw = -(worldHeadingDeg * Math.PI) / 180;
         const pitch = (latDeg * Math.PI) / 180;
 
-        // Store for use in updateMinimapCursor and ground cursor
+        // Store for the marker tool's screen->spherical click mapping
         this.currentYaw = yaw;
         this.currentPitch = pitch;
         this.currentFov = fov;
@@ -257,39 +256,8 @@ export class StreetViewNavigator {
         this.renderer.setSelectedMarker(this.selectedPOIId);
         this.renderer.setNearestMarker(this.nearestTargetId);
 
-        // Update ground cursor (calculates cursorNearestTargetId)
-        this.updateGroundCursor(yaw, pitch, fov);
-
-        // Set cursor nearest marker after updateGroundCursor updates cursorNearestTargetId
-        this.renderer.setCursorNearestMarker(this.cursorNearestTargetId);
-
         // Render
         this.renderer.render();
-    }
-
-    /**
-     * Finds the on-screen navigation marker closest to the pointer.
-     * Used by the horizon model, where there is no ground plane to project onto.
-     *
-     * @returns {string|null} Marker id, or null when there is nothing to highlight
-     */
-    findNearestMarkerToPointer() {
-        let nearestId = null;
-        let nearestDist = Infinity;
-
-        for (const marker of this.renderer.markers) {
-            if (marker.type !== 'navigation' || marker.offscreen) continue;
-            const dist = Math.hypot(
-                marker.screenX - this.mousePosition.x,
-                marker.screenY - this.mousePosition.y
-            );
-            if (dist < nearestDist) {
-                nearestDist = dist;
-                nearestId = marker.id;
-            }
-        }
-
-        return nearestId;
     }
 
     /**
@@ -708,22 +676,11 @@ export class StreetViewNavigator {
                 return { type: 'poi', poi: hit.data };
             }
         } else {
-            // Clicked on empty space
+            // Clicked on empty space: only deselect a POI, if any. Clicking the
+            // void no longer navigates (the ground cursor that used to point at
+            // the nearest target is gone with the flat-ground model).
             if (this.selectedPOIId) {
                 this.deselectPOI();
-            } else if (
-                this.cursorNearestTargetId &&
-                this.targets.length > 0 &&
-                this.renderer.groundCursor?.arrowAngle != null
-            ) {
-                // Only navigate when the ground cursor is visible and has an
-                // arrow pointing to a target (cursor is on the ground plane).
-                // If the cursor is above the horizon, groundCursor is null.
-                const nearestTarget = this.targets.find(t => t.id === this.cursorNearestTargetId);
-                if (nearestTarget) {
-                    this.navigateToTarget(nearestTarget);
-                    return { type: 'navigation', target: nearestTarget };
-                }
             }
             return null;
         }

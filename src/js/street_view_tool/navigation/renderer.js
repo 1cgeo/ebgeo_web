@@ -2,8 +2,8 @@
 
 /**
  * @fileoverview Canvas 2D renderer for Street View 360 navigation elements.
- * Renders navigation markers (simple circles), ground cursor with arrow, POIs, and selection highlights.
- * Implements Google Street View-like cursor behavior.
+ * Renders navigation markers as armillary spheres, edge arrows, POIs and
+ * selection highlights.
  */
 
 import { NAV_CONSTANTS } from './constants.js';

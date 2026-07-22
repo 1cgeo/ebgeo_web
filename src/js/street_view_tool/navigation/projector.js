@@ -120,70 +120,6 @@ export class StreetViewProjector {
     }
 
     /**
-     * Converts screen coordinates to a point on the ground plane
-     * @param {number} screenX - Screen X coordinate
-     * @param {number} screenY - Screen Y coordinate
-     * @param {number} yaw - Camera yaw rotation in radians
-     * @param {number} pitch - Camera pitch rotation in radians
-     * @param {number} fov - Camera field of view in degrees
-     * @returns {{x: number, z: number}|null} Ground position in meters, or null if not hitting ground
-     */
-    screenToGround(screenX, screenY, yaw, pitch, fov) {
-        const cameraHeight = this.cameraConfig?.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT;
-
-        // Convert screen to normalized device coordinates
-        const ndcX = (screenX / this.canvasWidth) * 2 - 1;
-        const ndcY = 1 - (screenY / this.canvasHeight) * 2;
-
-        // Calculate ray direction in camera space (looking at -Z)
-        const fovRad = (fov * Math.PI) / 180;
-        const aspectRatio = this.canvasWidth / this.canvasHeight;
-        const tanHalfFov = Math.tan(fovRad / 2);
-
-        let rayX = ndcX * tanHalfFov * aspectRatio;
-        let rayY = ndcY * tanHalfFov;
-        let rayZ = -1;
-
-        // Apply inverse pitch rotation (undo the camera pitch)
-        // metersToScreen uses: y' = y*cos(-p) - z*sin(-p), z' = y*sin(-p) + z*cos(-p)
-        // Inverse: y' = y*cos(-p) + z*sin(-p), z' = -y*sin(-p) + z*cos(-p)
-        // Which simplifies to: y' = y*cos(p) - z*sin(p), z' = y*sin(p) + z*cos(p)
-        const cosPitch = Math.cos(pitch);
-        const sinPitch = Math.sin(pitch);
-        const tempY = rayY * cosPitch - rayZ * sinPitch;
-        const tempZ1 = rayY * sinPitch + rayZ * cosPitch;
-        rayY = tempY;
-        rayZ = tempZ1;
-
-        // Apply inverse yaw rotation (undo the camera yaw)
-        // metersToScreen uses: x' = x*cos(y) - z*sin(y), z' = x*sin(y) + z*cos(y)
-        // Inverse: x' = x*cos(y) + z*sin(y), z' = -x*sin(y) + z*cos(y)
-        const cosYaw = Math.cos(yaw);
-        const sinYaw = Math.sin(yaw);
-        const tempX = rayX * cosYaw + rayZ * sinYaw;
-        const tempZ2 = -rayX * sinYaw + rayZ * cosYaw;
-        rayX = tempX;
-        rayZ = tempZ2;
-
-        // Check if ray points upward (won't hit ground)
-        if (rayY >= 0) {
-            return null;
-        }
-
-        // Calculate intersection with ground plane (y = -cameraHeight)
-        const t = -cameraHeight / rayY;
-
-        if (t < 0) {
-            return null;
-        }
-
-        return {
-            x: rayX * t,
-            z: rayZ * t
-        };
-    }
-
-    /**
      * Converts screen coordinates to spherical coordinates (heading/pitch)
      * @param {number} screenX - Screen X coordinate
      * @param {number} screenY - Screen Y coordinate
@@ -212,7 +148,7 @@ export class StreetViewProjector {
         rayY /= length;
         rayZ /= length;
 
-        // Apply inverse pitch rotation (same as screenToGround)
+        // Apply inverse pitch rotation (undo the camera pitch)
         const cosPitch = Math.cos(pitch);
         const sinPitch = Math.sin(pitch);
         const tempY = rayY * cosPitch - rayZ * sinPitch;
@@ -220,7 +156,7 @@ export class StreetViewProjector {
         rayY = tempY;
         rayZ = tempZ1;
 
-        // Apply inverse yaw rotation (same as screenToGround)
+        // Apply inverse yaw rotation (undo the camera yaw)
         const cosYaw = Math.cos(yaw);
         const sinYaw = Math.sin(yaw);
         const tempX = rayX * cosYaw + rayZ * sinYaw;
@@ -374,21 +310,6 @@ export class StreetViewProjector {
         return Math.min(ceiling, -base + band * (1 - this.rankRatio(rank)));
     }
 
-    /**
-     * Checks if a screen position is within the camera's field of view
-     * @param {number} screenX - Screen X coordinate
-     * @param {number} screenY - Screen Y coordinate
-     * @param {number} margin - Additional margin in pixels
-     * @returns {boolean} True if within FOV
-     */
-    isInFOV(screenX, screenY, margin = 0) {
-        return (
-            screenX >= -margin &&
-            screenX <= this.canvasWidth + margin &&
-            screenY >= -margin &&
-            screenY <= this.canvasHeight + margin
-        );
-    }
 
     /**
      * Calculates the focal length (in pixels) for the current canvas and FOV.

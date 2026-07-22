@@ -21,7 +21,6 @@ import {
 import { isTemporallyVisible } from '@js/temporal/temporal-model.js';
 import { showSuccess } from '@utils/toast_service.js';
 import { LRUCache } from '@utils/lru-cache.js';
-import { NAV_CONSTANTS } from './navigation/constants.js';
 import {
     activateKeyboardService360,
     deactivateKeyboardService360,
@@ -210,7 +209,6 @@ async function initThreeJS() {
     });
 
     addDocumentListener('wheel', onDocumentMouseWheel, { passive: true });
-    addDocumentListener('pointermove', onPointerMoveGlobal, { passive: true });
 
     window.addEventListener('resize', onWindowResize);
 
@@ -256,11 +254,10 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
     streetViewState.currentInfo = data;
     streetViewState.currentPhotoName = photoName;
 
-    // Apply defaults for missing metadata fields
-    const cameraConfig = {
-        ...data.camera,
-        height: data.camera.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT,
-    };
+    // camera_height is inert in the relative marker model; the navigator only
+    // reads lon/lat/heading. (The old DEFAULT_CAMERA_HEIGHT fallback pointed at
+    // a constant that no longer exists and fed the removed ground model.)
+    const cameraConfig = { ...data.camera };
 
     const targets = data.targets || [];
 
@@ -905,13 +902,6 @@ function onPointerUp(event) {
     isUserInteracting = false;
     document.removeEventListener('pointermove', onPointerMove);
     document.removeEventListener('pointerup', onPointerUp);
-}
-
-function onPointerMoveGlobal(_event) {
-    // This document-level listener is not removed on close (the scene is kept for
-    // resume). Guard so it does no work app-wide once the viewer is hidden.
-    if (!streetViewState.isVisible) return;
-    updateCurrentHeading();
 }
 
 function onDocumentMouseWheel(event) {

@@ -196,9 +196,14 @@ class AddStreetViewControl {
 
                 // Click on minimap point to navigate
                 this.miniMap.on('click', 'points', async (e) => {
-                    const properties = e.features[0].properties;
-                    const { navigateToTarget } = await import('./street_view_viewer.js');
-                    await navigateToTarget(properties[PHOTO_PROPERTY]);
+                    const uuid = e.features?.[0]?.properties?.[PHOTO_PROPERTY];
+                    if (!uuid) return;
+                    try {
+                        const { navigateToTarget } = await import('./street_view_viewer.js');
+                        await navigateToTarget(uuid);
+                    } catch (error) {
+                        console.error('Error navigating from minimap click:', error);
+                    }
                 });
 
                 // Vinculo minimapa -> 360: apontar um ponto na planta acende o
