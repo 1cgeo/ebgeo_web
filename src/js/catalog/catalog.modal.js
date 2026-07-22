@@ -8,7 +8,7 @@
 import { getControl, isCurrentMapLockedSync } from '@store';
 import { EventTypes } from '@events/event_types.js';
 import { ModalBase } from '@modals/modal.base.js';
-import { CatalogService } from './catalog.service.js';
+import { CatalogService, sortByDateDesc } from './catalog.service.js';
 import {
     CATALOG_ITEM_TYPES,
     CATALOG_TYPE_CONFIG,
@@ -212,7 +212,11 @@ export class CatalogModal extends ModalBase {
             items = CatalogService.searchItems(this._searchQuery, items);
         }
 
-        this._filteredItems = items;
+        // Guarantee the grid is ALWAYS date-descending, with or without type
+        // filters or search, so opening the catalog shows the newest products
+        // first. Filtering preserves order, but re-applying the authoritative
+        // sort here keeps the guarantee even if the filter logic changes later.
+        this._filteredItems = sortByDateDesc(items);
         this._renderGrid();
     }
 

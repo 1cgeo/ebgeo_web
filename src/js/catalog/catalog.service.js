@@ -10,6 +10,80 @@ import config from '@js/config.js';
 import { CATALOG_ITEM_TYPES, DEFAULT_THUMBNAILS } from './catalog.constants.js';
 
 /**
+ * Parses a catalog date string into a sortable epoch (ms), tolerating the two
+ * formats the sources actually emit: 3D models carry `DD/MM/YYYY`
+ * (config.data_captura, e.g. "15/03/2024") and 360 projects carry ISO
+ * `YYYY-MM-DD` (the service's capture_date, e.g. "2026-02-25").
+ *
+ * Returns null for anything it cannot parse (including missing dates), so the
+ * comparator can push those to the end instead of returning NaN — a NaN from
+ * one bad value corrupts the WHOLE sort, which is exactly what mixed formats
+ * were doing before.
+ *
+ * @param {string|null|undefined} dateStr
+ * @returns {number|null} Epoch milliseconds, or null when unparseable
+ */
+export function parseCatalogDate(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+    const s = dateStr.trim();
+
+    let year, month, day;
+    if (s.includes('/')) {
+        // DD/MM/YYYY
+        [day, month, year] = s.split('/').map(Number);
+    } else if (s.includes('-')) {
+        // ISO YYYY-MM-DD (ignore any time component after the date)
+        [year, month, day] = s.slice(0, 10).split('-').map(Number);
+    } else {
+        return null;
+    }
+
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+        return null;
+    }
+    const t = new Date(year, month - 1, day).getTime();
+    return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * Formats a catalog date for display as DD/MM/YYYY, whatever format it arrived
+ * in. The sources disagree (3D models are DD/MM/YYYY, 360 projects are ISO), so
+ * the cards used to show two different formats side by side. Unparseable strings
+ * are returned unchanged rather than hidden.
+ *
+ * @param {string|null|undefined} dateStr
+ * @returns {string} DD/MM/YYYY, or the original string when unparseable
+ */
+export function formatCatalogDate(dateStr) {
+    const t = parseCatalogDate(dateStr);
+    if (t === null) return dateStr ?? '';
+    const d = new Date(t);
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+/**
+ * Sorts catalog items by date, most recent first, with undated (or unparseable)
+ * items last. Stable and NaN-free, so the order is deterministic regardless of
+ * which date formats are mixed in. Sorts a copy; the input array is untouched.
+ *
+ * @param {CatalogItem[]} items
+ * @returns {CatalogItem[]}
+ */
+export function sortByDateDesc(items) {
+    return items
+        .map((item, index) => ({ item, index, t: parseCatalogDate(item.date) }))
+        .sort((a, b) => {
+            if (a.t === null && b.t === null) return a.index - b.index; // keep input order
+            if (a.t === null) return 1;   // undated goes last
+            if (b.t === null) return -1;
+            if (b.t !== a.t) return b.t - a.t; // most recent first
+            return a.index - b.index;     // tie: stable by original order
+        })
+        .map(entry => entry.item);
+}
+
+/**
  * @typedef {Object} CatalogItem
  * @property {string} id - Unique identifier
  * @property {string} type - Item type (CATALOG_ITEM_TYPES)
@@ -43,24 +117,9 @@ export class CatalogService {
             ...this._getDataLayers()
         ];
 
-        // Sort by date descending (most recent first)
-        // Items without dates go to the end
-        return items.sort((a, b) => {
-            if (!a.date && !b.date) return 0;
-            if (!a.date) return 1;
-            if (!b.date) return -1;
-
-            // Parse DD/MM/YYYY format
-            const parseDate = (dateStr) => {
-                const [day, month, year] = dateStr.split('/').map(Number);
-                return new Date(year, month - 1, day);
-            };
-
-            const dateA = parseDate(a.date);
-            const dateB = parseDate(b.date);
-
-            return dateB - dateA; // Descending order
-        });
+        // Sort by date descending (most recent first), undated items last.
+        // Robust to the mixed DD/MM/YYYY (models) and ISO (360) formats.
+        return sortByDateDesc(items);
     }
 
     /**
