@@ -185,6 +185,19 @@ class BaseLayerControl {
     }
 
     async switchLayer(layer, { skipPersist = false } = {}) {
+        // config.basemaps and STYLE_MAP are separate lists: a basemap can be
+        // enabled in config (so getValidBasemapFallback accepts it) and still
+        // have no style registered here. setStyle(undefined) never completes,
+        // so fall back to a layer that actually has one.
+        if (!this.styleUrls[layer]) {
+            const fallback = Object.keys(this.styleUrls)[0];
+            console.warn(`Base layer "${layer}" has no registered style. Using "${fallback}".`);
+            if (!fallback) {
+                return;
+            }
+            layer = fallback;
+        }
+
         if (!skipPersist) {
             await setBaseLayer(layer);
         }
@@ -214,7 +227,14 @@ class BaseLayerControl {
             });
 
             this.map.setStyle(styleUrl);
-            await styleLoadPromise;
+            // MapLibre diffs the incoming style against the current one and,
+            // when the diff yields no operations, returns without ever firing
+            // 'styledata' (Style.setState). That happens whenever two entries
+            // of STYLE_MAP hold the same style, and waiting for the event would
+            // stall the boot for the full timeout. A missed event must not be
+            // fatal: the style is either already correct or MapLibre finishes
+            // applying it on its own.
+            await styleLoadPromise.catch((error) => console.warn(`[base-layer] ${error.message}`));
             this.currentLayer = layer;
 
             // Reapply globe projection after style change (setStyle resets projection)

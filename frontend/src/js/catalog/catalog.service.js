@@ -11,6 +11,74 @@ import { CATALOG_ITEM_TYPES, DEFAULT_THUMBNAILS } from './catalog.constants.js';
 import { getAtlas360Allowlist } from '@store/sync/atlas-settings.service.js';
 
 /**
+ * Parses a catalog date into epoch ms.
+ *
+ * The catalog mixes two formats: 3D models carry DD/MM/YYYY (`data_captura`,
+ * seeded that way in the backend) while 360 projects carry ISO (`capture_date`
+ * is a TIMESTAMPTZ column). Returns null — never NaN — for anything it cannot
+ * read, because a comparator that returns NaN corrupts the whole sort.
+ *
+ * @param {string} dateStr
+ * @returns {number|null} Epoch ms, or null when unparseable
+ */
+export function parseCatalogDate(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+    const s = dateStr.trim();
+
+    let year, month, day;
+    if (s.includes('/')) {
+        // DD/MM/YYYY
+        [day, month, year] = s.split('/').map(Number);
+    } else if (s.includes('-')) {
+        // ISO YYYY-MM-DD (ignore any time component after the date)
+        [year, month, day] = s.slice(0, 10).split('-').map(Number);
+    } else {
+        return null;
+    }
+
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+        return null;
+    }
+    const t = new Date(year, month - 1, day).getTime();
+    return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * Formats a catalog date for display, normalizing the two stored formats.
+ *
+ * @param {string} dateStr
+ * @returns {string} DD/MM/YYYY, or the original string when unparseable
+ */
+export function formatCatalogDate(dateStr) {
+    const t = parseCatalogDate(dateStr);
+    if (t === null) return dateStr ?? '';
+    const d = new Date(t);
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+/**
+ * Sorts catalog items by date, most recent first, with undated (or unparseable)
+ * items last. Stable and NaN-free, so the order is deterministic regardless of
+ * which date formats are mixed in. Sorts a copy; the input array is untouched.
+ *
+ * @param {CatalogItem[]} items
+ * @returns {CatalogItem[]}
+ */
+export function sortByDateDesc(items) {
+    return items
+        .map((item, index) => ({ item, index, t: parseCatalogDate(item.date) }))
+        .sort((a, b) => {
+            if (a.t === null && b.t === null) return a.index - b.index; // keep input order
+            if (a.t === null) return 1;   // undated goes last
+            if (b.t === null) return -1;
+            if (b.t !== a.t) return b.t - a.t; // most recent first
+            return a.index - b.index;     // tie: stable by original order
+        })
+        .map(entry => entry.item);
+}
+
+/**
  * @typedef {Object} CatalogItem
  * @property {string} id - Unique identifier
  * @property {string} type - Item type (CATALOG_ITEM_TYPES)
@@ -44,24 +112,7 @@ export class CatalogService {
             ...this._getDataLayers()
         ];
 
-        // Sort by date descending (most recent first)
-        // Items without dates go to the end
-        return items.sort((a, b) => {
-            if (!a.date && !b.date) return 0;
-            if (!a.date) return 1;
-            if (!b.date) return -1;
-
-            // Parse DD/MM/YYYY format
-            const parseDate = (dateStr) => {
-                const [day, month, year] = dateStr.split('/').map(Number);
-                return new Date(year, month - 1, day);
-            };
-
-            const dateA = parseDate(a.date);
-            const dateB = parseDate(b.date);
-
-            return dateB - dateA; // Descending order
-        });
+        return sortByDateDesc(items);
     }
 
     /**

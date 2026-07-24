@@ -11,6 +11,7 @@ import {
     DEFAULT_THUMBNAILS,
     CATALOG_UI_ICONS
 } from '../catalog.constants.js';
+import { formatCatalogDate } from '../catalog.service.js';
 
 /** Icons used in catalog card */
 const { CALENDAR, MAP_PIN, CHEVRON_RIGHT } = CATALOG_UI_ICONS;
@@ -84,7 +85,7 @@ export function createCatalogCard({ item, onClick, mapLocked = false, selectable
         if (item.date) {
             const dateSpan = document.createElement('span');
             dateSpan.className = 'catalog-card-meta-item';
-            dateSpan.innerHTML = `${CALENDAR}<span>${escapeHtml(item.date)}</span>`;
+            dateSpan.innerHTML = `${CALENDAR}<span>${escapeHtml(formatCatalogDate(item.date))}</span>`;
             meta.appendChild(dateSpan);
         }
 
