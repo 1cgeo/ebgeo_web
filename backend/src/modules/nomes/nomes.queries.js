@@ -18,7 +18,25 @@ candidatos AS (
     similarity(ng.f_unaccent(n.nome), q.term) AS sim,
     ST_Distance(n.geom::geography, ST_SetSRID(ST_MakePoint($3, $2), 4674)::geography) AS dist
   FROM ng.nomes_geograficos n, q
-  WHERE similarity(ng.f_unaccent(n.nome), q.term) > 0.25
+  -- OPERADOR de similaridade, não a chamada similarity(...) > 0.25. O pg_trgm só alcança o
+  -- índice GIN pelo operador; uma chamada de função é opaca ao planner e força
+  -- Seq Scan sobre a ng.nomes_geograficos inteira, avaliando f_unaccent() e
+  -- similarity() linha a linha e depois ST_Distance() sobre cada candidato. O
+  -- índice que resolve isso já existia e estava ocioso desde a migração 004
+  -- (idx_ng_nome_unaccent_trgm, GIN sobre ng.f_unaccent(nome)).
+  --
+  -- O limiar de 0.25 é preservado por SET LOCAL pg_trgm.similarity_threshold
+  -- no service, e NÃO pelo default da extensão, que é 0.3: trocar o predicado
+  -- sem fixar o limiar deixaria de fora os resultados entre 0.25 e 0.3, o que
+  -- seria mudança silenciosa de comportamento de busca.
+  --
+  -- O termo vem do PARÂMETRO, não de q.term, e isso é load-bearing: a CTE q é
+  -- referenciada mais de uma vez (aqui e no cálculo do score), então o Postgres a
+  -- MATERIALIZA, e q.term deixa de ser constante para o planner. Medido com
+  -- EXPLAIN: com q.term o operador aparece como "Join Filter" e o índice segue
+  -- ocioso mesmo com enable_seqscan=off; com o parâmetro direto vira Index Cond.
+  -- Trocar o operador sem tirar a CTE do predicado não conserta nada.
+  WHERE ng.f_unaccent(n.nome) % ng.f_unaccent($1)
     -- is_active is part of the ACCESS FILTER, not a nicety. flexibleAuth only
     -- reconciles against the DB in the last 5 minutes of a token's life, so between a
     -- deactivation and that window a disabled account still carries a valid JWT. The

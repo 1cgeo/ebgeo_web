@@ -625,6 +625,18 @@ O DEFEITO: `return createReadStream(fmeta.path).pipe(res)` (assets3d.controller.
 
 ### 27. GET /nomes/busca é anônimo e sem rate limit, e sua SQL usa similarity() > 0.25 em vez do operador %, o que impede o uso do índice GIN trgm e força varredura sequencial do gazetteer inteiro
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO nas duas metades, e a correção do predicado exigiu mais do que o relatório previa.
+>
+> **Índice.** Trocar `similarity(...) > 0.25` pelo operador NÃO bastou: medido com EXPLAIN, o operador aparecia como `Join Filter` e o índice seguia ocioso mesmo com `enable_seqscan=off`. A causa é a CTE `q`, referenciada mais de uma vez (no predicado e no cálculo do score), o que faz o Postgres MATERIALIZÁ-LA — `q.term` deixa de ser constante para o planner. O predicado passou a usar o parâmetro direto (`ng.f_unaccent($1)`), e aí vira `Index Cond` sobre `idx_ng_nome_unaccent_trgm`, que estava ocioso desde a migração 004.
+>
+> **Limiar.** O operador lê `pg_trgm.similarity_threshold`, cujo default é 0.3, enquanto o predicado antigo comparava contra 0.25. Trocar sem fixar teria apertado a busca em silêncio, descartando a faixa 0.25–0.3. O service passou a rodar a busca em transação com `SET LOCAL` (não `SET`, para não vazar pela conexão do pool).
+>
+> **Teto.** `gazetteerLimiter` por endereço, com store próprio (dividir balde com o link público faria uma feature esgotar a cota da outra), configurável por env e posicionado ANTES do `validate` — uma varredura manda query malformada de graça se o teto só contar o que passa na validação. O valor é folgado por escolha medida: o cliente faz debounce de 300 ms, então o que o teto corta é a varredura sequencial, não o uso humano.
+>
+> Teste: `backend/tests/integration/nomes-busca-indice.repro.test.js` (3 casos). O primeiro afirma `Index Cond`, não só a presença do índice no plano — é essa distinção que separa "usa o índice" de "tem o índice em algum lugar do plano". O volume de 20 mil linhas é parte do teste, não enfeite: em escala pequena o planner escolhe o índice de `access_level` e a medição viraria ruído. O segundo prende o limiar com um termo em 0.2778, exatamente na faixa onde 0.25 e 0.3 discordam.
+>
+> Controle negativo: restaurado o predicado antigo, o caso do plano cai.
+
 - **Arquivo:** `backend/src/modules/nomes/nomes.queries.js:20`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-seguranca-borda` · **Classe:** `dos-sem-limite`

@@ -123,6 +123,15 @@ const config = Object.freeze({
     // Public link route: looser, by IP only.
     publicWindowMs: parseInt(optional('RATE_LIMIT_PUBLIC_WINDOW_MS', '60000'), 10), // 1 min
     publicMax: parseInt(optional('RATE_LIMIT_PUBLIC_MAX', '30'), 10),
+    // Busca do gazetteer: ANÔNIMA de propósito (é a busca do caminho sem login),
+    // então o custo por requisição é o que decide se ela vira vetor de DoS. O teto
+    // é folgado por escolha: o cliente faz debounce de 300 ms
+    // (`frontend/src/js/search/feature-search.control.js:71`), então um humano
+    // digitando não passa de alguns por segundo em rajada, e um escritório inteiro
+    // atrás de um egress compartilhado ainda cabe. O que ele corta é a varredura
+    // sequencial do gazetteer, que precisa de milhares.
+    gazetteerWindowMs: parseInt(optional('RATE_LIMIT_GAZETTEER_WINDOW_MS', '60000'), 10), // 1 min
+    gazetteerMax: parseInt(optional('RATE_LIMIT_GAZETTEER_MAX', '300'), 10),
   }),
 
   security: Object.freeze({

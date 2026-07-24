@@ -134,3 +134,22 @@ export const publicLinkLimiter = rateLimit({
   handler,
   skip,
 });
+
+/**
+ * Busca do gazetteer (`GET /nomes/busca`). Rota ANÔNIMA por decisão de produto —
+ * é a busca do caminho sem login — e por isso a única defesa contra varredura é
+ * o teto por endereço. Store próprio: dividir balde com o link público faria uma
+ * feature esgotar a cota da outra.
+ *
+ * O teto é folgado de propósito (ver o porquê em `backend/src/config.js`): o que
+ * ele corta é a varredura sequencial, não o uso humano.
+ */
+export const gazetteerLimiter = rateLimit({
+  windowMs: config.rateLimit.gazetteerWindowMs,
+  max: config.rateLimit.gazetteerMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate,
+  handler,
+  skip,
+});
