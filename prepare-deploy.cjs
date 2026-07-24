@@ -40,7 +40,10 @@ const config = {
     apiUrl: ''
   },
 
-  // ===== CONFIGURAÇÃO DE BASEMAPS - SOMENTE BDGEX =====
+  // ===== BASEMAPS - BDGEX, OSM E IMAGENS =====
+  // 'carta-topografica' e 'carta-ortoimagem' ficam de fora: a primeira e uma
+  // copia identica do estilo do OSM e a segunda aponta para o style.json de
+  // demonstracao do MapLibre, entao nenhuma das duas acrescenta um mapa real.
   basemaps: {
     'bdgex': {
       enabled: true,
@@ -48,27 +51,28 @@ const config = {
       image: './images/layers/bdgex-thumb.webp',
       priority: 1
     },
+    'osm': {
+      enabled: true,
+      name: 'OSM',
+      image: './images/layers/osm-thumb.webp',
+      priority: 2
+    },
+    'imagens': {
+      enabled: true,
+      name: 'Imagens',
+      image: './images/layers/carta-ortoimagem-thumb.webp',
+      priority: 3
+    },
     'carta-topografica': {
       enabled: false,
       name: 'Topográfica',
       image: './images/layers/carta-topografica-thumb.webp',
-      priority: 2
+      priority: 4
     },
     'carta-ortoimagem': {
       enabled: false,
       name: 'Ortoimagem',
       image: './images/layers/carta-ortoimagem-thumb.webp',
-      priority: 3
-    },
-    'osm': {
-      enabled: true,
-      name: 'OSM',
-      image: './images/layers/osm-thumb.webp',
-      priority: 4
-    },
-    'imagens': {
-      enabled: false,
-      name: 'Imagens',
       priority: 5
     }
   },
@@ -233,7 +237,7 @@ function main() {
         console.log('\nResumo das alterações:');
         console.log('- Config modificado para GitHub Pages (site estático)');
         console.log('- Features desabilitadas: map_3d, street_view_360, busca geográfica');
-        console.log('- Basemaps habilitados: BDGEx, OSM');
+        console.log('- Basemaps habilitados: BDGEx, OSM, Imagens');
         console.log('- O Vite fará o build para dist/');
 
         process.exit(0);

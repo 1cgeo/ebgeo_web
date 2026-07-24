@@ -703,16 +703,23 @@ export function initializeApp(map, controlsPromise) {
         const [, controls] = await Promise.all([statePromise, controlsPromise]);
         const { baseLayerControl } = controls;
 
-        await baseLayerControl.switchMap(true);
+        // The loading screen must come down even if the base layer fails: a
+        // rejection here used to escape the async handler as an unhandled
+        // rejection, leaving the app stuck on the loading screen forever.
+        try {
+            await baseLayerControl.switchMap(true);
 
-        if (config.map2d.globe_projection) {
-            map.setProjection({ type: 'globe' });
+            if (config.map2d.globe_projection) {
+                map.setProjection({ type: 'globe' });
+            }
+
+            // Disable sky/fog - universe background is set via CSS on #map-sig container
+            map.setSky(undefined);
+        } catch (error) {
+            console.error('Failed to apply the base layer:', error);
+        } finally {
+            hideLoadingScreen();
         }
-
-        // Disable sky/fog - universe background is set via CSS on #map-sig container
-        map.setSky(undefined);
-
-        hideLoadingScreen();
 
         // Handle deep link from URL hash (opens 360/3D viewer if hash present)
         try {
