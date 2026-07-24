@@ -10,7 +10,7 @@
  * (every recordSpan is a single boolean early-return when off).
  *
  * The stage/outcome vocabulary MIRRORS the frontend
- * (ebgeo_web/src/js/store/sync/diag/trace-stages.js) and MUST stay in lockstep — the
+ * (frontend/src/js/store/sync/diag/trace-stages.js) and MUST stay in lockstep — the
  * ledger merger validates Span stages across both halves.
  */
 

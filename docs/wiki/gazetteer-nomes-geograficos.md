@@ -78,5 +78,5 @@ SELECT ng.refresh_busca();
 ## Fontes
 
 - guias *13-nomes-geograficos* e *15-acesso-geografico* (absorvidos): escopo read-only, contratos congelados, semântica de `z_distance`/`xy_distance` e raio de 3 m, passo `refresh_busca()`, modelo de acesso por zona-polígono e garantia de que `total` conta só o visível.
-- `ebgeo_backend/src/modules/nomes/*`, `backend/src/database/migrations/004_ng.sql`, `backend/src/middleware/nomes-access-log.js`, `backend/tests/integration/nomes.test.js`.
-- `ebgeo_web/src/js/search/{gazetteer-url,search-bar.search-providers,feature-search.control}.js`: derivação da URL e o fato de o cliente chamar sem token e sem `zoom`.
+- `backend/src/modules/nomes/*`, `backend/src/database/migrations/004_ng.sql`, `backend/src/middleware/nomes-access-log.js`, `backend/tests/integration/nomes.test.js`.
+- `frontend/src/js/search/{gazetteer-url,search-bar.search-providers,feature-search.control}.js`: derivação da URL e o fato de o cliente chamar sem token e sem `zoom`.

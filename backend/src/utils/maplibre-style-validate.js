@@ -4,7 +4,7 @@
  * Minimal structural validation of a MapLibre GL style — the server-side guard so a basemap
  * resource whose `config.style` is malformed can never be persisted (and then served verbatim in
  * the public GET /config basemapStyles, bricking the base map for everyone). Mirrors the client
- * validator (ebgeo_web/src/js/utilities/maplibre-style-validate.js): pins `version: 8`, a `sources`
+ * validator (frontend/src/js/utilities/maplibre-style-validate.js): pins `version: 8`, a `sources`
  * object, and a `layers` array.
  *
  * @param {*} style

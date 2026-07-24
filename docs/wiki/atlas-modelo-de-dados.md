@@ -2,7 +2,7 @@
 
 O Atlas é a fronteira única do sistema: isolamento de dados, permissão, sala de tempo real e ordenação de operações são todos desenhados por `atlas_id`, e o preço dessa escolha é que um projeto nomeado só existe plenamente no servidor.
 
-Schema autoritativo: `ebgeo_backend/src/database/migrations/002_atlas.sql` (entidades) e `backend/src/database/migrations/003_sync.sql` (log). Entidade do cliente: `frontend/src/js/store/atlas/atlas.entity.js`.
+Schema autoritativo: `backend/src/database/migrations/002_atlas.sql` (entidades) e `backend/src/database/migrations/003_sync.sql` (log). Entidade do cliente: `frontend/src/js/store/atlas/atlas.entity.js`.
 
 ## Uma fronteira só, e por quê
 
@@ -33,13 +33,13 @@ Armadilha número um: `atlas` tem três colunas que parecem versão e não são 
 O objeto do cliente e a linha do Postgres não são o mesmo shape, e o campo homônimo tem significados opostos:
 
 - Cliente: `settings` é só `{ terrainExaggeration }`, propriedade **do atlas**, não do mapa.
-- Servidor: `settings` é allowlist de **disponibilidade de recursos**, e vira overlay que **só restringe** sobre o `config` global (`sync/atlas-settings.service.js`, `intersectAvailability`). Nunca reativa o que o deploy desligou: 3D removido no build do GitHub Pages continua removido, diga o atlas o que disser. Ver [[atlas-settings]], [[config-dinamico]].
+- Servidor: `settings` é allowlist de **disponibilidade de recursos**, e vira overlay que **só restringe** sobre o `config` global (`frontend/src/js/store/sync/atlas-settings.service.js`, `intersectAvailability`). Nunca reativa o que o deploy desligou: 3D removido no build do GitHub Pages continua removido, diga o atlas o que disser. Ver [[atlas-settings]], [[config-dinamico]].
 
 Contrato: chaves de disponibilidade **nunca** entram por op de sync do tipo `SETTING` (que faz merge whitelisted); só `PATCH /settings` com `manage` altera restrição. Quem tentar propagar restrição pelo canal de sync vai ver o merge aceitar e o efeito não acontecer.
 
 ## Um atlas local, N no servidor (P12)
 
-No IndexedDB o Atlas é **singleton**: chave fixa `current_atlas` (`repositories/local.repository.js:21`). Namespacing por atlas foi **rejeitado**; a separação local↔remoto é um marcador de origem (`store/store-origin.js`; note: em `store/`, não em `store/sync/`), default `local` e ausente para todo usuário pré-existente, de modo que a máquina remota nunca interfere em quem nunca logou. Local = 1 workspace (`Principal` + `.ebgeo`); atlas nomeado e compartilhável é capacidade de servidor. Ver [[dominio-local-vs-remoto]], [[formato-ebgeo-roundtrip]].
+No IndexedDB o Atlas é **singleton**: chave fixa `current_atlas` (`frontend/src/js/store/repositories/local.repository.js:21`). Namespacing por atlas foi **rejeitado**; a separação local↔remoto é um marcador de origem (`store/store-origin.js`; note: em `store/`, não em `store/sync/`), default `local` e ausente para todo usuário pré-existente, de modo que a máquina remota nunca interfere em quem nunca logou. Local = 1 workspace (`Principal` + `.ebgeo`); atlas nomeado e compartilhável é capacidade de servidor. Ver [[dominio-local-vs-remoto]], [[formato-ebgeo-roundtrip]].
 
 Consequências que causam bug se ignoradas:
 
@@ -51,7 +51,7 @@ Consequências que causam bug se ignoradas:
 
 Mapas de atlas remoto são chaveados por UUID; o `Principal` local é chaveado por nome e não tem UUID. Isso atravessa três arquivos, e cada um só enxerga o próprio terço:
 
-1. Op cujo `mapId` de contexto não é UUID é descartada **antes da fila** (`sync/operation-dispatcher.js:133-140`). Sem isso o Postgres rejeita com 22P02 e **uma** op inválida derruba o lote inteiro do flush, travando toda a sincronização. Op de `SETTING` escapa apenas com UUID ou o sentinela literal `'atlas'`.
+1. Op cujo `mapId` de contexto não é UUID é descartada **antes da fila** (`frontend/src/js/store/sync/operation-dispatcher.js:133-140`). Sem isso o Postgres rejeita com 22P02 e **uma** op inválida derruba o lote inteiro do flush, travando toda a sincronização. Op de `SETTING` escapa apenas com UUID ou o sentinela literal `'atlas'`.
 2. `activateAtlasInitialMap` **remove** todo mapa não-UUID ao ativar o mapa inicial (`frontend/src/js/store/map.operations.js:353-371`). Um `Principal` recriado no boot sombrearia por nome um mapa remoto homônimo, e o usuário, inclusive o dono logo após "Salvar no servidor", cairia num mapa vazio.
 3. A resolução de mapa é por **nome**, não pela chave de armazenamento: presença e cursor viajam com o nome, e peers filtram o que vier com UUID cru.
 

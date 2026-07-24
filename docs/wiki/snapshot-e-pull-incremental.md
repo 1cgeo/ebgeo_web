@@ -1,6 +1,6 @@
 # Sync Híbrido: Snapshot e Pull Incremental
 
-`GET /atlas/:id/sync/:version` devolve snapshot completo ou lista de operações incrementais, discriminado por `isSnapshot`. Contrato em `ebgeo_backend/src/modules/sync/sync.service.js:765`; consumo em `frontend/src/js/store/sync/sync-engine.js`.
+`GET /atlas/:id/sync/:version` devolve snapshot completo ou lista de operações incrementais, discriminado por `isSnapshot`. Contrato em `backend/src/modules/sync/sync.service.js:765`; consumo em `frontend/src/js/store/sync/sync-engine.js`.
 
 ## Por que dois modos
 

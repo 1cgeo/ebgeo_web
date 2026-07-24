@@ -112,7 +112,7 @@ self-registration gateada por `ALLOW_SELF_REGISTRATION` (off em prod).
 
 ## SyncLedger (observabilidade de sync — test/dev)
 
-Camada de tracing **aditiva e gated** (`EBGEO_TRACE=1` ou `NODE_ENV=test`; **nunca em prod**). `utils/sync-trace.js` mantém um ring por atlas espelhando o contrato de estágios do frontend; `sync.service` emite `server.inserted`/`server.applied` (`applyOperation` usa `t.result` p/ expor `rowsAffected`) e `collab.rooms` `server.broadcast` (`broadcastOperations`/`broadcastToRoom` passaram a **retornar** `{ sent, recipients, … }`); `sync.schemas` aceita `traceId` no envelope. `GET/DELETE /api/v1/debug/trace` (auth) expõe o ring — montado só com o tracer ligado (`app.js`). Spec/as-built: [`../docs/arquitetura-sync.md`](../docs/wiki/index.md).
+Camada de tracing **aditiva e gated** (`EBGEO_TRACE=1` ou `NODE_ENV=test`; **nunca em prod**). `utils/sync-trace.js` mantém um ring por atlas espelhando o contrato de estágios do frontend; `sync.service` emite `server.inserted`/`server.applied` (`applyOperation` usa `t.result` p/ expor `rowsAffected`) e `collab.rooms` `server.broadcast` (`broadcastOperations`/`broadcastToRoom` passaram a **retornar** `{ sent, recipients, … }`); `sync.schemas` aceita `traceId` no envelope. `GET/DELETE /api/v1/debug/trace` (auth) expõe o ring — montado só com o tracer ligado (`app.js`). Spec/as-built: [`../docs/wiki/syncledger.md`](../docs/wiki/syncledger.md).
 
 ## Antes de finalizar
 

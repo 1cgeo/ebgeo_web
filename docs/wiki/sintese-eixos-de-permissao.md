@@ -6,7 +6,7 @@ Um `role: user` com `org_role: viewer` pode ser `owner` de um atlas; um `org_rol
 
 ## Eixo global: o admin não tem meio-termo
 
-`requireAtlasPermission` curto-circuita para `req.atlasPermission = 'owner'` quando `req.user.role === 'admin'`, sem consultar `atlas_shares` (`ebgeo_backend/src/middleware/permissions.js:82-87`), e o handshake do WebSocket repete a mesma decisão (`backend/src/modules/collab/collab.gateway.js:83`). **Não existe "admin somente leitura"**: o admin global deleta atlas alheio e destrava mapa alheio pelo mesmo caminho do dono (`backend/src/modules/sync/sync.service.js:611-618`). Toda UI administrativa deve assumir escrita total, não há nível intermediário para desenhar.
+`requireAtlasPermission` curto-circuita para `req.atlasPermission = 'owner'` quando `req.user.role === 'admin'`, sem consultar `atlas_shares` (`backend/src/middleware/permissions.js:82-87`), e o handshake do WebSocket repete a mesma decisão (`backend/src/modules/collab/collab.gateway.js:83`). **Não existe "admin somente leitura"**: o admin global deleta atlas alheio e destrava mapa alheio pelo mesmo caminho do dono (`backend/src/modules/sync/sync.service.js:611-618`). Toda UI administrativa deve assumir escrita total, não há nível intermediário para desenhar.
 
 A escolha do 401 vs 403 em `backend/src/middleware/require-admin.js:10-16` é deliberada (credencial ausente não é o mesmo que autorização negada). Ver [[sintese-contrato-erros-http]].
 

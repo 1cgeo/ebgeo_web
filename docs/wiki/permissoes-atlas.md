@@ -2,13 +2,13 @@
 
 Dois vocabulários ortogonais convivem: o tier `permission` por atlas (backend, `read < comment < write < manage < owner`), que é quem realmente autoriza, e o `role` de identidade (frontend, `owner/admin/manager/editor/commenter/viewer`), que só rotula e alimenta flags de UI. Um terceiro eixo, o papel global da conta, corta os dois.
 
-Tabelas de níveis e capacidades: `ebgeo_backend/src/middleware/permissions.js:12-18` e `frontend/src/js/store/sync/session-context.js:60-85`. Consolidadas em [[sintese-capacidades-por-papel]] e [[sintese-eixos-de-permissao]].
+Tabelas de níveis e capacidades: `backend/src/middleware/permissions.js:12-18` e `frontend/src/js/store/sync/session-context.js:60-85`. Consolidadas em [[sintese-capacidades-por-papel]] e [[sintese-eixos-de-permissao]].
 
 ## Por que dois vocabulários
 
 **`permission` decide, `role` rotula.** O eixo `role` existe porque a UI precisa de rótulos que misturam duas dimensões que o backend guarda separadas: a permissão naquele atlas e o papel global do usuário. Um admin global não tem linha em `atlas_shares`, mas precisa ver "Admin do sistema" e ganhar acesso total. `owner` também nunca aparece em `atlas_shares`, é sintetizado de `atlas.owner_id`.
 
-Não invente um terceiro vocabulário nem traduza um no outro fora de `toFrontendRole` (`ebgeo_backend/src/utils/roles.js:12-19`), que é a única fonte da derivação e é entregue no payload `connected` do WebSocket.
+Não invente um terceiro vocabulário nem traduza um no outro fora de `toFrontendRole` (`backend/src/utils/roles.js:12-19`), que é a única fonte da derivação e é entregue no payload `connected` do WebSocket.
 
 **O frontend não guarda `connected.permission`.** Lê só `payload.role` (`frontend/src/js/store/sync/sync-engine.js:192-198`) e deriva as flags booleanas dali. Um guia anterior mandava gatear o cliente por `permission !== 'read'`; o cliente real ignora `permission` por completo. Os dois caminhos concordam no caso comum, e o gate por `role` é até mais fino (distingue `commenter`, separa `editor` de `manager`), mas para qualquer cliente novo o campo congelado e canônico é `permission`; `role` é aditivo e diverge se alguém mexer em `toFrontendRole` sem atualizar as duas pontas.
 
@@ -37,7 +37,7 @@ Na saída o eixo também vale: `broadcastOperations` nunca entrega ops de `comme
 
 `frontend/src/js/store/sync/permission-guard.js:71-73` retorna `allowed` quando `isOffline() || !isRemoteStoreSync()`. É a linha mais importante do arquivo: o papel **não** gateia o store local, mesmo logado. Sem ela, um usuário autenticado com `org_role` `viewer` não conseguiria desenhar no próprio espaço local. O discriminante é o marcador de origem do store, não namespacing por atlas. Ver [[dominio-local-vs-remoto]] e [[modos-operacao]].
 
-O guard falha **suave**: as store ops chamam `checkPermission`, emitem `STORE_OPERATION_BLOCKED` e retornam. `assertPermission` existe mas não tem call site fora do barrel `sync/index.js:131`. Antes de usá-la, saiba que ela lança onde o resto do sistema apenas bloqueia.
+O guard falha **suave**: as store ops chamam `checkPermission`, emitem `STORE_OPERATION_BLOCKED` e retornam. `assertPermission` existe mas não tem call site fora do barrel `frontend/src/js/store/sync/index.js:131`. Antes de usá-la, saiba que ela lança onde o resto do sistema apenas bloqueia.
 
 ## Armadilhas
 

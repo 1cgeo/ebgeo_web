@@ -91,7 +91,7 @@ Se for implementar: `geometryPrecision` é sugestão de **transporte**, nunca tr
 ## Fontes
 - guia *04-websocket-collab* (absorvido): contrato do canal, semântica away vs saída, bandas de qualidade adaptativa e limites de escala (fonte das contradições marcadas).
 - guia *arquitetura-sync* (absorvido) §4.2 e §5; guias *03-sync-inicial* e *05-sync-crdt* (absorvidos).
-- `ebgeo_backend/src/modules/collab/{collab.gateway,collab.handlers,collab.rooms,collab.quality}.js` e `backend/src/config.js`.
-- `ebgeo_backend/src/modules/{atlas,maps,sharing}/*.controller.js`: frames de mutação REST broadcast.
-- `ebgeo_web/src/js/store/sync/{ws-client,sync-engine,connection-state,api-client}.js` (fonte da verdade sobre as divergências cliente/contrato).
-- `ebgeo_web/src/js/presence/presence-bridge.js`: quais frames de presença o app realmente envia e assina.
+- `backend/src/modules/collab/{collab.gateway,collab.handlers,collab.rooms,collab.quality}.js` e `backend/src/config.js`.
+- `backend/src/modules/{atlas,maps,sharing}/*.controller.js`: frames de mutação REST broadcast.
+- `frontend/src/js/store/sync/{ws-client,sync-engine,connection-state,api-client}.js` (fonte da verdade sobre as divergências cliente/contrato).
+- `frontend/src/js/presence/presence-bridge.js`: quais frames de presença o app realmente envia e assina.

@@ -13,7 +13,7 @@ O módulo `sv360` está **fora** do sync: nenhuma escrita 360 vira operação, n
 
 O backend responde `{ data }` e erro `{ error: { code, message } }` ([[erros-api]], [[sintese-contrato-erros-http]]). O sv360 responde **objeto/array nu** e erro **plano** `{ "error": "mensagem" }`, imposto por um error handler de router montado por último (`backend/src/modules/streetview360/sv360-error.js:15`), que intercepta antes do global. Isso é contrato congelado herdado do viewer legado, não descuido.
 
-Armadilha de cliente: o REST genérico desembrulha `data` sempre que a resposta é objeto não-array contendo essa chave (`ebgeo_web/src/js/store/sync/api-client.js:261`). Hoje nenhum shape do sv360 tem `data`, então tudo passa intacto, mas **acrescentar um campo `data` a qualquer resposta do sv360 mutila o corpo silenciosamente no cliente**, sem erro. Por isso as chamadas sv360 vivem apartadas (`frontend/src/js/store/sync/api-client.js:515-535`).
+Armadilha de cliente: o REST genérico desembrulha `data` sempre que a resposta é objeto não-array contendo essa chave (`frontend/src/js/store/sync/api-client.js:261`). Hoje nenhum shape do sv360 tem `data`, então tudo passa intacto, mas **acrescentar um campo `data` a qualquer resposta do sv360 mutila o corpo silenciosamente no cliente**, sem erro. Por isso as chamadas sv360 vivem apartadas (`frontend/src/js/store/sync/api-client.js:515-535`).
 
 Do handler, o que não é óbvio: erro Joi vira **422**, mas os params de tile viram **400** por caminho próprio (`backend/src/modules/streetview360/sv360.routes.js:37-44`), porque o contrato MVT quer 400 em coordenada malformada. E `23505`/`23503` são mapeados para **409** ali dentro (`backend/src/modules/streetview360/sv360-error.js:27-33`); o handler global já fazia isso, mas o de router intercepta primeiro, e sem essa branch um target duplicado voltava 500.
 
@@ -52,13 +52,13 @@ Todo numérico é `Joi.number()` finito, sem `min`/`max`, e as colunas são DOUB
 
 `fotos_linha` é **trajetória por `sequence_number`**, não o grafo dirigido de navegação; o grafo está por-foto em `targets`. Tile sem features é **200 com Buffer vazio** (MVT vazio é válido): não trate corpo vazio como erro. O `Cache-Control` é curto e **não** imutável, porque tiles mudam a cada ingestão, tombstone ou toggle de status (`backend/src/modules/streetview360/sv360.controller.js:97-98`).
 
-Quirk que confunde na leitura do cliente: a camada de pontos usa o source id literal `'streetViewPointsSource'`, mas as camadas de linha usam como **source id** o próprio `config.streetView360.linesSourceLayer` (`ebgeo_web/src/js/street_view_tool/add_street_view_control.js:55,69-70,234`), ou seja o id da source acaba sendo a string `fotos_linha`, igual ao `source-layer`. Funciona; só não confunda os dois ao mexer ali. `pointsSource` e `linesSource` apontam para o **mesmo** template de tiles ([[config-dinamico]]).
+Quirk que confunde na leitura do cliente: a camada de pontos usa o source id literal `'streetViewPointsSource'`, mas as camadas de linha usam como **source id** o próprio `config.streetView360.linesSourceLayer` (`frontend/src/js/street_view_tool/add_street_view_control.js:55,69-70,234`), ou seja o id da source acaba sendo a string `fotos_linha`, igual ao `source-layer`. Funciona; só não confunda os dois ao mexer ali. `pointsSource` e `linesSource` apontam para o **mesmo** template de tiles ([[config-dinamico]]).
 
 ## Upload de bundle: duas defesas antes do primeiro byte
 
 `authDraining` e `requireUploadCapability` rejeitam **antes do multer** e **drenam** o corpo multipart antes de responder (`backend/src/modules/streetview360/sv360.routes.js:241-280`). Sem o dreno, rejeitar cedo derruba a conexão (ECONNRESET) e o cliente nunca vê o 4xx limpo; é a parte que se esquece ao copiar esse padrão para outro upload. Quem não tem capacidade de escrita alguma leva 403 com zero bytes em disco, fechando um DoS autenticado de enchimento de disco ([[upload-imagens-seguranca]]). O `diskStorage` grava no mesmo volume de `SV360_DB_DIR` para que o rename final seja atômico, não cross-device.
 
-`PATCH /admin/projects/:slug/status` é o soft delete de verdade; `DELETE` é hard delete com CASCADE e remoção do `.db`. Fluxo do bundle em [[ingestao-projetos-360]]; aba cliente em `ebgeo_web/src/js/admin/catalog-tab.js:39`, ao lado de [[catalogo-3d]] e [[resources-catalogo]].
+`PATCH /admin/projects/:slug/status` é o soft delete de verdade; `DELETE` é hard delete com CASCADE e remoção do `.db`. Fluxo do bundle em [[ingestao-projetos-360]]; aba cliente em `frontend/src/js/admin/catalog-tab.js:39`, ao lado de [[catalogo-3d]] e [[resources-catalogo]].
 
 Thumbnail: a **URL** é por slug, mas o **arquivo em disco é org-keyed** (`{orgId}__{slug}.webp`, `backend/src/modules/streetview360/sv360.service.js:256-258`), então duas OMs com o mesmo slug não colidem nem vazam. O `:slug` é `^[a-z0-9-]+$` e passa por `path.basename` ([[hardening-borda-api]]).
 
@@ -70,4 +70,4 @@ Escritas exigem `auth` estrito ([[autenticacao-jwt]]); leituras são `flexibleAu
 
 ## Fontes
 
-Módulo `ebgeo_backend/src/modules/streetview360/` (routes, controller, service, queries, write.*, sv360-error), `backend/src/modules/config/config.service.js` (bloco `streetView360` do `/api/config`), e no cliente `ebgeo_web/src/js/street_view_tool/` + `store/sync/api-client.js`. Guia *16-streetview-360* absorvido (ver contradição de cache acima).
+Módulo `backend/src/modules/streetview360/` (routes, controller, service, queries, write.*, sv360-error), `backend/src/modules/config/config.service.js` (bloco `streetView360` do `/api/config`), e no cliente `frontend/src/js/street_view_tool/` + `store/sync/api-client.js`. Guia *16-streetview-360* absorvido (ver contradição de cache acima).

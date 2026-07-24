@@ -27,7 +27,7 @@ A tabela `operations` ([[tabela-operations]]) cresce indefinidamente: todo push 
 
 ## Efeito que atravessa módulos
 
-O cleanup não afeta só o pull REST. `sync_request` no [[canal-collab-websocket]] chama o mesmo `pullOperations` (`collab/collab.handlers.js:259`), então um corte agressivo transforma **reconexões por queda de rede** em downloads de snapshot inteiro. O cliente aplica isso via `applyRemoteSnapshot` ([[aplicacao-operacoes-remotas]]), que substitui estado local, e não via merge incremental de [[modelo-conflito-lww]].
+O cleanup não afeta só o pull REST. `sync_request` no [[canal-collab-websocket]] chama o mesmo `pullOperations` (`backend/src/modules/collab/collab.handlers.js:259`), então um corte agressivo transforma **reconexões por queda de rede** em downloads de snapshot inteiro. O cliente aplica isso via `applyRemoteSnapshot` ([[aplicacao-operacoes-remotas]]), que substitui estado local, e não via merge incremental de [[modelo-conflito-lww]].
 
 Operações locais ainda na [[fila-operacoes-outbound]] não se perdem: sobem depois e recebem versões novas. A garantia de não duplicar continua sendo a de [[idempotencia-e-convergence-guard]], que não depende do histórico podado.
 
@@ -45,5 +45,5 @@ Nada em `src/` do cliente web referencia `sync/admin/stats` ou `sync/admin/clean
 ## Fontes
 
 - guia *09-admin* (absorvido) (Parte 4, linhas 563-641): endpoints, impacto do cleanup, recomendação de cron, checklist de UI pendente.
-- `ebgeo_backend/src/modules/sync/`: `backend/src/modules/sync/sync.routes.js:12-14`, `backend/src/modules/sync/sync.controller.js:44,55-57,65`, `backend/src/modules/sync/sync.service.js:770-877`, `backend/src/modules/sync/sync.queries.js:15,28,111,117`, `backend/src/modules/sync/sync.schemas.js:52-55`.
-- `ebgeo_backend/src/middleware/require-admin.js`; `ebgeo_backend/src/modules/collab/collab.handlers.js:259`; `ebgeo_backend/src/database/migrations/002_atlas.sql:45` (`min_version BIGINT NOT NULL DEFAULT 0`).
+- `backend/src/modules/sync/`: `backend/src/modules/sync/sync.routes.js:12-14`, `backend/src/modules/sync/sync.controller.js:44,55-57,65`, `backend/src/modules/sync/sync.service.js:770-877`, `backend/src/modules/sync/sync.queries.js:15,28,111,117`, `backend/src/modules/sync/sync.schemas.js:52-55`.
+- `backend/src/middleware/require-admin.js`; `backend/src/modules/collab/collab.handlers.js:259`; `backend/src/database/migrations/002_atlas.sql:45` (`min_version BIGINT NOT NULL DEFAULT 0`).

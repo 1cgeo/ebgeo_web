@@ -50,11 +50,11 @@ Não há filtro por intervalo de datas nem por `targetId`, apesar do índice `(t
 
 ## Estado no frontend
 
-O cliente web **não consome a rota**: não há referência a `/api/v1/audit` em `ebgeo_web/src/`. A tela de auditoria do painel de admin ainda é checklist, não código.
+O cliente web **não consome a rota**: não há referência a `/api/v1/audit` em `frontend/src/`. A tela de auditoria do painel de admin ainda é checklist, não código.
 
 Auditoria é REST puro e admin-only: não gera nem consome operações de colaboração, então nada disso passa por [[modelo-conflito-lww]] ou [[envelope-operacao]]. Para o que o admin faz sobre o sync em si, ver [[sync-admin-operacoes]] e [[hardening-borda-api]].
 
 ## Fontes
 
 - guia *12-multiorg-identidade-auditoria* (absorvido): Parte 5.
-- `ebgeo_backend/src/database/migrations/001_core.sql:165-192`, `backend/src/utils/audit.js`, `src/modules/audit/*`, os 6 call sites em `modules/{organizations,users,zones}`, `src/middleware/{require-admin,validate,error-handler}.js`, `backend/tests/integration/audit-coverage.test.js`.
+- `backend/src/database/migrations/001_core.sql:165-192`, `backend/src/utils/audit.js`, `src/modules/audit/*`, os 6 call sites em `modules/{organizations,users,zones}`, `src/middleware/{require-admin,validate,error-handler}.js`, `backend/tests/integration/audit-coverage.test.js`.

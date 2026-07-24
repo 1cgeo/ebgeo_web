@@ -37,11 +37,11 @@ Acontece que **53 citações da wiki ainda usam os prefixos do layout pré-monor
 Verificado diretamente, e a prova cabe em duas linhas:
 
 ```
-ESCAPA  `ebgeo_backend/src/modules/auth/auth.service.js:24-42`
+ESCAPA  `backend/src/modules/auth/auth.service.js:24-42`
 CASA    `backend/src/modules/auth/auth.service.js:24-42`
 ```
 
-São 36 ocorrências de `ebgeo_backend/` e 17 de `ebgeo_web/`, espalhadas por 22 páginas. `docs/wiki/ack-idempotencia.md:44` é a ilustração perfeita: a mesma linha cita `ebgeo_backend/src/modules/sync/sync.service.js` (escapa) e `backend/src/modules/collab/collab.handlers.js` (é verificada). Uma linha, duas citações, metade guardada.
+São 36 ocorrências de `ebgeo_backend/` e 17 de `ebgeo_web/`, espalhadas por 22 páginas. `docs/wiki/ack-idempotencia.md:44` é a ilustração perfeita: a mesma linha cita `backend/src/modules/sync/sync.service.js` (escapa) e `backend/src/modules/collab/collab.handlers.js` (é verificada). Uma linha, duas citações, metade guardada.
 
 **Isto é uma recorrência, e é o que mais importa aqui.** O livro-razão já registra, no mesmo arquivo de teste, um defeito de forma idêntica: a regex exigia crase logo após a extensão, então toda citação `arquivo:linha` escapava, "1116 não verificadas contra 210 verificadas", e o teste "passava verde medindo a minoria". Aquilo foi corrigido tornando o sufixo `:linha` opcional. Agora o mesmo teste falha de novo pelo mesmo motivo estrutural, só que pelo prefixo em vez do sufixo.
 
@@ -260,11 +260,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 16. docs/wiki/api-rest-atlas.md
 
+> **CORRIGIDO em 2026-07-24.** Resolvido pela inversão da regex do `frontend/tests/unit/docs-integridade.test.js`: o prefixo deixou de ser lista fechada e virou asserção (coleta qualquer token com cara de caminho, resolve contra as raízes reais dos pacotes e contra o diretório do próprio documento). As 55 citações com prefixo pré-monorepo foram reescritas com verificação de existência do destino, mais 29 referências de diretório e os 3 ponteiros `MUST stay in lockstep` que viviam em comentário de CÓDIGO, fora do alcance de qualquer varredura de .md. O ponteiro de `trace-stages.js` estava morto duas vezes (prefixo legado + diretório `collab/trace/` que nunca existiu); aponta agora para `backend/src/utils/sync-trace.js`.
+
+
 - **Tipo:** desatualizada · **Fatia:** `be-atlas`
 - **Documento:** `docs/wiki/api-rest-atlas.md:13`
 - **Código:** `frontend/src/js/modals/project-picker.modal.js:375`
 
-**Evidência.** A 'Nota historica' afirma: "O proprio frontend cai nessa armadilha: `ebgeo_web/src/js/modals/project-picker.modal.js:369-370` faz `perm === 'owner' || perm === 'write'`, entao o co-Gestor nao ve 'Renomear' no card". O codigo ja foi corrigido: `project-picker.modal.js:375` faz `const canWrite = perm === 'owner' || perm === 'manage' || perm === 'write';`, e as linhas 369-374 (que a doc cita como sendo o bug) sao hoje o comentario que EXPLICA a correcao ("Hierarquia de CINCO niveis... Uma lista fechada `=== 'owner' || === 'write'` exclui o co-Gestor"). Ou seja: a citacao arquivo:linha aponta para a explicacao do fix, e a pagina mais autoritativa sobre a armadilha C1 apresenta um bug ja morto como vivo. E supersessao temporal, nao contradicao.
+**Evidência.** A 'Nota historica' afirma: "O proprio frontend cai nessa armadilha: `frontend/src/js/modals/project-picker.modal.js:369-370` faz `perm === 'owner' || perm === 'write'`, entao o co-Gestor nao ve 'Renomear' no card". O codigo ja foi corrigido: `project-picker.modal.js:375` faz `const canWrite = perm === 'owner' || perm === 'manage' || perm === 'write';`, e as linhas 369-374 (que a doc cita como sendo o bug) sao hoje o comentario que EXPLICA a correcao ("Hierarquia de CINCO niveis... Uma lista fechada `=== 'owner' || === 'write'` exclui o co-Gestor"). Ou seja: a citacao arquivo:linha aponta para a explicacao do fix, e a pagina mais autoritativa sobre a armadilha C1 apresenta um bug ja morto como vivo. E supersessao temporal, nao contradicao.
 
 **Ação.** Remover a nota ou move-la para `## Historico` como 'corrigido em <commit>', mantendo o exemplo do bug apenas como ilustracao passada. Reapontar qualquer citacao para `frontend/src/js/modals/project-picker.modal.js:375` (e corrigir o prefixo `ebgeo_web/` -> `frontend/`).
 
@@ -480,7 +483,7 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 - **Tipo:** divergência · **Fatia:** `estrutural`
 - **Código:** `backend/src/utils/sync-trace.js`
 
-**Evidência.** syncledger.md:40 mantém [!CONTRADICAO] sobre o caminho do espelho de backend do enum de estágios. A contradição JÁ É RESOLVÍVEL contra o código: `backend/src/utils/sync-trace.js` existe e `backend/src/modules/collab/trace/` não existe (varredura de backend/src: zero arquivos terminando em `collab/trace/trace-stages.js`). O defeito real não está na wiki, está no JSDoc de `frontend/src/js/store/sync/diag/trace-stages.js:6-7`, que aponta para `ebgeo_backend/src/modules/collab/trace/trace-stages.js`, caminho morto duas vezes (prefixo legado + diretório inexistente).
+**Evidência.** syncledger.md:40 mantém [!CONTRADICAO] sobre o caminho do espelho de backend do enum de estágios. A contradição JÁ É RESOLVÍVEL contra o código: `backend/src/utils/sync-trace.js` existe e `backend/src/modules/collab/trace/` não existe (varredura de backend/src: zero arquivos terminando em `collab/trace/trace-stages.js`). O defeito real não está na wiki, está no JSDoc de `frontend/src/js/store/sync/diag/trace-stages.js:6-7`, que aponta para `backend/src/utils/sync-trace.js`, caminho morto duas vezes (prefixo legado + diretório inexistente).
 
 **Ação.** Corrigir o @fileoverview de frontend/src/js/store/sync/diag/trace-stages.js:6-7 para `backend/src/utils/sync-trace.js`, apagar o marcador de syncledger.md:40 e registrar uma linha no `## Histórico` da página.
 
@@ -524,10 +527,13 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 43. docs/wiki/ (22 páginas)
 
+> **CORRIGIDO em 2026-07-24.** Resolvido pela inversão da regex do `frontend/tests/unit/docs-integridade.test.js`: o prefixo deixou de ser lista fechada e virou asserção (coleta qualquer token com cara de caminho, resolve contra as raízes reais dos pacotes e contra o diretório do próprio documento). As 55 citações com prefixo pré-monorepo foram reescritas com verificação de existência do destino, mais 29 referências de diretório e os 3 ponteiros `MUST stay in lockstep` que viviam em comentário de CÓDIGO, fora do alcance de qualquer varredura de .md. O ponteiro de `trace-stages.js` estava morto duas vezes (prefixo legado + diretório `collab/trace/` que nunca existiu); aponta agora para `backend/src/utils/sync-trace.js`.
+
+
 - **Tipo:** link quebrado · **Fatia:** `estrutural`
 - **Código:** `frontend/tests/unit/docs-integridade.test.js:78`
 
-**Evidência.** 53 citações em 22 páginas usam os prefixos MORTOS `ebgeo_backend/` e `ebgeo_web/` (nomes dos repositórios pré-monorepo). Nenhum dos dois diretórios existe: a raiz tem `backend/` e `frontend/`. Exemplos: permissoes-atlas.md:5 `ebgeo_backend/src/middleware/permissions.js`, jwt-emissor-unico.md:3 `ebgeo_backend/src/modules/auth/auth.service.js`, api-rest-atlas.md:5 `ebgeo_web/src/js/store/sync/api-client.js`, sync-admin-operacoes.md:49 (três de uma vez), ranking-busca-toponimos.md:53-55, organizacoes-om.md:53-56, canal-collab-websocket.md:94-97, atlas-settings.md:5,13,23. O guarda NÃO pega: a RE_CAMINHO em docs-integridade.test.js:78-79 ancora em `(?:frontend|backend|src|tests|docs|scripts|deploy|public)/`, então tudo que começa com `ebgeo_` nem entra na varredura. É C4 cobertura vazia: o teste verde estaria provando nada sobre estas 53 citações.
+**Evidência.** 53 citações em 22 páginas usam os prefixos MORTOS `ebgeo_backend/` e `ebgeo_web/` (nomes dos repositórios pré-monorepo). Nenhum dos dois diretórios existe: a raiz tem `backend/` e `frontend/`. Exemplos: permissoes-atlas.md:5 `backend/src/middleware/permissions.js`, jwt-emissor-unico.md:3 `backend/src/modules/auth/auth.service.js`, api-rest-atlas.md:5 `frontend/src/js/store/sync/api-client.js`, sync-admin-operacoes.md:49 (três de uma vez), ranking-busca-toponimos.md:53-55, organizacoes-om.md:53-56, canal-collab-websocket.md:94-97, atlas-settings.md:5,13,23. O guarda NÃO pega: a RE_CAMINHO em docs-integridade.test.js:78-79 ancora em `(?:frontend|backend|src|tests|docs|scripts|deploy|public)/`, então tudo que começa com `ebgeo_` nem entra na varredura. É C4 cobertura vazia: o teste verde estaria provando nada sobre estas 53 citações.
 
 **Ação.** Substituir `ebgeo_backend/` por `backend/` e `ebgeo_web/` por `frontend/` nas 53 ocorrências, e ampliar a RE_CAMINHO do teste para casar qualquer caminho com extensão conhecida (ou pelo menos falhar explicitamente ao ver o prefixo legado), contando quantas citações foram efetivamente checadas.
 
@@ -879,11 +885,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 79. docs/wiki/syncledger.md:40 (marcador [!CONTRADICAO] pendente)
 
+> **CORRIGIDO em 2026-07-24.** Resolvido pela inversão da regex do `frontend/tests/unit/docs-integridade.test.js`: o prefixo deixou de ser lista fechada e virou asserção (coleta qualquer token com cara de caminho, resolve contra as raízes reais dos pacotes e contra o diretório do próprio documento). As 55 citações com prefixo pré-monorepo foram reescritas com verificação de existência do destino, mais 29 referências de diretório e os 3 ponteiros `MUST stay in lockstep` que viviam em comentário de CÓDIGO, fora do alcance de qualquer varredura de .md. O ponteiro de `trace-stages.js` estava morto duas vezes (prefixo legado + diretório `collab/trace/` que nunca existiu); aponta agora para `backend/src/utils/sync-trace.js`.
+
+
 - **Tipo:** desatualizada · **Fatia:** `be-catalog-config-audit`
 - **Documento:** `docs/wiki/syncledger.md:40`
 - **Código:** `backend/src/modules/debug/debug.routes.js:21`
 
-**Evidência.** O marcador diz que o espelho de backend do enum de estagios pode ser `backend/src/utils/sync-trace.js` ou `ebgeo_backend/src/modules/collab/trace/trace-stages.js` e manda "confirmar o caminho real no repo do backend". O repo e o mesmo monorepo e a resposta e verificavel agora: backend/src/utils/sync-trace.js existe e e o que debug.routes.js:21 importa (getTrace/clearTrace/isTraceEnabled); backend/src/modules/collab/ nao tem subpasta trace/. O ponteiro morto e o JSDoc do frontend (frontend/src/js/store/sync/diag/trace-stages.js:7), que ainda cita o caminho inexistente e ainda usa o prefixo morto ebgeo_backend/.
+**Evidência.** O marcador diz que o espelho de backend do enum de estagios pode ser `backend/src/utils/sync-trace.js` ou `backend/src/utils/sync-trace.js` e manda "confirmar o caminho real no repo do backend". O repo e o mesmo monorepo e a resposta e verificavel agora: backend/src/utils/sync-trace.js existe e e o que debug.routes.js:21 importa (getTrace/clearTrace/isTraceEnabled); backend/src/modules/collab/ nao tem subpasta trace/. O ponteiro morto e o JSDoc do frontend (frontend/src/js/store/sync/diag/trace-stages.js:7), que ainda cita o caminho inexistente e ainda usa o prefixo morto ebgeo_backend/.
 
 **Ação.** Resolver contra o codigo: corrigir o JSDoc de frontend/src/js/store/sync/diag/trace-stages.js:7 para backend/src/utils/sync-trace.js, apagar o marcador e registrar a resolucao no ## Historico da pagina.
 
@@ -1153,11 +1162,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 107. canal-collab-websocket.md / presenca-colaborativa.md
 
+> **CORRIGIDO em 2026-07-24.** Resolvido pela inversão da regex do `frontend/tests/unit/docs-integridade.test.js`: o prefixo deixou de ser lista fechada e virou asserção (coleta qualquer token com cara de caminho, resolve contra as raízes reais dos pacotes e contra o diretório do próprio documento). As 55 citações com prefixo pré-monorepo foram reescritas com verificação de existência do destino, mais 29 referências de diretório e os 3 ponteiros `MUST stay in lockstep` que viviam em comentário de CÓDIGO, fora do alcance de qualquer varredura de .md. O ponteiro de `trace-stages.js` estava morto duas vezes (prefixo legado + diretório `collab/trace/` que nunca existiu); aponta agora para `backend/src/utils/sync-trace.js`.
+
+
 - **Tipo:** link quebrado · **Fatia:** `be-collab`
 - **Documento:** `docs/wiki/canal-collab-websocket.md:94,96,97 e docs/wiki/presenca-colaborativa.md:5`
 - **Código:** `frontend/tests/unit/docs-integridade.test.js:79-80`
 
-**Evidência.** As secoes Fontes citam caminhos do layout PRE-monorepo: `ebgeo_backend/src/modules/collab/{collab.gateway,...}.js`, `ebgeo_backend/src/modules/{atlas,maps,sharing}/*.controller.js` e `ebgeo_web/src/js/store/sync/{ws-client,...}.js` (canal:94-97), mais `ebgeo_backend/src/modules/collab/` em presenca:5. Nenhum desses caminhos existe (os pacotes sao `backend/` e `frontend/`), e nenhum e visto pelo guard: a RE_CAMINHO de docs-integridade.test.js:79-80 so casa prefixos `frontend|backend|src|tests|docs|scripts|deploy|public`, entao `ebgeo_backend/...` e `ebgeo_web/...` escapam inteiros. E a mesma classe C4 que ja zerou a lista de documentos vigiados na mudanca para `frontend/`. Na mesma linha, presenca:5 cita `src/js/presence/`, diretorio sem extensao, que o guard tambem nao verifica.
+**Evidência.** As secoes Fontes citam caminhos do layout PRE-monorepo: `backend/src/modules/collab/{collab.gateway,...}.js`, `backend/src/modules/{atlas,maps,sharing}/*.controller.js` e `frontend/src/js/store/sync/{ws-client,...}.js` (canal:94-97), mais `backend/src/modules/collab/` em presenca:5. Nenhum desses caminhos existe (os pacotes sao `backend/` e `frontend/`), e nenhum e visto pelo guard: a RE_CAMINHO de docs-integridade.test.js:79-80 so casa prefixos `frontend|backend|src|tests|docs|scripts|deploy|public`, entao `backend/...` e `frontend/...` escapam inteiros. E a mesma classe C4 que ja zerou a lista de documentos vigiados na mudanca para `frontend/`. Na mesma linha, presenca:5 cita `src/js/presence/`, diretorio sem extensao, que o guard tambem nao verifica.
 
 **Ação.** Reescrever os caminhos das Fontes para `backend/src/...` e `frontend/src/...`. Considerar acrescentar ao teste um assert negativo que FALHE ao encontrar `ebgeo_backend/` ou `ebgeo_web/` em qualquer doc, ja que sao nomes mortos e hoje passam despercebidos por construcao.
 
@@ -1172,11 +1184,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 109. docs/wiki/{api-rest-atlas,atlas-settings,permissoes-atlas,atlas-modelo-de-dados}.md
 
+> **CORRIGIDO em 2026-07-24.** Resolvido pela inversão da regex do `frontend/tests/unit/docs-integridade.test.js`: o prefixo deixou de ser lista fechada e virou asserção (coleta qualquer token com cara de caminho, resolve contra as raízes reais dos pacotes e contra o diretório do próprio documento). As 55 citações com prefixo pré-monorepo foram reescritas com verificação de existência do destino, mais 29 referências de diretório e os 3 ponteiros `MUST stay in lockstep` que viviam em comentário de CÓDIGO, fora do alcance de qualquer varredura de .md. O ponteiro de `trace-stages.js` estava morto duas vezes (prefixo legado + diretório `collab/trace/` que nunca existiu); aponta agora para `backend/src/utils/sync-trace.js`.
+
+
 - **Tipo:** link quebrado · **Fatia:** `be-atlas`
 - **Documento:** `docs/wiki/api-rest-atlas.md:5`
 - **Código:** `frontend/tests/unit/docs-integridade.test.js:79`
 
-**Evidência.** As paginas da fatia citam codigo com prefixos de repositorio que nao existem no monorepo: `ebgeo_backend/src/modules/atlas/atlas.routes.js` (api-rest-atlas.md:5,120), `ebgeo_backend/src/modules/atlas/atlas.schemas.js:19-40` e `:queries.js:69-76` (atlas-settings.md:5,13,23,60), `ebgeo_backend/src/middleware/permissions.js:12-18` e `utils/roles.js:12-19` (permissoes-atlas.md:5,11), `ebgeo_backend/src/database/migrations/002_atlas.sql` (atlas-modelo-de-dados.md:5), alem de `ebgeo_web/src/js/...` (api-rest-atlas.md:5,13,120). Os caminhos reais sao `backend/...` e `frontend/...`. O guard nao pega nada disso: `RE_CAMINHO` so aceita os prefixos `(frontend|backend|src|tests|docs|scripts|deploy|public)` (`frontend/tests/unit/docs-integridade.test.js:79-80`), entao `ebgeo_backend/`/`ebgeo_web/` caem fora da varredura em silencio. Sao 10 ocorrencias so na minha fatia e 53 em 22 paginas da wiki inteira (contagem por grep). E a mesma familia de cobertura-vazia que os proprios comentarios do teste registram (C4): a regex mede a maioria e reporta verde.
+**Evidência.** As paginas da fatia citam codigo com prefixos de repositorio que nao existem no monorepo: `backend/src/modules/atlas/atlas.routes.js` (api-rest-atlas.md:5,120), `backend/src/modules/atlas/atlas.schemas.js:19-40` e `:queries.js:69-76` (atlas-settings.md:5,13,23,60), `backend/src/middleware/permissions.js:12-18` e `utils/roles.js:12-19` (permissoes-atlas.md:5,11), `backend/src/database/migrations/002_atlas.sql` (atlas-modelo-de-dados.md:5), alem de `frontend/src/js/...` (api-rest-atlas.md:5,13,120). Os caminhos reais sao `backend/...` e `frontend/...`. O guard nao pega nada disso: `RE_CAMINHO` so aceita os prefixos `(frontend|backend|src|tests|docs|scripts|deploy|public)` (`frontend/tests/unit/docs-integridade.test.js:79-80`), entao `ebgeo_backend/`/`ebgeo_web/` caem fora da varredura em silencio. Sao 10 ocorrencias so na minha fatia e 53 em 22 paginas da wiki inteira (contagem por grep). E a mesma familia de cobertura-vazia que os proprios comentarios do teste registram (C4): a regex mede a maioria e reporta verde.
 
 **Ação.** Duas coisas, na ordem: (1) normalizar as 10 citacoes da fatia para `backend/`/`frontend/`; (2) fechar o buraco do guard, seja acrescentando `ebgeo_backend|ebgeo_web` a `RE_CAMINHO` para que passem a FALHAR, seja adicionando uma assercao dedicada 'nenhum doc cita prefixo de repo legado'. Sem (2) a correcao manual apodrece de novo, e a barra do projeto e 'onde existe teste que varre tudo, nao confira a mao'.
 
@@ -1192,6 +1207,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 111. docs/wiki/{config-runtime-urls-relativas.md:7, resources-catalogo.md:20,53,55, auditoria.md:53,60, syncledger.md:40}
 
+> **CORRIGIDO em 2026-07-24.** Resolvido pela inversão da regex do `frontend/tests/unit/docs-integridade.test.js`: o prefixo deixou de ser lista fechada e virou asserção (coleta qualquer token com cara de caminho, resolve contra as raízes reais dos pacotes e contra o diretório do próprio documento). As 55 citações com prefixo pré-monorepo foram reescritas com verificação de existência do destino, mais 29 referências de diretório e os 3 ponteiros `MUST stay in lockstep` que viviam em comentário de CÓDIGO, fora do alcance de qualquer varredura de .md. O ponteiro de `trace-stages.js` estava morto duas vezes (prefixo legado + diretório `collab/trace/` que nunca existiu); aponta agora para `backend/src/utils/sync-trace.js`.
+
+
 - **Tipo:** link quebrado · **Fatia:** `be-catalog-config-audit`
 - **Documento:** `docs/wiki/config-runtime-urls-relativas.md:7`
 - **Código:** `frontend/tests/unit/docs-integridade.test.js:79-80`
@@ -1202,11 +1220,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 112. docs/wiki/api-rest-atlas.md (:5, :13, :120)
 
+> **CORRIGIDO em 2026-07-24.** Resolvido pela inversão da regex do `frontend/tests/unit/docs-integridade.test.js`: o prefixo deixou de ser lista fechada e virou asserção (coleta qualquer token com cara de caminho, resolve contra as raízes reais dos pacotes e contra o diretório do próprio documento). As 55 citações com prefixo pré-monorepo foram reescritas com verificação de existência do destino, mais 29 referências de diretório e os 3 ponteiros `MUST stay in lockstep` que viviam em comentário de CÓDIGO, fora do alcance de qualquer varredura de .md. O ponteiro de `trace-stages.js` estava morto duas vezes (prefixo legado + diretório `collab/trace/` que nunca existiu); aponta agora para `backend/src/utils/sync-trace.js`.
+
+
 - **Tipo:** link quebrado · **Fatia:** `be-maps-briefings`
 - **Documento:** `docs/wiki/api-rest-atlas.md:5 ; :13 ; :120`
 - **Código:** `frontend/tests/unit/docs-integridade.test.js:79-80`
 
-**Evidência.** Três citações usam prefixos de caminho que não existem mais no monorepo: `ebgeo_backend/src/modules/atlas/atlas.routes.js` (:5), `ebgeo_web/src/js/modals/project-picker.modal.js:369-370` (:13) e `ebgeo_backend/src/modules/{atlas,sharing,maps}/` (:120). `ls ebgeo_backend` retorna "No such file or directory"; os pacotes são `backend/` e `frontend/`. Pior que o link morto é o motivo de ele sobreviver: RE_CAMINHO (frontend/tests/unit/docs-integridade.test.js:79-80) só casa os prefixos `frontend|backend|src|tests|docs|scripts|deploy|public`, então citação com prefixo `ebgeo_backend/` ou `ebgeo_web/` não é sequer coletada e escapa inteira do guard. É a recorrência da classe de cobertura vazia que já custou duas vezes ao projeto (regex que não casa com nada reporta verde), e o :13 é justamente uma citação `arquivo:linha`, o formato que wiki-schema.md manda usar.
+**Evidência.** Três citações usam prefixos de caminho que não existem mais no monorepo: `backend/src/modules/atlas/atlas.routes.js` (:5), `frontend/src/js/modals/project-picker.modal.js:369-370` (:13) e `backend/src/modules/{atlas,sharing,maps}/` (:120). `ls ebgeo_backend` retorna "No such file or directory"; os pacotes são `backend/` e `frontend/`. Pior que o link morto é o motivo de ele sobreviver: RE_CAMINHO (frontend/tests/unit/docs-integridade.test.js:79-80) só casa os prefixos `frontend|backend|src|tests|docs|scripts|deploy|public`, então citação com prefixo `ebgeo_backend/` ou `ebgeo_web/` não é sequer coletada e escapa inteira do guard. É a recorrência da classe de cobertura vazia que já custou duas vezes ao projeto (regex que não casa com nada reporta verde), e o :13 é justamente uma citação `arquivo:linha`, o formato que wiki-schema.md manda usar.
 
 **Ação.** Trocar os três prefixos para `backend/` e `frontend/`. Em seguida, e mais importante, fechar o vão no guard: fazer RE_CAMINHO rejeitar (ou coletar como quebrado) qualquer citação em crase que comece por `ebgeo_backend/` ou `ebgeo_web/`, e varrer o corpus inteiro por esses dois prefixos de uma vez, já que o mesmo padrão aparece em atlas-settings.md:13,:60 e ingestao-projetos-360.md:42.
 
@@ -1242,11 +1263,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 116. docs/wiki/streetview-360.md e docs/wiki/ingestao-projetos-360.md
 
+> **CORRIGIDO em 2026-07-24.** Resolvido pela inversão da regex do `frontend/tests/unit/docs-integridade.test.js`: o prefixo deixou de ser lista fechada e virou asserção (coleta qualquer token com cara de caminho, resolve contra as raízes reais dos pacotes e contra o diretório do próprio documento). As 55 citações com prefixo pré-monorepo foram reescritas com verificação de existência do destino, mais 29 referências de diretório e os 3 ponteiros `MUST stay in lockstep` que viviam em comentário de CÓDIGO, fora do alcance de qualquer varredura de .md. O ponteiro de `trace-stages.js` estava morto duas vezes (prefixo legado + diretório `collab/trace/` que nunca existiu); aponta agora para `backend/src/utils/sync-trace.js`.
+
+
 - **Tipo:** link quebrado · **Fatia:** `be-sv360`
 - **Documento:** `docs/wiki/streetview-360.md:16`
 - **Código:** `frontend/tests/unit/docs-integridade.test.js:78-79`
 
-**Evidência.** Citacoes com prefixo de repositorio inexistente escapam inteiras do guarda: RE_CAMINHO (docs-integridade.test.js:78-79) so casa caminho que comeca em frontend|backend|src|tests|docs|scripts|deploy|public, entao `ebgeo_backend/...` e `ebgeo_web/src/js/...` nunca sao verificados, e nao existe nem diretorio ebgeo_backend/ nem ebgeo_web/src/ na raiz. Na minha fatia: streetview-360.md:16 (`ebgeo_web/src/js/store/sync/api-client.js:261`, com a MESMA linha usando `frontend/src/js/store/sync/api-client.js:515-535` corretamente logo depois), :55, :73; ingestao-projetos-360.md:42, :43, :44. E o padrao C4 (cobertura vazia) e ha 30+ ocorrencias na wiki inteira.
+**Evidência.** Citacoes com prefixo de repositorio inexistente escapam inteiras do guarda: RE_CAMINHO (docs-integridade.test.js:78-79) so casa caminho que comeca em frontend|backend|src|tests|docs|scripts|deploy|public, entao `backend/...` e `frontend/src/js/...` nunca sao verificados, e nao existe nem diretorio ebgeo_backend/ nem ebgeo_web/src/ na raiz. Na minha fatia: streetview-360.md:16 (`frontend/src/js/store/sync/api-client.js:261`, com a MESMA linha usando `frontend/src/js/store/sync/api-client.js:515-535` corretamente logo depois), :55, :73; ingestao-projetos-360.md:42, :43, :44. E o padrao C4 (cobertura vazia) e ha 30+ ocorrencias na wiki inteira.
 
 **Ação.** Normalizar para frontend/ e backend/ nas seis citacoes da fatia e, no teste, ou aceitar os prefixos legados mapeando-os, ou adicionar assert que falha quando um caminho citado comeca por ebgeo_web/ ou ebgeo_backend/. Sem isso a regra continua medindo a minoria.
 
@@ -1256,7 +1280,7 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 - **Documento:** `docs/wiki/syncledger.md:40`
 - **Código:** `backend/src/utils/sync-trace.js:18-30`
 
-**Evidência.** Marcador [!CONTRADICAO] pendente que ja da para resolver contra o codigo, que e a regra do wiki-schema. Ele diz 'Sao dois arquivos distintos (ring vs. enum) ou um deles moveu' e manda 'confirme o caminho real no repo do backend'. Confirmado: `backend/src/modules/collab/` contem apenas gateway/handlers/quality/rooms/service/index, sem subpasta `trace/`; o caminho `ebgeo_backend/src/modules/collab/trace/trace-stages.js` nao existe e e a unica citacao a arquivo inexistente do corpus. E nao sao dois arquivos: `utils/sync-trace.js` e ring E enum, expondo `TraceStage` (:18-22) e `TraceOutcome` (:25-30) alem do buffer. A origem do caminho morto e o proprio codigo do frontend: JSDoc em `frontend/src/js/store/sync/diag/trace-stages.js:6-7`. Marcador pendente e o unico estado que acorda o gate da wiki, entao ele custa em todo lint enquanto fica.
+**Evidência.** Marcador [!CONTRADICAO] pendente que ja da para resolver contra o codigo, que e a regra do wiki-schema. Ele diz 'Sao dois arquivos distintos (ring vs. enum) ou um deles moveu' e manda 'confirme o caminho real no repo do backend'. Confirmado: `backend/src/modules/collab/` contem apenas gateway/handlers/quality/rooms/service/index, sem subpasta `trace/`; o caminho `backend/src/utils/sync-trace.js` nao existe e e a unica citacao a arquivo inexistente do corpus. E nao sao dois arquivos: `utils/sync-trace.js` e ring E enum, expondo `TraceStage` (:18-22) e `TraceOutcome` (:25-30) alem do buffer. A origem do caminho morto e o proprio codigo do frontend: JSDoc em `frontend/src/js/store/sync/diag/trace-stages.js:6-7`. Marcador pendente e o unico estado que acorda o gate da wiki, entao ele custa em todo lint enquanto fica.
 
 **Ação.** Apagar o marcador e substituir por uma linha afirmativa: o espelho de backend e `backend/src/utils/sync-trace.js`, que carrega o subconjunto server.* do enum (:18-22) alem do ring. Corrigir tambem o JSDoc de frontend/src/js/store/sync/diag/trace-stages.js:6-7, que e a fonte do caminho morto, senao a contradicao renasce na proxima leitura.
 
@@ -1271,11 +1295,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 119. jwt-emissor-unico.md
 
+> **CORRIGIDO em 2026-07-24.** Resolvido pela inversão da regex do `frontend/tests/unit/docs-integridade.test.js`: o prefixo deixou de ser lista fechada e virou asserção (coleta qualquer token com cara de caminho, resolve contra as raízes reais dos pacotes e contra o diretório do próprio documento). As 55 citações com prefixo pré-monorepo foram reescritas com verificação de existência do destino, mais 29 referências de diretório e os 3 ponteiros `MUST stay in lockstep` que viviam em comentário de CÓDIGO, fora do alcance de qualquer varredura de .md. O ponteiro de `trace-stages.js` estava morto duas vezes (prefixo legado + diretório `collab/trace/` que nunca existiu); aponta agora para `backend/src/utils/sync-trace.js`.
+
+
 - **Tipo:** link quebrado · **Fatia:** `be-auth`
 - **Documento:** `docs/wiki/jwt-emissor-unico.md:3`
 - **Código:** `frontend/tests/unit/docs-integridade.test.js:81 (RE_CAMINHO)`
 
-**Evidência.** A frase de abertura da pagina ancora `issueAccessToken` em `ebgeo_backend/src/modules/auth/auth.service.js:24-42`. Nao existe diretorio `ebgeo_backend/` no monorepo (o pacote e `backend/`); o arquivo real e backend/src/modules/auth/auth.service.js:24-42. O que torna isto mais que um typo e a cegueira do guard: RE_CAMINHO (docs-integridade.test.js:81) so casa prefixos `frontend|backend|src|tests|docs|scripts|deploy|public`, entao a citacao com prefixo `ebgeo_backend/` nunca e COLETADA, muito menos verificada, e o teste passa verde. E exatamente o padrao de cobertura vazia que o livro-razao ja registrou duas vezes (citacao encurtada para basename, regex exigindo crase). Ha ~20 ocorrencias do prefixo no corpus, incluindo linhas de ancora em api-rest-atlas.md:5, atlas-settings.md:13 e envelope-operacao.md:13.
+**Evidência.** A frase de abertura da pagina ancora `issueAccessToken` em `backend/src/modules/auth/auth.service.js:24-42`. Nao existe diretorio `ebgeo_backend/` no monorepo (o pacote e `backend/`); o arquivo real e backend/src/modules/auth/auth.service.js:24-42. O que torna isto mais que um typo e a cegueira do guard: RE_CAMINHO (docs-integridade.test.js:81) so casa prefixos `frontend|backend|src|tests|docs|scripts|deploy|public`, entao a citacao com prefixo `ebgeo_backend/` nunca e COLETADA, muito menos verificada, e o teste passa verde. E exatamente o padrao de cobertura vazia que o livro-razao ja registrou duas vezes (citacao encurtada para basename, regex exigindo crase). Ha ~20 ocorrencias do prefixo no corpus, incluindo linhas de ancora em api-rest-atlas.md:5, atlas-settings.md:13 e envelope-operacao.md:13.
 
 **Ação.** Corrigir a citacao para `backend/src/modules/auth/auth.service.js:24-42` e, no mesmo passo, fechar o vao do guard: acrescentar `ebgeo_backend|ebgeo_web` ao RE_CAMINHO como prefixos que devem FALHAR (ou normaliza-los para o pacote real), e adicionar assert de contagem minima de citacoes coletadas, para o teste denunciar quando parar de casar.
 
@@ -1531,7 +1558,7 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 - **Documento:** `docs/wiki/ingestao-projetos-360.md:43`
 - **Código:** `backend/src/config.js:83-95`
 
-**Evidência.** A pagina cita `ebgeo_backend/src/config.js:69-81` como fonte de SV360_DB_DIR, SV360_TMP_DIR e SV360_MAX_UPLOAD_BYTES. Alem do prefixo morto, as linhas estao erradas: 69-81 e o fim do bloco images e todo o bloco assets3d; o bloco sv360 vive em backend/src/config.js:83-95 (dbDir :85, maxInflight :87, tmpDir :90, maxUploadBytes :94).
+**Evidência.** A pagina cita `backend/src/config.js:69-81` como fonte de SV360_DB_DIR, SV360_TMP_DIR e SV360_MAX_UPLOAD_BYTES. Alem do prefixo morto, as linhas estao erradas: 69-81 e o fim do bloco images e todo o bloco assets3d; o bloco sv360 vive em backend/src/config.js:83-95 (dbDir :85, maxInflight :87, tmpDir :90, maxUploadBytes :94).
 
 **Ação.** Trocar por `backend/src/config.js:83-95`.
 
@@ -1541,7 +1568,7 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 - **Documento:** `docs/wiki/ingestao-projetos-360.md:43`
 - **Código:** `backend/src/config.js:83-95`
 
-**Evidência.** A secao Fontes cita `ebgeo_backend/src/config.js:69-81` para `SV360_DB_DIR`, `SV360_TMP_DIR` e `SV360_MAX_UPLOAD_BYTES`. Esse intervalo e o fim do bloco `images` mais o bloco `assets3d`; o bloco `sv360` com as tres variaveis e config.js:83-95. O prefixo `ebgeo_backend/src/` tambem nao e o caminho do repo (`backend/src/`), o que tira a citacao do alcance do guarda de integridade.
+**Evidência.** A secao Fontes cita `backend/src/config.js:69-81` para `SV360_DB_DIR`, `SV360_TMP_DIR` e `SV360_MAX_UPLOAD_BYTES`. Esse intervalo e o fim do bloco `images` mais o bloco `assets3d`; o bloco `sv360` com as tres variaveis e config.js:83-95. O prefixo `backend/src/` tambem nao e o caminho do repo (`backend/src/`), o que tira a citacao do alcance do guarda de integridade.
 
 **Ação.** Corrigir para `backend/src/config.js:83-95`.
 
@@ -1611,7 +1638,7 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 - **Documento:** `docs/wiki/syncledger.md:40`
 - **Código:** `backend/src/modules/sync/sync.service.js:5`
 
-**Evidência.** O segundo [!CONTRADICAO] da pagina fica em aberto perguntando se o espelho de backend e `backend/src/utils/sync-trace.js` ou `ebgeo_backend/src/modules/collab/trace/trace-stages.js`, e manda "confirme o caminho real no repo do backend". Confirmado agora: `backend/src/modules/collab/` tem seis arquivos (gateway, handlers, quality, rooms, service, index) e nenhuma subpasta `trace/`; o espelho real e backend/src/utils/sync-trace.js, importado por sync.service.js:5. O lado errado e o JSDoc do frontend em frontend/src/js/store/sync/diag/trace-stages.js:5-7, que aponta para o caminho morto. Esta e a unica citacao a arquivo inexistente em todo o corpus e o teste docs-integridade nao a pega porque ela vive dentro do bloco de citacao.
+**Evidência.** O segundo [!CONTRADICAO] da pagina fica em aberto perguntando se o espelho de backend e `backend/src/utils/sync-trace.js` ou `backend/src/utils/sync-trace.js`, e manda "confirme o caminho real no repo do backend". Confirmado agora: `backend/src/modules/collab/` tem seis arquivos (gateway, handlers, quality, rooms, service, index) e nenhuma subpasta `trace/`; o espelho real e backend/src/utils/sync-trace.js, importado por sync.service.js:5. O lado errado e o JSDoc do frontend em frontend/src/js/store/sync/diag/trace-stages.js:5-7, que aponta para o caminho morto. Esta e a unica citacao a arquivo inexistente em todo o corpus e o teste docs-integridade nao a pega porque ela vive dentro do bloco de citacao.
 
 **Ação.** Resolver contra o codigo, como manda o wiki-schema: apagar o marcador, afirmar `backend/src/utils/sync-trace.js` como espelho e registrar em `## Historico`. Se a intencao for corrigir a raiz, o alvo e o JSDoc de trace-stages.js:7, nao a pagina.
 

@@ -2,7 +2,7 @@
 
 Overlay **apenas restritivo** por atlas sobre a config de deploy, trafegado por REST + frame WebSocket dedicado, fora do log de operações.
 
-O objeto e seus campos estão declarados em `ebgeo_backend/src/modules/atlas/atlas.schemas.js:19-40`; a semântica de interseção está no JSDoc de `frontend/src/js/store/sync/atlas-settings.service.js`. Esta página cobre só o que esses arquivos não contam.
+O objeto e seus campos estão declarados em `backend/src/modules/atlas/atlas.schemas.js:19-40`; a semântica de interseção está no JSDoc de `frontend/src/js/store/sync/atlas-settings.service.js`. Esta página cobre só o que esses arquivos não contam.
 
 ## Por que settings fica fora do sync
 
@@ -10,7 +10,7 @@ O objeto e seus campos estão declarados em `ebgeo_backend/src/modules/atlas/atl
 
 ## Armadilha nº 1: o merge é raso, e o PATCH parece parcial
 
-`SET settings = settings || $2::jsonb` (`ebgeo_backend/src/modules/atlas/atlas.queries.js:69-76`). O `||` em `jsonb` faz merge de **primeiro nível apenas**.
+`SET settings = settings || $2::jsonb` (`backend/src/modules/atlas/atlas.queries.js:69-76`). O `||` em `jsonb` faz merge de **primeiro nível apenas**.
 
 Enviar `{"features": {"map_3d": false}}` **substitui o objeto `features` inteiro** e apaga `panoramic_images`, `terrain_3d`, `data_layers`, `analysis_layers`. O sintoma é traiçoeiro: como o cliente trata flag ausente como ligada (`x !== false`), nada some da tela; o que estava desligado volta a ligado, em silêncio.
 
@@ -20,7 +20,7 @@ Enviar `{"features": {"map_3d": false}}` **substitui o objeto `features` inteiro
 
 ## Armadilha nº 2: `manage` no backend é `manager` no cliente
 
-O gate REST é `requireAtlasPermission('manage')` (`backend/src/modules/atlas/atlas.routes.js:35`), mas o papel que chega ao cliente é `'manager'`, traduzido em `ebgeo_backend/src/utils/roles.js:15`. São dois vocabulários para o mesmo nível. Um gate de UI escrito com o termo do outro lado passa no lint e falha silenciosamente; e um gate escrito como `permission === 'write' || 'owner'` exclui o co-Gestor, que legitimamente configura. O código atual acerta (`frontend/src/js/account/account.control.js:415,451`). Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
+O gate REST é `requireAtlasPermission('manage')` (`backend/src/modules/atlas/atlas.routes.js:35`), mas o papel que chega ao cliente é `'manager'`, traduzido em `backend/src/utils/roles.js:15`. São dois vocabulários para o mesmo nível. Um gate de UI escrito com o termo do outro lado passa no lint e falha silenciosamente; e um gate escrito como `permission === 'write' || 'owner'` exclui o co-Gestor, que legitimamente configura. O código atual acerta (`frontend/src/js/account/account.control.js:415,451`). Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
 > **Nota histórica.** guia *02-atlas-basico* (absorvido) §8 mostra `setSettingsVisible(isOwner)`, sugerindo configuração exclusiva do owner. A rota exige `manage`, e a matriz do próprio documento lista "Alterar configurações do atlas" como ✅ para `manage`. Trate como `manage`.
 
@@ -57,5 +57,5 @@ Corolário na direção oposta: o modal só oferece basemaps habilitados no depl
 
 ## Fontes
 - guia *02-atlas-basico* (absorvido): forma do objeto, endpoints, matriz de permissões (três contradições registradas acima).
-- `ebgeo_backend/src/modules/atlas/{atlas.routes,atlas.schemas,atlas.controller,atlas.queries,atlas.service}.js` e `backend/src/utils/roles.js`: gates, merge raso, broadcast, cópia no clone, tradução `manage`→`manager`.
+- `backend/src/modules/atlas/{atlas.routes,atlas.schemas,atlas.controller,atlas.queries,atlas.service}.js` e `backend/src/utils/roles.js`: gates, merge raso, broadcast, cópia no clone, tradução `manage`→`manager`.
 - `src/js/store/sync/{atlas-settings.service,sync-engine,ws-client}.js` e `frontend/src/js/modals/atlas-settings.modal.js`: interseção, baseline, guard de frame tardio, envio de bloco completo.

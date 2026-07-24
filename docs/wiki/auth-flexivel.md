@@ -46,4 +46,4 @@ O caminho anônimo/público não paga query nenhuma. O caminho estrito paga exat
 
 ## Fontes
 
-Guia *12-multiorg-identidade-auditoria* (absorvido), Partes 3 e 4. Código: `ebgeo_backend/src/middleware/flexible-auth.js`, `middleware/auth.js`, `utils/org-status.js`, `utils/environment.js`, `modules/users/users.queries.js`, `utils/redact-url.js`; bordas testadas em `backend/tests/unit/middleware-auth.test.js`.
+Guia *12-multiorg-identidade-auditoria* (absorvido), Partes 3 e 4. Código: `backend/src/middleware/flexible-auth.js`, `middleware/auth.js`, `utils/org-status.js`, `utils/environment.js`, `modules/users/users.queries.js`, `utils/redact-url.js`; bordas testadas em `backend/tests/unit/middleware-auth.test.js`.

@@ -2,7 +2,7 @@
 
 Camada efêmera em memória que propaga roster, cursores, seleções (2D/3D/360), cursor temporal e awareness de briefing entre pares de uma sala de atlas. Esta página cobre só o que não se lê no código: as convenções que o próprio JSDoc descreve errado, as armadilhas que atravessam cliente e servidor, e os limites operacionais.
 
-Mapa dos arquivos: `src/js/presence/` (bridge, store, overlays, cores) e `ebgeo_backend/src/modules/collab/`. Os cabeçalhos JSDoc de `frontend/src/js/presence/presence-bridge.js` e `frontend/src/js/presence/presence-store.js` já listam frames inbound/outbound e eventos emitidos; não repetimos aqui.
+Mapa dos arquivos: `src/js/presence/` (bridge, store, overlays, cores) e `backend/src/modules/collab/`. Os cabeçalhos JSDoc de `frontend/src/js/presence/presence-bridge.js` e `frontend/src/js/presence/presence-store.js` já listam frames inbound/outbound e eventos emitidos; não repetimos aqui.
 
 ## Por que presença é requisito, não enfeite
 

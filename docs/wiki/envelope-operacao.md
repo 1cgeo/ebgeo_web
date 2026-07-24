@@ -10,7 +10,7 @@ Não há rota REST de escrita para entidades colaborativas (feição, camada, gr
 
 `flush()` empurra os objetos da fila sem projeção (`frontend/src/js/store/sync/sync-engine.js:272`, `frontend/src/js/store/sync/api-client.js:841`). Logo `previousData`, `batchId`, `batchIndex` e `traceId` cruzam a rede mesmo sem uso servidor-side.
 
-Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`ebgeo_backend/src/modules/sync/sync.schemas.js:46`) vence o `stripUnknown: true` do middleware (`middleware/validate.js:5`). Verificado empiricamente no Joi 17.13.3 desta instalação: campos não declarados sobrevivem intactos. O comentário do próprio schema hesita nisso e declara `traceId` explicitamente "rather than relying on .unknown(true)". A hesitação é infundada, mas **remover o `.unknown(true)` apaga silenciosamente `previousData`, `batchId` e `batchIndex` sem erro de validação** e sem nenhum teste vermelho.
+Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`backend/src/modules/sync/sync.schemas.js:46`) vence o `stripUnknown: true` do middleware (`middleware/validate.js:5`). Verificado empiricamente no Joi 17.13.3 desta instalação: campos não declarados sobrevivem intactos. O comentário do próprio schema hesita nisso e declara `traceId` explicitamente "rather than relying on .unknown(true)". A hesitação é infundada, mas **remover o `.unknown(true)` apaga silenciosamente `previousData`, `batchId` e `batchIndex` sem erro de validação** e sem nenhum teste vermelho.
 
 ## Os campos que enganam
 
@@ -49,5 +49,5 @@ Os dois vocabulários (frontend `entityType`/`operationType`/`entityId` e legacy
 ## Fontes
 
 - `src/js/store/sync/`: `frontend/src/js/store/sync/operation-factory.js` (shape as-built), `frontend/src/js/store/sync/operation-dispatcher.js` (gates de pré-flush), `frontend/src/js/store/sync/operation-queue.js` (chave `timestamp_id`, compactação), `frontend/src/js/store/sync/sync-engine.js` (flush verbatim, ack, semeadura do guard).
-- `ebgeo_backend/src/modules/sync/`: `backend/src/modules/sync/sync.schemas.js` (dois vocabulários, `.unknown(true)`, teto 500), `backend/src/modules/sync/sync.service.js` (normalização, advisory lock, restamp de `entityId`).
+- `backend/src/modules/sync/`: `backend/src/modules/sync/sync.schemas.js` (dois vocabulários, `.unknown(true)`, teto 500), `backend/src/modules/sync/sync.service.js` (normalização, advisory lock, restamp de `entityId`).
 - Guias absorvidos *05-sync-crdt* e *arquitetura-sync* §3 (ver contradição acima).

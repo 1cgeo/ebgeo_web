@@ -4,7 +4,7 @@ Os subsistemas 3D e 360 gravam caminhos relativos e o cliente os resolve contra 
 
 ## Por que a base fica no config e não no dado
 
-Um `tileset.json` ou uma thumbnail 360 são servidos de hosts diferentes em dev, homologação e rede interna do EB. Gravar o caminho absoluto no banco tornaria a troca de ambiente um UPDATE em massa; hardcodar no bundle exigiria rebuild. Grava-se o relativo no dado e a base em env var (`ASSETS_3D_BASE_URL`, `SV360_SERVICE_URL`), montadas no payload em `ebgeo_backend/src/modules/config/config.service.js:150,187`. Ver [[config-dinamico]] e [[deploy-backend]].
+Um `tileset.json` ou uma thumbnail 360 são servidos de hosts diferentes em dev, homologação e rede interna do EB. Gravar o caminho absoluto no banco tornaria a troca de ambiente um UPDATE em massa; hardcodar no bundle exigiria rebuild. Grava-se o relativo no dado e a base em env var (`ASSETS_3D_BASE_URL`, `SV360_SERVICE_URL`), montadas no payload em `backend/src/modules/config/config.service.js:150,187`. Ver [[config-dinamico]] e [[deploy-backend]].
 
 ## O objeto config é mutado in place, nunca substituído
 

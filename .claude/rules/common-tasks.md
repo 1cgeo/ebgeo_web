@@ -14,7 +14,7 @@ Use a skill `new-tool`. Esta seção já teve uma cópia resumida do procediment
    Typedef completo em `frontend/src/js/processing/algorithms/algorithm.interface.js`, exemplo em
    `frontend/src/js/processing/algorithms/buffer.algorithm.js`.
 3. Chamar `registerAlgorithm({...})` no load do módulo **e** adicionar o import de
-   efeito colateral `import './<name>.algorithm.js';` em `algorithms/index.js`.
+   efeito colateral `import './<name>.algorithm.js';` em `frontend/src/js/processing/algorithms/index.js`.
    Sem o segundo passo o módulo nunca é carregado e o registro nunca roda: não há
    erro, o algoritmo apenas não aparece.
 4. Nada mais muda em lugar nenhum.

@@ -50,8 +50,8 @@ Pontos onde o gate roda: middleware `auth` (`backend/src/middleware/auth.js:84-1
 `ORG_CREATE`/`ORG_UPDATE`/`ORG_DELETE` chamam `createAudit` **sem** o terceiro argumento de transação (`backend/src/modules/organizations/organizations.controller.js:16-34`), e `createAudit` só entra em `t.none` quando esse argumento existe (`backend/src/utils/audit.js:27`). Se o insert de auditoria falhar, a org já foi criada ou desativada e a trilha não registra. No `ORG_DELETE` o `targetName` nem é preenchido, então a trilha guarda só o UUID. Ver [[auditoria]].
 
 ## Fontes
-- `ebgeo_backend/src/modules/organizations/*.js`, `backend/src/utils/org-status.js`, `src/middleware/{auth,flexible-auth}.js`, `backend/src/modules/auth/auth.service.js`, `backend/src/modules/collab/collab.gateway.js`.
-- `ebgeo_backend/src/database/migrations/{001_core,002_atlas,005_sv360}.sql`.
-- `ebgeo_backend/src/modules/users/{users.schemas,users.queries}.js`, `backend/src/modules/config/config.service.js`, `src/modules/streetview360/{sv360.write.service,sv360.merge}.js`.
-- `ebgeo_web/src/js/admin/personnel-tab.js`, `src/js/store/sync/{api-client,sync-engine}.js`. Ver [[api-rest-atlas]] para o padrão do cliente REST.
+- `backend/src/modules/organizations/*.js`, `backend/src/utils/org-status.js`, `src/middleware/{auth,flexible-auth}.js`, `backend/src/modules/auth/auth.service.js`, `backend/src/modules/collab/collab.gateway.js`.
+- `backend/src/database/migrations/{001_core,002_atlas,005_sv360}.sql`.
+- `backend/src/modules/users/{users.schemas,users.queries}.js`, `backend/src/modules/config/config.service.js`, `src/modules/streetview360/{sv360.write.service,sv360.merge}.js`.
+- `frontend/src/js/admin/personnel-tab.js`, `src/js/store/sync/{api-client,sync-engine}.js`. Ver [[api-rest-atlas]] para o padrão do cliente REST.
 - guia *12-multiorg-identidade-auditoria* (absorvido): origem da contradição "dona dos dados".

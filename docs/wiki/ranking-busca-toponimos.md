@@ -50,7 +50,7 @@ A barra dispara com 2 caracteres (`frontend/src/js/search/search-bar.component.j
 Módulo read-only, fora do sync do atlas: sem `version`, sem operação, sem broadcast. Ver [[sintese-modulos-fora-do-sync]] e [[deploy-backend]].
 
 ## Fontes
-- `ebgeo_backend/src/modules/nomes/nomes.queries.js`: SQL do ranking, corte de 500, filtro de acesso pré-corte.
-- `ebgeo_backend/src/database/migrations/004_ng.sql`: `f_unaccent`, índice GIN trigram, hierarquia `tipo_peso`.
-- `ebgeo_web/src/js/search/search-bar.search-providers.js`, `frontend/src/js/search/search-bar.component.js`: ausência de `zoom`, gatilho em 2 chars.
+- `backend/src/modules/nomes/nomes.queries.js`: SQL do ranking, corte de 500, filtro de acesso pré-corte.
+- `backend/src/database/migrations/004_ng.sql`: `f_unaccent`, índice GIN trigram, hierarquia `tipo_peso`.
+- `frontend/src/js/search/search-bar.search-providers.js`, `frontend/src/js/search/search-bar.component.js`: ausência de `zoom`, gatilho em 2 chars.
 - guia *13-nomes-geograficos* (absorvido): pesos e contrato do endpoint; divergência sobre `zoom` registrada acima.

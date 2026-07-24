@@ -1,6 +1,6 @@
 # JWT de Emissor Único (claims e aliases congelados)
 
-Um único token HS256 (`issueAccessToken`, `ebgeo_backend/src/modules/auth/auth.service.js:24-42`) serve web, gazetteer e módulo 360 com o mesmo segredo, o que transforma cada campo do payload em contrato com um consumidor que você não compila.
+Um único token HS256 (`issueAccessToken`, `backend/src/modules/auth/auth.service.js:24-42`) serve web, gazetteer e módulo 360 com o mesmo segredo, o que transforma cada campo do payload em contrato com um consumidor que você não compila.
 
 ## Os aliases `org` e `login` são contrato congelado
 

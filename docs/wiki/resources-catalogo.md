@@ -17,7 +17,7 @@ O DDL (`backend/src/database/migrations/003_sync.sql:95-115`) rejeita explicitam
 ## Contratos congelados
 
 - **`id` é slug textual escolhido pelo admin, imutável.** É a chave que o frontend indexa e que `atlas.settings.available_*` referencia. Colisão dá 409 (`catalog.service.js:43`); **não existe rota de rename**. Renomear é criar novo e reapontar todos os settings.
-- **`config.style` de basemap é servido verbatim** em `config.basemapStyles` para todo cliente, inclusive anônimo. Um style malformado gravado brica o mapa base de todo mundo no próximo boot; daí a validação no create e no update. O validador do backend (`backend/src/utils/maplibre-style-validate.js`) **espelha** o do cliente (`ebgeo_web/src/js/utilities/maplibre-style-validate.js`); mudou um, mude o outro. Ver [[sintese-contratos-congelados]].
+- **`config.style` de basemap é servido verbatim** em `config.basemapStyles` para todo cliente, inclusive anônimo. Um style malformado gravado brica o mapa base de todo mundo no próximo boot; daí a validação no create e no update. O validador do backend (`backend/src/utils/maplibre-style-validate.js`) **espelha** o do cliente (`frontend/src/js/utilities/maplibre-style-validate.js`); mudou um, mude o outro. Ver [[sintese-contratos-congelados]].
 - **`analysis_layer` sem `bounds` de 4 elementos é filtrado fora do `/config`** (`backend/src/modules/config/config.service.js:86-96`). Uma camada seedada incompleta já quebrou o boot da aplicação. Consequência que parece bug e não é: você cria pela API, recebe 201, ela aparece em `GET /analysis-layers` e **não aparece no `/config`**. Confira o `bounds` antes de abrir chamado.
 
 ## Soft delete: o caminho sem volta
@@ -50,9 +50,9 @@ Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo i
 
 ## Divergências com a documentação
 
-> **Nota histórica.** O guia *09-admin* (absorvido) §3.2-3.6 documenta uma API genérica `GET/POST/PUT/DELETE /api/v1/resources` com filtro `?category=` e coluna `category`. Essa rota **não existe**: `grep "v1/resources"` em `src/` não retorna nada e não há coluna `category` em lugar nenhum. O cliente já traduz categoria antiga para rota nova em `ebgeo_web/src/js/store/sync/api-client.js:411-427`.
+> **Nota histórica.** O guia *09-admin* (absorvido) §3.2-3.6 documenta uma API genérica `GET/POST/PUT/DELETE /api/v1/resources` com filtro `?category=` e coluna `category`. Essa rota **não existe**: `grep "v1/resources"` em `src/` não retorna nada e não há coluna `category` em lugar nenhum. O cliente já traduz categoria antiga para rota nova em `frontend/src/js/store/sync/api-client.js:411-427`.
 
-> **[!CONTRADICAO]** O `@fileoverview` de `ebgeo_web/src/js/admin/catalog-tab.js:6` ainda afirma que as categorias "go through the existing `/api/v1/resources` admin CRUD". É comentário obsoleto no próprio arquivo que usa o mapeamento por tipo. O código convida ao erro aqui: confie no `_catalogEndpoint`, não no fileoverview.
+> **[!CONTRADICAO]** O `@fileoverview` de `frontend/src/js/admin/catalog-tab.js:6` ainda afirma que as categorias "go through the existing `/api/v1/resources` admin CRUD". É comentário obsoleto no próprio arquivo que usa o mapeamento por tipo. O código convida ao erro aqui: confie no `_catalogEndpoint`, não no fileoverview.
 
 > **Nota histórica.** O guia §3.2 afirma que `active` não é incluído na resposta de listagem. É incluído (`COLS` em `catalog.service.js:9`). A parte correta é que a listagem só devolve `active = true`.
 

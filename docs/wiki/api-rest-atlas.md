@@ -2,7 +2,7 @@
 
 Superfície REST do [[atlas-modelo-de-dados]]: só metadados de atlas, permissão e posse. Conteúdo (mapas, feições, camadas, grupos, briefings, slides) não tem rota de escrita e viaja como operação de sync, ver [[sintese-rest-vs-sync]] e [[envelope-operacao]].
 
-Rotas e permissão mínima leem-se direto em `ebgeo_backend/src/modules/atlas/atlas.routes.js` (53 linhas, comentadas); o cliente é `ebgeo_web/src/js/store/sync/api-client.js`. Esta página só registra o que o código não conta.
+Rotas e permissão mínima leem-se direto em `backend/src/modules/atlas/atlas.routes.js` (53 linhas, comentadas); o cliente é `frontend/src/js/store/sync/api-client.js`. Esta página só registra o que o código não conta.
 
 Uma regra de manutenção que a leitura casual não protege: rota literal nova sob `/atlas` precisa ser declarada **acima** de `/:atlasId`, senão Express a captura como parâmetro (foi por isso que `/trash` e `/public/:link` estão onde estão).
 
@@ -10,7 +10,7 @@ Uma regra de manutenção que a leitura casual não protege: rota literal nova s
 
 `read(1) < comment(2) < write(3) < manage(4) < owner(5)` (`backend/src/middleware/permissions.js:12-18`). O ponto que quebra implementação: **`manage` está ACIMA de `write`**. Qualquer gate escrito por igualdade (`perm === 'write' || perm === 'owner'`) exclui o co-Gestor em silêncio. Compare por nível. Ver [[permissoes-atlas]].
 
-> **Nota histórica.** O próprio frontend cai nessa armadilha: `ebgeo_web/src/js/modals/project-picker.modal.js:369-370` faz `perm === 'owner' || perm === 'write'`, então o co-Gestor não vê "Renomear" no card embora o backend aceite o `PUT` dele (`backend/src/modules/atlas/atlas.routes.js:27`). O guia *ui-ux-ebgeo* (absorvido) §2 descreve a ação como "gated por papel (renomear = Editor+)", que é a intenção, não o efeito.
+> **Nota histórica.** O próprio frontend cai nessa armadilha: `frontend/src/js/modals/project-picker.modal.js:369-370` faz `perm === 'owner' || perm === 'write'`, então o co-Gestor não vê "Renomear" no card embora o backend aceite o `PUT` dele (`backend/src/modules/atlas/atlas.routes.js:27`). O guia *ui-ux-ebgeo* (absorvido) §2 descreve a ação como "gated por papel (renomear = Editor+)", que é a intenção, não o efeito.
 
 Outras duas saídas não óbvias de `resolvePermission` (`backend/src/middleware/permissions.js:30-48`, `:82-92`):
 
@@ -117,4 +117,4 @@ Quando o Drive abre no boot e o destino de dado remoto órfão: [[sessao-boot-e-
 
 ## Fontes
 
-Guias absorvidos *02-atlas-basico* e *07-compartilhamento* (origem das contradições acima). Código: `ebgeo_backend/src/modules/{atlas,sharing,maps}/`, `backend/src/middleware/permissions.js`, `backend/src/database/migrations/002_atlas.sql`; `ebgeo_web/src/js/store/sync/api-client.js` e `src/js/modals/{atlas-settings,project-picker}.modal.js`.
+Guias absorvidos *02-atlas-basico* e *07-compartilhamento* (origem das contradições acima). Código: `backend/src/modules/{atlas,sharing,maps}/`, `backend/src/middleware/permissions.js`, `backend/src/database/migrations/002_atlas.sql`; `frontend/src/js/store/sync/api-client.js` e `src/js/modals/{atlas-settings,project-picker}.modal.js`.

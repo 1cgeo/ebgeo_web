@@ -41,6 +41,6 @@ O outbound do frontend é só REST. `frontend/src/js/store/sync/ws-client.js:292
 > **Nota histórica.** guia *08-offline-import* (absorvido):120-126 mostra o dequeue iterando `result.data.acks` e chamando `remove(ack.opId)`. O cliente real (`frontend/src/js/store/sync/sync-engine.js:285`) faz `operationQueue.dequeue(opIds)` com os ids que enviou e ignora `results`/`acks` para fins de dequeue. Isso é correto **apenas** porque não existe falha parcial; se o servidor um dia admitir `success:false` por item, este dequeue passa a apagar ops não gravadas.
 
 ## Fontes
-- `ebgeo_backend/src/modules/sync/sync.service.js` (`pushOperations`), `backend/src/modules/collab/collab.handlers.js`, `backend/src/modules/sync/sync.controller.js`.
-- `ebgeo_web/src/js/store/sync/{sync-engine,ws-client,remote-operation-handler}.js`.
+- `backend/src/modules/sync/sync.service.js` (`pushOperations`), `backend/src/modules/collab/collab.handlers.js`, `backend/src/modules/sync/sync.controller.js`.
+- `frontend/src/js/store/sync/{sync-engine,ws-client,remote-operation-handler}.js`.
 - guias absorvidos *04-websocket-collab* e *08-offline-import* (este último divergente do cliente real).

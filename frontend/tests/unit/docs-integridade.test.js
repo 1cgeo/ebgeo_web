@@ -75,9 +75,20 @@ const DOCS = [...ALVOS.filter((f) => existsSync(join(RAIZ, f))), ...PASTAS.flatM
  * `docs/wiki/wiki-schema.md` manda usar. O teste passava verde medindo a
  * minoria. Só o caminho é validado; o número da linha não dá para verificar
  * aqui, e fingir que dá seria o mesmo erro de novo.
+ *
+ * O PREFIXO não é uma lista fechada, e essa é a segunda lição do mesmo arquivo.
+ * A versão anterior aceitava só `frontend|backend|src|tests|docs|scripts|deploy|public`,
+ * então as 53 citações que ainda usavam os prefixos pré-monorepo `ebgeo_backend/`
+ * e `ebgeo_web/` não casavam, não eram coletadas e não eram verificadas — o mesmo
+ * defeito estrutural do sufixo, agora no começo da string. `docs/wiki/ack-idempotencia.md`
+ * chegou a ter as duas formas na MESMA linha, com metade guardada. Lista fechada
+ * silencia o que não conhece, então aqui a regra é inversa: colete QUALQUER token
+ * com cara de caminho e extensão conhecida, e deixe a existência do arquivo ser a
+ * asserção. Prefixo desconhecido passa a falhar em vez de escapar, e a próxima
+ * renomeação de pasta acusa em vez de silenciar.
  */
 const RE_CAMINHO =
-    /`((?:frontend|backend|src|tests|docs|scripts|deploy|public)\/[A-Za-z0-9._/-]+\.(?:js|cjs|mjs|json|sql|css|md|yml|sh))(?::\d+(?:[\s,-]*\d+)*)?`/g;
+    /`([A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+\.(?:js|cjs|mjs|json|sql|css|md|yml|sh))(?::\d+(?:[\s,-]*\d+)*)?`/g;
 
 /** Links markdown relativos: [texto](caminho.md) ou (./x.js), sem URL nem âncora pura. */
 const RE_LINK = /\]\((\.{0,2}\/?[A-Za-z0-9._/-]+\.(?:md|js|sql|json|sh|yml))(?:#[^)]*)?\)/g;
@@ -88,7 +99,29 @@ const RE_WIKILINK = /\[\[([^\]]+)\]\]/g;
 /** Caminhos que existem como referência histórica/externa e não devem falhar. */
 const ISENTOS = new Set([
     'src/js/store/sync/diag/trace-core.js', // citado como caminho conceitual em prosa de arquitetura
+    // Variante ILUSTRATIVA de path traversal em `docs/wiki/assets3d-distribuicao.md`,
+    // ao lado de `aman//x.json`: é a string de entrada que o exemplo discute, não um
+    // arquivo. Só aparece porque a coleta passou a ser ampla — e é o único
+    // falso-positivo que a inversão produziu em 65 páginas.
+    './aman/x.json',
 ]);
+
+/**
+ * Raízes contra as quais uma citação pode resolver, além do próprio diretório do
+ * documento que cita.
+ *
+ * Isto é o par necessário da coleta ampla: agora que a regex junta QUALQUER token
+ * com cara de caminho, ela também junta citação legitimamente relativa a um módulo
+ * — a constituição manda o comentário da linha 1 ser relativo ao `src/` do pacote
+ * (`js/draw_tools/...`), e as skills citam `store/store-errors.js` no mesmo dialeto.
+ * Sem estas raízes, inverter a regex trocaria um falso-negativo por uma enxurrada
+ * de falso-positivo, e um teste que grita demais é desligado, o que dá no mesmo.
+ *
+ * A propriedade que importa continua de pé: caminho que não existe sob NENHUMA
+ * raiz real falha. É por isso que `ebgeo_backend/...` e `ebgeo_web/...`, os
+ * prefixos do layout pré-monorepo, são pegos.
+ */
+const RAIZES_DE_RESOLUCAO = ['', 'backend', 'frontend', 'backend/src', 'frontend/src', 'frontend/src/js'];
 
 describe('integridade da documentação', () => {
     it('lista os documentos vigiados (guarda contra a lista esvaziar em silêncio)', () => {
@@ -102,10 +135,9 @@ describe('integridade da documentação', () => {
             for (const m of texto.matchAll(RE_CAMINHO)) {
                 const alvo = m[1];
                 if (ISENTOS.has(alvo)) continue;
-                // Um doc do pacote backend (ou um guia que o descreve) cita
-                // caminhos relativos AO PACOTE (`src/index.js` = backend/src/...).
-                // Vale se existir na raiz OU sob backend/.
-                if (existsSync(join(RAIZ, alvo)) || existsSync(join(RAIZ, 'backend', alvo))) continue;
+                const resolve = RAIZES_DE_RESOLUCAO.some((r) => existsSync(join(RAIZ, r, alvo)))
+                    || existsSync(join(dirname(join(RAIZ, doc)), alvo));
+                if (resolve) continue;
                 quebrados.push(`${doc} → \`${alvo}\``);
             }
         }

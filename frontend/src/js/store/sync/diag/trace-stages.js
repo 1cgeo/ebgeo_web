@@ -4,7 +4,7 @@
  * @fileoverview Shared vocabulary for the SyncLedger observability layer — the single
  * contract that the frontend tracer, the backend tracer, and the ledger merger all
  * agree on. The backend keeps a MIRROR copy
- * (ebgeo_backend/src/modules/collab/trace/trace-stages.js) that MUST stay in lockstep:
+ * (backend/src/utils/sync-trace.js) that MUST stay in lockstep:
  * the merger validates every Span's `stage` against this enum and flags unknown stages
  * rather than silently dropping them.
  */
