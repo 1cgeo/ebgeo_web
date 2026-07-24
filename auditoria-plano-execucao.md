@@ -45,8 +45,8 @@ mais que um item isolado de severidade maior.
 2. **Os 12 achados ALTO pendentes.** Maior severidade real ainda aberta.
 3. **Os 25 MÉDIOS**, na ordem de grupo da `auditoria-continuacao.md` (defeitos do
    mesmo grupo se reforçam e compartilham teste).
-4. **Documentação, severidade alta (122).** Volume grande, risco baixo, altamente
-   paralelizável — é onde os agentes rendem.
+4. **Documentação: alta (45), depois média (77).** Volume grande, risco baixo,
+   altamente paralelizável — é onde os agentes rendem.
 5. **Testes (185).** Acrescentam cobertura em vez de corrigir defeito; valem depois
    que os defeitos pararam de se mover.
 6. **Os 41 BAIXOS.** Por último por decisão registrada do usuário ("avaliarmos
