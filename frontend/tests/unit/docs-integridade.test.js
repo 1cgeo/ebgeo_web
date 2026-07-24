@@ -93,6 +93,15 @@ const RE_CAMINHO =
 /** Links markdown relativos: [texto](caminho.md) ou (./x.js), sem URL nem âncora pura. */
 const RE_LINK = /\]\((\.{0,2}\/?[A-Za-z0-9._/-]+\.(?:md|js|sql|json|sh|yml))(?:#[^)]*)?\)/g;
 
+/**
+ * Links markdown para DIRETÓRIO: `[guias](backend/docs/implementado/)`. A regex de
+ * arquivo acima exige extensão conhecida, então link para pasta nunca era checado —
+ * e o único link markdown morto de todo o corpus vigiado era exatamente desse tipo,
+ * apontando para um diretório de guias que a wiki absorveu e que deixou de existir.
+ * Mesma classe do prefixo e do sufixo: o que a regra não casa, ela abençoa.
+ */
+const RE_LINK_DIR = /\]\((\.{0,2}\/?(?:[A-Za-z0-9._-]+\/)+)\)/g;
+
 /** Wikilinks: [[slug]] — não resolvem no Claude Code. */
 const RE_WIKILINK = /\[\[([^\]]+)\]\]/g;
 
@@ -152,6 +161,10 @@ describe('integridade da documentação', () => {
             for (const m of texto.matchAll(RE_LINK)) {
                 const alvo = resolve(base, m[1]);
                 if (!existsSync(alvo)) quebrados.push(`${doc} → ${m[1]}`);
+            }
+            for (const m of texto.matchAll(RE_LINK_DIR)) {
+                const alvo = resolve(base, m[1]);
+                if (!existsSync(alvo)) quebrados.push(`${doc} → ${m[1]} (diretório)`);
             }
         }
         expect(quebrados, `links markdown quebrados:\n${quebrados.join('\n')}`).toEqual([]);

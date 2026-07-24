@@ -15,8 +15,9 @@ orquestra: os scripts dela delegam com `--prefix`, e o único lugar onde os dois
 E2E do Playwright, que sobe o backend real.
 
 A referência completa do servidor (rotas, env, migrações, permissões, protocolo WS) está em
-[`backend/README.md`](backend/README.md); os guias de integração em
-[`backend/docs/implementado/`](backend/docs/implementado/).
+[`backend/README.md`](backend/README.md); o porquê das decisões, na
+[wiki](docs/wiki/index.md). Os guias numerados de integração foram absorvidos pela wiki e o
+diretório que os continha não existe mais.
 
 ## Modos de operação
 
@@ -74,8 +75,10 @@ npm run knip         # detecção de código morto
 O E2E resolve o backend a partir de `backend/` no próprio repositório — `EBGEO_BACKEND_DIR`
 sobrescreve se o seu checkout mantiver o servidor em outro lugar.
 
-> Testes são executados manualmente (não há CI de testes nem git hooks). A UI é testada manualmente —
-> verifique mudanças via `npm run lint` e `npm test`.
+> Testes são executados manualmente (não há CI de testes nem git hooks). Lógica se verifica com
+> `npm run lint` e `npm test`; **UI se verifica com `npm run test:e2e:ui`**, que sobe o backend real
+> e é o guarda da fronteira entre os dois pacotes. O que não se usa é ferramenta de preview ou
+> browser interativo. Ver [`.claude/rules/testing.md`](.claude/rules/testing.md).
 
 ## Arquitetura & convenções
 
@@ -91,5 +94,10 @@ comuns e regras de teste) vive em:
 ### Modelo de dados (resumo)
 
 **Atlas** (contêiner do projeto) → **Mapas** (workspaces) → **Camadas** (visibilidade + bloqueio) →
-**Feições** (elementos geográficos com metadados de sync: `createdAt`, `updatedAt`, `version`,
-`ownerId`, `dirty`, `deleted`). Dados temporais opcionais por feição (janela de validade + trajetória).
+**Feições** (elementos geográficos). Dados temporais opcionais por feição (janela de validade +
+trajetória).
+
+O metadado de sync **não é uniforme entre as entidades**, e tratá-lo como uniforme é erro fácil:
+Atlas, Mapa e Grupo carregam os seis campos (`createdAt`, `updatedAt`, `version`, `ownerId`,
+`dirty`, `deleted`), enquanto **feição carrega só três** — `createdAt`, `updatedAt` e `version`,
+postos por `addCreatedTimestamp` (`frontend/src/js/store/feature.operations.js:29-41`).

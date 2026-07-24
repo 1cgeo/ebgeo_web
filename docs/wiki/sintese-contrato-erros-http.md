@@ -54,7 +54,12 @@ Outra ausência de sinal: no lote base64 de imagens a falha é **por item**, den
 
 ## 503 é para o orquestrador, não para o boot
 
-`GET /api/v1/health` é o único emissor de `503 SERVICE_UNAVAILABLE`, e o faz inline, sem passar pelo `errorHandler` (`backend/src/app.js:78-87`). Falha de banco em qualquer outra rota vira 500. O frontend não chama `/health` em lugar nenhum: disponibilidade é decidida por `GET /api/config` com fail-fast. Ver [[sessao-boot-e-ciclo-de-vida]], [[deploy-backend]].
+São **dois** os emissores de `503 SERVICE_UNAVAILABLE`, e eles chegam ao cliente por caminhos diferentes:
+
+- `GET /api/v1/health` responde inline, sem passar pelo `errorHandler` (`backend/src/app.js:78-87`).
+- O push de sync lança `ServiceUnavailableError` (`backend/src/utils/errors.js:54-58`) quando o `lock_timeout` do advisory lock dispara (`55P03`, `backend/src/modules/sync/sync.service.js:997-998`) — este passa pelo `errorHandler` como qualquer `AppError`. Foi acrescentado junto do `lock_timeout`, para que contenção vire retry em vez de conexão de pool retida.
+
+A distinção que importa para o cliente: 503 do push é **transitório e vale retry**; falha de banco em qualquer outra rota continua virando 500, que não vale. O frontend não chama `/health` em lugar nenhum: disponibilidade é decidida por `GET /api/config` com fail-fast. Ver [[sessao-boot-e-ciclo-de-vida]], [[deploy-backend]].
 
 ## Poison batch: erro permanente tratado como transitório
 

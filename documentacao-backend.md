@@ -478,6 +478,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 36. docs/wiki/sintese-contrato-erros-http.md
 
+> **CORRIGIDO em 2026-07-24.** A seção afirmava três coisas, todas falsas hoje: que `/health` é o único emissor de 503, que o faz sem passar pelo `errorHandler`, e que falha de banco em qualquer outra rota vira 500. São dois emissores — o segundo é o push de sync, que lança `ServiceUnavailableError` quando o `lock_timeout` do advisory lock dispara (`55P03`), acrescentado junto do próprio `lock_timeout` para que contenção vire retry em vez de conexão de pool retida. A página passou a separar os dois caminhos e a dizer o que importa ao cliente: 503 do push é transitório e vale retry.
+
 - **Tipo:** divergência · **Fatia:** `be-utils`
 - **Documento:** `docs/wiki/sintese-contrato-erros-http.md:55-57`
 - **Código:** `backend/src/utils/errors.js:54-58`
@@ -531,6 +533,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 41. README.md
 
+> **CORRIGIDO em 2026-07-24.** O §Modelo de dados do README atribuía os seis campos de sync às feições. `addCreatedTimestamp` (`frontend/src/js/store/feature.operations.js:29-41`) põe três: `createdAt`, `updatedAt` e `version`. Os seis são de Atlas/Mapa/Grupo. O README passou a declarar a assimetria explicitamente, como `.claude/rules/architecture.md` já fazia.
+
 - **Tipo:** divergência · **Fatia:** `estrutural`
 - **Código:** `frontend/src/js/store/feature.operations.js:29-41`
 
@@ -539,6 +543,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir o README para os três campos da feição, ou apagar a enumeração e apontar para .claude/rules/architecture.md §Data Model, que é onde a distinção já está codificada.
 
 ### 42. README.md
+
+> **CORRIGIDO em 2026-07-24.** O blockquote do §Verificação dizia que a UI é testada manualmente e que se verifica com lint e test. Contradizia a linha logo acima no próprio README, que documenta `npm run test:e2e:ui` subindo o backend real, e a regra em `.claude/rules/testing.md`. Reescrito: lógica por lint e test, UI pelo e2e do Playwright, e o que não se usa é preview ou browser interativo.
 
 - **Tipo:** divergência · **Fatia:** `estrutural`
 - **Código:** `.claude/rules/testing.md`
@@ -560,6 +566,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Substituir `ebgeo_backend/` por `backend/` e `ebgeo_web/` por `frontend/` nas 53 ocorrências, e ampliar a RE_CAMINHO do teste para casar qualquer caminho com extensão conhecida (ou pelo menos falhar explicitamente ao ver o prefixo legado), contando quantas citações foram efetivamente checadas.
 
 ### 44. README.md
+
+> **CORRIGIDO em 2026-07-24.** O link para `backend/docs/implementado/` apontava para um diretório que a wiki absorveu e que não existe mais. Era o único link markdown morto de todo o corpus vigiado, e escapava porque `RE_LINK` exige extensão conhecida — link para DIRETÓRIO nunca era checado. Além de corrigir o link, o teste ganhou `RE_LINK_DIR`, fechando a terceira instância da mesma classe neste arquivo (prefixo, sufixo e agora diretório): o que a regra não casa, ela abençoa. Controle negativo: com o link morto de volta, o teste acusa `README.md → backend/docs/implementado/ (diretório)`.
 
 - **Tipo:** link quebrado · **Fatia:** `estrutural`
 - **Código:** `frontend/tests/unit/docs-integridade.test.js:82`

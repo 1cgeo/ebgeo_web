@@ -141,3 +141,22 @@ caminhos e viraram "X difere de X". Detectadas por um verificador escrito para i
 (linha que cita o mesmo caminho duas vezes), com três falso-positivos legítimos
 (mesmo arquivo, linhas diferentes). O caminho morto voltou ao texto **sem crase**,
 porque agora toda citação entre crases é verificada.
+
+### Lote 3 — documentação, 4 itens (e o terceiro vão do mesmo teste)
+
+- **#36** — `sintese-contrato-erros-http.md` afirmava três coisas falsas sobre 503.
+  São dois emissores, não um: além do `/health` inline, o push de sync lança
+  `ServiceUnavailableError` quando o `lock_timeout` do advisory lock dispara. A
+  distinção que importa ao cliente é que 503 do push é transitório e vale retry.
+- **#41** — o README atribuía os seis campos de sync às feições; `addCreatedTimestamp`
+  põe três. Os seis são de Atlas/Mapa/Grupo. Assimetria agora declarada.
+- **#42** — o README dizia que a UI se verifica manualmente por lint e test,
+  contradizendo a linha logo acima dele e a regra em `.claude/rules/testing.md`.
+- **#44** — link para `backend/docs/implementado/`, diretório absorvido pela wiki.
+
+O #44 rendeu mais que um link: era o **único** link markdown morto do corpus, e
+escapava porque `RE_LINK` exige extensão conhecida, então link para DIRETÓRIO nunca
+foi checado. É a **terceira** instância da mesma classe neste mesmo arquivo de teste
+— prefixo, sufixo e agora diretório. O que a regra não casa, ela abençoa. Fechado
+com `RE_LINK_DIR`, e com controle negativo de fiação (não só do detector): com o link
+morto de volta, o teste acusa `README.md → backend/docs/implementado/ (diretório)`.
