@@ -42,7 +42,15 @@ aba, não no primeiro uso.
 ## Street View 360 Navigation
 
 Modelo de projeção em solo plano em `street_view_tool/navigation/`. A elevação do GPS
-**não** entra na projeção e `override_height` default 0 (solo). As funções de projeção
-precisam ficar em sincronia com `ebgeo_360/public/calibration/js/`, que é **outro
-repositório**: nada aqui quebra se elas divergirem, e o sintoma aparece como
+**não** entra na projeção e `override_height` default 0 (solo).
+
+**Neste branch o dado do 360 vem do backend** (módulo `streetview360`, schema `sv360`),
+não do repositório `ebgeo_360`. A regra antiga mandava manter as funções de projeção em
+sincronia com `ebgeo_360/public/calibration/js/`; isso vale para a linha `main`. Aqui o
+`ebgeo_360` segue existindo como **estúdio de calibração** — é ele quem escreve os
+metadados que o visualizador consome, e as faixas numéricas reais moram naquele fonte
+(ver [[calibracao-e-grafo-360]] e [[streetview-360]]). Se a calibração é autorada lá e
+aplicada aqui, a matemática de projeção dos dois lados ainda precisa concordar; o que
+mudou é o caminho do dado, não necessariamente esse acoplamento. **Confirme antes de
+mexer em `projector.js`** — nada quebra em teste se divergirem, e o sintoma é
 desalinhamento visual no 360, longe da causa.

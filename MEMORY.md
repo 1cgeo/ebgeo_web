@@ -33,6 +33,9 @@ Quando um fato aqui conflitar com o código, **o código vence** e este arquivo 
 - **`pkill` do Git Bash não mata processo Node do Windows.** Matar por PID (`Get-NetTCPConnection` + `Stop-Process`) e conferir a porta antes de medir.
 - **`db.none()` num `SELECT` falha** — inclusive em `SELECT pg_advisory_lock(...)`, que retorna linha. Erro cometido três vezes numa sessão.
 - **Postgres 15+**: só o dono do banco cria no schema `public`. O runner de teste acerta por acidente (cria o banco como o papel da app); dev precisa de `npm run db:setup`.
+- **`setStyle()` do MapLibre não emite `styledata` quando o diff é vazio.** `Style.setState` sai com `return false` se `operations.length === 0`, sem disparar evento nenhum. Quem espera o evento para prosseguir trava até o timeout. Dispara sempre que dois basemaps do `STYLE_MAP` guardam o mesmo estilo — e `carta_topografica.js` é byte a byte igual a `osm_layer.js` nas duas linhas do produto. Preso por `baselayer-style-uniqueness.repro.test.js`.
+- **Data do catálogo chega em dois formatos do backend**: `data_captura` dos modelos 3D é `DD/MM/YYYY` (seed da migração 003) e `capture_date` das fotos 360 é `TIMESTAMPTZ` (migração 005, validado como `isoDate`). Parser que só lê um formato devolve `NaN`, e comparador que devolve `NaN` deixa o `Array.sort` **indefinido** — a lista parece ordenada e não está. Preso por `catalog-sort.test.js`.
+- **Regra de `.gitignore` sem barra no meio não é ancorada e alcança os subdiretórios.** Foi assim que `frontend/package-lock.json` ficou fora do git em silêncio: sem lockfile versionado o Dependabot analisa só o range do manifesto, então instalação limpa podia resolver para versão vulnerável sem nada acusar. Hoje os dois lockfiles são versionados.
 
 ## Como verificar (a realidade manda)
 

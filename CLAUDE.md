@@ -15,11 +15,12 @@ Este arquivo carrega **método, armadilha e convenção que diverge do default**
 
 ## Verificação: a lição que mais custou
 
-Três episódios de `verificacao-fantasma` e dois de `teste-que-nao-prende` no [`livro-razao.md`](livro-razao.md) têm a mesma raiz: **uma checagem que não checa**. As três formas:
+`verificacao-fantasma` é a classe mais recorrente do [`livro-razao.md`](livro-razao.md) (9 eventos), e junto com `teste-que-nao-prende` tem sempre a mesma raiz: **uma checagem que não checa**. As quatro formas:
 
 - **Verificação que chega depois da ação não é verificação.** Rodar lint na mesma linha de comando do `git commit` faz a saída aparecer depois do commit já ter passado. Comando separado, antes.
 - **Conferir um subconjunto e tratar como o conjunto.** `grep` em dois arquivos da raiz deu por completa uma busca que tinha alvos em `backend/`. Onde existe teste que varre tudo, não confira à mão.
 - **Cobertura vazia passa verde.** Teste cuja regra não casa com nada reporta sucesso sem verificar nada. Pergunte sempre *o que este verde estaria provando se o código estivesse errado*.
+- **O verificador também quebra, e quebra calado.** Três episódios: hooks que liam variável inexistente, script de manutenção ancorado num separador que nem sempre existe, e `git rev-parse` que ecoa no stdout ao falhar, fazendo `|| echo AUSENTE` capturar as duas saídas. Nenhum deu erro; os três deram resposta errada com cara de resposta. Quando a checagem é você que escreveu, confirme por um **caminho independente** daquele que produziu o resultado.
 
 Não chancele a própria saída: rodar o teste não é a mudança funcionar; escrever a doc não é a doc estar certa.
 
