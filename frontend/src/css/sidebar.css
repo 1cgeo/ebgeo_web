@@ -1541,6 +1541,96 @@
     color: var(--gray-800);
 }
 
+/* Vector KMZ Export Expanded Content */
+.export-kmz-content {
+    display: none;
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-color);
+    background: var(--gray-50);
+}
+
+.export-kmz-content[data-visible="true"] {
+    display: block;
+}
+
+.kmz-export-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.kmz-export-instructions {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    line-height: 1.4;
+}
+
+.kmz-export-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.kmz-export-label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-600);
+}
+
+.kmz-export-select {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+}
+
+.kmz-export-select:disabled {
+    background: var(--gray-100);
+    color: var(--gray-400);
+    cursor: not-allowed;
+}
+
+.kmz-export-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--font-size-sm);
+    color: var(--gray-700);
+    cursor: pointer;
+}
+
+.kmz-export-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    border-radius: var(--radius-md);
+    border: none;
+    background: var(--primary);
+    color: white;
+    cursor: pointer;
+    transition: all var(--transition-normal);
+}
+
+.kmz-export-btn:hover:not(:disabled) {
+    background: var(--primary-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(80, 141, 78, 0.3);
+}
+
+.kmz-export-btn:disabled {
+    background: var(--gray-300);
+    cursor: not-allowed;
+}
+
 /* =========================================================================
    TAB CONTENT - LAYERS TAB
    ========================================================================= */
