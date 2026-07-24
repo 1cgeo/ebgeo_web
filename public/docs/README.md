@@ -87,6 +87,7 @@ No canto inferior esquerdo há um seletor de mapa de fundo. Clique para expandir
 
 - É possível adicionar notas a um mapa, com título e informações relevantes que ficam armazenadas no .ebgeo.
 - É possível travar o mapa, impedindo a realização de alterações.
+- É possível ativar o controle temporal do mapa, pelo ícone de relógio (veja abaixo).
 
 <img src="./images/notas_edicao.png" alt="Painel Edição Notas" width="30%"/>
 
@@ -99,9 +100,17 @@ No canto inferior esquerdo há um seletor de mapa de fundo. Clique para expandir
 - Reordenar: arraste os mapas na lista para mudar a ordem.
 - Deletar: deleta o mapa atual.
 
+##### Controle temporal do mapa
+
+<img src="./images/controle_temporal.png" alt="Botão de relógio no card do mapa e barra de linha do tempo" width="60%"/>
+
+O ícone de **relógio** no card do mapa ativa e desativa o controle temporal daquele mapa: com ele ativo, apenas as feições válidas no instante selecionado ficam visíveis, e a **barra de linha do tempo** aparece na parte inferior da tela. A **engrenagem** da barra abre as configurações temporais.
+
+Consulte o Módulo 11 para o passo a passo completo (validade das feições, trajetórias e configurações temporais).
+
 #### Camadas
 
-Na aba de Camadas, ficam localizadas as feições criadas: pontos, linhas, polígonos, imagens, círculo, etc. Na hierarquia, um mapa pode ter diversas camadas e cada camada pode ter diversas feições, sejam elas repetidas ou não.
+Na aba de Camadas, ficam localizadas a análise do terreno (opção de visualizar ou não o sombreamento do terreno) e as feições criadas: pontos, linhas, polígonos, imagens, círculo, etc. Na hierarquia, um mapa pode ter diversas camadas e cada camada pode ter diversas feições, sejam elas repetidas ou não.
 
 <img src="./images/painel_camadas.png" alt="Painel Camadas" width="30%"/>
 
@@ -109,7 +118,7 @@ A camada que está selecionada é onde as feições criadas no mapa são criadas
 
 Dentro das opções de cada camada é possível marcar para que as feições daquela camada sejam vistas ou não, é possível travar aquele conjunto de camadas, não permitindo a seleção e a edição, é possível consultar a tabela de atributos daquela camada (é uma tabela de atributos compartilhada entre todas as feições daquela camada).
 
-O bloqueio de edição/visualização pode ser feito tanto em todas as feições daquela camada, quanto indivudalmente por camada.
+O bloqueio de edição/visualização pode ser feito tanto na camada inteira, quanto individualmente por feição.
 
 As camadas podem ser reordenadas arrastando-as na lista, e as feições podem ser organizadas em grupos (expansíveis e recolhíveis). Os produtos do Catálogo (Modelos 3D, Imagens 360° e camadas de análise) também aparecem integrados nessa árvore.
 
@@ -133,7 +142,7 @@ No caso de arquivos CSV (planilhas de coordenadas), o EBGeo detecta o separador 
 
 Também é possível importar simplesmente arrastando o arquivo e soltando sobre a tela do mapa.
 
-Existe um limitador da quantidade de feições que podem ser importadas de uma única vez. Caso a mensagem indique que foi excedido o limte de feições, sugere-se dividir o arquivo que se deseja carregar em mais partes.
+Existe um limitador da quantidade de feições que podem ser importadas de uma única vez. Caso a mensagem indique que foi excedido o limite de feições, sugere-se dividir o arquivo que se deseja carregar em mais partes.
 
 <video src="./images/Importar.mp4" controls width="60%"></video>
 
@@ -143,8 +152,9 @@ Existe um limitador da quantidade de feições que podem ser importadas de uma �
 
 Além da exportação no formato .ebgeo, que permite compartilhar os mapas com outros usuários, é possível também exportar produtos finais.
 
-- Exportar PDF: é possível exportar um arquivo .pdf com todas as feições criadas, o tamanho da folha é padrão (A4) mas a escala é configurável (de 1:1.000 a 1:5.000.000). É possível escolher a qualidade (DPI 150/200/300), a orientação e os elementos cartográficos exibidos (título, legenda, barra de escala, seta norte, grade Lat/Long e grade UTM), com pré-visualização no mapa. Além disso, o .pdf gerado já é georreferenciado, o que permite sua utiliação em aplicativos como o Avenza Maps.
-- Exportar Garmin (KMZ): gera um mapa raster compatível com GPS Garmin de mão. Defina a área desejada com dois cliques no mapa.
+- Exportar PDF: é possível exportar um arquivo .pdf com todas as feições criadas, o tamanho da folha é padrão (A4) mas a escala é configurável (de 1:1.000 a 1:5.000.000). É possível escolher a qualidade (DPI 150/200/300), a orientação e os elementos cartográficos exibidos (título, legenda, barra de escala, seta norte, grade Lat/Long e grade UTM), com pré-visualização no mapa. Além disso, o .pdf gerado já é georreferenciado, o que permite sua utilização em aplicativos como o Avenza Maps.
+- Exportar Garmin: gera um mapa raster compatível com GPS Garmin de mão. Defina a área desejada com dois cliques no mapa.
+- Exportar KMZ: gera um mapa como KMZ vetorial para Google Earth, preservando estilo, imagens e atributos. As fotos anexadas aparecem no balão de cada feição.
 - Exportar imagem: tira uma captura de tela do EBGeo e salva no formato de imagem, é ideal para ser utilizado em apresentações de slides. Quando os visualizadores 3D ou 360° estão abertos, a captura é feita da cena correspondente.
 
 <video src="./images/Exportar.mp4" controls width="60%"></video>
@@ -226,7 +236,7 @@ Antes de avançarmos nas ferramentas individuais de desenhos, devemos verificar 
 - Em "Ponto #1" é possível alterar o nome daquela feição
 - Em + Adicionar descrição é possível inserir um texto com informações daquela feição, esse texto não aparece no mapa e fica associado a cada feição criada, sem ser um atributo.
 - É possível associar fotos e imagens a cada feição criada
-- Cada feição e seus tipos tem suas próprias características de estilos, para ponto: alterar o tamanho e a opacidade, mas para linha, tem a possibilidade de alterar a espessura e o padrão da linha. Cada tipo de feição, nesse mesmo painel, recebe a sua possiilidade de estilização.
+- Cada feição e seus tipos tem suas próprias características de estilos, para ponto: alterar o tamanho e a opacidade, mas para linha, tem a possibilidade de alterar a espessura e o padrão da linha. Cada tipo de feição, nesse mesmo painel, recebe a sua possibilidade de estilização.
 - Além do estilo, é possível criar atributos que ficam associados a feição e aquele conjunto de camadas. O painel separa "Estilo" e "Atributos" em abas distintas.
 - A ferramenta "Definir como padrão" faz com que os próximos desenhos daquele tipo de feição recebem as mesmas características da feição atualmente criada. Para linhas por exemplo: definida uma cor, um padrão de desenho e uma espessura, a próxima linha seguirá o mesmo aspecto.
 
@@ -295,6 +305,8 @@ A ferramenta de Simbologia Militar cria símbolos no padrão SIDC 2.0 (App-6/252
 
 O símbolo aceita ainda ajuste de tamanho, rotação, opacidade e correção de zoom. Há suporte às extensões brasileiras de simbologia.
 
+<video src="./images/desenho_calunga.mp4" controls width="60%"></video>
+
 ##### Medida de Coordenação (Atalho "K")
 
 <img src="./images/medidas_coordenacao.png" alt="Medida de Coordenação" width="50%"/>
@@ -315,9 +327,11 @@ No painel é possível configurar:
 
 Setas podem ser **combinadas** em um único traçado: selecione duas ou mais setas compatíveis e use "Combinar Setas" no menu de contexto; o botão "Separar" desfaz a combinação.
 
+<video src="./images/Seta.mp4" controls width="49%"></video>
+
 ##### Ferramenta de Snap (Atalho "G")
 
-A ferramenta de Snap permite ajustar automaticamente a posição de feições ao desenhar ou editar elementos no mapa, garatindo que vértices, segmentos ou pontos coincidam com outras feições existentes. Ao ativar a ferramenta, aproxime o cursor de uma feição compatível para que o encaixe seja realizado automaticamente. O Snap é apenas um botão de liga/desliga (atalho "G"), sem painel de opções: ele captura sempre tanto vértices quanto segmentos, com tolerância e camadas de referência fixas. Esse recurso aumenta a precisão da edição e evita sobreposições, lacunas ou desalinhamentos entre feições.
+A ferramenta de Snap permite ajustar automaticamente a posição de feições ao desenhar ou editar elementos no mapa, garantindo que vértices, segmentos ou pontos coincidam com outras feições existentes. Ao ativar a ferramenta, aproxime o cursor de uma feição compatível para que o encaixe seja realizado automaticamente. O Snap é apenas um botão de liga/desliga (atalho "G"), sem painel de opções: ele captura sempre tanto vértices quanto segmentos, com tolerância e camadas de referência fixas. Esse recurso aumenta a precisão da edição e evita sobreposições, lacunas ou desalinhamentos entre feições.
 
 ##### Linha de Limite (Atalho "D")
 
@@ -493,6 +507,10 @@ O EBGeo permite dar uma dimensão temporal ao mapa: cada feição pode ter uma *
 
 No card do mapa atual (aba **Mapas**), clique no botão de **relógio** para ativar o controle temporal daquele mapa. Uma **barra de linha do tempo** aparece na parte inferior da tela. O botão fica desabilitado quando o mapa está travado.
 
+<img src="./images/controle_temporal.png" alt="Botão de relógio no card do mapa e barra de linha do tempo" width="60%"/>
+
+<video src="./images/Controle_Temporal.mp4" controls width="60%"></video>
+
 #### A barra de linha do tempo
 
 - **Reproduzir/Pausar**: anima o cursor ao longo do intervalo, mostrando feições e trajetórias evoluindo no tempo.
@@ -516,6 +534,8 @@ Na engrenagem da barra, defina:
 #### Validade temporal das feições
 
 No painel de qualquer feição há a seção **Validade temporal**, com os campos **Início** e **Fim**. A feição só fica visível enquanto o cursor estiver dentro dessa janela. Campos em branco significam **permanente** (visível em qualquer instante). Os valores podem ser informados como data/hora exata ou como offset (D+N), conforme o modo.
+
+<img src="./images/validade_temporal.png" alt="Seção Validade temporal no painel da feição" width="30%"/>
 
 #### Trajetórias (feições móveis)
 
