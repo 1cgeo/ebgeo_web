@@ -224,6 +224,12 @@ Por que passou verde: os dois e2e de briefing constroem a op À MÃO no formato 
 
 ### 6. `authLimiter` é keyed por `ip:username`, mas /refresh, /verify-email e /resend-verification não têm `username` no body: todos colapsam num único balde `ip:` por IP, e sem `trust proxy` esse IP é o do reverse proxy para o deploy inteiro
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO, e já parcialmente mitigado pelo achado 13 (o `trust proxy`). O que sobrava: uma ÚNICA instância de `rateLimit()` guardando cinco rotas com chave `${ip}:${body.username}`. `/refresh`, `/verify-email` e `/resend-verification` não declaram `username`, então as três chaveavam `ip:` e drenavam o MESMO balde; e como o limiter roda antes do `validate` com `stripUnknown`, injetar um `username` aleatório no body dessas rotas comprava um balde novo por requisição — bypass total do `/resend-verification`.
+>
+> Fix: uma instância por rota, cada uma com store próprio, e `skipSuccessfulRequests` no refresh. Este último é o que conserta o cenário relatado: sessões honestas atrás de um egress compartilhado eram deslogadas em definitivo no 11º refresh, porque o `refresh()` do frontend converte qualquer erro em `clearTokens()`.
+>
+> Teste: `auth-limiter-bucket-scope.repro.test.js` (5 casos, com X-Forwarded-For variado — o quinto existe para que um limitador global não passe, que foi a lacuna de uma rodada anterior). RED: 4/5. Controle negativo: religando as três rotas no `authLimiter`, caem exatamente os 4.
+
 - **Arquivo:** `backend/src/modules/auth/auth.routes.js:21`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-auth` · **Classe:** `contrato`
@@ -306,6 +312,14 @@ Por que passou verde: os dois e2e de briefing constroem a op À MÃO no formato 
 > **CORRIGIDO em 2026-07-19.** Corrigido junto do achado 2: `sync-catalog-layer.test.js` ganhou o bloco `real catalog ids (non-UUID) round-trip` com os ids que o cliente REALMENTE emite, mais um caso de mesmo id em dois mapas e um lote misto.
 
 ### 11. Token de visitante de link público vira credencial autenticada para TODA rota gateada só por `auth`, fora do atlas que o emitiu
+
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO, e é o que ficou FORA do achado 51. Aquele fechou só a metade escopada por atlas (`requireAtlasPermission` comparando `publicAtlasId`); as rotas gateadas só por `auth` seguiam abertas ao token de visitante. `GET /users/search?q=ma` devolvia até 20 usuários (username, nome, posto, OM) de todas as organizações, e `/organizations` e `/ranks` respondiam 200.
+>
+> Fix: `confineVisitorPrincipal` em `backend/src/middleware/auth.js`, gateando pela claim `isPublic` do próprio token ANTES da isenção por sub não-UUID — o visitante só passa quando o atlas da rota é o do token. Espelha o que o gateway WS sempre fez.
+>
+> Nota de escopo honesta: o gate ficou na claim `isPublic`, não em "todo sub não-UUID". Deny-by-default para qualquer sub não-UUID quebraria um teste unitário existente que usa `sub: 'user-123'`. Na prática é equivalente, porque o único emissor de sub não-UUID é o `atlas.service`, que sempre assina `isPublic: true`.
+>
+> Teste: `public-token-non-atlas-routes.repro.test.js` (6 casos, dois deles de raio de alcance: o visitante continua lendo o SEU atlas e um usuário real continua usando `/users/search`). RED: 4/6. Controle negativo: voltando ao `return next()` nu, os 4 voltam a 200.
 
 - **Arquivo:** `backend/src/middleware/auth.js:80`
 - **Estado:** CONFIRMADO
@@ -465,6 +479,14 @@ Por que passou verde: os dois e2e de briefing constroem a op À MÃO no formato 
 
 ### 20. Op de 3D/360 e persistida no envelope do backend e ecoada assim no pull incremental, entregando ao peer um shape diferente do que o broadcast WS entrega para a MESMA op
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. `normalizeOperation` reescrevia o payload com `reshape3d360Payload` ANTES do INSERT, e era o envelope aninhado que ia para `operations.data` e voltava cru no pull. O frontend não entende esse formato: `applyRemoteCameraOp` exige `data?.tilesetId`, `applyRemoteOrientation360Op` exige `data?.photoName`, e os handlers de entidade casam por `e.id === entityId`.
+>
+> **O relatório subestimou o defeito.** O reshape também descarta `sync` (`ENTITY_3D360_META`), e TODO caminho de leitura 3D/360 do frontend filtra por `isActive(item.sync)`, que é falso para `undefined`. A correção que o próprio relatório sugeria — desfazer o reshape só na saída — devolveria a forma certa com um `sync` fabricado pelo servidor, diferente do que o broadcast entrega. O controle negativo B prova: aplicando só essa metade, 7 de 9 casos ainda caem, exatamente na asserção de `sync`.
+>
+> Fix: o log grava o payload PLANO do cliente (`flatten3d360Payload`), enquanto o envelope aninhado segue indo para as tabelas de entidade; a leitura (`unflatten3d360LogPayload`) desfaz o formato e cobre as linhas legadas já persistidas (retidas até 7 dias), reidratando `id` a partir de `entity_id`.
+>
+> Teste: `backend/tests/ws/sync-3d-360-path-parity.repro.test.js` (9 casos) — compara com `deepEqual`, no mesmo processo, o que o peer recebe AO VIVO e o que recebe no REPLAY, nos 6 subtipos mais update, delete e linha legada. RED: 9/9. Controle negativo: desfazer só a leitura → 9/9 caem; desfazer só a escrita → 7/9.
+
 - **Arquivo:** `backend/src/modules/sync/sync.service.js:261`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-sync` · **Classe:** `contrato`
@@ -498,6 +520,16 @@ Por que passou verde: os dois e2e de briefing constroem a op À MÃO no formato 
 > Vale registrar o segundo efeito, que o achado nomeia e e menos obvio que a personificacao: um comentario carimbado com id alheio ficava **ineditavel pelo proprio autor**, porque update e delete comparam `author_id` com o usuario autenticado. Ou seja, o defeito desarmava o proprio gate de posse. Ha um caso afirmando que o autor real consegue editar. Controle negativo: restaurado `asUuidOrNull(data.authorId)`, caem 3 dos 4.
 
 ### 22. Mapa bloqueado lanca ConflictError no meio do lote e derruba o push inteiro, travando permanentemente a fila de saida do cliente (inclusive ops de outros mapas)
+
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. `applyOperation` lançava `ConflictError('Map is locked')` dentro do `tx()` do lote, o que virava 409; o cliente só faz dequeue em 2xx, então um mapa travado congelava a fila de saída inteira, inclusive ops de outros mapas.
+>
+> Fix: `lockedMapDenialReason` passou a recusar POR OPERAÇÃO junto de `operationDenialReason`, o mesmo mecanismo que map delete/lock já usavam. A op recusada não entra no log, não toma `server_version`, e é ackada com `success:false` + `reason`.
+>
+> **Efeito colateral que a própria correção introduzia, tratado junto:** com 200 no lugar da exceção, o relay passaria a difundir uma op recusada, e o peer aplicaria algo que não existe no servidor — divergência até o próximo snapshot. Guardas no caminho WS (`collab.handlers.js`) e, depois, no caminho HTTP (`sync.controller.js`), que tinha o mesmo defeito herdado da recusa de map-delete e só ficou alcançável para mais alvos com esta mudança.
+>
+> Dois testes de caracterização em `sync-authz-lock.test.js` fixavam o 409 e reprovaram o fix: atualizados para o padrão per-op que o próprio arquivo já documentava para o map delete. É a sexta ocorrência registrada do mesmo hábito da suíte.
+>
+> Testes: `sync-locked-map-poison.repro.test.js` (5) e `sync-refused-op-not-relayed.repro.test.js` (2). Controles negativos: restaurar o throw derruba 4/5; remover as guardas do relay derruba 2/2.
 
 - **Arquivo:** `backend/src/modules/sync/sync.service.js:1312`
 - **Estado:** CONFIRMADO
@@ -543,6 +575,8 @@ Por que passou verde: os dois e2e de briefing constroem a op À MÃO no formato 
 > **Correção do verificador.** Semáforo de BLOB vaza slots permanentemente quando o cliente aborta enquanto está na FILA do `acquire()`: os listeners de release são registrados só depois do `await`, então o `'close'` emitido nessa janela não tem listener e nunca é reemitido (o `res.end()` posterior sobre socket destruído retorna cedo em `_writeRaw`, sem emitir `'finish'`). `createSemaphore` não tem timeout nem watchdog, e `release()` entrega o slot direto ao próximo waiter sem decrementar `active`, então cada evento perdido some com um slot para sempre; após `maxInflight` (default 8) ocorrências o endpoint pendura indefinidamente, sem 429/503/log, até reiniciar o processo. Atinge `GET /api/v1/assets3d/*` (assets3d.controller.js:54-63, apenas no ramo do store SQLite; o fallback de filesystem streama e não usa semáforo) e, com construção idêntica e semáforo próprio, `GET /sv360/photos/:uuid/image` (sv360.controller.js:158-167).
 
 ### 25. Op de 3D/360 chega com `data` em dois formatos diferentes conforme o caminho (broadcast plano camelCase vs pull aninhado snake_case), e o cliente só entende o plano
+
+> **CORRIGIDO em 2026-07-24.** Mesmo defeito do #20 (divergência de shape entre o broadcast WS e o pull incremental), corrigido na mesma passada. Ver a anotação do #20 para mecanismo, o que o relatório subestimou, testes e controles negativos.
 
 - **Arquivo:** `backend/src/modules/sync/sync.service.js:206`
 - **Estado:** CONFIRMADO

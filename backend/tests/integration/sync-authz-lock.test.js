@@ -107,15 +107,23 @@ describe('Sync authorization + map-lock enforcement', () => {
     properties: { id, source: 'point', nome: 'X' },
   });
 
-  it('a write user CANNOT CREATE a feature on a locked map (409) — negative', async () => {
+  // Locked-map refusal moved to the SAME per-op shape as the map-delete refusal
+  // above (200 + success:false), and for the same reason: a ConflictError thrown
+  // inside the batch transaction rolled back its siblings and returned 409, which
+  // the client never dequeues — one locked map froze the whole outbound queue,
+  // including ops for other maps. The authorization is unchanged and still
+  // asserted: nothing is written while the map is locked.
+  it('a write user CANNOT CREATE a feature on a locked map (refused per-op) — negative', async () => {
     const fId = randomUUID();
-    await push(editorTok, op('feature', 'create', fId, { mapId: map.id, data: geoFeature(fId) }), 409);
+    const res = await push(editorTok, op('feature', 'create', fId, { mapId: map.id, data: geoFeature(fId) }), 200);
+    assert.equal(res.body.data.results[0].success, false, 'the op is acked as refused, never as applied');
     const { rows } = await db.query('SELECT * FROM features WHERE id = $1', [fId]);
     assert.equal(rows.length, 0, 'no feature is created on a locked map');
   });
 
-  it('a write user CANNOT DELETE a feature on a locked map (409) — negative', async () => {
-    await push(editorTok, op('feature', 'delete', feat.id, { mapId: map.id }), 409);
+  it('a write user CANNOT DELETE a feature on a locked map (refused per-op) — negative', async () => {
+    const res = await push(editorTok, op('feature', 'delete', feat.id, { mapId: map.id }), 200);
+    assert.equal(res.body.data.results[0].success, false, 'the op is acked as refused, never as applied');
     const { rows } = await db.query('SELECT deleted_at FROM features WHERE id = $1', [feat.id]);
     assert.equal(rows[0].deleted_at, null, 'the feature is NOT deleted while the map is locked');
   });

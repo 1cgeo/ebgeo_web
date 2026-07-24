@@ -30,9 +30,19 @@ const validate = {
 };
 
 /**
- * Strict limiter for credential routes (login/refresh/register).
- * Keyed by IP + username so brute-force against one account is throttled
- * without one noisy IP locking out everyone.
+ * Strict limiter for the credential routes that DECLARE a `username` — /login and
+ * /register, and only those. Keyed by IP + username so brute-force against one
+ * account is throttled without one noisy IP locking out everyone.
+ *
+ * It used to guard /refresh, /verify-email and /resend-verification as well. None of
+ * those three has a `username` in its schema, so all three keyed to the bare string
+ * `${ip}:` and drained ONE shared bucket (one instance = one store), with two
+ * opposite failures: honest sessions were denied (a burst of e-mail traffic spent the
+ * budget /refresh needs, and /refresh is the steady-state route of every logged-in
+ * session), while an attacker escaped entirely by injecting a random `username` into
+ * the body — the limiter reads req.body BEFORE Joi strips unknown keys, so an
+ * undeclared field bought a fresh bucket per request. Each of the three now has its
+ * own IP-keyed limiter below.
  */
 export const authLimiter = rateLimit({
   windowMs: config.rateLimit.authWindowMs,
@@ -59,6 +69,58 @@ export const authLimiter = rateLimit({
   },
   skip,
 });
+
+/**
+ * Builds a limiter for a credential route with NO username to key on, with its own
+ * store so its traffic never drains a sibling route's budget. Keyed by address via
+ * the library default (`ipKeyGenerator(req.ip, 56)`, the same normalization the
+ * authLimiter applies by hand) — meaningful only because `trust proxy` makes `req.ip`
+ * the client rather than nginx.
+ *
+ * @param {{ skipSuccessfulRequests?: boolean }} [opts]
+ * @returns {Function} An express-rate-limit middleware.
+ */
+function credentialIpLimiter({ skipSuccessfulRequests = false } = {}) {
+  return rateLimit({
+    windowMs: config.rateLimit.authWindowMs,
+    max: config.rateLimit.authMax,
+    standardHeaders: true,
+    legacyHeaders: false,
+    validate,
+    handler,
+    skipSuccessfulRequests,
+    skip,
+  });
+}
+
+/**
+ * /auth/refresh. Only FAILED refreshes count.
+ *
+ * An address is a coarse key here: behind a corporate/NAT egress — the documented
+ * deployment is a military network behind nginx — every user shares one. Each active
+ * session refreshes about once per access-token lifetime (15 min by default), so a
+ * ceiling sized for credential guessing is spent by ordinary use: the 11th honest
+ * refresh in a window was a 429, and the frontend turns ANY refresh error into a
+ * definitive logout (api-client `refresh()` clears the tokens without reading the
+ * status). Skipping successful requests keeps the full budget pointed at what the
+ * limiter is actually for — repeated failures, i.e. someone guessing tokens — and
+ * charges nothing to a client that just proved it holds a valid one.
+ */
+export const refreshLimiter = credentialIpLimiter({ skipSuccessfulRequests: true });
+
+/**
+ * /auth/verify-email. Its own bucket: a flood of resend requests must not consume
+ * the budget of the user trying to confirm an address from the same network.
+ */
+export const verifyEmailLimiter = credentialIpLimiter();
+
+/**
+ * /auth/resend-verification. The one route here worth attacking: it sends e-mail and
+ * answers differently for a known address, so it is both an amplifier and an account
+ * oracle. Keyed by address precisely because the previous per-`username` key was
+ * attacker-chosen and therefore unlimited.
+ */
+export const resendVerificationLimiter = credentialIpLimiter();
 
 /**
  * Looser limiter for the public-link route (no body). By IP only.

@@ -25,17 +25,32 @@ export const pushOperations = asyncHandler(async (req, res) => {
   // depending on the arrival path. (The frontend routes settings ops by entityType
   // and ignores entityId, so this only makes the two paths agree.)
   const entityIdByOp = new Map((result.acks || []).map((a) => [a.opId, a.entityId]));
-  const stamped = req.body.operations.map((op) => ({
-    ...op,
-    serverVersion: versionByOp.get(op.id) ?? result.serverVersion,
-    ...(entityIdByOp.get(op.id) ? { entityId: entityIdByOp.get(op.id) } : {}),
-  }));
+
+  // Refused ops are dropped from the relay, mirroring the WS path
+  // (`collab.handlers.js`): a per-op refusal (locked map, map delete without the
+  // tier) changes NOTHING on the server, so a peer that applied it would diverge
+  // until its next full snapshot — an entity present on one client and absent on
+  // the server, with no event to reconcile it. This was inherited from the
+  // map-delete refusal and only became reachable for more targets when the
+  // locked-map denial moved from throwing inside the batch to a per-op ack.
+  const refused = new Set(
+    (result.results || []).filter((r) => r.success === false).map((r) => r.operationId)
+  );
+  const stamped = req.body.operations
+    .filter((op) => !refused.has(op.id))
+    .map((op) => ({
+      ...op,
+      serverVersion: versionByOp.get(op.id) ?? result.serverVersion,
+      ...(entityIdByOp.get(op.id) ? { entityId: entityIdByOp.get(op.id) } : {}),
+    }));
 
   // Broadcast the pushed operations to WS peers for real-time updates. Comment ops are kept
   // away from read-only viewers (visibility rule); a mixed batch still reaches them minus the
   // comments. The HTTP sender has no socket, so it can't be excluded — clients ignore ops whose
   // clientId is their own (contract: fase-1/fase-8).
-  broadcastOperations(req.atlasId, stamped, { userId: req.user.id });
+  if (stamped.length > 0) {
+    broadcastOperations(req.atlasId, stamped, { userId: req.user.id });
+  }
 
   res.json({ data: result });
 });

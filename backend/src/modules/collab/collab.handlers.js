@@ -139,6 +139,12 @@ export async function handleOperation(ws, data) {
       result: result.results[0],
     }));
 
+    // A per-op REFUSAL (locked map, map delete/lock by a non-owner) leaves nothing on the
+    // server: no entity row, no log row, no server_version. Relaying it anyway would make the
+    // peer apply an edit that does not exist server-side and that no snapshot will ever
+    // contain — divergence that only a full resync could clear.
+    if (result.results?.[0]?.success === false) return;
+
     // Broadcast operation to peers. A comment op must NOT reach read-only viewers
     // (Visualizador / public visitor) — the spatial-comment visibility rule. Stamp the op with
     // its server arrival order (serverVersion) so peers converge by LWW-by-arrival.
@@ -194,8 +200,15 @@ export async function handleOperations(ws, data) {
     // (a mixed batch still delivers the non-comment ops to them). Stamp each op with its server
     // arrival order (serverVersion) so peers converge by LWW-by-arrival.
     const versionByOp = new Map((result.results || []).map((r) => [r.operationId, r.currentVersion]));
-    const opsOut = data.ops.map((op) => ({ ...op, serverVersion: versionByOp.get(op.id) ?? result.serverVersion }));
-    broadcastOperations(ws.atlasId, opsOut, { userId: ws.userId, excludeWs: ws });
+    // Refused ops are dropped from the relay (see handleOperation): they changed nothing on the
+    // server, so a peer applying them would diverge until its next full snapshot.
+    const refused = new Set((result.results || []).filter((r) => r.success === false).map((r) => r.operationId));
+    const opsOut = data.ops
+      .filter((op) => !refused.has(op.id))
+      .map((op) => ({ ...op, serverVersion: versionByOp.get(op.id) ?? result.serverVersion }));
+    if (opsOut.length > 0) {
+      broadcastOperations(ws.atlasId, opsOut, { userId: ws.userId, excludeWs: ws });
+    }
   } catch (err) {
     logger.error({ err, atlasId: ws.atlasId }, 'Failed to process operations batch');
     ws.send(JSON.stringify({

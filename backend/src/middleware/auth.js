@@ -52,6 +52,34 @@ export function verifyAndMapUser(token) {
 }
 
 /**
+ * Confines a public-link visitor principal to the atlas its token was minted for.
+ *
+ * The token declares its own scope — atlas.service signs `sub: public-<uuid>` plus
+ * `isPublic` and `atlasId` — and that scope used to be honoured on the WebSocket
+ * (collab.gateway) and nowhere else. On the HTTP path the visitor merely failed the
+ * UUID test below and got a bare `return next()`: exempt from the live
+ * reconciliation, which is correct (there is no `users` row to reconcile), but
+ * thereby also exempt from authorization, which is not. Downstream nothing could
+ * tell it apart from a real account, so a read-only invitation to one atlas opened
+ * every route gated by `auth` alone — `GET /users/search` handed back a personnel
+ * directory (username, nome, posto, OM) spanning every organization.
+ *
+ * The atlas is read from the route params exactly as requireAtlasPermission does.
+ * Both guards exist on purpose: this is the outer, deny-by-default one (it covers
+ * the routes that mount no atlas gate at all, which is where the exposure was), and
+ * the inner one keeps holding for atlas routes.
+ *
+ * @returns {void} Calls next(), or next(ForbiddenError) when off its atlas.
+ */
+function confineVisitorPrincipal(req, next) {
+  const routeAtlasId = req.params?.atlasId || req.params?.aId || req.params?.id;
+  if (req.user.publicAtlasId && routeAtlasId === req.user.publicAtlasId) {
+    return next();
+  }
+  return next(new ForbiddenError('Este link público só dá acesso ao atlas que o emitiu'));
+}
+
+/**
  * JWT verification middleware.
  * Extracts and verifies JWT from Authorization header.
  * Injects req.user = { id, username, nome, posto_graduacao, role }
@@ -77,14 +105,22 @@ export async function auth(req, res, next) {
     // One joined read replaces the previous org-only lookup, so the per-request cost
     // is unchanged.
     //
-    // Public-share principals are exempt: their token carries a synthetic
-    // `public-<uuid>` sub with no `users` row by design (atlas.service mints it), so
-    // there is no DB identity to reconcile. Their authority comes from the signed
-    // token's `atlasId` claim plus that atlas's is_public flag, both enforced by
-    // requireAtlasPermission. That claim check was MISSING on the HTTP path until
-    // 2026-07-19 while this comment already asserted it, so one visitor token read
-    // every public atlas; the WS gateway had it all along. If you touch this exempt
-    // branch, confirm the scope check in permissions.js still runs.
+    // Public-link visitors are gated by the `isPublic` claim their own token carries,
+    // BEFORE the non-UUID exemption below — the claim is the marker of the principal
+    // type, so a token that declares itself public is confined to its atlas whatever
+    // its sub looks like. Confinement first, exemption second: reconciliation is what
+    // they have no data for, not authorization. Until 2026-07-19 (achado 51) the check
+    // existed on neither the atlas routes nor anywhere else, and until 2026-07-24
+    // (achado 11) the non-atlas routes had none at all, while the comment here already
+    // credited the containment to requireAtlasPermission. The WS gateway
+    // (collab.gateway.js) had it all along.
+    if (req.user.isPublic) {
+      return confineVisitorPrincipal(req, next);
+    }
+
+    // Public-share principals are exempt from the reconciliation: their token carries
+    // a synthetic `public-<uuid>` sub with no `users` row by design (atlas.service
+    // mints it), so there is no DB identity to reconcile.
     // Same non-UUID convention already used in permissions.js.
     if (!PRINCIPAL_UUID_RE.test(req.user.id || '')) {
       return next();

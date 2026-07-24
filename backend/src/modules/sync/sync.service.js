@@ -1,6 +1,6 @@
 // Path: src/modules/sync/sync.service.js
 import { query, tx, task } from '../../database/index.js';
-import { ForbiddenError, ConflictError, ServiceUnavailableError } from '../../utils/errors.js';
+import { ForbiddenError, ServiceUnavailableError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
@@ -141,6 +141,106 @@ function reshape3d360Payload(rawData, mapping) {
     if (pn !== undefined) out.photo_name = pn;
   }
   return out;
+}
+
+/**
+ * Builds the payload that goes into the operations LOG for a cesium3d/streetview360 op:
+ * the FLAT camelCase entity the frontend speaks, tagged with `data_type`.
+ *
+ * Why the log and the entity table disagree on shape. The two delivery paths of ONE operation
+ * used to hand a peer two different payloads:
+ *  - live broadcast echoes the client's op verbatim (flat camelCase);
+ *  - incremental pull / `sync_request` replay echoed `operations.data`, which held the backend
+ *    envelope `{ data_type, tileset_id, data:{…} }` because `normalizeOperation` reshaped the
+ *    payload BEFORE the insert.
+ * The peer only speaks flat (remote-operation-handler.js gates on `data.tilesetId` /
+ * `data.photoName` and matches array entities by `data.id`), so the replayed op was either
+ * dropped or stored as an unmatchable, unrenderable item.
+ *
+ * The envelope stays the write shape for the ENTITY tables (their columns are data_type /
+ * tileset_id / photo_name / data, and the snapshot transform spreads `item.data`). The LOG keeps
+ * the client's payload instead, which is the only value that round-trips EXACTLY to what the
+ * broadcast delivered — including `sync`, which `reshape3d360Payload` strips and which is
+ * load-bearing on the client: every 3D/360 read path filters by `isActive(item.sync)`, and
+ * `isActive(undefined)` is falsy, so an entity delivered without it is invisible.
+ *
+ * `data_type` rides along because the log has no column for it and `toFrontendOperation` needs it
+ * to map `cesium3d`/`streetview360` back to the specific frontend entity type. It is stripped again
+ * on the way out.
+ *
+ * @param {Object|null} rawData - Payload as sent by the client (flat, or the nested legacy form).
+ * @param {{target: string, dataType: string}} mapping - ENTITY_TYPE_MAP entry.
+ * @returns {Object} Flat payload + `data_type`.
+ */
+function flatten3d360Payload(rawData, mapping) {
+  const keyName = mapping.target === 'cesium3d' ? 'tilesetId' : 'photoName';
+  if (!rawData || typeof rawData !== 'object') {
+    return { data_type: mapping.dataType };
+  }
+
+  const isNested = rawData.data && typeof rawData.data === 'object' && !Array.isArray(rawData.data);
+  let flat;
+  if (isNested) {
+    flat = { ...rawData.data };
+    if (rawData.id !== undefined) flat.id = rawData.id;
+    const key = mapping.target === 'cesium3d'
+      ? (rawData.tileset_id ?? rawData.tilesetId)
+      : (rawData.photo_name ?? rawData.photoName);
+    if (key !== undefined) flat[keyName] = key;
+    if (rawData.sync !== undefined) flat.sync = rawData.sync;
+  } else {
+    flat = { ...rawData };
+    // A flat payload may still spell the key snake_case (older clients / tests): normalize to
+    // the camelCase the frontend reads, so both dialects replay identically.
+    const snakeKey = mapping.target === 'cesium3d' ? 'tileset_id' : 'photo_name';
+    if (flat[snakeKey] !== undefined) {
+      if (flat[keyName] === undefined) flat[keyName] = flat[snakeKey];
+      delete flat[snakeKey];
+    }
+  }
+
+  flat.data_type = rawData.data_type || mapping.dataType;
+  return flat;
+}
+
+/**
+ * Inverse of {@link flatten3d360Payload}: turns a stored log payload back into the flat entity the
+ * frontend applies. Handles both shapes:
+ *  - FLAT + `data_type` (written since the fix) — strip the discriminator and echo it;
+ *  - the NESTED backend envelope (rows written before it, which the log keeps for up to
+ *    `cleanupOldOperations`'s retention) — hoist `data`, restore the camelCase key, and rebuild
+ *    the `id`/`sync` that the reshape had discarded, exactly as the snapshot does.
+ *
+ * @param {Object|null} payload - `operations.data` / `operations.changes` as stored.
+ * @param {Object} row - The operations row (for `entity_id` / `client_timestamp`).
+ * @returns {Object|null} Flat payload, or null when the op carries none (delete).
+ */
+function unflatten3d360LogPayload(payload, row) {
+  if (!payload || typeof payload !== 'object') return payload ?? null;
+
+  let flat;
+  if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
+    flat = { ...payload.data };
+    if (payload.tileset_id !== undefined) flat.tilesetId = payload.tileset_id;
+    if (payload.photo_name !== undefined) flat.photoName = payload.photo_name;
+  } else {
+    flat = { ...payload };
+  }
+  delete flat.data_type;
+
+  // A delete carries no entity payload; the live broadcast delivers `data: null`, so does this.
+  if (Object.keys(flat).length === 0) return null;
+
+  if (flat.id === undefined) flat.id = row.entity_id;
+  if (flat.sync === undefined) {
+    // Same shape as buildSyncMetadata (the snapshot's), timestamped from the op itself. Only ever
+    // used for legacy rows, whose client `sync` was dropped at write time: without one, the peer's
+    // `isActive()` filter hides the entity everywhere.
+    const ts = parseInt(row.client_timestamp, 10);
+    const at = Number.isFinite(ts) ? ts : new Date(row.created_at).getTime();
+    flat.sync = { createdAt: at, updatedAt: at, version: 1, ownerId: null, dirty: false, deleted: false };
+  }
+  return flat;
 }
 
 /**
@@ -343,6 +443,10 @@ function normalizeOperation(op) {
   let target = rawEntityType;
   let data = op.data;
   let subType = null;
+  // Payload recorded in the operations LOG when it must differ from the one written to the
+  // entity tables (3D/360 only — see flatten3d360Payload). Null means "log `data`/`changes`".
+  let logData = null;
+  let logChanges = null;
 
   if (mapping) {
     target = mapping.target;
@@ -350,6 +454,7 @@ function normalizeOperation(op) {
 
     // cesium3d/streetview360: reshape FLAT/nested entity into the backend envelope.
     if (mapping.dataType) {
+      logData = flatten3d360Payload(data, mapping);
       data = reshape3d360Payload(data, mapping);
     }
   } else if (rawEntityType === 'feature') {
@@ -369,6 +474,8 @@ function normalizeOperation(op) {
   let changes = op.changes;
   if (type === 'update' && (changes === undefined || changes === null) && data != null) {
     changes = data;
+    // The update payload came from `data`, so the log must record the same flat form for it.
+    logChanges = logData;
   }
 
   return {
@@ -379,6 +486,9 @@ function normalizeOperation(op) {
     targetId: op.entityId || op.targetId,
     data,
     changes,
+    // What the operations LOG stores (see flatten3d360Payload); null = same as data/changes.
+    _logData: logData,
+    _logChanges: logChanges,
     // Sub-type for map field updates (mapPosition, baseLayer, etc.)
     _subType: subType,
     // Keep original frontend entity type for responses
@@ -395,14 +505,20 @@ function normalizeOperation(op) {
  */
 function toFrontendOperation(op) {
   let entityType = op.entity_type;
+  let data = op.data;
+  let changes = op.changes;
 
-  // Convert generic backend types back to specific frontend types
+  // Convert generic backend types back to specific frontend types, and undo the storage shape:
+  // an op must reach a peer as the SAME payload whether it arrived live or on a replay.
   const reverseMap = REVERSE_ENTITY_TYPE_MAP[op.entity_type];
-  if (reverseMap && op.data && op.data.data_type) {
-    const specificType = reverseMap[op.data.data_type];
+  if (reverseMap) {
+    const dataType = op.data?.data_type ?? op.changes?.data_type;
+    const specificType = dataType ? reverseMap[dataType] : null;
     if (specificType) {
       entityType = specificType;
     }
+    data = unflatten3d360LogPayload(op.data, op);
+    changes = unflatten3d360LogPayload(op.changes, op);
   }
 
   return {
@@ -411,8 +527,8 @@ function toFrontendOperation(op) {
     operationType: op.op_type,
     entityId: op.entity_id,
     mapId: op.map_id,
-    data: op.data,
-    changes: op.changes,
+    data,
+    changes,
     timestamp: parseInt(op.client_timestamp, 10),
     // Echo the logical clock so the puller can advance its Lamport clock. Omitted
     // (undefined) for legacy ops inserted before the column existed.
@@ -843,6 +959,33 @@ function operationDenialReason(op, permission) {
 }
 
 /**
+ * The other half of {@link operationDenialReason}, for the refusal that needs the database:
+ * a LOCKED map blocks mutations of its child entities (the spec's "disable editing").
+ *
+ * This used to `throw new ConflictError('Map is locked')` from inside applyOperation — inside the
+ * tx() that wraps the whole batch — so ONE op aimed at a map that got locked while it sat in the
+ * offline queue rolled back every sibling op and answered 409. The client does not dequeue a batch
+ * the server refused (sync-engine.js flush: "A rejected batch is NOT dequeued"), so it replayed the
+ * poisoned batch every 1.5 s forever: that user stopped syncing entirely, for EVERY map, with only
+ * a console.warn. A lock is a policy refusal like any other in this file, not an integrity failure,
+ * so it is refused per operation and the batch survives.
+ *
+ * Map-level ops (lock/unlock/delete) are NOT gated here — that is what lets the owner unlock.
+ *
+ * @param {Object} t - Transaction context.
+ * @param {Object} op - Normalized operation.
+ * @returns {Promise<string|null>} Refusal reason, or null when the write may proceed.
+ */
+async function lockedMapDenialReason(t, op) {
+  if (!LOCKABLE_CHILD_TARGETS.has(op.target) || !op.mapId) return null;
+  const m = await t.oneOrNone(
+    'SELECT locked FROM maps WHERE id = $1 AND deleted_at IS NULL',
+    [op.mapId]
+  );
+  return m && m.locked ? 'O mapa está bloqueado e não aceita edições' : null;
+}
+
+/**
  * Pushes a batch of operations to the server.
  * Operations are applied and recorded in the operations log.
  * Accepts both frontend format (entityType, operationType, entityId) and
@@ -900,9 +1043,11 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       // invalidates the whole batch (403).
       assertOperationAllowed(op, permission);
 
-      // Per-op policy (map delete, map lock/unlock): refuse THIS operation without
-      // aborting the transaction, so one denied op cannot freeze the client's queue.
-      const denialReason = operationDenialReason(op, permission);
+      // Per-op policy (map delete, map lock/unlock, write into a locked map): refuse THIS
+      // operation without aborting the transaction, so one denied op cannot freeze the
+      // client's queue.
+      const denialReason = operationDenialReason(op, permission)
+        ?? await lockedMapDenialReason(t, op);
       if (denialReason) {
         acks.push({
           opId: rawOp.id,
@@ -933,8 +1078,11 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         // ops (features/layers/maps/etc.) are recorded under their real id, unchanged.
         FEATURE_UUID_RE.test(op.targetId) ? op.targetId : atlasId,
         op.mapId || null,
-        op.changes ? JSON.stringify(op.changes) : null,
-        op.data ? JSON.stringify(op.data) : null,
+        // 3D/360 ops log the CLIENT's flat payload (_logChanges/_logData) instead of the entity-
+        // table envelope, so a replay hands the peer exactly what the broadcast did. Everything
+        // else logs what it writes.
+        (op._logChanges ?? op.changes) ? JSON.stringify(op._logChanges ?? op.changes) : null,
+        (op._logData ?? op.data) ? JSON.stringify(op._logData ?? op.data) : null,
         op.timestamp,
         op.clientId,
         userId,
@@ -1577,15 +1725,8 @@ async function applyOperation(t, atlasId, op, userId, permission) {
   // (setting/catalog/comment/group_feature-create and unmeasured creates).
   let rowsAffected;
 
-  // Lock enforcement: a locked map blocks mutations of its child entities (the
-  // spec's "disable editing"). Map-level ops (lock/unlock/delete) are governed by
-  // authorization above, so the owner can still unlock.
-  if (LOCKABLE_CHILD_TARGETS.has(target) && op.mapId) {
-    const m = await t.oneOrNone('SELECT locked FROM maps WHERE id = $1 AND deleted_at IS NULL', [op.mapId]);
-    if (m && m.locked) {
-      throw new ConflictError('Map is locked');
-    }
-  }
+  // Lock enforcement runs BEFORE this function, as a per-op refusal
+  // (lockedMapDenialReason in pushOperations): a locked map must not abort the batch.
 
   // Reject a malformed streetview360 orientation that lacks a photoName at the write boundary: an
   // orientation is a saved camera view for ONE specific panorama, so without a photoName the row is
