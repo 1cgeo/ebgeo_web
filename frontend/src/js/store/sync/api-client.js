@@ -232,7 +232,14 @@ export class ApiClient {
                 await this.refresh();
                 return this._request(method, path, { body, auth, _retry: false, timeoutMs });
             }
-            const err = parsed && typeof parsed === 'object' ? parsed.error : null;
+            // Two error envelopes reach this client. The atlas API sends
+            // `{ error: { code, message } }`; sv360 sends a FLAT `{ error: '...' }`
+            // (a deliberate divergence, see the sv360 contract). Three admin 360
+            // routes go through this generic client, and reading `.message` off a
+            // string yields undefined — which surfaced as "HTTP 404" in the admin
+            // catalog tab instead of the server's actual message.
+            const raw = parsed && typeof parsed === 'object' ? parsed.error : null;
+            const err = typeof raw === 'string' ? { message: raw, code: undefined } : raw;
             throw new ApiError(err?.message || `HTTP ${res.status}`, {
                 status: res.status,
                 code: err?.code,

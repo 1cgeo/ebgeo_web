@@ -64,12 +64,21 @@ export class MapLockController {
 
     /**
      * Whether the current session may toggle a map's lock.
-     * Offline = full local control; online = only OWNER/ADMIN (the backend also
-     * enforces OWNER, so a write user is blocked there regardless).
+     *
+     * The gate is the STORE, not the session: the local store is always fully
+     * editable (principle P1), so being logged in does not hand the padlock of a
+     * local map over to the atlas role. Only a connected remote atlas is gated,
+     * and there only OWNER/ADMIN may toggle (the backend enforces OWNER too, so
+     * a write user is blocked there regardless).
+     *
+     * This used to branch on `sessionContext.isOffline()` alone, which denied a
+     * logged-in editor the padlock on their OWN local map — the same distinction
+     * `isReadOnly()` below already makes with `isRemoteStoreSync()`.
+     *
      * @returns {boolean}
      */
     canToggleLock() {
-        if (sessionContext.isOffline()) {
+        if (!isRemoteStoreSync()) {
             return true;
         }
         return LOCK_CAPABLE_ROLES.includes(sessionContext.role);

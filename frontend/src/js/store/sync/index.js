@@ -27,18 +27,21 @@
  * - Current data and previous data (for undo/conflict resolution)
  * - Timestamp (wall clock + Lamport logical clock) and client ID
  *
- * CONFLICT RESOLUTION STRATEGY (LWW):
- * The system uses Last-Writer-Wins with Lamport timestamps for ordering.
- * Each operation carries both a wall clock timestamp and a logical Lamport
- * timestamp. When a backend is available, conflicts are resolved by:
- * - Simple properties (name, color, style): LWW by lamportTimestamp + version
- * - Geometry (coordinates): LWW per feature (full replace, not vertex merge)
- * - Layers and maps: LWW per field (field-level granularity)
- * Server time offset can be set via setServerTimeOffset() to compensate
- * for clock skew between clients.
+ * CONFLICT RESOLUTION STRATEGY (LWW BY ARRIVAL):
+ * The winner is decided by the SERVER, by order of arrival — never by a clock.
+ * The server assigns a monotonic serverVersion as it accepts operations, and
+ * the highest one wins; idempotency is by `op_id`. This is server-authoritative
+ * LWW, NOT a CRDT.
  *
- * FUTURE BACKEND INTEGRATION:
- * See repository.interface.js for RemoteRepository implementation guide.
+ * The Lamport timestamp each operation carries only advances the local logical
+ * clock (causal ordering of what this client has seen). It is NOT consulted to
+ * resolve conflicts, and neither is the wall clock — so clock skew between
+ * clients cannot change an outcome. Nothing in production calls
+ * setServerTimeOffset(); it is a vestige of the pre-backend design.
+ *
+ * This block previously described per-field LWW "by lamportTimestamp + version"
+ * and skew compensation. None of that is the model; see the wiki page
+ * `sintese-nao-e-crdt`.
  */
 
 // Sync metadata utilities

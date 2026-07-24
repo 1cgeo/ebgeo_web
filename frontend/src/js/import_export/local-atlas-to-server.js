@@ -249,10 +249,14 @@ function collectImageIds(buckets, c3d, sv, sink) {
 /**
  * Builds the server bulk-import payload from a local `.ebgeo` export object.
  *
- * Two-pass usage for images: call ONCE without `meta.imageIdMap` to collect `imageIds`, upload
- * those blobs (`apiClient.bulkUploadImages` → `{ localId: serverId }`), then call AGAIN with
- * `meta.imageIdMap` set to that mapping so every image reference (image-feature ids, custom-icon
- * `markerSymbol` + registry ids, 3D/360 `images[]`) points to the uploaded server id.
+ * Images: the production path is a SINGLE pass. `save-local-atlas.service.js:98-105` builds the
+ * payload once, imports the atlas, and then uploads the blobs PRESERVING the client-side id, so
+ * every reference already in the payload (image-feature ids, custom-icon `markerSymbol` + registry
+ * ids, 3D/360 `images[]`) stays valid without any rewrite.
+ *
+ * `meta.imageIdMap` still works — call again with `{ localId: serverId }` to rewrite the refs —
+ * but no production caller does. It survives from the two-pass design that solved the same problem
+ * from the opposite side; do not assume from this signature that a second pass is required.
  *
  * @param {Object} exportData - The object produced by the `.ebgeo` exporter (handleExport's
  *   `data`): `{ maps, layers, groups, cesium3d, streetview360, temporal, gridStyle, mapNotes,

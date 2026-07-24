@@ -24,9 +24,11 @@
 //     (the copy runs INSIDE the same tx callback, so a throw aborts the commit).
 //   - Progress logging via the injected logger (defaults to console).
 //
-// ORDERING NOTE (vs. the online upload): the online path commits Postgres first
-// then swaps the live file under an evict/.bak/rename protocol because the file
-// is already being served. The OFFLINE ETL has no live readers, so it keeps the
+// ORDERING NOTE (vs. the online upload): the online path SWAPS THE FILE FIRST
+// and only then runs the Postgres tx (PASSO 1 / PASSO 2 in `sv360.ingest.js:394`)
+// under an evict/.bak/rename protocol, because the file is already being served
+// and a tx-scoped lock would be taken too late to protect it. (This note used to
+// state the reverse order.) The OFFLINE ETL has no live readers, so it keeps the
 // copy INSIDE the tx callback (pg-promise commits only if the callback resolves):
 // a failed copy throws -> the project's merge is rolled back -> nothing partial
 // lands. This is the simplest consistent ordering for a cold import.

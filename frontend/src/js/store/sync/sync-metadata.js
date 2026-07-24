@@ -11,14 +11,16 @@
  * - Dirty flag for pending sync detection
  * - Soft delete support
  *
- * IMPORTANT: In local-only mode (current), ownerId will be null and dirty
- * will always be true. These fields are prepared for future backend integration.
+ * IMPORTANT: with no session (anonymous/local work) ownerId is null and dirty
+ * stays true — the backend exists, but login is optional.
  *
- * SERVER TIME COMPENSATION:
- * Timestamps use Date.now() locally but support a server time offset
- * for future synchronization. When a backend is available, call
- * setServerTimeOffset() with the delta (serverTime - localTime) to
- * compensate for clock skew between clients.
+ * SERVER TIME OFFSET (vestigial):
+ * Timestamps use Date.now() plus an offset that nothing in production ever
+ * sets. It survives from the pre-backend design, when the plan was to resolve
+ * conflicts by comparing clocks. The real model decides the winner by ORDER OF
+ * ARRIVAL at the server (monotonic serverVersion), so clock skew between
+ * clients cannot change an outcome and there is nothing to compensate for.
+ * Kept because timestamps still travel in the envelope for display and audit.
  */
 
 /**

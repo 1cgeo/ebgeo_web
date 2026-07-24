@@ -16,11 +16,16 @@ function getServiceUrl() {
   return config.streetView360.serviceUrl;
 }
 
-// UUID v4 regex for detecting UUIDs vs legacy filenames
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Canonical UUID shape, ANY version: the job here is to tell a photo id apart
+// from a legacy filename, not to validate a version. Pinning the version nibble
+// to 4 was wrong — the studio mints photo ids as **v5** and the backend validates
+// them as such (`.guid({ version: ['uuidv5'] })` in sv360.schemas.js,
+// sv360.write.schemas.js and sv360.admin.schemas.js), so every real id failed
+// this test and both call sites below took the legacy-filename branch.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Checks if a string is a valid UUID v4.
+ * Checks if a string has the canonical UUID shape (any version).
  * @param {string} str - String to check
  * @returns {boolean}
  */

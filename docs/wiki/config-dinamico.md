@@ -31,7 +31,7 @@ Ver [[sintese-contratos-congelados]]. O que quebra o frontend se mudar:
 - **`search` permanece como chave, vazia.** O `apiUrl` foi removido: o gazetteer **é este backend** e o cliente deriva a rota da própria base da API. O antigo `SEARCH_API_URL` tinha default apontando para um `:3001` inexistente, o fetch dava connection-refused e a busca falhava em silêncio. Liga/desliga continua em `features.apisearch`. Ver [[gazetteer-nomes-geograficos]].
 - **`postos` e `organizacoesMilitares` são públicos de propósito**, apesar de serem dados de pessoal: o formulário anônimo de cadastro precisa popular os selects **antes** do login. Ver [[gestao-usuarios]] e [[organizacoes-om]].
 
-> [!CONTRADICAO 2026-07-18] `frontend/tests/e2e/config-contract.e2e.test.js:50-57` exige `cfg.search.apiUrl` como string não vazia e `cfg.services.tileServerUrl.length > 0`; `backend/src/modules/config/config.service.js:182` emite `search: {}` e `backend/src/config.js:140` dá default `''` a `TILE_SERVER_URL`. O teste que deveria guardar o contrato congelado está desatualizado em relação a ele.
+> [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] O `config-contract.e2e.test.js` exigia `cfg.search.apiUrl` não-vazio e `cfg.services.tileServerUrl.length > 0`, enquanto o backend emite `search: {}` e default `''`. Já estava corrigido no commit `14f703f` ("config-contract afirma o shape e o invariante, não o deployment"): hoje o teste afirma `typeof tileServerUrl === 'string'` (vazio é o sinal deliberado de "não configurado") e afirma a **ausência** de `search.apiUrl`, o que prende a remoção do default irreal `:3001`. A nota é que ficou pendente depois do fix.
 
 ## Regras de montagem que causam bug se ignoradas
 

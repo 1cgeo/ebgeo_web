@@ -32,9 +32,9 @@ O deferir-e-replayar **não é merge**: é serialização, para que o vencedor p
 
 ## Contradições no repositório
 
-> [!CONTRADICAO 2026-07-18] O cabeçalho de `frontend/src/js/store/sync/index.js:30-41` afirma "LWW by lamportTimestamp + version" para propriedades simples, "LWW per field (field-level granularity)" para layers e maps, e "FUTURE BACKEND INTEGRATION". O código faz LWW por `serverVersion` apenas (`frontend/src/js/store/sync/remote-operation-handler.js:128-132`), a granularidade é a entidade inteira, e o backend já existe e está ligado. Resíduo do módulo CRDT removido.
+> [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] O cabeçalho de `frontend/src/js/store/sync/index.js` afirmava "LWW by lamportTimestamp + version" e LWW por campo. Reescrito para o modelo real: o vencedor é decidido pelo SERVIDOR por ordem de chegada (serverVersion monotônica), o Lamport só avança o relógio lógico local e não é consultado para resolver conflito.
 
-> [!CONTRADICAO 2026-07-18] `frontend/src/js/store/sync/index.js:37` e `frontend/src/js/store/sync/sync-metadata.js:18-35` documentam `setServerTimeOffset()` como compensação de clock skew para resolução de conflito. Como o conflito nunca lê `timestamp`, o offset não influencia decisão de vencedor alguma; e nenhum call site o invoca fora do próprio barrel, então na prática ele é zero permanente.
+> [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] `setServerTimeOffset()` era documentado como compensação de clock skew para resolução de conflito. Como o vencedor é por ordem de chegada, skew entre clientes não muda desfecho e não há o que compensar; confirmado que **nenhum caminho de produção chama a função**. Os dois blocos passaram a marcá-la como vestígio do desenho pré-backend.
 
 Os comentários remanescentes com "CRDT op log" (`frontend/src/js/store/sync/sync-engine.js:327`, `frontend/src/js/store/sync/ws-client.js:355`, `frontend/src/js/store/sync/sync-metadata.js:9`) são apenas nome informal do log de ops. O guia absorvido *05-sync-crdt* carrega o mesmo resíduo no título e se desmente no próprio corpo.
 

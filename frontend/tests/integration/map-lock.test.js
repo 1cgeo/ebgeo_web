@@ -142,27 +142,43 @@ describe('map-lock.controller', () => {
     });
 
     describe('canToggleLock', () => {
+        // The gate is the STORE, not the session. These two cases used to assert
+        // `false` for an online EDITOR/VIEWER while isRemoteStoreSync() was false
+        // — the local store — which froze the defect as expected behavior: a
+        // logged-in editor was denied the padlock on their own local map.
         it('is true when offline (full local control)', () => {
             sessionMock._offline = true;
             expect(controller.canToggleLock()).toBe(true);
         });
 
-        it('is true for an online OWNER', () => {
+        for (const role of ['OWNER', 'ADMIN', 'EDITOR', 'VIEWER']) {
+            it(`is true on the LOCAL store for an online ${role} (P1)`, () => {
+                storeOriginMock.isRemoteStoreSync.mockReturnValue(false);
+                setOnline(UserRoleMock[role]);
+                expect(controller.canToggleLock()).toBe(true);
+            });
+        }
+
+        it('is true for an OWNER on a connected remote atlas', () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
             setOnline(UserRoleMock.OWNER);
             expect(controller.canToggleLock()).toBe(true);
         });
 
-        it('is true for an online ADMIN', () => {
+        it('is true for an ADMIN on a connected remote atlas', () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
             setOnline(UserRoleMock.ADMIN);
             expect(controller.canToggleLock()).toBe(true);
         });
 
-        it('is false for an online EDITOR', () => {
+        it('is false for an EDITOR on a connected remote atlas', () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
             setOnline(UserRoleMock.EDITOR);
             expect(controller.canToggleLock()).toBe(false);
         });
 
-        it('is false for an online VIEWER', () => {
+        it('is false for a VIEWER on a connected remote atlas', () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
             setOnline(UserRoleMock.VIEWER);
             expect(controller.canToggleLock()).toBe(false);
         });
@@ -238,7 +254,11 @@ describe('map-lock.controller', () => {
             expect(logMapOperationMock).toHaveBeenCalledWith('update', 'map-1', { locked: true });
         });
 
-        it('blocks a non-owner online user: shows error, no store op, returns current state', async () => {
+        // The block is scoped to a connected REMOTE atlas. These two used to set
+        // only the session, leaving the store local, so they asserted the block
+        // on a map the user is entitled to lock.
+        it('blocks a non-owner on a REMOTE atlas: shows error, no store op, returns current state', async () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
             setOnline(UserRoleMock.EDITOR);
             storeMock.isCurrentMapLockedSync.mockReturnValue(false);
 
@@ -252,6 +272,7 @@ describe('map-lock.controller', () => {
         });
 
         it('returns the current locked state unchanged when blocked', async () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(true);
             setOnline(UserRoleMock.VIEWER);
             storeMock.isCurrentMapLockedSync.mockReturnValue(true);
 
@@ -259,6 +280,19 @@ describe('map-lock.controller', () => {
 
             expect(next).toBe(true);
             expect(storeMock.toggleMapLock).not.toHaveBeenCalled();
+        });
+
+        it('lets an online EDITOR toggle the lock on the LOCAL store', async () => {
+            storeOriginMock.isRemoteStoreSync.mockReturnValue(false);
+            setOnline(UserRoleMock.EDITOR);
+            storeMock.isCurrentMapLockedSync.mockReturnValue(false);
+            storeMock.toggleMapLock.mockResolvedValue(null);
+
+            const next = await controller.toggleMapLock();
+
+            expect(next).toBe(true);
+            expect(showErrorMock).not.toHaveBeenCalled();
+            expect(storeMock.toggleMapLock).toHaveBeenCalled();
         });
     });
 

@@ -221,8 +221,11 @@ export async function deleteProject(slug, user, opts = {}) {
 /**
  * Ingests a multipart bundle (manifest.json + images.db + optional thumbnail).
  * Parses + validates the manifest, resolves+authorizes the target org (ownership
- * HERE), then hands off to ingestBundle (Postgres merge tx FIRST, then the atomic
- * {slug}.db swap). Persists the optional thumbnail to disk (the serving route is
+ * HERE), then hands off to ingestBundle. The order there is swap-THEN-commit: the
+ * atomic {orgId}__{slug}.db swap is PASSO 1 and the Postgres merge tx is PASSO 2
+ * (`sv360.ingest.js:394`), which is why the ingestion lock is advisory and not
+ * transaction-scoped — a tx-scoped lock would be taken too late to protect the
+ * file. Persists the optional thumbnail to disk (the serving route is
  * stage 3b). Does NOT clean the multer tmp files — the controller owns that.
  *
  * @param {Object} user - req.user
@@ -252,7 +255,7 @@ export async function uploadBundle(user, files = {}) {
   // Ownership: resolve + authorize the target organization_id (admin vs om).
   const orgId = await resolveUploadOrgId(user, manifest);
 
-  // Ingest (validateImagesDb size-check -> merge tx -> atomic swap).
+  // Ingest (validateImagesDb size-check -> atomic swap -> merge tx; see above).
   const result = await ingestBundle({
     manifest,
     dbTmpPath: imagesDbPath,

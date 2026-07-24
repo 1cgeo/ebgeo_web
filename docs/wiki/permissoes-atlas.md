@@ -53,7 +53,9 @@ O guard falha **suave**: as store ops chamam `checkPermission`, emitem `STORE_OP
 - **A permissão padrão abaixa, nunca eleva.** Convite entra em `read`, e valor não reconhecido cai para `read` em vez de escalar.
 - **Clonar exige só `read`**, mas o clone torna quem clonou o `owner` da cópia ([[clone-atlas]]).
 
-> [!CONTRADICAO 2026-07-18] O princípio P1 ("o store local é sempre editável") é respeitado pela store op (`frontend/src/js/store/map.operations.js:852`) e pelo guard, mas `frontend/src/js/locking/map-lock.controller.js:71-76` (`canToggleLock`) gateia por papel assim que a sessão é ONLINE, sem consultar `isRemoteStoreSync()` como faz `isReadOnly()` logo abaixo. Um `editor` logado recebe "Apenas o dono pode bloquear o mapa" no próprio mapa **local**.
+O cadeado do mapa segue o mesmo princípio P1: `canToggleLock` (`frontend/src/js/locking/map-lock.controller.js:71-90`) gateia pelo **store**, não pela sessão. Store local (`!isRemoteStoreSync()`) é sempre destravável, esteja o usuário logado ou não; só o atlas remoto conectado restringe a OWNER/ADMIN, e o backend também exige OWNER ali.
+
+> [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] `canToggleLock` gateava por papel assim que a sessão ficava ONLINE, sem consultar `isRemoteStoreSync()` como o `isReadOnly()` logo abaixo já fazia: um `editor` logado recebia "Apenas o dono pode bloquear o mapa" no próprio mapa **local**. Os testes que existiam congelavam esse comportamento (afirmavam `false` para editor/viewer online com o store local), então foram reescritos junto do fix. Controle negativo em `frontend/tests/integration/map-lock.test.js`: 28/28 com o fix, 3 falham sem ele.
 
 ## Adicionou um nível de permissão?
 

@@ -115,6 +115,30 @@ describe('ApiClient — auth', () => {
         });
         await expect(api.getAtlas('x')).rejects.toBeInstanceOf(ApiError);
     });
+
+    // sv360 diverges on purpose and sends a FLAT `{ error: '...' }`. Three admin
+    // 360 routes go through this generic client, and `.message` off a string is
+    // undefined — the admin catalog tab showed "HTTP 404" instead of the server's
+    // message.
+    it('maps the FLAT sv360 error envelope to ApiError, keeping the message', async () => {
+        const fetchImpl = vi.fn(async () => resp(404, { error: 'Project not found' }));
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: 'tok' });
+
+        await expect(api.getAtlas('x')).rejects.toMatchObject({
+            name: 'ApiError', status: 404, message: 'Project not found',
+        });
+    });
+
+    it('still falls back to HTTP <status> when the body carries no usable error', async () => {
+        for (const body of [{}, { error: null }, { error: {} }, null]) {
+            const api = makeClient(vi.fn(async () => resp(500, body)));
+            api.setTokens({ accessToken: 'tok' });
+            await expect(api.getAtlas('x')).rejects.toMatchObject({
+                name: 'ApiError', status: 500, message: 'HTTP 500',
+            });
+        }
+    });
 });
 
 describe('ApiClient — envelope unwrap', () => {

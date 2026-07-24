@@ -6,7 +6,10 @@
  * Temporal control is enabled per map. Config is persisted in appStore under
  * `temporal_<mapName>` (mirroring the map-lock pattern) and cached in
  * `memoryStore.temporalConfigs` for synchronous reads on hot paths (render,
- * filters). Config shape: `{ ativo, unidade, inicio, fim }`.
+ * filters). Config shape: `{ ativo, unidade, inicio, fim, modo, origem }` — the
+ * authoritative list is `DEFAULT_TEMPORAL_CONFIG` (`temporal/temporal.constants.js:49`).
+ * `modo` and `origem` are the display lens (absoluto vs relativo D+N and its
+ * D-origin); they never mutate feature times.
  */
 
 import { getSettingCompat, setSettingCompat } from './repositories/index.js';
@@ -22,7 +25,7 @@ const STORE_PREFIX = 'temporal_';
 /**
  * Merges a stored (possibly partial/null) config with defaults.
  * @param {Object|null} raw - Stored config.
- * @returns {{ativo: boolean, unidade: string, inicio: (number|null), fim: (number|null)}}
+ * @returns {{ativo: boolean, unidade: string, inicio: (number|null), fim: (number|null), modo: string, origem: (number|null)}}
  */
 function withDefaults(raw) {
     return { ...DEFAULT_TEMPORAL_CONFIG, ...(raw || {}) };
@@ -49,7 +52,7 @@ export async function getMapTemporalConfig(mapName = null) {
  * Reads the temporal config for a map from the synchronous memory cache.
  * Use on hot paths (render/filters). Falls back to defaults when uncached.
  * @param {string} [mapName=null] - Map name (null = current).
- * @returns {{ativo: boolean, unidade: string, inicio: (number|null), fim: (number|null)}}
+ * @returns {{ativo: boolean, unidade: string, inicio: (number|null), fim: (number|null), modo: string, origem: (number|null)}}
  */
 export function getMapTemporalConfigSync(mapName = null) {
     const target = resolveMapName(mapName);

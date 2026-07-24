@@ -40,7 +40,7 @@ Esse é também o motivo de P11 ser verificado com **dois usuários** (`frontend
 - **O conjunto `usedImages` do ZIP é amplo**, não uma lista de imagens: entra o `properties.id` de **toda** feição (`frontend/src/js/import_export/export-import.service.js:463`). Ids sem blob apenas falham no `getImage` e são ignorados. Não leia esse conjunto como inventário.
 - Import aditivo tem teto de **100 mapas no total** (`frontend/src/js/import_export/export-import.service.js:624-625`), o que surpreende quem faz merge repetido.
 
-> [!CONTRADICAO 2026-07-18] O JSDoc de `frontend/src/js/import_export/local-atlas-to-server.js:252-255` descreve um uso em **duas passadas** (chamar sem `imageIdMap`, subir as imagens, chamar de novo com o mapping). O chamador real em `frontend/src/js/import_export/save-local-atlas.service.js:98-105` faz **uma passada só** e resolve pelo lado oposto, subindo os blobs com o id do cliente preservado. O suporte a `meta.imageIdMap` continua no código, mas nenhum caminho de produção o usa.
+> [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] O JSDoc de `local-atlas-to-server.js` descrevia um uso em **duas passadas** para imagens; o chamador real (`save-local-atlas.service.js:98-105`) faz **uma passada só**, subindo os blobs com o id do cliente preservado. O JSDoc passou a descrever a passada única como caminho de produção e a marcar `meta.imageIdMap` como sobrevivência do desenho antigo, sem chamador.
 
 > **Nota histórica.** O guia *visao-e-principios* (absorvido) afirma que o comentário espacial "entra no `.ebgeo` (P9) e faz round-trip (P11)". Isso só é verdade pela via de operação ao vivo.
 

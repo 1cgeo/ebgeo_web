@@ -142,7 +142,8 @@ async function initApp() {
 
     // Boot routing precedence (see docs/ui-ux-ebgeo.md §1): a public viewer link wins for an
     // anonymous visitor; then an `?atlas=` deep link (open, or prompt login + resume); otherwise
-    // reconnect the last remote atlas for a restored authenticated session. (`#view=3d/360` is handled
+    // open the atlas CHOOSER — the boot does NOT reconnect the last remote atlas on its own.
+    // (`#view=3d/360` is handled
     // earlier in the map-load path and has absolute precedence; `?verify=` ran above.) The links were
     // captured at the very top of initApp — atlas-url-sync has since stripped `?atlas` from the URL
     // for an anonymous visitor, so re-reading it here would be too late.

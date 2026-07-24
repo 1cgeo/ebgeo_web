@@ -251,14 +251,15 @@ export async function mvtTile(z, x, y, user) {
 }
 
 /**
- * Resolves the absolute FS path of a project's {slug}.webp thumbnail, enforcing
+ * Resolves the absolute FS path of a project's thumbnail, enforcing
  * the project read policy. The slug is sanitized with path.basename (traversal
  * guard) AND the readability check runs against the matching project row; a hidden
  * (disabled) project is 404 for anon. Returns null when the project does not exist
  * OR the thumbnail file is absent (the controller maps null → 404).
  * @param {string} slug - project slug (from the :slug.webp route param)
  * @param {Object} [user]
- * @returns {Promise<string|null>} absolute path to the {slug}.webp, or null
+ * @returns {Promise<string|null>} absolute path to the ORG-KEYED
+ *   {orgId}__{slug}.webp on disk (the URL is slug-only; the file is not), or null
  */
 export async function resolveThumbnailPath(slug, user) {
   // basename strips any directory component (../, absolute) before it ever hits
@@ -326,9 +327,10 @@ export function buildPhotoMetadata(photo, targets) {
     captureDate: photo.capture_date,
     // FROZEN contract (99-referencia §6.1/§6.2 ponto 2): RELATIVE path WITHOUT the
     // /api/v1 prefix. The client concatenates it with streetView360.serviceUrl
-    // (= <backend>/api/v1/sv360), yielding /api/v1/sv360/thumbnails/{slug}.webp —
-    // the per-project thumbnail written at ingestion ({slug}.webp) and served by
-    // GET /sv360/thumbnails/:slug.webp.
+    // (= <backend>/api/v1/sv360), yielding /api/v1/sv360/thumbnails/{slug}.webp.
+    // The URL is slug-only, but the FILE on disk is org-keyed
+    // ({orgId}__{slug}.webp, derived from db_filename at ingestion); the route
+    // GET /sv360/thumbnails/:slug.webp resolves one to the other.
     previewThumbnail: `/thumbnails/${photo.project_slug}.webp`,
     targets: targets.map((t) => ({
       id: t.target_id,

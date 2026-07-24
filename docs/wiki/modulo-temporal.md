@@ -52,7 +52,7 @@ Implicações a comunicar ao usuário: um par editando a mesma feição durante 
 - **Importação:** dados temporais viajam como propriedades comuns, sem evento dedicado. `decimateTrajectory` descarta detalhe abaixo da resolução da régua, cujo passo mais fino é um minuto (`frontend/src/js/temporal/temporal-model.js:172-183`). Ver [[formato-ebgeo-roundtrip]].
 - **Observabilidade:** `TEMPORAL_CURSOR_CHANGED` é evento por frame e é explicitamente ignorado pelo tap do ledger (`frontend/src/js/store/sync/diag/bus-tap.js:11`). Ver [[syncledger]].
 
-> [!CONTRADICAO 2026-07-18] O JSDoc de `frontend/src/js/store/temporal.operations.js:9,25` ainda descreve a config como `{ativo, unidade, inicio, fim}`, sem `modo` e `origem`. O formato real é o de `DEFAULT_TEMPORAL_CONFIG` (`frontend/src/js/temporal/temporal.constants.js:49-56`).
+> [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] O JSDoc de `frontend/src/js/store/temporal.operations.js` descrevia a config como `{ativo, unidade, inicio, fim}`, sem `modo` e `origem`. Corrigido para os seis campos, apontando `DEFAULT_TEMPORAL_CONFIG` (`temporal/temporal.constants.js:49`) como lista autoritativa e explicando que `modo`/`origem` são lente de exibição, não mutação de tempo.
 
 ## Fontes
 - Guia *acoes-interface-multiusuario* (absorvido) §29: matriz das 20 ações temporais com classificação local vs compartilhada, e a descrição do reagendamento que diverge do código.

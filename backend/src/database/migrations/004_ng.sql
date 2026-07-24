@@ -160,8 +160,17 @@ CREATE OR REPLACE FUNCTION ng.recomputar_clusters() RETURNS void AS $$
   UPDATE ng.nomes_geograficos n SET cluster_id = c.cid FROM clusters c WHERE n.id = c.id;
 $$ LANGUAGE sql;
 
--- 10) refresh_busca: MANDATORY post-load step (FME). Re-fires tipo_peso (COPY
---     bypasses BEFORE INSERT triggers) and recomputes clusters.
+-- 10) refresh_busca: MANDATORY post-load step (FME). Recomputes clusters and
+--     re-fires tipo_peso.
+--
+--     CORRECAO 2026-07-24: o comentario original justificava o re-fire dizendo
+--     que "COPY bypasses BEFORE INSERT triggers". Nao passa: medido contra o
+--     PostgreSQL desta instalacao, COPY DISPARA trigger BEFORE INSERT de linha
+--     (o que ele nao dispara sao RULES). Entao o `UPDATE tipo = tipo` e
+--     defensivo/idempotente, nao obrigatorio para o caminho de COPY — cobre
+--     carga por caminho que desabilite trigger e reprocessa peso apos mudanca
+--     na funcao. O passo continua obrigatorio pelos CLUSTERS, que nada mais
+--     recomputa. Migracao e forward-only: so o comentario mudou.
 CREATE OR REPLACE FUNCTION ng.refresh_busca() RETURNS void AS $$
 BEGIN
   UPDATE ng.nomes_geograficos SET tipo = tipo;

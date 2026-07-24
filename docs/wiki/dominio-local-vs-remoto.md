@@ -56,6 +56,6 @@ Contrato de fidelidade (P11): toda adição ao transform local→servidor precis
 
 > **Nota histórica.** Guia *ui-ux-ebgeo* §2 diz "o boot não passa pelo Drive: F5 reconecta o último atlas". Um boot autenticado em URL nua (`/`) **abre** o Atlas Drive (`index.js:272-283`). O F5 só reabre o atlas porque `deep-link/atlas-url-sync.js:31-35` mantém `?atlas=<uuid>` na barra de endereços enquanto há conexão.
 
-> [!CONTRADICAO 2026-07-18] O comentário de boot em `frontend/src/js/index.js:148` ainda descreve "otherwise reconnect the last remote atlas for a restored authenticated session", mas `index.js:160` chama `openAtlasChooserOnBoot()`. Comentário desatualizado, o comportamento é o seletor.
+> [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] O comentário de boot em `frontend/src/js/index.js:148` descrevia "otherwise reconnect the last remote atlas for a restored authenticated session", mas o código chama `openAtlasChooserOnBoot()`. O comentário passou a dizer que o boot **não** reconecta sozinho e que o caminho é o seletor.
 
 Ver [[sessao-boot-e-ciclo-de-vida]] e [[autenticacao-jwt]].
