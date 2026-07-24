@@ -16,13 +16,20 @@ no título), não estimada:
 | Relatório | Total | Feitos | Pendentes |
 |---|---|---|---|
 | `bugs-backend.md` | 116 | 38 | **78** — 0 crítico, 12 alto, 25 médio, 41 baixo |
-| `documentacao-backend.md` | 155 | 0 | **155** — 122 alta, 33 baixa |
+| `documentacao-backend.md` | 155 | 0 | **155** — 45 alta, 77 média, 33 baixa |
 | `testes-backend.md` | 185 | 0 | **185** — 71 P1, 83 P2, 31 P3 |
 
 > A `auditoria-continuacao.md` fala em "50 médios e 27 baixos". A diferença é de
 > critério: aquele número agrupa por tema e atravessa severidades (o grupo dele
 > inclui achados que o arquivo marca como Alto). A contagem acima é mecânica e
 > reproduzível pelo script; é a que este plano usa.
+>
+> **Correção 2026-07-24.** A primeira versão desta tabela dizia "122 alta, 33 baixa"
+> para a documentação. Era erro do meu script de contagem: a seção do meio chama-se
+> `## Severidade média`, e a regex usava `\w+`, que não casa o acento — os 77 itens
+> de média eram atribuídos em silêncio à seção anterior. O verificador quebrou e
+> quebrou calado, que é exatamente a quarta forma de `verificacao-fantasma` escrita
+> na constituição horas antes. Pego ao cruzar com uma segunda contagem que discordou.
 
 ## Ordem escolhida, e por quê
 
@@ -104,3 +111,33 @@ vezes: prefixo legado mais um diretório `collab/trace/` que nunca existiu.
 
 Controle negativo: com as citações legadas restauradas e a regex nova, 44 são
 pegas; com a regex antiga, nenhuma.
+
+### Lote 2 — documentação, 11 itens
+
+Todos verificados contra o código antes de reescrever; nenhum aceito pela prosa do
+relatório.
+
+- **#4, #17, #18, #38** já tinham sido resolvidos mais cedo nesta mesma sessão (o
+  gate de `canToggleLock`, o marcador do `config-dinamico` e o ponteiro do
+  `trace-stages.js`). Anotados, não retrabalhados.
+- **#21, #22, #23** — `backend/CLAUDE.md` afirmava que `maps` tem "apenas GET". A
+  constituição mentia sobre o próprio repositório: existem três escritas REST, e
+  elas são deliberadas. Reescrito como escrita **incremental** só via sync, com as
+  três exceções nomeadas e o critério que as une (operação de entidade INTEIRA,
+  cujo efeito não é representável como sequência de ops). A enumeração de módulos
+  saiu inteira: estava errada em dois pontos e é a mesma classe da árvore que
+  apodreceu em `.claude/rules/architecture.md`.
+- **#20, #32, #39** — citações de linha erradas em `backend/src/config.js`. A pior
+  era a âncora da allowlist HS256 apontando para `poolMax`, e o default de CORS
+  documentado com valor e linha errados numa página de segurança de borda enquanto
+  outra página já dizia o valor certo.
+- **#30** — as duas páginas diziam que o boot acumula todos os erros numa mensagem
+  só. Não acumula as duas mais importantes: `DATABASE_URL` e `JWT_SECRET` passam por
+  `required()`, que lança na avaliação do módulo, antes de a validação rodar.
+
+Uma armadilha que este lote produziu e que vale registrar: a reescrita mecânica de
+prefixos **quebra prosa que fala SOBRE o caminho**. Três frases comparavam dois
+caminhos e viraram "X difere de X". Detectadas por um verificador escrito para isso
+(linha que cita o mesmo caminho duas vezes), com três falso-positivos legítimos
+(mesmo arquivo, linhas diferentes). O caminho morto voltou ao texto **sem crase**,
+porque agora toda citação entre crases é verificada.

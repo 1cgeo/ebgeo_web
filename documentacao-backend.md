@@ -142,6 +142,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 4. docs/wiki/permissoes-atlas.md
 
+> **CORRIGIDO em 2026-07-24.** A ação pedida era codificar a regressão, não escrever doc — e foi o que aconteceu. `canToggleLock` passou a gatear pelo STORE (`!isRemoteStoreSync()`) em vez de pela sessão, que é a mesma distinção que `isReadOnly()` já fazia logo abaixo; um editor logado voltou a poder travar o próprio mapa LOCAL. Cinco testes reprovaram o fix porque montavam a cena só com `setOnline()`, deixando o store local, ou seja, congelavam o defeito como esperado. Controle negativo em `frontend/tests/integration/map-lock.test.js`: 28/28 com o fix, 3 caem sem ele. A exclusão do `manager` de `LOCK_CAPABLE_ROLES` NÃO foi mexida: o servidor exige estritamente `owner` para travar mapa, então a lista fechada do cliente concorda com o servidor; o desalinhamento das três camadas segue documentado como armadilha na página.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `estrutural`
 - **Código:** `frontend/src/js/locking/map-lock.controller.js:39`
 
@@ -273,6 +275,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 17. docs/wiki/config-dinamico.md
 
+> **CORRIGIDO em 2026-07-24.** O marcador `[!CONTRADICAO 2026-07-18]` de `docs/wiki/config-dinamico.md` foi marcado RESOLVIDO com a referência ao commit `14f703f`, que já havia corrigido o teste. Era nota pendente sobre defeito morto.
+
 - **Tipo:** desatualizada · **Fatia:** `be-boot`
 - **Documento:** `docs/wiki/config-dinamico.md:34 (e a repeticao em :71)`
 - **Código:** `frontend/tests/e2e/config-contract.e2e.test.js:56-70`
@@ -282,6 +286,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Apagar o marcador de :34 e o paretenses de :71, e registrar a resolucao no `## Historico` da pagina como supersessao temporal (o teste foi realinhado ao contrato, nao o contrario).
 
 ### 18. docs/wiki/config-dinamico.md:34 (marcador [!CONTRADICAO 2026-07-18] pendente) e a linha 71
+
+> **CORRIGIDO em 2026-07-24.** Mesmo marcador do item #17, resolvido na mesma passada.
 
 - **Tipo:** desatualizada · **Fatia:** `be-catalog-config-audit`
 - **Documento:** `docs/wiki/config-dinamico.md:34`
@@ -303,6 +309,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 20. autenticacao-jwt.md e hardening-borda-api.md (mesma citacao propagada)
 
+> **CORRIGIDO em 2026-07-24.** A âncora da allowlist HS256 apontava para `backend/src/config.js:45`, que é `poolMax` do Postgres. Corrigida para `:53` (`algorithms: ['HS256']`) nas duas páginas que propagavam a citação, `autenticacao-jwt.md` e `hardening-borda-api.md`. Importa mais que uma linha errada qualquer: é a âncora da defesa contra `alg: none`, que a própria página chama de risco mais provável.
+
 - **Tipo:** divergência · **Fatia:** `be-auth`
 - **Documento:** `docs/wiki/autenticacao-jwt.md:39 e docs/wiki/hardening-borda-api.md:32`
 - **Código:** `backend/src/config.js:53`
@@ -313,6 +321,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 21. backend/CLAUDE.md
 
+> **CORRIGIDO em 2026-07-24.** `backend/CLAUDE.md` deixou de afirmar que `maps` tem apenas GET. A regra foi reescrita como escrita INCREMENTAL só via sync, com as três exceções estruturais nomeadas e o critério que as une (operação de ENTIDADE INTEIRA, cujo efeito não é representável como sequência de ops): `POST /maps/:mapId/merge`, `POST /atlas/import` e `POST /atlas/:atlasId/maps/:mapId/duplicate`. Ficaram registradas junto as duas armadilhas conhecidas: escrita por REST não avança `atlas.current_version` (o merge compensa com op marcadora) e o gate do merge protege uma rota que este cliente não chama.
+
 - **Tipo:** divergência · **Fatia:** `estrutural`
 - **Código:** `backend/src/modules/maps/maps.routes.js:17`
 
@@ -322,6 +332,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 22. backend/CLAUDE.md
 
+> **CORRIGIDO em 2026-07-24.** A enumeração de módulos saiu de `backend/CLAUDE.md`. Estava errada em dois pontos (dizia `resources`, que não existe — o diretório é `catalog/` — e omitia `ranks/` inteiro), e é a mesma classe da árvore de diretórios que apodreceu em `.claude/rules/architecture.md`. Foi substituída por um ponteiro para `ls src/modules/`, mantendo só o que não se adivinha: `debug` só é montado com o tracer ligado.
+
 - **Tipo:** divergência · **Fatia:** `estrutural`
 - **Código:** `backend/src/modules/ranks/ranks.routes.js`
 
@@ -330,6 +342,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir `resources`→`catalog` e acrescentar `ranks`; ou trocar a enumeração por uma linha dizendo que `ls src/modules/` é a fonte, mantendo só os módulos cujo nome não se autoexplica (`debug`, `catalog`).
 
 ### 23. backend/CLAUDE.md (constituição do pacote) + CLAUDE.md raiz + backend/README.md
+
+> **CORRIGIDO em 2026-07-24.** As três fontes foram alinhadas na mesma passada: `backend/CLAUDE.md`, o `CLAUDE.md` da raiz e `backend/README.md`. Nota sobre o relatório: ele cita o merge como `write` em `maps.routes.js:17`; hoje é `manage` em `:23`, porque um achado anterior elevou o gate. A substância do item continuava válida — a rota de escrita existe.
 
 - **Tipo:** divergência · **Fatia:** `be-maps-briefings`
 - **Documento:** `backend/CLAUDE.md:46 ; CLAUDE.md:33 ; backend/README.md:49`
@@ -401,6 +415,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 30. docs/wiki/deploy-backend.md e docs/wiki/hardening-borda-api.md (boot fail-fast)
 
+> **CORRIGIDO em 2026-07-24.** As duas páginas afirmavam que o boot acumula TODOS os erros numa única mensagem `Configuração inválida:`. Falso para as duas variáveis mais importantes: `DATABASE_URL` e `JWT_SECRET` passam por `required()`, que lança na AVALIAÇÃO DO MÓDULO, e `index.js` importa `app.js` → `config.js` antes de a validação rodar — a saída real é `Missing required env var: X`, em inglês e uma por vez. `deploy-backend.md` e `hardening-borda-api.md` passaram a dizer o que o acumulador de fato governa: o que é `optional()` e as regras condicionais de produção.
+
 - **Tipo:** divergência · **Fatia:** `be-boot`
 - **Documento:** `docs/wiki/deploy-backend.md:42 e :48; docs/wiki/hardening-borda-api.md:54`
 - **Código:** `backend/src/config.js:43`
@@ -420,6 +436,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Reescrever o bullet :40: a guarda de transferencia, a auditoria e a revogacao de token existem SO em `DELETE /users/:userId`. `PUT /users/:userId {is_active:false}` e uma porta dos fundos que desativa sem nenhuma das tres. Ou o backend passa a barrar `is_active:false` no PUT (encaminhando para o DELETE), ou a pagina declara a assimetria como armadilha de primeira linha, nao como diferenca de status.
 
 ### 32. docs/wiki/hardening-borda-api.md
+
+> **CORRIGIDO em 2026-07-24.** A página dizia que o default de CORS é `http://localhost:8080` (`config.js:49`). Valor e linha errados: é `http://localhost:3000` em `backend/src/config.js:63`, e o comentário do próprio código registra que `:8080` era o default antigo e estava errado, porque liberava a origem do backend (que nunca faz cross-origin) e bloqueava a do Vite (que faz). Pior que a linha: `deploy-backend.md` já dizia o valor certo, então duas páginas se contradiziam e a errada era a de segurança de borda. Corrigido com ponteiro para a página dona do assunto.
 
 - **Tipo:** divergência · **Fatia:** `be-boot`
 - **Documento:** `docs/wiki/hardening-borda-api.md:44`
@@ -480,14 +498,18 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 38. docs/wiki/syncledger.md
 
+> **CORRIGIDO em 2026-07-24.** As duas pontas foram corrigidas. O JSDoc de `frontend/src/js/store/sync/diag/trace-stages.js:7` apontava para um caminho morto duas vezes (prefixo pré-monorepo mais um diretório `collab/trace/` que nunca existiu) e passou a apontar para `backend/src/utils/sync-trace.js`; o espelho do backend passou a citar o frontend pelo caminho real. O marcador de `docs/wiki/syncledger.md` virou uma afirmação RESOLVIDO. Os outros dois ponteiros `MUST stay in lockstep` do par (em `backend/src/utils/maplibre-style-validate.js` e `backend/src/utils/sync-trace.js`) tinham o mesmo prefixo morto e foram corrigidos junto.
+
 - **Tipo:** divergência · **Fatia:** `estrutural`
 - **Código:** `backend/src/utils/sync-trace.js`
 
-**Evidência.** syncledger.md:40 mantém [!CONTRADICAO] sobre o caminho do espelho de backend do enum de estágios. A contradição JÁ É RESOLVÍVEL contra o código: `backend/src/utils/sync-trace.js` existe e `backend/src/modules/collab/trace/` não existe (varredura de backend/src: zero arquivos terminando em `collab/trace/trace-stages.js`). O defeito real não está na wiki, está no JSDoc de `frontend/src/js/store/sync/diag/trace-stages.js:6-7`, que aponta para `backend/src/utils/sync-trace.js`, caminho morto duas vezes (prefixo legado + diretório inexistente).
+**Evidência.** syncledger.md:40 mantém [!CONTRADICAO] sobre o caminho do espelho de backend do enum de estágios. A contradição JÁ É RESOLVÍVEL contra o código: `backend/src/utils/sync-trace.js` existe e `backend/src/modules/collab/trace/` não existe (varredura de backend/src: zero arquivos terminando em `collab/trace/trace-stages.js`). O defeito real não está na wiki, está no JSDoc de `frontend/src/js/store/sync/diag/trace-stages.js:6-7`, que apontava para ebgeo_backend/src/modules/collab/trace/trace-stages.js (sem crase: o caminho não existe), morto duas vezes — prefixo legado mais diretório inexistente.
 
 **Ação.** Corrigir o @fileoverview de frontend/src/js/store/sync/diag/trace-stages.js:6-7 para `backend/src/utils/sync-trace.js`, apagar o marcador de syncledger.md:40 e registrar uma linha no `## Histórico` da página.
 
 ### 39. hardening-borda-api.md
+
+> **CORRIGIDO em 2026-07-24.** Mesma citação do item #32, corrigida na mesma passada.
 
 - **Tipo:** divergência · **Fatia:** `be-auth`
 - **Documento:** `docs/wiki/hardening-borda-api.md:44`
@@ -892,7 +914,7 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 - **Documento:** `docs/wiki/syncledger.md:40`
 - **Código:** `backend/src/modules/debug/debug.routes.js:21`
 
-**Evidência.** O marcador diz que o espelho de backend do enum de estagios pode ser `backend/src/utils/sync-trace.js` ou `backend/src/utils/sync-trace.js` e manda "confirmar o caminho real no repo do backend". O repo e o mesmo monorepo e a resposta e verificavel agora: backend/src/utils/sync-trace.js existe e e o que debug.routes.js:21 importa (getTrace/clearTrace/isTraceEnabled); backend/src/modules/collab/ nao tem subpasta trace/. O ponteiro morto e o JSDoc do frontend (frontend/src/js/store/sync/diag/trace-stages.js:7), que ainda cita o caminho inexistente e ainda usa o prefixo morto ebgeo_backend/.
+**Evidência.** O marcador diz que o espelho de backend do enum de estagios pode ser `backend/src/utils/sync-trace.js` ou ebgeo_backend/src/modules/collab/trace/trace-stages.js (sem crase: caminho inexistente) e manda "confirmar o caminho real no repo do backend". O repo e o mesmo monorepo e a resposta e verificavel agora: backend/src/utils/sync-trace.js existe e e o que debug.routes.js:21 importa (getTrace/clearTrace/isTraceEnabled); backend/src/modules/collab/ nao tem subpasta trace/. O ponteiro morto e o JSDoc do frontend (frontend/src/js/store/sync/diag/trace-stages.js:7), que ainda cita o caminho inexistente e ainda usa o prefixo morto ebgeo_backend/.
 
 **Ação.** Resolver contra o codigo: corrigir o JSDoc de frontend/src/js/store/sync/diag/trace-stages.js:7 para backend/src/utils/sync-trace.js, apagar o marcador e registrar a resolucao no ## Historico da pagina.
 
@@ -1638,7 +1660,7 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 - **Documento:** `docs/wiki/syncledger.md:40`
 - **Código:** `backend/src/modules/sync/sync.service.js:5`
 
-**Evidência.** O segundo [!CONTRADICAO] da pagina fica em aberto perguntando se o espelho de backend e `backend/src/utils/sync-trace.js` ou `backend/src/utils/sync-trace.js`, e manda "confirme o caminho real no repo do backend". Confirmado agora: `backend/src/modules/collab/` tem seis arquivos (gateway, handlers, quality, rooms, service, index) e nenhuma subpasta `trace/`; o espelho real e backend/src/utils/sync-trace.js, importado por sync.service.js:5. O lado errado e o JSDoc do frontend em frontend/src/js/store/sync/diag/trace-stages.js:5-7, que aponta para o caminho morto. Esta e a unica citacao a arquivo inexistente em todo o corpus e o teste docs-integridade nao a pega porque ela vive dentro do bloco de citacao.
+**Evidência.** O segundo [!CONTRADICAO] da pagina fica em aberto perguntando se o espelho de backend e `backend/src/utils/sync-trace.js` ou ebgeo_backend/src/modules/collab/trace/trace-stages.js (sem crase: caminho inexistente), e manda "confirme o caminho real no repo do backend". Confirmado agora: `backend/src/modules/collab/` tem seis arquivos (gateway, handlers, quality, rooms, service, index) e nenhuma subpasta `trace/`; o espelho real e backend/src/utils/sync-trace.js, importado por sync.service.js:5. O lado errado e o JSDoc do frontend em frontend/src/js/store/sync/diag/trace-stages.js:5-7, que aponta para o caminho morto. Esta e a unica citacao a arquivo inexistente em todo o corpus e o teste docs-integridade nao a pega porque ela vive dentro do bloco de citacao.
 
 **Ação.** Resolver contra o codigo, como manda o wiki-schema: apagar o marcador, afirmar `backend/src/utils/sync-trace.js` como espelho e registrar em `## Historico`. Se a intencao for corrigir a raiz, o alvo e o JSDoc de trace-stages.js:7, nao a pagina.
 

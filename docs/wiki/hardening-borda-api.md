@@ -29,7 +29,7 @@ Usuário inexistente e senha errada lançam o mesmo erro com o mesmo texto (`bac
 
 ## JWT: a allowlist é por chamada, não global
 
-`config.jwt.algorithms = ['HS256']` (`config.js:45`) precisa ser passado explicitamente em cada `jwt.verify`, e hoje é, nos três verificadores que existem: `middleware/auth.js:30`, `middleware/flexible-auth.js:61` (ver [[auth-flexivel]]) e `modules/collab/collab.gateway.js:241` (ver [[canal-collab-websocket]]).
+`config.jwt.algorithms = ['HS256']` (`backend/src/config.js:53`) precisa ser passado explicitamente em cada `jwt.verify`, e hoje é, nos três verificadores que existem: `middleware/auth.js:30`, `middleware/flexible-auth.js:61` (ver [[auth-flexivel]]) e `modules/collab/collab.gateway.js:241` (ver [[canal-collab-websocket]]).
 
 Sem o parâmetro, `jsonwebtoken` aceita o `alg` declarado **no próprio token**: `alg: none` e confusão HS/RS. Como a defesa é opt-in por call site e não uma configuração global, **qualquer verificador novo que apareça no código é uma regressão silenciosa até repetir `{ algorithms: config.jwt.algorithms }`**. É o risco mais provável desta página. A emissão é pinada no mesmo par (`backend/src/modules/auth/auth.service.js:40`), e o emissor é único (ver [[jwt-emissor-unico]] e [[autenticacao-jwt]]).
 
@@ -41,7 +41,7 @@ Esta CSP protege as **respostas da API** (JSON), não a página do frontend, que
 
 - **HSTS só em produção** (`backend/src/app.js:46`). Ligá-lo em dev sobre `http://localhost` envenenaria o cache HSTS do navegador do desenvolvedor, com efeito persistente sobre todos os projetos locais.
 - **`Cross-Origin-Resource-Policy: cross-origin`** (`backend/src/app.js:47`) não é frouxidão: sem ele os assets servidos pelo backend (imagens de atlas, tiles 3D, ver [[assets3d-distribuicao]]) quebram quando consumidos de outra origem.
-- O default de CORS é `http://localhost:8080` (`config.js:49`), placeholder de dev, e por isso `CORS_ORIGIN` é obrigatório em produção no fail-fast.
+- O default de CORS é `http://localhost:3000` (`backend/src/config.js:63`), a origem do Vite — e **não** `http://localhost:8080`, que era o default antigo e estava errado por liberar a origem do próprio backend, que nunca faz requisição cross-origin. Ainda assim é placeholder de dev, e por isso `CORS_ORIGIN` é obrigatório em produção no fail-fast. Ver [[deploy-backend]], que é dono do assunto.
 
 ## Health check: não é o boot do frontend
 
@@ -51,7 +51,9 @@ O frontend não o chama em lugar nenhum, e não deveria: a decisão de boot é `
 
 ## Boot fail-fast: por que acumular erros
 
-`validateEnvVariables()` roda antes de `createServer` (`index.js:11`). Acumula **todos** os erros e aborta com a lista completa em vez de parar no primeiro (`config.js:258-260`): um deploy mal configurado custa um ciclo de correção, não cinco.
+`validateEnvVariables()` roda antes de `createServer` (`backend/src/index.js:11`) e acumula **todos** os erros que alcança, abortando com a lista completa em vez de parar no primeiro.
+
+**Mas ele não alcança as duas mais importantes.** `DATABASE_URL` (`backend/src/config.js:43`) e `JWT_SECRET` (`:49`) usam `required()`, que lança na **avaliação do módulo** (`Missing required env var: X`, `:5`). Como `index.js` importa `app.js`, que importa `config.js`, o throw acontece antes de a validação sequer rodar: faltando qualquer uma das duas, você recebe a mensagem de UMA variável em inglês, não a lista acumulada em português. O acumulador só governa de fato o que é `optional()` — `CORS_ORIGIN` entre eles — mais as regras condicionais de produção, como o mínimo de 32 caracteres do segredo.
 
 O alvo real são os `parseInt` que falham em silêncio (`config.js:220-242`). O comentário no código nomeia os casos observados, e vale repetir o pior: `MAX_BULK_UPLOAD_MB=abc` produz `express.json({ limit: 'NaNmb' })`, que é **nenhum limite de body**. Um typo desliga uma defesa em vez de derrubar o servidor. Mesma família em `JWT_REFRESH_EXPIRY`: a gramática aceita só `[smhd]`, e `1w` (natural, plausível) vira `parseDuration` = 0, ou seja, todo refresh token nasce expirado e ninguém consegue permanecer logado (`config.js:244-256`).
 

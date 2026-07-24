@@ -22,7 +22,7 @@ app de subir — não existe fallback estático no cliente.
 
 - `src/index.js` boot (HTTP + WS + `validateEnvVariables()` fail-fast) · `src/app.js` factory `createApp()` (testável)
 - `src/config.js` env · `src/database/` (`query`/`tx`, `migrate.js`, `migrations/`) · `src/middleware/` · `src/utils/`
-- `src/modules/<nome>/` — `auth users organizations atlas maps briefings resources sharing images sync collab config nomes zones streetview360 audit debug` (`debug` = endpoint do SyncLedger, montado só com o tracer ligado — test/dev)
+- `src/modules/<nome>/` — um `ls src/modules/` é a lista autoritativa; a enumeração que morava aqui já estava errada em dois pontos (dizia `resources`, que não existe, e omitia `ranks/` inteiro). O único que não se adivinha: `debug` é o endpoint do SyncLedger e só é montado com o tracer ligado (test/dev).
 
 ## Comandos
 
@@ -42,9 +42,21 @@ npm run lint           # eslint (rode antes de finalizar) | npm run format
 
 ## Decisões de arquitetura — NÃO violar (e o porquê)
 
-- **Escrita de entidades colaborativas é SÓ via sync** (`POST /atlas/:id/sync` ou WS `operation`).
-  `maps`/`briefings` têm **apenas GET**. **Não crie rotas REST de escrita** para feature/group/layer/
-  map/briefing/slide/cesium3d/streetview360 — elas viajam como operações CRDT.
+- **Escrita INCREMENTAL de entidade colaborativa é só via sync** (`POST /atlas/:id/sync` ou WS
+  `operation`). **Não crie rotas REST de escrita** para feature/group/layer/map/briefing/slide/
+  cesium3d/streetview360 — elas viajam como operações. `briefings` é de fato GET-only.
+  `maps` **não é**: a regra tinha três exceções estruturais já no código quando foi escrita, e
+  dizer "apenas GET" fazia a constituição mentir sobre o próprio repositório.
+  - `POST /maps/:mapId/merge` (`maps.routes.js:23`, `manage`) — re-parenteia seis tabelas filhas.
+  - `POST /atlas/import` (`atlas.routes.js:22`) — cria atlas inteiro a partir de um `.ebgeo`.
+  - `POST /atlas/:atlasId/maps/:mapId/duplicate` (`atlas.routes.js:44`, `write`).
+
+  O que as três têm em comum, e é o critério real: são operações de ENTIDADE INTEIRA, cujo efeito
+  não é representável como uma sequência de ops incrementais. Duas armadilhas conhecidas: escrita
+  por REST não avança `atlas.current_version`, então o peer offline não recebe nada no replay (o
+  merge resolve isso emitindo uma op MARCADORA na mesma transação); e o gate do merge protege uma
+  rota que **este** cliente não chama — ele combina localmente e sincroniza como ops comuns, com o
+  gate real em `map.manager.combineSelectedMapsIntoTarget`. Os dois precisam continuar alinhados.
 - **Conflito = LWW por ordem de chegada** (NÃO por timestamp); idempotência por `op_id`
   (`ON CONFLICT DO NOTHING`). O módulo `src/crdt` (LWW-por-timestamp) foi **removido** — não religar
   sem requisito de produto.

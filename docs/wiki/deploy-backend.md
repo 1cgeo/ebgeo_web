@@ -39,7 +39,9 @@ O piso é **Node 20.19.0** (`backend/package.json:6`), não 20.0.0: o boot usa `
 
 ## Boot fail-fast: por que a validação existe
 
-`validateEnvVariables()` roda em `backend/src/index.js:11`, **antes** de qualquer conexão, e deliberadamente **não** em `backend/src/app.js` (a suíte importa o app via supertest e não deve exigir env completa). Acumula todos os erros e lança um único `Configuração inválida:` (`config.js:290-292`).
+`validateEnvVariables()` roda em `backend/src/index.js:11`, **antes** de qualquer conexão, e deliberadamente **não** em `backend/src/app.js` (a suíte importa o app via supertest e não deve exigir env completa). Acumula os erros que alcança e lança um único `Configuração inválida:`.
+
+Não alcança `DATABASE_URL` (`backend/src/config.js:43`) nem `JWT_SECRET` (`:49`): as duas passam por `required()`, que lança na **avaliação do módulo** (`:5`), e `index.js` importa `app.js` → `config.js` antes de chamar a validação. Faltando uma delas, a saída é `Missing required env var: X`, em inglês e uma por vez — não a lista. O acumulador governa o que é `optional()` (como `CORS_ORIGIN`) e as regras condicionais de produção. Ver [[hardening-borda-api]].
 
 Cada regra existe por um estrago observado, não por higiene (`config.js:216-292`):
 

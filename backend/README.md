@@ -46,7 +46,7 @@ subsistema que vai integrar. As convenções de engenharia ficam na seção
 | Tipo de Dado | API |
 |--------------|-----|
 | Atlas metadata, compartilhamento, imagens | REST |
-| Features, layers, groups, maps, briefings, slides, 3D, 360 | **Sync / WebSocket** (escrita só via sync) |
+| Features, layers, groups, maps, briefings, slides, 3D, 360 | **Sync / WebSocket** (escrita INCREMENTAL só via sync; três operações de entidade inteira são REST — ver §Rotas) |
 | Nomes geográficos, catálogo 3D, panoramas 360 | REST read-only (PostGIS) |
 
 ### Modos de operação

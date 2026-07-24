@@ -31,7 +31,7 @@ Não chancele a própria saída: rodar o teste não é a mudança funcionar; esc
 - **Trabalhe no branch atual.** `main` é outra linha do produto; não sincronize sem pedir.
 - **Login é opcional; servidor não é.** O app roda anônimo, mas o boot é fail-fast em `GET /api/config`; sem backend alcançável, tela "EBGeo indisponível". `frontend/src/js/config.js` é só o *shape* que o servidor hidrata; **não há fallback estático**. Anônimo ≠ offline.
 - **Permissão por atlas tem CINCO níveis:** `read < comment < write < manage < owner`. Sempre gate pela hierarquia. Lista fechada tipo `perm === 'write' || perm === 'owner'` exclui o `manage` em silêncio e já causou bug real, duas vezes, nos dois pacotes.
-- **Escrita de entidade colaborativa é só via sync.** Não crie rota REST de escrita para feature/map/layer/group/briefing/slide.
+- **Escrita INCREMENTAL de entidade colaborativa é só via sync.** Não crie rota REST de escrita para feature/map/layer/group/briefing/slide. Três exceções estruturais já existem e são deliberadas (merge de mapas, import de atlas, duplicação de mapa): são operações de entidade INTEIRA, cujo efeito não se expressa como sequência de ops. Detalhe e armadilhas em [`backend/CLAUDE.md`](backend/CLAUDE.md).
 - **Mudança que cruza os dois pacotes** (envelope de sync, `/api/config`, permissões, contrato congelado) é verificada **dos dois lados no mesmo commit**. O E2E sobe o backend real e é o guarda dessa fronteira.
 
 ## Comandos

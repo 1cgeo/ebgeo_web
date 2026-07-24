@@ -36,7 +36,7 @@ Trate `429` como backoff puro, **nunca** como gatilho de logout ou de novo refre
 ## Contratos congelados e decisões deliberadas
 
 - **Aliases `org` e `login` no payload** existem só para o módulo 360 consumir o token de emissor único sem alteração (`backend/src/modules/auth/auth.service.js:34-37`). São contrato congelado ([[sintese-contratos-congelados]]).
-- **Allowlist `['HS256']`** aplicada nos três pontos de verificação: REST estrito, auth flexível e handshake do WebSocket (`backend/src/config.js:45`). Token com `alg: none` ou assimétrico é rejeitado. Adicionar um algoritmo aqui vale para os três.
+- **Allowlist `['HS256']`** aplicada nos três pontos de verificação: REST estrito, auth flexível e handshake do WebSocket (`backend/src/config.js:53`). Token com `alg: none` ou assimétrico é rejeitado. Adicionar um algoritmo aqui vale para os três.
 - **`posto_graduacao` e `organizacao_militar` são derivados por `LEFT JOIN`**, não colunas. O claim JWT chama-se `posto`, a resposta REST chama-se `posto_graduacao`: nomes **diferentes** para o mesmo dado. O frontend monta a identidade a partir do objeto `user` da resposta, não das claims (`frontend/src/js/store/sync/session-context.js`); não há decode de JWT no cliente.
 - **Texto livre legado e FK coexistem** durante a transição: a leitura devolve strings (`organizacao_militar`), mas os corpos de escrita exigem UUID (`organization_id`). Ler um, escrever o outro é o padrão ([[gestao-usuarios]]).
 - **Tokens persistem os dois em `localStorage`** sob a chave `ebgeo_auth`, degradando para memória só quando `localStorage` não existe. É deliberado (a sessão precisa sobreviver ao F5), mas quem auditar segurança deve saber que o access token está no disco do navegador.

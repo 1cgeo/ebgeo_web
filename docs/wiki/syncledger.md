@@ -37,7 +37,15 @@ Caso que confunde mais: mutações fora do log de ops (`atlas_updated`, `map_dup
 
 > **[!CONTRADICAO]** O guia *arquitetura-sync* (absorvido) §12.3 lista os spans instrumentados como `frontend/src/js/store/sync/operation-dispatcher.js`, `frontend/src/js/store/sync/sync-engine.js`, `frontend/src/js/store/sync/ws-client.js` e `frontend/src/js/store/sync/sync-gateway.js`, e **não menciona `apply.persist`**. O código emite `apply.persist` em quatro pontos: `frontend/src/js/store/sync/operation-dispatcher.js:152` e `:212` (autor), `frontend/src/js/store/sync/remote-operation-handler.js:72` e `:356` (peer). O doc está desatualizado em relação ao wire de cadeia completa.
 
-> **[!CONTRADICAO]** O mesmo §12.3 aponta o espelho de backend para `backend/src/utils/sync-trace.js`, enquanto o JSDoc de `frontend/src/js/store/sync/diag/trace-stages.js:7` aponta para `backend/src/utils/sync-trace.js`. São dois arquivos distintos (ring vs. enum) ou um deles moveu. O enum precisa ficar em lockstep com o backend sob pena de o merger sinalizar estágio desconhecido; ao mexer nele, **confirme o caminho real no repo do backend** antes de confiar em qualquer dos dois.
+**RESOLVIDO 2026-07-24.** O espelho de backend do enum de estágios é
+`backend/src/utils/sync-trace.js`, e só ele. O JSDoc de
+`frontend/src/js/store/sync/diag/trace-stages.js:7` apontava para
+ebgeo_backend/src/modules/collab/trace/trace-stages.js — escrito aqui **sem crase de
+propósito**, porque o caminho não existe e o `docs-integridade` verifica toda citação
+entre crases. Estava morto **duas vezes**: prefixo do layout pré-monorepo mais um
+diretório `collab/trace/` que nunca existiu no backend. Não eram dois arquivos distintos, era um ponteiro podre. Os dois
+lados agora se citam mutuamente pelo caminho real, e continuam precisando ficar em
+lockstep — estágio desconhecido faz o merger sinalizar.
 
 ## Fontes
 
