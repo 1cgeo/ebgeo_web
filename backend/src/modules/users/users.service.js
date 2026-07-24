@@ -162,6 +162,27 @@ export async function updateUser(userId, data, actingUserId = null) {
     }
   }
 
+  // Desativar por PUT era uma porta dos fundos. `deleteUser` (a rota de
+  // desativação) roda três coisas que este caminho não roda: conta os atlas do
+  // usuário e EXIGE um destinatário antes de soltar a posse, audita, e revoga os
+  // refresh tokens. O PUT escrevia `is_active` direto no UPDATE, então desmarcar
+  // o checkbox "Ativo" do formulário de edição (`frontend/src/js/admin/users-tab.js:357`)
+  // desativava a conta deixando os atlas dela órfãos — donos inativos são
+  // recusados no middleware `auth`, e só um admin global consegue mexer neles
+  // depois. É exatamente o estado que o ConflictError de `deleteUser` existe para
+  // impedir, alcançado pela porta ao lado.
+  //
+  // Recusar é a correção certa e não "faltou implementar a guarda aqui": o PUT não
+  // tem como receber o destinatário da transferência, então não existe forma de
+  // ele completar a operação com segurança. Reativar (`is_active: true`) segue
+  // livre, e reenviar `false` para quem JÁ está inativo não é transição e passa —
+  // senão editar o nome de um usuário inativo quebraria.
+  if (data.is_active === false && existing.is_active) {
+    throw new ConflictError(
+      'Desative pela ação de desativação, não pela edição: ela exige um destinatário para os atlas do usuário e revoga as sessões dele.'
+    );
+  }
+
   // If changing username, check it's not taken
   if (data.username && data.username.toLowerCase() !== existing.username.toLowerCase()) {
     const { rows: usernameCheck } = await query(Q.CHECK_USERNAME_EXISTS_EXCLUDING, [data.username, userId]);

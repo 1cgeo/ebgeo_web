@@ -427,6 +427,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 31. docs/wiki/gestao-usuarios.md
 
+> **CORRIGIDO em 2026-07-24.** Tratado como DEFEITO, não como doc: a assimetria era alcançável pela UI. O botão "Desativar" do painel usa DELETE, que conta os atlas do usuário e exige um destinatário, audita e revoga os tokens; mas o checkbox "Ativo" do formulário de edição manda `is_active` por PUT (`frontend/src/js/admin/users-tab.js:357`), e `updateUser` escrevia a coluna direto, sem nenhuma das três. Desmarcar a caixa deixava os atlas do usuário órfãos — dono inativo é recusado no middleware `auth`, então só outro admin global consegue mexer neles depois. É o estado que o ConflictError de `deleteUser` existe para impedir, alcançado pela porta ao lado.
+>
+> A correção RECUSA a transição em vez de replicar a guarda, porque o PUT não tem como receber o destinatário da transferência: não existe forma de ele completar a operação com segurança. Reativar segue livre, e reenviar `false` para quem já está inativo passa (a guarda olha a TRANSIÇÃO, não o valor — senão editar o nome de um usuário inativo quebraria).
+>
+> Teste: `backend/tests/integration/user-deactivate-via-put.repro.test.js` (4 casos). Controle negativo: removida a guarda, cai o caso do atlas órfão e só ele — os outros três não dependem dela.
+
 - **Tipo:** divergência · **Fatia:** `be-users-orgs`
 - **Documento:** `docs/wiki/gestao-usuarios.md:40`
 - **Código:** `backend/src/modules/users/users.service.js:159-170`
