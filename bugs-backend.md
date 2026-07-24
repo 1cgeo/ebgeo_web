@@ -383,6 +383,14 @@ Por que passou verde: os dois e2e de briefing constroem a op À MÃO no formato 
 
 ### 15. Permit do semaforo vaza quando o cliente aborta enquanto espera na fila: o caminho SQLite de assets 3D trava permanentemente apos 8 abortos
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido em `backend/src/modules/nomes/assets3d.controller.js:57-87`. Os listeners de release passaram a ser registrados ANTES do `await sem.acquire()`, com flag `acquired` para que um 'close' precoce não devolva permit ainda não possuído, mais a checagem pós-acquire que solta o permit e pula a leitura do BLOB se o cliente já morreu. Teste: `backend/tests/integration/assets3d-semaphore-leak.repro.test.js` (2 casos). Controle negativo: revertida a ordem, 2 de 2 caem — o primeiro estoura o deadline porque a rota nunca mais responde, o segundo em cascata porque a capacidade queimada não volta.
+>
+> **Uma afirmação do relatório NÃO se sustentou:** a de segurar o permit com um cliente que para de ler (backpressure). Medido no Windows/libuv com 8, 32 e 128 MB, o 'finish' dispara mesmo com o peer tendo lido 64 KB. Por isso a contenção do teste é produzida pelo próprio teste tomando o permit; do contrário o teste passaria vazio.
+>
+> **Gêmeo corrigido junto:** `sv360.controller.js` (`getPhotoImage`) tinha a construção idêntica em semáforo próprio (`SV360_MAX_INFLIGHT`). Mesmo bloco de fix, teste `backend/tests/integration/sv360-semaphore-leak.repro.test.js`, controle negativo com o mesmo desfecho (timeout: a rota não volta).
+>
+> **Pendência deliberada:** não foi acrescentado timeout ao `acquire()` nem ao `blobPool.read`. Um `Promise.race` no controller deixaria o acquire abandonado resolvendo depois, o que é outro vazamento; fazer direito exige mexer em `utils/semaphore.js` e `utils/sqlite-blob-pool.js`.
+
 - **Arquivo:** `backend/src/modules/nomes/assets3d.controller.js:54`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-nomes-zones` · **Classe:** `leak`
@@ -519,6 +527,8 @@ Por que passou verde: os dois e2e de briefing constroem a op À MÃO no formato 
 > **Correção do verificador.** A rotacao de refresh token e check-then-write sem claim atomico: entre a leitura do token (auth.service.js:132) e a revogacao (:154) ha uma janela em que duas requisicoes concorrentes com o mesmo token R passam ambas pelo gate de deteccao de reuso (:142) e ambas emitem um novo par, deixando duas cadeias de rotacao vivas para o mesmo usuario. REVOKE_REFRESH_TOKEN (auth.queries.js:48-50) nao pode fechar a janela por lhe faltar AND revoked_at IS NULL e RETURNING. Efeito: a deteccao de reuso, que existe para transformar um refresh token roubado em revogacao de toda a familia, e contornavel por corrida. E uma falha de defesa em profundidade, nao um bypass de autenticacao: exige que o atacante ja possua um refresh token valido roubado e que acerte uma janela de milissegundos. O remedio ja usado no mesmo arquivo para outro token (tx() + claim atomico com WHERE ... IS NULL RETURNING, verifyEmail:279-298 / CLAIM_VERIFICATION_TOKEN) nao foi aplicado aqui, e nenhum teste exercita o caso concorrente (auth-hardening.test.js:56-81 cobre so o reuso sequencial).
 
 ### 24. Semáforo de BLOB pode vazar slots permanentemente: os listeners de release são registrados DEPOIS do await de acquire, então um cliente que aborta enquanto está na fila nunca libera o slot
+
+> **CORRIGIDO em 2026-07-24.** Mesmo defeito estrutural do #15 (ordem entre `acquire()` e o registro dos listeners), corrigido na mesma passada nos dois sítios. Ver a anotação do #15 para mecanismo, testes, controle negativo e o que ficou pendente.
 
 - **Arquivo:** `backend/src/modules/nomes/assets3d.controller.js:54`
 - **Estado:** CONFIRMADO

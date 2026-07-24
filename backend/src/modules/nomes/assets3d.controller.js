@@ -12,7 +12,10 @@ import * as store from './assets3d.store.js';
 import * as assets3dService from './assets3d.service.js';
 
 const IMMUTABLE = 'public, max-age=31536000, immutable';
-const sem = createSemaphore(config.assets3d.maxInflight);
+// Exported so a test can occupy the permit deterministically (the abort-while-
+// queued regression needs real contention, which no amount of client timing can
+// guarantee). Nothing in src/ imports it.
+export const sem = createSemaphore(config.assets3d.maxInflight);
 
 // Parses "bytes=start-end" against `size`. Returns {start,end} | 'invalid' | null.
 function parseRange(range, size) {
@@ -51,16 +54,37 @@ export const serveAsset = asyncHandler(async (req, res, next) => {
       return res.status(416).setHeader('Content-Range', `bytes */${meta.size_bytes}`).end();
     }
 
-    await sem.acquire();
+    // The release hooks are registered BEFORE `await sem.acquire()`: under
+    // contention the acquire parks in the semaphore queue for an unbounded time,
+    // and a client that aborts while parked makes `res` emit 'close' inside that
+    // window. A listener attached afterwards never sees it (the event is not
+    // replayed) and `res.end()` on a destroyed socket returns early without
+    // emitting 'finish' either — so the permit would be held forever, and
+    // `maxInflight` such aborts hang the route until the process restarts.
+    // `acquired` keeps an early 'close' from releasing a permit we do not own
+    // yet; the check right after the acquire does that release once it is ours.
+    let acquired = false;
     let released = false;
+    let closed = false;
     const release = () => {
-      if (!released) {
+      if (acquired && !released) {
         released = true;
         sem.release();
       }
     };
-    res.on('finish', release);
-    res.on('close', release);
+    const onDone = () => {
+      closed = true;
+      release();
+    };
+    res.on('finish', onDone);
+    res.on('close', onDone);
+
+    await sem.acquire();
+    acquired = true;
+    if (closed || res.destroyed || res.writableEnded) {
+      release(); // client is already gone: hand the permit back, skip the read
+      return;
+    }
     try {
       const buf = await store.getAssetData(rel); // read BLOB on a worker thread
       if (!buf) {

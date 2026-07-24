@@ -30,7 +30,10 @@ import * as blobstore from './sv360.blobstore.js';
 // caller — so those are `private` and carry `Vary` for good measure (P6).
 const IMMUTABLE_PUBLIC = 'public, max-age=31536000, immutable';
 const IMMUTABLE_PRIVATE = 'private, max-age=31536000, immutable';
-const sem = createSemaphore(config.sv360.maxInflight);
+// Exported ONLY so the leak repro can create real contention by holding the permit
+// itself. Nothing in `src/` imports it — the twin in assets3d.controller.js does the
+// same, and for the same reason: faking contention would make the test vacuous.
+export const sem = createSemaphore(config.sv360.maxInflight);
 
 // Parses "bytes=start-end" against `size`. Returns {start,end} | 'invalid'.
 // Copied verbatim from assets3d.controller.js.
@@ -155,16 +158,36 @@ export const getPhotoImage = asyncHandler(async (req, res, next) => {
   // response protocol-correct (Content-Length always == body) regardless.
   if (req.headers['if-none-match'] === d.etag) return res.status(304).end();
 
-  await sem.acquire();
+  // Same ordering hazard as `assets3d.controller.js`, and the same fix: the
+  // release hooks go up BEFORE `await sem.acquire()`. Under contention the
+  // acquire parks in the semaphore queue for an unbounded time, and a client
+  // that aborts while parked makes `res` emit 'close' inside that window — a
+  // listener attached afterwards never sees it, because the event is not
+  // replayed. The permit would then be held forever, and `SV360_MAX_INFLIGHT`
+  // such aborts hang photo serving until the process restarts.
+  // `acquired` keeps an early 'close' from releasing a permit we do not own yet.
+  let acquired = false;
   let released = false;
+  let closed = false;
   const release = () => {
-    if (!released) {
+    if (acquired && !released) {
       released = true;
       sem.release();
     }
   };
-  res.on('finish', release);
-  res.on('close', release);
+  const onDone = () => {
+    closed = true;
+    release();
+  };
+  res.on('finish', onDone);
+  res.on('close', onDone);
+
+  await sem.acquire();
+  acquired = true;
+  if (closed || res.destroyed || res.writableEnded) {
+    release(); // client is already gone: hand the permit back, skip the read
+    return;
+  }
   try {
     const buf = await blobstore.getImage(d.dbFile, d.photoId, quality); // BLOB on a worker thread
     if (!buf) {
