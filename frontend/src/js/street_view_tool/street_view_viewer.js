@@ -24,7 +24,6 @@ import { LRUCache } from '@utils/lru-cache.js';
 import { presenceStore } from '@js/presence/presence-store.js';
 import { getPresenceColor } from '@js/presence/presence-colors.js';
 import { sessionContext } from '@store/sync/session-context.js';
-import { NAV_CONSTANTS } from './navigation/constants.js';
 import {
     activateKeyboardService360,
     deactivateKeyboardService360,
@@ -44,6 +43,16 @@ const METADATA_CACHE_MAX_SIZE = 100; // Metadata is small, can keep more
 const FETCH_MAX_RETRIES = 3;
 const FETCH_RETRY_DELAY_MS = 500;
 
+// Escape hatch for on-demand rendering: `?render=always` restores the old
+// draw-every-frame behaviour, to isolate a suspected missing invalidation.
+const ALWAYS_RENDER = (() => {
+    try {
+        return new URLSearchParams(window.location.search).get('render') === 'always';
+    } catch {
+        return false;
+    }
+})();
+
 // ===== GLOBAL STATE MANAGEMENT =====
 const streetViewState = {
     isLoaded: false,
@@ -60,6 +69,8 @@ const streetViewState = {
     currentInfo: null,
     modules: {},
     animationId: null,
+    // Dirty flag for on-demand rendering (see update()/requestRender())
+    needsRender: true,
     documentListeners: [],
     // Caches with LRU eviction (textures dispose automatically when evicted)
     textureCache: new LRUCache(TEXTURE_CACHE_MAX_SIZE, (texture) => {
@@ -78,6 +89,17 @@ const streetViewState = {
 let toolbarInitialized = false;
 
 // ===== HELPER FUNCTIONS =====
+
+/**
+ * Requests a redraw on the next animation frame.
+ *
+ * Every code path that changes what the viewer shows must call this: camera
+ * movement, zoom, resize, texture arrival, photo change, marker changes. If a
+ * path is missed the view appears frozen — `?render=always` isolates that.
+ */
+export function requestRender() {
+    streetViewState.needsRender = true;
+}
 
 /**
  * Adds a document event listener and tracks it for cleanup
@@ -190,7 +212,6 @@ async function initThreeJS() {
     });
 
     addDocumentListener('wheel', onDocumentMouseWheel, { passive: true });
-    addDocumentListener('pointermove', onPointerMoveGlobal, { passive: true });
 
     window.addEventListener('resize', onWindowResize);
 
@@ -209,8 +230,12 @@ async function initNavigator(container) {
         streetViewState.navigator = new StreetViewNavigator(
             container,
             streetViewState.miniMap,
-            () => streetViewState.camera
+            () => streetViewState.camera,
+            requestRender
         );
+        // Vinculo 360 -> minimapa: passar o mouse num marcador acende o ponto
+        // correspondente na planta.
+        streetViewState.navigator.onHoverChange = setMinimapHoveredPhoto;
         await streetViewState.navigator.initialize();
     } catch (error) {
         console.warn('Failed to initialize navigator:', error);
@@ -232,11 +257,10 @@ async function loadPhoto(photoName, prevWorldHeading = null) {
     streetViewState.currentInfo = data;
     streetViewState.currentPhotoName = photoName;
 
-    // Apply defaults for missing metadata fields
-    const cameraConfig = {
-        ...data.camera,
-        height: data.camera.height ?? NAV_CONSTANTS.DEFAULT_CAMERA_HEIGHT,
-    };
+    // camera_height is inert in the relative marker model; the navigator only
+    // reads lon/lat/heading. (The old DEFAULT_CAMERA_HEIGHT fallback pointed at
+    // a constant that no longer exists and fed the removed ground model.)
+    const cameraConfig = { ...data.camera };
 
     const targets = data.targets || [];
 
@@ -487,6 +511,10 @@ function applyTexture(texture, data) {
     if (renderer && scene && camera) {
         renderer.render(scene, camera);
     }
+
+    // A new texture (preview or full) changes what is on screen without touching
+    // the camera, so the dirty flag has to be raised explicitly.
+    requestRender();
 }
 
 /**
@@ -626,6 +654,78 @@ function ensureSelectedLayer() {
 }
 
 /**
+ * Ensures the minimap has a layer that highlights the photo under the pointer.
+ *
+ * Built the same way as the 'selected' layer, and for the same reason: the
+ * minimap draws every photo from the vector tiles, so highlighting one is a
+ * matter of filtering a symbol layer, not of adding a marker.
+ */
+function ensureHoveredLayer() {
+    const miniMap = streetViewState.miniMap;
+    if (!miniMap || miniMap.getLayer('hovered')) return;
+
+    const control = streetViewState.controlInstance;
+    const sourceId = control?.streetViewPointsLayer?.['source'];
+    if (!sourceId || !miniMap.getSource(sourceId)) return;
+    if (!miniMap.hasImage('point-selected')) return;
+
+    const sourceLayer = control?.streetViewPointsLayer?.['source-layer']
+        || config.streetView360?.pointsSourceLayer
+        || 'fotos';
+
+    miniMap.addLayer({
+        'id': 'hovered',
+        'type': 'symbol',
+        'source': sourceId,
+        'source-layer': sourceLayer,
+        'filter': ['==', PHOTO_PROPERTY, ''],
+        'layout': {
+            'icon-image': 'point-selected',
+            'icon-size': 1.6,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+        },
+        'paint': {
+            'icon-opacity': 0.9
+        }
+    });
+}
+
+/**
+ * Highlights on the minimap the target the pointer is over in the 360 view.
+ *
+ * One half of a two-way link: pointing at a sphere in the photograph lights up
+ * where it is on the map, so the operator can tell which way out is which
+ * without walking there first.
+ *
+ * @param {string|null} photoId - Photo UUID, or null to clear
+ */
+export function setMinimapHoveredPhoto(photoId) {
+    const miniMap = streetViewState.miniMap;
+    if (!miniMap) return;
+
+    ensureHoveredLayer();
+    if (!miniMap.getLayer('hovered')) return;
+
+    miniMap.setFilter('hovered', ['==', PHOTO_PROPERTY, photoId ?? '']);
+}
+
+/**
+ * Highlights in the 360 view the target the pointer is over ON THE MINIMAP.
+ * The other half of the link.
+ *
+ * @param {string|null} photoId - Photo UUID, or null to clear
+ */
+export function setHoveredFromMinimap(photoId) {
+    const navigator = streetViewState.navigator;
+    if (!navigator?.renderer) return;
+
+    navigator.renderer.setHoveredMarker(photoId);
+    setMinimapHoveredPhoto(photoId);
+    requestRender();
+}
+
+/**
  * Updates minimap position and icon
  */
 function updateMiniMap(camera) {
@@ -648,6 +748,83 @@ function updateMiniMap(camera) {
 
     // Update icon direction
     setIconDirection(camera.heading);
+    ensureViewCone(camera);
+}
+
+/**
+ * View cone on the minimap: shows WHERE THE OPERATOR IS LOOKING, not just where
+ * they are.
+ *
+ * Same geometry as the calibration interface, deliberately: apex pinned at the
+ * camera point and the cone opening towards the view, which is the only reading
+ * that is unambiguous. A triangle with its base at the point reads as an arrow
+ * pointing away, which is the opposite.
+ *
+ * Screen-space, like the calibration, so the cone keeps its size as the map
+ * zooms; its WIDTH follows the field of view, so zooming into the photograph
+ * narrows the beam.
+ */
+let viewConeMarker = null;
+let viewConeEl = null;
+
+/**
+ * Creates the cone element once, styled inline so no stylesheet has to know
+ * about it.
+ *
+ * @returns {HTMLElement} The cone element
+ */
+function createViewConeEl() {
+    const el = document.createElement('div');
+    el.style.cssText = `
+        width: 0;
+        height: 0;
+        border-left: 22px solid transparent;
+        border-right: 22px solid transparent;
+        border-top: 34px solid rgba(137, 180, 250, 0.55);
+        transform-origin: 50% 100%;
+        transform: translate(-50%, -100%) rotate(0deg);
+        pointer-events: none;
+    `;
+    return el;
+}
+
+/**
+ * Places the view cone at the current camera position on the minimap.
+ *
+ * @param {{lon: number, lat: number}} camera - Current photo position
+ */
+function ensureViewCone(camera) {
+    const miniMap = streetViewState.miniMap;
+    if (!miniMap || typeof maplibregl === 'undefined') return;
+
+    if (!viewConeEl) {
+        viewConeEl = createViewConeEl();
+    }
+    if (!viewConeMarker) {
+        viewConeMarker = new maplibregl.Marker({ element: viewConeEl, anchor: 'center' })
+            .setLngLat([camera.lon, camera.lat])
+            .addTo(miniMap);
+    } else {
+        viewConeMarker.setLngLat([camera.lon, camera.lat]);
+    }
+}
+
+/**
+ * Points the cone where the camera is looking and opens it to the current FOV.
+ *
+ * @param {number} worldHeadingDeg - Direction of view in degrees (0 = North)
+ * @param {number} [fovDeg] - Vertical field of view in degrees
+ */
+function updateViewCone(worldHeadingDeg, fovDeg) {
+    if (!viewConeEl) return;
+
+    viewConeEl.style.transform = `translate(-50%, -100%) rotate(${worldHeadingDeg}deg)`;
+
+    if (typeof fovDeg === 'number' && Number.isFinite(fovDeg)) {
+        const half = Math.max(6, 30 * Math.tan(((fovDeg * Math.PI) / 180) / 2));
+        viewConeEl.style.borderLeftWidth = `${half}px`;
+        viewConeEl.style.borderRightWidth = `${half}px`;
+    }
 }
 
 /**
@@ -657,6 +834,7 @@ function setIconDirection(degrees) {
     if (streetViewState.miniMap && streetViewState.miniMap.getLayer('selected')) {
         streetViewState.miniMap.setLayoutProperty('selected', 'icon-rotate', degrees);
     }
+    updateViewCone(degrees, streetViewState.camera?.fov);
 }
 
 /**
@@ -727,13 +905,6 @@ function onPointerUp(event) {
     isUserInteracting = false;
     document.removeEventListener('pointermove', onPointerMove);
     document.removeEventListener('pointerup', onPointerUp);
-}
-
-function onPointerMoveGlobal(_event) {
-    // This document-level listener is not removed on close (the scene is kept for
-    // resume). Guard so it does no work app-wide once the viewer is hidden.
-    if (!streetViewState.isVisible) return;
-    updateCurrentHeading();
 }
 
 function onDocumentMouseWheel(event) {
@@ -819,10 +990,59 @@ function animate() {
     update();
 }
 
+// Last state the viewer was actually drawn with, for change detection.
+const _lastDrawn = { lon: null, lat: null, fov: null, width: 0, height: 0 };
+
 /**
- * Update function called each frame
+ * Detects whether anything about the camera changed since the last drawn frame.
+ *
+ * Comparing the resulting state is deliberate: the camera is mutated from many
+ * places (drag, wheel, pinch, keyboard, saved orientations, deep links, external
+ * setCameraFOV), and requiring each of them to remember to invalidate would be a
+ * standing invitation to a frozen screen.
+ *
+ * @returns {boolean} True when the scene must be redrawn
+ */
+function cameraChangedSinceLastFrame() {
+    const camera = streetViewState.camera;
+    if (!camera) return false;
+
+    const canvas = streetViewState.renderer?.domElement;
+    const width = canvas?.width ?? 0;
+    const height = canvas?.height ?? 0;
+
+    if (
+        _lastDrawn.lon === lon &&
+        _lastDrawn.lat === lat &&
+        _lastDrawn.fov === camera.fov &&
+        _lastDrawn.width === width &&
+        _lastDrawn.height === height
+    ) {
+        return false;
+    }
+
+    _lastDrawn.lon = lon;
+    _lastDrawn.lat = lat;
+    _lastDrawn.fov = camera.fov;
+    _lastDrawn.width = width;
+    _lastDrawn.height = height;
+    return true;
+}
+
+/**
+ * Update function called each frame.
+ *
+ * The camera math is cheap and always runs, but the two expensive draws (the
+ * WebGL scene and the Canvas 2D navigation overlay) only fire when something
+ * actually changed. A still scene therefore costs almost nothing, which matters
+ * on the tablets used in the field.
  */
 function update() {
+    if (!cameraChangedSinceLastFrame() && !streetViewState.needsRender && !ALWAYS_RENDER) {
+        return;
+    }
+    streetViewState.needsRender = false;
+
     // Convert lon/lat (degrees) to camera direction
     const phi = THREE.MathUtils.degToRad(90 - lat);
     const theta = THREE.MathUtils.degToRad(lon);
@@ -1700,6 +1920,14 @@ export function cleanupStreetViewFeatures() {
     if (streetViewState.sphereGeometry) {
         streetViewState.sphereGeometry.dispose();
         streetViewState.sphereGeometry = null;
+    }
+
+    // O cone de visada e um marcador do MapLibre, entao nao sai junto com a
+    // cena do Three.js: precisa ser removido explicitamente.
+    if (viewConeMarker) {
+        viewConeMarker.remove();
+        viewConeMarker = null;
+        viewConeEl = null;
     }
 
     // Clean texture cache (LRU cache calls dispose callback automatically)

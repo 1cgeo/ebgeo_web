@@ -33,6 +33,9 @@ class AddStreetViewControl {
 
         this.photosSourceId = 'pmtiles-photos';
 
+        // Ultimo ponto do minimapa sob o mouse, para so avisar o 360 na mudanca
+        this._minimapHoveredUuid = null;
+
         // PMTiles nearby features cache
         this.nearbyFeaturesCache = new Map();
         this.cacheRadius = 1000;
@@ -193,17 +196,44 @@ class AddStreetViewControl {
 
                 // Click on minimap point to navigate
                 this.miniMap.on('click', 'points', async (e) => {
-                    const properties = e.features[0].properties;
-                    const { navigateToTarget } = await import('./street_view_viewer.js');
-                    await navigateToTarget(properties[PHOTO_PROPERTY]);
+                    const uuid = e.features?.[0]?.properties?.[PHOTO_PROPERTY];
+                    if (!uuid) return;
+                    try {
+                        const { navigateToTarget } = await import('./street_view_viewer.js');
+                        await navigateToTarget(uuid);
+                    } catch (error) {
+                        console.error('Error navigating from minimap click:', error);
+                    }
                 });
 
-                this.miniMap.on('mouseenter', 'points', () => {
+                // Vinculo minimapa -> 360: apontar um ponto na planta acende o
+                // marcador correspondente na foto. O par do onHoverChange do
+                // navigator, para que o realce valha nos dois sentidos.
+                this.miniMap.on('mousemove', 'points', async (e) => {
                     this.miniMap.getCanvas().style.cursor = 'pointer';
+                    const uuid = e.features?.[0]?.properties?.[PHOTO_PROPERTY] ?? null;
+                    if (uuid === this._minimapHoveredUuid) return;
+                    this._minimapHoveredUuid = uuid;
+                    const { setHoveredFromMinimap } = await import('./street_view_viewer.js');
+                    setHoveredFromMinimap(uuid);
                 });
 
-                this.miniMap.on('mouseleave', 'points', () => {
+                this.miniMap.on('mouseleave', 'points', async () => {
                     this.miniMap.getCanvas().style.cursor = '';
+                    if (this._minimapHoveredUuid === null) return;
+                    this._minimapHoveredUuid = null;
+                    const { setHoveredFromMinimap } = await import('./street_view_viewer.js');
+                    setHoveredFromMinimap(null);
+                });
+
+                // Sair do minimapa inteiro tambem limpa. O mouseleave da CAMADA
+                // nao basta: saindo rapido pela borda ele nem sempre dispara, e
+                // a esfera ficava acesa no 360 sem nada apontando para ela.
+                this.miniMap.getCanvas().addEventListener('mouseleave', async () => {
+                    if (this._minimapHoveredUuid === null) return;
+                    this._minimapHoveredUuid = null;
+                    const { setHoveredFromMinimap } = await import('./street_view_viewer.js');
+                    setHoveredFromMinimap(null);
                 });
 
             } catch (error) {

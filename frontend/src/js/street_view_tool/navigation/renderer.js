@@ -2,11 +2,150 @@
 
 /**
  * @fileoverview Canvas 2D renderer for Street View 360 navigation elements.
- * Renders navigation markers (simple circles), ground cursor with arrow, POIs, and selection highlights.
- * Implements Google Street View-like cursor behavior.
+ * Renders navigation markers as armillary spheres, edge arrows, POIs and
+ * selection highlights.
  */
 
 import { NAV_CONSTANTS } from './constants.js';
+
+/**
+ * Draws a navigation target as an armillary sphere: rings rather than a solid
+ * ball, so it reads as a sphere and as a panorama at once, and being open it
+ * sits over the photograph instead of punching a hole in it.
+ *
+ * Exported and state-driven because three places draw this exact marker: the
+ * viewer overlay, the calibration overlay and the calibration rear view. A
+ * fourth hand-rolled copy is how they drifted apart in the first place.
+ *
+ * The ring geometry is real, not decorative: a parallel at height h on a unit
+ * sphere has radius sqrt(1 - h^2). Every ring is drawn at every size, so the
+ * marker never changes identity as the operator walks towards it.
+ *
+ * @param {CanvasRenderingContext2D} ctx - Context, already translated to the centre
+ * @param {number} radius - Sphere radius in pixels
+ * @param {Object} [state] - Visual state
+ * @param {boolean} [state.highlighted] - The target a click would take
+ * @param {boolean} [state.selected] - Selected for editing (calibration only)
+ * @param {boolean} [state.hidden] - Hidden from navigation (calibration only)
+ * @param {number} [state.opacity] - Fades markers further down the queue
+ */
+export function drawArmillarySphere(ctx, radius, state = {}) {
+    const { highlighted = false, selected = false, hidden = false, opacity = 1 } = state;
+    const r = Math.max(1, radius);
+    const TILT = 0.30;
+
+    let ring, fill;
+    if (hidden) {
+        // Unmistakably off: red, dashed, and struck through. Dimming alone was
+        // read as "far away" rather than "disabled".
+        ring = 'rgba(255, 138, 138, 0.95)';
+        fill = 'rgba(70, 12, 12, 0.42)';
+    } else if (selected) {
+        ring = 'rgba(255, 240, 214, 0.98)';
+        fill = 'rgba(217, 119, 6, 0.42)';
+    } else if (highlighted) {
+        ring = 'rgba(255, 255, 255, 1)';
+        fill = 'rgba(37, 99, 235, 0.62)';
+    } else {
+        ring = 'rgba(255, 255, 255, 0.95)';
+        fill = 'rgba(17, 24, 36, 0.26)';
+    }
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
+
+    // Halo, only when highlighted: the cue that says "this is the one a click
+    // takes you to" has to survive a busy photograph.
+    if (highlighted && !hidden) {
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 1.45, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.28)';
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 1.28, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(147, 197, 253, 0.85)';
+        ctx.lineWidth = Math.max(1, r * 0.09);
+        ctx.stroke();
+    }
+
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+    ctx.shadowBlur = Math.max(1.5, r * 0.3);
+
+    // Body: translucent, just enough to separate from the scene
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fillStyle = fill;
+    ctx.fill();
+
+    ctx.strokeStyle = ring;
+    ctx.lineCap = 'round';
+    if (hidden) {
+        ctx.setLineDash([Math.max(2, r * 0.28), Math.max(2, r * 0.2)]);
+    }
+
+    // Outer ring
+    ctx.lineWidth = Math.max(1, r * (highlighted ? 0.12 : 0.09));
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Equator
+    ctx.lineWidth = Math.max(0.8, r * (highlighted ? 0.09 : 0.07));
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r, r * TILT, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Two parallels, each at the true radius for its height
+    for (const h of [-0.55, 0.55]) {
+        const rx = r * Math.sqrt(1 - h * h);
+        ctx.beginPath();
+        ctx.ellipse(0, r * h * (1 - TILT * 0.5), rx, rx * TILT, 0, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    // Meridian through the poles
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.34, r, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // The tilted band, what makes it read as armillary rather than wireframe
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.97, r * 0.24, -0.42, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+
+    // Strike-through for a disabled target
+    if (hidden) {
+        const d = r * 0.78;
+        ctx.beginPath();
+        ctx.moveTo(-d, d);
+        ctx.lineTo(d, -d);
+        ctx.strokeStyle = 'rgba(255, 90, 90, 0.95)';
+        ctx.lineWidth = Math.max(1.5, r * 0.16);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
+/**
+ * Opacity for a marker at a given rank in its direction.
+ * The one a click would take is never faded: it has to stay the most solid
+ * thing on screen no matter how far down the queue it sits.
+ *
+ * @param {number} rank - Position in the queue, 0 = first
+ * @param {boolean} isHighlighted - Whether this is the click target
+ * @returns {number} Alpha in [0, 1]
+ */
+export function rankOpacity(rank, isHighlighted = false) {
+    if (isHighlighted) return 1;
+    return Math.max(
+        NAV_CONSTANTS.HORIZON_RANK_FADE_MIN,
+        Math.pow(NAV_CONSTANTS.HORIZON_RANK_FADE, Math.max(0, rank))
+    );
+}
 
 /**
  * Renders navigation elements on a Canvas 2D overlay.
@@ -30,9 +169,6 @@ export class StreetViewRenderer {
         // this map, so a peer's highlight is independent of the local selection.
         this.remoteSelections = new Map();
         this.visible = true;
-
-        // Ground cursor state
-        this.groundCursor = null; // { screenX, screenY, flattenY, arrowAngle }
 
         // Animation state
         this.hoverAnimation = new Map();
@@ -87,14 +223,6 @@ export class StreetViewRenderer {
     }
 
     /**
-     * Sets the ground cursor position and direction
-     * @param {Object|null} cursor - Cursor data { screenX, screenY, flattenY, arrowAngle } or null to hide
-     */
-    setGroundCursor(cursor) {
-        this.groundCursor = cursor;
-    }
-
-    /**
      * Sets visibility of the overlay
      * @param {boolean} visible - Whether to show the overlay
      */
@@ -140,10 +268,6 @@ export class StreetViewRenderer {
             this.renderMarker(marker);
         }
 
-        // Render ground cursor on top
-        if (this.groundCursor) {
-            this.renderGroundCursor();
-        }
     }
 
     /**
@@ -156,14 +280,12 @@ export class StreetViewRenderer {
             screenX,
             screenY,
             radius,
-            flattenY,
             type,
             style
         } = marker;
 
         const isHovered = this.hoveredMarkerId === id;
         const isSelected = this.selectedMarkerId === id;
-        const isNearest = this.nearestMarkerId === id;
         const isCursorNearest = this.cursorNearestMarkerId === id;
 
         // Calculate animation scale
@@ -177,12 +299,14 @@ export class StreetViewRenderer {
         // Apply scale
         const finalRadius = radius * currentScale;
 
-        if (type === 'navigation') {
-            this.renderNavigationMarker(ctx, finalRadius, flattenY, isHovered, isNearest, isCursorNearest);
+        if (type === 'navigation' && marker.offscreen) {
+            this.renderEdgeArrow(ctx, finalRadius, marker.offscreenSide, isHovered || isCursorNearest);
+        } else if (type === 'navigation' && marker.sphere) {
+            this.renderSphereMarker(ctx, finalRadius, isHovered || isCursorNearest, marker.rank);
         } else if (type === 'poi') {
             // Only render marker circle if showMarker is not false
             if (style?.showMarker !== false) {
-                this.renderPOIMarker(ctx, finalRadius, flattenY, style, isHovered, isSelected);
+                this.renderPOIMarker(ctx, finalRadius, style, isHovered, isSelected);
             }
 
             // Render label if present (can show label without marker)
@@ -202,165 +326,49 @@ export class StreetViewRenderer {
     }
 
     /**
-     * Renders a navigation marker (Google Street View style - circle with inner dot)
-     * @param {CanvasRenderingContext2D} ctx - Canvas context
-     * @param {number} radius - Marker radius
-     * @param {number} flattenY - Y-axis flatten ratio (perspective-based)
-     * @param {boolean} isHovered - Whether marker is hovered
-     * @param {boolean} isNearest - Whether this is the nearest marker to camera
-     * @param {boolean} isCursorNearest - Whether this is the nearest marker to cursor position
+     * Renders a navigation target as an armillary sphere.
+     * Delegates to the shared drawing so the viewer, the calibration overlay and
+     * the calibration rear view cannot drift apart.
+     *
+     * @param {CanvasRenderingContext2D} ctx - Canvas context, already translated
+     * @param {number} radius - Sphere radius in pixels
+     * @param {boolean} isHighlighted - Whether this is the target a click would take
      */
-    renderNavigationMarker(ctx, radius, flattenY, isHovered, isNearest, isCursorNearest) {
-        // Apply perspective scaling (ellipse on ground plane)
-        ctx.save();
-        ctx.scale(1, flattenY);
-
-        // Determine style based on state
-        // isCursorNearest takes priority - it's the one the user will navigate to on click
-        const isHighlighted = isHovered || isCursorNearest;
-
-        // Shadow below marker
-        ctx.beginPath();
-        ctx.arc(0, 4 / flattenY, radius * 1.1, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.fill();
-
-        // Draw glow effect for cursor nearest marker
-        if (isCursorNearest && !isHovered) {
-            ctx.beginPath();
-            ctx.arc(0, 0, radius * 1.3, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(59, 130, 246, 0.25)';
-            ctx.fill();
-        }
-
-        // Outer circle - fill (white background)
-        ctx.beginPath();
-        ctx.arc(0, 0, radius, 0, Math.PI * 2);
-        ctx.fillStyle = isHighlighted
-            ? 'rgba(255, 255, 255, 0.95)'
-            : 'rgba(255, 255, 255, 0.7)';
-        ctx.fill();
-
-        // Outer circle - border
-        ctx.strokeStyle = isHighlighted
-            ? 'rgba(59, 130, 246, 0.9)' // Blue border when highlighted
-            : 'rgba(0, 0, 0, 0.4)';
-        ctx.lineWidth = isHighlighted ? 3 : 2;
-        ctx.stroke();
-
-        // Inner circle (dot) - key Google Street View style element
-        const innerRadius = radius * 0.45;
-        ctx.beginPath();
-        ctx.arc(0, 0, innerRadius, 0, Math.PI * 2);
-        ctx.fillStyle = isHighlighted
-            ? 'rgba(59, 130, 246, 0.95)' // Blue when highlighted
-            : 'rgba(100, 100, 100, 0.5)'; // Gray when not
-        ctx.fill();
-
-        ctx.restore();
+    renderSphereMarker(ctx, radius, isHighlighted, rank = 0) {
+        drawArmillarySphere(ctx, radius, {
+            highlighted: isHighlighted,
+            opacity: rankOpacity(rank, isHighlighted),
+        });
     }
 
     /**
-     * Renders the ground cursor that follows the mouse
-     * Large cursor with circle on ground and chevron arrow INSIDE the circle pointing to nearest marker
-     * Styled like Google Street View navigation cursor
+     * Renders a chevron at the canvas edge for a target that sits outside the
+     * horizontal field of view, so the operator knows a way out exists there.
+     *
+     * @param {CanvasRenderingContext2D} ctx - Canvas context, already translated
+     * @param {number} radius - Marker radius in pixels
+     * @param {'left'|'right'} side - Which edge the target lies beyond
+     * @param {boolean} isHighlighted - Whether to draw it in the highlight colour
      */
-    renderGroundCursor() {
-        const { screenX, screenY, flattenY, arrowAngle, distance, fov } = this.groundCursor;
-        const ctx = this.ctx;
+    renderEdgeArrow(ctx, radius, side, isHighlighted) {
+        const direction = side === 'right' ? 1 : -1;
+        const w = radius * 0.8;
+        const h = radius * 1.1;
 
         ctx.save();
-        ctx.translate(screenX, screenY);
-
-        // Physically-based cursor sizing: worldRadius * focalLength / distance
-        const d = Math.max(0.5, distance || 1);
-        const fovRad = ((fov || 75) * Math.PI) / 180;
-        const focalLength = (this.canvas.height / 2) / Math.tan(fovRad / 2);
-        let cursorSize = NAV_CONSTANTS.CURSOR_WORLD_RADIUS * focalLength / d;
-        cursorSize = Math.max(NAV_CONSTANTS.CURSOR_MIN_SIZE, Math.min(NAV_CONSTANTS.CURSOR_MAX_SIZE, cursorSize));
-
-        // Draw cursor circle (ellipse with perspective) - Google Street View style
-        ctx.save();
-        ctx.scale(1, flattenY);
-
-        // Outer shadow
         ctx.beginPath();
-        ctx.arc(0, 5 / flattenY, cursorSize * 0.52, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+        ctx.moveTo(-direction * w * 0.4, -h);
+        ctx.lineTo(direction * w * 0.6, 0);
+        ctx.lineTo(-direction * w * 0.4, h);
+        ctx.closePath();
+
+        ctx.fillStyle = isHighlighted
+            ? 'rgba(59, 130, 246, 0.9)'
+            : 'rgba(255, 255, 255, 0.75)';
         ctx.fill();
-
-        // Outer ring with white fill (semi-transparent)
-        ctx.beginPath();
-        ctx.arc(0, 0, cursorSize * 0.5, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-        ctx.fill();
-
-        // White border ring
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-        ctx.lineWidth = Math.max(3, cursorSize * 0.07);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.lineWidth = 2;
         ctx.stroke();
-
-        ctx.restore();
-
-        // Draw chevron arrow INSIDE the circle, centered, pointing to nearest marker
-        if (arrowAngle !== null && arrowAngle !== undefined) {
-            this.renderCursorArrow(ctx, cursorSize, flattenY, arrowAngle);
-        }
-
-        ctx.restore();
-    }
-
-    /**
-     * Renders the arrow on the ground cursor pointing to nearest marker
-     * Large chevron style CENTERED inside the cursor circle
-     * @param {CanvasRenderingContext2D} ctx - Canvas context
-     * @param {number} cursorSize - Size of the cursor
-     * @param {number} flattenY - Y-axis flatten ratio for perspective
-     * @param {number} angle - Rotation angle in radians (0 = pointing up/forward)
-     */
-    renderCursorArrow(ctx, cursorSize, flattenY, angle) {
-        ctx.save();
-
-        // Apply perspective first (same as cursor circle)
-        ctx.scale(1, flattenY);
-
-        // Then rotate around center - arrow stays centered and rotates
-        ctx.rotate(angle);
-
-        // Chevron dimensions - sized to fit nicely inside the circle
-        const chevronWidth = cursorSize * 0.55;
-        const chevronHeight = cursorSize * 0.38;
-        const strokeWidth = Math.max(4, cursorSize * 0.09);
-
-        // Offset the chevron slightly in the direction it's pointing
-        // This creates a visual indication of direction while staying centered
-        const offsetAmount = cursorSize * 0.08;
-        ctx.translate(0, -offsetAmount);
-
-        // Draw shadow first (behind)
-        ctx.beginPath();
-        ctx.moveTo(-chevronWidth / 2, chevronHeight / 2);
-        ctx.lineTo(0, -chevronHeight / 2);
-        ctx.lineTo(chevronWidth / 2, chevronHeight / 2);
-
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.lineWidth = strokeWidth + 4;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.stroke();
-
-        // Draw main white chevron
-        ctx.beginPath();
-        ctx.moveTo(-chevronWidth / 2, chevronHeight / 2);
-        ctx.lineTo(0, -chevronHeight / 2);
-        ctx.lineTo(chevronWidth / 2, chevronHeight / 2);
-
-        ctx.strokeStyle = 'rgba(255, 255, 255, 1)';
-        ctx.lineWidth = strokeWidth;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.stroke();
-
         ctx.restore();
     }
 
@@ -368,12 +376,11 @@ export class StreetViewRenderer {
      * Renders a POI marker (user-created marker)
      * @param {CanvasRenderingContext2D} ctx - Canvas context
      * @param {number} radius - Marker radius
-     * @param {number} flattenY - Y-axis flatten ratio
      * @param {Object} style - Marker style
      * @param {boolean} isHovered - Whether marker is hovered
      * @param {boolean} isSelected - Whether marker is selected
      */
-    renderPOIMarker(ctx, radius, flattenY, style, isHovered, isSelected) {
+    renderPOIMarker(ctx, radius, style, isHovered, isSelected) {
         const color = style?.color || NAV_CONSTANTS.POI_DEFAULT_COLOR;
         // Use nullish coalescing to properly handle opacity 0
         const opacity = style?.opacity ?? 1;
