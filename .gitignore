@@ -6,10 +6,10 @@
 # ==============================================================================
 
 # Dependências
-# Lockfile não é versionado neste projeto (convenção pré-existente); cada pacote
-# ignora o seu, e a raiz ignora o dela.
+# O lockfile de cada pacote É versionado: `npm ci` exige, e sem ele o Dependabot
+# analisa só o range do manifesto, então uma instalação limpa pode resolver para
+# uma versão vulnerável sem que nada acuse.
 node_modules/
-package-lock.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

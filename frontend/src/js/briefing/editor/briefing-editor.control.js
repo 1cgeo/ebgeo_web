@@ -53,7 +53,7 @@ import {
 } from '@store/index.js';
 import { deepClone } from '@utils/deep-utils.js';
 import { generateUUID } from '@utils/uuid.js';
-import { createQuillEditor } from '@utils/quill-helpers.js';
+import { createQuillEditor, sanitizeQuillHtml } from '@utils/quill-helpers.js';
 import { EventTypes } from '@events/event_types.js';
 import { showSuccess, showError, showWarning } from '@utils/index.js';
 import { showConfirm, showImportSlidesModal } from '@modals/index.js';
@@ -905,7 +905,10 @@ export class BriefingEditorControl {
             });
 
             if (slide.content) {
-                this._quillEditor.root.innerHTML = slide.content;
+                // Slide content travels through sync, so it can come from another
+                // user. The presenter already sanitizes it on display; the editor
+                // has to do the same before writing it into Quill's root.
+                this._quillEditor.root.innerHTML = sanitizeQuillHtml(slide.content);
             }
 
             this._quillEditor.on('text-change', () => {
@@ -1220,7 +1223,8 @@ export class BriefingEditorControl {
             }
 
             if (this._quillEditor) {
-                this._quillEditor.root.innerHTML = html;
+                // Map notes are synced content too — same reasoning as above.
+                this._quillEditor.root.innerHTML = sanitizeQuillHtml(html);
                 slide.content = this._quillEditor.root.innerHTML;
                 this._scheduleAutosave();
                 showSuccess('Nota importada');

@@ -3,9 +3,8 @@
 # padrão com barra no meio é ancorado no arquivo que o declara).
 # ==============================================================================
 
-# Dependências e lockfile
+# Dependências (package-lock.json É versionado — ver .gitignore da raiz)
 node_modules/
-package-lock.json
 
 # Build
 dist/
