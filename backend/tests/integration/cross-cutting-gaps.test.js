@@ -86,26 +86,40 @@ describe('Cross-cutting invariants — gaps', () => {
     });
   });
 
-  describe('clone does NOT copy images — KNOWN GAP, pending product decision (x-clone-import-image-references)', () => {
-    it('cloned atlas has zero images and the source image is unreachable via the clone URL', async () => {
+  // The gap this block used to CHARACTERIZE ("clone copies no images, pending product
+  // decision") was closed by L32: a clone with unreachable images is a silently corrupted
+  // copy, not a decision. cloneAtlas now copies the `images` rows into the new atlas (fresh
+  // ids + per-atlas blob copies) and rewrites every reference. Full coverage — image features,
+  // custom icons, settings.customIcons, 3D/360 data.images[] — lives in
+  // atlas-clone-images.repro.test.js; what stays here is the cross-cutting half: the SOURCE
+  // atlas's id is still meaningless inside the clone (no cross-atlas reuse of a global PK).
+  describe('clone copies images into the new atlas (x-clone-import-image-references)', () => {
+    it('the clone gets its OWN image rows, and the source id does not resolve there', async () => {
       const up = await A('post', `/api/v1/atlas/${atlas.id}/images`).attach('image', PNG, 'gap.png').expect(201);
       const imageId = up.body.data.id;
 
       const cl = await A('post', `/api/v1/atlas/${atlas.id}/clone`).send({ name: 'Clone XC' }).expect(201);
       const cloneId = cl.body.data.id;
 
-      // CHARACTERIZATION of current behavior: cloneAtlas duplicates maps/features but
-      // NOT the images table (src/modules/atlas/atlas.service.js has no images handling).
-      // So the clone has no images and the source image 404s through the clone's URL —
-      // image features in the clone are broken. This is a real gap kept as a deliberate
-      // decision; the fix would copy images + rewrite refs on clone/import.
-      const { rows } = await db.query('SELECT COUNT(*)::int AS n FROM images WHERE atlas_id = $1', [cloneId]);
-      assert.equal(rows[0].n, 0, 'clone currently copies NO images (KNOWN GAP)');
+      const { rows } = await db.query('SELECT id FROM images WHERE atlas_id = $1', [cloneId]);
+      assert.equal(rows.length, 1, 'the clone owns a copy of every source image');
+      assert.notEqual(rows[0].id, imageId, 'images.id is a GLOBAL pk — the copy must be a new id');
 
+      // The copy is readable through the clone…
+      await supertest(app)
+        .get(`/api/v1/atlas/${cloneId}/images/${rows[0].id}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(200);
+
+      // …and the source id is still scoped to the source atlas (no cross-atlas read).
       await supertest(app)
         .get(`/api/v1/atlas/${cloneId}/images/${imageId}`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .expect(404);
+      await supertest(app)
+        .get(`/api/v1/atlas/${atlas.id}/images/${imageId}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(200);
     });
   });
 });

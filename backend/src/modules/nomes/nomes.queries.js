@@ -137,7 +137,16 @@ LEFT JOIN user_model_permissions ump ON ump.model_id = c.id
 WHERE ( c.access_level = 'public'
         OR ($4::uuid IS NOT NULL AND (ur.is_admin OR ump.model_id IS NOT NULL)) )
   AND ($1::text IS NULL OR c.search_vector @@ plainto_tsquery('portuguese', $1))
-ORDER BY rank DESC, c.data_criacao DESC
+-- c.id como ULTIMO criterio nao e enfeite: sem um desempate UNICO, a ordem de
+-- linhas empatadas em (rank, data_criacao) fica a criterio do plano, e o plano
+-- MUDA conforme o OFFSET cresce. O resultado e paginacao que repete e perde
+-- linhas ao mesmo tempo. Medido no Postgres com linhas empatadas: 80 linhas -> 2
+-- duplicadas e 2 perdidas; 120 -> 4/4; 200 -> 8/8; 1000 -> 48/48.
+--
+-- Abaixo de ~40 linhas um unico plano serve todas as paginas e o defeito nao
+-- aparece — que e exatamente por que o teste antigo, com poucas linhas E com
+-- data_criacao fabricada distinta por linha, passava com e sem desempate.
+ORDER BY rank DESC, c.data_criacao DESC, c.id DESC
 LIMIT $2 OFFSET $3
 `;
 

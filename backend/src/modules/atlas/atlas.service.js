@@ -1,10 +1,240 @@
 // Path: src/modules/atlas/atlas.service.js
 import crypto from 'crypto';
+import { mkdir, copyFile } from 'fs/promises';
+import { join, extname, dirname } from 'path';
 import jwt from 'jsonwebtoken';
-import { query, tx } from '../../database/index.js';
+import { query, tx, pgp } from '../../database/index.js';
 import { NotFoundError, BadRequestError } from '../../utils/errors.js';
 import config from '../../config.js';
+import logger from '../../utils/logger.js';
 import * as Q from './atlas.queries.js';
+
+// ---------------------------------------------------------------------------
+// Batch INSERT plumbing (L67).
+//
+// Clone, duplicate-map and import used to emit ONE STATEMENT PER ROW inside a single tx().
+// The data came out right, but the transaction — and the pool connection behind it (poolMax
+// defaults to 10) — stayed open for a time proportional to the size of the atlas. The clone
+// volume is unbounded (it is read from the database and gated only by 'read'), so a few
+// concurrent clones starved /auth/login and /health: the same pool-exhaustion mode that
+// sync.service.js:650-655 already documents for pushOperations.
+//
+// Every collection below is now written with ONE multi-row INSERT, so the statement count is
+// a function of the entity TYPES involved, never of the row count. New ids are generated in
+// Node (crypto.randomUUID) instead of being read back with RETURNING: the id mappings the
+// clone needs (layer → feature, group → group_feature, map → slide) are then known BEFORE the
+// write, which is also what makes the single-statement insert possible at all — and it avoids
+// relying on RETURNING preserving input order, which Postgres does not promise.
+// ---------------------------------------------------------------------------
+
+/** jsonb column shorthand — values are pre-stringified by the row builders. */
+const jsonb = (name) => ({ name, cast: 'jsonb' });
+
+const CS = {
+  images: new pgp.helpers.ColumnSet(
+    ['id', 'atlas_id', 'filename', 'mime_type', 'size_bytes', 'storage_path', 'uploaded_by'],
+    { table: 'images' }
+  ),
+  maps: new pgp.helpers.ColumnSet(
+    ['id', 'atlas_id', 'name', 'base_layer', 'center_lat', 'center_long', 'zoom', 'bearing',
+      'pitch', 'notes_title', 'notes_description', jsonb('analysis_layers'),
+      jsonb('catalog_layers'), 'locked', jsonb('grid_style'), jsonb('temporal_config')],
+    { table: 'maps' }
+  ),
+  layers: new pgp.helpers.ColumnSet(
+    ['id', 'map_id', 'name', 'visible', 'locked', 'opacity', 'sort_order', jsonb('style')],
+    { table: 'layers' }
+  ),
+  groups: new pgp.helpers.ColumnSet(
+    ['id', 'map_id', 'name', 'visible', 'locked', jsonb('style'), 'parent_id'],
+    { table: 'groups' }
+  ),
+  features: new pgp.helpers.ColumnSet(
+    ['id', 'map_id', 'feature_type', jsonb('geometry'), jsonb('properties'), 'layer_id'],
+    { table: 'features' }
+  ),
+  groupFeatures: new pgp.helpers.ColumnSet(['group_id', 'feature_id'], { table: 'group_features' }),
+  cesium3d: new pgp.helpers.ColumnSet(
+    ['id', 'map_id', 'data_type', 'tileset_id', jsonb('data')],
+    { table: 'cesium3d_data' }
+  ),
+  streetview360: new pgp.helpers.ColumnSet(
+    ['id', 'map_id', 'data_type', 'photo_name', jsonb('data')],
+    { table: 'streetview360_data' }
+  ),
+  catalogLayers: new pgp.helpers.ColumnSet(
+    ['id', 'map_id', jsonb('data')],
+    { table: 'catalog_layers' }
+  ),
+  briefings: new pgp.helpers.ColumnSet(
+    ['id', 'atlas_id', 'name', 'description', jsonb('settings'),
+      { name: 'slide_order', cast: 'uuid[]' }],
+    { table: 'briefings' }
+  ),
+  slides: new pgp.helpers.ColumnSet(
+    ['id', 'briefing_id', 'title', 'content', 'mode', 'map_id', 'model_id', 'photo_id',
+      jsonb('position'), jsonb('orientation')],
+    { table: 'slides' }
+  ),
+};
+
+/**
+ * One multi-row INSERT for the whole collection. No-op on an empty array (helpers.insert
+ * rejects one, and an empty collection has nothing to write anyway).
+ * @param {Object} t - Transaction context
+ * @param {Object} columnSet - pg-promise ColumnSet
+ * @param {Array<Object>} rows
+ * @param {string} [suffix] - Appended to the generated statement (e.g. ON CONFLICT)
+ */
+async function insertMany(t, columnSet, rows, suffix = '') {
+  if (!rows.length) return;
+  await t.none(pgp.helpers.insert(rows, columnSet) + suffix);
+}
+
+// ---------------------------------------------------------------------------
+// Image-reference rewriting (L32).
+//
+// `images` rows are atlas-scoped (images.atlas_id NOT NULL) and their blobs live in a
+// per-atlas directory, while the id is a GLOBAL primary key — so a copy cannot keep the
+// source id and must be re-pointed. The read is scoped to the pair (id, atlas_id) and the
+// client always asks for the ACTIVE atlas, so a clone carrying the source atlas's image ids
+// answered 404 forever, degrading silently to "no image" (fetchImageBlob swallows the error).
+//
+// The places an image id can appear are the ones local-atlas-to-server.js already rewrites
+// when it uploads a local atlas — this is the same map, applied server-side.
+// ---------------------------------------------------------------------------
+
+/** Rewrites an entity's `images[]` (3D/360 items): plain ids or `{ id }` objects. */
+function rewriteItemImages(item, imageIdMap) {
+  if (!Array.isArray(item?.images) || item.images.length === 0) return item;
+  return {
+    ...item,
+    images: item.images.map((img) => {
+      if (typeof img === 'string') return imageIdMap[img] || img;
+      if (img?.id && imageIdMap[img.id]) return { ...img, id: imageIdMap[img.id] };
+      return img;
+    }),
+  };
+}
+
+/** Rewrites the custom-icon registry stored in atlas.settings.customIcons. */
+function rewriteSettingsIcons(settings, imageIdMap) {
+  const icons = settings?.customIcons;
+  if (!Array.isArray(icons) || icons.length === 0) return settings || {};
+  return {
+    ...settings,
+    customIcons: icons.map((icon) =>
+      icon?.id && imageIdMap[icon.id] ? { ...icon, id: imageIdMap[icon.id] } : icon
+    ),
+  };
+}
+
+/**
+ * Rewrites a cloned feature's properties.
+ * - An IMAGE feature's blob ref IS its id (the snapshot forces properties.id = the row id),
+ *   so the copy must carry the copied blob's id.
+ * - A custom point icon travels as `markerSymbol = 'custom:<imageId>'`.
+ * @param {Object} properties - Source properties
+ * @param {string} newFeatureId
+ * @param {boolean} isImageFeature
+ * @param {Object} imageIdMap - { sourceImageId: newImageId }
+ * @returns {Object}
+ */
+function rewriteFeatureProperties(properties, newFeatureId, isImageFeature, imageIdMap) {
+  const props = { ...(properties || {}) };
+  if (isImageFeature && props.id !== undefined) props.id = newFeatureId;
+  if (typeof props.markerSymbol === 'string' && props.markerSymbol.startsWith('custom:')) {
+    const iconId = props.markerSymbol.slice('custom:'.length);
+    if (imageIdMap[iconId]) props.markerSymbol = `custom:${imageIdMap[iconId]}`;
+  }
+  return props;
+}
+
+/**
+ * Plans the copy of `images` rows into another atlas: mints the new ids and per-atlas storage
+ * paths and returns both the id mapping and the rows to insert. PURE (no I/O) on purpose — the
+ * mapping is needed to rewrite atlas.settings BEFORE the atlas row is written, and the rows
+ * cannot be inserted until it exists (images.atlas_id FK).
+ *
+ * The blob copies are not done here either: they are pushed onto `copyJobs` and run after the
+ * transaction commits, so a multi-megabyte file copy never holds the transaction (and its pool
+ * connection) open — the very cost L67 is about. A copy that fails leaves the row pointing at a
+ * missing file, which is exactly how a blob missing from disk already behaves (getImageFile →
+ * 404 'Image file'), and is logged.
+ *
+ * @param {Array<Object>} sourceImages - Rows from `images`
+ * @param {string} targetAtlasId
+ * @param {Array<{from: string, to: string}>} copyJobs - Mutated; run after commit
+ * @returns {{imageIdMap: Object, rows: Array<Object>}}
+ */
+function planImageCopies(sourceImages, targetAtlasId, copyJobs) {
+  const imageIdMap = {};
+  const dir = join(config.images.dir, targetAtlasId);
+
+  const rows = sourceImages.map((img) => {
+    const newId = crypto.randomUUID();
+    const storagePath = join(dir, `${newId}${extname(img.storage_path) || ''}`);
+    imageIdMap[img.id] = newId;
+    copyJobs.push({ from: img.storage_path, to: storagePath });
+    return {
+      id: newId,
+      atlas_id: targetAtlasId,
+      filename: img.filename,
+      mime_type: img.mime_type,
+      size_bytes: img.size_bytes,
+      storage_path: storagePath,
+      uploaded_by: img.uploaded_by,
+    };
+  });
+
+  return { imageIdMap, rows };
+}
+
+/** Runs the deferred blob copies. Best-effort: a missing source must not undo a committed clone. */
+async function runImageCopyJobs(copyJobs) {
+  for (const dir of new Set(copyJobs.map((job) => dirname(job.to)))) {
+    await mkdir(dir, { recursive: true }).catch((err) => {
+      logger.warn({ dir, error: err.message }, 'Failed to create cloned image directory');
+    });
+  }
+  for (const job of copyJobs) {
+    try {
+      await copyFile(job.from, job.to);
+    } catch (err) {
+      logger.warn({ from: job.from, to: job.to, error: err.message }, 'Failed to copy cloned image blob');
+    }
+  }
+}
+
+/**
+ * Merges the two homes of a map's catalog layers into rows for the dedicated table (L42).
+ *
+ * The schema keeps a legacy array column (`maps.catalog_layers`, whose comment claims it is
+ * there "p/ clone/import") next to the dedicated `catalog_layers` table, and the writers and
+ * the reader had drifted apart: import/clone/duplicate wrote ONLY the column, while the
+ * snapshot builds `map.catalogLayers` ONLY from the table. The layers survived in Postgres
+ * where no reader could reach them, and the snapshot's empty array then overwrote the client's
+ * local state — silent loss, no error. The table is canonical, so every whole-entity writer
+ * materialises into it; live rows win over the legacy array for the same id.
+ *
+ * @param {string} mapId - Target map id
+ * @param {Array<Object>} legacyArray - The `maps.catalog_layers` array
+ * @param {Array<Object>} tableRows - Live rows of the dedicated table (id, data)
+ * @returns {Array<Object>} Rows ready for CS.catalogLayers
+ */
+function catalogLayerRows(mapId, legacyArray, tableRows) {
+  const byId = new Map();
+  for (const item of Array.isArray(legacyArray) ? legacyArray : []) {
+    if (item && item.id != null) byId.set(String(item.id), item);
+  }
+  for (const row of tableRows) byId.set(String(row.id), row.data);
+
+  return [...byId.entries()].map(([id, data]) => ({
+    id,
+    map_id: mapId,
+    data: JSON.stringify(data || {}),
+  }));
+}
 
 /**
  * Creates a new atlas owned by the specified user.
@@ -162,243 +392,274 @@ export async function getAtlasByPublicLink(publicLink) {
 }
 
 /**
- * Clones all sub-entities of a map into a new map within a transaction.
- * Shared by cloneAtlas and duplicateMap.
- * Returns { layerIdMapping, groupIdMapping, featureIdMapping }.
+ * Clones the sub-entities of one or more maps, one multi-row INSERT per entity type for the
+ * WHOLE batch — the statement count is independent of both the number of maps and the number
+ * of rows (L67). Shared by cloneAtlas and duplicateMap.
+ *
+ * @param {Object} t - Transaction context
+ * @param {Array<{sourceId: string, newId: string, legacyCatalogLayers: Array}>} mapPairs
+ * @param {Object} [imageIdMap] - { sourceImageId: newImageId }; an image feature's id IS its
+ *   blob ref, so a copied image feature adopts the copied blob's id (L32).
+ * @returns {Promise<{layerIdMapping: Object, groupIdMapping: Object, featureIdMapping: Object}>}
  */
-async function cloneMapSubEntities(t, sourceMapId, newMapId) {
-  // Clone layers first (features reference layer_id)
-  const layers = await t.any(
-    `SELECT * FROM layers WHERE map_id = $1 AND deleted_at IS NULL`,
-    [sourceMapId]
-  );
+async function cloneMapSubEntities(t, mapPairs, imageIdMap = {}) {
   const layerIdMapping = {};
-  for (const layer of layers) {
-    const newLayer = await t.one(
-      `INSERT INTO layers (map_id, name, visible, locked, opacity, sort_order, style)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-       RETURNING id`,
-      [newMapId, layer.name, layer.visible, layer.locked, layer.opacity, layer.sort_order, JSON.stringify(layer.style || {})]
-    );
-    layerIdMapping[layer.id] = newLayer.id;
-  }
-
-  // Clone groups (two-pass for parent_id)
-  const groups = await t.any(
-    `SELECT * FROM groups WHERE map_id = $1 AND deleted_at IS NULL`,
-    [sourceMapId]
-  );
   const groupIdMapping = {};
-  for (const group of groups) {
-    const newGroup = await t.one(
-      `INSERT INTO groups (map_id, name, visible, locked, style, parent_id)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6)
-       RETURNING id`,
-      [newMapId, group.name, group.visible, group.locked, JSON.stringify(group.style || {}), null]
-    );
-    groupIdMapping[group.id] = newGroup.id;
-  }
-  for (const group of groups) {
-    if (group.parent_id && groupIdMapping[group.parent_id]) {
-      await t.none(`UPDATE groups SET parent_id = $2 WHERE id = $1`, [groupIdMapping[group.id], groupIdMapping[group.parent_id]]);
-    }
-  }
-
-  // Clone features with remapped layer_id
-  const features = await t.any(
-    `SELECT * FROM features WHERE map_id = $1 AND deleted_at IS NULL`,
-    [sourceMapId]
-  );
   const featureIdMapping = {};
-  for (const feature of features) {
-    const newFeature = await t.one(
-      `INSERT INTO features (map_id, feature_type, geometry, properties, layer_id)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id`,
-      [newMapId, feature.feature_type, JSON.stringify(feature.geometry), JSON.stringify(feature.properties),
-       feature.layer_id ? (layerIdMapping[feature.layer_id] || null) : null]
-    );
-    featureIdMapping[feature.id] = newFeature.id;
-  }
+  if (mapPairs.length === 0) return { layerIdMapping, groupIdMapping, featureIdMapping };
 
-  // Clone group_features associations with remapped IDs
+  const sourceMapIds = mapPairs.map((p) => p.sourceId);
+  const newMapIdOf = Object.fromEntries(mapPairs.map((p) => [p.sourceId, p.newId]));
+
+  // Layers first (features reference layer_id).
+  const layers = await t.any(
+    `SELECT * FROM layers WHERE map_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+    [sourceMapIds]
+  );
+  await insertMany(t, CS.layers, layers.map((layer) => {
+    const id = crypto.randomUUID();
+    layerIdMapping[layer.id] = id;
+    return {
+      id,
+      map_id: newMapIdOf[layer.map_id],
+      name: layer.name,
+      visible: layer.visible,
+      locked: layer.locked,
+      opacity: layer.opacity,
+      sort_order: layer.sort_order,
+      style: JSON.stringify(layer.style || {}),
+    };
+  }));
+
+  // Groups. The ids are known before the write, so `parent_id` is resolved in the same
+  // statement (the FK check runs at the end of the statement, so an intra-batch parent is
+  // fine) instead of the old insert-then-UPDATE second pass.
+  const groups = await t.any(
+    `SELECT * FROM groups WHERE map_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+    [sourceMapIds]
+  );
+  for (const group of groups) groupIdMapping[group.id] = crypto.randomUUID();
+  await insertMany(t, CS.groups, groups.map((group) => ({
+    id: groupIdMapping[group.id],
+    map_id: newMapIdOf[group.map_id],
+    name: group.name,
+    visible: group.visible,
+    locked: group.locked,
+    style: JSON.stringify(group.style || {}),
+    parent_id: group.parent_id ? (groupIdMapping[group.parent_id] || null) : null,
+  })));
+
+  // Features, with remapped layer_id and rewritten image references.
+  const features = await t.any(
+    `SELECT * FROM features WHERE map_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+    [sourceMapIds]
+  );
+  await insertMany(t, CS.features, features.map((feature) => {
+    const isImage = feature.feature_type === 'image';
+    // An image feature adopts the id of the blob copy, keeping the invariant the client and
+    // the snapshot rely on (feature id === image id). Everything else gets a fresh id.
+    const id = (isImage && imageIdMap[feature.id]) || crypto.randomUUID();
+    featureIdMapping[feature.id] = id;
+    return {
+      id,
+      map_id: newMapIdOf[feature.map_id],
+      feature_type: feature.feature_type,
+      geometry: JSON.stringify(feature.geometry),
+      properties: JSON.stringify(rewriteFeatureProperties(feature.properties, id, isImage, imageIdMap)),
+      layer_id: feature.layer_id ? (layerIdMapping[feature.layer_id] || null) : null,
+    };
+  }));
+
+  // group_features associations with remapped ids.
   const groupFeatures = await t.any(
     `SELECT gf.* FROM group_features gf
      JOIN groups g ON g.id = gf.group_id
      JOIN features f ON f.id = gf.feature_id
-     WHERE g.map_id = $1 AND g.deleted_at IS NULL AND f.deleted_at IS NULL`,
-    [sourceMapId]
+     WHERE g.map_id = ANY($1::uuid[]) AND g.deleted_at IS NULL AND f.deleted_at IS NULL`,
+    [sourceMapIds]
   );
-  for (const gf of groupFeatures) {
-    const newGroupId = groupIdMapping[gf.group_id];
-    const newFeatureId = featureIdMapping[gf.feature_id];
-    if (newGroupId && newFeatureId) {
-      await t.none(
-        `INSERT INTO group_features (group_id, feature_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [newGroupId, newFeatureId]
-      );
-    }
-  }
+  await insertMany(
+    t,
+    CS.groupFeatures,
+    groupFeatures
+      .filter((gf) => groupIdMapping[gf.group_id] && featureIdMapping[gf.feature_id])
+      .map((gf) => ({
+        group_id: groupIdMapping[gf.group_id],
+        feature_id: featureIdMapping[gf.feature_id],
+      })),
+    ' ON CONFLICT DO NOTHING'
+  );
 
-  // Clone Cesium 3D data
+  // Cesium 3D data (its items can carry attached photos in `data.images[]`).
   const cesium3dData = await t.any(
-    `SELECT * FROM cesium3d_data WHERE map_id = $1 AND deleted_at IS NULL`,
-    [sourceMapId]
+    `SELECT * FROM cesium3d_data WHERE map_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+    [sourceMapIds]
   );
-  for (const c3d of cesium3dData) {
-    await t.none(
-      `INSERT INTO cesium3d_data (map_id, data_type, tileset_id, data) VALUES ($1, $2, $3, $4::jsonb)`,
-      [newMapId, c3d.data_type, c3d.tileset_id, JSON.stringify(c3d.data || {})]
-    );
-  }
+  await insertMany(t, CS.cesium3d, cesium3dData.map((c3d) => ({
+    id: crypto.randomUUID(),
+    map_id: newMapIdOf[c3d.map_id],
+    data_type: c3d.data_type,
+    tileset_id: c3d.tileset_id,
+    data: JSON.stringify(rewriteItemImages(c3d.data || {}, imageIdMap)),
+  })));
 
-  // Clone StreetView 360 data
+  // StreetView 360 data (same `data.images[]` shape).
   const sv360Data = await t.any(
-    `SELECT * FROM streetview360_data WHERE map_id = $1 AND deleted_at IS NULL`,
-    [sourceMapId]
+    `SELECT * FROM streetview360_data WHERE map_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+    [sourceMapIds]
   );
-  for (const sv of sv360Data) {
-    await t.none(
-      `INSERT INTO streetview360_data (map_id, data_type, photo_name, data) VALUES ($1, $2, $3, $4::jsonb)`,
-      [newMapId, sv.data_type, sv.photo_name, JSON.stringify(sv.data || {})]
-    );
-  }
+  await insertMany(t, CS.streetview360, sv360Data.map((sv) => ({
+    id: crypto.randomUUID(),
+    map_id: newMapIdOf[sv.map_id],
+    data_type: sv.data_type,
+    photo_name: sv.photo_name,
+    data: JSON.stringify(rewriteItemImages(sv.data || {}, imageIdMap)),
+  })));
+
+  // Catalog layers: the dedicated table (canonical) UNION the legacy array column (L42).
+  const catalogRows = await t.any(
+    `SELECT id, map_id, data FROM catalog_layers WHERE map_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+    [sourceMapIds]
+  );
+  const catalogBySourceMap = new Map(sourceMapIds.map((id) => [id, []]));
+  for (const row of catalogRows) catalogBySourceMap.get(row.map_id)?.push(row);
+  await insertMany(
+    t,
+    CS.catalogLayers,
+    mapPairs.flatMap((pair) =>
+      catalogLayerRows(pair.newId, pair.legacyCatalogLayers, catalogBySourceMap.get(pair.sourceId) || []))
+  );
 
   return { layerIdMapping, groupIdMapping, featureIdMapping };
+}
+
+/**
+ * Builds the `maps` insert row from a source map row.
+ *
+ * grid_style and temporal_config are part of a map's identity (the UTM grid and the whole
+ * temporal module: window, mode, unit, origin). They were added to the table and to the sync
+ * snapshot, but the clone/duplicate column lists were never updated, so a cloned atlas silently
+ * lost its grid and its timeline. The import path already carries them.
+ */
+function mapRow(id, atlasId, name, map) {
+  return {
+    id,
+    atlas_id: atlasId,
+    name,
+    base_layer: map.base_layer,
+    center_lat: map.center_lat,
+    center_long: map.center_long,
+    zoom: map.zoom,
+    bearing: map.bearing,
+    pitch: map.pitch,
+    notes_title: map.notes_title,
+    notes_description: map.notes_description,
+    analysis_layers: JSON.stringify(map.analysis_layers || {}),
+    // The legacy array column keeps being written for array-shaped clients; the dedicated
+    // catalog_layers table (written by cloneMapSubEntities) is the canonical home (L42).
+    catalog_layers: JSON.stringify(map.catalog_layers || []),
+    locked: map.locked || false,
+    grid_style: JSON.stringify(map.grid_style || {}),
+    temporal_config: JSON.stringify(map.temporal_config || {}),
+  };
 }
 
 /**
  * Clones an atlas to a new owner.
  */
 export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
-  let newAtlasId;
+  // The atlas id is minted here (not read back) so the copied `images` rows — and the
+  // rewritten references to them in atlas.settings — can be built before the first write.
+  const newAtlasId = crypto.randomUUID();
+  const copyJobs = [];
 
   await tx(async (t) => {
-    // Get source atlas
     const source = await t.oneOrNone(Q.FIND_ATLAS_BY_ID, [atlasId]);
     if (!source) {
       throw new NotFoundError('Atlas');
     }
 
-    // Create new atlas
-    const cloneName = options.name || `${source.name} (cópia)`;
-    const newAtlas = await t.one(
-      `INSERT INTO atlas (name, description, owner_id, settings)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
+    // Images are atlas-scoped and their ids are global: the clone needs its own rows (L32).
+    const sourceImages = await t.any(`SELECT * FROM images WHERE atlas_id = $1`, [atlasId]);
+    const { imageIdMap, rows: imageRows } = planImageCopies(sourceImages, newAtlasId, copyJobs);
+
+    await t.none(
+      `INSERT INTO atlas (id, name, description, owner_id, settings)
+       VALUES ($1, $2, $3, $4, $5::jsonb)`,
       [
-        cloneName,
+        newAtlasId,
+        options.name || `${source.name} (cópia)`,
         source.description,
         newOwnerId,
-        JSON.stringify(source.settings),
+        // The custom-icon registry lives in settings and points at image ids.
+        JSON.stringify(rewriteSettingsIcons(source.settings, imageIdMap)),
       ]
     );
-    newAtlasId = newAtlas.id;
+    // After the atlas row: images.atlas_id is an FK.
+    await insertMany(t, CS.images, imageRows);
 
-    // Clone maps
     const maps = await t.any(
       `SELECT * FROM maps WHERE atlas_id = $1 AND deleted_at IS NULL`,
       [atlasId]
     );
+    const mapPairs = maps.map((map) => ({
+      sourceId: map.id,
+      newId: crypto.randomUUID(),
+      legacyCatalogLayers: map.catalog_layers,
+      source: map,
+    }));
+    const mapIdMapping = Object.fromEntries(mapPairs.map((p) => [p.sourceId, p.newId]));
 
-    const mapIdMapping = {};
-    const newMapOrder = [];
+    await insertMany(t, CS.maps, mapPairs.map((p) => mapRow(p.newId, newAtlasId, p.source.name, p.source)));
+    await cloneMapSubEntities(t, mapPairs, imageIdMap);
 
-    for (const map of maps) {
-      const newMap = await t.one(
-        // grid_style and temporal_config are part of a map's identity (the UTM grid and the
-        // whole temporal module: window, mode, unit, origin). They were added to the table
-        // and to the sync snapshot, but the clone/duplicate column lists were never
-        // updated, so a cloned atlas silently lost its grid and its timeline. The import
-        // path already carries them, with a comment saying so.
-        `INSERT INTO maps (atlas_id, name, base_layer, center_lat, center_long, zoom, bearing, pitch, notes_title, notes_description, analysis_layers, catalog_layers, locked, grid_style, temporal_config)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb)
-         RETURNING id`,
-        [
-          newAtlas.id,
-          map.name,
-          map.base_layer,
-          map.center_lat,
-          map.center_long,
-          map.zoom,
-          map.bearing,
-          map.pitch,
-          map.notes_title,
-          map.notes_description,
-          JSON.stringify(map.analysis_layers),
-          JSON.stringify(map.catalog_layers),
-          map.locked || false,
-          JSON.stringify(map.grid_style || {}),
-          JSON.stringify(map.temporal_config || {}),
-        ]
-      );
-      mapIdMapping[map.id] = newMap.id;
-      newMapOrder.push(newMap.id);
-
-      await cloneMapSubEntities(t, map.id, newMap.id);
-    }
-
-    // Update map_order
     await t.none(
       `UPDATE atlas SET map_order = $2::uuid[] WHERE id = $1`,
-      [newAtlas.id, newMapOrder]
+      [newAtlasId, mapPairs.map((p) => p.newId)]
     );
 
-    // Clone briefings and slides
+    // Briefings + slides: ids are minted up front, so slide_order travels in the briefing
+    // INSERT instead of a per-briefing UPDATE, and all slides go in one statement.
     const briefings = await t.any(
       `SELECT * FROM briefings WHERE atlas_id = $1 AND deleted_at IS NULL`,
       [atlasId]
     );
+    const slides = briefings.length
+      ? await t.any(
+        `SELECT * FROM slides WHERE briefing_id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+        [briefings.map((b) => b.id)]
+      )
+      : [];
 
-    for (const briefing of briefings) {
-      const newBriefing = await t.one(
-        `INSERT INTO briefings (atlas_id, name, description, settings)
-         VALUES ($1, $2, $3, $4::jsonb)
-         RETURNING id`,
-        [
-          newAtlas.id,
-          briefing.name,
-          briefing.description,
-          JSON.stringify(briefing.settings || {}),
-        ]
-      );
+    const briefingIdMapping = Object.fromEntries(briefings.map((b) => [b.id, crypto.randomUUID()]));
+    const slideRows = slides.map((slide) => ({
+      id: crypto.randomUUID(),
+      briefing_id: briefingIdMapping[slide.briefing_id],
+      title: slide.title,
+      content: slide.content,
+      mode: slide.mode,
+      map_id: slide.map_id ? (mapIdMapping[slide.map_id] || null) : null,
+      model_id: slide.model_id,
+      photo_id: slide.photo_id,
+      position: JSON.stringify(slide.position || {}),
+      orientation: JSON.stringify(slide.orientation || {}),
+      // Not a column: the ColumnSet only reads the columns it declares. Kept on the row so
+      // slide_order can be grouped per briefing below without a second lookup.
+      sourceBriefingId: slide.briefing_id,
+    }));
 
-      // Clone slides for this briefing
-      const slides = await t.any(
-        `SELECT * FROM slides WHERE briefing_id = $1 AND deleted_at IS NULL`,
-        [briefing.id]
-      );
-
-      const newSlideOrder = [];
-      for (const slide of slides) {
-        const newSlide = await t.one(
-          `INSERT INTO slides (briefing_id, title, content, mode, map_id, model_id, photo_id, position, orientation)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)
-           RETURNING id`,
-          [
-            newBriefing.id,
-            slide.title,
-            slide.content,
-            slide.mode,
-            slide.map_id ? (mapIdMapping[slide.map_id] || null) : null,
-            slide.model_id,
-            slide.photo_id,
-            JSON.stringify(slide.position || {}),
-            JSON.stringify(slide.orientation || {}),
-          ]
-        );
-        newSlideOrder.push(newSlide.id);
-      }
-
-      // Update slide_order
-      if (newSlideOrder.length > 0) {
-        await t.none(
-          `UPDATE briefings SET slide_order = $2::uuid[] WHERE id = $1`,
-          [newBriefing.id, newSlideOrder]
-        );
-      }
-    }
+    await insertMany(t, CS.briefings, briefings.map((briefing) => ({
+      id: briefingIdMapping[briefing.id],
+      atlas_id: newAtlasId,
+      name: briefing.name,
+      description: briefing.description,
+      settings: JSON.stringify(briefing.settings || {}),
+      slide_order: slideRows.filter((s) => s.sourceBriefingId === briefing.id).map((s) => s.id),
+    })));
+    await insertMany(t, CS.slides, slideRows);
   });
+
+  await runImageCopyJobs(copyJobs);
 
   // Return cloned atlas with maps (outside transaction)
   return getAtlasById(newAtlasId);
@@ -406,13 +667,14 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
 
 /**
  * Duplicates a single map within the same atlas.
- * Clones all sub-entities (layers, groups, features, group_features, cesium3d, streetview360).
+ * Clones all sub-entities (layers, groups, features, group_features, cesium3d, streetview360,
+ * catalog layers) and the blobs of its image features.
  */
 export async function duplicateMap(atlasId, mapId) {
   let newMapResult;
+  const copyJobs = [];
 
   await tx(async (t) => {
-    // Get source map
     const map = await t.oneOrNone(
       `SELECT * FROM maps WHERE id = $1 AND atlas_id = $2 AND deleted_at IS NULL`,
       [mapId, atlasId]
@@ -421,41 +683,39 @@ export async function duplicateMap(atlasId, mapId) {
       throw new NotFoundError('Map');
     }
 
-    // Create new map
-    const newMap = await t.one(
-      // Same omission as cloneAtlas: grid_style/temporal_config were missing here too.
-      `INSERT INTO maps (atlas_id, name, base_layer, center_lat, center_long, zoom, bearing, pitch, notes_title, notes_description, analysis_layers, catalog_layers, locked, grid_style, temporal_config)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb)
-       RETURNING *`,
-      [
-        atlasId,
-        `${map.name} (cópia)`,
-        map.base_layer,
-        map.center_lat,
-        map.center_long,
-        map.zoom,
-        map.bearing,
-        map.pitch,
-        map.notes_title,
-        map.notes_description,
-        JSON.stringify(map.analysis_layers || {}),
-        JSON.stringify(map.catalog_layers || []),
-        map.locked || false,
-        JSON.stringify(map.grid_style || {}),
-        JSON.stringify(map.temporal_config || {}),
-      ]
+    // The copied features get fresh ids, and an image feature's id IS its blob ref — so the
+    // blobs of THIS map's image features need copies too, even though the atlas is the same
+    // (L32). Custom icons and 3D/360 attachments are untouched: they stay valid because the
+    // atlas (and therefore the images scope) does not change.
+    const sourceImages = await t.any(
+      `SELECT i.* FROM images i
+       WHERE i.atlas_id = $1
+         AND i.id IN (SELECT f.id FROM features f
+                      WHERE f.map_id = $2 AND f.feature_type = 'image' AND f.deleted_at IS NULL)`,
+      [atlasId, mapId]
     );
+    const { imageIdMap, rows: imageRows } = planImageCopies(sourceImages, atlasId, copyJobs);
+    await insertMany(t, CS.images, imageRows);
 
-    await cloneMapSubEntities(t, mapId, newMap.id);
+    const newMapId = crypto.randomUUID();
+    await insertMany(t, CS.maps, [mapRow(newMapId, atlasId, `${map.name} (cópia)`, map)]);
+
+    await cloneMapSubEntities(
+      t,
+      [{ sourceId: mapId, newId: newMapId, legacyCatalogLayers: map.catalog_layers }],
+      imageIdMap
+    );
 
     // Append to atlas map_order
     await t.none(
       `UPDATE atlas SET map_order = array_append(map_order, $1::uuid) WHERE id = $2`,
-      [newMap.id, atlasId]
+      [newMapId, atlasId]
     );
 
-    newMapResult = newMap;
+    newMapResult = await t.one(`SELECT * FROM maps WHERE id = $1`, [newMapId]);
   });
+
+  await runImageCopyJobs(copyJobs);
 
   return newMapResult;
 }
@@ -579,7 +839,9 @@ export async function importAtlas(userId, data) {
     );
 
     const atlasId = newAtlas.id;
-    const mapIds = [];
+    const mapList = maps || [];
+    const briefingList = briefings || [];
+    const mapIds = mapList.map((map) => map.id);
 
     // Every foreign key in the payload must resolve to an entity created BY THIS
     // IMPORT. The loops below used to insert client-supplied ids verbatim, and the FK
@@ -594,203 +856,154 @@ export async function importAtlas(userId, data) {
     // which is exactly why the payload's references must be constrained to the payload
     // itself: there is no atlas-scoped gate to fall back on. `cloneMapSubEntities`
     // already does this via its id mappings; the import path never got the guard.
-    const importedMapIds = new Set();
-    const importedGroupIds = new Set();
-    const importedFeatureIds = new Set();
-    const summary = {
-      mapsImported: 0,
-      featuresImported: 0,
-      layersImported: 0,
-      groupsImported: 0,
-      cesium3dImported: 0,
-      streetview360Imported: 0,
-      briefingsImported: 0,
-      slidesImported: 0,
-    };
+    //
+    // The sets are now collected across the WHOLE payload before any insert (they used to
+    // be filled map by map), which is what lets each entity type travel as ONE multi-row
+    // INSERT (L67) — and it makes the guard uniform instead of order-dependent: a parent or
+    // a group/feature pair declared in a later map used to resolve or not purely by
+    // position in the array.
+    const importedMapIds = new Set(mapIds);
+    const importedGroupIds = new Set(mapList.flatMap((m) => (m.groups || []).map((g) => g.id)));
+    const importedFeatureIds = new Set(mapList.flatMap((m) => (m.features || []).map((f) => f.id)));
 
-    // 2. Import maps
-    for (const map of maps || []) {
-      await t.none(
-        `INSERT INTO maps (id, atlas_id, name, base_layer, center_lat, center_long,
-                          zoom, bearing, pitch, notes_title, notes_description,
-                          analysis_layers, catalog_layers, locked, grid_style, temporal_config)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14,
-                 $15::jsonb, $16::jsonb)`,
-        [
-          map.id,
-          atlasId,
-          map.name,
-          map.base_layer || 'carta-topografica',
-          map.center_lat,
-          map.center_long,
-          map.zoom,
-          map.bearing || 0,
-          map.pitch || 0,
-          map.notes_title || null,
-          map.notes_description || null,
-          JSON.stringify(map.analysis_layers || {}),
-          JSON.stringify(map.catalog_layers || []),
-          map.locked === true,
-          JSON.stringify(map.grid_style || {}),
-          JSON.stringify(map.temporal_config || {}),
-        ]
-      );
+    // 2. Maps
+    await insertMany(t, CS.maps, mapList.map((map) => ({
+      id: map.id,
+      atlas_id: atlasId,
+      name: map.name,
+      base_layer: map.base_layer || 'carta-topografica',
+      center_lat: map.center_lat,
+      center_long: map.center_long,
+      zoom: map.zoom,
+      bearing: map.bearing || 0,
+      pitch: map.pitch || 0,
+      notes_title: map.notes_title || null,
+      notes_description: map.notes_description || null,
+      analysis_layers: JSON.stringify(map.analysis_layers || {}),
+      catalog_layers: JSON.stringify(map.catalog_layers || []),
+      locked: map.locked === true,
+      grid_style: JSON.stringify(map.grid_style || {}),
+      temporal_config: JSON.stringify(map.temporal_config || {}),
+    })));
 
-      mapIds.push(map.id);
-      importedMapIds.add(map.id);
-      summary.mapsImported++;
+    // 2.1 Layers (before features, to allow layer_id references)
+    const layerRows = mapList.flatMap((map) => (map.layers || []).map((layer) => ({
+      id: layer.id,
+      map_id: map.id,
+      name: layer.name,
+      visible: layer.visible !== false,
+      locked: layer.locked === true,
+      opacity: layer.opacity ?? 1,
+      sort_order: layer.sort_order ?? 0,
+      style: JSON.stringify(layer.style || {}),
+    })));
+    await insertMany(t, CS.layers, layerRows);
 
-      // 2.1 Import layers (before features, to allow layer_id references)
-      for (const layer of map.layers || []) {
-        await t.none(
-          `INSERT INTO layers (id, map_id, name, visible, locked, opacity, sort_order, style)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
-          [
-            layer.id,
-            map.id,
-            layer.name,
-            layer.visible !== false,
-            layer.locked === true,
-            layer.opacity ?? 1,
-            layer.sort_order ?? 0,
-            JSON.stringify(layer.style || {}),
-          ]
-        );
-        summary.layersImported++;
-      }
+    // 2.2 Groups (parent_id only resolves within the payload)
+    const groupRows = mapList.flatMap((map) => (map.groups || []).map((group) => ({
+      id: group.id,
+      map_id: map.id,
+      name: group.name,
+      visible: group.visible !== false,
+      locked: group.locked === true,
+      style: JSON.stringify(group.style || {}),
+      parent_id: importedGroupIds.has(group.parent_id) ? group.parent_id : null,
+    })));
+    await insertMany(t, CS.groups, groupRows);
 
-      // 2.2 Import groups. Collect the ids FIRST so a parent declared later in the
-      // same array still resolves (order within the payload is the client's choice).
-      for (const group of map.groups || []) importedGroupIds.add(group.id);
+    // 2.3 Features
+    const featureRows = mapList.flatMap((map) => (map.features || []).map((feature) => ({
+      id: feature.id,
+      map_id: map.id,
+      feature_type: feature.feature_type,
+      geometry: JSON.stringify(feature.geometry),
+      properties: JSON.stringify(feature.properties || {}),
+      layer_id: feature.layer_id || null,
+    })));
+    await insertMany(t, CS.features, featureRows);
 
-      for (const group of map.groups || []) {
-        await t.none(
-          `INSERT INTO groups (id, map_id, name, visible, locked, style, parent_id)
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
-          [
-            group.id,
-            map.id,
-            group.name,
-            group.visible !== false,
-            group.locked === true,
-            JSON.stringify(group.style || {}),
-            importedGroupIds.has(group.parent_id) ? group.parent_id : null,
-          ]
-        );
-        summary.groupsImported++;
-      }
+    // 2.4 Group-feature associations. Both ends must have been created by this import; a
+    // pair naming anything else is silently skipped rather than failing the whole import,
+    // since a partially-foreign payload is the attack shape, not a user error worth
+    // reporting back.
+    await insertMany(
+      t,
+      CS.groupFeatures,
+      mapList.flatMap((map) => (map.groupFeatures || [])
+        .filter((gf) => importedGroupIds.has(gf.group_id) && importedFeatureIds.has(gf.feature_id))
+        .map((gf) => ({ group_id: gf.group_id, feature_id: gf.feature_id }))),
+      ' ON CONFLICT DO NOTHING'
+    );
 
-      // 2.3 Import features
-      for (const feature of map.features || []) importedFeatureIds.add(feature.id);
+    // 2.5 Cesium 3D data
+    const cesium3dRows = mapList.flatMap((map) => (map.cesium3dData || []).map((cesium3d) => ({
+      id: cesium3d.id,
+      map_id: map.id,
+      data_type: cesium3d.data_type,
+      tileset_id: cesium3d.tileset_id || null,
+      data: JSON.stringify(cesium3d.data || {}),
+    })));
+    await insertMany(t, CS.cesium3d, cesium3dRows);
 
-      for (const feature of map.features || []) {
-        await t.none(
-          `INSERT INTO features (id, map_id, feature_type, geometry, properties, layer_id)
-           VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6)`,
-          [
-            feature.id,
-            map.id,
-            feature.feature_type,
-            JSON.stringify(feature.geometry),
-            JSON.stringify(feature.properties || {}),
-            feature.layer_id || null,
-          ]
-        );
-        summary.featuresImported++;
-      }
+    // 2.6 StreetView 360 data
+    const sv360Rows = mapList.flatMap((map) => (map.streetview360Data || []).map((sv360) => ({
+      id: sv360.id,
+      map_id: map.id,
+      data_type: sv360.data_type,
+      photo_name: sv360.photo_name || null,
+      data: JSON.stringify(sv360.data || {}),
+    })));
+    await insertMany(t, CS.streetview360, sv360Rows);
 
-      // 2.4 Import group-feature associations. Both ends must have been created by
-      // this import; a pair naming anything else is silently skipped rather than
-      // failing the whole import, since a partially-foreign payload is the attack
-      // shape, not a user error worth reporting back.
-      for (const gf of map.groupFeatures || []) {
-        if (!importedGroupIds.has(gf.group_id) || !importedFeatureIds.has(gf.feature_id)) continue;
-        await t.none(
-          `INSERT INTO group_features (group_id, feature_id)
-           VALUES ($1, $2)
-           ON CONFLICT DO NOTHING`,
-          [gf.group_id, gf.feature_id]
-        );
-      }
-
-      // 2.5 Import Cesium 3D data
-      for (const cesium3d of map.cesium3dData || []) {
-        await t.none(
-          `INSERT INTO cesium3d_data (id, map_id, data_type, tileset_id, data)
-           VALUES ($1, $2, $3, $4, $5::jsonb)`,
-          [
-            cesium3d.id,
-            map.id,
-            cesium3d.data_type,
-            cesium3d.tileset_id || null,
-            JSON.stringify(cesium3d.data || {}),
-          ]
-        );
-        summary.cesium3dImported++;
-      }
-
-      // 2.6 Import StreetView 360 data
-      for (const sv360 of map.streetview360Data || []) {
-        await t.none(
-          `INSERT INTO streetview360_data (id, map_id, data_type, photo_name, data)
-           VALUES ($1, $2, $3, $4, $5::jsonb)`,
-          [
-            sv360.id,
-            map.id,
-            sv360.data_type,
-            sv360.photo_name || null,
-            JSON.stringify(sv360.data || {}),
-          ]
-        );
-        summary.streetview360Imported++;
-      }
-    }
+    // 2.7 Catalog layers. The payload only carries the legacy ARRAY (`map.catalog_layers`,
+    // written above), but the snapshot reads exclusively from the dedicated table — so an
+    // import that wrote only the column came back with `catalogLayers: []` and the client
+    // applied that empty array over its own state (L42). Materialise both.
+    await insertMany(
+      t,
+      CS.catalogLayers,
+      mapList.flatMap((map) => catalogLayerRows(map.id, map.catalog_layers, []))
+    );
 
     // 3. Update map_order
     if (mapIds.length > 0) {
       await t.none(`UPDATE atlas SET map_order = $2::uuid[] WHERE id = $1`, [atlasId, mapIds]);
     }
 
-    // 4. Import briefings
-    for (const briefing of briefings || []) {
-      const slideIds = (briefing.slides || []).map((s) => s.id);
+    // 4. Briefings + slides
+    await insertMany(t, CS.briefings, briefingList.map((briefing) => ({
+      id: briefing.id,
+      atlas_id: atlasId,
+      name: briefing.name,
+      description: briefing.description || null,
+      settings: JSON.stringify(briefing.settings || {}),
+      slide_order: (briefing.slides || []).map((s) => s.id),
+    })));
 
-      await t.none(
-        `INSERT INTO briefings (id, atlas_id, name, description, settings, slide_order)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6::uuid[])`,
-        [
-          briefing.id,
-          atlasId,
-          briefing.name,
-          briefing.description || null,
-          JSON.stringify(briefing.settings || {}),
-          slideIds,
-        ]
-      );
-      summary.briefingsImported++;
+    const slideRows = briefingList.flatMap((briefing) => (briefing.slides || []).map((slide) => ({
+      id: slide.id,
+      briefing_id: briefing.id,
+      title: slide.title || null,
+      content: slide.content || null,
+      mode: slide.mode || '2d',
+      map_id: importedMapIds.has(slide.map_id) ? slide.map_id : null,
+      model_id: slide.model_id || null,
+      photo_id: slide.photo_id || null,
+      position: JSON.stringify(slide.position || {}),
+      orientation: JSON.stringify(slide.orientation || {}),
+    })));
+    await insertMany(t, CS.slides, slideRows);
 
-      // 4.1 Import slides
-      for (const slide of briefing.slides || []) {
-        await t.none(
-          `INSERT INTO slides (id, briefing_id, title, content, mode, map_id,
-                              model_id, photo_id, position, orientation)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb)`,
-          [
-            slide.id,
-            briefing.id,
-            slide.title || null,
-            slide.content || null,
-            slide.mode || '2d',
-            importedMapIds.has(slide.map_id) ? slide.map_id : null,
-            slide.model_id || null,
-            slide.photo_id || null,
-            JSON.stringify(slide.position || {}),
-            JSON.stringify(slide.orientation || {}),
-          ]
-        );
-        summary.slidesImported++;
-      }
-    }
+    const summary = {
+      mapsImported: mapList.length,
+      featuresImported: featureRows.length,
+      layersImported: layerRows.length,
+      groupsImported: groupRows.length,
+      cesium3dImported: cesium3dRows.length,
+      streetview360Imported: sv360Rows.length,
+      briefingsImported: briefingList.length,
+      slidesImported: slideRows.length,
+    };
 
     // 5. Return created atlas with summary
     const result = await t.one(

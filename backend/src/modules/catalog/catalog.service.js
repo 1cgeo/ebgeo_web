@@ -38,15 +38,45 @@ export async function getCatalogItem(table, id) {
   return row;
 }
 
+// CREATE resurrects a soft-deleted id (L40). The three paths used to disagree about what
+// "exists" means: get/update filter `active = true` (404 on a deleted item) while this
+// duplicate probe did not (409 on the same id), and the module has no restore route. A
+// deleted id was therefore stuck in a state with no way back — it existed for the conflict
+// gate and did not exist for everything else — so DELETE /basemaps/osm took the seeded basemap
+// off /api/config for everyone until somebody ran a manual UPDATE. That is the opposite of what
+// soft-delete is for; the tests even recorded the dead end as a fact of life ("a soft-deleted id
+// can never be recreated (permanent 409), so every test must mint its own id").
+//
+// A LIVE id still conflicts: that guard is what prevents a silent overwrite of a published item.
 export async function createCatalogItem(table, data) {
   const t = assertTable(table);
-  const existing = await oneOrNone(`SELECT id FROM ${t} WHERE id = $1`, [data.id]);
-  if (existing) throw new ConflictError('Já existe um item de catálogo com este ID.');
+  const existing = await oneOrNone(`SELECT id, active FROM ${t} WHERE id = $1`, [data.id]);
+  if (existing && existing.active) throw new ConflictError('Já existe um item de catálogo com este ID.');
   assertValidStyle(data.config);
+
+  const values = [
+    data.id,
+    data.name,
+    data.description || null,
+    JSON.stringify(data.config || {}),
+    data.sort_order || 0,
+  ];
+
+  if (existing) {
+    // Resurrection is a full overwrite, not a merge: the caller sent a complete create
+    // payload, so the row must end up exactly as if it had been inserted now.
+    return one(
+      `UPDATE ${t} SET name = $2, description = $3, config = $4::jsonb, sort_order = $5,
+                      active = true, updated_at = NOW()
+       WHERE id = $1 RETURNING ${COLS}`,
+      values,
+    );
+  }
+
   return one(
     `INSERT INTO ${t} (id, name, description, config, sort_order)
      VALUES ($1, $2, $3, $4::jsonb, $5) RETURNING ${COLS}`,
-    [data.id, data.name, data.description || null, JSON.stringify(data.config || {}), data.sort_order || 0],
+    values,
   );
 }
 

@@ -11,8 +11,10 @@ import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, createResource, loginUser } from '../helpers/fixtures.js';
 
-// Unique-id helper — the test DB is shared across files, and a soft-deleted id can
-// never be recreated (permanent 409), so every test must mint its own id.
+// Unique-id helper — the test DB is shared across files, so every test mints its own id and
+// never collides with another file's rows. (A soft-deleted id used to be permanently
+// unrecoverable, which made this mandatory; since L40 a create resurrects it — see
+// catalog-soft-delete-resurrect.repro.test.js — but per-test ids stay the right hygiene.)
 const cid = (p) => `cat-${p}-${randomUUID().slice(0, 8)}`;
 
 describe('Catalog API (basemaps)', () => {

@@ -11,9 +11,23 @@ export const FIND_ATLAS_BY_ID = `
   WHERE id = $1 AND deleted_at IS NULL
 `;
 
+// `user_permission` MUST resolve exactly like `resolvePermission` (middleware/permissions.js),
+// which is the single source of the five-level hierarchy read < comment < write < manage < owner:
+// it checks OWNERSHIP FIRST, then the share row. This query used to invert that
+// (`COALESCE(s.permission, CASE WHEN a.owner_id = $1 THEN 'owner' END)`), so a share row won over
+// ownership. Nothing forbids such a row — addUserShare has no guard against atlas.owner_id — and
+// the owner then appeared as a plain reader OF THEIR OWN ATLAS: this projection is what gates the
+// project-picker UI ('Meus atlas' tab, canWrite, canOwn), so the owner silently lost rename /
+// trash / share while keeping the underlying rights (server-side authz checks the owner first and
+// was never affected).
+//
+// `owner` is the TOP of the hierarchy, so it dominates every share level by construction; the
+// CHECK on atlas_shares.permission caps a share at 'manage'. Every other level is surfaced
+// VERBATIM — never collapse this into a closed list ('write'|'owner'), which is exactly how the
+// co-Gestor ('manage', above 'write') was silenced before.
 export const LIST_USER_ATLAS = `
   SELECT a.*, u.nome as owner_nome, u.username as owner_username,
-         COALESCE(s.permission, CASE WHEN a.owner_id = $1 THEN 'owner' END) as user_permission
+         CASE WHEN a.owner_id = $1 THEN 'owner' ELSE s.permission END as user_permission
   FROM atlas a
   JOIN users u ON u.id = a.owner_id
   LEFT JOIN atlas_shares s ON s.atlas_id = a.id AND s.user_id = $1

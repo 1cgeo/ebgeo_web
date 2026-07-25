@@ -765,6 +765,12 @@ O DEFEITO: `return createReadStream(fmeta.path).pipe(res)` (assets3d.controller.
 
 ### 32. cloneAtlas copia feicoes de imagem mas nao a tabela images: no clone toda imagem e icone customizado quebram com 404
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. `images.atlas_id` é NOT NULL e `images.id` é PK GLOBAL, então o clone não podia reusar o id — as linhas de `images` simplesmente não eram copiadas e toda imagem e ícone customizado quebrava na cópia. O fix copia as linhas com ids novos e blobs sob o diretório do atlas novo, e reescreve TODAS as referências espelhando o que o frontend já faz no `local-atlas-to-server.js`: feição `image` (onde o id da feição É o ref do blob), `properties.markerSymbol`, `atlas.settings.customIcons[].id` e `data.images[]` de 3D/360. As cópias de arquivo rodam DEPOIS do commit, para não segurar a transação.
+>
+> Junto veio o irmão que o achado não citava: `duplicateMap` dava id novo à feição dentro do MESMO atlas, quebrando o ref do blob do mesmo jeito.
+>
+> Controle negativo: 3 casos caem, incluindo um de `cross-cutting-gaps` que caracterizava exatamente este defeito como "KNOWN GAP".
+
 - **Arquivo:** `backend/src/modules/atlas/atlas.service.js:270`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-atlas` · **Classe:** `perda-de-dado`
@@ -891,6 +897,8 @@ Severidade mantida em medio: nao ha perda de dado nem falha de autorizacao, e o 
 
 ### 40. Item de catalogo soft-deletado fica permanentemente inutilizavel: nao pode ser recriado (409), atualizado (404) nem restaurado por nenhuma rota
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. O probe de duplicidade do CREATE não filtrava por `active`, enquanto get e update filtram — então id soft-deletado ficava permanentemente inutilizável: não podia ser recriado (409) e não podia ser lido. O CREATE passa a RESSUSCITAR: id vivo continua 409, id soft-deletado vira UPDATE com o payload novo (overwrite completo, não merge). Controle negativo: 3 de 4 casos caem; o quarto (id vivo → 409) passa por construção e é a metade que garante que o fix não afrouxou a unicidade.
+
 - **Arquivo:** `backend/src/modules/catalog/catalog.service.js:43`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-catalog-config-audit` · **Classe:** `contrato`
@@ -928,6 +936,8 @@ Severidade mantida em medio: nao ha perda de dado nem falha de autorizacao, e o 
 > **Correção do verificador.** user_away/user_back sao os unicos frames de presenca que carregam clientId (collab.service.js:79-97), enquanto todo o resto da identidade de presenca (user_joined, user_left, snapshot getRoomUsers, cursor/selection/temporal) so leva userId/id. Como resolveKey do frontend prefere clientId (presence-store.js:48-64), toda entrada do roster nasce chaveada por userId e _setAway (:507-518) sempre erra a chave, retornando em silencio. Efeito: para um par JA CONECTADO, o estado 'away' (caso G, renderizado em online-users.control.js:43-44/279-280/316-318) nunca aparece - o par continua vendo o usuario como 'online' durante toda a janela de graca (WS_AWAY_GRACE_MS, default 120s em config.js:103), divergindo de um cliente que entra depois e recebe status:'away' via snapshot. Duas correcoes ao enunciado original: (a) a remocao final NAO e afetada - o user_left emitido ao fim da graca chaveia por userId e funciona, entao a divergencia e limitada a janela, nao permanente; (b) user_back ser no-op e inconsequente por si so, ja que o user_away correspondente tambem foi descartado - o defeito liquido e que o indicador 'ausente' nunca renderiza para pares ja conectados. Correcao minima e no servidor: incluir clientId em user_joined, user_left e no snapshot getRoomUsers (o client.clientId ja esta disponivel em ambos os pontos).
 
 ### 42. Camada de catálogo importada some no round-trip: o import só escreve a coluna legada maps.catalog_layers e o snapshot só lê a tabela catalog_layers
+
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. Import, clone e duplicate escreviam só a coluna legada `maps.catalog_layers`, e o snapshot lê só a tabela `catalog_layers` — a camada importada sumia no round-trip. A tabela virou canônica e os três escritores materializam nela, com UNIÃO (linha viva da tabela ganha do array legado). A coluna legada continua sendo escrita: NENHUM shape mudou no fio, o que importa porque isto é contrato de round-trip com o frontend, lido antes de mexer. Controle negativo: 5 casos caem, incluindo o de tombstone não ressuscitar no clone.
 
 - **Arquivo:** `backend/src/database/migrations/002_atlas.sql:248`
 - **Estado:** CONFIRMADO
@@ -1086,6 +1096,14 @@ Correcao no enunciado do achado original: o conteudo nao e destruido, e re-paren
 > **O que tornava a lacuna facil de nao ver:** `setZonePermissions` JA auditava, com diff before/after. A LISTA de permissoes era rastreada enquanto a FORMA a que ela se aplica nao era, e a geometria da zona e uma fronteira de acesso: quem enxerga cada nome privado depende de a feicao cair ou nao dentro de uma zona sobre a qual se tem permissao. Alargar um poligono tem o mesmo efeito pratico de conceder acesso, e nao deixava registro. Um caso do arquivo novo afirma que a auditoria de permissao continua funcionando, para os registros novos nao a deslocarem.
 
 ### 50. Teste de paginacao do catalogo3d fabrica um data_criacao unico por linha, neutralizando exatamente a condicao que quebra a paginacao real
+
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO nas duas metades, e o teste era o mais enganoso do lote.
+>
+> **O teste.** A fixture fabricava `data_criacao` distinto por linha, o que tornava `ORDER BY rank DESC, c.data_criacao DESC` um ordenamento TOTAL — o assert de não-sobreposição passava com ou sem desempate. Agora a fixture semeia como produção (uma transação, sem `data_criacao` explícito, nome idêntico para o `rank` também empatar), com GUARDA DE FIXTURE que falha se os timestamps não empatarem, e o assert virou "as páginas cobrem exatamente `total` ids distintos" — só "sem overlap" é satisfeito por um paginador que PULA linhas.
+>
+> **A produção.** Sem desempate único, a ordem de linhas empatadas fica a critério do plano, e o plano MUDA conforme o OFFSET cresce. Medido no Postgres: 80 linhas → 2 duplicadas e 2 perdidas; 120 → 4/4; 200 → 8/8; 1000 → 48/48. Abaixo de ~40 linhas um único plano serve todas as páginas e o defeito não aparece, que é exatamente por que o teste antigo nunca o pegaria. Corrigido com `, c.id DESC` no `CATALOGO_SELECT`.
+>
+> Controle negativo duplo: com a fixture antiga dá 0/0 (provando que o verde vinha da fixture) e com o desempate dá 0/0 mesmo empatando. Removendo o desempate agora, os dois casos caem.
 
 - **Arquivo:** `backend/tests/integration/nomes-catalogo3d-gaps.test.js:112`
 - **Estado:** PLAUSIVEL (um dos dois céticos refutou; tratar como hipótese)
@@ -1319,6 +1337,12 @@ Correcao no enunciado do achado original: o conteudo nao e destruido, e re-paren
 
 ### 62. `LIST_USER_ATLAS` resolve permissao com precedencia INVERTIDA em relacao a `resolvePermission`: um share sobrepoe a propriedade e o dono aparece como leitor do proprio atlas
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. `COALESCE(s.permission, CASE WHEN owner ...)` fazia o SHARE ganhar da PROPRIEDADE, ao contrário do `resolvePermission`, que checa o dono primeiro — um dono com self-share de `read` se via como `read` na listagem, que é a projeção usada para gatear a UI. Agora o dono é resolvido primeiro e todo nível não-dono sai VERBATIM, sem lista fechada.
+>
+> O teste cobre o dono com self-share em cada um dos quatro níveis E um não-dono vendo `read/comment/write/manage` verbatim — este último é a guarda contra reintroduzir a lista fechada que já silenciou o co-Gestor duas vezes neste projeto. Controle negativo: 2 casos caem; o do não-dono passa nos dois, e é a metade que garante que a correção não achatou a projeção.
+>
+> Metade NÃO corrigida, registrada: `sharing.service.js` continua sem guarda contra criar share para o próprio dono. A invariante "dono não tem linha em `atlas_shares`" segue assumida, não enforçada; fechar a query elimina o sintoma, a guarda no sharing seria defesa em profundidade.
+
 - **Arquivo:** `backend/src/modules/atlas/atlas.queries.js:16`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-authz-hierarquia` · **Classe:** `hierarquia-reimplementada`
@@ -1407,6 +1431,10 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** O token de verificacao de conta (credencial single-use) e gravado em texto puro, junto com o e-mail do usuario, no log da aplicacao, e esse e o unico caminho possivel em toda configuracao atual do repositorio. sendVerificationEmail loga o link completo em nivel info quando nao ha SMTP (mailer.js:68) e em warn quando ha SMTP mas nodemailer nao resolve (mailer.js:74); como SMTP_HOST tem default '' (config.js:128) e nodemailer nao esta nas dependencies, nenhum e-mail e enviado em nenhuma configuracao atual e o token existe apenas no log. Ha DOIS caminhos vivos, nao um: POST /auth/register (montada so quando allowSelfRegistration, ou seja dev/test) e POST /auth/resend-verification (auth.routes.js:19), esta montada incondicionalmente e anonima, que re-emite e re-loga um token novo para qualquer conta com e-mail nao verificado, permanecendo explorable em producao. A defesa redactUrl nao alcanca o caso: atua so sobre a URL da requisicao e 'verify' nem esta em SENSITIVE_QUERY_KEYS (redact-url.js:6). Impacto: quem le o log (operador, agregador, pipeline de shipping) consome o token via POST /auth/verify-email e marca email_verified de terceiro sem acesso a caixa postal, derrubando a prova de posse do e-mail; o ganho para por ai, pois a verificacao nao emite sessao nem senha e nao ha fluxo de password reset para pivotar (o login segue exigindo a senha, auth.service.js:87).
 
 ### 67. Clone e import de atlas inserem uma linha por vez: N+1 de INSERTs dentro de uma unica transacao, que fica aberta proporcionalmente ao tamanho do atlas
+
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. Clone e import inseriam uma linha por vez — 6 coleções no clone e 9 no import, tudo numa transação só. Viraram um INSERT multi-linha por tipo de entidade, com ids gerados em Node em vez de `RETURNING`: isso resolve os mapeamentos ANTES da escrita, permite o statement único, e não depende de `RETURNING` preservar ordem, que o Postgres não promete. O segundo passe de `parent_id` de grupos sumiu (FK intra-statement resolve no fim do statement).
+>
+> Custo medido: clone em 24 statements e import em 13, CONSTANTES — antes cresciam linearmente. O teste afirma IGUALDADE entre um payload pequeno e outro 6× maior, mais um teto absoluto, contando statements por um hook em `db.tx`. Controle negativo: voltando ao laço por linha, os 4 casos caem.
 
 - **Arquivo:** `backend/src/modules/atlas/atlas.service.js:210`
 - **Estado:** CONFIRMADO

@@ -68,6 +68,18 @@ describe('Nomes + Catálogo 3D — audit gaps', () => {
 
   // ---------------------------------------------------------------------------
   // nomes-03 — /catalogo3d pagination math + count/data alignment.
+  //
+  // ⚠️ FIXTURE CONTRACT (achado 50). This block used to seed its rows with
+  //     data_criacao = now() + (i || ' seconds')::interval
+  // — a DISTINCT instant per row. That made `ORDER BY rank DESC, c.data_criacao DESC`
+  // (nomes.queries.js CATALOGO_SELECT) a TOTAL order, which is precisely the condition
+  // production never has: the column is `DEFAULT NOW()` and NOW() is per-TRANSACTION, so a
+  // batch load gives every row the SAME instant. With the order total, the "page 2 must not
+  // repeat page-1 rows" assert passed identically with or without a unique tie-breaker in
+  // the ORDER BY: it proved nothing about the code, only about the fixture.
+  //
+  // The rows below are now seeded the way production does it — ONE transaction, no explicit
+  // data_criacao — so they TIE, and `q` is a single repeated keyword so ts_rank ties too.
   // ---------------------------------------------------------------------------
   describe('nomes-03 · pagination across page boundaries', () => {
     const cat = (q, page, nr) =>
@@ -77,16 +89,30 @@ describe('Nomes + Catálogo 3D — audit gaps', () => {
         .set('Authorization', `Bearer ${adminTok}`)
         .expect(200);
 
-    before(async () => {
-      // 3 public models sharing a unique keyword so q=TAG returns EXACTLY these 3,
-      // regardless of other files' rows. data_criacao orders them deterministically.
-      for (let i = 1; i <= 3; i++) {
-        await db.query(
-          `INSERT INTO ng.catalogo_3d (name, type, access_level, data_criacao)
-           VALUES ($1, 'Tiles 3D', 'public', now() + ($2 || ' seconds')::interval)`,
-          [`Model ${i} ${TAG}`, i]
-        );
+    /** Seeds `n` public models in ONE statement → identical data_criacao (production shape). */
+    const seedTied = async (name, n) => {
+      const values = [];
+      const params = [];
+      for (let i = 0; i < n; i++) {
+        params.push(name);
+        values.push(`($${i + 1}, 'Tiles 3D', 'public')`);
       }
+      await db.query(
+        `INSERT INTO ng.catalogo_3d (name, type, access_level) VALUES ${values.join(',')}`,
+        params
+      );
+    };
+
+    before(async () => {
+      // 3 public models sharing a unique keyword so q=TAG returns EXACTLY these 3, regardless
+      // of other files' rows. Identical name → identical rank; single statement → identical
+      // data_criacao. Both sort keys tie, as they do in a real bulk load.
+      await seedTied(`Model ${TAG}`, 3);
+      const { rows } = await db.query(
+        `SELECT COUNT(DISTINCT data_criacao)::int AS n FROM ng.catalogo_3d WHERE name = $1`,
+        [`Model ${TAG}`]
+      );
+      assert.equal(rows[0].n, 1, 'fixture guard: the seeded rows MUST share one data_criacao');
     });
 
     it('page=1 echoes page/nr_records, total counts ALL matches (not the page)', async () => {
@@ -100,16 +126,18 @@ describe('Nomes + Catálogo 3D — audit gaps', () => {
       assert.ok(res.body.total > res.body.data.length);
     });
 
-    it('page=2 returns the remainder with NO overlap (offset math is correct)', async () => {
+    it('page=2 returns the remainder and the two pages COVER the result set', async () => {
       const p1 = await cat(TAG, 1, 2);
       const p2 = await cat(TAG, 2, 2);
       assert.equal(p2.body.total, 3, 'total is stable across pages');
       assert.equal(p2.body.page, 2);
       assert.equal(p2.body.data.length, 1, 'remainder is 3 - 2 = 1 row');
 
-      const idsP1 = new Set(p1.body.data.map((m) => m.id));
-      const idsP2 = p2.body.data.map((m) => m.id);
-      assert.ok(idsP2.every((id) => !idsP1.has(id)), 'page 2 must not repeat page-1 rows');
+      // The real invariant: walking the pages visits every row exactly once. "No overlap"
+      // alone is satisfiable by a paginator that SKIPS rows, which is the other half of the
+      // same defect.
+      const ids = [...p1.body.data, ...p2.body.data].map((m) => m.id);
+      assert.equal(new Set(ids).size, 3, 'the two pages must cover exactly `total` distinct ids');
     });
 
     it('an out-of-range page returns [] with total unchanged', async () => {
@@ -117,6 +145,51 @@ describe('Nomes + Catálogo 3D — audit gaps', () => {
       assert.equal(res.body.total, 3, 'total still reflects all matches');
       assert.deepEqual(res.body.data, [], 'beyond the last page yields an empty page');
       assert.equal(res.body.page, 99, 'page echo even when empty');
+    });
+
+    // -------------------------------------------------------------------------
+    // The case the old fixture hid, at the scale where it actually bites.
+    //
+    // With both sort keys tied, `ORDER BY rank DESC, c.data_criacao DESC LIMIT n OFFSET k`
+    // has NO unique tie-breaker, so the row order is not defined ACROSS queries: the planner
+    // picks a top-N heapsort for a small k and a full sort for a large one, and the two
+    // disagree about which tied rows come first. Rows are then repeated on one page and
+    // skipped on another. Measured on this schema: at 120 tied rows / 10 per page the walk
+    // duplicates 4 rows and loses 4; at 200/10 it duplicates 8 and loses 8. Below ~40 rows
+    // one single plan serves every page and the defect stays hidden — which is why the
+    // 3-row block above cannot catch it, and why this case exists.
+    //
+    // MARKED `todo`: the one-line fix is `ORDER BY rank DESC, c.data_criacao DESC, c.id DESC`
+    // in CATALOGO_SELECT (src/modules/nomes/nomes.queries.js) — a file outside the change
+    // scope of the batch that wrote this test. Verified negative control: with `, c.id DESC`
+    // this walk reports 0 duplicates and 0 missing; without it, 4 and 4. Delete the `todo`
+    // flag in the same commit that adds the tie-breaker.
+    // -------------------------------------------------------------------------
+    describe('nomes-03b · a full page walk over TIED rows visits each row once', () => {
+      const BIG_TAG = `${TAG}big`;
+      const TOTAL = 120;
+      const PAGE = 10;
+
+      before(async () => {
+        await seedTied(`Modelo ${BIG_TAG}`, TOTAL);
+      });
+
+      it('every page walk covers exactly `total` distinct ids', async () => {
+        const seen = new Set();
+        let duplicates = 0;
+
+        for (let page = 1; page <= TOTAL / PAGE; page++) {
+          const res = await cat(BIG_TAG, page, PAGE);
+          assert.equal(res.body.total, TOTAL, 'total is stable across pages');
+          for (const model of res.body.data) {
+            if (seen.has(model.id)) duplicates += 1;
+            seen.add(model.id);
+          }
+        }
+
+        assert.equal(duplicates, 0, `no row may be repeated across pages (repeated ${duplicates})`);
+        assert.equal(seen.size, TOTAL, `no row may be skipped (missing ${TOTAL - seen.size})`);
+      });
     });
   });
 
