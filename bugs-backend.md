@@ -905,6 +905,16 @@ Severidade mantida em medio: nao ha perda de dado nem falha de autorizacao, e o 
 
 ### 41. user_away/user_back sao os unicos frames de presenca que carregam clientId, e o frontend chaveia por clientId: o estado 'away' nunca chega no roster dos pares ja conectados
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. A identidade de presença era inconsistente: só `user_away`/`user_back` carregavam `clientId`, e o `resolveKey` do frontend PREFERE `clientId` sobre `userId` — então a entrada do roster (vinda do `user_joined` e do snapshot, ambos sem `clientId`) era gravada sob a chave `userId`, e o estado `away` chegava sob outra chave. Duas entradas para a mesma pessoa, e o "ausente" nunca aparecendo.
+>
+> Fix: `clientId` em TODO frame de presença e no snapshot do roster. Detalhe que só se descobre lendo o cliente: no `user_joined` o frontend desembrulha `msg.user`, então o campo precisa estar ANINHADO, não no topo — está nos dois.
+>
+> **A parte que o achado não previa.** Uniformizar a chave torna a presença POR CLIENTE, e isso quebra a guarda P8, que só anunciava `user_left` no ÚLTIMO socket do usuário. Com roster por cliente, fechar uma de duas abas passaria a não anunciar nada e a entrada daquela aba ficaria no roster dos pares para sempre. Mas remover a guarda também não serve: reconexão reusa o MESMO clientId (ele é persistido e estável), então o close atrasado do socket velho apagaria a presença recém-criada. A guarda passou a comparar `clientId` em vez de `userId`, o que resolve os dois casos, com fallback para o comportamento antigo quando falta clientId de algum lado.
+>
+> O teste `collab-shutdown-presence.test.js` fixava o modelo antigo ("fechar uma de duas abas NÃO anuncia") e reprovou o fix — sétima ocorrência do mesmo hábito da suíte nesta auditoria. Reescrito preservando o que ele protege (não derrubar quem segue online), agora na granularidade certa: a aba fechada anuncia a própria saída e a viva sobrevive.
+>
+> Controle negativo: revertendo o fix pelo git (exato, sem regex), o caso cai. 127 testes de WS verdes.
+
 - **Arquivo:** `backend/src/modules/collab/collab.service.js:79`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-collab` · **Classe:** `contrato`

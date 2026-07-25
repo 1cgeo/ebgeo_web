@@ -50,25 +50,41 @@ export async function deleteSession(userId, atlasId, clientId) {
 
 /**
  * Broadcasts user joined event to the room.
+ *
+ * O `clientId` viaja em TODO frame de presença, e isso é contrato com o cliente,
+ * não enfeite: o `resolveKey` do frontend
+ * (`frontend/src/js/presence/presence-store.js:48-64`) PREFERE `clientId` sobre
+ * `userId`. Enquanto só `user_away`/`user_back` o carregavam, a entrada do roster
+ * era gravada sob a chave `userId` e o estado `away` chegava sob uma chave
+ * DIFERENTE — o par ficava com duas entradas para a mesma pessoa e o "ausente"
+ * nunca aparecia. Uma identidade por frame significa uma chave por frame.
+ *
+ * Também é a identidade mais correta: a mesma conta em duas abas são duas
+ * presenças, com cursores independentes.
  */
-export function broadcastUserJoined(atlasId, user, excludeWs) {
+export function broadcastUserJoined(atlasId, user, excludeWs, clientId = null) {
   broadcastToRoom(atlasId, {
     type: 'user_joined',
+    clientId,
     user: {
       id: user.id,
       nome: user.nome,
       posto_graduacao: user.posto_graduacao,
+      clientId,
     },
   }, excludeWs);
 }
 
 /**
  * Broadcasts user left event to the room.
+ * Carrega `clientId` pelo mesmo motivo do `user_joined`: sair de UMA aba não
+ * pode apagar do roster a presença da outra aba da mesma conta.
  */
-export function broadcastUserLeft(atlasId, userId) {
+export function broadcastUserLeft(atlasId, userId, clientId = null) {
   broadcastToRoom(atlasId, {
     type: 'user_left',
     userId,
+    clientId,
   });
 }
 

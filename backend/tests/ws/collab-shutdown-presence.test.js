@@ -86,19 +86,32 @@ describe('WebSocket — graceful shutdown (P4) and last-socket user_left (P8)', 
     return { user: u, token: await loginUser(app, u.username, u.password) };
   }
 
-  it('closing ONE of a user\'s two sockets does NOT announce user_left', async () => {
+  // A presença é POR CLIENTE, não por usuário: o roster do par é chaveado pelo
+  // `clientId` (o `resolveKey` do frontend o prefere, e `userLeft` apaga UMA
+  // chave). Este caso afirmava que fechar uma de duas abas NÃO anunciava nada —
+  // o que era coerente enquanto o roster era chaveado por usuário, e virou
+  // vazamento quando passou a ser por cliente: a entrada da aba fechada ficaria
+  // no roster dos pares para sempre, porque só o ÚLTIMO socket anunciava, e
+  // anunciava o clientId dele, não o da aba que saiu.
+  //
+  // O que o caso protege continua o mesmo — não derrubar quem segue online — só
+  // que agora na granularidade certa.
+  it('fechar UMA de duas abas anuncia a saída DAQUELA aba, e a outra sobrevive', async () => {
     const observer = await connect(ownerToken);
     const twoTabs = await freshPeer('tabs');
-    // The same user on two sockets — two browser tabs.
-    const tabA = await connect(twoTabs.token, `tab-a-${randomUUID().slice(0, 8)}`);
-    await connect(twoTabs.token, `tab-b-${randomUUID().slice(0, 8)}`);
+    const idA = `tab-a-${randomUUID().slice(0, 8)}`;
+    const idB = `tab-b-${randomUUID().slice(0, 8)}`;
+    const tabA = await connect(twoTabs.token, idA);
+    await connect(twoTabs.token, idB);
 
     observer.clearMessages();
     tabA.ws.close(1000, 'tab closed'); // clean close → immediate removal path
     await sleep(300);
 
     const left = observer.getMessagesOfType('user_left').filter((m) => m.userId === twoTabs.user.id);
-    assert.equal(left.length, 0, 'the user is still online through the other tab');
+    assert.equal(left.length, 1, 'a aba fechada precisa anunciar a própria saída');
+    assert.equal(left[0].clientId, idA, 'e o anúncio identifica QUAL aba saiu');
+    assert.notEqual(left[0].clientId, idB, 'a aba viva não pode ser removida do roster');
   });
 
   it('closing the LAST socket does announce user_left', async () => {

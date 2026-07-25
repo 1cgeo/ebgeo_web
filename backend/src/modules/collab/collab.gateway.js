@@ -391,7 +391,7 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   }));
 
   // Broadcast user joined to others
-  collabService.broadcastUserJoined(atlasId, user, ws);
+  collabService.broadcastUserJoined(atlasId, user, ws, ws.clientId ?? null);
 
   logger.info({ userId: user.id, atlasId, permission }, 'WebSocket connected');
 
@@ -497,15 +497,28 @@ function removeConnection(ws) {
     collabService.deleteSession(ws.userId, ws.atlasId, ws.clientId);
   }
 
-  // P8 — `user_left` is keyed only by userId, so announcing it unconditionally
-  // tells peers to drop a user who is still online through ANOTHER socket (a
-  // second browser tab, or a reconnect that arrived with a fresh clientId before
-  // the old socket finished closing). Only announce the LAST socket of that user.
+  // P8 — a guarda compara `clientId`, não `userId`, e a diferença importa nos
+  // dois sentidos porque o roster do par é chaveado POR CLIENTE (o `resolveKey`
+  // do frontend prefere `clientId`, e `userLeft` apaga UMA chave):
+  //
+  //  - por userId, duas abas da mesma conta compartilhavam o anúncio: fechar a
+  //    primeira não emitia nada e a entrada dela ficava no roster dos pares para
+  //    sempre, porque só o ÚLTIMO socket anunciava — e anunciava o clientId dele,
+  //    não o da aba que saiu;
+  //  - sem guarda nenhuma, uma reconexão reusa o MESMO clientId (ele é
+  //    persistido e estável), então o close atrasado do socket velho apagaria a
+  //    presença recém-criada.
+  //
+  // Comparar clientId resolve os dois: anuncia a saída daquele cliente, e cala
+  // enquanto existir outro socket vivo com a mesma identidade de cliente.
   // leaveRoom already removed this ws, so the room holds exactly the survivors.
   for (const client of getRoomClients(ws.atlasId)) {
-    if (client.userId === ws.userId) return;
+    if (client.clientId && ws.clientId && client.clientId === ws.clientId) return;
+    // Sem clientId dos dois lados não há identidade de cliente para comparar:
+    // cai no comportamento antigo, por usuário, que é o seguro nesse caso.
+    if ((!client.clientId || !ws.clientId) && client.userId === ws.userId) return;
   }
-  collabService.broadcastUserLeft(ws.atlasId, ws.userId);
+  collabService.broadcastUserLeft(ws.atlasId, ws.userId, ws.clientId ?? null);
 }
 
 /**

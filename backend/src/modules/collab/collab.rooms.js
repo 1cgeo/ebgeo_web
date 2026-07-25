@@ -169,6 +169,11 @@ export function getRoomUsers(atlasId) {
     if (client.userId) {
       users.push({
         id: client.userId,
+        // O snapshot precisa da MESMA identidade dos frames ao vivo: o
+        // `resolveKey` do frontend prefere `clientId`, então um roster sem ele
+        // era chaveado por `userId` e nunca casava com o `user_away`/`user_back`
+        // que chegava depois. O valor sempre esteve aqui, só não era exposto.
+        clientId: client.clientId ?? null,
         nome: client.userName,
         posto_graduacao: client.userPosto,
         mapId: client.currentMapId,
