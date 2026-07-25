@@ -49,7 +49,7 @@ As três rotas embutem a autorização no `WHERE`, não numa camada de aplicaç�
 Duas escolhas que valem o byte:
 
 - **Admin é reconferido no banco**, com `EXISTS (SELECT 1 FROM users WHERE id = $N AND role = 'admin')` (`backend/src/modules/nomes/nomes.queries.js:24`, `:69`, `:90`, `:122`), e não pela claim do JWT. Um token antigo com `role` desatualizado não vira acesso indevido aqui. Ver [[permissoes-atlas]].
-- **`fn_user_zone_geoms(NULL)` devolve vazio por construção** (`backend/src/database/migrations/004_ng.sql:246-256`), então o caminho anônimo degrada para "só público" mesmo se alguém remover o guard `$N::uuid IS NOT NULL` da aplicação.
+- **`ng.fn_user_zone_geoms(NULL)` devolve vazio por construção** (`backend/src/database/migrations/004_ng.sql`), então o caminho anônimo degrada para "só público" mesmo se alguém remover o guard `$N::uuid IS NOT NULL` da aplicação.
 
 Assimetria proposital: `catalogo_3d` tem permissão linha a linha (direta ou por grupo), mas **nenhum ramo espacial de zona**. O comentário em `backend/src/modules/nomes/nomes.queries.js:79-81` deixa o gancho para adicioná-lo sem reescrever a query.
 
@@ -69,11 +69,15 @@ A carga é externa (FME), fora da API. Depois de **cada** carga de nomes é obri
 SELECT ng.refresh_busca();
 ```
 
-**Nenhum trigger calcula `cluster_id`**: `refresh_busca` é a única fonte desse campo (`backend/src/database/migrations/004_ng.sql:154-169`, via `ng.recomputar_clusters()` com `ST_ClusterDBSCAN(geom, eps := 0.045, minpoints := 1)` particionado por `nome, tipo`). Esquecer o passo não gera erro: degrada em silêncio. Ver [[deploy-backend]].
+**Nenhum trigger calcula `cluster_id`**: `ng.refresh_busca` é a única fonte desse campo (`backend/src/database/migrations/004_ng.sql`, via `ng.recomputar_clusters()` com `ST_ClusterDBSCAN(geom, eps := 0.045, minpoints := 1)` particionado por `nome, tipo`). Esquecer o passo não gera erro: degrada em silêncio. Ver [[deploy-backend]].
+
+A outra metade do racional original, a de que o passo seria obrigatório porque "`COPY` não dispara trigger `BEFORE INSERT`", **é falsa** e foi medida contra o PostgreSQL desta instalação: `COPY` dispara trigger de linha `BEFORE INSERT`; o que ele não dispara são `RULES`. Logo o `UPDATE tipo = tipo` de `refresh_busca` é defensivo e idempotente, não a razão de ser do passo. Não remova a chamada com base na queda dessa metade: a metade `cluster_id` continua incondicionalmente verdadeira e sozinha já torna o passo obrigatório.
 
 > **Nota histórica.** O guia *13-nomes-geograficos* (absorvido):452-454 diz que pular `ng.refresh_busca()` produz "duplicatas no resultado"; o efeito real do código é o **oposto**. A dedup é `SELECT DISTINCT ON (nome, tipo, cluster_id)` (`backend/src/modules/nomes/nomes.queries.js:31`), e `DISTINCT ON` no PostgreSQL trata NULLs como iguais. Com `cluster_id` NULL em toda a tabela, todas as ocorrências de um mesmo `nome`+`tipo` colapsam em **uma única linha** (a mais próxima), inclusive homônimos legítimos a centenas de quilômetros de distância, que somem do resultado. O sintoma é resultado faltando, não duplicado.
 
-> [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] A migração justificava o `UPDATE tipo = tipo` de `ng.refresh_busca()` dizendo que "COPY bypasses BEFORE INSERT triggers". **Medido contra o PostgreSQL desta instalação: COPY DISPARA o trigger BEFORE INSERT de linha** (com INSERT de controle provando que o trigger existia). O que COPY não dispara são RULES. O comentário foi corrigido: o re-fire é defensivo/idempotente e o passo continua obrigatório pelos CLUSTERS, que nada mais recomputa. A migração é forward-only — só o comentário mudou.
+## Histórico
+
+- **2026-07-24.** O comentário de `004_ng.sql` que justificava o re-fire de trigger com "COPY bypasses BEFORE INSERT triggers" foi corrigido no próprio arquivo, apesar de a migração ser forward-only: só o comentário mudou, nenhum DDL. Vale registrar o precedente, porque a regra "migração aplicada não se edita" costuma ser lida como absoluta e aqui a exceção é deliberada (comentário não executa, e comentário errado dentro de migração é a forma de doc que mais engana, já que é o lugar onde um agente mais confia).
 
 ## Fontes
 

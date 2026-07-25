@@ -16,13 +16,13 @@ O DDL (`backend/src/database/migrations/003_sync.sql:95-115`) rejeita explicitam
 
 ## Contratos congelados
 
-- **`id` é slug textual escolhido pelo admin, imutável.** É a chave que o frontend indexa e que `atlas.settings.available_*` referencia. Colisão dá 409 (`catalog.service.js:43`); **não existe rota de rename**. Renomear é criar novo e reapontar todos os settings.
+- **`id` é slug textual escolhido pelo admin, imutável.** É a chave que o frontend indexa e que `atlas.settings.available_*` referencia. Colisão dá 409 (`backend/src/modules/catalog/catalog.service.js:43`); **não existe rota de rename**. Renomear é criar novo e reapontar todos os settings.
 - **`config.style` de basemap é servido verbatim** em `config.basemapStyles` para todo cliente, inclusive anônimo. Um style malformado gravado brica o mapa base de todo mundo no próximo boot; daí a validação no create e no update. O validador do backend (`backend/src/utils/maplibre-style-validate.js`) **espelha** o do cliente (`frontend/src/js/utilities/maplibre-style-validate.js`); mudou um, mude o outro. Ver [[sintese-contratos-congelados]].
 - **`analysis_layer` sem `bounds` de 4 elementos é filtrado fora do `/config`** (`backend/src/modules/config/config.service.js:86-96`). Uma camada seedada incompleta já quebrou o boot da aplicação. Consequência que parece bug e não é: você cria pela API, recebe 201, ela aparece em `GET /analysis-layers` e **não aparece no `/config`**. Confira o `bounds` antes de abrir chamado.
 
 ## Soft delete: o caminho sem volta
 
-`DELETE` faz `active = false` e responde 204; a linha fica. O filtro `active = true` precisa existir em **três** lugares (list, get por id, e o `WHERE` do update) e a ausência em cada um já foi bug: item soft-deletado seguia legível por id direto e editável de volta à visibilidade (`catalog.service.js:33-35, 56-57`).
+`DELETE` faz `active = false` e responde 204; a linha fica. O filtro `active = true` precisa existir em **três** lugares (list, get por id, e o `WHERE` do update) e a ausência em cada um já foi bug: item soft-deletado seguia legível por id direto e editável de volta à visibilidade (`backend/src/modules/catalog/catalog.service.js:33-35, 56-57`).
 
 **Não há rota de reativar.** Ressuscitar é operação de banco. Se você precisa disso, é rota nova, não um `PUT`.
 
@@ -54,7 +54,7 @@ Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo i
 
 > **[!CONTRADICAO]** O `@fileoverview` de `frontend/src/js/admin/catalog-tab.js:6` ainda afirma que as categorias "go through the existing `/api/v1/resources` admin CRUD". É comentário obsoleto no próprio arquivo que usa o mapeamento por tipo. O código convida ao erro aqui: confie no `_catalogEndpoint`, não no fileoverview.
 
-> **Nota histórica.** O guia §3.2 afirma que `active` não é incluído na resposta de listagem. É incluído (`COLS` em `catalog.service.js:9`). A parte correta é que a listagem só devolve `active = true`.
+> **Nota histórica.** O guia §3.2 afirma que `active` não é incluído na resposta de listagem. É incluído (`COLS` em `backend/src/modules/catalog/catalog.service.js:9`). A parte correta é que a listagem só devolve `active = true`.
 
 > **Nota histórica.** O guia §3.6 descreve o DELETE como "204 No Content" sem dizer que é soft delete, e §3.7 exemplifica `config` de basemap com `{ url, attribution, maxZoom, minZoom }` e um array `legend` em analysis_layer. Nenhuma dessas chaves existe no seed nem é lida pelo `backend/src/modules/config/config.service.js`.
 

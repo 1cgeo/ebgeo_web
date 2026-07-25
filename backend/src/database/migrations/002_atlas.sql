@@ -174,7 +174,22 @@ CREATE TABLE features (
     -- All style, attribute, and type-specific properties
     properties      JSONB NOT NULL DEFAULT '{}',
 
-    -- Organizational layer reference
+    -- Organizational layer reference.
+    --
+    -- SEM "REFERENCES layers(id)", E ISSO E DELIBERADO. Repare que as irmas deste mesmo
+    -- arquivo TEM a FK (groups.parent_id, group_features.group_id), entao a ausencia aqui
+    -- parece esquecimento e nao e: acrescentar a FK e uma regressao de sync, nao higiene
+    -- de schema.
+    --
+    -- O motivo: as operacoes chegam por ordem de chegada num log, nao numa ordem
+    -- topologica. Uma feicao pode referenciar uma camada cujo CREATE ainda nao chegou, ou
+    -- cujo CREATE foi eliminado pela compactacao da fila de saida do cliente
+    -- (CREATE+DELETE some do par). Com FK, esses casos viram 23503 e ENVENENAM o lote
+    -- inteiro, travando a fila daquele cliente para sempre. Sem FK, viram uma referencia
+    -- pendurada, que o cliente degrada mostrando a feicao fora de camada.
+    --
+    -- Integridade referencial nao e imponivel num log de aplicacao por ordem de chegada.
+    -- Registrado em docs/wiki/atlas-modelo-de-dados.md.
     layer_id        UUID,
 
     -- Sync metadata

@@ -105,12 +105,30 @@ export async function flexibleAuth(req, res, next) {
         return next();
       }
 
-      // Re-issue with the CURRENT global role so a demotion propagates instead of
-      // being carried forward forever. `org_role`/`organization_id` keep coming from
-      // the token mapping — a legacy token without org claims must still degrade to
-      // viewer/null (auth-gaps auth-05).
+      // Re-issue with the CURRENT claims so a demotion propagates instead of being
+      // carried forward forever.
+      //
+      // `role` was reconciled from the start; `org_role`/`organization_id` were not,
+      // and that half-fix left the exact hole the other half had closed. The renewal
+      // re-signs `req.user`, whose org claims came from the OLD token, so while a
+      // cookie client kept sliding an org demotion (editor -> viewer) NEVER propagated:
+      // not a 15-min window, an unbounded one. `org_role` is real authorization —
+      // sv360.routes.js requireUploadCapability and sv360.write.service.js decide write
+      // access by it — so "bounded by the token lifetime", the cost accepted for the
+      // strict path, was not what this path actually charged.
+      //
+      // The reconciliation is conditional on the token ALREADY CARRYING the claim, and
+      // that condition is the whole reason auth-gaps auth-05 still holds: a LEGACY token
+      // (minted before the org claims existed) must keep degrading to viewer/null from
+      // the mapping, never being promoted out of the DB. Absent claim -> degrade;
+      // present claim -> reconcile. The two rules were previously conflated, which is
+      // why "never reconcile" looked like the only way to honour the first one.
       if (live) {
         req.user.role = live.role;
+        if (payload.org_role !== undefined || payload.organization_id !== undefined) {
+          req.user.org_role = live.orgRole;
+          req.user.organization_id = live.organizationId;
+        }
       }
       res.cookie('token', issueAccessToken(req.user), env.cookieOptions());
     }

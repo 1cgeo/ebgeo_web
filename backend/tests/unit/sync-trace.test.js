@@ -17,7 +17,16 @@ describe('sync-trace — backend SyncLedger ring', () => {
     setTraceEnabled(true);
   });
 
-  it('is enabled under NODE_ENV=test', () => {
+  // The assertion "is enabled under NODE_ENV=test" used to live here. It was
+  // UNFALSIFIABLE: the beforeEach above calls setTraceEnabled(true) before every it,
+  // so isTraceEnabled() would have read true even if the module initializer were
+  // hard-coded to false. The real gate is verified out-of-process, where the
+  // initializer actually runs: tests/unit/sync-trace-env-gate.test.js.
+
+  it('setTraceEnabled toggles the flag both ways', () => {
+    setTraceEnabled(false);
+    assert.equal(isTraceEnabled(), false);
+    setTraceEnabled(true);
     assert.equal(isTraceEnabled(), true);
   });
 

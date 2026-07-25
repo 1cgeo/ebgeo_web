@@ -2,7 +2,7 @@
 
 Camada aditiva e gated de tracing test/dev-only que carimba um traceId no gesto e grava spans tipados em ring buffers do browser e do backend, fundidos por op.id para tornar o pipeline multiusuário verificável ponta a ponta.
 
-O código do módulo (`src/js/store/sync/diag/`) é fortemente comentado: enum de estágios, custo do `record()`, motivo do probe de render ser opt-in e a razão de cada drop estão no JSDoc do próprio arquivo. Esta página cobre só o que **não** se descobre lendo um arquivo por vez.
+O código do módulo (`frontend/src/js/store/sync/diag/`) é fortemente comentado: enum de estágios, custo do `record()`, motivo do probe de render ser opt-in e a razão de cada drop estão no JSDoc do próprio arquivo. Esta página cobre só o que **não** se descobre lendo um arquivo por vez.
 
 ## Por que a chave de junção é `op.id` e não `traceId`
 
@@ -22,6 +22,7 @@ O `traceId` é publicado como ambiente e lido **sincronamente** por `createOpera
 - **Ausência de `action.origin` significa transação abortada, não tracer perdido.** O span é gravado depois da persistência (`frontend/src/js/store/store-transaction.js:122`); um gesto cujo `persistFn` lança faz rollback antes de qualquer span.
 - **Uma op de feição apenas bufferizada não emite `apply.persist`.** Ela emite quando `drainPendingFeatureOps` de fato grava (`frontend/src/js/store/sync/remote-operation-handler.js:72`), que pode ser bem depois. Ver [[aplicacao-operacoes-remotas]].
 - **O ring corta em 5000 spans por `splice`** (`frontend/src/js/store/sync/diag/trace-core.js:20`, `:84`). Em run longo os spans mais antigos somem sem aviso e uma op antiga parece nunca ter existido. Use `setCapacity` ou drene por teste.
+- **O anel do servidor tem dois cortes, não um, e o segundo pega quem não espera.** Além dos 5000 spans **por atlas**, o `Map` de anéis retém no máximo `MAX_ATLAS_RINGS` (64) e evicta o mais antigo por FIFO (`backend/src/utils/sync-trace.js:35-41`, `:77-83`). Uma suíte que cria um atlas por spec passa desse teto e perde os spans de servidor dos primeiros: `collectLedger` continua devolvendo cadeia, só que degradada para o lado do cliente, sem avisar. Quem procura o sumiço olha o ring do browser, que está intacto. (`clearTrace` sem `atlasId` ainda limpa todos os anéis; o que deixou de alcançar esse caminho foi o HTTP, que agora exige `atlasId`.)
 
 ## O que não é bug (invariante I10)
 
@@ -31,25 +32,29 @@ Caso que confunde mais: mutações fora do log de ops (`atlas_updated`, `map_dup
 
 ## Ordenação causal
 
-`serverVersion` primeiro, depois `ts`, depois `seq` por ator (`frontend/tests/e2e-ui/helpers/ledger.js:47-52`). **Nunca ordene por relógio de parede entre atores.** Coerente com [[modelo-conflito-lww]]: quem vence é `max(serverVersion)`, não o timestamp nem o Lamport (ver [[sintese-nao-e-crdt]]).
+`serverVersion` primeiro, depois `ts`, depois `seq` por ator (`frontend/tests/e2e-ui/helpers/ledger.js:47-52`). **Nunca ordene por relógio de parede entre atores.** Coerente com [[modelo-conflito-lww]]: quem vence é `max(serverVersion)`, não o timestamp nem o Lamport.
 
-## Contradições pendentes
+## O elo que a lista canônica de spans esquece
 
-> **[!CONTRADICAO]** O guia *arquitetura-sync* (absorvido) §12.3 lista os spans instrumentados como `frontend/src/js/store/sync/operation-dispatcher.js`, `frontend/src/js/store/sync/sync-engine.js`, `frontend/src/js/store/sync/ws-client.js` e `frontend/src/js/store/sync/sync-gateway.js`, e **não menciona `apply.persist`**. O código emite `apply.persist` em quatro pontos: `frontend/src/js/store/sync/operation-dispatcher.js:152` e `:212` (autor), `frontend/src/js/store/sync/remote-operation-handler.js:72` e `:356` (peer). O doc está desatualizado em relação ao wire de cadeia completa.
+`apply.persist` é o span que fecha a cadeia completa ("escreveu no IndexedDB") e é o que falta em toda enumeração herdada de emissores, que costuma parar em dispatcher, engine, ws-client e gateway. Ele sai de **quatro** pontos, dois de cada lado: `frontend/src/js/store/sync/operation-dispatcher.js:152` e `:212` (autor), `frontend/src/js/store/sync/remote-operation-handler.js:72` e `:356` (peer). Um teste que espera cadeia completa e não vê esses quatro está medindo transporte, não persistência.
 
-**RESOLVIDO 2026-07-24.** O espelho de backend do enum de estágios é
-`backend/src/utils/sync-trace.js`, e só ele. O JSDoc de
-`frontend/src/js/store/sync/diag/trace-stages.js:7` apontava para
-ebgeo_backend/src/modules/collab/trace/trace-stages.js — escrito aqui **sem crase de
-propósito**, porque o caminho não existe e o `docs-integridade` verifica toda citação
-entre crases. Estava morto **duas vezes**: prefixo do layout pré-monorepo mais um
-diretório `collab/trace/` que nunca existiu no backend. Não eram dois arquivos distintos, era um ponteiro podre. Os dois
-lados agora se citam mutuamente pelo caminho real, e continuam precisando ficar em
-lockstep — estágio desconhecido faz o merger sinalizar.
+## Espelho de estágios entre os dois pacotes
+
+O espelho de backend do enum de estágios é `backend/src/utils/sync-trace.js`, e só ele. Os dois lados se citam mutuamente pelo caminho real e precisam ficar em lockstep: estágio desconhecido faz o merger sinalizar.
+
+## O anel do servidor: dois guardas, não um
+
+`backend/src/modules/debug/debug.routes.js` expõe `GET`/`DELETE /api/v1/debug/trace`, e a garantia "nunca em produção" é uma **conjunção** verificada no ponto de montagem: `isTraceEnabled() && !config.isProd` (`backend/src/app.js:182`). O segundo termo existe porque `EBGEO_TRACE=1` pode vazar para um ambiente de produção; nesse caso o tracer liga e as rotas continuam não montadas.
+
+O segundo não-óbvio é o gate: o anel é **por atlas**, então ler ou limpar é ação por atlas e passa por `requireAtlasPermission`, não por `auth` sozinho. O `atlasId` chega como query param (as rotas de sync usam param de rota), e `liftAtlasIdToParams` o promove a `req.params` antes do gate, rejeitando 400 quando ausente. O `DELETE` pede `manage`, mais que o `read` do `GET`, porque a versão anterior aceitava a ausência de `atlasId` como "limpe todos os anéis", que era um wipe cross-atlas por qualquer portador de token.
 
 ## Fontes
 
-- `src/js/store/sync/diag/{trace-stages,trace-core,bus-tap}.js`: contrato de estágios, ring buffer, tap `onAny` e probe de render (JSDoc extenso, leia antes de perguntar).
+- `frontend/src/js/store/sync/diag/` (`trace-stages`, `trace-core`, `bus-tap`): contrato de estágios, ring buffer, tap `onAny` e probe de render (JSDoc extenso, leia antes de perguntar).
 - `frontend/src/js/store/store-transaction.js`, `frontend/src/js/store/sync/operation-factory.js`: mint e propagação do `traceId`.
-- `tests/e2e-ui/helpers/{trace-helpers,ledger}.js`: esperas determinísticas, merge dos anéis, ordenação causal e invariantes de cadeia.
-- guia *arquitetura-sync* (absorvido) §12-13 e *05-sync-crdt* (absorvido) §1: origem das duas contradições acima.
+- `frontend/tests/e2e-ui/helpers/trace-helpers.js` e `frontend/tests/e2e-ui/helpers/ledger.js`: esperas determinísticas, merge dos anéis, ordenação causal e invariantes de cadeia.
+
+## Histórico
+
+- 2026-07-24: o JSDoc de `frontend/src/js/store/sync/diag/trace-stages.js:7` apontava para um espelho de backend em `collab/trace/`, caminho morto duas vezes (prefixo do layout pré-monorepo mais um diretório que nunca existiu). Não eram dois arquivos distintos, era um ponteiro podre; os dois lados passaram a se citar pelo caminho real.
+- 2026-07-25: apagado um `[!CONTRADICAO]` que registrava a ausência de `apply.persist` na enumeração de spans de um guia absorvido. Contradição contra prosa já removida é irresolvível por construção; o fato virou a seção sobre o quarto elo.

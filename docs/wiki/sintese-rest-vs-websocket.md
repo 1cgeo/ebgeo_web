@@ -54,4 +54,4 @@ Só REST perderia o tempo real: polling de sala custaria caro e presença ficari
 
 ## Páginas comparadas
 
-[[canal-collab-websocket]], [[api-rest-atlas]], [[fila-operacoes-outbound]], [[envelope-operacao]], [[ack-idempotencia]], [[aplicacao-operacoes-remotas]], [[sessao-boot-e-ciclo-de-vida]], [[compartilhamento-atlas]], [[permissoes-atlas]], [[sintese-nao-e-crdt]], [[sintese-limites-collab]], [[modos-operacao]].
+[[canal-collab-websocket]], [[api-rest-atlas]], [[fila-operacoes-outbound]], [[envelope-operacao]], [[ack-idempotencia]], [[aplicacao-operacoes-remotas]], [[sessao-boot-e-ciclo-de-vida]], [[compartilhamento-atlas]], [[permissoes-atlas]], [[modelo-conflito-lww]], [[sintese-limites-collab]], [[modos-operacao]].

@@ -21,6 +21,7 @@ PostGIS **nunca** entra no schema do atlas. A decisão é deliberada: filtro esp
 Runner `node src/database/migrate.js` (`npm run db:migrate`), forward-only, tracking por **nome de arquivo** em `_migrations`, cada arquivo numa transação junto com o `INSERT` de tracking (`backend/src/database/migrate.js:66-82`).
 
 - **Nunca renomeie nem renumere** migração já aplicada: o tracking é por nome, renomear reaplica o DDL.
+- **Editar o CONTEÚDO de uma migração já aplicada não faz nada e não avisa.** Esta é a terceira forma da regra, e é a única que de fato ocorreu aqui. O tracking guarda só o nome, sem checksum (`backend/src/database/migrate.js:55-56`, `:66-67`, `:78`), então a edição é indetectável por construção: quem já aplicou o arquivo nunca a verá. Foi assim que a tabela `comments` entrou, editando o baseline in-place, e a prova está no próprio arquivo, cujo cabeçalho enumera as tabelas que ele cria e não lista `comments` (`backend/src/database/migrations/002_atlas.sql:2-5` contra `:220`). Um banco que aplicou a 002 antes daquela edição não tem a tabela, nada futuro o corrige (forward-only, o nome já consta em `_migrations`) e a falha só aparece no primeiro uso, como `42P01` em `GET_ATLAS_COMMENTS` (`backend/src/modules/sync/sync.queries.js:141-147`). Em ambiente pré-existente, confira a existência da tabela antes de subir, ou emita a próxima migração com `CREATE TABLE IF NOT EXISTS`.
 - Baseline congelada em 5 arquivos (`001_core` a `005_sv360`); correção é sempre um **novo** número.
 - **Advisory lock database-wide** (`SELECT pg_advisory_lock(0x4d494752)`, `backend/src/database/migrate.js:18,51`). Sem ele, dois containers subindo juntos aplicavam o mesmo DDL duas vezes antes de o `UNIQUE(name)` falhar, ou seja, o efeito colateral já tinha rodado quando o erro apareceu. Rolling deploy é seguro, mas o perdedor **espera**, não falha.
 - **PostGIS é extensão untrusted** e exige superusuário (`backend/src/database/migrations/004_ng.sql:12`). Como a 004 roda incondicionalmente, PostGIS é pré-requisito de **qualquer** deploy, mesmo um deploy só de atlas. Resolva antes: imagem `postgis/postgis` (habilita no `template1`) ou DBA pré-criando a extensão em managed DB.
@@ -54,6 +55,13 @@ Cada regra existe por um estrago observado, não por higiene (`config.js:216-292
 **A topologia de porta inverte entre dev e compose**, e isso já derrubou o boot uma vez. Em dev o backend é **:8080** e o Vite **:3000**, que faz proxy de `/api` (`backend/.env.example:11,26`). No `docker-compose.yml:28,31` o app escuta **:3000** e o `CORS_ORIGIN` aponta para :8080. Cada um é coerente consigo, mas ler um e aplicar no outro produz um CORS que recusa exatamente a origem certa. Confira de qual dos dois mundos veio o valor antes de copiá-lo.
 
 `NODE_ENV=production` é o **interruptor único de segurança**: liga HSTS 180 dias (`backend/src/app.js:46`), cookies `Secure`/`SameSite=strict`, exige `JWT_SECRET` >= 32 e desliga self-registration por default (`config.js:31-35`). `COOKIE_SECRET` e `USE_HTTPS` **não existem no código**, configurá-las é no-op. TLS termina no NGINX.
+
+**O bloco de e-mail e confirmação de conta não está em `backend/.env.example`**, que é o primeiro lugar onde um operador procura, então ele existe só no `config.js` e nesta página:
+
+- `APP_BASE_URL` (default vazio) constrói o link `?verify=`. Vazia, o link sai **relativo**, e não apontando para a origem da requisição: `resolveVerificationBase` (`backend/src/utils/mailer.js:50-60`) só honra uma origem vinda do cliente quando ela é igual à de `CORS_ORIGIN`, justamente para que um `Origin` forjado não vire link de verificação para o host do atacante. Em produção com o app noutro host, configure-a.
+- `SMTP_HOST` ausente (o default) deixa o mailer em no-op que **loga o link** em vez de enviá-lo. É o modo esperado em dev e em rede fechada sem relay, e é silencioso: ninguém recebe e-mail e nada falha. `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` e `MAIL_FROM` completam o bloco (`backend/src/config.js:166-173`).
+- `AUTH_VERIFICATION_TTL_HOURS`, default 48 (`backend/src/config.js:156`).
+- `AUTH_VERIFICATION_MODE` (`backend/src/config.js:155`) entra na **mesma lista de no-op** de `COOKIE_SECRET`/`USE_HTTPS`: é lida na definição e em nenhum outro ponto de `backend/src`. Setá-la como `admin` esperando trocar o fluxo de ativação não dá erro nem efeito.
 
 ## Config servido em runtime
 
@@ -110,7 +118,7 @@ Baseline em [[hardening-borda-api]] e [[upload-imagens-seguranca]]. Do ponto de 
 
 `SIGTERM`/`SIGINT` disparam `shutdown()` (`backend/src/index.js:37-63`), que fecha **primeiro** os sockets de collab, depois `server.close()`, depois `blobPool.closeAll()` e `pgp.end()`.
 
-Os sockets de colaboração são long-lived por design, então `server.close()` (que espera toda conexão terminar) nunca chamava o callback enquanto houvesse um aberto: `blobPool.closeAll()` e `pgp.end()` eram simplesmente pulados. No Windows isso deixava handles SQLite abertos e **quebrava o start seguinte**. O force-exit de 10s (`SHUTDOWN_TIMEOUT_MS`, `index.js:25,42-45`) usa `unref()` para o próprio timer não segurar o processo.
+Os sockets de colaboração são long-lived por design, então `server.close()` (que espera toda conexão terminar) nunca chamava o callback enquanto houvesse um aberto: `blobPool.closeAll()` e `pgp.end()` eram simplesmente pulados. No Windows isso deixava handles SQLite abertos e **quebrava o start seguinte**. O force-exit de 10s (`SHUTDOWN_TIMEOUT_MS`, `backend/src/index.js:25,42-45`) usa `unref()` para o próprio timer não segurar o processo.
 
 Defina `terminationGracePeriodSeconds` acima dos 10s, senão o orquestrador mata antes do force-exit e o ganho da ordem se perde.
 
@@ -142,10 +150,9 @@ Ambos os importadores são invocação direta de `node`, sem npm script (`backen
 
 O "nunca em produção" não é higiene genérica: é uma conta administrativa com senha em texto no repositório. E o seed é idempotente por `ON CONFLICT (username) DO UPDATE SET password_hash`, então rodar de novo **reseta as senhas** para o valor de fábrica, mesmo que alguém as tenha trocado (`backend/src/database/seed.js:33,45`). A parte do atlas é pulada se já existir com `deleted_at IS NULL`, mas as senhas caem do mesmo jeito.
 
-Duas armadilhas ao montar ambiente:
+Uma armadilha ao montar ambiente: nenhum dos dois usuários tem `email`, então o portão de confirmação nunca dispara e ambos logam de imediato ([[autenticacao-jwt]], [[gestao-usuarios]]).
 
-- `cap.silva` resolve posto/OM por **subquery de nome** (`nome_abrev = 'Cap'`, `sigla = 'CIGEx'`, `backend/src/database/seed.js:43-44`). Sem as migrações de [[organizacoes-om]] aplicadas a subquery devolve `NULL` e o usuário nasce **sem posto e sem OM, silenciosamente**, não com erro.
-- Nenhum dos dois tem `email`, então o portão de confirmação nunca dispara e ambos logam de imediato ([[autenticacao-jwt]], [[gestao-usuarios]]).
+> **Nota histórica.** Esta lista trazia uma segunda armadilha: `cap.silva` resolve posto e OM por subquery de nome (`nome_abrev = 'Cap'`, `sigla = 'CIGEx'`, `backend/src/database/seed.js:43-44`) e nasceria **sem posto e sem OM, em silêncio**, se as migrações de [[organizacoes-om]] não tivessem sido aplicadas. Depois da consolidação em baseline esse estado deixou de ser alcançável: o seed de `organizations` e o de `ranks` vivem na MESMA migração que cria `users` (`backend/src/database/migrations/001_core.sql:32-40`, `:58-77`, `:84`), e o runner aplica cada arquivo numa transação única com o `INSERT` de tracking (`backend/src/database/migrate.js:76-79`). Ou a 001 entrou inteira e as subqueries resolvem, ou não há tabela `users` e o seed falha ruidosamente antes. Não há caminho intermediário.
 
 ## Fontes
 

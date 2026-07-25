@@ -264,23 +264,34 @@ describe('E2E: sharing + sync authorization lifecycle', () => {
 
   // -------------------------------------------------------------------------
   // STEP 6 — Stranger (no share) reads the atlas. NEGATIVE.
-  // Proves: a user with no grant on a private atlas is denied (403) and gets
-  // NO atlas payload — nothing leaks through the read endpoint.
+  // Proves: a user with no grant on a private atlas is denied (404, the rung of the
+  // escada for "no relation at all") and gets NO atlas payload — nothing leaks
+  // through the read endpoint, not even that the atlas is there.
   // -------------------------------------------------------------------------
-  it('6. stranger GET atlas -> 403, no data leaked', async () => {
+  it('6. stranger GET atlas -> 404, no data leaked', async () => {
     const res = await supertest(app)
       .get(`${API}/atlas/${atlasId}`)
       .set('Authorization', `Bearer ${stranger.token}`)
-      .expect(403);
+      .expect(404);
 
     // The error envelope must not carry atlas data.
     assert.ok(!res.body.data, 'no data field on a denied read');
+
+    // "Nothing leaks" has to include existence: same envelope as an id never created.
+    const inexistente = await supertest(app)
+      .get(`${API}/atlas/${randomUUID()}`)
+      .set('Authorization', `Bearer ${stranger.token}`)
+      .expect(404);
+    // Anti-vacuity anchor: two bodies with no `error` field would compare equal.
+    assert.equal(res.body.error.code, 'NOT_FOUND');
+    assert.equal(res.body.error.code, inexistente.body.error.code);
+    assert.equal(res.body.error.message, inexistente.body.error.message);
 
     // And the stranger is likewise blocked from the snapshot read path.
     await supertest(app)
       .get(`${API}/atlas/${atlasId}/sync/0`)
       .set('Authorization', `Bearer ${stranger.token}`)
-      .expect(403);
+      .expect(404);
   });
 
   // -------------------------------------------------------------------------
@@ -321,10 +332,12 @@ describe('E2E: sharing + sync authorization lifecycle', () => {
 
   // -------------------------------------------------------------------------
   // STEP 8 — Owner revokes the viewer entirely (DELETE share).
-  // Proves: revocation takes effect immediately — the viewer's next read is
-  // denied (403), and the share row is gone from the DB.
+  // Proves: revocation takes effect immediately — the viewer's next read is denied
+  // (404: with the share row gone there is no relation left, so the atlas goes back
+  // to being invisible, not merely closed), and the row is gone from the DB.
+  // Contrast with STEP 7, which stays 403: a DOWNGRADED editor still holds a share.
   // -------------------------------------------------------------------------
-  it('8. owner revokes viewer -> viewer read now 403', async () => {
+  it('8. owner revokes viewer -> viewer read now 404', async () => {
     await supertest(app)
       .delete(`${API}/atlas/${atlasId}/sharing/users/${viewer.id}`)
       .set('Authorization', `Bearer ${owner.token}`)
@@ -341,13 +354,13 @@ describe('E2E: sharing + sync authorization lifecycle', () => {
     await supertest(app)
       .get(`${API}/atlas/${atlasId}`)
       .set('Authorization', `Bearer ${viewer.token}`)
-      .expect(403);
+      .expect(404);
 
     // And the snapshot read path is denied too.
     await supertest(app)
       .get(`${API}/atlas/${atlasId}/sync/0`)
       .set('Authorization', `Bearer ${viewer.token}`)
-      .expect(403);
+      .expect(404);
   });
 
   // -------------------------------------------------------------------------
@@ -385,10 +398,11 @@ describe('E2E: sharing + sync authorization lifecycle', () => {
     // The link no longer resolves anonymously.
     await supertest(app).get(`${API}/atlas/public/${publicLink}`).expect(404);
 
-    // And the still-unshared viewer is denied again (back to private).
+    // And the still-unshared viewer is denied again (back to private) — 404, since
+    // with the public flag off this viewer once more has no relation to the atlas.
     await supertest(app)
       .get(`${API}/atlas/${atlasId}`)
       .set('Authorization', `Bearer ${viewer.token}`)
-      .expect(403);
+      .expect(404);
   });
 });

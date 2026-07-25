@@ -1,6 +1,6 @@
 # Idempotência por op_id e Convergence Guard
 
-Dois mecanismos independentes: `UNIQUE(atlas_id, op_id)` no servidor mata a *duplicação* por reenvio; o adiamento de ops remotas sobre entidade com edição local não-ackada mata a *divergência* na janela otimista. Nenhum dos dois é merge (ver [[sintese-nao-e-crdt]]).
+Dois mecanismos independentes: `UNIQUE(atlas_id, op_id)` no servidor mata a *duplicação* por reenvio; o adiamento de ops remotas sobre entidade com edição local não-ackada mata a *divergência* na janela otimista. Nenhum dos dois é merge (ver [[modelo-conflito-lww]]).
 
 O código é denso em comentários de projeto: `frontend/src/js/store/sync/remote-operation-handler.js:84-125` e o bloco "P2" que abre `pushOperations` (`backend/src/modules/sync/sync.service.js`) explicam o mecanismo melhor do que qualquer paráfrase. Esta página registra só o que não está lá.
 
@@ -38,4 +38,4 @@ Cobertura: `frontend/tests/integration/remote-operation-handler.test.js:1160`.
 
 ## Relacionados
 
-[[envelope-operacao]], [[modelo-conflito-lww]], [[fila-operacoes-outbound]], [[aplicacao-operacoes-remotas]], [[tabela-operations]], [[ack-idempotencia]], [[snapshot-e-pull-incremental]], [[sintese-nao-e-crdt]], [[sintese-rest-vs-websocket]], [[permissoes-atlas]], [[client-id-estavel]], [[canal-collab-websocket]], [[tipos-entidade-sync]], [[syncledger]].
+[[envelope-operacao]], [[modelo-conflito-lww]], [[fila-operacoes-outbound]], [[aplicacao-operacoes-remotas]], [[tabela-operations]], [[ack-idempotencia]], [[snapshot-e-pull-incremental]], [[sintese-rest-vs-websocket]], [[permissoes-atlas]], [[client-id-estavel]], [[canal-collab-websocket]], [[tipos-entidade-sync]], [[syncledger]].

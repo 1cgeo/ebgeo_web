@@ -6,7 +6,7 @@ Concessão nominal de acesso a um atlas gravada em `atlas_shares`, gerida por qu
 
 O `CHECK` de `atlas_shares` só aceita `read|comment|write|manage`; `owner` é sintetizado de `atlas.owner_id` em `resolvePermission()` (`backend/src/middleware/permissions.js:30-48`). Essa ausência é o contrato congelado do qual quase toda armadilha abaixo deriva. Consequência imediata: **remover o dono devolve 404**, porque `DELETE ... RETURNING` não acha linha e vira `NotFoundError('Share')` (`backend/src/modules/sharing/sharing.service.js:51-57`).
 
-> [!CONTRADICAO] O comentário em `backend/src/modules/sharing/sharing.routes.js:11-14` afirma que remover o dono é "a no-op on them". Não é: é 404. O comentário mente sobre o service que ele mesmo monta.
+> [!CONTRADICAO 2026-07-25] O comentário em `backend/src/modules/sharing/sharing.routes.js:11-14` afirma que remover o dono é "a no-op on them". Não é: é 404. O comentário mente sobre o service que ele mesmo monta.
 
 Enviar `permission: 'owner'` no corpo é **400 e não 403**, porque quem barra é o Joi (`backend/src/modules/sharing/sharing.schemas.js:6`), não o gate de permissão. Ver [[permissoes-atlas]], [[atlas-modelo-de-dados]] e [[erros-api]].
 
@@ -14,11 +14,13 @@ Enviar `permission: 'owner'` no corpo é **400 e não 403**, porque quem barra �
 
 Todas as rotas exigem `manage`, não `owner`. Um co-Gestor pode conceder até `manage`, ou seja, **criar outros co-Gestores e remover quem o promoveu**. Não há proteção contra auto-rebaixamento nem contra remoção mútua entre gestores; foi aceito assim porque a posse real só muda pela rota de transferência (owner-only), que é o único degrau irreversível. Ver [[atlas-modelo-de-dados]].
 
-> [!CONTRADICAO] O JSDoc do modal (`frontend/src/js/modals/sharing.modal.js:15-16` e `735-736`) afirma que "the backend also enforces owner-only on every mutation". O gate real é `manage` (`backend/src/modules/sharing/sharing.routes.js:15-20`). Não use esse JSDoc para decidir quando oferecer o botão.
+> [!CONTRADICAO 2026-07-25] O JSDoc do modal (`frontend/src/js/modals/sharing.modal.js:15-16` e `735-736`) afirma que "the backend also enforces owner-only on every mutation". O gate real é `manage` (`backend/src/modules/sharing/sharing.routes.js:15-20`). Não use esse JSDoc para decidir quando oferecer o botão.
 
 ## Armadilhas de comportamento
 
 **`POST /users` é upsert, não create.** `ON CONFLICT (atlas_id, user_id) DO UPDATE SET permission` (`backend/src/modules/sharing/sharing.queries.js:29`). Reenviar o `POST` para quem já é membro **altera** a permissão e ainda responde 201. Não existe 409, então um duplo clique pode rebaixar silenciosamente um editor para leitor. O modal se protege no cliente (`frontend/src/js/modals/sharing.modal.js:699-700`); o servidor não. Não confie nessa guarda ao escrever outro cliente.
+
+**`added_by` e `added_at` descrevem a concessão original, nunca a atual.** O upsert só atualiza `permission` (`ON CONFLICT ... DO UPDATE SET permission`, `backend/src/modules/sharing/sharing.queries.js:26-31`), o `PUT` também não os toca, e a tabela não tem `updated_at` (`backend/src/database/migrations/002_atlas.sql:59-68`). Depois que um co-Gestor promove ou rebaixa alguém concedido por outro, o `addedBy` que o `GET` devolve aponta para a pessoa errada. Quem mudou o nível existe, mas só no log de auditoria (`PERMISSION_GRANT` / `PERMISSION_REVOKE` / `SHARING_CHANGE`, emitidos em `backend/src/modules/sharing/sharing.service.js`), nunca na linha da tabela. Não construa tela de governança sobre `addedBy`; ver [[auditoria]].
 
 **`POST` valida o usuário, `PUT` não.** `addUserShare` checa `is_active = true` antes de inserir (`backend/src/modules/sharing/sharing.service.js:33-37`); `updateUserShare` opera direto na tabela. Desativar um usuário não apaga os shares dele, apenas impede novas concessões.
 
@@ -38,7 +40,10 @@ Por isso **não reaproveite o objeto do `POST` para atualizar a lista em memóri
 
 Toda mutação faz `broadcastToRoom(..., 'sharing_updated')`. Em `user_added` e `user_updated` o broadcast carrega `role: toFrontendRole(permission)` justamente para o par conectado se re-gatear sem reconectar (`backend/src/modules/sharing/sharing.controller.js`, `backend/src/utils/roles.js`).
 
-**Buraco conhecido:** `user_removed` não traz `role` e não é tratado em lugar nenhum do frontend (`frontend/src/js/store/sync/sync-engine.js:528-535` só reage a `user_added`/`user_updated`). Quem for removido **continua com a UI de edição**, porque nada no cliente reage ao próprio despejo. A segurança fica com o servidor; a UI é cortesia.
+**Buraco conhecido, e é maior que uma ação.** O controller emite `sharing_updated` com **cinco** `action` distintas (`public_enabled`, `public_disabled`, `user_added`, `user_updated`, `user_removed`, `backend/src/modules/sharing/sharing.controller.js`) e o único consumidor de todo o frontend descarta tudo que não seja `user_added`/`user_updated` **do próprio `userId`** (`frontend/src/js/store/sync/sync-engine.js:528-535`). Duas consequências:
+
+- Quem for removido **continua com a UI de edição**, porque nada no cliente reage ao próprio despejo. A segurança fica com o servidor; a UI é cortesia.
+- Publicar ou despublicar não atualiza par nenhum. Como `enablePublicSharing` **rotaciona** o link ([[link-publico]]), um segundo co-Gestor com o modal aberto fica olhando para um link já morto até reabrir o modal.
 
 Quem corta não é o reconnect: `reconcileAuthorization` roda em toda batida de heartbeat (~30s, `backend/src/modules/collab/collab.gateway.js:328`), rechama a mesma `resolvePermission` e, sem permissão sobrando, fecha o socket com `ws.close(4003, 'access revoked')` (`backend/src/modules/collab/collab.gateway.js:118-158`). O caso em que a UI de edição realmente sobrevive é o **atlas público**: ali a resolução cai para `read` em vez de `null`, então o socket é só rebaixado (`backend/src/modules/collab/collab.gateway.js:158`) e o usuário segue editando na tela até o próximo push tomar 403. Ver [[canal-collab-websocket]] e [[sintese-eixos-de-permissao]].
 

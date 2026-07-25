@@ -20,15 +20,15 @@ Todo numérico é `Joi.number()` sem `min`/`max`, e as colunas são `DOUBLE PREC
 
 Detalhe oposto ao esperado: `stripUnknown: true` é global, mas o `.unknown(false)` explícito de cada schema vence, então campo desconhecido dá 422 em vez de ser removido em silêncio.
 
-> **Nota histórica.** guia *16-streetview-360* (absorvido):386` diz que a validação numérica "rejeita `NaN`/`Infinity`/string" e que `calibration_reviewed` é "booleano estrito"; `backend/src/modules/streetview360/sv360.write.schemas.js:25,31` usa `Joi.number()`/`Joi.boolean()` com `convert` no padrão, então `"45"` e `"true"` são coeridos e aceitos.
+> **Nota histórica.** guia *16-streetview-360* (absorvido) diz que a validação numérica "rejeita `NaN`/`Infinity`/string" e que `calibration_reviewed` é "booleano estrito"; `backend/src/modules/streetview360/sv360.write.schemas.js:25,31` usa `Joi.number()`/`Joi.boolean()` com `convert` no padrão, então `"45"` e `"true"` são coeridos e aceitos.
 
 ## Armadilha: override é substituição total, não merge
 
-`UPDATE_TARGET_OVERRIDE` grava as três colunas em toda chamada, com `overrides.override_X ?? null` (`backend/src/modules/streetview360/sv360.write.service.js:145-151`). Um `PUT` com apenas `{"override_bearing": 90}` **zera** `override_distance` e `override_height`. O `.min(1)` do schema (`backend/src/modules/streetview360/sv360.write.schemas.js:94-100`) sugere patch parcial e é justamente o convite ao erro: envie sempre os três.
+`UPDATE_TARGET_OVERRIDE` grava as três colunas em toda chamada, com `overrides.override_X ?? null` (`backend/src/modules/streetview360/sv360.write.service.js:152-158`). Um `PUT` com apenas `{"override_bearing": 90}` **zera** `override_distance` e `override_height`. O `.min(1)` do schema (`backend/src/modules/streetview360/sv360.write.schemas.js:94-100`) sugere patch parcial e é justamente o convite ao erro: envie sempre os três.
 
 O estrago é assimétrico porque no cliente `override_bearing` é o **gatilho** de todo o caminho manual: `frontend/src/js/street_view_tool/navigation/navigator.js:391` só projeta por override se ele for não-nulo, e aí usa `override_distance ?? 5` e `override_height ?? 0` (`:394-396`). Logo, limpar só o bearing desativa em silêncio distância e altura ajustadas; limpar só a distância derruba a projeção para 5 metros default.
 
-> **Nota histórica.** guia *16-streetview-360* (absorvido):436` descreve o override como "define (número) ou limpa (`null`) ... (≥1 campo)", sugerindo que campo omitido é preservado; `backend/src/modules/streetview360/sv360.write.service.js:145-151` grava as três colunas sempre, então campo omitido vira `NULL`.
+> **Nota histórica.** guia *16-streetview-360* (absorvido) descreve o override como "define (número) ou limpa (`null`) ... (≥1 campo)", sugerindo que campo omitido é preservado; `backend/src/modules/streetview360/sv360.write.service.js:152-158` grava as três colunas sempre, então campo omitido vira `NULL`.
 
 ## Armadilha: `mesh_rotation_y` tem dois defaults incompatíveis
 
@@ -40,19 +40,21 @@ Ao mexer em rotação, lembre que a malha usa ordem Euler **ZXY** (`frontend/src
 
 ## Por que a posse ignora o tombstone
 
-`GET_PHOTO_FOR_WRITE` deliberadamente **não** exclui fotos com tombstone (`backend/src/modules/streetview360/sv360.write.queries.js:30-44`), para que a posse resolva no caminho de delete e o re-delete siga idempotente. O efeito colateral: calibrar uma foto tombstoned passa pela posse, executa o UPDATE, e só então o rebuild (que filtra tombstone) lança 404. É por isso que `updateCalibration` roda dentro de `tx()` (`backend/src/modules/streetview360/sv360.write.service.js:117-131`); sem a transação a escrita persistia enquanto o cliente ouvia que nada aconteceu.
+`GET_PHOTO_FOR_WRITE` deliberadamente **não** exclui fotos com tombstone (`backend/src/modules/streetview360/sv360.write.queries.js:30-44`), para que a posse resolva no caminho de delete e o re-delete siga idempotente. O efeito colateral: calibrar uma foto tombstoned passa pela posse, executa o UPDATE, e só então o rebuild (que filtra tombstone) lança 404. É por isso que **toda** escrita que termina em rebuild roda dentro de `tx()`: `updateCalibration`, `updateTargetOverride`, `updateTargetVisibility` e `createTarget` (`backend/src/modules/streetview360/sv360.write.service.js:117-221`). Sem a transação a escrita persistia enquanto o cliente ouvia que nada aconteceu, e o caminho é alcançável porque o tombstone não apaga linhas de `sv360.targets`. As quatro só ficaram simétricas em 2026-07-24; até ali só a calibração estava protegida. `deleteTarget` fica de fora porque não relê nada.
 
-> **Nota histórica.** guia *16-streetview-360* (absorvido):463` diz "1ª chamada → 204; chamadas seguintes → 404" no delete de foto; `backend/src/modules/streetview360/sv360.write.service.js:229-234` (tombstone com `ON CONFLICT DO NOTHING`) e o teste `backend/tests/integration/sv360-write.test.js:497-501` dão **204 idempotente** no re-delete.
+> **Nota histórica.** guia *16-streetview-360* (absorvido) diz "1ª chamada → 204; chamadas seguintes → 404" no delete de foto; `softDeletePhoto` (`backend/src/modules/streetview360/sv360.write.service.js`, tombstone com `ON CONFLICT DO NOTHING`) e o teste `backend/tests/integration/sv360-write.test.js:497-501` dão **204 idempotente** no re-delete.
 
 O link do grafo, ao contrário da foto, é **hard-delete**, o único do módulo: adjacência é regenerável a partir da geometria e não merece tombstone.
 
 ## Lote: 200 não significa sucesso
 
-`POST /photos/batch-calibration` responde **200 com `{updated, failed}` mesmo que tudo falhe**. Trate `failed` sempre. Cada item roda em `t.tx()` aninhada, ou seja um SAVEPOINT (`backend/src/modules/streetview360/sv360.write.service.js:248-272`): com um `t` compartilhado, um `floor_level` finito mas grande demais para o `INTEGER` colocaria o Postgres em estado abortado e **todos** os itens seguintes seriam descartados em silêncio. A posse é checada por item porque um lote pode atravessar OMs.
+`POST /photos/batch-calibration` responde **200 com `{updated, failed}` mesmo que tudo falhe**. Trate `failed` sempre. Cada item roda em `t.tx()` aninhada, ou seja um SAVEPOINT (`batchCalibration`, `backend/src/modules/streetview360/sv360.write.service.js`): com um `t` compartilhado, um `floor_level` finito mas grande demais para o `INTEGER` colocaria o Postgres em estado abortado e **todos** os itens seguintes seriam descartados em silêncio. A posse é checada por item porque um lote pode atravessar OMs.
+
+**Não exiba `failed[].error` na tela.** É `err.message` cru, o que inclui a mensagem do driver do Postgres quando a falha é do banco (`backend/src/modules/streetview360/sv360.write.service.js:284`), com nome de coluna e de constraint. O módulo tem política explícita em contrário e ela só cobre o caminho de erro HTTP: `backend/src/modules/streetview360/sv360-error.js:26` diz que a mensagem do driver nunca é encaminhada, e `:35` mascara 500 fora de dev. O lote fura isso por construção, porque o texto sai dentro de um corpo de **sucesso**, que nenhum error handler inspeciona. Contrato de fato hoje: trate como texto de diagnóstico de servidor, logue, e mostre ao usuário uma mensagem sua.
 
 ## A ingestão de bundle apaga a calibração feita por REST
 
-Toda escrita re-lê e devolve o shape congelado montado por `buildPhotoMetadata`, então a resposta já vem com `targets` filtrado (`hidden` e tombstones) e ordenado por `is_next DESC, distance_m ASC` (`backend/src/modules/streetview360/sv360.queries.js:99-110`): não reordene no cliente. Respostas são nuas e erros usam o envelope plano `{ "error": "..." }`, ao contrário do resto da API (ver [[erros-api]] e [[sintese-contrato-erros-http]]).
+Toda escrita re-lê e devolve o shape congelado montado por `buildPhotoMetadata`, então a resposta já vem com `targets` filtrado (`hidden` e tombstones) e ordenado por `is_next DESC, distance_m ASC` (`backend/src/modules/streetview360/sv360.queries.js:99-110`): não reordene no cliente. O envelope destas rotas (resposta nua, erro plano) é o do módulo inteiro, contrato congelado descrito em [[sintese-contratos-congelados]].
 
 Mas nada disso sobrevive ao próximo upload. `mergeProject` é "último upload manda" por `(organization_id, slug)` e faz **purge + reinsert** dos filhos do projeto (`backend/src/modules/streetview360/sv360.merge.js:119-124`), ver [[ingestao-projetos-360]]. Duas consequências que mordem:
 

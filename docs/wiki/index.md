@@ -5,9 +5,8 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 ## Por onde começar
 
 - [[atlas-modelo-de-dados]] - o contêiner de topo do projeto e o modelo de dados inteiro em uma página.
-- [[modelo-conflito-lww]] - como a colaboração funciona: mutações viram operações e o servidor ordena tudo.
+- [[modelo-conflito-lww]] - como a colaboração funciona: mutações viram operações, o servidor ordena tudo, e por que isso não é um CRDT (o mal-entendido mais caro do projeto).
 - [[dominio-local-vs-remoto]] - a separação entre workspace local e cópia de atlas do servidor, base para entender quase todo comportamento do cliente.
-- [[sintese-nao-e-crdt]] - o esclarecimento que evita o mal-entendido mais caro do projeto.
 - [[sintese-decisoes-arquiteturais]] - as escolhas estruturais e os não-objetivos declarados.
 
 ## Sincronização: modelo e fluxos
@@ -55,7 +54,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[api-keys]] - chave por usuário para integração máquina-a-máquina, rotacionável e auditada.
 - [[hardening-borda-api]] - rate limiting, login timing-safe, cabeçalhos, readiness e boot fail-fast.
 - [[upload-imagens-seguranca]] - validação dupla de tipo, limites de tamanho e entrega sempre como anexo.
-- [[erros-api]] - o envelope de erro e o conjunto fechado de códigos.
+- [[erros-api]] - o envelope de erro visto do lado do cliente: o que ele descarta e o que já resolveu antes do seu catch.
 
 ## Administração, usuários e catálogo
 
@@ -88,7 +87,6 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 
 ## Sínteses e quadros de decisão
 
-- [[sintese-nao-e-crdt]] - por que o sistema é server-authoritative com LWW e não um CRDT.
 - [[sintese-rest-vs-websocket]] - quando usar cada um dos dois canais complementares do sync.
 - [[sintese-rest-vs-sync]] - o que muda por REST e o que só muda por operações de sync.
 - [[sintese-modulos-fora-do-sync]] - os módulos REST que ficam fora do sync e o que isso exige do frontend.
@@ -99,3 +97,7 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 - [[sintese-contratos-congelados]] - os envelopes divergentes e os shapes que não podem mudar.
 - [[sintese-cache-http-imutavel]] - o protocolo de cache compartilhado pelos binários imutáveis.
 - [[sintese-decisoes-arquiteturais]] - as decisões estruturais e os não-objetivos assumidos.
+
+## Meta
+
+- [[wiki-schema]] - o que entra e o que não entra numa página, a forma do slug e da citação, e o protocolo de `[!CONTRADICAO]`. Leia antes de criar ou podar página.

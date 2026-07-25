@@ -220,6 +220,11 @@ describe('StreetView 360 — vector tiles (MVT, Tarefa 7)', () => {
     const res = await fetchTile(app, Z, TX, TY);
     const layers = decodeTile(res.body);
     const ids = (layers.fotos || []).map((f) => f.props.id);
+    // GUARD: `!ids.includes(x)` is trivially true for an EMPTY tile, so a broken
+    // seed, a decode failure or a filter that rejected everything would all read
+    // as "the access control works". The photo anon IS allowed to see must be
+    // present for the absence of the other one to mean anything.
+    assert.ok(ids.includes(photoId), 'guard: the tile must carry the visible photo');
     assert.ok(!ids.includes(disabledPhotoId), 'disabled-project photo hidden from anon');
   });
 
@@ -243,6 +248,9 @@ describe('StreetView 360 — vector tiles (MVT, Tarefa 7)', () => {
     const res = await fetchTile(app, Z, TX, TY, adminToken);
     const layers = decodeTile(res.body);
     const ids = (layers.fotos || []).map((f) => f.props.id);
+    // Same guard: the admin sees everything that is not tombstoned, so the tile
+    // must be non-empty for this exclusion to be a statement about tombstones.
+    assert.ok(ids.includes(photoId), 'guard: the admin tile must carry the live photos');
     assert.ok(!ids.includes(tombId), 'tombstoned photo excluded');
   });
 
@@ -262,6 +270,9 @@ describe('StreetView 360 — vector tiles (MVT, Tarefa 7)', () => {
     const res = await fetchTile(app, Z, TX, TY);
     const layers = decodeTile(res.body);
     const slugs = (layers.fotos_linha || []).map((l) => l.props.projectSlug);
+    // Guard first: the anon tile must carry the trajectory it IS allowed to see,
+    // otherwise an empty line layer satisfies the exclusion on its own.
+    assert.ok(slugs.includes(SLUG), 'guard: the enabled trajectory must be present');
     assert.ok(!slugs.includes(DISABLED_SLUG), 'disabled trajectory hidden from anon');
   });
 

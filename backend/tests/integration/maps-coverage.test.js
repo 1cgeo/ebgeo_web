@@ -53,7 +53,7 @@ describe('Maps — read-access coverage', () => {
     assert.equal(detail.body.data.id, map.id);
   });
 
-  it('NEGATIVE: revoking a read share flips map reads from 200 to 403 (no leak after revoke)', async () => {
+  it('NEGATIVE: revoking a read share flips map reads from 200 to 404 (no leak after revoke)', async () => {
     const reader = await createUser(db, { username: uniq() });
     const readerToken = await loginUser(app, reader.username, reader.password);
     await createShare(db, atlas.id, reader.id, 'read', owner.id);
@@ -71,15 +71,17 @@ describe('Maps — read-access coverage', () => {
     // Revoke the share (what DELETE /sharing/users/:id does under the hood).
     await db.query('DELETE FROM atlas_shares WHERE atlas_id = $1 AND user_id = $2', [atlas.id, reader.id]);
 
-    // NEGATIVE: list and detail are now forbidden.
+    // NEGATIVE: list and detail are now denied. The revoked reader has no relation left
+    // to the atlas, so the reply is 404, not 403 — an ex-collaborator who kept the UUID
+    // must not be able to keep confirming that the atlas is still there.
     await supertest(app)
       .get(`/api/v1/atlas/${atlas.id}/maps`)
       .set('Authorization', `Bearer ${readerToken}`)
-      .expect(403);
+      .expect(404);
     await supertest(app)
       .get(`/api/v1/atlas/${atlas.id}/maps/${map.id}`)
       .set('Authorization', `Bearer ${readerToken}`)
-      .expect(403);
+      .expect(404);
   });
 
   it('NEGATIVE: a user shared on atlas A cannot read maps of an unrelated private atlas B (per-atlas filter)', async () => {
@@ -99,15 +101,16 @@ describe('Maps — read-access coverage', () => {
     const atlasB = await createAtlas(db, ownerB.id, { name: `mapc atlasB ${uniq()}` });
     const mapB = await createMap(db, atlasB.id, { name: 'mapc-mapB' });
 
-    // NEGATIVE: the share on A confers nothing on B.
+    // NEGATIVE: the share on A confers nothing on B — not even the knowledge that B
+    // exists, which is why this is 404 and not 403.
     await supertest(app)
       .get(`/api/v1/atlas/${atlasB.id}/maps`)
       .set('Authorization', `Bearer ${sharedToken}`)
-      .expect(403);
+      .expect(404);
     await supertest(app)
       .get(`/api/v1/atlas/${atlasB.id}/maps/${mapB.id}`)
       .set('Authorization', `Bearer ${sharedToken}`)
-      .expect(403);
+      .expect(404);
   });
 
   it('NEGATIVE: a logged-in stranger (no share) cannot read maps and the response leaks nothing', async () => {
@@ -117,9 +120,20 @@ describe('Maps — read-access coverage', () => {
     const res = await supertest(app)
       .get(`/api/v1/atlas/${atlas.id}/maps`)
       .set('Authorization', `Bearer ${strangerToken}`)
-      .expect(403);
+      .expect(404);
 
-    // The forbidden body must not carry map data.
-    assert.ok(!res.body.data, 'no data leaked in a 403');
+    // The denied body must not carry map data.
+    assert.ok(!res.body.data, 'no data leaked in a 404');
+
+    // "Leaks nothing" includes the existence of the atlas: the reply has to be the same
+    // one an id that was never created gets, envelope and all.
+    const inexistente = await supertest(app)
+      .get(`/api/v1/atlas/${randomUUID()}/maps`)
+      .set('Authorization', `Bearer ${strangerToken}`)
+      .expect(404);
+    // Anti-vacuity anchor: two bodies with no `error` field would compare equal.
+    assert.equal(res.body.error.code, 'NOT_FOUND');
+    assert.equal(res.body.error.code, inexistente.body.error.code);
+    assert.equal(res.body.error.message, inexistente.body.error.message);
   });
 });

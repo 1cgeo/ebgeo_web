@@ -220,4 +220,84 @@ describe('Audit coverage (atomicity, live req capture, action filter, anon authz
     const res = await supertest(app).get('/api/v1/audit').expect(401);
     assert.equal(res.body.error.code, 'UNAUTHORIZED');
   });
+
+  // ---------------------------------------------------------------------------
+  // audit-cov-06..08 — the BORDER of ?actorId / ?page / ?limit.
+  //
+  // LIST_AUDIT/COUNT_AUDIT bind `$2::uuid`, and the ONLY thing standing between a
+  // query string and that cast is `Joi.string().uuid()` on the route. Relaxing it to
+  // Joi.string() — or moving the filter into the controller — turns ?actorId=abc into
+  // a Postgres cast error. Nothing exercised a malformed value; org-identity-gaps
+  // audit-03 only ever passes a well-formed uuid.
+  //
+  // The pair matters: a 422 assertion alone would also be satisfied by a route that
+  // rejected EVERY actorId, so the well-formed value must be shown to work.
+  // ---------------------------------------------------------------------------
+  it('audit-cov-06: ?actorId malformado -> 422 na borda, e sem texto do Postgres no corpo', async () => {
+    const res = await supertest(app)
+      .get('/api/v1/audit?actorId=abc')
+      .set('Authorization', `Bearer ${adminTok}`);
+
+    assert.equal(res.status, 422, 'o Joi da borda precisa barrar antes do cast ::uuid');
+    assert.equal(res.body.error.code, 'VALIDATION_ERROR');
+    const corpo = JSON.stringify(res.body);
+    assert.doesNotMatch(corpo, /invalid input syntax/i, 'mensagem do driver não pode vazar');
+    assert.doesNotMatch(corpo, /::uuid/, 'nem o SQL');
+  });
+
+  it('audit-cov-07: ?actorId BEM formado passa e filtra de fato (o par que dá sentido ao 422)', async () => {
+    const alvo = randomUUID();
+    await createAudit({ ip: '7.7.7.7' }, {
+      actorId: admin.id,
+      action: 'PERMISSION_GRANT',
+      targetType: 'ZONE',
+      targetId: alvo,
+    });
+
+    const meu = await supertest(app)
+      .get(`/api/v1/audit?actorId=${admin.id}&limit=200`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .expect(200);
+    assert.ok(meu.body.data.data.length > 0, 'o ator que acabou de escrever precisa aparecer');
+    assert.ok(
+      meu.body.data.data.every((r) => r.actor_id === admin.id),
+      'toda linha devolvida tem de ser do ator filtrado'
+    );
+    assert.ok(
+      meu.body.data.data.some((r) => r.target_id === alvo),
+      'a linha recém-semeada precisa estar entre elas'
+    );
+
+    // E um ator SEM linhas devolve lista vazia — não erro, não a lista inteira.
+    const outro = await supertest(app)
+      .get(`/api/v1/audit?actorId=${user.id}`)
+      .set('Authorization', `Bearer ${adminTok}`)
+      .expect(200);
+    assert.equal(outro.body.data.data.length, 0, 'um filtro que não filtra devolveria as linhas do admin');
+    assert.equal(outro.body.data.total, 0);
+  });
+
+  it('audit-cov-08: bordas INFERIORES de page/limit -> 422 (a superior, limit=201, já é coberta)', async () => {
+    for (const qs of ['page=0', 'limit=0', 'page=-1', 'limit=-5']) {
+      const res = await supertest(app)
+        .get(`/api/v1/audit?${qs}`)
+        .set('Authorization', `Bearer ${adminTok}`);
+      assert.equal(res.status, 422, `?${qs} deveria ser rejeitado na borda`);
+    }
+    // Contraste: os valores mínimos LEGÍTIMOS passam. Sem isso, um schema que
+    // rejeitasse toda paginação satisfaria o laço acima.
+    await supertest(app)
+      .get('/api/v1/audit?page=1&limit=1')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .expect(200);
+  });
+
+  it('audit-cov-09: ?action sem correspondência -> 200 com total 0 e data [] (não é erro)', async () => {
+    const res = await supertest(app)
+      .get('/api/v1/audit?action=ACAO_QUE_NAO_EXISTE')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .expect(200);
+    assert.deepEqual(res.body.data.data, []);
+    assert.equal(res.body.data.total, 0, 'lista vazia com total 0 — não um erro');
+  });
 });

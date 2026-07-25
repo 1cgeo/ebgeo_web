@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { errorHandler } from '../../src/middleware/error-handler.js';
 import {
   NotFoundError, ForbiddenError, UnauthorizedError,
-  ValidationError, ConflictError, BadRequestError,
+  ValidationError, ConflictError, BadRequestError, ServiceUnavailableError,
 } from '../../src/utils/errors.js';
 
 function mockReq() {
@@ -84,6 +84,32 @@ describe('errorHandler middleware', () => {
     assert.equal(res.statusCode, 422);
     assert.equal(res.body.error.code, 'VALIDATION_ERROR');
     assert.deepEqual(res.body.error.details, details);
+  });
+
+  // --- The 5xx AppError: 503 must survive the traversal as a RETRYABLE signal ---
+  // Every other AppError case in this file is a 4xx, so the branch order was only
+  // ever proven for statuses the generic "client error" branch (400..499) would
+  // have caught anyway. The 503 is the one status where a wrong branch order is
+  // observable: if `err instanceof AppError` moved BELOW the unknown-error tail,
+  // the response would become INTERNAL_ERROR 500 and the sync client would stop
+  // retrying — the operation is lost, silently.
+  it('handles ServiceUnavailableError → 503 SERVICE_UNAVAILABLE with the message intact', () => {
+    const res = mockRes();
+    errorHandler(new ServiceUnavailableError('atlas ocupado'), mockReq(), res, () => {});
+
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.body.error.code, 'SERVICE_UNAVAILABLE');
+    assert.equal(res.body.error.message, 'atlas ocupado', 'the retry hint must reach the client');
+  });
+
+  it('the 503 is NOT swallowed by the unknown-error branch nor labeled as a client error', () => {
+    const res = mockRes();
+    errorHandler(new ServiceUnavailableError(), mockReq(), res, () => {});
+
+    assert.notEqual(res.body.error.code, 'INTERNAL_ERROR', 'a 503 masked as 500 stops client retries');
+    assert.notEqual(res.body.error.code, 'BAD_REQUEST', 'the 400..499 branch must not capture it');
+    assert.notEqual(res.body.error.message, 'Something went wrong', 'must not be masked as unknown');
+    assert.equal(res.statusCode, 503);
   });
 
   it('handles unknown errors → 500 with INTERNAL_ERROR', () => {

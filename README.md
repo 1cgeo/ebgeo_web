@@ -60,14 +60,13 @@ npm run dev:backend  # só o backend (node --watch)
 ### Verificação
 
 ```bash
-npm run lint         # ESLint (--max-warnings 0) + Stylelint
-npm run lint:fix     # correção automática
-npm test             # Vitest (114 arquivos, execução única)
-npm run test:watch   # Vitest em watch
-npm run test:coverage# cobertura (sem threshold bloqueante)
-npm run test:backend # backend: cria e dropa ebgeo_test, exige superusuário
-npm run test:all     # suíte dos dois pacotes
-npm run lint:all     # lint dos dois pacotes
+npm run lint         # OS DOIS pacotes: ESLint (--max-warnings 0) + Stylelint no frontend,
+                     #   ESLint + o probe das regras de teste no backend
+npm test             # OS DOIS pacotes. No backend a suíte completa se auto-eleva para c8
+                     #   e verifica o piso de cobertura do .c8rc.json
+npm run lint:frontend | lint:backend | test:frontend | test:backend   # um pacote só
+npm run test:watch   # Vitest em watch (frontend)
+npm run test:coverage# cobertura dos DOIS pacotes; no backend o piso do .c8rc.json reprova
 npm run test:e2e:ui  # Playwright: sobe o backend REAL de backend/ e dirige o browser
 npm run knip         # detecção de código morto
 ```

@@ -20,7 +20,7 @@ O `sub` do token é `public-<uuid>`, deliberadamente fora do formato UUID puro (
 
 - `backend/src/middleware/auth.js:80-82` pula a reconciliação com o banco (não existe linha em `users` para esse `sub`);
 - `backend/src/middleware/permissions.js:92` pula a busca em `atlas_shares`;
-- `backend/src/modules/collab/collab.gateway.js:331-335,444` não cria nem apaga linha em `active_sessions`, senão a FK para `users` quebraria.
+- o handshake e o `removeConnection` (`backend/src/modules/collab/collab.gateway.js`) não criam nem apagam linha em `active_sessions`, senão a FK para `users` quebraria.
 
 Emitir um `sub` UUID no token público derruba os três de uma vez, e os dois primeiros falham *silenciosamente* (viram consulta vazia), não com erro. Ver [[jwt-emissor-unico]] e [[autenticacao-jwt]].
 
@@ -36,9 +36,9 @@ Comentários espaciais são retirados do que chega a um `read`, tanto no snapsho
 
 ## Custos do boot público (cliente)
 
-O boot por `?atlasPublico=<link>` só dispara se ninguém estiver logado (`index.js:226-228`). Dentro dele, três decisões não óbvias:
+O boot por `?atlasPublico=<link>` só dispara se ninguém estiver logado (`frontend/src/js/index.js:226-228`). Dentro dele, três decisões não óbvias:
 
-- **`clearAllDataStore()` roda sem confirmação** (`index.js:231`). Abrir um link público numa aba que tinha desenho local anônimo **descarta o desenho**. Ver [[dominio-local-vs-remoto]] e [[sessao-boot-e-ciclo-de-vida]].
+- **`clearAllDataStore()` roda sem confirmação** (`frontend/src/js/index.js:231`). Abrir um link público numa aba que tinha desenho local anônimo **descarta o desenho**. Ver [[dominio-local-vs-remoto]] e [[sessao-boot-e-ciclo-de-vida]].
 - **`connectPublic` desliga o log de operações** (`frontend/src/js/store/sync/sync-engine.js:227`). Se o visitante enfileirasse ops, elas ficariam órfãs na fila e seriam empurradas para o atlas errado num login posterior ([[fila-operacoes-outbound]]).
 - **O token é efêmero em memória e zera o refresh token** (`frontend/src/js/store/sync/api-client.js:117-120`), porque a fonte de verdade num F5 é o link na URL, não o storage. Não há caminho especial de WS: o mesmo `wsUrl()` leva o token de visitante ([[client-id-estavel]]).
 
@@ -52,7 +52,7 @@ O overlay de configuração por atlas continua valendo para o visitante (`fronte
 
 ## Divergências com o guia
 
-> **Nota histórica.** O guia *07-compartilhamento* (absorvido) descreve a URL pública como caminho (`/atlas/public/abc123xyz`, via `location.pathname`), um `PublicTokenManager` que renova o token 5 minutos antes de expirar, e uma resposta enxuta sem `owner`. Nenhum dos três existe: o front usa query string (`index.js:226`, fixado em `frontend/tests/unit/atlas-link.test.js:73-77`), não há renovação, e `backend/src/modules/sharing/sharing.service.js:12-21` devolve o bloco `owner` que o modal consome (`frontend/src/js/modals/sharing.modal.js:181`). O caminho `/atlas/public/:link` existe apenas como rota de API (`backend/src/modules/atlas/atlas.routes.js:23`).
+> **Nota histórica.** O guia *07-compartilhamento* (absorvido) descreve a URL pública como caminho (`/atlas/public/abc123xyz`, via `location.pathname`), um `PublicTokenManager` que renova o token 5 minutos antes de expirar, e uma resposta enxuta sem `owner`. Nenhum dos três existe: o front usa query string (`frontend/src/js/index.js:226`, fixado em `frontend/tests/unit/atlas-link.test.js:73-77`), não há renovação, e `backend/src/modules/sharing/sharing.service.js:12-21` devolve o bloco `owner` que o modal consome (`frontend/src/js/modals/sharing.modal.js:181`). O caminho `/atlas/public/:link` existe apenas como rota de API (`backend/src/modules/atlas/atlas.routes.js:23`).
 
 ## Ver também
 

@@ -75,11 +75,13 @@ describe('Atlas API', () => {
   it('DELETE /atlas/:id — only owner can delete', async () => {
     const atlas = await createAtlas(db, owner.id);
 
-    // Reader cannot delete
+    // Reader cannot delete. The reader has NO share on this atlas (only `owner` does),
+    // so the gate answers 404 — the same reply an atlas that does not exist gets, which
+    // is what keeps a delete probe from confirming existence.
     await supertest(app)
       .delete(`/api/v1/atlas/${atlas.id}`)
       .set('Authorization', `Bearer ${readerToken}`)
-      .expect(403);
+      .expect(404);
 
     // Owner can delete (soft-delete)
     await supertest(app)

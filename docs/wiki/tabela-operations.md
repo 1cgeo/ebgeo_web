@@ -61,7 +61,7 @@ Todo o batch roda numa transação só, dentro de `pushOperations` (`backend/src
 
 ## O que a tabela NÃO é
 
-Não é um CRDT. O Lamport clock é persistido só para ecoar no pull e deixar o cliente avançar o próprio relógio; nunca é comparado no servidor, nem o `client_timestamp`. O vencedor é sempre a última linha a chegar. Ver [[sintese-nao-e-crdt]].
+Não é um CRDT. O Lamport clock é persistido só para ecoar no pull e deixar o cliente avançar o próprio relógio; nunca é comparado no servidor, nem o `client_timestamp`. O vencedor é sempre a última linha a chegar. Ver [[modelo-conflito-lww]].
 
 ## Histórico
 

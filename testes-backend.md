@@ -12,7 +12,7 @@ Oportunidades de teste em `backend/src`, levantadas na auditoria de 2026-07-19 s
 
 ## O ponto de partida
 
-A suíte do backend hoje: **446 suítes, 1265 testes, 0 falhas, 0 skipped, 0 todo**, em 141 segundos, com lint limpo. Medido, não suposto. Zero skipped e zero todo é sinal genuíno de higiene: não há teste desabilitado parado no repositório.
+A suíte do backend hoje: **446 suítes, 1265 testes, 0 falhas, 0 skipped, 0 todo**, em 141 segundos, com lint limpo. Medido, não suposto. Zero skipped e zero todo é sinal genuíno de higiene: não há teste desabilitado parado no repositório. **ATUALIZADO em 2026-07-25, ao fechar os 185 itens deste relatório: 684 suítes, 2439 testes, 0 falhas, 0 skipped, 0 todo, com cobertura de 97,95% de linha e 89,00% de branch (era 94,43% e 84,63%). Branch subiu 4,4 pontos, que é onde mora a negação, e é a métrica que este documento elegeu como o retrato do ponto cego.**
 
 E ainda assim a auditoria confirmou **116 defeitos vivos** que essa suíte não pega, 5 deles críticos e 24 altos. Os dois fatos juntos são o diagnóstico: **o problema da suíte não é quantidade, é ângulo.** Ela cobre bem o caminho feliz de cada rota isolada e quase não cobre negação, assimetria entre superfícies, e concorrência real.
 
@@ -142,7 +142,7 @@ Oportunidades de teste em `backend/src`, levantadas na auditoria de 2026-07-19 s
 
 ## O ponto de partida
 
-A suíte do backend hoje: **446 suítes, 1265 testes, 0 falhas, 0 skipped, 0 todo**, em 141 segundos, com lint limpo. Medido, não suposto. Zero skipped e zero todo é sinal genuíno de higiene: não há teste desabilitado parado no repositório.
+A suíte do backend hoje: **446 suítes, 1265 testes, 0 falhas, 0 skipped, 0 todo**, em 141 segundos, com lint limpo. Medido, não suposto. Zero skipped e zero todo é sinal genuíno de higiene: não há teste desabilitado parado no repositório. **ATUALIZADO em 2026-07-25, ao fechar os 185 itens deste relatório: 684 suítes, 2439 testes, 0 falhas, 0 skipped, 0 todo, com cobertura de 97,95% de linha e 89,00% de branch (era 94,43% e 84,63%). Branch subiu 4,4 pontos, que é onde mora a negação, e é a métrica que este documento elegeu como o retrato do ponto cego.**
 
 E ainda assim a auditoria confirmou **116 defeitos vivos** que essa suíte não pega, 5 deles críticos e 24 altos. Os dois fatos juntos são o diagnóstico: **o problema da suíte não é quantidade, é ângulo.** Ela cobre bem o caminho feliz de cada rota isolada e quase não cobre negação, assimetria entre superfícies, e concorrência real.
 
@@ -281,6 +281,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 1. transferOwnership com ator admin global, req.atlasOwnerId vs req.user.id (atlas.controller.js:75-83)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO como lacuna de cobertura (o codigo esta certo): nenhum teste tinha
+> ator diferente do dono. Controle negativo derruba 4 casos.
+
 - **Código:** `backend/src/modules/atlas/atlas.controller.js`
 - **Tipo:** integração · **Fatia:** `be-atlas`
 - **Cobertura hoje:** atlas-transfer-ownership.test.js (owner/member/stranger/anônimo, alvo inativo, self-transfer, atomicidade), nenhum caso com ator admin
@@ -298,6 +301,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 2. LIST_USER_ATLAS.user_permission (atlas.queries.js:16), a projeção de permissão que o frontend usa para gatear a UI
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO em parte: a query ja checa posse primeiro. Faltavam a projecao da
+> lixeira e o estado pos-transferencia, ambos cobertos. Controle negativo derruba 1.
+
 - **Código:** `backend/src/modules/atlas/atlas.queries.js`
 - **Tipo:** integração · **Fatia:** `be-atlas`
 - **Cobertura hoje:** nenhuma (atlas.test.js e permissions.test.js só afirmam status HTTP; o campo user_permission não aparece em nenhum teste)
@@ -314,6 +320,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 3. publicLinkLimiter em GET /atlas/public/:link (atlas.routes.js:23)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: o limiter existia na rota e **zero** testes o exercitavam.
+> Controle negativo derruba 2.
+
 - **Código:** `backend/src/modules/atlas/atlas.routes.js`
 - **Tipo:** integração · **Fatia:** `be-atlas`
 - **Cobertura hoje:** rate-limit.test.js cobre apenas /auth/login (authLimiter); nenhum teste chama /atlas/public/:link em volume
@@ -327,6 +336,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - CONTROLE NEGATIVO do próprio teste: sem RATE_LIMIT_FORCE, as mesmas N+1 chamadas devolvem 404/200 e nunca 429, garante que o 429 veio do limiter e não de outra coisa
 
 ### 4. importAtlas (atlas.service.js:551-767), referências cruzadas de atlas em groupFeatures / features[].layer_id / groups[].parent_id / slides[].map_id
+
+> **CORRIGIDO em 2026-07-25.** PARCIALMENTE ABERTO e **CORRIGIDO**. Tres das quatro referencias cruzadas ja
+> eram guardadas; `features[].layer_id` seguia entrando VERBATIM do payload
+> (`atlas.service.js:921`), que e a mesma classe de IDOR ja registrada no livro-razao para
+> group_features. Fechado com `importedLayerIds`. Controle negativo derruba 1.
 
 - **Código:** `backend/src/modules/atlas/atlas.service.js`
 - **Tipo:** integração · **Fatia:** `be-atlas`
@@ -382,6 +396,13 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 6. login(), gate O1 de organizacao desativada (auth.service.js:92, `orgIsActive` -> ForbiddenError 'Organização inativa')
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, cobertura zero antes. Controle negativo: remover
+> os dois gates de organização derruba 5 casos.
+>
+> Achado que o item não previa: a regra "linha ausente = ativa" de `orgIsActive` é
+> **inalcançável** por `users.organization_id`, porque a FK não tem `ON DELETE`. Foi testada
+> chamando a função direto, que é o único caminho que a alcança.
+
 - **Código:** `backend/src/modules/auth/auth.service.js`
 - **Tipo:** integração · **Fatia:** `be-auth`
 - **Cobertura hoje:** nenhuma. auth-edge-cases/auth-gaps/auth-live-reconciliation cobrem users.is_active e role, nunca organizations.is_active.
@@ -399,6 +420,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 7. refresh(), gate de org desativada (auth.service.js:165) E a ordem 'revoga primeiro (:154), checa org depois (:165)'
 
+> **CORRIGIDO em 2026-07-25, e o item é REFUTADO na sua segunda metade.** O gate de
+> organização no refresh existe e agora tem teste. Mas a preocupação com a ordem ("revoga
+> primeiro, checa org depois") **não** se materializa mais: a retentativa após o 403 já não
+> derruba a família, graças à janela de graça de 10s introduzida com o claim atômico. O
+> teste prende os dois lados.
+
 - **Código:** `backend/src/modules/auth/auth.service.js`
 - **Tipo:** integração · **Fatia:** `be-auth`
 - **Cobertura hoje:** nenhuma para o gate de org. auth-gaps.test.js:217-247 cobre o ramo expirado-nao-revogado, que e um ramo diferente.
@@ -414,6 +441,15 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - controle negativo: usuario de org ATIVA faz refresh -> 200 e a familia continua viva
 
 ### 8. Login timing-safe, DUMMY_HASH (auth.service.js:19) e o bcrypt.compare incondicional (:73-74)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e a armadilha do harness vale mais que o item:
+> `fixtures.js` hasheia com custo **4**, então medir tempo contra uma fixture acusaria
+> assimetria no sentido INVERSO do real. O teste cria usuário com custo 12.
+>
+> Controle negativo: curto-circuitar o `bcrypt.compare` mantendo a mensagem idêntica dá
+> **2,2 ms contra 250 ms** e derruba 2 casos. E o teste de mensagem do `auth-hardening`
+> ficou **verde** sob essa mutação, que é exatamente o ponto do item: mensagem igual não
+> prova tempo igual.
 
 - **Código:** `backend/src/modules/auth/auth.service.js`
 - **Tipo:** integração · **Fatia:** `be-auth`
@@ -431,6 +467,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 9. I10, auth.logout revoga SO o refresh token: nao fecha o socket de collab nem limpa presenca (auth.service.js:183-186)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO (invariante I10). A asserção forte escolhida é
+> **pertencimento à sala** (o push de um peer chega), não "o socket TCP está vivo", porque a
+> segunda passaria com o socket órfão. Controle negativo: fazer o logout fechar os sockets
+> derruba 5 casos.
+
 - **Código:** `backend/src/modules/auth/auth.service.js`
 - **Tipo:** WebSocket · **Fatia:** `be-auth`
 - **Cobertura hoje:** nenhuma. collab-lifecycle-coverage/collab-shutdown-presence cobrem close pelo cliente e sweep de heartbeat, nunca o logout.
@@ -446,6 +487,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - controle negativo (guarda contra o oposto): o refreshToken apresentado no logout esta de fato revogado, POST /auth/refresh com ele -> 401. Sem isto o teste passaria mesmo se o logout nao fizesse nada
 
 ### 10. Gate de montagem do /api/v1/debug (isTraceEnabled() && !config.isProd), app.js:117-119
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO (o gate esta em `app.js:182`, nao `:117`). Tres subprocessos
+> reais (test/dev/prod), com um **caso-guarda que exige que prod e dev DIFIRAM**, senao um
+> fix que montasse ou desmontasse nos tres passaria.
 
 - **Código:** `backend/src/app.js`
 - **Tipo:** integração · **Fatia:** `be-boot`
@@ -464,6 +509,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 11. cors({ origin: config.cors.origin }), origem nao configurada nao pode ser refletida (app.js:49)
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO, ja corrigido. Estendido com preflight OPTIONS de origem hostil e
+> com "sem header `Origin` nunca responde `*`". Controle negativo derruba 3.
+
 - **Código:** `backend/src/app.js`
 - **Tipo:** integração · **Fatia:** `be-boot`
 - **Arquivo sugerido:** `backend/tests/integration/config-infra-gaps.test.js (estender infra-05)`
@@ -479,6 +527,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Controle negativo: trocar app.js:49 para `origin: true` e confirmar que o caso 1 FALHA (hoje ele passa com essa troca, que e a prova do achado).
 
 ### 12. validateEnvVariables, JWT_SECRET >= 32 caracteres em producao (config.js:226-230)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Fronteiras 31/32, par prod-contra-dev e o ramo `if (!secret)` nos
+> tres ambientes. Controle negativo derruba 4.
 
 - **Código:** `backend/src/config.js`
 - **Tipo:** unitário · **Fatia:** `be-boot`
@@ -530,6 +581,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 14. Ligacao rota->tabela dos 5 makeCatalogRouter (app.js:102-106) e o round-trip escrita-admin -> GET /api/config para data_layers / analysis_layers / tilesets
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: **4 dos 5** routers de catálogo nunca tinham
+> recebido uma escrita HTTP em teste nenhum. `tests/integration/catalog-tables.test.js`, 8
+> casos, com o round-trip escrita-admin até o `GET /api/config`. Controle negativo: apontar
+> o router de `analysis-layers` para `data_layers` derruba 3 casos.
+
 - **Código:** `backend/src/app.js`
 - **Tipo:** integração · **Fatia:** `be-catalog-config-audit`
 - **Arquivo sugerido:** `backend/tests/integration/catalog-tables.test.js`
@@ -547,6 +603,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 15. assertValidStyle no caminho de UPDATE (catalog.service.js:55) e o invariante de que todo basemapStyles servido por GET /api/config e um style MapLibre valido
 
+> **CORRIGIDO em 2026-07-25.** Defeito **REFUTADO** (`assertValidStyle` está no caminho de
+> UPDATE, `catalog.service.js:87`), lacuna de cobertura CONFIRMADA. +4 casos em
+> `catalog.test.js` prendendo o invariante de que todo `basemapStyles` servido por
+> `GET /api/config` é style MapLibre válido. Controle negativo: tirar `assertValidStyle` do
+> update derruba 1 caso.
+
 - **Código:** `backend/src/modules/catalog/catalog.service.js`
 - **Tipo:** integração · **Fatia:** `be-catalog-config-audit`
 - **Arquivo sugerido:** `backend/tests/integration/catalog.test.js`
@@ -563,6 +625,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Invariante de fechamento: apos os PUTs acima, GET /api/config e para CADA entrada de basemapStyles rodar validateMapLibreStyle(...).ok === true; guard obrigatorio Object.keys(basemapStyles).length >= 5 antes do laco (senao a varredura passa verde sobre lista vazia, C4).
 
 ### 16. requireAdmin em DELETE /api/v1/config/admin (e o 401 anonimo nas tres rotas /config/admin)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: o DELETE de `/config/admin` não tinha teste de
+> gate. +5 casos em `config-admin.test.js` (junto com os itens 92 e 95). Controle negativo:
+> `requireAdmin` fora do DELETE derruba 2.
 
 - **Código:** `backend/src/modules/config/config.routes.js`
 - **Tipo:** integração · **Fatia:** `be-catalog-config-audit`
@@ -609,6 +675,18 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 18. Handshake identity gate (`server.on('upgrade')` em attachWebSocket): usa `orgIsActive(payload.organization_id)` do TOKEN e `payload.role`, e NUNCA chama `getLiveAuthState`
 
+> **CORRIGIDO em 2026-07-25.** **DEFEITO VIVO CONFIRMADO E CORRIGIDO, e e o mais grave desta rodada.** O
+> `reconcileAuthorization` declarava o principio P1 e lia o BANCO; o `server.on('upgrade')`,
+> na mesma pagina do mesmo arquivo, decidia por `payload.organization_id` e `payload.role` do
+> TOKEN. Consequencias medidas: um usuario **desativado** com access token ainda valido abria
+> socket novo e escrevia por cerca de 30 segundos ate o sweep, reconectando em laco pelos 15
+> minutos de vida do token; e um admin **rebaixado** seguia sendo promovido a `owner` em
+> qualquer atlas.
+>
+> Corrigido com `getLiveAuthState` mais papel vivo em `resolvePermission`, ou seja, a mesma
+> fonte que o sweep vizinho ja usava. Controle negativo: `const live = null` derruba 3 de 4.
+> `backend/tests/ws/collab-handshake-identity.test.js`.
+
 - **Código:** `backend/src/modules/collab/collab.gateway.js`
 - **Tipo:** WebSocket · **Fatia:** `be-collab`
 - **Cobertura hoje:** backend/tests/ws/collab-reauthz.test.js cobre exatamente estes cenarios, mas SO via reconcileAuthorization com fakeSocket (socket ja aberto). backend/tests/ws/collab-roles.test.js cobre o bypass de admin no handshake apenas com admin ainda vigente. Nenhum teste conecta com identidade revogada.
@@ -624,6 +702,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - usuario cuja organization_id mudou no banco para uma org DESATIVADA, mas cujo token ainda carrega a org antiga (ativa) -> handshake rejeitado (o gate atual consulta a org do claim, nao a viva)
 
 ### 19. `heartbeatSweep(wss)` -> `reconcileAuthorization(ws)` sobre socket REAL (fio entre o sweep, o estado do socket e os handlers)
+
+> **CORRIGIDO em 2026-07-25.** Coberto em `backend/tests/ws/collab-heartbeat-authz-wire.test.js`. Registrado
+> que o caso "write rebaixado para read mantem o socket aberto" **sobrevive** a remocao do
+> `reconcileAuthorization`, e isso e correto: ele e o controle de NAO-agressividade (provar
+> que o sweep nao derruba quem so mudou de nivel), nao o prendedor do fio.
 
 - **Código:** `backend/src/modules/collab/collab.gateway.js`
 - **Tipo:** WebSocket · **Fatia:** `be-collab`
@@ -641,6 +724,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 20. Serializacao de mensagens por socket (`ws._messageChain`, encadeamento com await em onConnection)
 
+> **CORRIGIDO em 2026-07-25.** Coberto em `backend/tests/ws/collab-message-serialization.test.js`. O caso
+> "create e entao update" **sobrevive** a mutacao porque o advisory lock ja serializa no SQL:
+> e um pino mais fraco que o da rajada, e isso ficou dito no arquivo em vez de mascarado.
+
 - **Código:** `backend/src/modules/collab/collab.gateway.js`
 - **Tipo:** WebSocket · **Fatia:** `be-collab`
 - **Cobertura hoje:** backend/tests/integration/sync-push-serialization.test.js cobre apenas o advisory lock por atlas via HTTP/supertest; nao ha WebSocket nele.
@@ -657,6 +744,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 21. Regra de visibilidade de comentario espacial no fan-out WS: `broadcastToRoom(..., {skipReadOnly: isComment})` em handleOperation e a divisao de lote em `broadcastOperations`
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: `read` nunca recebe comentario, `comment` e `manage` sempre recebem. `backend/tests/ws/collab-comment-fanout.test.js`. Controle negativo: trocar o gate `permission === 'read'` por `!== 'write'` nos dois sitios derruba 3 de 4.
+
 - **Código:** `backend/src/modules/collab/collab.handlers.js`
 - **Tipo:** WebSocket · **Fatia:** `be-collab`
 - **Cobertura hoje:** backend/tests/ws/collab-commenter-authz.test.js (escrita do comentarista, nao entrega); backend/tests/integration/comments.test.js (caminho REST/pull, nao o fan-out WS).
@@ -672,6 +761,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - peer 'manage' (co-Gestor) recebe o commentOp (controle da hierarquia: o nivel do meio nao pode sumir)
 
 ### 22. Backpressure em `broadcastToRoom` / `broadcastOperations` (BACKPRESSURE_DROP_BYTES 1 MiB e BACKPRESSURE_KILL_BYTES 8 MiB)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: frame coalescavel pode cair, mas operacao duravel mata o socket e nunca e descartada. `backend/tests/unit/collab-backpressure.test.js`. Controle negativo: aplicar o drop de coalescavel ao `broadcastOperations` (KILL virando DROP, sem `terminate`) derruba 3 de 9.
 
 - **Código:** `backend/src/modules/collab/collab.rooms.js`
 - **Tipo:** unitário · **Fatia:** `be-collab`
@@ -690,6 +781,17 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 23. Operacao cujo payload viola um CHECK do schema (layers.opacity, features.feature_type, cesium3d_data.data_type, streetview360_data.data_type, comments.status, slides.mode)
 
+> **CORRIGIDO em 2026-07-25.** Defeito **REFUTADO** (`error-handler.js:65` ja mapeia 23514 para 400, e a
+> atomicidade do lote se sustenta), cobertura CONFIRMADA e escrita: os quatro CHECKs, o
+> controle positivo com os mesmos payloads validos e os limites inclusivos.
+>
+> **Pinado como comportamento atual:** o 400 **nao identifica a op ofensora**, entao o
+> cliente nao tem como descartar a op envenenada. O conserto exige `sync.service.js`.
+>
+> O controle negativo aqui e melhor que uma mutacao de codigo: um probe descartavel faz
+> `ALTER TABLE layers DROP CONSTRAINT layers_opacity_range` e confirma que o mesmo push
+> passa a 200, provando que o vermelho vem do CHECK e nao do setup.
+
 - **Código:** `backend/src/database/migrations/002_atlas.sql`
 - **Tipo:** integração · **Fatia:** `be-database`
 - **Cobertura hoje:** parcial e insuficiente: sync-validation.test.js cobre so violacoes de envelope (sem operations, >500 ops, id ausente); sync-batch-atomicity.test.js prova o rollback do lote mas usando falha de autorizacao, nunca uma violacao de constraint; features-all-types.test.js cobre os 20 tipos VALIDOS, nenhum invalido
@@ -705,6 +807,13 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - borda: `opacity: 0` e `opacity: 1` passam (limites inclusivos do CHECK layers_opacity_range), `-0.0001` e `1.0001` nao
 
 ### 24. trg_update_atlas_version / atlas.current_version como cursor de sync
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO como lacuna: **zero** ocorrencias de `current_version` em toda a
+> pasta de testes. Invariante prendido: a coluna mantida pelo trigger, o
+> `MAX(server_version)` do log, o `currentVersion` do snapshot e o `serverVersion` do ack sao
+> **o mesmo numero**, e o cursor de um atlas nao anda por trafego de outro. Divergencia
+> pos-cleanup pinada (a coluna nao retrocede, o `MAX` volta a zero). Controles negativos:
+> trigger sem `WHERE id = NEW.atlas_id` derruba 1; trigger removido derruba 4.
 
 - **Código:** `backend/src/database/migrations/003_sync.sql`
 - **Tipo:** integração · **Fatia:** `be-database`
@@ -774,6 +883,16 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 27. images.service.js:46, clausula `detected.mime !== file.mimetype` da validacao dupla (magic bytes vs tipo declarado), e a equivalente do bulk em :175
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO como lacuna: das TRÊS cláusulas da validação
+> dupla, só `!detected` era exercitada. Invariante prendido: o `mime_type` gravado descreve
+> os bytes gravados. Controle negativo: remover `detected.mime !== file.mimetype` das duas
+> derruba 6 casos.
+>
+> Achado lateral: a cláusula `!ALLOWED.includes(detected.mime)` é **inalcançável
+> isoladamente**, porque o `fileFilter` do multer barra o tipo declarado antes e a igualdade
+> pega o resto. É defensiva, não load-bearing, e saber disso evita que alguém a "otimize"
+> achando que é redundante sem ver que ela é a rede embaixo das outras duas.
+
 - **Código:** `backend/src/modules/images/images.service.js`
 - **Tipo:** integração · **Fatia:** `be-images`
 - **Arquivo sugerido:** `backend/tests/integration/images-type-double-validation.test.js`
@@ -821,6 +940,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 29. broadcastToRoom({type:'maps_merged'}) em maps.controller.js:19-23 (invariante I16)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, cobertura zero no broadcast `maps_merged` (invariante I16).
+> Controle negativo derruba 3.
+
 - **Código:** `backend/src/modules/maps/maps.controller.js`
 - **Tipo:** WebSocket · **Fatia:** `be-maps-briefings`
 - **Arquivo sugerido:** `backend/tests/ws/collab-broadcasts.test.js`
@@ -836,6 +958,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - self-merge {sourceMapIds:[dest.id]} -> 200 com moved {} e mesmo assim ha broadcast com sourceMapIds: [] (o controller emite depois do early-return de maps.service.js:46-48); pinar porque hoje isso custa um resync completo em todos os peers por um no-op
 
 ### 30. requireAtlasPermission('write') em /maps/:mapId/merge e ('read') nos 4 GETs, avaliados nos niveis do MEIO da hierarquia (manage e comment)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e **o item esta desatualizado**: o gate hoje e `manage`
+> (`maps.routes.js:23`), nao `write`. Os niveis do meio passaram a ser exercitados.
+> Controle negativo derruba 1.
 
 - **Código:** `backend/src/modules/maps/maps.routes.js`
 - **Tipo:** integração · **Fatia:** `be-maps-briefings`
@@ -854,6 +980,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 31. mergeMaps ignora maps.locked, enquanto o sync bloqueia a MESMA mutacao com 409 (assimetria entre os dois caminhos de escrita)
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: `mergeMaps` checa `locked` nas duas pontas antes de qualquer
+> UPDATE (`maps.service.js:77-86`), e ja existe repro.
+
 - **Código:** `backend/src/modules/maps/maps.service.js`
 - **Tipo:** integração · **Fatia:** `be-maps-briefings`
 - **Arquivo sugerido:** `backend/tests/integration/maps-merge-lock.test.js`
@@ -871,6 +1000,16 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 32. flexibleAuth sliding renewal, org_role/organization_id nunca sao reconciliados contra o DB
 
+> **CORRIGIDO em 2026-07-25, e virou fix de PRODUÇÃO.** CONFIRMADO: o fix P1 anterior
+> reconciliava só `role`, então `org_role` e `organization_id` continuavam vindo do token.
+> Enquanto um cliente de cookie deslizasse a sessão, a demoção **nunca** propagava, com
+> janela infinita, e `org_role` é autorização real no sv360.
+>
+> A forma do fix é o que interessa: reconcilia **apenas quando o token já carrega a claim**.
+> Isso preserva `auth-gaps auth-05` (token legado degrada) sem precisar mexer nele, porque
+> claim ausente degrada e claim presente reconcilia. Controle negativo: revertendo, 4 casos
+> caem, e há um caso explícito de não-regressão para o auth-05.
+
 - **Código:** `backend/src/middleware/flexible-auth.js`
 - **Tipo:** integração · **Fatia:** `be-middleware`
 - **Arquivo sugerido:** `backend/tests/integration/auth-live-reconciliation.test.js (estender)`
@@ -887,6 +1026,16 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 33. flexibleAuth, token de usuario DESATIVADO continua autenticando em rota que nao usa o `auth` estrito
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO contra o HEAD: `nomes.queries.js` já filtra
+> `EXISTS (... AND is_active = true)` nos dois ramos. Cobertura escrita assim mesmo, com
+> controle A/B por estado de banco (desativa e some, reativa e volta) e paridade com a rota
+> estrita.
+>
+> Nota de processo: o agente **não mutou** `nomes.queries.js` porque viu a versão do arquivo
+> mudar entre duas leituras suas, ou seja, outro agente estava editando ao vivo. Recusar-se
+> a medir contra árvore em movimento é a decisão certa, e é o oposto do que produziu doc
+> falsa mais cedo nesta sessão.
+
 - **Código:** `backend/src/middleware/flexible-auth.js`
 - **Tipo:** integração · **Fatia:** `be-middleware`
 - **Cobertura hoje:** parcial, tests/integration/nomes-access.test.js tem os 4 negativos de acesso (privado/zona/anonimo) mas nenhum com conta desativada; auth-live-reconciliation cobre so o caminho estrito.
@@ -901,6 +1050,17 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - paridade: o mesmo token desativado em rota estrita (GET /api/v1/atlas) -> 401, mostrando que a divergencia e entre familias de rota e nao no token
 
 ### 34. requireAtlasPermission, fail-OPEN quando requiredLevel nao e chave de PERMISSION_LEVELS
+
+> **CORRIGIDO em 2026-07-25, e virou fix de PRODUÇÃO.** CONFIRMADO: `permissions.js` era
+> fail-OPEN para nível desconhecido (`undefined < N` é `false`, então chamava `next()`),
+> inclusive em `requireAtlasPermission('owner')`. Agora falha **em tempo de montagem**
+> (`TypeError`), que é onde um erro de digitação em nome de nível pertence, mais o simétrico
+> no runtime (`resolvedLevel === undefined`).
+>
+> Descoberta durante o fix, e vale registrar: `Object.hasOwn(LEVELS, ['read'])` devolve
+> `true` por coerção do array para string, então o guarda precisa de `typeof`. Controle
+> negativo: revertendo, **17 casos caem**. Varredura estática confirmou as 28 chamadas
+> existentes como válidas.
 
 - **Código:** `backend/src/middleware/permissions.js`
 - **Tipo:** integração · **Fatia:** `be-middleware`
@@ -917,6 +1077,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 35. requireAtlasPermission alimentado por query param (liftAtlasIdToParams) em /api/v1/debug/trace
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO/já coberto: os negativos vivem em
+> `cross-tenant-negativos.test.js`. Fechada só a lacuna positiva (push de sync real
+> produzindo spans `server.inserted` legíveis pela rota gateada).
+
 - **Código:** `backend/src/middleware/permissions.js`
 - **Tipo:** integração · **Fatia:** `be-middleware`
 - **Cobertura hoje:** nenhuma, o inventario confirma zero requests a /api/v1/debug/trace em toda a suite do backend.
@@ -932,6 +1096,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 36. authLimiter.keyGenerator, o `.toLowerCase()` do username e o unico anteparo contra bypass por variacao de caixa
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Controle negativo: remover o `.toLowerCase()`
+> da chave do limitador derruba 3 casos.
+
 - **Código:** `backend/src/middleware/rate-limit.js`
 - **Tipo:** integração · **Fatia:** `be-middleware`
 - **Cobertura hoje:** tests/integration/rate-limit.test.js, cobre 429 apos authMax e 'usernames distintos nao se estrangulam'; nada sobre normalizacao de caixa.
@@ -945,6 +1112,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - controle negativo do harness: 'rl_case_outro' (conta realmente distinta) no mesmo IP -> 401, provando que o 429 acima veio da colisao de chave e nao de um balde global
 
 ### 37. publicLinkLimiter em GET /atlas/public/:link
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com zero exercício antes. Controle negativo:
+> remover o `publicLinkLimiter` da rota derruba 2 casos.
 
 - **Código:** `backend/src/middleware/rate-limit.js`
 - **Tipo:** integração · **Fatia:** `be-middleware`
@@ -960,6 +1130,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 38. ST_Contains sobre ng.fn_user_zone_geoms (BUSCA $5 / FEICOES $4) com zona concava ou com buraco
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Zona-donut com o alvo **dentro do bbox e fora do poligono**,
+> asserido contra o Postgres para o caso nao ser vacuo, mais par positivo no anel, a mesma
+> geometria em `/nomes/feicoes` (que cobre o `ST_Transform`) e o branch de admin. Controle
+> negativo: trocar `ST_Contains` por `&&` nos dois pontos derruba 2 casos.
+
 - **Código:** `backend/src/modules/nomes/nomes.queries.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
 - **Cobertura hoje:** backend/tests/integration/zones-coverage.test.js (zones-cov-01/02) e nomes-access.test.js - so zonas convexas e disjuntas
@@ -974,6 +1149,13 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Admin ve as duas edificacoes independentemente da geometria (branch de admin nao e afetado)
 
 ### 39. Reconciliacao de liveness no caminho anonimo de GET /nomes/busca (usuario/organizacao desativados)
+
+> **CORRIGIDO em 2026-07-25.** **DEFEITO PARCIAL CONFIRMADO E CORRIGIDO.** A metade `users.is_active` ja
+> estava fechada; a metade **organizacional nao**: o `auth` estrito responde 403
+> "Organization is inactive" enquanto `/nomes/busca` continuava servindo **nome privado** a
+> membro de organizacao desativada. Corrigido em `BUSCA` com a mesma regra do
+> `org-status.js` (linha de org ausente conta como ativa, via `COALESCE`). Controle negativo:
+> remover o EXISTS de liveness derruba 4 casos.
 
 - **Código:** `backend/src/modules/nomes/nomes.queries.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
@@ -991,6 +1173,14 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 40. UPDATE_ZONE geometry replacement (PUT /api/v1/zones/:id)
 
+> **CORRIGIDO em 2026-07-25.** **Cobertura vazia confirmada**, e este e o caso didatico da rodada.
+> `UPDATE_ZONE` escreve `geom` corretamente, mas `zones-admin.test.js:78-85` so afirmava
+> `geom.type === 'Polygon'`. O teste novo assere as **coordenadas** (via GET e via
+> `ST_AsGeoJSON`), o SRID, o PUT que so muda o nome, e o efeito end-to-end de autorizacao
+> (redesenhar a zona tira A e da B ao mesmo token). Controle negativo: `UPDATE_ZONE`
+> ignorando `$4` derruba 2 casos novos **e deixa `zones-admin.test.js` verde, 6/6**, que e
+> exatamente o defeito relatado.
+
 - **Código:** `backend/src/modules/zones/zones.queries.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
 - **Cobertura hoje:** backend/tests/integration/zones-admin.test.js (PUT /:id replaces name + geom) - assere name e geom.type, nunca as coordenadas
@@ -1005,6 +1195,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Confirmar no banco: SELECT ST_AsGeoJSON(geom) da linha == anel enviado (assert contra o Postgres, nao contra o eco do controller)
 
 ### 41. Broadcast WS `sharing_updated`: campo `role`, acoes user_updated/user_removed/public_*, e ordem escrita->broadcast
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: `sharing_updated` carrega `role` e cobre as cinco acoes, sempre DEPOIS da escrita. `backend/tests/ws/sharing-broadcast-updates.test.js`. Controle negativo: remover `role:` do update e o broadcast de `user_removed` derruba 4 de 6.
 
 - **Código:** `backend/src/modules/sharing/sharing.controller.js`
 - **Tipo:** WebSocket · **Fatia:** `be-sharing`
@@ -1022,6 +1214,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - CONTROLE NEGATIVO de ordem (I16): DELETE /sharing/users/<usuario sem share> -> 404 E nenhum sharing_updated chega na janela de espera, prova que o broadcast roda depois da escrita; se alguem inverter a ordem, um 404 emitiria remocao fantasma e os peers derrubariam um membro que ainda tem acesso
 
 ### 42. GRANTABLE_PERMISSIONS: conceder 'comment' e 'manage' via POST/PUT /atlas/:id/sharing/users
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: `comment` e `manage` sao concediveis pela rota, e o teste confere o PODER do nivel concedido, nao so a resposta. `backend/tests/integration/sharing-grantable-tiers.test.js`. Controle negativo: reduzir `GRANTABLE_PERMISSIONS` a `['read','write']` derruba 5 de 6.
 
 - **Código:** `backend/src/modules/sharing/sharing.schemas.js`
 - **Tipo:** integração · **Fatia:** `be-sharing`
@@ -1067,6 +1261,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 44. toFrontendRole(permission, globalRole), mapeamento dos cinco niveis para os seis papeis do frontend
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: cada um dos CINCO niveis mapeia para um papel distinto, sem colisao. `backend/tests/unit/roles.test.js`. Controle negativo: remover o ramo que devolve `manager` para `manage` derruba 3 de 5, que e a lista fechada reaparecendo.
+
 - **Código:** `backend/src/utils/roles.js`
 - **Tipo:** unitário · **Fatia:** `be-sharing`
 - **Cobertura hoje:** nenhuma
@@ -1082,6 +1278,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Guard de conjunto: iterar sobre os cinco valores de PERMISSION_LEVELS (importados de middleware/permissions.js) e assertar que cada um mapeia para um papel DISTINTO, pega a colagem de dois niveis no mesmo papel, que e a forma como o nivel do meio some
 
 ### 45. PATCH /sv360/admin/projects/:slug/status e DELETE /sv360/admin/projects/:slug, negativos de autorizacao (anon 401, viewer mesma org 403, membro de outra org 404)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: **zero** negativos de autorização nas duas
+> rotas destrutivas de projeto 360. `tests/integration/sv360-admin-authz.test.js`, 8 casos
+> (anon 401, viewer da mesma org 403, membro de outra org 404). Controle negativo em duas
+> direções: `canWriteProject` forçado a `true` derruba 5; escopo de organização fora do SQL
+> derruba 2.
 
 - **Código:** `backend/src/modules/streetview360/sv360.admin.service.js`
 - **Tipo:** integração · **Fatia:** `be-sv360`
@@ -1102,6 +1304,17 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 46. GET /sv360/tiles/:z/:x/:y.pbf e GET /sv360/tiles/fotos.geojson, escopo de cache nao acompanha o escopo de acesso (P6)
 
+> **CORRIGIDO em 2026-07-25, e este virou fix de produção.** Meio refutado, meio
+> confirmado. `tilesGeojson` **já** tinha o split private/Vary. `mvtTile` **não**: emitia
+> `public, max-age=60` incondicional enquanto o corpo varia por `req.user` (a query embute
+> isAdmin/orgId e inclui projetos `disabled`).
+>
+> O efeito é vazamento real, não teórico: um proxy compartilhado guardava o tile de um
+> membro da OM, **com as fotos do projeto disabled dentro**, e o reservia a anônimo por 60
+> segundos. Corrigido em `sv360.controller.js:118-140`, espelhando a rota de imagem; o
+> caminho anônimo segue `public`, preservando o CDN legítimo. Controle negativo: reverter
+> derruba 2 casos.
+
 - **Código:** `backend/src/modules/streetview360/sv360.controller.js`
 - **Tipo:** integração · **Fatia:** `be-sv360`
 - **Arquivo sugerido:** `backend/tests/integration/sv360-tiles-cache-scope.test.js`
@@ -1119,6 +1332,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 47. mergeProject: manifest deleted_photos[] insere tombstone SEM verificar dono (sv360.deleted_photos nao tem FK e o PK e global por photo_id)
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: o guard existe (`sv360.merge.js:239-251`, com
+> `ownedIds` e descarte com log), e `tests/integration/sv360-tombstone-cross-tenant.repro.test.js`
+> já cobre os dois sentidos.
+
 - **Código:** `backend/src/modules/streetview360/sv360.merge.js`
 - **Tipo:** integração · **Fatia:** `be-sv360`
 - **Arquivo sugerido:** `backend/tests/integration/sv360-tombstone-cross-org.repro.test.js`
@@ -1135,6 +1352,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 48. Carimbo de serverVersion e entityId nas ops transmitidas por WS apos push HTTP (sync.controller.js:19-38)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: o push HTTP difunde `serverVersion` por operacao e `entityId` como gravado. `backend/tests/ws/collab-broadcast-stamping.test.js`. Controle negativo: remover o stamping do `.map` em `sync.controller.js` derruba os 4 casos do bloco.
+
 - **Código:** `backend/src/modules/sync/sync.controller.js`
 - **Tipo:** WebSocket · **Fatia:** `be-sync`
 - **Arquivo sugerido:** `backend/tests/ws/collab-broadcast-stamping.test.js`
@@ -1150,6 +1369,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - reenvio idempotente do MESMO op_id com um peer conectado -> a op transmitida carrega o serverVersion ORIGINAL gravado, nao o serverVersion corrente do atlas
 
 ### 49. assertOperationAllowed (sync.service.js:600-620) + applyCommentOp isEditor (sync.service.js:1241) para o nivel 'manage'
+
+> **CORRIGIDO em 2026-07-25.** **REFUTADO em 2 dos 6 casos, e as duas refutacoes sao correcoes ao enunciado.**
+> (a) exclusao de mapa **nao** e owner-only: `sync.service.js:974` gateia por hierarquia
+> (`< PERMISSION_LEVELS.manage`), entao `manage` PODE excluir mapa. (b) recusa de politica
+> **nao** e 403: e `rejected: true` mais `reason` por operacao, com 200 no lote.
+> `backend/tests/integration/sync-manage-tier.test.js`.
 
 - **Código:** `backend/src/modules/sync/sync.service.js`
 - **Tipo:** integração · **Fatia:** `be-sync`
@@ -1169,6 +1394,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 50. Filtro de visibilidade de comentario no PULL INCREMENTAL para permission 'read' (sync.service.js:812-816)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: o pull incremental de `read` poda comentario nos dois transportes, sem esvaziar o lote. `backend/tests/integration/sync-comment-visibility-incremental.test.js`. Controle negativo: desligar o teste de `permission === 'read'` em `pullOperations` derruba 2 de 4.
+
 - **Código:** `backend/src/modules/sync/sync.service.js`
 - **Tipo:** integração · **Fatia:** `be-sync`
 - **Arquivo sugerido:** `backend/tests/integration/sync-comment-visibility-incremental.test.js`
@@ -1184,6 +1411,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - reader com share 'read' via WS sync_request com lastVersion > 0 -> a resposta nao traz op de comment
 
 ### 51. lock_timeout no advisory lock do push -> 55P03 -> ServiceUnavailableError 503 (sync.service.js:656-670)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. `backend/tests/integration/sync-lock-timeout.repro.test.js`, com
+> `/health` respondendo durante a espera e escopo por atlas, o que prova que o lock nao e
+> global. **Sobrepoe parcialmente o item 64** (outro agente cobriu o mesmo `lock_timeout` em
+> `sync-push-lock-timeout.test.js`); os dois convivem e vale fundir.
 
 - **Código:** `backend/src/modules/sync/sync.service.js`
 - **Tipo:** integração · **Fatia:** `be-sync`
@@ -1201,6 +1433,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - controle de escopo: com o lock do atlas A segurado >5s, um POST /sync no atlas B responde 200 normalmente
 
 ### 52. Tres testes de pull incremental cuja assercao inteira vive dentro de `if (!res.body.data.isSnapshot)` (cobertura vazia)
+
+> **CORRIGIDO em 2026-07-25.** **Ja resolvido em 3 dos 5 sites** antes desta rodada (as assercoes ja eram
+> incondicionais). Restava `sync.test.js:397`, cuja assercao era verdadeira **por
+> aritmetica**, e foi substituida. Controle negativo: forcar snapshot sempre derruba 6
+> testes, **inclusive os 3 que ja estavam corrigidos**, o que prova que o conserto anterior
+> tambem prende.
 
 - **Código:** `backend/tests/integration/sync-snapshot-hybrid.test.js`
 - **Tipo:** integração · **Fatia:** `be-sync`
@@ -1220,6 +1458,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 53. POST /auth/register, organization_id auto-atribuido pelo proprio solicitante (claim de tenant)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e a **consequencia** foi provada, nao so o mecanismo: o membro
+> auto-declarado enxerga projeto 360 `disabled` da outra organizacao, com controle anonimo
+> que nao ve. Sem isso o teste provaria so que a coluna foi gravada.
+
 - **Código:** `backend/src/modules/auth/auth.schemas.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
 - **Arquivo sugerido:** `backend/tests/integration/register-tenant-claim.test.js`
@@ -1236,6 +1478,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - register SEM organization_id -> COALESCE de auth.queries.js:74 poe a org default 00000000-0000-0000-0000-000000000001 (hoje sem nenhum teste)
 
 ### 54. config.postos / config.organizacoesMilitares, payload congelado de GET /api/config que alimenta o cadastro anonimo
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: shape e filtro `is_active` do payload congelado sem cobertura.
 
 - **Código:** `backend/src/modules/config/config.service.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
@@ -1286,6 +1530,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 56. deleteUser, revogacao de refresh tokens dentro da transacao (Q.REVOKE_ALL_USER_TOKENS)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. A assercao vem da **coluna**, com o 401 marcado como sintoma e nao
+> como prova, que e a diferenca entre prender a revogacao e prender o efeito colateral dela.
+> Controle negativo derruba 3.
+
 - **Código:** `backend/src/modules/users/users.service.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
 - **Arquivo sugerido:** `backend/tests/integration/users-coverage.test.js`
@@ -1300,6 +1548,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - caminho de rollback: DELETE de usuario com atlas SEM transferTo -> 409 -> afirmar que NENHUM refresh token do alvo ficou com revoked_at preenchido (a revogacao esta dentro do tx e tem de voltar junto)
 
 ### 57. deleteUser, guarda de reatribuicao de atlas contornavel por transferTo === userId
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO: `users.service.js:333` ja recusa `transferTo === userId`, e o teste
+> de caracterizacao que congelava o defeito ja foi atualizado.
 
 - **Código:** `backend/src/modules/users/users.service.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
@@ -1318,6 +1569,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 58. Papel derivado que atravessa a fronteira: `connected.role` do WS e `role` do broadcast sharing_updated para os niveis manage/comment
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: o `role` que atravessa a fronteira nunca era
+> asserido para `manage`/`comment`. `tests/ws/collab-role-tiers.test.js`, 7 casos. Controle
+> negativo: reduzir `toFrontendRole` a uma lista fechada de 4 papéis derruba 5, que é
+> exatamente a lista fechada que a constituição proíbe.
+
 - **Código:** `backend/src/modules/collab/collab.gateway.js`
 - **Tipo:** WebSocket · **Fatia:** `be-utils`
 - **Cobertura hoje:** tests/ws/collab-roles.test.js (so owner/write/read/admin); tests/ws/collab-broadcasts.test.js:144-169 asserta permission mas nunca role; tests/ws/collab-manage-selection.test.js usa 'manage' porem so para selecao, sem tocar o papel
@@ -1333,6 +1589,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Controle negativo explicito no teste: assert.notEqual(connected.role, 'viewer') para o share 'manage', que e exatamente o valor que o bug de lista fechada produz
 
 ### 59. Isencao fail-open de usuario sem organizacao em orgIsActive() e getLiveAuthState() (invariante I9: token legado degrada para organization_id null)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e o número diz tudo: **zero** usuários sem
+> organização em toda a suíte, então a isenção fail-open do invariante I9 era inalcançável
+> por teste. `tests/integration/org-status-fail-open.test.js`, 6 casos. Controle negativo:
+> `return false` mais `LEFT JOIN` virando `JOIN` derruba a suíte inteira (6).
 
 - **Código:** `backend/src/utils/org-status.js`
 - **Tipo:** integração · **Fatia:** `be-utils`
@@ -1383,6 +1644,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 61. toFrontendRole(), mapeamento dos CINCO niveis de permissao para o vocabulario de papel do frontend
 
+> **CORRIGIDO em 2026-07-25.** DUPLICATA do item 44, fechado nesta mesma rodada em
+> `backend/tests/unit/roles.test.js` (cada um dos CINCO niveis mapeando para papel distinto;
+> controle negativo removendo o ramo de `manage` derruba 3 de 5). Verificado, sem trabalho
+> novo.
+
 - **Código:** `backend/src/utils/roles.js`
 - **Tipo:** unitário · **Fatia:** `be-utils`
 - **Cobertura hoje:** nenhuma direta. tests/ws/collab-roles.test.js exercita so owner/write/read/admin, ou seja, reproduz no proprio teste a lista fechada de 4 papeis que o livro-razao proibe
@@ -1401,6 +1667,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 62. Gate de ambiente do SyncLedger: state.enabled = EBGEO_TRACE==='1' || NODE_ENV==='test' (invariante I14)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e o mecanismo é didático: **o `beforeEach`
+> neutralizava o assert**, então o gate de ambiente do SyncLedger tinha teste que não podia
+> falhar. `tests/unit/sync-trace-env-gate.test.js`, 7 casos, e o assert vazio foi removido.
+> Controle negativo: fixar `enabled` em `false` derruba 3, em `true` derruba 4.
+
 - **Código:** `backend/src/utils/sync-trace.js`
 - **Tipo:** unitário · **Fatia:** `be-utils`
 - **Cobertura hoje:** tests/unit/sync-trace.test.js cobre record/filter/clear/no-op-quando-desligado, mas a unica assercao sobre o gate de ambiente e neutralizada pelo proprio beforeEach
@@ -1416,6 +1687,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Correcao do teste existente: mover a assercao do gate para FORA do beforeEach que forca setTraceEnabled(true), ou remove-la do arquivo por ser inverificavel ali
 
 ### 63. Serializacao por socket das mensagens WS (ws._messageChain) em collab.gateway.js
+
+> **CORRIGIDO em 2026-07-25.** DUPLICATA do item 20, fechado em
+> `backend/tests/ws/collab-message-serialization.test.js`. Verificado, sem trabalho novo.
 
 - **Código:** `backend/src/modules/collab/collab.gateway.js`
 - **Tipo:** WebSocket · **Fatia:** `livro-razao`
@@ -1434,6 +1708,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 64. pushOperations: SET LOCAL lock_timeout '5s' + 55P03 -> ServiceUnavailableError (503)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: nenhum teste cruzava o limiar de 5s, então o
+> `SET LOCAL lock_timeout` e o mapeamento 55P03 para 503 nunca eram exercitados.
+> `tests/integration/sync-push-lock-timeout.test.js`, 2 casos. Controle negativo: remover o
+> `SET LOCAL` faz o teste **pendurar por 30s** até o timeout do runner em vez de falhar
+> limpo, que é a forma exata do defeito em produção (conexão do pool retida).
+
 - **Código:** `backend/src/modules/sync/sync.service.js`
 - **Tipo:** integração · **Fatia:** `livro-razao`
 - **Arquivo sugerido:** `backend/tests/integration/sync-push-lock-timeout.test.js`
@@ -1450,6 +1730,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Retentar o mesmo batch (mesmo op_id) depois de liberar o lock retorna 200 e persiste exatamente uma vez (idempotencia preservada pelo caminho de falha)
 
 ### 65. applyCommentOp: isEditor = permission === 'write' || 'manage' || 'owner' (lista fechada viva)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `comments.test.js` nunca cria share `manage`,
+> então a lista fechada viva do `isEditor` era invisível. `tests/integration/comments-manage-tier.test.js`,
+> 5 casos. Controle negativo: tirar `|| 'manage'` do `isEditor` derruba 4.
 
 - **Código:** `backend/src/modules/sync/sync.service.js`
 - **Tipo:** integração · **Fatia:** `livro-razao`
@@ -1468,6 +1752,13 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 66. Push de sync (REST e WS) por usuario com permissao 'manage'
 
+> **CORRIGIDO em 2026-07-25, e o item tem um ERRO FACTUAL.** Ele afirma que a exclusão de
+> mapa é owner-only (`sync.service.js:611`). O código gateia por **hierarquia**
+> (`operationDenialReason`, `sync.service.js:974`, `< PERMISSION_LEVELS.manage`); o que é
+> owner-only é o **lock/unlock** (`:980`). O push por `manage` via REST já estava coberto
+> por `manage-tier-cogestor.test.js`; a metade **WS não estava**, e entrou em
+> `tests/ws/collab-role-tiers.test.js`.
+
 - **Código:** `backend/src/modules/sync/sync.service.js`
 - **Tipo:** integração · **Fatia:** `livro-razao`
 - **Arquivo sugerido:** `backend/tests/integration/sync-manage-tier-authz.test.js`
@@ -1485,6 +1776,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 67. Matriz de permissao do push de sync, nenhum teste prova que um usuario 'manage' consegue escrever feicao
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO em parte (`manage-tier-cogestor.test.js` ja prova escrita, e o gate
+> ja e por hierarquia; o `:1241` do relatorio e hoje `applyCommentOp:1674`). Os dois tiers
+> ausentes entraram asserindo o **Postgres**: manage escreve feicao e nao apaga atlas;
+> comment toma 403 em feicao sem nada persistir, e 200 em comentario. Controle negativo
+> (`manage: 4` virando 2) derruba 6.
+
 - **Código:** `backend/tests/integration/permissions.test.js`
 - **Tipo:** integração · **Fatia:** `saude-suite`
 - **Cobertura hoje:** backend/tests/integration/atlas-config-authz.test.js (manage em settings/sharing) e ws/collab-manage-selection.test.js (manage em presenca) cobrem manage fora do push; o push de feicao por manage nao aparece em nenhum dos 126 arquivos
@@ -1501,6 +1798,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 68. describe('Hybrid Snapshot/Incremental Pull') > 'incremental pull returns operations since version' e 'operations carry the frontend envelope fields', corpo inteiro dentro de `if (!res.body.data.isSnapshot)`
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO (ja corrigido) e COMPLETADO: `filter(...).length === 1` no lugar de
+> `ok(find)`, e o ramo de snapshot **forcado** por `min_version` em vez de esperado.
+
 - **Código:** `backend/tests/integration/sync-snapshot-hybrid.test.js`
 - **Tipo:** integração · **Fatia:** `saude-suite`
 - **Cobertura hoje:** backend/tests/integration/sync-frontend-format.test.js:607 tenta o mesmo pull, mas tem o mesmo defeito em forma mais branda (ver item proprio)
@@ -1515,6 +1815,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Controle negativo: fazer o handler devolver snapshot incondicionalmente e confirmar que os dois casos falham
 
 ### 69. describe('resolvePermission()') e describe('Permission Resolver'), duas suites unitarias inteiras sobre a MESMA funcao, e nenhuma das duas exercita 'manage' ou 'comment'
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. `unit/permission-resolver.test.js` foi **apagado**; sobreviveu o
+> irmao com 11 casos contra 9. Somados os tiers do meio, o contrato de `PERMISSION_LEVELS` e
+> um `permission-hierarchy-matrix.test.js` novo com as **25 combinacoes** no middleware real.
 
 - **Código:** `backend/tests/unit/middleware-permissions.test.js`
 - **Tipo:** unitário · **Fatia:** `saude-suite`
@@ -1532,6 +1836,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 70. describe('WebSocket Collaboration') > 'owner can connect to atlas' / 'writer can connect' / 'reader can connect to atlas', assercao de permissao no handshake
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO (ja e `assert.equal`). Acrescentados `manage` e `comment`, que
+> nenhum handshake afirmava. Controle negativo (gate do WS aberto) derruba 11.
+
 - **Código:** `backend/tests/ws/collab.test.js`
 - **Tipo:** WebSocket · **Fatia:** `saude-suite`
 - **Cobertura hoje:** backend/tests/ws/collab-manage-selection.test.js e ws/collab-commenter-authz.test.js cobrem o EFEITO (broadcast de selecao) dos tiers manage/comment, mas nenhum arquivo afirma o valor do campo `permission` no handshake
@@ -1545,6 +1852,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Controle negativo obrigatorio: mudar o servidor para devolver `permission: 'read'` fixo e confirmar que os 5 casos falham; com o assert atual nenhum falha
 
 ### 71. 'stranger cannot connect to private atlas', 'invalid token is rejected', 'connection with nonexistent atlasId fails', 'connection with invalid (non-UUID) atlasId is rejected', catch que so afirma que algo lancou
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `catch { ok(err) }` aceitava qualquer erro. Agora afirma o status
+> do upgrade: estranho 403 (com **zero linhas** em `active_sessions`), token invalido 401,
+> forjado 401, atlasId nao-UUID 500, este ultimo fixado com nota de que 400 seria o certo.
 
 - **Código:** `backend/tests/ws/collab.test.js`
 - **Tipo:** WebSocket · **Fatia:** `saude-suite`
@@ -1566,6 +1877,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 72. Broadcast WS de map_duplicated e atlas_owner_changed (atlas.controller.js:71 e :81)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, cobertura zero nos broadcasts de duplicacao e troca de dono.
+> Controle negativo derruba 2.
+
 - **Código:** `backend/src/modules/atlas/atlas.controller.js`
 - **Tipo:** WebSocket · **Fatia:** `be-atlas`
 - **Cobertura hoje:** tests/ws/collab-broadcasts.test.js cobre atlas_deleted, atlas_updated e atlas_settings_updated; map_duplicated e atlas_owner_changed têm zero hits em tests/
@@ -1580,6 +1894,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - controle negativo de escopo: um cliente conectado a OUTRO atlas não recebe nenhuma das duas mensagens
 
 ### 73. atlasSettingsSchema, validador custom min_zoom/max_zoom e default_basemap (atlas.schemas.js:36-48)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO **e revelou defeito novo**: o custom validator passava `{message}`
+> para `any.custom`, cujo template le `{{#error.message}}`, entao a mensagem saia como
+> `'"value" failed custom validation because '` e **as duas regras eram indistinguiveis para
+> o cliente**. Corrigido em `atlas.schemas.js:36-56`. Controle negativo derruba 1.
 
 - **Código:** `backend/src/modules/atlas/atlas.schemas.js`
 - **Tipo:** unitário · **Fatia:** `be-atlas`
@@ -1598,6 +1917,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 74. cloneAtlas / duplicateMap perdem grid_style e temporal_config (atlas.service.js:306 e :416)
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: `grid_style` e `temporal_config` ja viajam no `mapRow`
+> (`atlas.service.js:544-565`, `d15b330`). Cobertura escrita assim mesmo; controle negativo
+> derruba 3.
+
 - **Código:** `backend/src/modules/atlas/atlas.service.js`
 - **Tipo:** integração · **Fatia:** `be-atlas`
 - **Cobertura hoje:** atlas-advanced.test.js 'clone preserves settings, maps, and features' (não olha as colunas) e sync-map-grid-temporal.test.js (caminho do sync apenas)
@@ -1612,6 +1935,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - borda: mapa com as duas colunas em '{}' -> clone continua '{}' (sem NULL, a coluna é NOT NULL)
 
 ### 75. Nome default de clone/duplicação estoura VARCHAR(255) -> SQLSTATE 22001 não mapeado -> 500
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e **CORRIGIDO**: nome no teto de VARCHAR(255) estourava 500 na
+> duplicacao. `withCopySuffix()` passou a truncar a BASE preservando o sufixo, que e a ordem
+> que mantem o nome legivel. Controle negativo derruba 3.
 
 - **Código:** `backend/src/modules/atlas/atlas.service.js`
 - **Tipo:** integração · **Fatia:** `be-atlas`
@@ -1628,6 +1955,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 76. importAtlas zera settings (atlas.service.js:564) enquanto createAtlas herda o documento default do banco
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e **CORRIGIDO**: o import zerava `settings`. Agora o INSERT omite a
+> coluna (pega o DEFAULT) e usa `settings || $2::jsonb`. Controle negativo derruba 3.
+
 - **Código:** `backend/src/modules/atlas/atlas.service.js`
 - **Tipo:** integração · **Fatia:** `be-atlas`
 - **Cobertura hoje:** atlas-import.test.js passa settings {theme:'dark'} em 2 casos e nunca lê GET /settings depois; atlas-gaps.test.js atlas-09 cobre o merge raso, não o shape inicial
@@ -1642,6 +1972,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - consequência observável: PATCH /settings {features:{map_3d:false}} num atlas importado -> GET devolve features com apenas map_3d (o merge || de UPDATE_ATLAS_SETTINGS não repõe o default ausente)
 
 ### 77. Token público não é escopado ao atlas que o emitiu (atlas.service.js:143-154 vs permissions.js:92)
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO (`permissions.js:92` ja escopa o token publico). Acrescentados o
+> read-only no proprio atlas e o `POST /clone`, com assercao de que **nenhum** atlas nasce
+> com `owner_id LIKE 'public-%'`.
 
 - **Código:** `backend/src/modules/atlas/atlas.service.js`
 - **Tipo:** integração · **Fatia:** `be-atlas`
@@ -1659,6 +1993,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 78. authLimiter e envenenavel por chave em /auth/resend-verification e /auth/refresh (rate-limit.js:32 le req.body.username ANTES do validate stripUnknown)
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: `auth.routes.js:28-31` já usa
+> `verifyEmailLimiter`/`resendVerificationLimiter`/`refreshLimiter`, cada um com store
+> próprio e chave por endereço. Controle negativo: remontar as duas no `authLimiter` derruba
+> 3 casos, com a rajada envenenada voltando a passar.
+
 - **Código:** `backend/src/modules/auth/auth.routes.js`
 - **Tipo:** integração · **Fatia:** `be-auth`
 - **Cobertura hoje:** backend/tests/integration/rate-limit.test.js, so /auth/login, e o caso 'does not throttle distinct usernames' assere justamente o comportamento que aqui vira bypass.
@@ -1674,6 +2013,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - controle negativo: com RATE_LIMIT_FORCE removido, nenhuma rota devolve 429 (nao quebrar o skip de teste)
 
 ### 79. register() nao pode ser oraculo de existencia, mensagem 409 identica para colisao de username e de e-mail (auth.service.js:210-224)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Controle negativo único cobrindo 79, 80 e 81
+> (mensagem 409 específica; remoção de `!user.email_verified`; remoção do try/catch
+> best-effort): 4 casos caem.
 
 - **Código:** `backend/src/modules/auth/auth.service.js`
 - **Tipo:** integração · **Fatia:** `be-auth`
@@ -1692,6 +2035,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 80. resendVerification(), guarda `user && user.email && !user.email_verified` (auth.service.js:310)
 
+> **CORRIGIDO em 2026-07-25**, junto com 79 e 81. Ver a nota do item 79.
+
 - **Código:** `backend/src/modules/auth/auth.service.js`
 - **Tipo:** integração · **Fatia:** `be-auth`
 - **Cobertura hoje:** backend/tests/integration/auth-email-verification.test.js:121-143, cobre desconhecido e nao-verificado; o assert final e `n >= 2`, que nada diz sobre vazamento.
@@ -1706,6 +2051,13 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - controle negativo: conta nao verificada, resend na caixa original -> nova linha criada (o caminho feliz continua vivo)
 
 ### 81. register(), verificacao best-effort: falha ao emitir/enviar token nao pode 500 nem orfanar a conta (auth.service.js:246-252)
+
+> **CORRIGIDO em 2026-07-25**, junto com 79 e 80. Para este a falha do banco foi induzida
+> por **trigger `RAISE EXCEPTION` real** em `email_verification_tokens`, sem mock, que é o
+> que faz o teste prender o comportamento e não o dublê.
+>
+> Caracterização registrada de quebra: `resendVerification` **não** tem o mesmo try/catch
+> best-effort e propaga 500.
 
 - **Código:** `backend/src/modules/auth/auth.service.js`
 - **Tipo:** integração · **Fatia:** `be-auth`
@@ -1723,6 +2075,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 82. Readiness /api/v1/health, ramo 503 quando o banco esta fora (app.js:78-87)
 
+> **CORRIGIDO em 2026-07-25.** PARCIAL: o timeout de pool saturado ja tinha repro. Novo caso cobre o
+> envelope EXATO do 503 (sem stack) e que a rota continua **publica** enquanto caida.
+
 - **Código:** `backend/src/app.js`
 - **Tipo:** integração · **Fatia:** `be-boot`
 - **Arquivo sugerido:** `backend/tests/integration/health-readiness.test.js (arquivo proprio: encerra o pool)`
@@ -1738,6 +2093,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Com o pool destruido, GET /api/v1/health sem token continua 503 e nao 401 (a rota permanece publica, que e o requisito do probe).
 
 ### 83. Alias /api/config serve o MESMO corpo que /api/v1/config (app.js:90-91)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `deepEqual` entre alias e canonico, headers, e `POST` dando 404.
+> Controle negativo (alias apontando para router vazio) derruba 7.
 
 - **Código:** `backend/src/app.js`
 - **Tipo:** integração · **Fatia:** `be-boot`
@@ -1755,6 +2113,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 84. helmet hsts no ramo de producao (app.js:46)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e a forma importa: assere os VALORES do HSTS
+> (`max-age=15552000` + `includeSubDomains`), nao a presenca do header, porque o default do
+> helmet passaria no teste de presenca. Controle negativo derruba 5 junto com o 85.
+
 - **Código:** `backend/src/app.js`
 - **Tipo:** integração · **Fatia:** `be-boot`
 - **Arquivo sugerido:** `backend/tests/integration/app-mount-gates.test.js (mesmo harness de child prod do item do /debug)`
@@ -1770,6 +2132,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 85. helmet crossOriginResourcePolicy: 'cross-origin' (app.js:47)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, cobrindo JSON **e** resposta binaria (asset 3D criado no proprio
+> teste), porque o header viaja por caminhos diferentes nos dois.
+
 - **Código:** `backend/src/app.js`
 - **Tipo:** integração · **Fatia:** `be-boot`
 - **Arquivo sugerido:** `backend/tests/integration/config-infra-gaps.test.js (infra-05)`
@@ -1784,6 +2149,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Controle negativo: remover a opcao de app.js:47 e confirmar que ambos falham.
 
 ### 86. flexibleAuth global nao pode quebrar rota publica com credencial invalida (app.js:70 + flexible-auth.js:60-63)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: cinco credenciais quebradas contra o par (`/api/config` 200 e
+> `/auth/me` 401). Controle negativo (`flexibleAuth` deixando de engolir) derruba 6.
 
 - **Código:** `backend/src/app.js`
 - **Tipo:** integração · **Fatia:** `be-boot`
@@ -1802,6 +2170,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 87. Defaults de config.appConfig servidos ao browser nao podem apontar para localhost/porta fixa (config.js:139-178)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: varredura de `appConfig` com guarda de pelo menos 14 chaves e
+> **auto-controle do scanner**, senao um scanner quebrado passaria vazio.
+
 - **Código:** `backend/src/config.js`
 - **Tipo:** unitário · **Fatia:** `be-boot`
 - **Arquivo sugerido:** `backend/tests/unit/config-defaults.test.js`
@@ -1817,6 +2188,13 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Escopo explicito e comentado: config.cors.origin ('http://localhost:3000') e default de dev DELIBERADO e nao entra na varredura, a varredura e so do que o servidor entrega ao browser.
 
 ### 88. NUMERIC_ENV_RULES cobre toda env numerica lida em config.js (config.js:189-207 vs 37-134)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, **com deriva real, e corrigido em producao**. O cross-check entre
+> o texto-fonte e a tabela achou tres env vars numericas fora de `NUMERIC_ENV_RULES`:
+> `TRUST_PROXY_HOPS` e os dois `RATE_LIMIT_GAZETTEER_*`. A primeira e a grave: NaN faz
+> `i < NaN` ser falso, o que zera os hops confiaveis e **colapsa todos os rate limiters por
+> IP num balde global**, que e exatamente o defeito ja registrado no livro-razao. A constante
+> passou a ser exportada para o teste conferi-la. Controle negativo derruba 2.
 
 - **Código:** `backend/src/config.js`
 - **Tipo:** unitário · **Fatia:** `be-boot`
@@ -1834,6 +2212,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 89. optionalInt: truncagem/valores absurdos em TERRAIN_/HILLSHADE_*ZOOM (config.js:14-19, 145-148)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `'0'` vira 0, lixo vira `undefined`, e as duas armadilhas ficaram
+> fixadas (`'12abc'` vira 12; `-1` passa).
+
 - **Código:** `backend/src/config.js`
 - **Tipo:** unitário · **Fatia:** `be-boot`
 - **Arquivo sugerido:** `backend/tests/unit/config-defaults.test.js`
@@ -1849,6 +2230,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Complemento em integration: com TERRAIN_MINZOOM invalido, GET /api/config nao emite `minzoom: NaN` no terrainSource (o guard Number.isFinite de config.service.js:123 e o que segura).
 
 ### 90. Ordem do shutdown gracioso: closeAllSockets ANTES de server.close, timer de forca, guard de reentrancia (index.js:37-60)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, sem exportar `shutdown`: subprocesso real com **socket collab
+> vivo** e SIGTERM. Controle negativo: inverter a ordem faz o processo cair em forca-exit e
+> sair com 1, levando **11,6 segundos**, que e o sintoma exato do defeito P4.
 
 - **Código:** `backend/src/index.js`
 - **Tipo:** unitário · **Fatia:** `be-boot`
@@ -1867,6 +2252,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 91. Gate de montagem do modulo debug em app.js:117, isTraceEnabled() && !config.isProd (I14: tracing inalcancavel em producao)
 
+> **CORRIGIDO em 2026-07-25.** Parcialmente REFUTADO: "cobertura hoje: nenhuma" esta errado, porque
+> `app-mount-gates.test.js` ja cobria a metade `!config.isProd`. Faltava a OUTRA metade da
+> conjuncao. Controle negativo: reduzir `isTraceEnabled() && !config.isProd` a so o segundo
+> derruba 1.
+
 - **Código:** `backend/src/app.js`
 - **Tipo:** integração · **Fatia:** `be-catalog-config-audit`
 - **Arquivo sugerido:** `backend/tests/integration/debug-trace-mount.test.js`
@@ -1881,6 +2271,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Controle positivo no mesmo arquivo: com o tracer ligado e NODE_ENV=test, a mesma requisicao responde 401 (rota montada, auth negando), prova que o 404 acima vem da NAO montagem e nao de um erro de path.
 
 ### 92. configOverridesSchema rejeita as chaves TOP-LEVEL de catalogo (basemaps / tilesets / basemapStyles / postos)
+
+> **CORRIGIDO em 2026-07-25**, junto com os itens 16 e 95, em `config-admin.test.js`.
+> Controle negativo: `.unknown(true)` no topo do schema mais arrays concatenando derruba 3.
 
 - **Código:** `backend/src/modules/config/config.admin.schemas.js`
 - **Tipo:** integração · **Fatia:** `be-catalog-config-audit`
@@ -1897,6 +2290,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Positivo de contraste no mesmo teste: PUT {analysisLayers:{enabled:false}} -> 200 (a assimetria e deliberada; sem este caso o teste viraria 'tudo e 422').
 
 ### 93. rasterDemSource(), escolha entre forma TileJSON e forma template {z}, e o guard Number.isFinite de minzoom/maxzoom
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. `rasterDemSource` era privada de um modulo que **arrasta o pool do
+> Postgres**, o que a tornava inalcancavel por teste unitario; movida para `config.static.js`,
+> que e puro. Controles negativos: remover o ramo `{z}` derruba 5; trocar `Number.isFinite`
+> por truthiness derruba 2.
 
 - **Código:** `backend/src/modules/config/config.service.js`
 - **Tipo:** unitário · **Fatia:** `be-catalog-config-audit`
@@ -1916,6 +2314,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 94. listPostos() / listOrganizacoesMilitares(), shape e filtro is_active das listas controladas servidas em GET /api/config
 
+> **CORRIGIDO em 2026-07-25.** `tests/integration/config-personnel-contract.test.js`, 7
+> casos sobre o payload congelado que alimenta o cadastro anônimo. Controle negativo:
+> filtros `is_active` fora, `abrev` fora e `slug` vazado derrubam 4.
+
 - **Código:** `backend/src/modules/config/config.service.js`
 - **Tipo:** integração · **Fatia:** `be-catalog-config-audit`
 - **Arquivo sugerido:** `backend/tests/integration/config-personnel-contract.test.js`
@@ -1934,6 +2336,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 95. deepMerge de overrides admin vs o shape congelado do /api/config (arrays substituem; secoes abertas do Joi nao podem produzir payload que quebre o boot)
 
+> **CORRIGIDO em 2026-07-25**, junto com os itens 16 e 92, em `config-admin.test.js`.
+
 - **Código:** `backend/src/modules/config/config.service.js`
 - **Tipo:** integração · **Fatia:** `be-catalog-config-audit`
 - **Arquivo sugerido:** `backend/tests/integration/config-override-contract.test.js`
@@ -1951,6 +2355,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 96. debug/trace: atlasId nao validado chega ao Postgres (cast uuid) e filtros opId/traceId de getTrace
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO no gate e nos filtros, **REFUTADO no 500**: `error-handler.js:65`
+> mapeia 22P02 para 400 generico, entao `?atlasId=abc` nao vaza texto do Postgres. O teste
+> novo ja nasce com a escada 404 (estranho) contra 403 (share insuficiente).
+
 - **Código:** `backend/src/modules/debug/debug.routes.js`
 - **Tipo:** integração · **Fatia:** `be-catalog-config-audit`
 - **Arquivo sugerido:** `backend/tests/integration/debug-trace-authz.test.js`
@@ -1965,6 +2373,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - GET ?atlasId=<uuid de atlas existente sem nenhum span, com read> -> 200 com spans === [] (anel vazio nao e 404 nem 500).
 
 ### 97. `user_away` sem sinal terminador quando o mesmo usuario tem outro socket vivo (assimetria entre broadcastUserAway e a guarda P8 de removeConnection)
+
+> **CORRIGIDO em 2026-07-25.** **REFUTADO.** O item previa `user_away` pendurado para sempre com duas abas,
+> supondo que a guarda P8 comparasse `userId`. Ela compara **`clientId`** desde `a358a6e`,
+> entao o `user_left` da aba caida E emitido. O teste virou prendedor disso. Controle
+> negativo: guarda por `userId` derruba 3 de 3.
 
 - **Código:** `backend/src/modules/collab/collab.gateway.js`
 - **Tipo:** WebSocket · **Fatia:** `be-collab`
@@ -1982,6 +2395,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 98. Limite de frame `maxPayload: COLLAB_MAX_PAYLOAD_BYTES` (10 MB) no WebSocketServer
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: frame acima de 10 MB morre no transporte e 1 MB legitimo passa. `backend/tests/ws/collab-max-payload.test.js`. Controle negativo: remover o `maxPayload` do servidor derruba 1 de 2, e o positivo sobrevive por construcao, o que esta dito no arquivo.
+
 - **Código:** `backend/src/modules/collab/collab.gateway.js`
 - **Tipo:** WebSocket · **Fatia:** `be-collab`
 - **Cobertura hoje:** nenhuma
@@ -1997,6 +2412,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - o peer conectado no mesmo atlas segue vivo e responde ping/pong (a morte de um socket por payload nao contamina a sala)
 
 ### 99. Carimbo de `serverVersion` na op difundida: `opOut` em handleOperation e o mapa `versionByOp` em handleOperations
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. O caso "op recusada nao e difundida" **sobrevive** a mutacao de
+> carimbo, e isso esta dito no arquivo: ele e independente do `serverVersion`, entao usa-lo
+> como controle do carimbo seria confundir dois invariantes.
 
 - **Código:** `backend/src/modules/collab/collab.handlers.js`
 - **Tipo:** WebSocket · **Fatia:** `be-collab`
@@ -2014,6 +2433,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 100. Ciclo de vida da linha em `active_sessions`: createSession/deleteSession disparados sem await em onConnection e removeConnection
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: a linha de sessao fecha o ciclo nos QUATRO caminhos de saida. `backend/tests/ws/collab-active-sessions-lifecycle.test.js`. Controle negativo: trocar a ordem dos parametros do `DELETE_SESSION` (chave composta errada) derruba 5 de 5.
+
 - **Código:** `backend/src/modules/collab/collab.service.js`
 - **Tipo:** WebSocket · **Fatia:** `be-collab`
 - **Cobertura hoje:** backend/tests/ws/collab-gaps.test.js ws-10 (so criacao e a ausencia para visitante publico).
@@ -2030,6 +2451,15 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 101. database/index.js initOptions.query loga `e.params` de toda query
 
+> **CORRIGIDO em 2026-07-25.** **CORRIGIDO**, e o item erra num ponto: o pino **tem** `redact.paths` e scrub
+> por nome de campo. O que e verdade e que nada disso alcanca **array posicional**, porque
+> `params: ['<api key>']` nao tem nome para casar. Extraidos `queryLogPayload`/`logQueryEvent`
+> em `src/database/index.js`, sem valores, mantendo query truncada em 80 e `paramCount`.
+>
+> A assercao e sobre o objeto que o codigo MONTA, nao sobre o stream: sob `NODE_ENV=test` o
+> pino e `silent`, entao espiar a saida passaria verde com o vazamento intacto. Controle
+> negativo: devolver `params` ao payload derruba 4 casos.
+
 - **Código:** `backend/src/database/index.js`
 - **Tipo:** integração · **Fatia:** `be-database`
 - **Cobertura hoje:** nenhuma (unit/redact-url.test.js cobre apenas a redacao da connection string, nao os params de query)
@@ -2045,6 +2475,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 102. _migrations versus os arquivos em disco (migracao aplicada renomeada ou removida)
 
+> **CORRIGIDO em 2026-07-25.** Parcialmente REFUTADO (o `assert.ok(n > 0)` ja tinha saido e a idempotencia
+> ja era asserida noutro arquivo). Escrito o que faltava: igualdade de **lista** banco contra
+> disco nos dois sentidos, e `ranks` continuar 19 apos re-executar as migracoes, porque o
+> INSERT de ranks nao tem `ON CONFLICT`.
+
 - **Código:** `backend/src/database/migrate.js`
 - **Tipo:** integração · **Fatia:** `be-database`
 - **Cobertura hoje:** parcial: config-infra-gaps.test.js:264-278 (contagem de linhas estavel) e low-impact-fixes.test.js:239-265 (espera no advisory lock + assert vacuo `n > 0`)
@@ -2059,6 +2494,15 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - re-executar runMigrations duas vezes seguidas nao altera dado seeded pelas migracoes: `SELECT count(*) FROM ranks` continua 19 e `SELECT count(*) FROM basemaps` continua 5 (o INSERT de ranks em 001_core.sql:58 NAO tem ON CONFLICT e a tabela nao tem UNIQUE em code/nome -- se o tracking falhar, duplica em silencio e o dropdown de posto passa a mostrar 38 itens)
 
 ### 103. Higiene das migracoes: numeracao, forward-only aditivo, contencao do PostGIS fora do schema public
+
+> **CORRIGIDO em 2026-07-25.** **A REGRA DO ITEM E FALSA contra o HEAD.** "Nenhum arquivo contem DROP TABLE
+> / DROP COLUMN / ALTER COLUMN ... TYPE" nao vale: `006` e `007` tem excecoes documentadas.
+> Codificado o invariante REAL: DDL destrutiva so existe numa **lista de excecoes com
+> contagem exata**, entao um `DROP COLUMN` novo reprova. Mais padrao de nome, unicidade,
+> `sort()` igual a ordem numerica, zero `uuid_generate_v4`, e PostGIS so onde deve.
+>
+> Detalhe que o teste teria errado sem cuidado: a busca por `ST_` precisa ser
+> case-sensitive com fronteira, porque `last_heartbeat` contem "st_".
 
 - **Código:** `backend/src/database/migrations/001_core.sql`
 - **Tipo:** unitário · **Fatia:** `be-database`
@@ -2077,6 +2521,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 104. Trigger trg_mark_slides_broken (soft-delete de mapa marca slides como quebrados)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, cobertura zero. Seis casos sobre `trg_mark_slides_broken`,
+> incluindo slide de outro mapa intocado e UPDATE que nao toca `deleted_at` nao disparando.
+> Pinadas as duas consequencias nao decididas: **zero linhas em `operations`** (o peer
+> conectado nao recebe) e restaurar o mapa nao desfaz. Controle negativo: trigger removido
+> derruba 4.
+
 - **Código:** `backend/src/database/migrations/002_atlas.sql`
 - **Tipo:** integração · **Fatia:** `be-database`
 - **Cobertura hoje:** nenhuma sobre o trigger; sync-briefing-ops.test.js:335 apenas escreve is_broken/broken_reason via op de sync
@@ -2094,6 +2544,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 105. Escopo por atlas da unicidade de op_id (operations_atlas_op_id_uniq)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: a mesma `op.id` em dois atlas produz duas linhas, com
+> idempotencia preservada DENTRO do atlas. Inclui introspeccao do `indexdef`. Controle
+> negativo: estreitar o indice para `UNIQUE(op_id)` derruba 3.
+
 - **Código:** `backend/src/database/migrations/003_sync.sql`
 - **Tipo:** integração · **Fatia:** `be-database`
 - **Cobertura hoje:** parcial: sync-validation.test.js:109 e sync-service-coverage.test.js:71 cobrem idempotencia dentro de um unico atlas; sync-cross-atlas-access.test.js cobre IDOR, nao colisao de op_id
@@ -2108,6 +2562,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - controle negativo do escopo: assertar que as duas linhas tem `atlas_id` diferentes e `op_id` igual
 
 ### 106. Paridade de shape das 5 tabelas de catalogo criadas por LIKE basemaps INCLUDING ALL
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Primeiro teste de **introspeccao** do backend: shape identico de
+> `(column_name, data_type, is_nullable, column_default)` nas cinco tabelas contra
+> `basemaps`, PK em `id`, e `assertTable` recusando fora da whitelist. Controle negativo
+> embutido, por `ALTER TABLE ... ADD COLUMN` em transacao revertida.
 
 - **Código:** `backend/src/database/migrations/003_sync.sql`
 - **Tipo:** integração · **Fatia:** `be-database`
@@ -2125,6 +2584,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 107. images.controller.js:20, header `Cache-Control: private, max-age=31536000, immutable` no download
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: a única asserção existente era `/immutable/`, e
+> `private` é o token que carrega a decisão. Controle negativo em duas direções:
+> `private`→`public` derruba 3; mover o header para o callback do `sendFile` derruba 7 de 7.
+> Verificado também que o 304 preserva `Cache-Control`/`Content-Disposition` e que o gate
+> roda antes do cache condicional.
+
 - **Código:** `backend/src/modules/images/images.controller.js`
 - **Tipo:** integração · **Fatia:** `be-images`
 - **Arquivo sugerido:** `backend/tests/integration/images-cache-headers.test.js`
@@ -2141,6 +2606,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 108. images.service.js:47, `await unlink(file.path)` apos rejeicao por magic bytes (multer ja gravou o arquivo em disco antes da validacao)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Controle negativo: remover o `unlink` derruba 4
+> casos. Inclui invariante de bijeção disco↔banco.
+
 - **Código:** `backend/src/modules/images/images.service.js`
 - **Tipo:** integração · **Fatia:** `be-images`
 - **Arquivo sugerido:** `backend/tests/integration/images-rejected-upload-cleanup.test.js`
@@ -2156,6 +2624,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - controle positivo: um upload valido no mesmo diretorio aumenta a contagem em 1 (senao a assercao de 'contagem igual' passaria mesmo com o diretorio inexistente)
 
 ### 109. MAP_CHILD_TABLES (maps.service.js:9-16): o conjunto EXATO de tabelas que o merge move, e o que fica para tras
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `comments` fora de `MAP_CHILD_TABLES`, e `slides.map_id` idem.
+> Pinado como caracterizacao mais um `deepEqual` do CONJUNTO de chaves, que e o que faz
+> acrescentar tabela nova sem atualizar a lista reprovar.
 
 - **Código:** `backend/src/modules/maps/maps.service.js`
 - **Tipo:** integração · **Fatia:** `be-maps-briefings`
@@ -2174,6 +2646,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 110. merge nao gera linha em `operations`: peer desatualizado desfaz o merge no push seguinte
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: a op MARCADORA existe (`maps.service.js:118-131`), entao o replay
+> de reconexao nao e mais vazio por construcao.
+
 - **Código:** `backend/src/modules/maps/maps.service.js`
 - **Tipo:** integração · **Fatia:** `be-maps-briefings`
 - **Arquivo sugerido:** `backend/tests/integration/maps-merge-sync-visibility.test.js`
@@ -2189,6 +2664,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - assertar que atlas.current_version nao mudou entre antes e depois do merge (a causa-raiz da ausencia de sinal incremental)
 
 ### 111. sourceMapIds com id repetido: mergeMaps nao deduplica antes de comparar os tamanhos
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e **CORRIGIDO**: ids repetidos na lista de origem produziam 404
+> mentiroso. Dedupe por `Set`, com caso provando que id AUSENTE continua 404. Controle
+> negativo derruba 3.
 
 - **Código:** `backend/src/modules/maps/maps.service.js`
 - **Tipo:** integração · **Fatia:** `be-maps-briefings`
@@ -2206,6 +2685,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 112. Ordem de registro em app.js, o catch-all 404 depois de TODOS os mounts e o errorHandler por ultimo
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Sonda por prefixo mais um guarda que confronta
+> a lista com os `app.use` lidos de `app.js`, então montar router novo sem sonda reprova.
+> Controle negativo feito em app local, porque `app.js` é fatia de `be-boot` e estava em
+> edição paralela.
+
 - **Código:** `backend/src/app.js`
 - **Tipo:** integração · **Fatia:** `be-middleware`
 - **Cobertura hoje:** parcial, tests/integration/health.test.js afirma o 404 de rota desconhecida; nenhum teste verifica que os prefixos montados sao alcancaveis.
@@ -2220,6 +2704,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - o envelope de erro sai formatado pelo errorHandler mesmo no caminho do catch-all (error.code presente), o que so acontece se ele for o ultimo
 
 ### 113. flexibleAuth, precedencia de credencial: cookie invalido e x-api-key invalido SUPRIMEM um Bearer valido
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO como caracterização: cookie lixo ou api-key
+> inválida rebaixam um Bearer válido a anônimo em rota só-flexível, e em `/auth/me` isso é
+> invisível porque o `auth` estrito relê o Bearer. Controle negativo: dar fallback ao Bearer
+> derruba 1 caso.
 
 - **Código:** `backend/src/middleware/flexible-auth.js`
 - **Tipo:** integração · **Fatia:** `be-middleware`
@@ -2236,6 +2725,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 114. nomesAccessLog, invariante de que se loga QUAIS filtros, nunca os valores
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Controle negativo: acrescentar
+> `query: req.query` ao log derruba 1 caso, com termo de busca e coordenada vazando.
+
 - **Código:** `backend/src/middleware/nomes-access-log.js`
 - **Tipo:** unitário · **Fatia:** `be-middleware`
 - **Cobertura hoje:** nenhuma, roda de fato em /nomes/{busca,feicoes,catalogo3d} durante os testes de nomes, mas nada assere sobre o conteudo do log.
@@ -2250,6 +2742,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - next() chamado exatamente uma vez, sem argumento
 
 ### 115. requestLogger, redacao de credencial na URL e escolha de nivel
+
+> **CORRIGIDO em 2026-07-25.** Parcialmente REFUTADO: o gate `if (!config.isTest)` de
+> `app.js` já caiu (item 60) e a redação já está coberta. Coberto o que faltava: ordem
+> `next()`/log, conexão abortada, anônimo e a fronteira 399/400. Controle negativo: mover o
+> log para antes do `next()` derruba 3 casos.
 
 - **Código:** `backend/src/middleware/request-logger.js`
 - **Tipo:** unitário · **Fatia:** `be-middleware`
@@ -2266,6 +2763,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 116. nomesAccessLog: registra apenas as CHAVES da query, nunca os valores
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, cobertura zero. Guarda de vazamento por **qualquer** campo
+> (`JSON.stringify` do payload nao pode conter termo nem coordenada), que e mais forte que
+> asserir campo a campo. A discriminacao foi provada por probe em copia literal mutada,
+> porque `nomes-access-log.js` esta fora da fatia.
+
 - **Código:** `backend/src/middleware/nomes-access-log.js`
 - **Tipo:** unitário · **Fatia:** `be-nomes-zones`
 - **Cobertura hoje:** nenhuma
@@ -2280,6 +2782,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - req.query ausente (undefined) -> queryKeys === [] e o middleware nao lanca (o `?? {}` esta guardado)
 
 ### 117. parseRange: clamp de end >= size e rejeicao de Range malformado
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Clamp, `bytes=0-0`, faixa invertida virando 416, Ranges
+> malformados virando 416 (pinado como **divergente do RFC 7233**) e o 304 vencendo o Range,
+> tudo nos **dois** caminhos (SQLite e filesystem). Controle negativo: remover o clamp
+> derruba 1.
 
 - **Código:** `backend/src/modules/nomes/assets3d.controller.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
@@ -2297,6 +2804,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 118. Contrato congelado de GET /nomes/busca: teto de 5 resultados (LIMIT 5)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: oito nomes casaveis provando `length === 5`, com score
+> monotonicamente nao-crescente. Controle negativo: `LIMIT 50` derruba 2.
+
 - **Código:** `backend/src/modules/nomes/nomes.controller.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
 - **Cobertura hoje:** backend/tests/integration/nomes.test.js e zones-coverage.test.js (zones-cov-03) - shape e caso vazio, nunca o teto
@@ -2310,6 +2820,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - O corpo continua um array nu (nao { data: [...] }) mesmo no caso cheio
 
 ### 119. Score de 7 criterios: decaimento por distancia (peso 0.20) e plumbing do parametro zoom ($4 -> decay_dist/zoom_factor)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. O caso que prova o plumbing do `$4` e o gap com `zoom=18` ser
+> MAIOR que sem zoom. E a diferenca do `tipo_peso` foi calculada a partir do valor que o
+> **trigger gravou**, nao de numero chutado, o que revelou que `'Cemiterio'` cai no ramo
+> `%rio%` e vale 0.85, nao 0.15. Controles negativos: score virando `d.sim` derruba 3;
+> `zoom ?? null` virando `null` derruba 2.
 
 - **Código:** `backend/src/modules/nomes/nomes.queries.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
@@ -2326,6 +2842,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 120. Insensibilidade a acento e caixa via ng.f_unaccent nos dois lados do similarity()
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e a **descoberta e o motivo de o teste existir**: remover o
+> `f_unaccent` do operador `%` NAO era pego com nome longo, porque a similaridade de
+> trigramas sobrevive a dois acentos em quinze caracteres. Foi preciso um caso com nome
+> curto e denso (`Nunoa Acai` buscando `Ñuñoã Açaí`) para a mutacao cair. Um teste de acento
+> com nome longo e cobertura vazia disfarcada.
+
 - **Código:** `backend/src/modules/nomes/nomes.queries.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
 - **Cobertura hoje:** nenhuma (nomes.test.js so usa termos sem acento identicos ao seed)
@@ -2341,6 +2863,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 121. DISTINCT ON (nome, tipo, cluster_id) ... ORDER BY ..., dist ASC - o representante do cluster e o MAIS PROXIMO
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO com **refutacao parcial**: simplesmente REMOVER o `dist ASC` do
+> `ORDER BY` do CTE `dedup` nao muda o resultado, porque o CTE `candidatos` ja entrega
+> ordenado por `dist ASC`. A mutacao que discrimina e `dist DESC`, que derruba 2. Fica
+> registrado que **o `dist ASC` do dedup e redundante na forma atual da query**, o que
+> importa para quem for reescrever o CTE.
+
 - **Código:** `backend/src/modules/nomes/nomes.queries.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
 - **Cobertura hoje:** backend/tests/integration/nomes.test.js (conta 1 resultado, nunca compara coordenadas)
@@ -2354,6 +2882,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Em ambos os casos continua sendo exatamente 1 linha para aquele nome
 
 ### 122. Predicado de acesso duplicado CATALOGO_SELECT vs CATALOGO_COUNT atravessando a fronteira de pagina
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `total` constante em todas as paginas, uniao sem sobreposicao, e
+> o total subindo pelos DOIS branches de permissao (direta e por grupo). Controle negativo:
+> estreitar o predicado do `CATALOGO_COUNT` derruba 3, que e a divergencia contagem-contra-listagem
+> que o comentario do SQL avisa.
 
 - **Código:** `backend/src/modules/nomes/nomes.queries.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
@@ -2370,6 +2903,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 123. Gate de autenticacao por rota: /nomes/feicoes e /nomes/catalogo3d sao auth-estrito, /nomes/busca e anonimo
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: as duas rotas sem token dao **401**, nao o 422 do Joi, e o
+> `/busca` anonimo continua 200 com array nu **no mesmo teste**, que e o que prende a
+> assimetria. Controle negativo: remover o `auth` das duas derruba 2.
+
 - **Código:** `backend/src/modules/nomes/nomes.routes.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
 - **Cobertura hoje:** nenhuma para 401; o 200 anonimo de /busca esta em nomes.test.js e nomes-access.test.js
@@ -2384,6 +2921,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - GET /nomes/feicoes com Bearer invalido/expirado -> 401 (nao cai silenciosamente para o caminho anonimo do flexibleAuth)
 
 ### 124. Bordas de catalogoSchema e o branch `q || null` do servico
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `page` invalido dando 422 com `details[0].field` correto,
+> `nr_records` nos limites, `?q=` equivalente a sem `q` e paginas consecutivas sem
+> sobreposicao. Controle negativo: `q || null` virando `q ?? null` derruba 1.
 
 - **Código:** `backend/src/modules/nomes/nomes.schemas.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
@@ -2401,6 +2942,14 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 125. setZonePermissions: DELETE incondicional das duas tabelas + default([]) do Joi (revogacao)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `PUT {groups}` sem a chave `users` revoga os grants de usuario,
+> com efeito **end-to-end** na busca usando o mesmo token, e o `details.before` do audit
+> registrando quem foi apagado.
+>
+> Detalhe de montagem que vale a licao: cada caso monta zona e nome privado proprios, porque
+> na primeira versao as zonas de casos anteriores **mascaravam a revogacao**. Controle
+> negativo: tornar o DELETE condicional derruba 3.
+
 - **Código:** `backend/src/modules/zones/zones.service.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
 - **Cobertura hoje:** backend/tests/integration/zones-gaps.test.js (zones-01 rollback, zones-05 encolher/limpar a MESMA chave, zones-11 audit diff)
@@ -2415,6 +2964,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - O audit PERMISSION_GRANT registra details.before com o conjunto que foi apagado implicitamente (before.users=[u], after.users=[]), para que a revogacao silenciosa seja ao menos rastreavel
 
 ### 126. Payload anonimo de GET /atlas/public/:link (SELECT a.* sem allowlist)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com controle negativo **isolado no banco** em vez de no codigo:
+> `ALTER TABLE atlas ADD COLUMN` dentro do proprio banco de teste, sem tocar
+> `atlas.queries.js`. A allowlist de colunas quebrou ao receber `nota_interna`, provando que
+> ela e que segura, e nao o schema.
 
 - **Código:** `backend/src/modules/atlas/atlas.queries.js`
 - **Tipo:** integração · **Fatia:** `be-sharing`
@@ -2432,6 +2986,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 127. Token de visitante na superficie de manage e contra atlas PRIVADO de terceiro
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: claim de token de visitante nunca e autoridade no REST. `backend/tests/integration/public-token-manage-surface.test.js`. Controle negativo: rebaixar o gate de sharing de `manage` para `read` derruba 2 de 6.
+
 - **Código:** `backend/src/modules/atlas/atlas.service.js`
 - **Tipo:** integração · **Fatia:** `be-sharing`
 - **Cobertura hoje:** backend/tests/integration/cross-cutting-gaps.test.js:68 (revogacao no pull), backend/tests/integration/sync-gaps.test.js:365 (push 403), backend/tests/integration/maps-briefings-gaps.test.js:285 (cruzamento publico->publico)
@@ -2447,6 +3003,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - publicToken empurrando uma op target:'comment' em POST /atlas/:id/sync -> 403 e zero linhas em comments (o gate da rota e 'comment' e read < comment: visitante nao comenta)
 
 ### 128. O owner nao e removivel nem rebaixavel pela API de sharing (garantia que sustenta o tier 'manage')
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: a autoridade do dono vem de `atlas.owner_id`, nunca de uma linha em `atlas_shares`. `backend/tests/integration/sharing-owner-invariants.test.js`. Controle negativo: avaliar o share antes do dono em `resolvePermission` derruba 1 de 5.
 
 - **Código:** `backend/src/modules/sharing/sharing.routes.js`
 - **Tipo:** integração · **Fatia:** `be-sharing`
@@ -2464,6 +3022,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 129. Bloco `owner` de GET /atlas/:id/sharing e sua consistencia apos transferencia de posse
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: o bloco `owner` e camelCase fechado e acompanha a transferencia de posse. `backend/tests/integration/sharing-owner-invariants.test.js`. Controle negativo: acrescentar `owner_id` ao bloco derruba 1 de 4.
+
 - **Código:** `backend/src/modules/sharing/sharing.service.js`
 - **Tipo:** integração · **Fatia:** `be-sharing`
 - **Cobertura hoje:** backend/tests/integration/sharing-gaps.test.js share-06 (isPublic/publicLink/chaves de cada share; nunca o bloco owner), backend/tests/integration/atlas-transfer-ownership.test.js (olha atlas_shares no banco, nunca a resposta de /sharing)
@@ -2478,6 +3038,16 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Um share cujo usuario foi desativado continua listado (ja coberto em share-07) mas com nome/username preenchidos, nao null, o JOIN e sobre users sem filtro
 
 ### 130. GET /photos/:uuid/image quando o blob nao existe no {slug}.db, 404 e liberacao do semaforo
+
+> **CORRIGIDO em 2026-07-25.** Ramo CONFIRMADO, **mecanismo REFUTADO, e um defeito NOVO corrigido**. Remover o
+> `release()` nao esgota o semaforo, porque os listeners `res.on('finish'|'close')` sobem
+> antes do `acquire()`; so removendo os TRES caminhos o servico trava (4 casos penduram em
+> 30s, o que prova a nao-vacuidade).
+>
+> **Defeito novo:** o 404 de blob ausente herdava `Cache-Control: immutable` de um ano, o
+> ETag forte da foto e `Content-Type: image/webp`. Ou seja, o drift **transitorio** que o
+> proprio codigo documenta (a janela entre o PASSO 1 e o commit) ficava cacheavel por um ano.
+> Corrigido. Controle negativo: reverter a limpeza de cabecalhos derruba 3.
 
 - **Código:** `backend/src/modules/streetview360/sv360.controller.js`
 - **Tipo:** integração · **Fatia:** `be-sv360`
@@ -2495,6 +3065,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - O 404 por blob ausente nao deve emitir Content-Length de body vazio com 200 (assertar status estritamente 404)
 
 ### 131. validateImagesDb, ramos de rejeicao do PASSO 0 (linha faltando, tabela ausente, arquivo nao-SQLite)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO **e defeito corrigido**, com a suspeita do item exata: arquivo de
+> bytes aleatorios PASSA por `new Database(..., {readonly:true, fileMustExist:true})`, porque
+> o `sqlite3_open` nao le o header, e o `SQLITE_NOTADB` escapava cru do `.prepare()` virando
+> 500 para um upload obviamente malformado. Agora vira 400.
 
 - **Código:** `backend/src/modules/streetview360/sv360.ingest.js`
 - **Tipo:** unitário · **Fatia:** `be-sv360`
@@ -2514,6 +3089,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 132. DEFAULT_ORG_ID hardcoded vs a org semeada pela migracao (upload de admin global sem orgSlug)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com um sub-caso REFUTADO: `orgSlug: ''` **nao e alcancavel por
+> HTTP** (o schema tem `min(1)`, entao da 422); o marcador vazio so existe para a ETL e foi
+> exercitado chamando a funcao direto. A assercao e contra o `SELECT` de `organizations`,
+> **nunca contra a constante**, que e o que faz o teste prender. Controle negativo: desviar
+> `DEFAULT_ORG_ID` derruba 4.
+
 - **Código:** `backend/src/modules/streetview360/sv360.merge.js`
 - **Tipo:** integração · **Fatia:** `be-sv360`
 - **Arquivo sugerido:** `backend/tests/integration/sv360-default-org.test.js`
@@ -2529,6 +3110,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - o arquivo {orgId}__{slug}.db existe em SV360_DB_DIR com o prefixo dessa org
 
 ### 133. requireUploadCapability (FIX-4: rejeitar 403 ANTES do multer gravar ate SV360_MAX_UPLOAD_BYTES em disco)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. O discriminador do teste e um campo multipart proposital: com o
+> pre-filtro a requisicao morre em 403 **antes do multer**. Controle negativo: tirar
+> `requireUploadCapability` da cadeia derruba 1, e os demais casos sao invariantes ao status
+> por desenho, que e exatamente o ponto do item.
 
 - **Código:** `backend/src/modules/streetview360/sv360.routes.js`
 - **Tipo:** integração · **Fatia:** `be-sv360`
@@ -2547,6 +3133,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 134. updateCalibration em foto TOMBSTONADA: a transacao (L8) precisa desfazer o UPDATE antes do 404
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: o repro existente ja cobre o caso 1 do item. Faltavam as **quatro
+> rotas granulares** (colunas distintas do whitelist) e o controle positivo. Controle
+> negativo: remover o `tx()` de `updateCalibration` derruba 5.
+
 - **Código:** `backend/src/modules/streetview360/sv360.write.service.js`
 - **Tipo:** integração · **Fatia:** `be-sv360`
 - **Arquivo sugerido:** `backend/tests/integration/sv360-calibration-tombstone.repro.test.js`
@@ -2562,6 +3152,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Controle negativo registrado: com o tx() removido do updateCalibration o primeiro caso passa a falhar (heading vira 123)
 
 ### 135. cleanupOperations: coercao de keepFromVersion no controller (sync.controller.js:65) e ramo keepDays do servico (sync.service.js:841-862)
+
+> **CORRIGIDO em 2026-07-25.** **DEFEITO VIVO CONFIRMADO E CORRIGIDO.** `keepFromVersion: 0` disparava o
+> expurgo por dias. O Joi aceita `min(0)`, e o `keepFromVersion ? ... : undefined` fazia o
+> zero cair como **falsy**, indo para o ramo `keepDays` com default de 7. Ou seja, o admin
+> que pedia explicitamente "preserve tudo" **perdia** operacoes antigas, com 200 e sem sinal
+> nenhum. Controle negativo: devolver a coercao antiga derruba 1 de 4.
 
 - **Código:** `backend/src/modules/sync/sync.controller.js`
 - **Tipo:** integração · **Fatia:** `be-sync`
@@ -2580,6 +3176,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 136. Joi: timestamp e clientId obrigatorios no envelope de operacao (sync.schemas.js:24-38), fix L1
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: `timestamp` e `clientId` ausentes viram 422 de borda, nunca 500. `backend/tests/integration/sync-validation.test.js`. Controle negativo: remover o `.required()` dos dois campos do schema derruba 3 de 5.
+
 - **Código:** `backend/src/modules/sync/sync.schemas.js`
 - **Tipo:** integração · **Fatia:** `be-sync`
 - **Arquivo sugerido:** `backend/tests/integration/sync-validation.test.js`
@@ -2596,6 +3194,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - push com `traceId` presente -> 200 e o traceId sobrevive a validacao (stripUnknown nao o remove)
 
 ### 137. updateOrganization / updateRank, sigla e nome_abrev nao podem ser limpos (COALESCE vs flag de 'provided')
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO: a flag "provided" ja esta nos dois campos. Cobertura escrita;
+> controle negativo derruba 2.
 
 - **Código:** `backend/src/modules/organizations/organizations.queries.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
@@ -2614,6 +3215,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 138. Reativacao de organizacao (PUT /organizations/:id {is_active:true}) e o retorno dos membros
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO **com a premissa do item REFUTADA**. O item supoe que "nada
+> revogou, entao o token volta a valer". Meio errado: o `refresh()` reivindica (revoga) a
+> linha ANTES do gate de organizacao, entao o token TENTADO durante a queda e queimado; so o
+> **ocioso** sobrevive. O teste pina os dois lados.
+
 - **Código:** `backend/src/modules/organizations/organizations.service.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
 - **Arquivo sugerido:** `backend/tests/integration/organizations-coverage.test.js`
@@ -2630,6 +3236,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 139. Projecao de campos de SEARCH_USERS e FIND_USER_BY_ID (o que a API expoe de outro usuario)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: key-set exato de `/users/search` e `/users/me`, com contraste
+> admin. Controle negativo derruba 1.
+
 - **Código:** `backend/src/modules/users/users.queries.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
 - **Arquivo sugerido:** `backend/tests/integration/users-coverage.test.js`
@@ -2645,6 +3254,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - contraste positivo: GET /users/:id como ADMIN (FIND_USER_BY_ID_ADMIN) devolve role, is_active, email e email_verified, a divergencia de projecao entre a visao admin e a visao usuario e deliberada e precisa estar pinada dos dois lados
 
 ### 140. searchUsers, busca por posto (r.nome) e por OM (o.nome)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e a montagem do teste e o achado: usando a OM padrao o `LIMIT 20`
+> da query produz **falso negativo**, entao o caso usa OM e posto dedicados. Controle
+> negativo derruba 3.
 
 - **Código:** `backend/src/modules/users/users.queries.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
@@ -2663,6 +3276,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 141. Duas portas de desativacao divergentes: PUT /users/:id {is_active:false} vs DELETE /users/:id
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: `users.service.js:196` ja recusa a transicao ATIVO para inativo por
+> PUT. Reescrito como o contraste que sustenta o item 56.
+
 - **Código:** `backend/src/modules/users/users.service.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
 - **Arquivo sugerido:** `backend/tests/integration/user-deactivation-paths.test.js`
@@ -2678,6 +3294,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - PUT {is_active:false} de outro usuario nao gera linha de audit_trail, enquanto DELETE gera USER_DELETE (org-identity-gaps.test.js:77 ja prova o segundo)
 
 ### 142. mailer.js, contrato dependency-optional de sendVerificationEmail() e montagem do link em buildVerificationLink()
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO: o `nodemailer` **está** instalado, e
+> `tests/unit/mailer-verification-link.test.js` já cobre link, injeção de host-header,
+> vazamento de token e as duas ramificações de SMTP.
 
 - **Código:** `backend/src/utils/mailer.js`
 - **Tipo:** unitário · **Fatia:** `be-utils`
@@ -2695,6 +3315,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Subprocesso com SMTP_HOST=smtp.invalido: isSmtpConfigured() === true e sendVerificationEmail(...) ainda resolve { sent:false } sem lancar, documentando que configurar SMTP_HOST sozinho NAO entrega e-mail enquanto nodemailer nao for instalado
 
 ### 143. validateMapLibreStyle(), guarda estrutural gemea do validador do frontend
+
+> **CORRIGIDO em 2026-07-25.** `tests/unit/maplibre-style-validate.test.js`, 8 casos, com
+> espelho **cross-pacote** contra o validador do frontend, que é o tipo de teste que o
+> ponto cego estrutural nº 5 pede. Controle negativo: trocar `!= 8` e remover o
+> `Array.isArray(sources)` derruba 4.
 
 - **Código:** `backend/src/utils/maplibre-style-validate.js`
 - **Tipo:** unitário · **Fatia:** `be-utils`
@@ -2715,6 +3340,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 144. SqliteBlobPool.evict(), idempotencia por worker quando um worker CONFIRMA e depois morre
 
+> **CORRIGIDO em 2026-07-25.** `tests/unit/sqlite-blob-pool-evict.test.js`, 4 casos.
+> Controle negativo: trocar o `Set` por contador numérico derruba 2.
+
 - **Código:** `backend/src/utils/sqlite-blob-pool.js`
 - **Tipo:** unitário · **Fatia:** `be-utils`
 - **Cobertura hoje:** tests/unit/sqlite-blob-pool.test.js cobre substituicao de worker morto, isolamento de rejeicao (P5) e morte DURANTE evict sem ack; nao cobre ack-e-depois-morte, nem closeAll, nem evict pre-spawn
@@ -2733,6 +3361,18 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 145. sqlite-blob-worker.js, enforcement de readonly/query_only sobre o SQL arbitrario recebido do chamador, e propagacao de erro em vez de promise pendurada
 
+> **CORRIGIDO em 2026-07-25.** `tests/unit/sqlite-blob-worker.test.js`, 8 casos. Controle
+> negativo: tirar `readonly`/`query_only` derruba 4.
+>
+> **Descoberta que vale mais que o item:** o `readonly` NÃO é a primeira barreira para DML
+> simples. `DELETE FROM t` é barrado pelo `.get()` do better-sqlite3 ("statement does not
+> return data") ANTES do readonly, então um refactor para `.all()`/`.raw()` removeria a
+> camada de segurança sem nenhum teste ficar vermelho. A sonda discriminante é
+> `DELETE ... RETURNING`, que o `.get()` aceita e só o `readonly` recusa, e ela está **ATIVA**
+> no arquivo, em três casos. Eu anotei aqui que estava "comentada", e um agente posterior
+> refutou relendo: remover `readonly` e `query_only` derruba 4 casos. A correção fica
+> registrada em vez de apagada porque foi um agente relendo o arquivo que a pegou, não eu.
+
 - **Código:** `backend/src/utils/sqlite-blob-worker.js`
 - **Tipo:** unitário · **Fatia:** `be-utils`
 - **Cobertura hoje:** nenhuma direta; so exercitado de lado por assets3d-sqlite.test.js e pelos testes sv360, sempre com SELECT bem formado
@@ -2748,6 +3388,12 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - SELECT que nao casa nenhuma linha -> resolve null (nao rejeita, nao pendura)
 
 ### 146. Defaults de config publicados em GET /api/config nao podem ser URL absoluta de localhost
+
+> **CORRIGIDO em 2026-07-25.** DUPLICATA do item 87, fechado em `backend/tests/unit/config-defaults.test.js`,
+> que varre todo default publicado e tem **autocontrole**: um caso injeta um default
+> `localhost` de proposito e exige que o proprio scanner o acuse, senao um scanner quebrado
+> passaria vazio. O escopo excluido (`cors.origin`) esta declarado no arquivo em vez de
+> deixado implicito.
 
 - **Código:** `backend/src/config.js`
 - **Tipo:** integração · **Fatia:** `livro-razao`
@@ -2765,6 +3411,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 147. Invariante PERMISSION_LEVELS x CHECK da coluna atlas_shares.permission
 
+> **CORRIGIDO em 2026-07-25.** `tests/unit/permission-levels-invariant.test.js`, 5 casos,
+> lendo o CHECK direto do `pg_catalog` em vez de repetir a lista à mão, que é o que faz o
+> teste prender em vez de acompanhar. Controle negativo: remover `comment` de
+> `PERMISSION_LEVELS` derruba a suíte inteira, falhando já no mount.
+
 - **Código:** `backend/src/middleware/permissions.js`
 - **Tipo:** integração · **Fatia:** `livro-razao`
 - **Arquivo sugerido:** `backend/tests/integration/permission-levels-invariant.test.js`
@@ -2780,6 +3431,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Assertar a ordem estrita read < comment < write < manage < owner por comparacao numerica, nao por igualdade
 
 ### 148. resolvePermission() para os niveis 'manage' e 'comment'
+
+> **CORRIGIDO em 2026-07-25.** DUPLICATA dos itens 67 e 69, fechados em
+> `backend/tests/integration/permission-hierarchy-matrix.test.js` (as 25 combinacoes no
+> middleware real) mais os tiers do meio em `permissions.test.js`. Verificado, sem trabalho
+> novo.
 
 - **Código:** `backend/src/middleware/permissions.js`
 - **Tipo:** unitário · **Fatia:** `livro-razao`
@@ -2798,6 +3454,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 149. describe('L6, the migration runner serializes on an advisory lock') > 'a second run is a no-op (all migrations already applied)'
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `n > 0` afirmando "exactly once". **Teste apagado**; sobreviveu
+> o irmao que ja comparava estado e mora no arquivo do runner.
+
 - **Código:** `backend/tests/integration/low-impact-fixes.test.js`
 - **Tipo:** integração · **Fatia:** `saude-suite`
 - **Cobertura hoje:** backend/tests/integration/config-infra-gaps.test.js:267 ('re-running migrations ... does not throw') cobre o mesmo cenario de forma ainda mais fraca, so ausencia de excecao
@@ -2813,6 +3472,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 150. describe('Maps API') e describe('Briefings API'), contagens `>= 3` / `>= 2` sobre banco compartilhado e commitado
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Conjunto exato contra query escopada, mais **atlas estrangeiro no
+> fixture**: sem ele o controle negativo de vazamento nao falhava, ou seja, havia cobertura
+> vazia dentro do proprio conserto. Controle negativo derruba 4.
+
 - **Código:** `backend/tests/integration/maps-briefings.test.js`
 - **Tipo:** integração · **Fatia:** `saude-suite`
 - **Cobertura hoje:** parcial em backend/tests/integration/maps-coverage.test.js e maps-briefings-gaps.test.js, que tambem nao afirmam conjunto exato
@@ -2827,6 +3490,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Aplicar o mesmo a integration/users-admin.test.js:35 (`>= 2 // At least admin and regularUser`), que tem o mesmo padrao
 
 ### 151. Cluster de `assert.ok(res.body.data)`, sharing.test.js:127,148,198,288; sync.test.js:454,494; atlas-advanced.test.js:221; users-admin.test.js:379; atlas-config-authz.test.js:67
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO em 6 de 9 (os outros ja asseriam conteudo adiante). Corrigidos os
+> tres reais.
 
 - **Código:** `backend/tests/integration/sharing.test.js`
 - **Tipo:** integração · **Fatia:** `saude-suite`
@@ -2844,6 +3510,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 152. 'returns a valid GeoJSON FeatureCollection (anon)' (sv360-tiles) e 'analysisLayers only exposes layers with valid bounds' (config), laco sem guard de lista nao-vazia
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO nos dois citados (ja tem guarda) e um itera literal. Guardas
+> pareadas acrescentadas em `sv360-mvt.test.js`. Controle negativo (camada `fotos` vazia)
+> derruba 5.
+
 - **Código:** `backend/tests/integration/sv360-tiles.test.js`
 - **Tipo:** integração · **Fatia:** `saude-suite`
 - **Cobertura hoje:** sv360-tiles.test.js:181 e :188 (testes seguintes) checam inclusao/exclusao de ids especificos e cobrem indiretamente o vazio; config.test.js:73 cobre o caso positivo do hillshade com bounds
@@ -2858,6 +3528,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Aplicar o mesmo guard aos demais lacos sem protecao: sv360-mvt.test.js:71 (decodeTile sobre `Object.keys(tile.layers)`) e features-all-types.test.js:490
 
 ### 153. describe('Frontend envelope compatibility') > ultimo caso de pull incremental, assercoes `A || B` sobre nomes de campo do contrato congelado
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO (ja corrigido). Acrescentado o **conjunto de chaves congelado**, que
+> pega campo novo vazando, coisa que assercao por campo nao pega.
 
 - **Código:** `backend/tests/integration/sync-frontend-format.test.js`
 - **Tipo:** integração · **Fatia:** `saude-suite`
@@ -2874,6 +3547,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Controle negativo: renomear `entityType` para `target` no serializer e confirmar falha
 
 ### 154. describe('collab.quality, classifyConnectionQuality') > 'bands latency correctly'
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: so pontos interiores eram testados. Agora 99/100, 299/300,
+> 799/800, zero, negativo, Infinity, mais `NaN` virando `'critical'` e `null` virando
+> `'excellent'` fixados, monotonicidade e os 4 perfis exatos.
 
 - **Código:** `backend/tests/unit/collab-quality.test.js`
 - **Tipo:** unitário · **Fatia:** `saude-suite`
@@ -2895,6 +3572,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 155. restoreAtlas (atlas.service.js:91-99), bordas e integridade do round-trip da lixeira
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: bordas e integridade de CONTEUDO do restore sem cobertura.
+> Controle negativo derruba 1.
+
 - **Código:** `backend/src/modules/atlas/atlas.service.js`
 - **Tipo:** integração · **Fatia:** `be-atlas`
 - **Cobertura hoje:** atlas.test.js:97-137 (trash + restore: dono restaura, leitor recebe 404), sem bordas nem verificação de conteúdo
@@ -2911,6 +3591,19 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 156. logout() revoga por hash sem checar dono nem linhas afetadas (auth.service.js:183-186 / REVOKE_REFRESH_TOKEN)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: o 204 do logout tem que ser lastreado por uma linha
+> de `refresh_tokens` com `revoked_at NOT NULL`, e **so naquela linha**.
+>
+> O controle negativo e a prova de que a cobertura anterior era vazia: trocar o UPDATE por
+> `DELETE FROM refresh_tokens WHERE token_hash = $1` (a revogacao some, mas o 401 seguinte
+> continua vindo, porque o token deixou de existir) derruba 4 dos 6 casos novos **e deixa
+> `auth.test.js` 18/18 e `auth-edge-cases.test.js` 8/8 verdes**.
+>
+> Duas caracterizacoes registradas, ambas **decisao sua**: (a) A revoga o refresh token de B
+> so por conhece-lo, porque nenhum `req.user.id` chega ao service; (b) logout repetido
+> **re-carimba** `revoked_at`, o que mantem o token dentro da janela de graca de 10s
+> indefinidamente e **suprime a deteccao de reuso de familia**.
+
 - **Código:** `backend/src/modules/auth/auth.service.js`
 - **Tipo:** integração · **Fatia:** `be-auth`
 - **Cobertura hoje:** auth.test.js:63-79 e auth-edge-cases.test.js:178-203, ambos so encadeiam 204 seguido de 401 no refresh.
@@ -2925,6 +3618,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - POST /auth/logout sem Authorization -> 401 (middleware `auth` estrito da rota, auth.routes.js:22)
 
 ### 157. validateEnvVariables, fronteiras de PORT e tetos de NUMERIC_ENV_RULES (config.js:233-236, 261-274)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: PORT 0/1/65535/65536/-1, teto do heartbeat, `.trim()`, e a
+> divergencia **deliberada** entre `POOL_MIN` 0 (ok) e `POOL_MAX` 0 (erro), que so vira
+> contrato quando alguem a afirma.
 
 - **Código:** `backend/src/config.js`
 - **Tipo:** unitário · **Fatia:** `be-boot`
@@ -2944,6 +3641,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 158. Boot com porta ocupada: erro do server.listen nao tratado (index.js:18-20)
 
+> **CORRIGIDO em 2026-07-25.** PARCIAL: o controle do item 13 ja provava EADDRINUSE. Caso proprio afirma
+> exit diferente de zero, stderr nomeando **a porta**, e stdout nunca dizendo "started".
+
 - **Código:** `backend/src/index.js`
 - **Tipo:** integração · **Fatia:** `be-boot`
 - **Arquivo sugerido:** `backend/tests/integration/boot-fail-fast.test.js`
@@ -2960,6 +3660,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 159. listAuditSchema: actorId invalido barrado na borda antes do cast ::uuid
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Controles negativos: `.uuid()` virando `.string()` derruba 1;
+> remover `min(1)` de page/limit derruba 1.
+
 - **Código:** `backend/src/modules/audit/audit.schemas.js`
 - **Tipo:** integração · **Fatia:** `be-catalog-config-audit`
 - **Arquivo sugerido:** `backend/tests/integration/audit-coverage.test.js`
@@ -2975,6 +3678,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 160. Assimetria de idempotencia do soft-delete no catalogo: deleteCatalogItem nao filtra active = true
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO (`catalog.service.js:116`, sem `AND active = true`). O caso que
+> prende inclui a prova de que o SEGUNDO DELETE **executa** o UPDATE, medida pelo
+> `updated_at` avancando, e nao pelo status. Controle negativo: uniformizar os tres filtros
+> derruba 2.
+
 - **Código:** `backend/src/modules/catalog/catalog.service.js`
 - **Tipo:** integração · **Fatia:** `be-catalog-config-audit`
 - **Arquivo sugerido:** `backend/tests/integration/catalog-tables.test.js`
@@ -2989,6 +3697,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Depois do segundo DELETE, SELECT updated_at FROM basemaps WHERE id=$1 mudou (o UPDATE roda de fato), util para quem for reavaliar se o 204 repetido deveria virar 404.
 
 ### 161. `handleOperations` com `data.ops` nao-array: `if (!Array.isArray(data.ops) || !validateOps(...)) return;` retorna SEM enviar frame de erro
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Os dois casos de `VALIDATION_ERROR` **sobrevivem** a mutacao, e
+> corretamente: eles sao o contraste, nao o ramo silencioso que o item persegue.
 
 - **Código:** `backend/src/modules/collab/collab.handlers.js`
 - **Tipo:** WebSocket · **Fatia:** `be-collab`
@@ -3006,6 +3717,15 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 162. Shape de `usersOnline` no frame `connected`: `getRoomUsers` monta UMA entrada por CLIENTE, nao por usuario, e o proprio conectante ja esta na sala
 
+> **CORRIGIDO em 2026-07-25.** **DEFEITO VIVO CONFIRMADO E CORRIGIDO.** `ws.selectionContext` nunca era
+> inicializado, entao o `JSON.stringify` **removia a chave** e o frame `connected` mudava de
+> forma conforme o par ja ter emitido selecao ou nao. Inicializado a `null`, como os vizinhos
+> ja faziam. Controle negativo: `joinRoom` depois de `getRoomUsers` derruba 4 de 5.
+>
+> O teste de caracterizacao `collab-presence-payload-bound.repro.test.js:340` afirmava
+> `selectionContext === undefined`, ou seja, congelava a **ausencia da chave** e nao a regra.
+> Atualizado para `null`, mantendo a regra afirmada (read e comment nao retem selecao).
+
 - **Código:** `backend/src/modules/collab/collab.rooms.js`
 - **Tipo:** WebSocket · **Fatia:** `be-collab`
 - **Cobertura hoje:** backend/tests/ws/collab-gaps.test.js ws-04 (afirma campos do PEER e o status 'away', nunca a auto-inclusao nem a duplicata por usuario).
@@ -3022,6 +3742,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 163. Contrato de retorno do facade: query() vs one/oneOrNone/none/any
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. O contrato do facade prendido no ponto que morde: `UPDATE` sem
+> `RETURNING` devolve `rowCount 0` apesar de afetar uma linha (com guarda de que a linha
+> existe), e o mesmo com `RETURNING` devolve 1. Controle negativo: `rowCount: 1` fixo
+> derruba 2.
+
 - **Código:** `backend/src/database/index.js`
 - **Tipo:** integração · **Fatia:** `be-database`
 - **Cobertura hoje:** indireta apenas (index.js e importado por praticamente toda a suite, mas nenhum teste afirma sobre o shape de retorno do facade)
@@ -3037,6 +3762,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 164. src/database/seed.js
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Cobre o modo de falha silencioso do subselect literal do seed (o
+> join resolvendo 'Capitao' e 'CIGEx'), mais idempotencia da segunda execucao com
+> `bcrypt.compare` ainda valido. Controle negativo: trocar `'Cap'` por `'Cap.'` e `'CIGEx'`
+> por `'CIGEX'` derruba 2.
+
 - **Código:** `backend/src/database/seed.js`
 - **Tipo:** integração · **Fatia:** `be-database`
 - **Cobertura hoje:** nenhuma
@@ -3051,6 +3781,21 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - isolar o teste: rodar num atlas/usuarios proprios ou limpar no `after`, para nao vazar o usuario 'admin' para as outras 125 suites
 
 ### 165. uploadSingleImage (images.routes.js:51-62), ramo generico `Upload error: ${err.message}` e erros do storage engine que NAO sao MulterError
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO em parte, REFUTADO em parte. O ramo generico e o repasse
+> `if (err) return next(err)` nunca eram exercitados. Mas os dois gatilhos que o item
+> esperava ver falhar **ja nao falham**: `foto.pn/g` e neutralizado DUAS vezes (o busboy
+> aplica `basename()` antes do multer, e o `safeExtension()` ainda limita a
+> `[a-z0-9]{1,8}`), e extensao gigante nao vira ENAMETOOLONG, e truncada; o 4xx real vem do
+> Joi e e **422**, nao 400.
+>
+> **Nota de metodo que custou uma iteracao e vale para todo teste de upload:** o `.attach()`
+> do supertest **nao consegue** testar nome hostil, porque o `form-data` passa o filename por
+> `path.basename()` ao montar o cabecalho. Um teste escrito com `.attach()` mede o CLIENTE,
+> nao o servidor. O arquivo traz um `postRaw()` que monta o multipart a mao.
+>
+> Controle negativo em tres direcoes; a mais eloquente: remover o ramo generico derruba 2 de
+> 10 (ambas virando **500**) e deixa `images-hardening.test.js` 5/5 verde.
 
 - **Código:** `backend/src/modules/images/images.routes.js`
 - **Tipo:** integração · **Fatia:** `be-images`
@@ -3068,6 +3813,21 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 166. Fronteira exata de MAX_IMAGE_SIZE_MB nos DOIS guardas (multer `limits.fileSize` e `file.size > maxBytes` no service)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, **e havia defeito real, exatamente da classe prevista, corrigido**.
+> Os dois guardas discordavam em **um byte**: o busboy corta quando o contador ATINGE o
+> limite, nao quando o ultrapassa (`if (fileSize === fileSizeLimit)`), entao com
+> `fileSize: maxBytes` cru um arquivo de exatamente `MAX_IMAGE_SIZE_MB` era recusado com a
+> mensagem "Image too large (max 10MB)" — **a mensagem contradizia o proprio limite** —
+> enquanto o guarda do service (`file.size > maxBytes`) aceitaria o mesmo arquivo.
+>
+> Corrigido para `maxBytes + 1`, que nao afrouxa nada: o corte passa a cair no primeiro
+> tamanho realmente ilegal. Controle negativo: reverter derruba 2 de 9 **e deixa
+> `images-hardening.test.js` 5/5 e `images-gaps.test.js` 24/24 verdes**, porque os testes de
+> 11 MB sao cegos a borda.
+>
+> Caracterizado de quebra que `size = NaN` atravessa o guarda numerico (`NaN > x` e false) e
+> so e barrado pelo tipo da coluna, com o blob sendo removido.
+
 - **Código:** `backend/src/modules/images/images.service.js`
 - **Tipo:** integração · **Fatia:** `be-images`
 - **Arquivo sugerido:** `backend/tests/integration/images-size-boundary.test.js`
@@ -3083,6 +3843,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - bulk: maxBytes + 1 -> failed[0].error casando /File too large/
 
 ### 167. id malformado (nao-UUID) nas 4 rotas GET de maps/briefings -> 400 do mapa PG 22P02, nunca 500
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: os quatro GETs dependiam invisivelmente do `PG_ERROR_MAP['22P02']`
+> para transformar id malformado em 400.
 
 - **Código:** `backend/src/modules/maps/maps.routes.js`
 - **Tipo:** integração · **Fatia:** `be-maps-briefings`
@@ -3101,6 +3864,21 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 168. errorHandler sem guarda de res.headersSent
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO **e corrigido em producao**: o `errorHandler` chamava
+> `res.status().json()` incondicionalmente, e todo `mockRes` da suite existente omitia
+> `headersSent`, o que tornava o defeito invisivel por construcao.
+>
+> Refutacao parcial do gatilho citado: o `createReadStream().pipe(res)` dos controllers de
+> assets3d e sv360 **nao existe mais** (os dois passam por `utils/stream-file.js`, que trata
+> `res.headersSent` sozinho). O caminho pos-flush que CONTINUA alcancando o handler global e
+> o `res.sendFile(..., (err) => { if (err) next(err); })` de `images.controller.js`: um abort
+> do cliente no meio do envio chama `next(err)` com headers ja na rede.
+>
+> A guarda foi posta **depois** do log, de proposito: o `finalhandler` nao loga, e perder
+> esse registro e como uma falha de meio-de-stream vira invisivel. Controle negativo:
+> `if (false && res.headersSent)` derruba 4 de 7 e deixa `middleware-error-handler.test.js`
+> 24/24 verde.
+
 - **Código:** `backend/src/middleware/error-handler.js`
 - **Tipo:** unitário · **Fatia:** `be-middleware`
 - **Cobertura hoje:** parcial, tests/unit/middleware-error-handler.test.js e extenso (Joi, AppError, mapa SQLSTATE, mascaramento, body-parser 4xx) mas todo mockRes assume headers ainda abertos.
@@ -3114,6 +3892,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - controle: headersSent=false mantem o comportamento atual (status e envelope conforme o erro), garantindo que a guarda nao muda o caminho normal
 
 ### 169. Semaforo de in-flight do caminho SQLite (config.assets3d.maxInflight = 8)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. 24 GETs concorrentes contra `maxInflight=8`, mais 72
+> requisicoes intercalando 200/304/416 para provar que os early-returns **nao consomem
+> permissao**, nos dois caminhos. Controle negativo: remover o `sem.release()` derruba 4
+> casos **por timeout de 30s**, que e o sintoma real do vazamento de permit em producao.
 
 - **Código:** `backend/src/modules/nomes/assets3d.controller.js`
 - **Tipo:** integração · **Fatia:** `be-nomes-zones`
@@ -3130,6 +3913,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 170. :userId malformado em PUT/DELETE /sharing/users/:userId (rotas validam so o body)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Invariante: `:userId` malformado da 400 e UUID de outro atlas da 404. `backend/tests/integration/sharing-params-validation.test.js`. Controle negativo: remover `s.atlas_id = $1` do update derruba 1 de 4. Os dois casos de 400 ficaram **sem controle**, declaradamente: a mutacao teria de ser no `PG_ERROR_MAP`, fora da fatia e com outro agente ativo no arquivo.
+
 - **Código:** `backend/src/modules/sharing/sharing.routes.js`
 - **Tipo:** integração · **Fatia:** `be-sharing`
 - **Cobertura hoje:** nenhuma
@@ -3144,6 +3929,13 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - PUT /sharing/users/<uuid valido com share em OUTRO atlas> -> 404 (o UPDATE filtra por atlas_id; confusao entre atlas nao pode retornar 200)
 
 ### 171. SEARCH_USERS: ramos OR por posto/organizacao, shape da linha e escopo entre organizacoes
+
+> **CORRIGIDO em 2026-07-25.** Parcialmente REFUTADO: `users.queries.js` ja tem os quatro ramos OR e a
+> allowlist de colunas.
+>
+> **Nota de processo que vale mais que o item:** o agente leu o arquivo com `SELECT u.*` e
+> apenas dois ramos, e minutos depois o `git status` estava limpo. Era a janela de mutacao de
+> outro agente. Ele reconfirmou relendo, em vez de reportar o que viu na primeira leitura.
 
 - **Código:** `backend/src/modules/users/users.queries.js`
 - **Tipo:** integração · **Fatia:** `be-sharing`
@@ -3160,6 +3952,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Caracterizacao explicita: usuario da org A encontra usuario da org B (busca e deliberadamente global, porque compartilhamento entre OMs e o caso de uso), comentario no teste registrando a decisao, para o dia em que alguem propuser escopar por tenant
 
 ### 172. validateManifest, ramo de sequence_number duplicado e defaults aplicados
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. 14 casos. Controles negativos: remover o guard de
+> `sequence_number` duplicado derruba 1; remover os `.default([])` derruba 1.
 
 - **Código:** `backend/src/modules/streetview360/sv360.ingest.js`
 - **Tipo:** unitário · **Fatia:** `be-sv360`
@@ -3179,6 +3974,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 173. sanitizeSlug / deriveDbFilename (primitiva de isolamento de tenant no nome do arquivo)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Controles negativos: tirar o prefixo `orgId` derruba 3; admitir
+> `.` no alfabeto derruba 2. Valor pinado exato, **contra o que a prosa sugeria**:
+> `sanitizeSlug('ja-com-acento')` produz hifen DUPLO.
+
 - **Código:** `backend/src/modules/streetview360/sv360.merge.js`
 - **Tipo:** unitário · **Fatia:** `be-sv360`
 - **Arquivo sugerido:** `backend/tests/unit/sv360-merge-naming.test.js`
@@ -3197,6 +3996,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 174. photo_count servido vs numero de fotos efetivamente legiveis quando o manifest tombstona uma foto do proprio photos[]
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO **E E DEFEITO, corrigido**. `photoCount = photos.length`
+> sobrecontava por cada tombstone carregado, e o proprio arquivo diz vinte linhas abaixo que
+> a foto soft-deletada **continua** em `photos[]`. Resultado: `/sv360/projects` anunciava N
+> enquanto `/photos` e `/tiles` serviam N menos k. Controle negativo: reverter derruba 1.
+
 - **Código:** `backend/src/modules/streetview360/sv360.merge.js`
 - **Tipo:** integração · **Fatia:** `be-sv360`
 - **Arquivo sugerido:** `backend/tests/integration/sv360-photo-count-drift.test.js`
@@ -3211,6 +4015,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Reupload sem p2 em deleted_photos -> photo_count 2 e 2 features (contagem e leitura voltam a concordar)
 
 ### 175. Reupload que REMOVE uma foto do manifest (purge + cascade de targets)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Controle negativo: neutralizar `PURGE_PROJECT_PHOTOS` derruba 5.
 
 - **Código:** `backend/src/modules/streetview360/sv360.merge.js`
 - **Tipo:** integração · **Fatia:** `be-sv360`
@@ -3229,6 +4035,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 176. GET /photos/by-name/:nome, desempate quando a org DO CHAMADOR tem a foto num projeto disabled e outra org tem o mesmo nome num enabled (L10)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Controle negativo: tirar `(pr.organization_id = $2) DESC` do
+> ORDER BY derruba 1.
+
 - **Código:** `backend/src/modules/streetview360/sv360.queries.js`
 - **Tipo:** integração · **Fatia:** `be-sv360`
 - **Arquivo sugerido:** `backend/tests/integration/sv360-by-name-tiebreak.test.js`
@@ -3245,6 +4054,8 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 177. Conta criada pelo admin (email NULL) tem de logar imediatamente apesar de email_verified=false
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: conta provisionada consegue logar, sem cobertura antes.
+
 - **Código:** `backend/src/modules/users/users.service.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
 - **Arquivo sugerido:** `backend/tests/integration/users-admin.test.js`
@@ -3259,6 +4070,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - contraste ja existente mantido: conta criada por register COM e-mail -> login 401 com code EMAIL_NOT_VERIFIED ate a aprovacao
 
 ### 178. Mapeamento de erro de FK (PG 23503) em rank_id/organization_id e atribuicao a OM inativa
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com um footgun a mais: 23503 vira 409 corretamente, mas
+> **atribuir usuario a OM inativa e aceito e tranca o login em 403**. Pinado ponta a ponta.
 
 - **Código:** `backend/src/modules/users/users.service.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
@@ -3276,6 +4090,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 179. Payloads obsoletos em users-admin.test.js sugerindo cobertura de posto/OM que nao existe
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e **CORRIGIDO**: payloads mortos em `users-admin.test.js` (FKs
+> inexistentes faziam o caso passar sem exercitar nada). Agora com FKs reais e
+> `.expect(200)` no caso de `role`.
+
 - **Código:** `backend/tests/integration/users-admin.test.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
 - **Arquivo sugerido:** `backend/tests/integration/users-admin.test.js`
@@ -3292,6 +4110,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 180. ServiceUnavailableError (503), a classe e sua travessia pelo errorHandler
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Controle negativo: rebaixar 503/`SERVICE_UNAVAILABLE` para
+> 500/`INTERNAL_ERROR` derruba 4.
+
 - **Código:** `backend/src/utils/errors.js`
 - **Tipo:** unitário · **Fatia:** `be-utils`
 - **Cobertura hoje:** nenhuma; tests/unit/errors.test.js cobre as outras sete subclasses e tests/unit/middleware-error-handler.test.js cobre so mapeamentos 4xx e SQLSTATE
@@ -3306,6 +4127,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - A ramificacao de codigos de cliente (error-handler.js:86, faixa 400-499) nao captura o 503: garantir que o code retornado nao e 'BAD_REQUEST'
 
 ### 181. Limites de memoria do ring do SyncLedger: MAX_ATLAS_RINGS (64, FIFO) e DEFAULT_CAPACITY (5000 spans)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Quatro casos com contagem EXPLICITA dos 64 aneis, prova de que a
+> eviccao e FIFO e nao LRU, e `seq` contiguo apos o splice. Controles negativos: remover a
+> eviccao derruba 2; remover o splice de capacidade derruba 1.
 
 - **Código:** `backend/src/utils/sync-trace.js`
 - **Tipo:** unitário · **Fatia:** `be-utils`
@@ -3322,6 +4147,11 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 182. Liberacao do advisory lock por atlas no caminho de ERRO do push
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Sonda direta (`pg_try_advisory_xact_lock` de conexao externa)
+> **mais** prova comportamental, para 403 de permissao e para abort no Postgres, e um guarda
+> que prova que a propria sonda detecta lock preso, senao ela poderia estar sempre dizendo
+> "livre". Controle negativo: trocar `pg_advisory_xact_lock` por `pg_advisory_lock` derruba 4.
+
 - **Código:** `backend/src/modules/sync/sync.service.js`
 - **Tipo:** integração · **Fatia:** `livro-razao`
 - **Arquivo sugerido:** `backend/tests/integration/sync-push-lock-timeout.test.js`
@@ -3336,6 +4166,10 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Depois de um push que falhou, pg_try_advisory_xact_lock no mesmo (namespace, atlasId) numa conexao externa consegue o lock (prova direta de que foi liberado)
 
 ### 183. teardownTestEnv(), catch vazio no release do client, e ausencia total de isolamento por teste
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: o `teardownTestEnv` engolia erro. Agora tolera apenas
+> "already been released" e relanca o resto, e o teste novo tambem **verifica a premissa** de
+> nao-isolamento em vez de assumi-la.
 
 - **Código:** `backend/tests/helpers/setup.js`
 - **Tipo:** integração · **Fatia:** `saude-suite`
@@ -3352,6 +4186,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 184. describe('Config & infra gaps') > 're-running migrations on the already-migrated DB is a no-op and does not throw'
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO em parte (ja comparava contagem). Acrescentados conjunto de nomes,
+> unicidade e uma **linha-sentinela de negocio** que precisa sobreviver.
+
 - **Código:** `backend/tests/integration/config-infra-gaps.test.js`
 - **Tipo:** integração · **Fatia:** `saude-suite`
 - **Cobertura hoje:** backend/tests/integration/low-impact-fixes.test.js:262 (duplicata, igualmente fraca)
@@ -3366,6 +4203,9 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Controle negativo: remover a checagem de ja-aplicada do runner e confirmar falha
 
 ### 185. 'rejects a malformed request' e similares que aceitam faixa de status, maps-briefings-gaps.test.js:417, assets3d.test.js:70, atlas-transfer-ownership.test.js:104, sv360-tiles.test.js:266
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO em 3 de 4 (ja exatos). Os dois reais viraram status exato: 400 onde
+> e rejeicao de borda, 404 onde e ausencia.
 
 - **Código:** `backend/tests/integration/maps-briefings-gaps.test.js`
 - **Tipo:** integração · **Fatia:** `saude-suite`

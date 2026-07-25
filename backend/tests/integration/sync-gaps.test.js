@@ -348,7 +348,16 @@ describe('Sync CRDT — confirmed gaps', () => {
         .send({ keepFromVersion: V })
         .expect(200);
 
-      // keepFromVersion=0 -> deleteBeforeVersion<=0 -> early return, no min_version write.
+      // keepFromVersion=0 -> deleteBeforeVersion <= 0 -> early return, no min_version write.
+      //
+      // Este comentário estava ERRADO até 2026-07-25, e o teste passava pelo motivo
+      // errado: o controller fazia `keepFromVersion ? ... : undefined`, então o zero
+      // caía como falsy e o serviço rodava o ramo `keepDays` — o early-return acima
+      // era INALCANÇÁVEL por HTTP. O verde vinha de o atlas deste teste só ter ops
+      // recentes, que o expurgo de 7 dias por acaso não apagava. O controller foi
+      // corrigido (o zero agora chega como zero) e a rota alcança de fato este ramo.
+      // A borda em que os dois caminhos se distinguem é medida em
+      // tests/integration/sync-cleanup-boundaries.test.js, com uma op de 30 dias.
       const res = await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/sync/admin/cleanup`)
         .set('Authorization', `Bearer ${adminToken}`)

@@ -4,7 +4,7 @@ Rota pública que serve tilesets e binários 3D como arquivos imutáveis, com do
 
 ## A rota é pública por decisão, não por esquecimento
 
-O subsistema é partido em descoberta (autenticada, `GET /api/v1/nomes/catalogo3d`, ver [[catalogo-3d]]) e distribuição (pública, `/api/v1/assets3d/*`). A rota de assets é montada antes das autenticadas (`backend/src/app.js:95`) e o router não tem middleware próprio (`backend/src/modules/nomes/assets3d.routes.js:8`). O único auth no caminho é o `flexibleAuth` global (`backend/src/app.js:68`), que é não bloqueante.
+O subsistema é partido em descoberta (autenticada, `GET /api/v1/nomes/catalogo3d`, ver [[catalogo-3d]]) e distribuição (pública, `/api/v1/assets3d/*`). A rota de assets é montada antes das autenticadas (`assets3dRoutes`, `backend/src/app.js`) e o router não tem middleware próprio (`backend/src/modules/nomes/assets3d.routes.js:8`). O único auth no caminho é o `flexibleAuth` global (`backend/src/app.js:65`), que é não bloqueante.
 
 Consequência congelada: **`/assets3d/*` nunca retorna 401/403 por falta de token.** A proteção é "quem não conhece a URL não baixa", com a descoberta gateada por [[autenticacao-jwt]] e [[zonas-acesso-geografico]]. Isso não é controle de acesso ao binário. Se um modelo for sigiloso, a URL dele é o segredo, e URL não é segredo bom.
 
@@ -14,7 +14,7 @@ Fora do sync: sem operação, sem fila. Ver [[sintese-modulos-fora-do-sync]].
 
 ## Nunca hardcode o prefixo da URL
 
-O catálogo guarda caminho relativo; a URL final é `assets3dBaseUrl + url`, servido pelo `/api/config` (`backend/src/modules/config/config.service.js:150`). Hardcodar `/api/v1/assets3d` no cliente quebra qualquer deploy que aponte os assets para um host estático ou CDN. Contrato congelado, ver [[config-runtime-urls-relativas]], [[config-dinamico]] e [[sintese-contratos-congelados]].
+O catálogo guarda caminho relativo; a URL final é `assets3dBaseUrl + url`, servido pelo `/api/config` (`assets3dBaseUrl`, `backend/src/modules/config/config.service.js`). Hardcodar `/api/v1/assets3d` no cliente quebra qualquer deploy que aponte os assets para um host estático ou CDN. Contrato congelado, ver [[config-runtime-urls-relativas]], [[config-dinamico]] e [[sintese-contratos-congelados]].
 
 ## Rodar o import com o servidor no ar corrompe o serviço
 
@@ -28,7 +28,7 @@ Não há `journal_mode = WAL` nem `busy_timeout` em lugar nenhum desse caminho (
 - `getAssetMeta` (`backend/src/modules/nomes/assets3d.store.js:32-38`) não tem `try/catch` em volta do `.get()`, então um `SQLITE_BUSY` **sobe como 500**, não cai graciosamente no filesystem;
 - no Windows, escrever sobre um arquivo com mmap aberto por várias threads tende a falhar com EBUSY/EPERM.
 
-Compare com o 360, que resolve exatamente isso: `backend/src/modules/streetview360/sv360.ingest.js:215-245` faz evict do handle em todos os workers, `.bak`, e rename atômico. **O assets3d não chama `evict` nem `closeReadDb` em nenhum ponto fora do teardown.** Regra prática: pare o servidor para importar, ou importe para um arquivo novo e troque com o processo parado. Se um dia o import precisar ser online, o protocolo do 360 é o modelo a copiar. Ver [[ingestao-projetos-360]], [[streetview-360]] e [[deploy-backend]].
+Compare com o 360, que resolve exatamente isso: `installSwap` (`backend/src/modules/streetview360/sv360.ingest.js`) faz evict do handle em todos os workers, `.bak`, e rename atômico. **O assets3d não chama `evict` nem `closeReadDb` em nenhum ponto fora do teardown.** Regra prática: pare o servidor para importar, ou importe para um arquivo novo e troque com o processo parado. Se um dia o import precisar ser online, o protocolo do 360 é o modelo a copiar. Ver [[ingestao-projetos-360]], [[streetview-360]] e [[deploy-backend]].
 
 ## O semáforo, e por que ele libera em `finish` **e** `close`
 

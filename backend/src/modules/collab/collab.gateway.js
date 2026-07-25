@@ -286,14 +286,39 @@ export function attachWebSocket(server) {
       const userId = payload.sub;
       const isPublicUser = payload.isPublic === true;
 
-      // O1: a member of a deactivated organization cannot open a collab socket.
-      if (!isPublicUser && payload.organization_id && !(await orgIsActive(payload.organization_id))) {
-        reject('403 Forbidden');
-        return;
+      // P1/O1 no HANDSHAKE, não só no sweep. `reconcileAuthorization` (abaixo)
+      // declara o princípio "conta desativada / admin rebaixado perde acesso
+      // IMEDIATAMENTE" e lê o banco; este gate, na mesma página, decidia só pelo
+      // claim do JWT (`payload.organization_id` + `payload.role`). A assimetria era
+      // explorável sem nenhum artifício: um usuário DESATIVADO com access token
+      // ainda válido (15 min) abria socket novo, escrevia até o sweep derrubá-lo
+      // (~30 s) e reconectava em laço durante toda a vida do token. Idem para um
+      // admin rebaixado, que `resolvePermission` promovia a `owner` em QUALQUER
+      // atlas via `payload.role === 'admin'`. Um gate que vive num só dos dois
+      // pontos de entrada não é um gate.
+      //
+      // A leitura viva substitui o `orgIsActive` do claim pelo mesmo custo de UMA
+      // query, e é ela também que dá a org e o papel VIVOS (o claim pode apontar
+      // para a org antiga, ainda ativa, depois de o usuário ser movido).
+      let liveRole = payload.role;
+      if (!isPublicUser) {
+        const live = await getLiveAuthState(userId);
+        if (live) {
+          if (!live.userIsActive || !live.orgIsActive) {
+            reject('403 Forbidden');
+            return;
+          }
+          liveRole = live.role;
+        } else if (payload.organization_id && !(await orgIsActive(payload.organization_id))) {
+          // Sem linha em `users` (princípio sintético): cai no gate org-only,
+          // exatamente como reconcileAuthorization.
+          reject('403 Forbidden');
+          return;
+        }
       }
 
-      // Resolve permission
-      const permission = await resolvePermission(atlasId, userId, payload);
+      // Resolve permission (com o papel VIVO, nunca o do claim)
+      const permission = await resolvePermission(atlasId, userId, { ...payload, role: liveRole });
       if (!permission) {
         reject('403 Forbidden');
         return;
@@ -310,7 +335,7 @@ export function attachWebSocket(server) {
           username: isPublicUser ? 'visitante' : payload.username,
           nome: isPublicUser ? 'Visitante' : payload.nome,
           posto_graduacao: isPublicUser ? null : payload.posto,
-          role: isPublicUser ? 'user' : (payload.role || 'user'),
+          role: isPublicUser ? 'user' : (liveRole || 'user'),
           organization_id: isPublicUser ? null : (payload.organization_id ?? null),
           isPublic: isPublicUser,
         }, atlasId, permission, clientId);
@@ -365,6 +390,12 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   ws.cursorPosition = null;
   ws.currentMapId = null;
   ws.selectedFeatures = [];
+  // Inicializado explicitamente porque `getRoomUsers` o serializa em TODA entrada do
+  // roster: sem isto o valor era `undefined`, e `JSON.stringify` remove a chave — o
+  // frame `connected` mudava de SHAPE conforme o par já ter emitido uma seleção ou
+  // não. Os vizinhos (`selectedFeatures`, `temporalState`) já tinham default; este
+  // faltava, e um contrato congelado que só às vezes traz o campo não está congelado.
+  ws.selectionContext = null;
   ws.temporalState = null;
 
   // Create session (skip for public visitors: their `sub` is `public-<uuid>`,
@@ -379,8 +410,14 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   // Get current users
   const usersOnline = getRoomUsers(atlasId);
 
-  // Send connected message. `permission` (owner/write/read) is the frozen field;
-  // `role` exposes the frontend vocabulary (owner/editor/viewer/admin).
+  // Send connected message. `permission` is the frozen field and tem CINCO valores
+  // (read < comment < write < manage < owner); `role` expõe o vocabulário do frontend, que
+  // tem SEIS (owner, admin, manager, editor, commenter, viewer), via `toFrontendRole`.
+  //
+  // Este comentário listava três permissões e quatro papéis até 2026-07-25, omitindo
+  // `manage`/`comment` e `manager`/`commenter`. É a mesma lista fechada que a constituição
+  // proíbe e que já produziu bug real duas vezes, agora na forma mais barata de propagar:
+  // um comentário de contrato, que é onde quem for consumir o frame vai olhar primeiro.
   ws.send(JSON.stringify({
     type: 'connected',
     sessionId: clientId,

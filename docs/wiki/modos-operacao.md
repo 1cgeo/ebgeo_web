@@ -47,7 +47,7 @@ O guia absorvido *08-offline-import* erra em três pontos, e quem o reler vai tr
 
 - §4.4/§4.7 dizem que os `imageId` locais são trocados por ids de servidor e exigem UPDATE nas features depois do upload. Não: ids preservados, sem rewrite (acima).
 - §5.1 modela estado por atlas no IndexedDB (`{ mode, serverId, lastSyncVersion, pendingOperations }`). Não existe: há um marcador único de origem, e trocar de atlas remoto passa por `clearAllDataStore()`.
-- §5.2 diz que conflito é resolvido "via CRDT". É LWW por ordem de chegada no servidor, com idempotência por `op_id`; o relógio de Lamport é registrado e não decide nada. Ver [[sintese-nao-e-crdt]] e [[modelo-conflito-lww]].
+- §5.2 diz que conflito é resolvido "via CRDT". É LWW por ordem de chegada no servidor, com idempotência por `op_id`; o relógio de Lamport é registrado e não decide nada. Ver [[modelo-conflito-lww]].
 
 ## Tabela de decisão
 

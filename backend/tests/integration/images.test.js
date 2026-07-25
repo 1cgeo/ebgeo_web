@@ -128,12 +128,16 @@ describe('Images API', () => {
         .expect(403);
     });
 
-    it('stranger cannot upload images', async () => {
+    // 404, nao 403: o estranho nao tem relacao nenhuma com este atlas (sem share, nao e
+    // dono, o atlas nao e publico), entao a resposta e indistinguivel de atlas inexistente.
+    // Compare com o caso do `readerToken` logo acima, que TEM share e por isso continua 403:
+    // e esse par que da sentido a escada. Ver tests/integration/atlas-404-vs-403-escada.test.js.
+    it('stranger cannot upload images, and cannot tell the atlas exists', async () => {
       await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${strangerToken}`)
         .attach('image', testImagePath)
-        .expect(403);
+        .expect(404);
     });
 
     it('rejects upload without file', async () => {
@@ -178,11 +182,11 @@ describe('Images API', () => {
       }
     });
 
-    it('stranger cannot list images', async () => {
+    it('stranger cannot list images (404: sem relacao com o atlas)', async () => {
       await supertest(app)
         .get(`/api/v1/atlas/${atlas.id}/images`)
         .set('Authorization', `Bearer ${strangerToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 
@@ -217,11 +221,11 @@ describe('Images API', () => {
       assert.ok(res.headers['content-type'].includes('image'));
     });
 
-    it('stranger cannot download image from private atlas', async () => {
+    it('stranger cannot download image from private atlas (404: sem relacao)', async () => {
       await supertest(app)
         .get(`/api/v1/atlas/${atlas.id}/images/${uploadedImageId}`)
         .set('Authorization', `Bearer ${strangerToken}`)
-        .expect(403);
+        .expect(404);
     });
 
     it('returns 404 for non-existent image', async () => {
@@ -536,7 +540,7 @@ describe('Images API', () => {
         .expect(403);
     });
 
-    it('stranger cannot bulk upload images', async () => {
+    it('stranger cannot bulk upload images (404: sem relacao)', async () => {
       await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/images/bulk`)
         .set('Authorization', `Bearer ${strangerToken}`)
@@ -550,7 +554,7 @@ describe('Images API', () => {
             },
           ],
         })
-        .expect(403);
+        .expect(404);
     });
 
     it('validates required fields', async () => {

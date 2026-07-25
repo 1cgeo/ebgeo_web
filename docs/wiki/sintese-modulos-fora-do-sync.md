@@ -10,20 +10,20 @@ O preço: toda mudança (calibração 360, ingestão, toggle de zona, alteraçã
 
 ## A armadilha central: ninguém invalida nada hoje
 
-`_projectsCache` (`frontend/src/js/street_view_tool/streetview-api.service.js:145`) é populado **uma única vez** pelo `preflightCheck` no boot (`frontend/src/js/map_sig.js:555`), e só se invalida via `fetchProjects(true)`, que ninguém mais chama. O catálogo ([[resources-catalogo]], `frontend/src/js/catalog/catalog.service.js:184`) e as configurações de atlas (`frontend/src/js/modals/atlas-settings.modal.js:199`) leem esse cache sem rede.
+`_projectsCache` (`frontend/src/js/street_view_tool/streetview-api.service.js:151`) é populado **uma única vez** pelo `preflightCheck` no boot (`frontend/src/js/map_sig.js:555`), e só se invalida via `fetchProjects(true)`, que ninguém mais chama. O catálogo ([[resources-catalogo]]) e as configurações de atlas leem esse cache sem rede.
 
 Efeito atravessado: login/logout **não** refazem nada, e nenhum desses módulos escuta `SESSION_CHANGED` ([[sessao-boot-e-ciclo-de-vida]]; grep sem ocorrências em `search/`, `catalog/`, `street_view_tool/`). Um usuário que faz login continua vendo a lista de projetos 360 que o anônimo enxergava. Se você adicionar um consumidor novo, prenda-o a `SESSION_CHANGED`; não confie em o cache estar correto para a sessão atual.
 
 ## Contratos congelados que quebram o cliente padrão
 
-O backend não vive neste repositório: estes contratos não são deriváveis lendo `src/`. Três envelopes coexistem ([[erros-api]], [[sintese-contratos-congelados]]):
+Três envelopes coexistem ([[erros-api]], [[sintese-contratos-congelados]]):
 
 - `/nomes/busca` responde **array nu** (sem `{ data }`), no máximo 5 itens já ordenados ([[ranking-busca-toponimos]]).
 - `/nomes/catalogo3d` responde `{ total, page, nr_records, data }`, com `page` **1-based**.
 - `/nomes/feicoes` responde **200** com `{ message }` quando não acha nada. Não é `404`, não é array vazio: cheque `id` vs `message`.
 - sv360 devolve sucesso nu e erro **plano** `{ "error": "mensagem" }`.
 
-[!CONTRADICAO] O erro plano do sv360 quebra o parser padrão: `_request` lê `parsed.error?.message` (`frontend/src/js/store/sync/api-client.js:236`), que sobre uma string é `undefined`, e o `ApiError` cai no fallback `HTTP <status>`: a mensagem do backend é perdida em `listSv360Projects`/`setSv360ProjectStatus`/`deleteSv360Project` (`frontend/src/js/store/sync/api-client.js:516,526,535`). O `_unwrap` (`frontend/src/js/store/sync/api-client.js:260`) já tolera array nu; o parser de *erro* não recebeu o mesmo cuidado.
+O parser de erro do cliente genérico aceita os **dois** envelopes desde `c3a49d8` (`_request`, `frontend/src/js/store/sync/api-client.js`): quando `parsed.error` é string ele a promove a `{ message }`, e só cai no fallback `HTTP <status>` para corpo sem erro utilizável. O `code` segue `undefined` no envelope plano, porque o sv360 não emite código: **não ramifique por `code` em rota do sv360**, ramifique por status.
 
 Também congelado: `previewThumbnail` é relativo e **sem** o prefixo `/api/v1` ([[assets3d-distribuicao]], [[config-runtime-urls-relativas]]). Concatene com `serviceUrl` ou o thumbnail quebra em silêncio.
 
@@ -37,11 +37,12 @@ Daí três regras que o código convida a violar:
 - `PUT /zones/:id/permissions` é **replace-set**: `[]` remove todos. Read-modify-write sempre.
 - O `total` do `/catalogo3d` conta só o visível. Nunca o use para inferir existência de itens ocultos.
 
-## Divergências vivas entre doc e código
+## Capacidade do backend que o cliente não usa
 
-> [!CONTRADICAO] O guia *13-nomes-geograficos* manda enviar `Authorization: Bearer` e `zoom` em `/nomes/busca`; os dois call sites enviam apenas `q`, `lat`, `lon` (`frontend/src/js/search/search-bar.search-providers.js:279`, `frontend/src/js/search/feature-search.control.js:185`). Efeito real: a barra de busca é **sempre anônima** (só topônimos `public`, mesmo com usuário logado que tenha zona) e o raio de decaimento fica fixo em 50 km, com o ajuste por tipo desligado.
+Três rotas do gazetteer estão documentadas e testadas do lado do servidor e não têm um único consumidor no cliente web. Isso não é bug, é margem, mas quem lê só o backend conclui o contrário.
 
-> [!CONTRADICAO] O mesmo guia descreve `/nomes/catalogo3d` e `/nomes/feicoes` como fontes do painel 3D e do identify. Nenhuma das duas é chamada em `src/js`. O catálogo 3D do app vem de `config.tilesets` ([[config-dinamico]]), lido em `frontend/src/js/store/sync/atlas-settings.service.js:188`. As rotas existem no backend e estão documentadas, mas hoje são código morto do ponto de vista do cliente web.
+- **`Authorization` e `zoom` nunca são enviados em `/nomes/busca`.** Os dois call sites montam a query só com `q`, `lat`, `lon` (`frontend/src/js/search/search-bar.search-providers.js:279`, `frontend/src/js/search/feature-search.control.js:182`). Consequência: a barra de busca é **sempre anônima** (só topônimos `public`, mesmo com usuário logado que tenha zona) e o raio de decaimento fica fixo em 50 km, com o ajuste por tipo desligado.
+- **`/nomes/catalogo3d` e `/nomes/feicoes` não são chamadas em `frontend/src/js/`.** O catálogo 3D do app vem de `config.tilesets` ([[config-dinamico]]), lido por `getDeployTilesets` (`frontend/src/js/store/sync/atlas-settings.service.js`).
 
 ## Sem detecção de conflito
 
@@ -50,3 +51,8 @@ Escrita de calibração 360 é `PUT` direto e não emite broadcast ([[calibracao
 Nota de cache: a imagem WebP é imutável ([[sintese-cache-http-imutavel]]), mas os tiles MVT usam `max-age=60` justamente porque mudam a cada ingestão/toggle/tombstone. Não estenda esse TTL sem resolver a invalidação.
 
 Ver também [[sintese-rest-vs-sync]], [[sintese-rest-vs-websocket]], [[sintese-limites-collab]], [[gazetteer-nomes-geograficos]], [[catalogo-3d]], [[streetview-360]] e [[auth-flexivel]].
+
+## Histórico
+
+- 2026-07-25: a página abria os contratos congelados dizendo "o backend não vive neste repositório". Vive desde a migração para monorepo (2026-07-18), e a frase autorizava exatamente o hábito que o resto da wiki combate, o de descrever o servidor de memória. Removida.
+- 2026-07-25: apagada uma `[!CONTRADICAO]` que dizia que o erro plano do sv360 se perdia no parser genérico. O parser passou a aceitar os dois envelopes em `c3a49d8` (2026-07-24) e o marcador sobreviveu ao próprio conserto.

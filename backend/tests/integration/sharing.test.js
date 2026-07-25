@@ -63,10 +63,13 @@ describe('Sharing API', () => {
     });
 
     it('stranger cannot view sharing config', async () => {
+      // 404 while the case just above stays 403, and the pair is deliberate: the writer
+      // holds a share and is merely below `manage`, so it is told to ask for a level;
+      // the stranger holds nothing, so it is told the atlas is not there at all.
       await supertest(app)
         .get(`/api/v1/atlas/${atlas.id}/sharing`)
         .set('Authorization', `Bearer ${strangerToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 

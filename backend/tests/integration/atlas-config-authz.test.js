@@ -58,13 +58,23 @@ describe('Atlas config & sharing — manage-tier authorization', () => {
       .expect(200);
   });
 
-  it('a MANAGE user can add a user share', async () => {
-    const res = await supertest(app)
+  it('a MANAGE user can add a user share, at the level asked for', async () => {
+    await supertest(app)
       .post(`/api/v1/atlas/${atlas.id}/sharing/users`)
       .set('Authorization', `Bearer ${managerToken}`)
       .send({ userId: target.id, permission: 'read' })
       .expect(201);
-    assert.ok(res.body.data);
+
+    // `assert.ok(res.body.data)` after `.expect(201)` added nothing: the happy
+    // envelope is `{ data }` and the error envelope is `{ error }`, so the status
+    // already implied it. What was left unverified is the only thing that matters
+    // here — WHICH level got written. Granting 'read' and storing 'write' passed.
+    const { rows } = await db.query(
+      'SELECT permission FROM atlas_shares WHERE atlas_id = $1 AND user_id = $2',
+      [atlas.id, target.id]
+    );
+    assert.equal(rows.length, 1, 'exactly one share row for this user');
+    assert.equal(rows[0].permission, 'read', 'the stored level must be the one granted');
   });
 
   // ── manage < owner: the owner-only boundary ──

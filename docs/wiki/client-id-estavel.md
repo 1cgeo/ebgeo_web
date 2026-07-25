@@ -25,6 +25,6 @@ Presença ([[presenca-colaborativa]]) é chaveada por ele, com queda para `userI
 
 ## Idempotência: o resumo padrão está errado
 
-Dizem que "a idempotência sobrevive à reconexão graças ao `clientId`". A chave de idempotência do servidor é o **`op.id`**, não o `clientId`; `idempotent: true` no ack significa "já apliquei antes" e deve contar como sucesso no dequeue ([[ack-idempotencia]], [[idempotencia-e-convergence-guard]]). O papel do `clientId` é indireto: manter a [[fila-operacoes-outbound]] reenviada reconhecível como do mesmo cliente e fazer o eco dessas ops ser descartado localmente. Conflito de fato continua sendo LWW por ordem de chegada ([[modelo-conflito-lww]], [[sintese-nao-e-crdt]]).
+Dizem que "a idempotência sobrevive à reconexão graças ao `clientId`". A chave de idempotência do servidor é o **`op.id`**, não o `clientId`; `idempotent: true` no ack significa "já apliquei antes" e deve contar como sucesso no dequeue ([[ack-idempotencia]], [[idempotencia-e-convergence-guard]]). O papel do `clientId` é indireto: manter a [[fila-operacoes-outbound]] reenviada reconhecível como do mesmo cliente e fazer o eco dessas ops ser descartado localmente. Conflito de fato continua sendo LWW por ordem de chegada ([[modelo-conflito-lww]]).
 
 O `clientId` é carimbado em toda operação, portanto faz parte do [[envelope-operacao]].

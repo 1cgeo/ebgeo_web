@@ -39,7 +39,7 @@ Dois cuidados no handler de `sync_response` (`frontend/src/js/store/sync/sync-en
 
 ## Snapshot é upsert, não substituição
 
-`applyRemoteSnapshot` grava cada mapa e briefing do snapshot e **nunca apaga entidade local ausente dele** (`frontend/src/js/store/sync/remote-operation-handler.js:1150`). Por isso toda troca de atlas na UI chama `clearAllDataStore()` **antes** de `syncEngine.connect(...)` (`account/open-atlas.service.js:59`, `account/account.control.js:576`, `:785`, `:818`, `index.js:231`). Um novo caminho de abertura de atlas que esqueça o clear mistura os mapas do atlas anterior com os do novo. Pelo mesmo motivo, um `resync()` no meio da sessão não remove localmente o que um peer deletou por fora do log.
+`applyRemoteSnapshot` grava cada mapa e briefing do snapshot e **nunca apaga entidade local ausente dele** (`frontend/src/js/store/sync/remote-operation-handler.js:1150`). Por isso toda troca de atlas na UI chama `clearAllDataStore()` **antes** de `syncEngine.connect(...)` (`account/open-atlas.service.js:59`, `account/account.control.js:576`, `:785`, `:818`, `frontend/src/js/index.js:231`). Um novo caminho de abertura de atlas que esqueça o clear mistura os mapas do atlas anterior com os do novo. Pelo mesmo motivo, um `resync()` no meio da sessão não remove localmente o que um peer deletou por fora do log.
 
 Outras consequências desse desenho:
 
@@ -67,4 +67,4 @@ O snapshot mistura deliberadamente snake_case (herdado das colunas) com camelCas
 
 Ver [[sintese-contratos-congelados]], [[atlas-modelo-de-dados]], [[catalogo-3d]], [[streetview-360]].
 
-Para diagnosticar um pull que não converge, o [[syncledger]] correlaciona as etapas por `op.id`/`traceId`. Desenho geral em [[sintese-nao-e-crdt]], [[sintese-rest-vs-websocket]] e [[sessao-boot-e-ciclo-de-vida]].
+Para diagnosticar um pull que não converge, o [[syncledger]] correlaciona as etapas por `op.id`/`traceId`. Desenho geral em [[modelo-conflito-lww]], [[sintese-rest-vs-websocket]] e [[sessao-boot-e-ciclo-de-vida]].

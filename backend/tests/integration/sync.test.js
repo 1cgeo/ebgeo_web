@@ -365,6 +365,7 @@ describe('Sync API', () => {
 
     it('returns incremental operations when version is greater than 0', async () => {
       // First push an operation to have something to pull
+      const featureId = randomUUID();
       await supertest(app)
         .post(`/api/v1/atlas/${atlas.id}/sync`)
         .set('Authorization', `Bearer ${token}`)
@@ -373,7 +374,7 @@ describe('Sync API', () => {
             id: randomUUID(),
             type: 'create',
             target: 'feature',
-            targetId: randomUUID(),
+            targetId: featureId,
             mapId: map.id,
             data: { feature_type: 'point', geometry: { coordinates: [0, 0] }, properties: {} },
             timestamp: Date.now(),
@@ -394,8 +395,18 @@ describe('Sync API', () => {
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
-      // Could be snapshot or operations depending on min_version
-      assert.ok(res.body.data.currentVersion >= currentVersion - 1);
+      // A única asserção daqui era `currentVersion >= currentVersion - 1`, verdadeira
+      // POR ARITMÉTICA: não podia falhar nem com o roteamento híbrido invertido, e o
+      // comentário ("could be snapshot or operations") aceitava os dois mundos, então
+      // o nome do teste — "returns incremental operations" — não era verificado por
+      // nada. Esta suíte nunca poda o oplog, então min_version é deterministicamente 0
+      // e um pull de currentVersion-1 É o ramo incremental.
+      assert.equal(res.body.data.isSnapshot, false, 'pull from currentVersion-1 must be incremental');
+      assert.ok(res.body.data.operations.length > 0, 'incremental pull must return the pushed op');
+      const op = res.body.data.operations.find((o) => o.entityId === featureId);
+      assert.ok(op, 'the operation just pushed must come back on the incremental pull');
+      assert.equal(op.entityType, 'feature');
+      assert.equal(op.operationType, 'create');
     });
 
     it('returns empty operations when already at current version', async () => {
@@ -432,14 +443,18 @@ describe('Sync API', () => {
         .expect(200);
     });
 
-    it('stranger cannot pull operations from private atlas', async () => {
+    // 404 e nao 403 desde 2026-07-25: o estranho nao tem relacao nenhuma com o atlas, entao a
+    // resposta e indistinguivel de atlas inexistente. Compare com o caso do `readerToken`
+    // logo acima, que TEM share e por isso le com 200. Ver
+    // tests/integration/atlas-404-vs-403-escada.test.js.
+    it('stranger cannot pull operations from private atlas (404: sem relacao)', async () => {
       const stranger = await createUser(db, { username: 'sync_stranger' });
       const strangerToken = await loginUser(app, stranger.username, stranger.password);
 
       await supertest(app)
         .get(`/api/v1/atlas/${atlas.id}/sync/0`)
         .set('Authorization', `Bearer ${strangerToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 

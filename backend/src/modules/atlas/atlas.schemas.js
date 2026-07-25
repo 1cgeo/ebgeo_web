@@ -34,14 +34,22 @@ export const atlasSettingsSchema = Joi.object({
   available_3d_models: Joi.array().items(Joi.string()),
   available_360_views: Joi.array().items(Joi.string()),
 }).custom((value, helpers) => {
+  // The `any.custom` template is '{{#label}} failed custom validation because
+  // {{#error.message}}' — it reads the local named `error`, not one named `message`.
+  // Passing `{ message }` left the sentence dangling ('"value" failed custom
+  // validation because ') and the two rules below became indistinguishable to the
+  // caller: a 422 that says a rule failed without saying WHICH is a validation error
+  // the admin panel cannot render into an actionable message.
+  const reject = (message) => helpers.error('any.custom', { error: new Error(message) });
+
   // Custom validation: min_zoom < max_zoom
   if (value.min_zoom != null && value.max_zoom != null && value.min_zoom > value.max_zoom) {
-    return helpers.error('any.custom', { message: 'min_zoom must be less than or equal to max_zoom' });
+    return reject('min_zoom must be less than or equal to max_zoom');
   }
   // default_basemap must be in basemaps list
   if (value.default_basemap && value.basemaps && value.basemaps.length > 0) {
     if (!value.basemaps.includes(value.default_basemap)) {
-      return helpers.error('any.custom', { message: 'default_basemap must be one of the basemaps' });
+      return reject('default_basemap must be one of the basemaps');
     }
   }
   return value;

@@ -4,21 +4,21 @@ Por que a fronteira de escrita foi cortada entre contêiner (REST) e conteúdo (
 
 ## A regra e o motivo
 
-O **contêiner** é REST. O **conteúdo** é sync. Só o atlas tem CRUD REST completo ([[api-rest-atlas]]); mapas e briefings expõem apenas leitura, e feature, layer e group não têm rota nenhuma, só aparecem no dispatch de `applyOperation`.
+O **contêiner** é REST. O **conteúdo** é sync. Só o atlas tem CRUD REST completo ([[api-rest-atlas]]); mapas e briefings expõem leitura mais **uma** escrita estrutural (`merge`), a exceção descrita abaixo; feature, layer e group não têm rota nenhuma, só aparecem no dispatch de `applyOperation`.
 
-Sync existe para mudanças de granularidade fina, frequentes e concorrentes, cujo mérito é convergir por [[modelo-conflito-lww]] (LWW por ordem de chegada, veja [[sintese-nao-e-crdt]]). Mover um vértice 30 vezes por segundo não cabe num `PUT`.
+Sync existe para mudanças de granularidade fina, frequentes e concorrentes, cujo mérito é convergir por [[modelo-conflito-lww]] (LWW por ordem de chegada). Mover um vértice 30 vezes por segundo não cabe num `PUT`.
 
 REST existe para mudanças raras, estruturais e não concorrentes, onde "última escrita vence por entidade" seria perigoso: quem vê o atlas, quais basemaps ele expõe, quem é o dono. Uma op de sync com granularidade "atlas inteiro" reabriria a porta para um usuário `write` sobrescrever a lista de compartilhamentos.
 
-**A separação é o gate, não a estética.** A rota de push de sync exige no mínimo `comment` (`backend/src/modules/sync/sync.routes.js:19`), de propósito, para o Comentarista alcançá-la; o refinamento por op vem depois, em `assertOperationAllowed` (`backend/src/modules/sync/sync.service.js:600-620`). As rotas de sharing e settings exigem `manage`. Um usuário `write` nunca alcança a superfície de governança. Veja [[permissoes-atlas]], [[sintese-eixos-de-permissao]] e [[sintese-capacidades-por-papel]]; detalhes por entidade em [[tipos-entidade-sync]], [[envelope-operacao]] e [[tabela-operations]].
+**A separação é o gate, não a estética.** A rota de push de sync exige no mínimo `comment` (`backend/src/modules/sync/sync.routes.js:19`), de propósito, para o Comentarista alcançá-la; o refinamento por op vem depois, em `assertOperationAllowed` (`backend/src/modules/sync/sync.service.js`) e em `operationDenialReason` ao lado dela. As rotas de sharing e settings exigem `manage`. Um usuário `write` nunca alcança a superfície de governança. Veja [[permissoes-atlas]], [[sintese-eixos-de-permissao]] e [[sintese-capacidades-por-papel]]; detalhes por entidade em [[tipos-entidade-sync]], [[envelope-operacao]] e [[tabela-operations]].
 
 ## A armadilha central: `atlas.settings` tem dois donos
 
-A mesma coluna é escrita pelos dois caminhos, particionada por chave. O `PATCH /atlas/:id/settings` (`manage`) escreve *disponibilidade de recurso* ([[atlas-settings]]); a op de sync `setting` (`write`) escreve apenas uma **whitelist de preferências de app** (`backend/src/modules/sync/sync.service.js:1315-1345`).
+A mesma coluna é escrita pelos dois caminhos, particionada por chave. O `PATCH /atlas/:id/settings` (`manage`) escreve *disponibilidade de recurso* ([[atlas-settings]]); a op de sync `setting` (`write`) escreve apenas uma **whitelist de preferências de app**, no ramo `setting` de `applyOperation` (`backend/src/modules/sync/sync.service.js`).
 
 A whitelist não é cosmética, é a defesa: sem ela um usuário `write` reescreveria por sync quais camadas o atlas expõe, contornando o gate `manage`. Ao adicionar uma chave nova a `settings`, **decida a qual lado ela pertence antes da primeira linha de código**, e nunca a inclua na whitelist do sync se ela controlar acesso a recurso.
 
-**`mapOrder` é a chave que ficou dos dois lados**, e é o custo de não ter feito essa decisão. A whitelist aceita `patch.mapOrder` para dentro de `atlas.settings` (`backend/src/modules/sync/sync.service.js:1789-1791`), alimentada com um array de **nomes** de mapa (`frontend/src/js/store/map.operations.js:157-161`); a coluna `atlas.map_order` é `UUID[]` (`backend/src/database/migrations/002_atlas.sql:17`) e só REST escreve nela (clone, duplicate e import: `backend/src/modules/atlas/atlas.service.js:617`, `:711`, `:970`). Nada reconcilia as duas: reordenar por sync nunca toca a coluna, duplicar um mapa (que faz `array_append` nela) nunca toca o settings.
+**`mapOrder` é a chave que ficou dos dois lados**, e é o custo de não ter feito essa decisão. A whitelist aceita `patch.mapOrder` para dentro de `atlas.settings` (mesmo ramo `setting` de `applyOperation`), alimentada com um array de **nomes** de mapa (`frontend/src/js/store/map.operations.js:157-161`); a coluna `atlas.map_order` é `UUID[]` (`backend/src/database/migrations/002_atlas.sql:17`) e só REST escreve nela (clone, duplicate e import: `backend/src/modules/atlas/atlas.service.js:617`, `:711`, `:970`). Nada reconcilia as duas: reordenar por sync nunca toca a coluna, duplicar um mapa (que faz `array_append` nela) nunca toca o settings.
 
 O que torna isso difícil de depurar é que **as duas viajam no MESMO snapshot**, como `atlas.settings.mapOrder` e como `atlas.mapOrder` (`backend/src/modules/sync/sync.service.js:912`), e só a primeira tem leitor: o cliente persiste a lista de nomes (`frontend/src/js/store/sync/remote-operation-handler.js:1045-1052`), enquanto o `mapOrder` de UUIDs que o resolvedor consome (`frontend/src/js/store/services/map-resolver.service.js:33-35`) vem do atlas LOCAL, nunca do snapshot. Ao ler ou escrever `mapOrder` em qualquer lado da fronteira, confirme primeiro de qual dos dois se trata; o nome não distingue e o tipo do array é a única pista.
 
@@ -31,7 +31,7 @@ Duas consequências que economizam depuração:
 
 `duplicate` (`backend/src/modules/atlas/atlas.routes.js:44`), `merge` (`backend/src/modules/maps/maps.routes.js:17`), `clone` e `import` ([[clone-atlas]], [[atlas-import-offline]]) escrevem entidades filhas apesar da regra, porque são atômicas e estruturais (a mesclagem seria centenas de ops `update` sem atomicidade). O preço é real:
 
-> Elas não passam pela tabela `operations` e não incrementam `current_version`. Um peer em pull incremental **nunca verá** essas mudanças: `pullOperations` só lê `operations` quando `sinceVersion > 0` (`backend/src/modules/sync/sync.service.js:770-804`).
+> Elas não passam pela tabela `operations` e não incrementam `current_version`. Um peer em pull incremental **nunca verá** essas mudanças: `pullOperations` só lê `operations` quando `sinceVersion > 0` (`backend/src/modules/sync/sync.service.js`).
 
 **`merge` deixou de ser assim, e é o desenho a copiar.** Desde `1d23ac9` (2026-07-19) ele grava uma op MARCADORA `map_merge` na mesma transação (`backend/src/modules/maps/maps.service.js:118`), então avança `current_version` e aparece no replay; quem a recebe resolve tomando snapshot (`STRUCTURAL_RESYNC_OPS`, `frontend/src/js/store/sync/sync-engine.js:67`). O motivo de fazer isso, e não confiar no frame: sem op escrita, o peer que reconecta pede `sync_request {lastVersion: N}` com o `N` que ainda é o `current_version` e recebe `{operations: []}`, ou seja, conclui que está em dia. Silêncio indistinguível de "nada mudou". As outras três continuam dependendo só do frame.
 
@@ -48,9 +48,9 @@ O **blob** sobe por REST multipart; a **referência** viaja dentro da op de feat
 ## Pegadinhas do gate
 
 - **`manage` está acima de `write`.** Um gate escrito como `permission === 'write' || permission === 'owner'` exclui o co-Gestor em silêncio.
-- **`owner` nunca vem de `atlas_shares`.** É sintetizado de `atlas.owner_id`, e o CHECK da tabela aceita apenas `read|comment|write|manage` (`backend/src/modules/sharing/sharing.routes.js:11-14`). A posse só muda pela rota de transferência.
-- **Deletar mapa e travar mapa são `owner`**, embora sejam ops de sync, não REST. É fácil supor que toda op de sync aceite `write`.
-- **`GET /atlas/:id/sharing` responde camelCase; `POST /sharing/users` responde o registro cru da tabela em snake_case.** A assimetria não é visível em nenhum dos dois arquivos isoladamente (`backend/src/modules/sharing/sharing.service.js:12-21` versus `:40`). Código que lê `is_public` ou `share.user_id` na resposta do `GET` recebe `undefined`.
+- **`owner` nunca vem de `atlas_shares`.** É sintetizado de `atlas.owner_id`, e o CHECK da tabela aceita apenas `read|comment|write|manage` (`backend/src/database/migrations/002_atlas.sql:63`; o enum concedível do Joi espelha isso em `backend/src/modules/sharing/sharing.schemas.js:6`). A posse só muda pela rota de transferência. **Nunca ancore contrato de schema em comentário de código**: a versão anterior desta linha citava um comentário de rota que a própria wiki registra como mentiroso.
+- **Deletar mapa é `manage` para cima; travar mapa é `owner` estrito**, embora sejam ops de sync, não REST (`operationDenialReason`, `backend/src/modules/sync/sync.service.js`). É fácil supor que toda op de sync aceite `write`, e igualmente fácil supor que as duas andem juntas: o lock é override de coordenação, o delete é ação de gestão.
+- **`GET /atlas/:id/sharing` responde camelCase; `POST /sharing/users` responde o registro cru da tabela em snake_case.** Explicação e ancoragem em [[compartilhamento-atlas]].
 - Erros das duas superfícies compartilham o envelope `{ error: { code, message } }`, veja [[erros-api]] e [[comentario-espacial]].
 
 ## Contadores e código morto que enganam
@@ -67,7 +67,7 @@ O **blob** sobe por REST multipart; a **referência** viaja dentro da op de feat
 2. Se virou op, ela existe em `EntityType` (frontend) **e** no dispatch de `applyOperation` (backend)? Um tipo desconhecido cai no `default` do `frontend/src/js/store/sync/remote-operation-handler.js:341` com apenas um `console.warn`, e a op se perde sem erro.
 3. Se foi para REST e altera dados que o peer renderiza, você emitiu broadcast e o `frontend/src/js/store/sync/ws-client.js` mapeia esse `type`?
 4. Se toca `atlas.settings`, a chave é de disponibilidade de recurso (fora da whitelist) ou preferência de app (dentro)?
-5. O gate corresponde à superfície? `manage` para governança, `write` para conteúdo, `owner` para posse, lock e delete de mapa.
+5. O gate corresponde à superfície? `manage` para governança e delete de mapa, `write` para conteúdo, `owner` para posse e lock de mapa.
 
 ## Ver também
 

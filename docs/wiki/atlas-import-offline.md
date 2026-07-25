@@ -33,6 +33,10 @@ O servidor insere com o id que recebe. Só que o payload que chega já foi remap
 
 `images.id` tem o mesmo problema (`backend/src/database/migrations/002_atlas.sql:310`), com falha pior porque é **parcial**: o INSERT cai no `catch`, a imagem entra em `failed` e o atlas é criado assim mesmo, com referências quebradas.
 
+## O teto que impede a operação inteira: 10 MB de corpo
+
+O import cai no parser JSON global, `express.json({ limit: '10mb' })` (`backend/src/app.js`); só `/images/bulk` ganha um parser próprio com limite maior. Como a rota é transação única, sem chunking e sem retry seguro, esse teto é o teto prático de "Salvar no servidor": acima dele o atlas recebe 413 `PAYLOAD_TOO_LARGE` e **não tem caminho nenhum** para o servidor. É a única perda desta página que não é parcial. A saída é reduzir o atlas local ou dividi-lo em atlas menores, não repetir o envio.
+
 ## Feições que somem em silêncio
 
 `buildFeatures` (`frontend/src/js/import_export/local-atlas-to-server.js:93-128`) descarta sem erro a feição sem `geometry` ou com tipo fora da allowlist, apenas incrementando `stats.droppedFeatures`. O bucket `coordenadas` (leituras efêmeras de azimute e coordenada) não tem tipo no servidor e some **por design**.

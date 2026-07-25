@@ -58,11 +58,14 @@ describe('Sharing — grant-to-effect coverage', () => {
     const grantee = await createUser(db, { username: uniq() });
     const granteeToken = await loginUser(app, grantee.username, grantee.password);
 
-    // Baseline: before any grant the grantee is a stranger -> 403 on read.
+    // Baseline: before any grant the grantee is a stranger -> 404 on read (no relation
+    // to the atlas at all). The two NEGATIVEs further down stay 403, and the difference
+    // is the point of this case: once the share exists, refusals stop hiding the atlas
+    // and start naming the missing LEVEL.
     await supertest(app)
       .get(`/api/v1/atlas/${atlas.id}`)
       .set('Authorization', `Bearer ${granteeToken}`)
-      .expect(403);
+      .expect(404);
 
     // Owner grants exactly 'read'.
     await supertest(app)
@@ -163,9 +166,9 @@ describe('Sharing — grant-to-effect coverage', () => {
 
   // ---------------------------------------------------------------------------
   // REVOKE via DELETE /sharing/users/:userId observably removes access:
-  // a previously-readable atlas becomes 403 for the ex-grantee. NEGATIVE.
+  // a previously-readable atlas becomes 404 for the ex-grantee. NEGATIVE.
   // ---------------------------------------------------------------------------
-  it('DELETE /sharing/users/:userId revokes access — ex-grantee read goes 200 -> 403', async () => {
+  it('DELETE /sharing/users/:userId revokes access — ex-grantee read goes 200 -> 404', async () => {
     const grantee = await createUser(db, { username: uniq() });
     const granteeToken = await loginUser(app, grantee.username, grantee.password);
 
@@ -192,11 +195,12 @@ describe('Sharing — grant-to-effect coverage', () => {
     );
     assert.equal(rows.length, 0);
 
-    // NEGATIVE: access is revoked.
+    // NEGATIVE: access is revoked, all the way back to "there is no such atlas" — with
+    // the share row gone there is no relation left, which is the 404 rung.
     await supertest(app)
       .get(`/api/v1/atlas/${atlas.id}`)
       .set('Authorization', `Bearer ${granteeToken}`)
-      .expect(403);
+      .expect(404);
   });
 
   // ---------------------------------------------------------------------------

@@ -10,8 +10,9 @@ frontend. Isso vale para o LOGIN, não para a disponibilidade: o boot do fronten
 app de subir — não existe fallback estático no cliente.
 
 > Referência completa (rotas, env, migrações, permissões, protocolo WS, convenções detalhadas) está
-> no **[README.md](README.md)**. Guias de integração por subsistema em **[../docs/wiki/](../docs/wiki/index.md)**
-> (série numerada `00`–`16`). Deploy em
+> no **[README.md](README.md)**. Páginas por entidade e conceito em
+> **[../docs/wiki/index.md](../docs/wiki/index.md)**. (A "série numerada `00`–`16`" que esta linha
+> citava até 2026-07-25 não existe: manda procurar um índice numérico que a wiki nunca teve.) Deploy em
 > **[../docs/wiki/deploy-backend.md](../docs/wiki/deploy-backend.md)**. Este arquivo é o contrato de comportamento —
 > mantenha-o curto.
 
@@ -91,7 +92,10 @@ npm run lint           # eslint (rode antes de finalizar) | npm run format
 - **`sv360` está FORA do sync/CRDT/WS** do atlas: BLOBs WebP em SQLite por projeto (`{slug}.db`, worker
   pool + ETag O(1) + semáforo), erros em envelope **plano** `{ error }` (não `{error:{code,message}}`),
   `db_filename` **derivado no servidor** (`${orgId}__{slug}.db`), ingestão swap-then-commit. Detalhes em
-  ../docs/guias/16-streetview-360.md.
+  [[streetview-360]] e [[ingestao-projetos-360]], ambas em [`../docs/wiki/`](../docs/wiki/index.md).
+  (Aqui morava um caminho nu para uma pasta docs/guias que não existe. Escrito sem crase e sem
+  sintaxe markdown, ele era ponto cego dos DOIS guardas de integridade ao mesmo tempo, e é por isso
+  que a substituição usa wikilink: o guarda de wikilink resolve o alvo.)
 
 ## Convenções de código
 
@@ -124,7 +128,7 @@ self-registration gateada por `ALLOW_SELF_REGISTRATION` (off em prod).
 
 ## SyncLedger (observabilidade de sync — test/dev)
 
-Camada de tracing **aditiva e gated** (`EBGEO_TRACE=1` ou `NODE_ENV=test`; **nunca em prod**). `utils/sync-trace.js` mantém um ring por atlas espelhando o contrato de estágios do frontend; `sync.service` emite `server.inserted`/`server.applied` (`applyOperation` usa `t.result` p/ expor `rowsAffected`) e `collab.rooms` `server.broadcast` (`broadcastOperations`/`broadcastToRoom` passaram a **retornar** `{ sent, recipients, … }`); `sync.schemas` aceita `traceId` no envelope. `GET/DELETE /api/v1/debug/trace` (auth) expõe o ring — montado só com o tracer ligado (`app.js`). Spec/as-built: [`../docs/wiki/syncledger.md`](../docs/wiki/syncledger.md).
+Camada de tracing **aditiva e gated** (`EBGEO_TRACE=1` ou `NODE_ENV=test`; **nunca em prod**). `utils/sync-trace.js` mantém um ring por atlas espelhando o contrato de estágios do frontend; `sync.service` emite `server.inserted`/`server.applied` (`applyOperation` usa `t.result` p/ expor `rowsAffected`) e `collab.rooms` `server.broadcast` (`broadcastOperations`/`broadcastToRoom` passaram a **retornar** `{ sent, recipients, … }`); `sync.schemas` aceita `traceId` no envelope. `GET/DELETE /api/v1/debug/trace` expõe o ring, **gateado por atlas** e não só por `auth`: `liftAtlasIdToParams` sobe o `atlasId` do query (400 se faltar) e então `requireAtlasPermission('read')` no GET, `('manage')` no DELETE. Esta linha dizia só "(auth)" até 2026-07-25, o que lia como "qualquer autenticado vê o ring de qualquer atlas", ou seja, descrevia um IDOR que o código não tem. Montado só com o tracer ligado (`app.js`). Spec/as-built: [`../docs/wiki/syncledger.md`](../docs/wiki/syncledger.md).
 
 ## Antes de finalizar
 

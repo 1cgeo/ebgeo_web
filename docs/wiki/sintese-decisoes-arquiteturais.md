@@ -29,7 +29,7 @@ Consequências que um engenheiro precisa internalizar:
 - Delete (soft) vence updates subsequentes na ordem de chegada.
 - Idempotência é por `op_id` do cliente, então reenvio é seguro por construção. Ver [[idempotencia-e-convergence-guard]] e [[ack-idempotencia]].
 
-**Por que não CRDT:** o custo de um CRDT verdadeiro (estrutura de dados, tamanho de metadados, complexidade de merge por propriedade) não se paga para o padrão de uso real, no qual duas pessoas raramente editam a mesma feição no mesmo segundo. O modelo escolhido é o do Google Docs em espírito (sem locks, ninguém trava ninguém), mas com autoridade central. Detalhe em [[sintese-nao-e-crdt]].
+**Por que não CRDT:** o custo de um CRDT verdadeiro (estrutura de dados, tamanho de metadados, complexidade de merge por propriedade) não se paga para o padrão de uso real, no qual duas pessoas raramente editam a mesma feição no mesmo segundo. O modelo escolhido é o do Google Docs em espírito (sem locks, ninguém trava ninguém), mas com autoridade central. Detalhe em [[modelo-conflito-lww]].
 
 O `locked` de mapa não contradiz isso: é **aviso de UI, frontend-only**, não um lock de concorrência.
 
@@ -63,7 +63,9 @@ Ctrl+Z desfaz só o que o **próprio** usuário fez. Op recebida de outro colabo
 
 Não há rota REST de escrita para feature/layer/group/briefing/slide. Mutações viajam como operações. REST cuida de metadados de atlas, compartilhamento e imagens. Ver [[sintese-rest-vs-sync]], [[sintese-rest-vs-websocket]], [[api-rest-atlas]] e [[tabela-operations]].
 
-> **[!CONTRADICAO] Regra ampla demais.** A formulação herdada ("escrita só via sync" para todas as entidades do atlas) não bate com o código: existem três escritas estruturais por REST, deliberadamente atômicas e portanto impróprias para o modelo de op incremental: `POST /atlas/:atlasId/maps/:mapId/merge` (`backend/src/modules/maps/maps.routes.js:16`), `POST /atlas/:atlasId/maps/:mapId/duplicate` (`backend/src/modules/atlas/atlas.routes.js:44`) e o bulk `POST /atlas/import` (`backend/src/modules/atlas/atlas.routes.js:22`). Leia a regra como "escrita **incremental** só via sync".
+A formulação herdada, "escrita só via sync" para toda entidade do atlas, é ampla demais e precisa ser lida como **escrita incremental** só via sync. São **quatro** as escritas estruturais por REST, deliberadamente atômicas e por isso impróprias para uma sequência de ops: `mergeMaps` (`backend/src/modules/maps/maps.routes.js`), `duplicateMap` (`backend/src/modules/atlas/atlas.routes.js:44`), `cloneAtlas` (`:41`) e o bulk `importAtlas` (`:22`).
+
+Delas, só o `merge` grava uma op marcadora na mesma transação e portanto avança `current_version` e aparece no pull incremental. As outras três dependem do frame de WebSocket: quem estava desconectado pede a cauda, recebe lista vazia e conclui que está em dia. Ver [[sintese-rest-vs-sync]], que detalha o preço, e [[clone-atlas]].
 
 ## WebSocket sem backplane, a limitação de escala aceita
 

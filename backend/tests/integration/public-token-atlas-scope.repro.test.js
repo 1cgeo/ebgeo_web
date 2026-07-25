@@ -104,6 +104,44 @@ describe('a visitor token is bound to its own atlas (repro)', () => {
     assert.equal(httpB.status, 403, 'other atlas: refused on both transports');
   });
 
+  it('is read-only even on its OWN atlas: write routes are refused', async () => {
+    // resolvePermission gives the visitor 'read' via the isPublic branch, so anything
+    // above that tier must fail on A too, not only on B.
+    const put = await supertest(app)
+      .put(`/api/v1/atlas/${atlasA.id}`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ name: 'sequestrado' });
+    assert.equal(put.status, 403);
+
+    const push = await supertest(app)
+      .post(`/api/v1/atlas/${atlasA.id}/sync`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ operations: [] });
+    assert.equal(push.status, 403);
+
+    const { rows } = await db.query('SELECT name FROM atlas WHERE id = $1', [atlasA.id]);
+    assert.equal(rows[0].name, 'Atlas Publicado A');
+  });
+
+  it('POST /clone passes the read gate, so the non-UUID principal must fail CLEANLY', async () => {
+    // The clone route is gated at 'read', which the visitor satisfies. The identity
+    // behind the token is `public-<uuid>`, not a UUID, so it cannot become
+    // atlas.owner_id — that has to surface as a clean 4xx, never a 500, and above all
+    // never an atlas owned by a principal that does not exist in `users`.
+    const res = await supertest(app)
+      .post(`/api/v1/atlas/${atlasA.id}/clone`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({});
+
+    assert.ok(res.status >= 400 && res.status < 500, `expected a clean 4xx, got ${res.status}`);
+    assert.notEqual(res.body.error?.code, 'INTERNAL_ERROR');
+
+    const { rows } = await db.query(
+      "SELECT count(*)::int AS n FROM atlas WHERE owner_id::text LIKE 'public-%'"
+    );
+    assert.equal(rows[0].n, 0, 'no atlas may be owned by a visitor principal');
+  });
+
   it('an ordinary authenticated user still reads a public atlas (unchanged by design)', async () => {
     // Guards the blast radius of the fix: the isPublic branch is pre-existing and
     // deliberate for real users. Narrowing it here would be an unrelated behaviour

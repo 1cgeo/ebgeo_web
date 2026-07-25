@@ -4,7 +4,7 @@ Unidade atômica de sincronização do EBGeo: o objeto criado por `createOperati
 
 ## Por que existe
 
-Não há rota REST de escrita para entidades colaborativas (feição, camada, grupo, mapa, briefing, slide, 3D, 360). Toda mutação sincronizável vira operação e viaja por push HTTP ou pelo canal WS. Isso concentra ordenação, idempotência e permissão em um único ponto, e é o que viabiliza o offline-first: a operação nasce no cliente, é persistida em IndexedDB e só depois sai pela rede ([[fila-operacoes-outbound]]).
+Não há rota REST de escrita **incremental** para entidades colaborativas (feição, camada, grupo, mapa, briefing, slide, 3D, 360). Toda mutação sincronizável vira operação e viaja por push HTTP ou pelo canal WS. Isso concentra ordenação, idempotência e permissão em um único ponto, e é o que viabiliza o offline-first: a operação nasce no cliente, é persistida em IndexedDB e só depois sai pela rede ([[fila-operacoes-outbound]]).
 
 ## O envelope vai verbatim, e isso é intencional
 
@@ -15,7 +15,7 @@ Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`backen
 ## Os campos que enganam
 
 - **`timestamp`** é ordenação **local** apenas. Nunca ordena entre máquinas.
-- **`lamportTimestamp`** avança em `max(local, remoto)+1` (`frontend/src/js/store/sync/operation-factory.js:85`, chamado em `frontend/src/js/store/sync/sync-gateway.js:48`), é persistido e ecoado no pull, mas o reducer de conflito nunca o consulta: quem vence é o `serverVersion`. O relógio existe e não decide nada. Ver [[modelo-conflito-lww]] e [[sintese-nao-e-crdt]].
+- **`lamportTimestamp`** avança em `max(local, remoto)+1` (`frontend/src/js/store/sync/operation-factory.js:85`, chamado em `frontend/src/js/store/sync/sync-gateway.js:48`), é persistido e ecoado no pull, mas o reducer de conflito nunca o consulta: quem vence é o `serverVersion`. O relógio existe e não decide nada. Ver [[modelo-conflito-lww]].
 - **`serverVersion` não é campo do cliente.** É carimbado pelo servidor e volta no ack, no broadcast e no pull. É a única chave de ordenação correta ([[tabela-operations]]).
 - **`mapId`** é contexto, não alvo. Ops de nível atlas (`map`, `briefing`, `setting`) passam `null`.
 - **`previousData`** existe para undo **local**. Viaja porque o envelope vai verbatim, não porque o backend precise dele. Não construa merge servidor-side em cima disso.
@@ -26,7 +26,7 @@ Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`backen
 
 **1. O cliente nunca emite `changes`.** `createOperation` só produz `data` (`frontend/src/js/store/sync/operation-factory.js:151`); não há uma única ocorrência de `changes` em `src/js/store/sync/`. O backend compensa: num `update` sem `changes`, usa `data` como `changes` (`backend/src/modules/sync/sync.service.js:216`). Quem lê a interface normativa e espera `changes` na saída procura um campo inexistente.
 
-> [!CONTRADICAO] O guia *05-sync-crdt* (absorvido) §1 e §14 apresentam o "Formato Frontend" com `changes` no update e sem `previousData`/`lamportTimestamp`/`batchId`. O código sempre emite payload em `data` e sempre inclui `previousData`, `lamportTimestamp` e `traceId`. O §3 do mesmo guia reconhece o comportamento as-built; o §1 continua desalinhado.
+A documentação de origem apresentava o formato inverso (`changes` no update, sem `previousData`/`lamportTimestamp`/`batchId`) e é a fonte mais provável desse modelo mental errado. O envelope real sempre traz `previousData`, `lamportTimestamp` e `traceId` (`createOperation`, `frontend/src/js/store/sync/operation-factory.js`), mais `batchId` quando a op nasce em lote (`createBatchOperations`, mesmo arquivo).
 
 **2. Uma op malformada envenena o lote inteiro.** O push roda numa transação única com advisory lock por atlas: se uma operação falha, o batch inteiro reverte e nada é dequeued, então a fila re-peeka as mesmas ops para sempre. Sync travado, não degradado. Por isso o dispatcher dropa **antes** de enfileirar (`frontend/src/js/store/sync/operation-dispatcher.js:105-139`): logging desabilitado, `SETTING` com `entityId` não-UUID fora do sentinel `'atlas'`, e qualquer `mapId` não-UUID (mapa local nome-chaveado, ex. `Principal`, que faria o Postgres devolver 22P02). Ver [[dominio-local-vs-remoto]].
 

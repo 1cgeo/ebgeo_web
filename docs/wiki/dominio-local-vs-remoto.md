@@ -19,7 +19,7 @@ Duas ordens não são estilo, são o que torna o crash seguro:
 
 ## Armadilhas
 
-**`atlasId` é campo morto.** O marcador persiste `{kind, atlasId}` e há teste pinando a persistência (`frontend/tests/store/store-origin.test.js:42`), mas **nenhum código de produção lê `atlasId`**: só `kind` é consultado (`index.js:279`, `frontend/src/js/store/sync/permission-guard.js:71`, `frontend/src/js/locking/map-lock.controller.js:86`, `frontend/src/js/store/store.js:139`). Não escreva código novo assumindo que ele é a fonte de verdade do atlas conectado, use `syncEngine.atlasId`.
+**`atlasId` é campo morto.** O marcador persiste `{kind, atlasId}` e há teste pinando a persistência (`frontend/tests/store/store-origin.test.js:42`), mas **nenhum código de produção lê `atlasId`**: só `kind` é consultado (`frontend/src/js/index.js:279`, `frontend/src/js/store/sync/permission-guard.js:71`, `frontend/src/js/locking/map-lock.controller.js:86`, `frontend/src/js/store/store.js:139`). Não escreva código novo assumindo que ele é a fonte de verdade do atlas conectado, use `syncEngine.atlasId`.
 
 **Duas listas paralelas de clear.** `clearAllDataStore` e `enforceLocalStoreWhenLoggedOut` (`frontend/src/js/store/store.js:137`) apagam o mesmo conjunto de side-stores em código duplicado. Adicionou um side-store persistido? Ele tem que entrar nas **duas**, senão dado remoto sobrevive ao logout. O código não força isso de forma alguma.
 
@@ -52,9 +52,9 @@ Contrato de fidelidade (P11): toda adição ao transform local→servidor precis
 
 ## Divergências entre documentação e código
 
-> **Nota histórica.** Guias absorvidos (*visao-e-principios* §4, *arquitetura-sync* §7.4) descrevem um `reconnectLastAtlas()` que reconectaria ao atlas do marcador no boot. **Essa função não existe.** A precedência real é link público → deep link `?atlas=<uuid>` → `openAtlasChooserOnBoot()` (`index.js:157-160`), que descarta o resíduo remoto e **abre o seletor**. A URL é a fonte de verdade do que reabrir; o marcador só decide o que descartar. Não há reconexão silenciosa.
+> **Nota histórica.** Guias absorvidos (*visao-e-principios* §4, *arquitetura-sync* §7.4) descrevem um `reconnectLastAtlas()` que reconectaria ao atlas do marcador no boot. **Essa função não existe.** A precedência real é link público → deep link `?atlas=<uuid>` → `openAtlasChooserOnBoot()` (`frontend/src/js/index.js:157-160`), que descarta o resíduo remoto e **abre o seletor**. A URL é a fonte de verdade do que reabrir; o marcador só decide o que descartar. Não há reconexão silenciosa.
 
-> **Nota histórica.** Guia *ui-ux-ebgeo* §2 diz "o boot não passa pelo Drive: F5 reconecta o último atlas". Um boot autenticado em URL nua (`/`) **abre** o Atlas Drive (`index.js:272-283`). O F5 só reabre o atlas porque `deep-link/atlas-url-sync.js:31-35` mantém `?atlas=<uuid>` na barra de endereços enquanto há conexão.
+> **Nota histórica.** Guia *ui-ux-ebgeo* §2 diz "o boot não passa pelo Drive: F5 reconecta o último atlas". Um boot autenticado em URL nua (`/`) **abre** o Atlas Drive (`frontend/src/js/index.js:272-283`). O F5 só reabre o atlas porque `deep-link/atlas-url-sync.js:31-35` mantém `?atlas=<uuid>` na barra de endereços enquanto há conexão.
 
 > [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] O comentário de boot em `frontend/src/js/index.js:148` descrevia "otherwise reconnect the last remote atlas for a restored authenticated session", mas o código chama `openAtlasChooserOnBoot()`. O comentário passou a dizer que o boot **não** reconecta sozinho e que o caminho é o seletor.
 

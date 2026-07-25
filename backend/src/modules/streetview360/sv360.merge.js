@@ -23,7 +23,8 @@ import * as AQ from './sv360.admin.queries.js';
 import { ConflictError } from '../../utils/errors.js';
 import logger from '../../utils/logger.js';
 
-// Deterministic default org id (012_organizations.sql). Used by the ETL backfill
+// Deterministic default org id, semeado em `001_core.sql:27` (a citação aqui apontava para
+// uma `012_organizations.sql` que nunca existiu neste repositório). Used by the ETL backfill
 // when a project's orgSlug is absent or the legacy 'org-legacy' marker (D9.x).
 export const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
 const LEGACY_ORG_SLUGS = new Set(['', 'default', 'org-legacy']);
@@ -142,10 +143,22 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
   const photoIds = photos.map((p) => p.id);
   await collisionGuard(t, photoIds, orgId, project.slug);
 
-  // photo_count = number of (non-tombstoned) photos in the manifest. The bundle
-  // is the full state, so this is simply the photos[] length (tombstones are a
-  // separate carried-over list and are not counted as live photos).
-  const photoCount = photos.length;
+  // photo_count = number of photos in the manifest that are actually VISIBLE, i.e.
+  // photos[] minus the tombstones this same bundle carries over.
+  //
+  // It used to be `photos.length` flat, on the premise that "tombstones are a
+  // separate list and are not counted as live photos". The premise is wrong, and the
+  // tombstone loop a few lines below states the opposite in the same file: a
+  // soft-deleted photo STAYS in photos[] (its INSERT still runs) and the tombstone
+  // merely re-applies the deletion the purge just cleared — an id NOT present in
+  // photos[] is discarded as foreign. So an overlap is not an anomaly, it is the
+  // normal shape, and photo_count over-reported by exactly the number of tombstones:
+  // /sv360/projects announced N while /photos, /tiles and the MVT served N-k. Drift
+  // between what the catalog promises and what the API delivers.
+  const idsTombstonados = new Set(
+    tombstones.map((tomb) => tomb.photo_id).filter((id) => photos.some((p) => p.id === id))
+  );
+  const photoCount = photos.length - idsTombstonados.size;
 
   // 2) UPSERT project by (organization_id, slug) — status/created_at preserved
   //    on conflict (they are NOT in the UPSERT_PROJECT SET list). db_filename is

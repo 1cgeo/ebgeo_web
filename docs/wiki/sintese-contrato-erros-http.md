@@ -2,7 +2,9 @@
 
 O que o catálogo de status não conta: onde o envelope `{ error: { code, message } }` não vale, onde o mesmo input rende dois status diferentes, e por que um push de sync rejeitado nunca sai da fila.
 
-O envelope e a cascata de cinco ramos estão inteiros em `backend/src/middleware/error-handler.js:11-124`; os pares status/código em `utils/errors.js:12-47`. Catálogo por rota em [[erros-api]]. O que segue é só o que a leitura desses arquivos não entrega.
+O envelope e a cascata de cinco ramos estão inteiros em `backend/src/middleware/error-handler.js:11-124`; os pares status/código em `backend/src/utils/errors.js` (o arquivo inteiro é essa lista). Não recorte o intervalo ao ler: a citação `:12-47` que esta linha carregou até 2026-07-25 parava em `BadRequestError` e excluía `ServiceUnavailableError`, acrescentado no fim do arquivo, que é justamente o par que a matriz de status mais erra.
+
+**Divisão com [[erros-api]]:** aqui está a semântica de quem *emite* (qual rota devolve qual status e por quê); lá está o comportamento de quem *consome*, o que o cliente descarta e o que ele já resolveu antes do seu `catch`.
 
 ## Três lugares onde o envelope não existe
 
@@ -18,19 +20,21 @@ Cuidado com a fronteira: **organização inativa é 403, não 401** (`backend/sr
 
 Nunca ramifique pela `message`: no ramo 4 do handler ela só é repassada quando `err.expose` é verdadeiro ou em dev (`backend/src/middleware/error-handler.js:98`), ou seja, o texto muda entre dev e produção.
 
-## 429 não é logout, e o balde é mais compartilhado do que parece
+## 429 não é logout, e o balde é por rota (não mais um só)
 
 429 é backoff, nunca refresh nem logout. O `_request` só ramifica em 401, então um 429 vira `ApiError` comum, o que está correto.
 
-> **[!CONTRADICAO]** O guia *11-seguranca-hardening* (absorvido) §1.1 afirma que o limitador de credenciais é chaveado por "IP + username", para que "um IP barulhento não bloqueie todo mundo". A chave real é `` `${req.ip}:${(req.body?.username || '').toLowerCase()}` `` (`backend/src/middleware/rate-limit.js:32`), e o corpo de `/auth/refresh` só tem `refreshToken` (`backend/src/modules/auth/auth.schemas.js:9-11`). Para refresh, verify-email e resend-verification a chave degenera para `ip:`, um balde único por IP compartilhado entre essas rotas. Atrás de NAT, ou de proxy sem `trust proxy`, 10 refreshes em 15 minutos esgotam o balde de toda a rede.
+**Um limiter por rota, não uma instância compartilhada.** `authLimiter` chaveia por `` `${ip}:${username}` `` e por isso só guarda as duas rotas cujo schema declara `username`, `/login` e `/register` (`keyGenerator`, `backend/src/middleware/rate-limit.js`). `/auth/refresh`, `/auth/verify-email` e `/auth/resend-verification` não têm `username` no corpo (`backend/src/modules/auth/auth.schemas.js:9-11`), então cada uma ganhou seu próprio store via `credentialIpLimiter` (`backend/src/middleware/rate-limit.js:83-123`). O refresh ainda soma `skipSuccessfulRequests: true`, porque o endereço é chave grossa atrás de NAT e o orçamento inteiro precisa apontar para falhas repetidas.
 
-O agravante está no cliente: `refresh()` trata qualquer falha como sessão perdida, então um 429 no refresh cai no mesmo `catch` do token expirado e derruba a sessão (`frontend/src/js/store/sync/api-client.js:300-307`). Refresh concorrente já é serializado por `this._refreshing` (`frontend/src/js/store/sync/api-client.js:290`), o que também evita disparar a detecção de reuso de [[refresh-token-rotacao]]. Bordas em [[hardening-borda-api]].
+O que isso corrige, e é a armadilha que sobrevive na cabeça de quem leu a doc antiga: as três rotas **degeneravam** para a chave `ip:` e drenavam um balde único. Numa rede atrás de NAT o 11º refresh honesto da janela virava 429, e o cliente transforma qualquer erro de refresh em logout definitivo. Não escreva código novo assumindo o balde compartilhado, e não "otimize" reunindo os limiters: a separação é o conserto.
+
+O agravante do lado do cliente continua de pé: `refresh()` trata qualquer falha como sessão perdida, então um 429 no refresh cai no mesmo `catch` do token expirado e derruba a sessão (`frontend/src/js/store/sync/api-client.js:300-307`). Refresh concorrente já é serializado por `this._refreshing` (`frontend/src/js/store/sync/api-client.js:290`), o que também evita disparar a detecção de reuso de [[refresh-token-rotacao]]. Bordas em [[hardening-borda-api]].
 
 ## 404 pode significar "funcionalidade desligada"
 
 Com `ALLOW_SELF_REGISTRATION` desligado (default em produção) a rota `POST /auth/register` **não é registrada** (`backend/src/modules/auth/auth.routes.js:14`), cai no catch-all de `backend/src/app.js:122-124` e retorna 404, não 403, para não confirmar a existência do endpoint. Distinga pela `message`: `Route not found` é rota ausente, `Atlas not found` é recurso ausente.
 
-> **[!CONTRADICAO]** O mesmo guia §8 sugere "tentar o endpoint e, ao receber 404, ocultar a opção". Não sonde: a rota está sob o `authLimiter` (`backend/src/modules/auth/auth.routes.js:15`) e a sonda não tem `username` no corpo, logo consome o balde `ip:` compartilhado com `/auth/refresh`. O flag já é publicado como `features.self_registration` em `GET /api/config` (`backend/src/modules/config/config.service.js:144`). Ver [[config-dinamico]].
+**Não sonde o 404 para descobrir se o cadastro está ligado.** O flag já é publicado como `features.self_registration` em `GET /api/config` (`backend/src/modules/config/config.service.js`, no objeto `features` do payload; ancorado por símbolo porque a citação por linha que morava aqui já apontava para o lugar errado), que o boot já busca de qualquer forma. A sonda é pior que redundante: quando a rota está desligada ela nem chega ao limiter (o router não a monta), e quando está ligada ela gasta o balde de `/register` sem `username`, o pior caso da chave. Ver [[config-dinamico]].
 
 ## Em atlas, a existência vaza de propósito
 
@@ -40,13 +44,11 @@ Não existe barreira global de credencial: `flexibleAuth` segue anônimo quando 
 
 ## A mesma intenção, dois status, duas rotas
 
-Desativar ou rebaixar a própria conta via `PUT /users/:id` é **409** (`backend/src/modules/users/users.service.js:144`, `:147`); o mesmo ato via `DELETE /users/:userId` é **403** (`backend/src/modules/users/users.service.js:211`). Não unifique o tratamento pela intenção do usuário, trate por rota. Ver [[gestao-usuarios]].
-
-O único ponto do frontend que ramifica por conflito é `admin/users-tab.js:447`, e aceita tanto `status === 409` quanto `code === 'CONFLICT'`. Esse é o padrão a copiar: cheque o par, nunca só a `message`.
+Desativar ou rebaixar a própria conta via `PUT /users/:id` é **409** (`backend/src/modules/users/users.service.js:144`, `:147`); o mesmo ato via `DELETE /users/:userId` é **403** (`backend/src/modules/users/users.service.js:211`). Não unifique o tratamento pela intenção do usuário, trate por rota. Ver [[gestao-usuarios]]; o padrão de ramificação no cliente está em [[erros-api]].
 
 ## Validação: 422 ou 400 conforme a rota, não conforme o erro
 
-Se a rota tem schema Joi, input ruim é 422 com `details[]`. Se não tem, o valor ruim chega ao banco e o mapa SQLSTATE o converte em 400. `GET /atlas/:atlasId` não valida params (`backend/src/modules/atlas/atlas.routes.js:26`) e um `atlasId` não-UUID sai como `400 BAD_REQUEST`; `POST /atlas/:atlasId/restore` valida (`backend/src/modules/atlas/atlas.routes.js:31`) e devolve 422 para o mesmo input. Só o 422 traz `details[]` para marcar campos de formulário, e essa ausência no 400 é intencional (as mensagens do driver expõem nomes de coluna e constraint, por isso são genéricas em `backend/src/middleware/error-handler.js:60-67`).
+Se a rota tem schema Joi, input ruim é 422 com `details[]`. Se não tem, o valor ruim chega ao banco e o mapa SQLSTATE o converte em 400. `GET /atlas/:atlasId` não valida params (`backend/src/modules/atlas/atlas.routes.js:26`) e um `atlasId` não-UUID sai como `400 BAD_REQUEST`; `POST /atlas/:atlasId/restore` valida (`backend/src/modules/atlas/atlas.routes.js:31`) e devolve 422 para o mesmo input. Só o 422 traz `details[]`, e essa ausência no 400 é intencional (as mensagens do driver expõem nomes de coluna e constraint, por isso são genéricas em `backend/src/middleware/error-handler.js:60-67`). Cuidado ao planejar UI em cima disso: o `details[]` sai do servidor mas **não sobrevive ao cliente**, ver [[erros-api]].
 
 **Armadilha de compatibilidade:** `validate()` roda com `stripUnknown: true` (`backend/src/middleware/validate.js:3-6`), então campo desconhecido é silenciosamente **removido**, não rejeitado. Um cliente novo contra um servidor antigo recebe 200 com o campo apagado. Nenhum status sinaliza isso.
 
@@ -73,4 +75,8 @@ Erro permanente, portanto, precisa ser detectado por fora: o `traceId` do span n
 
 ## Fontes
 
-Guias absorvidos *11-seguranca-hardening*, *12-multiorg-identidade-auditoria*, *09-admin* e *01-autenticacao* (as duas contradições acima vêm do §1.1 e do §8 do primeiro). Código: `backend/src/utils/errors.js`, `src/middleware/{error-handler,validate,rate-limit,auth,permissions}.js`, `backend/src/app.js`, `src/modules/{auth,users,sync,images,collab,config}/` no backend; `src/js/store/sync/{api-client,sync-engine,sync-flush}.js` e `frontend/src/js/admin/users-tab.js` no frontend.
+Guias absorvidos *11-seguranca-hardening*, *12-multiorg-identidade-auditoria*, *09-admin* e *01-autenticacao*. Código: `backend/src/utils/errors.js`, `backend/src/middleware/` (`error-handler`, `validate`, `rate-limit`, `auth`, `permissions`), `backend/src/app.js` e `backend/src/modules/` (`auth`, `users`, `sync`, `images`, `collab`, `config`) no backend; `frontend/src/js/store/sync/` (`api-client`, `sync-engine`, `sync-flush`) e `frontend/src/js/admin/users-tab.js` no frontend.
+
+## Histórico
+
+- 2026-07-25: a seção do 429 carregava uma `[!CONTRADICAO]` afirmando que refresh, verify-email e resend-verification dividiam um balde `ip:` único. O marcador foi escrito em 2026-07-18 e a separação por rota entrou em `aec63f8` (2026-07-24), então ele passou uma semana descrevendo um defeito já fechado. Supersessão temporal, marcador apagado, o defeito antigo preservado como armadilha porque é o modelo mental que sobrou de quem leu a versão anterior.

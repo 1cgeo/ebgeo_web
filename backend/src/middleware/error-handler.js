@@ -24,6 +24,25 @@ export function errorHandler(err, req, res, next) {
     userId: req.user?.id,
   }, 'Request error');
 
+  // Once the status line and headers are on the wire, there is no response left to
+  // write: `res.json()` calls `res.set('Content-Type', …)` → `setHeader()` after
+  // flush → ERR_HTTP_HEADERS_SENT, thrown from INSIDE the last error handler in
+  // the chain. Express then hands the new error to finalhandler, which can only
+  // destroy the socket — so the client sees a truncated body and the original
+  // error is replaced by a bookkeeping one.
+  //
+  // The guard comes AFTER the log on purpose: this is the only place the failure
+  // gets recorded (finalhandler does not log), and losing that record is how a
+  // mid-stream fault becomes invisible. `next(err)` is delegation, not recovery:
+  // Express's default handler closes the connection, which is the honest outcome.
+  //
+  // The pattern is already used one level down, in `sv360-error.js:16`. That is a
+  // ROUTER-level handler mounted inside one module; this one is global and last,
+  // so it is the handler that actually has nowhere to delegate to.
+  if (res.headersSent) {
+    return next(err);
+  }
+
   // Handle Joi validation errors
   if (err.isJoi) {
     return res.status(422).json({

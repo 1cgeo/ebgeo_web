@@ -37,7 +37,7 @@ import {
 
 describe('atlas import cannot reference another atlas entities (repro)', () => {
   let app, db, attackerTok;
-  let victimMap, victimGroupId, victimFeature;
+  let victimMap, victimGroupId, victimFeature, victimLayerId;
 
   before(async () => {
     const env = await setupTestEnv();
@@ -57,6 +57,13 @@ describe('atlas import cannot reference another atlas entities (repro)', () => {
       `INSERT INTO groups (id, map_id, name, visible, locked, style)
        VALUES ($1, $2, 'Grupo da Vítima', true, false, '{}'::jsonb)`,
       [victimGroupId, victimMap.id]
+    );
+
+    victimLayerId = randomUUID();
+    await db.query(
+      `INSERT INTO layers (id, map_id, name, visible, locked, sort_order)
+       VALUES ($1, $2, 'Camada da Vítima', true, false, 0)`,
+      [victimLayerId, victimMap.id]
     );
   });
 
@@ -131,6 +138,51 @@ describe('atlas import cannot reference another atlas entities (repro)', () => {
     const { rows } = await db.query('SELECT map_id FROM slides WHERE id = $1', [slideId]);
     assert.equal(rows.length, 1, 'the slide IS imported (the defense is on map_id, not on dropping the row)');
     assert.notEqual(rows[0].map_id, victimMap.id, 'a slide must not reference a foreign map');
+  });
+
+  it('does not point an imported feature at a foreign layer', async () => {
+    // The fourth reference of the payload, and the last one still travelling verbatim
+    // after the group/parent/slide guards were added: `features[].layer_id` is an FK
+    // to layers(id) with no atlas scope, so the attacker's feature could hang off a
+    // layer inside the victim's atlas — and the victim's layer soft-delete cascade
+    // then reaches rows in an atlas they cannot see.
+    const featureId = randomUUID();
+    await importAtlas(withMap({
+      features: [{
+        id: featureId,
+        feature_type: 'point',
+        geometry: { coordinates: [-43.2, -22.9] },
+        layer_id: victimLayerId,
+      }],
+    }));
+
+    const { rows } = await db.query('SELECT layer_id FROM features WHERE id = $1', [featureId]);
+    assert.equal(rows.length, 1, 'the feature IS imported (the defense is on layer_id, not on dropping the row)');
+    assert.equal(rows[0].layer_id, null, 'a foreign layer reference is dropped, not stored');
+  });
+
+  it('still binds a feature to a layer declared WITHIN the same payload', async () => {
+    const mapId = randomUUID();
+    const layerId = randomUUID();
+    const featureId = randomUUID();
+    await importAtlas({
+      atlas: { name: `Importado ${randomUUID().slice(0, 6)}` },
+      maps: [{
+        id: mapId,
+        name: 'mapa',
+        layers: [{ id: layerId, name: 'camada' }],
+        features: [{
+          id: featureId,
+          feature_type: 'point',
+          geometry: { coordinates: [-43.2, -22.9] },
+          layer_id: layerId,
+        }],
+      }],
+    }).expect(201);
+
+    const { rows } = await db.query('SELECT layer_id FROM features WHERE id = $1', [featureId]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].layer_id, layerId, 'the guard must not break the ordinary case');
   });
 
   // ---- the feature must keep working for legitimate payloads ----

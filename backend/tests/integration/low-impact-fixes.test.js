@@ -257,12 +257,18 @@ describe('Low-impact scan fixes (L2 / L4 / L6 / L12)', () => {
       assert.equal(settled, true, 'it proceeds once the lock is free');
     });
 
-    it('a second run is a no-op (all migrations already applied)', async () => {
-      // Idempotence is what makes the waiting runner correct: it wakes up, sees
-      // the winner's committed _migrations rows, and skips them.
-      await runMigrations(process.env.DATABASE_URL);
-      const { rows } = await db.query('SELECT COUNT(*)::int AS n FROM _migrations');
-      assert.ok(rows[0].n > 0, 'migrations remain recorded exactly once');
-    });
+    // REMOVED: 'a second run is a no-op (all migrations already applied)'.
+    //
+    // Its message said "migrations remain recorded exactly once" and its
+    // assertion was `assert.ok(n > 0)` — which only says the table is not empty,
+    // something that was already true before the advisory lock existed. The
+    // defect it named (a second runner re-applying the DDL and double-recording)
+    // is precisely what `> 0` cannot see.
+    //
+    // Idempotence is now asserted once, against STATE, in
+    // config-infra-gaps.test.js ('re-running migrations … changes nothing'):
+    // same migration-name set, no duplicate name, and a sentinel business row
+    // that survives. What belongs HERE is the lock behaviour above, which that
+    // file does not cover.
   });
 });

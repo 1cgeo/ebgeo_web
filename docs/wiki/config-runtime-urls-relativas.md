@@ -4,7 +4,7 @@ Os subsistemas 3D e 360 gravam caminhos relativos e o cliente os resolve contra 
 
 ## Por que a base fica no config e não no dado
 
-Um `tileset.json` ou uma thumbnail 360 são servidos de hosts diferentes em dev, homologação e rede interna do EB. Gravar o caminho absoluto no banco tornaria a troca de ambiente um UPDATE em massa; hardcodar no bundle exigiria rebuild. Grava-se o relativo no dado e a base em env var (`ASSETS_3D_BASE_URL`, `SV360_SERVICE_URL`), montadas no payload em `backend/src/modules/config/config.service.js:150,187`. Ver [[config-dinamico]] e [[deploy-backend]].
+Um `tileset.json` ou uma thumbnail 360 são servidos de hosts diferentes em dev, homologação e rede interna do EB. Gravar o caminho absoluto no banco tornaria a troca de ambiente um UPDATE em massa; hardcodar no bundle exigiria rebuild. Grava-se o relativo no dado e a base em env var (`ASSETS_3D_BASE_URL`, `SV360_SERVICE_URL`), montadas no payload como `assets3dBaseUrl` e `streetView360.serviceUrl` (`backend/src/modules/config/config.service.js`). Ancorado por símbolo de propósito: as duas citações por número que moravam aqui derivaram e passaram a apontar para o SQL de outra função, e o guarda de integridade valida o caminho, nunca a linha. Ver [[config-dinamico]] e [[deploy-backend]].
 
 ## O objeto config é mutado in place, nunca substituído
 
@@ -12,7 +12,7 @@ Um `tileset.json` ou uma thumbnail 360 são servidos de hosts diferentes em dev,
 
 - **Nunca capture um valor de config em constante de módulo.** No topo do módulo você lê a casca vazia. Por isso `frontend/src/js/street_view_tool/streetview-api.service.js:15-17` encapsula em `getServiceUrl()`, relido a cada chamada.
 - Arrays são sobrescritos inteiros, nunca concatenados (`frontend/src/js/store/sync/runtime-config.js:42-52`). Um `/api/config` parcial preserva as chaves que omite.
-- O módulo em si é fail-safe (retorna `{applied:false}`), mas o boot é fail-fast: `index.js:73-86` tenta 3 vezes com 1 s de intervalo e, falhando todas, mostra a tela "EBGeo indisponível" e não roda. Não existe modo "config estático de fallback".
+- O módulo em si é fail-safe (retorna `{applied:false}`), mas o boot é fail-fast: `frontend/src/js/index.js:73-86` tenta 3 vezes com 1 s de intervalo e, falhando todas, mostra a tela "EBGeo indisponível" e não roda. Não existe modo "config estático de fallback".
 
 ## Quatro convenções coexistindo
 
@@ -23,21 +23,23 @@ Não há regra única. Ao gravar metadata de catálogo, grave na convenção que
 | `previewThumbnail` de foto 360 | relativo, concatenado com `serviceUrl` pelo cliente |
 | `streetView360.pointsSource` / `linesSource` | template já **absoluto**, montado no backend, passado direto ao `map.addSource` |
 | `tilesets[].url` | entregue **verbatim** ao Cesium, resolvido pelo navegador contra a origem da página |
-| thumbnail de tileset | **data URL** embutida no recurso, teto de 256 KB para não inflar o `/api/config` (`admin/catalog-tab.js:29-31`) |
+| thumbnail de tileset | **data URL** embutida no recurso, teto de 256 KB para não inflar o `/api/config` (`frontend/src/js/admin/catalog-tab.js:29-31`) |
 
 Ou seja: 360 concatena, 3D embute. Ver [[resources-catalogo]].
 
-## O web app NÃO usa assets3dBaseUrl
+## O backend publica assets3dBaseUrl e o web app não o lê
 
-> **[!CONTRADICAO] Nota histórica.** O guia *14-catalogo3d-assets* (absorvido, §2/§5/checklist) manda o frontend ler `assets3dBaseUrl` e concatenar `assets3dBaseUrl + m.url`. Na prática a string `assets3dBaseUrl` **não aparece em nenhum arquivo de `src/`**, e o `url` de `config.tilesets` vai sem prefixo algum ao Cesium (`3d_models_viewer_tool/map_3d.js:259` e `:321`).
+O campo existe do lado do servidor: `getAppConfig` emite `assets3dBaseUrl` (`backend/src/modules/config/config.service.js:217`) e o schema admin o valida (`backend/src/modules/config/config.admin.schemas.js:47`). Do lado do cliente, `grep` em `frontend/src/` não retorna uma única ocorrência, e o `url` de `config.tilesets` vai sem prefixo algum ao Cesium (`frontend/src/js/3d_models_viewer_tool/map_3d.js:259` e `:321`).
+
+É contrato publicado sem consumidor, e o engano tem duas direções: quem audita só o backend acha que o cliente concatena, quem audita só o frontend acha que o campo não existe. A documentação de origem manda concatenar `assets3dBaseUrl + m.url`; ninguém faz isso aqui.
 
 Como interpretar sem errar: `assets3dBaseUrl` é o contrato de quem consome `GET /nomes/catalogo3d` (fluxo de descoberta + `/assets3d/*`), rota que o web app hoje **não** consome; ele recebe os modelos já em `config.tilesets`, hidratado da tabela `resources`, e o backend não reescreve a `url`. Se você editar o catálogo pelo painel admin, grave a `url` já servível a partir da origem (ex.: `/api/v1/assets3d/aman/tileset.json`) ou absoluta, porque ninguém vai prefixá-la. Se um dia o app migrar para `/nomes/catalogo3d`, a concatenação passa a ser obrigatória. Ver [[catalogo-3d]] e [[assets3d-distribuicao]].
 
 ## Armadilha: o shape de /sv360/projects
 
-> **[!CONTRADICAO] Nota histórica.** O guia *16-streetview-360* (absorvido, §2) documenta a lista de projetos em snake_case (`center_lat`, `center_long`, `entry_photo_id`) e sem `previewThumbnail`, e o backend realmente devolve as linhas cruas do Postgres. Mas `street_view_tool/streetview_markers.js:125` lê `p.center.lon` e `:131` lê `p.previewThumbnail`, campos que essa rota não emite. O cliente espera um shape camelCase legado, herdado do antigo serviço estático de arquivos.
+`GET /sv360/projects` devolve as linhas cruas do Postgres, em snake_case (`center_lat`, `center_long`, `entry_photo_id`) e sem `previewThumbnail`. O cliente espera outra coisa: `frontend/src/js/street_view_tool/streetview_markers.js:125` lê `p.center.lon` e `:131` lê `p.previewThumbnail`, um shape camelCase legado herdado do antigo serviço estático de arquivos. Os dois lados nunca foram reconciliados.
 
-O efeito é pior que um erro: é um sumiço silencioso. Em `loadMarkers()` o acesso a `p.center.lon` lança dentro do `.map()`, é engolido pelo `try/catch` de `frontend/src/js/street_view_tool/streetview_markers.js:137-140`, e os marcadores 360 simplesmente não aparecem com um `console.error` genérico. Em `frontend/src/js/catalog/catalog.service.js:202` o guarda `p.center ? ... : null` degrada para item sem localização e thumbnail default.
+O efeito é pior que um erro: é um sumiço silencioso. Em `loadMarkers()` o acesso a `p.center.lon` lança dentro do `.map()`, é engolido pelo `try/catch` de `frontend/src/js/street_view_tool/streetview_markers.js:137-140`, e os marcadores 360 simplesmente não aparecem com um `console.error` genérico. Em `frontend/src/js/catalog/catalog.service.js:253` o guarda `p.center ? ... : null` degrada para item sem localização e thumbnail default.
 
 Antes de "consertar a concatenação do `previewThumbnail`", confirme de qual payload o campo veio: o relativo confirmado (sem prefixo `/api/v1`) existe no **metadado da foto** (`/photos/:uuid`), não na lista de projetos.
 

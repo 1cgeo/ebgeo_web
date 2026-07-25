@@ -77,7 +77,11 @@ describe('Cross-cutting invariants — gaps', () => {
       await pull().expect(200); // works while public
 
       await A('delete', `/api/v1/atlas/${pubAtlas.id}/sharing/public`).expect(204);
-      await pull().expect(403); // requireAtlasPermission re-reads is_public live → revoked
+      // requireAtlasPermission re-reads is_public live → revoked. The status is 404 and
+      // not 403 because, once the atlas is private again, this principal has no relation
+      // to it at all (no share, not the owner, not public): the escada answers 404 for
+      // exactly that, so a de-published link stops confirming that the atlas is there.
+      await pull().expect(404);
 
       // KNOWN nuance: the token is bound to atlasId + isPublic, NOT to public_link, so
       // re-enabling makes the SAME old token valid again — it is not individually revocable.

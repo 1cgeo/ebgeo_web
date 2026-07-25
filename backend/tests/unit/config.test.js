@@ -92,6 +92,86 @@ describe('config — validateEnvVariables', () => {
     }
   });
 
+  // -------------------------------------------------------------------------
+  // JWT_SECRET length in production (config.js:266-270).
+  //
+  // Every 'prod' case above sets JWT_SECRET = 'x'.repeat(40) precisely so that
+  // ONLY the CORS rule fires — which left the minimum-length clause never
+  // executed: deleting those three lines broke nothing, and a deploy would sign
+  // HS256 with a weak key without a word. Both halves are asserted here (it
+  // throws in prod, it does NOT throw in dev) because a length rule that fires
+  // everywhere is a different bug from one that fires nowhere, and only the pair
+  // tells them apart.
+  // -------------------------------------------------------------------------
+  describe('JWT_SECRET minimum length', () => {
+    /** Runs validateEnvVariables with `vars` applied, always restoring the env. */
+    function withEnv(vars, fn) {
+      const saved = {};
+      for (const k of Object.keys(vars)) saved[k] = process.env[k];
+      try {
+        for (const [k, v] of Object.entries(vars)) {
+          if (v === undefined) delete process.env[k];
+          else process.env[k] = v;
+        }
+        return fn();
+      } finally {
+        for (const [k, v] of Object.entries(saved)) {
+          if (v === undefined) delete process.env[k];
+          else process.env[k] = v;
+        }
+      }
+    }
+
+    const PROD = { NODE_ENV: 'production', CORS_ORIGIN: 'https://ebgeo.example.mil.br' };
+
+    it('rejects a short JWT_SECRET in production, naming the rule and the number', () => {
+      withEnv({ ...PROD, JWT_SECRET: 'segredo' }, () => {
+        let caught;
+        try {
+          validateEnvVariables();
+        } catch (err) {
+          caught = err;
+        }
+        assert.ok(caught, 'a 7-char production secret must be refused at boot');
+        assert.match(caught.message, /JWT_SECRET/);
+        assert.match(caught.message, /32/, 'the operator must be told the minimum, not just "invalid"');
+      });
+    });
+
+    it('boundary: 31 chars throws, 32 chars passes', () => {
+      withEnv({ ...PROD, JWT_SECRET: 'x'.repeat(31) }, () => {
+        assert.throws(() => validateEnvVariables(), /JWT_SECRET/, '31 chars is below the floor');
+      });
+      withEnv({ ...PROD, JWT_SECRET: 'x'.repeat(32) }, () => {
+        assert.doesNotThrow(() => validateEnvVariables(), 'exactly 32 chars is the accepted floor');
+      });
+    });
+
+    it('the length rule is production-only: a short secret passes in development', () => {
+      // Without this half the suite cannot distinguish "prod gate" from "global
+      // gate", and the local/dev secret in .env.test would start failing boot.
+      withEnv({ NODE_ENV: 'development', CORS_ORIGIN: undefined, JWT_SECRET: 'curto' }, () => {
+        assert.doesNotThrow(() => validateEnvVariables());
+      });
+    });
+
+    it('an ABSENT JWT_SECRET is refused in every environment (the `if (!secret)` branch)', () => {
+      for (const env of ['production', 'development', 'test']) {
+        withEnv({
+          NODE_ENV: env,
+          CORS_ORIGIN: 'https://ebgeo.example.mil.br',
+          JWT_SECRET: undefined,
+        }, () => {
+          assert.throws(
+            () => validateEnvVariables(),
+            /JWT_SECRET é obrigatório/,
+            `NODE_ENV=${env} must still require a signing secret`
+          );
+        });
+      }
+    });
+  });
+
   it('accumulates ALL errors (does not stop at the first)', () => {
     const saved = {
       DATABASE_URL: process.env.DATABASE_URL,
@@ -217,6 +297,76 @@ describe('config — validateEnvVariables numeric/duration rules (P7)', () => {
         assert.match(err.message, /MAX_BULK_UPLOAD_MB/);
         assert.match(err.message, /WS_HEARTBEAT_INTERVAL_MS/);
       }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Ceilings and exact boundaries (config.js:273-276 for PORT, :330-333 for the
+  // rule table).
+  //
+  // Everything above this point exercises only the FLOOR ('0', '5') and the
+  // non-numeric branch, so every `max:` in NUMERIC_ENV_RULES — and the whole
+  // `port > 65535` clause — could be deleted with the suite green. Ceilings are
+  // what catch an order-of-magnitude typo (a 3600000000 ms heartbeat, a pool of
+  // 10000), which is the failure the table exists for.
+  // -------------------------------------------------------------------------
+  describe('boundaries and ceilings', () => {
+    it('PORT: 0 and 65536 and -1 throw; 1 and 65535 pass', () => {
+      for (const bad of ['0', '65536', '-1', '99999']) {
+        withEnv({ PORT: bad }, () => {
+          assert.throws(
+            () => validateEnvVariables(),
+            /PORT deve estar entre 1 e 65535/,
+            `PORT=${bad} must be refused`
+          );
+        });
+      }
+      for (const ok of ['1', '65535', '8080']) {
+        withEnv({ PORT: ok }, () => {
+          assert.doesNotThrow(() => validateEnvVariables(), `PORT=${ok} must be accepted`);
+        });
+      }
+    });
+
+    it('WS_HEARTBEAT_INTERVAL_MS: the exact ceiling passes, one past it throws', () => {
+      withEnv({ WS_HEARTBEAT_INTERVAL_MS: '3600000' }, () => {
+        assert.doesNotThrow(() => validateEnvVariables(), '3600000 is the documented max');
+      });
+      withEnv({ WS_HEARTBEAT_INTERVAL_MS: '3600001' }, () => {
+        assert.throws(() => validateEnvVariables(), /WS_HEARTBEAT_INTERVAL_MS deve ser entre 1000 e 3600000/);
+      });
+    });
+
+    it('zero is legal for WS_AWAY_GRACE_MS and DATABASE_POOL_MIN, illegal for DATABASE_POOL_MAX', () => {
+      // The three rules deliberately disagree (min 0 / min 0 / min 1); an
+      // assertion on only one of them cannot tell a deliberate difference from a
+      // copy-paste of the same bound everywhere.
+      withEnv({ WS_AWAY_GRACE_MS: '0' }, () => {
+        assert.doesNotThrow(() => validateEnvVariables(), 'no away grace is a valid choice');
+      });
+      withEnv({ DATABASE_POOL_MIN: '0' }, () => {
+        assert.doesNotThrow(() => validateEnvVariables(), 'an empty idle pool is valid');
+      });
+      withEnv({ DATABASE_POOL_MAX: '0' }, () => {
+        assert.throws(() => validateEnvVariables(), /DATABASE_POOL_MAX/, 'a pool of zero can never serve a query');
+      });
+    });
+
+    it('SV360_MAX_UPLOAD_BYTES has a floor but NO ceiling (pinned on purpose)', () => {
+      withEnv({ SV360_MAX_UPLOAD_BYTES: '0' }, () => {
+        assert.throws(() => validateEnvVariables(), /SV360_MAX_UPLOAD_BYTES/);
+      });
+      withEnv({ SV360_MAX_UPLOAD_BYTES: '999999999999' }, () => {
+        // Deliberate: the images.db of a 360 project is genuinely multi-GB, so
+        // the rule is floor-only. Pinned so that ADDING a ceiling is a decision.
+        assert.doesNotThrow(() => validateEnvVariables());
+      });
+    });
+
+    it('surrounding whitespace is tolerated (the .trim() in the rule loop)', () => {
+      withEnv({ WS_HEARTBEAT_INTERVAL_MS: ' 30000 ' }, () => {
+        assert.doesNotThrow(() => validateEnvVariables(), 'a value padded by the deploy tooling still validates');
+      });
     });
   });
 });

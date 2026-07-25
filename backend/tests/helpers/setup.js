@@ -69,14 +69,27 @@ export async function setupTestEnv() {
 
 /**
  * Releases the client back to the pool.
+ *
+ * The catch used to swallow EVERY error with the comment "Ignore release
+ * errors". The pool is capped at `max: 10` and shared by every suite in the
+ * process, so a leaked or double-released connection shows up much later as an
+ * unexplained timeout in an unrelated file — and this catch erased the one local
+ * signal that named the file responsible. (Connection exhaustion by a held
+ * client is not hypothetical here: the advisory-lock incident did exactly that.)
+ *
+ * Exactly one error is genuinely benign and is named rather than assumed: pg
+ * throws when `release()` is called twice on the same client, which is a
+ * double-teardown in a test, not a broken connection. Anything else is re-thrown.
+ * @param {import('pg').PoolClient} client
+ * @throws {Error} on any release failure other than an already-released client.
  */
 export async function teardownTestEnv(client) {
-  if (client) {
-    try {
-      client.release();
-    } catch (err) {
-      // Ignore release errors
-    }
+  if (!client) return;
+  try {
+    client.release();
+  } catch (err) {
+    if (/already been released/i.test(err?.message ?? '')) return;
+    throw err;
   }
 }
 

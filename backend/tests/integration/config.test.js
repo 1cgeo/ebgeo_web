@@ -5,7 +5,10 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import supertest from 'supertest';
+import jwt from 'jsonwebtoken';
+import { randomUUID } from 'node:crypto';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import config from '../../src/config.js';
 
 const TOP_KEYS = [
   'app', 'features', 'services', 'search', 'basemaps', 'analysisLayers',
@@ -33,8 +36,82 @@ describe('Config endpoint (GET /api/v1/config)', () => {
     }
   });
 
-  it('serves the /api/config compatibility alias', async () => {
-    await supertest(app).get('/api/config').expect(200);
+  // ---------------------------------------------------------------------------
+  // The alias is the endpoint that actually matters at boot.
+  //
+  // Every contract assertion in this file is made against /api/v1/config, while
+  // the frontend's fail-fast boot calls the ALIAS /api/config — of which only
+  // `.expect(200)` was ever asserted. If the alias were pointed at another
+  // router, left behind in a refactor, or started answering a different shape,
+  // the contract suite would stay green and the app would refuse to start, one
+  // package away from the cause.
+  // ---------------------------------------------------------------------------
+  it('the /api/config alias serves the SAME body as /api/v1/config', async () => {
+    // Same run, same DB state: any difference is the routing, not the data.
+    const [alias, canonical] = await Promise.all([
+      supertest(app).get('/api/config').expect(200),
+      supertest(app).get('/api/v1/config').expect(200),
+    ]);
+    // Guard: comparing two empty bodies would be a vacuous pass.
+    assert.ok(
+      Object.keys(alias.body.data ?? {}).length >= TOP_KEYS.length,
+      'guard: the alias body must carry the full config, not an empty object'
+    );
+    assert.deepEqual(alias.body, canonical.body, 'the alias must not drift from the canonical route');
+  });
+
+  it('the alias carries the same security and caching headers', async () => {
+    const res = await supertest(app).get('/api/config').expect(200);
+    assert.match(res.headers['content-security-policy'] ?? '', /default-src 'none'/);
+    assert.match(res.headers['cache-control'] ?? '', /no-cache/);
+    assert.equal(res.headers['x-content-type-options'], 'nosniff');
+  });
+
+  it('the alias does not widen the write surface: POST /api/config is 404', async () => {
+    const res = await supertest(app).post('/api/config').send({ hacked: true });
+    assert.equal(res.status, 404);
+    assert.equal(res.body.error.code, 'NOT_FOUND');
+  });
+
+  // ---------------------------------------------------------------------------
+  // flexibleAuth is GLOBAL and non-blocking: a bad credential must never break a
+  // public route.
+  //
+  // Every existing assertion about an invalid/expired token targets a STRICT
+  // route and expects 401. None states the opposite, which is the anonymous path
+  // the whole product rests on: with a stale token left in localStorage,
+  // GET /api/config has to keep answering 200 or every returning user meets
+  // "EBGeo indisponível" at boot — a cross-package failure with no backend error.
+  // ---------------------------------------------------------------------------
+  describe('public config survives every malformed credential (flexibleAuth)', () => {
+    const badCredentials = [
+      ['a token that is not a JWT at all', { Authorization: 'Bearer nao.e.um.jwt' }],
+      ['a well-formed JWT signed with another secret', {
+        Authorization: `Bearer ${jwt.sign({ sub: randomUUID() }, 'outro-segredo-completamente-diferente')}`,
+      }],
+      ['an EXPIRED JWT signed with the right secret', {
+        Authorization: `Bearer ${jwt.sign(
+          { sub: randomUUID(), exp: Math.floor(Date.now() / 1000) - 3600 },
+          config.jwt.secret
+        )}`,
+      }],
+      ['a non-UUID x-api-key', { 'x-api-key': 'nao-uuid' }],
+      ['a syntactically valid but unknown x-api-key', { 'x-api-key': randomUUID() }],
+    ];
+
+    for (const [label, headers] of badCredentials) {
+      it(`GET /api/config still answers 200 with ${label}`, async () => {
+        const res = await supertest(app).get('/api/config').set(headers).expect(200);
+        assert.ok(res.body.data, 'the anonymous boot must receive the config payload');
+        assert.ok('features' in res.body.data, 'and it must be the real config, not an empty stub');
+      });
+
+      it(`GET /api/v1/auth/me still answers 401 with ${label} (the pair)`, async () => {
+        // Without this half, "always 200" would pass even if the strict routes had
+        // accidentally become public — which is the opposite bug, and worse.
+        await supertest(app).get('/api/v1/auth/me').set(headers).expect(401);
+      });
+    }
   });
 
   it('basemaps is an object keyed by id, sourced from resources', async () => {

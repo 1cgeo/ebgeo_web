@@ -33,7 +33,7 @@ O campo pode vir **ausente**, e não é bug: para conexão de nível `read` o se
 
 - **Resolvido sai do mapa.** O overlay filtra `status !== 'resolved'` no render (`frontend/src/js/comment_tool/comment-overlay.js:249-251`); o comentário sobrevive só no painel, em grupo colapsado. Mexer nesse filtro muda o significado de "resolver" no produto inteiro.
 - **Thread resolvida é somente-leitura** nos dois lados: a UI esconde o campo de resposta (`frontend/src/js/comment_tool/comment-overlay.js:456-461`) e `addReply` recusa pai resolvido ou deletado (`frontend/src/js/store/comment.operations.js:107-108`). Remover só uma das metades produz resposta que some, ou op de sync condenada.
-- **`resolveComment` é UPDATE comum** (`frontend/src/js/store/comment.operations.js:166-172`), sujeito ao mesmo LWW: resolver e reabrir simultâneos não empatam por mérito, empatam por ordem de chegada. Ver [[sintese-nao-e-crdt]].
+- **`resolveComment` é UPDATE comum** (`frontend/src/js/store/comment.operations.js:166-172`), sujeito ao mesmo LWW: resolver e reabrir simultâneos não empatam por mérito, empatam por ordem de chegada. Ver [[modelo-conflito-lww]].
 - **O painel aparece se há comentários, mesmo sem permissão** (`frontend/src/js/comment_tool/comments-panel.js:145-151`), para o Comentarista rebaixado ainda ler o histórico.
 - `Shift+C` e não `C` porque as letras simples pertencem às ferramentas de desenho (`frontend/src/js/keyboard/keyboard-shortcuts.js:132`).
 

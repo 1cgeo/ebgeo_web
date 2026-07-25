@@ -428,7 +428,21 @@ describe('Maps + Briefings — audit gaps', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ sourceMapIds: [src.id] });
 
-    assert.ok(res.status >= 400 && res.status < 500, `expected 4xx, got ${res.status}`);
-    assert.ok([400, 404].includes(res.status), `expected 400 or 404, got ${res.status}`);
+    // A range assertion cannot notice 400 turning into 404 or the reverse, and in
+    // this codebase that difference is a decision rather than cosmetics: 404 hides
+    // whether a resource exists from a caller not entitled to know, 400 says the
+    // REQUEST was malformed. 'not-a-uuid' can never be an id, so it is refused at
+    // the border by the param validator, before any lookup — which is why the
+    // answer is 400 and not the 404 of "no such map". Pinned exactly, body
+    // included, so that moving the refusal deeper (and leaking existence through
+    // the status) is visible here.
+    assert.equal(res.status, 400, `a malformed id must be refused at the border, got ${res.status}`);
+    assert.ok(res.body.error, 'the standard error envelope');
+    assert.equal(res.body.error.code, 'BAD_REQUEST');
+    // The message is deliberately generic ('Malformed value (invalid id or type)'):
+    // it must not confirm which id shape the server considers valid. Pinned as it
+    // is so that a future version leaking the parameter or the expected format
+    // shows up here.
+    assert.equal(res.body.error.message, 'Malformed value (invalid id or type)');
   });
 });

@@ -435,9 +435,13 @@ describe('Sync Snapshot/Hybrid System', () => {
       const ops = res.body.data.operations;
       assert.ok(ops.length > 0);
 
-      // Find our operation
-      const op = ops.find(o => o.entityId === featureId);
-      assert.ok(op, 'should find the pushed operation');
+      // Count what was actually inspected, rather than trusting `find` to have
+      // found the right one: exactly ONE op for this feature must come back. A
+      // duplicate (the same op replayed twice by the log) and a zero (the pull
+      // silently dropping it) are both bugs `assert.ok(op)` cannot see.
+      const mine = ops.filter(o => o.entityId === featureId);
+      assert.equal(mine.length, 1, `expected exactly one op for the pushed feature, got ${mine.length}`);
+      const op = mine[0];
 
       // Verify frontend format fields
       assert.equal(op.entityType, 'feature');
@@ -446,6 +450,40 @@ describe('Sync Snapshot/Hybrid System', () => {
       assert.ok(typeof op.timestamp === 'number', 'timestamp should be a number');
       assert.ok(op.clientId, 'should have clientId');
       assert.ok(typeof op.serverVersion === 'number', 'serverVersion should be a number');
+    });
+
+    it('a pull from BELOW min_version falls back to a snapshot (the other branch, forced)', async () => {
+      // The incremental cases above hold `min_version = 0` steady, so the
+      // fallback that protects a client whose requested version was pruned away
+      // was never exercised on purpose — it only ever appeared as the `if` this
+      // suite used to hide its assertions behind. Raising min_version above the
+      // requested version is the deterministic way to reach it.
+      const snap = await supertest(app)
+        .get(`/api/v1/atlas/${atlas.id}/sync/0`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      const currentVersion = snap.body.data.currentVersion;
+      assert.ok(currentVersion > 1, 'guard: this suite must have pushed operations by now');
+
+      const { rows: before } = await db.query('SELECT min_version FROM atlas WHERE id = $1', [atlas.id]);
+      try {
+        await db.query('UPDATE atlas SET min_version = $2 WHERE id = $1', [atlas.id, currentVersion]);
+
+        const res = await supertest(app)
+          .get(`/api/v1/atlas/${atlas.id}/sync/1`)
+          .set('Authorization', `Bearer ${token}`)
+          .expect(200);
+
+        assert.equal(res.body.data.isSnapshot, true,
+          'a version older than min_version cannot be served incrementally');
+        assert.ok(res.body.data.snapshot, 'and the snapshot payload must actually be there');
+        assert.ok(
+          res.body.data.snapshot.maps.some((m) => m.id === map.id),
+          'the fallback snapshot carries the atlas content, it is not an empty envelope'
+        );
+      } finally {
+        await db.query('UPDATE atlas SET min_version = $2 WHERE id = $1', [atlas.id, before[0].min_version]);
+      }
     });
   });
 });

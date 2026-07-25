@@ -337,7 +337,15 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
       // missing entry used to make the two assertions below silently vanish.
       assert.ok(entry, `user ${id} must appear in the presence roster`);
       assert.deepEqual(entry.selectedFeatures, [], 'read/comment must not retain a selection');
-      assert.equal(entry.selectionContext, undefined);
+      // Era `undefined` — a AUSÊNCIA da chave no fio — e isso congelava um defeito de
+      // shape, não a regra que este teste existe para provar: `ws.selectionContext`
+      // nunca era inicializado, então `JSON.stringify` removia a chave e o frame
+      // `connected` mudava de FORMA conforme o par já ter emitido uma seleção ou não
+      // (os vizinhos `selectedFeatures` e `temporalState` já tinham default). Desde
+      // 2026-07-25 o campo é inicializado a `null` em onConnection; a regra afirmada
+      // aqui — read/comment não retêm seleção — é a mesma, agora com shape estável.
+      // Shape completo do roster em tests/ws/collab-users-online-shape.test.js.
+      assert.equal(entry.selectionContext, null);
     }
   });
 });

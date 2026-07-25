@@ -32,7 +32,16 @@ describe('Users Admin API', () => {
         .expect(200);
 
       assert.ok(Array.isArray(res.body.data));
-      assert.ok(res.body.data.length >= 2); // At least admin and regularUser
+      // The user table is genuinely shared across the whole suite, so an exact
+      // set is not available here. What IS available, and is the property that
+      // matters, is the FILTER: this listing must contain the two fixtures and
+      // must not contain a single inactive account. `length >= 2` said neither.
+      const ids = res.body.data.map((u) => u.id);
+      assert.ok(ids.includes(admin.id), 'the admin fixture must be listed');
+      assert.ok(ids.includes(regularUser.id), 'the regular fixture must be listed');
+      const inactive = res.body.data.filter((u) => u.is_active === false);
+      assert.deepEqual(inactive, [], 'the default listing must not leak deactivated accounts');
+
       // Verify users have expected fields
       const userFields = res.body.data[0];
       assert.ok('id' in userFields);
@@ -66,7 +75,18 @@ describe('Users Admin API', () => {
   });
 
   describe('POST /users — Create User (Admin)', () => {
-    it('admin can create a new user', async () => {
+    // The payload used to send `posto_graduacao: 'Ten'` / `organizacao_militar: 'Test
+    // OM'`, keys that do not exist in createUserAdminSchema and that stripUnknown
+    // discarded before the controller ever saw them. Nothing asserted them either, so
+    // the test READ as if it covered posto/OM assignment on creation and covered
+    // nothing about it. They are now the real FKs, asserted on both sides of the
+    // write: the derived NAMES in the response, the UUIDs in the row.
+    it('admin can create a new user, with posto/OM assigned by FK and returned derived', async () => {
+      const rank = (await db.query("SELECT id, nome FROM ranks WHERE nome_abrev = '1º Ten' LIMIT 1")).rows[0];
+      const om = (await db.query("SELECT id, nome FROM organizations WHERE sigla = 'DSG' LIMIT 1")).rows[0];
+      assert.ok(rank, 'fixture: the seed rank "1º Ten" must exist');
+      assert.ok(om, 'fixture: the seed organization "DSG" must exist');
+
       const res = await supertest(app)
         .post('/api/v1/users')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -74,8 +94,8 @@ describe('Users Admin API', () => {
           username: 'new_user_test',
           password: 'Test@12345',
           nome: 'New User Test',
-          posto_graduacao: 'Ten',
-          organizacao_militar: 'Test OM',
+          rank_id: rank.id,
+          organization_id: om.id,
           role: 'user',
         })
         .expect(201);
@@ -83,9 +103,17 @@ describe('Users Admin API', () => {
       assert.ok(res.body.data.id);
       assert.equal(res.body.data.username, 'new_user_test');
       assert.equal(res.body.data.role, 'user');
+      assert.equal(res.body.data.posto_graduacao, rank.nome, 'the CTE re-joins to emit the name');
+      assert.equal(res.body.data.organizacao_militar, om.nome);
       // Password should not be returned
       assert.ok(!res.body.data.password);
       assert.ok(!res.body.data.password_hash);
+
+      const { rows } = await db.query(
+        'SELECT rank_id, organization_id FROM users WHERE id = $1', [res.body.data.id]
+      );
+      assert.equal(rows[0].rank_id, rank.id, 'and the FKs really landed in the row');
+      assert.equal(rows[0].organization_id, om.id);
     });
 
     it('admin can create another admin', async () => {
@@ -416,24 +444,36 @@ describe('Users Admin API', () => {
     });
 
     describe('PUT /users/me — Update Own Profile', () => {
-      it('user can update their own profile', async () => {
+      // `posto_graduacao: 'Cap'` used to ride along here too, another key
+      // updateProfileSchema does not declare. UPDATE_USER_PROFILE carries the same
+      // re-joining CTE as the admin query and nobody verified it on this path.
+      it('user can update their own profile, and rank_id comes back as the derived posto', async () => {
+        const rank = (await db.query("SELECT id, nome FROM ranks WHERE nome_abrev = 'Cap' LIMIT 1")).rows[0];
+        assert.ok(rank, 'fixture: the seed rank "Cap" must exist');
+
         const res = await supertest(app)
           .put('/api/v1/users/me')
           .set('Authorization', `Bearer ${userToken}`)
           .send({
             nome: 'Self Updated Name',
-            posto_graduacao: 'Cap',
+            rank_id: rank.id,
           })
           .expect(200);
 
         assert.equal(res.body.data.nome, 'Self Updated Name');
+        assert.equal(res.body.data.posto_graduacao, rank.nome);
+        assert.equal(res.body.data.rank_id, rank.id);
+        assert.equal(res.body.data.role, undefined, 'the self projection never exposes role');
       });
 
-      it('user cannot change their own role', async () => {
+      it('user cannot change their own role — it is silently STRIPPED, not rejected', async () => {
+        // Without the status assertion this could not tell "ignored" from "rejected"
+        // or from a 500: the DB check below would pass in all three worlds.
         await supertest(app)
           .put('/api/v1/users/me')
           .set('Authorization', `Bearer ${userToken}`)
-          .send({ role: 'admin' }); // Should be ignored
+          .send({ role: 'admin' })
+          .expect(200);
 
         // Role should not change
         const userRes = await db.query('SELECT role FROM users WHERE id = $1', [regularUser.id]);

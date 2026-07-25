@@ -237,6 +237,28 @@ function catalogLayerRows(mapId, legacyArray, tableRows) {
 }
 
 /**
+ * Appends the "(cópia)" suffix without overflowing the VARCHAR(255) that both
+ * `atlas.name` and `maps.name` declare.
+ *
+ * A 255-char name is reachable through ordinary use (createAtlasSchema caps at exactly
+ * 255 and atlas-gaps.test.js proves the boundary is accepted), and the suffix adds 8
+ * characters. The overflow raises SQLSTATE 22001, which PG_ERROR_MAP does not list, so
+ * it fell through to the generic branch and answered 500 INTERNAL_ERROR for a
+ * perfectly valid atlas. Truncating the BASE keeps the suffix visible — dropping the
+ * "(cópia)" instead would produce a copy indistinguishable from its source.
+ *
+ * @param {string} name - Source name
+ * @returns {string} At most 255 characters, always ending in the suffix
+ */
+const COPY_SUFFIX = ' (cópia)';
+const NAME_MAX = 255;
+function withCopySuffix(name) {
+  const base = String(name ?? '');
+  const room = NAME_MAX - COPY_SUFFIX.length;
+  return `${base.length > room ? base.slice(0, room) : base}${COPY_SUFFIX}`;
+}
+
+/**
  * Creates a new atlas owned by the specified user.
  */
 export async function createAtlas(userId, data) {
@@ -588,7 +610,7 @@ export async function cloneAtlas(atlasId, newOwnerId, options = {}) {
        VALUES ($1, $2, $3, $4, $5::jsonb)`,
       [
         newAtlasId,
-        options.name || `${source.name} (cópia)`,
+        options.name || withCopySuffix(source.name),
         source.description,
         newOwnerId,
         // The custom-icon registry lives in settings and points at image ids.
@@ -698,7 +720,7 @@ export async function duplicateMap(atlasId, mapId) {
     await insertMany(t, CS.images, imageRows);
 
     const newMapId = crypto.randomUUID();
-    await insertMany(t, CS.maps, [mapRow(newMapId, atlasId, `${map.name} (cópia)`, map)]);
+    await insertMany(t, CS.maps, [mapRow(newMapId, atlasId, withCopySuffix(map.name), map)]);
 
     await cloneMapSubEntities(
       t,
@@ -825,18 +847,30 @@ export async function importAtlas(userId, data) {
   const { atlas, maps, briefings } = data;
 
   return tx(async (t) => {
-    // 1. Create atlas
+    // 1. Create atlas.
+    //
+    // `settings` is MERGED over the column DEFAULT (`settings || $4::jsonb`), not
+    // written over it. The import used to pass the payload verbatim — and '{}' when
+    // the payload had none — while createAtlas omits the column and inherits the full
+    // default document (002_atlas.sql: features/basemaps/min_zoom/available_*). An
+    // atlas that arrived through "save my local atlas to the server" therefore
+    // answered GET /settings with a DIFFERENT shape from one created on the server,
+    // and settings is exactly the overlay the frontend reads to gate 3D/360/layers per
+    // atlas: a missing `features` key is not "default on", it is an undefined lookup.
+    // `||` is the same shallow merge PATCH /settings already uses, so the two writers
+    // agree.
+    // The column is left OUT of the INSERT so the DEFAULT applies, then merged in
+    // place — there is no expression form that reads a column's own default.
     const newAtlas = await t.one(
-      `INSERT INTO atlas (name, description, owner_id, settings)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [
-        atlas.name,
-        atlas.description || null,
-        userId,
-        atlas.settings ? JSON.stringify(atlas.settings) : '{}',
-      ]
+      `INSERT INTO atlas (name, description, owner_id) VALUES ($1, $2, $3) RETURNING *`,
+      [atlas.name, atlas.description || null, userId]
     );
+    if (atlas.settings) {
+      Object.assign(newAtlas, await t.one(
+        `UPDATE atlas SET settings = settings || $2::jsonb WHERE id = $1 RETURNING *`,
+        [newAtlas.id, JSON.stringify(atlas.settings)]
+      ));
+    }
 
     const atlasId = newAtlas.id;
     const mapList = maps || [];
@@ -865,6 +899,12 @@ export async function importAtlas(userId, data) {
     const importedMapIds = new Set(mapIds);
     const importedGroupIds = new Set(mapList.flatMap((m) => (m.groups || []).map((g) => g.id)));
     const importedFeatureIds = new Set(mapList.flatMap((m) => (m.features || []).map((f) => f.id)));
+    // features.layer_id was the ONE reference left travelling verbatim after the
+    // group/parent/slide references were constrained. features.layer_id is an FK to
+    // layers(id) with no atlas scope, so a payload could point an imported feature at
+    // a layer of somebody else's atlas: the victim then owns a layer whose soft-delete
+    // cascade (sync layer cascade) reaches rows in an atlas they cannot see.
+    const importedLayerIds = new Set(mapList.flatMap((m) => (m.layers || []).map((l) => l.id)));
 
     // 2. Maps
     await insertMany(t, CS.maps, mapList.map((map) => ({
@@ -918,7 +958,7 @@ export async function importAtlas(userId, data) {
       feature_type: feature.feature_type,
       geometry: JSON.stringify(feature.geometry),
       properties: JSON.stringify(feature.properties || {}),
-      layer_id: feature.layer_id || null,
+      layer_id: importedLayerIds.has(feature.layer_id) ? feature.layer_id : null,
     })));
     await insertMany(t, CS.features, featureRows);
 

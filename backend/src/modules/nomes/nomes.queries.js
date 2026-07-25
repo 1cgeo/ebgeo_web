@@ -1,6 +1,13 @@
 // Path: src/modules/nomes/nomes.queries.js
 // SQL ported VERBATIM from servico_nomes_geograficos (origin/main). Do not
 // rewrite the ranking logic — the 7-criteria weights sum to 1.00 and are frozen.
+//
+// NEVER put a backtick in a SQL comment in this file. Every query below is a JS
+// template literal, so one backtick closes the string and the whole module becomes a
+// SyntaxError, which the test runner reports as a generic "test failed" with no line
+// number, far from the cause. This warning used to live on a single comment further
+// down and was written after the mistake happened; it happened again on 2026-07-25,
+// by an author who never scrolled that far. It belongs here, where it is read first.
 
 // 7-criteria search with EMBEDDED access filter (defense in depth).
 // $1 = term (q), $2 = lat, $3 = lon, $4 = zoom (int, nullable), $5 = userId (uuid|null).
@@ -37,15 +44,25 @@ candidatos AS (
   -- ocioso mesmo com enable_seqscan=off; com o parâmetro direto vira Index Cond.
   -- Trocar o operador sem tirar a CTE do predicado não conserta nada.
   WHERE ng.f_unaccent(n.nome) % ng.f_unaccent($1)
-    -- is_active is part of the ACCESS FILTER, not a nicety. flexibleAuth only
+    -- Liveness is part of the ACCESS FILTER, not a nicety. flexibleAuth only
     -- reconciles against the DB in the last 5 minutes of a token's life, so between a
     -- deactivation and that window a disabled account still carries a valid JWT. The
     -- sibling routes (/feicoes, /catalogo3d) refuse it at once; this one kept serving
     -- PRIVATE place names, contradicting the header of this very file, which assigns
     -- the SQL the job of not leaking private data "even with an app bug".
+    --
+    -- A metade ORGANIZACIONAL da mesma reconciliacao faltava ate 2026-07-25: o caminho
+    -- estrito responde 403 "Organization is inactive" (getLiveAuthState, em
+    -- utils/org-status.js), enquanto esta rota continuava servindo nome privado a
+    -- membro de OM desativada. Mesma regra do org-status.js: linha de organizacao
+    -- AUSENTE conta como ativa (anomalia, nao desativacao deliberada), dai o
+    -- COALESCE(o.is_active, true).
     -- (No backticks in this comment: the query is a JS template literal.)
     AND ( n.access_level = 'public'
-          OR ($5::uuid IS NOT NULL AND EXISTS (SELECT 1 FROM users WHERE id = $5 AND is_active = true) AND (
+          OR ($5::uuid IS NOT NULL AND EXISTS (
+                SELECT 1 FROM users u LEFT JOIN organizations o ON o.id = u.organization_id
+                 WHERE u.id = $5 AND u.is_active = true AND COALESCE(o.is_active, true) = true
+              ) AND (
                 EXISTS (SELECT 1 FROM users WHERE id = $5 AND role = 'admin' AND is_active = true)
                 OR EXISTS (SELECT 1 FROM ng.fn_user_zone_geoms($5) uz WHERE ST_Contains(uz.geom, n.geom))
           )) )
@@ -57,6 +74,13 @@ dedup AS (
     nome, tipo, municipio, estado, sim, dist, tipo_peso, nome_clean,
     ST_X(geom) AS longitude, ST_Y(geom) AS latitude
   FROM candidatos
+  -- O dist ASC daqui e REDUNDANTE na forma atual da query, e saber disso importa para quem
+  -- for reescrever o CTE. O candidatos acima ja entrega ordenado por dist, entao remover
+  -- este dist ASC nao muda resultado nenhum e nenhum teste fica vermelho; a mutacao que
+  -- discrimina e trocar por dist DESC. Ou seja, ele nao esta protegido por construcao: se o
+  -- ORDER BY do candidatos mudar ou sumir, este vira load-bearing em silencio, e e ele que
+  -- decide QUAL linha do cluster representa o grupo. Medido em 2026-07-25 (item 121 de
+  -- testes-backend.md). (Sem crase neste comentario: a query e um template literal de JS.)
   ORDER BY nome, tipo, cluster_id, dist ASC
 ),
 q_ref AS (SELECT term, decay_dist, zoom_factor FROM q)

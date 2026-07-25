@@ -54,7 +54,15 @@ export async function mergeMaps(atlasId, destMapId, sourceMapIds, actingUserId =
     if (!dest) throw new NotFoundError('Map');
 
     // Every source must belong to this atlas (and exist). Exclude the dest.
-    const sources = sourceMapIds.filter((id) => id !== destMapId);
+    //
+    // DEDUPED before the length comparison below. Without the Set, `[src, src]` gave
+    // 2 sources while `WHERE id = ANY($1)` returns one row per DISTINCT id, so the
+    // check `valid.length !== sources.length` fired and the caller was told
+    // NotFoundError('Source map') about a map that exists and that they can read.
+    // A repeated id is a client-side duplicate, not a missing map, and the two must
+    // not be reported the same way. mergeMapsSchema has no `.unique()`, so the
+    // normalization belongs here.
+    const sources = [...new Set(sourceMapIds.filter((id) => id !== destMapId))];
     if (sources.length === 0) {
       return { destMapId, sourceMapIds: [], moved: {} };
     }

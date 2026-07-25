@@ -132,6 +132,131 @@ describe('Config — admin overrides (F4)', () => {
       .expect(422);
   });
 
+  // Item 16 (testes-backend.md) — the gate on the DESTRUCTIVE verb.
+  //
+  // The first test of this file checks 403 for GET and PUT and was treated as if it
+  // covered the set (pattern C2b). DELETE — the valve that wipes EVERY system override
+  // of the deployment in one call — had no gate test at all: dropping `requireAdmin`
+  // from that one route line let any authenticated user reset the whole config, with
+  // this suite fully green. And since /api/config is the single source the frontend
+  // boot is fail-fast on, that is a deployment-wide effect.
+  describe('the /config/admin gate on all three verbs', () => {
+    it('a regular user cannot DELETE the overrides — status AND effect', async () => {
+      await supertest(app)
+        .put('/api/v1/config/admin')
+        .set('Authorization', `Bearer ${adminTok}`)
+        .send({ app: { title: 'Sentinela' } })
+        .expect(200);
+
+      await supertest(app)
+        .delete('/api/v1/config/admin')
+        .set('Authorization', `Bearer ${userTok}`)
+        .expect(403);
+
+      // The refusal must have had no effect: a 403-that-still-cleared would pass a
+      // status-only assertion.
+      const cfg = await supertest(app).get('/api/config').expect(200);
+      assert.equal(cfg.body.data.app.title, 'Sentinela');
+    });
+
+    it('an anonymous caller gets 401 UNAUTHORIZED on all three verbs (auth fires before requireAdmin)', async () => {
+      // Ordering matters: a requireAdmin that read req.user.role without `auth` in front
+      // would throw a 500 here instead of refusing.
+      const anonGet = await supertest(app).get('/api/v1/config/admin').expect(401);
+      assert.equal(anonGet.body.error.code, 'UNAUTHORIZED');
+
+      const anonPut = await supertest(app)
+        .put('/api/v1/config/admin')
+        .send({ app: { title: 'x' } })
+        .expect(401);
+      assert.equal(anonPut.body.error.code, 'UNAUTHORIZED');
+
+      const anonDel = await supertest(app).delete('/api/v1/config/admin').expect(401);
+      assert.equal(anonDel.body.error.code, 'UNAUTHORIZED');
+
+      const cfg = await supertest(app).get('/api/config').expect(200);
+      assert.equal(cfg.body.data.app.title, 'Sentinela', 'no anonymous call may have taken effect');
+    });
+
+    // Item 92 — the schema must not let the catalog in through the override door.
+    it('rejects TOP-LEVEL catalog keys (they have their own CRUD, 422)', async () => {
+      const forbidden = [
+        { basemaps: { osm: { name: 'x' } } },
+        { tilesets: [{ id: 'x' }] },
+        { basemapStyles: { osm: { version: 8, sources: {}, layers: [] } } },
+        { postos: [{ id: 'x', name: 'Cap' }] },
+        { organizacoesMilitares: [{ id: 'x', name: 'OM' }] },
+      ];
+      assert.equal(forbidden.length, 5, 'the rejection table must not be empty');
+
+      for (const body of forbidden) {
+        await supertest(app)
+          .put('/api/v1/config/admin')
+          .set('Authorization', `Bearer ${adminTok}`)
+          .send(body)
+          .expect(422);
+      }
+
+      // And nothing leaked into the effective payload.
+      const cfg = await supertest(app).get('/api/config').expect(200);
+      assert.ok(!Array.isArray(cfg.body.data.basemaps), 'basemaps stays the object keyed by id');
+      assert.ok(Array.isArray(cfg.body.data.postos), 'postos stays the server-derived list');
+    });
+
+    // Item 95 — deepMerge semantics against the frozen shape: arrays REPLACE, they do
+    // not concatenate, and an open Joi section cannot produce a payload that breaks boot.
+    it('an override ARRAY replaces the base array instead of merging into it', async () => {
+      await supertest(app)
+        .put('/api/v1/config/admin')
+        .set('Authorization', `Bearer ${adminTok}`)
+        .send({ map2d: { terrainSource: { type: 'raster-dem', tiles: ['/a/{z}/{x}/{y}'], tileSize: 256 } } })
+        .expect(200);
+      await supertest(app)
+        .put('/api/v1/config/admin')
+        .set('Authorization', `Bearer ${adminTok}`)
+        .send({ map2d: { terrainSource: { tiles: ['/b/{z}/{x}/{y}'] } } })
+        .expect(200);
+
+      const cfg = await supertest(app).get('/api/config').expect(200);
+      assert.deepEqual(
+        cfg.body.data.map2d.terrainSource.tiles,
+        ['/b/{z}/{x}/{y}'],
+        'the array is replaced, never concatenated',
+      );
+      assert.equal(cfg.body.data.map2d.terrainSource.type, 'raster-dem', 'sibling keys still merge');
+    });
+
+    it('the frozen top-level shape survives an override of every open section', async () => {
+      await supertest(app)
+        .put('/api/v1/config/admin')
+        .set('Authorization', `Bearer ${adminTok}`)
+        .send({
+          app: { title: 'Sentinela' },
+          features: { grid: false },
+          search: { qualquer: 1 },
+          streetView360: { serviceUrl: '/sv' },
+          analysisLayers: { enabled: false },
+          dataLayers: { enabled: false },
+          assets3dBaseUrl: '/assets',
+        })
+        .expect(200);
+
+      const cfg = await supertest(app).get('/api/config').expect(200);
+      const REQUIRED = [
+        'app', 'features', 'services', 'search', 'basemaps', 'analysisLayers', 'dataLayers',
+        'map2d', 'map3d', 'tilesets', 'postos', 'organizacoesMilitares', 'streetView360',
+        'basemapStyles', 'assets3dBaseUrl',
+      ];
+      assert.equal(REQUIRED.length, 15, 'the frozen key list must not be empty');
+      for (const key of REQUIRED) {
+        assert.ok(key in cfg.body.data, `GET /api/config lost the frozen key "${key}"`);
+      }
+      // The sections the admin turned off keep their SHAPE (the frontend reads .layers).
+      assert.ok(Array.isArray(cfg.body.data.analysisLayers.layers));
+      assert.ok(Array.isArray(cfg.body.data.dataLayers.layers));
+    });
+  });
+
   // Runs LAST: clears ALL overrides set by the tests above.
   it('DELETE /config/admin clears all overrides (revert to STATIC default)', async () => {
     await supertest(app)

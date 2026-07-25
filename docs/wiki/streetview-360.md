@@ -11,7 +11,7 @@ O módulo `sv360` está **fora** do sync: nenhuma escrita 360 vira operação, n
 
 ## Envelope: por que o módulo destoa do resto da API
 
-O backend responde `{ data }` e erro `{ error: { code, message } }` ([[erros-api]], [[sintese-contrato-erros-http]]). O sv360 responde **objeto/array nu** e erro **plano** `{ "error": "mensagem" }`, imposto por um error handler de router montado por último (`backend/src/modules/streetview360/sv360-error.js:15`), que intercepta antes do global. Isso é contrato congelado herdado do viewer legado, não descuido.
+O envelope nu e o erro plano são contrato congelado herdado do viewer legado, declarado em [[sintese-contratos-congelados]] (dono canônico do fato). O que importa aqui é quem o impõe: um error handler de **router**, montado por último, que intercepta antes do global (`backend/src/modules/streetview360/sv360-error.js:15`). É por isso que corrigir o envelope do módulo pelo handler global não tem efeito nenhum ([[erros-api]], [[sintese-contrato-erros-http]]).
 
 Armadilha de cliente: o REST genérico desembrulha `data` sempre que a resposta é objeto não-array contendo essa chave (`frontend/src/js/store/sync/api-client.js:261`). Hoje nenhum shape do sv360 tem `data`, então tudo passa intacto, mas **acrescentar um campo `data` a qualquer resposta do sv360 mutila o corpo silenciosamente no cliente**, sem erro. Por isso as chamadas sv360 vivem apartadas (`frontend/src/js/store/sync/api-client.js:515-535`).
 
@@ -21,7 +21,7 @@ Do handler, o que não é óbvio: erro Joi vira **422**, mas os params de tile v
 
 Toda imagem/thumbnail é imutável, mas o **escopo** depende do status do projeto (`backend/src/modules/streetview360/sv360.controller.js:52-63`): `enabled` recebe `public`, `disabled` recebe `private` + `Vary: Authorization, Cookie`. Um cache compartilhado só pode guardar resposta que todo mundo pode ver; sem essa distinção um proxy replicaria para anônimos uma resposta autorizada de projeto oculto.
 
-> [!CONTRADICAO] O guia absorvido *16-streetview-360* §5/§7 tabela `public, max-age=31536000, immutable` para toda imagem e thumbnail. O código diverge de propósito, como acima. Vale o código.
+Não existe um `public, max-age=31536000, immutable` uniforme para todo o 360, apesar de a documentação de origem tabelar assim. O TTL longo vale só para imagem e thumbnail; o tile MVT e o feed GeoJSON usam 60 s, porque a camada de pontos muda a cada ingestão, tombstone ou toggle. E os dois seguem a mesma regra de escopo das imagens, por motivo diferente: o corpo do tile **varia com o chamador** (a query embute `isAdmin`/`orgId` e inclui projeto `disabled` para quem pode vê-lo), então chamada credenciada sai `private` + `Vary`, e só a anônima sai `public` (`mvtTile` e `tilesGeojson`, `backend/src/modules/streetview360/sv360.controller.js`). Marcar o tile de um membro como `public` autorizaria um cache compartilhado a servi-lo a anônimos pelos 60 s seguintes, sem a aplicação ser consultada.
 
 Armadilha deliberada no protocolo de Range: `Content-Length`/`Content-Range` derivam do **buffer realmente lido**, não do `size_bytes` do Postgres (`backend/src/modules/streetview360/sv360.controller.js:150-155,174`). Em regime normal coincidem; na janela swap-do-arquivo↔commit da ingestão podem divergir, e confiar no buffer mantém toda resposta protocolarmente correta. Não "otimize" isso lendo o tamanho do Postgres. Mesma família de [[assets3d-distribuicao]] e [[sintese-cache-http-imutavel]].
 
@@ -54,6 +54,8 @@ Todo numérico é `Joi.number()` finito, sem `min`/`max`, e as colunas são DOUB
 
 `fotos_linha` é **trajetória por `sequence_number`**, não o grafo dirigido de navegação; o grafo está por-foto em `targets`. Tile sem features é **200 com Buffer vazio** (MVT vazio é válido): não trate corpo vazio como erro. O `Cache-Control` é curto e **não** imutável, porque tiles mudam a cada ingestão, tombstone ou toggle de status (`backend/src/modules/streetview360/sv360.controller.js:97-98`).
 
+**Custo escondido: o tile escala com o acervo, não com o que cabe nele.** Na `MVT_TILE` a CTE `visible` não tem filtro de bbox e é referenciada duas vezes (`backend/src/modules/streetview360/sv360.tiles.queries.js:39-49`), o que no Postgres a materializa: o `&&` contra a envelope só entra depois dela, nos dois ramos (`:60` e `:80`). Pior no ramo das linhas, que monta um `ST_MakeLine` por projeto sobre **todas** as fotos legíveis antes de descartar os projetos que não tocam o tile. O comentário `PERFORMANCE` do próprio arquivo (`:26-29`) promete o contrário, poda por índice GiST antes do `ST_AsMVTGeom`, e isso vale só depois da materialização. Trate como limite operacional: a latência do tile cresce com o tamanho do acervo, inclusive para tile vazio, e não há cache longo para amortizar (60 s). Um bbox dentro da `visible` é a correção óbvia, e a razão de ela não estar lá não está registrada em lugar nenhum.
+
 Quirk que confunde na leitura do cliente: a camada de pontos usa o source id literal `'streetViewPointsSource'`, mas as camadas de linha usam como **source id** o próprio `config.streetView360.linesSourceLayer` (`frontend/src/js/street_view_tool/add_street_view_control.js:55,69-70,234`), ou seja o id da source acaba sendo a string `fotos_linha`, igual ao `source-layer`. Funciona; só não confunda os dois ao mexer ali. `pointsSource` e `linesSource` apontam para o **mesmo** template de tiles ([[config-dinamico]]).
 
 ## Upload de bundle: duas defesas antes do primeiro byte
@@ -77,4 +79,4 @@ Escritas exigem `auth` estrito ([[autenticacao-jwt]]); leituras são `flexibleAu
 
 ## Fontes
 
-Módulo `backend/src/modules/streetview360/` (routes, controller, service, queries, write.*, sv360-error), `backend/src/modules/config/config.service.js` (bloco `streetView360` do `/api/config`), e no cliente `frontend/src/js/street_view_tool/` + `store/sync/api-client.js`. Guia *16-streetview-360* absorvido (ver contradição de cache acima).
+Módulo `backend/src/modules/streetview360/` (routes, controller, service, queries, write.*, sv360-error), `backend/src/modules/config/config.service.js` (bloco `streetView360` do `/api/config`), e no cliente `frontend/src/js/street_view_tool/` + `store/sync/api-client.js`. Guia *16-streetview-360* absorvido (ver a seção de cache acima, que corrige a tabela dele).

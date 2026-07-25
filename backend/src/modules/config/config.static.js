@@ -130,3 +130,38 @@ export function buildBasemapStyles(C) {
     'carta-ortoimagem': ortoStyle(C),
   };
 }
+
+/**
+ * Monta uma fonte `raster-dem` no shape que o MapLibre espera — e o frontend a
+ * repassa VERBATIM para `map.addSource()`.
+ *
+ * O MapLibre aceita duas formas e elas NÃO são intercambiáveis:
+ *  - TileJSON:  { url: 'https://…/tiles.json' }
+ *  - template:  { tiles: ['https://…/{z}/{x}/{y}'], minzoom, maxzoom }
+ *
+ * Antes só a primeira era emitida, então um deploy cujo terreno é servido por
+ * template (o caso real: `/cms/martin/fathom_terrain/{z}/{x}/{y}`) não tinha como
+ * ser expresso via env — a URL ia parar em `url:` e o MapLibre não a resolvia.
+ * A presença de `{z}` distingue as duas.
+ *
+ * Vive aqui, e não em config.service.js, por ser formatação PURA: o service
+ * arrasta o pool do Postgres consigo, e a correção acima (um bug real de produção)
+ * ficou sem teste de regressão justamente porque a função era privada de um módulo
+ * que só se importa com banco de pé.
+ *
+ * @param {string} url
+ * @param {number|undefined} minzoom
+ * @param {number|undefined} maxzoom
+ * @returns {Object|undefined} fonte raster-dem, ou undefined se não houver URL.
+ */
+export function rasterDemSource(url, minzoom, maxzoom) {
+  if (!url) return undefined;
+  if (!url.includes('{z}')) return { type: 'raster-dem', url, tileSize: 256 };
+  return {
+    type: 'raster-dem',
+    tiles: [url],
+    tileSize: 256,
+    ...(Number.isFinite(minzoom) ? { minzoom } : {}),
+    ...(Number.isFinite(maxzoom) ? { maxzoom } : {}),
+  };
+}

@@ -27,7 +27,7 @@ Projeto construído inteiramente offline e anônimo não sobe por esta fila, sob
 
 **Não presuma compaction.** Ela só roda acima de `MAX_QUEUE_SIZE = 10000` (`frontend/src/js/store/sync/operation-queue.js:29,102-104`). É válvula de sobrecarga, não otimização do caminho normal: 40 arrastes de uma feição viram 40 `UPDATE`s empurrados um a um.
 
-**Compaction não conserta o relógio.** No merge `CREATE + UPDATEs` só o campo `data` é trocado (`:337-343`); `timestamp`, `lamportTimestamp` e `id` continuam os do `CREATE`. Não corrompe a resolução de conflito (que é LWW por ordem de chegada, [[sintese-nao-e-crdt]]), mas invalida qualquer raciocínio baseado no Lamport da op.
+**Compaction não conserta o relógio.** No merge `CREATE + UPDATEs` só o campo `data` é trocado (`:337-343`); `timestamp`, `lamportTimestamp` e `id` continuam os do `CREATE`. Não corrompe a resolução de conflito (que é LWW por ordem de chegada, [[modelo-conflito-lww]]), mas invalida qualquer raciocínio baseado no Lamport da op.
 
 **Ack com `success: false` ainda é dequeueado.** O dequeue usa os ids enviados, não os acks (`frontend/src/js/store/sync/sync-engine.js:285`). A resposta só é lida para tracing e para semear versões. Uma op recusada individualmente pelo servidor num HTTP 200 desaparece da fila e nunca é reenviada.
 
@@ -45,15 +45,13 @@ Projeto construído inteiramente offline e anônimo não sobe por esta fila, sob
 
 A consequência de projeto: como o broadcast do servidor não consegue excluir o autor num push HTTP, o autor recebe o próprio eco e o filtra por `clientId` (`frontend/src/js/store/sync/ws-client.js:392`, [[client-id-estavel]]). Isso, por sua vez, obriga `recordPushAcks` a semear a versão aplicada do próprio autor (`frontend/src/js/store/sync/sync-engine.js:76-78`): sem essa semente ele nunca saberia a ordem de chegada da própria op e uma op concorrente mais antiga de um peer poderia sobrescrevê-la ([[idempotencia-e-convergence-guard]]). Trade-off completo em [[sintese-rest-vs-websocket]] e [[sintese-rest-vs-sync]].
 
-> [!CONTRADICAO]
-> O guia *05-sync-crdt* (absorvido) diz "em tempo real, prefira o canal WebSocket; o push HTTP é o caminho de recuperação", e seu pseudocódigo §15 envia a op por WS quando conectado. O cliente real nunca faz isso. O guia descreve um contrato de backend suportado, não o comportamento implementado.
+A leitura oposta circula e é errada: "em tempo real prefira o WebSocket, o push HTTP é o caminho de recuperação". O backend suporta receber op pelo socket, mas **este cliente nunca envia por ali**, em nenhum estado de conexão. Contrato suportado não é comportamento implementado, e escrever código novo contra o primeiro produz um caminho que nada exercita.
 
 ## Reconexão: a ordem real
 
 O guia *08-offline-import* (absorvido) §2.1 desenha pull REST → merge → push → reconectar WS. **O código faz o inverso:** reconecta o socket primeiro com backoff exponencial (`frontend/src/js/store/sync/ws-client.js:462-476`), só então pede o pull via `sync_request(lastVersion)` dentro do frame `connected` (`frontend/src/js/store/sync/ws-client.js:416-427`), e só libera o push depois da transição para `ONLINE` (`frontend/src/js/store/sync/sync-flush.js:65`). O pull de recuperação acontece **pelo WebSocket**, não por um GET REST.
 
-> [!CONTRADICAO]
-> O mesmo guia §2.2 descreve um `PendingOperationsManager` sobre um object store `pendingOperations` com campo `pendingSince`, removendo entradas por `ack.opId`. Nada disso existe: é a instância LocalForage `ebgeo/operation_queue`, sem `pendingSince`, removendo pelos ids enviados. Pseudocódigo ilustrativo, não contrato.
+Cuidado com nomes que a documentação de origem inventou e que ninguém procura sem achar estranho não encontrar: **não existe** um `PendingOperationsManager`, nem um object store `pendingOperations`, nem um campo `pendingSince`, e a remoção não é por `ack.opId`. A fila é a instância LocalForage `ebgeo/operation_queue` e remove pelos ids enviados.
 
 **Não há replay por cliente desconectado** ([[canal-collab-websocket]]). Mensagens emitidas durante a queda não são reenviadas. A decisão evita estado durável por socket no servidor, hoje single-instance com salas, presença e timers de `away` em memória ([[sintese-limites-collab]]). O preço: o cliente **precisa** manter `lastVersion` correto; se zerar, o servidor devolve o snapshot inteiro em vez do incremento.
 

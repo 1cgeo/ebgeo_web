@@ -164,4 +164,61 @@ describe('StreetView 360 — escritas de target em foto tombstonada não deixam 
     const { rows } = await db.query(`SELECT heading FROM sv360.photos WHERE id = $1`, [src]);
     assert.equal(Number(rows[0].heading), 0, 'a calibração não pode ter sido gravada');
   });
+
+  // As rotas GRANULARES reentram no MESMO updateCalibration com um único campo, e
+  // nenhuma delas era exercitada sobre foto tombstonada. Isso importa porque o
+  // whitelist de colunas (CALIBRATION_COLUMN_WHITELIST) mapeia nomes de rota para
+  // COLUNAS DIFERENTES: um caso só sobre `heading` deixa o resto do mapa sem prova.
+  const GRANULARES = [
+    { rota: 'height', corpo: { height: 9.9 }, coluna: 'camera_height' },
+    { rota: 'rotation-x', corpo: { mesh_rotation_x: 45 }, coluna: 'mesh_rotation_x' },
+    { rota: 'distance-scale', corpo: { distance_scale: 3 }, coluna: 'distance_scale' },
+    { rota: 'marker-scale', corpo: { marker_scale: 4 }, coluna: 'marker_scale' },
+  ];
+
+  for (const g of GRANULARES) {
+    it(`PUT /photos/:uuid/${g.rota} em foto tombstonada: 404 e ${g.coluna} inalterada`, async () => {
+      const antes = await db.query(
+        `SELECT ${g.coluna} AS v FROM sv360.photos WHERE id = $1`,
+        [src]
+      );
+      assert.equal(antes.rows.length, 1, 'guard: a foto tombstonada continua na tabela');
+
+      await supertest(app)
+        .put(url(`/photos/${src}/${g.rota}`))
+        .set('Authorization', `Bearer ${token}`)
+        .send(g.corpo)
+        .expect(404);
+
+      const depois = await db.query(
+        `SELECT ${g.coluna} AS v FROM sv360.photos WHERE id = $1`,
+        [src]
+      );
+      assert.equal(
+        Number(depois.rows[0].v),
+        Number(antes.rows[0].v),
+        'o 404 é a promessa de que nada foi escrito; a coluna é a prova'
+      );
+      assert.notEqual(
+        Number(depois.rows[0].v),
+        Number(Object.values(g.corpo)[0]),
+        'o valor enviado não pode ter chegado à coluna'
+      );
+    });
+  }
+
+  // Controle POSITIVO na mesma classe de rota. Sem ele, todos os 404 acima
+  // continuariam verdes se a rota granular tivesse simplesmente deixado de existir
+  // (um 404 de rota inexistente é indistinguível de um 404 de tombstone).
+  it('controle positivo: a mesma PUT numa foto VIVA responde 200 e persiste', async () => {
+    const res = await supertest(app)
+      .put(url(`/photos/${dst}/height`))
+      .set('Authorization', `Bearer ${token}`)
+      .send({ height: 9.9 })
+      .expect(200);
+    assert.equal(res.body.camera?.id, dst, 'a resposta é o shape congelado da foto');
+
+    const { rows } = await db.query(`SELECT camera_height FROM sv360.photos WHERE id = $1`, [dst]);
+    assert.equal(Number(rows[0].camera_height), 9.9, 'a escrita legítima precisa persistir');
+  });
 });

@@ -2,7 +2,7 @@
 
 O servidor classifica o RTT que o cliente reporta e devolve, só na mudança de banda, recomendações de transporte que **ele mesmo nunca aplica nem verifica**. Funcionalidade de servidor pronta, sem consumidor no frontend.
 
-Lógica em `backend/src/modules/collab/collab.quality.js`; estado e emissão em `backend/src/modules/collab/collab.handlers.js:214`; roteamento no dispatch do [[canal-collab-websocket]] (`backend/src/modules/collab/collab.gateway.js:447`).
+Lógica em `backend/src/modules/collab/collab.quality.js`; estado e emissão em `handleConnectionQuality` (`backend/src/modules/collab/collab.handlers.js`); roteamento no dispatch do [[canal-collab-websocket]] (`backend/src/modules/collab/collab.gateway.js`).
 
 ## O ponto principal: nada disso está ligado
 
@@ -16,7 +16,7 @@ Isso é pendência conhecida, não regressão. Ao ligar: carimbe o `ping` e meç
 
 ## Por que o cliente precisa suavizar o RTT
 
-`classifyConnectionQuality` é uma escada de limiares crua: sem histerese, sem média móvel, sem debounce temporal. O único freio contra spam é a comparação com a banda anterior (`backend/src/modules/collab/collab.handlers.js:218`). Um RTT oscilando em torno de 100 ms ou de 300 ms troca de banda a cada amostra e gera um `adaptive-settings` a cada troca. **Suavize no cliente** (mediana das últimas N amostras) antes de reportar, senão o "só na mudança" não protege nada.
+`classifyConnectionQuality` é uma escada de limiares crua: sem histerese, sem média móvel, sem debounce temporal. O único freio contra spam é a comparação com a banda anterior, o `return` logo abaixo da classificação em `handleConnectionQuality` (`backend/src/modules/collab/collab.handlers.js`). Um RTT oscilando em torno de 100 ms ou de 300 ms troca de banda a cada amostra e gera um `adaptive-settings` a cada troca. **Suavize no cliente** (mediana das últimas N amostras) antes de reportar, senão o "só na mudança" não protege nada.
 
 Corolário: não deduza a banda no cliente a partir dos limiares. Reporte o RTT bruto suavizado e obedeça à resposta, para que os limiares possam mudar no servidor sem quebrar cliente.
 

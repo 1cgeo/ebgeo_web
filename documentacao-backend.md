@@ -818,6 +818,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 46. ack-idempotencia, tabela-operations, syncledger
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e a correcao foi DELIMITAR em vez de repetir: `rowsAffected`
+> so e medido em tres pontos (create de feicao, updates, delete); todos os outros creates
+> usam `t.none`. Logo, ausencia de `NO_EFFECT` **nao** prova efeito em geral, so nesses
+> tres. Bullet novo em `ack-idempotencia.md`.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-sync`
 - **Documento:** `docs/wiki/ack-idempotencia.md:19`
 - **Código:** `backend/src/modules/sync/sync.service.js:1442`
@@ -827,6 +832,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Uma linha em ack-idempotencia.md (ou em syncledger.md, nas "Armadilhas de leitura") delimitando o alcance: rowsAffected e conclusivo para update, delete e create de feicao; para os demais creates ausencia de NO_EFFECT nao prova efeito. Sem isso o guard mais citado do ledger e lido como universal.
 
 ### 47. docs/wiki/gestao-usuarios.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: as queries de contagem e transferencia filtram `deleted_at IS NULL`
+> e o `RESTORE_ATLAS` e escopado ao dono. Bullet novo em `gestao-usuarios.md`.
 
 - **Tipo:** armadilha não documentada · **Fatia:** `be-users-orgs`
 - **Documento:** `docs/wiki/gestao-usuarios.md:37-38`
@@ -838,6 +846,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 48. docs/wiki/hardening-borda-api.md
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: `rate-limit.js:68` ja usa `ipKeyGenerator` e o `validate: false` nao
+> existe mais. Em vez da armadilha, ficou um bullet sobre a **normalizacao** e sobre por que
+> ela so passou a importar depois do `trust proxy` entrar.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-middleware`
 - **Documento:** `docs/wiki/hardening-borda-api.md:9-16`
 - **Código:** `backend/src/middleware/rate-limit.js:30-33`
@@ -848,6 +860,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 49. docs/wiki/upload-imagens-seguranca.md, secao 'Custo escondido e notas de integracao' (linhas 57-62)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: nao ha rate limit nem quota por atlas, OM ou usuario no upload;
+> o unico teto e por requisicao. Bullet em "Custo escondido" de `upload-imagens-seguranca.md`.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-images`
 - **Código:** `backend/src/modules/images/images.routes.js:64-68; backend/src/config.js:66-73`
 
@@ -857,6 +872,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 50. docs/wiki/upload-imagens-seguranca.md, secao 'Validacoes do service que sao codigo morto pela rota HTTP' (linhas 21-30)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com um TERCEIRO ramo morto que o item nao listava:
+> `Buffer.from(..., 'base64')` nao lanca e o Joi ja garante string, entao base64 invalido sai
+> como `Content does not match declared type`, mensagem que nao descreve a causa.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-images`
 - **Código:** `backend/src/modules/images/images.service.js:152-163`
 
@@ -865,6 +884,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Acrescentar o terceiro ramo morto a lista da secao, com a razao (Buffer.from base64 nao lanca) e a consequencia para o consumidor: base64 invalido chega como erro de magic-bytes, nao como erro de decode.
 
 ### 51. hardening-borda-api.md (secao "Rate limiting: a chave composta e o que ela custa")
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `/register` sob o `authLimiter`, com o username escolhido pelo
+> atacante. Bullet novo em `hardening-borda-api.md`.
 
 - **Tipo:** armadilha não documentada · **Fatia:** `be-auth`
 - **Documento:** `docs/wiki/hardening-borda-api.md:9-14`
@@ -876,6 +898,13 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 52. nenhuma pagina
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `groups.parent_id` e a UNICA FK do apply sem
+> guarda. O insert de grupo passa `data.parent_id` cru e so checa o mapa, enquanto o
+> `applyCommentOp` vizinho exige que o pai exista, o que torna a ausencia esquecimento e
+> nao decisao. Registrado em `atlas-modelo-de-dados.md`.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-database`
 - **Documento:** `docs/wiki/atlas-modelo-de-dados.md (secao "Detalhes que costumam morder", sem item sobre grupos aninhados)`
 - **Código:** `backend/src/modules/sync/sync.service.js:1445-1459 vs backend/src/database/migrations/002_atlas.sql:146`
@@ -885,6 +914,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Uma linha em atlas-modelo-de-dados.md (secao "Detalhes que costumam morder") registrando que toda escrita do sync e INSERT...SELECT...WHERE EXISTS por causa do 23503, e que groups.parent_id e a excecao aberta. Fix duravel: replicar o guard de :1254 em :1447 e um teste de regressao com parent inexistente.
 
 ### 53. nenhuma pagina (candidatas: canal-collab-websocket.md:46 ou presenca-colaborativa.md:23)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, mas com o MECANISMO TROCADO: a guarda passou a comparar
+> `clientId` em `a358a6e`, e o efeito sobrevive porque duas abas do mesmo navegador
+> **compartilham** o `clientId` (vem do localStorage). Socket em `away` fica na sala porque
+> o `onClose` nao chama `leaveRoom`, e o laco nao filtra socket fechado.
 
 - **Tipo:** armadilha não documentada · **Fatia:** `be-collab`
 - **Documento:** `docs/wiki/canal-collab-websocket.md:46 e docs/wiki/presenca-colaborativa.md:23 explicam o guard, nao o efeito colateral`
@@ -896,6 +930,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 54. nenhuma pagina (fronteira redact-url / mailer)
 
+> **CORRIGIDO em 2026-07-25.** Parcialmente REFUTADO: `exposeLink = !config.isProd`, entao o link nao vai
+> mais ao log em producao. O invariante foi **delimitado** em vez de repetido: a redacao
+> cobre URL, nao campo estruturado.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-utils`
 - **Documento:** `docs/wiki/auth-flexivel.md:19 e docs/wiki/api-keys.md:42`
 - **Código:** `backend/src/utils/mailer.js:68`
@@ -905,6 +943,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Uma linha em [[api-keys]] ou [[gestao-usuarios]] delimitando o invariante: a redacao cobre credencial que viaja na URL da requisicao, nao campo de log estruturado; o token de verificacao e escrito de proposito (mailer.js:68,74) porque e o unico canal de entrega enquanto nao ha transporte SMTP, e por isso o log de um ambiente com signup aberto tem valor de credencial.
 
 ### 55. permissoes-atlas
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com a ancora derivada em **430 linhas**. A secao
+> "Adicionou um nivel de permissao?" de `permissoes-atlas.md` dizia cinco lugares; sao
+> **seis**, com o `applyCommentOp`.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** armadilha não documentada · **Fatia:** `be-sync`
 - **Documento:** `docs/wiki/permissoes-atlas.md:60`
@@ -916,6 +960,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 56. sintese-limites-collab.md (§7 cobre so a janela de staleness)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. `gateway.js:180` sem `await`, `getLiveAuthState` com dois
+> SELECTs, pool de 10, contra o dispatch serializado logo abaixo. Paragrafo de custo em
+> `sintese-limites-collab.md`.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-collab`
 - **Documento:** `docs/wiki/sintese-limites-collab.md:62 e docs/wiki/canal-collab-websocket.md:19`
 - **Código:** `backend/src/modules/collab/collab.gateway.js:173-182, backend/src/utils/org-status.js:53-55, backend/src/config.js:45`
@@ -925,6 +973,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Acrescentar a [[sintese-limites-collab]] §7 uma frase sobre o custo: o sweep e fan-out nao-aguardado de 2 a 3 queries por socket a cada 30s contra um pool de 10, logo sala grande faz o sweep competir com o trafego HTTP; se for mexer, serialize ou limite concorrencia, como ja foi feito no caminho de mensagem.
 
 ### 57. docs/wiki/api-rest-atlas.md:69-77 e docs/wiki/sintese-rest-vs-sync.md:26-34
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: o `api-client.js` nao tem merge, `GET /maps` nem
+> `GET /briefings`, mas o handler `maps_merged` existe no `ws-client.js`. Registrado em
+> `api-rest-atlas.md`.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** ausência · **Fatia:** `be-maps-briefings`
 - **Documento:** `docs/wiki/api-rest-atlas.md:71 ; docs/wiki/sintese-rest-vs-sync.md:34`
@@ -936,6 +990,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 58. docs/wiki/atlas-import-offline.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO tambem em HEAD. Secao nova em
+> `atlas-import-offline.md`.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
+
 - **Tipo:** ausência · **Fatia:** `be-atlas`
 - **Documento:** `docs/wiki/atlas-import-offline.md:30-34`
 - **Código:** `backend/src/app.js:59`
@@ -946,6 +1005,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 59. docs/wiki/calibracao-e-grafo-360.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `sv360.write.service.js:284` devolve `err.message` cru dentro de
+> um 200, contra a politica do proprio modulo. Paragrafo "Nao exiba `failed[].error` na
+> tela" em `calibracao-e-grafo-360.md`.
+
 - **Tipo:** ausência · **Fatia:** `be-sv360`
 - **Código:** `backend/src/modules/streetview360/sv360.write.service.js:266`
 
@@ -954,6 +1017,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Registrar em calibracao-e-grafo-360.md que failed[].error e texto de driver nao mascarado (contrato de fato hoje), e que exibi-lo na UI vaza nome de coluna/constraint. Se a intencao era mascarar, a divergencia entre sv360-error.js:26 e write.service.js:266 vira item de codigo.
 
 ### 60. docs/wiki/compartilhamento-atlas.md
+
+> **CORRIGIDO em 2026-07-25.** **REFUTADO na metade principal:** `sharing.service.js` hoje
+> emite `SHARING_CHANGE`/`PERMISSION_GRANT`/`PERMISSION_REVOKE`, e `UPDATE_USER_SHARE`
+> devolve `previous_permission`. Segue verdadeiro so o `added_by` congelado pelo upsert e a
+> ausencia de `updated_at`. A linha foi reescrita para a forma que resiste: a atribuicao
+> existe, mas so no log, nunca na linha.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** ausência · **Fatia:** `be-sharing`
 - **Documento:** `docs/wiki/compartilhamento-atlas.md:19-25`
@@ -965,6 +1036,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 61. docs/wiki/ingestao-projetos-360.md
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: `acquireIngestLock` ja faz `set_config('lock_timeout', ...)` e
+> converte `55P03` em `ServiceUnavailableError`, exatamente o padrao que o item dizia nao
+> ter sido adotado. Corrigido em `8230b81`.
+
 - **Tipo:** ausência · **Fatia:** `be-sv360`
 - **Código:** `backend/src/modules/streetview360/sv360.ingest.js:406-412`
 
@@ -973,6 +1048,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Registrar em ingestao-projetos-360.md, na secao de armadilhas, o custo escondido: dois uploads concorrentes do mesmo (org, slug) fazem o segundo esperar indefinidamente segurando conexao do pool, e a espera tem a duracao de uma copia multi-GB, nao de uma transacao. Apontar sync.service.js:650-656 como o padrao ja adotado no outro modulo.
 
 ### 62. docs/wiki/sintese-contrato-erros-http.md (secao 'Poison batch')
+
+> **CORRIGIDO em 2026-07-25.** Ja estava fechado antes desta rodada: `sintese-contrato-erros-http.md` ja
+> nomeia o 503 de `lock_timeout` como a unica rejeicao transitoria, e ja nao diz que 503
+> nunca chega ao cliente. Verificado, sem edicao.
 
 - **Tipo:** ausência · **Fatia:** `be-utils`
 - **Documento:** `docs/wiki/sintese-contrato-erros-http.md:59-65`
@@ -984,6 +1063,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 63. docs/wiki/streetview-360.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e o comentario `PERFORMANCE` do proprio SQL promete o oposto do
+> que ele faz: a CTE `visible` nao tem bbox e e referenciada duas vezes, logo materializa.
+
 - **Tipo:** ausência · **Fatia:** `be-sv360`
 - **Código:** `backend/src/modules/streetview360/sv360.tiles.queries.js:39-49`
 
@@ -992,6 +1074,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Registrar o custo em streetview-360.md (secao Tiles): o custo do tile escala com o acervo inteiro, nao com o conteudo do tile, e o comentario de performance do arquivo promete uma poda por indice que a CTE sem bbox nao entrega. E limite operacional, nao detalhe de implementacao.
 
 ### 64. docs/wiki/tipos-entidade-sync.md:40 / docs/wiki/api-rest-atlas.md:75
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `MAP_CHILD_TABLES` move a tabela e a coluna
+> `maps.catalog_layers` fica intocada. Corrigido em `tipos-entidade-sync.md` com eco em
+> `api-rest-atlas.md`.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** ausência · **Fatia:** `be-maps-briefings`
 - **Documento:** `docs/wiki/tipos-entidade-sync.md:40`
@@ -1003,6 +1091,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 65. docs/wiki/zonas-acesso-geografico.md e docs/wiki/auditoria.md
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: `zones.service.js` ja emite `ZONE_CREATE`/`UPDATE`/`DELETE` dentro
+> da transacao, e a migracao `007_audit_zone_actions.sql` abriu o CHECK para isso. A secao de
+> cobertura de `auditoria.md` foi reescrita.
+
 - **Tipo:** ausência · **Fatia:** `be-nomes-zones`
 - **Documento:** `docs/wiki/zonas-acesso-geografico.md:47`
 - **Código:** `backend/src/modules/zones/zones.service.js:56-60`
@@ -1012,6 +1104,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Em zonas-acesso-geografico.md:47, completar o bullet do DELETE com o ponto cego de auditoria (cascade de 004_ng.sql:229,:237 + ausencia de createAudit em zones.service.js:56-60) e a assimetria com o PUT de permissoes. Em auditoria.md:27, estender a nota de PERMISSION_REVOKE para o DELETE de zona.
 
 ### 66. nenhuma pagina
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e virou a TERCEIRA forma da mesma regra em
+> `deploy-backend.md`: o `migrate.js` rastreia so o NOME do arquivo, e o cabecalho de
+> `002_atlas.sql` nao lista `comments`, que a propria migracao cria. O sintoma e `42P01` em
+> `GET_ATLAS_COMMENTS`, com o remedio junto.
 
 - **Tipo:** ausência · **Fatia:** `be-database`
 - **Documento:** `docs/wiki/deploy-backend.md:23-24, docs/wiki/sintese-decisoes-arquiteturais.md:96`
@@ -1023,6 +1120,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 67. nenhuma pagina
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO pelo agente (cinco indices `(id) WHERE deleted_at IS NULL` sem
+> leitor; a forma util e a dos indices compostos). A pagina de destino ficava fora do
+> conjunto dele, entao o registro foi feito na integracao, em `atlas-modelo-de-dados.md`.
+
 - **Tipo:** ausência · **Fatia:** `be-database`
 - **Documento:** `docs/wiki/refresh-token-rotacao.md:21 (mesma classe de armadilha, documentada para outra tabela)`
 - **Código:** `backend/src/database/migrations/002_atlas.sql:199,134,155,346,375 vs :242,260`
@@ -1033,6 +1134,16 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 68. nenhuma página
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO (zero citações na wiki a `ranks`, `debug` e
+> `mailer`). Escrito só o que o código não conta: em `gestao-usuarios.md`, que a lista de
+> postos tem **duas fontes** e só o `/api/config` serve o formulário anônimo (o CRUD REST
+> é `auth`-gated), mais as duas propriedades do mailer (no-op silencioso sem `SMTP_HOST`;
+> o host do link não vem do `origin`, que é anônimo e controlado pelo cliente). Em
+> `syncledger.md`, que a garantia "nunca em prod" é **conjunção**
+> (`isTraceEnabled() && !config.isProd`) e que o gate é `requireAtlasPermission` (`read` no
+> GET, `manage` no DELETE), não `auth`. **Não** foi criada página para `ranks`: o módulo é
+> CRUD sem armadilha, e página que reconta código é defeito.
+
 - **Tipo:** ausência · **Fatia:** `estrutural`
 - **Código:** `backend/src/modules/ranks/ranks.service.js`
 
@@ -1041,6 +1152,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Antes de escrever página: aplicar o critério. `ranks` provavelmente só merece uma linha em gestao-usuarios.md (listas controladas de posto/OM), não página própria. `debug.routes.js` merece a âncora arquivo:linha dentro de syncledger.md, porque o invariante "nunca em prod" precisa de caminho verificável. `mailer.js` merece menção em gestao-usuarios.md só se houver armadilha (falha silenciosa de envio).
 
 ### 69. nenhuma página (candidato: docs/wiki/api-rest-atlas.md §"Merge de mapas")
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO com ressalva que o item nao tinha: a op marcadora
+> ja grava `{destMapId, sourceMapIds, moved}`, entao existe rastro **agregado**. O que falta
+> e `createAudit` e origem linha a linha.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** ausência · **Fatia:** `be-maps-briefings`
 - **Documento:** `docs/wiki/api-rest-atlas.md:73`
@@ -1052,6 +1169,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 70. nenhuma página (comportamento entre backend/src/modules/maps/ e o gatilho de 002_atlas.sql)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: o trigger so dispara em soft-delete, e o merge
+> esvazia o mapa sem deleta-lo.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
+
 - **Tipo:** ausência · **Fatia:** `be-maps-briefings`
 - **Documento:** `docs/wiki/api-rest-atlas.md:69-77`
 - **Código:** `backend/src/database/migrations/002_atlas.sql:378-396`
@@ -1061,6 +1183,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Registrar em uma linha na seção de merge de api-rest-atlas.md (:69-77), referenciando o gatilho: "o merge esvazia sem deletar, então slides de briefing que apontam para a origem continuam is_broken=FALSE e passam a mostrar mapa vazio".
 
 ### 71. refresh-token-rotacao.md (secao "Armadilhas")
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `FIND_USER_BY_ID` nao traz `email_verified`. Armadilha nova em
+> `refresh-token-rotacao.md`, com eco nas duas paginas vizinhas que dependem do fato.
 
 - **Tipo:** ausência · **Fatia:** `be-auth`
 - **Documento:** `docs/wiki/refresh-token-rotacao.md:27-29`
@@ -1072,6 +1197,13 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 72. docs/wiki/compartilhamento-atlas.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO nas DUAS pontas: `sharing.routes.js:11-14` ainda
+> diz "no-op on them" e o JSDoc do modal ainda diz "owner-only". Como o agente de
+> documentacao nao pode editar codigo, os dois viraram `[!CONTRADICAO 2026-07-25]` datados,
+> que e o registro correto de pendencia real.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
+
 - **Tipo:** contrato não documentado · **Fatia:** `be-sharing`
 - **Documento:** `docs/wiki/compartilhamento-atlas.md:9,17`
 - **Código:** `backend/src/modules/sharing/sharing.routes.js:11-20`
@@ -1081,6 +1213,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Resolver as duas contra o codigo: corrigir o comentario de sharing.routes.js:11-14 (trocar "no-op on them" por "remover o dono responde 404: ele nao tem linha em atlas_shares") e o JSDoc de sharing.modal.js:15-16 e :735-736 (trocar "owner-only" por "manage"), depois apagar os dois marcadores. Enquanto ficarem pendentes, acrescentar a data no formato [!CONTRADICAO 2026-07-18].
 
 ### 73. docs/wiki/ingestao-projetos-360.md
+
+> **CORRIGIDO em 2026-07-25.** O lado de codigo ja estava corrigido. Os dois marcadores foram apagados, o
+> primeiro virou armadilha (a ordem explica o TIPO do lock) e a supersessao foi para o
+> `## Historico`.
 
 - **Tipo:** contrato não documentado · **Fatia:** `be-sv360`
 - **Documento:** `docs/wiki/ingestao-projetos-360.md:23`
@@ -1092,6 +1228,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 74. docs/wiki/config-dinamico.md
 
+> **CORRIGIDO em 2026-07-25.** Marcador apagado de `config-dinamico.md`; o invariante que
+> sobrou virou prosa afirmativa ("vazio é sinal, não ausência") e a supersessão foi para o
+> `## Histórico` novo da página.
+
 - **Tipo:** desatualizada · **Fatia:** `estrutural`
 - **Código:** `frontend/tests/e2e/config-contract.e2e.test.js:70`
 
@@ -1100,6 +1240,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Apagar o marcador de config-dinamico.md:34 e mover o fato para o `## Histórico` da página.
 
 ### 75. docs/wiki/gestao-usuarios.md (secao "Efeito imediato, e o que nao e reconciliado")
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `reconcileAuthorization` fecha com 4003. Em `organizacoes-om.md` a
+> **lista fechada de gatilhos** foi trocada por criterio, que e a forma que nao apodrece
+> quando um gatilho novo aparece.
 
 - **Tipo:** desatualizada · **Fatia:** `be-users-orgs`
 - **Documento:** `docs/wiki/gestao-usuarios.md:44`
@@ -1111,6 +1255,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 76. docs/wiki/ingestao-projetos-360.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO com correcao de nome: o guard hoje e `typeof blobPool.withEvicted`,
+> nao `.evict`, e `closeAll()` so e alcancavel com o pool stubbado.
+
 - **Tipo:** desatualizada · **Fatia:** `be-utils`
 - **Documento:** `docs/wiki/ingestao-projetos-360.md:32`
 - **Código:** `backend/src/utils/sqlite-blob-pool.js:124-135`
@@ -1121,6 +1268,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 77. docs/wiki/sintese-contrato-erros-http.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: a citacao recortava `errors.js:12-47` e deixava de fora o
+> `:49-58`, que e onde mora o racional. Passou a citar o arquivo inteiro dizendo o que o
+> recorte escondia.
+
 - **Tipo:** desatualizada · **Fatia:** `be-utils`
 - **Documento:** `docs/wiki/sintese-contrato-erros-http.md:5`
 - **Código:** `backend/src/utils/errors.js:49-58`
@@ -1130,6 +1281,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Trocar por `utils/errors.js:12-58` (ou citar o arquivo sem intervalo, ja que ele e inteiramente a lista de pares). Mesma correcao vale para a linha de Fontes :69, que cita o arquivo sem intervalo e esta ok.
 
 ### 78. docs/wiki/streetview-360.md
+
+> **CORRIGIDO em 2026-07-25.** Ja resolvido por outro passo; restava a referencia pendurada "ver contradicao
+> de cache acima" em Fontes, corrigida.
 
 - **Tipo:** desatualizada · **Fatia:** `be-sv360`
 - **Documento:** `docs/wiki/streetview-360.md:24`
@@ -1154,6 +1308,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 80. docs/wiki/upload-imagens-seguranca.md (linha 32) e docs/wiki/imagens-atlas.md (linhas 16 e 37)
 
+> **CORRIGIDO em 2026-07-25.** Os dois marcadores de `imagens-atlas.md` ja haviam saido. Feito o terceiro,
+> em `upload-imagens-seguranca.md`, com a proveniencia indo para o `## Historico`.
+
 - **Tipo:** desatualizada · **Fatia:** `be-images`
 - **Código:** `backend/src/modules/images/images.routes.js:66; backend/src/modules/images/images.schemas.js:12; backend/src/modules/images/images.service.js:142`
 
@@ -1162,6 +1319,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Apagar os tres marcadores mantendo o texto. Em upload-imagens-seguranca.md:32 transformar o cabecalho em secao normal (ex.: 'Um SVG no lote nao gera falha parcial: derruba o lote inteiro'), que e onde a armadilha pertence. Mover a nota de proveniencia (qual guia absorvido dizia o contrario) para um `## Historico` em cada pagina.
 
 ### 81. link-publico.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO (guardas reais no handshake e em
+> `removeConnection`). Citacao reancorada por simbolo.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** desatualizada · **Fatia:** `be-collab`
 - **Documento:** `docs/wiki/link-publico.md:23`
@@ -1173,6 +1335,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 82. backend/CLAUDE.md (secao 'Decisoes de arquitetura'), refletido em docs/wiki/zonas-acesso-geografico.md:47
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `DELETE_ZONE` e hard-DELETE e a tabela nao tem `deleted_at`, o que
+> e excecao a regra de soft-delete do pacote. Registrada **com racional** em
+> `zonas-acesso-geografico.md`; a outra ponta e o `backend/CLAUDE.md`.
+
 - **Tipo:** divergência · **Fatia:** `be-nomes-zones`
 - **Documento:** `backend/CLAUDE.md`
 - **Código:** `backend/src/modules/zones/zones.queries.js:34`
@@ -1182,6 +1348,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Resolver contra o codigo: ou registrar a excecao (schema ng e dado de referencia carregado por FME, nao entidade de usuario, logo hard-delete e aceito) qualificando a regra em backend/CLAUDE.md e citando zones.queries.js:34 em zonas-acesso-geografico.md:47, ou tratar como divida e abrir soft-delete na zona. Nao deixar as duas prosas em pe ao mesmo tempo.
 
 ### 83. backend/CLAUDE.md:115
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido em `backend/CLAUDE.md`. A linha dizia que
+> `GET/DELETE /api/v1/debug/trace` era "(auth)", o que le como "qualquer autenticado ve o
+> ring de qualquer atlas", ou seja, **descrevia um IDOR que o codigo nao tem**. O gate real e
+> `liftAtlasIdToParams` mais `requireAtlasPermission('read')` no GET e `('manage')` no
+> DELETE.
 
 - **Tipo:** divergência · **Fatia:** `be-catalog-config-audit`
 - **Documento:** `backend/CLAUDE.md:115`
@@ -1193,6 +1365,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 84. backend/CLAUDE.md:25
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO/obsoleto: `backend/CLAUDE.md` ja nao enumera modulos. A unica
+> mencao a `resources` esta num parenteses CORRETIVO, dizendo que ele nao existe.
+
 - **Tipo:** divergência · **Fatia:** `be-catalog-config-audit`
 - **Documento:** `backend/CLAUDE.md:25`
 - **Código:** `backend/src/modules/catalog/catalog.tables.js:5-11`
@@ -1202,6 +1377,21 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Trocar `resources` por `catalog` na lista de modulos de backend/CLAUDE.md:25.
 
 ### 85. backend/src/modules/sync/sync.service.js (comentario de codigo) e nenhuma pagina
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e este e dos itens mais valiosos do relatorio, porque a
+> **ausencia** e que e load-bearing. `002_atlas.sql:178` declara so `layer_id UUID,` enquanto
+> as irmas do MESMO arquivo declaram `REFERENCES` (`groups.parent_id:146`,
+> `group_features.group_id:206`), o que faz a falta parecer esquecimento.
+>
+> Nao e: com FK, uma feicao que cite camada cujo create ainda nao chegou (ou foi eliminado
+> pela compactacao CREATE+DELETE da fila) vira `23503` e **envenena o lote**, travando a fila
+> daquele cliente para sempre. Integridade referencial nao e imponivel num log de aplicacao
+> por ordem de chegada.
+>
+> Registrado nos DOIS lugares onde alguem tentaria "consertar": um bloco no ponto de uso em
+> `002_atlas.sql:177-190` e um bullet em `atlas-modelo-de-dados.md`, ao lado do irmao
+> `groups.parent_id`. A metade do comentario em `sync.service.js` (que chama o campo de "FK")
+> fica pendente: o arquivo esta com outro agente.
 
 - **Tipo:** divergência · **Fatia:** `be-database`
 - **Documento:** `backend/src/modules/sync/sync.service.js:167`
@@ -1213,6 +1403,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 86. canal-collab-websocket.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `ws-client.js:397` compara dois valores LOCAIS, e o UUID do
+> servidor nunca volta. A frase foi restringida e a causa real apontada.
+
 - **Tipo:** divergência · **Fatia:** `be-collab`
 - **Documento:** `docs/wiki/canal-collab-websocket.md:17`
 - **Código:** `frontend/src/js/store/sync/ws-client.js:397 e backend/src/modules/collab/collab.gateway.js:250,323`
@@ -1223,6 +1416,25 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 87. docs/wiki/ (15 marcadores em ~12 páginas)
 
+> **CORRIGIDO em 2026-07-25, e DOIS marcadores eram falsos contra o código.**
+>
+> - `sintese-contrato-erros-http.md:25` dizia que refresh/verify-email/resend-verification
+>   drenavam um balde `ip:` único. A separação por rota entrou em `aec63f8` via
+>   `credentialIpLimiter`, e o marcador é de 2026-07-18: **ele sobreviveu ao próprio
+>   conserto**.
+> - `sintese-modulos-fora-do-sync.md:26` dizia que o erro plano do sv360 morria no parser.
+>   O `_request` aceita os dois envelopes desde `c3a49d8`.
+>
+> Doze marcadores viraram prosa afirmativa, porque contradição contra guia ABSORVIDO é
+> irresolvível por construção (o outro lado não existe mais para ser corrigido), mais dois
+> da mesma classe que o item não listava. Dois já estavam RESOLVIDO. Um FICA, e é o certo:
+> `resources-catalogo.md:55` contradiz um `@fileoverview` **vivo**.
+>
+> Continuam pendentes e legítimos, contra código vivo:
+> `atlas-modelo-de-dados.md:21,24`, `compartilhamento-atlas.md:9,17`,
+> `idempotencia-e-convergence-guard.md:31,34`, `upload-imagens-seguranca.md:32`,
+> `sintese-decisoes-arquiteturais.md:66`.
+
 - **Tipo:** divergência · **Fatia:** `estrutural`
 - **Código:** `docs/wiki/wiki-schema.md`
 
@@ -1231,6 +1443,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Converter esses 15 em prosa afirmativa da própria página ("o comportamento é X; a versão antiga dizia Y, não confie nela") ou em linha de `## Histórico`, e apagar o marcador. Reservar [!CONTRADICAO] para conflito com prosa ou comentário VIVO no repositório, que é o caso legítimo de compartilhamento-atlas.md:9,17, ingestao-projetos-360.md:23,25 e gazetteer-nomes-geograficos.md:76.
 
 ### 88. docs/wiki/api-rest-atlas.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO em HEAD. A frase "bypass total" virou "bypass em
+> toda rota que passa por `requireAtlasPermission`", que e o alcance real, mais um paragrafo
+> no restore.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** divergência · **Fatia:** `be-atlas`
 - **Documento:** `docs/wiki/api-rest-atlas.md:17`
@@ -1242,6 +1460,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 89. docs/wiki/api-rest-atlas.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO; a expressao "no-op silencioso" foi eliminada de
+> `api-rest-atlas.md:60`.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
+
 - **Tipo:** divergência · **Fatia:** `be-sharing`
 - **Documento:** `docs/wiki/api-rest-atlas.md:60`
 - **Código:** `backend/src/modules/sharing/sharing.service.js:51-56`
@@ -1251,6 +1474,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Reescrever a linha 60 como "Remover o dono responde 404 NOT_FOUND 'Share' (o dono nao tem linha em atlas_shares), nao 204", eliminando a palavra "no-op silencioso" que colide com compartilhamento-atlas.md:7-9.
 
 ### 90. docs/wiki/atlas-modelo-de-dados.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: nenhum dos dois marcadores era contradicao
+> doc-contra-codigo, e ambos sao irresolviveis (a migracao ja foi aplicada). Marcadores
+> removidos, prosa preservada como armadilha, que e a poda certa.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** divergência · **Fatia:** `be-database`
 - **Documento:** `docs/wiki/atlas-modelo-de-dados.md:21,24`
@@ -1262,6 +1491,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 91. docs/wiki/calibracao-e-grafo-360.md
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: as quatro escritas de target ja rodam em `tx()`, com comentario
+> nomeando o achado 68 (`8230b81`, 2026-07-24). Em vez de escrever a armadilha, a frase que
+> dizia que so `updateCalibration` estava protegida foi generalizada e datada.
+
 - **Tipo:** divergência · **Fatia:** `be-sv360`
 - **Documento:** `docs/wiki/calibracao-e-grafo-360.md:43`
 - **Código:** `backend/src/modules/streetview360/sv360.write.service.js:141-153`
@@ -1271,6 +1504,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir :43 para dizer que a protecao e SO do caminho de calibracao (agregado e lote), e nomear as tres rotas de target que ainda persistem antes do 404, ou registrar como CONTRADICAO datada ate o codigo igualar.
 
 ### 92. docs/wiki/clone-atlas.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e o mecanismo e melhor que o enunciado: o
+> visitante passa `auth`, `confineVisitorPrincipal` e `requireAtlasPermission('read')`, e
+> morre so no INSERT, porque `owner_id = 'public-<uuid>'` nao e UUID, dando 22P02 e 400. Ou
+> seja, o que impede o clone e um **limite acidental** de tipo, nao um gate. A afirmacao
+> central da pagina fica; o caso alarmante passou a ser descrito como o acidente que e.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** divergência · **Fatia:** `be-atlas`
 - **Documento:** `docs/wiki/clone-atlas.md:7`
@@ -1282,6 +1523,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 93. docs/wiki/erros-api.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO **e a conclusao da pagina era falsa**: o `requestLogger` passou a
+> ser montado em TODO ambiente (o gate `isTest` caiu em 2026-07-25, item 60 do eixo de
+> testes). Nota historica de `erros-api.md` corrigida e alinhada com `hardening-borda-api`.
+
 - **Tipo:** divergência · **Fatia:** `be-middleware`
 - **Documento:** `docs/wiki/erros-api.md:47`
 - **Código:** `backend/src/middleware/request-logger.js:11-25`
@@ -1291,6 +1536,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir a Nota historica de `erros-api.md:47` para "sem passar pelo `errorHandler`, e portanto sem log enriquecido nem `details` (o log de request comum sai normalmente, `backend/src/middleware/request-logger.js:11-25`)", alinhando com a formulacao ja correta de `hardening-borda-api.md:20`.
 
 ### 94. docs/wiki/gestao-usuarios.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `updateUserAdminSchema` nao tem `.allow(null)`, entao o caso
+> descrito da 422 e nunca 200. Paragrafo reescrito.
 
 - **Tipo:** divergência · **Fatia:** `be-users-orgs`
 - **Documento:** `docs/wiki/gestao-usuarios.md:11`
@@ -1302,6 +1550,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 95. docs/wiki/gestao-usuarios.md
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO: `nodemailer ^9.0.3` esta no `backend/package.json` desde
+> 2026-07-19. O paragrafo do mailer foi corrigido para o comportamento real.
+
 - **Tipo:** divergência · **Fatia:** `be-utils`
 - **Documento:** `docs/wiki/gestao-usuarios.md:27`
 - **Código:** `backend/src/utils/mailer.js:41-53`
@@ -1311,6 +1562,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir :27 para dizer que hoje NENHUM e-mail e enviado (o transporte e opcional por desenho e a dependencia nao esta instalada), portanto o desbloqueio por admin com `email_verified: true` e o unico caminho real, e nao um plano B. Registrar que habilitar SMTP e um follow-up de deploy que exige adicionar a dependencia, citando mailer.js:41-53 e a ausencia em backend/package.json.
 
 ### 96. docs/wiki/organizacoes-om.md
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO: `UPDATE_ORGANIZATION` usa `CASE WHEN $5` e o service passa flag de
+> presenca, entao os dois modulos convergiram e a afirmacao de "dois padroes" caiu.
 
 - **Tipo:** divergência · **Fatia:** `be-users-orgs`
 - **Documento:** `docs/wiki/organizacoes-om.md:35`
@@ -1322,6 +1576,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 97. docs/wiki/sintese-contratos-congelados.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com âncora deslocada (`config.service.js:186`
+> para `:217`). Reescrito nos dois lugares (`config-runtime-urls-relativas.md` e
+> `sintese-contratos-congelados.md`) na forma que resiste: "o backend publica e nenhum
+> arquivo de `frontend/src/` lê".
+
 - **Tipo:** divergência · **Fatia:** `estrutural`
 - **Código:** `backend/src/modules/config/config.service.js:186`
 
@@ -1330,6 +1589,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Reescrever as duas frases como "o backend publica `assets3dBaseUrl` (config.service.js:186) e NENHUM arquivo de frontend/src o lê", que é a armadilha real e fica ancorada nos dois lados.
 
 ### 98. docs/wiki/sintese-rest-vs-sync.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Ancora trocada, mais uma regra nova na pagina:
+> **nunca ancore schema em comentario**, ancore na coluna.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** divergência · **Fatia:** `be-sharing`
 - **Documento:** `docs/wiki/sintese-rest-vs-sync.md:45`
@@ -1341,6 +1605,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 99. docs/wiki/sintese-rest-vs-sync.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO; `sintese-rest-vs-sync.md:7` corrigida.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
+
 - **Tipo:** divergência · **Fatia:** `be-maps-briefings`
 - **Documento:** `docs/wiki/sintese-rest-vs-sync.md:7`
 - **Código:** `backend/src/modules/maps/maps.routes.js:17`
@@ -1350,6 +1618,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir a linha 7 para "mapas e briefings expõem leitura, mais uma única escrita estrutural (`merge`), veja a seção de exceções". Frase única, mantém a página do mesmo tamanho e elimina a leitura errada mais provável.
 
 ### 100. docs/wiki/zonas-acesso-geografico.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `auth` precede `requireAdmin` nas 30 rotas e o papel e vivo. O
+> contraste foi corrigido para `org_role`/`organization_id`.
 
 - **Tipo:** divergência · **Fatia:** `be-middleware`
 - **Documento:** `docs/wiki/zonas-acesso-geografico.md:31`
@@ -1361,6 +1632,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 101. gestao-usuarios.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: 409 contra 201 e oraculo de e-mail. Registrado nas duas paginas
+> onde a decisao seria tomada.
+
 - **Tipo:** divergência · **Fatia:** `be-auth`
 - **Documento:** `docs/wiki/gestao-usuarios.md:25 (e o eco em docs/wiki/autenticacao-jwt.md:51)`
 - **Código:** `backend/src/modules/auth/auth.service.js:210-224`
@@ -1370,6 +1644,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Reescrever gestao-usuarios.md:25 para dizer o que a defesa entrega de fato (esconde qual campo colidiu; nao impede enumeracao de e-mail via username descartavel) e citar auth.service.js:213-224. Se o objetivo for de fato fechar o oraculo, isso e mudanca de codigo, nao de doc, e a doc deve marcar a lacuna ate la.
 
 ### 102. hardening-borda-api.md (bloco de citacoes a config.js)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO **e pior que o relatado**: o `config.js` foi de ~261 para 369
+> linhas, entao a deriva e maior. Todas as citacoes viraram ancora de simbolo
+> (`validateEnvVariables`, `NUMERIC_ENV_RULES`, `config.jwt.algorithms`,
+> `resolveAllowSelfRegistration`), que fecha a classe em vez de adiar.
 
 - **Tipo:** divergência · **Fatia:** `be-auth`
 - **Documento:** `docs/wiki/hardening-borda-api.md:5, :54, :56, :58`
@@ -1381,6 +1660,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 103. sintese-contrato-erros-http
 
+> **CORRIGIDO em 2026-07-25.** Metade ja fechada por outro passo; feita a que faltava:
+> `SERVICE_UNAVAILABLE` entrou na enumeracao de `erros-api.md`, com o ramo `AppError`.
+
 - **Tipo:** divergência · **Fatia:** `be-sync`
 - **Documento:** `docs/wiki/sintese-contrato-erros-http.md:57`
 - **Código:** `backend/src/modules/sync/sync.service.js:665`
@@ -1391,6 +1673,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 104. backend/CLAUDE.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. `backend/CLAUDE.md` mandava procurar uma
+> "série numerada 00-16" de guias que a wiki nunca teve. Substituído pelo ponteiro ao
+> `index.md`, dizendo o que era falso.
+
 - **Tipo:** link quebrado · **Fatia:** `estrutural`
 - **Código:** `docs/wiki/index.md`
 
@@ -1400,6 +1686,17 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 105. backend/CLAUDE.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e o mecanismo é o que interessa: o caminho
+> apontava para uma pasta `docs/guias` inexistente, escrito **nu**, sem crase e sem
+> sintaxe markdown, o que o tornava ponto cego dos DOIS guardas ao mesmo tempo (o de
+> caminho exige crases, o de link exige sintaxe markdown). Substituído por wikilinks, que
+> TÊM guarda que resolve o alvo.
+>
+> Nota de método: ao escrever a correção eu pus o caminho morto entre crases dentro do
+> parêntese que explicava sua morte, e o `docs-integridade` reprovou na hora. É a mesma
+> forma do defeito do guarda de símbolo desta manhã, com o sinal invertido: aqui o guarda
+> me pegou em vez de me abençoar.
+
 - **Tipo:** link quebrado · **Fatia:** `estrutural`
 - **Código:** `backend/src/modules/streetview360/`
 
@@ -1408,6 +1705,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Apontar para [[streetview-360]] / [[ingestao-projetos-360]] em docs/wiki/, e considerar estender o teste para caminhos nus terminados em .md.
 
 ### 106. backend/CLAUDE.md
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO: a linha já traz o link correto para
+> `syncledger.md`, e não há nenhum `arquitetura-sync.md` restante no arquivo.
 
 - **Tipo:** link quebrado · **Fatia:** `estrutural`
 - **Código:** `docs/wiki/index.md`
@@ -1431,6 +1731,13 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 108. docs/wiki/ (~20 citações)
 
+> **CORRIGIDO em 2026-07-25. REFUTADO no mecanismo, CONFIRMADO no risco**, e a distinção
+> vale mais que o item. As ~20 citações relativas **não escapam** da `RE_CAMINHO`: a
+> inversão de 2026-07-24 mais as `RAIZES_DE_RESOLUCAO` já as cobrem. O que **de fato**
+> escapa é o nome **sem barra**, porque a regex exige ao menos um `/`. Auditado o corpus:
+> 19 `config.js`, 13 `index.js` e 3 `catalog.service.js` ambíguos entre os dois pacotes.
+> Prefixados onde o contexto não desfaz a ambiguidade, em 10 páginas.
+
 - **Tipo:** link quebrado · **Fatia:** `estrutural`
 - **Código:** `docs/wiki/atlas-modelo-de-dados.md:42`
 
@@ -1452,6 +1759,18 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Duas coisas, na ordem: (1) normalizar as 10 citacoes da fatia para `backend/`/`frontend/`; (2) fechar o buraco do guard, seja acrescentando `ebgeo_backend|ebgeo_web` a `RE_CAMINHO` para que passem a FALHAR, seja adicionando uma assercao dedicada 'nenhum doc cita prefixo de repo legado'. Sem (2) a correcao manual apodrece de novo, e a barra do projeto e 'onde existe teste que varre tudo, nao confira a mao'.
 
 ### 110. docs/wiki/{config-runtime-urls-relativas.md:7, assets3d-distribuicao.md:17, organizacoes-om.md:36, gestao-usuarios.md:23, sintese-contrato-erros-http.md:33}
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. As cinco citacoes a
+> `config.service.js` estavam todas erradas, e o item subestima: o arquivo cresceu de ~261
+> para 369 linhas, entao a deriva e maior que os ~30 supostos.
+>
+> A correcao **nao** renumerou. Todas viraram **ancora por simbolo**, que e a acao de fundo
+> que o proprio item sugere: o guarda valida o caminho e nunca a linha, por design declarado
+> no cabecalho do teste, entao numero de linha em citacao a funcao volatil apodrece por
+> construcao e renumerar seria adiar. `config-runtime-urls-relativas.md`,
+> `sintese-contrato-erros-http.md` e `gestao-usuarios.md` corrigidas nesta rodada;
+> `assets3d-distribuicao.md` e `organizacoes-om.md` ja tinham sido convertidas pelos agentes
+> das suas fatias.
 
 - **Tipo:** link quebrado · **Fatia:** `be-catalog-config-audit`
 - **Documento:** `docs/wiki/config-runtime-urls-relativas.md:7`
@@ -1489,6 +1808,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 113. docs/wiki/autenticacao-jwt.md
 
+> **CORRIGIDO em 2026-07-25.** Ja fechado pelo item 20; confirmado e trocado por simbolo.
+
 - **Tipo:** link quebrado · **Fatia:** `be-boot`
 - **Documento:** `docs/wiki/autenticacao-jwt.md:39`
 - **Código:** `backend/src/config.js:53`
@@ -1499,6 +1820,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 114. docs/wiki/hardening-borda-api.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO junto com o item 102; ver a nota de la.
+
 - **Tipo:** link quebrado · **Fatia:** `be-boot`
 - **Documento:** `docs/wiki/hardening-borda-api.md:5, :32, :54, :56, :58, :69`
 - **Código:** `backend/src/config.js:53`
@@ -1508,6 +1831,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Reancorar as seis citacoes contra o arquivo atual, ou trocar as que sao ponteiro de leitura por citacao de simbolo (`config.jwt.algorithms`, `NUMERIC_ENV_RULES`) que nao apodrece com a linha.
 
 ### 115. docs/wiki/sintese-cache-http-imutavel.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e **o proprio relatorio estava defasado**: as linhas reais nao
+> sao as citadas. Trocadas por ancora de simbolo (`ASSETS_3D_MAX_INFLIGHT` /
+> `SV360_MAX_INFLIGHT`), com o acrescimo de que o semaforo e **por processo**.
 
 - **Tipo:** link quebrado · **Fatia:** `be-boot`
 - **Documento:** `docs/wiki/sintese-cache-http-imutavel.md:20`
@@ -1532,6 +1859,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 117. docs/wiki/syncledger.md
 
+> **CORRIGIDO em 2026-07-25.** Ja fechado: os dois marcadores de `syncledger.md` sumiram e a pagina tem
+> secao afirmativa com registro no `## Historico`. Verificado, sem edicao.
+
 - **Tipo:** link quebrado · **Fatia:** `be-utils`
 - **Documento:** `docs/wiki/syncledger.md:40`
 - **Código:** `backend/src/utils/sync-trace.js:18-30`
@@ -1541,6 +1871,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Apagar o marcador e substituir por uma linha afirmativa: o espelho de backend e `backend/src/utils/sync-trace.js`, que carrega o subconjunto server.* do enum (:18-22) alem do ring. Corrigir tambem o JSDoc de frontend/src/js/store/sync/diag/trace-stages.js:6-7, que e a fonte do caminho morto, senao a contradicao renasce na proxima leitura.
 
 ### 118. docs/wiki/upload-imagens-seguranca.md (linha 34)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Caminhos expandidos e o irmao do frontend reancorado por simbolo
+> (`getServiceUrl`), porque a linha citada era JSDoc.
 
 - **Tipo:** link quebrado · **Fatia:** `be-images`
 - **Código:** `frontend/tests/unit/docs-integridade.test.js:78-80; backend/src/middleware/error-handler.js:18,28-31`
@@ -1564,6 +1897,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 120. docs/wiki/wiki-schema.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO em parte: `wiki-schema.md` não recebia nenhum
+> `[[wikilink]]` (só um link markdown na linha 3 do índice, que o detector de órfã não
+> conta). Seção `## Meta` acrescentada ao `index.md`; `lint_wiki.py` reporta zero órfãs.
+
 - **Tipo:** órfã · **Fatia:** `estrutural`
 - **Código:** `docs/wiki/index.md`
 
@@ -1573,6 +1910,13 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 121. docs/wiki/erros-api.md
 
+> **CORRIGIDO em 2026-07-25 por PODA**, que é o remédio de recontagem. A deferência era
+> circular (`erros-api.md:5` aponta para a síntese, a síntese aponta de volta). A divisão
+> passou a ser **emissor** (a síntese) contra **consumidor** (erros-api), declarada nas
+> duas, e os trechos duplicados saíram da página que não é dona. De quebra, o
+> `[!CONTRADICAO]` de `erros-api.md:11` era wiki-contra-wiki, resolvido corrigindo a
+> síntese.
+
 - **Tipo:** recontagem · **Fatia:** `estrutural`
 - **Código:** `docs/wiki/sintese-contrato-erros-http.md:5`
 
@@ -1581,6 +1925,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Decidir uma: fundir em erros-api (armadilhas + contrato), ou dar à síntese um escopo que não seja "o que sobra". Em qualquer caso, remover a frase de deferência da página que ficar.
 
 ### 122. docs/wiki/sintese-nao-e-crdt.md
+
+> **CORRIGIDO em 2026-07-25. Página FUNDIDA e APAGADA.** `sintese-nao-e-crdt.md` foi
+> absorvida em `modelo-conflito-lww.md`: só o racional da alternativa rejeitada e o
+> resíduo lexical "CRDT" no código eram exclusivos, e as quatro afirmações restantes já
+> estavam duplicadas. 19 wikilinks repontados em 17 páginas, 2 entradas removidas do
+> `index.md`, registro no `## Histórico`. De quebra foi corrigida a formulação ampla
+> demais que se propagava a partir dela ("escrita só via sync" para "escrita
+> **incremental** só via sync") em `modelo-conflito-lww.md` e `envelope-operacao.md`.
 
 - **Tipo:** recontagem · **Fatia:** `estrutural`
 - **Código:** `docs/wiki/modelo-conflito-lww.md:11`
@@ -1595,6 +1947,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 123. docs/wiki/syncledger.md:24 (cobre so a metade do frontend)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO (`MAX_ATLAS_RINGS = 64`, eviccao FIFO). Bullet em
+> `syncledger.md`, com a nota do `clearTrace` sem `atlasId`.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-catalog-config-audit`
 - **Documento:** `docs/wiki/syncledger.md:24`
 - **Código:** `backend/src/utils/sync-trace.js:35-41`
@@ -1605,6 +1960,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 124. docs/wiki/upload-imagens-seguranca.md (linhas 40 e 47)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Paragrafo do orfao inverso: `failed[]` **nao** implica ausencia
+> de linha no banco, entao reconcilie por 404 no download.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-images`
 - **Código:** `backend/src/modules/images/images.service.js:215-232 e :82-87`
 
@@ -1614,6 +1972,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 125. nenhuma pagina
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO (`validate.js:24` com a versao do express instalada). Secao nova
+> em `hardening-borda-api.md`.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-middleware`
 - **Código:** `backend/src/middleware/validate.js:24`
 
@@ -1622,6 +1983,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Uma linha em `docs/wiki/hardening-borda-api.md` ou em `docs/wiki/sintese-contrato-erros-http.md` (onde `validate()` ja e discutido): registrar que `backend/src/middleware/validate.js:24` prende o pacote ao Express 4, porque reatribuir `req.query` lanca em Express 5. Alternativa se preferir codificar em vez de documentar (melhor pelo principio 1): trocar a reatribuicao por mutacao no lugar para a fonte `query`, o que remove a armadilha e dispensa a pagina.
 
 ### 126. deploy-backend.md (secao de variaveis de ambiente)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `AUTH_VERIFICATION_MODE` nao tem nenhum leitor fora da propria
+> definicao. Bloco de e-mail novo em `deploy-backend.md`, incluindo que `APP_BASE_URL`
+> vazia produz link **relativo**, e nao a origem da requisicao.
 
 - **Tipo:** ausência · **Fatia:** `be-auth`
 - **Documento:** `docs/wiki/deploy-backend.md:48, :54`
@@ -1633,6 +1998,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 127. docs/wiki/compartilhamento-atlas.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: sao 5 `action` no broadcast e o consumidor
+> unico filtra 2 delas mais o proprio `userId`. O "buraco conhecido" foi generalizado e o
+> link morto da tela do co-Gestor documentado.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
+
 - **Tipo:** ausência · **Fatia:** `be-sharing`
 - **Documento:** `docs/wiki/compartilhamento-atlas.md:41`
 - **Código:** `backend/src/modules/sharing/sharing.controller.js:14,20`
@@ -1642,6 +2013,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Generalizar a frase de "Buraco conhecido": das cinco acoes de sharing_updated apenas duas tem consumidor. public_enabled/public_disabled/user_removed sao emitidas e descartadas (sync-engine.js:465-472). Consequencia concreta a registrar: como enablePublicSharing rotaciona o link (atlas.service.js:460-462), um co-Gestor com o modal aberto fica com um link ja morto na tela.
 
 ### 128. docs/wiki/zonas-acesso-geografico.md:34
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `Joi.number()` sem faixa, e o `ST_IsValid` nao ve SRID.
+> Registrado em contraste com `nomes.schemas.js`, que faz certo, porque a assimetria e o que
+> torna a falta visivel.
 
 - **Tipo:** ausência · **Fatia:** `be-nomes-zones`
 - **Documento:** `docs/wiki/zonas-acesso-geografico.md:34`
@@ -1653,6 +2028,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 129. nenhuma pagina (modulo backend/src/modules/ranks/)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: `LIST_RANKS`/`LIST_ORGANIZATIONS` sem `is_active` enquanto o
+> `config.service.js` filtra. Generalizado em `organizacoes-om.md`; **nao** foi criada pagina
+> nova para `ranks`, porque seria recontagem.
+
 - **Tipo:** ausência · **Fatia:** `be-users-orgs`
 - **Documento:** `docs/wiki/organizacoes-om.md:36`
 - **Código:** `backend/src/modules/config/config.service.js:141-152`
@@ -1663,6 +2042,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 130. docs/wiki/index.md
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO por medicao. Teto de 300 linhas: a maior pagina tem **152**, com
+> 4441 linhas em 66 paginas, entao nao ha o que dividir. Os demais criterios ja passam pelo
+> teste. Um ponto do item esta errado: a head real de migracoes e `007_audit_zone_actions.sql`,
+> nao `005_sv360.sql`, mas o `backend/CLAUDE.md` nao crava numero, entao nao ha divergencia.
+
 - **Tipo:** contrato não documentado · **Fatia:** `estrutural`
 - **Código:** `backend/src/database/migrations/005_sv360.sql`
 
@@ -1671,6 +2055,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Nenhuma. Registrado como controle negativo do escopo desta auditoria: as verificações de teto, wikilink e index foram exaustivas e negativas, não omitidas.
 
 ### 131. nenhuma página (candidato: docs/wiki/api-rest-atlas.md §"Contratos de resposta que surpreendem")
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO; bullet novo em `api-rest-atlas.md` secao
+> "Contratos de resposta".
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** contrato não documentado · **Fatia:** `be-maps-briefings`
 - **Documento:** `docs/wiki/api-rest-atlas.md:84`
@@ -1682,6 +2071,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 132. backend/src/database/migrations/003_sync.sql (cabecalho do proprio arquivo)
 
+> **CORRIGIDO em 2026-07-25.** Nada a fazer no eixo de documentacao: `resources-catalogo.md` segue sendo o
+> desempate, e o cabecalho da migracao e territorio de `backend/`.
+
 - **Tipo:** desatualizada · **Fatia:** `be-database`
 - **Documento:** `backend/src/database/migrations/003_sync.sql:3`
 - **Código:** `backend/src/database/migrations/003_sync.sql:95-115`
@@ -1691,6 +2083,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Baixa prioridade e edicao de migracao ja aplicada, entao corrigir so se outro motivo abrir o arquivo. Se nao, garantir que resources-catalogo.md continue sendo o desempate (ja e, em :12-13).
 
 ### 133. docs/wiki/deploy-backend.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO como supersessao: as tres partes estao na MESMA migracao e o
+> `migrate.js` roda em transacao unica, entao o estado descrito e inalcancavel. Bullet
+> removido e convertido em nota historica dizendo por que.
 
 - **Tipo:** desatualizada · **Fatia:** `be-database`
 - **Documento:** `docs/wiki/deploy-backend.md:145`
@@ -1702,6 +2098,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 134. docs/wiki/gazetteer-nomes-geograficos.md:76
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, **e o item errou o motivo**: o comentario da migracao ja tinha
+> sido corrigido em 2026-07-24. Marcador apagado, conteudo virou prosa assentada e o
+> precedente foi para o `## Historico`.
+
 - **Tipo:** desatualizada · **Fatia:** `be-nomes-zones`
 - **Documento:** `docs/wiki/gazetteer-nomes-geograficos.md:76`
 - **Código:** `backend/src/database/migrations/004_ng.sql:163-164`
@@ -1711,6 +2111,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Apagar o marcador e converter o paragrafo em prosa assentada (ou nota historica, ao lado da que ja existe em :74), preservando integralmente o conteudo e dizendo por que o comentario da migracao nao sera corrigido: e migracao aplicada, forward-only. Assim o gate para de acordar por um item que ja foi decidido.
 
 ### 135. docs/wiki/sintese-decisoes-arquiteturais.md:66 (marcador CONTRADICAO pendente)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Marcador apagado; texto afirmativo com **quatro** excecoes e
+> ancora por simbolo (`mergeMaps`, `duplicateMap`, `cloneAtlas`, `importAtlas`), porque a
+> rota derivou de novo nesta semana.
 
 - **Tipo:** desatualizada · **Fatia:** `be-maps-briefings`
 - **Documento:** `docs/wiki/sintese-decisoes-arquiteturais.md:66`
@@ -1722,6 +2126,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 136. qualidade-conexao-adaptativa.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e MAIOR que uma linha: tudo em `collab.handlers.js` deslocou ~68
+> linhas. As tres ancoras viraram ancora de simbolo em vez de renumeradas.
+
 - **Tipo:** desatualizada · **Fatia:** `be-collab`
 - **Documento:** `docs/wiki/qualidade-conexao-adaptativa.md:19`
 - **Código:** `backend/src/modules/collab/collab.handlers.js:219`
@@ -1732,6 +2139,15 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 137. README.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido no `README.md` da raiz, com contagem REAL diferente
+> das duas hipoteses (175 arquivos no frontend, nao 114 nem 166). O bloco tinha **quatro**
+> afirmacoes desatualizadas ao mesmo tempo, nao uma: a contagem, "cobertura sem threshold
+> bloqueante" (hoje ha piso), `npm test` descrito como so Vitest (hoje roda os dois pacotes) e
+> `test:all`/`lint:all` como comandos principais (hoje sao apelidos).
+>
+> A correcao **removeu o numero** em vez de atualiza-lo: contagem em prosa apodrece por
+> construcao, e este bloco provou isso duas vezes.
+
 - **Tipo:** desatualizada · **Fatia:** `estrutural`
 - **Código:** `frontend/tests/`
 
@@ -1740,6 +2156,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Remover a contagem (ou trocá-la por "execução única"); número de arquivos de teste não é informação que sobreviva a um commit.
 
 ### 138. backend/src/modules/streetview360/sv360.service.js (JSDoc)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido no ponto de uso. O `@returns` de `resolveThumbnailPath`
+> declarava `Promise<string|null>` e a funcao devolve `{ filePath, projectStatus }`. O campo
+> omitido nao era detalhe: **`projectStatus` e o que decide o escopo de cache**, entao quem
+> programasse contra o JSDoc trataria o retorno como caminho e publicaria thumbnail de
+> projeto desabilitado. O JSDoc agora declara os dois campos e diz para que serve o segundo.
 
 - **Tipo:** divergência · **Fatia:** `be-sv360`
 - **Documento:** `backend/src/modules/streetview360/sv360.service.js:239`
@@ -1751,6 +2173,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 139. comentario de contrato em backend/src/modules/collab/collab.gateway.js (unico call site de duas vias de toFrontendRole)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido. O comentario de contrato do frame `connected` listava
+> **tres** permissoes de cinco e **quatro** papeis de seis, omitindo `manage`/`comment` e
+> `manager`/`commenter`. E a mesma lista fechada que a constituicao proibe e que ja produziu
+> bug real duas vezes, agora na forma mais barata de propagar: um comentario de contrato, que
+> e onde quem for consumir o frame olha primeiro.
+
 - **Tipo:** divergência · **Fatia:** `be-utils`
 - **Documento:** `backend/src/modules/collab/collab.gateway.js:362-363`
 - **Código:** `backend/src/utils/roles.js:14-18`
@@ -1760,6 +2188,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir o comentario para as cinco permissoes (read<comment<write<manage<owner) e os seis papeis, ou remover a enumeracao e apontar para utils/roles.js:12-19, que ja e a lista canonica.
 
 ### 140. docs/wiki/organizacoes-om.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com deriva maior que a relatada. Tudo virou ancora de simbolo
+> (`PRINCIPAL_UUID_RE`, `reconcileAuthorization`, `ng.fn_user_zone_geoms`).
 
 - **Tipo:** divergência · **Fatia:** `be-middleware`
 - **Documento:** `docs/wiki/organizacoes-om.md:28 e :30`
@@ -1771,6 +2202,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 141. docs/wiki/upload-imagens-seguranca.md (linha 59) e o texto 'Maximum size: 10MB' na linha 25
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. Os dois numeros magicos viraram env vars nomeadas, com a nota de
+> que so o parser global de 10 MB e literal, e o custo do gate `req.user` (token expirado da
+> **413**, nao 401).
+
 - **Tipo:** divergência · **Fatia:** `be-images`
 - **Código:** `backend/src/app.js:59-60; backend/src/config.js:68 e :72`
 
@@ -1779,6 +2214,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Anotar os dois numeros como defaults e nomear as env vars: 'parser do lote = MAX_BULK_UPLOAD_MB (default 50 MB)' e 'limite por imagem = MAX_IMAGE_SIZE_MB (default 10 MB)'. Custo baixo, elimina a unica ancora da pagina que apodrece por configuracao em vez de por commit.
 
 ### 142. backend/src/modules/streetview360/sv360.merge.js (comentario)
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido: o comentario citava `012_organizations.sql`, migracao
+> que **nunca existiu** neste repositorio. O seed do id de organizacao padrao esta em
+> `001_core.sql:27`.
 
 - **Tipo:** link quebrado · **Fatia:** `be-sv360`
 - **Documento:** `backend/src/modules/streetview360/sv360.merge.js:25`
@@ -1790,6 +2229,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 143. docs/wiki/assets3d-distribuicao.md:17
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO como link quebrado, com linhas **diferentes** das do relatorio nos
+> tres pontos. Reancorado por simbolo.
+
 - **Tipo:** link quebrado · **Fatia:** `be-nomes-zones`
 - **Documento:** `docs/wiki/assets3d-distribuicao.md:17`
 - **Código:** `backend/src/modules/config/config.service.js:186`
@@ -1799,6 +2241,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Trocar :150 por :186 em assets3d-distribuicao.md:17. De quebra, backend/src/app.js:68 na mesma pagina (:7, para o flexibleAuth global) aponta para o comentario; o app.use(flexibleAuth) esta em backend/src/app.js:70.
 
 ### 144. docs/wiki/atlas-modelo-de-dados.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** link quebrado · **Fatia:** `be-database`
 - **Documento:** `docs/wiki/atlas-modelo-de-dados.md:22`
@@ -1810,6 +2256,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 145. docs/wiki/ingestao-projetos-360.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e o `:83-95` do relatorio tambem ja era stale. Trocado por nome
+> das variaveis mais arquivo, sem linha.
+
 - **Tipo:** link quebrado · **Fatia:** `be-sv360`
 - **Documento:** `docs/wiki/ingestao-projetos-360.md:43`
 - **Código:** `backend/src/config.js:83-95`
@@ -1819,6 +2268,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Trocar por `backend/src/config.js:83-95`.
 
 ### 146. docs/wiki/ingestao-projetos-360.md
+
+> **CORRIGIDO em 2026-07-25.** Mesmo achado do item 145; ver a nota de la.
 
 - **Tipo:** link quebrado · **Fatia:** `be-boot`
 - **Documento:** `docs/wiki/ingestao-projetos-360.md:43`
@@ -1830,6 +2281,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 147. docs/wiki/organizacoes-om.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO junto com o item 140; ver a nota de la.
+
 - **Tipo:** link quebrado · **Fatia:** `be-users-orgs`
 - **Documento:** `docs/wiki/organizacoes-om.md:26 e :9`
 - **Código:** `backend/src/modules/collab/collab.gateway.js:132-134`
@@ -1839,6 +2292,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir :26 para `collab.gateway.js:132-134` (fechamento por org) e, se quiser manter a mencao ao gate de conta, citar :128-131 separadamente. Em :9, trocar a ancora por codigo do modulo `zones`/`ng` (por exemplo a funcao `ng.fn_user_zone_geoms` usada em nomes.queries.js) em vez do comentario em users.schemas.js.
 
 ### 148. docs/wiki/sintese-cache-http-imutavel.md
+
+> **CORRIGIDO em 2026-07-25.** Mesmo achado do item 115; ver a nota de la.
 
 - **Tipo:** link quebrado · **Fatia:** `be-sv360`
 - **Documento:** `docs/wiki/sintese-cache-http-imutavel.md:20`
@@ -1850,6 +2305,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 149. docs/wiki/sintese-capacidades-por-papel.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com deriva MAIOR que a relatada. Reancorada por
+> simbolo em vez de renumerada, porque o trecho anda toda semana.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
+
 - **Tipo:** link quebrado · **Fatia:** `be-utils`
 - **Documento:** `docs/wiki/sintese-capacidades-por-papel.md:9`
 - **Código:** `backend/src/modules/collab/collab.gateway.js:364-372`
@@ -1859,6 +2319,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Atualizar a citacao para collab.gateway.js:364-372.
 
 ### 150. docs/wiki/sintese-capacidades-por-papel.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** link quebrado · **Fatia:** `be-utils`
 - **Documento:** `docs/wiki/sintese-capacidades-por-papel.md:53`
@@ -1870,6 +2334,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 151. docs/wiki/zonas-acesso-geografico.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, **e o alvo mudou de novo** durante a propria correcao. Virou
+> `ng.fn_user_zone_geoms` ancorada por simbolo, aqui e na pagina vizinha.
+
 - **Tipo:** link quebrado · **Fatia:** `be-database`
 - **Documento:** `docs/wiki/zonas-acesso-geografico.md:21`
 - **Código:** `backend/src/database/migrations/004_ng.sql:246-257`
@@ -1879,6 +2346,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Ajustar para :246-257 (ou :246-256, alinhando com a pagina irma).
 
 ### 152. sintese-limites-collab.md
+
+> **CORRIGIDO em 2026-07-25.** Ja fechado: `sintese-limites-collab.md:59` ja aponta para as duas paginas.
+> Verificado, sem edicao.
 
 - **Tipo:** link quebrado · **Fatia:** `be-collab`
 - **Documento:** `docs/wiki/sintese-limites-collab.md:52`
@@ -1890,6 +2360,8 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 153. syncledger
 
+> **CORRIGIDO em 2026-07-25.** Ja fechado junto com o item 117. Verificado, sem edicao.
+
 - **Tipo:** link quebrado · **Fatia:** `be-sync`
 - **Documento:** `docs/wiki/syncledger.md:40`
 - **Código:** `backend/src/modules/sync/sync.service.js:5`
@@ -1900,6 +2372,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 154. docs/wiki (envelope plano do sv360, 7 paginas)
 
+> **CORRIGIDO em 2026-07-25.** Podado nas tres paginas sob alcance: uma ficou com o mecanismo e as outras
+> duas viraram ponteiro para `[[sintese-contratos-congelados]]`, que foi conferida como ainda
+> portadora do fato completo. Tres copias restantes ficam para os grupos donos.
+
 - **Tipo:** recontagem · **Fatia:** `be-sv360`
 - **Documento:** `docs/wiki/streetview-360.md:14`
 - **Código:** `backend/src/modules/streetview360/sv360-error.js:15-36`
@@ -1909,6 +2385,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Manter a afirmacao completa so em sintese-contratos-congelados e reduzir as demais a wikilink. Baixa prioridade: hoje as seis concordam entre si e com sv360-error.js:15-36.
 
 ### 155. docs/wiki/sintese-rest-vs-sync.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO: eram **tres copias** da mesma assimetria. A
+> explicacao ficou em `compartilhamento-atlas.md` e as outras duas viraram wikilink, que e
+> a poda que impede as tres divergirem com o tempo.
+>
+> Verificado contra HEAD (`d6b7f32`), nao contra a working tree: havia mutacao de controle negativo em voo de outro agente em `backend/src`.
 
 - **Tipo:** recontagem · **Fatia:** `be-sharing`
 - **Documento:** `docs/wiki/sintese-rest-vs-sync.md:47`

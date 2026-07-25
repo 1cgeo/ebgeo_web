@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAdminUser, createResource, loginUser } from '../helpers/fixtures.js';
+import { validateMapLibreStyle } from '../../src/utils/maplibre-style-validate.js';
 
 // Unique-id helper — the test DB is shared across files, so every test mints its own id and
 // never collides with another file's rows. (A soft-deleted id used to be permanently
@@ -241,6 +242,101 @@ describe('Catalog API (basemaps)', () => {
           config: { style: { version: 8, sources: {}, layers: [] } },
         })
         .expect(201);
+    });
+  });
+
+  // Item 15 (testes-backend.md) — the same guard on the UPDATE path.
+  //
+  // The two cases above validated the style only on POST and were treated as if they
+  // covered the set (pattern C2b). `updateCatalogItem` calls assertValidStyle too, but
+  // nothing held it: removing that one line let an admin PUT persist `{style:{version:7}}`,
+  // `listBasemapStyles` copied it VERBATIM into GET /api/config, and the frontend's
+  // fail-fast boot broke for everyone — anonymous included — with the suite fully green.
+  // Rejections are asserted against POSTGRES, not against the response body: a 400 that
+  // still wrote is the failure this is guarding against.
+  describe('Basemap style validation on UPDATE (the half that had no guard)', () => {
+    let target;
+
+    before(async () => {
+      target = cid('putstyle');
+      await supertest(app)
+        .post('/api/v1/basemaps')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          id: target,
+          name: 'Base para PUT',
+          config: { style: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background' }] } },
+        })
+        .expect(201);
+    });
+
+    /** The style actually stored in Postgres (never the echo of the response). */
+    const storedStyle = async (id) => {
+      const { rows } = await db.query('SELECT config FROM basemaps WHERE id = $1', [id]);
+      assert.equal(rows.length, 1, 'the basemap row must exist');
+      return rows[0].config?.style;
+    };
+
+    const putStyle = (style, expected) =>
+      supertest(app)
+        .put(`/api/v1/basemaps/${target}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ config: { style } })
+        .expect(expected);
+
+    it('rejects a malformed style on PUT and does NOT write it', async () => {
+      const invalid = [
+        { version: 7, sources: {}, layers: [] },   // wrong version
+        { version: 8, sources: {} },               // no layers
+        { version: 8, layers: [] },                // no sources
+        'nao-e-objeto',                            // not an object
+        [],                                        // array is rejected
+        null,                                      // null is rejected
+      ];
+      assert.equal(invalid.length, 6, 'the rejection table must not be empty');
+
+      for (const style of invalid) {
+        await putStyle(style, 400);
+        const stored = await storedStyle(target);
+        assert.equal(stored.version, 8, `${JSON.stringify(style)} must not have been persisted`);
+        assert.deepEqual(stored.layers, [{ id: 'bg', type: 'background' }]);
+      }
+    });
+
+    it('accepts a valid style on PUT and serves it verbatim in the public /api/config', async () => {
+      const style = {
+        version: 8,
+        sources: { osm: { type: 'raster', tiles: ['https://x/{z}/{x}/{y}.png'], tileSize: 256 } },
+        layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+      };
+      await putStyle(style, 200);
+
+      const cfg = await supertest(app).get('/api/config').expect(200);
+      assert.deepEqual(cfg.body.data.basemapStyles[target], style);
+    });
+
+    it('a PUT WITHOUT a style key is untouched by the guard (it is not "every update needs a style")', async () => {
+      await supertest(app)
+        .put(`/api/v1/basemaps/${target}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ config: { url: 'https://x/{z}/{x}/{y}.png' } })
+        .expect(200);
+
+      const { rows } = await db.query('SELECT config FROM basemaps WHERE id = $1', [target]);
+      assert.equal(rows[0].config.url, 'https://x/{z}/{x}/{y}.png');
+    });
+
+    it('EVERY style served by /api/config is a valid MapLibre style (closing invariant)', async () => {
+      const cfg = await supertest(app).get('/api/config').expect(200);
+      const styles = cfg.body.data.basemapStyles;
+      const ids = Object.keys(styles);
+      // Anti-empty-sweep guard: an empty map would make the loop below prove nothing.
+      assert.ok(ids.length >= 5, `expected at least 5 basemap styles, got ${ids.length}`);
+
+      for (const id of ids) {
+        const result = validateMapLibreStyle(styles[id]);
+        assert.equal(result.ok, true, `basemapStyles["${id}"] is invalid: ${result.errors.join(' ')}`);
+      }
     });
   });
 

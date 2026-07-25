@@ -12,6 +12,8 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import supertest from 'supertest';
 import { randomUUID } from 'crypto';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, loginUser } from '../helpers/fixtures.js';
 import { createSemaphore } from '../../src/utils/semaphore.js';
@@ -67,7 +69,12 @@ describe('Config + infra — gap coverage', () => {
         .set('Content-Type', 'application/json')
         .send(body);
       assert.notEqual(res.status, 413, 'bulk parser should accept a 12mb body');
-      assert.ok([403, 404].includes(res.status), `expected 403/404 after parse, got ${res.status}`);
+      // Exactly 404, not "403 or 404": `atlasId` is a fresh UUID, so
+      // requireAtlasPermission finds no row and raises NotFoundError. The
+      // difference is a disclosure decision (403 would confirm the atlas exists),
+      // so a test that accepts either cannot notice it flipping.
+      assert.equal(res.status, 404, `expected 404 (atlas does not exist), got ${res.status}`);
+      assert.equal(res.body.error.code, 'NOT_FOUND');
     });
 
     it('rejects a >50mb body on /images/bulk with 413 (bulk cap enforced)', async () => {
@@ -195,6 +202,57 @@ describe('Config + infra — gap coverage', () => {
       assert.equal(res.headers['access-control-allow-origin'], config.cors.origin);
     });
 
+    it('a PREFLIGHT from a foreign origin is not authorized either', async () => {
+      // The GET path above is only half of CORS. The browser asks permission with
+      // an OPTIONS preflight before any non-simple request, and a preflight that
+      // echoed the attacker's origin (with credentials allowed) would hand over
+      // authenticated writes regardless of what the GET path answers.
+      const foreign = 'https://origem-nao-autorizada.example';
+      const res = await supertest(app)
+        .options(`/api/v1/atlas/${randomUUID()}`)
+        .set('Origin', foreign)
+        .set('Access-Control-Request-Method', 'POST');
+
+      const acao = res.headers['access-control-allow-origin'];
+      assert.notEqual(acao, foreign, 'the preflight must never authorize an unknown origin');
+      assert.notEqual(acao, '*', 'a wildcard is incompatible with credentials:true');
+      assert.equal(acao, config.cors.origin, 'the configured origin is echoed verbatim, whoever asks');
+    });
+
+    it('a request with NO Origin header is never answered with "*"', async () => {
+      // `origin: true` (reflect mode) and `origin: '*'` both look harmless in a
+      // server-side test, but with credentials:true a browser REJECTS '*' — the
+      // symptom would be the cross-origin boot of the E2E dying while every
+      // backend assertion stayed green.
+      const res = await supertest(app).get('/api/v1/config').expect(200);
+      assert.notEqual(res.headers['access-control-allow-origin'], '*');
+    });
+
+    it('cross-origin-resource-policy is cross-origin on JSON and on BINARY responses', async () => {
+      // Helmet's default is same-origin, which would block every atlas image, 3D
+      // asset and 360 tile the moment the frontend is served from another origin —
+      // a backend-green, frontend-broken failure. The binary route is checked too:
+      // asserting only the JSON one would miss a per-route header override.
+      const json = await supertest(app).get('/api/v1/config').expect(200);
+      assert.equal(json.headers['cross-origin-resource-policy'], 'cross-origin');
+
+      const dir = join(resolve('./data/assets3d'), `corp_${randomUUID().slice(0, 8)}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'model.glb'), Buffer.from('glb-binary-bytes-here'));
+      try {
+        const binary = await supertest(app).get(`/api/v1/assets3d/${basename(dir)}/model.glb`);
+        assert.equal(binary.status, 200, 'guard: the asset must really be served, or the header check is vacuous');
+        assert.equal(binary.headers['content-type'], 'model/gltf-binary');
+        assert.equal(
+          binary.headers['cross-origin-resource-policy'],
+          'cross-origin',
+          'a binary asset without CORP is exactly the case that breaks the deployed frontend'
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it('the configured origin is one a browser can match (canonical, no trailing slash)', async () => {
       // The browser compares its own origin against the echoed header verbatim, and
       // its `Origin` never carries a path or a trailing slash. A non-canonical value
@@ -296,17 +354,57 @@ describe('Config + infra — gap coverage', () => {
   // infra-10 — migration runner idempotency (migrate.js:46-62)
   // ---------------------------------------------------------------------------
   describe('infra-10 — migration runner idempotency', () => {
-    it('re-running migrations on the already-migrated DB is a no-op and does not throw', async () => {
-      const before = await db.query(`SELECT COUNT(*)::int AS n FROM _migrations`);
-      const beforeN = before.rows[0].n;
-      assert.ok(beforeN > 0, 'baseline: migrations already recorded');
+    // This is the single guard of runner idempotency in the suite. It used to be
+    // two: an identical, weaker copy lived in low-impact-fixes.test.js ('a second
+    // run is a no-op'), whose whole verification was `assert.ok(n > 0)` — a
+    // statement that `_migrations` is not empty, which was true before the fix
+    // too. That copy is gone; this one survives because it compares STATE across
+    // the second run, and because it sits in the file dedicated to the runner.
+    //
+    // "No-op" is asserted as three separate properties, since the migrations are
+    // `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN` and re-running them all would
+    // NOT throw: the same set of names, each exactly once, and business data
+    // still there afterwards.
+    it('re-running migrations on the already-migrated DB changes nothing (idempotent, not merely quiet)', async () => {
+      const before = await db.query(`SELECT name FROM _migrations ORDER BY name`);
+      const beforeNames = before.rows.map((r) => r.name);
+      assert.ok(
+        beforeNames.length >= 5,
+        `baseline guard: migrations 001..005 must be recorded, found ${beforeNames.length}`
+      );
 
-      // runMigrations opens its own pg-promise connection from DATABASE_URL.
-      await runMigrations(process.env.DATABASE_URL);
+      // A sentinel in a BUSINESS table: this is what catches the failure mode a
+      // count of _migrations cannot see — an edited migration re-creating a table
+      // and taking its rows with it.
+      const sentinelId = uniq();
+      await db.query(
+        `INSERT INTO basemaps (id, name, description, config, sort_order)
+         VALUES ($1, 'Migration Sentinel', '', '{}'::jsonb, 998)`,
+        [sentinelId]
+      );
 
-      const after = await db.query(`SELECT COUNT(*)::int AS n FROM _migrations`);
-      assert.equal(after.rows[0].n, beforeN, 'no rows added on a second run (idempotent)');
-      // The UNIQUE(name) constraint means a double-apply would have thrown above.
+      try {
+        // runMigrations opens its own pg-promise connection from DATABASE_URL.
+        await runMigrations(process.env.DATABASE_URL);
+
+        const after = await db.query(`SELECT name FROM _migrations ORDER BY name`);
+        assert.deepEqual(
+          after.rows.map((r) => r.name),
+          beforeNames,
+          'the second run must record exactly the same migrations, no more and no fewer'
+        );
+
+        const dupes = await db.query(
+          `SELECT name FROM _migrations GROUP BY name HAVING COUNT(*) > 1`
+        );
+        assert.deepEqual(dupes.rows, [], 'a migration recorded twice means the DDL ran twice');
+
+        const survived = await db.query(`SELECT name FROM basemaps WHERE id = $1`, [sentinelId]);
+        assert.equal(survived.rows.length, 1, 'business data must survive a re-run');
+        assert.equal(survived.rows[0].name, 'Migration Sentinel');
+      } finally {
+        await db.query(`DELETE FROM basemaps WHERE id = $1`, [sentinelId]);
+      }
     });
   });
 

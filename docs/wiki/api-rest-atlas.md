@@ -14,7 +14,7 @@ Uma regra de manutenção que a leitura casual não protege: rota literal nova s
 
 Outras duas saídas não óbvias de `resolvePermission` (`backend/src/middleware/permissions.js:30-48`, `:82-92`):
 
-- **Admin global tem bypass total**, resolvido como `owner` em qualquer atlas antes de consultar shares. Toda auditoria de acesso precisa contar com isso. Ver [[gestao-usuarios]] e [[auditoria]].
+- **Admin global tem bypass em toda rota que passa por `requireAtlasPermission`**, resolvido como `owner` antes de consultar shares. Não é bypass total, e a diferença importa numa auditoria de acesso: lixeira e restore checam a posse **dentro da query**, nunca pelo middleware, então o admin não enxerga nem restaura atlas alheio na lixeira (ver a seção de restore). Ver [[gestao-usuarios]] e [[auditoria]].
 - **Token público pula o lookup de share** porque seu `sub` é `public-<uuid>`, que não casa o `UUID_RE`. A permissão cai por `is_public → read`. Mudar o formato desse `sub` para um UUID válido reintroduziria o lookup e mudaria o resultado.
 
 Armadilha de diagnóstico: **atlas inexistente ou soft-deletado retorna 404; atlas existente sem acesso retorna 403** (`backend/src/middleware/permissions.js:73-74` e `:111-112`). Não trate 404 como "sem permissão", nem o contrário. Códigos em [[erros-api]] e [[sintese-contrato-erros-http]].
@@ -43,7 +43,9 @@ Duas convenções que o schema não explicita: **lista de disponibilidade vazia 
 
 `DELETE` é soft e **não tem cascade**: mapas, feições e briefings permanecem no banco. O controller fecha a sala com `atlas_deleted`, derrubando os pares conectados ([[canal-collab-websocket]]).
 
-`POST /:atlasId/restore` não passa por `requireAtlasPermission` porque o middleware só enxerga atlas com `deleted_at IS NULL` e gatearia tudo em 404. A posse é checada atomicamente pelo escopo da query `RESTORE_ATLAS` (`backend/src/modules/atlas/atlas.queries.js:60-67`); zero linhas vira 404. **Não replique esse padrão em rota de atlas vivo**: sem o filtro de `deleted_at`, o mesmo desenho vira ausência de gate.
+`POST /:atlasId/restore` não passa por `requireAtlasPermission` porque o middleware só enxerga atlas com `deleted_at IS NULL` e gatearia tudo em 404. A posse é checada atomicamente pelo escopo da query `RESTORE_ATLAS` (`backend/src/modules/atlas/atlas.queries.js`); zero linhas vira 404. **Não replique esse padrão em rota de atlas vivo**: sem o filtro de `deleted_at`, o mesmo desenho vira ausência de gate.
+
+O efeito colateral que ninguém pede: como a posse mora na query, o curto-circuito de admin global do middleware **não alcança** nem esta rota nem `GET /atlas/trash`, que filtra por `owner_id` da mesma forma (`LIST_DELETED_USER_ATLAS`, `backend/src/modules/atlas/atlas.queries.js`). Um admin recebe 404 no atlas alheio da lixeira. Suporte poder restaurar atlas de terceiro é requisito ausente, não bug de implementação.
 
 ## Clone e duplicate: a coluna nova que ninguém lembra de copiar
 
@@ -56,7 +58,7 @@ O clone tampouco copia `is_public`/`public_link`, shares ou histórico de opera�
 Todas as rotas de `/sharing` exigem `manage` (`backend/src/modules/sharing/sharing.routes.js:15-20`), e o enum concedível é `read|comment|write|manage`. **`owner` não é concedível** (`backend/src/modules/sharing/sharing.schemas.js:6`): posse vem de `atlas.owner_id` e só muda pela rota de transferência. É o contrato que impede escalada de privilégio por um co-Gestor.
 
 - `POST /sharing/users` é **upsert** (`backend/src/modules/sharing/sharing.queries.js:26-31`): reenviar para usuário já compartilhado altera a permissão e responde **201**, não 200 nem 409.
-- Remover o dono é no-op silencioso, retorna 404 `Share`: o dono não tem linha em `atlas_shares`.
+- Remover o dono responde **404 `Share`**, nunca 204: o dono não tem linha em `atlas_shares`, o `DELETE ... RETURNING` não casa nada e o service levanta `NotFoundError` (`backend/src/modules/sharing/sharing.service.js`). Não é no-op silencioso; o comentário da própria rota que afirma o contrário está registrado em [[compartilhamento-atlas]].
 - Toda mutação faz broadcast `sharing_updated` com o `role` já traduzido para o vocabulário do front (`backend/src/modules/sharing/sharing.controller.js:38`, `:57`), para o par re-gatear a UI ao vivo sem reconectar. Ver [[sintese-capacidades-por-papel]] e [[presenca-colaborativa]].
 
 > **Nota histórica.** O guia *07-compartilhamento* (absorvido):32-53 documenta `GET /sharing` sem a chave `owner`; `backend/src/modules/sharing/sharing.service.js:15-19` a inclui.
@@ -77,14 +79,23 @@ Contrato congelado: as tabelas filhas vêm de uma whitelist literal (`MAP_CHILD_
 
 Isso já disparou e continua disparado: `comments` é escopada por mapa (`map_id UUID NOT NULL`, `backend/src/database/migrations/002_atlas.sql:220-243`) e o snapshot a entrega agrupada por mapa (`backend/src/modules/sync/sync.service.js:794`), mas não está na whitelist. Mesclar move as feições e deixa as threads de [[comentario-espacial]] ancoradas no mapa de origem, descoladas do que anotavam, sem erro e sem contagem em `moved`. O teste que cobre o merge itera a mesma lista literal de seis tabelas (`backend/tests/integration/maps-briefings-gaps.test.js:83`) em vez de derivá-la do schema, então passa verde com ou sem o defeito: é cobertura vazia para este caso.
 
+O merge move a **tabela** `catalog_layers` e ignora a **coluna legada** `maps.catalog_layers`, que continua sendo o modo dual descrito em [[tipos-entidade-sync]]. Cliente que usa a forma de array perde as camadas de catálogo ao mesclar, e `moved.catalog_layers` reporta zero sem sinalizar nada.
+
+**Não é desfazível.** A op marcadora grava só o agregado (`{ destMapId, sourceMapIds, moved }`), nunca a origem linha a linha; não há `createAudit` em `backend/src/modules/maps/`; e o undo do cliente é local e só cobre op de sync. Não existe caminho de reverter, nem à mão pelo banco. Confirme na UI antes de chamar.
+
+Efeito de terceira ordem, que não se lê em nenhum dos três lugares sozinho: `trg_mark_slides_broken` (`backend/src/database/migrations/002_atlas.sql:378-396`) marca `is_broken` quando o mapa referenciado é **soft-deletado**, e o merge esvazia sem deletar. O slide que aponta para a origem segue `is_broken = FALSE` e passa a apresentar um mapa vazio: a detecção de slide quebrado é cega justamente para o único caminho que produz mapa vazio sem deleção.
+
+Nada disso é exercitado pelo produto hoje: **nenhum cliente web chama estas rotas**. `frontend/src/js/store/sync/api-client.js` não tem método de merge, de `GET /maps` nem de `GET /briefings`, e os únicos chamadores são os testes de integração do backend. O handler de `maps_merged` existe (`frontend/src/js/store/sync/ws-client.js:354`), mas o gesto que o dispara não, então não conclua desta seção que o ramo `serverResync` já está sendo exercitado por merge em produção.
+
 Origem fora do atlas devolve **404**, não 403: guarda anti-IDOR que evita vazar existência.
 
 ## Contratos de resposta que surpreendem
 
-- As rotas de atlas devolvem **snake_case cru do Postgres** (`SELECT a.*`); o sub-router de sharing devolve camelCase (`isPublic`, `publicLink`). **Não compartilhe desserializador entre os dois.**
+- As rotas de atlas devolvem **snake_case cru do Postgres** (`SELECT a.*`); o sub-router de sharing devolve camelCase na leitura e snake_case cru na escrita. **Não compartilhe desserializador**, nem entre as duas famílias nem entre o `GET` e o `POST` de sharing; a assimetria interna está explicada em [[compartilhamento-atlas]].
 - `owner_nome`/`owner_username`/`user_permission` existem só na listagem e na lixeira, **não** no `GET /atlas/:atlasId` (`backend/src/modules/atlas/atlas.queries.js:14-26` vs `:9-12`). UI que depende deles quebra ao navegar de lista para detalhe.
 - `GET /atlas` casa apenas `owner_id = $1 OR s.user_id = $1`: **um atlas público ao qual você não foi convidado nunca aparece aqui**, mesmo sendo legível. Ele só chega por [[link-publico]].
 - O array `maps` do `GET /atlas/:atlasId` vem `ORDER BY created_at`, **não** na ordem de `map_order` (`backend/src/modules/atlas/atlas.queries.js:95-100`). Ordenar é responsabilidade do cliente.
+- Slide tem shape diferente por superfície, e é o mesmo caso do `map_order` acima. Pelo snapshot cada slide ganha `order` derivado do canônico `briefings.slide_order`, mais `temporalCursor` e o bloco `sync`; pelo REST vem `SELECT *` cru em `ORDER BY created_at` (`backend/src/modules/briefings/briefings.queries.js:15-19`), sem nenhum dos três e fora da ordem de apresentação.
 
 ## Envelope, erro e refresh
 

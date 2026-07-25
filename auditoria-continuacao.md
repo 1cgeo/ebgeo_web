@@ -189,16 +189,31 @@ Não decidi sozinho porque mudam comportamento de produto:
 - **Nº 33 — buraco conhecido, aceito por você:** ainda dá para se autodeclarar membro
   de uma OM real a que não se pertence. Marcado com um teste `KNOWN GAP` que QUEBRA se
   alguém implementar aprovação, para forçar a revisão em vez de reversão silenciosa.
-- **403 vs 404 para atlas existente sem share** (levantado em 2026-07-25 pela regra de
-  lint nova). O teste `atlas-transfer-ownership.test.js` se chama *"a stranger cannot
-  transfer (and cannot learn the atlas exists)"*, e o parêntese é falso:
-  `requireAtlasPermission` responde **403 'Access denied'** para atlas que existe sem
-  share, e 404 só para atlas inexistente, então a diferença entre as duas respostas
-  revela a existência. O teste passou a asserir 403, que é o comportamento real, e o
-  **nome continua prometendo o que o código não faz**, de propósito, para não apagar a
-  pergunta. Duas saídas: (a) uniformizar para 404 quando não há share, o que fecha o
-  oráculo e muda o contrato de erro de várias rotas, ou (b) corrigir o nome do teste e
-  registrar que revelar existência é aceito. É decisão de produto, não de código.
+- ~~**403 vs 404 para atlas existente sem share**~~ **DECIDIDO E IMPLEMENTADO em
+  2026-07-25.** Escolhida a opção (a), com uma correção ao enunciado: não é "uniformizar
+  para 404", é uma **escada**.
+  - Sem NENHUMA relação com o atlas (não é dono, sem share, atlas não público) → **404**,
+    indistinguível de atlas inexistente. Idem para token de link público apontando para
+    outro atlas.
+  - Com share de nível insuficiente → **403 permanece**, e essa metade é o ponto todo:
+    quem tem share está com o atlas aberto na tela, então 404 ali seria mentira e apagaria
+    o sinal de "peça NÍVEL, não peça o link".
+  - `auth` estrito segue respondendo 401 antes da escada, igual para atlas existente e
+    inexistente, então não vaza por ali.
+
+  O argumento decisivo não foi preferência: o projeto **já tinha tomado esta decisão** em
+  `enforceProjectReadable` (`backend/src/modules/streetview360/sv360.service.js`) e a
+  aplicava em um módulo só. A inconsistência entre os dois módulos custava mais que o
+  vazamento, porque é ela que faz alguém copiar o padrão errado no módulo seguinte.
+
+  Contrato prendido em `backend/tests/integration/atlas-404-vs-403-escada.test.js` (7
+  casos; controle negativo derruba 2). Os **26 casos** existentes que afirmavam 403 foram
+  julgados um a um, nunca por substituição em massa, e 7 deles passaram a comparar o 404
+  do estranho com o de um atlas inexistente, com âncora anti-vacuidade (sem ela, dois
+  envelopes sem campo `error` comparariam `undefined` com `undefined` e passariam verdes
+  provando nada). Achado no caminho: o comentário de `atlas-transfer-ownership.test.js`
+  afirmava que "404 is reserved for an atlas that does not exist", ou seja, **o nome do
+  teste contradizia o próprio corpo desde sempre**.
 
 ## Dívidas que eu criei e deixei registradas
 

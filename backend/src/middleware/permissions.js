@@ -53,8 +53,31 @@ export function resolvePermission({ userId, ownerId, share, isPublic }) {
  *
  * @param {'read' | 'comment' | 'write' | 'manage' | 'owner'} requiredLevel - Minimum permission
  * @returns {Function} Express middleware
+ * @throws {TypeError} At MOUNT time when `requiredLevel` is not a known level.
  */
 export function requireAtlasPermission(requiredLevel) {
+  // Fail-CLOSED on an unknown level, and fail at mount time rather than per request.
+  //
+  // `PERMISSION_LEVELS[requiredLevel]` is undefined for a typo, and `resolvedLevel <
+  // undefined` is false (NaN comparison), so the gate used to call next(): ONE
+  // mistyped level ('managee', 'writes') silently opened that route to every bearer
+  // of any level, anonymous included on a public atlas. That is the exact opposite of
+  // the intent, and nothing anywhere reported it — the 28 existing call sites were
+  // correct by luck, not by verification.
+  //
+  // Throwing here turns the typo into a boot failure (the routers are built at import
+  // time), which is the only moment at which a static mistake can still be free.
+  //
+  // The `typeof` half is not pedantry: property lookup stringifies its key, so
+  // `Object.hasOwn(PERMISSION_LEVELS, ['read'])` is TRUE — a one-element array would
+  // mount a gate whose level came from a coercion nobody wrote.
+  if (typeof requiredLevel !== 'string' || !Object.hasOwn(PERMISSION_LEVELS, requiredLevel)) {
+    throw new TypeError(
+      `requireAtlasPermission: unknown level ${JSON.stringify(requiredLevel)}. ` +
+      `Expected one of: ${Object.keys(PERMISSION_LEVELS).join(', ')}.`
+    );
+  }
+
   return async (req, res, next) => {
     try {
       // Extract atlasId from req.params (try :atlasId, :aId, :id)
@@ -84,9 +107,14 @@ export function requireAtlasPermission(requiredLevel) {
       // the isPublic branch below, so ONE public link granted read on EVERY public
       // atlas whose UUID was known. Checked before the admin shortcut on purpose:
       // a visitor token carries no real identity and must never reach it.
+      //
+      // Responde 404 e não 403 pelo mesmo motivo do bloco de `resolvedPermission` abaixo:
+      // aqui o chamador está sondando um atlas com o qual não tem relação nenhuma (o token
+      // dele é de OUTRO atlas), e distinguir "existe mas não é seu" de "não existe" entrega
+      // existência de graça.
       if (req.user?.isPublic) {
         if (req.user.publicAtlasId !== atlasId) {
-          return next(new ForbiddenError('Este link público não dá acesso a este atlas'));
+          return next(new NotFoundError('Atlas'));
         }
       }
 
@@ -120,15 +148,36 @@ export function requireAtlasPermission(requiredLevel) {
         isPublic: atlas.is_public,
       });
 
-      // Check if permission level is sufficient
+      // NENHUMA relação com o atlas (não é dono, não tem share, o atlas não é público):
+      // responde 404, não 403. A escada é 404 para quem não tem relação e 403 para quem tem
+      // share de nível insuficiente, logo abaixo.
+      //
+      // O porquê, e ele não é preferência: este projeto JÁ tomou esta decisão, e a aplicava
+      // em um módulo só. `enforceProjectReadable` (modules/streetview360/sv360.service.js)
+      // diz, com estas palavras, "Throws NotFoundError (NOT Forbidden) when a project is not
+      // readable, so a hidden project is indistinguishable from a nonexistent one". O módulo
+      // de atlas fazia o oposto, e um 403 aqui contra um 404 no atlas inexistente entregava
+      // existência a quem já tivesse o UUID (colaborador com share revogado, link público
+      // despublicado). A inconsistência entre os dois módulos custava mais que o vazamento:
+      // é ela que faz alguém copiar o padrão errado no módulo seguinte.
+      //
+      // O 403 de baixo NÃO vira 404, e essa distinção é o ponto todo: quem tem share está
+      // olhando o atlas na tela, então dizer "não existe" seria mentira confusa e destruiria
+      // o sinal que faz a pessoa entender que precisa pedir NÍVEL, não pedir o link.
+      //
+      // Decidido em 2026-07-25 (ver `auditoria-continuacao.md`).
       if (!resolvedPermission) {
-        return next(new ForbiddenError('Access denied'));
+        return next(new NotFoundError('Atlas'));
       }
 
       const resolvedLevel = PERMISSION_LEVELS[resolvedPermission];
       const requiredLevelNum = PERMISSION_LEVELS[requiredLevel];
 
-      if (resolvedLevel < requiredLevelNum) {
+      // The symmetric fail-open: a `permission` value outside the column's CHECK
+      // would also resolve to undefined, and `undefined < 4` is false. Unreachable
+      // today only because 002_atlas.sql:63 constrains the column — which is a
+      // guarantee of the schema, not of this file.
+      if (resolvedLevel === undefined || resolvedLevel < requiredLevelNum) {
         return next(new ForbiddenError('Insufficient permissions'));
       }
 

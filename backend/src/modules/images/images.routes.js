@@ -48,7 +48,17 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: config.images.maxSizeMb * 1024 * 1024,
+    // `+ 1` NAO afrouxa o limite: busboy corta quando o contador ATINGE o valor,
+    // não quando o ultrapassa (`if (fileSize === fileSizeLimit)` em
+    // busboy/lib/types/multipart.js:476). Com `fileSize: maxBytes` cru, um arquivo
+    // de exatamente MAX_IMAGE_SIZE_MB era recusado com a mensagem
+    // "Image too large (max 10MB)" — a mensagem contradizia o proprio limite, e o
+    // guarda irmao em images.service.js:39 (`file.size > maxBytes`) aceitava esse
+    // mesmo arquivo. Dois guardas do mesmo contrato discordando em um byte.
+    // Com `maxBytes + 1` o corte cai em maxBytes+1, que e a primeira violacao real,
+    // e os dois guardas passam a concordar. Fronteira fixada em
+    // tests/integration/images-size-boundary.test.js.
+    fileSize: config.images.maxSizeMb * 1024 * 1024 + 1,
   },
   fileFilter: (req, file, cb) => {
     const allowed = ['image/png', 'image/jpeg', 'image/webp'];

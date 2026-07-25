@@ -10,7 +10,15 @@ O [[envelope-operacao]] carrega `timestamp`, `lamportTimestamp` e `clientId`. Ne
 
 ## Por que não é CRDT
 
-Não há merge comutativo descentralizado: o servidor central define ordem total (*server-authoritative*, à la Figma). A alternativa CRDT chegou a existir como módulo `src/crdt` (resolver/merger por timestamp+clientId) e foi **removida por ser código morto**: o caminho real de escrita (`applyOperation`) nunca leu `client_timestamp`. O nome "CRDT" sobrevive em rotas, tabelas e títulos de migração; é resíduo, não descrição. Ver [[sintese-nao-e-crdt]].
+Não há merge comutativo descentralizado: o servidor central define ordem total (*server-authoritative*, à la Figma). A alternativa CRDT chegou a existir como módulo `src/crdt` (resolver/merger por timestamp+clientId) e foi **removida por ser código morto**: o caminho real de escrita (`applyOperation`) nunca leu `client_timestamp`.
+
+O racional que o código apaga por construção, e a razão de a decisão não se reabrir de graça:
+
+- **Já existe um servidor obrigatório** (auth, atlas, permissões, imagens). Havendo ponto central de qualquer forma, o CRDT cobraria a complexidade de convergir sem coordenação, propriedade que o produto não usa.
+- **Offline-first é resolvido por fila, não por merge.** A [[fila-operacoes-outbound]] com compactação e flush gateado por conexão cobre o caso real (desconectar e voltar) sem estrutura de dados especial. Ver [[dominio-local-vs-remoto]].
+- **O custo foi aceito de olhos abertos:** conflito na mesma feição **perde trabalho**, o perdedor some e a intenção não é reconstruível. Não é bug. Ver [[sintese-decisoes-arquiteturais]].
+
+**A palavra "CRDT" sobrevive no repositório e engana.** Ela está em nome de rota, em título de migração (`backend/src/database/migrations/003_sync.sql`) e em comentário de código: `frontend/src/js/store/sync/sync-engine.js:379`, `:553`, `frontend/src/js/store/sync/ws-client.js:355` e `frontend/src/js/store/sync/sync-metadata.js:9` dizem "CRDT op log" ou "CRDT-like" como nome informal do log de ops. É resíduo, não descrição. Do mesmo lote é `setServerTimeOffset` (`frontend/src/js/store/sync/sync-metadata.js`), que compensaria clock skew para decidir conflito: como o vencedor é por ordem de chegada, não há o que compensar, e nenhum caminho de produção a chama.
 
 ## Granularidade: feição inteira, por decisão
 
@@ -49,7 +57,7 @@ A consequência que só esta página pode dar: **esse 503 é o único erro TRANS
 
 ## Contrato congelado
 
-Escrita colaborativa é **só por sync**: não existe rota REST de escrita para feature, layer, group, map, briefing, slide, cesium3d ou streetview360. O gate de papel é aplicado em `assertOperationAllowed` antes do INSERT. Ver [[sintese-rest-vs-sync]] e [[permissoes-atlas]].
+Escrita **incremental** de entidade colaborativa é só por sync: não existe rota REST que altere um pedaço de feature, layer, group, map, briefing, slide, cesium3d ou streetview360. As exceções são estruturais e deliberadas (merge de mapas, import de atlas, duplicação de mapa), operações de entidade INTEIRA cujo efeito não se expressa como sequência de ops. Ler a regra sem o "incremental" faz parecer que essas rotas são violações, e elas não são. O gate de papel é aplicado em `assertOperationAllowed` antes do INSERT. Ver [[sintese-rest-vs-sync]] e [[permissoes-atlas]].
 
 Idempotência por `UNIQUE (atlas_id, op_id)` + `ON CONFLICT DO NOTHING`: reenviar a fila inteira após reconexão nunca duplica. Detalhe fácil de errar: ops de nível atlas chegam com o sentinela `'atlas'` como `entityId`, mas a coluna é `UUID NOT NULL`; o servidor grava contra o id do próprio atlas e devolve no ack o `entity_id` **como gravado**, para que o par receba o mesmo `entityId` ao vivo e via pull. Mexer nisso desalinha os dois caminhos de entrega.
 
@@ -69,6 +77,7 @@ Idempotência por `UNIQUE (atlas_id, op_id)` + `ON CONFLICT DO NOTHING`: reenvia
 
 ## Histórico
 
+- 2026-07-25: absorvida a página `sintese-nao-e-crdt`, que existia para dizer o que a seção "Por que não é CRDT" já dizia. Eram três páginas para um conceito (esta, aquela e [[idempotencia-e-convergence-guard]]) repetindo os mesmos quatro fatos, e foi por esse caminho que a formulação ampla demais de "escrita só via sync" se propagou. `sintese-` é para conhecimento que **cruza** páginas; o porquê de uma decisão pertence à página da decisão.
 - 2026-07-25: removido um `[!CONTRADICAO]` que negava a existência do `lock_timeout` de 5s ("`grep -rn lock_timeout` no backend não retorna nada") e mandava tratar o esgotamento de pool como dívida aberta. **O marcador nunca foi verdadeiro:** a mitigação entrou em `93d205b` e o marcador foi escrito depois dela, em `f60f23a`, no mesmo dia 2026-07-18. Enquanto durou, [[sintese-limites-collab]] descrevia a mitigação corretamente e esta página a negava, com a página errada sendo a que carregava o marcador que acorda o gate. Lição: um `grep` que volta vazio prova que a busca falhou, não que o código não existe.
 
 ## Relacionados

@@ -4,35 +4,35 @@ Middleware global que **identifica sem autorizar**: popula `req.user` quando há
 
 ## O contrato congelado: falhar é seguir
 
-Qualquer falha (formato inválido, JWT expirado, assinatura errada, Postgres fora do ar) termina em `next()` sem `req.user`. O `catch` mudo em `backend/src/middleware/flexible-auth.js:105-107` não é preguiça: é o que impede que um banco indisponível derrube as rotas que não precisam de banco ([[gazetteer-nomes-geograficos]], catálogo público, `/api/config`, [[streetview-360]]). Trocar isso por um `next(err)` "para não engolir erro" quebra o modo anônimo inteiro.
+Qualquer falha (formato inválido, JWT expirado, assinatura errada, Postgres fora do ar) termina em `next()` sem `req.user`. O `catch` mudo que fecha `flexibleAuth` (`backend/src/middleware/flexible-auth.js`) não é preguiça: é o que impede que um banco indisponível derrube as rotas que não precisam de banco ([[gazetteer-nomes-geograficos]], catálogo público, `/api/config`, [[streetview-360]]). Trocar isso por um `next(err)` "para não engolir erro" quebra o modo anônimo inteiro.
 
-Quem barra é a rota, via `auth`/`requireAdmin` (`backend/src/middleware/auth.js:55`), com os códigos de [[sintese-contrato-erros-http]] e [[erros-api]]. Ver [[autenticacao-jwt]] e [[sintese-eixos-de-permissao]].
+Quem barra é a rota, via `auth`/`requireAdmin` (`backend/src/middleware/auth.js`), com os códigos de [[sintese-contrato-erros-http]] e [[erros-api]]. Ver [[autenticacao-jwt]] e [[sintese-eixos-de-permissao]].
 
 ## As três armadilhas de precedência
 
-O código convida ao erro em `backend/src/middleware/flexible-auth.js:42-57`, e nenhuma destas está comentada lá:
+O código convida ao erro em `flexibleAuth` (`backend/src/middleware/flexible-auth.js`), e nenhuma destas está comentada lá:
 
-- **API key presente encerra a decisão, mesmo falhando.** O `return next()` da linha 53 está *fora* do `if (rows[0])`. Chave malformada, ou válida mas de usuário inativo, resulta em anônimo, **sem** tentar cookie ou Bearer. Cliente que manda `x-api-key` errada junto de um Bearer bom é tratado como anônimo. Não é bug, é precedência estrita, mas quebra quem presume fallback.
-- **Cookie ganha do Bearer**, silenciosamente (`token = req.cookies?.token || extractBearerToken(req)`, linha 56). Browser com cookie velho e SPA mandando Bearer novo: vale o velho. É a causa provável de "deslogou sozinho" em aba antiga.
-- **Chave malformada não toca o banco** (guarda `UUID_RE`, linha 46). Anti-DoS de borda, ver [[hardening-borda-api]]. Consequência: mudar o formato da API key exige mudar essa regex, senão toda chave nova vira anônima antes de chegar ao Postgres.
+- **API key presente encerra a decisão, mesmo falhando.** O `return next()` do ramo da chave está *fora* do `if (rows[0])`. Chave malformada, ou válida mas de usuário inativo, resulta em anônimo, **sem** tentar cookie ou Bearer. Cliente que manda `x-api-key` errada junto de um Bearer bom é tratado como anônimo. Não é bug, é precedência estrita, mas quebra quem presume fallback.
+- **Cookie ganha do Bearer**, silenciosamente (`token = req.cookies?.token || extractBearerToken(req)`). Browser com cookie velho e SPA mandando Bearer novo: vale o velho. É a causa provável de "deslogou sozinho" em aba antiga.
+- **Chave malformada não toca o banco** (guarda `UUID_RE`). Anti-DoS de borda, ver [[hardening-borda-api]]. Consequência: mudar o formato da API key exige mudar essa regex, senão toda chave nova vira anônima antes de chegar ao Postgres.
 
-`?api_key=` é transporte suportado, e é por isso (e só por isso) que `api_key` está na lista de redação de log em `backend/src/utils/redact-url.js:6`. Removeu o transporte, remova a entrada; removeu a entrada sem remover o transporte, vazou credencial permanente em texto puro no pino.
+`?api_key=` é transporte suportado, e é por isso (e só por isso) que `api_key` está no `SENSITIVE_QUERY_KEYS` de `backend/src/utils/redact-url.js`. Removeu o transporte, remova a entrada; removeu a entrada sem remover o transporte, vazou credencial permanente em texto puro no pino. O invariante para aí, e é mais estreito do que a frase sugere: ele cobre a URL da requisição, não campo de log estruturado (ver [[api-keys]]).
 
 ## O buraco de organização no caminho da API key
 
-`FIND_USER_BY_API_KEY` (`backend/src/modules/users/users.queries.js:199-206`) exige `u.is_active = true` e **nada sobre a organização**. Já o caminho JWT estrito devolve `403 Organization is inactive` (`backend/src/middleware/auth.js:97-99`). Efeito que não aparece em nenhum dos dois arquivos isoladamente: um portador de API key de OM desativada **autentica** no `flexibleAuth` e chega com `req.user` populado em qualquer rota de auth opcional; só é barrado quando encosta numa rota estrita. Rota que lê `req.user` sem exigir `auth` está confiando num vínculo de OM que pode estar morto. Ver [[api-keys]], [[gestao-usuarios]] e [[organizacoes-om]].
+`FIND_USER_BY_API_KEY` (`backend/src/modules/users/users.queries.js`) exige `u.is_active = true` e **nada sobre a organização**. Já o caminho JWT estrito devolve `403 Organization is inactive` (`backend/src/middleware/auth.js`). Efeito que não aparece em nenhum dos dois arquivos isoladamente: um portador de API key de OM desativada **autentica** no `flexibleAuth` e chega com `req.user` populado em qualquer rota de auth opcional; só é barrado quando encosta numa rota estrita. Rota que lê `req.user` sem exigir `auth` está confiando num vínculo de OM que pode estar morto. Ver [[api-keys]], [[gestao-usuarios]] e [[organizacoes-om]].
 
 ## Sliding session: o incidente e o que ficou de fora
 
-O porquê da revalidação viva antes de reassinar está documentado no próprio código (`backend/src/middleware/flexible-auth.js:69-76` e `backend/src/utils/org-status.js:23-30`): reassinar claims antigos transformava a janela de "no máximo 15 min desatualizado" em "para sempre". Leia lá, não aqui.
+O porquê da revalidação viva antes de reassinar está documentado no próprio código (`backend/src/middleware/flexible-auth.js` e o bloco `LIVE_AUTH_STATE` de `backend/src/utils/org-status.js`): reassinar claims antigos transformava a janela de "no máximo 15 min desatualizado" em "para sempre". Leia lá, não aqui.
 
 O que o código **não** diz:
 
 - Só o `role` global é adotado do banco. `org_role`/`organization_id` seguem vindo do token **de propósito**, para preservar o degrade de tokens legados (`org_role || 'viewer'`). Alternativa rejeitada: adotar tudo do banco, o que faria token pré-claims-de-organização virar erro em vez de viewer. Ver [[jwt-emissor-unico]].
 - Sessão morta não vira 401 aqui: derruba o cookie, zera `req.user` e **segue anônima**. Então uma rota pública responde 200 (sem identidade) para um usuário recém-desativado, e só a rota estrita dá 401. Trilha de [[auditoria]] via `req.authVia` fica ausente nesse caso, não `'jwt'`.
-- Principals de link público nunca deslizam (guarda `UUID_RE.test(payload.sub)`, linha 77): o `sub` é `public-<uuid>`, não-UUID, e não existe linha em `users` para revalidar. Mesma convenção de isenção em `backend/src/middleware/auth.js:80-82` e em `backend/src/middleware/permissions.js`. Quem mudar o formato do `sub` público para um UUID puro faz esses principals passarem a bater no banco e serem tratados como sessão morta. Ver [[link-publico]] e [[permissoes-atlas]].
+- Principals de link público nunca deslizam (guarda `UUID_RE.test(payload.sub)` antes da renovação): o `sub` é `public-<uuid>`, não-UUID, e não existe linha em `users` para revalidar. Mesma convenção de isenção em `backend/src/middleware/auth.js` (lá como `PRINCIPAL_UUID_RE`) e em `backend/src/middleware/permissions.js`. Quem mudar o formato do `sub` público para um UUID puro faz esses principals passarem a bater no banco e serem tratados como sessão morta. Ver [[link-publico]] e [[permissoes-atlas]].
 
-> **Nota histórica.** o guia *12-multiorg-identidade-auditoria* (absorvido, Parte 3) diz que a renovação ocorre quando o JWT **do cookie** está perto de expirar. O código resolve `token = cookie || Bearer` (`backend/src/middleware/flexible-auth.js:56`) e renova igualmente para o token vindo do header, gravando `Set-Cookie` numa chamada que não usava cookie nenhum. O guia também ignora a revalidação viva e o `clearCookie` de sessão morta.
+> **Nota histórica.** o guia *12-multiorg-identidade-auditoria* (absorvido, Parte 3) diz que a renovação ocorre quando o JWT **do cookie** está perto de expirar. O código resolve `token = cookie || Bearer` (`backend/src/middleware/flexible-auth.js`) e renova igualmente para o token vindo do header, gravando `Set-Cookie` numa chamada que não usava cookie nenhum. O guia também ignora a revalidação viva e o `clearCookie` de sessão morta.
 
 ## Custo
 

@@ -225,7 +225,12 @@ const config = Object.freeze({
 // fall in. Bounds are sanity limits, not policy: they exist to catch typos and
 // pathological values (0 workers, a 1ms heartbeat) before the server accepts a
 // connection. See the loop in validateEnvVariables for why silent NaN is unsafe.
-const NUMERIC_ENV_RULES = Object.freeze({
+// Exported so a test can cross-check it against the integer call sites in this
+// same file: the table is maintained BY HAND, and a knob that enters config.js
+// without an entry brings the silent-NaN trap back whole. That drift is not
+// hypothetical — TRUST_PROXY_HOPS and the two gazetteer limiter knobs below were
+// read here and absent from this table. See tests/unit/config-env-rules.test.js.
+export const NUMERIC_ENV_RULES = Object.freeze({
   DATABASE_POOL_MIN: { min: 0, max: 1000 },
   DATABASE_POOL_MAX: { min: 1, max: 1000 },
   MAX_IMAGE_SIZE_MB: { min: 1, max: 1024 },
@@ -241,6 +246,15 @@ const NUMERIC_ENV_RULES = Object.freeze({
   RATE_LIMIT_AUTH_MAX: { min: 1 },
   RATE_LIMIT_PUBLIC_WINDOW_MS: { min: 1000 },
   RATE_LIMIT_PUBLIC_MAX: { min: 1 },
+  RATE_LIMIT_GAZETTEER_WINDOW_MS: { min: 1000 },
+  RATE_LIMIT_GAZETTEER_MAX: { min: 1 },
+  // Hop count for Express `trust proxy`. NaN here is the worst of the set: a
+  // numeric `trust proxy` is compared as `i < val`, and `i < NaN` is always
+  // false, so the app silently trusts NO hop — req.ip becomes the proxy's
+  // address for every request and every IP-keyed rate limiter collapses into one
+  // global bucket (the failure the comment on `trustProxy` above describes). The
+  // ceiling is a sanity bound: more than ten reverse proxies is a typo.
+  TRUST_PROXY_HOPS: { min: 0, max: 10 },
   AUTH_VERIFICATION_TTL_HOURS: { min: 1, max: 8760 },
   HEALTH_DB_TIMEOUT_MS: { min: 100, max: 60000 },
   SMTP_PORT: { min: 1, max: 65535 },

@@ -30,6 +30,9 @@ import { spawn } from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import WebSocket from 'ws';
+import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createUser, createAtlas, loginUser } from '../helpers/fixtures.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_PATH = path.resolve(HERE, '../../src/index.js');
@@ -238,6 +241,37 @@ describe('Boot fail-fast (src/index.js)', () => {
     );
   });
 
+  // ==========================================================================
+  // P3 nº 158 — the port is already taken.
+  //
+  // index.js registers no 'error' handler on the http.Server, so EADDRINUSE
+  // surfaces as an unhandled 'error' event. What matters operationally is that
+  // the process DIES (the supervisor restarts it) instead of lingering half-up,
+  // and that the operator can read WHICH port from the output. The control
+  // inside the ordering test above already proves the port is held; this one
+  // states the outcome as its own invariant, with the port number in it.
+  // ==========================================================================
+  it('dies with a non-zero code and names the busy port, never reporting a successful start', async () => {
+    const res = await runChild([INDEX_PATH], {
+      env: childEnv({ NODE_ENV: 'test', PORT: String(held.port) }),
+      killAfterMs: 15000,
+    });
+
+    assert.equal(res.timedOut, false, 'the process must exit on its own, not be killed by the harness');
+    assert.notEqual(res.code, 0, 'a backend that cannot bind its port must not exit 0');
+    assert.match(res.stderr, /EADDRINUSE/);
+    assert.match(
+      res.stderr,
+      new RegExp(String(held.port)),
+      'the diagnostic must name the port the operator has to free'
+    );
+    assert.doesNotMatch(
+      res.stdout,
+      /EBGeo backend started/,
+      'the ready line must never be printed by a process that never bound the port'
+    );
+  });
+
   it('is re-entrant: a second signal during shutdown does not run the teardown twice', async () => {
     // The `shuttingDown` guard. A double Ctrl+C used to re-enter shutdown, which
     // double-closes the pool and can surface as an error exit on a clean stop.
@@ -265,5 +299,114 @@ describe('Boot fail-fast (src/index.js)', () => {
 
     const res = await done;
     assert.equal(res.code, 0, `re-entrant shutdown must still exit 0 — stderr: ${res.stderr}`);
+  });
+});
+
+// ============================================================================
+// P2 nº 90 — the ORDER inside `shutdown()`: closeAllSockets BEFORE server.close.
+//
+// The P4 bug is written down in index.js's own comment: collab sockets are
+// long-lived by design, `server.close()` waits for every connection to end, so
+// with one open socket its callback never fired and `blobPool.closeAll()`,
+// `pgp.end()` and `process.exit(0)` were all skipped.
+//
+// Why not the unit test the finding proposed: `shutdown` is not exported, and
+// exporting it would make any importer run index.js's top-level boot (bind a
+// port inside the runner, register signal handlers). Faking `server`/`closeAllSockets`
+// would then assert the fake's wiring. The order is OBSERVABLE from outside
+// instead: boot the real file, open a REAL collab socket, signal it, and watch
+// the exit code. Sockets-first exits 0 in well under a second; sockets-after
+// hangs on server.close until the 10 s force-exit timer fires and exits 1. The
+// bug's symptom IS the assertion.
+//
+// (`child.kill('SIGTERM')` is not used: on Windows it maps to TerminateProcess
+// and the handler never runs, so the signal is raised inside the child — the same
+// technique the graceful-shutdown test above documents.)
+// ============================================================================
+describe('Graceful shutdown closes collab sockets BEFORE server.close (src/index.js)', () => {
+  let app, db, atlas, token;
+
+  before(async () => {
+    const env = await setupTestEnv();
+    app = env.app;
+    db = env.db;
+    const owner = await createUser(db, { username: `boot_ws_${Date.now().toString(36)}` });
+    token = await loginUser(app, owner.username, owner.password);
+    atlas = await createAtlas(db, owner.id, { name: 'Boot Shutdown Atlas' });
+  });
+
+  after(async () => {
+    await teardownTestEnv(db);
+  });
+
+  /** Opens a collab socket against the child and resolves on its `connected` frame. */
+  function openCollabSocket(port) {
+    const url = `ws://127.0.0.1:${port}/api/v1/collab?atlasId=${atlas.id}&token=${token}`;
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(url);
+      const timer = setTimeout(() => reject(new Error('collab handshake timed out')), 10000);
+      ws.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'connected') {
+          clearTimeout(timer);
+          resolve(ws);
+        }
+      });
+      ws.on('error', (err) => { clearTimeout(timer); reject(err); });
+    });
+  }
+
+  it('exits 0 promptly with a live collab socket attached (no wait on server.close)', async () => {
+    const { port, release } = await holdPort();
+    await release(); // we only wanted an unused number
+
+    const bootstrap = `
+      await import(${JSON.stringify(INDEX_URL)});
+      process.stdin.on('data', () => { process.emit('SIGTERM'); });
+      process.stdin.resume();
+    `;
+
+    let child = null;
+    const done = runChild(['--input-type=module', '-e', bootstrap], {
+      env: childEnv({ NODE_ENV: 'test', PORT: String(port) }),
+      onSpawn: (c) => { child = c; },
+      // Longer than SHUTDOWN_TIMEOUT_MS (10 s) so that a hang is observed as the
+      // force-exit path (code 1) rather than as a harness kill.
+      killAfterMs: 25000,
+    });
+
+    await waitForListening(port);
+
+    const ws = await openCollabSocket(port);
+    assert.equal(ws.readyState, WebSocket.OPEN, 'the premise: a collab socket really is open');
+
+    const startedAt = Date.now();
+    child.stdin.write('\n');
+    const res = await done;
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.equal(res.timedOut, false, 'the child must exit by itself');
+    assert.equal(
+      res.code, 0,
+      `with a live collab socket the shutdown must still complete cleanly — `
+      + `exit ${res.code} after ${elapsedMs}ms; stderr: ${res.stderr}`
+    );
+    assert.doesNotMatch(
+      res.stderr + res.stdout,
+      /Graceful shutdown timed out/,
+      'the force-exit timer fired: server.close() waited on the socket, i.e. the order is inverted'
+    );
+    assert.ok(
+      elapsedMs < 9000,
+      `shutdown took ${elapsedMs}ms — anything near SHUTDOWN_TIMEOUT_MS means it waited on the socket`
+    );
+
+    // And the port was really released, which only happens if server.close()
+    // actually completed rather than being cut short by the force exit.
+    await assert.rejects(
+      () => waitForListening(port, 3000),
+      /nothing listening/,
+      'the port is still bound after shutdown'
+    );
   });
 });

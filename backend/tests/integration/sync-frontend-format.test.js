@@ -616,6 +616,22 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
       assert.equal(typeof op.entityId, 'string', 'the pulled op carries entityId');
       assert.equal(op.target, undefined, 'the legacy `target` name must not leak into a response');
       assert.equal(op.targetId, undefined, 'the legacy `targetId` name must not leak into a response');
+
+      // The whole outbound envelope, as a set. Asserting field by field catches a
+      // RENAME but never a field LEAKING OUT (a stray column, an internal flag),
+      // and the frozen contract is about the object the frontend reads, not about
+      // three of its properties. `lamportTimestamp` is deliberately allowed to be
+      // absent: toFrontendOperation emits it as undefined for legacy rows, and
+      // JSON drops undefined keys.
+      const FROZEN_KEYS = [
+        'changes', 'clientId', 'data', 'entityId', 'entityType', 'id',
+        'mapId', 'operationType', 'serverVersion', 'timestamp',
+      ];
+      const seen = Object.keys(op).sort();
+      const extra = seen.filter((k) => !FROZEN_KEYS.includes(k) && k !== 'lamportTimestamp');
+      const missing = FROZEN_KEYS.filter((k) => !seen.includes(k));
+      assert.deepEqual(extra, [], `unexpected field(s) in the outbound sync envelope: ${extra.join(', ')}`);
+      assert.deepEqual(missing, [], `missing field(s) from the frozen envelope: ${missing.join(', ')}`);
     });
   });
 });

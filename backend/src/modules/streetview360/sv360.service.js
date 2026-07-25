@@ -274,8 +274,15 @@ export async function mvtTile(z, x, y, user) {
  * OR the thumbnail file is absent (the controller maps null → 404).
  * @param {string} slug - project slug (from the :slug.webp route param)
  * @param {Object} [user]
- * @returns {Promise<string|null>} absolute path to the ORG-KEYED
- *   {orgId}__{slug}.webp on disk (the URL is slug-only; the file is not), or null
+ * @returns {Promise<{filePath: string, projectStatus: string}|null>} `filePath` is the
+ *   absolute path to the ORG-KEYED {orgId}__{slug}.webp on disk (the URL is slug-only; the
+ *   file is not), and `projectStatus` is what the caller uses to decide the CACHE SCOPE
+ *   (`enabled` may be publicly cached; anything else must not be). Null when the project
+ *   does not exist or the thumbnail file is absent.
+ *
+ *   Este `@returns` declarou `Promise<string|null>` até 2026-07-25, omitindo justamente o
+ *   campo que decide escopo de cache: quem programasse contra o JSDoc trataria o retorno
+ *   como caminho e publicaria um thumbnail de projeto desabilitado.
  */
 export async function resolveThumbnailPath(slug, user) {
   // basename strips any directory component (../, absolute) before it ever hits

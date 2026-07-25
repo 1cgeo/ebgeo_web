@@ -19,7 +19,7 @@ O `parseRange` foi **copiado verbatim** entre os módulos (`backend/src/modules/
 
 ## O que não pode ser reordenado
 
-- **O 304 sai antes do `sem.acquire()`** (`backend/src/modules/streetview360/sv360.controller.js:156` antes de `:158`). Inverter essas duas linhas transforma tempestade de revalidação (barata) em pressão de heap e esgotamento da cota de concorrência (`ASSETS_3D_MAX_INFLIGHT` / `SV360_MAX_INFLIGHT`, ambos default 8, `backend/src/config.js:65` e `:71`).
+- **O 304 sai antes do `sem.acquire()`** (`backend/src/modules/streetview360/sv360.controller.js:156` antes de `:158`). Inverter essas duas linhas transforma tempestade de revalidação (barata) em pressão de heap e esgotamento da cota de concorrência (`ASSETS_3D_MAX_INFLIGHT` / `SV360_MAX_INFLIGHT`, ambos default 8, `backend/src/config.js`). Esses dois são o número a baixar em container apertado, e são por processo, não por host.
 - **A liberação do semáforo é registrada em `finish` E em `close`, com guarda `released`** (`backend/src/modules/nomes/assets3d.controller.js:56-63`). O Cesium cancela tiles fora de tela o tempo todo: aborto dispara `close`, nunca `finish`. Sem o par, o pool vaza até travar a rota. Qualquer rota nova que sirva BLOB precisa copiar o bloco inteiro.
 - **Semáforo só onde o BLOB materializa no heap.** O caminho filesystem faz `createReadStream(...).pipe(res)` e deliberadamente não usa semáforo. Adicionar um ali só reduziria vazão sem proteger memória.
 
@@ -38,18 +38,18 @@ O `parseRange` foi **copiado verbatim** entre os módulos (`backend/src/modules/
 
 ## Armadilhas de superfície
 
-- **`assets3d` é rota pública sem auth**, montada antes das autenticadas (`backend/src/app.js:95`). Ela nunca retorna 401/403 por falta de token. A proteção real é a **descoberta**: só o catálogo autenticado ([[catalogo-3d]]) revela os caminhos. Decisão consciente, não descuido, mas trate assets 3D como "não secretos" ao decidir o que publicar.
+- **`assets3d` é rota pública sem auth**, montada antes das autenticadas (`assets3dRoutes`, `backend/src/app.js`). Ela nunca retorna 401/403 por falta de token. A proteção real é a **descoberta**: só o catálogo autenticado ([[catalogo-3d]]) revela os caminhos. Decisão consciente, não descuido, mas trate assets 3D como "não secretos" ao decidir o que publicar.
 - **Traversal responde 404, não 403.** `path.posix.normalize` colapsa os `..` contra a raiz antes da checagem de prefixo (`backend/src/modules/nomes/assets3d.service.js:28-31`), então `/assets3d/../../etc/passwd` vira caminho inexistente dentro da raiz. O `ForbiddenError` é quase inalcançável pela via HTTP: **não use 403 como sinal de ataque**.
 - **Erros do sv360 usam envelope plano `{ "error": "msg" }`**, diferente do resto da API ([[sintese-contrato-erros-http]], [[erros-api]]).
 - Nada disso passa pelo sync de operações ([[sintese-modulos-fora-do-sync]]); escrita 360 não gera broadcast, e depois de calibrar é preciso recarregar o metadado ([[calibracao-e-grafo-360]]).
 
 ## Quem ficou de fora do molde, e por quê
 
-- **Tiles MVT** usam `public, max-age=60`, sem ETag nem Range (`backend/src/modules/streetview360/sv360.controller.js:98`). Deliberado: o tile muda a cada ingestão, tombstone ou toggle de status, e `immutable` congelaria pontos apagados na tela por um ano. Tile vazio é 200 com Buffer vazio, nunca 404 ([[streetview-360]]).
-- **Imagens de atlas** ([[imagens-atlas]]) delegam ETag, 304, Range e `Last-Modified` ao `res.sendFile` (`backend/src/modules/images/images.controller.js:20-30`). Divergência que atravessa arquivos: elas emitem `Last-Modified` e ETag fraco do Express, que as rotas artesanais **não** emitem, então validador condicional que funciona lá falha aqui.
+- **Tiles MVT** usam `max-age=60` sem ETag nem Range, e o **escopo segue o chamador**: `private` + `Vary` quando há sessão, `public` só no anônimo (`mvtTile`, `backend/src/modules/streetview360/sv360.controller.js`). Os 60 s são deliberados (o tile muda a cada ingestão, tombstone ou toggle, e `immutable` congelaria pontos apagados por um ano); o escopo variável também, porque o corpo do tile inclui projeto `disabled` para quem pode vê-lo. Tile vazio é 200 com Buffer vazio, nunca 404 ([[streetview-360]]).
+- **Imagens de atlas** ([[imagens-atlas]]) delegam ETag, 304, Range e `Last-Modified` ao `res.sendFile` (`backend/src/modules/images/images.controller.js:39-44`). Divergência que atravessa arquivos: elas emitem `Last-Modified` e ETag fraco do Express, que as rotas artesanais **não** emitem, então validador condicional que funciona lá falha aqui.
 
 ## Resolução de URL
 
 Caminhos do catálogo 3D e o `previewThumbnail` do 360 são relativos, para resolver contra `assets3dBaseUrl` e `streetView360.serviceUrl` do `/api/config` e manter os dados portáveis entre ambientes ([[config-runtime-urls-relativas]], [[assets3d-distribuicao]]).
 
-> **Nota histórica.** O guia *14-catalogo3d-assets* (absorvido) afirma que o cliente concatena `assets3dBaseUrl` com `m.url`. No `ebgeo_web` as-built não existe nenhuma referência a `assets3dBaseUrl`: `3d_models_viewer_tool/map_3d.js:259` passa `tilesetConfig.url` direto ao `Cesium3DTileset.fromUrl`, já completo. A concatenação é contrato oferecido pelo backend, não caminho exercido hoje. O lado 360 segue o contrato (`street_view_tool/streetview-api.service.js:76`).
+> **Nota histórica.** O guia *14-catalogo3d-assets* (absorvido) afirma que o cliente concatena `assets3dBaseUrl` com `m.url`. No cliente as-built não existe nenhuma referência a `assets3dBaseUrl`: `frontend/src/js/3d_models_viewer_tool/map_3d.js:259` passa `tilesetConfig.url` direto ao `Cesium3DTileset.fromUrl`, já completo. A concatenação é contrato oferecido pelo backend, não caminho exercido hoje. O lado 360 segue o contrato (`getServiceUrl`, `frontend/src/js/street_view_tool/streetview-api.service.js`).

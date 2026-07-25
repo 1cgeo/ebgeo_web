@@ -3,10 +3,39 @@ import pgPromise from 'pg-promise';
 import config from '../config.js';
 import logger from '../utils/logger.js';
 
+/**
+ * Builds the payload of the per-query debug log.
+ *
+ * The VALUES of the parameters are deliberately absent. This hook runs for EVERY
+ * query, and live credentials travel through `$1`: the api_key of
+ * `FIND_USER_BY_API_KEY` (middleware/flexible-auth.js) and the refresh-token hash of
+ * `FIND_REFRESH_TOKEN_ANY`. pino's `redact` in utils/logger.js matches by FIELD NAME
+ * (`password`, `token`, `apiKey`, …) and cannot see inside a positional array, so
+ * `params` was an uncovered channel: one operator raising LOG_LEVEL=debug to
+ * diagnose an incident shipped API keys and token hashes to the log pipeline.
+ *
+ * The diagnostic value that mattered — WHICH query ran, and with how many
+ * parameters — is preserved; only the values are dropped. Exported so the invariant
+ * is asserted against the object the code BUILDS, not against a logger whose level
+ * is 'silent' under NODE_ENV=test (which would mask everything and pass green).
+ *
+ * @param {{query: unknown, params: unknown}} e - pg-promise query event.
+ * @returns {{query: string, paramCount: number}}
+ */
+export function queryLogPayload(e) {
+  const query = typeof e?.query === 'string' ? e.query : String(e?.query ?? '');
+  const params = e?.params;
+  const paramCount = Array.isArray(params) ? params.length : params === undefined || params === null ? 0 : 1;
+  return { query: query.substring(0, 80), paramCount };
+}
+
+/** pg-promise `query` hook. Separated from the payload so both are testable. */
+export function logQueryEvent(e) {
+  logger.debug(queryLogPayload(e), 'DB Query');
+}
+
 const initOptions = {
-  query(e) {
-    logger.debug({ query: e.query.substring(0, 80), params: e.params }, 'DB Query');
-  },
+  query: logQueryEvent,
   error(err, e) {
     logger.error({ err, query: e.query }, 'DB Error');
   },

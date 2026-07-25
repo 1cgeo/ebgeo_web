@@ -1,6 +1,6 @@
 # Config dinâmico (GET /api/config)
 
-Endpoint público que substitui o `config.js` estático. O que ele monta se lê em `backend/src/modules/config/config.service.js`; esta página cobre só o que o código não conta: por que o boot morre sem ele, onde a precedência das camadas surpreende, e o que está congelado.
+Endpoint público que substitui o `frontend/src/js/config.js` estático. O que ele monta se lê em `backend/src/modules/config/config.service.js`; esta página cobre só o que o código não conta: por que o boot morre sem ele, onde a precedência das camadas surpreende, e o que está congelado.
 
 ## Por que o boot é fail-fast (e por que isso não fere o offline-first)
 
@@ -38,7 +38,7 @@ Ver [[sintese-contratos-congelados]]. O que quebra o frontend se mudar:
 - **`search` permanece como chave, vazia.** O `apiUrl` foi removido: o gazetteer **é este backend** e o cliente deriva a rota da própria base da API. O antigo `SEARCH_API_URL` tinha default apontando para um `:3001` inexistente, o fetch dava connection-refused e a busca falhava em silêncio. Liga/desliga continua em `features.apisearch`. Ver [[gazetteer-nomes-geograficos]].
 - **`postos` e `organizacoesMilitares` são públicos de propósito**, apesar de serem dados de pessoal: o formulário anônimo de cadastro precisa popular os selects **antes** do login. Ver [[gestao-usuarios]] e [[organizacoes-om]].
 
-> [!CONTRADICAO 2026-07-18 — RESOLVIDO 2026-07-24] O `config-contract.e2e.test.js` exigia `cfg.search.apiUrl` não-vazio e `cfg.services.tileServerUrl.length > 0`, enquanto o backend emite `search: {}` e default `''`. Já estava corrigido no commit `14f703f` ("config-contract afirma o shape e o invariante, não o deployment"): hoje o teste afirma `typeof tileServerUrl === 'string'` (vazio é o sinal deliberado de "não configurado") e afirma a **ausência** de `search.apiUrl`, o que prende a remoção do default irreal `:3001`. A nota é que ficou pendente depois do fix.
+**Vazio é sinal, não ausência de configuração.** `tileServerUrl` default `''` significa "não configurado" e o guarda do contrato afirma só `typeof === 'string'` (`frontend/tests/e2e/config-contract.e2e.test.js`). Exigir comprimento maior que zero ali transformaria o teste de contrato em teste de deployment: passaria só onde houvesse servidor de tiles, que é o oposto do que ele guarda.
 
 ## Regras de montagem que causam bug se ignoradas
 
@@ -58,7 +58,7 @@ O default absoluto do sv360 só funcionava por acidente: `:3000` é o Vite, que 
 
 **Defaults de env são DEV-only** (OSM, Google Satellite, demotiles, BDGEx público) e o boot **não avisa**. Em rede militar isolada nada disso resolve, e a app sobe parecendo saudável. Ver [[deploy-backend]].
 
-Contexto que explica por que os styles moram no backend: no `config.js` antigo as URLs reais de tiles não estavam no config, moravam em módulos separados de `baselayers/*.js`. O endpoint as absorveu em `basemapStyles` para servir 100% da config num lugar só.
+Contexto que explica por que os styles moram no backend: no `frontend/src/js/config.js` antigo as URLs reais de tiles não estavam no config, moravam em módulos separados de `baselayers/*.js`. O endpoint as absorveu em `basemapStyles` para servir 100% da config num lugar só.
 
 ## Overlay por atlas: restringe, nunca habilita
 
@@ -87,4 +87,8 @@ Config não tem push por WebSocket: é pull sob demanda, com `Cache-Control: no-
 
 - Guias absorvidos: *10-config* (contrato congelado, mapa env → chave, semântica MVT), *visao-e-principios* (config como exceção ao offline-first), *ui-ux-ebgeo* (backend como fonte única; cadeia atlas-settings → config → catálogo). Divergências marcadas acima.
 - `backend/src/config.js`: a tabela de env do `appConfig` é o próprio arquivo.
-- Código (autoridade sobre a prosa): `backend/src/modules/config/`, `backend/src/modules/catalog/`, `backend/src/{app,config}.js`, `src/js/{index,config}.js`, `src/js/store/sync/{runtime-config,api-client,atlas-settings.service}.js`, `frontend/tests/e2e/config-contract.e2e.test.js`.
+- Código (autoridade sobre a prosa): `backend/src/modules/config/`, `backend/src/modules/catalog/`, `backend/src/app.js`, `backend/src/config.js`, `frontend/src/js/index.js`, `frontend/src/js/config.js`, `frontend/src/js/store/sync/runtime-config.js`, `frontend/tests/e2e/config-contract.e2e.test.js`.
+
+## Histórico
+
+- 2026-07-25: a seção do contrato congelado carregava uma `[!CONTRADICAO 2026-07-18]` dizendo que o `config-contract.e2e.test.js` exigia `search.apiUrl` não-vazio e `tileServerUrl` com comprimento maior que zero. O teste já havia sido corrigido em `14f703f`; o marcador sobreviveu ao próprio conserto e ficou pendente. Supersessão temporal: marcador apagado, o invariante que sobrou virou prosa afirmativa.

@@ -13,7 +13,7 @@ Consequência que orienta o resto da página: **uma imagem nunca conflita; confl
 
 ## Contrato congelado: o id do blob é o id da feição
 
-> **[!CONTRADICAO]** Os guias absorvidos *06-presenca-imagens* (§2.5/Parte 3) e *08-offline-import* (§4.2) dizem que a referência fica em `properties.imageId`. **Não existe `properties.imageId` no código.** O frontend grava em `properties.id` (`frontend/src/js/draw_tools/image_tool/add_image_control.js:355`) e o renderer lê de lá (`frontend/src/js/layers/layer_setup.js:182`). Quem consumir a feição no servidor deve olhar `properties.id`.
+A referência mora em `properties.id`, e **não existe uma property `imageId` na feição**: o frontend grava em `properties.id` (`frontend/src/js/draw_tools/image_tool/add_image_control.js:355`) e o renderer lê de lá (`frontend/src/js/layers/layer_setup.js:182`). O nome `imageId` existe só como variável local nesses módulos, o que torna o engano fácil e persistente: a documentação de origem prometia a property, e quem consumir a feição no servidor procurando por ela não acha nada.
 
 Para feição `image`, `imageId === properties.id === id do registro no backend` (`frontend/src/js/draw_tools/image_tool/add_image_control.js:304-308`). Não é acidente: é o que permite o import preservar ids sem fase de rewrite (adiante). Quebrar essa igualdade quebra o caminho de "salvar atlas local no servidor" inteiro.
 
@@ -34,7 +34,7 @@ O gateway `frontend/src/js/store/sync/image-sync.js` é um seam fino sobre o `ap
 
 ## Por que o import sobe as imagens DEPOIS
 
-> **[!CONTRADICAO]** O guia *08-offline-import* (§4.7 "IDs locais são substituídos por IDs do servidor" e §4.4 "fase 4: enviar UPDATE para atualizar `properties.imageId`") descreve um rewrite pós-import. **Ele não existe no código.** O backend preserva o `localId` como id do servidor (`INSERT_IMAGE_WITH_ID`, `backend/src/modules/images/images.queries.js:12-17`) e o orquestrador importa o atlas ANTES de subir os blobs (`frontend/src/js/import_export/save-local-atlas.service.js:97-105`) exatamente para não precisar de rewrite.
+**Não há fase de rewrite de id pós-import**, apesar de a documentação de origem descrever uma ("IDs locais são substituídos por IDs do servidor", mais um UPDATE final para reapontar a referência). O backend preserva o `localId` como id do servidor (`INSERT_IMAGE_WITH_ID`, `backend/src/modules/images/images.queries.js:13-17`) e o orquestrador importa o atlas ANTES de subir os blobs (`frontend/src/js/import_export/save-local-atlas.service.js:97-105`) exatamente para dispensá-la. Procurar por essa fase para "consertar" um id divergente é procurar código que nunca existiu.
 
 A ordem em `frontend/src/js/import_export/save-local-atlas.service.js` (montar `.ebgeo` em memória, ver [[formato-ebgeo-roundtrip]] → payload de import → `importAtlas`, ver [[atlas-import-offline]] → bulk upload preservando ids) é contrato, não estilo. Inverter as fases exigiria reintroduzir o rewrite de referência que a preservação de PK eliminou.
 
@@ -46,7 +46,7 @@ Armadilhas desse caminho:
 
 ## Referências penduradas são estado esperado
 
-`DELETE` não verifica feições apontando para a imagem, e apagar a feição não apaga o blob no servidor (`backend/src/modules/images/images.service.js:97-111`). As duas direções produzem órfãos por projeto: o renderer degrada para "sem imagem" porque `getImage` devolve `null`. Não adicione checagem de referência sem antes decidir o que fazer com o caso offline, onde o servidor sequer conhece a feição.
+`DELETE` não verifica feições apontando para a imagem, e apagar a feição não apaga o blob no servidor (`deleteImage`, `backend/src/modules/images/images.service.js`). As duas direções produzem órfãos por projeto: o renderer degrada para "sem imagem" porque `getImage` devolve `null`. Não adicione checagem de referência sem antes decidir o que fazer com o caso offline, onde o servidor sequer conhece a feição.
 
 O download vai com `private, max-age=31536000, immutable` (`backend/src/modules/images/images.controller.js:37`). A justificativa que esta linha deu até 2026-07-25, "o id é imutável, upload novo gera id novo, nunca sobrescreve bytes", é **falsa aqui**, mas por um caminho só, e não pelos dois que uma versão anterior desta linha afirmou. O `DELETE` é **físico** (`DELETE_IMAGE` em `backend/src/modules/images/images.queries.js`) e devolve a PK ao pool de ids disponíveis, então apagar a imagem e re-importar o atlas local com o mesmo `localId` recria a MESMA URL com bytes diferentes, e o navegador não revalida, porque `immutable` é literalmente a instrução de não revalidar dentro do ano. Re-importar **sem** apagar antes não sobrescreve nada: o `INSERT` do lote não é upsert e a colisão falha o item (armadilha acima). Não há teste cobrindo reuso de id depois do delete.
 

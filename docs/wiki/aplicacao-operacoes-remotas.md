@@ -12,7 +12,7 @@ Por que o ack precisa semear a versão do próprio autor: o `ws-client` descarta
 
 Por que a reconciliação pós-flush é obrigatória e não defensiva: o contador por op vaza sempre que a simetria incremento/decremento quebra (compactação da fila, ops em lote, ack sem versão, batch envenenado). Um contador vazado deixa aquela entidade **permanentemente adiada** (divergência silenciosa, sem erro). A fila de operações é a fonte de verdade da cura, não o contador. Ver [[fila-operacoes-outbound]] e [[ack-idempotencia]].
 
-Alternativa rejeitada: resolver conflito por `timestamp` ou pelo relógio de Lamport. O Lamport é registrado e nunca decide (`frontend/src/js/store/sync/sync-gateway.js:39`); o vencedor é sempre `max(serverVersion)`. Ver [[sintese-nao-e-crdt]], [[modelo-conflito-lww]] e [[idempotencia-e-convergence-guard]].
+Alternativa rejeitada: resolver conflito por `timestamp` ou pelo relógio de Lamport. O Lamport é registrado e nunca decide (`frontend/src/js/store/sync/sync-gateway.js:39`); o vencedor é sempre `max(serverVersion)`. Ver [[modelo-conflito-lww]] e [[idempotencia-e-convergence-guard]].
 
 ## Contratos congelados
 

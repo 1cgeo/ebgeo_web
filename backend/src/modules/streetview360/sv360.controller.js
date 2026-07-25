@@ -115,15 +115,28 @@ export const tilesGeojson = asyncHandler(async (req, res) => {
 // features in the bbox) — that is a valid 200 response (an empty Buffer is a valid
 // MVT). Cache-Control is SHORT (NOT immutable): tiles change as projects are
 // ingested/tombstoned/toggled. z/x/y are validated as integers by the route schema.
+// P6 — the cache scope must follow the ACCESS scope, exactly like the image route
+// (IMMUTABLE_PRIVATE + Vary) and like tilesGeojson above. The tile body varies by
+// req.user: the query embeds isAdmin/orgId and includes `disabled` projects for a
+// caller allowed to see them. Marking that response `public` authorizes a shared
+// cache to store one member's tile — disabled-project photos inside — and replay it
+// to an anonymous caller for the next 60s, with the application never consulted.
+// Anonymous tiles carry only public data and stay publicly cacheable, so the
+// legitimate CDN cache is preserved.
 const MVT_CONTENT_TYPE = 'application/vnd.mapbox-vector-tile';
-const MVT_CACHE_CONTROL = 'public, max-age=60';
+const MVT_MAX_AGE = 60;
 export const mvtTile = asyncHandler(async (req, res) => {
   const z = Number(req.params.z);
   const x = Number(req.params.x);
   const y = Number(req.params.y);
   const tile = await svc.mvtTile(z, x, y, req.user);
   res.setHeader('Content-Type', MVT_CONTENT_TYPE);
-  res.setHeader('Cache-Control', MVT_CACHE_CONTROL);
+  if (req.user) {
+    res.setHeader('Cache-Control', `private, max-age=${MVT_MAX_AGE}`);
+    res.setHeader('Vary', 'Authorization, Cookie');
+  } else {
+    res.setHeader('Cache-Control', `public, max-age=${MVT_MAX_AGE}`);
+  }
   res.setHeader('Content-Length', tile.length);
   return res.status(200).end(tile);
 });
@@ -210,6 +223,18 @@ export const getPhotoImage = asyncHandler(async (req, res, next) => {
     const buf = await blobstore.getImage(d.dbFile, d.photoId, quality); // BLOB on a worker thread
     if (!buf) {
       release();
+      // The immutable headers went up BEFORE the read (the ETag is O(1) from
+      // Postgres), so they are already on this response — and this 404 is the one
+      // outcome for which they are wrong. Postgres announcing a photo whose blob is
+      // absent is TRANSIENT by construction: it is the residual crash window between
+      // PASSO 1 and the PASSO 2 commit (sv360.ingest.js) or a file being restored.
+      // Left in place, `public, max-age=31536000, immutable` lets a browser or CDN
+      // pin that 404 for a YEAR, so the photo stays "missing" for its viewers long
+      // after the drift healed. Content-Type: image/webp on a JSON error body is the
+      // same mistake in miniature.
+      res.removeHeader('ETag');
+      res.removeHeader('Content-Type');
+      res.setHeader('Cache-Control', 'no-store');
       return next(new NotFoundError('Image'));
     }
     const size = buf.length; // authoritative: the bytes we will actually send

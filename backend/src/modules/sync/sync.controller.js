@@ -76,8 +76,16 @@ export const getCleanupStats = asyncHandler(async (req, res) => {
 export const cleanupOperations = asyncHandler(async (req, res) => {
   const atlasId = req.params.atlasId;
   const { keepFromVersion, keepDays } = req.body;
+  // `keepFromVersion: 0` é um pedido VÁLIDO (o Joi aceita `min(0)`) e significa
+  // "preserve tudo a partir da versão 0", ou seja, não apague nada. A coerção
+  // anterior era `keepFromVersion ? ... : undefined`: o zero caía como falsy, virava
+  // `undefined`, e o serviço executava o OUTRO ramo — um expurgo por `keepDays` (7,
+  // o default do Joi). O administrador que pedia "preserve tudo" disparava um
+  // apagamento de sete dias e perdia operações antigas, com 200 e sem sinal nenhum.
   const result = await syncService.cleanupOldOperations(atlasId, {
-    keepFromVersion: keepFromVersion ? parseInt(keepFromVersion, 10) : undefined,
+    keepFromVersion: keepFromVersion !== undefined && keepFromVersion !== null
+      ? parseInt(keepFromVersion, 10)
+      : undefined,
     keepDays: keepDays ? parseInt(keepDays, 10) : 7,
   });
   res.json({ data: result });

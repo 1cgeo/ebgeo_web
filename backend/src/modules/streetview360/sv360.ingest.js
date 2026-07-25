@@ -47,7 +47,12 @@ import { mergeProject, deriveDbFilename } from './sv360.merge.js';
 import { manifestSchema } from './sv360.admin.schemas.js';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
-import { BadRequestError, ValidationError, ServiceUnavailableError } from '../../utils/errors.js';
+import {
+  AppError,
+  BadRequestError,
+  ValidationError,
+  ServiceUnavailableError,
+} from '../../utils/errors.js';
 
 // Namespace for the per-(orgId, slug) session advisory lock that serializes
 // ingestion (P3). Distinct from the sync push namespace so the two lock spaces
@@ -155,6 +160,15 @@ export function validateImagesDb(imagesDbPath, manifest) {
     throw new BadRequestError('images.db is not a valid SQLite file');
   }
   try {
+    // The constructor is NOT where a non-SQLite upload is caught: sqlite3_open()
+    // does not read the file header, so `new Database(junk.bin)` SUCCEEDS and the
+    // SQLITE_NOTADB only surfaces on the FIRST STATEMENT. Left uncaught, that raw
+    // SqliteError is not an AppError and the sv360ErrorHandler renders it as a 500
+    // — a server fault for what is plainly a bad upload, and the one PASSO 0 branch
+    // that did not honour the "anything wrong here is a 4xx" contract. Every failure
+    // inside this block is a bundle problem, so a non-AppError is translated to the
+    // intended 400; the BadRequestErrors thrown below pass through untouched, so
+    // each keeps its specific message.
     const table = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='images'")
       .get();
@@ -179,6 +193,9 @@ export function validateImagesDb(imagesDbPath, manifest) {
         );
       }
     }
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    throw new BadRequestError('images.db is not a valid SQLite file');
   } finally {
     try {
       db.close();

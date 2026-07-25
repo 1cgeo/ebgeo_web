@@ -306,9 +306,21 @@ describe('cross-tenant / cross-actor negatives', () => {
       assert.ok(!ids.includes(imgB1));
     });
 
-    it('a stranger gets 403 and no listing at all', async () => {
-      const res = await as(tokStranger).get(`/api/v1/atlas/${atlasA.id}/images`).expect(403);
+    it('a stranger gets 404 and no listing at all, indistinguishable from an atlas that does not exist', async () => {
+      // The stranger holds no share on atlas A: the escada of requireAtlasPermission
+      // answers 404 for "no relation whatsoever", so the listing route cannot be used
+      // to enumerate which atlas ids are real.
+      const res = await as(tokStranger).get(`/api/v1/atlas/${atlasA.id}/images`).expect(404);
       assert.equal(res.body.data, undefined);
+
+      const inexistente = await as(tokStranger)
+        .get(`/api/v1/atlas/${randomUUID()}/images`)
+        .expect(404);
+      // Anti-vacuity anchor: without it, a body carrying no `error` at all would
+      // compare undefined to undefined and the pair would prove nothing.
+      assert.equal(res.body.error.code, 'NOT_FOUND');
+      assert.equal(res.body.error.code, inexistente.body.error.code);
+      assert.equal(res.body.error.message, inexistente.body.error.message);
     });
   });
 
@@ -439,9 +451,9 @@ describe('cross-tenant / cross-actor negatives', () => {
       assert.ok(getTrace(atlasB.id, { opId: opB }).length === 1, 'ring B intact');
     });
 
-    it('a user with no share on the atlas -> 403 on GET', async () => {
+    it('a user with no share on the atlas -> 404 on GET (no relation, so not even existence)', async () => {
       seed(atlasA.id);
-      await as(tokStranger).get(`/api/v1/debug/trace?atlasId=${atlasA.id}`).expect(403);
+      await as(tokStranger).get(`/api/v1/debug/trace?atlasId=${atlasA.id}`).expect(404);
     });
 
     it('read share -> 200 with that atlas\'s spans', async () => {
@@ -495,9 +507,11 @@ describe('cross-tenant / cross-actor negatives', () => {
       assert.equal(getTrace(atlasA.id).length, 0);
     });
 
-    it('IDOR: manage on A gives nothing on B — DELETE ?atlasId=B is 403 and B\'s ring is intact', async () => {
+    it('IDOR: manage on A gives nothing on B — DELETE ?atlasId=B is 404 and B\'s ring is intact', async () => {
+      // 404 and not 403: `manage` on A is no relation at all to B, and the escada
+      // reserves 403 for a caller who DOES hold a share on the atlas it is probing.
       const opB = seed(atlasB.id);
-      await as(tokManage).delete(`/api/v1/debug/trace?atlasId=${atlasB.id}`).expect(403);
+      await as(tokManage).delete(`/api/v1/debug/trace?atlasId=${atlasB.id}`).expect(404);
       assert.equal(getTrace(atlasB.id, { opId: opB }).length, 1,
         'the foreign ring must still hold its span');
 
@@ -508,10 +522,10 @@ describe('cross-tenant / cross-actor negatives', () => {
       assert.equal(res.body.data.spans.length, 1);
     });
 
-    it('IDOR: reading a foreign atlas\'s ring is 403 too', async () => {
+    it('IDOR: reading a foreign atlas\'s ring is 404 too', async () => {
       seed(atlasB.id);
-      await as(tokManage).get(`/api/v1/debug/trace?atlasId=${atlasB.id}`).expect(403);
-      await as(tokStranger).get(`/api/v1/debug/trace?atlasId=${atlasB.id}`).expect(403);
+      await as(tokManage).get(`/api/v1/debug/trace?atlasId=${atlasB.id}`).expect(404);
+      await as(tokStranger).get(`/api/v1/debug/trace?atlasId=${atlasB.id}`).expect(404);
     });
 
     it('a public-link visitor cannot reach the trace ring of any atlas, including its own', async () => {

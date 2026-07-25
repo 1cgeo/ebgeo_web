@@ -8,11 +8,12 @@ import { createServer } from 'http';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import { createUser, createAtlas, createMap, loginUser, makeAtlasPublic, getPublicToken } from '../helpers/fixtures.js';
 import { createWsClient } from '../helpers/ws-client.js';
+import jwt from 'jsonwebtoken';
 
 describe('WebSocket Collaboration', () => {
   let app, db, server;
-  let owner, writer, reader, stranger;
-  let ownerToken, writerToken, readerToken;
+  let owner, writer, reader, stranger, manager, commenter;
+  let ownerToken, writerToken, readerToken, managerToken, commenterToken;
   let atlas, map;
 
   before(async () => {
@@ -37,11 +38,15 @@ describe('WebSocket Collaboration', () => {
     writer = await createUser(db, { username: 'ws_writer' });
     reader = await createUser(db, { username: 'ws_reader' });
     stranger = await createUser(db, { username: 'ws_stranger' });
+    manager = await createUser(db, { username: 'ws_manager' });
+    commenter = await createUser(db, { username: 'ws_commenter' });
 
     // Get tokens
     ownerToken = await loginUser(app, owner.username, owner.password);
     writerToken = await loginUser(app, writer.username, writer.password);
     readerToken = await loginUser(app, reader.username, reader.password);
+    managerToken = await loginUser(app, manager.username, manager.password);
+    commenterToken = await loginUser(app, commenter.username, commenter.password);
 
     // Create atlas with shares
     atlas = await createAtlas(db, owner.id, { name: 'WS Test Atlas' });
@@ -55,6 +60,14 @@ describe('WebSocket Collaboration', () => {
     await db.query(
       `INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by) VALUES ($1, $2, 'read', $3)`,
       [atlas.id, reader.id, owner.id]
+    );
+    await db.query(
+      `INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by) VALUES ($1, $2, 'manage', $3)`,
+      [atlas.id, manager.id, owner.id]
+    );
+    await db.query(
+      `INSERT INTO atlas_shares (atlas_id, user_id, permission, added_by) VALUES ($1, $2, 'comment', $3)`,
+      [atlas.id, commenter.id, owner.id]
     );
   });
 
@@ -98,24 +111,82 @@ describe('WebSocket Collaboration', () => {
       client.close();
     });
 
-    it('stranger cannot connect to private atlas', async () => {
-      const strangerToken = await loginUser(app, stranger.username, stranger.password);
-
-      try {
-        await createWsClient(server, atlas.id, strangerToken);
-        assert.fail('Should have thrown an error');
-      } catch (err) {
-        assert.ok(err.message);
-      }
+    it('manage share connects and is told it is manage (not flattened to write)', async () => {
+      // The tier the frontend reads to gate its UI. collab-manage-selection.test.js
+      // creates a 'manage' share but never looks at the value handed back in
+      // `connected`, so the co-Gestor could arrive as 'write' — or as 'read' —
+      // with the whole suite green.
+      const client = await createWsClient(server, atlas.id, managerToken);
+      const connected = await client.waitForType('connected');
+      assert.equal(connected.permission, 'manage');
+      client.close();
     });
 
-    it('invalid token is rejected', async () => {
-      try {
-        await createWsClient(server, atlas.id, 'invalid-token');
-        assert.fail('Should have thrown an error');
-      } catch (err) {
-        assert.ok(err);
-      }
+    it('comment share connects and is told it is comment (not flattened to read)', async () => {
+      const client = await createWsClient(server, atlas.id, commenterToken);
+      const connected = await client.waitForType('connected');
+      assert.equal(connected.permission, 'comment');
+      client.close();
+    });
+
+    // ---------------------------------------------------------------------
+    // Refusals. These four used to be `catch (err) { assert.ok(err) }`, which
+    // any failure satisfies: a typo in the helper URL, a port that is not
+    // listening, a TypeError inside createWsClient, a plain timeout. That is
+    // precisely the distinction the tests exist to make — "the server refused
+    // this principal" versus "the connection never happened" — so each one now
+    // names the HTTP status the upgrade was refused with, and proves that no
+    // session was left behind.
+    // ---------------------------------------------------------------------
+
+    it('stranger is refused with HTTP 403 and leaves no session row', async () => {
+      const strangerToken = await loginUser(app, stranger.username, stranger.password);
+
+      await assert.rejects(
+        () => createWsClient(server, atlas.id, strangerToken),
+        (err) => {
+          assert.match(
+            err.message,
+            /Unexpected server response: 403/,
+            `expected a 403 upgrade refusal, got: ${err.message}`
+          );
+          return true;
+        }
+      );
+
+      const { rows } = await db.query(
+        'SELECT COUNT(*)::int AS n FROM active_sessions WHERE atlas_id = $1 AND user_id = $2',
+        [atlas.id, stranger.id]
+      );
+      assert.equal(rows[0].n, 0, 'a refused handshake must not register a session');
+    });
+
+    it('an invalid token is refused with HTTP 401, not 403 (authentication, not authorization)', async () => {
+      // The status distinction is the assertion: 401 means the token never
+      // verified; a 403 here would mean the gateway accepted the identity and
+      // then weighed permissions on it.
+      await assert.rejects(
+        () => createWsClient(server, atlas.id, 'invalid-token'),
+        (err) => {
+          assert.match(
+            err.message,
+            /Unexpected server response: 401/,
+            `expected a 401 upgrade refusal, got: ${err.message}`
+          );
+          return true;
+        }
+      );
+    });
+
+    it('a token signed with another secret is refused with 401 as well', async () => {
+      const forged = jwt.sign(
+        { sub: owner.id, username: owner.username },
+        'um-segredo-que-este-servidor-nao-conhece'
+      );
+      await assert.rejects(
+        () => createWsClient(server, atlas.id, forged),
+        /Unexpected server response: 401/
+      );
     });
   });
 
@@ -380,9 +451,19 @@ describe('WebSocket Collaboration', () => {
       });
 
       const syncResponse = await client.waitForType('sync_response');
-      assert.ok(syncResponse);
-      assert.ok('isSnapshot' in syncResponse);
-      assert.ok(syncResponse.currentVersion !== undefined);
+      // `'isSnapshot' in x` and `x.currentVersion !== undefined` accepted null,
+      // NaN, '' and the string 'false' — i.e. they asserted that two property
+      // names exist. The contract is about their TYPES and, for a pull from
+      // version 0, about which branch answered.
+      assert.equal(typeof syncResponse.isSnapshot, 'boolean');
+      assert.equal(syncResponse.isSnapshot, true, 'a sync_request from version 0 is answered with a snapshot');
+      assert.equal(typeof syncResponse.currentVersion, 'number');
+      assert.ok(Number.isFinite(syncResponse.currentVersion), 'the version must be a real number, not NaN');
+
+      // And the snapshot really carries this atlas's map, which is what the peer
+      // rebuilds its store from.
+      const mapIds = (syncResponse.snapshot?.maps ?? []).map((m) => m.id);
+      assert.ok(mapIds.includes(map.id), 'the snapshot must contain the atlas maps');
 
       client.close();
     });

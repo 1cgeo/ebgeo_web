@@ -510,13 +510,33 @@ describe('WebSocket Collaboration — Advanced', () => {
       }
     });
 
-    it('connection with invalid (non-UUID) atlasId is rejected', async () => {
-      try {
-        await createWsClient(server, 'not-a-uuid', ownerToken);
-        assert.fail('Should have rejected invalid atlasId');
-      } catch (err) {
-        assert.ok(err);
-      }
+    it('connection with invalid (non-UUID) atlasId is rejected with an HTTP status, not a timeout', async () => {
+      // `assert.ok(err)` accepted every failure mode there is — a helper typo, a
+      // closed port, a timeout — so it could not tell "the server refused this"
+      // from "the connection never happened". The refusal is a real HTTP status
+      // on the upgrade, and pinning WHICH one also pins where the refusal comes
+      // from: 'not-a-uuid' reaches the atlas lookup, whose ::uuid cast fails, and
+      // the gateway's outer catch answers 500. That is the CURRENT behaviour, and
+      // it is arguably the wrong status for a malformed client parameter — pinned
+      // so that tightening it to 400 is a deliberate, visible change rather than
+      // a silent one.
+      await assert.rejects(
+        () => createWsClient(server, 'not-a-uuid', ownerToken),
+        (err) => {
+          assert.match(
+            err.message,
+            /Unexpected server response: \d{3}/,
+            `the upgrade must be refused with a status, got: ${err.message}`
+          );
+          assert.doesNotMatch(
+            err.message,
+            /Timeout|ECONNREFUSED/,
+            'a timeout means the refusal never happened — that is not a rejection test'
+          );
+          assert.match(err.message, /Unexpected server response: 500/, 'current behaviour: the uuid cast fails server-side');
+          return true;
+        }
+      );
     });
   });
 });

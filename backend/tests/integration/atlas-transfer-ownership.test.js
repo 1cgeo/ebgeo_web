@@ -100,10 +100,24 @@ describe('Atlas ownership transfer (L13)', () => {
 
   it('a stranger cannot transfer (and cannot learn the atlas exists)', async () => {
     const atlas = await freshAtlas();
+    // O parêntese do nome era FALSO até 2026-07-25: `requireAtlasPermission` respondia
+    // 403 para um atlas EXISTENTE em que o chamador não tem share, e 404 só para o
+    // inexistente — o par de status era o oráculo de existência. A escada nova responde
+    // 404 nos dois casos, então a promessa do nome só se verifica COMPARANDO os dois.
+    const inexistente = randomUUID();
     const res = await transfer(atlas.id, strangerToken, { newOwnerId: stranger.id });
-    // requireAtlasPermission answers 403 'Access denied' for an EXISTING atlas the
-    // caller has no share on (404 is reserved for an atlas that does not exist).
-    assert.equal(res.status, 403, `expected 403, got ${res.status}`);
+    const resInexistente = await transfer(inexistente, strangerToken, { newOwnerId: stranger.id });
+
+    assert.equal(res.status, 404, `expected 404, got ${res.status}`);
+    assert.equal(resInexistente.status, 404);
+    // Ancora anti-vacuidade: sem ela, um envelope SEM `error` compararia
+    // undefined com undefined e o par passaria provando nada.
+    assert.equal(res.body.error.code, 'NOT_FOUND');
+    assert.equal(res.body.error.code, resInexistente.body.error.code);
+    assert.equal(res.body.error.message, resInexistente.body.error.message);
+
+    const { rows } = await db.query('SELECT owner_id FROM atlas WHERE id = $1', [atlas.id]);
+    assert.equal(rows[0].owner_id, owner.id, 'ownership must be unchanged');
   });
 
   it('anonymous cannot transfer', async () => {
