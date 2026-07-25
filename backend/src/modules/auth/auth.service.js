@@ -178,7 +178,30 @@ export async function refresh(refreshToken) {
     }
 
     // Reuse detection: a live token reappearing long after rotation means the chain
-    // was compromised. Revoke the whole family, forcing a fresh login.
+    // was compromised. Revoke the whole family.
+    //
+    // SCOPE — read this before relying on it as a remediation. Revoking the family
+    // ends the ability to ROTATE, and nothing else. It does NOT force a fresh login
+    // (this comment used to say it did) and does not end the compromised session:
+    //   - the access token carries no jti/session/version (issueAccessToken above),
+    //     so there is nothing in it to invalidate;
+    //   - neither the strict `auth` middleware nor the sliding renewal in
+    //     flexible-auth.js ever reads `refresh_tokens`; the live reconciliation
+    //     (getLiveAuthState) looks only at users.is_active / role / organization;
+    //   - flexible-auth.js re-issues the cookie whenever the token is <5 min from
+    //     expiring, and answers Set-Cookie regardless of whether the token arrived
+    //     as a cookie or as a Bearer header. A holder who makes one request every
+    //     <15 min therefore renews indefinitely without ever calling /auth/refresh.
+    // The same limitation applies to `logout` below and to the password-change
+    // revocation in users.service.js — all three run this one query.
+    //
+    // Today the ONLY revocation the live path honours is deactivating the user or
+    // the organization. Closing the gap properly needs a per-user marker (e.g.
+    // `users.sessions_valid_from`, set here, read by getLiveAuthState, refusing any
+    // token whose `iat` predates it) — a schema migration plus a session-policy
+    // decision, deliberately not taken here. Pinned by
+    // tests/integration/refresh-reuse-session-scope.repro.test.js: when that fix
+    // lands, those assertions flip and this comment must change with them.
     logger.warn({ userId: spent.user_id }, 'Refresh token reuse detected');
     await query(Q.REVOKE_ALL_USER_TOKENS, [spent.user_id]);
     throw new UnauthorizedError('Sessão inválida. Entre novamente.');

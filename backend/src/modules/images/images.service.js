@@ -49,14 +49,24 @@ export async function uploadImage(atlasId, file, userId) {
   }
 
   // multer already wrote the file to `file.path`; persist exactly that path.
-  const { rows } = await query(Q.INSERT_IMAGE, [
-    atlasId,
-    file.originalname,
-    file.mimetype,
-    file.size,
-    file.path,
-    userId,
-  ]);
+  // Any failure from here on must take the blob with it: the file exists BEFORE
+  // this handler runs, so an INSERT that throws (a constraint, a dead pool) would
+  // otherwise leave bytes on disk that no row points at and nothing ever collects.
+  // The /bulk path avoids the problem by writing the blob after the INSERT.
+  let rows;
+  try {
+    ({ rows } = await query(Q.INSERT_IMAGE, [
+      atlasId,
+      file.originalname,
+      file.mimetype,
+      file.size,
+      file.path,
+      userId,
+    ]));
+  } catch (err) {
+    await unlink(file.path).catch(() => {});
+    throw err;
+  }
 
   return toPublicImage(rows[0]);
 }

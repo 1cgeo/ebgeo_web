@@ -169,8 +169,17 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
   await t.none(AQ.PURGE_PROJECT_TARGETS, [projectId]);
   const removed = await t.any(AQ.PURGE_PROJECT_PHOTOS, [projectId]);
   const oldIds = removed.map((r) => r.id);
-  if (oldIds.length > 0) {
-    await t.none(AQ.PURGE_PROJECT_TOMBSTONES, [oldIds]);
+  // Purge tombstones for the UNION of the project's CURRENT photo ids and the ids
+  // this manifest is about to (re)insert. Scoping it to `oldIds` alone made the
+  // merge unable to heal an ORPHAN tombstone — one whose photo/project was already
+  // gone (achado 53): the fresh project has no photos yet, so oldIds is empty and
+  // the reinserted photo stayed invisible (404) until a SECOND identical upload.
+  // The manifest ids are safe to purge here: collisionGuard already proved every
+  // one of them belongs to THIS project or to no project at all, and the carried
+  // over deleted_photos[] are re-applied a few lines below.
+  const purgeIds = [...new Set([...oldIds, ...photoIds])];
+  if (purgeIds.length > 0) {
+    await t.none(AQ.PURGE_PROJECT_TOMBSTONES, [purgeIds]);
   }
 
   // 4) REINSERT manifest state: photos first (geom filled by trigger), then

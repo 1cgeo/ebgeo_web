@@ -139,17 +139,25 @@ export async function updateCalibration(uuid, fields, user) {
  * @returns {Promise<Object>} frozen photoMetadataShape for the SOURCE photo
  */
 export async function updateTargetOverride(uuid, targetId, overrides, user) {
-  await loadWritablePhoto(uuid, user);
-  const { rows: link } = await query(WQ.GET_TARGET_LINK, [uuid, targetId]);
-  if (!link[0]) throw new NotFoundError('Target');
-  await query(WQ.UPDATE_TARGET_OVERRIDE, [
-    uuid,
-    targetId,
-    overrides.override_bearing ?? null,
-    overrides.override_distance ?? null,
-    overrides.override_height ?? null,
-  ]);
-  return rebuildPhotoShape(uuid);
+  // L8 (achado 68) — one transaction, exactly like updateCalibration: the write gate
+  // (GET_PHOTO_FOR_WRITE) deliberately KEEPS tombstoned rows, while the rebuild
+  // (GET_PHOTO_BY_ID) excludes them and throws 404. With loose query() calls each
+  // statement committed on its own, so a tombstoned source persisted the UPDATE and
+  // only THEN 404'd — a write the caller was told never happened.
+  return tx(async (t) => {
+    const exec = txExecutor(t);
+    await loadWritablePhoto(uuid, user, exec);
+    const { rows: link } = await exec(WQ.GET_TARGET_LINK, [uuid, targetId]);
+    if (!link[0]) throw new NotFoundError('Target');
+    await exec(WQ.UPDATE_TARGET_OVERRIDE, [
+      uuid,
+      targetId,
+      overrides.override_bearing ?? null,
+      overrides.override_distance ?? null,
+      overrides.override_height ?? null,
+    ]);
+    return rebuildPhotoShape(uuid, exec);
+  });
 }
 
 /**
@@ -162,11 +170,15 @@ export async function updateTargetOverride(uuid, targetId, overrides, user) {
  * @returns {Promise<Object>} frozen photoMetadataShape for the SOURCE photo
  */
 export async function updateTargetVisibility(uuid, targetId, hidden, user) {
-  await loadWritablePhoto(uuid, user);
-  const { rows: link } = await query(WQ.GET_TARGET_LINK, [uuid, targetId]);
-  if (!link[0]) throw new NotFoundError('Target');
-  await query(WQ.UPDATE_TARGET_VISIBILITY, [uuid, targetId, hidden]);
-  return rebuildPhotoShape(uuid);
+  // Same L8 transaction envelope as updateTargetOverride (achado 68).
+  return tx(async (t) => {
+    const exec = txExecutor(t);
+    await loadWritablePhoto(uuid, user, exec);
+    const { rows: link } = await exec(WQ.GET_TARGET_LINK, [uuid, targetId]);
+    if (!link[0]) throw new NotFoundError('Target');
+    await exec(WQ.UPDATE_TARGET_VISIBILITY, [uuid, targetId, hidden]);
+    return rebuildPhotoShape(uuid, exec);
+  });
 }
 
 /**
@@ -178,29 +190,35 @@ export async function updateTargetVisibility(uuid, targetId, hidden, user) {
  * @returns {Promise<Object>} frozen photoMetadataShape for the SOURCE photo (incl. new target)
  */
 export async function createTarget(uuid, body, user) {
-  await loadWritablePhoto(uuid, user);
+  // Same L8 transaction envelope (achado 68): CHECK_TARGET_SAME_PROJECT only filters
+  // the DESTINATION's tombstone, so a tombstoned SOURCE reached the INSERT and the
+  // 404 came from the rebuild afterwards — leaving an orphan link behind.
+  return tx(async (t) => {
+    const exec = txExecutor(t);
+    await loadWritablePhoto(uuid, user, exec);
 
-  const { rows: same } = await query(WQ.CHECK_TARGET_SAME_PROJECT, [uuid, body.target_id]);
-  if (!same[0]) {
-    throw new ConflictError('Target photo must exist in the same project');
-  }
+    const { rows: same } = await exec(WQ.CHECK_TARGET_SAME_PROJECT, [uuid, body.target_id]);
+    if (!same[0]) {
+      throw new ConflictError('Target photo must exist in the same project');
+    }
 
-  const { rows: existing } = await query(WQ.GET_TARGET_LINK, [uuid, body.target_id]);
-  if (existing[0]) throw new ConflictError('Target link already exists');
+    const { rows: existing } = await exec(WQ.GET_TARGET_LINK, [uuid, body.target_id]);
+    if (existing[0]) throw new ConflictError('Target link already exists');
 
-  await query(WQ.INSERT_TARGET, [
-    uuid,
-    body.target_id,
-    body.distance_m ?? null,
-    body.bearing_deg ?? null,
-    body.is_next ?? false,
-    body.is_original ?? false,
-    body.override_bearing ?? null,
-    body.override_distance ?? null,
-    body.override_height ?? null,
-    body.hidden ?? false,
-  ]);
-  return rebuildPhotoShape(uuid);
+    await exec(WQ.INSERT_TARGET, [
+      uuid,
+      body.target_id,
+      body.distance_m ?? null,
+      body.bearing_deg ?? null,
+      body.is_next ?? false,
+      body.is_original ?? false,
+      body.override_bearing ?? null,
+      body.override_distance ?? null,
+      body.override_height ?? null,
+      body.hidden ?? false,
+    ]);
+    return rebuildPhotoShape(uuid, exec);
+  });
 }
 
 /**

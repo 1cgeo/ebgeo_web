@@ -87,8 +87,26 @@ export const getPhotoByName = asyncHandler(async (req, res) => {
 
 // GET /sv360/tiles/fotos.geojson — bare GeoJSON FeatureCollection of readable
 // photos (access embedded in the SQL). NOT wrapped in {data} (frozen 360 shape).
+//
+// LEGACY feed, kept bounded rather than unbounded (achado 65): ?bbox + ?limit are
+// validated by the route schema and always applied (default = the hard cap). The
+// live contract is the MVT route below, which is bbox-native. Cacheable like the
+// MVT — but only PUBLICLY when the caller is anonymous: for a credentialed caller
+// the body includes their org's disabled projects, so a shared cache must not reuse
+// it across identities.
+const GEOJSON_MAX_AGE = 60;
 export const tilesGeojson = asyncHandler(async (req, res) => {
-  res.json(await svc.tilesFeatureCollection(req.user));
+  const fc = await svc.tilesFeatureCollection(req.user, {
+    bbox: req.query?.bbox,
+    limit: req.query?.limit,
+  });
+  if (req.user) {
+    res.setHeader('Cache-Control', `private, max-age=${GEOJSON_MAX_AGE}`);
+    res.setHeader('Vary', 'Authorization, Cookie');
+  } else {
+    res.setHeader('Cache-Control', `public, max-age=${GEOJSON_MAX_AGE}`);
+  }
+  res.json(fc);
 });
 
 // GET /sv360/tiles/:z/:x/:y.pbf — a server-rendered Mapbox Vector Tile (MVT) with

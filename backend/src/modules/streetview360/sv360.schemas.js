@@ -58,6 +58,37 @@ export const tileParamsSchema = Joi.object({
   return value;
 }, 'tile xy range');
 
+// Hard ceiling for GET /tiles/fotos.geojson (achado 65). The query had NO limit,
+// no pagination and no spatial predicate, so one anonymous request serialized every
+// readable photo into the heap and held a pool connection for the whole scan — with
+// DATABASE_POOL_MAX defaulting to 10 a small burst starves GET /api/config, which
+// the frontend boot is fail-fast on. The live contract is the MVT route (bbox-scoped
+// by construction); this feed stays available but bounded.
+export const TILES_GEOJSON_MAX_FEATURES = 5000;
+
+// ?bbox=minLon,minLat,maxLon,maxLat (WGS84) + ?limit for GET /tiles/fotos.geojson.
+// The bbox is parsed HERE into 4 finite numbers (with min < max and lon/lat in
+// range), so the SQL only ever binds numbers — a malformed window is a clean 4xx
+// that never reaches PostGIS. Absent bbox => no spatial filter (still capped).
+export const tilesGeojsonQuerySchema = Joi.object({
+  bbox: Joi.string()
+    .trim()
+    .custom((value, helpers) => {
+      const parts = value.split(',').map((n) => Number(n.trim()));
+      if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
+        return helpers.error('any.invalid', { message: 'bbox must be minLon,minLat,maxLon,maxLat' });
+      }
+      const [minLon, minLat, maxLon, maxLat] = parts;
+      const inRange =
+        minLon >= -180 && maxLon <= 180 && minLat >= -90 && maxLat <= 90 && minLon < maxLon && minLat < maxLat;
+      if (!inRange) {
+        return helpers.error('any.invalid', { message: 'bbox is out of range or inverted' });
+      }
+      return parts;
+    }, 'bbox 4 numbers'),
+  limit: Joi.number().integer().min(1).max(TILES_GEOJSON_MAX_FEATURES).default(TILES_GEOJSON_MAX_FEATURES),
+}).unknown(true);
+
 // Reserved for stage-2 /nearby (lat/lon/radius numerics). Defined now so the
 // numeric contract is fixed; not wired into a stage-1 route.
 export const nearbyQuerySchema = Joi.object({

@@ -32,14 +32,21 @@ export function resolveDbPath(dbFilename) {
 
 /**
  * Reads a photo's WebP BLOB from its project's {slug}.db on a worker thread.
+ *
+ * Waits out an in-progress ingestion/delete swap of that file first (achado 61):
+ * during the swap the destination is momentarily ABSENT (it lives under .bak while
+ * .tmp is renamed over it), and the existsSync probe below would report a perfectly
+ * live photo as missing → 404. `whenAvailable` resolves immediately in steady
+ * state; blobPool.read() itself also defers if the window opens after this point.
  * @param {string} dbFile - absolute path from resolveDbPath()
  * @param {string} photoId - TEXT uuid v5 photo id (bound parameter)
  * @param {'full'|'preview'} quality - selects full_webp or preview_webp
  * @returns {Promise<Buffer|null>} the BLOB, or null if the db/row/blob is absent
  */
-export function getImage(dbFile, photoId, quality) {
+export async function getImage(dbFile, photoId, quality) {
   const col = QUALITY_COLUMN[quality] || QUALITY_COLUMN.full;
-  if (!existsSync(dbFile)) return Promise.resolve(null);
+  if (typeof blobPool.whenAvailable === 'function') await blobPool.whenAvailable(dbFile);
+  if (!existsSync(dbFile)) return null;
   return blobPool.read(dbFile, `SELECT ${col} FROM images WHERE photo_id = ?`, [photoId]);
 }
 

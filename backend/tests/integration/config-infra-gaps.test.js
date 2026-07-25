@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import supertest from 'supertest';
 import { randomUUID } from 'crypto';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
+import { createUser, loginUser } from '../helpers/fixtures.js';
 import { createSemaphore } from '../../src/utils/semaphore.js';
 import { runMigrations } from '../../src/database/migrate.js';
 import config from '../../src/config.js';
@@ -20,12 +21,14 @@ import config from '../../src/config.js';
 const uniq = () => `gap_${randomUUID().slice(0, 8)}`;
 
 describe('Config + infra — gap coverage', () => {
-  let app, db;
+  let app, db, bulkToken;
 
   before(async () => {
     const env = await setupTestEnv();
     app = env.app;
     db = env.db;
+    const bulkUser = await createUser(db, { username: uniq() });
+    bulkToken = await loginUser(app, bulkUser.username, bulkUser.password);
   });
 
   after(async () => {
@@ -50,17 +53,21 @@ describe('Config + infra — gap coverage', () => {
     });
 
     it('does NOT reject a ~12mb body on the /images/bulk path for size (bulk parser wins)', async () => {
-      // The bulk parser (50mb) must be selected for POST .../images/bulk. With no
-      // auth token the request should fall through parsing to the strict `auth`
-      // middleware (401) — proving it was NOT capped at 10mb (which would be 413).
+      // The bulk parser (50mb) must be selected for POST .../images/bulk, and only
+      // for an AUTHENTICATED caller: this test used to send NO token and assert 401,
+      // which asserted the defect (12mb buffered + parsed before any credential was
+      // checked) as if it were the contract — see bugs-backend.md #37 and
+      // bulk-parser-scope.repro.test.js. Not-413 is what proves the enlarged parser
+      // ran; the 403/404 that follows comes from the atlas authorization gate.
       const atlasId = randomUUID();
       const body = JSON.stringify({ filler: 'a'.repeat(12 * 1024 * 1024) });
       const res = await supertest(app)
         .post(`/api/v1/atlas/${atlasId}/images/bulk`)
+        .set('Authorization', `Bearer ${bulkToken}`)
         .set('Content-Type', 'application/json')
         .send(body);
       assert.notEqual(res.status, 413, 'bulk parser should accept a 12mb body');
-      assert.equal(res.status, 401, 'no token → strict auth rejects after parse');
+      assert.ok([403, 404].includes(res.status), `expected 403/404 after parse, got ${res.status}`);
     });
 
     it('rejects a >50mb body on /images/bulk with 413 (bulk cap enforced)', async () => {
@@ -69,6 +76,9 @@ describe('Config + infra — gap coverage', () => {
       const body = JSON.stringify({ filler: 'a'.repeat((limitMb + 2) * 1024 * 1024) });
       const res = await supertest(app)
         .post(`/api/v1/atlas/${atlasId}/images/bulk`)
+        // Authenticated on purpose: without a token the request never reaches the
+        // enlarged parser, so the 413 would prove the 10mb cap, not the bulk cap.
+        .set('Authorization', `Bearer ${bulkToken}`)
         .set('Content-Type', 'application/json')
         .send(body);
       assert.equal(res.status, 413, 'over the bulk cap should be 413');
@@ -168,6 +178,28 @@ describe('Config + infra — gap coverage', () => {
       assert.equal(res.headers['access-control-allow-origin'], config.cors.origin);
       assert.notEqual(res.headers['access-control-allow-origin'], '*');
       assert.equal(res.headers['access-control-allow-credentials'], 'true');
+    });
+
+    it('does NOT echo a foreign Origin back (string mode, not reflect mode)', async () => {
+      // The assertion above is true for ANY configured string, because with a string
+      // origin the `cors` package compares nothing and echoes what it was given — so
+      // on its own it could not tell a working configuration from a broken one
+      // (bugs-backend.md #39). Sending a DIFFERENT Origin is what discriminates:
+      // reflect-mode would answer with the attacker's origin here.
+      const foreign = 'https://origem-nao-autorizada.example';
+      const res = await supertest(app)
+        .get('/api/v1/config')
+        .set('Origin', foreign)
+        .expect(200);
+      assert.notEqual(res.headers['access-control-allow-origin'], foreign);
+      assert.equal(res.headers['access-control-allow-origin'], config.cors.origin);
+    });
+
+    it('the configured origin is one a browser can match (canonical, no trailing slash)', async () => {
+      // The browser compares its own origin against the echoed header verbatim, and
+      // its `Origin` never carries a path or a trailing slash. A non-canonical value
+      // passes every server-side assertion and still blocks every request.
+      assert.equal(config.cors.origin, new URL(config.cors.origin).origin);
     });
   });
 

@@ -13,7 +13,7 @@
 // blobPool evict (Windows file-handle release).
 import { readFileSync, existsSync, rmSync, copyFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { query } from '../../database/index.js';
+import { query, tx } from '../../database/index.js';
 import * as AQ from './sv360.admin.queries.js';
 import { canWriteProject } from './sv360.write.service.js';
 import { resolveDbPath, ingestBundle, validateManifest } from './sv360.ingest.js';
@@ -26,11 +26,14 @@ import {
   NotFoundError,
 } from '../../utils/errors.js';
 
-// Surgically evict a cached readonly handle (falls back to closeAll if the pool
-// does not expose evict yet — see sv360.ingest.js INTEGRATOR NOTE).
-async function evictDbPath(dbPath) {
-  if (typeof blobPool.evict === 'function') await blobPool.evict(dbPath);
-  else await blobPool.closeAll();
+// Runs `fn` (the file removal) with the pool holding NO handle on dbPath for the
+// WHOLE section — evicting alone leaves a window in which a concurrent read
+// reopens the file and the rm fails EBUSY on Windows (achado 59/61). Falls back to
+// closeAll + fn only if the pool singleton is stubbed without withEvicted.
+async function withDbPathEvicted(dbPath, fn) {
+  if (typeof blobPool.withEvicted === 'function') return blobPool.withEvicted(dbPath, fn);
+  await blobPool.closeAll();
+  return fn();
 }
 
 // resolveOrgIdBySlug expects a pg-promise task-like with .oneOrNone returning a
@@ -190,32 +193,42 @@ export async function setStatus(slug, status, user, opts = {}) {
  * {slug}.db from disk AFTER evicting any cached worker handle (Windows). The DB
  * row is deleted first; the file removal is best-effort (logged on failure, but
  * the request still succeeds since the authoritative metadata is gone).
+ *
+ * The tombstones of the project's photos are purged in the SAME transaction and
+ * BEFORE the CASCADE (achado 53): sv360.deleted_photos has no FK, so they would
+ * otherwise outlive their photos and, since every read query filters by
+ * NOT EXISTS(deleted_photos), the next re-upload of the same bundle would answer
+ * 201 with the full photoCount while serving 404 for the resurrected photos.
  * @param {string} slug
  * @param {Object} user
  * @returns {Promise<void>}
  */
 export async function deleteProject(slug, user, opts = {}) {
   const project = await loadWritableProject(slug, user, opts);
-  const { rows } = await query(AQ.DELETE_PROJECT, [project.organization_id, slug]);
-  const deleted = rows[0];
+  const deleted = await tx(async (t) => {
+    await t.none(AQ.PURGE_TOMBSTONES_BY_PROJECT, [project.id]);
+    return t.oneOrNone(AQ.DELETE_PROJECT, [project.organization_id, slug]);
+  });
   if (!deleted) throw new NotFoundError('Project');
 
-  // Remove the {slug}.db after releasing any cached readonly handle.
+  // Remove the {slug}.db inside the pool's swap window: evicting alone leaves a gap
+  // in which a concurrent read reopens the handle and the rm fails EBUSY (Windows).
   const dbPath = resolveDbPath(deleted.db_filename);
-  await evictDbPath(dbPath);
-  if (existsSync(dbPath)) {
-    rmSync(dbPath, { force: true });
-  }
-  // Best-effort cleanup of stray .tmp/.bak siblings + the org-keyed thumbnail.
-  for (const sibling of [dbPath + '.tmp', dbPath + '.bak', dbPath.replace(/\.db$/i, '.webp')]) {
-    if (existsSync(sibling)) {
-      try {
-        rmSync(sibling, { force: true });
-      } catch {
-        /* ignore */
+  await withDbPathEvicted(dbPath, () => {
+    if (existsSync(dbPath)) {
+      rmSync(dbPath, { force: true });
+    }
+    // Best-effort cleanup of stray .tmp/.bak siblings + the org-keyed thumbnail.
+    for (const sibling of [dbPath + '.tmp', dbPath + '.bak', dbPath.replace(/\.db$/i, '.webp')]) {
+      if (existsSync(sibling)) {
+        try {
+          rmSync(sibling, { force: true });
+        } catch {
+          /* ignore */
+        }
       }
     }
-  }
+  });
 }
 
 /**

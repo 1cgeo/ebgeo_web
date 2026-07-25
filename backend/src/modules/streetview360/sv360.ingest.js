@@ -9,24 +9,24 @@
 // ETL call in via ingestBundle().
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// INTEGRATOR NOTE — blobPool.evict(dbPath) (src/utils/sqlite-blob-pool.js):
+// INTEGRATOR NOTE — blobPool.withEvicted(dbPath, fn) (src/utils/sqlite-blob-pool.js):
 //   The atomic rename of {slug}.db FAILS on Windows (EBUSY/EPERM) while a worker
-//   holds a cached readonly handle to that file. This module needs a SURGICAL
-//   eviction (close only that dbPath, keep assets3d/other projects alive) BEFORE
-//   the rename. Required signature on the shared pool singleton:
+//   holds a cached readonly handle to that file. Evicting the handle is necessary
+//   but NOT sufficient: `evict()` guarantees an INSTANT with no open handle, and a
+//   concurrent GET /photos/:uuid/image (which does NOT take the ingestion advisory
+//   lock — that one only serializes ingestions against each other) reopens and
+//   recaches the file right inside the window (achado 59/61).
 //
-//     blobPool.evict(dbPath: string): Promise<void>
-//       - posts { type: 'evict', dbPath } to ALL workers (round-robin means any
-//         worker may hold the cached conn);
-//       - each worker: conns.get(dbPath)?.close(); conns.delete(dbPath);
-//         postMessage({ type: 'evicted', dbPath });
-//       - resolves once EVERY worker has acked 'evicted' (or immediately if the
-//         pool has not spawned any worker yet).
+//   So every rename/remove of a live {slug}.db goes through the pool's WINDOW:
+//
+//     blobPool.withEvicted(dbPath, fn): quarantines dbPath, evicts it on ALL
+//       workers (round-robin means any worker may hold the cached conn), runs fn,
+//       and releases in `finally`. Reads of that dbPath arriving during the window
+//       are DEFERRED (never reopened) and dispatched right after.
 //
 //   Worker side (src/utils/sqlite-blob-worker.js): handle msg.type === 'evict'.
-//
-//   Until evict exists, evictDbPath() below degrades to blobPool.closeAll() (the
-//   heavy hammer — drops ALL connections incl. assets3d). Prefer evict.
+//   withDbPathEvicted() below degrades to blobPool.closeAll() + fn only if the pool
+//   singleton is stubbed without withEvicted.
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   copyFileSync,
@@ -189,20 +189,28 @@ export function validateImagesDb(imagesDbPath, manifest) {
 }
 
 /**
- * Surgically evicts the cached readonly handle for one dbPath across the worker
- * pool (so a rename over it succeeds on Windows). Falls back to closeAll() if the
- * pool does not yet expose evict() (see the INTEGRATOR NOTE at the top).
+ * Runs `fn` with the pool GUARANTEED to hold no handle on `dbPath` for the WHOLE
+ * critical section — not just at one instant (achado 59/61).
+ *
+ * `blobPool.evict(dbPath)` alone resolves at an instant: the next concurrent
+ * `GET /photos/:uuid/image` makes a worker reopen and recache the file (the read
+ * path does NOT participate in the per-(org, slug) advisory lock, which only
+ * serializes ingestions against each other), and the rename then fails EBUSY/EPERM
+ * on Windows. `blobPool.withEvicted` quarantines the dbPath for the duration, so a
+ * read arriving inside the window is DEFERRED instead of reopening the file.
  * @param {string} dbPath
- * @returns {Promise<void>}
+ * @param {() => (Promise<T>|T)} fn - the critical section (rename/rm)
+ * @returns {Promise<T>}
  */
-async function evictDbPath(dbPath) {
-  if (typeof blobPool.evict === 'function') {
-    await blobPool.evict(dbPath);
-  } else {
-    // Hammer fallback: drops every connection (incl. assets3d). Still correct,
-    // just heavier — releases the handle so the rename can proceed.
-    await blobPool.closeAll();
+async function withDbPathEvicted(dbPath, fn) {
+  if (typeof blobPool.withEvicted === 'function') {
+    return blobPool.withEvicted(dbPath, fn);
   }
+  // Hammer fallback: drops every connection (incl. assets3d). Weaker — it releases
+  // the handles but does not hold the window — and only reachable if the pool
+  // singleton is stubbed without withEvicted.
+  await blobPool.closeAll();
+  return fn();
 }
 
 // Best-effort fsync. fsync requires a WRITABLE handle on Windows ('r' → EPERM)
@@ -248,10 +256,12 @@ export function resolveDbPath(dbFilename) {
  * Postgres failure.
  *
  *   1. write srcTmp -> dest + '.tmp' (copyFile) + fsync (best-effort durability);
- *   2. EVICT the cached readonly handle of dest across the worker pool — a rename
- *      OF/OVER an open SQLite file fails EBUSY/EPERM on Windows;
+ *   2. OPEN THE SWAP WINDOW on dest (blobPool.withEvicted): every cached readonly
+ *      handle is closed AND no concurrent read may reopen it until step 4 is done —
+ *      a rename OF/OVER an open SQLite file fails EBUSY/EPERM on Windows, and the
+ *      window also hides from readers the instant in which dest does not exist;
  *   3. if dest exists: rename dest -> dest + '.bak' (keep the current BLOB);
- *   4. EVICT the .tmp handle (defensive), then atomic rename .tmp -> dest (same
+ *   4. evict the .tmp handle (defensive), then atomic rename .tmp -> dest (same
  *      directory => atomic on NTFS/ext4).
  *
  * FIX-2 (atomicity): `committed` flips to true the INSTANT the .tmp -> dest rename
@@ -275,46 +285,49 @@ export async function installSwap(destPath, srcTmpPath) {
   copyFileSync(srcTmpPath, tmpPath);
   fsyncQuiet(tmpPath);
 
-  try {
-    // 2. EVICT the cached readonly handle of dest BEFORE touching it (Windows).
-    await evictDbPath(destPath);
-
-    // 3. Preserve the current BLOB under .bak (if any) — kept until commit.
-    if (existsSync(destPath)) {
-      if (existsSync(bakPath)) rmSync(bakPath, { force: true });
-      renameSync(destPath, bakPath);
-      bakMade = true;
-    }
-
-    // 4. Evict the .tmp handle too (defensive), then atomically rename over dest.
-    await evictDbPath(tmpPath);
-    renameSync(tmpPath, destPath);
-    committed = true; // FIX-2: the new file is installed; never roll it back now.
-  } catch (err) {
-    // Failure BEFORE the new file was installed: restore the old BLOB from .bak so
-    // reads keep working. Guarded by !committed so a post-install hiccup can never
-    // clobber the freshly installed file.
-    if (!committed && bakMade && existsSync(bakPath)) {
-      try {
-        if (existsSync(destPath)) rmSync(destPath, { force: true });
-        renameSync(bakPath, destPath);
-      } catch (restoreErr) {
-        logger.error(
-          { err: restoreErr, destPath },
-          'sv360 installSwap rollback FAILED to restore .bak — manual reconcile required'
-        );
+  // 2-4 run INSIDE the pool's swap window for dest: the handle is evicted AND no
+  // concurrent read may reopen it until this returns. The rollback below is inside
+  // the window too — restoring the .bak is itself a rename over dest.
+  await withDbPathEvicted(destPath, async () => {
+    try {
+      // 3. Preserve the current BLOB under .bak (if any) — kept until commit.
+      if (existsSync(destPath)) {
+        if (existsSync(bakPath)) rmSync(bakPath, { force: true });
+        renameSync(destPath, bakPath);
+        bakMade = true;
       }
-    }
-    // Clean the leftover .tmp on failure.
-    if (existsSync(tmpPath)) {
-      try {
-        rmSync(tmpPath, { force: true });
-      } catch {
-        /* ignore */
+
+      // 4. Evict the .tmp handle too (defensive), then atomically rename over dest.
+      await withDbPathEvicted(tmpPath, () => {
+        renameSync(tmpPath, destPath);
+      });
+      committed = true; // FIX-2: the new file is installed; never roll it back now.
+    } catch (err) {
+      // Failure BEFORE the new file was installed: restore the old BLOB from .bak so
+      // reads keep working. Guarded by !committed so a post-install hiccup can never
+      // clobber the freshly installed file.
+      if (!committed && bakMade && existsSync(bakPath)) {
+        try {
+          if (existsSync(destPath)) rmSync(destPath, { force: true });
+          renameSync(bakPath, destPath);
+        } catch (restoreErr) {
+          logger.error(
+            { err: restoreErr, destPath },
+            'sv360 installSwap rollback FAILED to restore .bak — manual reconcile required'
+          );
+        }
       }
+      // Clean the leftover .tmp on failure.
+      if (existsSync(tmpPath)) {
+        try {
+          rmSync(tmpPath, { force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+      throw err;
     }
-    throw err;
-  }
+  });
 
   return { bakMade };
 }
@@ -345,22 +358,27 @@ export function commitSwap(destPath) {
  * (FIX-3): restore the OLD BLOB from .bak so disk matches the (rolled-back)
  * Postgres state. When there was no prior file (bakMade=false), remove the
  * just-installed dest so nothing orphan remains.
+ * Runs inside the pool's swap window (achado 59/61): by now the new file has been
+ * serving reads for the duration of the merge tx, so a worker very likely holds a
+ * handle on dest — replacing/removing it needs the same exclusion the install did.
  * @param {string} destPath
  * @param {boolean} bakMade - the flag returned by installSwap
- * @returns {void}
+ * @returns {Promise<void>}
  */
-export function rollbackSwap(destPath, bakMade) {
+export async function rollbackSwap(destPath, bakMade) {
   const bakPath = destPath + '.bak';
   try {
-    if (bakMade) {
-      if (existsSync(bakPath)) {
+    await withDbPathEvicted(destPath, () => {
+      if (bakMade) {
+        if (existsSync(bakPath)) {
+          if (existsSync(destPath)) rmSync(destPath, { force: true });
+          renameSync(bakPath, destPath);
+        }
+      } else {
+        // No prior file existed — drop the newly installed dest so we leave nothing.
         if (existsSync(destPath)) rmSync(destPath, { force: true });
-        renameSync(bakPath, destPath);
       }
-    } else {
-      // No prior file existed — drop the newly installed dest so we leave nothing.
-      if (existsSync(destPath)) rmSync(destPath, { force: true });
-    }
+    });
   } catch (err) {
     logger.error(
       { err, destPath },
@@ -473,7 +491,7 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, orgId, s
       } catch (err) {
         // Merge failed (409 collision / orphan FK / I/O): undo the file install so
         // disk matches the rolled-back Postgres state, then rethrow the original 4xx/5xx.
-        rollbackSwap(destPath, bakMade);
+        await rollbackSwap(destPath, bakMade);
         throw err;
       }
 

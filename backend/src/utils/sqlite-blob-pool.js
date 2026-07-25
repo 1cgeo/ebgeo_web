@@ -13,6 +13,8 @@ export class SqliteBlobPool {
     this.workers = [];
     this.pending = new Map();
     this.evicts = new Map(); // evictId -> { pending: Set<Worker>, resolve }
+    // dbPath -> { depth, released: Promise<void>, release } — see withEvicted().
+    this.quarantine = new Map();
     this.nextId = 1;
     this.nextEvictId = 1;
     this.rr = 0;
@@ -100,6 +102,12 @@ export class SqliteBlobPool {
    * @returns {Promise<Buffer|null>}
    */
   read(dbPath, sql, params) {
+    // A dbPath held by withEvicted() is mid-swap: dispatching now would make the
+    // worker REOPEN the file (conn() recaches) right under the caller's rename.
+    // Defer instead of reopening — the window is a couple of syscalls long.
+    const held = this.quarantine.get(dbPath);
+    if (held) return held.released.then(() => this.read(dbPath, sql, params));
+
     this._ensure();
     const id = this.nextId++;
     const worker = this.workers[this.rr++ % this.workers.length];
@@ -118,6 +126,10 @@ export class SqliteBlobPool {
    * file on Windows (rename over an open handle → EBUSY/EPERM). Resolves once all
    * workers have confirmed ('evicted'). If the pool has not spawned yet, there is
    * nothing to evict → resolves immediately.
+   *
+   * It guarantees an INSTANT with no open handle, NOT an interval: the very next
+   * read reopens the file. A caller that then renames/removes the file must use
+   * withEvicted(), which holds the whole window.
    * @param {string} dbPath - the {slug}.db (or any db) to release everywhere
    * @returns {Promise<void>}
    */
@@ -134,6 +146,71 @@ export class SqliteBlobPool {
     });
   }
 
+  /**
+   * Resolves once `dbPath` is not being swapped, i.e. once no withEvicted() window
+   * holds it. Callers that touch the FILE directly before reading (an existsSync
+   * probe, a stat) use this so they do not observe the mid-swap instant in which
+   * the destination briefly does not exist. No-op (already-resolved) when free.
+   * @param {string} dbPath
+   * @returns {Promise<void>}
+   */
+  whenAvailable(dbPath) {
+    const held = this.quarantine.get(dbPath);
+    return held ? held.released.then(() => this.whenAvailable(dbPath)) : Promise.resolve();
+  }
+
+  /**
+   * Runs `fn` with `dbPath` GUARANTEED to have no open handle anywhere in the pool
+   * — the exclusion evict() alone never provided (achado 59/61).
+   *
+   * evict() resolves at an INSTANT: any read dispatched between it and the caller's
+   * rename makes a worker reopen and recache the file (sqlite-blob-worker conn()),
+   * and the atomic rename then fails EBUSY/EPERM on Windows. Here the dbPath is
+   * QUARANTINED first, so reads that arrive during the window are DEFERRED (not
+   * rejected — an ingestion swap lasts a couple of syscalls) and can only be
+   * dispatched after the window closes. Reads already posted to a worker are
+   * unaffected: they sit ahead of the evict in that worker's FIFO, so the 'evicted'
+   * ACK already implies they finished.
+   *
+   * Re-entrant per dbPath (depth-counted) and ALWAYS releases, including when `fn`
+   * throws — a failed swap must not wedge the path forever.
+   * @param {string} dbPath - the {slug}.db about to be renamed/removed
+   * @param {() => (Promise<T>|T)} fn - the critical section (rename/rm)
+   * @returns {Promise<T>} whatever `fn` returns
+   */
+  async withEvicted(dbPath, fn) {
+    this._acquireQuarantine(dbPath);
+    try {
+      await this.evict(dbPath);
+      return await fn();
+    } finally {
+      this._releaseQuarantine(dbPath);
+    }
+  }
+
+  /** Marks dbPath as being swapped (re-entrant). */
+  _acquireQuarantine(dbPath) {
+    const held = this.quarantine.get(dbPath);
+    if (held) {
+      held.depth++;
+      return;
+    }
+    let release;
+    const released = new Promise((resolve) => {
+      release = resolve;
+    });
+    this.quarantine.set(dbPath, { depth: 1, released, release });
+  }
+
+  /** Ends one swap window; the last one out wakes the deferred reads. */
+  _releaseQuarantine(dbPath) {
+    const held = this.quarantine.get(dbPath);
+    if (!held) return; // already cleared (closeAll)
+    if (--held.depth > 0) return;
+    this.quarantine.delete(dbPath);
+    held.release();
+  }
+
   /** Terminates all workers (releasing their SQLite file handles). */
   async closeAll() {
     const workers = this.workers;
@@ -143,6 +220,10 @@ export class SqliteBlobPool {
     // Any in-flight evict resolves (the handles are released by terminate anyway).
     for (const [, e] of this.evicts) e.resolve();
     this.evicts.clear();
+    // Ditto for swap windows: a deferred read must never outlive the pool it is
+    // waiting on (it re-dispatches against a freshly spawned worker).
+    for (const [, q] of this.quarantine) q.release();
+    this.quarantine.clear();
     await Promise.all(workers.map((w) => w.terminate()));
   }
 }

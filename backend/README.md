@@ -385,7 +385,7 @@ Detalhes e internals (ingestão swap-then-commit, `db_filename` derivado, MVT) e
 | Método | Rota | Auth |
 |--------|------|------|
 | GET | `/api/v1/sv360/tiles/:z/:x/:y.pbf` (vector tile MVT: camadas `fotos` + `fotos_linha`) | Opcional |
-| GET | `/api/v1/sv360/tiles/fotos.geojson` · `/thumbnails/:slug.webp` | Opcional |
+| GET | `/api/v1/sv360/tiles/fotos.geojson` (bbox opcional; `LIMIT` sempre aplicado, teto 5000) · `/thumbnails/:slug.webp` | Opcional |
 | GET | `/api/v1/sv360/projects` · `/projects/:slug` | Opcional |
 | GET | `/api/v1/sv360/photos/by-name/:nome` · `/photos/:uuid` (shape congelado) | Opcional |
 | GET | `/api/v1/sv360/photos/:uuid/image?quality=full\|preview` (ETag O(1)/304/Range/semáforo) | Opcional |

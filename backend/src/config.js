@@ -53,6 +53,15 @@ const config = Object.freeze({
     algorithms: ['HS256'],
   }),
 
+  health: Object.freeze({
+    // Deadline the readiness probe (`GET /api/v1/health`) applies to its own DB
+    // round-trip. Nothing else in the stack has a timeout (see the note in
+    // app.js), so this is what turns "the DB is unreachable" into a 503 instead of
+    // a hung request. Short by design: a readiness answer that arrives late is
+    // already useless to an orchestrator.
+    dbTimeoutMs: parseInt(optional('HEALTH_DB_TIMEOUT_MS', '2000'), 10),
+  }),
+
   cors: Object.freeze({
     // O default é a origem do FRONTEND (Vite em :3000), não a do backend. Estava
     // `:8080` — a porta do próprio backend —, o que liberava uma origem que nunca
@@ -69,6 +78,10 @@ const config = Object.freeze({
     // Bounded body limit for POST /images/bulk (base64 batch, up to 50 images).
     // Larger than the global JSON limit so the per-image limit is actually
     // reachable in a batch; still capped to bound the authenticated memory blast.
+    // "Authenticated" is now enforced rather than assumed: app.js only selects this
+    // parser for the anchored bulk route AND when flexibleAuth has already attached
+    // a verified `req.user` — before that, any anonymous POST to a path merely
+    // ENDING in /images/bulk got the enlarged limit.
     maxBulkUploadMb: parseInt(optional('MAX_BULK_UPLOAD_MB', '50'), 10),
   }),
 
@@ -225,6 +238,7 @@ const NUMERIC_ENV_RULES = Object.freeze({
   RATE_LIMIT_PUBLIC_WINDOW_MS: { min: 1000 },
   RATE_LIMIT_PUBLIC_MAX: { min: 1 },
   AUTH_VERIFICATION_TTL_HOURS: { min: 1, max: 8760 },
+  HEALTH_DB_TIMEOUT_MS: { min: 100, max: 60000 },
   SMTP_PORT: { min: 1, max: 65535 },
 });
 
@@ -264,10 +278,30 @@ export function validateEnvVariables() {
     errors.push('CORS_ORIGIN é obrigatório em produção');
   }
   if (process.env.CORS_ORIGIN) {
+    // Parseability is NOT the property that matters — being a canonical ORIGIN is.
+    // `new URL()` happily accepts a trailing slash ('https://host/'), a path, an
+    // explicit default port ('https://host:443') and even a comma-separated list
+    // ('https://a,https://b' parses as the single hostname 'a,https'). None of
+    // those is what a browser sends in the `Origin` header, and app.js passes the
+    // raw value to `cors()` as a STRING — a mode in which the package compares
+    // nothing and echoes the configured value verbatim into
+    // Access-Control-Allow-Origin. The browser then finds it different from its own
+    // origin and blocks the response: the backend answers 200 and looks perfectly
+    // healthy while the frontend, whose boot is fail-fast on GET /api/config, dies
+    // on "EBGeo indisponível". Comparing against `.origin` rejects all of those
+    // shapes at boot, which is the only place the mistake is cheap.
+    const raw = process.env.CORS_ORIGIN;
+    let parsed = null;
     try {
-      new URL(process.env.CORS_ORIGIN);
+      parsed = new URL(raw);
     } catch {
       errors.push('CORS_ORIGIN deve ser uma URL válida');
+    }
+    if (parsed && raw !== parsed.origin) {
+      errors.push(
+        'CORS_ORIGIN deve ser uma ORIGEM canônica (esquema://host[:porta]), sem caminho, '
+        + `sem barra final, sem espaços e sem lista — recebido: "${raw}", esperado: "${parsed.origin}"`
+      );
     }
   }
 

@@ -199,6 +199,19 @@ export const UPDATE_PROJECT_STATUS = `
             created_at, updated_at
 `;
 
+// Drop the tombstones of a project's photos. deleted_photos has NO FK, so the
+// photos CASCADE of a project hard-delete does NOT reach it: without this the
+// tombstones survive their photos and the next re-upload of the same bundle
+// resurrects the rows into a NEW project_id whose PURGE_PROJECT_PHOTOS returns
+// nothing — the ingest answers 201 while every read filters the photo out (404).
+// MUST run in the SAME transaction as DELETE_PROJECT, BEFORE the CASCADE removes
+// the photos this selects from (achado 53).
+//   $1 = project_id (uuid)
+export const PURGE_TOMBSTONES_BY_PROJECT = `
+  DELETE FROM sv360.deleted_photos
+  WHERE photo_id IN (SELECT id FROM sv360.photos WHERE project_id = $1::uuid)
+`;
+
 // HARD-delete a project row (CASCADE clears photos -> targets). The {slug}.db
 // file is removed by the service AFTER blobPool.evict. Returns the deleted row
 // (db_filename needed to locate the file on disk).

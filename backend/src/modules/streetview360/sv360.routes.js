@@ -98,7 +98,16 @@ router.use(flexibleAuth);
 // STATIC read routes (tiles / thumbnails) declared BEFORE any ':param' route so
 // 'tiles' / 'thumbnails' are never captured as a slug/uuid. Both are flexibleAuth
 // (read): the access rule lives in the SQL (tiles) and the service (thumbnail).
-router.get('/tiles/fotos.geojson', ctrl.tilesGeojson);
+// LEGACY GeoJSON feed (the live source is the MVT route below). It stays anonymous
+// like the MVT — the read filter is embedded in the SQL and covered by a negative
+// test — but it is now BOUNDED: `validate` applies the bbox/limit contract, so the
+// query can no longer serialize the whole photo table on one pool connection
+// (achado 65). NOTE: there is still no rate limiter on any sv360 route.
+router.get(
+  '/tiles/fotos.geojson',
+  validate({ query: schemas.tilesGeojsonQuerySchema }),
+  ctrl.tilesGeojson
+);
 
 // Vector tiles (MVT) — the LIVE source the frontend now consumes (vector source).
 // Express captures the literal '.pbf' suffix off :y. z/x/y are validated as

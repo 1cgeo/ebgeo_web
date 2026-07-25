@@ -209,25 +209,59 @@ describe('Images + Resources — gap coverage', () => {
       assert.match(res.headers['content-disposition'], /filename="pano\.webp"/);
     });
 
-    it('Content-Disposition stays an attachment when the stored filename contains a quote', async () => {
-      // busboy refuses a multipart filename containing a raw double-quote (the
-      // file never reaches multer), so a crafted filename can only enter via the
-      // DB (e.g. a restored dump / bulk import path). We inject it directly and
-      // assert the download still emits a well-formed attachment header (Node
-      // would throw on an invalid header value before sending the 200).
+    it('Content-Disposition escapes a quote in the stored filename (single filename parameter)', async () => {
+      // A double quote is \x22 — a perfectly valid header char — so the 200 was
+      // never at risk here, and asserting only /attachment/ proved nothing: the
+      // case passed identically with and without RFC 6266 escaping (finding 44).
+      // What a quote actually threatens is the SHAPE of the header: raw
+      // concatenation turns `a"; filename="evil.exe` into TWO filename parameters
+      // and the served name silently becomes evil.exe. That is what we assert.
+      //
+      // The payload does not need a DB dump to get in either: POST /images/bulk
+      // accepts any string up to 255 chars (images.schemas.js) and stores it
+      // verbatim, never touching busboy. The injection is done here through the DB
+      // only to keep this case independent of the bulk pipeline — the bulk route
+      // is exercised in images-filename-hardening.repro.test.js.
       const id = await uploadPng();
-      await db.query(`UPDATE images SET filename = $1 WHERE id = $2`, ['ev"il.png', id]);
+      await db.query(`UPDATE images SET filename = $1 WHERE id = $2`, ['a"; filename="evil.exe', id]);
 
       const res = await supertest(app)
         .get(`/api/v1/atlas/${atlas.id}/images/${id}`)
         .set('Authorization', `Bearer ${ownerToken}`)
         .expect(200);
 
-      // The download still succeeds and is served as an attachment (the stored
-      // XSS defense holds); the header value is accepted by the HTTP layer.
-      assert.match(res.headers['content-disposition'], /attachment/);
-      assert.ok(!/inline/.test(res.headers['content-disposition']));
+      const cd = res.headers['content-disposition'];
+      assert.match(cd, /^attachment;/);
+      assert.ok(!/inline/.test(cd), 'must not be served inline');
+      assert.equal(
+        (cd.match(/(^|;\s*)filename="/g) || []).length,
+        1,
+        `exactly one quoted filename parameter expected, got: ${cd}`
+      );
+      assert.equal(cd, 'attachment; filename="a\\"; filename=\\"evil.exe"');
       assert.equal(res.headers['content-type'], 'image/png');
+    });
+
+    it('download survives a stored filename outside latin1 (no ERR_INVALID_CHAR 500)', async () => {
+      // The char class that actually makes Node throw on setHeader (codepoint >
+      // U+00FF) was untested in all three image test files (finding 44). It gets
+      // into the column through the bulk route with no DB surgery at all.
+      const localId = randomUUID();
+      const up = await supertest(app)
+        .post(`/api/v1/atlas/${atlas.id}/images/bulk`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({ images: [{ localId, filename: '地図.png', mimeType: 'image/png', data: PNG_B64 }] })
+        .expect(201);
+
+      const serverId = up.body.data.uploaded[0].serverId;
+      const res = await supertest(app)
+        .get(`/api/v1/atlas/${atlas.id}/images/${serverId}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(200);
+
+      const cd = res.headers['content-disposition'];
+      assert.match(cd, /^attachment;/);
+      assert.match(cd, /filename\*=UTF-8''%E5%9C%B0%E5%9B%B3\.png/, `RFC 5987 form expected, got: ${cd}`);
     });
   });
 
@@ -376,10 +410,17 @@ describe('Images + Resources — gap coverage', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // res-01 — soft-deleted resource id can never be recreated (permanent 409)
+  // res-01 — a soft-deleted resource id is RECREATABLE (L40)
+  //
+  // This block used to pin the opposite ("recreate same id → 409, forever"), documenting the
+  // dead end rather than treating it as the defect it was: get/update filtered `active = true`
+  // (404) while the create's duplicate probe did not (409), and no restore route existed, so a
+  // deleted id was unreachable through the whole API and only a manual SQL UPDATE brought it
+  // back. Contract now: CREATE resurrects, a LIVE id still conflicts. Full coverage in
+  // catalog-soft-delete-resurrect.repro.test.js.
   // ─────────────────────────────────────────────────────────────────────────
-  describe('res-01: soft-deleted resource id → recreate is permanent 409', () => {
-    it('create, delete (204, gone from list), recreate same id → 409', async () => {
+  describe('res-01: soft-deleted resource id → recreate resurrects it', () => {
+    it('create, delete (204, gone from list), recreate same id → 201 and back in the list', async () => {
       const rid = `gap-res-${randomUUID().slice(0, 8)}`;
 
       await supertest(app)
@@ -400,17 +441,24 @@ describe('Images + Resources — gap coverage', () => {
         .expect(200);
       assert.ok(!list.body.data.map((r) => r.id).includes(rid));
 
-      // but the row still exists (active=false), so recreate → 409 forever
-      await supertest(app)
+      // the row still exists (active=false) and re-creating the id revives it
+      const again = await supertest(app)
         .post('/api/v1/basemaps')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ id: rid, name: 'Resurrect?', config: {} })
-        .expect(409);
+        .expect(201);
+      assert.equal(again.body.data.name, 'Resurrect?');
 
-      // confirm the persisted state: one inactive row
+      const relist = await supertest(app)
+        .get('/api/v1/basemaps')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      assert.ok(relist.body.data.map((r) => r.id).includes(rid), 'back on the air');
+
+      // confirm the persisted state: still ONE row, now active
       const { rows } = await db.query('SELECT active FROM basemaps WHERE id = $1', [rid]);
       assert.equal(rows.length, 1);
-      assert.equal(rows[0].active, false);
+      assert.equal(rows[0].active, true);
     });
   });
 

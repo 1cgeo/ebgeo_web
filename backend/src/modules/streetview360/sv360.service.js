@@ -16,6 +16,7 @@ import { query } from '../../database/index.js';
 import * as Q from './sv360.queries.js';
 import * as TQ from './sv360.tiles.queries.js';
 import * as blobstore from './sv360.blobstore.js';
+import { TILES_GEOJSON_MAX_FEATURES } from './sv360.schemas.js';
 import config from '../../config.js';
 import { NotFoundError } from '../../utils/errors.js';
 
@@ -199,17 +200,32 @@ export async function nearby(lon, lat, radius, user) {
 }
 
 /**
- * Builds a GeoJSON FeatureCollection of every photo in a project READABLE by the
- * caller. The read-access rule (enabled = public; disabled = admin/owning-org) is
- * EMBEDDED IN THE SQL (defense in depth), so a hidden project's photos never leak
- * even with an app-layer bug. Tombstoned photos are excluded. Each Feature is a
- * Point [lon, lat] with the photo's identifying properties.
+ * Builds a GeoJSON FeatureCollection of the photos READABLE by the caller. The
+ * read-access rule (enabled = public; disabled = admin/owning-org) is EMBEDDED IN
+ * THE SQL (defense in depth), so a hidden project's photos never leak even with an
+ * app-layer bug. Tombstoned photos are excluded. Each Feature is a Point [lon, lat]
+ * with the photo's identifying properties.
+ *
+ * ALWAYS BOUNDED (achado 65): `limit` is capped by the route schema
+ * (TILES_GEOJSON_MAX_FEATURES) and an optional `bbox` scopes the scan spatially.
+ * This endpoint is legacy — the live contract is the bbox-native MVT route — so a
+ * caller wanting everything must page by moving the bbox.
  * @param {Object} [user]
+ * @param {Object} [opts]
+ * @param {number[]} [opts.bbox] - [minLon, minLat, maxLon, maxLat] (already validated)
+ * @param {number} [opts.limit] - row ceiling (already capped by the schema)
  * @returns {Promise<Object>} GeoJSON FeatureCollection
  */
-export async function tilesFeatureCollection(user) {
+export async function tilesFeatureCollection(user, { bbox, limit } = {}) {
   const isAdmin = user?.role === 'admin';
-  const { rows } = await query(Q.TILES_PHOTOS, [isAdmin, user?.organization_id ?? null]);
+  const box = Array.isArray(bbox) && bbox.length === 4 ? bbox : [null, null, null, null];
+  const cap = Number.isInteger(limit) && limit > 0 ? limit : TILES_GEOJSON_MAX_FEATURES;
+  const { rows } = await query(Q.TILES_PHOTOS, [
+    isAdmin,
+    user?.organization_id ?? null,
+    ...box,
+    cap,
+  ]);
   return {
     type: 'FeatureCollection',
     features: rows.map((r) => ({

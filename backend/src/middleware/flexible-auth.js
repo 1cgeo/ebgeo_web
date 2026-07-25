@@ -81,6 +81,12 @@ export async function flexibleAuth(req, res, next) {
     // and a demoted admin carried `role: admin` forward on every renewal.
     // Public-share principals (`public-<uuid>` sub, no users row) are never renewed
     // here — their token is atlas-scoped and short-lived by design.
+    //
+    // What this renewal does NOT consult is `refresh_tokens`. Revoking a token
+    // family (reuse detection, logout, password change) therefore does not stop the
+    // slide: a holder requesting once every <15 min renews forever, and only
+    // is_active on the user/org ends it. Stated here because this is the code that
+    // makes the revocation inert — see the SCOPE note in auth.service.js refresh().
     if (msUntilExpiry(payload) < SLIDING_THRESHOLD_MS && UUID_RE.test(payload.sub || '')) {
       const live = await getLiveAuthState(payload.sub);
 

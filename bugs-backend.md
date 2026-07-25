@@ -1147,6 +1147,8 @@ Correcao no enunciado do achado original: o conteudo nao e destruido, e re-paren
 
 ### 53. Delete de projeto deixa tombstones orfaos; o re-upload seguinte reporta 201 mas serve 404 nas fotos ressuscitadas
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. O `DELETE_PROJECT` era solto e o CASCADE não alcança `sv360.deleted_photos`, que não tem FK; junto disso, o guard `if (oldIds.length > 0)` impedia a purga no re-upload. Resultado: re-upload reportava 201 e servia 404 nas fotos. Fix: purga de tombstones na MESMA transação do delete, antes do CASCADE, e purga por UNIÃO (`oldIds` ∪ ids do manifesto) no merge, que cura também o órfão herdado de base antiga. Controle negativo com atribuição: sem os dois fixes caem 2 casos; só o do merge ativo cai 1; só o do delete ativo cai 1 (o do órfão herdado).
+
 - **Arquivo:** `backend/src/modules/streetview360/sv360.merge.js:171`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-sv360` · **Classe:** `contrato-ingest-serve`
@@ -1264,6 +1266,8 @@ Correcao no enunciado do achado original: o conteudo nao e destruido, e re-paren
 
 ### 59. blobPool.evict() promete uma janela segura para rename mas nao oferece exclusao: um read concorrente reabre o handle SQLite entre o ack e o renameSync
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido junto do #61 — são o mesmo defeito. Ver a anotação do #61.
+
 - **Arquivo:** `backend/src/utils/sqlite-blob-pool.js:124`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-utils` · **Classe:** `race`
@@ -1278,6 +1282,8 @@ Correcao no enunciado do achado original: o conteudo nao e destruido, e re-paren
 
 ### 60. O teste 'evict hanging when a worker dies mid-evict' passa identicamente com e sem o fix: emit('error') nao mata a thread, entao o worker 'morto' confirma o evict sozinho
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO — era teste que não prendia, e o motivo é instrutivo: `emit('error')` não mata a thread, que segue viva e ACKa sozinha, então o caso passava idêntico com e sem o fix. Reescrito para deixar o pool SURDO ao worker "morto" (`removeAllListeners('message')`, que é o que uma thread terminada de fato produz), com asserção síncrona de `pending.size` e timeout explícito. `terminate()` não serve: o Node limpa os listeners no exit e leva junto o handler de 'error' do próprio pool. Controle negativo: comentando a linha de produção o teste agora FALHA por timeout — antes passava. A linha de produção não mudou; o que mudou foi o teste passar a medi-la.
+
 - **Arquivo:** `backend/tests/unit/sqlite-blob-pool.test.js:71`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-utils` · **Classe:** `teste-que-nao-prende`
@@ -1291,6 +1297,12 @@ Correcao no enunciado do achado original: o conteudo nao e destruido, e re-paren
 > **Correção do verificador.** O teste 'does not leave a pending evict hanging when a worker dies mid-evict' (backend/tests/unit/sqlite-blob-pool.test.js:71-83) nao prende a protecao que diz proteger: ele passa identicamente com e sem a linha `for (const evictId of [...this.evicts.keys()]) this._settleEvict(evictId, dead);` (sqlite-blob-pool.js:91). Causa: `emit('error')` sintetiza o evento no EventEmitter do objeto Worker sem matar a thread, entao o worker "morto" processa o `{type:'evict'}` ja postado e ACKa normalmente (sqlite-blob-worker.js:48), resolvendo o evict pelo caminho saudavel. O comentario-premissa do teste ("A worker that dies will never confirm") e falso DENTRO do teste. IMPORTANTE: a linha 91 e codigo de producao correto e deve permanecer (uma thread de fato terminada nunca ACKa); o defeito esta so na forca discriminatoria do teste. Correcao possivel: afirmar sincronamente logo apos o emit que `pool.evicts.get(id).pending.size === 1` (a linha 91 roda sincronamente e retira o worker morto do Set), ou substituir o emit por um `terminate()` real da thread, ou registrar o evict com um worker stub que nunca responde.
 
 ### 61. Ingestão sv360: entre o evict do handle SQLite e o rename existe uma janela em que uma leitura concorrente reabre e recacheia o arquivo, fazendo o swap falhar (EBUSY no Windows)
+
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO. `evict()` garantia um INSTANTE, não um INTERVALO: o `read()` não sabia que o dbPath estava em swap e o worker reabria o handle pelo `conn()`. Entre o evict e o rename cabia uma leitura concorrente.
+>
+> Fix em `sqlite-blob-pool.js`: quarentena por dbPath com `withEvicted(dbPath, fn)` (reentrante, libera no `finally`, e `closeAll` acorda quem espera) mais `whenAvailable()`. A escolha de desenho que importa: leitura na janela é **ADIADA**, não rejeitada — rejeitar transformaria uma janela de milissegundos em 404 visível ao usuário. Ligado em `installSwap`/`rollbackSwap`, no `deleteProject`, e no `blobstore.getImage`, que passou a esperar a janela ANTES do `existsSync` — isso fechou também o 404 de "destino não existe" no meio do swap.
+>
+> O RED foi o sintoma real, não um proxy: ingestão devolvendo 500 por EBUSY no Windows sob leitura contínua. Controles negativos: quarentena desligada derruba 2 (o unit de adiamento e o de integração); sem `whenAvailable` cai 1, com 38 leituras devolvendo 404.
 
 - **Arquivo:** `backend/src/modules/streetview360/sv360.ingest.js:228`
 - **Estado:** CONFIRMADO
@@ -1356,6 +1368,14 @@ Correcao no enunciado do achado original: o conteudo nao e destruido, e re-paren
 
 ### 65. GET /sv360/tiles/fotos.geojson é anônimo, descontinuado e sem LIMIT: serializa a tabela inteira de fotos 360 a cada requisição
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido pela alternativa mínima. `TILES_PHOTOS` não tinha LIMIT, bbox nem paginação, e a resposta saía sem `Cache-Control`. Agora há schema de query na borda com bbox validado e ligado como quatro números (para o `p.geom &&` usar o índice GiST), `LIMIT` sempre aplicado com teto de 5000, e `Cache-Control` que distingue anônimo (`public`) de autenticado (`private` + `Vary`), porque o corpo depende da identidade.
+>
+> A rota segue anônima, como a irmã MVT: o filtro de acesso é embutido na SQL e tem teste negativo. Remover a rota, que era a correção preferida do achado, é decisão de produto.
+>
+> **O terceiro pé do achado, o limitador de taxa, NÃO foi acrescentado, e é escolha, não esquecimento.** Verifiquei que nenhum arquivo de `frontend/src` chama `fotos.geojson` — a rota é mesmo descontinuada. Com o `LIMIT` e o bbox, o custo POR REQUISIÇÃO deixou de ser ilimitado, que era a alavanca real; o que sobra é martelar endpoint anônimo, algo que o nginx do deploy documentado já trata. Acrescentar limitador aqui sem medir padrão de chamada seria o mesmo erro de chutar limite que este relatório já pegou no achado 9. Se a rota voltar a ter consumidor, a conta muda e o limitador entra.
+>
+>  foi atualizado: a rota passou a declarar bbox e o teto de 5000.
+
 - **Arquivo:** `backend/src/modules/streetview360/sv360.queries.js:141`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-seguranca-borda` · **Classe:** `dos-sem-limite`
@@ -1401,6 +1421,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** Clone, duplicate-map e import de atlas inserem uma linha por vez: N+1 de INSERTs seriais dentro de uma única transação, que fica aberta (e retendo uma conexão de um pool de 10) proporcionalmente ao tamanho do atlas, sem statement_timeout, idle_in_transaction_session_timeout nem rate-limit. Três rotas afetadas, não duas: `POST /atlas/:id/clone`, `POST /atlas/:id/maps/:mapId/duplicate` (ambas via `cloneMapSubEntities`, atlas.service.js:166-265) e `POST /atlas/import` (cópia gêmea do padrão, :582-753). O volume do clone/duplicate é ILIMITADO, pois vem do banco e o gate é só `requireAtlasPermission('read')`; o do import é limitado indiretamente pelo `express.json({ limit: '10mb' })` de app.js:59, já que `importSchema` não impõe `.max()` em maps/layers/features/groups. É defeito de custo e disponibilidade, não de correção: o dado resultante sai certo. Mesmo modo de falha (esgotamento de pool derrubando /auth/login e /health) que sync.service.js:650-655 já documenta e mitiga com `lock_timeout`, mitigação que não existe aqui.
 
 ### 68. Tres escritas do sv360 persistem fora de transacao e depois respondem 404 ao reler: a mesma falha que o L8 corrigiu em updateCalibration ficou nas tres funcoes irmas
+
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. `updateTargetOverride`, `updateTargetVisibility` e `createTarget` persistiam fora de transação e depois respondiam 404 ao reler — mesma falha que a irmã `updateCalibration` já tinha corrigido. As três passaram a usar `tx()` com `txExecutor`, seguindo o precedente do próprio arquivo. O RED teve 3 de 4 casos falhando, com a irmã já corrigida passando: é isso que prova que o teste discrimina a transação ausente e não o ambiente.
 
 - **Arquivo:** `backend/src/modules/streetview360/sv360.write.service.js:141`
 - **Estado:** CONFIRMADO

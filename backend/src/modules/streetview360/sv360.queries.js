@@ -132,12 +132,20 @@ export const NEARBY_PHOTOS = `
   LIMIT $4
 `;
 
-// Tiles feed: every readable photo as a GeoJSON-ready row (lon/lat from geom).
+// Tiles feed: readable photos as GeoJSON-ready rows (lon/lat from geom).
 // Read access is EMBEDDED IN THE SQL (defense in depth, like the gazetteer BUSCA):
 // an `enabled` project is public; a `disabled` project is visible only to a global
 // admin ($1) or to a member of the owning organization ($2). Tombstoned photos are
 // excluded. The controller wraps each row into a GeoJSON Feature.
-//   $1 = isAdmin (boolean), $2 = userOrgId (uuid, nullable)
+//
+// BOUNDED (achado 65): an OPTIONAL bbox ($3..$6, all-or-nothing — the schema parses
+// and range-checks it) plus a MANDATORY LIMIT ($7, capped by
+// TILES_GEOJSON_MAX_FEATURES). Without them one anonymous request scanned and
+// materialized the whole table, holding a pool connection for the duration. The `&&`
+// operator is index-backed by idx_sv360_photos_geom (GiST).
+//   $1 = isAdmin (boolean), $2 = userOrgId (uuid, nullable),
+//   $3..$6 = minLon/minLat/maxLon/maxLat (double precision, nullable),
+//   $7 = limit (int)
 export const TILES_PHOTOS = `
   SELECT p.id, ST_X(p.geom) AS lon, ST_Y(p.geom) AS lat, p.ele,
          p.original_name, p.display_name, p.sequence_number, p.heading,
@@ -147,7 +155,13 @@ export const TILES_PHOTOS = `
   WHERE ($1::boolean OR pr.status = 'enabled' OR pr.organization_id = $2::uuid)
     AND p.geom IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM sv360.deleted_photos d WHERE d.photo_id = p.id)
+    AND (
+      $3::double precision IS NULL
+      OR p.geom && ST_MakeEnvelope($3::double precision, $4::double precision,
+                                   $5::double precision, $6::double precision, 4326)
+    )
   ORDER BY pr.slug, p.sequence_number
+  LIMIT $7::int
 `;
 
 // All photos of a project (ordered by sequence). lon/lat from geom; excludes

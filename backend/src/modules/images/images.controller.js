@@ -14,8 +14,25 @@ export const getImage = asyncHandler(async (req, res, next) => {
   );
 
   // Serve as an attachment (never inline — avoids any rendered-content XSS).
+  //
+  // `res.attachment` builds the header through the `content-disposition` module
+  // (RFC 6266/5987) instead of interpolating the stored name into the value.
+  // Two failure modes that raw concatenation had:
+  //   - a codepoint above U+00FF (e.g. '地図.png', which POST /images/bulk accepts
+  //     verbatim) made Node reject the header value with ERR_INVALID_CHAR, and the
+  //     throw inside the async handler turned every download of that image into a
+  //     500 for every user with read;
+  //   - a quote was not escaped, so `a"; filename="evil.exe` split into TWO
+  //     filename parameters and the served name became evil.exe.
+  // The encoder emits an ASCII/latin1 fallback plus `filename*=UTF-8''…` and
+  // escapes quotes/backslashes. The disposition type stays `attachment`.
+  //
+  // `filename` is a NOT NULL column, but the encoder throws on a non-string or an
+  // empty value, so fall back rather than trade a 500 for a 500.
+  res.attachment(typeof filename === 'string' && filename.length > 0 ? filename : 'image');
+  // res.attachment also guesses Content-Type from the extension; the stored mime
+  // (a CHECK-constrained column) is authoritative, so it is set afterwards.
   res.setHeader('Content-Type', mimeType);
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   // Images are immutable once uploaded; cache privately (access-controlled).
   res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
 

@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import crypto from 'crypto';
-import { join } from 'path';
+import { join, extname } from 'path';
 import { mkdirSync } from 'fs';
 import { auth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
@@ -14,6 +14,23 @@ import config from '../../config.js';
 
 const router = Router({ mergeParams: true });
 
+/**
+ * Extension for the SERVER-generated blob name. The stored file is always
+ * `<uuid>.<ext>`; the client's name never reaches the filesystem.
+ *
+ * The previous `originalname.split('.').pop()` returned the WHOLE string when the
+ * name had no dot, so a 300-char upload produced a 300-char path component
+ * (ENAMETOOLONG), and it happily carried a `/` into `path.join`. Bound it to a
+ * short lowercase alphanumeric token instead.
+ *
+ * @param {string} originalname
+ * @returns {string}
+ */
+function safeExtension(originalname) {
+  const ext = extname(String(originalname || '')).slice(1).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return ext.length > 0 && ext.length <= 8 ? ext : 'bin';
+}
+
 // Configure multer for image uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -23,9 +40,8 @@ const storage = multer.diskStorage({
     cb(null, dest);
   },
   filename: (req, file, cb) => {
-    const ext = file.originalname.split('.').pop() || 'bin';
     const uniqueId = crypto.randomUUID();
-    cb(null, `${uniqueId}.${ext}`);
+    cb(null, `${uniqueId}.${safeExtension(file.originalname)}`);
   },
 });
 
@@ -36,12 +52,20 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     const allowed = ['image/png', 'image/jpeg', 'image/webp'];
-    if (allowed.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
+    if (!allowed.includes(file.mimetype)) {
       // BadRequestError (AppError) so the error handler returns 400, not 500.
-      cb(new BadRequestError('Invalid file type'));
+      return cb(new BadRequestError('Invalid file type'));
     }
+
+    // Validate the file metadata HERE, the only hook multer runs before writing a
+    // single byte: this route used to have no validation at all, and an
+    // originalname longer than the filename column produced a 500 plus an orphan
+    // blob on disk. A Joi error is forwarded untouched → 422 VALIDATION_ERROR,
+    // the same envelope the sibling /bulk route already returns for the same rule.
+    const { error } = schemas.uploadFileSchema.validate({ originalname: file.originalname });
+    if (error) return cb(error);
+
+    cb(null, true);
   },
 });
 
