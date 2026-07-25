@@ -24,6 +24,16 @@ O teto é alto de propósito (300/min por endereço, `RATE_LIMIT_GAZETTEER_MAX` 
 
 Em teste o limitador é pulado por padrão (`skip`, `backend/src/middleware/rate-limit.js`), porque o store em memória acumularia ao longo da suíte inteira (o app é importado uma vez). Exercitá-lo exige `RATE_LIMIT_FORCE=1` **e** chave isolada.
 
+### `GET /api/config`: o teto mais folgado do projeto, e por quê
+
+A frase acima ("a única superfície em que custo de CPU é gasto sem credencial") descrevia a busca como caso único e nunca foi bem isso: `GET /api/config` também é anônima, e era a mais cara do conjunto — oito consultas por requisição, sem cache e sem teto (`bugs-backend.md` #64). Desde 2026-07-25 ela tem os dois: memoização invalidada na escrita (ver [[config-dinamico]]) e o `configLimiter`, com store próprio, junto dos outros quatro em `backend/src/middleware/rate-limit.js`.
+
+O teto (600/min por endereço, `RATE_LIMIT_CONFIG_MAX`) é o mais alto do projeto **de propósito**, e a assimetria com o gazetteer é a lição: errar o teto para baixo numa rota comum degrada uma funcionalidade, aqui **apaga o produto**, porque o boot é fail-fast neste endpoint e não tem fallback. Três fatos dimensionam o número: o cliente legítimo chama isto **uma vez por boot**; em falha ele **retenta 3 vezes** (`frontend/src/js/index.js`), então o incidente que justificaria o limitador é o mesmo que triplica a demanda honesta; e uma OM inteira atrás de um egress NAT divide um endereço. Medido no E2E de browser, a suíte inteira (85 specs, boots reais em série) fica na casa de algumas dezenas de requisições por minuto — duas ordens de grandeza abaixo do teto.
+
+O que de fato tirou a alavanca de DoS foi a memoização, não este número: com ela uma rajada custa zero consultas em vez de oito por requisição. O limitador cobre o resíduo (banda, serialização) e a primeira requisição de cache frio.
+
+O `configLimiter` está no módulo, e não junto dos outros quatro em `backend/src/middleware/rate-limit.js`, por uma razão temporária de coordenação de trabalho — o `handler`, o `skip` e o `validate` são **cópias**, não variantes. Se você mexer no envelope do 429 ou na convenção de `skip`, mexa nos dois lugares até que a mudança seja desfeita.
+
 No cliente: `429` não é `401`. Não dispare logout nem refresh, só backoff. O header `RateLimit-Reset` está disponível para countdown.
 
 O handler do 429 escreve o envelope à mão (`handler`, `backend/src/middleware/rate-limit.js`) e **não passa pelo `errorHandler` central**. Consequência dupla: não espere dele log enriquecido nem `details`, e se o formato do envelope mudar em `backend/src/middleware/error-handler.js` este ponto precisa ser atualizado manualmente, senão a borda passa a responder dois formatos.
@@ -96,4 +106,4 @@ Duas consequências:
 ## Fontes
 
 - guia *11-seguranca-hardening* (absorvido): estrutura dos mecanismos de borda; mensagens em inglês já superadas pelo código.
-- `ebgeo_backend`: `backend/src/middleware/rate-limit.js`, `backend/src/config.js`, `backend/src/app.js`, `backend/src/index.js`, `src/modules/auth/{auth.service.js,auth.routes.js}`, `src/middleware/{auth.js,flexible-auth.js,error-handler.js}`, `backend/src/modules/collab/collab.gateway.js`.
+- `ebgeo_backend`: `backend/src/middleware/rate-limit.js`, `backend/src/modules/config/config.cache.js`, `backend/src/config.js`, `backend/src/app.js`, `backend/src/index.js`, `src/modules/auth/{auth.service.js,auth.routes.js}`, `src/middleware/{auth.js,flexible-auth.js,error-handler.js}`, `backend/src/modules/collab/collab.gateway.js`.

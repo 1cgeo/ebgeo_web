@@ -1,6 +1,9 @@
 // Path: src/modules/ranks/ranks.service.js
+// The ranks table is served to the ANONYMOUS GET /api/config (`postos`, for the signup
+// dropdowns), so every write here drops the memoized payload — see config.cache.js.
 import { query } from '../../database/index.js';
 import { NotFoundError } from '../../utils/errors.js';
+import { invalidateAppConfigCache } from '../config/config.cache.js';
 import * as Q from './ranks.queries.js';
 
 export async function listRanks() {
@@ -20,6 +23,7 @@ export async function createRank(data) {
     data.nome_abrev || null,
     data.sort_order ?? 0,
   ]);
+  invalidateAppConfigCache();
   return rows[0];
 }
 
@@ -33,11 +37,13 @@ export async function updateRank(id, data) {
     data.nome_abrev !== undefined, // provided? — lets an explicit null clear the column
   ]);
   if (rows.length === 0) throw new NotFoundError('Rank');
+  invalidateAppConfigCache();
   return rows[0];
 }
 
 export async function deactivateRank(id) {
   const { rows } = await query(Q.DEACTIVATE_RANK, [id]);
   if (rows.length === 0) throw new NotFoundError('Rank');
+  invalidateAppConfigCache();
   return { success: true };
 }

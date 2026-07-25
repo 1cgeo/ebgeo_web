@@ -9,7 +9,7 @@ import { extractBearerToken } from './auth.js';
 import { query } from '../database/index.js';
 import { FIND_USER_BY_API_KEY } from '../modules/users/users.queries.js';
 import { issueAccessToken, msUntilExpiry } from '../modules/auth/auth.service.js';
-import { getLiveAuthState } from '../utils/org-status.js';
+import { getLiveAuthState, tokenPredatesSessionCut } from '../utils/org-status.js';
 import { env } from '../utils/environment.js';
 
 const SLIDING_THRESHOLD_MS = 5 * 60 * 1000;
@@ -43,6 +43,10 @@ function mapPayload(p) {
     // branch. Kept in sync with the identical mapping in middleware/auth.js.
     isPublic: p.isPublic === true,
     publicAtlasId: p.isPublic === true ? (p.atlasId ?? null) : null,
+    // Issued-at, carried so the strict `auth` middleware can apply the session cut-off
+    // (`users.sessions_valid_from`) on a request this mapper populated. Kept in sync
+    // with the identical mapping in middleware/auth.js.
+    tokenIssuedAt: p.iat ?? null,
   };
 }
 
@@ -82,17 +86,23 @@ export async function flexibleAuth(req, res, next) {
     // Public-share principals (`public-<uuid>` sub, no users row) are never renewed
     // here — their token is atlas-scoped and short-lived by design.
     //
-    // What this renewal does NOT consult is `refresh_tokens`. Revoking a token
-    // family (reuse detection, logout, password change) therefore does not stop the
-    // slide: a holder requesting once every <15 min renews forever, and only
-    // is_active on the user/org ends it. Stated here because this is the code that
-    // makes the revocation inert — see the SCOPE note in auth.service.js refresh().
+    // This renewal still does not consult `refresh_tokens` — it consults the SESSION
+    // CUT-OFF instead (`users.sessions_valid_from`, migration 008), which mass
+    // revocation writes in the same statement that stamps the family. That closes what
+    // made this the worst half of bugs-backend #35: until 2026-07-25 the only thing
+    // that could stop the slide was `is_active` on the user or the org, so after
+    // detecting refresh-token REUSE — the signal of theft — the stolen token renewed
+    // here indefinitely, one request every <15 min, for as long as the account lived.
+    // The alarm fired and turned nothing off. Now the cut-off refuses the renewal and
+    // drops the cookie, and the strict `auth` middleware refuses the token itself.
     if (msUntilExpiry(payload) < SLIDING_THRESHOLD_MS && UUID_RE.test(payload.sub || '')) {
       const live = await getLiveAuthState(payload.sub);
 
       // A missing row is not a revocation (users are only soft-deleted — see the
-      // matching note in auth.js); only an explicit deactivation stops the slide.
-      if (live && (!live.userIsActive || !live.orgIsActive)) {
+      // matching note in auth.js); only an explicit deactivation or a session cut-off
+      // stops the slide.
+      const revoked = live && tokenPredatesSessionCut(payload.iat, live.sessionsValidFrom);
+      if (live && (!live.userIsActive || !live.orgIsActive || revoked)) {
         // Dead session: stop the slide and drop the cookie. req.user is cleared so
         // this request is treated as anonymous; strict routes 401 via `auth`.
         // clearCookie must receive the same attributes MINUS maxAge (Express

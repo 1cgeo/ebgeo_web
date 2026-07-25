@@ -1,18 +1,19 @@
 # Autenticação JWT (access + refresh)
 
-Par de tokens do EBGeo: access JWT HS256 stateless (15 min, **irrevogável**) e refresh opaco rotativo (7 dias, revogável). Superfície das rotas em `backend/src/modules/auth/auth.routes.js`, payload em [[jwt-emissor-unico]].
+Par de tokens do EBGeo: access JWT HS256 stateless (15 min, sem revogação **por token**) e refresh opaco rotativo (7 dias, revogável). Superfície das rotas em `backend/src/modules/auth/auth.routes.js`, payload em [[jwt-emissor-unico]].
 
-## A assimetria que governa tudo: o access token não é revogável
+## A assimetria que governa tudo: o access token não se revoga sozinho
 
-O access token não tem estado no servidor, só assinatura. Desativar um usuário **não** invalida o JWT que ele já tem. Toda a arquitetura em volta existe para compensar isso:
+O access token não tem estado no servidor, só assinatura, e não carrega `jti` nem versão: **não há o que invalidar dentro dele**. Desativar um usuário não altera o JWT que ele já tem. Toda a arquitetura em volta existe para compensar isso, sempre da mesma forma — a decisão não sai do token, sai de uma leitura viva do banco:
 
 - o middleware estrito reconcilia o token contra o banco a cada requisição (`auth`, `backend/src/middleware/auth.js`, via `getLiveAuthState`);
 - o `role` **global** é sobrescrito pelo valor vivo, para que um admin rebaixado não continue admin durante a janela do token;
-- `org_role` e `organization_id` **não** são sobrescritos de propósito: pertencem ao mapeamento do token, e um token legado sem claims de org precisa degradar para `viewer`/`null`.
+- `org_role` e `organization_id` **não** são sobrescritos de propósito: pertencem ao mapeamento do token, e um token legado sem claims de org precisa degradar para `viewer`/`null`;
+- desde 2026-07-25 essa mesma leitura traz `users.sessions_valid_from`, um corte por CONTA (não por token): a revogação em massa carimba a hora, e todo token com `iat` anterior a ela é recusado. É o que dá efeito real a "trocar a senha derruba as outras sessões" e a "reuso de refresh detectado encerra a sessão roubada" — antes disso as duas frases eram falsas. Mecanismo, fronteira de um segundo e limites em [[refresh-token-rotacao]].
 
 Consequência que morde: **mudança de papel global vale na hora; mudança de OM ou de papel org-scoped leva até 15 minutos para valer.** Ver [[permissoes-atlas]] e [[sintese-eixos-de-permissao]].
 
-A sessão deslizante do cookie (`backend/src/middleware/flexible-auth.js`) tinha um furo pior: reassinar as claims antigas transformava "≤15 min desatualizado" em "para sempre", porque um usuário desativado que mantivesse uma requisição a cada 15 min renovava a sessão indefinidamente. Por isso a renovação **consulta o banco antes** de reemitir. Não reintroduza reemissão cega. Ver [[auth-flexivel]].
+A sessão deslizante do cookie (`backend/src/middleware/flexible-auth.js`) tinha um furo pior: reassinar as claims antigas transformava "≤15 min desatualizado" em "para sempre", porque um usuário desativado que mantivesse uma requisição a cada 15 min renovava a sessão indefinidamente. Por isso a renovação **consulta o banco antes** de reemitir. Não reintroduza reemissão cega. O mesmo furo existia para sessão revogada, e por muito mais tempo: até 2026-07-25 só desativação de conta ou de OM interrompia a renovação, então um token roubado se reemitia para sempre **depois** de a detecção de reuso ter disparado. Hoje o corte de sessão também a interrompe, e derruba o cookie. Ver [[auth-flexivel]].
 
 Principais de link público (`sub` no formato `public-<uuid>`, que não é UUID puro) são **isentos** da reconciliação: não existe linha em `users` para eles (guarda `PRINCIPAL_UUID_RE`, `backend/src/middleware/auth.js`). A autoridade vem do token assinado mais a flag `is_public` do atlas. Desde 2026-07-24 a isenção vem **depois** de `confineVisitorPrincipal`, que confina o visitante ao atlas que emitiu o token: a ordem importa, porque a claim é o marcador do tipo de principal, e antes disso um token que se declarava público escapava dos dois. Ver [[link-publico]].
 

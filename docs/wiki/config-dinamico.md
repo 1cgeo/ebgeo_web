@@ -83,6 +83,22 @@ Armadilhas:
 
 Config não tem push por WebSocket: é pull sob demanda, com `Cache-Control: no-cache`, para que edições de catálogo propaguem na requisição seguinte (contraste com [[canal-collab-websocket]]). Erros seguem [[erros-api]]; na prática falha aqui é banco fora, e derruba o boot do frontend inteiro. Ver também [[catalogo-3d]], [[assets3d-distribuicao]], [[autenticacao-jwt]].
 
+## Memoização no servidor (desde 2026-07-25): invalidada na escrita, não por tempo
+
+Até 2026-07-25 esta página descrevia um endpoint sem cache **nenhum**, e era verdade: montar o payload custava **oito** consultas ao banco, em toda requisição, numa rota anônima e sem teto. Isso fazia do único endpoint que impede o boot também o mais caro do conjunto anônimo (`bugs-backend.md` #64). Hoje o payload é memoizado em processo (`backend/src/modules/config/config.cache.js`) e o custo medido caiu de 8 consultas por requisição para 8 por *mudança*: requisição em cache quente custa **zero**.
+
+O que **não** mudou é o que o `Cache-Control: no-cache` promete. A invalidação é feita **no ponto da escrita**, não por TTL, exatamente para preservar a propagação imediata: as três operações de CRUD do catálogo (nas cinco tabelas), as três de `ranks`, as três de `organizations` e os dois escritores de override (`PUT`/`DELETE /config/admin`) chamam `invalidateAppConfigCache()` depois de gravar. A requisição seguinte a qualquer uma delas reconstrói. Um TTL sozinho teria trocado essa propriedade por um atraso que ninguém sabe dimensionar.
+
+Três coisas que decidem se isso ajuda ou atrapalha:
+
+- **A memoização é cega a escrita que não passa pelo serviço.** `UPDATE basemaps SET active = false` direto no banco (script de manutenção, psql) **não** invalida nada. O `CONFIG_CACHE_TTL_MS` (default 30 s) existe só como rede de segurança para esse caso; se você editou o catálogo por SQL e a mudança "não apareceu", espere a janela ou reinicie o processo. Editar pela API é o caminho que tem garantia.
+- **A entrada guarda a promessa em voo, não o valor resolvido.** N requisições simultâneas com o cache frio custam **uma** montagem. Sem isso a rajada — que é justamente o cenário de ataque — pagaria 8×N contra um pool de 10 conexões.
+- **O cache é por processo e sem backplane**, como o rate limit e as salas de colaboração (ver [[deploy-backend]]): com réplicas, cada uma tem a sua cópia e a invalidação de uma **não** alcança as outras. Com uma réplica só, que é o deploy documentado, isso não aparece.
+
+Em teste a memoização fica **desligada** por padrão (`CONFIG_CACHE_FORCE=1` liga), porque a suíte do backend escreve nas tabelas de catálogo por SQL cru e depois lê `/api/config` de volta — o caso do primeiro item acima. Os dois arranques de E2E (`frontend/tests/e2e/global-setup.js` e `frontend/tests/e2e-ui/backend.js`) ligam a flag: é lá que o cache roda como num deploy, com a app bootando de verdade. Cobertura em `backend/tests/integration/config-cache.test.js`.
+
+A rota anônima ganhou também um teto por endereço (`configLimiter`, 600/min por default). O dimensionamento e a razão de ser tão folgado estão em [[hardening-borda-api]].
+
 ## Fontes
 
 - Guias absorvidos: *10-config* (contrato congelado, mapa env → chave, semântica MVT), *visao-e-principios* (config como exceção ao offline-first), *ui-ux-ebgeo* (backend como fonte única; cadeia atlas-settings → config → catálogo). Divergências marcadas acima.

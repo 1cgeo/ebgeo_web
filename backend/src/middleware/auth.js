@@ -2,7 +2,7 @@
 import jwt from 'jsonwebtoken';
 import config from '../config.js';
 import { UnauthorizedError, ForbiddenError } from '../utils/errors.js';
-import { getLiveAuthState, orgIsActive } from '../utils/org-status.js';
+import { getLiveAuthState, orgIsActive, tokenPredatesSessionCut } from '../utils/org-status.js';
 
 // A principal backed by a real `users` row always has a UUID sub. Public-share
 // tokens deliberately use `public-<uuid>`, which is NOT a bare UUID.
@@ -42,6 +42,11 @@ export function verifyAndMapUser(token) {
       // one can be the path that populates req.user.
       isPublic: payload.isPublic === true,
       publicAtlasId: payload.isPublic === true ? (payload.atlasId ?? null) : null,
+      // Issued-at, carried so the session cut-off (`users.sessions_valid_from`) can be
+      // applied below. Undefined for an api-key principal, which has no token and is
+      // revoked by rotating the key instead. Kept in sync with flexible-auth.js
+      // mapPayload — either mapper can be the one that populates req.user.
+      tokenIssuedAt: payload.iat ?? null,
     };
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
@@ -141,6 +146,19 @@ export async function auth(req, res, next) {
       }
       if (!live.orgIsActive) {
         return next(new ForbiddenError('Organization is inactive'));
+      }
+
+      // SESSION CUT-OFF (bugs-backend #35). Mass revocation — reuse detection, password
+      // change, admin reset, deactivation — used to stamp `refresh_tokens` only, which
+      // nothing on this path reads, so it ended the ability to ROTATE and left the
+      // compromised session working. `sessions_valid_from` is the marker that makes the
+      // revocation reach here: a token minted before it is refused outright.
+      //
+      // 401, like deactivation and for the same reason: the client tears the session
+      // down (the retry through /auth/refresh fails too, since the family went with it),
+      // instead of a 403 it would read as an ordinary permission problem.
+      if (tokenPredatesSessionCut(req.user.tokenIssuedAt, live.sessionsValidFrom)) {
+        return next(new UnauthorizedError('Session revoked'));
       }
 
       // Adopt the live GLOBAL role so `requireAdmin` can never honour a stale

@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { query } from '../../database/index.js';
-import { orgIsActive, getLiveAuthState } from '../../utils/org-status.js';
+import { orgIsActive, getLiveAuthState, tokenPredatesSessionCut } from '../../utils/org-status.js';
 import { joinRoom, leaveRoom, getRoomUsers, getRoomClients } from './collab.rooms.js';
 import { toFrontendRole } from '../../utils/roles.js';
 import * as collabService from './collab.service.js';
@@ -305,6 +305,22 @@ export function attachWebSocket(server) {
         const live = await getLiveAuthState(userId);
         if (live) {
           if (!live.userIsActive || !live.orgIsActive) {
+            reject('403 Forbidden');
+            return;
+          }
+          // Mesmo argumento do parágrafo acima, agora para o CORTE DE SESSÃO
+          // (`users.sessions_valid_from`, migração 008): revogação em massa passou a
+          // recusar o access token no `auth` estrito e a bloquear a renovação
+          // deslizante, e deixar o handshake de fora daria ao token morto exatamente
+          // a porta que sobrou. O `iat` já está no payload, e o `live` já foi lido.
+          //
+          // ESCOPO, explicitamente: isto barra a ABERTURA de socket novo. Um socket
+          // JÁ ABERTO não cai por causa do corte — `reconcileAuthorization` não o
+          // avalia, de propósito, porque o ciclo de vida do socket é client-driven
+          // por contrato e o sweep reconcilia AUTORIZAÇÃO (share, publicação, org),
+          // não sessão. O socket vivo continua limitado pelo que sempre o limitou:
+          // o cliente fechá-lo, ou o sweep achar outro motivo.
+          if (tokenPredatesSessionCut(payload.iat, live.sessionsValidFrom)) {
             reject('403 Forbidden');
             return;
           }

@@ -183,30 +183,35 @@ export async function refresh(refreshToken) {
     }
 
     // Reuse detection: a live token reappearing long after rotation means the chain
-    // was compromised. Revoke the whole family.
+    // was compromised. Revoke the whole family AND cut the sessions.
     //
-    // SCOPE — read this before relying on it as a remediation. Revoking the family
-    // ends the ability to ROTATE, and nothing else. It does NOT force a fresh login
-    // (this comment used to say it did) and does not end the compromised session:
-    //   - the access token carries no jti/session/version (issueAccessToken above),
-    //     so there is nothing in it to invalidate;
-    //   - neither the strict `auth` middleware nor the sliding renewal in
-    //     flexible-auth.js ever reads `refresh_tokens`; the live reconciliation
-    //     (getLiveAuthState) looks only at users.is_active / role / organization;
-    //   - flexible-auth.js re-issues the cookie whenever the token is <5 min from
-    //     expiring, and answers Set-Cookie regardless of whether the token arrived
-    //     as a cookie or as a Bearer header. A holder who makes one request every
-    //     <15 min therefore renews indefinitely without ever calling /auth/refresh.
-    // The same limitation applies to `logout` below and to the password-change
-    // revocation in users.service.js — all three run this one query.
+    // SCOPE, as of 2026-07-25 (bugs-backend #35). `REVOKE_ALL_USER_TOKENS` now writes
+    // TWO things in one statement: `refresh_tokens.revoked_at` (ends rotation) and
+    // `users.sessions_valid_from` (ends the sessions themselves). The second is what
+    // the live path can see — `getLiveAuthState` reads it, and every access token
+    // whose `iat` predates the marker is refused by the strict `auth` middleware, by
+    // the sliding renewal in flexible-auth.js and by the collab WS handshake.
     //
-    // Today the ONLY revocation the live path honours is deactivating the user or
-    // the organization. Closing the gap properly needs a per-user marker (e.g.
-    // `users.sessions_valid_from`, set here, read by getLiveAuthState, refusing any
-    // token whose `iat` predates it) — a schema migration plus a session-policy
-    // decision, deliberately not taken here. Pinned by
-    // tests/integration/refresh-reuse-session-scope.repro.test.js: when that fix
-    // lands, those assertions flip and this comment must change with them.
+    // Until that marker existed, revoking the family ended the ability to ROTATE and
+    // nothing else. The access token carries no jti/session/version (issueAccessToken
+    // above), nothing on the request path read `refresh_tokens`, and flexible-auth.js
+    // re-issued the token whenever it was <5 min from expiring — regardless of whether
+    // it arrived as a cookie or as a Bearer header. So the holder of a stolen token
+    // simply made one request every <15 min and renewed forever: the theft alarm fired
+    // and turned nothing off. This comment used to claim a fresh login was "forced";
+    // it was not, and the claim survived for months because no test held it.
+    //
+    // Same effect now reaches the other three callers of this query, which all needed
+    // it: password change and admin reset (users.service.js) and deactivation, where
+    // the marker is redundant with `is_active` but written anyway so the invariant has
+    // no exceptions.
+    //
+    // WHAT IT STILL DOES NOT DO, precisely: an ALREADY-OPEN collab socket is not torn
+    // down (the sweep reconciles authorization, not session — see collab.gateway.js),
+    // and the few routes that run on `flexibleAuth` alone (`GET /nomes/busca`, the
+    // sv360 reads) keep honouring the token until its own `exp`. Both are bounded by
+    // JWT_ACCESS_EXPIRY; the UNBOUNDED renewal, which was the actual defect, is gone.
+    // Pinned by tests/integration/refresh-reuse-session-scope.repro.test.js.
     logger.warn({ userId: spent.user_id }, 'Refresh token reuse detected');
     await query(Q.REVOKE_ALL_USER_TOKENS, [spent.user_id]);
     throw new UnauthorizedError('Sessão inválida. Entre novamente.');

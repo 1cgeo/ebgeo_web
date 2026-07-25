@@ -7,10 +7,14 @@ import { requireAdmin } from '../../middleware/require-admin.js';
 import { validate } from '../../middleware/validate.js';
 import * as ctrl from './config.controller.js';
 import * as schemas from './config.admin.schemas.js';
+import { configLimiter } from '../../middleware/rate-limit.js';
 
 const router = Router();
 
-router.get('/', ctrl.getConfig);
+// The limiter guards the ANONYMOUS route only. The /admin routes below are behind `auth` +
+// `requireAdmin`, so they already have an identity to hold responsible and a much smaller
+// population; throttling them by IP would only put every admin of one OM in a single bucket.
+router.get('/', configLimiter, ctrl.getConfig);
 
 // Admin: read the editable config + write overrides (app/features/map2d/map3d/service URLs).
 router.get('/admin', auth, requireAdmin, ctrl.getAdminConfig);

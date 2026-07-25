@@ -7,6 +7,7 @@ import config from '../../config.js';
 import { ValidationError } from '../../utils/errors.js';
 import { query } from '../../database/index.js';
 import { catalogService } from '../catalog/index.js';
+import { readThroughAppConfigCache, invalidateAppConfigCache } from './config.cache.js';
 import * as Q from './config.queries.js';
 import * as S from './config.static.js';
 
@@ -80,12 +81,14 @@ export async function updateConfigOverrides(partial, userId) {
     JSON.stringify(merged),
     userId ?? null,
   ]);
+  invalidateAppConfigCache();
   return rows[0].value;
 }
 
 /** Clears ALL config overrides (the revert valve — config reverts to STATIC/ENV on next boot). */
 export async function clearConfigOverrides() {
   await query(Q.CLEAR_CONFIG_OVERRIDES, [OVERRIDES_KEY]);
+  invalidateAppConfigCache();
   return {};
 }
 
@@ -155,8 +158,15 @@ export async function listOrganizacoesMilitares() {
 
 /**
  * Builds the full config payload served by GET /api/v1/config.
+ *
+ * EIGHT queries, and the payload does NOT vary by caller: nothing here reads `req`, a user or
+ * an atlas. The per-atlas restriction an admin can set (`atlas.settings`) is applied CLIENT
+ * side (`frontend/src/js/store/sync/atlas-settings.service.js` intersects it onto the config
+ * singleton after boot), so the server has exactly one document to serve and it is safe to
+ * share it between callers — see `getAppConfig` below for the memo.
+ * @returns {Promise<Object>}
  */
-export async function getAppConfig() {
+async function buildAppConfig() {
   const [basemaps, basemapStyles, analysisLayers, dataLayers, tilesets, postos, organizacoesMilitares, overrides] = await Promise.all([
     listBasemaps(),
     listBasemapStyles(),
@@ -235,4 +245,19 @@ export async function getAppConfig() {
 
   // Admin overrides (app/features/map2d/map3d/service URLs) win over the STATIC/ENV assembly.
   return deepMerge(payload, overrides);
+}
+
+/**
+ * The full config payload served by GET /api/v1/config — memoized in process.
+ *
+ * The memo is dropped by `invalidateAppConfigCache()` on every write that can change any of
+ * the eight reads above (catalog CRUD on the five tables, ranks, organizations, and the two
+ * override writers in this file), which is what keeps the route's `Cache-Control: no-cache`
+ * promise honest: an admin edit is visible on the very next request, not after a TTL.
+ *
+ * The returned object is SHARED and shallow-frozen. Callers must not mutate it.
+ * @returns {Promise<Object>}
+ */
+export function getAppConfig() {
+  return readThroughAppConfigCache(buildAppConfig);
 }

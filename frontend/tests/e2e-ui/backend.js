@@ -143,6 +143,11 @@ export async function startBackend({ corsOrigin, port, dbName = 'ebgeo_ui_e2e' }
             ALLOW_SELF_REGISTRATION: 'true',
             CORS_ORIGIN: corsOrigin,
             IMAGES_DIR: './data/ui-e2e-images',
+            // Same reason as tests/e2e/global-setup.js: the /api/config memo is off under
+            // NODE_ENV=test unless forced, and the browser E2E is where it must be on —
+            // the admin panel specs edit the catalog and the config through the real UI and
+            // then expect the change to be there, which is the invalidation end to end.
+            CONFIG_CACHE_FORCE: '1',
             TILE_SERVER_URL: 'http://127.0.0.1:9/tiles/{z}/{x}/{y}.png',
             SEARCH_API_URL: 'http://127.0.0.1:9/busca',
         },

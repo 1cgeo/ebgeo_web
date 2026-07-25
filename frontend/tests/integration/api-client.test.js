@@ -93,6 +93,34 @@ describe('ApiClient — auth', () => {
         expect(api.isAuthenticated()).toBe(false); // dead tokens dropped
     });
 
+    it('server-side session REVOCATION lands on the same auth-lost path', async () => {
+        // Cross-package contract (backend achado 35 + migration 008). Until then a mass
+        // revocation could not reach a client holding a live access token at all; now the
+        // access token 401s ("Session revoked") AND the refresh fails, because the family
+        // went with it. There is no new client code for this — the point of the test is
+        // that there does not NEED to be: the shape the backend produces is exactly what
+        // the existing terminal-refresh-failure path already handles.
+        const seen = [];
+        const fetchImpl = vi.fn(async (url) => {
+            seen.push(url.replace('http://api.test/api/v1', ''));
+            if (url.endsWith('/auth/refresh')) {
+                return resp(401, { error: { code: 'UNAUTHORIZED', message: 'Sessão inválida. Entre novamente.' } });
+            }
+            return resp(401, { error: { code: 'UNAUTHORIZED', message: 'Session revoked' } });
+        });
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: 'stolen-but-cut', refreshToken: 'also-revoked' });
+        const onAuthLost = vi.fn();
+        api.setAuthLostHandler(onAuthLost);
+
+        await expect(api.listAtlas()).rejects.toBeInstanceOf(ApiError);
+
+        expect(seen).toEqual(['/atlas', '/auth/refresh']); // one retry attempt, then give up
+        expect(onAuthLost).toHaveBeenCalledTimes(1);
+        expect(api.isAuthenticated()).toBe(false);
+        expect(api.getAccessToken()).toBeNull(); // the dead token is not kept around
+    });
+
     it('fires the auth-lost handler at most once across a burst of failures', async () => {
         const fetchImpl = vi.fn(async () => resp(401, { error: {} }));
         const api = makeClient(fetchImpl);

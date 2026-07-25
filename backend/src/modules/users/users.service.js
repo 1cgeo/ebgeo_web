@@ -44,6 +44,20 @@ export async function updateProfile(userId, data) {
 
 /**
  * Changes user password.
+ *
+ * Since 2026-07-25 (bugs-backend #35) `REVOKE_ALL_USER_TOKENS` also stamps the session
+ * cut-off `users.sessions_valid_from`, so this ends EVERY session of the user — the
+ * caller's included, not just "elsewhere" as the old comment below promised. That is
+ * the point: a password change made because the account may be compromised has to
+ * reach the compromised session, and the compromised session is the one holding a live
+ * access token, not a refresh token.
+ *
+ * The route does NOT hand back a new pair, so the caller's own access token dies with
+ * the rest and the client re-authenticates. This is deliberate rather than an
+ * oversight: issuing a replacement here would mean minting a token in the same second
+ * as the cut-off, i.e. exactly the ambiguity `tokenPredatesSessionCut` had to resolve
+ * (utils/org-status.js). This app's UI does not call the route at all — no
+ * `/users/me/password` call site exists in frontend/src — so nothing regresses.
  */
 export async function updatePassword(userId, currentPassword, newPassword) {
   // Get current password hash
@@ -62,7 +76,7 @@ export async function updatePassword(userId, currentPassword, newPassword) {
   // Hash new password
   const newHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
-  // Update password and revoke existing refresh tokens (force re-login elsewhere)
+  // Update password, revoke the refresh family and cut every session (one statement).
   await query(Q.UPDATE_USER_PASSWORD, [userId, newHash]);
   await query(Q.REVOKE_ALL_USER_TOKENS, [userId]);
 

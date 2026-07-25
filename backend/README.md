@@ -16,12 +16,15 @@ convenções de engenharia). Contexto curto para agentes está em **[CLAUDE.md](
 
 ## Estrutura da Documentação
 
-Toda a documentação vive em **`../docs/guias/`** (mais o deploy em `docs/deploy/`), como uma
-**série numerada de guias de integração** frontend-backend. Comece pelo
-00 - Visão Geral (arquitetura + índice) e abra o guia do
-subsistema que vai integrar. As convenções de engenharia ficam na seção
-[Convenções de Engenharia](#convenções-de-engenharia) deste README; o deploy em
-[../docs/wiki/deploy-backend.md](../docs/wiki/deploy-backend.md).
+Toda a documentação vive na wiki, em **[../docs/wiki/index.md](../docs/wiki/index.md)**, como páginas
+por entidade e conceito. Abra o índice e siga para a página do subsistema que vai integrar. As
+convenções de engenharia ficam na seção [Convenções de Engenharia](#convenções-de-engenharia) deste
+README; o deploy em [../docs/wiki/deploy-backend.md](../docs/wiki/deploy-backend.md).
+
+Até 2026-07-25 esta seção mandava procurar uma "série numerada de guias" numa pasta `docs/guias/` que
+não existe, com um item "00 - Visão Geral" escrito sem sintaxe de link. Escrito assim, o caminho morto
+era ponto cego dos dois guardas de integridade ao mesmo tempo (o de caminho exige crases, o de link
+exige sintaxe markdown), e a mesma frase vivia no `CLAUDE.md` do pacote.
 
 
 ---
@@ -232,6 +235,9 @@ com `--branches 85` sai com 0.
 | 003_sync | operations (log CRDT, `client_id` TEXT, `op_id` + `UNIQUE (atlas_id, op_id)`), active_sessions, resources + seed (`config` no shape de `GET /api/v1/config`) |
 | 004_ng | **PostGIS** + schema `ng` (nomes 4674, edificacoes 4326, catalogo_3d), `f_unaccent`, triggers, `ng.refresh_busca()`; `access_level` em nomes/edificações/catalogo_3d; `model_permissions`/`model_group_permissions` + `ng.user_groups`; `ng.groups` + `geographic_access_zones` (4674) + zone permissions + `ng.fn_user_zone_geoms` |
 | 005_sv360 | schema **`sv360`**: `projects` (FK org, UNIQUE org+slug, status), `photos` (id TEXT UUID v5, PK global, `geom` 4326 via trigger), `targets`, `deleted_photos` (tombstone) |
+| 006_catalog_layer_text_id | alarga `catalog_layers.id` de UUID para TEXT e refaz a PK |
+| 007_audit_zone_actions | alarga o CHECK de `audit_trail.action` com `ZONE_CREATE`/`ZONE_UPDATE`/`ZONE_DELETE` |
+| 008_sessions_valid_from | `users.sessions_valid_from` (nullable, sem backfill): corte de sessão por usuário — todo access token com `iat` anterior ao carimbo é recusado |
 
 > **Carga de nomes (FME):** após cada carga, rodar `SELECT ng.refresh_busca();` (DBSCAN + `tipo_peso`) —
 > sem isso `cluster_id`/`tipo_peso` ficam nulos e a busca degrada silenciosamente.
@@ -263,6 +269,9 @@ com `--branches 85` sai com 0.
 | `ALLOW_SELF_REGISTRATION` | prod:false, dev/test:true | Habilita `POST /auth/register` |
 | `RATE_LIMIT_AUTH_WINDOW_MS` / `_MAX` | 900000 / 10 | Rate limit `/auth/{login,refresh,register}` (IP+username) |
 | `RATE_LIMIT_PUBLIC_WINDOW_MS` / `_MAX` | 60000 / 30 | Rate limit `/atlas/public/:link` (por IP) |
+| `RATE_LIMIT_GAZETTEER_WINDOW_MS` / `_MAX` | 60000 / 300 | Rate limit `GET /nomes/busca` (por IP) |
+| `RATE_LIMIT_CONFIG_WINDOW_MS` / `_MAX` | 60000 / 600 | Rate limit `GET /api/config` (por IP). Teto folgado: o boot é fail-fast aqui |
+| `CONFIG_CACHE_TTL_MS` | 30000 | Rede de segurança da memoização do `GET /api/config` (invalidada na ESCRITA). `0` desliga |
 | `EBGEO_TRACE` | *(ausente)* | SyncLedger: liga o ring de trace + monta `GET/DELETE /api/v1/debug/trace`. `=1` (ou `NODE_ENV=test`); **nunca em prod** |
 
 URLs de serviço/tiles do `GET /api/config` (basemaps, busca, terrain, 360) também vêm de env — ver
@@ -510,11 +519,27 @@ ETag O(1) (sem ler o BLOB) → **304 antes de qualquer I/O** → Range 206/416 �
 
 ## Segurança (hardening)
 
-- **Rate limiting** (`express-rate-limit`) em `/auth/{login,refresh,register}` (chave IP+username) e
-  `/atlas/public/:link` (por IP). Pulado em teste (a menos de `RATE_LIMIT_FORCE=1`).
+- **Rate limiting** (`express-rate-limit`) em `/auth/{login,refresh,register}` (chave IP+username),
+  `/atlas/public/:link`, `GET /nomes/busca` e `GET /api/config` (por IP). Pulado em teste (a menos de
+  `RATE_LIMIT_FORCE=1`). Os cinco vivem juntos em `src/middleware/rate-limit.js`, e o teto do
+  `/api/config` é o mais folgado do conjunto porque o boot do frontend é fail-fast nessa rota.
+- **Memoização do `GET /api/config`** (`src/modules/config/config.cache.js`): o payload custava 8
+  consultas por requisição numa rota anônima. Agora é montado uma vez e **invalidado na escrita**
+  (catálogo, `ranks`, `organizations`, overrides de admin), o que preserva o `Cache-Control: no-cache`
+  da rota. Escrita por SQL cru não invalida — para esse caso há só o TTL de `CONFIG_CACHE_TTL_MS`.
+  Desligada sob `NODE_ENV=test` a menos de `CONFIG_CACHE_FORCE=1`.
 - **Login timing-safe**: bcrypt sempre roda (hash dummy quando o usuário não existe); mensagem genérica.
 - **Refresh tokens**: rotação + detecção de reuso (revoga a família); revogados na troca/reset de senha
   e na desativação do usuário.
+- **Corte de sessão** (`users.sessions_valid_from`, migração 008): a revogação em massa carimba a hora
+  no MESMO statement que revoga a família, e todo access token com `iat` anterior ao carimbo é recusado
+  pelo `auth` estrito (401), pela renovação deslizante do `flexibleAuth` (que ainda limpa o cookie) e
+  pelo handshake do socket de colaboração (403 no upgrade). Sem isso a revogação encerrava só a
+  ROTAÇÃO: quem já tinha access token seguia trabalhando e a sessão deslizante o reemitia
+  indefinidamente. Carimbo `NULL` (default de toda conta) não invalida nada. O segundo ambíguo — `iat`
+  tem resolução de segundo, o carimbo não — é RECUSADO (`iat <= floor(corte)`), por ser remediação de
+  roubo. Não alcança socket já aberto nem as rotas que rodam só sob `flexibleAuth`, ambos limitados
+  pelo `exp` do token.
 - **JWT**: `jwt.verify(..., { algorithms:['HS256'] })` no REST e no gateway WS.
 - **Upload de imagem**: allowlist `png/jpeg/webp` (**sem SVG**) + magic-bytes (multipart e base64);
   download como `attachment` com `ETag`/`immutable`/`Range`.

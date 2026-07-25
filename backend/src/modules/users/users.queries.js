@@ -187,9 +187,33 @@ export const COUNT_USER_ATLAS = `
   SELECT COUNT(*) as count FROM atlas WHERE owner_id = $1 AND deleted_at IS NULL
 `;
 
-// Revoke all active refresh tokens for a user (on password change/reset/deactivate).
+// Revoke all active refresh tokens for a user (on password change/reset/deactivate)
+// AND stamp the session cut-off that the live auth path actually reads.
+//
+// Revoking the family alone was inert against a principal holding a live access token:
+// nothing on the request path reads `refresh_tokens`, and the sliding renewal in
+// flexible-auth.js re-issued that token indefinitely (bugs-backend #35).
+// `users.sessions_valid_from` is what `getLiveAuthState` reads, and `auth` /
+// `flexibleAuth` / the collab handshake use it to refuse any token whose `iat`
+// predates it.
+//
+// One statement, not two: a data-modifying CTE runs exactly once and to completion
+// regardless of the outer query, so revocation and marker can never drift apart.
+//
+// DEACTIVATION (`deleteUser`) is already barred by `users.is_active` on every live
+// path, so the marker is REDUNDANT there. It is written anyway, deliberately: the
+// invariant is "mass revocation always sets the cut-off", and an invariant with one
+// documented exception is an invariant nobody can rely on — the next caller of this
+// query gets the effect without having to know which of the four cases it is.
+//
+// Kept byte-identical to the copy in auth.queries.js (reuse detection calls that one).
 export const REVOKE_ALL_USER_TOKENS = `
-  UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL
+  WITH revoked AS (
+    UPDATE refresh_tokens SET revoked_at = NOW()
+    WHERE user_id = $1 AND revoked_at IS NULL
+    RETURNING id
+  )
+  UPDATE users SET sessions_valid_from = NOW() WHERE id = $1
 `;
 
 // Atomic API key rotation: archive the old key + issue a new one in one statement.

@@ -128,9 +128,15 @@ async function initApp() {
     // Session lifecycle guards (logged-in only): idle timeout ends an inactive session with a
     // warning; a terminally-failed refresh drops to anonymous. Both re-open login cleanly. Wired
     // AFTER controls so the account control exists; a boot-time expiry already fell to anonymous.
+    //
+    // The message no longer says "expirou": since the backend gained a session cut-off
+    // (users.sessions_valid_from, backend migration 008), this handler also fires when the
+    // server ENDED the session on purpose — a password change, an admin reset, or refresh-token
+    // reuse detected, i.e. suspected theft. Telling someone their session "expired" when it was
+    // in fact revoked is the wrong thing to read right after someone else touched their account.
     new IdleTimeoutController().init();
     apiClient.setAuthLostHandler(
-        () => getControl('account')?.handleSessionLost?.('Sua sessão expirou. Entre novamente.'),
+        () => getControl('account')?.handleSessionLost?.('Sua sessão foi encerrada. Entre novamente.'),
     );
 
     // Safe view ↔ edit driver: locks a no-edit role to the view profile and powers the "Editar mapa"

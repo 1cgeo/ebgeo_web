@@ -153,3 +153,34 @@ export const gazetteerLimiter = rateLimit({
   handler,
   skip,
 });
+
+/**
+ * GET /api/config. Keyed by address (the route has no body and no identity) via the library
+ * default, which applies the same `ipKeyGenerator(req.ip, 56)` IPv6 normalization the auth
+ * limiter does by hand — meaningful only because `trust proxy` makes `req.ip` the client.
+ *
+ * Its own store: sharing one with the gazetteer or the public link would let a burst of either
+ * spend the budget that BOOT needs, and boot is the one thing that must not fail here (the
+ * frontend is fail-fast on this endpoint — no config, no app, not even anonymously).
+ *
+ * The ceiling (`RATE_LIMIT_CONFIG_MAX`, default 600/min) is deliberately the loosest in the
+ * project; the reasoning for the number is in `src/config.js` next to the knob. What actually
+ * removes the DoS leverage is the memoization in `modules/config/config.cache.js` — after it, a
+ * burst costs zero queries instead of eight each. This limiter caps the residual (bandwidth,
+ * JSON serialization) and is the backstop for the very first request of a cold cache.
+ *
+ * Nasceu num arquivo próprio dentro do módulo de config porque este aqui estava sendo editado
+ * em paralelo, e foi dobrado para cá em 2026-07-25 assim que as duas edições pousaram (aquele
+ * arquivo não existe mais, e por isso o caminho dele não é citado aqui). As três helpers acima eram cópias verbatim lá, e duas cópias do envelope 429 (que
+ * é contrato documentado em `docs/wiki/erros-api.md`) divergem com o tempo: é o mesmo
+ * "dois padrões para a mesma coisa" que esta auditoria já fechou em atlas/organizations/ranks.
+ */
+export const configLimiter = rateLimit({
+  windowMs: config.rateLimit.configWindowMs,
+  max: config.rateLimit.configMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate,
+  handler,
+  skip,
+});

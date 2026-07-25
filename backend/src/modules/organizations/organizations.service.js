@@ -1,6 +1,9 @@
 // Path: src/modules/organizations/organizations.service.js
+// The organizations table is served to the ANONYMOUS GET /api/config (`organizacoesMilitares`,
+// for the signup dropdowns), so every write here drops the memoized payload — see config.cache.js.
 import { query } from '../../database/index.js';
 import { NotFoundError, ConflictError } from '../../utils/errors.js';
+import { invalidateAppConfigCache } from '../config/config.cache.js';
 import * as Q from './organizations.queries.js';
 
 export async function listOrganizations() {
@@ -18,6 +21,7 @@ export async function createOrganization(data) {
   const { rows: existing } = await query(Q.CHECK_SLUG, [data.slug]);
   if (existing.length > 0) throw new ConflictError('Já existe uma organização com este identificador (slug).');
   const { rows } = await query(Q.INSERT_ORGANIZATION, [data.nome, data.slug, data.sigla || null]);
+  invalidateAppConfigCache();
   return rows[0];
 }
 
@@ -30,11 +34,13 @@ export async function updateOrganization(id, data) {
     data.sigla !== undefined, // provided? — lets an explicit null clear the column
   ]);
   if (rows.length === 0) throw new NotFoundError('Organization');
+  invalidateAppConfigCache();
   return rows[0];
 }
 
 export async function deactivateOrganization(id) {
   const { rows } = await query(Q.DEACTIVATE_ORGANIZATION, [id]);
   if (rows.length === 0) throw new NotFoundError('Organization');
+  invalidateAppConfigCache();
   return { success: true };
 }

@@ -785,6 +785,19 @@ O DEFEITO: `return createReadStream(fmeta.path).pipe(res)` (assets3d.controller.
 
 ### 33. Self-registration aceita `organization_id` escolhido pelo cliente sem nenhuma validação: qualquer um se auto-inscreve em qualquer organização e passa a ler os projetos 360 privados dela
 
+> **CORRIGIDO em 2026-07-25.** **METADE fechada, metade e risco aceito por decisao do dono.**
+> `register()` passou a validar que a organizacao existe e esta ATIVA
+> (`FIND_ACTIVE_ORGANIZATION`, com `BadRequestError` quando nao), entao nao se entra mais
+> numa OM inexistente ou desativada.
+>
+> O que **permanece de proposito**: declarar-se membro de uma OM real e ativa a que nao se
+> pertence. O escopo esta escrito no proprio codigo, ao lado da checagem, dizendo por que
+> nao foi mais longe (fechar exige etapa de aprovacao) e qual e a exposicao real (leitura
+> dos projetos 360 `disabled` daquela organizacao, so em deploy com
+> `ALLOW_SELF_REGISTRATION` ligado, que e off em producao). Ha teste `KNOWN GAP` que
+> **quebra** se alguem implementar a aprovacao, forcando a decisao a ser revisitada em vez
+> de silenciosamente contrariada.
+
 - **Arquivo:** `backend/src/modules/auth/auth.service.js:237`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-auth` · **Classe:** `authz-lista-fechada`
@@ -806,6 +819,23 @@ O DEFEITO: `return createReadStream(fmeta.path).pipe(res)` (assets3d.controller.
 
 ### 34. `POST /auth/register` é um oráculo de existência de e-mail, exatamente o que o comentário do próprio código afirma impedir
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e fechado. `POST /auth/register` responde **201 sempre**, com corpo
+> identico (`{ success: true }`) e **sem a conta criada** — devolve-la num ramo e nada no
+> outro seria o mesmo oraculo vestido de 201. A colisao e contada **por e-mail ao dono da
+> caixa** (`sendAccountExistsEmail`), com **UM texto so** para colisao de e-mail e de
+> username, porque dois textos reabririam a enumeracao pelo canal de e-mail, onde a chave
+> `${ip}:${username}` do limitador nao estrangula nada.
+>
+> **O status sozinho nao bastava:** criar usuario faz `bcrypt.hash` custo 12 e o ramo "ja
+> existe" nao faria nada, entao o relogio devolveria o oraculo que o status fechou. O hash
+> passou a rodar **antes** de saber se sera usado, como o `DUMMY_HASH` do login. Medido: 163
+> ms contra 163 ms; com o hash movido para depois da checagem, 163 ms contra **2,4 ms**. O
+> teste traz controle da propria medicao (um 422 do Joi, que nao hasheia, 1,6 ms) para o
+> verde nao ser cobertura vazia.
+>
+> O comentario que afirmava a propriedade que o codigo nunca teve foi corrigido, e as tres
+> paginas de wiki que descreviam o oraculo como vivo tambem.
+
 - **Arquivo:** `backend/src/modules/auth/auth.service.js:220`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-auth` · **Classe:** `leak`
@@ -819,6 +849,31 @@ O DEFEITO: `return createReadStream(fmeta.path).pipe(res)` (assets3d.controller.
 > **Correção do verificador.** POST /auth/register e um oraculo de existencia de e-mail por STATUS CODE (409 vs 201), nao por mensagem: o comentario em auth.service.js:210-212 afirma uma propriedade que o codigo nao tem. Como CHECK_USERNAME_EXISTS (213) roda antes de CHECK_EMAIL_EXISTS (220) e o atacante controla o username (basta gerar um aleatorio livre), o unico caminho que resta ao 409 e o do e-mail, tornando a mensagem generica unica irrelevante. Duas correcoes ao enunciado original: (a) PRECONDICAO - a rota so e montada quando config.security.allowSelfRegistration e true (auth.routes.js:14), que por default e `NODE_ENV !== 'production'` (config.js:31-35); logo o oraculo esta vivo em dev/test e em qualquer prod que habilite o signup ja implementado, e nao num prod default (404). (b) O authLimiter nao apenas deixa de mitigar, ele e derrotado por construcao: sua chave e `${req.ip}:${username}` (rate-limit.js:32), e como cada sonda usa um username novo, toda sonda e a primeira da sua propria janela e o teto de 10/15min nunca acumula - a enumeracao e efetivamente ilimitada a partir de um unico IP. Harm adicional nao mencionado: no ramo 201 a sonda CRIA uma conta pendente real ocupando o e-mail do alvo, o que bloqueia o cadastro legitimo do dono (unique index idx_users_email_lower, 001_core.sql:118) e permite, via resendVerification, enviar-lhe e-mail de verificacao de uma conta que ele nunca criou. Correcao correta e igualar as respostas (201 generico) e mover a colisao para o canal de e-mail, exatamente o padrao que resendVerification (307-314) ja aplica no mesmo arquivo.
 
 ### 35. Detecção de reuso revoga só a família de refresh tokens; o comentário promete 'forçar novo login', mas o access token roubado sobrevive e a sliding session o re-emite indefinidamente
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e fechado. Marcador `users.sessions_valid_from` (migração `008`),
+> gravado no MESMO `UPDATE` da revogação, via CTE modificadora: por isso os **quatro**
+> chamadores ficaram cobertos sem quatro edições, e o controle negativo consegue discriminar
+> **por chamador** (mutar só `auth.queries.js` derruba exatamente os 3 casos de detecção de
+> reuso e deixa os outros três verdes). Recusa em três pontos: `auth` estrito (401),
+> renovação deslizante do `flexibleAuth` (que ainda limpa o cookie) e handshake do socket
+> (403 no upgrade).
+>
+> **A decisão `<=` contra `<` é o miolo, e o argumento decisivo não é o óbvio.** O `iat` do
+> JWT tem resolução de SEGUNDO, então um token emitido no mesmo segundo do corte empata. Com
+> `<`, a reprodução NATURAL do próprio achado (login, revogação, replay) roda inteira dentro
+> de um segundo de relógio e volta **200**: seria um fix que o teste do próprio bug não
+> enxerga. Descoberto por falha, não por dedução. Escolhido `<=`, com o segundo ambíguo
+> perdendo, e há caso unitário isolando exatamente `iat` IGUAL ao corte, que é o único que
+> separa as duas regras.
+>
+> **Premissa do item refutada:** ele supunha que a troca de senha emite par novo logo após
+> revogar. Não emite; nada neste repositório cunha token no mesmo fluxo que revoga.
+>
+> Marcador `NULL` (todo usuário existente) passa. Escopo declarado e não silenciado: socket
+> já aberto não cai e rotas só sob `flexibleAuth` honram o token até o `exp` — ambos
+> limitados por `JWT_ACCESS_EXPIRY`, e o que era **ilimitado** acabou. Há teste prendendo
+> esse limite, para que mudá-lo seja ato explícito. A mensagem ao usuário deixou de dizer
+> "expirou" (informação errada para quem teve a sessão revogada por suspeita de roubo).
 
 - **Arquivo:** `backend/src/modules/auth/auth.service.js:144`
 - **Estado:** CONFIRMADO
@@ -850,6 +905,13 @@ O DEFEITO: `return createReadStream(fmeta.path).pipe(res)` (assets3d.controller.
 
 ### 37. O parser JSON de 50 MB é escolhido por sufixo de path, antes de qualquer autenticação e sem exigir que a rota exista, dando a um anônimo 5x o limite global de corpo em qualquer URL
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO contra o codigo: ja corrigido. O parser ampliado passou a exigir **duas**
+> condicoes, e as duas sao load-bearing: o path tem de ser a rota REAL, **ancorada** (antes
+> qualquer caminho terminado em `/images/bulk` comprava 5x o limite global, e os 50 MB eram
+> bufferizados e `JSON.parse`ados antes de o Express sequer descobrir o 404), e um principal
+> **verificado** ja tem de estar anexado (`req.user`, que so o `flexibleAuth` poe depois do
+> `jwt.verify`, e nao a mera presenca de um header que qualquer um forja).
+
 - **Arquivo:** `backend/src/app.js:62`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-boot` · **Classe:** `dos-nao-autenticado`
@@ -864,6 +926,11 @@ O DEFEITO: `return createReadStream(fmeta.path).pipe(res)` (assets3d.controller.
 > **Correção do verificador.** A selecao do parser JSON ampliado (MAX_BULK_UPLOAD_MB, default 50 MB) e feita em app.js:61-66 apenas por `req.method === 'POST' && req.path.endsWith('/images/bulk')`, montada antes do flexibleAuth (app.js:70) e antes de todo roteamento. Consequencia: qualquer cliente ANONIMO que faca POST para um path arbitrario terminado em `/images/bulk` (existente ou inexistente) obtem 5x o teto global de 10 MB de bufferizacao + JSON.parse antes de qualquer checagem de autenticacao ou de existencia de rota; nao ha rate limiter global cobrindo esses paths. O enunciado original superdimensiona ao dizer 'em qualquer URL' (o sufixo /images/bulk e necessario, ainda que totalmente controlado pelo atacante) e ao tratar como classe nova de ataque: o parser global de 10 MB ja e anonimamente alcancavel em todo POST JSON, entao o defeito real e uma AMPLIFICACAO de 5x de uma superficie pre-existente, mais o comentario incorreto em config.js:69-72 que afirma que o teto limita um 'authenticated memory blast'.
 
 ### 38. O readiness `/api/v1/health` não consegue devolver 503 quando o pool está esgotado ou o banco está inalcançável-sem-recusar: `one()` não tem timeout algum e fica pendurado
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO contra o codigo: ja corrigido. O readiness tem prazo PROPRIO, via
+> `Promise.race` com `config.health.dbTimeoutMs` (default 2000), exatamente porque nada
+> abaixo dele tem timeout. E o racional ficou escrito no `config.js`: resposta de readiness
+> que chega tarde ja e inutil para um orquestrador.
 
 - **Arquivo:** `backend/src/app.js:80`
 - **Estado:** CONFIRMADO
@@ -882,6 +949,14 @@ Ressalva ao enunciado original: o agravante do `flexibleAuth` (`app.js:70`) e re
 Severidade mantida em medio: nao ha perda de dado nem falha de autorizacao, e o caso "processo do banco caiu" (o mais comum) ainda honra o contrato; o defeito degrada o sinal de readiness justamente nos cenarios de saturacao e particao de rede.
 
 ### 39. A validação de CORS_ORIGIN aceita qualquer URL parseável, então uma barra final passa no fail-fast e derruba silenciosamente todo o cross-origin em produção
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO contra o codigo: ja corrigido, e o comentario do `config.js` registra o
+> raciocinio inteiro. A validacao deixou de ser "parseia?" e passou a ser "e um ORIGIN
+> canonico?", comparando contra `.origin`. Isso recusa no BOOT a barra final, o path, a
+> porta default explicita e a lista separada por virgula (`'https://a,https://b'` parseia
+> como o hostname unico `a,https`) — todas formas que o `cors()` ecoaria verbatim, fazendo
+> o backend responder 200 e parecer saudavel enquanto o frontend, fail-fast no
+> `GET /api/config`, morre em "EBGeo indisponivel".
 
 - **Arquivo:** `backend/src/config.js:246`
 - **Estado:** CONFIRMADO
@@ -953,6 +1028,11 @@ Severidade mantida em medio: nao ha perda de dado nem falha de autorizacao, e o 
 
 ### 43. Content-Disposition e montado por concatenacao crua do filename: um nome com codepoint > U+00FF torna a imagem permanentemente indownloadavel (500)
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO contra o codigo: ja corrigido. O header deixou de ser concatenacao crua e
+> passa por `res.attachment`, que monta o `Content-Disposition` pelo modulo
+> `content-disposition` (codificacao RFC 5987 para fora do latin1, escape de aspas e
+> barras). O tipo continua `attachment`, nunca `inline`.
+
 - **Arquivo:** `backend/src/modules/images/images.controller.js:18`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-images` · **Classe:** `validacao`
@@ -967,6 +1047,11 @@ Severidade mantida em medio: nao ha perda de dado nem falha de autorizacao, e o 
 > **Correção do verificador.** Content-Disposition e montado por concatenacao crua do filename em images.controller.js:18: um filename com codepoint > U+00FF faz Node lancar ERR_INVALID_CHAR dentro do handler async, o asyncHandler encaminha ao errorHandler (que nao tem branch para esse erro) e o GET da imagem retorna 500 em vez do arquivo. O estado e alcancavel pela API por qualquer usuario autenticado com permissao write, via POST /images/bulk (images.schemas.js:11 e so Joi.string().max(255), qualquer string Unicode passa e vai verbatim ao INSERT) ou via parte multipart forjada com filename* RFC 5987 (busboy honra o parametro). NAO e alcancavel pela UI do produto: o FormData do browser emite filename= com bytes UTF-8 crus que o busboy decodifica em latin1 (mojibake, que passa no setHeader), e todo call site de bulk gera nome ASCII (`${uuid}.${ext}`). O dano e limitado a uma imagem: a linha e o blob sobrevivem, o cliente degrada em silencio (fetchImageBlob captura e devolve null, renderiza 'sem imagem') e o estado e reversivel por DELETE /images/:imageId + reupload, nao exige UPDATE manual na coluna. A questao das aspas nao escapadas e comportamento ja conhecido e fixado por teste (tests/integration/images-gaps.test.js:212-219 afirma que o tipo continua attachment).
 
 ### 44. O teste que diz cobrir aspas no Content-Disposition passa identico com e sem escape, e nunca toca a classe de char que realmente quebra
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO contra o codigo: existe
+> `backend/tests/integration/images-filename-hardening.repro.test.js`, que cita o achado 43
+> nominalmente e cobre o nome fora do latin1. O teste vacuo que o item denunciava nao e mais
+> o unico a falar do assunto.
 
 - **Arquivo:** `backend/tests/integration/images-gaps.test.js:212`
 - **Estado:** CONFIRMADO
@@ -1181,6 +1266,21 @@ Correcao no enunciado do achado original: o conteudo nao e destruido, e re-paren
 
 ### 54. PUT parcial de override de target zera silenciosamente os dois overrides nao enviados
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e fechado. O PUT de override virou **patch por flag de presenca**,
+> copiando a forma ja usada em `atlas`, `organizations` e `ranks` (`CASE WHEN $N THEN $M
+> ELSE coluna END`) em vez de inventar uma quarta: "dois padroes para a mesma coisa" ja era
+> achado registrado nesta auditoria, e foi fechado convergindo.
+>
+> A distincao que o teste prova, e que `??`/`||` colapsariam: **ausente MANTEM, `null`
+> LIMPA**, com falsy legitimo incluido — `{override_height: 0}` grava 0 e nao `NULL`, e a
+> leitura e crua justamente porque `Number(null) === 0` tornaria os dois indistinguiveis.
+> Tambem prende que um `null` ja gravado sobrevive a um PUT que nao o menciona: manter e
+> manter tambem quando o mantido e ausencia. Controle negativo: a versao antiga derruba 6 dos
+> 7 casos, sobrando so o replace completo, que e o unico que passa nas duas versoes.
+>
+> **Nao ha cliente neste repositorio** para ajustar: quem monta esse PUT e o estudio externo
+> `ebgeo_360`. Corpo completo segue valendo como replace, entao ele nao quebra.
+
 - **Arquivo:** `backend/src/modules/streetview360/sv360.write.service.js:148`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-sv360` · **Classe:** `contrato-validacao`
@@ -1378,6 +1478,33 @@ Correcao no enunciado do achado original: o conteudo nao e destruido, e re-paren
 
 ### 64. GET /api/config, o endpoint cujo fracasso impede o boot do frontend, é anônimo, dispara 8 queries por requisição, não tem cache nem rate limit
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e fechado, com a premissa de risco **verificada antes** de cachear: o
+> payload não varia por chamador (`getAppConfig()` não recebe `req`, usuário nem atlas), e
+> o overlay de `atlas-settings`, que seria o vetor de vazamento entre inquilinos, é aplicado
+> no **cliente**. Por isso o payload inteiro pôde ser memoizado.
+>
+> Medido com contador de consultas, não estimado: 8 por requisição antes; **0** nas seguintes;
+> e 10 concorrentes frias caem de 80 para **8**, porque a entrada guarda a **promessa em
+> voo** e não o valor resolvido — guardar o valor deixaria descoberta justamente a janela da
+> rajada, que é o cenário de ataque. O contador precisou ser consertado primeiro (o existente
+> só enxerga statements dentro de `db.tx`, e a primeira versão contava em dobro).
+>
+> Invalidação **na escrita**, não por TTL, o que preserva o `Cache-Control: no-cache`
+> deliberado: **11 escritas** enumeradas por varredura, cada uma com teste que afirma o
+> **valor** que a requisição seguinte vê. Inclui `streetview_markers`, que não alimenta o
+> payload, porque invalidação condicional por tabela é exatamente como invalidação parcial
+> nasce. Mais `configLimiter` de 600/min com store próprio.
+>
+> **O agente foi honesto sobre o limite da própria prova:** o E2E passa, mas não prova o teto,
+> porque o limitador pula sob `NODE_ENV=test`. Fez então três provas de verdade, entre elas
+> medir a suíte pesada de boots em navegador real (pico de 31 requisições numa janela de 60 s
+> contra teto de 600) e um caso que exercita o 429 com o limitador forçado.
+>
+> Nota de integração: o limitador nasceu em arquivo próprio (o `middleware/rate-limit.js`
+> estava sendo editado em paralelo) e foi **dobrado para junto dos outros quatro** ao final,
+> porque as três helpers eram cópias verbatim e o envelope 429 é contrato documentado. Duas
+> cópias divergem com o tempo.
+
 - **Arquivo:** `backend/src/modules/config/config.service.js:159`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-seguranca-borda` · **Classe:** `dos-sem-limite`
@@ -1466,6 +1593,12 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** Tres escritas do sv360 (updateTargetOverride, updateTargetVisibility e createTarget) executam a mutacao com query() solto antes do rebuild que pode lancar 404, portanto persistem a escrita quando a foto de origem esta tombstoned e o chamador recebe 404 'Photo' -- o mesmo defeito que o L8 corrigiu em updateCalibration envolvendo tudo em tx(). O mecanismo esta confirmado (GET_PHOTO_FOR_WRITE nao exclui tombstone; GET_PHOTO_BY_ID exclui; CHECK_TARGET_SAME_PROJECT so filtra o destino, nunca a origem; GET_TARGET_LINK nao filtra tombstone; nenhuma rota ou middleware barra antes). O que o enunciado original superdimensiona e o impacto: o residuo cai em linhas que toda query de leitura ja filtra (GET_TARGETS_FOR_PHOTO exclui hidden e alvo tombstoned; todas as leituras de foto excluem tombstone), entao a escrita fantasma permanece invisivel ate o caminho de ressurreicao pinado por sv360-09 (reupload que solta o tombstone), quando ela volta a valer. Defeito real de integridade e violacao do invariante que o proprio modulo declara no comentario L8, mas com raio de alcance limitado e sobre uma tabela de adjacencia documentada como regeneravel.
 
 ### 69. POST /atlas/:atlasId/images nao tem validacao nenhuma: originalname sem limite vai direto para filename VARCHAR(255), gerando 500 e arquivo orfao em disco a cada tentativa
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO contra o codigo: ja corrigido. O upload single valida o
+> `originalname` por `uploadFileSchema` antes de qualquer uso
+> (`backend/src/modules/images/images.routes.js:75`), e o erro do Joi vindo dali atravessa
+> como **422 VALIDATION_ERROR**, sem ser reembrulhado no 400 do wrapper (ha caso de teste
+> afirmando exatamente isso).
 
 - **Arquivo:** `backend/src/modules/images/images.routes.js:281`
 - **Estado:** CONFIRMADO

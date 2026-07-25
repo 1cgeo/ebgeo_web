@@ -145,6 +145,27 @@ const config = Object.freeze({
     // sequencial do gazetteer, que precisa de milhares.
     gazetteerWindowMs: parseInt(optional('RATE_LIMIT_GAZETTEER_WINDOW_MS', '60000'), 10), // 1 min
     gazetteerMax: parseInt(optional('RATE_LIMIT_GAZETTEER_MAX', '300'), 10),
+    // GET /api/config: anônima, e a única cuja indisponibilidade IMPEDE o boot do app
+    // (fail-fast, sem fallback estático). O teto é o mais folgado do conjunto de
+    // propósito, porque errar para baixo aqui não degrada uma funcionalidade, apaga o
+    // produto: o cliente legítimo chama isto UMA vez por boot, mas em falha ele
+    // retenta 3 vezes com 1 s de intervalo (frontend/src/js/index.js), então o mesmo
+    // incidente que justifica o limitador é o que TRIPLICA a demanda legítima; e uma
+    // OM inteira atrás de um egress NAT compartilha um endereço. 600/min = 10 rps por
+    // endereço, ordens de grandeza acima de qualquer sala de aula abrindo o app junto
+    // e ainda assim um teto, que é o que faltava. O que segura o custo por requisição
+    // é a memoização (config.cache.js), não este número.
+    configWindowMs: parseInt(optional('RATE_LIMIT_CONFIG_WINDOW_MS', '60000'), 10), // 1 min
+    configMax: parseInt(optional('RATE_LIMIT_CONFIG_MAX', '600'), 10),
+  }),
+
+  // Memoização em processo do payload de GET /api/config (src/modules/config/config.cache.js).
+  // A invalidação é feita NA ESCRITA (catálogo, ranks, organizações e overrides de admin), que
+  // é o que preserva a propagação imediata prometida pelo `Cache-Control: no-cache` da rota;
+  // este TTL é só a rede de segurança para uma escrita que ninguém ligou ao invalidador (um
+  // UPDATE manual no banco). 0 desliga a memoização inteira.
+  configCache: Object.freeze({
+    ttlMs: parseInt(optional('CONFIG_CACHE_TTL_MS', '30000'), 10), // 30 s
   }),
 
   security: Object.freeze({
@@ -248,6 +269,12 @@ export const NUMERIC_ENV_RULES = Object.freeze({
   RATE_LIMIT_PUBLIC_MAX: { min: 1 },
   RATE_LIMIT_GAZETTEER_WINDOW_MS: { min: 1000 },
   RATE_LIMIT_GAZETTEER_MAX: { min: 1 },
+  RATE_LIMIT_CONFIG_WINDOW_MS: { min: 1000 },
+  RATE_LIMIT_CONFIG_MAX: { min: 1 },
+  // 0 é VÁLIDO e significa "sem memoização" (o desligamento explícito do cache do
+  // /config). É a única entrada desta tabela cujo piso é zero, e é o que permite
+  // desligar a memoização por env sem editar código.
+  CONFIG_CACHE_TTL_MS: { min: 0 },
   // Hop count for Express `trust proxy`. NaN here is the worst of the set: a
   // numeric `trust proxy` is compared as `i < val`, and `i < NaN` is always
   // false, so the app silently trusts NO hop — req.ip becomes the proxy's

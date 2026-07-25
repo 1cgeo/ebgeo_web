@@ -1,9 +1,16 @@
 // Path: src/modules/catalog/catalog.service.js
 // Generic CRUD over the per-type catalog tables (basemaps / data_layers / analysis_layers /
 // tilesets / streetview_markers). The `table` arg is whitelisted (assertTable) before interpolation.
+//
+// Every write here drops the memoized GET /api/config payload (config.cache.js). Four of the
+// five tables feed that payload; `streetview_markers` does not, and is invalidated anyway
+// because the alternative — a per-table condition — is the kind of partial invalidation that
+// makes an admin watch an edit vanish and blame the database. Invalidating one extra table
+// costs one rebuild of a document that is rebuilt on every write regardless.
 import { query, oneOrNone, one } from '../../database/index.js';
 import { NotFoundError, ConflictError, BadRequestError } from '../../utils/errors.js';
 import { validateMapLibreStyle } from '../../utils/maplibre-style-validate.js';
+import { invalidateAppConfigCache } from '../config/config.cache.js';
 import { assertTable } from './catalog.tables.js';
 
 const COLS = 'id, name, description, config, active, sort_order, created_at, updated_at';
@@ -62,22 +69,23 @@ export async function createCatalogItem(table, data) {
     data.sort_order || 0,
   ];
 
-  if (existing) {
+  const row = existing
     // Resurrection is a full overwrite, not a merge: the caller sent a complete create
     // payload, so the row must end up exactly as if it had been inserted now.
-    return one(
+    ? await one(
       `UPDATE ${t} SET name = $2, description = $3, config = $4::jsonb, sort_order = $5,
                       active = true, updated_at = NOW()
        WHERE id = $1 RETURNING ${COLS}`,
       values,
+    )
+    : await one(
+      `INSERT INTO ${t} (id, name, description, config, sort_order)
+       VALUES ($1, $2, $3, $4::jsonb, $5) RETURNING ${COLS}`,
+      values,
     );
-  }
 
-  return one(
-    `INSERT INTO ${t} (id, name, description, config, sort_order)
-     VALUES ($1, $2, $3, $4::jsonb, $5) RETURNING ${COLS}`,
-    values,
-  );
+  invalidateAppConfigCache();
+  return row;
 }
 
 export async function updateCatalogItem(table, id, data) {
@@ -107,6 +115,7 @@ export async function updateCatalogItem(table, id, data) {
     ],
   );
   if (!row) throw new NotFoundError('Catalog item');
+  invalidateAppConfigCache();
   return row;
 }
 
@@ -115,5 +124,6 @@ export async function deleteCatalogItem(table, id) {
   const t = assertTable(table);
   const row = await oneOrNone(`UPDATE ${t} SET active = false, updated_at = NOW() WHERE id = $1 RETURNING id`, [id]);
   if (!row) throw new NotFoundError('Catalog item');
+  invalidateAppConfigCache();
   return true;
 }

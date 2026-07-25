@@ -177,6 +177,13 @@ export default async function setup() {
             ALLOW_SELF_REGISTRATION: 'true',
             CORS_ORIGIN: origin,
             IMAGES_DIR: './data/e2e-images',
+            // The GET /api/config memo is off under NODE_ENV=test by default (the backend
+            // unit suite writes to the catalog tables with raw SQL, which no service-level
+            // invalidation can see). Here it is turned ON deliberately: this harness boots
+            // the REAL server and every spec's boot goes through that endpoint, so it is the
+            // only place where the memo — and the invalidation that keeps admin edits
+            // immediate — is exercised the way a deployment runs it.
+            CONFIG_CACHE_FORCE: '1',
             // The frozen `/config` contract exposes `services.tileServerUrl` as a
             // non-empty URL string; it is env-driven (defaults to '' in the backend),
             // so set it for the spawned server like a real deployment would.

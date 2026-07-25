@@ -93,8 +93,32 @@ export const CLAIM_REFRESH_TOKEN = `
   RETURNING user_id, expires_at
 `;
 
+// Mass revocation, in ONE statement, doing TWO things — and the second one is why the
+// first is worth anything.
+//
+// Stamping `refresh_tokens.revoked_at` ends the ability to ROTATE and nothing else:
+// no code on the request path reads that table, so a principal already holding a live
+// access token kept working, and the sliding renewal in flexible-auth.js re-issued it
+// forever (bugs-backend #35). `users.sessions_valid_from` is the cut-off the live path
+// CAN see: `getLiveAuthState` reads it, and `auth` / `flexibleAuth` / the collab
+// handshake refuse any token whose `iat` predates it.
+//
+// The two writes are ONE statement on purpose. A data-modifying CTE is executed
+// exactly once and always to completion, whether or not the outer query reads it, so
+// the revocation and the marker cannot land apart — no caller can revoke and forget
+// the marker, and both take the same NOW() (transaction start, i.e. the marker is if
+// anything slightly EARLIER than the revocation, which fails safe: earlier means
+// fewer legitimate tokens caught).
+//
+// Kept byte-identical to the copy in users.queries.js — four call sites split across
+// the two modules and all four need the same effect.
 export const REVOKE_ALL_USER_TOKENS = `
-  UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL
+  WITH revoked AS (
+    UPDATE refresh_tokens SET revoked_at = NOW()
+    WHERE user_id = $1 AND revoked_at IS NULL
+    RETURNING id
+  )
+  UPDATE users SET sessions_valid_from = NOW() WHERE id = $1
 `;
 
 // Self-registration accepts a client-chosen organization_id (the OM dropdown). This

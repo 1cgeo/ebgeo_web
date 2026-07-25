@@ -7,6 +7,10 @@
 // The hook replaces `db.tx` (a property of the exported Database object, looked up at call
 // time by database/index.js's `tx()` wrapper) with a version that hands the callback a counting
 // Proxy over the transaction context.
+//
+// `installPoolQueryCounter` is the sibling for work that runs OUTSIDE a transaction — the
+// read path of GET /api/config is eight independent `query()` calls on the plain pool, so the
+// transaction counter above cannot see a single one of them.
 
 import { db } from '../../src/database/index.js';
 
@@ -56,6 +60,43 @@ export function installTxQueryCounter() {
     restore() {
       if (hadOwn) db.tx = original;
       else delete db.tx;
+    },
+  };
+}
+
+/**
+ * Installs a counter over the POOL, i.e. the statements issued OUTSIDE any transaction. It
+ * patches `db.query` and ONLY `db.query`, because every other Database method (`any`, `one`,
+ * `oneOrNone`, `none`, `result`, …) delegates to it: wrapping the whole family counts each
+ * statement twice, which is exactly what the first run of this helper reported (16 for a
+ * request that issues 8). One statement in, one tick out.
+ *
+ * Everything the request touches is counted, middleware included — that is deliberate, because
+ * the number a DoS argument needs is "queries per HTTP request", not "queries the service meant
+ * to issue". ALWAYS call `restore()` (in `after`) — the patch is global.
+ *
+ * @returns {{ state: {count: number, statements: string[]}, reset: Function, restore: Function }}
+ */
+export function installPoolQueryCounter() {
+  const hadOwn = Object.prototype.hasOwnProperty.call(db, 'query');
+  const original = db.query;
+  const state = { count: 0, statements: [] };
+
+  db.query = function countedQuery(...args) {
+    state.count += 1;
+    state.statements.push(String(args[0]).replace(/\s+/g, ' ').trim().slice(0, 70));
+    return original.apply(this, args);
+  };
+
+  return {
+    state,
+    reset() {
+      state.count = 0;
+      state.statements.length = 0;
+    },
+    restore() {
+      if (hadOwn) db.query = original;
+      else delete db.query;
     },
   };
 }
