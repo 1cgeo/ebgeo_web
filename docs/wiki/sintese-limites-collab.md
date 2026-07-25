@@ -14,7 +14,7 @@ O registro de salas é literalmente `atlasId -> Set<WebSocket>` (`backend/src/mo
 
 ## 2. Sem replay: reconexão é pull, não buffer
 
-Não há fila de mensagens por cliente desconectado. O que se perde durante a queda só volta por `sync_request`. O cliente pede a cauda ao reentrar: `frontend/src/js/store/sync/ws-client.js:422-427` chama `requestSync(this._lastVersion)` apenas quando o estado anterior era `RECONNECTING`. O servidor responde snapshot completo (se `lastVersion == 0` ou abaixo de `min_version`) ou ops incrementais (`backend/src/modules/sync/sync.service.js:797-816`). Ver [[snapshot-e-pull-incremental]].
+Não há fila de mensagens por cliente desconectado. O que se perde durante a queda só volta por `sync_request`. O cliente pede a cauda ao reentrar: `frontend/src/js/store/sync/ws-client.js:422-427` chama `requestSync(this._lastVersion)` apenas quando o estado anterior era `RECONNECTING`. O servidor responde snapshot completo (se `lastVersion == 0` ou abaixo de `min_version`) ou ops incrementais (`backend/src/modules/sync/sync.service.js:830-849`). Ver [[snapshot-e-pull-incremental]].
 
 Armadilha real: **`serverVersion` vem de uma sequência global compartilhada entre atlas**, então é monotônica mas não contígua por atlas. Um "buraco" na numeração é uma op de outro atlas, não uma op perdida (`frontend/src/js/store/sync/ws-client.js:385-394`). Detectar gap por não-contiguidade já causou tempestade de `sync_request` e foi removido. Ou seja: **não existe detecção de perda de op no meio da sessão**, só recuperação na reconexão.
 
@@ -28,15 +28,15 @@ A janela de graça `away` é `WS_AWAY_GRACE_MS` (default 120000 ms, `backend/src
 
 O único lock com enforcement server-side é o do **mapa**:
 
-- `LOCKABLE_CHILD_TARGETS` = `feature, group, layer, cesium3d, streetview360, catalog_layer, group_feature` (`backend/src/modules/sync/sync.service.js:926-928`). Antes de aplicar uma op desse conjunto, o servidor consulta `maps.locked` e **recusa aquela op**, sem derrubar o lote (`lockedMapDenialReason`, `:1006-1013`). Ops de nível mapa não passam por esse gate, que é o que permite ao dono destravar.
-- Deletar mapa exige `manage` ou acima; virar o `locked` é exclusivo do `owner` (`operationDenialReason`, `backend/src/modules/sync/sync.service.js:968-986`). Ambos são recusa por-op, não 403 do lote.
+- `LOCKABLE_CHILD_TARGETS` = `feature, group, layer, cesium3d, streetview360, catalog_layer, group_feature` (`backend/src/modules/sync/sync.service.js:959-961`). Antes de aplicar uma op desse conjunto, o servidor consulta `maps.locked` e **recusa aquela op**, sem derrubar o lote (`lockedMapDenialReason`, `:1006-1013`). Ops de nível mapa não passam por esse gate, que é o que permite ao dono destravar.
+- Deletar mapa exige `manage` ou acima; virar o `locked` é exclusivo do `owner` (`operationDenialReason`, `backend/src/modules/sync/sync.service.js:1001-1019`). Ambos são recusa por-op, não 403 do lote.
 
 > **Nota histórica.** Até `aec63f8` (2026-07-24) o mapa travado lançava `ConflictError` de dentro do `tx()` do lote inteiro e respondia **409**. Como o cliente não desenfileira lote recusado, uma op parada na fila offline mirando um mapa que foi travado nesse meio-tempo congelava o sync daquele usuário para TODOS os mapas, indefinidamente, com só um `console.warn`. É o caso que motivou os dois regimes da seção 6.
 
 Duas lacunas importantes:
 
 - **`comment` não está em `LOCKABLE_CHILD_TARGETS`.** Comentários espaciais continuam sendo escritos em um mapa travado. Isso é coerente com o papel de Comentarista, mas surpreende quem espera "mapa travado = nada muda".
-- **`layers.locked`, `groups.locked` e `properties.bloqueado` da feição são apenas colunas/propriedades sincronizadas.** O servidor as persiste (`backend/src/modules/sync/sync.service.js:1463-1472`, `:1446-1455`) e nunca as consulta como gate. O respeito é 100% do cliente: os controles de desenho testam `!feature.properties?.bloqueado` para decidir se aceitam edição (por exemplo `frontend/src/js/draw_tools/point_tool/add_point_control.js:416`, `frontend/src/js/draw_tools/polygon_tool/add_polygon_control.js:190`), e `frontend/src/js/store/layer.operations.js:98,155,201,245` bloqueia localmente por mapa travado. Um cliente modificado, ou um cliente com bug, escreve por cima de camada/feição "bloqueada" e o servidor aceita. Trate lock fino como **convenção de UI**, não como garantia. Ver [[modelo-conflito-lww]].
+- **`layers.locked`, `groups.locked` e `properties.bloqueado` da feição são apenas colunas/propriedades sincronizadas.** O servidor as persiste (`backend/src/modules/sync/sync.service.js:1531-1540`, `:1446-1455`) e nunca as consulta como gate. O respeito é 100% do cliente: os controles de desenho testam `!feature.properties?.bloqueado` para decidir se aceitam edição (por exemplo `frontend/src/js/draw_tools/point_tool/add_point_control.js:416`, `frontend/src/js/draw_tools/polygon_tool/add_polygon_control.js:190`), e `frontend/src/js/store/layer.operations.js:98,155,201,245` bloqueia localmente por mapa travado. Um cliente modificado, ou um cliente com bug, escreve por cima de camada/feição "bloqueada" e o servidor aceita. Trate lock fino como **convenção de UI**, não como garantia. Ver [[modelo-conflito-lww]].
 
 ## 5. Backpressure: presença é descartável, socket lento é morto
 
@@ -49,20 +49,20 @@ Logo: em rede ruim, presença degrada de forma invisível e a conexão pode ser 
 
 ## 6. O lote é atômico, mas a recusa tem DOIS regimes
 
-`pushOperations` roda tudo dentro de uma transação com advisory lock por atlas (`backend/src/modules/sync/sync.service.js:1049-1063`). A distinção que decide se a fila trava, e que não é adivinhável pelo nome das funções:
+`pushOperations` roda tudo dentro de uma transação com advisory lock por atlas (`backend/src/modules/sync/sync.service.js`). A distinção que decide se a fila trava, e que não é adivinhável pelo nome das funções:
 
-- **Violação de nível** (`assertOperationAllowed`, `:940-949`): um principal `read` ou `comment` empurrando o que não pode **lança**, aborta a transação e 403a o push inteiro. O critério é que o lote todo virou não confiável.
-- **Recusa de política** (`operationDenialReason`, `:968-986`, mais o gate de mapa travado): o principal é um escritor legítimo cuja op **específica** não passa. Aqui o servidor **não lança**: ackla a op como `rejected` e o lote continua.
+- **Violação de nível** (`assertOperationAllowed`): um principal `read` ou `comment` empurrando o que não pode **lança**, aborta a transação e 403a o push inteiro. O critério é que o lote todo virou não confiável.
+- **Recusa de política** (`operationDenialReason`, mais o gate de mapa travado): o principal é um escritor legítimo cuja op **específica** não passa. Aqui o servidor **não lança**: ackla a op como `rejected` e o lote continua. Desde 2026-07-25 o mesmo regime cobre a op cujo `entityType` o servidor não sabe aplicar (`unknownTargetDenialReason`), que antes era acked como **sucesso** sem escrever nada — ver [[ack-idempotencia]].
 
 A separação existe porque o primeiro regime era o único: uma exclusão de mapa recusada abortava a transação, o cliente só re-enfileira em resposta não-2xx, e toda edição posterior daquele usuário empilhava atrás da op recusada e nunca mais chegava ao servidor. Um `poison batch` permanente, sem mensagem na UI.
 
 Do lado do cliente, `frontend/src/js/store/sync/sync-engine.js:262-289` faz `peek` de um lote, e só chama `operationQueue.dequeue(opIds)` **depois** de um push bem-sucedido; um lote rejeitado não é removido e o próximo flush re-peeka os mesmos ops. Continua correto para erro transitório, e continua sendo poison batch para o que cai no primeiro regime, hoje resumido a: cliente cujo nível não autoriza aquela escrita. Ver [[fila-operacoes-outbound]] e [[canal-collab-websocket]].
 
-Consequência para quem escreve cliente: `results[].success` **é significativo** (`success: a.rejected !== true`, `backend/src/modules/sync/sync.service.js:1194`), com `reason` textual junto. Uma op `success: false` **deve ser retirada da fila**, porque repetir recusa de política nunca vai passar. Isto mudou em `1d23ac9` (2026-07-19): antes o campo era literal `true` e esta seção instruía a nunca depender dele. Ver [[ack-idempotencia]] e [[idempotencia-e-convergence-guard]].
+Consequência para quem escreve cliente: `results[].success` **é significativo** (`success: a.rejected !== true`, `backend/src/modules/sync/sync.service.js`), com `reason` textual junto. Uma op `success: false` **deve ser retirada da fila**, porque repetir recusa de política nunca vai passar. Isto mudou em `1d23ac9` (2026-07-19): antes o campo era literal `true` e esta seção instruía a nunca depender dele. Ver [[ack-idempotencia]] e [[idempotencia-e-convergence-guard]].
 
 > **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.4 descreve `result.success` como resultado por operação, o que o código só passou a cumprir em 2026-07-19.
 
-Também há um limite de concorrência: pushes do mesmo atlas são serializados por `pg_advisory_xact_lock` com `lock_timeout` de 5s; ao estourar, o cliente recebe 503 retentável (`backend/src/modules/sync/sync.service.js:654-670`).
+Também há um limite de concorrência: pushes do mesmo atlas são serializados por `pg_advisory_xact_lock` com `lock_timeout` de 5s; ao estourar, o cliente recebe 503 retentável (`backend/src/modules/sync/sync.service.js:687-703`).
 
 ## 7. Permissão fica cacheada no socket
 

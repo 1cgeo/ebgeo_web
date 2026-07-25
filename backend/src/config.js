@@ -289,9 +289,25 @@ export const NUMERIC_ENV_RULES = Object.freeze({
 
 /**
  * Fail-fast validation of environment variables at boot, grouped by context.
- * Accumulates ALL errors (does not stop at the first) and throws once with a
- * readable summary. Call this in `src/index.js` BEFORE starting the server.
+ * Accumulates the errors it reaches (does not stop at the first) and throws once
+ * with a readable summary. Call this in `src/index.js` BEFORE starting the server.
  * NOT called from `app.js` (imported by the test suite via supertest).
+ *
+ * This JSDoc said "Accumulates ALL errors" until 2026-07-25 and that was FALSE for
+ * the two variables that matter most. `DATABASE_URL` and `JWT_SECRET` are read by
+ * `required()` at MODULE EVALUATION (see `config.db.connectionString` and
+ * `config.jwt.secret` above), and `index.js` imports `app.js`, which imports this
+ * module, before it can call this function. So a missing one throws
+ * `Missing required env var: X` on its own, in English, and the accumulator never
+ * runs: whoever forgets three variables discovers them one restart at a time. The
+ * two branches below for those names are therefore unreachable from a real boot and
+ * only fire when the function is called directly (tests).
+ *
+ * What the accumulator really governs is everything read with `optional()`: PORT,
+ * CORS_ORIGIN, the `NUMERIC_ENV_RULES` table, the token-lifetime grammar, and the
+ * production-only conditionals (the 32-char minimum for the secret, which is
+ * checked only once the secret exists). Rationale and consequences in
+ * `docs/wiki/hardening-borda-api.md`.
  * @throws {Error} if any rule fails.
  */
 export function validateEnvVariables() {

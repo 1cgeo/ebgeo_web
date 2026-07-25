@@ -4,7 +4,7 @@ import { mkdir, copyFile } from 'fs/promises';
 import { join, extname, dirname } from 'path';
 import jwt from 'jsonwebtoken';
 import { query, tx, pgp } from '../../database/index.js';
-import { NotFoundError, BadRequestError } from '../../utils/errors.js';
+import { NotFoundError, BadRequestError, ConflictError } from '../../utils/errors.js';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import * as Q from './atlas.queries.js';
@@ -332,19 +332,34 @@ export async function deleteAtlas(atlasId) {
 }
 
 /**
- * Lists the caller's own trashed (soft-deleted) atlases.
+ * Lists the caller's own trashed (soft-deleted) atlases — or EVERY trashed atlas for a global
+ * admin, who is the only one who can reach an atlas trashed by a since-deactivated owner
+ * (bugs-backend #95).
+ * @param {string} userId
+ * @param {boolean} [isAdmin=false] - Caller's live global role is 'admin'
  */
-export async function listDeletedUserAtlas(userId) {
-  const { rows } = await query(Q.LIST_DELETED_USER_ATLAS, [userId]);
+export async function listDeletedUserAtlas(userId, isAdmin = false) {
+  const { rows } = isAdmin
+    ? await query(Q.LIST_ALL_DELETED_ATLAS)
+    : await query(Q.LIST_DELETED_USER_ATLAS, [userId]);
   return rows;
 }
 
 /**
  * Restores a trashed atlas the caller owns. The query is scoped to (id, owner, deleted), so a
- * non-owner / non-deleted / absent atlas matches nothing → 404.
+ * non-owner / non-deleted / absent atlas matches nothing → 404. That scope is the ENTIRE access
+ * control of the route (it has no `requireAtlasPermission`), so the admin case is a different
+ * statement rather than a relaxed argument to this one.
+ *
+ * @param {string} atlasId
+ * @param {string} userId
+ * @param {boolean} [isAdmin=false] - Caller's live global role is 'admin'; restores regardless of
+ *   ownership, which is what unsticks an atlas whose owner was deactivated while it was in the bin.
  */
-export async function restoreAtlas(atlasId, userId) {
-  const { rows } = await query(Q.RESTORE_ATLAS, [atlasId, userId]);
+export async function restoreAtlas(atlasId, userId, isAdmin = false) {
+  const { rows } = isAdmin
+    ? await query(Q.RESTORE_ATLAS_ADMIN, [atlasId])
+    : await query(Q.RESTORE_ATLAS, [atlasId, userId]);
 
   if (rows.length === 0) {
     throw new NotFoundError('Atlas');
@@ -367,7 +382,23 @@ export async function getAtlasSettings(atlasId) {
 }
 
 /**
- * Updates atlas settings (partial merge).
+ * Updates atlas settings. The merge is SHALLOW, one level only: `UPDATE_ATLAS_SETTINGS`
+ * is `settings || $2::jsonb`, so sending `{ features: { map_3d: true } }` REPLACES the
+ * whole `features` object and drops every sibling key. This JSDoc said "partial merge"
+ * until 2026-07-25, which read as deep and is not what the SQL does.
+ *
+ * The shallow behaviour is deliberate and pinned by `atlas-09` in
+ * `backend/tests/integration/atlas-gaps.test.js`, so the contract is on the CALLER:
+ * always send the complete nested object.
+ *
+ * Why it is not cosmetic: the frontend overlay is default-open, reading
+ * `features.X !== false` (`intersectAvailability`,
+ * `frontend/src/js/store/sync/atlas-settings.service.js:82-89`). A partial `features`
+ * write therefore RE-ENABLES 360, terrain, data layers and analysis for the entire
+ * atlas, silently, because the dropped keys read back as "not disabled". The built-in
+ * modal is safe (it rebuilds all five keys from `FEATURE_FIELDS` on every save,
+ * `frontend/src/js/modals/atlas-settings.modal.js:327-329`); any other client is what
+ * bites.
  */
 export async function updateAtlasSettings(atlasId, settings) {
   const { rows } = await query(Q.UPDATE_ATLAS_SETTINGS, [
@@ -789,6 +820,8 @@ export async function disablePublicSharing(atlasId) {
  * @param {string} currentOwnerId - The atlas's current owner (req.atlasOwnerId)
  * @param {string} newOwnerId
  * @returns {Promise<Object>} The updated atlas (with maps summary)
+ * @throws {ConflictError} When ownership no longer matches `currentOwnerId` — i.e. another
+ *   transfer won the race. Losing here is a full rollback, never a partial transfer.
  */
 export async function transferOwnership(atlasId, currentOwnerId, newOwnerId) {
   if (newOwnerId === currentOwnerId) {
@@ -813,12 +846,31 @@ export async function transferOwnership(atlasId, currentOwnerId, newOwnerId) {
       throw new BadRequestError('O novo dono precisa ser um membro ativo do atlas.');
     }
 
-    // Hand over ownership.
-    await t.none(
+    // Hand over ownership — SCOPED BY THE OWNER THE CALLER WAS AUTHORIZED AGAINST.
+    //
+    // `currentOwnerId` is read by the middleware, one query and one transaction earlier, and
+    // the UPDATE used to be scoped only by id: two callers legitimately authorized against the
+    // SAME owner (the owner themself and a global admin, who gets owner-level on every atlas)
+    // could each transfer the atlas to a different member. Both answered 200; the first
+    // recipient ended up neither owner (overwritten by the second) nor member (their share row
+    // had been deleted as redundant), and nothing said so.
+    //
+    // Comparing the `atlas` row read above against `currentOwnerId` — the cheaper fix — does
+    // NOT close this. Under READ COMMITTED both transactions read the pre-transfer owner before
+    // either writes, so both comparisons pass; the second UPDATE then blocks on the row lock and,
+    // on release, re-evaluates its WHERE against the COMMITTED row. That re-evaluation is the
+    // whole mechanism (tests/helpers/concurrency.js documents it), and it only helps if
+    // `owner_id` is IN the WHERE. A read-then-write pair is not mutual exclusion.
+    const handover = await t.result(
       `UPDATE atlas SET owner_id = $2, updated_at = NOW(), version = version + 1
-       WHERE id = $1 AND deleted_at IS NULL`,
-      [atlasId, newOwnerId]
+       WHERE id = $1 AND owner_id = $3 AND deleted_at IS NULL`,
+      [atlasId, newOwnerId, currentOwnerId]
     );
+    if (handover.rowCount === 0) {
+      throw new ConflictError(
+        'A posse do atlas mudou desde o início desta operação. Recarregue e tente novamente.'
+      );
+    }
 
     // The new owner is no longer a share (ownership comes from owner_id).
     await t.none(

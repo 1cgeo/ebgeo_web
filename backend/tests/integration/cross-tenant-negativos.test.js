@@ -183,12 +183,18 @@ describe('cross-tenant / cross-actor negatives', () => {
       assert.equal(uploaded.length, 0, 'the colliding item must NOT be reported as uploaded');
       assert.equal(failed.length, 1);
       assert.equal(failed[0].localId, imgA1);
-      // The PK constraint name is the only locale-independent part of the message
-      // (the surrounding prose is translated by the server's lc_messages).
-      assert.match(
+      // Was: `assert.match(failed[0].error, /images_pkey/)`. That assertion was
+      // CHARACTERIZATION freezing achado 108 — it required the response to keep
+      // leaking the driver's constraint name, so the leak could not be fixed without
+      // this test going red. The property this test actually cares about is that the
+      // colliding item is REFUSED; the refusal reason is now the same fixed text the
+      // errorHandler gives for 23505 over REST, with the raw driver message going to
+      // the log instead (pinned in tests/integration/images-bulk-error-leak.repro.test.js).
+      assert.equal(failed[0].error, 'Resource already exists');
+      assert.doesNotMatch(
         failed[0].error,
-        /images_pkey/,
-        `expected the primary-key unique violation, got: ${failed[0].error}`
+        /pkey|constraint|violates/i,
+        'the driver text must not cross the API boundary'
       );
       assert.equal(Object.keys(mapping).length, 0, 'no localId -> serverId mapping for a rejected item');
 

@@ -14,7 +14,7 @@ Armadilha número um: `atlas` tem três colunas que parecem versão e não são 
 
 - **`version`** conta edições de metadados via REST. Nada a ver com sync.
 - **`current_version`** é o cursor do log, mantido pelo trigger no INSERT em `operations` (`backend/src/database/migrations/003_sync.sql:54-69`). É o `lastVersion` do pull incremental.
-- **`min_version`** é o piso após poda do log (`backend/src/modules/sync/sync.service.js:816`). Pedir uma versão abaixo dele devolve snapshot completo em vez de erro (`backend/src/modules/sync/sync.service.js:770`): comportamento silencioso, não falha. Ver [[snapshot-e-pull-incremental]], [[sync-admin-operacoes]].
+- **`min_version`** é o piso após poda do log (`backend/src/modules/sync/sync.service.js:849`). Pedir uma versão abaixo dele devolve snapshot completo em vez de erro (`backend/src/modules/sync/sync.service.js:803`): comportamento silencioso, não falha. Ver [[snapshot-e-pull-incremental]], [[sync-admin-operacoes]].
 
 `server_version` vem de `nextval('atlas_version_seq')`, sequência **global** entre todos os atlas (`backend/src/database/migrations/003_sync.sql:12,31`). Dentro de um atlas é crescente mas **não contígua**: serve para ordenar, nunca para contar operações ou calcular "quantas versões atrás".
 
@@ -80,7 +80,7 @@ O link público emite JWT efêmero (1h, `read`, identidade "Visitante") que serv
 ## Detalhes que costumam morder
 
 - **`images` não tem `version` nem `deleted_at`** (`backend/src/database/migrations/002_atlas.sql:309-320`). É a única filha do atlas fora do modelo de soft-delete/sync. Blobs sobem preservando o id (`INSERT_IMAGE_WITH_ID`) para que referências feição→imagem sobrevivam sem reescrita. Ver [[imagens-atlas]].
-- **Comentários não vão para conexões `read`**: o filtro é de transmissão, no snapshot (`backend/src/modules/sync/sync.service.js:442`) e no pull incremental (`:770`), não de renderização. Respostas são entidades próprias com `parent_id`, para não haver clobber LWW numa thread. Ver [[comentario-espacial]].
+- **Comentários não vão para conexões `read`**: o filtro é de transmissão, no snapshot (`backend/src/modules/sync/sync.service.js:475`) e no pull incremental (`:770`), não de renderização. Respostas são entidades próprias com `parent_id`, para não haver clobber LWW numa thread. Ver [[comentario-espacial]].
 - **`maps.locked` é aviso de UI, não lock de concorrência.** Ninguém bloqueia a edição de ninguém (P10).
 - **`catalog_layers` é tabela própria E coluna legada** em `maps`. A coluna permanece para clone/import e clientes antigos; só a entidade por-camada sincroniza.
 - **Toda escrita do sync é `INSERT ... SELECT ... WHERE EXISTS`, e o motivo não é anti-IDOR, é o 23503.** Uma FK violada custa a op: desde 2026-07-25 ela é recusada por operação em vez de abortar o lote (antes travava o sync inteiro do cliente), e em qualquer dos dois regimes a escrita se perde — por isso o apply prefere gravar zero linhas a estourar. `groups.parent_id` (`backend/src/database/migrations/002_atlas.sql:146`) é a exceção aberta: o insert de grupo guarda só o mapa e passa o `parent_id` cru, enquanto o insert estruturalmente idêntico de comentário também exige que o pai exista (`applyOperation` e `applyCommentOp`, `backend/src/modules/sync/sync.service.js`). A compactação da fila outbound remove pares CREATE+DELETE, então o create do grupo-pai pode sumir e o do filho chegar com pai pendurado. A assimetria não é visível em nenhum dos dois arquivos isoladamente.

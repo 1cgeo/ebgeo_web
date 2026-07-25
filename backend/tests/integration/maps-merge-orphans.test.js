@@ -1,15 +1,21 @@
 // Path: tests/integration/maps-merge-orphans.test.js
 // Items 109 and 111 — what the merge does NOT move, and how it counts its inputs.
 //
-// 109. MAP_CHILD_TABLES (maps.service.js:21-28) is a literal whitelist of six tables.
-//      `comments` has map_id NOT NULL REFERENCES maps(id) plus version + deleted_at —
-//      the same shape as the six — and is NOT in the list. merge-01
-//      (maps-briefings-gaps.test.js) asserts the COUNT under each of the six keys but
-//      never that the key set IS those six, so adding or dropping a table passes green.
-//      The test below pins the SET, so the day someone edits the whitelist the decision
-//      has to be made on purpose. It also pins the observable consequence for comments,
-//      group_features, features.layer_id and slides.map_id — named as characterization,
-//      not endorsed as correct.
+// 109. MAP_CHILD_TABLES (maps.service.js) is a literal whitelist. merge-01
+//      (maps-briefings-gaps.test.js) asserts the COUNT under each key but never that the
+//      key set IS that whitelist, so adding or dropping a table passes green. The test
+//      below pins the SET, so the day someone edits the whitelist the decision has to be
+//      made on purpose. It also pins the observable consequence for group_features,
+//      features.layer_id and slides.map_id.
+//
+//      UPDATED 2026-07-25 (bugs-backend #84): the list is SEVEN tables now. `comments` had
+//      the same shape as the other six (map_id NOT NULL REFERENCES maps + version +
+//      updated_at + deleted_at) and was simply missing, so a merge separated a spatial
+//      comment from the feature it annotates. This file pinned that as CHARACTERIZATION —
+//      "named as characterization, not endorsed as correct" — which is exactly what a
+//      characterization pin is for: it held the defect still until the owner decided. The
+//      decision was taken (comments follow their features) and the two pins that reproved
+//      were updated in the same commit as the fix, not reverted onto it.
 //
 // 111. `sources` is built without dedupe and then compared by LENGTH against
 //      `SELECT ... WHERE id = ANY($1)`, which returns one row per DISTINCT id. So a
@@ -27,11 +33,12 @@ import {
   createBriefing, createSlide, loginUser,
 } from '../helpers/fixtures.js';
 
-// The six tables mergeMaps re-parents, sorted. Kept as a literal here on purpose:
-// importing MAP_CHILD_TABLES and comparing it to itself would be a tautology, the
-// same empty-coverage shape this file exists to close.
+// The tables mergeMaps re-parents, sorted. Kept as a literal here on purpose: importing
+// MAP_CHILD_TABLES and comparing it to itself would be a tautology, the same empty-coverage
+// shape this file exists to close.
 const MERGED_TABLES = [
-  'catalog_layers', 'cesium3d_data', 'features', 'groups', 'layers', 'streetview360_data',
+  'catalog_layers', 'cesium3d_data', 'comments', 'features', 'groups', 'layers',
+  'streetview360_data',
 ];
 
 describe('what a map merge leaves behind, and how it counts its sources', () => {
@@ -57,7 +64,7 @@ describe('what a map merge leaves behind, and how it counts its sources', () => 
     await teardownTestEnv(db);
   });
 
-  it('`moved` reports exactly the six whitelisted tables — not five, not seven', async () => {
+  it('`moved` reports exactly the whitelisted tables — not one fewer, not one more', async () => {
     const dest = await createMap(db, atlas.id);
     const src = await createMap(db, atlas.id);
     await createFeature(db, src.id);
@@ -71,7 +78,12 @@ describe('what a map merge leaves behind, and how it counts its sources', () => 
     );
   });
 
-  it('CHARACTERIZATION: a spatial comment does NOT follow its feature to the destination', async () => {
+  // DECIDED 2026-07-25 (bugs-backend #84). This assertion used to say the opposite and was
+  // labelled CHARACTERIZATION: the comments stayed on the emptied source map while their
+  // feature moved, so the pin vanished from the destination view. The owner decided the
+  // annotation follows what it annotates, `comments` joined MAP_CHILD_TABLES, and the pin
+  // was inverted here in the same commit.
+  it('a spatial comment FOLLOWS its feature to the destination, replies included', async () => {
     const dest = await createMap(db, atlas.id);
     const src = await createMap(db, atlas.id);
     const feature = await createFeature(db, src.id);
@@ -87,21 +99,70 @@ describe('what a map merge leaves behind, and how it counts its sources', () => 
       [atlas.id, src.id, root.id]
     );
 
-    await merge(dest.id, [src.id]).expect(200);
+    const res = await merge(dest.id, [src.id]).expect(200);
+    assert.equal(res.body.data.moved.comments, 2, 'root and reply both counted as moved');
 
     const { rows } = await db.query(
-      'SELECT id, map_id FROM comments WHERE id = ANY($1::uuid[]) ORDER BY id',
+      'SELECT id, map_id, version FROM comments WHERE id = ANY($1::uuid[]) ORDER BY id',
       [[root.id, reply.id]]
     );
     assert.equal(rows.length, 2, 'both comment rows survive the merge');
     assert.equal(await featureMap(db, feature.id), dest.id, 'the feature DID move');
     for (const row of rows) {
       assert.equal(
-        row.map_id, src.id,
-        'known debt: comments stay on the emptied source map, so the pin disappears '
-        + 'from the destination view. `comments` is not in MAP_CHILD_TABLES.'
+        row.map_id, dest.id,
+        'the pin lands on the same map as the feature it annotates'
       );
+      assert.equal(row.version, 2, 'and is versioned like every other moved child row');
     }
+  });
+
+  // A REPLY carries no lng/lat and is only reachable through its root; moving the root
+  // without the reply would leave a thread whose answers live on another map. Both rows go
+  // through the same table UPDATE, so this is really a guard against someone later scoping
+  // the comment move to root pins only (`lng IS NOT NULL`).
+  it('a reply is not left behind on the source map when its root moves', async () => {
+    const dest = await createMap(db, atlas.id);
+    const src = await createMap(db, atlas.id);
+
+    const { rows: [root] } = await db.query(
+      `INSERT INTO comments (atlas_id, map_id, lng, lat, data)
+       VALUES ($1, $2, -43.1, -22.8, '{"text":"root"}'::jsonb) RETURNING id`,
+      [atlas.id, src.id]
+    );
+    const { rows: [reply] } = await db.query(
+      `INSERT INTO comments (atlas_id, map_id, parent_id, data)
+       VALUES ($1, $2, $3, '{"text":"answer"}'::jsonb) RETURNING id`,
+      [atlas.id, src.id, root.id]
+    );
+
+    await merge(dest.id, [src.id]).expect(200);
+
+    const { rows } = await db.query(
+      `SELECT r.map_id AS reply_map, p.map_id AS root_map
+       FROM comments r JOIN comments p ON p.id = r.parent_id WHERE r.id = $1`,
+      [reply.id]
+    );
+    assert.equal(rows[0].root_map, dest.id);
+    assert.equal(rows[0].reply_map, dest.id, 'thread stays on ONE map');
+  });
+
+  it('a soft-deleted comment is not resurrected by the merge', async () => {
+    const dest = await createMap(db, atlas.id);
+    const src = await createMap(db, atlas.id);
+
+    const { rows: [dead] } = await db.query(
+      `INSERT INTO comments (atlas_id, map_id, lng, lat, data, deleted_at)
+       VALUES ($1, $2, -43.0, -22.7, '{"text":"gone"}'::jsonb, NOW()) RETURNING id`,
+      [atlas.id, src.id]
+    );
+
+    const res = await merge(dest.id, [src.id]).expect(200);
+    assert.equal(res.body.data.moved.comments, 0);
+
+    const { rows } = await db.query('SELECT map_id, deleted_at FROM comments WHERE id = $1', [dead.id]);
+    assert.equal(rows[0].map_id, src.id, 'stays where it died');
+    assert.notEqual(rows[0].deleted_at, null);
   });
 
   it('a group-feature association survives the merge (both ends move together)', async () => {

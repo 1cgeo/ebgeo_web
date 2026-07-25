@@ -12,6 +12,21 @@ import {
 } from './collab.schemas.js';
 import { classifyConnectionQuality, adaptiveSettingsFor } from './collab.quality.js';
 import logger from '../../utils/logger.js';
+import { safeErrorMessage } from '../../utils/safe-error-message.js';
+
+// `pushOperations`/`pullOperations` run SQL directly inside a `tx`, so a driver error
+// arrives here intact — constraint names, column names, the offending row. The REST
+// twin of this failure is masked by error-handler.js's PG_ERROR_MAP; this socket used
+// to forward `err.message` verbatim, which made the SAME failure leak schema over WS
+// and not over HTTP. `safeErrorMessage` gives both sides the same words, and the raw
+// error keeps going to `logger.error` right above each `send`, which is where the
+// operator needs it.
+//
+// The Joi messages in `validateOps`/`normalizePresence` are NOT masked, deliberately:
+// they describe the client's OWN payload against a public schema (the REST path
+// returns the same `details` from error-handler.js:44-56), so masking them would
+// remove the only signal a client has about why its own frame was rejected, while
+// leaking nothing about the server.
 
 /**
  * Validates a batch of operations against the shared push schema.
@@ -214,7 +229,7 @@ export async function handleOperation(ws, data) {
     ws.send(JSON.stringify({
       type: 'error',
       code: 'OPERATION_FAILED',
-      message: err.message,
+      message: safeErrorMessage(err, 'Operation failed'),
     }));
   }
 }
@@ -268,7 +283,7 @@ export async function handleOperations(ws, data) {
     ws.send(JSON.stringify({
       type: 'error',
       code: 'OPERATION_FAILED',
-      message: err.message,
+      message: safeErrorMessage(err, 'Operation failed'),
     }));
   }
 }
@@ -345,7 +360,7 @@ export async function handleSyncRequest(ws, data) {
     ws.send(JSON.stringify({
       type: 'error',
       code: 'SYNC_FAILED',
-      message: err.message,
+      message: safeErrorMessage(err, 'Sync failed'),
     }));
   }
 }

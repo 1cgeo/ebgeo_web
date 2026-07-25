@@ -7,11 +7,32 @@ import { query } from '../../database/index.js';
 import { NotFoundError, BadRequestError } from '../../utils/errors.js';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
+import { safeErrorMessage } from '../../utils/safe-error-message.js';
 import * as Q from './images.queries.js';
 
 // SVG removed: it is a stored-XSS vector when served, and the frontend does
 // not rely on it for features. Reintroduce only with explicit sanitization.
 const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+
+// Extension for the SERVER-generated blob name of the /bulk path, derived from the
+// mime type — NOT from the client's `filename`.
+//
+// `filename.split('.').pop()` used to build this path component, so `'a.png/x'`
+// produced `<atlasDir>/<uuid>.png/x`, whose parent directory does not exist, and the
+// write failed with ENOENT. (Not traversal: the `split('.')` consumes the dots of
+// `..`; the outcome is ENOENT / ENAMETOOLONG.) The multer path already had
+// `safeExtension` in images.routes.js, which walks the same ground from the other
+// side — it sanitizes the client string. Here the string is not needed at all: the
+// mime type is already constrained by ALLOWED_MIME_TYPES above AND cross-checked
+// against the decoded bytes by `fileTypeFromBuffer`, so deriving from it leaves ZERO
+// client-controlled bytes in the path, which is strictly stronger than sanitizing.
+// It is also exactly what the real client sends (`EXT_BY_MIME` in the frontend's
+// save-local-atlas.service.js builds `filename` from the same table).
+const EXT_BY_MIME = Object.freeze({
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+});
 
 /**
  * Strips server-internal columns from an image row before it crosses the API
@@ -148,6 +169,10 @@ export async function bulkUploadImages(atlasId, images, userId) {
   const seenLocalIds = new Set();
 
   for (const image of images) {
+    // Declared OUTSIDE the try so the catch can undo a committed INSERT (see below).
+    let insertedId = null;
+    let claimedLocalId = false;
+
     try {
       if (!ALLOWED_MIME_TYPES.includes(image.mimeType)) {
         results.failed.push({
@@ -190,7 +215,7 @@ export async function bulkUploadImages(atlasId, images, userId) {
         continue;
       }
 
-      const ext = image.filename.split('.').pop() || 'bin';
+      const ext = EXT_BY_MIME[image.mimeType];
       const uniqueId = crypto.randomUUID();
       const storagePath = join(atlasDir, `${uniqueId}.${ext}`);
 
@@ -220,10 +245,14 @@ export async function bulkUploadImages(atlasId, images, userId) {
         ]);
         serverImage = rows[0];
         seenLocalIds.add(image.localId);
+        claimedLocalId = true;
       }
+      insertedId = serverImage.id;
 
       // Write the blob AFTER the row inserts, so a failed INSERT (e.g. a cross-atlas global-PK
       // collision when re-saving the same local atlas) never leaves an orphan file on disk.
+      // The row is COMMITTED at this point (`query()` is autocommit), so the reverse leak is
+      // now the catch's job — see the compensating DELETE there.
       await writeFile(storagePath, buffer);
 
       results.uploaded.push({
@@ -235,9 +264,52 @@ export async function bulkUploadImages(atlasId, images, userId) {
       results.mapping[image.localId] = serverImage.id;
 
     } catch (err) {
+      logger.warn({ err, atlasId, localId: image.localId }, 'Bulk image item failed');
+
+      // COMPENSATE a committed row whose blob never made it to disk.
+      //
+      // Reaching here with `insertedId` set means the INSERT committed and
+      // `writeFile` threw (ENOSPC, EACCES, a full disk). Without this DELETE the row
+      // survives: `listImages` returns it and `GET /images/:id` answers a permanent
+      // 404 'Image file' — the API publishing a state its OWN response called
+      // `failed`. Compensation, not soft-delete: the row was never visible to any
+      // client and the module hard-deletes images anyway (DELETE_IMAGE).
+      //
+      // Chosen over wrapping INSERT+writeFile in `tx()`, for two reasons.
+      // (a) `tx()` holds a pooled connection across a multi-MB disk write for EVERY
+      //     item — up to 50 per request — paying a hot-path cost on every success to
+      //     fix a rare failure. This codebase has already been bitten by holding a
+      //     connection while waiting (the `lock_timeout` argument in sync.service.js:
+      //     retention under contention becomes pool exhaustion).
+      // (b) `tx()` does not even make it atomic: the file is written BEFORE COMMIT,
+      //     so a COMMIT failure leaves an orphan FILE — exactly the leak the current
+      //     ordering was written to prevent. It swaps one leak for another.
+      // The cost accepted here is a short window in which a concurrent GET can see
+      // the phantom row, and the fact that a failing DELETE lands us back on today's
+      // behaviour — no worse, and now logged.
+      if (insertedId) {
+        try {
+          await query(Q.DELETE_IMAGE, [insertedId, atlasId]);
+          // The localId no longer holds its PK, so a later duplicate in this same
+          // batch must be allowed to claim it again (that is what `seenLocalIds`
+          // means). Leaving it in would silently downgrade the retry to a fresh
+          // server id and break the ref-validity guarantee of the WITH_ID path.
+          if (claimedLocalId) seenLocalIds.delete(image.localId);
+        } catch (cleanupErr) {
+          logger.error(
+            { err: cleanupErr, atlasId, imageId: insertedId },
+            'Failed to remove orphan image row after blob write failure'
+          );
+        }
+      }
+
+      // NEVER `err.message`: for a pg error that is the driver's text (constraint
+      // name, e.g. `images_pkey` on the global-PK collision) and for an fs error it
+      // is the ABSOLUTE server path. This array ships inside a 201, so the
+      // errorHandler — which refuses to forward exactly that text — never runs.
       results.failed.push({
         localId: image.localId,
-        error: err.message || 'Unknown error',
+        error: safeErrorMessage(err, 'Unknown error'),
       });
     }
   }

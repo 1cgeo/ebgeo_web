@@ -28,7 +28,7 @@ const ABNORMAL_CLOSE = 1006;
 // the maxPayload note in attachWebSocket.
 const COLLAB_MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 
-// Fase 8 (Tarefa 2): pending away-removal timers keyed by `${atlasId}::${clientId}`.
+// Fase 8 (Tarefa 2): pending away-removal timers keyed by `${atlasId}::${userId}::${clientId}`.
 // On an abnormal close the user is kept in the room as `away` and removed after
 // the grace window; a reconnect with the same clientId cancels the timer.
 const awayTimers = new Map();
@@ -41,8 +41,20 @@ export function setAwayGraceMs(ms) {
   awayGraceMs = ms;
 }
 
-function awayKey(atlasId, clientId) {
-  return `${atlasId}::${clientId}`;
+/**
+ * Identity of a suspended (away) presence slot.
+ *
+ * `userId` is part of the key, and it is not decoration: the `clientId` comes from the browser
+ * profile's localStorage, so two people sharing a machine (or one machine with two accounts) send
+ * the SAME `clientId`. Keyed by `atlasId::clientId` alone, B's reconnect inside A's 120 s grace
+ * hijacked A's slot — it cancelled A's removal timer, dropped A's dead socket from the room
+ * WITHOUT announcing `user_left`, and broadcast `user_back` carrying B's userId. The peers were
+ * left listing A forever (nothing would ever announce the departure again, since the timer was
+ * gone) and were told a user who had never been away was back. A presence slot belongs to a
+ * (user, client) pair, so the key has to say both.
+ */
+function awayKey(atlasId, userId, clientId) {
+  return `${atlasId}::${userId}::${clientId}`;
 }
 
 /**
@@ -107,12 +119,33 @@ async function resolvePermission(atlasId, userId, payload) {
   return null;
 }
 
+// How many CONSECUTIVE reconciliation failures a socket may accumulate before it is closed.
+//
+// The asymmetry is the whole point. Tolerating one failure keeps a transient database blip from
+// mass-disconnecting every collaborator (the sweep touches all sockets at once, so a 200 ms
+// outage would otherwise be a fleet-wide logout). Not tolerating an UNBOUNDED number keeps the
+// socket from living on cached permission forever: while reconciliation throws, `ws.permission`
+// is whatever the handshake resolved, so a revoked share stays effective. Three ticks at the
+// 30 s heartbeat bounds the staleness at ~90 s instead of "until the client leaves".
+const AUTHZ_MAX_CONSECUTIVE_FAILURES = 3;
+
+// Reconciliations in flight at once during a sweep. The sweep used to fire `reconcileAuthorization`
+// for every socket without `await`, so N sockets meant N simultaneous queries against a pool of
+// ten: the sweep could starve the pool it shares with every request handler, and — worse for the
+// guarantee it exists to provide — a sweep still draining when the next one started meant a
+// revocation took two ticks (~60 s) to land instead of the ~30 s the contract promises.
+const AUTHZ_SWEEP_CONCURRENCY = 4;
+
 /**
  * W1 + O1: re-reconciles a LIVE socket's authorization against the DB. Called on
  * every heartbeat tick (and unit-testable directly). A revoked share / unpublished
  * atlas / deactivated org closes the socket with code 4003 (a clean close → the peer
  * is removed immediately, not kept `away`). A downgrade (write→read) just lowers
  * ws.permission so the next write is rejected by the handlers.
+ *
+ * A FAILED reconciliation (database unreachable, query error) is counted, not swallowed: see
+ * AUTHZ_MAX_CONSECUTIVE_FAILURES. The counter resets on the first tick that completes, so only a
+ * sustained inability to verify authorization closes the socket.
  * @param {import('ws').WebSocket} ws - a connected socket (ws.atlasId/userId/permission/...).
  */
 export async function reconcileAuthorization(ws) {
@@ -157,8 +190,21 @@ export async function reconcileAuthorization(ws) {
       );
       ws.permission = current;
     }
+    // Verified: the socket's cached permission is known-good again.
+    ws.authzFailures = 0;
   } catch (err) {
-    logger.error({ err, userId: ws.userId, atlasId: ws.atlasId }, 'WS authorization re-resolution failed');
+    ws.authzFailures = (ws.authzFailures || 0) + 1;
+    logger.error(
+      { err, userId: ws.userId, atlasId: ws.atlasId, failures: ws.authzFailures },
+      'WS authorization re-resolution failed'
+    );
+    if (ws.authzFailures >= AUTHZ_MAX_CONSECUTIVE_FAILURES) {
+      logger.warn(
+        { userId: ws.userId, atlasId: ws.atlasId, failures: ws.authzFailures },
+        'WS closed: authorization unverifiable for too many consecutive heartbeats'
+      );
+      ws.close(4003, 'authorization unverifiable');
+    }
   }
 }
 
@@ -168,17 +214,37 @@ export async function reconcileAuthorization(ws) {
  * otherwise flip isAlive=false (a client `ping` re-arms it via handlePing) and
  * re-reconcile live authorization (W1/O1). Exported so tests can drive the reap
  * deterministically instead of waiting the 30s interval.
+ *
+ * Returns a promise that settles when EVERY reconciliation of this tick has finished, and runs
+ * them through a bounded worker pool (AUTHZ_SWEEP_CONCURRENCY). The reap itself stays synchronous
+ * so an existing caller that ignores the promise still gets the terminate() behaviour it had.
  * @param {import('ws').WebSocketServer} wss
+ * @returns {Promise<void>}
  */
-export function heartbeatSweep(wss) {
+export async function heartbeatSweep(wss) {
+  const live = [];
   wss.clients.forEach((ws) => {
     if (!ws.isAlive) {
       logger.debug({ userId: ws.userId, atlasId: ws.atlasId }, 'Terminating inactive WebSocket');
-      return ws.terminate();
+      ws.terminate();
+      return;
     }
     ws.isAlive = false;
-    reconcileAuthorization(ws);
+    live.push(ws);
   });
+
+  let next = 0;
+  const worker = async () => {
+    while (next < live.length) {
+      const ws = live[next];
+      next += 1;
+      // reconcileAuthorization never rejects (it owns its try/catch), so one bad socket cannot
+      // abandon the rest of the sweep.
+      await reconcileAuthorization(ws);
+    }
+  };
+  const workers = Math.min(AUTHZ_SWEEP_CONCURRENCY, live.length);
+  await Promise.all(Array.from({ length: workers }, worker));
 }
 
 // The WebSocketServer created by the most recent attachWebSocket() call. Held so
@@ -366,7 +432,11 @@ export function attachWebSocket(server) {
   // permission at handshake and lives for hours, so each tick re-reconciles live
   // authorization (share downgrade/revoke, atlas unpublished, org deactivated)
   // against the DB. Staleness is thus bounded to one heartbeat interval (~30s).
-  const heartbeatInterval = setInterval(() => heartbeatSweep(wss), config.ws.heartbeatIntervalMs);
+  const heartbeatInterval = setInterval(() => {
+    // heartbeatSweep is async now; a floating promise here would turn any future defect inside it
+    // into an unhandled rejection that kills the process.
+    heartbeatSweep(wss).catch((err) => logger.error({ err }, 'heartbeat sweep failed'));
+  }, config.ws.heartbeatIntervalMs);
 
   wss.on('close', () => {
     clearInterval(heartbeatInterval);
@@ -384,12 +454,28 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
 
   // Reconnect within the away grace window: cancel the pending removal and drop
   // the stale (closed) socket from the room so presence is not duplicated.
-  const pending = awayTimers.get(awayKey(atlasId, clientId));
+  // The key includes the userId (see awayKey), so a pending slot can only ever be
+  // adopted by the same user — `pending.ws.userId === user.id` holds by construction.
+  const pending = awayTimers.get(awayKey(atlasId, user.id, clientId));
   if (pending) {
     clearTimeout(pending.timer);
-    awayTimers.delete(awayKey(atlasId, clientId));
+    awayTimers.delete(awayKey(atlasId, user.id, clientId));
     leaveRoom(atlasId, pending.ws);
     collabService.broadcastUserBack(atlasId, user.id, clientId);
+  }
+
+  // A DIFFERENT user arriving on the same (atlasId, clientId): same browser profile, second
+  // account. It is not a reconnect, so nothing is adopted — but the old slot cannot be left
+  // suspended either, because the frontend roster is keyed by `clientId` (`resolveKey`,
+  // frontend/src/js/presence/presence-store.js) and the two would collide on one entry. Evict
+  // it NOW, through the normal path, so the peers get the `user_left` they are owed.
+  for (const [key, stale] of awayTimers) {
+    if (stale.ws.atlasId !== atlasId) continue;
+    if (stale.ws.clientId !== clientId) continue;
+    if (stale.ws.userId === user.id) continue;
+    clearTimeout(stale.timer);
+    awayTimers.delete(key);
+    removeConnection(stale.ws);
   }
 
   // Attach user info to WebSocket
@@ -401,6 +487,8 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   ws.permission = permission;
   ws.clientId = clientId;
   ws.isAlive = true;
+  // Consecutive failed authorization reconciliations (see reconcileAuthorization).
+  ws.authzFailures = 0;
   ws.isPublic = user.isPublic || false;
   ws.organizationId = user.organization_id || null;
   ws.cursorPosition = null;
@@ -414,11 +502,22 @@ function onConnection(ws, user, atlasId, permission, providedClientId = null) {
   ws.selectionContext = null;
   ws.temporalState = null;
 
-  // Create session (skip for public visitors: their `sub` is `public-<uuid>`,
-  // which has no row in `users` and would break the active_sessions FK).
-  if (!ws.isPublic) {
-    collabService.createSession(user.id, atlasId, clientId);
-  }
+  // NO SESSION ROW IS WRITTEN HERE, by decision of 2026-07-25.
+  //
+  // A `collabService.createSession(user.id, atlasId, clientId)` used to run at this point (and a
+  // matching `deleteSession` in `removeConnection`). Both are gone, and the reason is not that the
+  // write was expensive — it is that nothing ever read it. `active_sessions` had no SELECT
+  // anywhere in `backend/src`: live presence is the in-memory room map (`collab.rooms.js`), keyed
+  // by clientId. What the table actually did was LOOK like a session trail while being unable to
+  // be one: the two calls were fire-and-forget, so a fast connect→close could commit the DELETE
+  // before the INSERT and orphan a row; nothing purged it; and every process restart orphaned
+  // every live row at once, silently. A half-alive column misleads MORE than an absent one — the
+  // same lesson already recorded for `org_role` without a writer.
+  //
+  // The TABLE stays (migrations are forward-only and additive; dropping it would be destructive
+  // DDL, which `tests/unit/migrations-higiene.test.js` refuses). It is RESERVED, with no writer.
+  // If a durable session trail is ever wanted, write it deliberately — transactionally, with a
+  // reaper and a reader — instead of reviving these two calls.
 
   // Join room
   joinRoom(atlasId, ws);
@@ -541,14 +640,13 @@ async function handleMessage(ws, data) {
 }
 
 /**
- * Removes a connection from the room and presence for good (room + session +
- * peer notification). Shared by the intentional-close path and the away timeout.
+ * Removes a connection from the room and presence for good (room + peer
+ * notification). Shared by the intentional-close path and the away timeout.
  */
 function removeConnection(ws) {
   leaveRoom(ws.atlasId, ws);
-  if (!ws.isPublic) {
-    collabService.deleteSession(ws.userId, ws.atlasId, ws.clientId);
-  }
+  // No `active_sessions` DELETE here: nothing writes the table anymore (see the note in
+  // onConnection, decision of 2026-07-25). The room map is the whole of presence.
 
   // P8 — a guarda compara `clientId`, não `userId`, e a diferença importa nos
   // dois sentidos porque o roster do par é chaveado POR CLIENTE (o `resolveKey`
@@ -565,8 +663,13 @@ function removeConnection(ws) {
   // Comparar clientId resolve os dois: anuncia a saída daquele cliente, e cala
   // enquanto existir outro socket vivo com a mesma identidade de cliente.
   // leaveRoom already removed this ws, so the room holds exactly the survivors.
+  //
+  // The survivor must match on BOTH userId and clientId. `clientId` alone identifies a browser
+  // profile, not a person: two accounts on the same machine send the same one (it lives in
+  // localStorage), and matching on it alone made B's live socket suppress A's `user_left` — the
+  // peers kept listing A forever, which is the other half of the away-slot defect above.
   for (const client of getRoomClients(ws.atlasId)) {
-    if (client.clientId && ws.clientId && client.clientId === ws.clientId) return;
+    if (client.clientId && ws.clientId && client.clientId === ws.clientId && client.userId === ws.userId) return;
     // Sem clientId dos dois lados não há identidade de cliente para comparar:
     // cai no comportamento antigo, por usuário, que é o seguro nesse caso.
     if ((!client.clientId || !ws.clientId) && client.userId === ws.userId) return;
@@ -589,7 +692,7 @@ function onClose(ws, code) {
 
   if (!networkDrop) {
     // Defensive: clear any stale away timer for this client before removing.
-    const key = awayKey(ws.atlasId, ws.clientId);
+    const key = awayKey(ws.atlasId, ws.userId, ws.clientId);
     const pending = awayTimers.get(key);
     if (pending) {
       clearTimeout(pending.timer);
@@ -604,7 +707,7 @@ function onClose(ws, code) {
   ws.away = true;
   collabService.broadcastUserAway(ws.atlasId, ws.userId, ws.clientId);
 
-  const key = awayKey(ws.atlasId, ws.clientId);
+  const key = awayKey(ws.atlasId, ws.userId, ws.clientId);
   const existing = awayTimers.get(key);
   if (existing) clearTimeout(existing.timer);
   const timer = setTimeout(() => {

@@ -52,16 +52,22 @@ function mapPayload(p) {
 
 export async function flexibleAuth(req, res, next) {
   try {
+    // An api key is an ATTEMPT, not a choice of mechanism. Until 2026-07-25 the mere PRESENCE of
+    // `x-api-key`/`?api_key=` short-circuited with an unconditional `return next()`, so a key that
+    // was malformed or simply absent from `users` skipped the cookie/Bearer branch entirely and the
+    // request continued as anonymous. On a flexible-only route that is a silent demotion of a valid
+    // session (in `/nomes/busca` the user stops seeing their own private names), and on a strict
+    // route a cookie session became 401 — both triggerable by anyone who can get the victim to open
+    // `...?api_key=anything`, since the trigger lives in the query string. Only a key that RESOLVES
+    // wins the precedence; anything else falls through.
     const apiKey = req.get('x-api-key') || req.query?.api_key;
-    if (apiKey) {
-      if (UUID_RE.test(apiKey)) {
-        const { rows } = await query(FIND_USER_BY_API_KEY, [apiKey]);
-        if (rows[0]) {
-          req.user = mapDbUser(rows[0]);
-          req.authVia = 'api_key';
-        }
+    if (apiKey && UUID_RE.test(apiKey)) {
+      const { rows } = await query(FIND_USER_BY_API_KEY, [apiKey]);
+      if (rows[0]) {
+        req.user = mapDbUser(rows[0]);
+        req.authVia = 'api_key';
+        return next();
       }
-      return next();
     }
 
     const token = req.cookies?.token || extractBearerToken(req);

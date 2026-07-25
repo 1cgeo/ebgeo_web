@@ -15,13 +15,15 @@ Corolário: um cliente HTTP genérico que assume `{ data }` em tudo quebra em si
 | `GET /nomes/feicoes` | objeto nu, `200` mesmo sem achar | envelope padrão |
 | `GET /nomes/catalogo3d` | `{ total, page, nr_records, data }` | envelope padrão |
 | Todo `/sv360/**` | objeto/array nu | **`{ error: "mensagem" }` plano** |
-| `GET /api/config` | objeto nu | envelope padrão |
+| `GET /api/config` | `{ data }` (envelope padrão) | envelope padrão |
 
 Detalhe por superfície em [[gazetteer-nomes-geograficos]], [[catalogo-3d]], [[assets3d-distribuicao]], [[streetview-360]]; envelope canônico em [[erros-api]] e [[sintese-contrato-erros-http]].
 
+**`GET /api/config` não é contrato nu**, e esta tabela afirmou que era até 2026-07-25. O controller responde `res.json({ data })` (`backend/src/modules/config/config.controller.js:10`) como qualquer rota REST padrão; o que é congelado nele é o SHAPE do objeto de config, não o transporte. A confusão nasce de o `ApiClient` esconder a diferença: `_unwrap` desembrulha e o app nunca vê o envelope. Quem morde é o consumidor que não passa por ele, um health check de deploy ou um `fetch` cru: lê `cfg.basemaps`, recebe `undefined`, e o servidor respondeu 200. O guarda do shape é `frontend/tests/e2e/config-contract.e2e.test.js`, que consulta pelo `ApiClient` e por isso não pega essa ponta.
+
 ## A armadilha do unwrap
 
-`ApiClient._unwrap` (`frontend/src/js/store/sync/api-client.js:260-265`) desembrulha qualquer objeto que tenha a chave `data`. Isso salva os contratos nus por acidente feliz (array e objeto sem `data` passam direto), mas **destrói `/nomes/catalogo3d`**: o envelope tem `data`, então o unwrap devolve só o array e joga fora `total`/`page`/`nr_records`, sem erro. Hoje nenhum call site sofre porque o frontend não chama essa rota (ver contradição abaixo), mas quem chamar precisa de um caminho que não passe pelo unwrap.
+`ApiClient._unwrap` (`frontend/src/js/store/sync/api-client.js:264-282`) desembrulha qualquer objeto que tenha a chave `data`. Isso salva os contratos nus por acidente feliz (array e objeto sem `data` passam direto), mas **destrói `/nomes/catalogo3d`**: o envelope tem `data`, então o unwrap devolve só o array e joga fora `total`/`page`/`nr_records`, sem erro. Hoje nenhum call site sofre porque o frontend não chama essa rota (ver contradição abaixo), mas quem chamar precisa de um caminho que não passe pelo unwrap.
 
 O gazetteer contorna isso não usando o `ApiClient`: `frontend/src/js/search/gazetteer-url.js` deriva a URL da mesma base e os dois call sites fazem `fetch` cru validando com `Array.isArray(data) ? ... : []` (`frontend/src/js/search/search-bar.search-providers.js:287`, `frontend/src/js/search/feature-search.control.js:185`). Esse é o padrão a copiar para contrato nu.
 

@@ -2,7 +2,38 @@
 import { query, tx } from '../../database/index.js';
 import { NotFoundError, ValidationError } from '../../utils/errors.js';
 import { createAudit } from '../../utils/audit.js';
+import logger from '../../utils/logger.js';
 import * as Q from './zones.queries.js';
+
+/**
+ * Is this thrown error the DATABASE saying "I cannot read this GeoJSON", as opposed to
+ * the database saying it is broken?
+ *
+ * Both used to be answered with the same 422 "Invalid GeoJSON geometry", because the
+ * catch was bare. PostGIS missing from the `search_path`, EXECUTE revoked on the `ng`
+ * schema, a statement timeout or a dropped connection all told the admin that the
+ * polygon he had just drawn correctly was malformed, and the real incident never rose
+ * above a 422 in the access log. A wrong answer with the shape of an answer.
+ *
+ * The whitelist is deliberately narrow and was measured, not guessed (probe against the
+ * running PostGIS 3):
+ *  - `XX000` (internal_error) is what `lwerror`/`elog(ERROR)` raises, and it is the code
+ *    for EVERY GeoJSON parse failure: malformed JSON, unknown `type`, missing/`non-array
+ *    `coordinates`. It is also the class PostGIS uses for a GEOS failure on the caller's
+ *    geometry, which is likewise the payload's fault.
+ *  - class `22` (data exception) covers the casts around it.
+ * Everything else (42xxx undefined function / insufficient privilege, 57014 query
+ * canceled, 08xxx connection, or an error with no SQLSTATE at all) is INFRASTRUCTURE and
+ * is re-thrown untouched, so it surfaces as the 500 it is.
+ *
+ * Topological invalidity (self-intersection, unclosed ring) does NOT come through here:
+ * `ST_IsValid` returns false without raising, and that stays a 422 below.
+ */
+function isGeomParseError(err) {
+  const code = err && typeof err.code === 'string' ? err.code : null;
+  if (!code || code.length !== 5) return false;
+  return code === 'XX000' || code.startsWith('22');
+}
 
 /**
  * Rejects a geometry that PostGIS cannot parse or that is topologically invalid
@@ -13,7 +44,16 @@ async function assertValidGeom(geom) {
   try {
     const { rows } = await query(Q.VALIDATE_GEOM, [JSON.stringify(geom)]);
     valid = rows[0]?.valid;
-  } catch {
+  } catch (err) {
+    if (!isGeomParseError(err)) {
+      // Not the caller's geometry: the validation itself could not run. Log it as the
+      // server-side failure it is and let the error handler answer 5xx.
+      logger.error(
+        { err, sqlstate: err?.code },
+        'zones: a validação de geometria falhou por motivo alheio ao parse do GeoJSON'
+      );
+      throw err;
+    }
     throw new ValidationError('Invalid GeoJSON geometry');
   }
   if (!valid) throw new ValidationError('Invalid zone geometry (ST_IsValid failed)');

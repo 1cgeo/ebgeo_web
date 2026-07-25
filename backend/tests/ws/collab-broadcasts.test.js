@@ -141,11 +141,18 @@ describe('WebSocket Broadcasts from REST', function () {
   });
 
   describe('Sharing Change Broadcast', function () {
+    // A testemunha é o DONO, e não mais o Editor. Um frame `sharing_updated` que nomeia um
+    // membro só é entregue a quem tem `manage` ou acima (mais o próprio afetado), porque é
+    // o mesmo dado que `GET /atlas/:id/sharing` gateia em `manage` — achados 90/101,
+    // corrigidos em 2026-07-25. Este caso afirmava, com um socket 'write', justamente o
+    // vazamento. A audiência inteira (quem recebe e quem não recebe, os quatro níveis e o
+    // visitante público) está em tests/ws/sharing-broadcast-updates.test.js; aqui continua
+    // valendo só o que este arquivo cobre: uma mutação por REST emite o frame no WS.
     it('broadcasts sharing_updated when a user is shared via REST', async () => {
-      const writerClient = await createWsClient(server, atlas.id, writerToken);
-      await writerClient.waitForType('connected');
+      const ownerClient = await createWsClient(server, atlas.id, ownerToken);
+      await ownerClient.waitForType('connected');
 
-      writerClient.clearMessages();
+      ownerClient.clearMessages();
 
       // Create a 3rd user to share with
       const thirdUser = await createUser(db, { username: 'bcast_third' });
@@ -158,15 +165,15 @@ describe('WebSocket Broadcasts from REST', function () {
 
       assert.equal(res.status, 201);
 
-      // Writer should receive sharing_updated
-      const sharingMsg = await writerClient.waitForType('sharing_updated', 3000);
+      // The owner (manage+) should receive sharing_updated
+      const sharingMsg = await ownerClient.waitForType('sharing_updated', 3000);
       assert.ok(sharingMsg);
       assert.equal(sharingMsg.type, 'sharing_updated');
       assert.equal(sharingMsg.action, 'user_added');
       assert.equal(sharingMsg.userId, thirdUser.id);
       assert.equal(sharingMsg.permission, 'read');
 
-      writerClient.close();
+      ownerClient.close();
     });
   });
 

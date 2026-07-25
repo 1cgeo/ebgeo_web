@@ -18,6 +18,8 @@ import * as WQ from './sv360.write.queries.js';
 import * as Q from './sv360.queries.js';
 import { buildPhotoMetadata, isProjectReadable } from './sv360.service.js';
 import { ForbiddenError, NotFoundError, ConflictError } from '../../utils/errors.js';
+import { safeErrorMessage } from '../../utils/safe-error-message.js';
+import logger from '../../utils/logger.js';
 
 /**
  * Write-access predicate for a project.
@@ -269,6 +271,14 @@ export async function softDeletePhoto(uuid, user) {
  * the INTEGER column — only that savepoint rolls back, leaving the outer tx (and
  * the already-committed successes) intact. A plain shared `t` would instead enter
  * the aborted state on the first SQL error and silently drop every other item.
+ *
+ * The per-item `error` is SANITIZED. The response is a 200, so `sv360ErrorHandler`
+ * never runs — the mask it applies to every other failure of this module (and the
+ * reason it gives: "the driver message can name columns/constraints") simply did not
+ * cover this array, and the overflow described just above was shipping the pg text
+ * verbatim. `safeErrorMessage` keeps the `loadWritablePhoto` reasons (NotFound /
+ * Forbidden, both `isOperational`) intact and collapses driver text to a fixed
+ * sentence; the raw error goes to the log.
  * @param {Array<Object>} items - each { uuid, ...calibration subset }
  * @param {Object} user
  * @returns {Promise<{updated: Object[], failed: {uuid:string, error:string}[]}>}
@@ -291,7 +301,8 @@ export async function batchCalibration(items, user) {
         });
         updated.push(shape);
       } catch (err) {
-        failed.push({ uuid, error: err.message });
+        logger.warn({ err, uuid }, 'sv360 batch-calibration item failed');
+        failed.push({ uuid, error: safeErrorMessage(err, 'Update failed') });
       }
     }
   });

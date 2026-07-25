@@ -81,12 +81,22 @@ export const GET_ATLAS_FEATURES = `
   WHERE m.atlas_id = $1 AND m.deleted_at IS NULL AND f.deleted_at IS NULL
 `;
 
+// These two are the only snapshot collections the frontend transform keys by a VALUE
+// rather than by row id (`cameraPositions[tileset_id]`, `orientations[photo_name]` in
+// sync.service.js), so a `key = entry` assignment resolves duplicates by ARRIVAL ORDER —
+// and without ORDER BY the arrival order is whatever the planner produces, which changes
+// after any UPDATE that moves rows physically. Ordering by created_at makes the newest
+// row the last writer, i.e. the winner, always the same way. The merge no longer creates
+// such duplicates (maps.service.js KEYED_SINGLETONS), but rows predating that fix are
+// still in the wild, and "the snapshot is deterministic" should not depend on one writer
+// being careful. `id` closes the total order for equal timestamps.
 export const GET_ATLAS_CESIUM3D = `
   SELECT c.id, c.map_id, c.data_type, c.tileset_id, c.data,
          c.created_at, c.updated_at, c.version
   FROM cesium3d_data c
   JOIN maps m ON m.id = c.map_id
   WHERE m.atlas_id = $1 AND m.deleted_at IS NULL AND c.deleted_at IS NULL
+  ORDER BY c.map_id, c.created_at, c.id
 `;
 
 export const GET_ATLAS_STREETVIEW360 = `
@@ -95,6 +105,7 @@ export const GET_ATLAS_STREETVIEW360 = `
   FROM streetview360_data s
   JOIN maps m ON m.id = s.map_id
   WHERE m.atlas_id = $1 AND m.deleted_at IS NULL AND s.deleted_at IS NULL
+  ORDER BY s.map_id, s.created_at, s.id
 `;
 
 export const GET_ATLAS_CATALOG_LAYERS = `

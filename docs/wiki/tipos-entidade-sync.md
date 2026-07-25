@@ -7,9 +7,11 @@ A lista canônica está em `frontend/src/js/store/sync/operation-types.js:8-37`;
 ## O enum mente em dois pontos
 
 - **`atlas` não é usado em lugar nenhum.** Nenhum `EntityType.ATLAS` aparece no código. Configuração de atlas viaja como `setting`.
-- **`group_feature` não existe no frontend.** O backend tem a tabela e o `tableMap` a suporta, mas o cliente nunca emite esse tipo: associação feição/grupo vai embutida na própria feição ou no grupo. Aparece só no snapshot.
+- **`group_feature` não existe no frontend.** O backend tem a tabela e o `TARGET_TABLE_MAP` a suporta, mas o cliente nunca emite esse tipo: associação feição/grupo vai embutida na própria feição ou no grupo. Aparece só no snapshot.
 
-Adicionar um tipo exige três lugares: o enum, um logger no dispatcher e um `case` no handler remoto. **Faltar o `case` não quebra nada visivelmente**: a op sai, chega e morre com um `console.warn` (`frontend/src/js/store/sync/remote-operation-handler.js:341`).
+Adicionar um tipo exige três lugares no cliente: o enum, um logger no dispatcher e um `case` no handler remoto. **Faltar o `case` não quebra nada visivelmente**: a op sai, chega e morre com um `console.warn` (`frontend/src/js/store/sync/remote-operation-handler.js:341`).
+
+E exige um quarto, do outro lado: o backend precisa conhecer o alvo (`APPLIABLE_TARGETS`, derivado de `TARGET_TABLE_MAP` + `ENTITY_TYPE_MAP` em `backend/src/modules/sync/sync.service.js`). Desde 2026-07-25 uma op cujo `entityType` o servidor não sabe aplicar volta com `rejected: true` + `reason` em vez de ser gravada no log e **acked como sucesso** — que era o pior caso, porque o cliente desenfileirava confiante e a entidade nunca existia para ninguém. Estrear um tipo no frontend antes de o backend aprendê-lo é skew de deploy normal, e agora ele é visível em vez de silencioso. Ver [[ack-idempotencia]].
 
 ## Os slots do envelope não significam o mesmo em todo tipo
 
@@ -86,4 +88,4 @@ Identidade do emissor em [[client-id-estavel]]; ack e dedupe em [[ack-idempotenc
 ## Fontes
 - `frontend/src/js/store/sync/operation-types.js`, `frontend/src/js/store/sync/operation-dispatcher.js`, `frontend/src/js/store/sync/remote-operation-handler.js`, `frontend/src/js/store/sync/operation-queue.js`, `frontend/src/js/store/sync/permission-guard.js`.
 - `frontend/src/js/store/temporal.operations.js:107` (contradiz o guia 05), `briefing.operations.js:302/337/367`.
-- Guias absorvidos: *05-sync-crdt* (aliases, dual-mode, tolerância de shape), *03-sync-inicial* (snapshot, `group_feature`), *arquitetura-sync* (`tableMap`, lock gate, regras de create/delete).
+- Guias absorvidos: *05-sync-crdt* (aliases, dual-mode, tolerância de shape), *03-sync-inicial* (snapshot, `group_feature`), *arquitetura-sync* (`TARGET_TABLE_MAP`, lock gate, regras de create/delete).

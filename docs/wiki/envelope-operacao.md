@@ -24,7 +24,7 @@ Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`backen
 
 ## Armadilhas
 
-**1. O cliente nunca emite `changes`.** `createOperation` só produz `data` (`frontend/src/js/store/sync/operation-factory.js:151`); não há uma única ocorrência de `changes` em `src/js/store/sync/`. O backend compensa: num `update` sem `changes`, usa `data` como `changes` (`backend/src/modules/sync/sync.service.js:216`). Quem lê a interface normativa e espera `changes` na saída procura um campo inexistente.
+**1. O cliente nunca emite `changes`.** `createOperation` só produz `data` (`frontend/src/js/store/sync/operation-factory.js:151`); não há uma única ocorrência de `changes` em `src/js/store/sync/`. O backend compensa: num `update` sem `changes`, usa `data` como `changes` (`backend/src/modules/sync/sync.service.js:249`). Quem lê a interface normativa e espera `changes` na saída procura um campo inexistente.
 
 A documentação de origem apresentava o formato inverso (`changes` no update, sem `previousData`/`lamportTimestamp`/`batchId`) e é a fonte mais provável desse modelo mental errado. O envelope real sempre traz `previousData`, `lamportTimestamp` e `traceId` (`createOperation`, `frontend/src/js/store/sync/operation-factory.js`), mais `batchId` quando a op nasce em lote (`createBatchOperations`, mesmo arquivo).
 
@@ -34,7 +34,7 @@ A documentação de origem apresentava o formato inverso (`changes` no update, s
 
 O que mudou é a consequência, e ela ficou mais silenciosa, não menos grave: `22001` é classe 22, então a op é recusada, o usuário vê um aviso genérico e **o rename é descartado** em vez de travar a fila. **A lição só fica codificada com teste**: `.max()` nos campos de nome do envelope (ou cap no cliente) mais uma regressão que empurre 300 caracteres e exija 422 antes do banco. Enquanto isso não existir, este parágrafo é só um aviso.
 
-**3. O `entityId` que volta no ack pode não ser o que você mandou.** Ops de nível atlas carregam o sentinel `'atlas'`, mas `entity_id` é `UUID NOT NULL`, então o backend as grava sob o UUID do próprio atlas e devolve esse valor no ack (`backend/src/modules/sync/sync.service.js:672,717`). Sem esse restamp, o mesmo op chegava com `entityId` diferente conforme viesse por broadcast ou por pull incremental.
+**3. O `entityId` que volta no ack pode não ser o que você mandou.** Ops de nível atlas carregam o sentinel `'atlas'`, mas `entity_id` é `UUID NOT NULL`, então o backend as grava sob o UUID do próprio atlas e devolve esse valor no ack (`backend/src/modules/sync/sync.service.js:705,717`). Sem esse restamp, o mesmo op chegava com `entityId` diferente conforme viesse por broadcast ou por pull incremental.
 
 **4. Compactação quebra a correspondência gesto ↔ linha.** Acima de `MAX_QUEUE_SIZE`, `CREATE + DELETE` remove ambos e `CREATE + UPDATEs` vira um único `CREATE` com o `data` mais recente **preservando o `id` do CREATE** (`frontend/src/js/store/sync/operation-queue.js:324-345`). Os ids dos updates somem. Não assuma 1:1 entre gestos e linhas em `operations`.
 

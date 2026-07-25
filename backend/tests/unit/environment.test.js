@@ -17,7 +17,10 @@ describe('EnvironmentManager', () => {
     assert.equal(opts.sameSite, 'lax');
   });
 
-  it('dbPoolMax caps below the configured max in non-production', () => {
-    assert.ok(env.dbPoolMax() <= 5);
-  });
+  // There was a third case here, `assert.ok(env.dbPoolMax() <= 5)`, and it was
+  // tautological: the function it exercised returned `Math.min(poolMax, 5)` outside
+  // production, so the assert could not fail for any configuration. Worse, it was the
+  // only caller in the repo, which made a dead function look consumed. Function and
+  // assert were removed together on 2026-07-25; the real pool size is
+  // `config.db.poolMax`, applied in `src/database/index.js`.
 });

@@ -29,7 +29,7 @@ Ou seja: 360 concatena, 3D embute. Ver [[resources-catalogo]].
 
 ## O backend publica assets3dBaseUrl e o web app não o lê
 
-O campo existe do lado do servidor: `getAppConfig` emite `assets3dBaseUrl` (`backend/src/modules/config/config.service.js:217`) e o schema admin o valida (`backend/src/modules/config/config.admin.schemas.js:47`). Do lado do cliente, `grep` em `frontend/src/` não retorna uma única ocorrência, e o `url` de `config.tilesets` vai sem prefixo algum ao Cesium (`frontend/src/js/3d_models_viewer_tool/map_3d.js:259` e `:321`).
+O campo existe do lado do servidor: `getAppConfig` emite `assets3dBaseUrl` (`backend/src/modules/config/config.service.js:217`) e o schema admin o valida (`backend/src/modules/config/config.admin.schemas.js:58`). Do lado do cliente, `grep` em `frontend/src/` não retorna uma única ocorrência, e o `url` de `config.tilesets` vai sem prefixo algum ao Cesium (`frontend/src/js/3d_models_viewer_tool/map_3d.js:259` e `:321`).
 
 É contrato publicado sem consumidor, e o engano tem duas direções: quem audita só o backend acha que o cliente concatena, quem audita só o frontend acha que o campo não existe. A documentação de origem manda concatenar `assets3dBaseUrl + m.url`; ninguém faz isso aqui.
 

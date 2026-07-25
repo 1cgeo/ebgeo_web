@@ -1,6 +1,16 @@
 // Path: src/utils/environment.js
-// Single source of truth for environment-derived decisions (cookie/cors/helmet/
-// pool/useHttps). config.js reads .env; this derives DECISIONS from it.
+// Environment-derived DECISIONS: config.js reads .env, this turns it into choices.
+//
+// Scope is exactly what has a caller: the boolean getters and `cookieOptions()`
+// (middleware/flexible-auth.js). This header used to advertise "single source of
+// truth for cookie/cors/helmet/pool", which was false in three of the five: there
+// never was a helmet method, and the cors/pool ones had ZERO callers in src/ while
+// the real consumers read config directly (`config.cors.origin` in app.js,
+// `config.db.poolMax` in database/index.js). The pool one was the expensive lie: it
+// capped non-production at 5 connections and an operator reading it believed in a
+// limit the running system never applied. Both were removed on 2026-07-25, together
+// with the tautological assert that "pinned" the cap. If you reintroduce either,
+// wire the real consumer to it in the same commit or it is dead again.
 import config from '../config.js';
 import { parseDuration } from './duration.js';
 
@@ -31,14 +41,6 @@ class EnvironmentManager {
       // the fallback only covers a programmatic misuse.
       maxAge: parseDuration(config.jwt.accessExpiry) || 15 * 60 * 1000,
     };
-  }
-
-  corsOptions() {
-    return { origin: config.cors.origin, credentials: true };
-  }
-
-  dbPoolMax() {
-    return this.isProduction ? config.db.poolMax : Math.min(config.db.poolMax, 5);
   }
 }
 

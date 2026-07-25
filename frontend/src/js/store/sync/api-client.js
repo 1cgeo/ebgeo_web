@@ -261,8 +261,16 @@ export class ApiClient {
     }
 
     /**
-     * @private Unwraps the `{ data }` envelope. Bare frozen contracts (config object,
-     * arrays) have no `data` key and pass through unchanged.
+     * @private Unwraps the `{ data }` envelope. Bare frozen contracts (the `/nomes/busca`
+     * array, the `/sv360/**` objects and arrays) have no `data` key and pass through
+     * unchanged.
+     *
+     * `GET /api/config` is NOT one of them: the controller answers `res.json({ data })`
+     * (`backend/src/modules/config/config.controller.js:10`), so the config arrives
+     * enveloped and is unwrapped here like any standard route. This comment listed it as
+     * a bare object until 2026-07-25. The mistake only shows OUTSIDE this class: a
+     * consumer that fetches the route raw (a deploy health check, a script) reads
+     * `cfg.basemaps` and gets `undefined`, with a 200 and no error anywhere.
      */
     _unwrap(parsed) {
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'data' in parsed) {
@@ -384,8 +392,11 @@ export class ApiClient {
     // ===== CONFIG =====
 
     /**
-     * Fetches the runtime config (frozen `GET /api/config` contract — bare object).
-     * @returns {Promise<Object>} The config object.
+     * Fetches the runtime config. The frozen part of `GET /api/config` is the top-level
+     * SHAPE of the config object (guarded by `frontend/tests/e2e/config-contract.e2e.test.js`),
+     * NOT the transport: the route answers the standard `{ data }` envelope and `_unwrap`
+     * strips it. Calling it "bare" here was wrong and cost a wrong assumption downstream.
+     * @returns {Promise<Object>} The config object (already unwrapped).
      */
     async getConfig() {
         return this._request('GET', '/config', { auth: false, timeoutMs: this._bootTimeoutMs });
@@ -644,8 +655,17 @@ export class ApiClient {
     /**
      * Patches the atlas settings (which features/basemaps are available). Manager-level
      * server-side; broadcasts `atlas_settings_updated` to the room.
+     *
+     * The server merge is SHALLOW, not deep (`settings || $2::jsonb`,
+     * `backend/src/modules/atlas/atlas.queries.js:91`); this JSDoc claimed "deep-merged"
+     * until 2026-07-25. Send the COMPLETE nested object: a `features` payload missing a
+     * key re-enables that capability for the whole atlas, because the overlay is
+     * default-open (`intersectAvailability` reads `features.X !== false`). The built-in
+     * atlas-settings modal always rebuilds all five feature keys before saving, which is
+     * why this never bit in-app; a hand-rolled client is what bites.
+     *
      * @param {string} atlasId
-     * @param {Object} settings - Partial settings (deep-merged server-side).
+     * @param {Object} settings - Full settings sections to overwrite (shallow merge, top level only).
      * @returns {Promise<Object>} The updated atlas.
      */
     async updateAtlasSettings(atlasId, settings) {

@@ -18,9 +18,20 @@ export const uploadFileSchema = Joi.object({
 }).unknown(true);
 
 // Schema for bulk image upload (base64 encoded images)
+//
+// `filename` forbids the two path separators and NUL. Defense in depth only — the
+// service no longer derives the on-disk name from this string at all (it uses the
+// validated mime type), so nothing depends on the pattern to stay safe. It is here
+// because a filename CANNOT legitimately contain a separator: the value is stored in
+// `images.filename` and echoed back in the download's Content-Disposition, and a
+// border that accepts `../../etc/x` as a name is a border that invites the next
+// consumer of that column to concatenate it into a path. Character-permissive
+// otherwise, for the same reason as `uploadFileSchema` above: pt-BR names are
+// legitimate. The real client sends `<uuid>.<ext>` (frontend
+// save-local-atlas.service.js), so nothing in the app is rejected by this.
 const bulkImageItemSchema = Joi.object({
   localId: Joi.string().uuid().required(), // Client-side ID for mapping
-  filename: Joi.string().max(255).required(),
+  filename: Joi.string().max(255).pattern(/^[^/\\\0]+$/).required(),
   mimeType: Joi.string().valid('image/png', 'image/jpeg', 'image/webp').required(),
   data: Joi.string().required(), // Base64 encoded image data
 });

@@ -11,9 +11,11 @@
 // ingestBundle (which owns the tx + atomic {slug}.db swap). list/status/delete
 // are thin Postgres lifecycle ops; delete also removes the {slug}.db AFTER a
 // blobPool evict (Windows file-handle release).
-import { readFileSync, existsSync, rmSync, copyFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, rmSync, copyFileSync, mkdirSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { fileTypeFromFile } from 'file-type';
 import { query, tx } from '../../database/index.js';
+import logger from '../../utils/logger.js';
 import * as AQ from './sv360.admin.queries.js';
 import { canWriteProject } from './sv360.write.service.js';
 import { resolveDbPath, ingestBundle, validateManifest } from './sv360.ingest.js';
@@ -45,6 +47,52 @@ const queryTask = {
     return rows[0] ?? null;
   },
 };
+
+// Hard cap for the OPTIONAL bundle thumbnail, checked HERE and not in multer.
+// `limits.fileSize` is shared by the three upload fields, and the images.db that rides
+// along is legitimately multi-GB, so the multer limit cannot bound a small preview
+// image: until this constant existed the thumbnail inherited SV360_MAX_UPLOAD_BYTES
+// (2 GiB by default) and was copied to its permanent, org-keyed destination with
+// `copyFileSync` and no inspection at all. 5 MiB is ~50x the largest preview the 360
+// studio produces and still four orders of magnitude below the old ceiling.
+const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Validates the optional bundle thumbnail BEFORE anything is written: real WebP by
+ * MAGIC BYTES, and under {@link MAX_THUMBNAIL_BYTES}.
+ *
+ * The declared mime is not evidence: `ALLOWED_FIELD_MIME.thumbnail` accepts
+ * `application/octet-stream` (deliberately — a genuine .webp mislabeled by the client
+ * must still upload), so the only thing that can distinguish an image from an arbitrary
+ * blob is its content. That mattered because the file lands at a PERMANENT, org-keyed
+ * path and `GET /sv360/thumbnails/:slug.webp` serves it back with
+ * `Content-Type: image/webp` — the upload route was the one place in the codebase where
+ * bytes became a served image without the `fileTypeFrom*` check every other upload path
+ * applies (`images.service.js`).
+ *
+ * Refusing here, before `ingestBundle`, is what makes the refusal cheap: nothing has been
+ * swapped or committed yet, so the caller gets a clean 400 and no half-done state. This
+ * does NOT contradict the rule that "a thumbnail failure must not fail the ingestion" —
+ * that rule is about an I/O failure while copying AFTER the project is already live, which
+ * is still swallowed (with a log line) below.
+ *
+ * @param {string} thumbnailPath - multer tmp path
+ * @throws {BadRequestError} when the file is too large or is not a WebP
+ */
+async function assertValidThumbnail(thumbnailPath) {
+  const { size } = statSync(thumbnailPath);
+  if (size > MAX_THUMBNAIL_BYTES) {
+    throw new BadRequestError(
+      `thumbnail exceeds ${MAX_THUMBNAIL_BYTES} bytes (got ${size})`
+    );
+  }
+  const detected = await fileTypeFromFile(thumbnailPath);
+  if (!detected || detected.mime !== 'image/webp') {
+    throw new BadRequestError(
+      `thumbnail must be a WebP image (detected: ${detected?.mime ?? 'unknown'})`
+    );
+  }
+}
 
 // Org-write predicate WITHOUT a concrete project row (for the create/list paths,
 // where the project may not exist yet): a global admin, or a member of THIS org
@@ -268,6 +316,13 @@ export async function uploadBundle(user, files = {}) {
   }
   const manifest = validateManifest(raw);
 
+  // Thumbnail: magic bytes + own size cap, BEFORE any state change (see
+  // assertValidThumbnail). A bad thumbnail is a 400 on a request that has changed
+  // nothing yet, not a junk file served as image/webp forever.
+  if (thumbnailPath && existsSync(thumbnailPath)) {
+    await assertValidThumbnail(thumbnailPath);
+  }
+
   // Ownership: resolve + authorize the target organization_id (admin vs om).
   const orgId = await resolveUploadOrgId(user, manifest);
 
@@ -289,8 +344,16 @@ export async function uploadBundle(user, files = {}) {
       mkdirSync(path.dirname(thumbDest), { recursive: true });
       copyFileSync(thumbnailPath, thumbDest);
     } catch (err) {
-      // A thumbnail failure must not fail the ingestion (the project is live).
-      void err;
+      // A thumbnail failure must not fail the ingestion (the project is live by now —
+      // the swap and the merge tx are both done). But `void err` made the copy the only
+      // I/O in the module that could fail with NO trace anywhere: the upload answered
+      // 201 and the project simply had no thumbnail, with nothing to look at. The
+      // CONTENT of the file was already validated above, so anything reaching here is a
+      // disk/permission problem the operator needs to see.
+      logger.warn(
+        { err, dbFilename: result.dbFilename, slug: result.slug },
+        'sv360: falha ao persistir o thumbnail do bundle (ingestão mantida)'
+      );
     }
   }
 

@@ -1,6 +1,6 @@
 // Path: tests/integration/flexible-auth-precedence.test.js
 //
-// Itens 32, 33 e 113 — as três cegueiras de `middleware/flexible-auth.js`, todas com a
+// Itens 32, 33, 113 (+ 85 e 86) — as cegueiras de `middleware/flexible-auth.js`, todas com a
 // mesma raiz: a suíte inteira exercitava o middleware através de `/api/v1/auth/me`, uma
 // rota de `auth` ESTRITO. O estrito relê o Bearer sempre que `req.user` está vazio e
 // reconcilia contra o banco, então ele MASCARA tudo o que o flexível faz de errado — é
@@ -24,13 +24,28 @@
 //        fechado no lugar certo — a query, não o app —, mas nenhum teste o afirmava:
 //        remover aquele EXISTS deixava a suíte inteira verde.
 //
-//  113 — dois curto-circuitos sem fallback: o ramo do api key faz `return next()`
-//        incondicional mesmo com chave lixo (flexible-auth.js:60), e o ramo do token lê
+//  113 — dois curto-circuitos sem fallback: o ramo do api key fazia `return next()`
+//        incondicional mesmo com chave lixo, e o ramo do token lê
 //        `req.cookies?.token || extractBearerToken(req)` e, se o cookie falhar no
-//        verify, faz `return next()` sem tentar o header (:63-71). Numa rota
+//        verify, faz `return next()` sem tentar o header. Numa rota
 //        só-flexível o usuário é silenciosamente rebaixado a anônimo e perde acesso ao
-//        PRÓPRIO dado privado. Isto é caracterização: o comportamento fica documentado
-//        e passa a ser uma escolha visível, não um efeito colateral.
+//        PRÓPRIO dado privado.
+//
+//        A METADE DO API KEY FOI CORRIGIDA em 2026-07-25 (achado 85), e as três asserções
+//        que a cobriam foram INVERTIDAS aqui: elas afirmavam `false` (o Bearer válido não
+//        via o próprio nome privado) e portanto CONGELAVAM o defeito — um verde que só
+//        provava que o rebaixamento continuava acontecendo, e que reprovaria o conserto.
+//        "Caracterização" documenta um comportamento; não o torna correto, e o preço de
+//        deixá-la no lugar é que a correção passa a parecer regressão. Hoje elas afirmam o
+//        contrário: chave inválida é uma TENTATIVA fracassada, e o cookie/Bearer é lido
+//        em seguida. A metade do COOKIE segue caracterizada (o caso `token=lixo` abaixo),
+//        fora do escopo deste conserto e explicitamente marcada como tal.
+//
+//   86 — o mesmo `req.user` do flexível, agora pelo outro lado: o principal sintético
+//        `public-<uuid>` do visitante de link público chegava ao cast `$5::uuid` da BUSCA e
+//        o 22P02 virava 400, ou seja, uma credencial LEGÍTIMA quebrava uma rota que o
+//        anônimo usa sem problema. Corrigido em `nomes.controller.js` (normalização do
+//        principal), coberto no bloco 86 abaixo.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -38,7 +53,15 @@ import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
-import { createUser, createAdminUser, loginUser } from '../helpers/fixtures.js';
+import {
+  createUser,
+  createAdminUser,
+  createAtlas,
+  createMap,
+  loginUser,
+  makeAtlasPublic,
+  getPublicToken,
+} from '../helpers/fixtures.js';
 
 const JWT_SECRET = 'test-secret-key-for-testing-purposes-only-32chars';
 const DEFAULT_ORG = '00000000-0000-0000-0000-000000000001';
@@ -65,7 +88,7 @@ function tokenFromSetCookie(res) {
   return null;
 }
 
-describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113)', () => {
+describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113, 85, 86)', () => {
   let app, db, zoneUser, zoneTok, admin, adminTok;
 
   before(async () => {
@@ -197,7 +220,7 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
   // ==========================================================================
   // 113 — precedência de credencial: cookie/api-key inválidos SUPRIMEM o Bearer
   // ==========================================================================
-  describe('113 — an invalid cookie or api-key silently demotes a valid Bearer', () => {
+  describe('113 — credential precedence: an api key that fails must NOT suppress the Bearer', () => {
     it('control: só o Bearer -> o nome privado aparece', async () => {
       assert.equal(await vePrivado({ Authorization: `Bearer ${zoneTok}` }), true);
     });
@@ -206,36 +229,66 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
       assert.equal(await vePrivado({ Cookie: `token=${zoneTok}` }), true);
     });
 
-    it('cookie LIXO + Bearer válido -> a requisição vira ANÔNIMA (o header nem é tentado)', async () => {
+    it('AINDA CARACTERIZAÇÃO (metade do cookie, fora do escopo do achado 85): cookie LIXO + Bearer válido -> anônima', async () => {
       // `req.cookies?.token || extractBearerToken(req)` escolhe o cookie e, no catch do
-      // verify, faz `return next()` sem fallback.
+      // verify, faz `return next()` sem fallback. Diferente do api key, este ramo NÃO é
+      // acionável por link (cookie não viaja na query string), e o conserto é de outro lote.
       assert.equal(
         await vePrivado({ Cookie: 'token=lixo.jwt.valor', Authorization: `Bearer ${zoneTok}` }),
         false
       );
     });
 
-    it('x-api-key inválida + Bearer válido -> também anônima (o ramo do api key nunca cai fora)', async () => {
+    it('achado 85: x-api-key MALFORMADA + Bearer válido -> o Bearer vale, o privado aparece', async () => {
+      // Antes: `if (apiKey) { ...; return next(); }` saía sem nunca ler cookie/Bearer.
       assert.equal(
         await vePrivado({ 'x-api-key': 'not-a-uuid', Authorization: `Bearer ${zoneTok}` }),
-        false
+        true
       );
     });
 
-    it('x-api-key com FORMA de UUID mas inexistente -> anônima igualmente', async () => {
+    it('achado 85: x-api-key com FORMA de UUID mas INEXISTENTE -> o Bearer também vale', async () => {
+      // O outro braço do mesmo curto-circuito: passa no UUID_RE, não acha linha em `users`.
       assert.equal(
         await vePrivado({ 'x-api-key': randomUUID(), Authorization: `Bearer ${zoneTok}` }),
-        false
+        true
       );
     });
 
-    it('?api_key= na query tem o mesmo efeito do header (mesmo ramo)', async () => {
+    it('achado 85: `?api_key=` na query (o vetor embutível em link) tem o mesmo fallback do header', async () => {
+      // Este é o caso que importa: a chave lixo vem da URL, então bastava fazer a vítima
+      // abrir um link para transformar a sessão dela em anônima.
       const res = await supertest(app)
         .get('/api/v1/nomes/busca')
         .query({ q: PRIVADO, lat: -22.9, lon: -43.2, api_key: 'not-a-uuid' })
         .set('Authorization', `Bearer ${zoneTok}`)
         .expect(200);
-      assert.ok(!res.body.some((r) => r.nome === PRIVADO));
+      assert.ok(res.body.some((r) => r.nome === PRIVADO), 'o Bearer sobrevive à chave inválida');
+    });
+
+    it('não-super-corrigir: uma api key VÁLIDA continua ganhando do Bearer (a precedência não inverteu)', async () => {
+      // O fallback só existe quando a chave falha. Se a chave resolve, ela é o principal —
+      // sem esta asserção, "sempre ler o Bearer" passaria pelos três testes acima.
+      const outro = await createUser(db, { username: `fx_key_${SFX}` });
+      const key = randomUUID();
+      await db.query('UPDATE users SET api_key = $1 WHERE id = $2', [key, outro.id]);
+
+      const res = await supertest(app)
+        .get('/api/v1/auth/me')
+        .set('x-api-key', key)
+        .set('Authorization', `Bearer ${zoneTok}`)
+        .expect(200);
+      assert.equal(res.body.data.id, outro.id, 'a chave que RESOLVE é quem autentica');
+      assert.notEqual(res.body.data.id, zoneUser.id);
+    });
+
+    it('a chave válida também não perde para o cookie, e o principal do api key chega ao SQL', async () => {
+      // Fecha o outro lado: a chave resolvida não pode cair no ramo cookie/Bearer, e o
+      // `req.user` que ela produz precisa continuar servindo o filtro de acesso do gazetteer
+      // (o usuário da zona vê o próprio nome privado autenticando SÓ por chave).
+      const key = randomUUID();
+      await db.query('UPDATE users SET api_key = $1 WHERE id = $2', [key, zoneUser.id]);
+      assert.equal(await vePrivado({ 'x-api-key': key }), true);
     });
 
     it('contraste: as MESMAS três combinações em /auth/me respondem 200', async () => {
@@ -257,6 +310,56 @@ describe('flexibleAuth — reconciliation and credential precedence (32, 33, 113
 
     it('sem NENHUMA credencial /auth/me é 401 (o 200 acima vem do Bearer, não de um gate aberto)', async () => {
       await supertest(app).get('/api/v1/auth/me').expect(401);
+    });
+  });
+
+  // ==========================================================================
+  // 86 — o principal sintético `public-<uuid>` não pode chegar a um cast ::uuid
+  //
+  // `flexibleAuth` grava `req.user = mapPayload(payload)` para QUALQUER token válido,
+  // inclusive o de visitante de link público, cujo `sub` é `public-<uuid>` por decisão.
+  // `/nomes/busca` é a única rota do repositório que é ao mesmo tempo anônima e sensível
+  // a `req.user` (o filtro de acesso embutido recebe `$5 = req.user?.id`), então o sub
+  // sintético alcançava `$5::uuid`, o Postgres levantava 22P02 e o errorHandler devolvia
+  // 400. A inversão é o que denuncia o defeito: SEM credencial nenhuma dava 200, e uma
+  // credencial LEGÍTIMA dava 400. As irmãs `/feicoes` e `/catalogo3d` param antes, no 403
+  // do confineVisitorPrincipal (`auth` estrito), e por isso o furo vivia só aqui.
+  // ==========================================================================
+  describe('86 — a public-link visitor token is anonymous to the gazetteer, never a 400', () => {
+    let publicToken;
+
+    before(async () => {
+      const atlas = await createAtlas(db, zoneUser.id, { name: `Atlas Flex ${SFX}` });
+      await createMap(db, atlas.id);
+      const link = await makeAtlasPublic(db, atlas.id);
+      publicToken = await getPublicToken(app, link);
+      assert.ok(
+        jwt.decode(publicToken).sub.startsWith('public-'),
+        'o fixture precisa de fato emitir o principal sintético, senão o teste é vacuous'
+      );
+    });
+
+    it('GET /nomes/busca com o token público responde 200 (era 400 por 22P02)', async () => {
+      const res = await busca(PUBLICO, { Authorization: `Bearer ${publicToken}` }).expect(200);
+      assert.ok(res.body.some((r) => r.nome === PUBLICO));
+    });
+
+    it('e devolve exatamente o mesmo conjunto do anônimo — nem menos, nem o privado', async () => {
+      const anon = await busca(PUBLICO).expect(200);
+      const visitante = await busca(PUBLICO, { Authorization: `Bearer ${publicToken}` }).expect(200);
+      assert.deepEqual(
+        visitante.body.map((r) => r.nome),
+        anon.body.map((r) => r.nome),
+        'o visitante é equivalente a anônimo, não um principal reduzido'
+      );
+      assert.equal(await vePrivado({ Authorization: `Bearer ${publicToken}` }), false);
+    });
+
+    it('não-super-corrigir: um Bearer de usuário REAL continua chegando ao filtro de acesso', async () => {
+      // Normalizar demais (mandar sempre null) também daria 200 nos dois testes acima,
+      // enquanto arrancava o acesso privado de todo mundo. Este é o controle que separa
+      // "normalizei o principal sintético" de "apaguei o principal".
+      assert.equal(await vePrivado({ Authorization: `Bearer ${zoneTok}` }), true);
     });
   });
 

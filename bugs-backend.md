@@ -1619,6 +1619,12 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 70. PATCH /atlas/:id/settings usa `settings || $2::jsonb` (merge raso do JSONB), entao um patch parcial de `features` apaga as flags irmas e o frontend as RE-HABILITA
 
+> **CORRIGIDO em 2026-07-25.** **DECISÃO DO DONO: alinhar a doc, manter o merge raso.** O SQL não mudou. Os dois
+> JSDoc que prometiam merge profundo foram reescritos, e o que importa ficou registrado: um
+> cliente que salve as features sem mandar as CINCO chaves **reabilita** 360, terreno, dados e
+> análise para o atlas inteiro, porque o overlay do frontend é default-open. O modal embutido
+> reconstrói as cinco a cada save; qualquer outro cliente é que morde.
+
 - **Arquivo:** `backend/src/modules/atlas/atlas.queries.js:71`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-atlas` · **Classe:** `contrato`
@@ -1633,6 +1639,14 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** O JSDoc de `updateAtlasSettings` promete merge parcial/profundo em dois lugares (backend/src/modules/atlas/atlas.service.js:115 "partial merge" e frontend/src/js/store/sync/api-client.js:636 "deep-merged server-side"), mas o SQL e' `settings || $2::jsonb` (atlas.queries.js:71), concatenacao de NIVEL SUPERIOR: um patch parcial de `features` substitui a sub-arvore inteira e apaga as chaves irmas. Como o overlay do frontend e' default-open (`features.X !== false` em atlas-settings.service.js:82-90), chave apagada volta a HABILITAR o recurso, ou seja a falha e' na direcao insegura. NAO E' EXPLORAVEL HOJE: o unico chamador vivo (modals/atlas-settings.modal.js:348) sempre envia as 5 chaves completas via FEATURE_FIELDS, a rota exige permissao 'manage' (que ja' pode religar tudo pelo modal), e o comportamento shallow ja' esta' deliberadamente fixado por teste (backend/tests/integration/atlas-gaps.test.js:243-274, "atlas-09", que documenta 'clients must send the full features object'). O defeito acionavel e' a divergencia doc-vs-codigo, que convida uma regressao futura; a correcao e' alinhar os dois JSDoc ao comportamento shallow real (ou, se merge profundo for desejado, usar `jsonb_deep_merge`/`jsonb_set` por sub-chave e atualizar o teste atlas-09).
 
 ### 71. transferOwnership le o dono atual fora da transacao e nao escopa o UPDATE por owner_id: duas transferencias concorrentes deixam um dos donos eleitos sem nenhum acesso
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido, **com a correção que eu sugeri sendo recusada com razão**.
+> Eu propus comparar o dono já lido no início da transação com o do middleware, e chamei de
+> conserto de uma linha. Sob READ COMMITTED as duas transações leem o dono PRÉ-transferência
+> antes de qualquer escrita, então as duas comparações passam e nenhuma vira 409: medido, a
+> versão que sugeri deu **4 vencedores em 8 de 8 execuções**. O conserto real é escopar o UPDATE
+> por owner_id e checar rowCount, porque só a reavaliação do WHERE depois do lock de linha
+> decide. Provado no nível do SERVIÇO, nunca por HTTP.
 
 - **Arquivo:** `backend/src/modules/atlas/atlas.service.js:522`
 - **Estado:** CONFIRMADO
@@ -1665,6 +1679,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 73. `logout` revoga por hash sem escopo de dono e sempre responde 204, mesmo quando não revogou nada
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. A revogação hoje filtra pelo dono e é idempotente; o 204 uniforme é decisão anti-oráculo registrada (`backend/src/modules/auth/auth.queries.js`).
+
 - **Arquivo:** `backend/src/modules/auth/auth.service.js:185`
 - **Estado:** PLAUSIVEL (um dos dois céticos refutou; tratar como hipótese)
 - **Fatia:** `be-auth` · **Classe:** `validacao`
@@ -1680,6 +1696,10 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 74. `validateEnvVariables()` roda depois dos imports, então os ramos de DATABASE_URL/JWT_SECRET são código morto no boot real, e o teste que os cobre passa sobre um caminho que o servidor nunca toma
 
+> **CORRIGIDO em 2026-07-25.** As duas afirmações falsas foram corrigidas: o config dizia "Accumulates ALL errors"
+> e o README listava DATABASE_URL e JWT_SECRET como agrupados. O comportamento permanece (o
+> required lança na avaliação do módulo, antes do acumulador), e agora está descrito como é.
+
 - **Arquivo:** `backend/src/index.js:11`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-boot` · **Classe:** `teste-que-nao-prende`
@@ -1693,6 +1713,15 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** Os dois ramos de AUSENCIA de validateEnvVariables() (config.js:223 DATABASE_URL e config.js:227 JWT_SECRET) sao inalcancaveis no caminho de boot: em ESM o grafo de imports de index.js (linha 3 -> app.js:7 -> config.js) e avaliado antes de index.js:11, e o objeto congelado de config.js ja lanca em config.js:5 via required() nas linhas 43 e 49. Consequencia: para as duas variaveis mais comumente esquecidas o servidor morre com UMA mensagem por vez (verificado: `env -u DATABASE_URL PORT=not-a-number CORS_ORIGIN='not a url' node src/index.js` imprime so "Missing required env var: DATABASE_URL"), quebrando o contrato acumulador declarado no JSDoc de config.js:210-213 e reafirmado em docs/wiki/hardening-borda-api.md:54 e backend/README.md:143. Nao e codigo morto nem falha de seguranca: o restante do validador (PORT, CORS_ORIGIN, a regra de >=32 chars de JWT_SECRET em config.js:228, os 17 knobs numericos e as duracoes JWT) roda normalmente, os dois ramos seguem alcancaveis pela suite, e o processo continua fail-fast antes de createServer. O custo real e ergonomia de operador (corrige uma var, reinicia, descobre a proxima) somado a duas paginas de doc que afirmam a propriedade que nao se cumpre. O teste tests/unit/config.test.js:95-123 e verde vazio quanto a ORDEM DE BOOT: chama o validador direto e passaria igual se index.js o chamasse depois do server.listen() ou nunca; falta uma verificacao que exercite o boot de fato. Colateral latente (nao explorav'el): com DATABASE_URL/JWT_SECRET presentes e MAX_BULK_UPLOAD_MB=abc, app.js:60 CONSTROI express.json({limit:'NaNmb'}) (bytes.parse -> null = sem limite) antes da validacao, mas index.js:11 aborta o processo antes de qualquer listen, entao esse parser nunca serve trafego.
 
 ### 75. Chaves de topo desconhecidas em PUT /config/admin sao silenciosamente descartadas, nao rejeitadas, e o teste que afirma o contrario passa por outro motivo
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido por **rejeitar**, não por documentar o descarte. O editor
+> avançado é texto livre e errar nome de seção é o erro mais provável ali; o descarte devolvia
+> 200 com metade do payload no lixo.
+>
+> **O teste era degenerado e foi refeito:** ele mandava só a seção desconhecida, que dá 422 pelo
+> min(1) do schema e não pela chave desconhecida. O caso novo **mistura** seção conhecida com
+> desconhecida, que é o único que distingue rejeitar de descartar, e afirma que a metade
+> conhecida NÃO foi aplicada.
 
 - **Arquivo:** `backend/src/modules/config/config.admin.schemas.js:9`
 - **Estado:** CONFIRMADO
@@ -1709,6 +1738,18 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 76. GET /api/config (publico, sem auth) serve o cadastro completo de organizacoes militares e postos, que as rotas dedicadas exigem autenticacao para ler
 
+> **CORRIGIDO em 2026-07-25.** **DECISÃO DO DONO: as listas ficam públicas.** Nenhuma mudança de código, e o
+> registro é o valor: `GET /api/config` continua servindo nome, sigla e UUID de toda organização
+> militar ativa, mais os postos, a qualquer requisição não autenticada.
+>
+> O racional: é o dropdown do cadastro anônimo, que roda ANTES de existir token, e a alternativa
+> (condicionar as duas listas a `allowSelfRegistration`) fecharia uma enumeração de baixo valor
+> ao custo de acoplar o payload ao gate. Fica como risco aceito e explícito, não como descuido.
+>
+> Consequência que quem for mexer precisa saber: a memoização do endpoint (achado 64) assume
+> payload ÚNICO para todos os chamadores. Condicionar essas listas no futuro obriga a rever essa
+> premissa, senão o cache serve a lista a quem não deveria vê-la.
+
 - **Arquivo:** `backend/src/modules/config/config.service.js:148`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-catalog-config-audit` · **Classe:** `authz-bypass`
@@ -1723,6 +1764,12 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** O payload publico de `GET /api/config` inclui incondicionalmente `postos` e `organizacoesMilitares` (projections estreitas: id/nome/nome_abrev/sort_order e id/nome/sigla de todo registro `is_active`), enquanto `GET /api/v1/organizations` e `GET /api/v1/ranks` exigem `auth`. A exposicao e intencional e documentada (docs/wiki/config-dinamico.md:32) para o formulario de signup anonimo; o defeito real e mais estreito: a publicacao nao e condicionada a `config.security.allowSelfRegistration`, que e false por default em producao (src/config.js:31-35), entao em prod a enumeracao de OMs ativas (nome, sigla, UUID) fica acessivel a qualquer requisicao nao autenticada sem que exista consumidor anonimo. Hardening sugerido: emitir `postos`/`organizacoesMilitares` so quando `self_registration` estiver ligado ou quando `req.user` existir. Nao ha exposicao de PII de usuarios nem do registro completo das organizacoes.
 
 ### 77. PUT /config/admin faz read-modify-write sem transacao: dois saves concorrentes perdem um dos overrides em silencio, ambos respondendo 200
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido, **e o lock que eu sugeri estava errado**. O SELECT FOR
+> UPDATE tranca LINHAS, e no primeiro save não existe linha: os dois admins leriam "sem linha",
+> mesclariam sobre um objeto vazio e o segundo sobrescreveria em silêncio. A forma usada cria o
+> objeto contendido, toma o lock e devolve o documento atual num statement só. A invalidação do
+> cache roda **depois do commit**.
 
 - **Arquivo:** `backend/src/modules/config/config.service.js:45`
 - **Estado:** CONFIRMADO
@@ -1739,6 +1786,10 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 78. awayKey nao inclui userId: um clientId reaproveitado por outro usuario sequestra o slot 'away' e deixa o usuario anterior como fantasma permanente no roster
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido, com a **metade simétrica** que o item não via: além da
+> chave sem userId, a guarda de sobrevivente em removeConnection comparava só o clientId, então
+> mesmo com a chave certa o socket vivo de B calava a saída de A e o fantasma permanecia.
+
 - **Arquivo:** `backend/src/modules/collab/collab.gateway.js:327`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-collab` · **Classe:** `authz-lista-fechada`
@@ -1754,6 +1805,15 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 79. createSession e disparado sem await e pode ser commitado depois do deleteSession do mesmo socket, deixando linha orfa em active_sessions
 
+> **CORRIGIDO em 2026-07-25.** **DECISÃO DO DONO: parar de escrever.** As duas chamadas saíram do caminho quente.
+> A tabela FICA (migração é forward-only), com nota de reserva no ponto onde as chamadas estavam
+> e no DDL. As funções órfãs foram **removidas**, não mantidas exportadas: escritor exportado de
+> tabela write-only é convite a chamá-lo, e é o call site que reacende a ilusão.
+>
+> O teste tem **guarda de discriminação**: escreve uma linha à mão e exige que a contagem a
+> enxergue, senão qualquer "0 linhas" poderia ser erro de digitação passando por verificação.
+> Mais uma guarda estrutural que varre o código e reprova a reintrodução em qualquer módulo.
+
 - **Arquivo:** `backend/src/modules/collab/collab.gateway.js:354`
 - **Estado:** PLAUSIVEL (um dos dois céticos refutou; tratar como hipótese)
 - **Fatia:** `be-collab` · **Classe:** `race`
@@ -1767,6 +1827,15 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** `active_sessions` acumula linhas órfãs indefinidamente: não existe nenhum expurgo (nenhum SELECT, nenhum reaper, nenhuma limpeza no boot, só o INSERT em collab.service.js:32 e o DELETE em :45), apesar do índice `idx_sessions_heartbeat` (003_sync.sql:92) sugerir que haveria. A fonte principal é incondicional: qualquer restart ou crash do processo orfana toda sessão viva. Somada a ela há uma corrida menor e intermitente: `createSession` (collab.gateway.js:354) e `deleteSession` (:478) são ambos fire-and-forget, cada um em sua própria conexão do pool via `db.any` (database/index.js:31), sem ordenação garantida; num `leave` imediato (handleMessage :451-456 → onClose :505-513, sem janela de graça) o DELETE pode não achar a linha e o INSERT gravar depois, deixando uma linha para um socket já fechado. O impacto é limitado a crescimento de tabela: nenhum código lê `active_sessions` (presença ao vivo é in-memory no objeto `ws`), e as FKs sem `ON DELETE` não bloqueiam nada, porque não existe hard-delete de `users` nem de `atlas` no backend (`deleteUser` é soft-delete).
 
 ### 80. Bulk insere a linha antes de escrever o arquivo: um filename com barra deixa linha orfa reportada como 'failed' e queima o localId como PK para sempre
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido com **DELETE compensatório**, e a alternativa da transação
+> foi recusada com dois motivos: ela seguraria conexão do pool durante escrita de vários MB em
+> TODO item, pagando no caminho feliz para consertar o raro; e **nem tornaria atômico**, porque
+> o arquivo é escrito antes do COMMIT, então um COMMIT falho deixa arquivo órfão, trocando um
+> vazamento por outro.
+>
+> Detalhe que quase escapou: a compensação também libera o registro de ids vistos, senão um
+> retry do mesmo localId no mesmo lote receberia id novo em vez de reclamar a PK.
 
 - **Arquivo:** `backend/src/modules/images/images.service.js:217`
 - **Estado:** CONFIRMADO
@@ -1783,6 +1852,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 81. Upload simples nao remove o arquivo ja gravado em disco quando o INSERT falha, ao contrario do caminho de magic-bytes logo acima
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. O INSERT roda em try/catch com unlink compensatório antes do rethrow, eliminando a assimetria com o ramo de magic-bytes (`backend/src/modules/images/images.service.js`).
+
 - **Arquivo:** `backend/src/modules/images/images.service.js:52`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-images` · **Classe:** `leak`
@@ -1796,6 +1867,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** `uploadImage` (backend/src/modules/images/images.service.js:52) não remove o arquivo já gravado por multer quando o `INSERT` falha: o erro sobe pelo `asyncHandler` e o byte fica em `<IMAGES_DIR>/<atlasId>/<uuid>.<ext>` sem linha que o referencie, e não há varredura de órfãos no módulo. O gatilho realista é qualquer erro do Postgres durante o INSERT (conexão, pool, timeout); a corrida de hard-delete do atlas citada na reprodução é possível mas estreita. Duas ressalvas ao enunciado original: (a) o FK `atlas_id` é `ON DELETE CASCADE`, então o hard-delete do atlas apaga as linhas e já deixa TODOS os arquivos daquele atlas órfãos em disco - comportamento que `backend/tests/integration/images-gaps.test.js:374` afirma explicitamente ("files remain on disk"), ou seja, existe um vazamento maior e aparentemente aceito no mesmo módulo, do qual este achado é um caso menor; (b) a assimetria correta a citar não é só o ramo :47, mas `bulkUploadImages`, que resolve o mesmo problema invertendo a ordem (escreve o blob DEPOIS do INSERT, comentado em :215-217) - opção indisponível no caminho simples porque multer grava antes, restando o `unlink` no catch.
 
 ### 82. sourceMapIds com id repetido devolve 404 e nao faz merge nenhum
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. Dedup por Set antes da comparação de cardinalidade, com controle negativo provando que id genuinamente ausente ainda dá 404 (`backend/src/modules/maps/maps.service.js`).
 
 - **Arquivo:** `backend/src/modules/maps/maps.service.js:53`
 - **Estado:** CONFIRMADO
@@ -1812,6 +1885,23 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 83. merge cria linhas duplicadas por chave em cesium3d_data/streetview360_data que o snapshot colapsa silenciosamente
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido, e é o mais caro do lote. Os perdedores por chave lógica
+> são soft-deletados **antes** do movimento, com ranking que faz o destino ganhar, depois a
+> origem mais fresca, e o id como desempate total (uma regra só cobre destino-contra-origem e
+> origem-contra-origem, já que combinar três mapas de uma vez é ordinário). As duas queries de
+> snapshot ganharam `ORDER BY` determinístico, e a contagem de deduplicados aparece na resposta
+> e na op marcadora.
+>
+> A alternativa de fundir os dois payloads num só foi recusada: o `data` é JSONB opaco do
+> frontend (matrizes de câmera, heading/pitch/zoom), e um merge no servidor inventaria uma
+> terceira visão que ninguém salvou.
+>
+> **A primeira versão dos dois casos de determinismo era cobertura vazia**, e o agente sondou o
+> plano para descobrir por quê: é index scan, e um `SET data = data` é HOT update, então o índice
+> segue apontando para a tupla original e a ordem física nunca vira num teste. Foram reescritos
+> para separar ordem de armazenamento de ordem de criação **por construção** (insere a mais nova
+> primeiro, depois retroage a outra).
+
 - **Arquivo:** `backend/src/modules/maps/maps.service.js:59`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-maps-briefings` · **Classe:** `leak`
@@ -1826,6 +1916,17 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** O mecanismo esta correto como enunciado, mas a alcancabilidade e menor do que o achado sugere: a UI embarcada NAO chega la. frontend/src/js/store/sync/api-client.js nao tem metodo de merge (os hits de "merge" sao comentarios "deep-merged" sem relacao) e modals/combine-maps.modal.js nunca chama POST /:mapId/merge - o endpoint hoje so e alcancavel por chamada direta a API (com permissao 'write'). O impacto tambem e limitado: nenhuma linha e destruida (soft-delete intacto) e nenhuma geometria corrompe; o que some da visao do cliente e um preset de camera 3D ou uma orientacao 360 por chave colidida, que pode ressurgir se a ordem fisica das linhas mudar. Enunciado corrigido: "mergeMaps move linhas de cesium3d_data/streetview360_data sem deduplicar por (map_id, tileset_id) / (map_id, photo_name); como nao ha unique constraint e as queries do snapshot nao tem ORDER BY, uma colisao deixa uma das linhas permanentemente invisivel ao cliente, com vencedor definido pela ordem de heap. Alcancavel via API REST direta (nao pela UI atual) e sem cobertura de teste - maps-merge.test.js so testa features."
 
 ### 84. merge deixa os comentarios espaciais para tras, separando o comentario da feicao que ele anota
+
+> **CORRIGIDO em 2026-07-25.** **DECISÃO DO DONO: mover os comentários junto.** `comments` entrou em
+> `MAP_CHILD_TABLES`, e as duas caracterizações foram atualizadas **no mesmo commit**: o pino do
+> conjunto passou a listar sete tabelas, e o caso que afirmava que o comentário NÃO segue a feição
+> foi invertido e reetiquetado, com o cabeçalho dizendo que a decisão foi tomada e que o pino fez
+> o trabalho dele, que era segurar o defeito parado até então.
+>
+> Acrescentados dois casos que o pino antigo não cobria: uma resposta não fica para trás, e um
+> comentário soft-deletado não é ressuscitado. O JSDoc passou a dizer o que **não** se move
+> (`group_features`, `slides.map_id`, imagens) em vez de prometer "as sub-entidades" sem
+> ressalva.
 
 - **Arquivo:** `backend/src/modules/maps/maps.service.js:9`
 - **Estado:** CONFIRMADO
@@ -1842,6 +1943,12 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 85. `?api_key=` inválido curto-circuita o flexibleAuth e derruba a sessão por cookie, devolvendo 401 numa requisição que tinha credencial válida
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido: api key é TENTATIVA, e só a que resolve ganha precedência.
+> **A caracterização foi invertida no mesmo commit** — o teste afirmava o rebaixamento sob o
+> rótulo "isto é caracterização, não correção". Somados dois controles de não-super-correção:
+> chave válida continua ganhando do Bearer, e o principal da api key ainda alimenta o filtro de
+> acesso do gazetteer.
+
 - **Arquivo:** `backend/src/middleware/flexible-auth.js:44`
 - **Estado:** PLAUSIVEL (um dos dois céticos refutou; tratar como hipótese)
 - **Fatia:** `be-middleware` · **Classe:** `contrato`
@@ -1855,6 +1962,10 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** A presenca de `x-api-key`/`?api_key=` em `backend/src/middleware/flexible-auth.js:44-54` e tratada como escolha de mecanismo: valor invalido (nao-UUID, ou UUID sem linha ativa em `users`) faz `return next()` sem nunca avaliar cookie ou Bearer. Duas consequencias, ambas alcancaveis por link: (a) em rotas com `auth` estrito, uma sessao por COOKIE vira 401 'Missing or invalid authorization header' (Bearer escapa porque `auth.js:59` reextrai o header); (b) em rotas de auth OPCIONAL que so dependem de `flexibleAuth` (ex.: `sv360.routes.js`, `nomes`, `/api/config`), a requisicao degrada para anonimo mesmo com Bearer valido, retornando dado reduzido em vez de erro. Correcao do enunciado: nenhuma rota de login seta o cookie `token`, o unico `res.cookie('token', ...)` do backend e a renovacao deslizante em `flexible-auth.js:102`, ou seja, a sessao por cookie so existe depois que um request ja autenticado (tipicamente por Bearer) passou pelo slide de <5min para expirar. Isso estreita o alcance do caso (a) sem eliminar o defeito, e o caso (b) independe de cookie. Impacto e negacao de servico/degradacao para o proprio usuario, sem escalada de privilegio.
 
 ### 86. O principal sintético `public-<uuid>` vaza para casts `::uuid` de rotas que funcionam anônimas, transformando 200 em 400
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO na metade que restava e corrigido: a busca é só-flexibleAuth, então o
+> principal sintético chegava ao cast de UUID e virava 400 onde o anônimo recebe 200. Não havia
+> caracterização a inverter porque não havia teste.
 
 - **Arquivo:** `backend/src/middleware/flexible-auth.js:66`
 - **Estado:** CONFIRMADO
@@ -1890,6 +2001,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 88. Paginacao de /catalogo3d usa LIMIT/OFFSET sobre um ORDER BY sem chave unica de desempate: paginas podem repetir e omitir modelos
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. Desempate único por id acrescentado ao ORDER BY (`backend/src/modules/nomes/nomes.queries.js`).
+
 - **Arquivo:** `backend/src/modules/nomes/nomes.queries.js:115`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-nomes-zones` · **Classe:** `paginacao-nao-determinista`
@@ -1905,6 +2018,15 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 89. assertValidGeom captura qualquer excecao e reporta como 422 'Invalid GeoJSON geometry', mascarando falha de infraestrutura como erro do cliente
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido por classificação de SQLSTATE, com o código de parse
+> **medido** contra o PostGIS em execução e não suposto. A alternativa de aceitar só a classe 22
+> foi recusada: deixaria todo erro de parse real virar 500, invertendo o defeito.
+>
+> **A indução da falha é o que faz o teste valer:** não há tabela onde pendurar trigger, então o
+> teste cria uma função no schema do usuário que **sombreia** a do PostGIS, e que só levanta
+> exceção quando o GeoJSON traz uma chave sentinela, delegando à real em todo o resto. Os casos
+> passam a diferir **apenas** no código de erro.
+
 - **Arquivo:** `backend/src/modules/zones/zones.service.js:16`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-nomes-zones` · **Classe:** `erro-engolido`
@@ -1918,6 +2040,19 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** O catch nu da linha 16 de backend/src/modules/zones/zones.service.js envolve a chamada query(Q.VALIDATE_GEOM) inteira e converte QUALQUER falha em ValidationError 422 'Invalid GeoJSON geometry', nao apenas o erro de parse do ST_GeomFromGeoJSON. Como auth (JWT puro) e requireAdmin (checagem de papel em memoria) nao tocam o banco, essa query e o primeiro contato com o banco da requisicao, entao qualquer falha de infraestrutura desse caminho e atribuida ao poligono do admin. Correcao ao enunciado original: a consequencia de 'monitoramento cego' esta superestimada para uma queda TOTAL do banco, que seria ruidosa em todos os demais endpoints (e o boot do frontend e fail-fast em /api/config). O risco real e a falha LOCALIZADA que so se manifesta neste caminho -- PostGIS fora do search_path do schema ng, permissao negada em ng, statement timeout, esgotamento transitorio de pool -- que vira um 422 logado em warn dizendo ao admin que a geometria dele e invalida, prendendo-o num loop de corrigir um poligono correto. Correcao sugerida: inspecionar o erro e so mapear para ValidationError os SQLSTATE de parse/geometria do PostGIS (classe XX000 com mensagem de GeoJSON, 22023), repropagando o resto como 500.
 
 ### 90. O broadcast `sharing_updated` entrega a lista de membros (userId + permissao) a TODOS os sockets da sala, inclusive leitores e visitantes anonimos, enquanto o mesmo dado e gateado em 'manage' no REST
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido: os três frames que NOMEIAM um membro só vão para manage e
+> acima, mais os sockets do próprio afetado, comparando por NÍVEL e com permissão desconhecida
+> valendo zero. Os dois frames de link público seguem abertos, porque não carregam identidade.
+>
+> **A caracterização era desta semana e foi invertida no mesmo commit:** o teste elegia um socket
+> read como testemunha e EXIGIA dele o identificador do afetado. O vazamento tinha virado
+> contrato verde.
+>
+> **O controle negativo testou também a correção ÓBVIA E ERRADA:** pular só os read derruba os
+> mesmos 4 casos, porque os três níveis do meio continuam recebendo e, pior, o afetado com share
+> read deixa de receber o próprio frame. E trocar a entrega tornou VÁCUO um teste vizinho, cuja
+> testemunha read calada deixou de provar qualquer coisa.
 
 - **Arquivo:** `backend/src/modules/sharing/sharing.controller.js:31`
 - **Estado:** CONFIRMADO
@@ -1970,6 +2105,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 93. O unico teste do pull incremental tem escotilha de escape (if isSnapshot) e so afirma tautologias, por isso nao prende a divergencia de shape do 3D/360
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. A escotilha virou assert da condição e as disjunções viraram asserts tipados; hoje há regra de lint própria proibindo a classe (`backend/tests/integration/sync-frontend-format.test.js`).
+
 - **Arquivo:** `backend/tests/integration/sync-frontend-format.test.js:607`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-sync` · **Classe:** `teste-que-nao-prende`
@@ -2001,6 +2138,16 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 95. Atlas na lixeira nao sao contados nem transferidos ao desativar o dono, e ficam permanentemente irrecuperaveis
 
+> **CORRIGIDO em 2026-07-25.** **DECISÃO DO DONO: permitir restauração por admin.** Feito com statement SEPARADO
+> e ramo explícito, deixando o RESTORE_ATLAS **byte a byte inalterado**. A alternativa de
+> torná-lo nulável foi recusada porque transforma a única guarda anti-IDOR da rota em algo que um
+> controller desliga passando null, e esse escopo já foi afrouxado por engano uma vez nesta
+> auditoria.
+>
+> Controle negativo nas DUAS direções: desligar o ramo de admin derruba os 3 casos de admin e
+> deixa os 4 de recusa verdes; alargar a query original derruba os 3 de recusa e deixa os de
+> admin passar. Efeito colateral a saber: a lixeira passa a ser visível inteira ao admin global.
+
 - **Arquivo:** `backend/src/modules/users/users.queries.js:177`
 - **Estado:** PLAUSIVEL (um dos dois céticos refutou; tratar como hipótese)
 - **Fatia:** `be-users-orgs` · **Classe:** `perda-de-dado`
@@ -2015,6 +2162,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** Atlas na lixeira sao invisiveis para o guard de orfandade e para a transferencia ao desativar o dono, ficando com owner_id apontando para conta inativa. COUNT_USER_ATLAS (users.queries.js:177) e TRANSFER_ATLAS_OWNERSHIP (:170) filtram por `deleted_at IS NULL`, entao DELETE /api/v1/users/<U> retorna 200 sem exigir transferTo mesmo quando U tem atlas na lixeira, e esses atlas nao sao reatribuidos nem quando transferTo e informado. Enquanto U permanecer inativo, o atlas fica inacessivel a todos: o caminho de restauracao e owner-scoped sem bypass de admin (RESTORE_ATLAS e LIST_DELETED_USER_ATLAS exigem owner_id = chamador) e o middleware de auth barra U com 401. Nao e, porem, permanente nem exige SQL manual: o admin pode reverter via POST /api/v1/users/<U>/reactivate (mais POST /users/<U>/reset-password se precisar de sessao), apos o que U ve o atlas em GET /atlas/trash e o restaura. Impacto real: inconsistencia de estado (posse presa numa conta desativada) e recuperacao que so acontece desfazendo a desativacao; sem perda de dado, sem violacao de FK e sobre um atlas que o proprio dono ja havia descartado.
 
 ### 96. PUT /users/:userId com is_active:false desativa a conta sem nenhuma exigencia de transferencia de atlas
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. A transição de ativo para inativo por PUT lança ConflictError (`backend/src/modules/users/users.service.js`).
 
 - **Arquivo:** `backend/src/modules/users/users.service.js:159`
 - **Estado:** PLAUSIVEL (um dos dois céticos refutou; tratar como hipótese)
@@ -2048,6 +2197,10 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 98. env.dbPoolMax() e codigo morto: o pool real usa config.db.poolMax, e environment.test.js afirma um cap de conexoes que nao existe no sistema rodando
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e **removido**. As duas funções não tinham chamador e o único uso era um
+> assert tautológico. Fiar o consumo real seria inventar um cliente para justificar o código. O
+> cabeçalho do arquivo também prometia "helmet", método que nunca existiu.
+
 - **Arquivo:** `backend/src/utils/environment.js:40`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-utils` · **Classe:** `teste-que-nao-prende`
@@ -2062,6 +2215,12 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** Duas decisoes do EnvironmentManager sao codigo morto, e uma delas e coberta por um teste tautologico. `env.dbPoolMax()` (backend/src/utils/environment.js:40-42) e `env.corsOptions()` (:36-38) nao tem nenhum chamador em backend/src/: o pool real e criado em backend/src/database/index.js:17-21 com `max: config.db.poolMax` direto de config.js, e o CORS e inlinado em backend/src/app.js:49. O modulo NAO e integralmente morto, `cookieOptions()` e vivo e usado em backend/src/middleware/flexible-auth.js:87,102, de modo que o cabecalho de environment.js:2-3 ("single source of truth" para cookie/cors/pool/useHttps) so e verdadeiro para cookie/useHttps e engana quanto a pool/cors. O agravante e o teste: backend/tests/unit/environment.test.js:20-22 afirma "dbPoolMax caps below the configured max in non-production" com `assert.ok(env.dbPoolMax() <= 5)`, satisfeito por construcao pelo proprio `Math.min(..., 5)` e verde qualquer que seja o pool efetivo (com DATABASE_POOL_MAX=50 em NODE_ENV=test o pool real sobe com max 50, 10x o cap que o teste declara vigente). Nao ha, porem, defeito de runtime alcancavel: nenhum comportamento observavel do servidor esta errado hoje, o dano e um cabecalho falso mais um verde que nada prova. Correcao = remover as duas funcoes mortas e o assert vazio, ou fiar `database/index.js` e `app.js` no EnvironmentManager para tornar o cabecalho verdadeiro.
 
 ### 99. reconcileAuthorization engole o erro e o sweep a dispara sem await: uma falha de DB deixa a permissão do socket VELHA indefinidamente, quebrando o limite de ~30s que a doutrina declara
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido com contador de falhas **consecutivas** por socket,
+> fechando na terceira, e o sweep passou a escoar as reconciliações por um pool. A assimetria
+> ficou explicada no código: tolerar uma evita que um soluço de banco vire logout coletivo (o
+> sweep toca todos os sockets de uma vez), fechar em N impede o socket de viver indefinidamente
+> com permissão em cache.
 
 - **Arquivo:** `backend/src/modules/collab/collab.gateway.js:160`
 - **Estado:** PLAUSIVEL (um dos dois céticos refutou; tratar como hipótese)
@@ -2078,6 +2237,9 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 100. createSession e deleteSession são fire-and-forget sem ordenação: um connect/disconnect rápido pode gravar a linha de active_sessions DEPOIS do DELETE que deveria removê-la
 
+> **CORRIGIDO em 2026-07-25.** Mesmo defeito do item 79; ver a nota de lá. A corrida deixou de existir por
+> construção, porque as duas escritas saíram.
+
 - **Arquivo:** `backend/src/modules/collab/collab.gateway.js:354`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-async-race` · **Classe:** `race`
@@ -2093,6 +2255,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 101. `sharing_updated` e transmitido a TODOS os clientes da sala, inclusive Visualizadores e visitantes publicos, expondo quem tem qual permissao no atlas
 
+> **CORRIGIDO em 2026-07-25.** Mesmo defeito do item 90; ver a nota de lá.
+
 - **Arquivo:** `backend/src/modules/sharing/sharing.controller.js:31`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-authz-hierarquia` · **Classe:** `vazamento-por-broadcast`
@@ -2106,6 +2270,11 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** Os cinco broadcasts de `sharing_updated` (`sharing.controller.js:14, 20, 31, 49, 64`) chamam `broadcastToRoom` sem o opt-in `{ skipReadOnly: true }`, entao os frames vao para todo socket aberto na sala, inclusive os de `permission === 'read'` (Visualizador compartilhado e visitante de link publico, `collab.gateway.js:66,103-105`). Nos tres frames de mutacao de usuario (`user_added`, `user_updated`, `user_removed`) o payload carrega `userId` de terceiro e o `permission`/`role` concedido, que e precisamente o dado que `requireAtlasPermission('manage')` protege em `GET /atlas/:id/sharing` (`sharing.routes.js:15`). A unica filtragem existente e no consumidor (`sync-engine.js:466-471` descarta frames de outro `userId`), o que nao impede a leitura do frame no socket do visitante. Correcao: passar `{ skipReadOnly: true }` nos tres frames de mutacao de usuario, ou melhor, enderecar o frame apenas ao socket do usuario afetado e aos sockets com `manage`+ (os frames `public_enabled`/`public_disabled` de :14 e :20 nao vazam identidade e podem seguir abertos).
 
 ### 102. Documentação do contrato congelado afirma que `GET /api/config` devolve objeto nu; o backend envelopa em `{ data }`
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido em **cinco** lugares, não três: as duas páginas de síntese,
+> os DOIS JSDoc do api-client (a mesma falsidade duas vezes no mesmo arquivo) e uma linha de
+> api-rest-atlas. O backend não muda: quem lê o corpo cru sem desembrulhar recebe undefined em
+> toda chave, com status 200.
 
 - **Arquivo:** `backend/src/modules/config/config.controller.js:10`
 - **Estado:** CONFIRMADO
@@ -2121,6 +2290,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 103. `503 SERVICE_UNAVAILABLE` é emitido também pelo push de sync, contradizendo a página que o declara exclusivo do `/health`
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. A página passou a dizer que são DOIS os emissores de 503 e nomeia o push de sync (`docs/wiki/sintese-contrato-erros-http.md`).
+
 - **Arquivo:** `backend/src/modules/sync/sync.service.js:665`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-contrato` · **Classe:** `contrato`
@@ -2135,6 +2306,9 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 104. Marcador de CONTRADICAO pendente em config-dinamico.md aponta para um teste que já foi corrigido
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO na metade que restava. O marcador já tinha saído; sobrava o parêntese
+> dizendo que o teste estava desatualizado, quando ele é hoje o guarda correto.
+
 - **Arquivo:** `docs/wiki/config-dinamico.md:34`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-contrato` · **Classe:** `doc-obsoleta`
@@ -2148,6 +2322,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** O marcador [!CONTRADICAO 2026-07-18] em docs/wiki/config-dinamico.md:34 e uma contradicao ja resolvida (supersessao temporal): descreve o estado do teste ANTES do commit 14f703f, que corrigiu config-contract.e2e.test.js 37 minutos depois de a pagina ser escrita. O teste hoje e o guarda correto do contrato congelado (afirma a AUSENCIA de search.apiUrl e nao exige comprimento de tileServerUrl), alinhado a config.service.js:182 (`search: {}`) e a backend/tests/integration/config.test.js:105. O marcador deve ser removido, e o achado original omite uma SEGUNDA ocorrencia da mesma afirmacao falsa: o item de Checklist em docs/wiki/config-dinamico.md:71 diz "(ciente de que o teste ja esta desatualizado em `search`/`services`)". Remover so a linha 34 deixa a falsidade de pe na linha 71; ambas precisam cair no mesmo commit.
 
 ### 105. Erro de rota sv360 passa pelo cliente HTTP genérico e perde `code` e `message` (envelope plano vs `{error:{code,message}}`)
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. O parser aceita os dois envelopes, plano e aninhado (`frontend/src/js/store/sync/api-client.js`).
 
 - **Arquivo:** `frontend/src/js/store/sync/api-client.js:235`
 - **Estado:** CONFIRMADO
@@ -2164,6 +2340,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 106. errorHandler global nao checa res.headersSent, entao erro apos o inicio do streaming aborta a conexao e loga como falha de servidor
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. A guarda de headersSent foi posta DEPOIS do log, de propósito: o finalhandler não loga, e perder esse registro tornaria invisível a falha de meio-de-stream (`backend/src/middleware/error-handler.js`).
+
 - **Arquivo:** `backend/src/middleware/error-handler.js:11`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-erros-http` · **Classe:** `contrato`
@@ -2178,6 +2356,19 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** O `errorHandler` global (`backend/src/middleware/error-handler.js:11`) nao checa `res.headersSent` antes de responder, ao contrario do handler irmao do modulo 360 (`sv360-error.js:16`). O caminho alcancavel e o callback de `res.sendFile` em `images.controller.js:29` (`GET /api/v1/atlas/:atlasId/images/:imageId`), que dispara com `Error('Request aborted')`/`code: 'ECONNABORTED'` e sem `statusCode` apos o inicio do streaming. O efeito PRINCIPAL e de observabilidade: como `err.statusCode` e `undefined`, `loggedStatus` cai no default 500 e `logFn` vira `logger.error`, entao todo cancelamento de download (fechar aba, perda de rede) vira uma entrada nivel error no stream de falhas do servidor, exatamente o ruido que o comentario das linhas 12-15 diz querer evitar. Em seguida `res.status(...).json(...)` lanca ERR_HTTP_HEADERS_SENT de dentro do proprio handler e o finalhandler destroi o socket. O efeito secundario alegado ("o envelope de erro nunca chega ao cliente, quebrando o contrato de erros") e superestimado no cenario dominante: no abort o cliente ja nao esta escutando, e um envelope JSON tampouco poderia ser entregue no meio de um corpo binario ja em transito. So importa no caso raro de erro de leitura em disco com o cliente ainda conectado, e mesmo ali o resultado (conexao encerrada sem corpo valido) e o unico desfecho possivel. Correcao: `if (res.headersSent) return next(err);` no topo do handler, opcionalmente com log em nivel `warn`/`info` para aborts.
 
 ### 107. Canal WS de colaboracao devolve err.message cru ao cliente em producao, sem o gate de isDev que o REST aplica
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido com um helper extraído para utils: erro operacional passa
+> intacto, SQLSTATE conhecido vira texto fixo, o resto vira fallback, e o erro cru vai para o
+> logger. Extraído em vez de replicado porque o mesmo mapa de sete SQLSTATEs ficaria em três
+> arquivos.
+>
+> A validação de payload **não** foi mascarada, e a contenção é deliberada: a mensagem do Joi
+> descreve o payload do próprio cliente contra um schema público, e o REST devolve os mesmos
+> detalhes. Mascarar removeria o único sinal do cliente sem esconder nada.
+>
+> **Armadilha registrada:** o Postgres desta máquina responde em pt-BR, e a primeira âncora de
+> log em inglês reprovou três testes, que é literalmente a terceira razão pela qual esse texto
+> nunca deve ser encaminhado ao cliente.
 
 - **Arquivo:** `backend/src/modules/collab/collab.handlers.js:157`
 - **Estado:** CONFIRMADO
@@ -2194,6 +2385,14 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 108. Upload em lote de imagens devolve err.message cru dentro de um 201, vazando nome de constraint do Postgres e caminho absoluto do servidor
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido com a mesma forma do 107, mais um log que não existia. O
+> caso caro era o **caminho absoluto do disco do servidor** vazando num 201.
+>
+> **O agente achou cobertura vazia no próprio teste:** a primeira versão filtrava "algum registro
+> com um Error", e o controle negativo mostrou que o caso da colisão de PK continuava verde SEM o
+> log novo, porque a camada de banco já emite um registro com o mesmo erro anexado. Cobertura
+> vazia exata, no teste cujo trabalho é impedir um fix que engole o erro.
+
 - **Arquivo:** `backend/src/modules/images/images.service.js:230`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-erros-http` · **Classe:** `leak`
@@ -2208,6 +2407,9 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** bulkUploadImages devolve err.message cru do driver/FS dentro do array `failed` de uma resposta 201, contornando as tres protecoes do errorHandler central (mapa SQLSTATE, mascara de producao, gate err.expose). Um usuario autenticado com permissao `write` dispara isso a vontade reenviando um localId que ja e PK global de images (INSERT_IMAGE_WITH_ID + PK global em 002_atlas.sql:309), recebendo o nome da constraint (`images_pkey`); se o diretorio de storage falhar na escrita, o writeFile da linha 217 devolve o caminho absoluto do servidor pelo mesmo campo. Correcoes ao enunciado original: (a) o 201 NAO e a antipattern "erro que retorna 200", o envelope uploaded/failed/mapping e um contrato deliberado de sucesso parcial, e o defeito e so a mensagem crua, nao o status; (b) o alcance exige autenticacao com `write` no atlas, e o unico dado realmente sensivel e o caminho de disco (o nome da tabela ja e implicito pela rota), o que rebaixa a severidade.
 
 ### 109. Calibracao 360 em lote devolve err.message cru de falha SQL em resposta 200
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido com a mesma forma; os erros operacionais continuam
+> informativos pelo ramo que os reconhece.
 
 - **Arquivo:** `backend/src/modules/streetview360/sv360.write.service.js:266`
 - **Estado:** CONFIRMADO
@@ -2224,6 +2426,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 110. keyGenerator do authLimiter chama .toLowerCase() sem checar tipo e derruba POST /auth/login em 500 quando username não é string; a suíte nunca alcança esse código porque skip roda antes
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. A chave só faz toLowerCase em string. Nota de precisão: quem prende isso é o edge-hardening.repro, e NÃO o teste desta semana, que cobre só case-folding (`backend/src/middleware/rate-limit.js`).
+
 - **Arquivo:** `backend/src/middleware/rate-limit.js:32`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-seguranca-borda` · **Classe:** `contrato`
@@ -2238,6 +2442,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 111. Content-Disposition de download de imagem interpola o originalname do upload sem escapar aspas, permitindo forjar o nome de arquivo entregue ao cliente
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. O header sai por res.attachment, montado pelo módulo content-disposition (`backend/src/modules/images/images.controller.js`).
+
 - **Arquivo:** `backend/src/modules/images/images.controller.js:18`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-seguranca-borda` · **Classe:** `validacao`
@@ -2251,6 +2457,15 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** Content-Disposition de download de imagem interpola o filename persistido sem escapar aspas, permitindo forjar o nome de arquivo entregue ao cliente. O vetor vivo e o endpoint de bulk import (POST /api/v1/atlas/:atlasId/images/bulk), nao o upload multipart: bulkImageItemSchema (images.schemas.js:11) valida o filename apenas como Joi.string().max(255), sem pattern, e o valor entra na coluna images.filename (VARCHAR(255) sem CHECK) e sai interpolado em images.controller.js:18. O caminho multipart citado na reproducao original NAO e explorável: images.routes.js:26 usa file.originalname somente para derivar a extensao, e o busboy aplica basename() no filename parseado (busboy/lib/types/multipart.js:321-322) alem de recusar aspa dupla crua num filename multipart, fato ja documentado no comentario do proprio teste do repo (tests/integration/images-gaps.test.js:213-217, que por isso injeta o valor forjado direto por SQL). O teste existente em images-gaps.test.js:212-231 nao cobre o defeito: afirma apenas que o header continua attachment e nao-inline, sem jamais afirmar um unico parametro filename bem formado. Verificado em Node que o header sai como `attachment; filename="x".png"; filename="contrato-assinado.pdf"` com status 200. Impacto: usuario com write num atlas compartilhado faz qualquer usuario com read baixar um PNG legitimo com nome de arquivo enganoso; engenharia social, sem XSS (attachment se mantem) e sem header injection (CR/LF lanca ERR_INVALID_CHAR).
 
 ### 112. O thumbnail do bundle sv360 é aceito com até 2 GiB e gravado no disco de produção sem nenhuma validação de conteúdo real
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido: magic bytes exigindo webp mais teto próprio de 5 MiB,
+> checados **antes** do ingest, então a recusa é 400 sobre requisição que ainda não mudou nada. O
+> erro engolido virou log.
+>
+> Duas contenções deliberadas: o teto do multer **não** foi mexido (é comum aos três campos, e o
+> banco de imagens é multi-GB), e a tolerância a octet-stream permanece, porque a evidência é o
+> conteúdo e endurecer o mime quebraria cliente que rotula mal um WebP legítimo. Dos cinco casos,
+> três passam nos dois lados da mutação, que é o que impede o teste de virar "recusa tudo".
 
 - **Arquivo:** `backend/src/modules/streetview360/sv360.admin.service.js:267`
 - **Estado:** CONFIRMADO
@@ -2267,6 +2482,11 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 113. GET /api/config executa a mesma query de basemaps duas vezes por requisicao, no endpoint fail-fast que todo boot de cliente atinge
 
+> **MITIGADO em 2026-07-25, não fechado.** A memoização do config (achado 64) tirou o
+> custo POR REQUISIÇÃO: a consulta duplicada passou a custar por ESCRITA, e uma rajada de N
+> chamadas custa um build só, porque a entrada guarda a promessa em voo. A duplicata em si
+> permanece, e deduplicar mexe em assinatura exportada: ficou fora do escopo, deliberadamente.
+
 - **Arquivo:** `backend/src/modules/config/config.service.js:63`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-sql` · **Classe:** `efficiency`
@@ -2280,6 +2500,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** GET /api/config executa a query de basemaps duas vezes por requisicao. listBasemaps (config.service.js:63-70) e listBasemapStyles (:77-84) chamam ambas catalogService.listCatalog('basemaps') (SELECT sem memoizacao em catalog.service.js:27), e getAppConfig (:159-168) as coloca no mesmo Promise.all. Precisao sobre o enunciado original: o Promise.all ja dispara OITO queries paralelas por requisicao (basemaps x2, analysis_layers, data_layers, tilesets, ranks, organizations, config_settings), entao a duplicata e uma conexao extra entre oito, nao um par isolado consumindo duas conexoes de um pool de 10. Alem disso GET /config/admin (config.controller.js:15-18) agrava: chama getAppConfig() mais getConfigOverrides(), repetindo tambem a query de overrides, embora seja rota admin e rara, sem o peso do caminho de boot. Sem bug funcional; correcao trivial e buscar os rows uma vez e passa-los aos dois formatadores.
 
 ### 114. Paginacao do catalogo 3D usa ORDER BY sem chave unica e com `rank` constante zero quando nao ha busca, entao paginar repete e pula modelos
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. Mesmo desempate do item 88, com teste de 120 linhas empatadas em 12 páginas: zero duplicadas, zero perdidas (`backend/src/modules/nomes/nomes.queries.js`).
 
 - **Arquivo:** `backend/src/modules/nomes/nomes.queries.js:115`
 - **Estado:** CONFIRMADO
@@ -2296,6 +2518,8 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 
 ### 115. backend/CLAUDE.md afirma que `maps`/`briefings` têm apenas GET, mas existem duas rotas REST de escrita que criam feature/layer/group
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO por verificação contra o código: já estava corrigido. O arquivo hoje enuncia a regra e nomeia as TRÊS exceções estruturais, com o critério real de operação de entidade INTEIRA (`backend/CLAUDE.md`).
+
 - **Arquivo:** `backend/CLAUDE.md:46`
 - **Estado:** CONFIRMADO
 - **Fatia:** `x-sync-invariante` · **Classe:** `contrato`
@@ -2309,6 +2533,19 @@ O DEFEITO: `sendVerificationEmail` escreve o link COMPLETO no log quando não h�
 > **Correção do verificador.** backend/CLAUDE.md:46 enuncia como absoluto ("maps/briefings tem apenas GET; nao crie rotas REST de escrita") uma regra que o proprio backend excetua de forma deliberada e documentada, sem que a ressalva conste no arquivo que o agente le primeiro. As excecoes que mutam um atlas EXISTENTE e por isso dependem do broadcast obrigatorio sao duas: POST /atlas/:atlasId/maps/:mapId/merge (maps.routes.js:17 -> maps.service.js:58-65, broadcast 'maps_merged' em maps.controller.js:19-23) e POST /atlas/:atlasId/maps/:mapId/duplicate (atlas.routes.js:44 -> cloneMapSubEntities em atlas.service.js:166-265, broadcast 'map_duplicated' em atlas.controller.js:70-71). Existem ainda duas rotas REST que escrevem nas mesmas tabelas de sub-entidade mas NAO sao contraexemplos da mitigacao, por criarem um atlas novo sem sala de colaboracao viva: POST /atlas/import (atlas.routes.js:22 -> atlas.service.js:615-652) e POST /atlas/:atlasId/clone (atlas.routes.js:41). A correcao devida e reescrever a linha 46 como regra com excecao nomeada: escrita de entidade colaborativa e so via sync, EXCETO operacoes estruturais atomicas (merge/duplicate/clone/import), que nao cabem como centenas de ops sem atomicidade e que, quando tocam um atlas existente, sao obrigadas a fazer broadcast WS apos a escrita e antes do res, porque escrita REST estrutural e invisivel ao pull incremental (pullOperations so le 'operations' quando sinceVersion > 0, sync.service.js:812) e o cliente so converge pelo serverResync disparado pelo broadcast (frontend/src/js/store/sync/ws-client.js:352-358).
 
 ### 116. Operação de sync com entityType desconhecido é gravada no log, acked como success e incrementa a versão, sem escrever nada
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e corrigido por **recusa por operação**, e a alternativa de fechar o
+> schema foi recusada com o argumento decisivo: um 422 de schema derruba o push INTEIRO, e como o
+> cliente não desenfileira não-2xx, seria o **quarto poison batch permanente** num arquivo que já
+> gastou três parágrafos consertando os outros três.
+>
+> O conjunto de alvos aplicáveis é derivado das chaves do mapa de tabelas mais os alvos do mapa
+> de tipos, para não haver duas listas divergindo. A recusa vem **antes** do INSERT no log, então
+> a op não consome versão nem chega aos pares.
+>
+> **O SyncLedger passou a pegar o caso**, e o return nu virou return zero. Mas a conversão geral
+> de indefinido para NO_EFFECT foi **recusada**: os caminhos não medidos passariam a acusar falso
+> positivo, e guarda que grita à toa é guarda que alguém desliga. Fica como lacuna conhecida.
 
 - **Arquivo:** `backend/src/modules/sync/sync.service.js:1405`
 - **Estado:** CONFIRMADO

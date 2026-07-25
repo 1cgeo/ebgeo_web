@@ -75,14 +75,54 @@ export const LIST_DELETED_USER_ATLAS = `
   ORDER BY a.deleted_at DESC
 `;
 
+// Every trashed atlas, for a global admin (bugs-backend #95). A restore path nobody can SEE is
+// not a path: the atlases this exists for are precisely the ones whose owner is deactivated, so
+// they appear in no user's bin. `user_permission` is 'owner' because that is what
+// `requireAtlasPermission` already grants an admin on every atlas — the listing must not claim
+// less access than the gate gives, which is the mistake LIST_USER_ATLAS documents above.
+// `owner_nome`/`owner_username` are what makes another user's atlas identifiable in the list.
+export const LIST_ALL_DELETED_ATLAS = `
+  SELECT a.*, u.nome as owner_nome, u.username as owner_username, 'owner' as user_permission
+  FROM atlas a
+  JOIN users u ON u.id = a.owner_id
+  WHERE a.deleted_at IS NOT NULL
+  ORDER BY a.deleted_at DESC
+`;
+
 // Restore is scoped to (id, owner, soft-deleted) so the ownership check is atomic: a non-owner or a
 // non-deleted/absent atlas matches zero rows → the service raises 404.
+//
+// The `owner_id = $2` scope IS the access control of POST /:atlasId/restore — the one route of the
+// module with no `requireAtlasPermission`, because that middleware only sees live atlases. It has
+// been loosened by accident before. Never widen THIS query; the admin path below is a separate
+// statement, chosen by an explicit branch in the service.
 export const RESTORE_ATLAS = `
   UPDATE atlas
   SET deleted_at = NULL,
       updated_at = NOW(),
       version = version + 1
   WHERE id = $1 AND owner_id = $2 AND deleted_at IS NOT NULL
+  RETURNING *
+`;
+
+// Global-admin restore (bugs-backend #95, owner's decision). Deliberately a SECOND statement
+// rather than a nullable `($2 IS NULL OR owner_id = $2)` on the one above: an anti-IDOR predicate
+// that can be switched off by passing null is one bad argument away from being off, and the
+// argument comes from a controller. Two statements make "no owner scope" a thing you have to
+// write down. The caller is `req.user.role === 'admin'`, which `auth` re-reads from the database
+// on every request, so a demoted admin cannot reach it with a stale claim.
+//
+// It exists because a trashed atlas was otherwise UNREACHABLE: the deactivation queries
+// (users.queries.js COUNT_USER_ATLAS / TRANSFER_ATLAS_OWNERSHIP) both filter `deleted_at IS NULL`,
+// so an atlas in the bin is neither counted nor transferred when its owner is deactivated. It stays
+// owned by an inactive account that the `auth` middleware refuses, and the owner scope here meant
+// nobody at all could bring it back.
+export const RESTORE_ATLAS_ADMIN = `
+  UPDATE atlas
+  SET deleted_at = NULL,
+      updated_at = NOW(),
+      version = version + 1
+  WHERE id = $1 AND deleted_at IS NOT NULL
   RETURNING *
 `;
 

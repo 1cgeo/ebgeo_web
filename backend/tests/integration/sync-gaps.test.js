@@ -118,43 +118,77 @@ describe('Sync CRDT — confirmed gaps', () => {
     });
   });
 
-  // --- sync-04 (unknown entityType silently skipped) -------------------------
-  describe('unknown entityType is acked, logged, bumps version, writes nothing', () => {
-    it('bogus_type op succeeds, logs operation, no entity row, version bumps', async () => {
+  // --- sync-04 (unknown entityType: recusa POR OPERAÇÃO) ---------------------
+  //
+  // Esta caracterização prendia o comportamento ERRADO. Ela afirmava
+  // `results[0].success === true` para um `target: 'bogus_type'` — o ack de sucesso que
+  // fazia o cliente desenfileirar uma operação que o servidor nunca aplicou (o apply era
+  // `if (!table) return;`, um no-op silencioso). O verde provava que a perda de dado
+  // continuava acontecendo, o que é o oposto de uma garantia.
+  //
+  // Agora o alvo desconhecido é recusado por operação (rejected + reason, 200 no lote),
+  // ANTES do insert no log: sem linha em `operations`, sem consumir `server_version` e
+  // sem relay para os pares. O lote sobrevive — que é a razão de a recusa não ser um 422
+  // de schema.
+  describe('unknown entityType is refused per operation, never acked as success', () => {
+    it('bogus_type é recusado com motivo, não vira linha de log, e não envenena o lote', async () => {
       const atlas = await createAtlas(db, user.id);
       const map = await createMap(db, atlas.id);
 
-      const before = await supertest(app)
-        .get(`/api/v1/atlas/${atlas.id}/sync/0`)
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
-      const beforeVersion = before.body.data.currentVersion;
+      const opsAntes = await db.query(
+        'SELECT COUNT(*)::int AS n FROM operations WHERE atlas_id = $1',
+        [atlas.id]
+      );
 
       const opId = randomUUID();
       const targetId = randomUUID();
-      const res = await pushOps(app, atlas.id, token, [{
-        id: opId,
-        type: 'create',
-        target: 'bogus_type',
-        targetId,
-        mapId: map.id,
-        data: { foo: 'bar' },
-        timestamp: Date.now(),
-        clientId: 'gap-client',
-      }]).expect(200);
+      const featureId = randomUUID();
+      // A op boa vai DEPOIS da desconhecida de propósito: se a recusa abortasse a
+      // transação do lote (como a recusa de política fazia antes de virar ack), a feição
+      // seguinte sumiria junto e o cliente reenviaria o lote envenenado para sempre.
+      const res = await pushOps(app, atlas.id, token, [
+        {
+          id: opId,
+          type: 'create',
+          target: 'bogus_type',
+          targetId,
+          mapId: map.id,
+          data: { foo: 'bar' },
+          timestamp: Date.now(),
+          clientId: 'gap-client',
+        },
+        createFeatureOp(map.id, featureId, { name: 'sobrevivente' }),
+      ]).expect(200);
 
-      assert.equal(res.body.data.results[0].success, true);
+      const [recusada, boa] = res.body.data.results;
 
-      // (a) operation row exists for that op_id
-      const ops = await db.query('SELECT * FROM operations WHERE atlas_id = $1 AND op_id = $2', [atlas.id, opId]);
-      assert.equal(ops.rows.length, 1);
+      // (a) o ack diz a verdade: NÃO é sucesso, e diz por quê, nomeando o tipo.
+      assert.equal(recusada.success, false, 'uma op que o servidor não aplica não pode ackar sucesso');
+      assert.equal(recusada.rejected, true);
+      assert.match(recusada.reason, /bogus_type/);
 
-      // (b) nothing inserted into features (the most plausible misfire)
+      // (b) nada no log append-only: a op não consome server_version nem é replicada.
+      const ops = await db.query(
+        'SELECT * FROM operations WHERE atlas_id = $1 AND op_id = $2',
+        [atlas.id, opId]
+      );
+      assert.equal(ops.rows.length, 0);
+
+      // (c) nada nas tabelas de entidade (o desvio mais plausível).
       const feats = await db.query('SELECT * FROM features WHERE id = $1', [targetId]);
       assert.equal(feats.rows.length, 0);
 
-      // (c) version increased
-      assert.ok(res.body.data.serverVersion > beforeVersion);
+      // (d) o lote sobreviveu: a op seguinte foi aplicada de verdade.
+      assert.equal(boa.success, true);
+      const sobrevivente = await db.query('SELECT * FROM features WHERE id = $1', [featureId]);
+      assert.equal(sobrevivente.rows.length, 1, 'a recusa de uma op não pode derrubar as irmãs');
+
+      // (e) exatamente UMA linha nova no log — a da op boa.
+      const opsDepois = await db.query(
+        'SELECT COUNT(*)::int AS n FROM operations WHERE atlas_id = $1',
+        [atlas.id]
+      );
+      assert.equal(opsDepois.rows[0].n, opsAntes.rows[0].n + 1);
     });
   });
 

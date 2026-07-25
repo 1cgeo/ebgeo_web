@@ -16,13 +16,13 @@ Link errado, atlas na lixeira e link desativado caem no mesmo 404, porque o filt
 
 ## O prefixo `public-` é contrato congelado
 
-O `sub` do token é `public-<uuid>`, deliberadamente fora do formato UUID puro (`backend/src/modules/atlas/atlas.service.js:143-146`). Três lugares dependem dessa convenção como teste de tipo de principal, e nenhum deles é visível a partir dos outros:
+O `sub` do token é `public-<uuid>`, deliberadamente fora do formato UUID puro (`backend/src/modules/atlas/atlas.service.js:143-146`). Dois lugares dependem dessa convenção como teste de tipo de principal (eram três até 2026-07-25), e nenhum deles é visível a partir dos outros:
 
 - `backend/src/middleware/auth.js:80-82` pula a reconciliação com o banco (não existe linha em `users` para esse `sub`);
 - `backend/src/middleware/permissions.js:92` pula a busca em `atlas_shares`;
-- o handshake e o `removeConnection` (`backend/src/modules/collab/collab.gateway.js`) não criam nem apagam linha em `active_sessions`, senão a FK para `users` quebraria.
+- ~~o handshake e o `removeConnection` (`backend/src/modules/collab/collab.gateway.js`) não criam nem apagam linha em `active_sessions`, senão a FK para `users` quebraria~~. **Caiu em 2026-07-25**: `active_sessions` não tem mais escritor nenhum (a presença sempre foi só o `Map` em memória), então ninguém mais depende da convenção por esse lado. Restam os dois acima. Ver [[presenca-colaborativa]] §"O que não existe".
 
-Emitir um `sub` UUID no token público derruba os três de uma vez, e os dois primeiros falham *silenciosamente* (viram consulta vazia), não com erro. Ver [[jwt-emissor-unico]] e [[autenticacao-jwt]].
+Emitir um `sub` UUID no token público derruba os dois de uma vez, e ambos falham *silenciosamente* (viram consulta vazia), não com erro. Ver [[jwt-emissor-unico]] e [[autenticacao-jwt]].
 
 No handshake a identidade é sobrescrita por valores fixos (`backend/src/modules/collab/collab.gateway.js:270-275`): visitante não pode herdar `posto`, `role` ou `organization_id` do token, porque nenhum campo desses foi assinado por uma identidade real ([[canal-collab-websocket]]).
 
@@ -32,7 +32,7 @@ Como toda verificação relê `is_public`, o token perde valor na próxima requi
 
 ## O que o tier `read` esconde
 
-Comentários espaciais são retirados do que chega a um `read`, tanto no snapshot (`backend/src/modules/sync/sync.service.js:456-458`) quanto no pull incremental (`backend/src/modules/sync/sync.service.js:797-798`). Isso **não** é regra de "público": vale igualmente para o Visualizador logado ([[sintese-capacidades-por-papel]]). Quem for adicionar um novo tipo de entidade sensível precisa repetir o filtro nos dois pontos, que são independentes. Ver [[comentario-espacial]] e [[snapshot-e-pull-incremental]].
+Comentários espaciais são retirados do que chega a um `read`, tanto no snapshot (`backend/src/modules/sync/sync.service.js:489-491`) quanto no pull incremental (`backend/src/modules/sync/sync.service.js:830-831`). Isso **não** é regra de "público": vale igualmente para o Visualizador logado ([[sintese-capacidades-por-papel]]). Quem for adicionar um novo tipo de entidade sensível precisa repetir o filtro nos dois pontos, que são independentes. Ver [[comentario-espacial]] e [[snapshot-e-pull-incremental]].
 
 ## Custos do boot público (cliente)
 

@@ -143,8 +143,15 @@ internas (inclusive `createAudit(req, params, t)` — auditoria participa da tra
 
 ### Config & boot
 `config.js` usa `required(key)` (fail-fast) e `optional(key, fallback)`, `Object.freeze` aninhado,
-getters `isDev`/`isProd`/`isTest`. `validateEnvVariables()` (chamado em `index.js`) agrupa erros
-(DATABASE_URL, JWT_SECRET ≥ 32 chars em prod, PORT, CORS_ORIGIN) e aborta cedo. `app.js` exporta
+getters `isDev`/`isProd`/`isTest`. `validateEnvVariables()` (chamado em `index.js`) acumula erros e
+aborta cedo, **mas não alcança `DATABASE_URL` nem `JWT_SECRET`**: esta linha listava as duas como
+agrupadas e era falso. Ambas são lidas por `required()` na avaliação do módulo, e `index.js` importa
+`app.js` (logo, `config.js`) antes de chamar a validação, então faltando qualquer uma o processo
+morre com `Missing required env var: X`, sozinho e em inglês, antes do acumulador rodar. O que ele
+de fato agrupa é o que passa por `optional()`: PORT, CORS_ORIGIN, a tabela `NUMERIC_ENV_RULES`, a
+gramática de `JWT_ACCESS_EXPIRY`/`JWT_REFRESH_EXPIRY` e os condicionais de produção (o mínimo de 32
+chars do segredo só é checado quando o segredo existe). Detalhe em
+`docs/wiki/hardening-borda-api.md`. `app.js` exporta
 `createApp()`; ordem global: `helmet` → `cors` → `compression` → `express.json` → `requestLogger` →
 health/config → rotas → `errorHandler`. **Rotas públicas montam ANTES do auth** (ex.: `GET /api/config`,
 `/atlas/public/:link`).

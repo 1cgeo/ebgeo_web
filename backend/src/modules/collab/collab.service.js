@@ -1,52 +1,27 @@
 // Path: src/modules/collab/collab.service.js
 // Presence and session management for WebSocket collaboration
 
-import { query } from '../../database/index.js';
 import { broadcastToRoom, getRoomUsers } from './collab.rooms.js';
-import logger from '../../utils/logger.js';
 
-const INSERT_SESSION = `
-  INSERT INTO active_sessions (user_id, atlas_id, client_id)
-  VALUES ($1, $2, $3)
-  ON CONFLICT (user_id, atlas_id, client_id) DO UPDATE SET connected_at = NOW(), last_heartbeat = NOW()
-  RETURNING id
-`;
-
-const DELETE_SESSION = `
-  DELETE FROM active_sessions
-  WHERE user_id = $1 AND atlas_id = $2 AND client_id = $3
-`;
-
-// NOTE (B-be1): live presence is NOT persisted. Cursor position, current map,
-// selected features and temporal state are held in-memory on the `ws` object
-// (see collab.gateway.js / collab.handlers.js: ws.cursorPosition / ws.currentMapId /
-// ws.selectedFeatures / ws.temporalState) and broadcast to the room. Per-cursor DB
-// writes would be wasteful, so the old updateSessionPresence/updateSessionHeartbeat
-// helpers were removed. `active_sessions` only tracks connect/disconnect.
-
-/**
- * Creates a session record for a WebSocket connection.
- */
-export async function createSession(userId, atlasId, clientId) {
-  try {
-    const { rows } = await query(INSERT_SESSION, [userId, atlasId, clientId]);
-    return rows[0].id;
-  } catch (err) {
-    logger.error({ err, userId, atlasId }, 'Failed to create session');
-    return null;
-  }
-}
-
-/**
- * Deletes a session record.
- */
-export async function deleteSession(userId, atlasId, clientId) {
-  try {
-    await query(DELETE_SESSION, [userId, atlasId, clientId]);
-  } catch (err) {
-    logger.error({ err, userId, atlasId }, 'Failed to delete session');
-  }
-}
+// PRESENCE IS ENTIRELY IN MEMORY. NOTHING HERE TOUCHES THE DATABASE.
+//
+// Two layers were peeled off this file, and the second one is the one worth remembering:
+//
+//  1. (B-be1) Cursor position, current map, selected features and temporal state live on the `ws`
+//     object (collab.gateway.js / collab.handlers.js) and are broadcast to the room. Per-cursor DB
+//     writes would be waste, so `updateSessionPresence`/`updateSessionHeartbeat` were removed.
+//
+//  2. (2026-07-25) `createSession`/`deleteSession`, the last two writers of `active_sessions`,
+//     were removed as well — together with the INSERT/DELETE SQL and the `query` import. The
+//     table had NO reader anywhere in `backend/src`, so the writes bought nothing while looking
+//     like a durable session trail: fire-and-forget calls that could commit out of order and
+//     orphan a row, no reaper, and a restart orphaning every live row in silence. The functions
+//     are DELETED rather than kept exported-with-a-note, because an exported writer for a
+//     write-only table is an invitation to call it, and a call site is exactly what turns the
+//     illusion back on. The table itself is kept (forward-only migrations) and is RESERVED, with
+//     no writer, by decision — see the note at the createSession call site in collab.gateway.js.
+//
+// If durable sessions are ever needed, the design starts with the READER.
 
 /**
  * Broadcasts user joined event to the room.

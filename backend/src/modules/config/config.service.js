@@ -5,7 +5,7 @@
 //  - static UI: app/features/map2d/map3d defaults from config.static
 import config from '../../config.js';
 import { ValidationError } from '../../utils/errors.js';
-import { query } from '../../database/index.js';
+import { query, tx } from '../../database/index.js';
 import { catalogService } from '../catalog/index.js';
 import { readThroughAppConfigCache, invalidateAppConfigCache } from './config.cache.js';
 import * as Q from './config.queries.js';
@@ -69,20 +69,38 @@ function assertEffectiveInvariants(merged) {
 /**
  * Merges a partial override into the stored override document (so a partial save never wipes
  * untouched sections) and persists it. Returns the merged document.
+ *
+ * ATOMIC BY CONSTRUCTION. The read, the merge and the write are one transaction that opens by
+ * LOCKING the single `app_config` row (`Q.LOCK_CONFIG_OVERRIDES`), because a partial save is a
+ * read-modify-write and three loose awaits are exactly the lost-update shape: two admins editing
+ * DIFFERENT sections in the same window both read the same base, both merge their own section
+ * onto it, and the second write replaces the first. Nothing errors and nothing logs — both see
+ * 200 with the echo of their own merge, and one section quietly reverts. The loser now blocks on
+ * the row lock and re-reads the committed document, so its merge lands on top of the winner's.
+ *
+ * `invalidateAppConfigCache()` runs AFTER the commit, on purpose. Inside the transaction the new
+ * value is not yet visible to other connections, so a concurrent `GET /api/config` landing in
+ * that window would rebuild the memo from the OLD row and re-cache it — reopening, as a stale
+ * cache entry, precisely the window the lock just closed.
+ *
  * @param {Object} partial - Validated partial config.
  * @param {string|null} userId
  */
 export async function updateConfigOverrides(partial, userId) {
-  const current = await getConfigOverrides();
-  const merged = deepMerge(current, partial);
-  assertEffectiveInvariants(merged);
-  const { rows } = await query(Q.UPSERT_CONFIG_OVERRIDES, [
-    OVERRIDES_KEY,
-    JSON.stringify(merged),
-    userId ?? null,
-  ]);
+  const merged = await tx(async (t) => {
+    const current = (await t.one(Q.LOCK_CONFIG_OVERRIDES, [OVERRIDES_KEY])).value ?? {};
+    const next = deepMerge(current, partial);
+    // Inside the transaction: a rejected payload rolls back the placeholder row too, so a failed
+    // save never leaves a `{}` document behind where there was none.
+    assertEffectiveInvariants(next);
+    return (await t.one(Q.UPSERT_CONFIG_OVERRIDES, [
+      OVERRIDES_KEY,
+      JSON.stringify(next),
+      userId ?? null,
+    ])).value;
+  });
   invalidateAppConfigCache();
-  return rows[0].value;
+  return merged;
 }
 
 /** Clears ALL config overrides (the revert valve — config reverts to STATIC/ENV on next boot). */

@@ -5,9 +5,20 @@ import Joi from 'joi';
  * Editable config sections for the admin "Sistema" tab. The headline fields keep their TYPE checks,
  * but each section is `.unknown(true)` so an admin can also override the advanced keys not surfaced
  * as form fields (map2d.terrainSource/hillshade/bounds, map3d.initialCamera/providers/bounds,
- * streetView360 sources, the global enabled flags, …) via the "Avançado (JSON)" editor. Unknown
- * TOP-LEVEL keys are still rejected — basemaps/tilesets/layers have their own /resources CRUD and
- * must not be injected through here. At least one section must be present.
+ * streetView360 sources, the global enabled flags, …) via the "Avançado (JSON)" editor. At least one
+ * section must be present.
+ *
+ * Unknown TOP-LEVEL keys are rejected (422) — basemaps/tilesets/layers have their own /resources
+ * CRUD and must not be injected through here. That takes `.prefs({ stripUnknown: false })`, because
+ * the `validate` middleware runs every schema with `stripUnknown: true`: this comment claimed
+ * rejection while the middleware quietly DELETED the offending section and answered 200. The editor
+ * is free-form JSON and a mistyped section name ("map2D", "feature") is the likeliest mistake there
+ * is, so the admin was told the save worked while half the payload was discarded.
+ *
+ * The preference is set on the TOP-LEVEL object only in effect: each section declares `.unknown(true)`
+ * explicitly, which outranks `stripUnknown` in Joi, so the advanced keys inside a KNOWN section still
+ * pass through untouched (verified: `{ app: { title, advKey } , bogus: {} }` errors on `bogus` while
+ * keeping `advKey`).
  */
 export const configOverridesSchema = Joi.object({
   app: Joi.object({
@@ -45,4 +56,4 @@ export const configOverridesSchema = Joi.object({
   analysisLayers: Joi.object().unknown(true),
   dataLayers: Joi.object().unknown(true),
   assets3dBaseUrl: Joi.string().max(500).allow(''),
-}).min(1);
+}).min(1).prefs({ stripUnknown: false });

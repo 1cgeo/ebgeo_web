@@ -40,6 +40,39 @@ const ENTITY_TYPE_MAP = {
 };
 
 /**
+ * Normalized target → entity table. Lives at module scope (it used to be rebuilt inside
+ * applyOperation on every op) because it is now ALSO the authority for what this server
+ * is able to apply at all — see APPLIABLE_TARGETS. One table, one truth.
+ */
+const TARGET_TABLE_MAP = {
+  feature: 'features',
+  group: 'groups',
+  layer: 'layers',
+  map: 'maps',
+  map_meta: 'maps',
+  atlas_meta: 'atlas',
+  briefing: 'briefings',
+  slide: 'slides',
+  cesium3d: 'cesium3d_data',
+  streetview360: 'streetview360_data',
+  group_feature: 'group_features',
+  catalog_layer: 'catalog_layers',
+  comment: 'comments',
+};
+
+/**
+ * Every target this server knows how to apply, DERIVED so it cannot drift: the tables
+ * above, plus the targets ENTITY_TYPE_MAP translates into (already a subset, but a new
+ * mapping must not be able to introduce an untabled target silently), plus `setting`,
+ * which applyOperation handles before the table lookup and therefore has no table.
+ */
+const APPLIABLE_TARGETS = new Set([
+  ...Object.keys(TARGET_TABLE_MAP),
+  ...Object.values(ENTITY_TYPE_MAP).map((m) => m.target),
+  'setting',
+]);
+
+/**
  * Reverse map: converts backend data_type back to frontend entity type.
  */
 const REVERSE_ENTITY_TYPE_MAP = {
@@ -998,6 +1031,39 @@ function operationDenialReason(op, permission) {
 }
 
 /**
+ * Refusal for an operation whose entityType this server cannot apply at all.
+ *
+ * `applyOperation` used to end an unknown target with `const table = tableMap[target];
+ * if (!table) return;` — a silent no-op. The op was still written to the append-only log,
+ * still bumped `current_version`, and was still acked `success: true`, so the client
+ * DEQUEUED it confident it had landed and the entity never materialized for anyone. The
+ * realistic trigger is deploy skew: the frontend ships an entity type before the backend
+ * learns it, and every op of that type is confirmed and lost, one flush at a time.
+ *
+ * Refusing per operation (rejected + reason, batch survives, 200) rather than closing
+ * `entityType` with a Joi `.valid(...)`: a schema rejection is a 422 for the WHOLE push,
+ * and the client does not dequeue a non-2xx (sync-engine flush: "A rejected batch is NOT
+ * dequeued"), so a single unknown op would replay the same poisoned batch every 1.5 s and
+ * freeze that user's sync for every entity — the exact failure this file already fixed
+ * three times (denied op, locked map, integrity violation). This is the fourth instance of
+ * the same shape, and it reuses it verbatim.
+ *
+ * Refused BEFORE the log insert on purpose: an op nobody can apply must not consume a
+ * `server_version` (the incremental-pull cursor) nor be replayed to peers as an entity
+ * type they may not understand either.
+ *
+ * @param {Object} op - Normalized operation.
+ * @returns {string|null} Refusal reason, or null when the target is appliable.
+ */
+function unknownTargetDenialReason(op) {
+  if (APPLIABLE_TARGETS.has(op.target)) return null;
+  // The type is echoed back so the client can name it in the UI/log, but TRUNCATED: it is
+  // client-controlled text and `entityType` has no length bound in the schema.
+  const tipo = String(op._originalEntityType ?? op.target ?? '').slice(0, 40);
+  return `Alteração descartada: este servidor não conhece o tipo de entidade "${tipo}".`;
+}
+
+/**
  * The other half of {@link operationDenialReason}, for the refusal that needs the database:
  * a LOCKED map blocks mutations of its child entities (the spec's "disable editing").
  *
@@ -1128,10 +1194,12 @@ export async function pushOperations(atlasId, operations, userId, permission = '
       // invalidates the whole batch (403).
       assertOperationAllowed(op, permission);
 
-      // Per-op policy (map delete, map lock/unlock, write into a locked map): refuse THIS
-      // operation without aborting the transaction, so one denied op cannot freeze the
-      // client's queue.
-      const denialReason = operationDenialReason(op, permission)
+      // Per-op refusal (unknown entity type, map delete, map lock/unlock, write into a
+      // locked map): refuse THIS operation without aborting the transaction, so one
+      // denied op cannot freeze the client's queue. The unknown-target check runs first
+      // because it is the cheapest and needs no database round-trip.
+      const denialReason = unknownTargetDenialReason(op)
+        ?? operationDenialReason(op, permission)
         ?? await lockedMapDenialReason(t, op);
       if (denialReason) {
         acks.push({
@@ -1942,26 +2010,14 @@ async function applyOperation(t, atlasId, op, userId, permission) {
     return;
   }
 
-  // Map target to table name
-  const tableMap = {
-    feature: 'features',
-    group: 'groups',
-    layer: 'layers',
-    map: 'maps',
-    map_meta: 'maps',
-    atlas_meta: 'atlas',
-    briefing: 'briefings',
-    slide: 'slides',
-    cesium3d: 'cesium3d_data',
-    streetview360: 'streetview360_data',
-    group_feature: 'group_features',
-    catalog_layer: 'catalog_layers',
-    comment: 'comments',
-  };
-
-  const table = tableMap[target];
+  const table = TARGET_TABLE_MAP[target];
   if (!table) {
-    return; // Unknown target, skip
+    // Defense in depth: pushOperations refuses an unknown target per-op BEFORE the log
+    // insert (unknownTargetDenialReason), so this is only reachable from another caller.
+    // `return 0` and not a bare `return`: an undefined rowsAffected reads as OK in the
+    // server.applied span, which is exactly how "acked, logged, wrote nothing" stayed
+    // invisible to the SyncLedger too. Zero rows is what happened; say so.
+    return 0;
   }
 
   // catalogLayer has dual-mode handling (legacy whole-array vs per-layer table).

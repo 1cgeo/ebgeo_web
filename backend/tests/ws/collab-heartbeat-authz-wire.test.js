@@ -12,8 +12,11 @@
 // Além disso o rebaixamento write→read só vale se o HANDLER passar a recusar: a
 // permissão vive no `ws`, então o gate tem de valer SEM reconectar.
 //
-// `heartbeatSweep` NÃO dá await em `reconcileAuthorization`, então todo caso aqui
-// espera por OBSERVÁVEL (close / frame / linha no banco), nunca por retorno.
+// Desde 2026-07-25 (item 99) `heartbeatSweep` É assíncrono e AGUARDA as reconciliações
+// (pool limitado). Os casos aqui continuam esperando por OBSERVÁVEL (close / frame),
+// não por retorno: o observável é o que o par realmente vê, e a espera por ele segue
+// correta com ou sem await. Quem prende o await em si é
+// tests/ws/collab-authz-reconcile-failure.test.js.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -165,23 +168,19 @@ describe('heartbeatSweep → reconcileAuthorization sobre socket REAL', () => {
     writerClient.close();
   });
 
-  it('conta desativada com socket ABERTO: close 4003 e a linha em active_sessions some', async () => {
+  it('conta desativada com socket ABERTO: close 4003 e o socket sai da lista do servidor', async () => {
+    // Reescrito em 2026-07-25 (itens 79 + 100). A guarda de lista não-vazia deste caso
+    // era a linha em `active_sessions` antes da desativação; a tabela não tem mais
+    // escritor (a presença sempre viveu em memória), então a guarda passou a ser a
+    // presença do socket em `wss.clients`, que é o registro que de fato existe.
     const { atlas, peer, peerToken } = await cenario('write');
     const clientId = `cid-${randomUUID().slice(0, 8)}`;
 
     const client = await createWsClient(server, atlas.id, peerToken, clientId);
     await client.waitForType('connected');
 
-    // A sessão é criada sem await em onConnection: espera pelo observável.
-    let sessao = [];
-    for (let i = 0; i < 50 && sessao.length === 0; i++) {
-      await sleep(20);
-      ({ rows: sessao } = await db.query(
-        'SELECT id FROM active_sessions WHERE user_id = $1 AND atlas_id = $2 AND client_id = $3',
-        [peer.id, atlas.id, clientId]
-      ));
-    }
-    assert.equal(sessao.length, 1, 'a sessão existe antes da desativação (guarda de lista não-vazia)');
+    const noServidor = () => [...wss.clients].filter((s) => s.userId === peer.id && s.clientId === clientId);
+    assert.equal(noServidor().length, 1, 'o socket existe antes da desativação (guarda de lista não-vazia)');
 
     await db.query('UPDATE users SET is_active = false WHERE id = $1', [peer.id]);
     heartbeatSweep(wss);
@@ -189,14 +188,9 @@ describe('heartbeatSweep → reconcileAuthorization sobre socket REAL', () => {
     const code = await closeCodeOf(client);
     assert.equal(code, 4003, 'conta desativada derruba o socket vivo');
 
-    let restante = [{}];
-    for (let i = 0; i < 50 && restante.length > 0; i++) {
+    for (let i = 0; i < 50 && noServidor().length > 0; i++) {
       await sleep(20);
-      ({ rows: restante } = await db.query(
-        'SELECT id FROM active_sessions WHERE user_id = $1 AND atlas_id = $2 AND client_id = $3',
-        [peer.id, atlas.id, clientId]
-      ));
     }
-    assert.equal(restante.length, 0, 'a sessão é encerrada junto com o socket');
+    assert.equal(noServidor().length, 0, 'o socket é retirado da lista junto com o fechamento');
   });
 });

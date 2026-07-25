@@ -10,10 +10,11 @@ O cenário que motivou o campo: o servidor grava e commita, a resposta se perde 
 
 ## Armadilha: `success: false` existe, mas significa "recusado", nunca "tente de novo"
 
-Esta seção já disse o oposto, e a inversão importa (ver `## Histórico`). `success` hoje é `a.rejected !== true` em `pushOperations` (`backend/src/modules/sync/sync.service.js`), e há **duas** famílias de item com `success: false`, ambas acompanhadas de `rejected: true` e de uma `reason` em pt-BR destinada ao usuário, ambas deixando o lote **sobreviver**:
+Esta seção já disse o oposto, e a inversão importa (ver `## Histórico`). `success` hoje é `a.rejected !== true` em `pushOperations` (`backend/src/modules/sync/sync.service.js`), e há **três** famílias de item com `success: false`, todas acompanhadas de `rejected: true` e de uma `reason` em pt-BR destinada ao usuário, todas deixando o lote **sobreviver**:
 
 - **recusa de política** sobre uma op só: excluir mapa sem `manage`, travar/destravar sem ser dono, escrever em mapa bloqueado;
 - **violação de dado**: SQLSTATE classe 22/23 (CHECK, FK, `22P02`, NOT NULL, texto acima do `VARCHAR`). Cada op corre num SAVEPOINT, então o rollback alcança só ela — log e efeito juntos. A `reason` é **genérica por segurança**: o texto do driver carrega nome de constraint e de índice e depende do locale, e vai só para o log do servidor.
+- **`entityType` que este servidor não sabe aplicar** (`unknownTargetDenialReason`, mesmo arquivo), recusado **antes** do INSERT no log: não consome `server_version` nem chega aos pares. Até 2026-07-25 essa op era o pior caso possível — gravada no log, acked como **sucesso** e nunca materializada, então o cliente desenfileirava confiante e o dado sumia. O cenário real é skew de deploy: o frontend estreia um tipo de entidade antes de o backend aprendê-lo.
 
 O que continua sendo tudo-ou-nada é o que pode dar certo na retentativa: violação de nível (`assertOperationAllowed`, mesmo arquivo), `40001`, `55P03`, queda de conexão. Esses abortam a transação e viram erro HTTP ou `{type:'error'}`, sem `results[]` nenhum — e é assim de propósito, porque descartar op boa é perda de dado irreversível e fila travada não é.
 

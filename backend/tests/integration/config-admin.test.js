@@ -75,7 +75,7 @@ describe('Config — admin overrides (F4)', () => {
     assert.equal(cfg.body.data.app.title, 'Meu EBGeo');
   });
 
-  it('validation rejects bad types, unknown keys, and empty payloads (422)', async () => {
+  it('validation rejects bad types and empty payloads (422)', async () => {
     await supertest(app)
       .put('/api/v1/config/admin')
       .set('Authorization', `Bearer ${adminTok}`)
@@ -84,13 +84,35 @@ describe('Config — admin overrides (F4)', () => {
     await supertest(app)
       .put('/api/v1/config/admin')
       .set('Authorization', `Bearer ${adminTok}`)
-      .send({ bogusSection: { x: 1 } })
-      .expect(422);
-    await supertest(app)
-      .put('/api/v1/config/admin')
-      .set('Authorization', `Bearer ${adminTok}`)
       .send({})
       .expect(422);
+  });
+
+  it('uma seção desconhecida MISTURADA com uma conhecida derruba o PUT inteiro (422, nada gravado)', async () => {
+    // O caso que este arquivo tinha antes — `{ bogusSection: { x: 1 } }` sozinho — passava
+    // com a chave desconhecida sendo DESCARTADA em silêncio: o corpo ficava `{}` e o 422
+    // vinha do `.min(1)` do schema, não da chave inválida. Era um verde que provaria
+    // exatamente a mesma coisa se a validação de chave desconhecida não existisse.
+    //
+    // O único payload que distingue "rejeitar" de "descartar" tem as DUAS coisas. Com o
+    // descarte silencioso (stripUnknown do middleware), este PUT respondia 200 e gravava
+    // a metade conhecida; com a rejeição, responde 422 e não grava nada.
+    const antes = await supertest(app).get('/api/v1/config').expect(200);
+    assert.equal(antes.body.data.features.grid, true, 'pré-condição: o override anterior está de pé');
+
+    const res = await supertest(app)
+      .put('/api/v1/config/admin')
+      .set('Authorization', `Bearer ${adminTok}`)
+      .send({ features: { grid: false }, bogusSection: { x: 1 } })
+      .expect(422);
+    assert.match(JSON.stringify(res.body), /bogusSection/, 'o erro precisa NOMEAR a seção recusada');
+
+    const depois = await supertest(app).get('/api/v1/config').expect(200);
+    assert.equal(
+      depois.body.data.features.grid,
+      true,
+      'a metade conhecida do payload recusado não pode ter sido aplicada'
+    );
   });
 
   it('allows ADVANCED overrides for keys with no form field (everything is configurable)', async () => {

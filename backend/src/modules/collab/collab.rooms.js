@@ -2,6 +2,7 @@
 // In-memory room management for WebSocket collaboration
 
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
+import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 
 const rooms = new Map(); // atlasId -> Set<WebSocket>
 
@@ -45,15 +46,38 @@ export function getRoomClients(atlasId) {
 }
 
 /**
- * Broadcasts a message to all clients in a room, optionally excluding the sender. With
- * `opts.skipReadOnly`, read-only connections (Visualizador / public visitor) are skipped — used to
- * keep spatial-comment ops away from viewers (the comment visibility rule).
+ * Broadcasts a message to all clients in a room, optionally excluding the sender.
+ *
+ * Two independent recipient filters, because the room is NOT an audience:
+ * - `opts.skipReadOnly` skips read-only connections (Visualizador / public visitor) — the
+ *   spatial-comment visibility rule.
+ * - `opts.minPermission` delivers only to sockets at or above a level of the atlas hierarchy
+ *   (`read < comment < write < manage < owner`), with `opts.alsoUserIds` as an explicit
+ *   allow-list of affected users who receive it whatever their level. This is what a frame
+ *   carrying data the REST route gates must use: `skipReadOnly` alone is NOT equivalent, since
+ *   it still delivers to `comment` and `write` — the closed-list mistake this repo has made
+ *   twice. Comparison is by LEVEL, never by equality, and an unknown/absent `client.permission`
+ *   scores 0, so the gate fails closed.
+ *
  * @param {string} atlasId
  * @param {Object|string} message
  * @param {import('ws').WebSocket|null} [excludeWs]
- * @param {{ skipReadOnly?: boolean }} [opts]
+ * @param {{ skipReadOnly?: boolean, minPermission?: string|null, alsoUserIds?: string[]|null }} [opts]
+ * @throws {TypeError} When `minPermission` is not a known level (a typo must be loud, not silently
+ *   deliver to nobody — the failure mode of a fail-closed default here is an invisible outage).
  */
-export function broadcastToRoom(atlasId, message, excludeWs = null, { skipReadOnly = false } = {}) {
+export function broadcastToRoom(
+  atlasId,
+  message,
+  excludeWs = null,
+  { skipReadOnly = false, minPermission = null, alsoUserIds = null } = {}
+) {
+  const minLevel = minPermission == null ? 0 : PERMISSION_LEVELS[minPermission];
+  if (minPermission != null && !minLevel) {
+    throw new TypeError(`broadcastToRoom: unknown minPermission "${minPermission}"`);
+  }
+  const allowedUsers = alsoUserIds?.length ? new Set(alsoUserIds.map(String)) : null;
+
   const room = rooms.get(atlasId);
   if (!room) return { sent: 0, recipients: [] };
 
@@ -64,6 +88,11 @@ export function broadcastToRoom(atlasId, message, excludeWs = null, { skipReadOn
   for (const client of room) {
     if (client === excludeWs || client.readyState !== 1) continue; // WebSocket.OPEN = 1
     if (skipReadOnly && client.permission === 'read') continue;
+    if (minLevel) {
+      const level = PERMISSION_LEVELS[client.permission] ?? 0;
+      const affected = allowedUsers?.has(String(client.userId ?? '')) ?? false;
+      if (level < minLevel && !affected) continue;
+    }
     const buffered = client.bufferedAmount || 0;
     if (buffered > BACKPRESSURE_KILL_BYTES) { client.terminate?.(); continue; } // drowning → reconnect+replay
     if (coalescable && buffered > BACKPRESSURE_DROP_BYTES) continue; // superseded by the next frame

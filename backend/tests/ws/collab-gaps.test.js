@@ -402,42 +402,38 @@ describe('WebSocket Collaboration — gaps', () => {
   });
 
   // ── ws-10 ────────────────────────────────────────────────────────────────
-  describe('ws-10 public visitor creates no active_sessions row', () => {
-    it('public connection leaves active_sessions empty; authenticated owner creates a row', async () => {
+  // Reescrito em 2026-07-25 (itens 79 + 100). O caso original afirmava a assimetria
+  // "visitante público NÃO cria linha em active_sessions, dono CRIA", que existia por
+  // causa da FK para `users` (o `sub` do visitante é `public-<uuid>`, sem linha lá).
+  // Desde a decisão de 2026-07-25 a tabela não tem ESCRITOR NENHUM: as duas chamadas
+  // saíram de `collab.gateway.js`, porque nada em `backend/src` lia a tabela. A metade
+  // "dono CRIA" do caso, portanto, afirmava um comportamento que foi retirado de
+  // propósito, e o teste passa a afirmar a simetria nova.
+  //
+  // O ciclo de vida completo (com guarda de discriminação e guarda estrutural contra
+  // reintrodução) vive em tests/ws/collab-active-sessions-lifecycle.test.js; aqui fica
+  // só o que este arquivo cobre, que é o caminho do VISITANTE PÚBLICO.
+  describe('ws-10 nem visitante público nem usuário autenticado escrevem active_sessions', () => {
+    it('as duas conexões funcionam e a tabela permanece vazia para o atlas', async () => {
       const pubToken = await getPublicToken(app, p1Link);
       const pub = await createWsClient(server, p1.id, pubToken);
-      await pub.waitForType('connected');
-
-      const { rows: pubRows } = await db.query(
-        `SELECT count(*)::int AS n FROM active_sessions WHERE atlas_id = $1`,
-        [p1.id]
-      );
-      assert.equal(pubRows[0].n, 0, 'no session row for public visitor');
+      const connectedPub = await pub.waitForType('connected');
+      assert.equal(connectedPub.permission, 'read', 'guarda: o visitante entra como leitor');
 
       const own = await createWsClient(server, p1.id, ownerToken);
       const connectedOwn = await own.waitForType('connected');
+      assert.equal(connectedOwn.permission, 'owner', 'guarda: o dono entra como owner');
 
-      // Session is written asynchronously after connect; poll briefly.
-      let n = 0;
-      for (let i = 0; i < 20; i++) {
-        const { rows } = await db.query(
-          `SELECT count(*)::int AS n FROM active_sessions WHERE atlas_id = $1 AND user_id = $2`,
-          [p1.id, owner.id]
-        );
-        n = rows[0].n;
-        if (n > 0) break;
-        await sleep(50);
-      }
-      assert.ok(n > 0, 'owner session row created');
+      // A escrita era assíncrona (fire-and-forget) depois do connect: espera a janela em
+      // que ela teria commitado, em vez de medir imediatamente e passar por pressa.
+      await sleep(700);
 
-      // Public visitor still has no row.
-      const { rows: stillPub } = await db.query(
-        `SELECT count(*)::int AS n FROM active_sessions WHERE atlas_id = $1 AND user_id::text LIKE 'public-%'`,
+      const { rows } = await db.query(
+        `SELECT count(*)::int AS n FROM active_sessions WHERE atlas_id = $1`,
         [p1.id]
       );
-      assert.equal(stillPub[0].n, 0);
+      assert.equal(rows[0].n, 0, 'nenhum socket escreve sessão — a presença vive só em memória');
 
-      void connectedOwn;
       pub.close();
       own.close();
     });

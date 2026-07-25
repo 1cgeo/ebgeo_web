@@ -30,13 +30,19 @@ export const deleteAtlas = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
+// A global admin sees and restores every trashed atlas, not only their own: an atlas trashed by
+// an owner who was later deactivated belongs to nobody who can act on it, so without this branch
+// it is unreachable forever (bugs-backend #95). `req.user.role` is re-read from the database by
+// the `auth` middleware on every request, so a demoted admin does not keep the power.
 export const listTrash = asyncHandler(async (req, res) => {
-  const result = await atlasService.listDeletedUserAtlas(req.user.id);
+  const result = await atlasService.listDeletedUserAtlas(req.user.id, req.user.role === 'admin');
   res.json({ data: result });
 });
 
 export const restoreAtlas = asyncHandler(async (req, res) => {
-  const atlas = await atlasService.restoreAtlas(req.params.atlasId, req.user.id);
+  const atlas = await atlasService.restoreAtlas(
+    req.params.atlasId, req.user.id, req.user.role === 'admin'
+  );
   res.json({ data: atlas });
 });
 

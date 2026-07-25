@@ -70,6 +70,20 @@ EXECUTE FUNCTION update_atlas_current_version();
 
 -- ============================================================================
 -- ACTIVE SESSIONS (WebSocket presence awareness). client_id TEXT (id do cliente).
+--
+-- RESERVADA E SEM ESCRITOR, por decisão de 2026-07-25. Até então
+-- `collab.service.createSession/deleteSession` escreviam aqui a cada connect/close,
+-- e NENHUM `SELECT` desta tabela existia em todo `backend/src`: a presença viva é o
+-- `Map` em memória de `collab.rooms.js`. As chamadas eram fire-and-forget (podiam
+-- commitar fora de ordem e orfanar linha), não havia reaper, e todo restart com
+-- usuário conectado orfanava todas as linhas vivas em silêncio. Removidas as duas
+-- chamadas; a TABELA fica, porque migração é forward-only e aditiva.
+--
+-- O porquê de deixar a tabela e não fingir que ela funciona: coluna viva pela metade
+-- engana MAIS que coluna ausente (mesma lição do `org_role` sem escritor). As colunas
+-- de presença abaixo (cursor_position, current_map_id, selected_features) e o índice
+-- idx_sessions_heartbeat nunca tiveram escritor de verdade e permanecem pelo mesmo
+-- motivo. Ressuscitar isto começa pelo LEITOR, não pelo INSERT.
 -- ============================================================================
 CREATE TABLE active_sessions (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
