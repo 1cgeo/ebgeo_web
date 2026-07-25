@@ -26,7 +26,7 @@ Não chancele a própria saída: rodar o teste não é a mudança funcionar; esc
 
 ## Não negociável
 
-- **Não use ferramenta de preview ou browser.** Verificação de lógica é `npm run lint` + `npm test`; de UI, o Playwright (`npm run test:e2e:ui`).
+- **Não use ferramenta de preview ou browser.** Verificação de lógica é `npm run lint` + `npm test` **na raiz**, que cobrem os DOIS pacotes; de UI, o Playwright (`npm run test:e2e:ui`). Até 2026-07-25 esses dois scripts da raiz delegavam só para `frontend/`: uma mudança só de backend, verificada exatamente como esta linha mandava, rodava zero teste de backend e voltava verde. O guarda estava errado, não o código.
 - **Trate como frágil, sem hook para segurar:** `deploy/` (roda contra produção), `.env`, lockfile e `frontend/public/vendors/`. O bloqueio automático foi removido em 2026-07-18 a pedido; agora é julgamento, então confirme antes de escrever nesses caminhos.
 - **Trabalhe no branch atual.** `main` é outra linha do produto; não sincronize sem pedir.
 - **Login é opcional; servidor não é.** O app roda anônimo, mas o boot é fail-fast em `GET /api/config`; sem backend alcançável, tela "EBGeo indisponível". `frontend/src/js/config.js` é só o *shape* que o servidor hidrata; **não há fallback estático**. Anônimo ≠ offline.

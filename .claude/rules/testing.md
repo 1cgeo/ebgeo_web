@@ -24,9 +24,20 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   the methods used.
 
 ## Before claiming done
-- **Logic**: `npm run lint` and `npm test`, as separate commands run BEFORE any
-  commit. On one command line the lint output lands after the commit already
-  succeeded, which is not verification.
+- **Logic**: `npm run lint` and `npm test` **from the repo root**, as separate
+  commands run BEFORE any commit. On one command line the lint output lands after
+  the commit already succeeded, which is not verification.
+
+  Until 2026-07-25 both root scripts delegated to `frontend/` only, so a
+  backend-only change verified exactly as this rule prescribed ran **zero** backend
+  tests and came back green — the rule pointed at a guard that did not guard. They
+  now run both packages, and the backend lint gained `--max-warnings 0`, which the
+  frontend already had: the same warning used to fail one package and pass the
+  other.
+
+  When you only touched one package, `npm run lint:backend` / `test:backend` (or
+  the `:frontend` pair) is the faster loop — just don't mistake it for the whole
+  check before a commit that crosses the boundary.
 - **UI**: no preview or interactive-browser tool. The approved loop is a
   Playwright capture driving the real app and backend, then READING the produced
   image. Delete the temporary spec afterwards. `npm run test:e2e:ui`.

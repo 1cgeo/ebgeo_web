@@ -10,15 +10,21 @@ decisão sua**. Os achados em si vivem em [`bugs-backend.md`](bugs-backend.md),
 
 ## Estado verificado agora
 
-Medido, não estimado:
+Medido, não estimado. Rode `node scripts/auditoria-inventario.mjs` para a contagem
+atual dos três relatórios — é o contador canônico, e existe porque contador
+ad-hoc errou três vezes numa só sessão (regex com `\w+` que não casa o acento de
+`## Severidade média`, e versão que ignorava o marcador no título).
 
 | | |
 |---|---|
-| Backend | `1432 testes, 0 falhas, 0 cancelados` · lint limpo |
-| Frontend | `2419 testes, 0 falhas` · lint limpo · `npm run build` passa |
+| Backend | `1487 testes, 0 falhas` na última medição com a árvore quieta · lint limpo |
+| Frontend | `2637 testes, 0 falhas` · lint limpo |
 | Migrações | head = `007_audit_zone_actions.sql` |
 
-Baseline no início da varredura: 3673 testes (2408 FE + 1265 BE). Hoje: 3851.
+Progresso em 2026-07-25: **críticos e ALTO zerados** (29 de 29). Bugs em 58/116;
+documentação em 25/155; testes ainda em 0/185.
+
+Baseline no início da varredura: 3673 testes (2408 FE + 1265 BE).
 
 ## O que já foi corrigido
 
@@ -118,6 +124,57 @@ Ao continuar, duas lições desta rodada valem como método:
 2. **Copiar a forma do payload do cliente não basta** — o VALOR também é contrato.
    Meus 11 testes de slide usavam `mapId: <uuid>` porque era o que o servidor
    esperava; o cliente manda nome.
+
+## Pendências registradas em 2026-07-25
+
+O que ficou aberto **de propósito**, com o motivo. Nada aqui é esquecimento; se
+algum item mudar de contexto, a conta muda junto.
+
+### Efeito operacional que muda o comportamento de partida
+
+- **`CORS_ORIGIN` malformado passa a impedir o boot** (achado 39). A validação
+  agora exige origem canônica: barra final, caminho, `:443` explícito ou lista
+  por vírgula fazem o fail-fast disparar. Um deploy que hoje sobe quebrando
+  cross-origin passa a **não subir**. É a intenção do achado, mas confira o
+  `.env` de produção antes do próximo deploy.
+
+### Correções deliberadamente NÃO feitas
+
+- **Limitador de taxa em `GET /sv360/tiles/fotos.geojson`** (terceiro pé do
+  achado 65). Verificado: nenhum arquivo de `frontend/src` chama essa rota, e com
+  `LIMIT` e bbox o custo por requisição deixou de ser ilimitado, que era a
+  alavanca real. Chutar limite sem medir padrão de chamada é o erro que o próprio
+  relatório pegou no achado 9. **Se a rota voltar a ter consumidor, o limitador
+  entra.**
+- **Revogação de sessão de verdade** (achado 35). A detecção de reuso encerra a
+  *rotação*, não a sessão: o access token sobrevive até expirar. Implementar exige
+  marcador tipo `users.sessions_valid_from` (migração) **e** decisão de política.
+  O que foi corrigido é o comentário que prometia "forçar novo login" sem que nada
+  o fizesse, e o teste que fixa a verdade **quebra** quando o marcador for
+  implementado, forçando a atualização junto.
+- **Remover a rota `fotos.geojson`**, que era a correção preferida do achado 65:
+  decisão de produto.
+
+### Deixado fora do escopo por agentes, e que continua valendo
+
+- **`database/index.js` sem `connectionTimeoutMillis`/`statement_timeout`** no
+  pool. O prazo do achado 38 cobre só o readiness; o remédio geral é no pool.
+- **`images.service.bulkUploadImages`** deriva extensão com
+  `filename.split('.').pop()` — mesmo defeito que o achado 69 corrigiu na rota
+  unitária (é o achado 80, ainda pendente).
+- **`22001` ausente do `PG_ERROR_MAP`** (`middleware/error-handler.js`): qualquer
+  overflow de varchar ainda se disfarça de 500.
+- **`HEALTH_DB_TIMEOUT_MS` não documentado** em `.env.example` nem no README.
+- **`users.service.js:67`** tinha comentário com o mesmo erro factual do achado
+  35 — corrigido junto do 55.
+
+### Fora deste repositório
+
+- **`main` tem 6 alertas do Dependabot** (5 altos, 1 moderado): `@fastify/static`
+  (path traversal + bypass de autorização), `find-my-way`, `fast-uri`, `postcss`,
+  `brace-expansion`. Os três primeiros são runtime do servidor Fastify que serve a
+  instalação própria. O `@fastify/static` exige salto de major (9 → 10), então
+  pede leitura de changelog e teste do servidor — não é `npm update`.
 
 ## Decisões que dependem de você
 

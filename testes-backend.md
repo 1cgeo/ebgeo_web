@@ -89,6 +89,117 @@ Por tipo: 136 de integração (precisam de PostgreSQL), 30 unitários (lógica p
 
 ## A verificação que não verifica
 
+> **CORRIGIDO em 2026-07-25.** Os três pontos da correção sugerida foram aplicados.
+>
+> `lint` e `test` da raiz passaram a rodar os DOIS pacotes. A forma importa: não dava
+> para simplesmente apontá-los para `lint:all`/`test:all`, porque esses eram definidos
+> como `npm run lint && npm run lint:backend` — redefinir `lint` sobre eles viraria
+> recursão. Foram criados `lint:frontend`/`test:frontend` com o conteúdo antigo, e
+> `lint`/`test` passaram a encadear frontend + backend; `lint:all`/`test:all` viraram
+> apelidos, para não quebrar quem já os usava.
+>
+> O lint do backend ganhou `--max-warnings 0`, igualando o rigor do frontend — a
+> assimetria fazia o mesmo warning reprovar um pacote e passar no outro. O backend
+> passa limpo com o rigor novo.
+>
+> As duas linhas de documentação que prescreviam o comando incompleto (`CLAUDE.md` e
+> `.claude/rules/testing.md`) foram corrigidas dizendo o que era falso e desde quando,
+> em vez de só trocar o comando.
+>
+> Controle negativo, com erro de sintaxe plantado em `backend/src/utils/audit.js`: o
+> comando ANTIGO passa verde e o novo reprova. Registrado no `livro-razao.md` como
+> quarta ocorrência de `verificacao-fantasma`.
+ Testes: backend
+
+> **ESTADO EM 2026-07-19.** Os 185 itens deste arquivo NÃO foram percorridos um a um.
+> O que existe de novo veio como subproduto das 35 correções de `bugs-backend.md`:
+> ~40 arquivos de teste criados ou alterados, backend de 1265 para 1432 casos.
+> O ponto cego estrutural nº 2 (teste de caracterização lido como garantia) foi
+> CONFIRMADO por execução quatro vezes — ver a tabela na própria seção.
+> Retomada: [`auditoria-continuacao.md`](auditoria-continuacao.md).
+
+
+Oportunidades de teste em `backend/src`, levantadas na auditoria de 2026-07-19 sobre o commit `e1bb74e`.
+
+## O ponto de partida
+
+A suíte do backend hoje: **446 suítes, 1265 testes, 0 falhas, 0 skipped, 0 todo**, em 141 segundos, com lint limpo. Medido, não suposto. Zero skipped e zero todo é sinal genuíno de higiene: não há teste desabilitado parado no repositório.
+
+E ainda assim a auditoria confirmou **116 defeitos vivos** que essa suíte não pega, 5 deles críticos e 24 altos. Os dois fatos juntos são o diagnóstico: **o problema da suíte não é quantidade, é ângulo.** Ela cobre bem o caminho feliz de cada rota isolada e quase não cobre negação, assimetria entre superfícies, e concorrência real.
+
+Por isso este documento não é uma lista de "faltou testar X". Ele começa pelos pontos cegos estruturais, que são o que faz os 185 itens individuais existirem.
+
+## Cobertura medida
+
+O crítico de completude desta auditoria apontou que as lacunas de teste estavam sendo **inferidas por leitura, nunca medidas**, e que `npm run test:coverage` existia e ninguém tinha rodado. Foi rodado. Números reais, `c8` sobre a suíte completa:
+
+| Métrica | Cobertura | Faltando |
+|---|---|---|
+| Statements | 94,43% | 767 de 13791 |
+| **Branches** | **84,63%** | **366 de 2382** |
+| Functions | 92,83% | 25 de 349 |
+| Lines | 94,43% | 767 de 13791 |
+
+**94,43% de linhas cobertas convivendo com 116 defeitos confirmados.** Esse par de números é a tese deste documento em uma linha: cobertura mede linha executada, não propriedade provada. Uma linha "coberta" por um teste que só afirma que a chamada não lançou conta igual a uma linha coberta por um teste que prende o invariante.
+
+Repare qual é a métrica mais baixa. **Branch é 10 pontos abaixo de linha**, e branch é exatamente onde mora a negação: o `else` do gate, o `catch` do erro, o ramo do usuário sem permissão. Os 366 branches não cobertos são a forma quantitativa do ponto cego estrutural nº 4 (ausência de teste negativo cross-tenant e cross-actor). A medição e a leitura chegaram ao mesmo diagnóstico por caminhos independentes.
+
+Os buracos concretos, que confirmam por medição o que a auditoria inferiu:
+
+| Arquivo | Linha | Branch | Observação |
+|---|---|---|---|
+| `src/index.js` | **0%** (63 linhas) | | Boot, SIGTERM e shutdown gracioso: nenhuma linha executada por teste |
+| `src/database/seed.js` | **0%** (146 linhas) | | |
+| `src/modules/ranks/ranks.service.js` | **33,3%** | | Confirma a suspeita: `ranks/` não tem arquivo de teste |
+| `src/middleware/request-logger.js` | 27,6% | | Onde mora o risco de vazar token para log |
+| `src/modules/atlas/atlas.service.js` | 89,8% | **59,7%** (-50) | Maior buraco de branch em números absolutos |
+| `src/modules/streetview360/sv360.ingest.js` | 84,0% | **53,3%** (-21) | Pior branch do backend |
+| `src/modules/sync/sync.controller.js` | **100%** | **73,7%** (-5) | Linha cheia, branch furado: o caso didático |
+
+A última linha merece atenção. `sync.controller.js` tem **100% de linha e 73,7% de branch**. É a ilustração exata de por que um número de cobertura alto não é garantia: todo o arquivo foi executado, e um quarto das suas decisões nunca foi tomada nos dois sentidos.
+
+Por fim, `.c8rc.json` roda com `all: true` (bom, conta arquivo nunca importado) mas **sem nenhum threshold**. Não há `check-coverage`, `lines`, nem `branches`. Ou seja, cobertura hoje é relatório, não guarda: ela pode cair para 60% entre um commit e outro sem nada ficar vermelho. Um piso em branch, ainda que baixo no começo, é o que transforma esse número em invariante.
+
+
+## Os cinco pontos cegos estruturais
+
+**1. Concorrência é medida através do supertest, que a serializa.** Este é o mais grave, porque produz falso verde estável em vez de flake. O teste `auth-09` (`tests/integration/auth-gaps.test.js:263-266`) afirma que duas requisições concorrentes de refresh não podem ambas ter sucesso, e passa. Ele passa porque o supertest abre um servidor efêmero e um socket TCP frio por requisição, e esse custo de setup serializa as duas chamadas. Com sockets keep-alive pré-aquecidos, que é o que um cliente ou um atacante real tem, o mesmo código falha em 9 de 10 execuções, e foi assim que a corrida do refresh token foi confirmada. O projeto **já sabia disso**: `low-impact-fixes.test.js:79-85` registra por escrito que dirigir por duas requisições HTTP não interleava. A lição foi anotada e não foi aplicada ao refresh, que é exatamente o modo de falha que o livro-razão chama de "correção que recorre significa que a guia não pegou".
+
+   Regra que falta, e que vale codificar: **exclusão mútua se afirma no nível do SQL ou do serviço, nunca por duas requisições HTTP.**
+
+> **CONFIRMADO POR EXECUÇÃO em 2026-07-19.** Este ponto cego era a previsão mais valiosa da auditoria, e corrigir os achados o comprovou quatro vezes. Ao consertar um defeito, o teste que o cimentava reprovava, e em CADA caso o nome ou o comentário do teste descrevia o bug com precisão:
+>
+> | Teste | O que afirmava | Achado |
+> |---|---|---|
+> | `maps-briefings-gaps.js` maps-02b | "a public token reads OTHER public atlases (current cross-atlas behavior)", com 200 | 51 |
+> | `users-coverage.js:168` | "transferTo === the deleted user keeps the atlas pointed at that (now inactive) id" | 57 |
+> | `sync-gaps.js:515` | "create reusing id stays tombstoned" | tombstone/undo |
+> | `sync-authz-lock.js` | 403 no lote inteiro por op negada | 28 (poison batch) |
+>
+> A auditoria já listava `users-coverage.test.js:168-184`, o que valida a lente. O que a execução acrescentou: **maps-02b não estava na lista**, e é o mais grave dos quatro, porque congela comportamento de SEGURANÇA (um token de visitante lendo qualquer atlas público) e o comentário do próprio teste nomeia o mecanismo do furo, "never matches the token's embedded atlasId". Ou seja, a lacuna foi vista, descrita e então convertida em asserção, em vez de reportada.
+>
+> A convenção proposta abaixo continua valendo e ficou mais barata de justificar: nenhum desses quatro teria sobrevivido a uma regra que exigisse marcar asserção de comportamento-conhecido-ruim e ligá-la a um item aberto. O padrão adotado nesta rodada, quando o risco é aceito de propósito, é o oposto e funciona: afirmar o buraco EXPLICITAMENTE com marcador `KNOWN GAP` (ver `register-organization-scope.test.js`), para que fechá-lo QUEBRE o teste e force a decisão a ser revisitada.
+
+**2. Testes de caracterização são lidos como testes de garantia.** `atlas-09` (merge raso), `users-coverage.test.js:168-184` (self-transfer), `org-identity-gaps.test.js:346` (`%%`) e `sync-service-coverage.test.js:146` (tombstone) todos afirmam o defeito, com comentário explicando que aquilo é o esperado. Como pinos de comportamento são ótimos. O problema é que fazem o defeito parecer coberto: quem lê a suíte vê verde e conclui que a área está protegida, quando o verde está cimentando o bug. Falta convenção que marque essas asserções como contrato conhecido-ruim e as ligue a um item aberto.
+
+**3. Escotilha `if (condição) { ... }` sem asserir a condição.** `if (isSnapshot)`, `catch(() => null)`, `assert.ok(A || B)`, `assert.ok(res.body.data)`, laços sobre listas que podem estar vazias. Todos passam com o código arbitrariamente errado. É a "cobertura vazia" da constituição na sua forma mais comum, e é detectável por lint: **em teste, nenhum `assert` pode estar dentro de um `if` cuja condição não seja ela mesma asserida.**
+
+**4. Ausência quase total de teste negativo cross-tenant e cross-actor.** Não existe o par HTTP do `ws-01` (token público contra outro atlas). Não há teste de import com referência a atlas alheio, nem de `sharing_updated` recebido por socket com permissão `read`, nem de push por `manage`. O `backend/CLAUDE.md` tem a regra escrita ("toda query com filtro de acesso exige teste com usuário sem permissão") e ela não é verificável, porque nada a checa. Regra escrita e não codificada é, pelo princípio 1, competência perdida.
+
+**5. A fronteira entre os pacotes é afirmada em comentário, não exercitada.** `user_away` tem teste do lado servidor (o frame saiu) e teste do lado cliente (com um shape que o servidor nunca emite), e ninguém testa o par. O mesmo vale para o undo, cujos testes constroem operações com `randomUUID()` e nunca chamam `_executeUndoAction`. O E2E full-chain existe e é bom, mas **presença e undo não estão nele**, e são justamente as duas costuras que a auditoria encontrou rompidas.
+
+## Como ler os itens
+
+Cada item responde a pergunta de ouro da constituição: *se este código estivesse errado, o que um teste verde estaria provando?* Onde a resposta era "nada", o item foi reformulado até prender. Vários itens trazem **controle negativo** explícito, que é o passo que separa teste que prende de teste que acompanha.
+
+- **P1** (71): prende invariante declarado, caminho de autorização, ou risco de perda de dado.
+- **P2** (83): caminho de erro, fronteira, contrato entre módulos.
+- **P3** (31): robustez e casos de borda de menor consequência.
+
+Por tipo: 136 de integração (precisam de PostgreSQL), 30 unitários (lógica pura, sem banco) e 19 de WebSocket.
+
+## A verificação que não verifica
+
 Um achado que não é sobre um teste específico, mas sobre o comando que os roda, e que por isso vale mais que qualquer item da lista.
 
 `CLAUDE.md` e `.claude/rules/testing.md` prescrevem `npm run lint` + `npm test` como *a* verificação de lógica antes de qualquer commit. Na raiz, os dois delegam com `--prefix frontend`:
