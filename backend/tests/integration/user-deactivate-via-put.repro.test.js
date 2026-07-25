@@ -88,7 +88,8 @@ describe('desativação por PUT é recusada (a guarda mora na rota de desativaç
         const del = await supertest(app)
             .delete(`/api/v1/users/${semAtlas}`)
             .set('Authorization', `Bearer ${tokenAdmin}`);
-        assert.ok(del.status === 200 || del.status === 204, `desativação legítima: ${del.status}`);
+        // O controller responde `res.json({ data: { success: true } })` → sempre 200.
+        assert.equal(del.status, 200, `desativação legítima: ${del.status}`);
 
         const r = await supertest(app)
             .put(`/api/v1/users/${semAtlas}`)

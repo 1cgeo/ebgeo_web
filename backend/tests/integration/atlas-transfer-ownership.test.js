@@ -101,7 +101,9 @@ describe('Atlas ownership transfer (L13)', () => {
   it('a stranger cannot transfer (and cannot learn the atlas exists)', async () => {
     const atlas = await freshAtlas();
     const res = await transfer(atlas.id, strangerToken, { newOwnerId: stranger.id });
-    assert.ok(res.status === 403 || res.status === 404, `expected 403/404, got ${res.status}`);
+    // requireAtlasPermission answers 403 'Access denied' for an EXISTING atlas the
+    // caller has no share on (404 is reserved for an atlas that does not exist).
+    assert.equal(res.status, 403, `expected 403, got ${res.status}`);
   });
 
   it('anonymous cannot transfer', async () => {

@@ -189,6 +189,16 @@ Não decidi sozinho porque mudam comportamento de produto:
 - **Nº 33 — buraco conhecido, aceito por você:** ainda dá para se autodeclarar membro
   de uma OM real a que não se pertence. Marcado com um teste `KNOWN GAP` que QUEBRA se
   alguém implementar aprovação, para forçar a revisão em vez de reversão silenciosa.
+- **403 vs 404 para atlas existente sem share** (levantado em 2026-07-25 pela regra de
+  lint nova). O teste `atlas-transfer-ownership.test.js` se chama *"a stranger cannot
+  transfer (and cannot learn the atlas exists)"*, e o parêntese é falso:
+  `requireAtlasPermission` responde **403 'Access denied'** para atlas que existe sem
+  share, e 404 só para atlas inexistente, então a diferença entre as duas respostas
+  revela a existência. O teste passou a asserir 403, que é o comportamento real, e o
+  **nome continua prometendo o que o código não faz**, de propósito, para não apagar a
+  pergunta. Duas saídas: (a) uniformizar para 404 quando não há share, o que fecha o
+  oráculo e muda o contrato de erro de várias rotas, ou (b) corrigir o nome do teste e
+  registrar que revelar existência é aceito. É decisão de produto, não de código.
 
 ## Dívidas que eu criei e deixei registradas
 

@@ -112,6 +112,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 1. docs/wiki/api-rest-atlas.md §"Merge de mapas" (:69-77)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. `MAP_CHILD_TABLES` tem seis tabelas e
+> `comments` nao esta la (`backend/src/modules/maps/maps.service.js:21-28`), embora
+> `comments.map_id` seja NOT NULL e o snapshot a entregue por mapa. O agravante que o
+> item nao registrava: o teste de cobertura itera a MESMA lista literal
+> (`backend/tests/integration/maps-briefings-gaps.test.js:83`), entao e cobertura vazia,
+> passa verde qualquer que seja o conteudo da lista. Registrado em `api-rest-atlas.md`
+> secao "Merge de mapas".
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-maps-briefings`
 - **Documento:** `docs/wiki/api-rest-atlas.md:75`
 - **Código:** `backend/src/modules/maps/maps.service.js:9-16`
@@ -122,6 +130,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 2. docs/wiki/api-rest-atlas.md §"Merge de mapas" (:69-77) / docs/wiki/sintese-rest-vs-sync.md
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO pelo codigo. `mergeMaps` checa `maps.locked`
+> nas duas pontas e em todas as origens antes de qualquer UPDATE, com 409
+> (`backend/src/modules/maps/maps.service.js:77-86`), desde `1d23ac9` (2026-07-19). A
+> auditoria de documentacao rodou sobre `e1bb74e` e o codigo andou depois. Nada escrito.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-maps-briefings`
 - **Documento:** `docs/wiki/api-rest-atlas.md:69-77`
 - **Código:** `backend/src/modules/maps/maps.service.js:39-69`
@@ -131,6 +144,15 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Acrescentar uma linha a api-rest-atlas.md:69-77 registrando que o merge não honra `maps.locked` (com as duas âncoras), e decidir explicitamente se é lacuna a corrigir ou exceção deliberada. Se for lacuna, o fix é uma checagem dentro do `tx` de mergeMaps mais teste negativo (mapa travado como origem e como destino).
 
 ### 3. docs/wiki/organizacoes-om.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. O auto-lockout do admin ao desativar a
+> propria OM e real: o gate de organizacao roda dentro do `auth` estrito e PRECEDE o
+> `requireAdmin` (`backend/src/middleware/auth.js:143`), entao quem desativou nao chega
+> ao gate que o deixaria desfazer. Nao ha self-guard em `deactivateOrganization` nem no
+> PUT com `is_active:false`, contra a guarda analoga que existe em
+> `backend/src/modules/users/users.service.js:172-179`. O admin do seed escapa por
+> acidente (organizacao nula). Registrado em `organizacoes-om.md` com as duas portas, a
+> precedencia do gate e a ausencia de caminho de volta pela API.
 
 - **Tipo:** armadilha não documentada · **Fatia:** `be-users-orgs`
 - **Documento:** `docs/wiki/organizacoes-om.md:3 e :32-38`
@@ -153,6 +175,15 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 5. nenhuma pagina
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO integralmente. **Achado extra:** `22001` esta
+> fora do `PG_ERROR_MAP` (`backend/src/middleware/error-handler.js:60-67`), entao sai como
+> **500** enquanto o irmao `22P02` sai como 400; para o cliente e indiferente (nao-2xx nao
+> faz dequeue nos dois casos), mas engana o diagnostico. Escrita a armadilha 2b em
+> `envelope-operacao.md`, dizendo explicitamente que **sem teste a licao nao esta
+> codificada**. O teste que cabe, registrado para execucao: push de op de layer/map com
+> `name` de 300 caracteres esperando 422 em vez de 500, mais `.max(255)` nos campos de
+> nome do `operationSchema`.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-database`
 - **Documento:** `docs/wiki/envelope-operacao.md:31, docs/wiki/atlas-modelo-de-dados.md:54, docs/wiki/modelo-conflito-lww.md:42, docs/wiki/tipos-entidade-sync.md:25`
 - **Código:** `backend/src/database/migrations/002_atlas.sql:118 (layers.name VARCHAR(255)) + backend/src/modules/sync/sync.schemas.js:13-46`
@@ -162,6 +193,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Registrar a variante 22001 junto da 22P02 em envelope-operacao.md:31 (a pagina que enuncia a regra "uma op malformada envenena o lote"), dizendo que o gatilho nao e so id nao-UUID mas qualquer valor que o Postgres recuse no cast ou no comprimento. A licao so fica codificada com teste: Joi .max(255) nos campos de nome do envelope OU cap no cliente, mais um teste de regressao que empurre um nome de 300 chars e afirme 422 em vez de 500.
 
 ### 6. nenhuma pagina (candidata: docs/wiki/config-dinamico.md, secao 'Precedencia das quatro camadas')
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO (ancoras mudaram: merge `:236`->`:267`,
+> terrain `:208`->`:239`, MVT `:227,229`->`:258,260`). Escrito em `config-dinamico.md` o
+> paragrafo que junta derivacao e precedencia, que a pagina mantinha em secoes separadas.
 
 - **Tipo:** armadilha não documentada · **Fatia:** `be-catalog-config-audit`
 - **Documento:** `docs/wiki/config-dinamico.md:15-23`
@@ -173,6 +208,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 7. nenhuma pagina (candidata: presenca-colaborativa.md)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. `active_sessions` e write-only: so INSERT e
+> DELETE em `backend/src/modules/collab/collab.service.js:8-18`, nenhum SELECT em todo
+> `backend/src`. As colunas de presenca nunca sao escritas e o `idx_sessions_heartbeat`
+> indexa uma coluna que so recebe valor no INSERT. Ha vazamento real: `createSession` e
+> `deleteSession` sao chamadas sem `await`, e o shutdown chama `pgp.end()` sem esperar.
+> Registrado em `presenca-colaborativa.md` secao "O que nao existe", com ponteiro de
+> volta em `canal-collab-websocket.md`.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-collab`
 - **Documento:** `docs/wiki/canal-collab-websocket.md:27 e docs/wiki/link-publico.md:23 mencionam active_sessions so como restricao de FK`
 - **Código:** `backend/src/modules/collab/collab.service.js:8-18, backend/src/database/migrations/003_sync.sql:74-92, backend/src/modules/collab/collab.gateway.js:354,478, backend/src/index.js:50-55`
@@ -182,6 +225,13 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Um paragrafo em [[presenca-colaborativa]] (secao "O que nao existe"): active_sessions e vestigial, write-only e sem reaper; colunas de presenca e idx_sessions_heartbeat sao restos de um desenho abandonado; nao construa "quem esta online" a partir dela (a verdade e o Map em memoria de collab.rooms.js:6); crescimento monotonico e esperado ate alguem podar tabela ou colunas.
 
 ### 8. nenhuma pagina (clone-atlas.md, atlas-import-offline.md e api-rest-atlas.md cobrem perdas vizinhas e omitem esta)
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO pelo codigo. A perda de camadas de catalogo em
+> clone/duplicate/import foi fechada em `d15b330` (2026-07-24): o helper
+> `catalogLayerRows` (`backend/src/modules/atlas/atlas.service.js:225-237`) materializa
+> na tabela dedicada nos tres caminhos, e o JSDoc em `:209-224` ja documenta a perda que
+> o item pedia para registrar. `clone-atlas.md` e `atlas-import-offline.md` nao ficaram
+> falsas, entao nao foram tocadas.
 
 - **Tipo:** armadilha não documentada · **Fatia:** `be-atlas`
 - **Documento:** `docs/wiki/atlas-import-offline.md:11`
@@ -193,6 +243,12 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 9. nenhuma pagina (gestao-usuarios.md:27 discute o caso sem SMTP e para antes)
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO pelo codigo. O link com token nao vai mais para
+> o log em producao: `sendVerificationEmail` tem `exposeLink = !config.isProd`
+> (`backend/src/utils/mailer.js:123`) e o ramo sem SMTP loga em `error` sem o link.
+> Corrigido em `1d23ac9` (2026-07-19), com teste em
+> `backend/tests/unit/mailer-verification-link.test.js:116-124`.
+
 - **Tipo:** armadilha não documentada · **Fatia:** `be-auth`
 - **Documento:** `docs/wiki/gestao-usuarios.md:27`
 - **Código:** `backend/src/utils/mailer.js:67-76 + backend/src/config.js:128`
@@ -202,6 +258,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Acrescentar em gestao-usuarios.md:27 (ou na secao de verificacao de autenticacao-jwt.md) uma linha: sem SMTP o token vai para o log (`backend/src/utils/mailer.js:67-70`), portanto o log passa a ser material de credencial. Se a decisao for aceitar isso em dev e nao em prod, registrar como decisao com a alternativa rejeitada.
 
 ### 10. sintese-rest-vs-sync
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e agravado. A duplicidade de `mapOrder`
+> existe como descrita (whitelist de settings recebe NOMES, coluna `atlas.map_order` e
+> UUID[] escrita so por REST, ambas no mesmo snapshot). O que o item nao viu:
+> `snapshot.atlas.mapOrder` **nao tem leitor no cliente**, so a lista de nomes e
+> persistida (`frontend/src/js/store/sync/remote-operation-handler.js:1045-1052`), e o
+> `mapOrder` de UUIDs que o `map-resolver.service.js:33-35` le vem do atlas LOCAL. Dois
+> paragrafos novos em `sintese-rest-vs-sync.md` secao "A armadilha central".
 
 - **Tipo:** armadilha não documentada · **Fatia:** `be-sync`
 - **Documento:** `docs/wiki/sintese-rest-vs-sync.md:15-19`
@@ -213,6 +277,13 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 11. nenhuma pagina
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO pelo codigo (bug fechado em `8230b81`,
+> 2026-07-24, achado 53): `deleteProject` purga tombstones na mesma transacao e antes do
+> CASCADE, e o merge purga a UNIAO dos ids atuais com os do manifesto, curando tombstone
+> orfao. Escrito em `ingestao-projetos-360.md` nao o bug, mas o invariante durave que
+> sobrou: nada em cascade alcanca `sv360.deleted_photos`, logo toda rota nova de remocao
+> precisa purgar explicitamente.
+
 - **Tipo:** ausência · **Fatia:** `be-sv360`
 - **Código:** `backend/src/modules/streetview360/sv360.merge.js:169-173`
 
@@ -221,6 +292,15 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Adicionar a ingestao-projetos-360.md, ao lado da consequencia inversa ja documentada em calibracao-e-grafo-360.md:60 ("foto apagada por REST volta a existir"), o caso hard-delete: apagar o projeto e reingerir devolve fotos invisiveis; a limpeza de sv360.deleted_photos precisa ser explicita no deleteProject ou registrada como passo manual.
 
 ### 12. nenhuma pagina (candidata: autenticacao-jwt.md secao "Registro e verificacao", ou gestao-usuarios.md:27)
+
+> **CORRIGIDO em 2026-07-25.** REFUTADO pelo codigo (injecao de host via `Origin` nao
+> existe mais: `resolveVerificationBase` so aceita o origin quando ele e exatamente
+> `config.cors.origin`), mas a correcao deixou uma armadilha NOVA que nenhuma pagina
+> cobria, e essa foi escrita: base vazia produz link RELATIVO `/?verify=<token>` que sai
+> com `sent: true` e sem erro, entao basta o `X-Forwarded-Proto` nao chegar ao Express
+> para todo link de ativacao morrer em silencio. `APP_BASE_URL` precisa ser setada em
+> producao e nao e exigida no boot, ao contrario de `CORS_ORIGIN`. Nova secao em
+> `autenticacao-jwt.md`.
 
 - **Tipo:** ausência · **Fatia:** `be-auth`
 - **Documento:** `docs/wiki/gestao-usuarios.md:27 (fala do caso sem SMTP e omite isto)`
@@ -232,6 +312,16 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 13. nenhuma pagina (candidatas: hardening-borda-api.md, ranking-busca-toponimos.md)
 
+> **CORRIGIDO em 2026-07-25.** REFUTADO nas DUAS metades, e a refutacao virou correcao
+> de divergencia. (a) `/nomes/busca` tem limitador proprio desde `f8f2e2c`/`aec63f8`
+> (300/min por endereco). (b) o seq scan acabou: o predicado e o operador `%` com
+> `SET LOCAL pg_trgm.similarity_threshold = 0.25`. Consequencia:
+> **`ranking-busca-toponimos.md:38-44` estava ativamente errada e PROIBIA a otimizacao ja
+> feita**. Reescrita como o contrato que sobrou (operador e `SET LOCAL` sao um par; o
+> termo tem que vir do parametro e nao de `q.term`), mais 8 citacoes reancoradas. Em
+> `hardening-borda-api.md` foram corrigidas duas afirmacoes falsas adjacentes: "nao existe
+> `app.set('trust proxy')`" (existe) e "as tres rotas sem username dividem o balde".
+
 - **Tipo:** ausência · **Fatia:** `be-nomes-zones`
 - **Documento:** `docs/wiki/ranking-busca-toponimos.md:40`
 - **Código:** `backend/src/modules/nomes/nomes.routes.js:15`
@@ -242,6 +332,15 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 14. snapshot-e-pull-incremental
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO no invariante, REFUTADO na contagem. O cursor
+> `current_version` vem da PRIMEIRA query e o snapshot roda em `task()`, sem transacao e
+> sem lock: o invariante e real. Mas a contagem "4 + 7 por mapa + 2 por briefing" nao vale
+> mais, porque cada colecao passou a ser buscada uma vez para o atlas inteiro e agrupada
+> em memoria. Escrita a secao "O cursor e lido ANTES dos dados", formulada como
+> proibicao (nao mover a leitura para o fim, nao trocar por `GET_CURRENT_VERSION`), com a
+> direcao-do-erro-segura como racional. Contagem de queries NAO entrou: e recontagem de
+> codigo.
+
 - **Tipo:** contrato não documentado · **Fatia:** `be-sync`
 - **Documento:** `docs/wiki/snapshot-e-pull-incremental.md:9`
 - **Código:** `backend/src/modules/sync/sync.service.js:445`
@@ -251,6 +350,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir "numa leitura so" e acrescentar o invariante em snapshot-e-pull-incremental.md: o cursor e lido antes dos dados, de proposito, e essa ordem e o que torna o snapshot nao-transacional seguro. Formular como proibicao (nao mova a leitura de current_version para o fim, nao a troque por GET_CURRENT_VERSION), que e a forma que pega o refatorador.
 
 ### 15. canal-collab-websocket.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com deriva MAIOR que a relatada. Reancoradas
+> em `canal-collab-websocket.md`: `clientId`, `heartbeatSweep`, FK de visitante,
+> `onClose`, `user_left`, mais tres citacoes que o item nao listava e ja estavam mortas
+> (`serverVersion`, gate de `selection`, `adaptive-settings`).
 
 - **Tipo:** desatualizada · **Fatia:** `be-collab`
 - **Documento:** `docs/wiki/canal-collab-websocket.md:17,19,27,42,46`
@@ -298,6 +402,18 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Apagar o marcador [!CONTRADICAO 2026-07-18], remover a ressalva da linha 71 e registrar uma linha no ## Historico (supersessao temporal, nao contradicao). Opcionalmente citar config-contract.e2e.test.js:121 como o teste que hoje prende o invariante terrain.enabled === Boolean(terrain.url).
 
 ### 19. presenca-colaborativa.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO E AGRAVADO, e virou achado de CODIGO, nao so
+> de doc. A deriva de linha existia, mas `a358a6e` (2026-07-24) inverteu o conteudo da
+> secao: o roster passou a ser chaveado por `clientId` e os frames de awareness
+> (`cursor`/`selection`/`temporal`) continuaram mandando so `userId`, entao
+> `setCursor`/`setSelection` criavam entrada nova em vez de atualizar. Medido rodando o
+> store real com os frames reais do backend: **um par vira DUAS entradas** assim que mexe
+> o mouse, uma com nome e sem cursor, outra sem nome e com o rotulo caindo para o UUID
+> cru. **Corrigido no mesmo dia**: `clientId` nos tres frames de awareness
+> (`backend/src/modules/collab/collab.handlers.js`), com regressao em
+> `backend/tests/ws/collab-awareness-clientid.repro.test.js` (4 casos; controle negativo:
+> revertido o fix, 4 de 4 reprovam). Secao inteira reescrita.
 
 - **Tipo:** desatualizada · **Fatia:** `be-collab`
 - **Documento:** `docs/wiki/presenca-colaborativa.md:23,51,53`
@@ -355,6 +471,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 24. canal-collab-websocket.md / presenca-colaborativa.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com DUAS correcoes ao proprio item. O gate
+> real e `assertOperationAllowed` (`sync.service.js:940-949`, nao `:600-611`), e o item
+> esta desatualizado em dois pontos: exclusao de mapa hoje e `manage` e acima, nao
+> `owner`; e o poison batch **nao** vale mais para recusa de politica, so para violacao
+> de nivel, desde `aec63f8`. A frase `permission !== 'read'` era exata ate `1d23ac9`,
+> quando o nivel `comment` chegou ao servidor: supersessao temporal, nao contradicao.
+> Corrigidas as duas linhas, datando a virada.
+
 - **Tipo:** divergência · **Fatia:** `be-collab`
 - **Documento:** `docs/wiki/canal-collab-websocket.md:23 e docs/wiki/presenca-colaborativa.md:39`
 - **Código:** `backend/src/modules/sync/sync.service.js:600-611`
@@ -364,6 +488,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir as duas linhas para o gate real: `read` nao escreve nada; `comment` escreve SO `target:'comment'`; `write`/`manage`/`owner` escrevem tudo (com map-delete e map-lock reservados a `owner`). Citar `backend/src/modules/sync/sync.service.js:600-611` como fonte e apontar a consequencia (poison batch) para [[sintese-limites-collab]] §6.
 
 ### 25. docs/wiki/api-rest-atlas.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e a doc **nunca** foi verdadeira. Executado
+> o schema real com as opcoes reais: `{name:''}` e `{name:null}` levantam erro de
+> validacao, nao os 200 silenciosos que a pagina prometia. `updateAtlasSchema` esta
+> inalterado desde a entrada do backend no repositorio, entao a frase nasceu falsa em
+> `f60f23a`. Secao PUT reescrita dizendo o que era falso e desde quando; corrigido de
+> quebra o bullet do `description`, que apodreceu em `1d23ac9` (a query passou a usar
+> flag de campo enviado, entao `null`/`""` apagam).
 
 - **Tipo:** divergência · **Fatia:** `be-atlas`
 - **Documento:** `docs/wiki/api-rest-atlas.md:29`
@@ -375,6 +507,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 26. docs/wiki/compartilhamento-atlas.md
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. `reconcileAuthorization` roda a cada
+> heartbeat (`backend/src/modules/collab/collab.gateway.js:328`) e fecha o socket com
+> 4003 `access revoked`; em atlas publico cai para `read` e so rebaixa. Secao "Re-gate ao
+> vivo" de `compartilhamento-atlas.md` reescrita, preservando o buraco real (o frontend
+> so trata `user_added`/`user_updated`) e com a citacao reancorada. A licao registrada na
+> pagina: a citacao `:86-100` RESOLVIA, e a conclusao tirada dela era falsa, que e o
+> limite exato do guarda de caminho.
+
 - **Tipo:** divergência · **Fatia:** `be-sharing`
 - **Documento:** `docs/wiki/compartilhamento-atlas.md:41`
 - **Código:** `backend/src/modules/collab/collab.gateway.js:118-158`
@@ -384,6 +524,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Reescrever a secao "Re-gate ao vivo" da linha 41: manter o buraco real (o frontend so trata user_added/user_updated em frontend/src/js/store/sync/sync-engine.js:465-472), mas trocar a afirmacao sobre o WS por: a remocao de share fecha o socket com 4003 dentro de um heartbeat (~30s, collab.gateway.js:150), exceto em atlas publico, onde vira rebaixamento para 'read' (:158). Citar collab.gateway.js:118-158 no lugar de :86-100.
 
 ### 27. docs/wiki/config-dinamico.md:21
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO e mais forte que o relatado:
+> `git log -S createAudit -- backend/src/modules/config/` volta **vazio**, ou seja, nunca
+> existiu auditoria ali, nao e caso de ter sido removida. A frase foi trocada pelo
+> `updated_by` (`config.queries.js:8-12`), com ponteiro para [[resources-catalogo]].
 
 - **Tipo:** divergência · **Fatia:** `be-catalog-config-audit`
 - **Documento:** `docs/wiki/config-dinamico.md:21`
@@ -395,6 +540,10 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 28. docs/wiki/config-dinamico.md:23
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO (`config.admin.schemas.js:45-46` + `deepMerge`).
+> A frase passou a nomear so `basemaps`/`tilesets`, com o acrescimo de que o override e o
+> unico caminho para `/api/config` voltar a emitir camada sem `bounds`.
+
 - **Tipo:** divergência · **Fatia:** `be-catalog-config-audit`
 - **Documento:** `docs/wiki/config-dinamico.md:23`
 - **Código:** `backend/src/modules/config/config.admin.schemas.js:45-46`
@@ -404,6 +553,11 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir a frase para nomear so basemaps/tilesets como bloqueados e acrescentar a armadilha: analysisLayers/dataLayers SAO sobrescreviveis pelo override e o array substitui o do catalogo sem passar pelo filtro de bounds, ou seja, o override e o unico caminho pelo qual /api/config volta a emitir camada sem bounds.
 
 ### 29. docs/wiki/deploy-backend.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. `deploy-backend.md:28` repetia um racional que
+> `gazetteer-nomes-geograficos.md:76` ja resolvera como falso. Reancorado em `cluster_id`
+> (unico produtor: `ng.recomputar_clusters()`), corrigida a linha de `refresh_busca` e
+> ligadas as duas paginas.
 
 - **Tipo:** divergência · **Fatia:** `be-database`
 - **Documento:** `docs/wiki/deploy-backend.md:28`
@@ -455,6 +609,21 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 
 ### 33. docs/wiki/imagens-atlas.md (linha 51) e docs/wiki/sintese-cache-http-imutavel.md (linha 7)
 
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO em parte, e o caminho ate aqui vale mais que o
+> item. A divergencia real e sobre CACHE: o `DELETE` de imagem e FISICO e devolve a PK ao
+> pool, entao apagar e re-importar com o mesmo `localId` recria a MESMA URL com bytes
+> novos sob `immutable`, o que contradiz a justificativa que as duas paginas davam. Isso
+> foi corrigido em `imagens-atlas.md` e `sintese-cache-http-imutavel.md`.
+>
+> **O que NAO e verdade, e por pouco entrou na wiki:** um agente reportou que
+> `INSERT_IMAGE_WITH_ID` seria `ON CONFLICT (id) DO UPDATE`, com sobrescrita cross-atlas.
+> Verificado direto no arquivo: **nao ha `ON CONFLICT`**; a colisao levanta
+> `unique_violation` tratada por item, e o blob so e escrito depois do INSERT, entao nem
+> arquivo orfao sobra. O efeito cross-atlas e de NEGACAO (o item do importador falha), nao
+> de vazamento. O agente leu o arquivo durante a janela em que OUTRO agente o havia mutado
+> de proposito para um controle negativo, e tomou a mutacao por codigo de producao. O
+> paragrafo errado ja tinha sido escrito na wiki e foi reescrito.
+
 - **Tipo:** divergência · **Fatia:** `be-images`
 - **Código:** `backend/src/modules/images/images.queries.js:13-17 e :23-25; backend/src/modules/images/images.service.js:97-111 e :202; backend/src/modules/images/images.controller.js:20`
 
@@ -463,6 +632,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir a frase de imagens-atlas.md:51: o id NAO e imutavel, a PK e reciclavel porque o delete e fisico e o lote aceita id do cliente. Trocar por uma linha de armadilha ('a janela de reuso e delete + re-import do mesmo localId; nessa janela o `immutable` serve bytes velhos por ate um ano') e ajustar sintese-cache-http-imutavel.md:7 para excluir imagens de atlas do invariante, ja que a pagina ja as trata como caso a parte na linha 47.
 
 ### 34. docs/wiki/modelo-conflito-lww.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e a reconstituicao historica e melhor que a
+> suposta: o marcador `[!CONTRADICAO]` **nunca foi verdadeiro**. A mitigacao entrou em
+> `93d205b` e o marcador foi escrito DEPOIS dela, em `f60f23a`, no mesmo dia, entao o
+> `grep -rn lock_timeout` citado como prova ja estaria positivo quando a frase foi
+> escrita. Registrado no `## Historico` novo da pagina. Achado extra na mesma pagina: a
+> armadilha "Lock so vale para mapa" citava `ConflictError('Map is locked')`, que nao
+> existe mais no modulo de sync.
 
 - **Tipo:** divergência · **Fatia:** `be-utils`
 - **Documento:** `docs/wiki/modelo-conflito-lww.md:27-28`
@@ -473,6 +650,15 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Apagar o marcador [!CONTRADICAO] de :27-28. Pelo wiki-schema isto e SUPERSESSAO TEMPORAL (o estado avancou), nao contradicao: atualizar o paragrafo do advisory lock (:23-25) para dizer que a espera e limitada a 5s e que contencao vira 503 retentavel, citando sync.service.js:656,663-665 e utils/errors.js:54-58, e registrar uma linha em '## Historico'. Conferir de passagem a citacao :23 `sync.service.js:650`, que hoje aponta para a linha de comentario do lock_timeout; a chamada `pg_advisory_xact_lock` esta em :658.
 
 ### 35. docs/wiki/permissoes-atlas.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO. `requireAtlasPermission` segue fail-OPEN
+> quando o nivel exigido nao e chave de `PERMISSION_LEVELS`
+> (`backend/src/middleware/permissions.js:128-131`: `undefined < N` e `false`, entao
+> chama `next()`), inclusive em `requireAtlasPermission('owner')`. A mesma aritmetica
+> esta em `sync.service.js:974`. Fail-CLOSED de fato: `toFrontendRole` e
+> `ROLE_PERMISSIONS`. A secao "Adicionou um nivel de permissao?" de `permissoes-atlas.md`
+> foi reescrita separando os DOIS que autorizam (fail-open) dos TRES que rotulam
+> (fail-closed), dizendo que a frase anterior era falsa e desde quando (`f60f23a`).
 
 - **Tipo:** divergência · **Fatia:** `be-middleware`
 - **Documento:** `docs/wiki/permissoes-atlas.md:60`
@@ -495,6 +681,14 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Reescrever a secao: 503 tem duas origens com contratos diferentes, o /health inline (app.js:78-87, sem envelope, para o orquestrador) e o `ServiceUnavailableError` do push de sync (utils/errors.js:54-58 -> sync.service.js:665 -> error-handler.js:42-54, com envelope). Renomear o titulo, que hoje afirma o oposto do comportamento.
 
 ### 37. docs/wiki/streetview-360.md
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, com precisao maior: nao e so `NEARBY_PHOTOS`.
+> `GET_PHOTO_BY_ID` e `GET_PHOTO_SIZES` tambem nao tem predicado de acesso e delegam ao
+> `enforceProjectReadable`, o que e **deliberado**, porque e o que viabiliza a escada
+> 404->403; o SQL embute a regra nas leituras de PROJETO e nos tiles. A linha foi
+> reescrita com essa distincao e a armadilha movida para "Nao programe contra isto", com
+> o acrescimo de que o filtro do `nearby` roda DEPOIS do `LIMIT 100`, entao foto oculta
+> consome vaga do orcamento.
 
 - **Tipo:** divergência · **Fatia:** `be-sv360`
 - **Documento:** `docs/wiki/streetview-360.md:32`
@@ -528,6 +722,9 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Corrigir hardening-borda-api.md:44 para `http://localhost:3000` (`backend/src/config.js:63`), ou substituir a frase por um wikilink para [[deploy-backend]], que ja e dono do assunto e esta certo. Registrar como supersessao temporal no `## Historico`, nao como CONTRADICAO (o codigo avancou, a pagina nao acompanhou).
 
 ### 40. modelo-conflito-lww
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO junto com o 34 (mesma pagina, mesmo
+> mecanismo). Ver a nota do item 34 para a reconstituicao por `git merge-base`.
 
 - **Tipo:** divergência · **Fatia:** `be-sync`
 - **Documento:** `docs/wiki/modelo-conflito-lww.md:27-28`
@@ -583,6 +780,29 @@ Ausência só entrou na lista quando passou no teste do critério: um engenheiro
 **Ação.** Remover o link ou apontar para docs/wiki/index.md; e estender RE_LINK para validar também alvo sem extensão, falhando quando não existir (hoje um diretório renomeado apodrece em silêncio).
 
 ### 45. tabela-operations, ack-idempotencia, sync-admin-operacoes, snapshot-e-pull-incremental, sintese-rest-vs-sync, sintese-contrato-erros-http
+
+> **CORRIGIDO em 2026-07-25.** CONFIRMADO, e o item **subestimou** a deriva: entre
+> `e1bb74e` e hoje o arquivo virou ESM e cresceu para 2171 linhas, entao o offset NAO e
+> +17 (`pushOperations` saiu de ~633 para 1023, `pullOperations` para 1210). Cada citacao
+> foi conferida contra o arquivo e reancorada.
+>
+> **A acao de fundo foi adotada:** citacao que aponta para dentro de `pushOperations`,
+> `pullOperations`, `getAtlasSnapshot` ou `cleanupOldOperations` passou a ancorar por
+> SIMBOLO. A sintaxe escolhida nao inventa formato: ``simbolo` (`caminho/arquivo.js`)`,
+> com o nome em crases seguido do caminho em crases entre parenteses e **sem** `:linha`.
+> A ausencia do `:linha` e o discriminador, entao o `RE_CAMINHO` do
+> `docs-integridade.test.js` continua coletando e validando o caminho, sem regressao de
+> cobertura (o que `arquivo.js#simbolo` teria causado). Usada 25 vezes, sem variante.
+>
+> Reancorar teria posto ponteiro certo em prosa falsa, entao quatro divergencias novas
+> foram corrigidas junto: `success` nunca ser `false` (invertido desde `1d23ac9` e
+> `aec63f8`), "falhou uma op, o lote inteiro reverte" (hoje so para falha real e violacao
+> de nivel), o poison batch por `409 Map is locked` (erro que nao existe mais) e uma
+> citacao que excluia o JSDoc com o racional.
+>
+> Pendente nas duas paginas que o agente nao podia tocar, com os numeros ja verificados:
+> `sintese-rest-vs-sync.md:13` (`assertOperationAllowed` esta em `:940-949`), `:17`
+> (whitelist em `:1770-1795`) e `:34` (`pullOperations` em `:1210-1246`).
 
 - **Tipo:** link quebrado · **Fatia:** `be-sync`
 - **Documento:** `docs/wiki/ack-idempotencia.md:13`

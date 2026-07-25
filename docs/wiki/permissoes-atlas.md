@@ -42,6 +42,7 @@ O guard falha **suave**: as store ops chamam `checkPermission`, emitem `STORE_OP
 ## Armadilhas
 
 - **`manage` está ACIMA de `write`, mas `manage` não é `owner`.** Um gate escrito como `permission === 'write' || permission === 'owner'` exclui o co-Gestor silenciosamente. Sempre compare por nível numérico. O Co-Gestor compartilha e configura ([[atlas-settings]]) mas não apaga nem trava mapa, e é para `manage` que o ex-dono é rebaixado numa transferência de posse (`backend/src/modules/atlas/atlas.service.js:537-538`).
+- **O gate numérico é fail-OPEN, e é o único do conjunto que é.** `requireAtlasPermission` compara `PERMISSION_LEVELS[resolvedPermission] < PERMISSION_LEVELS[requiredLevel]` (`backend/src/middleware/permissions.js:128-131`). Tier ausente do mapa vira `undefined`, e `undefined < 5` é `false`, então o middleware chama `next()` e **libera**, inclusive em `requireAtlasPermission('owner')`, que gateia o `DELETE` do atlas e a transferência de posse (`backend/src/modules/atlas/atlas.routes.js:28,38`). A simetria é dupla e pior: um erro de digitação no argumento (`requireAtlasPermission('writes')`) torna `requiredLevelNum` `undefined`, e `3 < undefined` também é `false`, desligando o gate da rota inteira em silêncio. A mesma aritmética governa `operationDenialReason` (`backend/src/modules/sync/sync.service.js:974`), e o gate de tier ao lado dela é uma lista fechada sobre `read`/`comment` (`backend/src/modules/sync/sync.service.js:940-949`), que também deixa passar um tier que não conhece. É a mesma família do bug logo acima: comparação que silencia um nível. Nenhum teste cobre a comparação numérica: `backend/tests/unit/middleware-permissions.test.js` só exercita `resolvePermission`, que é função pura, e `backend/tests/integration/permissions.test.js` só percorre tiers conhecidos.
 - **Três respostas divergentes para "quem trava mapa".** O backend exige estritamente `owner` (`backend/src/modules/sync/sync.service.js:614-620`); `ROLE_PERMISSIONS` dá `canLockMaps` a owner, manager e admin; e a UI (`LOCK_CAPABLE_ROLES`, `frontend/src/js/locking/map-lock.controller.js:39`) só libera owner e admin. Um `manager` passa no guard do cliente, é barrado pela UI, e seria barrado pelo servidor de qualquer forma. Alinhe as três ao mexer em qualquer uma.
 - **Admin global nunca chega com permissão baixa.** Tanto o gateway WS (`backend/src/modules/collab/collab.gateway.js:83-85`) quanto o middleware REST (`backend/src/middleware/permissions.js:82-87`) curto-circuitam admin para `owner` antes de consultar shares. Não escreva código que dependa de ver `permission: "read"` junto com `role: "admin"`.
 - **`sharing_updated` deriva role sem o papel global.** `backend/src/modules/sharing/sharing.controller.js:38,57` chama `toFrontendRole(permission)` **sem o segundo argumento**; um admin global com share explícito de `read` se auto-rebaixaria ao aplicar esse `role`. A proteção é inteiramente do lado do cliente (ignora o frame se `isAdmin()`, e filtra por `userId` próprio, `frontend/src/js/store/sync/sync-engine.js:466-471`). Qualquer novo consumidor precisa repetir as duas guardas.
@@ -59,7 +60,11 @@ O cadeado do mapa segue o mesmo princípio P1: `canToggleLock` (`frontend/src/js
 
 ## Adicionou um nível de permissão?
 
-Cinco lugares, e esquecer qualquer um degrada para `viewer` sem erro: `PERMISSION_LEVELS`, `toFrontendRole`, `assertOperationAllowed`, `UserRole`, `ROLE_PERMISSIONS`.
+Cinco lugares: `PERMISSION_LEVELS`, `assertOperationAllowed`, `toFrontendRole`, `UserRole`, `ROLE_PERMISSIONS`. **Eles não falham do mesmo jeito, e a diferença é a coisa mais importante desta página.**
+
+Os dois primeiros são do backend e falham **abertos**. Os três últimos são derivação de rótulo e falham fechados, degradando para `viewer`. Ou seja: esquecer o lado que só rotula é cosmético; esquecer o lado que autoriza libera.
+
+Até 2026-07-18 esta seção dizia que os cinco "degradam para `viewer` sem erro". Era falso para os dois que decidem, e a frase logo acima (`toFrontendRole` é fail-closed) reforçava a leitura errada de que o conjunto se comporta igual.
 
 ## Toast de bloqueio: o set que decide a mensagem
 

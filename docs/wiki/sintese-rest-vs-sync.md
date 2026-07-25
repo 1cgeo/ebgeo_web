@@ -18,6 +18,10 @@ A mesma coluna é escrita pelos dois caminhos, particionada por chave. O `PATCH 
 
 A whitelist não é cosmética, é a defesa: sem ela um usuário `write` reescreveria por sync quais camadas o atlas expõe, contornando o gate `manage`. Ao adicionar uma chave nova a `settings`, **decida a qual lado ela pertence antes da primeira linha de código**, e nunca a inclua na whitelist do sync se ela controlar acesso a recurso.
 
+**`mapOrder` é a chave que ficou dos dois lados**, e é o custo de não ter feito essa decisão. A whitelist aceita `patch.mapOrder` para dentro de `atlas.settings` (`backend/src/modules/sync/sync.service.js:1789-1791`), alimentada com um array de **nomes** de mapa (`frontend/src/js/store/map.operations.js:157-161`); a coluna `atlas.map_order` é `UUID[]` (`backend/src/database/migrations/002_atlas.sql:17`) e só REST escreve nela (clone, duplicate e import: `backend/src/modules/atlas/atlas.service.js:617`, `:711`, `:970`). Nada reconcilia as duas: reordenar por sync nunca toca a coluna, duplicar um mapa (que faz `array_append` nela) nunca toca o settings.
+
+O que torna isso difícil de depurar é que **as duas viajam no MESMO snapshot**, como `atlas.settings.mapOrder` e como `atlas.mapOrder` (`backend/src/modules/sync/sync.service.js:912`), e só a primeira tem leitor: o cliente persiste a lista de nomes (`frontend/src/js/store/sync/remote-operation-handler.js:1045-1052`), enquanto o `mapOrder` de UUIDs que o resolvedor consome (`frontend/src/js/store/services/map-resolver.service.js:33-35`) vem do atlas LOCAL, nunca do snapshot. Ao ler ou escrever `mapOrder` em qualquer lado da fronteira, confirme primeiro de qual dos dois se trata; o nome não distingue e o tipo do array é a única pista.
+
 Duas consequências que economizam depuração:
 
 - As chaves de `SETTING_OBJECT_KEYS` sofrem merge de um nível (`COALESCE(settings->key,'{}') || incoming`) justamente para que gravações concorrentes por mapa não se derrubem. As demais são substituídas inteiras. Adicionar uma chave objeto sem incluí-la nessa lista causa perda de dados silenciosa entre mapas.
@@ -28,6 +32,8 @@ Duas consequências que economizam depuração:
 `duplicate` (`backend/src/modules/atlas/atlas.routes.js:44`), `merge` (`backend/src/modules/maps/maps.routes.js:17`), `clone` e `import` ([[clone-atlas]], [[atlas-import-offline]]) escrevem entidades filhas apesar da regra, porque são atômicas e estruturais (a mesclagem seria centenas de ops `update` sem atomicidade). O preço é real:
 
 > Elas não passam pela tabela `operations` e não incrementam `current_version`. Um peer em pull incremental **nunca verá** essas mudanças: `pullOperations` só lê `operations` quando `sinceVersion > 0` (`backend/src/modules/sync/sync.service.js:770-804`).
+
+**`merge` deixou de ser assim, e é o desenho a copiar.** Desde `1d23ac9` (2026-07-19) ele grava uma op MARCADORA `map_merge` na mesma transação (`backend/src/modules/maps/maps.service.js:118`), então avança `current_version` e aparece no replay; quem a recebe resolve tomando snapshot (`STRUCTURAL_RESYNC_OPS`, `frontend/src/js/store/sync/sync-engine.js:67`). O motivo de fazer isso, e não confiar no frame: sem op escrita, o peer que reconecta pede `sync_request {lastVersion: N}` com o `N` que ainda é o `current_version` e recebe `{operations: []}`, ou seja, conclui que está em dia. Silêncio indistinguível de "nada mudou". As outras três continuam dependendo só do frame.
 
 A compensação é um **frame de notificação**, não uma op. O cliente colapsa `atlas_updated`, `map_duplicated` e `maps_merged` num único sinal `serverResync` (`frontend/src/js/store/sync/ws-client.js:352-358`), que dispara `syncEngine.resync()`, ou seja, um `pullSync(atlasId, 0)` forçado, **snapshot completo** ([[snapshot-e-pull-incremental]]). O comentário no `frontend/src/js/store/sync/ws-client.js` registra que antes esses frames caíam no `default` e a mudança sumia sem erro.
 

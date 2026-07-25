@@ -312,7 +312,7 @@ describe('Users Admin API', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
 
-      assert.ok(res.body.data.success || res.body.success);
+      assert.equal(res.body.data.success, true, 'the controller answers under `data` (res.json({ data }))');
 
       // Verify user is inactive
       const { rows } = await db.query('SELECT is_active FROM users WHERE id = $1', [noAtlasUser.id]);

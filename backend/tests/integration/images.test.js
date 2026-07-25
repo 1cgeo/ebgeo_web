@@ -86,7 +86,9 @@ describe('Images API', () => {
 
       assert.ok(res.body.data.id);
       assert.ok(res.body.data.filename);
-      assert.ok(res.body.data.size_bytes || res.body.data.size);
+      // The column is `size_bytes` (RETURNING *); there is no `size` alias.
+      assert.ok(Number(res.body.data.size_bytes) > 0);
+      assert.equal(res.body.data.size, undefined);
 
       // The absolute server filesystem path must never cross the API boundary.
       assert.equal(res.body.data.storage_path, undefined,

@@ -127,6 +127,7 @@ describe('SqliteBlobPool — dead worker handling (P5)', () => {
     workers[0].emit('error', new Error('worker exploded'));
 
     // Every slot must hold a live worker, or round-robin would post into the void.
+    assert.equal(pool.workers.length, POOL_SIZE, 'the pool still holds every slot');
     for (const w of pool.workers) {
       assert.ok(w, 'no empty slot in the pool');
       assert.equal(typeof w.postMessage, 'function');

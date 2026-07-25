@@ -316,13 +316,14 @@ describe('Cesium3D Data via Sync API', () => {
         Object.keys(mapData.cesium3d.cameraPositions).length;
       assert.ok(totalEntries >= 2, 'should have at least 2 cesium3d entries');
 
-      // Check entry structure includes sync metadata
-      if (mapData.cesium3d.markers.length > 0) {
-        const marker = mapData.cesium3d.markers[0];
-        assert.ok(marker.id);
-        assert.ok(marker.sync);
-        assert.ok(typeof marker.sync.createdAt === 'number');
-      }
+      // Check entry structure includes sync metadata. The `before` of this
+      // describe creates one marker, so the list is NOT allowed to be empty:
+      // an empty list would make the structural assertions below vacuous.
+      assert.ok(mapData.cesium3d.markers.length > 0, 'the snapshot must carry the marker created in setup');
+      const marker = mapData.cesium3d.markers[0];
+      assert.ok(marker.id);
+      assert.ok(marker.sync);
+      assert.ok(typeof marker.sync.createdAt === 'number');
     });
 
     it('deleted cesium3d data is NOT included in snapshot', async () => {
@@ -588,12 +589,13 @@ describe('StreetView360 Data via Sync API', () => {
 
       // Check entry structure includes sync metadata
       const orientationKeys = Object.keys(mapData.streetview360.orientations);
-      if (orientationKeys.length > 0) {
-        const orientation = mapData.streetview360.orientations[orientationKeys[0]];
-        assert.ok(orientation.id);
-        assert.ok(orientation.sync);
-        assert.ok(typeof orientation.sync.createdAt === 'number');
-      }
+      // The `before` of this describe creates one orientation, so an empty map
+      // here would make the structural assertions below verify nothing.
+      assert.ok(orientationKeys.length > 0, 'the snapshot must carry the orientation created in setup');
+      const orientation = mapData.streetview360.orientations[orientationKeys[0]];
+      assert.ok(orientation.id);
+      assert.ok(orientation.sync);
+      assert.ok(typeof orientation.sync.createdAt === 'number');
     });
 
     it('deleted streetview360 data is NOT included in snapshot', async () => {

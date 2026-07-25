@@ -93,17 +93,19 @@ describe('a map merge is visible to a peer that reconnects (repro)', () => {
     const ops = res.body.data.operations ?? [];
     const isSnapshot = Boolean(res.body.data.snapshot);
 
+    // This suite never prunes the oplog, so the replay from peerVersion IS the
+    // incremental branch. Tolerating a snapshot here used to let the whole marker
+    // check below be skipped silently.
+    assert.equal(isSnapshot, false, 'the replay from peerVersion must be incremental, not a snapshot');
     assert.ok(
-      isSnapshot || ops.length > 0,
+      ops.length > 0,
       'the reconnecting peer must learn something happened, not be told it is up to date'
     );
 
-    if (!isSnapshot) {
-      const marker = ops.find((o) => o.entityType === 'map_merge');
-      assert.ok(marker, `a map_merge marker must be in the replay, got: ${ops.map((o) => o.entityType).join(',')}`);
-      assert.equal(marker.data.destMapId, dest.id, 'the marker names the destination');
-      assert.deepEqual(marker.data.sourceMapIds, [src.id], 'and the sources');
-    }
+    const marker = ops.find((o) => o.entityType === 'map_merge');
+    assert.ok(marker, `a map_merge marker must be in the replay, got: ${ops.map((o) => o.entityType).join(',')}`);
+    assert.equal(marker.data.destMapId, dest.id, 'the marker names the destination');
+    assert.deepEqual(marker.data.sourceMapIds, [src.id], 'and the sources');
 
     // And the durable truth the peer will converge onto.
     const { rows } = await db.query('SELECT map_id FROM features WHERE id = $1', [feat.id]);

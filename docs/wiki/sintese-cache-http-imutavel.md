@@ -6,6 +6,8 @@ Três rotas de binário grande compartilham o mesmo molde (ETag O(1), 304 antes 
 
 **O byte nunca muda para um mesmo identificador.** Assets 3D são publicados por caminho, o panorama é imutável depois da ingestão ([[ingestao-projetos-360]]), a thumbnail é arquivo em disco. Só isso justifica `max-age=31536000, immutable`, que instrui o navegador a **nem revalidar** dentro do ano.
 
+**Imagem de atlas emite o mesmo header e não satisfaz o invariante.** Ela já aparece abaixo como "fora do molde" por outro motivo (delega ETag e Range ao `res.sendFile`), mas a divergência que importa é esta: a PK é escolhida pelo cliente no lote e o `DELETE` é físico, então um mesmo id pode servir bytes diferentes, e o `immutable` congela os antigos por até um ano ([[imagens-atlas]]). Ao copiar este molde para uma rota nova, a pergunta a fazer não é "o conteúdo é grande?" e sim **"o identificador é irrepetível?"**.
+
 O `parseRange` foi **copiado verbatim** entre os módulos (`backend/src/modules/streetview360/sv360.controller.js:36` admite isso). Consequência operacional: um bug de protocolo em uma rota provavelmente existe nas três, e a correção precisa ser aplicada três vezes.
 
 ## Armadilhas do ETag

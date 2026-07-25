@@ -119,7 +119,7 @@ describe('a filesystem read error must not kill the process', () => {
     // without clearing those emits an envelope that the stale headers truncate — a
     // response that looks fine to a status-only assertion and is empty on the wire.
     assert.ok(
-      res.body?.error || res.body?.message,
+      res.body?.error,
       `the error envelope really arrives, got status ${res.status} body ${JSON.stringify(res.body)}`
     );
   });

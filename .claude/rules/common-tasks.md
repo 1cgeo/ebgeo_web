@@ -28,9 +28,12 @@ Use a skill `new-tool`. Esta seção já teve uma cópia resumida do procediment
    `safelyMigrate()`. O encadeamento é por número de versão, não por registry.
 3. **Subir `ATLAS_SCHEMA_VERSION` em `frontend/src/js/store/atlas/atlas.entity.js:12`** (hoje
    `'2.2'`). Este é o passo que falta com mais facilidade e falha em silêncio:
-   `needsMigration` compara a versão do repositório com essa constante
-   (`migration.service.js:51`) e **retorna cedo** se ela não subiu, então
-   `safelyMigrate()` nunca é chamado. A migração nova simplesmente não roda, sem erro.
+   `detectMigrationNeeded()` compara a versão do repositório com essa constante
+   (`frontend/src/js/store/migration/migration.service.js:50-52`) e devolve
+   `needed: false` se ela não subiu, então `safelyMigrate()` nunca é chamado. A
+   migração nova simplesmente não roda, sem erro. (Esta linha chamou a função de
+   `needsMigration` até 2026-07-25; esse nome nunca existiu no código, e procurá-lo
+   por grep não devolve nada, o que faz parecer que o guarda não existe.)
 4. Roda sozinha no próximo startup.
 
 ## PDF Export

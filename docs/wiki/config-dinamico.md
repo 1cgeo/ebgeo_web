@@ -14,13 +14,20 @@ Consequência aceita: o servidor é pré-requisito para o app *subir*, não para
 
 ## Precedência das quatro camadas
 
-Estáticos de UI (`backend/src/modules/config/config.static.js`) < env (`backend/src/config.js:139-178`) < tabelas de catálogo < **overrides de admin** (`config_settings`, `deepMerge` final em `backend/src/modules/config/config.service.js:236`).
+Estáticos de UI (`backend/src/modules/config/config.static.js`) < env (`backend/src/config.js:139-178`) < tabelas de catálogo < **overrides de admin** (`config_settings`, `deepMerge` final em `backend/src/modules/config/config.service.js:267`).
 
 Duas leituras superadas que ainda circulam, vindas do guia *10-config* (absorvido): que as fontes são **três** (o guia omite os overrides de admin, que vencem todas as outras), e que o catálogo vem de uma **única tabela `resources`** editada por `/api/v1/resources`. É uma tabela e uma rota CRUD **por tipo** (`backend/src/modules/catalog/catalog.tables.js:5-11`, `backend/src/app.js:102-106`); rota `/api/v1/resources` não existe. Ver [[resources-catalogo]].
 
-**Armadilha operacional.** O override de admin é deep-merge server-side e vence env. Uma URL errada gravada no override **não se corrige** trocando a variável de ambiente; só `DELETE /config/admin` (a válvula de reversão) ou um novo `PUT` com o valor certo. Mudanças são auditáveis via [[auditoria]].
+**Armadilha operacional.** O override de admin é deep-merge server-side e vence env. Uma URL errada gravada no override **não se corrige** trocando a variável de ambiente; só `DELETE /config/admin` (a válvula de reversão) ou um novo `PUT` com o valor certo. E não há rastro para reconstituir quem gravou o quê: `PUT`/`DELETE /config/admin` **não geram evento em `audit_trail`** (nunca geraram; não existe nenhuma chamada a `createAudit` em `backend/src/modules/config/`). O único rastro é a coluna `updated_by` de `config_settings` (`backend/src/modules/config/config.queries.js:8-12`), que guarda só o último autor. Mesma lacuna do catálogo, ver [[resources-catalogo]]; o que a [[auditoria]] de fato cobre está lá.
 
-Também por isso `PUT /config/admin` mescla um parcial no documento armazenado: salvar uma seção nunca pode apagar as outras, porque o editor "Avançado (JSON)" envia recortes. O schema rejeita **chaves de topo desconhecidas** de propósito (`backend/src/modules/config/config.admin.schemas.js`): basemaps/tilesets/camadas têm CRUD próprio de catálogo e injetá-los por aqui contornaria esse CRUD.
+**Armadilha que junta as duas seções desta página: o override entra por ÚLTIMO, depois das derivações.** O `deepMerge` final (`backend/src/modules/config/config.service.js:267`) recebe o payload já montado, então sobrescrever uma fonte **não recomputa nada que dela derive**. Dois casos alcançáveis pela UI, e o editor "Avançado (JSON)" nomeia justamente essas seções:
+
+- `map3d.providers.terrain.enabled` é `Boolean(C.map3dTerrainUrl)`, calculado em `:239`. Sobrescrever `map3d.providers.terrain.url` deixa `enabled: false` e o terreno 3D simplesmente não liga.
+- os templates MVT de `streetView360` são montados de `C.sv360ServiceUrl` em `:258` e `:260`. Sobrescrever `streetView360.serviceUrl` deixa os tiles apontando para a base **antiga**.
+
+Ao sobrescrever uma fonte pelo override, escreva **também** o campo derivado. Nada prende isso: `backend/tests/integration/config-admin.test.js` faz exatamente esse override de `serviceUrl` e afirma só o próprio `serviceUrl`, nunca os tiles.
+
+Também por isso `PUT /config/admin` mescla um parcial no documento armazenado: salvar uma seção nunca pode apagar as outras, porque o editor "Avançado (JSON)" envia recortes. O schema rejeita **chaves de topo desconhecidas** de propósito (`backend/src/modules/config/config.admin.schemas.js`), mas o que ele bloqueia é menos do que o comentário do próprio schema sugere: só `basemaps` e `tilesets` ficam de fora. **`analysisLayers` e `dataLayers` são chaves de topo aceitas e abertas** (`:45-46`), e como o `deepMerge` **substitui arrays inteiros** (`config.service.js:22-31`), um `PUT /config/admin {"analysisLayers":{"layers":[…]}}` troca o array vindo do catálogo por completo. Ele contorna o CRUD que a frase original dizia proteger e também o filtro de `bounds` descrito abaixo, o que faz do override o **único caminho pelo qual `/api/config` volta a emitir camada sem `bounds`**.
 
 ## O contrato congelado
 
@@ -35,11 +42,11 @@ Ver [[sintese-contratos-congelados]]. O que quebra o frontend se mudar:
 
 ## Regras de montagem que causam bug se ignoradas
 
-**Camada de análise sem `bounds` de 4 posições é descartada em silêncio** (`backend/src/modules/config/config.service.js:93-95`). O motivo está no código: uma camada semeada com `config: {}` quebrava o boot no zoom-to-layer, e a defesa ficou no servidor para que `/api/config` não consiga emitir payload fora do contrato. Se uma camada "sumiu" do catálogo, o suspeito número um é `bounds` incompleto, não `active = false`.
+**Camada de análise sem `bounds` de 4 posições é descartada em silêncio** (`backend/src/modules/config/config.service.js:120-126`). O motivo está no código: uma camada semeada com `config: {}` quebrava o boot no zoom-to-layer, e a defesa ficou no servidor para que `/api/config` não consiga emitir payload fora do contrato. Se uma camada "sumiu" do catálogo, o suspeito número um é `bounds` incompleto, não `active = false`.
 
 **`terrainSource`/`hillshadeSource` têm duas formas incompatíveis.** A presença de `{z}` na URL decide entre TileJSON (`{ url }`) e template (`{ tiles: [...] }`); o frontend repassa o objeto **verbatim** para `map.addSource()` e o MapLibre não intercambia as duas. `TERRAIN_MINZOOM`/`MAXZOOM` e `HILLSHADE_*` só têm efeito na forma template (numa TileJSON o manifesto declara os zooms). Sem URL a fonte sai `undefined`.
 
-**Terreno 3D só liga se houver URL** (`backend/src/modules/config/config.service.js:208`), e `MAP3D_TERRAIN_URL` tem default **vazio**. Sem terreno o Cesium usa o elipsoide plano, em vez de tentar e falhar contra um provider inexistente.
+**Terreno 3D só liga se houver URL** (`backend/src/modules/config/config.service.js:239`), e `MAP3D_TERRAIN_URL` tem default **vazio**. Sem terreno o Cesium usa o elipsoide plano, em vez de tentar e falhar contra um provider inexistente.
 
 > **Nota histórica.** O antigo docs/deploy.md (removido) (absorvido em [[deploy-backend]]) documentava defaults `http://localhost/terrain/tilesets/terrain` para `MAP3D_TERRAIN_URL` e `http://localhost:3000/api/v1/sv360` para `SV360_SERVICE_URL`; `backend/src/config.js:157` usa default **vazio** (e publica `enabled: false`) e `backend/src/config.js:171` usa o relativo `/api/v1/sv360`.
 

@@ -164,6 +164,8 @@ describe('Org + Identity + Audit + Users gaps', () => {
         .expect(200);
 
       const times = res.body.data.data.map((r) => new Date(r.created_at).getTime());
+      // With fewer than two rows an ordering check compares nothing.
+      assert.ok(times.length >= 2, 'the actor has at least two audit rows to order');
       for (let i = 1; i < times.length; i++) {
         assert.ok(times[i - 1] >= times[i], 'expected created_at DESC');
       }

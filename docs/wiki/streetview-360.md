@@ -29,7 +29,9 @@ O 304 acontece **antes** de abrir o SQLite e **antes** do semáforo de concorrê
 
 ## Ocultação: 404 é ambíguo por decisão
 
-Projeto `enabled` é público; `disabled` só admin global ou membro da OM dona ([[auth-flexivel]], [[organizacoes-om]], [[permissoes-atlas]]). A regra está **embutida no SQL** das leituras, não só no service, e projeto oculto responde **404**, indistinguível de inexistente. Nas escritas a escada é **404 → 403** (`backend/src/modules/streetview360/sv360.write.service.js:49-52`): quem não lê nem sabe que existe; quem lê mas não escreve (um `viewer` da própria OM) recebe 403. Portanto **não trate 404 do sv360 como "não existe"**: pode ser "existe e não é seu".
+Projeto `enabled` é público; `disabled` só admin global ou membro da OM dona ([[auth-flexivel]], [[organizacoes-om]], [[permissoes-atlas]]), e projeto oculto responde **404**, indistinguível de inexistente. Nas escritas a escada é **404 → 403** (`backend/src/modules/streetview360/sv360.write.service.js:49-52`): quem não lê nem sabe que existe; quem lê mas não escreve (um `viewer` da própria OM) recebe 403. Portanto **não trate 404 do sv360 como "não existe"**: pode ser "existe e não é seu".
+
+**Onde a regra mora, exatamente.** Esta seção dizia sem ressalva que ela está "embutida no SQL das leituras, não só no service", ecoando a promessa de `backend/CLAUDE.md`. Vale para as leituras de **projeto** e para o feed de tiles (`backend/src/modules/streetview360/sv360.queries.js:14`, `:29`, `:155`). As leituras de **foto** fazem o oposto por desenho: projetam `organization_id` e `project_status` e deixam a decisão para o service (`isProjectReadable` / `enforceProjectReadable`, `backend/src/modules/streetview360/sv360.service.js:34`, `:48-50`). É o que permite a escada 404 → 403 acima, que um `WHERE` cego não sabe distinguir. O preço, e é o que interessa aqui, é que **no caminho de foto a garantia vale só enquanto cada call site lembrar de chamar o gate**: uma query nova que devolva linha de foto sem passar por lá vaza projeto oculto, e não existe teste de SQL que pegue isso, porque não há nada no SQL para testar.
 
 ## Contrato congelado do metadado
 
@@ -64,7 +66,12 @@ Thumbnail: a **URL** é por slug, mas o **arquivo em disco é org-keyed** (`{org
 
 ## Não programe contra isto
 
-`nearby` existe como service e query (`backend/src/modules/streetview360/sv360.service.js:158`, `backend/src/modules/streetview360/sv360.queries.js:115` `NEARBY_PHOTOS`) mas **não tem rota montada**. `metadata` e `position` do 360 legado nunca foram portados. Não há alias `rotation-y` entre os PUTs de campo único, embora haja para os outros eixos.
+`nearby` existe como service e query (`backend/src/modules/streetview360/sv360.service.js:182`, `backend/src/modules/streetview360/sv360.queries.js:115` `NEARBY_PHOTOS`) mas **não tem rota montada**, embora o schema já esteja escrito e rotulado para uma segunda etapa (`backend/src/modules/streetview360/sv360.schemas.js:92-94`). Quem for montá-la herda duas coisas que a query não avisa:
+
+- `NEARBY_PHOTOS` é a leitura **sem nenhum predicado de acesso**; o filtro roda em JS depois (`backend/src/modules/streetview360/sv360.service.js:184-188`). Montar a rota exige embutir o predicado no SQL **antes**, com teste negativo, que é a regra de `backend/CLAUDE.md` para toda query com filtro de acesso.
+- O filtro em JS roda **depois do `LIMIT 100`**, então foto de projeto oculto consome vaga do orçamento: um chamador cercado de projetos `disabled` recebe menos resultados legítimos do que deveria, sem sinal nenhum. É a mesma classe de "o corte acontece antes do filtro" documentada em [[ranking-busca-toponimos]], e some sozinha quando o predicado descer para o SQL.
+
+`metadata` e `position` do 360 legado nunca foram portados. Não há alias `rotation-y` entre os PUTs de campo único, embora haja para os outros eixos.
 
 Escritas exigem `auth` estrito ([[autenticacao-jwt]]); leituras são `flexibleAuth`.
 

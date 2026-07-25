@@ -412,9 +412,8 @@ describe('Sync API', () => {
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
-      if (!res.body.data.isSnapshot) {
-        assert.equal(res.body.data.operations.length, 0);
-      }
+      assert.equal(res.body.data.isSnapshot, false, 'pull at currentVersion must be incremental');
+      assert.equal(res.body.data.operations.length, 0);
     });
 
     it('reader can pull operations', async () => {

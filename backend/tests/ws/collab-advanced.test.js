@@ -227,6 +227,7 @@ describe('WebSocket Collaboration — Advanced', () => {
       assert.ok(ackBatch.serverVersion > 0);
 
       // Verify the opIds match what was sent
+      assert.equal(ops.length, 4, 'four ops were actually built and sent');
       for (const op of ops) {
         assert.ok(ackBatch.opIds.includes(op.id));
       }
@@ -501,14 +502,11 @@ describe('WebSocket Collaboration — Advanced', () => {
         await client.waitForType('connected', 2000);
         assert.fail('Should not have connected to nonexistent atlas');
       } catch (err) {
-        // Expected: connection should fail or timeout
-        assert.ok(
-          err.message.includes('Timeout') ||
-          err.message.includes('error') ||
-          err.message.includes('403') ||
-          err.message.includes('Connection'),
-          `Expected connection failure but got: ${err.message}`
-        );
+        // The upgrade is refused BEFORE the socket opens: resolvePermission finds no
+        // atlas → the gateway answers HTTP 403 → `ws` rejects with
+        // "Unexpected server response: 403". Anything else (a timeout, an open
+        // socket) means the refusal moved, which is what this test guards.
+        assert.match(err.message, /403/, `expected an HTTP 403 upgrade refusal, got: ${err.message}`);
       }
     });
 

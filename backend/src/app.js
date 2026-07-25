@@ -100,10 +100,15 @@ export function createApp() {
     return jsonParser(req, res, next);
   });
 
-  // Request logging (skip in test to reduce noise)
-  if (!config.isTest) {
-    app.use(requestLogger);
-  }
+  // Request logging. Montado em TODO ambiente, teste inclusive. O gate
+  // `if (!config.isTest)` que morava aqui dizia "skip in test to reduce noise" e
+  // não reduzia ruído nenhum: o logger já sai em `level: 'silent'` sob teste
+  // (`src/utils/logger.js:75`). O que ele fazia era impedir que `res.on('finish')`
+  // rodasse na suíte inteira, o que deixava `request-logger.js` em 27,6% de
+  // cobertura, justamente o arquivo onde mora o risco de vazar token para o log.
+  // Gate que não faz o que promete e apaga a cobertura do caminho que ele protege
+  // custa mais do que rende. Removido em 2026-07-25.
+  app.use(requestLogger);
 
   // Health check (no auth) — readiness: touches the DB, 503 if it is down.
   //

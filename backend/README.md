@@ -166,6 +166,45 @@ DB. Bata no `app` exportado via **supertest** (não suba servidor). **Toda mudan
 de teste de regressão; toda query com filtro de acesso precisa de teste com usuário SEM permissão**
 (não vazar dados).
 
+#### Piso de cobertura (`.c8rc.json`)
+
+`npm run test:coverage` roda com `check-coverage: true`. JSON não aceita comentário, então a
+justificativa dos números mora aqui.
+
+**Medição de 2026-07-25**, suíte completa (`npm run test:coverage`):
+
+| Métrica | Medido | Piso | Folga |
+|---|---|---|---|
+| Statements | 96,76% | **96** | 0,76 pt (~124 statements) |
+| Lines | 96,76% | **96** | 0,76 pt |
+| Branches | 85,78% | **85** | 0,78 pt (~23 branches) |
+| Functions | 94,75% | **93** | 1,75 pt (7 funções) |
+
+O piso fica **logo abaixo** do medido de propósito: ele existe para impedir REGRESSÃO, não para
+reprovar o estado atual. Folga grande demais não prende nada (um módulo novo inteiro sem teste
+passaria); folga pequena demais é reprovada por trabalho legítimo e acaba sendo afrouxada, que é
+como um guarda morre. ~1 ponto foi o meio-termo escolhido: derrubar um arquivo de teste ou somar
+um módulo sem cobertura estoura; refatorar não. **Ao subir a cobertura, suba o piso junto** — piso
+que não acompanha vira teto.
+
+`src/database/seed.js` está **fora** do `include`: é script operacional de desenvolvimento
+(`npm run db:seed`, senhas fixas `admin123`/`test123`), nunca importado pela aplicação. Testá-lo
+seria afirmar que um fixture insere linhas — 146 linhas de cerimônia que só maquiavam o percentual.
+Excluí-lo faz o número falar sobre o que roda em produção.
+
+**Como o piso alcança quem esquece.** Ele era avaliado só em `npm run test:coverage`, ou seja,
+pegava quem o rodava e não quem esquecia, enquanto o comando do Definition of Done é `npm test`.
+Desde 2026-07-25 o `scripts/run-tests.js` se **auto-eleva**: quando não recebe padrão (a suíte
+completa), re-executa sob `c8` e o piso é verificado; com padrão (`npm test -- <arquivo>`), não.
+A assimetria é obrigatória, não conveniência: medido, rodar só `tests/integration/ranks.test.js`
+sob o piso global dá 50,86% de linha contra piso de 96, então elevar o loop de trabalho reprovaria
+todo trabalho legítimo, e guarda que reprova trabalho legítimo é guarda que alguém desliga. A trava
+de recursão é o `NODE_V8_COVERAGE` que o próprio `c8` define.
+
+Verificado nas duas direções contra a medição real (branches 85,81%):
+`npx c8 report --check-coverage --branches 86` sai com 1 e a mensagem do limiar;
+com `--branches 85` sai com 0.
+
 ### Definition of Done
 - [ ] Segue o template de módulo e a convenção de nomes.
 - [ ] Rota de escrita tem `validate()` Joi; erros usam `AppError`/`asyncHandler`.

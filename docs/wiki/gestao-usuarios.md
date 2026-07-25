@@ -1,6 +1,6 @@
 # Gestão de Usuários (ciclo de vida administrativo)
 
-Ciclo de vida de contas em `/api/v1/users` mais o auto-cadastro: as armadilhas estão no contrato de escrita normalizado, na assimetria de status HTTP entre caminhos equivalentes e na cobertura parcial de auditoria.
+Ciclo de vida de contas em `/api/v1/users` mais o auto-cadastro: as armadilhas estão no contrato de escrita normalizado e na assimetria de status HTTP entre caminhos equivalentes. (A terceira armadilha desta lista era a cobertura parcial de auditoria, fechada em 2026-07-24.)
 
 ## O contrato de escrita é FK, a leitura é string
 
@@ -36,7 +36,9 @@ Ainda: o auto-cadastro força `role: 'user'` e cai na organização default via 
 
 - A transferência é **tudo ou nada por usuário**: `UPDATE atlas SET owner_id` para todos de uma vez (`backend/src/modules/users/users.queries.js:170-175`). Não existe transferir atlas a atlas por aqui.
 - Só atlas **de propriedade** viajam. Compartilhamentos em que o usuário era editor ou visualizador continuam apontando para uma conta inativa, ver [[permissoes-atlas]].
-- `USER_DELETE` é a **única** operação de ciclo de vida auditada. Criar, atualizar, resetar senha e reativar não deixam rastro (`backend/src/modules/users/users.service.js` só chama `createAudit` em `:242` e `:261`). Ver [[auditoria]]. Se a pergunta for "quem promoveu esse usuário a admin", o banco não responde.
+- O ciclo de vida é auditado inteiro desde 2026-07-24 (`759c6c6`): `USER_CREATE`, `USER_UPDATE`, `ROLE_CHANGE`, `PASSWORD_RESET` e `USER_DELETE`, todos dentro da **mesma transação** da escrita (`backend/src/modules/users/users.service.js:150,238,247,286,369`), ou seja, ou a conta muda e há linha de trilha, ou nenhuma das duas coisas. Ver [[auditoria]].
+  - O detalhe que não se adivinha: `ROLE_CHANGE` é emitido **à parte** de `USER_UPDATE`, não como campo dele, porque "quem promoveu esse usuário a admin" é a pergunta que se faz em revisão e ela precisa casar por `action`, não por varredura de `details`.
+  - Até essa data a linha acima dizia que `USER_DELETE` era a única auditada, e estava certa: `USER_CREATE` já era aceito pelo CHECK de `audit_trail.action` desde a migração `001` e não tinha emissor nenhum. Filtro que por construção nunca casa se lê como "nada aconteceu", não como "nunca foi ligado", que é a forma mais silenciosa de lacuna.
 - Assimetria de status a tratar no cliente: auto-desativação via `DELETE` é **403** (`backend/src/modules/users/users.service.js:211`), via `PUT` é **409** (`backend/src/modules/users/users.service.js:142-149`). Caminhos distintos, mesma intenção do usuário.
 
 ## Efeito imediato, e o que não é reconciliado

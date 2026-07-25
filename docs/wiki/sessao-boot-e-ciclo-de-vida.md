@@ -2,16 +2,13 @@
 
 A ordem de boot em `frontend/src/js/index.js` está comentada fase a fase no próprio código; esta página guarda só o que o código não consegue dizer: a documentação desatualizada que ainda contradiz o boot, e os invariantes que quebram de longe.
 
-## [!CONTRADICAO] O boot NÃO reconecta o último atlas
+## O boot NÃO reconecta o último atlas
 
-`reconnectLastAtlas` **não existe** (zero ocorrências em `src/`). Ainda assim quatro fontes afirmam que o boot reconecta sozinho o último atlas remoto:
+`frontend/src/js/index.js:161` chama `openAtlasChooserOnBoot()`, que **descarta** dado remoto órfão e abre o Atlas Drive (`frontend/src/js/index.js:280-282`). A decisão está no comentário em `frontend/src/js/index.js:276-279`: a barra de endereço é a fonte de verdade. `/?atlas=<uuid>` carrega aquele atlas; `/` puro deve **deixar escolher**, não reabrir silenciosamente o último. O marcador de origem serve para descartar resíduo, não para reabrir. Ver [[dominio-local-vs-remoto]], que registra a armadilha correlata (`atlasId` é persistido e **nunca lido**).
 
-- `.claude/rules/architecture.md:138`, a mais perigosa, porque é carregada como instrução em toda sessão de agente;
-- guia *visao-e-principios* (absorvido) §4 passo 4, guia *ui-ux-ebgeo* (absorvido) §2 ("F5 reconecta o último atlas automaticamente"), guia *arquitetura-sync* (absorvido) §7.4.
+A armadilha sobrevive à correção: quem planeja a partir de uma fonte que promete reconexão automática propõe código que duplica o Atlas Drive. O símbolo que essas fontes citavam, `reconnectLastAtlas`, tem **zero ocorrências** em `frontend/src/` e nunca teve. Confirme no código antes de aceitar qualquer afirmação de reconexão no boot.
 
-O real: `index.js:160` chama `openAtlasChooserOnBoot()`, que **descarta** dado remoto órfão e abre o Atlas Drive (`index.js:279-281`). A decisão está no comentário em `index.js:275-278`: a barra de endereço é a fonte de verdade. `/?atlas=<uuid>` carrega aquele atlas; `/` puro deve **deixar escolher**, não reabrir silenciosamente o último. O marcador de origem serve para descartar resíduo, não para reabrir. Ver [[dominio-local-vs-remoto]], que registra a mesma contradição e a armadilha correlata (`atlasId` é persistido e **nunca lido**).
-
-Enquanto essas fontes não forem corrigidas, qualquer agente ou pessoa que planeje a partir delas vai propor código de reconexão que duplica o Atlas Drive.
+Isto foi uma `[!CONTRADICAO]` pendente até 2026-07-25, com quatro fontes afirmando o contrário. Três eram guias absorvidos e morreram com a absorção; a quarta era `.claude/rules/architecture.md`, a perigosa, por ser carregada como instrução em toda sessão de agente, e foi corrigida na mesma data. Repare por que o guarda não pegou: `frontend/tests/unit/docs-integridade.test.js` valida o **caminho** citado, nunca o **símbolo**, então uma citação a uma função que não existe atravessa o teste em silêncio.
 
 ## Invariantes que quebram de longe
 

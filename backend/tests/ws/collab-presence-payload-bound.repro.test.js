@@ -333,10 +333,11 @@ describe('WebSocket collab — presence payload is validated and bounded (achado
     const { connected } = await snapshotOf(atlas.id, ownerToken);
     for (const id of [viewer.id, commenter.id]) {
       const entry = connected.usersOnline.find((u) => u.id === id);
-      if (entry) {
-        assert.deepEqual(entry.selectedFeatures, [], 'read/comment must not retain a selection');
-        assert.equal(entry.selectionContext, undefined);
-      }
+      // Both sockets are still open, so both users MUST be in the roster: a
+      // missing entry used to make the two assertions below silently vanish.
+      assert.ok(entry, `user ${id} must appear in the presence roster`);
+      assert.deepEqual(entry.selectedFeatures, [], 'read/comment must not retain a selection');
+      assert.equal(entry.selectionContext, undefined);
     }
   });
 });

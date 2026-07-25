@@ -20,16 +20,17 @@ Consequência de projeto, e a regra que se deve seguir: **se um campo novo preci
 
 ## O advisory lock: sem ele, op perdida para sempre
 
-`pushOperations` toma `pg_advisory_xact_lock` por atlas antes do primeiro INSERT (`backend/src/modules/sync/sync.service.js:650`). O motivo está comentado no código com o diagrama de interleave; o que importa reter é a consequência: `server_version` vem de `nextval` no INSERT mas só fica visível no COMMIT, então sem o lock uma op pode commitar *depois* de outra com versão maior, e o pull incremental (`WHERE server_version > $lastVersion`) nunca mais a devolve. Perda silenciosa e definitiva.
+`pushOperations` (`backend/src/modules/sync/sync.service.js`) toma `pg_advisory_xact_lock` por atlas antes do primeiro INSERT. O motivo está comentado no código com o diagrama de interleave; o que importa reter é a consequência: `server_version` vem de `nextval` no INSERT mas só fica visível no COMMIT, então sem o lock uma op pode commitar *depois* de outra com versão maior, e o pull incremental (`WHERE server_version > $lastVersion`) nunca mais a devolve. Perda silenciosa e definitiva.
 
 Por isso `server_version` é simultaneamente o cursor do pull incremental ([[snapshot-e-pull-incremental]]) e a verdade da ordenação LWW. As duas coisas dependem do mesmo lock.
 
-> [!CONTRADICAO]
-> Esta página afirmava que havia `SET LOCAL lock_timeout = '5s'` antes da espera do lock, convertendo contenção em 503 retentável. **Não existe:** `grep -rn lock_timeout` no backend não retorna nada. O risco descrito é real e está **não mitigado**: o lock é tomado com a conexão do pool retida, e com `poolMax` default 10 (`config.js:37`) dez pushes concorrentes no mesmo atlas esgotam o pool inteiro, derrubando inclusive `/health` e `/auth/login`. Tratar como dívida aberta, não como resolvido.
+**A espera pelo lock é limitada:** um `SET LOCAL lock_timeout = '5s'` roda imediatamente antes, e o estouro (`55P03`) vira `ServiceUnavailableError`, 503 retentável (`backend/src/utils/errors.js:49-58`). Não é refinamento: o lock é tomado com a conexão do pool **já retida**, então espera ilimitada converte contenção num único atlas em esgotamento do pool inteiro, e com `poolMax` default 10 (`backend/src/config.js:45`) dez pushes concorrentes derrubam junto `/health` e `/auth/login`.
+
+A consequência que só esta página pode dar: **esse 503 é o único erro TRANSITÓRIO do push.** A reoferta eterna do lote sem dequeue descrita em [[sintese-contrato-erros-http]] é o tratamento certo para ele e patológico para as recusas permanentes. Não trate os dois pelo mesmo ramo, e não "resolva" a contenção aumentando o `lock_timeout`: 5s já é maior que qualquer push saudável.
 
 ## Delete vence update (por ausência de filtro)
 
-`buildUpdateQuery` de feature/layer/group **não** filtra `deleted_at IS NULL` (`backend/src/modules/sync/sync.service.js:1055-1090`), mas também não limpa `deleted_at`. Um UPDATE que chega depois de um DELETE altera colunas de uma linha já morta e **não a ressuscita**; o snapshot segue não a devolvendo. O comportamento correto emerge da ausência de uma cláusula: quem "consertar" acrescentando o filtro não muda nada visível, quem acrescentar `deleted_at = NULL` quebra o modelo.
+`buildUpdateQuery` (`backend/src/modules/sync/sync.service.js`) **não** filtra `deleted_at IS NULL` nos ramos de feature/layer/group, mas também não limpa `deleted_at`. Um UPDATE que chega depois de um DELETE altera colunas de uma linha já morta e **não a ressuscita**; o snapshot segue não a devolvendo. O comportamento correto emerge da ausência de uma cláusula: quem "consertar" acrescentando o filtro não muda nada visível, quem acrescentar `deleted_at = NULL` quebra o modelo.
 
 ## Armadilhas
 
@@ -44,7 +45,7 @@ Por isso `server_version` é simultaneamente o cursor do pull incremental ([[sna
 - **Feição antes do mapa:** um `feature/create` pode chegar antes do `map/create` que o contém. O handler bufferiza por `mapId` e reaplica; ops bufferizadas **não** registram a versão, senão uma op legítima posterior seria descartada pelo guard. Descartar em vez de bufferizar seria perda de dado silenciosa no par.
 - **Deslogado, a fila continua acumulando** até a purga de 7 dias. O log é ligado incondicionalmente no boot; só o flush é gated por conexão. Ver [[sessao-boot-e-ciclo-de-vida]].
 - **Ao adicionar campo persistido, cubra os dois caminhos** (`.ebgeo` e sync); a cobertura de sync tem que ser superconjunto do `.ebgeo`. Ver [[atlas-modelo-de-dados]] e [[formato-ebgeo-roundtrip]].
-- **Lock só vale para mapa.** O servidor barra escrita apenas em mapa travado (`ConflictError('Map is locked')`); locks de camada, grupo e feição são *advisory* no cliente e não protegem nada no servidor.
+- **Lock só vale para mapa.** O servidor barra escrita apenas em mapa travado, e barra **por operação**, não abortando o lote: `lockedMapDenialReason` (`backend/src/modules/sync/sync.service.js`) devolve motivo e a op volta acked com `rejected: true`. Locks de camada, grupo e feição são *advisory* no cliente e não protegem nada no servidor. O `ConflictError('Map is locked')` que esta linha citava foi removido; ver [[ack-idempotencia]].
 
 ## Contrato congelado
 
@@ -65,6 +66,10 @@ Idempotência por `UNIQUE (atlas_id, op_id)` + `ON CONFLICT DO NOTHING`: reenvia
 > **Nota histórica.** guia *00-visao-geral* (absorvido) e a migração `backend/src/database/migrations/003_sync.sql` chamam o mecanismo de "CRDT". Não é.
 
 > **Nota histórica.** guia *visao-e-principios* (absorvido) §P1 diz que "o log de operações e o flush são gated por conexão". Só o **flush** é. O log é ligado no boot e desligado apenas em visitante anônimo e no logout; o que impede vazamento é o descarte por `mapId` não-UUID mais a auto-purga de 7 dias.
+
+## Histórico
+
+- 2026-07-25: removido um `[!CONTRADICAO]` que negava a existência do `lock_timeout` de 5s ("`grep -rn lock_timeout` no backend não retorna nada") e mandava tratar o esgotamento de pool como dívida aberta. **O marcador nunca foi verdadeiro:** a mitigação entrou em `93d205b` e o marcador foi escrito depois dela, em `f60f23a`, no mesmo dia 2026-07-18. Enquanto durou, [[sintese-limites-collab]] descrevia a mitigação corretamente e esta página a negava, com a página errada sendo a que carregava o marcador que acorda o gate. Lição: um `grep` que volta vazio prova que a busca falhou, não que o código não existe.
 
 ## Relacionados
 

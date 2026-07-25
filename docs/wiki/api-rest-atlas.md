@@ -21,12 +21,11 @@ Armadilha de diagnóstico: **atlas inexistente ou soft-deletado retorna 404; atl
 
 O middleware deposita `req.atlasOwnerId` separado de `req.user.id`, e `transferOwnership` rebaixa o primeiro (`backend/src/modules/atlas/atlas.controller.js:76-78`). Não é redundância: um admin global pode estar agindo sobre atlas alheio, e usar `req.user.id` rebaixaria o admin em vez do dono.
 
-## PUT: o COALESCE torna impossível apagar campo, e `name` vazio some sem erro
+## PUT: `name` vazio é 422, e a doc afirmava o oposto
 
-`UPDATE_ATLAS` usa `COALESCE($2, name)` etc. (`backend/src/modules/atlas/atlas.queries.js:28-37`), e o service converte ausência em `null` (`backend/src/modules/atlas/atlas.service.js:52-57`). Consequências que o cliente precisa absorver:
+> Até 2026-07-25 esta seção afirmava, em negrito, uma "assimetria perigosa": que `name: ""` virava `null`, o `COALESCE` preservava o nome antigo e a API respondia 200 sem mudar nada. **Nunca foi verdade neste repositório.** A rota valida na borda (`backend/src/modules/atlas/atlas.routes.js:27`) e `updateAtlasSchema.name` é `Joi.string().max(255)` (`backend/src/modules/atlas/atlas.schemas.js:9-13`) desde que o backend entrou aqui (`e30622c`, 2026-07-18); `Joi.string()` **rejeita string vazia por default**, e `err.isJoi` vira 422 no `errorHandler` (`backend/src/middleware/error-handler.js:28-39`). O `data.name || null` do service é defensivo e inalcançável para `""`. A doc enganava em dobro: negava o 422 que acontece e mandava o cliente tratar um no-op silencioso que não existe.
 
-- `description: null` é indistinguível de campo não enviado. Para "apagar", envie string vazia (o service usa `!== undefined` para `description`, então `""` passa).
-- **Assimetria perigosa**: `name` usa `data.name || null`, logo `name: ""` vira `null`, o `COALESCE` preserva o nome antigo e a API responde **200 com o nome inalterado**. Falha silenciosa, não 422.
+O `COALESCE` também deixou de valer para `description`: desde `1d23ac9` (2026-07-19) a query usa flag de "campo enviado" (`description = CASE WHEN $5 THEN $3 ELSE description END`, `backend/src/modules/atlas/atlas.queries.js:48-57`), então `null` e `""` **apagam** e só a ausência preserva. Quem ainda passa por `COALESCE` é `map_order`, que por essa rota só pode ser substituído, nunca esvaziado. E esse `map_order` é a coluna de UUIDs, não a chave `mapOrder` de nomes que o sync escreve em `settings`: os dois existem ao mesmo tempo, ver [[sintese-rest-vs-sync]].
 
 ## PATCH /settings: o merge é RASO
 
@@ -46,9 +45,9 @@ Duas convenções que o schema não explicita: **lista de disponibilidade vazia 
 
 `POST /:atlasId/restore` não passa por `requireAtlasPermission` porque o middleware só enxerga atlas com `deleted_at IS NULL` e gatearia tudo em 404. A posse é checada atomicamente pelo escopo da query `RESTORE_ATLAS` (`backend/src/modules/atlas/atlas.queries.js:60-67`); zero linhas vira 404. **Não replique esse padrão em rota de atlas vivo**: sem o filtro de `deleted_at`, o mesmo desenho vira ausência de gate.
 
-## Clone e duplicate perdem configuração de mapa
+## Clone e duplicate: a coluna nova que ninguém lembra de copiar
 
-O INSERT de `maps` no clone e no duplicate (`backend/src/modules/atlas/atlas.service.js:306-307` e `:416-417`) **não inclui `grid_style` nem `temporal_config`**, colunas que o import preserva (`backend/src/modules/atlas/atlas.service.js:586`). Configuração de grade e do [[modulo-temporal]] por mapa se perde ao clonar ou duplicar. Bug de omissão, não decisão.
+Esta seção afirmou até 2026-07-25 que clone e duplicate perdiam `grid_style` e `temporal_config`. Era verdade, e deixou de ser em `d15b330` (2026-07-24): os três caminhos de cópia montam a linha de `maps` pelo mesmo helper (`mapRow`, `backend/src/modules/atlas/atlas.service.js:544-565`). O que sobrevive da lição é a regra de manutenção: **coluna nova em `maps` precisa entrar no `mapRow`**, senão a perda volta, sem erro, exatamente como antes. O sintoma aparece longe da causa, ao abrir a cópia, e nada no INSERT acusa.
 
 O clone tampouco copia `is_public`/`public_link`, shares ou histórico de operações, e isso é deliberado: cópia nasce privada e sem herdar audiência. Ver [[clone-atlas]].
 
@@ -70,9 +69,13 @@ A query junta `atlas_shares` com `users.is_active = true` (`backend/src/modules/
 
 `POST /:atlasId/maps/:mapId/merge` (`src/modules/maps/`) é exceção estrutural à regra "conteúdo só muda por sync". Move sub-entidades numa transação; os mapas de origem **não são deletados**, apenas esvaziados.
 
-O que custa caro: o merge **não passa pela tabela `operations` e não incrementa `current_version`**, então pull incremental jamais o enxerga. O cliente mapeia `maps_merged` para `serverResync` → `pullSync(atlasId, 0)`, ou seja, **snapshot completo**. Quem estiver offline no momento do merge só converge no próximo snapshot. Ver [[snapshot-e-pull-incremental]].
+O merge move linhas em massa, então nenhuma op por entidade descreve o que aconteceu. A saída foi gravar, **na mesma transação**, uma op MARCADORA de tipo `map_merge` (`backend/src/modules/maps/maps.service.js:13`, `:118`): ela avança `atlas.current_version` pelo trigger existente (`backend/src/database/migrations/003_sync.sql:54-69`) e o par que a recebe resolve tomando snapshot (`STRUCTURAL_RESYNC_OPS`, `frontend/src/js/store/sync/sync-engine.js:67`), a mesma resolução que o broadcast `maps_merged` já dispara ao vivo. Ver [[snapshot-e-pull-incremental]].
 
-Contrato congelado: as tabelas filhas vêm de uma whitelist literal (`MAP_CHILD_TABLES`, `backend/src/modules/maps/maps.service.js:9`), nunca de input. **Adicionar tabela filha nova ao schema exige acrescentá-la ali**, senão o conteúdo dela fica órfão no mapa de origem após o merge, sem erro.
+O porquê disso vale mais que o mecanismo, e esta página afirmou o contrário até 2026-07-25 ("não passa pela tabela `operations` [...] pull incremental jamais o enxerga", verdade até `1d23ac9`, 2026-07-19): sem a op marcadora o merge existia só como broadcast efêmero, que alcança quem está conectado naquele instante. O par que estivesse offline reconectava com `sync_request {lastVersion: N}`, e como nada fora escrito o `N` ainda era o `current_version`, o pull tomava o ramo incremental e respondia `{operations: []}`. O par concluía que estava em dia e seguia mostrando as feições sob o mapa ANTIGO, indefinidamente, até um F5. O replay vinha vazio por construção.
+
+Contrato congelado: as tabelas filhas vêm de uma whitelist literal (`MAP_CHILD_TABLES`, `backend/src/modules/maps/maps.service.js:21-28`), nunca de input. **Adicionar tabela filha nova ao schema exige acrescentá-la ali**, senão o conteúdo dela fica órfão no mapa de origem após o merge, sem erro.
+
+Isso já disparou e continua disparado: `comments` é escopada por mapa (`map_id UUID NOT NULL`, `backend/src/database/migrations/002_atlas.sql:220-243`) e o snapshot a entrega agrupada por mapa (`backend/src/modules/sync/sync.service.js:794`), mas não está na whitelist. Mesclar move as feições e deixa as threads de [[comentario-espacial]] ancoradas no mapa de origem, descoladas do que anotavam, sem erro e sem contagem em `moved`. O teste que cobre o merge itera a mesma lista literal de seis tabelas (`backend/tests/integration/maps-briefings-gaps.test.js:83`) em vez de derivá-la do schema, então passa verde com ou sem o defeito: é cobertura vazia para este caso.
 
 Origem fora do atlas devolve **404**, não 403: guarda anti-IDOR que evita vazar existência.
 

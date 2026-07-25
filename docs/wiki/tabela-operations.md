@@ -15,7 +15,7 @@ A tabela acumula duas funções distintas, e confundi-las é o erro clássico: *
 `atlas_version_seq` é **uma única sequência para todos os atlas**. Consequências:
 
 - monotônica **dentro de um atlas**, mas **não contígua**: um atlas pode ir de 100 para 4712 porque outros consumiram a sequência no meio. Nunca conte ops por diferença de versão, nunca assuma `v+1`. Rollback também queima valores; buracos são esperados.
-- `nextval` acontece no INSERT, mas a **visibilidade** acontece no COMMIT. Sem serialização, duas transações concorrentes podem comitar fora da ordem das versões e uma op fica **para sempre** invisível ao pull incremental. Por isso `pushOperations` toma `pg_advisory_xact_lock` **antes do primeiro INSERT** (`backend/src/modules/sync/sync.service.js:650`).
+- `nextval` acontece no INSERT, mas a **visibilidade** acontece no COMMIT. Sem serialização, duas transações concorrentes podem comitar fora da ordem das versões e uma op fica **para sempre** invisível ao pull incremental. Por isso `pushOperations` (`backend/src/modules/sync/sync.service.js`) toma `pg_advisory_xact_lock` **antes do primeiro INSERT**.
 
 > Não remova nem mova esse advisory lock para depois do INSERT. É ele que torna `server_version` um cursor de pull válido, e a falha que ele evita é silenciosa (op perdida, sem erro). O lock é transaction-scoped e chaveado por atlas, então pushes de atlas diferentes seguem paralelos.
 
@@ -25,19 +25,19 @@ Assimetria que confunde em debug: o push devolve `serverVersion` de um `MAX(serv
 
 ## Idempotência: onde ela não vale
 
-Colisão em `(atlas_id, op_id)` faz `DO NOTHING`, e o serviço devolve ack com `idempotent: true` e a `serverVersion` original, **pulando o apply** (`backend/src/modules/sync/sync.service.js:683-705`). Reenviar a fila inteira após reconexão é seguro por construção, ver [[idempotencia-e-convergence-guard]], [[ack-idempotencia]] e [[fila-operacoes-outbound]].
+Colisão em `(atlas_id, op_id)` faz `DO NOTHING`, e o ramo idempotente de `pushOperations` (`backend/src/modules/sync/sync.service.js`) devolve ack com `idempotent: true` e a `serverVersion` original, **pulando o apply**. Reenviar a fila inteira após reconexão é seguro por construção, ver [[idempotencia-e-convergence-guard]], [[ack-idempotencia]] e [[fila-operacoes-outbound]].
 
-- **`op_id` é nullable e no Postgres NULLs são distintos entre si num índice UNIQUE.** Ops sem `id` não têm idempotência nenhuma e duplicam silenciosamente. Só o Joi `id: Joi.string().required()` (`backend/src/modules/sync/sync.schemas.js:14`) segura isso, rejeitando com 422 antes do banco; o INSERT ainda passa `rawOp.id ?? null` (`backend/src/modules/sync/sync.service.js:679`). Qualquer chamada interna que pule a validação perde a garantia.
+- **`op_id` é nullable e no Postgres NULLs são distintos entre si num índice UNIQUE.** Ops sem `id` não têm idempotência nenhuma e duplicam silenciosamente. Só o Joi `id: Joi.string().required()` (`backend/src/modules/sync/sync.schemas.js:14`) segura isso, rejeitando com 422 antes do banco; o INSERT dentro de `pushOperations` (`backend/src/modules/sync/sync.service.js`) ainda passa `rawOp.id ?? null`. Qualquer chamada interna que pule a validação perde a garantia.
 - O escopo do UNIQUE é **por atlas**: o mesmo `op_id` em atlas diferentes são duas linhas legítimas.
 - Idempotência protege o **log e o efeito**, não a versão: o reenvio não ganha `server_version` nova.
 
 ## entity_type é o tipo normalizado, não o do cliente
 
-Grava-se `op.target` depois de `normalizeOperation`, não o `entityType` enviado (`ENTITY_TYPE_MAP`, `backend/src/modules/sync/sync.service.js:23-38`). Os tipos 3D/360 colapsam em `cesium3d`/`streetview360` (o específico sobrevive só em `data.data_type`), e `mapPosition`/`baseLayer`/`mapNotes`/`gridStyle`/`mapTemporal` viram todos `entity_type = 'map'` com o `subType` **não persistido em coluna alguma**.
+Grava-se `op.target` depois de `normalizeOperation`, não o `entityType` enviado (`ENTITY_TYPE_MAP`, `backend/src/modules/sync/sync.service.js:24-39`). Os tipos 3D/360 colapsam em `cesium3d`/`streetview360` (o específico sobrevive só em `data.data_type`), e `mapPosition`/`baseLayer`/`mapNotes`/`gridStyle`/`mapTemporal` viram todos `entity_type = 'map'` com o `subType` **não persistido em coluna alguma**.
 
-Armadilhas daí: consultar o log por `entity_type` não acha `gridStyle` nem `marker3d`; e `toFrontendOperation` (`backend/src/modules/sync/sync.service.js:243-253`) só recupera o tipo específico quando `op.data.data_type` existe, então uma op de update que tenha usado `changes` volta do pull como o genérico `cesium3d`. Lista de tipos aceitos em [[tipos-entidade-sync]].
+Armadilhas daí: consultar o log por `entity_type` não acha `gridStyle` nem `marker3d`; e `toFrontendOperation` (`backend/src/modules/sync/sync.service.js`) só recupera o tipo específico quando `op.data.data_type` existe, então uma op de update que tenha usado `changes` volta do pull como o genérico `cesium3d`. Lista de tipos aceitos em [[tipos-entidade-sync]].
 
-Como `entity_id` é `UUID NOT NULL`, ops de nível de atlas (settings, que chegam com o sentinela não-UUID `'atlas'`) são registradas contra o **próprio id do atlas** (`backend/src/modules/sync/sync.service.js:672`), e o ack devolve `entityId` como gravado para que broadcast e pull concordem (`backend/src/modules/sync/sync.service.js:717`).
+Como `entity_id` é `UUID NOT NULL`, ops de nível de atlas (settings, que chegam com o sentinela não-UUID `'atlas'`) são registradas contra o **próprio id do atlas**, e o ack devolve `entityId` como gravado para que broadcast e pull concordem. As duas pontas estão em `pushOperations` (`backend/src/modules/sync/sync.service.js`).
 
 ## data vs changes: o contrato e o cliente real divergem
 
@@ -45,21 +45,27 @@ O contrato canônico é `data` no create e `changes` no update. O frontend deste
 
 ## O campo id do pull não é o op_id
 
-`toFrontendOperation` devolve `id: op.id`, o **PK da linha no servidor** (`backend/src/modules/sync/sync.service.js:256`), enquanto o broadcast WebSocket reenvia a op crua do cliente apenas carimbada com `serverVersion` (`backend/src/modules/collab/collab.handlers.js:197`). O mesmo evento chega com `id` diferente conforme o caminho. Não use esse campo como chave de deduplicação entre os dois; a deduplicação de eco é por `clientId`, ver [[canal-collab-websocket]] e [[client-id-estavel]].
+`toFrontendOperation` (`backend/src/modules/sync/sync.service.js`) devolve `id: op.id`, o **PK da linha no servidor**, enquanto o broadcast WebSocket reenvia a op crua do cliente apenas carimbada com `serverVersion` (`backend/src/modules/collab/collab.handlers.js:198`). O mesmo evento chega com `id` diferente conforme o caminho. Não use esse campo como chave de deduplicação entre os dois; a deduplicação de eco é por `clientId`, ver [[canal-collab-websocket]] e [[client-id-estavel]].
 
-> **Nota histórica.** O guia *05-sync-crdt* (absorvido) §6 mostra o pull incremental com `"id": "op-uuid"`, sugerindo o id da op do cliente; `backend/src/modules/sync/sync.service.js:256` devolve o PK da linha, e o `op_id` do cliente não é exposto nessa resposta.
+> **Nota histórica.** O guia *05-sync-crdt* (absorvido) §6 mostra o pull incremental com `"id": "op-uuid"`, sugerindo o id da op do cliente; `toFrontendOperation` (`backend/src/modules/sync/sync.service.js`) devolve o PK da linha, e o `op_id` do cliente não é exposto nessa resposta.
 
 ## Uma linha aqui prova recebimento, não efeito
 
-Todo o batch roda numa transação só (`backend/src/modules/sync/sync.service.js:633`): falhou uma op, o lote inteiro reverte, log e entidades juntos. Mas o log é escrito **antes** do apply. Um update que casou zero linhas (mapId de outro atlas, guarda `EXISTS`) é acked com sucesso e mesmo assim não escreveu nada. Essa cegueira é exatamente o que o span `SERVER_APPLIED` com `rowsAffected` existe para expor (`backend/src/modules/sync/sync.service.js:737-744`, ver [[syncledger]]). Autorização por op via `assertOperationAllowed`, ver [[permissoes-atlas]]. Lote acima de `MAX_OPS_PER_PUSH = 500` dá 422, ver [[erros-api]].
+Todo o batch roda numa transação só, dentro de `pushOperations` (`backend/src/modules/sync/sync.service.js`): **falhou** uma op, o lote inteiro reverte, log e entidades juntos. Mas o log é escrito **antes** do apply. Um update que casou zero linhas (mapId de outro atlas, guarda `EXISTS`) é acked com sucesso e mesmo assim não escreveu nada. Essa cegueira é exatamente o que o span `SERVER_APPLIED` com `rowsAffected` existe para expor (ver [[syncledger]]). Lote acima de `MAX_OPS_PER_PUSH = 500` dá 422, ver [[erros-api]].
+
+**Falha não é o mesmo que recusa, e essa distinção é recente.** Uma violação de *nível* (principal `read` ou `comment` empurrando escrita) segue lançando de `assertOperationAllowed` e derrubando o lote inteiro com 403, porque um lote assim é inteiramente suspeito. Já uma recusa de *política* sobre uma op só (excluir mapa sem `manage`, travar/destravar sem ser dono, escrever em mapa bloqueado) **não** aborta nada: `operationDenialReason` e `lockedMapDenialReason` devolvem um motivo, a op é acked com `rejected: true` e o restante do lote é gravado normalmente. O comentário de projeto no próprio arquivo explica por quê, e vale reter: enquanto isso lançava, uma única recusa congelava a fila outbound daquele usuário **para sempre**, porque o cliente não faz dequeue de lote que o servidor rejeitou. Ver [[ack-idempotencia]], [[permissoes-atlas]] e [[sintese-contrato-erros-http]].
 
 ## Não é arquivo histórico permanente
 
-`cleanupOldOperations` (`backend/src/modules/sync/sync.service.js:816`) apaga `server_version < corte` e sobe `atlas.min_version` (corte por `keepFromVersion` ou pelos últimos `keepDays`, default 7). Efeito colateral desejado: cliente com cursor abaixo de `min_version` deixa de receber incremental e cai no snapshot completo. Auditoria de longo prazo pertence a [[auditoria]], não a esta tabela; endpoints admin em [[sync-admin-operacoes]].
+`cleanupOldOperations` (`backend/src/modules/sync/sync.service.js`) apaga `server_version < corte` e sobe `atlas.min_version` (corte por `keepFromVersion` ou pelos últimos `keepDays`, default 7). Efeito colateral desejado: cliente com cursor abaixo de `min_version` deixa de receber incremental e cai no snapshot completo. Auditoria de longo prazo pertence a [[auditoria]], não a esta tabela; endpoints admin em [[sync-admin-operacoes]].
 
 ## O que a tabela NÃO é
 
 Não é um CRDT. O Lamport clock é persistido só para ecoar no pull e deixar o cliente avançar o próprio relógio; nunca é comparado no servidor, nem o `client_timestamp`. O vencedor é sempre a última linha a chegar. Ver [[sintese-nao-e-crdt]].
+
+## Histórico
+
+- 2026-07-25: a seção "Uma linha aqui prova recebimento, não efeito" dizia que qualquer op recusada revertia o lote inteiro. Isso valeu até `1d23ac9` (2026-07-19) e `aec63f8` (2026-07-24), que converteram as recusas de política (delete de mapa, lock/unlock, mapa bloqueado) em ack por op sem abortar a transação. A violação de nível continua abortando.
 
 ## Fontes
 

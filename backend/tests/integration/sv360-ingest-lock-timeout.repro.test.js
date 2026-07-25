@@ -184,6 +184,7 @@ describe('sv360 ingest — advisory lock com lock_timeout (#18)', () => {
         })
       )
     );
+    assert.equal(probes.length, 8, 'as 8 conexões foram realmente amostradas');
     for (const value of probes) {
       assert.equal(value, '0', 'lock_timeout deve permanecer no default da sessão do pool');
     }

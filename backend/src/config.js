@@ -158,7 +158,11 @@ const config = Object.freeze({
 
   // Outbound e-mail (verification links). When SMTP is not configured (no host) the mailer
   // is a no-op that LOGS the link — the default in dev/test and in closed networks without
-  // a relay. appBaseUrl builds the `?verify=<token>` link; falls back to the request origin.
+  // a relay. appBaseUrl builds the `?verify=<token>` link. It does NOT "fall back to the
+  // request origin", which is what this comment said until 2026-07-25: `resolveVerificationBase`
+  // (utils/mailer.js:50-60) honours a client-supplied origin ONLY when it equals cors.origin,
+  // and otherwise returns '' — an unset appBaseUrl yields a RELATIVE link, not an attacker's
+  // host. Proof lives in tests/unit/mailer-verification-link.test.js:64-96.
   mail: Object.freeze({
     host: optional('SMTP_HOST', ''),
     port: parseInt(optional('SMTP_PORT', '587'), 10),

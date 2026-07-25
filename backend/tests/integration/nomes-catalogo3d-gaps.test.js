@@ -411,10 +411,10 @@ describe('Nomes + Catálogo 3D — audit gaps', () => {
       // and simply doesn't exist → 404. Both outcomes deny access; the security
       // invariant is that the out-of-ROOT file is NEVER served (no 200, no body).
       const res = await supertest(app).get('/api/v1/assets3d/..%5C..%5Cpackage.json');
-      assert.ok(
-        res.status === 403 || res.status === 404,
-        `escape must be denied (403/404), got ${res.status}`
-      );
+      // Both outcomes deny access, but WHICH one is decided by the platform, not
+      // by chance: assert the one this platform must produce.
+      const denied = process.platform === 'win32' ? 403 : 404;
+      assert.equal(res.status, denied, `escape must be denied with ${denied}, got ${res.status}`);
       assert.notEqual(res.status, 200, 'a path escaping ROOT must never be served');
     });
 

@@ -21,9 +21,39 @@ const TEST_DB_URL = `postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT
 const args = process.argv.slice(2);
 const withCoverage = args.includes('--coverage');
 const keepDb = args.includes('--keep-db');
-const testPattern = args.find(a => !a.startsWith('--')) || 'tests/**/*.test.js';
+const padraoExplicito = args.find(a => !a.startsWith('--'));
+const testPattern = padraoExplicito || 'tests/**/*.test.js';
+
+// O piso de cobertura do `.c8rc.json` só é avaliado quando o c8 embrulha este script,
+// e até 2026-07-25 só `npm run test:coverage` fazia isso. Piso que só reprova quem
+// escolhe rodá-lo não é guarda, é relatório: ele pega quem lembra, não quem esquece,
+// e o comando do Definition of Done é `npm test`.
+//
+// A auto-elevação abaixo resolve isso SEM quebrar o loop de trabalho: `npm test` sem
+// padrão re-executa sob c8 e verifica o piso; `npm test -- <arquivo>` segue rápido e
+// sem piso, que é obrigatório, porque um arquivo só medido contra um piso GLOBAL
+// reprovaria sempre (medido: rodar só `ranks.test.js` dá 50,86% de linha contra piso
+// de 96). Guarda que reprova trabalho legítimo é guarda que alguém desliga.
+//
+// `NODE_V8_COVERAGE` é posto pelo próprio c8 e serve de trava de recursão.
+const deveElevarParaC8 = !padraoExplicito && !process.env.NODE_V8_COVERAGE;
 
 let pgp = null;
+
+/** Re-executa este script sob `c8`, para que o piso do `.c8rc.json` seja avaliado. */
+function elevarParaC8() {
+  console.log('📊 Suíte completa: re-executando sob c8 para verificar o piso de cobertura.');
+  console.log('   (`npm test -- <arquivo>` pula esta etapa, de propósito.)\n');
+  const filho = spawn('npx', ['c8', 'node', ...process.argv.slice(1)], {
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
+  filho.on('close', (code) => process.exit(code ?? 1));
+  filho.on('error', (err) => {
+    console.error('❌ Falha ao elevar para c8:', err.message);
+    process.exit(1);
+  });
+}
 
 async function createDatabase() {
   pgp = pgPromise();
@@ -149,7 +179,14 @@ async function dropDatabase() {
 }
 
 async function main() {
-  let exitCode = 0;
+  if (deveElevarParaC8) {
+    elevarParaC8();
+    return;
+  }
+
+  // Sem inicializador: todo caminho abaixo atribui (o try atribui ou lança, e o
+  // catch atribui 1), então `= 0` seria valor morto.
+  let exitCode;
 
   console.log('═'.repeat(60));
   console.log('  EBGeo Backend - Test Runner');

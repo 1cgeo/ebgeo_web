@@ -169,6 +169,10 @@ describe('StreetView 360 — tiles + thumbnails (stage 3b)', () => {
     const res = await supertest(app).get('/api/v1/sv360/tiles/fotos.geojson').expect(200);
     assert.equal(res.body.type, 'FeatureCollection');
     assert.ok(Array.isArray(res.body.features));
+    // The enabled project's photo is visible to anon (asserted in the next
+    // test), so an empty collection here would mean the shape loop below is
+    // checking the shape of nothing.
+    assert.ok(res.body.features.length > 0, 'anon must see the enabled project photos');
     for (const f of res.body.features) {
       assert.equal(f.type, 'Feature');
       assert.equal(f.geometry.type, 'Point');
@@ -260,10 +264,9 @@ describe('StreetView 360 — tiles + thumbnails (stage 3b)', () => {
   });
 
   it('does not escape via a traversal slug (no path escape)', async () => {
-    // The route schema rejects non-kebab slugs (422); either way, no file leaks
-    // and there is no 200 with foreign content.
+    // The route schema rejects the non-kebab slug before any filesystem access.
     const res = await supertest(app).get('/api/v1/sv360/thumbnails/..%2f..%2fetc.webp');
-    assert.ok(res.status === 404 || res.status === 422, `got ${res.status}`);
+    assert.equal(res.status, 422, `a traversal slug must be rejected by the schema, got ${res.status}`);
     assert.notEqual(res.status, 200);
   });
 

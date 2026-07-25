@@ -43,8 +43,22 @@ Full guide: `frontend/tests/TESTING.md`. Quick rules for working in this repo:
   image. Delete the temporary spec afterwards. `npm run test:e2e:ui`.
 - There is **no CI of any kind and no git hooks** — everything is run manually.
   (The GitHub Pages workflow was removed on 2026-07-18 along with the dead
-  `prepare-deploy.js` it depended on; see [[deploy-web]].) Coverage is
-  `npm run test:coverage` (report-only, no threshold).
+  `prepare-deploy.js` it depended on; see [[deploy-web]].)
+- **Coverage is a floor, not a report** (backend), desde 2026-07-25. Era
+  "report-only, no threshold", e um número sem piso pode cair de 95% para 60%
+  entre dois commits sem nada ficar vermelho. Agora `.c8rc.json` tem
+  `check-coverage` e o `scripts/run-tests.js` se auto-eleva para `c8` quando roda
+  a suíte completa, então **`npm test` sem argumento verifica o piso**;
+  `npm test -- <arquivo>` não (um arquivo só contra piso GLOBAL reprovaria
+  sempre). Racional e números em `backend/README.md`.
+- **Três regras de lint próprias vigiam cobertura vazia em teste** (backend,
+  `backend/eslint-rules/`): `no-conditional-assert` (assert dentro de `if` cuja
+  condição não foi asserida), `no-disjunctive-assert` (`assert.ok(A || B)`) e
+  `no-unasserted-loop-assert` (laço sobre coleção de tamanho não asserido). Na
+  primeira execução acharam **46 violações reais** em 28 arquivos. O
+  `npm run lint` do backend roda `eslint-rules/probe.js` ANTES do eslint: o probe
+  verifica as regras contra fixtures de deve-pegar e não-deve-pegar, porque
+  regra de lint também é verificador e verificador quebra calado.
 - One Claude Code hook remains (`.claude/settings.json`):
   `.claude/hooks/lint-on-write.js` lints every `.js`/`.css` write and reports back.
   It was DEAD for months, reading a `$TOOL_INPUT_FILE_PATH` that Claude Code never

@@ -78,6 +78,12 @@ export function handleCursor(ws, data) {
   ws.currentMapId = value.mapId;
 
   broadcastToRoom(ws.atlasId, {
+    // `clientId` is NOT optional here, even though the frontend's `resolveKey` falls
+    // back to `userId`: the roster is KEYED by clientId (collab.rooms.js:176), so an
+    // awareness frame carrying only userId does not update the existing entry, it
+    // CREATES A SECOND ONE. The peer then shows two roster rows per person, one with
+    // a name and no cursor and one with a cursor labelled by the raw UUID.
+    clientId: ws.clientId ?? null,
     type: 'cursor',
     userId: ws.userId,
     position: value.position,
@@ -97,6 +103,7 @@ export function handleTemporal(ws, data) {
   if (value.mapId !== undefined) ws.currentMapId = value.mapId;
 
   broadcastToRoom(ws.atlasId, {
+    clientId: ws.clientId ?? null, // veja o porquê em handleCursor
     type: 'temporal',
     userId: ws.userId,
     state: value.state,
@@ -142,6 +149,7 @@ export function handleSelection(ws, data) {
   };
 
   broadcastToRoom(ws.atlasId, {
+    clientId: ws.clientId ?? null, // veja o porquê em handleCursor
     type: 'selection',
     userId: ws.userId,
     surface,

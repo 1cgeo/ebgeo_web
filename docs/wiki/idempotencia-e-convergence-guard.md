@@ -2,7 +2,7 @@
 
 Dois mecanismos independentes: `UNIQUE(atlas_id, op_id)` no servidor mata a *duplicação* por reenvio; o adiamento de ops remotas sobre entidade com edição local não-ackada mata a *divergência* na janela otimista. Nenhum dos dois é merge (ver [[sintese-nao-e-crdt]]).
 
-O código é denso em comentários de projeto: `frontend/src/js/store/sync/remote-operation-handler.js:84-125` e `backend/src/modules/sync/sync.service.js:634-650` explicam o mecanismo melhor do que qualquer paráfrase. Esta página registra só o que não está lá.
+O código é denso em comentários de projeto: `frontend/src/js/store/sync/remote-operation-handler.js:84-125` e o bloco "P2" que abre `pushOperations` (`backend/src/modules/sync/sync.service.js`) explicam o mecanismo melhor do que qualquer paráfrase. Esta página registra só o que não está lá.
 
 ## Contrato congelado
 
@@ -24,7 +24,7 @@ O contador de edição pendente é incrementado em `frontend/src/js/store/sync/o
 - **Só o ack HTTP semeia a versão do autor.** O autor descarta o próprio eco do WS (`frontend/src/js/store/sync/ws-client.js:396-397`), então sem a semeadura ele nunca saberia a ordem de chegada da própria op (racional completo em [[sintese-rest-vs-websocket]]). `frontend/src/js/store/sync/ws-client.js:292-311` emite `ack`/`ack_batch` e **nenhum consumidor os assina**: uma busca por assinantes volta vazia. Migrar o push para o WebSocket quebra a guarda sem um único erro visível.
 - **Estado in-memory e por aba.** F5 zera tudo; a reconciliação real vem do snapshot ([[snapshot-e-pull-incremental]]).
 - **`idempotent: true` não é erro.** Trate igual a `false` no dequeue da [[fila-operacoes-outbound]] (ver [[ack-idempotencia]]).
-- **Custo escondido:** `pg_advisory_xact_lock` serializa **todos** os pushes de um mesmo atlas (`backend/src/modules/sync/sync.service.js:650-653`). É o preço de tornar `server_version` um cursor de pull confiável, e é um teto de escrita por atlas, não por instância.
+- **Custo escondido:** o `pg_advisory_xact_lock` de `pushOperations` (`backend/src/modules/sync/sync.service.js`) serializa **todos** os pushes de um mesmo atlas. É o preço de tornar `server_version` um cursor de pull confiável, e é um teto de escrita por atlas, não por instância. A espera é limitada a 5s e o estouro vira 503 retentável, ver [[modelo-conflito-lww]].
 
 ## Contradições
 

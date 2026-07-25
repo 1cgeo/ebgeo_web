@@ -14,17 +14,19 @@ Corolário do broadcast: como o autor empurrou por HTTP, a sala **não tem socke
 
 Rejeição no upgrade (`400` sem `atlasId`/`token`, `401` JWT inválido, `403` org desativada ou sem leitura) acontece **antes de o socket abrir**: o cliente não recebe status HTTP, só um `close`. Qualquer diagnóstico por código HTTP no frontend é impossível por construção. `resolvePermission` está em `backend/src/modules/collab/collab.gateway.js:52`; ver [[permissoes-atlas]], [[autenticacao-jwt]] e [[link-publico]].
 
-O `clientId` **não é credencial**, é chave de presença, continuidade e dedupe de eco. Malformado ou ausente, o servidor gera um `crypto.randomUUID()` (`backend/src/modules/collab/collab.gateway.js:230`, `:303`) e você perde silenciosamente a janela `away` e a dedupe: o socket funciona, o comportamento degrada sem erro.
+O `clientId` **não é credencial**, é chave de presença, continuidade e dedupe de eco. Malformado ou ausente, o servidor gera um `crypto.randomUUID()` (validação no upgrade em `backend/src/modules/collab/collab.gateway.js:265-270`, geração em `onConnection`, `:342`) e você perde silenciosamente a janela `away` e a dedupe: o socket funciona, o comportamento degrada sem erro.
 
-**Armadilha de sessão longa:** a permissão é cacheada no objeto `ws` no handshake, mas um socket vive horas. Por isso ela é re-reconciliada contra o banco a cada batida de heartbeat (`reconcileAuthorization`, `backend/src/modules/collab/collab.gateway.js:118`, chamada de `heartbeatSweep` em `:160`). Revogação fecha com `4003`; rebaixamento write→read apenas abaixa `ws.permission` e a próxima escrita é recusada. **A janela de staleness é de um intervalo de heartbeat (~30 s)**, e não há como encurtá-la sem mudar o intervalo.
+**Armadilha de sessão longa:** a permissão é cacheada no objeto `ws` no handshake, mas um socket vive horas. Por isso ela é re-reconciliada contra o banco a cada batida de heartbeat (`reconcileAuthorization`, `backend/src/modules/collab/collab.gateway.js:118-163`, chamada de dentro de `heartbeatSweep`, `:173-182`). Revogação fecha com `4003`; rebaixamento write→read apenas abaixa `ws.permission` e a próxima escrita é recusada. **A janela de staleness é de um intervalo de heartbeat (~30 s)**, e não há como encurtá-la sem mudar o intervalo.
 
 ## Os dois eixos de permissão, e o gate que o cliente realmente usa
 
-O frame `connected` traz `permission` (por-atlas: `owner|manage|write|comment|read`, o campo **congelado**) e `role` (vocabulário de UI derivado por `toFrontendRole`, que **colapsa informação**). O contrato manda decidir escrita por `permission !== 'read'`.
+O frame `connected` traz `permission` (por-atlas: `owner|manage|write|comment|read`, o campo **congelado**) e `role` (vocabulário de UI derivado por `toFrontendRole`, que **colapsa informação**). O gate autoritativo de escrita é `assertOperationAllowed` (`backend/src/modules/sync/sync.service.js:940-949`): `read` não escreve nada, `comment` escreve **só** `target: 'comment'`, e `write`/`manage`/`owner` escrevem tudo, com excluir mapa reservado a `manage` e acima e travar mapa reservado ao `owner` (`operationDenialReason`, `:968-986`).
+
+**Esta linha prescrevia `permission !== 'read'`,** e isso era exato até `1d23ac9` (2026-07-19), o commit que trouxe o nível `comment` para o servidor. Depois dele a prescrição virou a lista fechada que a constituição proíbe, e o custo é assimétrico: os handlers do WS continuam checando só `ws.permission === 'read'` (`backend/src/modules/collab/collab.handlers.js:161`, `:218`), então o Comentarista atravessa o gate raso e só é barrado lá dentro, por um `throw` que **aborta o lote inteiro** (contraste com a recusa por-op, em [[sintese-limites-collab]] §6).
 
 Na prática o `syncEngine` re-gateia a sessão pelo **`payload.role`** (`frontend/src/js/store/sync/sync-engine.js:192-198`), e o gate real vive em `frontend/src/js/store/sync/permission-guard.js`. Antes disso o dono já é elevado a `owner` assim que o snapshot chega (`frontend/src/js/store/sync/sync-engine.js:177-184`), só para a UI não piscar num F5. Divergência conhecida entre contrato e cliente: ver [[sintese-eixos-de-permissao]].
 
-`usersOnline` inclui **você mesmo** e inclui quem está `away` (`getRoomUsers`, `backend/src/modules/collab/collab.rooms.js:163`). Nada de presença é persistido: vive em memória no objeto `ws`; visitante público sequer gera sessão, porque seu `sub` é `public-<uuid>` e quebraria a FK de `active_sessions` (`backend/src/modules/collab/collab.gateway.js:333`).
+`usersOnline` inclui **você mesmo** e inclui quem está `away` (`getRoomUsers`, `backend/src/modules/collab/collab.rooms.js:163`). Nada de presença é persistido: vive em memória no objeto `ws`; visitante público sequer gera sessão, porque seu `sub` é `public-<uuid>` e quebraria a FK de `active_sessions` (`backend/src/modules/collab/collab.gateway.js:370-374`). Essa FK é o único papel que a tabela ainda cumpre: ver [[presenca-colaborativa]] §"O que não existe".
 
 ## Máquina de estados: duas armadilhas reais
 
@@ -39,28 +41,28 @@ Por contrato, `4001` (atlas deletado, `closeRoom`, `backend/src/modules/collab/c
 
 ## away vs saída: só `1006` ganha graça
 
-`onClose` (`backend/src/modules/collab/collab.gateway.js:468`) trata **apenas o código `1006`** (e sem `leave` explícito) como queda de rede: marca `away`, mantém o socket morto na sala e agenda remoção após `WS_AWAY_GRACE_MS` (default 120 s). Reconectar com o **mesmo `clientId`** dentro da janela cancela o timer e emite `user_back`. Por isso `disconnect()` envia `leave` antes de fechar: sem ele, o usuário vira fantasma por 2 minutos na lista dos peers.
+`onClose` (`backend/src/modules/collab/collab.gateway.js:533`) trata **apenas o código `1006`** (e sem `leave` explícito) como queda de rede: marca `away`, mantém o socket morto na sala e agenda remoção após `WS_AWAY_GRACE_MS` (default 120 s). Reconectar com o **mesmo `clientId`** dentro da janela cancela o timer e emite `user_back`. Por isso `disconnect()` envia `leave` antes de fechar: sem ele, o usuário vira fantasma por 2 minutos na lista dos peers.
 
 Duas consequências não óbvias:
 
-1. `user_left` só é anunciado quando **o último socket daquele `userId`** sai (`backend/src/modules/collab/collab.gateway.js:453`). Sem essa guarda, uma segunda aba ou uma reconexão com `clientId` novo derrubaria o usuário da lista dos peers, já que `user_left` é chaveado só por `userId`.
+1. `user_left` só é anunciado quando **o último socket daquele `clientId`** sai (`backend/src/modules/collab/collab.gateway.js:515-520`). A guarda comparava `userId` até `a358a6e` (2026-07-24), e a troca não é cosmética: como o roster do par é chaveado por cliente e `user_left` apaga UMA chave, guardar por usuário fazia a primeira de duas abas sair sem anunciar nada e ficar no roster alheio para sempre. Remover a guarda também não serve, porque a reconexão reusa o **mesmo** `clientId` ([[client-id-estavel]]) e o close atrasado do socket velho apagaria a presença recém-criada. Sem `clientId` nos dois lados, cai no comportamento antigo, por usuário (`:519`).
 2. O close `4000` do heartbeat do cliente **não é `1006`**, então o servidor o trata como saída limpa e remove na hora, sem janela `away`. Na prática o caminho `away` é queda de rede real ou `terminate()` do heartbeat do servidor. Ver [[presenca-colaborativa]].
 
 ## `serverVersion` é global, não contíguo por atlas
 
-O broadcast **não é a op crua**: o servidor carimba `serverVersion` (`backend/src/modules/collab/collab.handlers.js:146` e `:197`), que é a ordem de chegada usada pelo [[modelo-conflito-lww]]. Mas o `server_version` vem de uma **sequência global compartilhada entre atlas**: buraco na numeração é op de outro atlas, **não perda**. Tratar não-contiguidade como gap já causou tempestade de `sync_request` (`frontend/src/js/store/sync/ws-client.js:386-390`). Perda genuína só ocorre atravessando desconexão, e se recupera pelo `sync_request` do reconnect ([[snapshot-e-pull-incremental]]). Lembrando [[sintese-nao-e-crdt]]: quem decide é a ordem de chegada no servidor.
+O broadcast **não é a op crua**: o servidor carimba `serverVersion` (`backend/src/modules/collab/collab.handlers.js:198` para op única e `:254` para lote), que é a ordem de chegada usada pelo [[modelo-conflito-lww]]. Mas o `server_version` vem de uma **sequência global compartilhada entre atlas**: buraco na numeração é op de outro atlas, **não perda**. Tratar não-contiguidade como gap já causou tempestade de `sync_request` (`frontend/src/js/store/sync/ws-client.js:386-390`). Perda genuína só ocorre atravessando desconexão, e se recupera pelo `sync_request` do reconnect ([[snapshot-e-pull-incremental]]). Lembrando [[sintese-nao-e-crdt]]: quem decide é a ordem de chegada no servidor.
 
 Os applies inbound são **serializados numa cadeia de promessas** (`frontend/src/js/store/sync/ws-client.js:409`) porque o handler faz read-modify-write assíncrono da entrada do mapa no IndexedDB; aplicar em paralelo faz escritas concorrentes se sobrescreverem e perde todas menos uma.
 
-> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.4 diz que o broadcast leva "mesma operacao recebida"; o código em `backend/src/modules/collab/collab.handlers.js:146` envia `{...data.op, serverVersion}`.
+> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.4 diz que o broadcast leva "mesma operacao recebida"; o código em `backend/src/modules/collab/collab.handlers.js:198` envia `{...data.op, serverVersion}`.
 
 ## Gates de visibilidade que o nome do frame não denuncia
 
 - **Comentário nunca chega a conexão `read`** (`skipReadOnly`, `backend/src/modules/collab/collab.rooms.js:56`). Lote misto é *dividido*, para que o `read` ainda receba as ops não-comentário (`broadcastOperations`, `backend/src/modules/collab/collab.rooms.js:84`). Ver [[comentario-espacial]].
-- **`selection` é gated a editores e acima**: `read` e `comment` têm o frame **descartado em silêncio, sem `error`** (`backend/src/modules/collab/collab.handlers.js:83`). `cursor` e `temporal` são livres. Comentarista e visualizador só recebem seleção alheia.
+- **`selection` é gated a editores e acima**: `read` e `comment` têm o frame **descartado em silêncio, sem `error`** (`backend/src/modules/collab/collab.handlers.js:122-125`). `cursor` e `temporal` são livres. Comentarista e visualizador só recebem seleção alheia.
 - Erros do WS são planos (`{type, code, message}`), diferente do envelope REST `{error:{code,message}}` de [[erros-api]].
 
-> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3 e §3.3 apresentam `selection` como broadcast incondicional e omitem `surface`; o código em `backend/src/modules/collab/collab.handlers.js:83` descarta frames de `read`/`comment` e propaga `surface`/`tilesetId`/`photoName`/`featureMeta`.
+> **Nota histórica.** guia *04-websocket-collab* (absorvido) §3 e §3.3 apresentam `selection` como broadcast incondicional e omitem `surface`; o código em `backend/src/modules/collab/collab.handlers.js:122-125` descarta frames de `read`/`comment` e propaga `surface`/`tilesetId`/`photoName`/`featureMeta`.
 
 ## Backpressure: op durável nunca é descartada
 
@@ -74,7 +76,7 @@ Dois gates defensivos: `syncResponse` (`frontend/src/js/store/sync/sync-engine.j
 
 ## Qualidade adaptativa: contrato existe, cliente não usa
 
-O servidor classifica banda de RTT e responde `adaptive-settings` **apenas na transição de banda** (`backend/src/modules/collab/collab.handlers.js:219`).
+O servidor classifica banda de RTT e responde `adaptive-settings` **apenas na transição de banda** (`handleConnectionQuality`, `backend/src/modules/collab/collab.handlers.js:273-283`).
 
 > **Nota histórica.** guia *04-websocket-collab* (absorvido) §3.8 e o checklist descrevem o cliente reportando `connection-quality` e aplicando `adaptive-settings`; no repositório **não existe nenhum envio de `connection-quality`** nem handler para `adaptiveSettings` (só as linhas do próprio `frontend/src/js/store/sync/ws-client.js:99` e `:341`). O ramo é morto no frontend hoje.
 

@@ -113,6 +113,10 @@ describe('StreetView 360 — fotos.geojson tem teto, bbox e cache (achado 65)', 
   it('escopa por ?bbox: só as fotos dentro da janela voltam', async () => {
     const res = await supertest(app).get(url(`/tiles/fotos.geojson?bbox=${BBOX}`)).expect(200);
     const ids = res.body.features.map((f) => f.properties.id);
+    // Sem isto, um `before` que não semeasse nada faria os dois laços abaixo
+    // passarem verde sem comparar uma única foto.
+    assert.equal(nearIds.length, NEAR_COUNT, 'as fotos dentro do bbox foram semeadas');
+    assert.equal(farIds.length, FAR_COUNT, 'as fotos fora do bbox foram semeadas');
     for (const id of nearIds) assert.ok(ids.includes(id), `a foto ${id} está dentro do bbox`);
     for (const id of farIds) assert.ok(!ids.includes(id), `a foto ${id} está fora do bbox`);
   });

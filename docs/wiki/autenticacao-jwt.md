@@ -60,6 +60,14 @@ O envio do e-mail é **best-effort**: a linha do usuário já foi commitada, e u
 
 `verifyEmail` consome o token dentro de uma transação, com a exclusão mútua na **própria cláusula `WHERE consumed_at IS NULL`** (`backend/src/modules/auth/auth.service.js:284-297`). A sequência ler-checar-escrever anterior permitia duas requisições concorrentes consumirem o mesmo token. Token expirado lança **dentro** da transação de propósito, para que a transação reverta o claim e o token não seja queimado silenciosamente.
 
+## O link de verificação: quem escolhe o host, e quem vê o token
+
+O host do link sai de `APP_BASE_URL`, e o `Origin` da requisição só é aceito quando é **exatamente** o `CORS_ORIGIN` do deployment (`backend/src/utils/mailer.js:50-60`). A alternativa rejeitada era confiar no `origin` verbatim: ele vem de `req.headers.origin` (`backend/src/modules/auth/auth.controller.js:29-31`), e `POST /auth/resend-verification` é montada sem `auth` e aceita qualquer e-mail no corpo (`backend/src/modules/auth/auth.routes.js:29`). Um anônimo fazia o servidor enviar à vítima uma mensagem **genuína**, com o `MAIL_FROM` real e o token real não consumido, apontando para o host dele. Era o default de fábrica até 2026-07-19, porque `APP_BASE_URL` é `optional(..., '')` (`backend/src/config.js:168`) enquanto `CORS_ORIGIN` é exigido em produção (`backend/src/config.js:273-277`).
+
+**A armadilha que ficou no lugar dessa:** quando nada é confiável a base resolve para `''` e o link vira `/?verify=<token>`, uma URL relativa dentro de um e-mail. A mensagem sai, `sent: true`, nada registra erro. E o fallback compara `${req.protocol}://${req.get('host')}` com o `CORS_ORIGIN`, então basta o `X-Forwarded-Proto` do nginx não chegar ao Express (`TRUST_PROXY_HOPS`) para todo link de ativação virar inútil em silêncio. **Defina `APP_BASE_URL` em produção**: ela não está em `backend/.env.example` e nada no boot a exige, ao contrário do `CORS_ORIGIN`. Ver [[deploy-backend]].
+
+O token do link é **credencial de fator único**: `verifyEmail` o consome e marca a conta verificada sem pedir mais nada. Por isso o link só é escrito no log **fora** de produção (`exposeLink = !config.isProd`, `backend/src/utils/mailer.js:123,146`). Em dev sem SMTP aquela linha de log **é** o canal de entrega; em produção a mesma situação loga em nível `error`, sem o link, e não existe plano B pelo log: a ativação passa por um admin enviando `email_verified: true` ([[gestao-usuarios]]). Não conte com o `redactUrl` para isso, ele só reescreve `req.url` e `verify` não está no `SENSITIVE_QUERY_KEYS` (`backend/src/utils/redact-url.js:6`).
+
 ## Logout não faz o que o nome sugere
 
 `POST /auth/logout` revoga **apenas aquele** refresh token e devolve `204`. Não encerra o socket de colaboração e não invalida o access token: fechar o socket e desmontar a presença é responsabilidade do cliente ([[presenca-colaborativa]]).

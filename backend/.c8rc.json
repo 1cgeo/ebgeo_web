@@ -2,8 +2,18 @@
   "all": true,
   "src": ["src"],
   "include": ["src/**/*.js"],
-  "exclude": ["tests/**", "scripts/**", "**/*.test.js"],
+  "exclude": [
+    "tests/**",
+    "scripts/**",
+    "**/*.test.js",
+    "src/database/seed.js"
+  ],
   "reporter": ["text-summary", "lcov", "html"],
   "reports-dir": "coverage",
-  "clean": true
+  "clean": true,
+  "check-coverage": true,
+  "lines": 96,
+  "statements": 96,
+  "functions": 93,
+  "branches": 85
 }

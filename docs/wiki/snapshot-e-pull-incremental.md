@@ -1,18 +1,28 @@
 # Sync Híbrido: Snapshot e Pull Incremental
 
-`GET /atlas/:id/sync/:version` devolve snapshot completo ou lista de operações incrementais, discriminado por `isSnapshot`. Contrato em `backend/src/modules/sync/sync.service.js:765`; consumo em `frontend/src/js/store/sync/sync-engine.js`.
+`GET /atlas/:id/sync/:version` devolve snapshot completo ou lista de operações incrementais, discriminado por `isSnapshot`. Contrato em `pullOperations` (`backend/src/modules/sync/sync.service.js`); consumo em `frontend/src/js/store/sync/sync-engine.js`.
 
 ## Por que dois modos
 
 O log de operações não é infinito: o cleanup admin apaga o rabo antigo e sobe `min_version` (ver [[sync-admin-operacoes]], [[tabela-operations]]). Sem o fallback de snapshot, um cliente semanas offline não teria como se recompor, porque as operações que ele perdeu deixaram de existir. O snapshot é o que torna a compactação segura.
 
-**O snapshot NÃO é replay do log.** Ele é reconstruído das tabelas de entidade numa leitura só e materializado já no shape do IndexedDB do frontend. Por isso ele não herda as perdas do log compactado, e por isso não existe "op de snapshot" no [[envelope-operacao]]. Consequência de projeto: os dois modos entregam formas **diferentes** (snapshot hierárquico, incremental por alias de `data_type`), então os caminhos de aplicação não podem compartilhar roteamento. Ver [[tipos-entidade-sync]].
+**O snapshot NÃO é replay do log.** Ele é reconstruído a partir das tabelas de entidade e materializado já no shape do IndexedDB do frontend. Por isso ele não herda as perdas do log compactado, e por isso não existe "op de snapshot" no [[envelope-operacao]]. Consequência de projeto: os dois modos entregam formas **diferentes** (snapshot hierárquico, incremental por alias de `data_type`), então os caminhos de aplicação não podem compartilhar roteamento. Ver [[tipos-entidade-sync]].
+
+## O cursor é lido ANTES dos dados, e é só isso que segura o snapshot
+
+`getAtlasSnapshot` (`backend/src/modules/sync/sync.service.js`) roda dentro de `task()`, ou seja, **conexão compartilhada sem transação** (`backend/src/database/index.js:100-102`). As consultas de entidade são sequenciais e não há advisory lock aqui, ao contrário do push ([[modelo-conflito-lww]]): um push concorrente pode commitar **no meio** da montagem, e parte do snapshot sai anterior à op, parte posterior.
+
+O que torna isso seguro não é um lock, é uma ordem. `current_version` vem da **primeira** consulta (`GET_ATLAS_METADATA`, `backend/src/modules/sync/sync.queries.js:34-39`) e é justamente esse valor que volta como cursor do cliente. Uma op que commite durante a montagem cai portanto **acima** do cursor entregue, e retorna no pull incremental seguinte; reaplicar é idempotente, então a direção do erro é a segura.
+
+> **Não mova a leitura de `current_version` para depois dos dados, e não a troque pelo `GET_CURRENT_VERSION`** (`backend/src/modules/sync/sync.queries.js:21-25`) que o push usa. Com o cursor lido no fim, a op comitada durante a montagem ficaria **abaixo** dele e abaixo do corte `server_version > $2` do pull incremental: perdida para sempre, sem erro nenhum. É a mesma classe de falha silenciosa que justificou o advisory lock do push, e aqui não existe lock protegendo.
+
+Corolário para quem for otimizar a montagem: qualquer reordenação das consultas é livre **menos** essa primeira. O custo real do snapshot é outro, e está anotado no próprio código: ele retém uma conexão do pool durante a série inteira e roda no caminho quente (todo `connect` e todo pull atrasado passam por ele), o que é o motivo de as coleções serem buscadas uma vez por atlas e agrupadas por `map_id`, em vez de uma vez por mapa.
 
 ## Armadilhas do cursor
 
 - **`isSnapshot` nunca é opcional.** Um cliente que pede `/sync/150` recebe snapshot se um cleanup subiu `min_version` acima de 150. O cliente não tem como prever isso, então todo consumidor de `pullSync` precisa suportar as duas respostas, sempre. Decidir o caminho de aplicação pela versão que você pediu é o erro clássico aqui.
 - **`currentVersion` é cursor exclusivo** (o corte é `server_version > cursor`). Guarde verbatim, sem `+1` nem `-1`. No incremental ele é o maior `serverVersion` do lote, não o próximo.
-- **REST diz `operations`, WebSocket diz `ops`.** Mesmo híbrido, nomes diferentes (`backend/src/modules/collab/collab.handlers.js:271`). Um parser reaproveitado entre os dois transportes lê `undefined` e aplica zero operações **sem erro**. Ver [[canal-collab-websocket]].
+- **REST diz `operations`, WebSocket diz `ops`.** Mesmo híbrido, nomes diferentes: quem responde no canal WS é `handleSyncRequest` (`backend/src/modules/collab/collab.handlers.js`). Um parser reaproveitado entre os dois transportes lê `undefined` e aplica zero operações **sem erro**. Ver [[canal-collab-websocket]].
 - **`server_version` vem de sequência global do atlas e é não contígua por design** (`frontend/src/js/store/sync/ws-client.js:392`). Buraco na numeração é op de outro atlas, não op perdida. Uma versão anterior tratava buraco como perda e gerava tempestades de `sync_request`. Perda real só ocorre atravessando desconexão.
 - **`initialPull: false` deixa `_lastVersion` em 0**, porque a atribuição está dentro do `if` (`frontend/src/js/store/sync/sync-engine.js:156-162`). O socket abre com `lastVersion: 0` e o `sync_request` seguinte pede o mundo inteiro.
 

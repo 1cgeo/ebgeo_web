@@ -41,7 +41,10 @@ describe('Sharing API', () => {
         .set('Authorization', `Bearer ${ownerToken}`)
         .expect(200);
 
-      assert.ok('isPublic' in res.body.data || 'is_public' in res.body.data);
+      // sharing.service maps the row to camelCase; the snake_case column name
+      // must not cross the API boundary.
+      assert.ok('isPublic' in res.body.data);
+      assert.ok(!('is_public' in res.body.data));
       assert.ok(Array.isArray(res.body.data.shares));
     });
 
@@ -74,7 +77,8 @@ describe('Sharing API', () => {
         .set('Authorization', `Bearer ${ownerToken}`)
         .expect(200);
 
-      assert.ok(res.body.data.publicLink || res.body.data.public_link);
+      assert.ok(res.body.data.publicLink, 'the response carries the camelCase publicLink');
+      assert.equal(res.body.data.public_link, undefined);
 
       // Verify in database
       const { rows } = await db.query('SELECT is_public, public_link FROM atlas WHERE id = $1', [atlas.id]);

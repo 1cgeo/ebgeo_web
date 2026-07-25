@@ -76,7 +76,14 @@ describe('error serializer — validation errors must not carry the body', () =>
     const err = realJoiError({ username: 'ab', password: 'x' });
     const out = errSerializer(err);
     assert.ok(out.message, 'message survives');
-    assert.ok(out.type || out.stack, 'the error identity survives');
+    // The identity survives through `name` and `stack`, NOT through pino's `type`:
+    // Joi's ValidationError class is anonymous (`constructor.name === ''`), and
+    // pino's `type` is exactly that constructor name, so it comes out empty here.
+    // The old `assert.ok(out.type || out.stack)` hid this — it passed on `stack`
+    // and would have kept passing if `name` had been scrubbed away too.
+    assert.equal(out.type, '', 'pino type is the (anonymous) Joi class name');
+    assert.equal(out.name, 'ValidationError', 'the error class survives via `name`');
+    assert.ok(out.stack, 'the stack survives');
     assert.ok(Array.isArray(out.details) && out.details.length > 0, 'details survive, minus values');
   });
 

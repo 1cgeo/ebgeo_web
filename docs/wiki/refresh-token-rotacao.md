@@ -46,7 +46,7 @@ Logout revoga **um token só** (`backend/src/modules/auth/auth.service.js:183-18
 4. Depois de trocar a senha, espere `401` nas outras sessões.
 5. Não reutilize o fluxo de refresh para integrações máquina-a-máquina; para isso existem [[api-keys]].
 
-Detalhe não óbvio do boot: o handler de `authLost` é ligado **depois** do boot (`index.js:132-134`), de propósito, para que expiração detectada durante a inicialização caia em anônimo silenciosamente em vez de abrir modal. Ver [[modos-operacao]] e [[auth-flexivel]]. O fluxo de link público usa `setEphemeralToken()`, que não persiste (`frontend/src/js/store/sync/api-client.js:117-120`); ver [[link-publico]].
+Detalhe não óbvio do boot: o handler é registrado por `setAuthLostHandler` (`frontend/src/js/store/sync/api-client.js`) **depois** do boot (`frontend/src/js/index.js:132-134`), de propósito, para que expiração detectada durante a inicialização caia em anônimo silenciosamente em vez de abrir modal. Ver [[modos-operacao]] e [[auth-flexivel]]. O fluxo de link público usa `setEphemeralToken()`, que não persiste (`frontend/src/js/store/sync/api-client.js:117-120`); ver [[link-publico]].
 
 ## Divergências documentação ↔ código
 

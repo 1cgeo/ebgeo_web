@@ -168,6 +168,7 @@ describe('Sync push serialization (per-atlas advisory lock)', () => {
       since = Math.max(...ops.map((o) => o.serverVersion));
     }
 
+    assert.equal(sent.length, CONCURRENT, 'every concurrent push must have been issued');
     for (const entityId of sent) {
       assert.ok(
         seen.has(entityId),

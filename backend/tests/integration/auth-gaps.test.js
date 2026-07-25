@@ -248,10 +248,35 @@ describe('Auth gaps', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // auth-09 · Concurrent refresh of the SAME token (race)
+  // auth-09 · Refreshing the SAME token twice, over HTTP
   // ---------------------------------------------------------------------------
-  describe('auth-09 concurrent refresh of the same token', () => {
-    it('at most one of two concurrent refreshes succeeds; original ends revoked', async () => {
+  //
+  // READ THIS BEFORE TRUSTING THIS BLOCK AS RACE COVERAGE — IT IS NOT.
+  //
+  // auth-09 used to be titled "at most one of two concurrent refreshes succeeds"
+  // and asserted `successes.length <= 1` over two `Promise.all`-ed supertest calls.
+  // That assertion was correct and the test was a FALSE GREEN: it passed on every
+  // run against a rotation query that had no `revoked_at IS NULL` guard and no
+  // `RETURNING`, i.e. against code that could not possibly provide the guarantee.
+  // Measured directly — reverting the fix leaves this block green while
+  // `auth-refresh-race.test.js` drops 4 of 5 cases.
+  //
+  // The mechanism: `supertest(app)` binds an ephemeral server and opens a COLD TCP
+  // socket per request, and that setup cost is enough that request A finishes its
+  // whole read-check-then-write sequence before request B's body reaches the
+  // handler. The two calls never overlap. A real client, or an attacker, uses warm
+  // keep-alive sockets and does overlap. `low-impact-fixes.test.js:79-85` had
+  // already written the same finding down for the verification-token claim.
+  //
+  // THE RULE: mutual exclusion is asserted at the SQL or SERVICE level, never by
+  // two HTTP requests. See `tests/helpers/concurrency.js` for the harness and
+  // `tests/integration/auth-refresh-race.test.js` for the real proof.
+  //
+  // What is kept here, honestly scoped: the HTTP-level SEQUENTIAL contract — a
+  // spent refresh token is refused by the route, and one login yields one live
+  // token. Both are worth pinning at the edge, and neither pretends to be a race.
+  describe('auth-09 a spent refresh token is refused by the route (sequential, NOT a race)', () => {
+    it('rotating twice with the same token: second attempt is 401 and no second family is issued', async () => {
       const user = await createUser(db, { username: uname() });
 
       const login = await supertest(app)
@@ -260,19 +285,19 @@ describe('Auth gaps', () => {
         .expect(200);
       const refreshToken = login.body.data.refreshToken;
 
-      const [a, b] = await Promise.all([
-        supertest(app).post('/api/v1/auth/refresh').send({ refreshToken }),
-        supertest(app).post('/api/v1/auth/refresh').send({ refreshToken }),
-      ]);
+      // Deliberately sequential — awaited one after the other — because that is
+      // what two supertest calls actually do anyway. Saying so in the code stops
+      // the next reader from mistaking this for concurrency coverage.
+      await supertest(app).post('/api/v1/auth/refresh').send({ refreshToken }).expect(200);
+      await supertest(app).post('/api/v1/auth/refresh').send({ refreshToken }).expect(401);
 
-      const successes = [a, b].filter((r) => r.status === 200);
-      assert.ok(successes.length <= 1, `expected at most one success, got ${successes.length}`);
-
-      // Whatever the race outcome, the original token must now be unusable.
-      await supertest(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken })
-        .expect(401);
+      // The durable half: exactly one live token, so the route did not quietly
+      // hand out a second family on the refused attempt.
+      const { rows } = await db.query(
+        'SELECT count(*)::int AS n FROM refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL',
+        [user.id]
+      );
+      assert.equal(rows[0].n, 1, 'one login yields one live refresh token, spent ones stay revoked');
     });
   });
 

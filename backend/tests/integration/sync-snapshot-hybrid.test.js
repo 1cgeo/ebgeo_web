@@ -368,14 +368,12 @@ describe('Sync Snapshot/Hybrid System', () => {
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
-      // Should be incremental (not snapshot) IF version >= min_version
-      // The response may be snapshot if min_version is higher, but in a fresh test
-      // with no cleanup, min_version is 0, so versionBeforePush >= 0 means incremental
-      if (!res.body.data.isSnapshot) {
-        assert.equal(res.body.data.isSnapshot, false);
-        assert.ok(Array.isArray(res.body.data.operations));
-        assert.ok(res.body.data.operations.length > 0, 'should have at least one operation');
-      }
+      // This suite never prunes the oplog, so min_version stays 0 and a pull
+      // from versionBeforePush IS the incremental branch. Asserting it (instead
+      // of guarding on it) is what makes the assertions below run at all.
+      assert.equal(res.body.data.isSnapshot, false, 'pull from versionBeforePush must be incremental');
+      assert.ok(Array.isArray(res.body.data.operations));
+      assert.ok(res.body.data.operations.length > 0, 'should have at least one operation');
     });
 
     it('pull with current version returns empty operations array', async () => {
@@ -391,10 +389,9 @@ describe('Sync Snapshot/Hybrid System', () => {
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
-      if (!res.body.data.isSnapshot) {
-        assert.equal(res.body.data.operations.length, 0,
-          'pulling at current version should return no operations');
-      }
+      assert.equal(res.body.data.isSnapshot, false, 'pull at currentVersion must be incremental');
+      assert.equal(res.body.data.operations.length, 0,
+        'pulling at current version should return no operations');
     });
 
     it('incremental operations are in frontend format (entityType, operationType, entityId)', async () => {
@@ -434,25 +431,21 @@ describe('Sync Snapshot/Hybrid System', () => {
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
-      if (!res.body.data.isSnapshot) {
-        const ops = res.body.data.operations;
-        assert.ok(ops.length > 0);
+      assert.equal(res.body.data.isSnapshot, false, 'pull from versionBefore must be incremental');
+      const ops = res.body.data.operations;
+      assert.ok(ops.length > 0);
 
-        // Find our operation
-        const op = ops.find(o => o.entityId === featureId);
-        assert.ok(op, 'should find the pushed operation');
+      // Find our operation
+      const op = ops.find(o => o.entityId === featureId);
+      assert.ok(op, 'should find the pushed operation');
 
-        // Verify frontend format fields
-        assert.ok(op.entityType, 'should have entityType');
-        assert.ok(op.operationType, 'should have operationType');
-        assert.ok(op.entityId, 'should have entityId');
-        assert.equal(op.entityType, 'feature');
-        assert.equal(op.operationType, 'create');
-        assert.equal(op.entityId, featureId);
-        assert.ok(typeof op.timestamp === 'number', 'timestamp should be a number');
-        assert.ok(op.clientId, 'should have clientId');
-        assert.ok(typeof op.serverVersion === 'number', 'serverVersion should be a number');
-      }
+      // Verify frontend format fields
+      assert.equal(op.entityType, 'feature');
+      assert.equal(op.operationType, 'create');
+      assert.equal(op.entityId, featureId);
+      assert.ok(typeof op.timestamp === 'number', 'timestamp should be a number');
+      assert.ok(op.clientId, 'should have clientId');
+      assert.ok(typeof op.serverVersion === 'number', 'serverVersion should be a number');
     });
   });
 });

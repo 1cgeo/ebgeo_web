@@ -67,7 +67,13 @@ describe('3D assets serving', () => {
 
   it('blocks path traversal and 404s missing files', async () => {
     const trav = await supertest(app).get('/api/v1/assets3d/%2e%2e/%2e%2e/package.json');
-    assert.ok(trav.status === 403 || trav.status === 404, `got ${trav.status}`);
+    // %2e%2e decodes to '..' and Express NORMALISES the URL path before routing,
+    // so this request never reaches the assets3d handler: it resolves out of the
+    // mount and falls through to the 404. (The handler's own out-of-ROOT refusal
+    // is 403 — exercised in nomes-catalogo3d-gaps with %5C, which Express does
+    // not normalise.) Either way no file is served, which is the invariant.
+    assert.equal(trav.status, 404, `an encoded '..' escape must not be served, got ${trav.status}`);
+    assert.notEqual(trav.status, 200, 'a path escaping ROOT must never be served');
     await supertest(app).get('/api/v1/assets3d/aman/missing.json').expect(404);
   });
 });

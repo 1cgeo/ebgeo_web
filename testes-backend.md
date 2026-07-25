@@ -56,6 +56,10 @@ Por fim, `.c8rc.json` roda com `all: true` (bom, conta arquivo nunca importado) 
 
    Regra que falta, e que vale codificar: **exclusão mútua se afirma no nível do SQL ou do serviço, nunca por duas requisições HTTP.**
 
+   > **CODIFICADA em 2026-07-25, e o falso verde foi DEMONSTRADO, não argumentado.** Com o código pré-fix da rotação reintroduzido a partir de `git show 1d23ac9~1`, `auth-gaps.test.js` auth-09 passou **verde, 14/14**, enquanto o harness novo media **11 de 12 execuções com mais de um vencedor, até 6 famílias válidas mintadas de um único token**. A previsão da auditoria estava certa e agora tem número.
+   >
+   > A regra virou ferramenta em `backend/tests/helpers/concurrency.js`: `createBarrier` (ponto de encontro explícito), `raceOnConnections` (N conexões dedicadas, cada uma numa transação aberta, liberadas juntas: determinístico) e `repeatRace` (estatístico, N execuções, reporta quantas tiveram mais de um vencedor, porque uma execução só pode dar sorte). O cabeçalho do arquivo documenta o mecanismo do supertest e cita os dois lugares onde este repositório já o mediu, para que ninguém "simplifique" isso de volta para dois `request(app)`.
+
 > **CONFIRMADO POR EXECUÇÃO em 2026-07-19.** Este ponto cego era a previsão mais valiosa da auditoria, e corrigir os achados o comprovou quatro vezes. Ao consertar um defeito, o teste que o cimentava reprovava, e em CADA caso o nome ou o comentário do teste descrevia o bug com precisão:
 >
 > | Teste | O que afirmava | Achado |
@@ -73,7 +77,22 @@ Por fim, `.c8rc.json` roda com `all: true` (bom, conta arquivo nunca importado) 
 
 **3. Escotilha `if (condição) { ... }` sem asserir a condição.** `if (isSnapshot)`, `catch(() => null)`, `assert.ok(A || B)`, `assert.ok(res.body.data)`, laços sobre listas que podem estar vazias. Todos passam com o código arbitrariamente errado. É a "cobertura vazia" da constituição na sua forma mais comum, e é detectável por lint: **em teste, nenhum `assert` pode estar dentro de um `if` cuja condição não seja ela mesma asserida.**
 
+> **CODIFICADA em 2026-07-25, e o número justificou o esforço.** Três regras em `backend/eslint-rules/`, todas como `error`, sem lista de isenção legada: `no-conditional-assert` (10 violações), `no-disjunctive-assert` (24) e `no-unasserted-loop-assert` (12). **46 violações reais em 28 arquivos, todas corrigidas.**
+>
+> Duas medições intermediárias que valem mais que o total. A categoria 3 acusava 30 antes de isentar coleções estaticamente não-vazias (tabelas literais de caso), ou seja, 18 eram falso positivo. E a categoria 1 acusava só **1** enquanto o escopo de "condição asserida" subia até o `Program`: um `assert.equal(res.status, 200)` de um `it()` anterior "cobria" um `if (!res.body.data.isSnapshot)` três testes adiante. **Limitar a busca à função envolvente é o que faz a regra pegar o caso do item 52.** A aproximação é textual e conservadora, e o cabeçalho de `assert-utils.js` declara o que ela não pega (semântica, reatribuição, conjunção, helper que embrulha asserção).
+>
+> **O verificador tem seu próprio controle negativo, e ele roda sempre:** `eslint-rules/probe.js` é o PRIMEIRO comando de `npm run lint`, e checa as regras contra fixtures de deve-pegar e não-deve-pegar. Provado nas duas direções por sabotagem: renomear o seletor (regra casa nada) e remover a isenção de tabela literal (regra dispara demais) fazem o probe reprovar. Sem isso, uma regra de lint quebrada passa calada, que é exatamente a classe que este documento inteiro persegue.
+>
+> **Três testes afirmavam algo falso, revelados por asserir a condição.** Nenhum bug de produto, mas três descrições erradas: o teste de path traversal do `assets3d` media o **framework** e não o guard (a resposta real é 404, porque `%2e%2e` é normalizado pelo Express antes do roteamento); `logger-secret-scrub` afirmava que a identidade do erro sobrevive por `type`, e `out.type` é `''`, porque a classe `ValidationError` do Joi é anônima; e o nome de `atlas-transfer-ownership` promete que um estranho "cannot learn the atlas exists", enquanto `requireAtlasPermission` responde 403 para atlas existente sem share, o que revela a existência. **O terceiro é decisão de produto, ainda em aberto.**
+
 **4. Ausência quase total de teste negativo cross-tenant e cross-actor.** Não existe o par HTTP do `ws-01` (token público contra outro atlas). Não há teste de import com referência a atlas alheio, nem de `sharing_updated` recebido por socket com permissão `read`, nem de push por `manage`. O `backend/CLAUDE.md` tem a regra escrita ("toda query com filtro de acesso exige teste com usuário sem permissão") e ela não é verificável, porque nada a checa. Regra escrita e não codificada é, pelo princípio 1, competência perdida.
+
+> **ATACADA em 2026-07-25 (itens 17, 25, 26, 28, 43), com um resultado que muda a leitura do ponto cego.** Os **cinco** defeitos foram REFUTADOS contra o HEAD: o código já estava correto nos cinco. O que faltava era exatamente e somente a cobertura negativa, o que confirma o diagnóstico do ponto cego e desmente a suposição implícita de que ausência de teste negativo indicava ausência de guarda. `backend/tests/integration/cross-tenant-negativos.test.js`, 39 casos, cada um provado por mutação.
+>
+> Duas coisas que só o controle negativo revelou, e que nenhum teste verde teria dito:
+>
+> - No item 26, trocar o gate por lista fechada `perm === 'write' || perm === 'owner'` derrubou **exatamente os 3 casos de `manage`** e deixou `comment`/`read` verdes. É a demonstração literal de por que testar só o piso e o topo da hierarquia torna a lista fechada invisível, que é como esse mesmo bug passou duas vezes neste repositório.
+> - No item 43, o caso "não alcança um atlas diferente" continuou **verde sob a mutação**, porque `requireAtlasPermission` tem checagem própria de escopo do visitante. A superfície de atlas tem DOIS guardas independentes e a superfície fora de atlas tem UM. Um teste que exercitasse só rotas `/atlas` teria "provado" uma contenção que não existia.
 
 **5. A fronteira entre os pacotes é afirmada em comentário, não exercitada.** `user_away` tem teste do lado servidor (o frame saiu) e teste do lado cliente (com um shape que o servidor nunca emite), e ninguém testa o par. O mesmo vale para o undo, cujos testes constroem operações com `randomUUID()` e nunca chamam `_executeUndoAction`. O E2E full-chain existe e é bom, mas **presença e undo não estão nele**, e são justamente as duas costuras que a auditoria encontrou rompidas.
 
@@ -167,6 +186,10 @@ Por fim, `.c8rc.json` roda com `all: true` (bom, conta arquivo nunca importado) 
 
    Regra que falta, e que vale codificar: **exclusão mútua se afirma no nível do SQL ou do serviço, nunca por duas requisições HTTP.**
 
+   > **CODIFICADA em 2026-07-25, e o falso verde foi DEMONSTRADO, não argumentado.** Com o código pré-fix da rotação reintroduzido a partir de `git show 1d23ac9~1`, `auth-gaps.test.js` auth-09 passou **verde, 14/14**, enquanto o harness novo media **11 de 12 execuções com mais de um vencedor, até 6 famílias válidas mintadas de um único token**. A previsão da auditoria estava certa e agora tem número.
+   >
+   > A regra virou ferramenta em `backend/tests/helpers/concurrency.js`: `createBarrier` (ponto de encontro explícito), `raceOnConnections` (N conexões dedicadas, cada uma numa transação aberta, liberadas juntas: determinístico) e `repeatRace` (estatístico, N execuções, reporta quantas tiveram mais de um vencedor, porque uma execução só pode dar sorte). O cabeçalho do arquivo documenta o mecanismo do supertest e cita os dois lugares onde este repositório já o mediu, para que ninguém "simplifique" isso de volta para dois `request(app)`.
+
 > **CONFIRMADO POR EXECUÇÃO em 2026-07-19.** Este ponto cego era a previsão mais valiosa da auditoria, e corrigir os achados o comprovou quatro vezes. Ao consertar um defeito, o teste que o cimentava reprovava, e em CADA caso o nome ou o comentário do teste descrevia o bug com precisão:
 >
 > | Teste | O que afirmava | Achado |
@@ -184,7 +207,22 @@ Por fim, `.c8rc.json` roda com `all: true` (bom, conta arquivo nunca importado) 
 
 **3. Escotilha `if (condição) { ... }` sem asserir a condição.** `if (isSnapshot)`, `catch(() => null)`, `assert.ok(A || B)`, `assert.ok(res.body.data)`, laços sobre listas que podem estar vazias. Todos passam com o código arbitrariamente errado. É a "cobertura vazia" da constituição na sua forma mais comum, e é detectável por lint: **em teste, nenhum `assert` pode estar dentro de um `if` cuja condição não seja ela mesma asserida.**
 
+> **CODIFICADA em 2026-07-25, e o número justificou o esforço.** Três regras em `backend/eslint-rules/`, todas como `error`, sem lista de isenção legada: `no-conditional-assert` (10 violações), `no-disjunctive-assert` (24) e `no-unasserted-loop-assert` (12). **46 violações reais em 28 arquivos, todas corrigidas.**
+>
+> Duas medições intermediárias que valem mais que o total. A categoria 3 acusava 30 antes de isentar coleções estaticamente não-vazias (tabelas literais de caso), ou seja, 18 eram falso positivo. E a categoria 1 acusava só **1** enquanto o escopo de "condição asserida" subia até o `Program`: um `assert.equal(res.status, 200)` de um `it()` anterior "cobria" um `if (!res.body.data.isSnapshot)` três testes adiante. **Limitar a busca à função envolvente é o que faz a regra pegar o caso do item 52.** A aproximação é textual e conservadora, e o cabeçalho de `assert-utils.js` declara o que ela não pega (semântica, reatribuição, conjunção, helper que embrulha asserção).
+>
+> **O verificador tem seu próprio controle negativo, e ele roda sempre:** `eslint-rules/probe.js` é o PRIMEIRO comando de `npm run lint`, e checa as regras contra fixtures de deve-pegar e não-deve-pegar. Provado nas duas direções por sabotagem: renomear o seletor (regra casa nada) e remover a isenção de tabela literal (regra dispara demais) fazem o probe reprovar. Sem isso, uma regra de lint quebrada passa calada, que é exatamente a classe que este documento inteiro persegue.
+>
+> **Três testes afirmavam algo falso, revelados por asserir a condição.** Nenhum bug de produto, mas três descrições erradas: o teste de path traversal do `assets3d` media o **framework** e não o guard (a resposta real é 404, porque `%2e%2e` é normalizado pelo Express antes do roteamento); `logger-secret-scrub` afirmava que a identidade do erro sobrevive por `type`, e `out.type` é `''`, porque a classe `ValidationError` do Joi é anônima; e o nome de `atlas-transfer-ownership` promete que um estranho "cannot learn the atlas exists", enquanto `requireAtlasPermission` responde 403 para atlas existente sem share, o que revela a existência. **O terceiro é decisão de produto, ainda em aberto.**
+
 **4. Ausência quase total de teste negativo cross-tenant e cross-actor.** Não existe o par HTTP do `ws-01` (token público contra outro atlas). Não há teste de import com referência a atlas alheio, nem de `sharing_updated` recebido por socket com permissão `read`, nem de push por `manage`. O `backend/CLAUDE.md` tem a regra escrita ("toda query com filtro de acesso exige teste com usuário sem permissão") e ela não é verificável, porque nada a checa. Regra escrita e não codificada é, pelo princípio 1, competência perdida.
+
+> **ATACADA em 2026-07-25 (itens 17, 25, 26, 28, 43), com um resultado que muda a leitura do ponto cego.** Os **cinco** defeitos foram REFUTADOS contra o HEAD: o código já estava correto nos cinco. O que faltava era exatamente e somente a cobertura negativa, o que confirma o diagnóstico do ponto cego e desmente a suposição implícita de que ausência de teste negativo indicava ausência de guarda. `backend/tests/integration/cross-tenant-negativos.test.js`, 39 casos, cada um provado por mutação.
+>
+> Duas coisas que só o controle negativo revelou, e que nenhum teste verde teria dito:
+>
+> - No item 26, trocar o gate por lista fechada `perm === 'write' || perm === 'owner'` derrubou **exatamente os 3 casos de `manage`** e deixou `comment`/`read` verdes. É a demonstração literal de por que testar só o piso e o topo da hierarquia torna a lista fechada invisível, que é como esse mesmo bug passou duas vezes neste repositório.
+> - No item 43, o caso "não alcança um atlas diferente" continuou **verde sob a mutação**, porque `requireAtlasPermission` tem checagem própria de escopo do visitante. A superfície de atlas tem DOIS guardas independentes e a superfície fora de atlas tem UM. Um teste que exercitasse só rotas `/atlas` teria "provado" uma contenção que não existia.
 
 **5. A fronteira entre os pacotes é afirmada em comentário, não exercitada.** `user_away` tem teste do lado servidor (o frame saiu) e teste do lado cliente (com um shape que o servidor nunca emite), e ninguém testa o par. O mesmo vale para o undo, cujos testes constroem operações com `randomUUID()` e nunca chamam `_executeUndoAction`. O E2E full-chain existe e é bom, mas **presença e undo não estão nele**, e são justamente as duas costuras que a auditoria encontrou rompidas.
 
@@ -306,6 +344,27 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - CONTROLE POSITIVO: as mesmas quatro referências apontando para ids DENTRO do próprio payload continuam funcionando (201, summary bate, linhas criadas)
 
 ### 5. Rotacao de refresh token nao e atomicamente single-use, REVOKE_REFRESH_TOKEN (auth.queries.js:48) nao tem `AND revoked_at IS NULL ... RETURNING`
+
+> **CORRIGIDO em 2026-07-25.** O item esta OBSOLETO quanto a producao e CERTEIRO quanto
+> ao teste. A rotacao ja usa claim atomico desde `1d23ac9`: `CLAIM_REFRESH_TOKEN` com
+> `WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW() RETURNING`, mais
+> janela de graca de 10s e deteccao de reuso. O `REVOKE_REFRESH_TOKEN` sem guarda que o
+> item cita continua existindo, mas seu unico chamador hoje e o `logout()`, onde revogar
+> e idempotente e nao precisa de exclusao mutua. **Nenhuma linha de producao foi
+> alterada.**
+>
+> O que faltava era a cobertura, e a medicao e o resultado que importa. Novo harness
+> `backend/tests/helpers/concurrency.js` (`createBarrier`, `raceOnConnections`,
+> `repeatRace`) e `backend/tests/integration/auth-refresh-race.test.js` (5 casos, ZERO
+> HTTP). Com o codigo pre-fix reintroduzido a mao a partir de `git show 1d23ac9~1`:
+> **11 de 12 execucoes tiveram mais de um vencedor, ate 6 familias validas mintadas de um
+> unico token**; com o HEAD, 0 de 12. Quatro dos cinco casos reprovam sem o fix.
+>
+> **A medicao que prova o ponto cego nº 1:** contra esse MESMO codigo comprovadamente
+> quebrado, `auth-gaps.test.js` auth-09 passou verde, 14/14. O falso verde foi
+> demonstrado por execucao, nao argumentado. O auth-09 nao foi apagado: foi reescrito
+> como "a spent refresh token is refused by the route (sequential, NOT a race)", com
+> cabecalho dizendo que era falso verde, por que, e onde mora a prova real.
 
 - **Código:** `backend/src/modules/auth/auth.queries.js`
 - **Tipo:** integração · **Fatia:** `be-auth`
@@ -437,6 +496,24 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 13. Boot fail-fast: validateEnvVariables() roda ANTES de createServer/listen (index.js:11-20)
 
+> **CORRIGIDO em 2026-07-25.** `src/index.js` saiu de **0%** para **92,06%** de linha
+> (`backend/tests/integration/boot-fail-fast.test.js`, 5 casos). O metodo escolhido foi
+> **subprocesso**, nao espionagem de modulo: o arquivo nao exporta nada, seu comportamento
+> E o efeito de topo, e importa-lo no runner ligaria uma porta dentro do processo de teste
+> e chamaria `process.exit()` nele.
+>
+> A ordem e observada por **conflito de mensagens**: `PORT=99999` falha nos DOIS caminhos
+> (a validacao rejeita > 65535 e `listen(99999)` lanca `ERR_SOCKET_BAD_PORT`
+> sincronamente), e qual mensagem sai diz quem falou primeiro. Controle negativo:
+> `validateEnvVariables()` movido para depois de `server.listen()` reprova o caso de ordem.
+>
+> **Achado sobre o proprio teste, e e a parte que vale:** o controle negativo mostrou que a
+> variante "porta ocupada + EADDRINUSE" continuava VERDE com a ordem invertida, porque o
+> EADDRINUSE chega assincrono e o throw sincrono ganha a corrida de qualquer jeito. Ela
+> alegava provar ordem e nao provava. Reescrita para dizer o que realmente prende
+> (invariante de diagnostico: o operador ve a config, nao a porta) e apontar o caso que e
+> o guarda de ordem.
+
 - **Código:** `backend/src/index.js`
 - **Tipo:** integração · **Fatia:** `be-boot`
 - **Arquivo sugerido:** `backend/tests/integration/boot-fail-fast.test.js`
@@ -501,6 +578,15 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Admin DELETE -> 200 e GET /api/config volta ao STATIC ('EBGeo'), fechando o par positivo/negativo no mesmo arquivo.
 
 ### 17. GET/DELETE /api/v1/debug/trace, gate por atlas (liftAtlasIdToParams + requireAtlasPermission 'read'/'manage') e IDOR cross-atlas
+
+> **CORRIGIDO em 2026-07-25.** Defeito REFUTADO contra o HEAD (os gates existem), lacuna
+> de cobertura CONFIRMADA: havia **zero** requisicoes a `/debug/trace` em todo o backend.
+> Casos novos em `backend/tests/integration/cross-tenant-negativos.test.js`: 401 anonimo,
+> 400 sem `atlasId` nos dois verbos com o anel intacto, 403 de estranho, 200 de `read` e
+> de `comment`, **403 de `write` no DELETE** (write < manage), `manage` limpando UM anel
+> com o do atlas B provado intacto, owner e admin global, e IDOR nos dois sentidos com
+> assercao sobre o CONTEUDO do anel e nao so sobre o status. Controle negativo: gates
+> trocados por `auth` puro, 7 casos vermelhos.
 
 - **Código:** `backend/src/modules/debug/debug.routes.js`
 - **Tipo:** integração · **Fatia:** `be-catalog-config-audit`
@@ -637,6 +723,14 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 25. LIST_IMAGES_BY_ATLAS, filtro de tenant `WHERE atlas_id = $1` em GET /atlas/:atlasId/images
 
+> **CORRIGIDO em 2026-07-25.** Defeito REFUTADO contra o HEAD, cobertura CONFIRMADA como
+> ausente. Invariante preso: toda imagem devolvida por `GET /atlas/:id/images` tem
+> `atlas_id` igual ao da rota, asserido por consulta ao banco de CADA id devolvido, nao
+> por `length > 0`, e com guarda de nao-vacuidade (o atlas B precisa ter imagem antes de
+> se afirmar ausencia). Controle negativo: `WHERE atlas_id = $1` trocado por
+> `WHERE $1 IS NOT NULL`, 3 casos vermelhos (owner, share `read`, visitante de link
+> publico).
+
 - **Código:** `backend/src/modules/images/images.queries.js`
 - **Tipo:** integração · **Fatia:** `be-images`
 - **Arquivo sugerido:** `backend/tests/integration/images-list-tenant-isolation.test.js`
@@ -652,6 +746,15 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - guard de lista nao-vazia: assert de que a fixture criou >= 1 imagem em B antes de afirmar a ausencia (senao a assercao de exclusao passaria por vacuidade)
 
 ### 26. requireAtlasPermission('write') nas rotas de escrita de imagem (POST /, POST /bulk, DELETE /:imageId), hierarquia read < comment < write < manage < owner
+
+> **CORRIGIDO em 2026-07-25.** Defeito REFUTADO contra o HEAD, cobertura CONFIRMADA como
+> ausente, e o controle negativo virou a demonstracao literal do problema da lista
+> fechada. `manage` sobe nas tres rotas de escrita; `comment` cai nas tres e passa em
+> list/download. Controle negativo: gate trocado por `requireAtlasPermission('read')` mais
+> lista fechada `perm === 'write' || perm === 'owner'` -> **exatamente os 3 casos de
+> `manage` cairam**, e os de `comment`/`read` seguiram verdes. Ou seja, testar so o piso e
+> o topo deixa a lista fechada invisivel, que e como esse bug passou duas vezes neste
+> repositorio.
 
 - **Código:** `backend/src/modules/images/images.routes.js`
 - **Tipo:** integração · **Fatia:** `be-images`
@@ -687,6 +790,20 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - controle positivo no mesmo arquivo: JPEG declarado 'image/jpeg' -> 201 (garante que os 400 acima vem do mismatch e nao de um fixture quebrado)
 
 ### 28. bulkUploadImages + INSERT_IMAGE_WITH_ID, PK escolhida pelo CLIENTE (localId) numa tabela de chave global, colidindo com imagem de OUTRO atlas
+
+> **CORRIGIDO em 2026-07-25.** Defeito REFUTADO contra o HEAD, e o codigo esta mais bem
+> construido do que o item supoe: `INSERT_IMAGE_WITH_ID` **nao** tem `ON CONFLICT`, entao
+> a colisao vira `unique_violation` tratada por item, e o blob e escrito DEPOIS do INSERT,
+> entao nem arquivo orfao sobra. Invariante preso: um `localId` igual ao id de imagem de
+> OUTRO atlas falha o item e deixa a linha da vitima identica em todas as colunas, sem
+> criar linha nem blob no atlas atacante. Controle negativo: `ON CONFLICT (id) DO UPDATE`
+> introduzido de proposito, 3 casos vermelhos. Repare no detalhe que o controle revelou:
+> o `DO UPDATE` **nao** reescreveria `atlas_id`, entao a linha continuaria apontando para
+> o atlas da vitima com metadado e bytes do atacante, que e pior que vazamento simples.
+>
+> Nota de processo: esta mutacao deliberada foi lida por OUTRO agente como se fosse
+> producao, e por pouco nao virou doc afirmando um defeito inexistente. Ver o item 33 de
+> `documentacao-backend.md`.
 
 - **Código:** `backend/src/modules/images/images.service.js`
 - **Tipo:** integração · **Fatia:** `be-images`
@@ -922,6 +1039,19 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 43. Alcance do principal de visitante (`public-<uuid>`) fora das rotas de atlas: GET /users/search
 
+> **CORRIGIDO em 2026-07-25.** O item esta DESATUALIZADO: ele avisa "este teste FALHA
+> hoje", mas a contencao ja esta no HEAD (`confineVisitorPrincipal`,
+> `backend/src/middleware/auth.js:74-80`, do achado 11 de 2026-07-24). Cobertura
+> acrescentada com controle negativo (desligar o ramo `if (req.user.isPublic)`): 5 casos
+> vermelhos em `/users/search` (inclusive `q=%%`), `/users/me`, `GET /atlas` e
+> `/debug/trace`.
+>
+> **A descoberta util veio do controle negativo, nao do teste:** o caso "nao alcanca um
+> atlas diferente" continuou VERDE sob a mutacao, porque `requireAtlasPermission` tem
+> checagem propria de escopo do visitante. A superficie de atlas tem DOIS guardas
+> independentes e a superficie fora de atlas tem UM. Um teste que exercitasse so rotas
+> `/atlas` teria "provado" uma contencao que nao existia.
+
 - **Código:** `backend/src/modules/users/users.routes.js`
 - **Tipo:** integração · **Fatia:** `be-sharing`
 - **Cobertura hoje:** nenhuma
@@ -1125,6 +1255,19 @@ Agrupados por prioridade e, dentro dela, por fatia.
 
 ### 55. ranks module inteiro (routes/controller/service/queries/schemas), /api/v1/ranks
 
+> **CORRIGIDO em 2026-07-25.** `backend/tests/integration/ranks.test.js`, 15 casos. O
+> modulo estava **correto e desprotegido**: nenhum defeito real, so ausencia de guarda.
+> Invariantes presos: (a) READ e `auth`, WRITE e `auth + requireAdmin`, com 401 anonimo
+> nas 5 rotas, 403 nao-admin nas 3 de escrita, e 403 **antes** de 404/422 (nao-admin nao
+> sonda ids); (b) o flag `provided` ($6) que separa "campo ausente do PATCH" de "limpar o
+> campo"; (c) `?? null` em `sort_order: 0` e `is_active: false`, os falsy que um `||`
+> engoliria; (d) soft-delete com FK viva de `users.rank_id`.
+>
+> Controle negativo em TRES direcoes, cada uma reprovando so o caso certo: `provided`
+> forcado a `false` derruba "CLEARS nome_abrev on an explicit null"; forcado a `true`
+> derruba "preserves nome_abrev when ABSENT"; `requireAdmin` removido do POST derruba
+> "denies every WRITE route to a non-admin".
+
 - **Código:** `backend/src/modules/ranks/ranks.routes.js`
 - **Tipo:** integração · **Fatia:** `be-users-orgs`
 - **Arquivo sugerido:** `backend/tests/integration/ranks.test.js`
@@ -1207,6 +1350,22 @@ Agrupados por prioridade e, dentro dela, por fatia.
 - Controle negativo: com a org do usuario desativada (is_active=false), a MESMA rota nao-/auth/me responde 401/403, garantindo que o teste do fail-open nao passou por o gate estar inteiramente morto
 
 ### 60. Aplicacao efetiva de redactUrl no ponto de log (error-handler.js:23 e request-logger.js:15)
+
+> **CORRIGIDO em 2026-07-25, e a causa raiz nao era falta de teste, era um GATE.**
+> `backend/tests/integration/request-logger-redaction.test.js`, 7 casos.
+>
+> `src/app.js` montava o `requestLogger` atras de `if (!config.isTest)`, com o comentario
+> "skip in test to reduce noise". O comentario era falso: o logger ja sai em
+> `level: 'silent'` sob teste (`backend/src/utils/logger.js:75`), entao o gate nao reduzia
+> ruido nenhum. O que ele fazia era impedir que `res.on('finish')` rodasse na suite
+> inteira, e e por isso que o arquivo estava em 27,6% de cobertura: justamente o arquivo
+> onde mora o risco de vazar token para o log. **O gate foi removido.**
+>
+> Os testes asserem o objeto entregue ao pino **no call site**, interceptando antes dele de
+> proposito: o `redact.paths` do pino cobre NOMES DE CAMPO como `token`, nao um segredo
+> dentro da string `url`, entao nada a jusante pegaria um `redactUrl` removido. Controle
+> negativo: `redactUrl(req.url)` trocado por `req.url` nos dois arquivos reprova 6 dos 7
+> casos (o setimo e o de URL sem query string, que corretamente nao distingue).
 
 - **Código:** `backend/src/utils/redact-url.js`
 - **Tipo:** unitário · **Fatia:** `be-utils`

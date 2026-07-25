@@ -92,6 +92,7 @@ describe('achado-62 · LIST_USER_ATLAS permission precedence', () => {
     }
 
     const rows = await listAs(guestToken);
+    assert.equal(Object.keys(expected).length, 4, 'one atlas per permission level was seeded');
     for (const [atlasId, level] of Object.entries(expected)) {
       assert.equal(permissionFor(rows, atlasId), level, `shared atlas must report '${level}'`);
     }

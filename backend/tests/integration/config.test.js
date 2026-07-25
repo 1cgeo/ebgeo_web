@@ -66,7 +66,10 @@ describe('Config endpoint (GET /api/v1/config)', () => {
     // it would violate the frozen contract and break the frontend boot, so it is filtered.
     assert.ok(!cfg.analysisLayers.layers.some((l) => l.id === 'hillshade'),
       'placeholder hillshade (no bounds) must not be served');
-    // Every served analysis layer carries valid bounds.
+    // Every served analysis layer carries valid bounds. The seed ships
+    // declividade + hipsometria with bounds, so an empty list here would mean
+    // the filter ate everything — and would make the loop below assert nothing.
+    assert.ok(cfg.analysisLayers.layers.length > 0, 'the seeded layers with bounds must still be served');
     for (const l of cfg.analysisLayers.layers) {
       assert.ok(Array.isArray(l.bounds) && l.bounds.length === 4, `analysis layer ${l.id} missing valid bounds`);
     }

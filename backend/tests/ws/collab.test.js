@@ -73,7 +73,7 @@ describe('WebSocket Collaboration', () => {
       const connected = await client.waitForType('connected');
       assert.ok(connected);
       assert.ok(connected.sessionId);
-      assert.ok(connected.permission === 'owner' || connected.permission);
+      assert.equal(connected.permission, 'owner');
 
       client.close();
     });
@@ -83,7 +83,7 @@ describe('WebSocket Collaboration', () => {
 
       const connected = await client.waitForType('connected');
       assert.ok(connected);
-      assert.ok(connected.permission === 'write' || connected.permission);
+      assert.equal(connected.permission, 'write');
 
       client.close();
     });
@@ -93,7 +93,7 @@ describe('WebSocket Collaboration', () => {
 
       const connected = await client.waitForType('connected');
       assert.ok(connected);
-      assert.ok(connected.permission === 'read' || connected.permission);
+      assert.equal(connected.permission, 'read');
 
       client.close();
     });
@@ -155,7 +155,10 @@ describe('WebSocket Collaboration', () => {
       // Client 2 should receive cursor update
       const cursorMsg = await client2.waitForType('cursor');
       assert.ok(cursorMsg);
-      assert.ok(cursorMsg.position || cursorMsg.data?.position);
+      // The relay frame is FLAT (collab.handlers.js): `position` at the top level,
+      // never nested under `data`.
+      assert.deepEqual(cursorMsg.position, { lat: -22.9, lng: -43.2 });
+      assert.equal(cursorMsg.data, undefined);
 
       client1.close();
       client2.close();
@@ -181,7 +184,10 @@ describe('WebSocket Collaboration', () => {
       // Client 2 should receive selection
       const selectionMsg = await client2.waitForType('selection');
       assert.ok(selectionMsg);
-      assert.ok(selectionMsg.featureIds || selectionMsg.data?.featureIds);
+      // Flat frame here too: `featureIds` at the top level, never under `data`.
+      assert.ok(Array.isArray(selectionMsg.featureIds));
+      assert.equal(selectionMsg.featureIds.length, 1);
+      assert.equal(selectionMsg.data, undefined);
 
       client1.close();
       client2.close();
@@ -215,7 +221,9 @@ describe('WebSocket Collaboration', () => {
       // Should receive ack
       const ack = await client.waitForType('ack');
       assert.ok(ack);
-      assert.ok(ack.serverVersion || ack.opId);
+      // The ack carries BOTH: opId identifies the op, serverVersion advances the cursor.
+      assert.ok(ack.opId, 'the ack identifies the acked op');
+      assert.ok(ack.serverVersion > 0, 'the ack advances the server version');
 
       client.close();
 

@@ -603,16 +603,19 @@ describe('Frontend Format Compatibility (entityType/operationType/entityId)', ()
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
-      // May return snapshot or incremental depending on cleanup state
-      if (res.body.data.isSnapshot) {
-        assert.ok(res.body.data.snapshot, 'snapshot response should have snapshot data');
-      } else {
-        assert.ok(res.body.data.operations.length > 0, 'incremental pull should return operations');
-        const op = res.body.data.operations[0];
-        assert.ok(op.entityType || op.target, 'should have entityType or target');
-        assert.ok(op.operationType || op.type, 'should have operationType or type');
-        assert.ok(op.entityId || op.targetId, 'should have entityId or targetId');
-      }
+      // A pull from currentVersion-1 IS the incremental branch: that is the
+      // branch this test exists to exercise, so assert it instead of tolerating
+      // either outcome.
+      assert.equal(res.body.data.isSnapshot, false, 'pull from currentVersion-1 must be incremental');
+      assert.ok(res.body.data.operations.length > 0, 'incremental pull should return operations');
+      const op = res.body.data.operations[0];
+      // `toFrontendOperation` emits the frontend names only, never the legacy
+      // target/type/targetId trio (that trio is INBOUND-only, see sync.schemas.js).
+      assert.equal(typeof op.entityType, 'string', 'the pulled op carries entityType');
+      assert.equal(typeof op.operationType, 'string', 'the pulled op carries operationType');
+      assert.equal(typeof op.entityId, 'string', 'the pulled op carries entityId');
+      assert.equal(op.target, undefined, 'the legacy `target` name must not leak into a response');
+      assert.equal(op.targetId, undefined, 'the legacy `targetId` name must not leak into a response');
     });
   });
 });

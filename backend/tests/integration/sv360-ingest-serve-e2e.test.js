@@ -323,13 +323,13 @@ describe('StreetView 360 — ingest -> serve -> re-ingest END-TO-END lifecycle',
       .get(url(`/photos/${photoId}/image?quality=full`))
       .set('If-None-Match', capturedEtag)
       .expect(304);
-    // A 304 MUST NOT carry a body.
-    assert.ok(
-      res.body === undefined ||
-        (Buffer.isBuffer(res.body) && res.body.length === 0) ||
-        (typeof res.body === 'object' && Object.keys(res.body).length === 0),
-      'a 304 carries no body'
-    );
+    // A 304 MUST NOT carry a body. Normalise the shape superagent hands back
+    // (Buffer for a binary route, text otherwise) and assert ZERO bytes — one
+    // fact, not a menu of tolerated outcomes.
+    const bodyBytes = Buffer.isBuffer(res.body)
+      ? res.body.length
+      : Buffer.byteLength(res.text ?? '');
+    assert.equal(bodyBytes, 0, 'a 304 carries no body');
     assert.equal(res.headers['content-length'], undefined);
   });
 

@@ -108,12 +108,11 @@ describe('atlas import cannot reference another atlas entities (repro)', () => {
     }));
 
     const { rows } = await db.query('SELECT parent_id FROM groups WHERE id = $1', [newGroupId]);
-    if (rows.length > 0) {
-      assert.notEqual(
-        rows[0].parent_id, victimGroupId,
-        'an imported group must not hang off a group in someone else atlas'
-      );
-    }
+    assert.equal(rows.length, 1, 'the group IS imported (the defense is on parent_id, not on dropping the row)');
+    assert.notEqual(
+      rows[0].parent_id, victimGroupId,
+      'an imported group must not hang off a group in someone else atlas'
+    );
   });
 
   it('does not point an imported slide at a foreign map', async () => {
@@ -130,9 +129,8 @@ describe('atlas import cannot reference another atlas entities (repro)', () => {
     });
 
     const { rows } = await db.query('SELECT map_id FROM slides WHERE id = $1', [slideId]);
-    if (rows.length > 0) {
-      assert.notEqual(rows[0].map_id, victimMap.id, 'a slide must not reference a foreign map');
-    }
+    assert.equal(rows.length, 1, 'the slide IS imported (the defense is on map_id, not on dropping the row)');
+    assert.notEqual(rows[0].map_id, victimMap.id, 'a slide must not reference a foreign map');
   });
 
   // ---- the feature must keep working for legitimate payloads ----
