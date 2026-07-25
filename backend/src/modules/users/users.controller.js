@@ -43,18 +43,20 @@ export const getUser = asyncHandler(async (req, res) => {
   res.json({ data: user });
 });
 
+// `req` e o id do ator seguem para o service porque a auditoria participa da
+// MESMA transação da escrita — o `req` carrega ip e user-agent da trilha.
 export const createUser = asyncHandler(async (req, res) => {
-  const user = await usersService.createUser(req.body);
+  const user = await usersService.createUser(req.body, req, req.user.id);
   res.status(201).json({ data: user });
 });
 
 export const updateUser = asyncHandler(async (req, res) => {
-  const user = await usersService.updateUser(req.params.userId, req.body, req.user.id);
+  const user = await usersService.updateUser(req.params.userId, req.body, req.user.id, req);
   res.json({ data: user });
 });
 
 export const resetPassword = asyncHandler(async (req, res) => {
-  await usersService.resetPassword(req.params.userId, req.body.newPassword);
+  await usersService.resetPassword(req.params.userId, req.body.newPassword, req, req.user.id);
   res.json({ data: { success: true } });
 });
 

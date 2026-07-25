@@ -120,7 +120,7 @@ export async function getUserById(userId) {
 /**
  * Creates a new user (admin only).
  */
-export async function createUser(data) {
+export async function createUser(data, req = null, actorId = null) {
   // Check if username already exists
   const { rows: existing } = await query(Q.CHECK_USERNAME_EXISTS, [data.username]);
   if (existing.length > 0) {
@@ -130,24 +130,40 @@ export async function createUser(data) {
   // Hash password
   const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
 
-  // Create user
-  const { rows } = await query(Q.INSERT_USER_ADMIN, [
-    data.username,
-    passwordHash,
-    data.nome,
-    data.rank_id || null,
-    data.organization_id || null,
-    data.role || 'user',
-    data.org_role || null, // SQL COALESCEs to 'viewer'
-  ]);
+  // A auditoria participa da MESMA transação da escrita: ou a conta existe e há
+  // linha de trilha, ou nenhuma das duas coisas. `USER_CREATE` está reservado no
+  // CHECK de `audit_trail.action` desde a migração 001 e não tinha emissor
+  // nenhum — filtro que por construção nunca casa se lê como "nada aconteceu",
+  // não como "nunca foi ligado", que é a forma mais silenciosa de lacuna.
+  return tx(async (t) => {
+    const criado = await t.one(Q.INSERT_USER_ADMIN, [
+      data.username,
+      passwordHash,
+      data.nome,
+      data.rank_id || null,
+      data.organization_id || null,
+      data.role || 'user',
+      data.org_role || null, // SQL COALESCEs to 'viewer'
+    ]);
 
-  return rows[0];
+    if (actorId) {
+      await createAudit(req, {
+        action: 'USER_CREATE', actorId, targetType: 'USER',
+        targetId: criado.id, targetName: criado.nome,
+        // O papel criado é o dado que interessa numa revisão: uma conta nascida
+        // 'admin' é o evento que se quer achar depois.
+        details: { role: criado.role, org_role: criado.org_role, organization_id: criado.organization_id },
+      }, t);
+    }
+
+    return criado;
+  });
 }
 
 /**
  * Updates a user (admin only).
  */
-export async function updateUser(userId, data, actingUserId = null) {
+export async function updateUser(userId, data, actingUserId = null, req = null) {
   // Check if user exists
   const existing = await getUserById(userId);
 
@@ -191,48 +207,91 @@ export async function updateUser(userId, data, actingUserId = null) {
     }
   }
 
-  const { rows } = await query(Q.UPDATE_USER_ADMIN, [
-    userId,
-    data.username || null,
-    data.nome || null,
-    data.rank_id === '' ? null : (data.rank_id ?? null),
-    data.rank_id !== undefined,
-    data.organization_id === '' ? null : (data.organization_id ?? null),
-    data.organization_id !== undefined,
-    data.role || null,
-    data.is_active !== undefined ? data.is_active : null,
-    data.email_verified !== undefined ? data.email_verified : null,
-    data.org_role || null,
-  ]);
+  return tx(async (t) => {
+    const rows = await t.any(Q.UPDATE_USER_ADMIN, [
+      userId,
+      data.username || null,
+      data.nome || null,
+      data.rank_id === '' ? null : (data.rank_id ?? null),
+      data.rank_id !== undefined,
+      data.organization_id === '' ? null : (data.organization_id ?? null),
+      data.organization_id !== undefined,
+      data.role || null,
+      data.is_active !== undefined ? data.is_active : null,
+      data.email_verified !== undefined ? data.email_verified : null,
+      data.org_role || null,
+    ]);
 
-  if (rows.length === 0) {
-    throw new NotFoundError('User');
-  }
+    if (rows.length === 0) {
+      throw new NotFoundError('User');
+    }
+    const atualizado = rows[0];
 
-  return rows[0];
+    if (actingUserId) {
+      // ROLE_CHANGE é emitido À PARTE de USER_UPDATE, e não como um detalhe dele:
+      // promoção a admin é o evento que uma revisão procura primeiro, e procurar
+      // por ação é o que o índice `idx_audit_action` serve. Os dois valores vão
+      // no detalhe — mudança de nível só é auditável se disser DE ONDE veio, que
+      // é a mesma lição do `previous_permission` da auditoria de sharing.
+      const mudouPapel = data.role && data.role !== existing.role;
+      if (mudouPapel) {
+        await createAudit(req, {
+          action: 'ROLE_CHANGE', actorId: actingUserId, targetType: 'USER',
+          targetId: userId, targetName: atualizado.nome,
+          details: { from: existing.role, to: atualizado.role },
+        }, t);
+      }
+
+      const campos = Object.keys(data).filter((k) => k !== 'role');
+      if (campos.length > 0 || !mudouPapel) {
+        await createAudit(req, {
+          action: 'USER_UPDATE', actorId: actingUserId, targetType: 'USER',
+          targetId: userId, targetName: atualizado.nome,
+          // Só os NOMES dos campos: o valor pode carregar dado pessoal, e a
+          // trilha é lida por qualquer admin. Senha nem chega aqui (rota própria).
+          details: { fields: campos },
+        }, t);
+      }
+    }
+
+    return atualizado;
+  });
 }
 
 /**
  * Resets a user's password (admin only).
  */
-export async function resetPassword(userId, newPassword) {
+export async function resetPassword(userId, newPassword, req = null, actorId = null) {
   // Check if user exists
-  await getUserById(userId);
+  const alvo = await getUserById(userId);
 
   // Hash new password
   const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
-  // Update password
-  const { rows } = await query(Q.RESET_USER_PASSWORD, [userId, passwordHash]);
+  // Tudo na MESMA transação: trocar a senha, matar as sessões antigas e registrar.
+  // Antes a revogação era uma segunda query solta — uma falha entre as duas
+  // deixava senha nova com sessões velhas ainda válidas.
+  return tx(async (t) => {
+    const rows = await t.any(Q.RESET_USER_PASSWORD, [userId, passwordHash]);
+    if (rows.length === 0) {
+      throw new NotFoundError('User');
+    }
 
-  if (rows.length === 0) {
-    throw new NotFoundError('User');
-  }
+    // Revoke existing refresh tokens so the old password's sessions die.
+    await t.none(Q.REVOKE_ALL_USER_TOKENS, [userId]);
 
-  // Revoke existing refresh tokens so the old password's sessions die.
-  await query(Q.REVOKE_ALL_USER_TOKENS, [userId]);
+    if (actorId) {
+      // NUNCA a senha, nem seu tamanho, nem hash: a trilha é lida por qualquer
+      // admin, e senha em log já foi defeito real neste projeto (duas vezes).
+      await createAudit(req, {
+        action: 'PASSWORD_RESET', actorId, targetType: 'USER',
+        targetId: userId, targetName: alvo.nome,
+        details: { by: 'admin', sessionsRevoked: true },
+      }, t);
+    }
 
-  return { success: true };
+    return { success: true };
+  });
 }
 
 /**

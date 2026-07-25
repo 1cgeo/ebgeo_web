@@ -1167,6 +1167,16 @@ Correcao no enunciado do achado original: o conteudo nao e destruido, e re-paren
 
 ### 55. Criacao de usuario, mudanca de papel e reset de senha administrativos nao geram nenhuma linha de auditoria
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. `USER_CREATE`, `USER_UPDATE`, `PASSWORD_RESET` e `ROLE_CHANGE` estavam declarados no CHECK de `audit_trail.action` desde a migração 001 com ZERO emissores no `backend/src` inteiro — criar conta (inclusive já como `admin`), promover alguém a admin e resetar senha alheia passavam sem registro. Mesma classe do achado de sharing: o schema declarava a intenção, nada emitia, e filtro que por construção nunca casa se lê como "nada aconteceu" em vez de "nunca foi ligado".
+>
+> Duas decisões de desenho, além de emitir: (a) `ROLE_CHANGE` sai À PARTE de `USER_UPDATE`, não como detalhe dele, porque promoção a admin é o que uma revisão procura primeiro e procurar por ação é para o que serve o `idx_audit_action`; (b) o detalhe diz DE ONDE o papel veio, não só para onde foi — mudança de nível só é auditável com o valor anterior, que é a lição do `previous_permission` da auditoria de sharing.
+>
+> O que deliberadamente NÃO entra na trilha: nada da senha (nem tamanho, nem hash) e nenhum VALOR de campo em `USER_UPDATE`, só os nomes. A trilha é lida por qualquer admin, e credencial em log já foi defeito real neste projeto duas vezes.
+>
+> Junto veio uma correção de atomicidade: o `resetPassword` trocava a senha e revogava as sessões em duas queries soltas — uma falha entre elas deixava senha nova com sessão velha válida. Agora as três coisas (senha, revogação, trilha) estão na mesma transação.
+>
+> Teste: `backend/tests/integration/users-audit-admin.repro.test.js` (6 casos). Controle negativo MEDIDO, não previsto: removendo os quatro `createAudit` caem os SEIS, não os quatro que eu esperava — os dois que afirmam o que não vaza leem `details` da linha, e sem linha caem junto. Registrado no cabeçalho do teste.
+
 - **Arquivo:** `backend/src/modules/users/users.controller.js:46`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-users-orgs` · **Classe:** `auditoria-ausente`
