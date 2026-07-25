@@ -252,9 +252,16 @@ describe('Sync CRDT — confirmed gaps', () => {
     });
   });
 
-  // --- sync-08 / sync-02 / sync-11 (batch atomicity / full rollback) ---------
-  describe('batch atomicity — a failing op rolls back the entire batch and log', () => {
-    it('NOT NULL violation mid-batch rolls back earlier+later ops and operations rows', async () => {
+  // --- sync-08 / sync-02 / sync-11 (isolamento da op inválida no lote) --------
+  //
+  // Este bloco pinava o rollback TOTAL do lote diante de uma violação NOT NULL, e era
+  // caracterização de um defeito: o cliente não faz dequeue de não-2xx, o mesmo payload
+  // falha para sempre, e o lote voltava a cada 1,5 s — sync parado em silêncio. Desde
+  // 2026-07-25 cada op corre num SAVEPOINT e a violação de DADO (SQLSTATE 22/23) é
+  // recusada por operação. O rollback total continua valendo fora desse recorte
+  // (403/40001/55P03) — ver sync-batch-atomicity e sync-check-constraint-poison.
+  describe('violação de dado no meio do lote: reverte só a op ofensora', () => {
+    it('NOT NULL: a op inválida é recusada e nomeada; as irmãs persistem', async () => {
       const atlas = await createAtlas(db, user.id);
       const map = await createMap(db, atlas.id);
 
@@ -275,16 +282,23 @@ describe('Sync CRDT — confirmed gaps', () => {
         { ...createFeatureOp(map.id, f3), id: op3Id },
       ]);
 
-      assert.notEqual(res.status, 200, `expected failure, got ${res.status}`);
+      assert.equal(res.status, 200, `uma op inválida não derruba o lote, veio ${res.status}`);
 
-      // Full rollback: neither F1 nor F3 exists.
+      const porOp = new Map(res.body.data.results.map((r) => [r.operationId, r]));
+      assert.equal(porOp.get(op1Id).success, true);
+      assert.equal(porOp.get(op3Id).success, true);
+      assert.equal(porOp.get(op2Id).success, false, 'a ofensora é identificada por operationId');
+      assert.equal(porOp.get(op2Id).rejected, true);
+      assert.ok(porOp.get(op2Id).reason, 'com motivo exibível');
+
+      // As irmãs persistem — é a vivacidade que justifica a mudança.
       const feats = await db.query('SELECT id FROM features WHERE id = ANY($1::uuid[])', [[f1, f3]]);
-      assert.equal(feats.rows.length, 0);
+      assert.equal(feats.rows.length, 2);
 
-      // Operations log untouched for all three op ids.
+      // O log recebe as duas boas e NÃO a ofensora (savepoint reverte log e efeito).
       const ops = await db.query('SELECT op_id FROM operations WHERE atlas_id = $1 AND op_id = ANY($2::text[])',
         [atlas.id, [op1Id, op2Id, op3Id]]);
-      assert.equal(ops.rows.length, 0);
+      assert.deepEqual(ops.rows.map((r) => r.op_id).sort(), [op1Id, op3Id].sort());
     });
   });
 

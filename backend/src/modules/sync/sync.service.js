@@ -3,6 +3,7 @@ import { query, tx, task } from '../../database/index.js';
 import { ForbiddenError, ServiceUnavailableError } from '../../utils/errors.js';
 import * as Q from './sync.queries.js';
 import { recordSpan, isTraceEnabled, TraceStage, TraceOutcome } from '../../utils/sync-trace.js';
+import logger from '../../utils/logger.js';
 import { PERMISSION_LEVELS } from '../../middleware/permissions.js';
 
 /**
@@ -522,7 +523,18 @@ function toFrontendOperation(op) {
   }
 
   return {
-    id: op.id,
+    // A IDENTIDADE DA OPERAÇÃO É O `op_id` DO CLIENTE, nos dois caminhos.
+    //
+    // Isto devolvia `op.id`, o PK da linha em `operations`, enquanto o broadcast WS
+    // ecoa o `op.id` que o cliente gerou: a MESMA operação chegava ao par com dois ids
+    // conforme tivesse vindo do socket ou do pull incremental. Era a última sobrevivente
+    // da assimetria que o fix L3 já havia eliminado para `entityId`, e quebrava duas
+    // coisas que juntam por esse id — a deduplicação inbound e o `apply.persist` do
+    // SyncLedger (spans do caminho de pull nunca casavam com os do autor).
+    //
+    // `op.id` continua como reserva porque a coluna `op_id` é NULLable (o schema a
+    // declara TEXT sem NOT NULL, e uma linha escrita sem ela precisa de ALGUM id único).
+    id: op.op_id ?? op.id,
     entityType,
     operationType: op.op_type,
     entityId: op.entity_id,
@@ -1013,6 +1025,52 @@ async function lockedMapDenialReason(t, op) {
 }
 
 /**
+ * SQLSTATE → motivo de recusa, em pt-BR e GENÉRICO.
+ *
+ * O texto do driver não pode chegar ao cliente: ele carrega nome de constraint e de
+ * índice (`images_pkey`, `layers_opacity_range`), a linha ofensora inteira em
+ * `err.detail`, e é traduzido conforme o locale do servidor — três coisas que viram
+ * vazamento de schema e mensagem imprevisível na UI. O erro cru vai para o log
+ * (logger.warn), que é onde o operador precisa dele.
+ */
+const PG_INTEGRITY_REASONS = Object.freeze({
+  '22P02': 'Alteração descartada: identificador ou valor com formato inválido.',
+  '22001': 'Alteração descartada: texto acima do tamanho permitido.',
+  '22003': 'Alteração descartada: valor numérico fora do intervalo permitido.',
+  '23502': 'Alteração descartada: campo obrigatório ausente.',
+  '23503': 'Alteração descartada: referencia um item que não existe mais.',
+  '23505': 'Alteração descartada: já existe um item com esse identificador.',
+  '23514': 'Alteração descartada: valor fora do permitido para este campo.',
+});
+
+/**
+ * Classifies a thrown error as a PER-OPERATION data violation (permanently poisonous:
+ * the SAME bytes will fail forever) or as something else.
+ *
+ * Só as classes SQLSTATE **22** (data exception) e **23** (integrity constraint
+ * violation) contam. Elas são função determinística do payload da op: retentar é
+ * garantia de falhar de novo, então a única saída que preserva a vivacidade da fila é
+ * recusar ESTA op e seguir.
+ *
+ * Tudo o mais volta a envenenar o lote DE PROPÓSITO, e a assimetria é o ponto:
+ * 40001 (serialization), 55P03 (lock timeout), 53300 (pool), queda de conexão e
+ * qualquer `AppError`/bug de JS podem ter sucesso na próxima tentativa. Descartar uma
+ * op boa é perda de dado silenciosa — pior que a fila travada, que ao menos é
+ * recuperável. Na dúvida, o lote falha e o cliente retenta.
+ *
+ * @param {unknown} err
+ * @returns {string|null} Motivo sanitizado, ou null quando o erro NÃO é per-op.
+ */
+function integrityRejectionReason(err) {
+  const code = err && typeof err.code === 'string' ? err.code : null;
+  if (!code || code.length !== 5) return null;
+  const klass = code.slice(0, 2);
+  if (klass !== '22' && klass !== '23') return null;
+  return PG_INTEGRITY_REASONS[code]
+    ?? 'Alteração descartada: o servidor recusou os dados desta operação.';
+}
+
+/**
  * Pushes a batch of operations to the server.
  * Operations are applied and recorded in the operations log.
  * Accepts both frontend format (entityType, operationType, entityId) and
@@ -1093,34 +1151,90 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         continue;
       }
 
-      // Insert operation into log (idempotent: ON CONFLICT (atlas_id, op_id) DO NOTHING).
-      const inserted = await t.oneOrNone(Q.INSERT_OPERATION, [
-        atlasId,
-        op.type,
-        op.target,
-        // The operations LOG has entity_id UUID NOT NULL. Atlas-level ops (settings such as
-        // colorUsage / mapBadgeColors / terrainExaggeration) carry a non-UUID sentinel targetId
-        // ('atlas'), which fails the UUID cast (22P02) and 400s the whole push. Record those against
-        // the atlas's OWN id — the entity these ops target — so the log insert succeeds. UUID-keyed
-        // ops (features/layers/maps/etc.) are recorded under their real id, unchanged.
-        FEATURE_UUID_RE.test(op.targetId) ? op.targetId : atlasId,
-        op.mapId || null,
-        // 3D/360 ops log the CLIENT's flat payload (_logChanges/_logData) instead of the entity-
-        // table envelope, so a replay hands the peer exactly what the broadcast did. Everything
-        // else logs what it writes.
-        (op._logChanges ?? op.changes) ? JSON.stringify(op._logChanges ?? op.changes) : null,
-        (op._logData ?? op.data) ? JSON.stringify(op._logData ?? op.data) : null,
-        op.timestamp,
-        op.clientId,
-        userId,
-        rawOp.id ?? null,
-        op.lamportTimestamp ?? null,
-      ]);
+      // ── SAVEPOINT por operação ────────────────────────────────────────────────
+      // O log e o efeito desta op correm num sub-escopo próprio (pg-promise: tx
+      // aninhada = SAVEPOINT). Uma violação de integridade (CHECK, FK, 22P02) abortava
+      // o `tx()` do lote INTEIRO e devolvia um 400 genérico; como o cliente não faz
+      // dequeue de não-2xx e a resposta não dizia QUAL op ofendeu, ele reenviava o mesmo
+      // lote a cada 1,5 s para sempre — o sync daquele usuário parava, em silêncio.
+      // Com o savepoint, o rollback alcança só a op ofensora (log e efeito juntos, sem
+      // op logada sem efeito), e ela é acusada por operação exatamente como a recusa de
+      // política, que o cliente já sabe descartar.
+      //
+      // Custo: dois comandos extras (SAVEPOINT/RELEASE) por op. No regime normal o lote
+      // tem poucas ops a cada flush de 1,5 s; no lote cheio (100) é ~10-20% de comandos
+      // a mais. Vivacidade da fila vale mais que isso.
+      let applied;
+      try {
+        applied = await t.tx(async (sp) => {
+          // Insert operation into log (idempotent: ON CONFLICT (atlas_id, op_id) DO NOTHING).
+          const inserted = await sp.oneOrNone(Q.INSERT_OPERATION, [
+            atlasId,
+            op.type,
+            op.target,
+            // The operations LOG has entity_id UUID NOT NULL. Atlas-level ops (settings such as
+            // colorUsage / mapBadgeColors / terrainExaggeration) carry a non-UUID sentinel targetId
+            // ('atlas'), which fails the UUID cast (22P02) and 400s the whole push. Record those against
+            // the atlas's OWN id — the entity these ops target — so the log insert succeeds. UUID-keyed
+            // ops (features/layers/maps/etc.) are recorded under their real id, unchanged.
+            FEATURE_UUID_RE.test(op.targetId) ? op.targetId : atlasId,
+            op.mapId || null,
+            // 3D/360 ops log the CLIENT's flat payload (_logChanges/_logData) instead of the entity-
+            // table envelope, so a replay hands the peer exactly what the broadcast did. Everything
+            // else logs what it writes.
+            (op._logChanges ?? op.changes) ? JSON.stringify(op._logChanges ?? op.changes) : null,
+            (op._logData ?? op.data) ? JSON.stringify(op._logData ?? op.data) : null,
+            op.timestamp,
+            op.clientId,
+            userId,
+            rawOp.id ?? null,
+            op.lamportTimestamp ?? null,
+          ]);
 
-      if (!inserted) {
+          if (!inserted) {
+            const prev = await sp.oneOrNone(Q.GET_OPERATION_BY_OP_ID, [atlasId, rawOp.id]);
+            return { idempotent: true, prev };
+          }
+
+          // Apply operation to entity tables based on normalized op
+          const rowsAffected = await applyOperation(sp, atlasId, op, userId, permission);
+          return { idempotent: false, inserted, rowsAffected };
+        });
+      } catch (err) {
+        const reason = integrityRejectionReason(err);
+        // Não classificado como violação de dado → segue envenenando o lote (ver
+        // integrityRejectionReason): pode dar certo na retentativa, e descartar uma op
+        // boa é irreversível.
+        if (!reason) throw err;
+        // O erro CRU fica no log do servidor — é o único lugar onde o nome da
+        // constraint pode aparecer.
+        logger.warn(
+          { err, atlasId, opId: rawOp.id, entityType: op.entityType, operationType: op.type },
+          'sync: operação recusada por violação de integridade'
+        );
+        acks.push({
+          opId: rawOp.id,
+          serverVersion: null,
+          idempotent: false,
+          rejected: true,
+          reason,
+        });
+        if (isTraceEnabled()) {
+          recordSpan(atlasId, TraceStage.SERVER_APPLIED, {
+            opId: rawOp.id, traceId: rawOp.traceId, entityType: op.entityType, operationType: op.type,
+            entityId: op.entityId, mapId: op.mapId, rowsAffected: 0,
+            // FAILED (e não NO_EFFECT, o da recusa de política): no ledger as duas
+            // recusas precisam ser distinguíveis.
+            outcome: TraceOutcome.FAILED, reason,
+          });
+        }
+        continue;
+      }
+
+      if (applied.idempotent) {
         // Operation already applied (same op_id). Ack with the recorded version
         // and skip re-applying the effect — this is the idempotency guarantee.
-        const prev = await t.oneOrNone(Q.GET_OPERATION_BY_OP_ID, [atlasId, rawOp.id]);
+        const prev = applied.prev;
         acks.push({
           opId: rawOp.id,
           serverVersion: prev ? prev.server_version : null,
@@ -1140,6 +1254,8 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         }
         continue;
       }
+
+      const { inserted, rowsAffected } = applied;
 
       acks.push({
         opId: rawOp.id,
@@ -1164,9 +1280,6 @@ export async function pushOperations(atlasId, operations, userId, permission = '
         });
       }
 
-      // Apply operation to entity tables based on normalized op
-      const rowsAffected = await applyOperation(t, atlasId, op, userId, permission);
-
       // SyncLedger: the flagship "acked but no effect" guard (invariant I2). An
       // update/delete that matched zero rows (foreign mapId, EXISTS guard) is surfaced
       // — historically indistinguishable from a real write because applyOperation used
@@ -1189,8 +1302,11 @@ export async function pushOperations(atlasId, operations, userId, permission = '
   // Per-operation ack contract (for confident offline dequeue). `acks` is kept
   // as a backward-compatible alias of the same data.
   const results = acks.map((a) => ({
-    // `false` only for a policy-rejected op (see operationDenialReason). Everything
-    // that reached the apply step is reported as success, as before.
+    // `false` para op recusada — por POLÍTICA (operationDenialReason /
+    // lockedMapDenialReason) ou por VIOLAÇÃO DE DADO (integrityRejectionReason). As duas
+    // compartilham a mesma forma de propósito: as duas são permanentes, e o cliente já
+    // sabe descartar `rejected` e mostrar `reason`. Tudo que chegou ao apply segue
+    // reportado como sucesso.
     success: a.rejected !== true,
     operationId: a.opId,
     idempotent: a.idempotent === true,

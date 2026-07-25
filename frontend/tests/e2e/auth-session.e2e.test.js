@@ -26,20 +26,24 @@ describe.skipIf(E2E_SKIP)('e2e auth-session', () => {
         api = makeApi();
     });
 
-    it('registers a brand-new user (201 -> user object)', async () => {
-        const user = await api.register({ username, password, nome: 'Auth Session' });
-        expect(user).toBeTruthy();
-        expect(user.username).toBe(username);
-        expect(user.id).toBeTruthy();
-        // Password must never be echoed back.
-        expect('password' in user).toBe(false);
-        expect('password_hash' in user).toBe(false);
+    it('registers a brand-new user (201 -> account-free body)', async () => {
+        // The response says NOTHING about the account, deliberately: it is identical
+        // whether the backend created one or found the username/e-mail already taken, so
+        // /auth/register cannot be used to enumerate accounts. Proof that the account
+        // exists is the login below, not this body.
+        const res = await api.register({ username, password, nome: 'Auth Session' });
+        expect(res).toEqual({ success: true });
     });
 
-    it('rejects a duplicate registration (negative)', async () => {
-        await expect(
-            api.register({ username, password, nome: 'Dupe' }),
-        ).rejects.toBeInstanceOf(ApiError);
+    it('a duplicate registration is indistinguishable from a new one (negative)', async () => {
+        // Was: rejects with ApiError (the backend answered 409). That 409 WAS the
+        // enumeration oracle. It now resolves the same way as the first call; the
+        // refusal is real but reported only by e-mail, to the address' owner.
+        const res = await api.register({ username, password, nome: 'Dupe' });
+        expect(res).toEqual({ success: true });
+        // And the duplicate did not overwrite the account: the original password still works.
+        const other = makeApi();
+        await expect(other.login(username, password)).resolves.toBeTruthy();
     });
 
     it('login stores an access token on the client', async () => {

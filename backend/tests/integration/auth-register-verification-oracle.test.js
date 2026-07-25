@@ -3,12 +3,28 @@
 // Itens 79, 80 e 81 — as três propriedades anti-oráculo / de resiliência do cadastro,
 // todas declaradas em comentário no serviço e nenhuma delas afirmada por teste.
 //
-//   79 — `register()` não pode ser oráculo de existência: colisão de USERNAME e colisão
-//        de E-MAIL devolvem a MESMA mensagem 409 (auth.service.js:271 e :278).
-//        `auth.test.js:194` só afirma `res.body.error` truthy e
-//        `auth-email-verification.test.js:118` só o status. "Melhorar a UX" trocando a
-//        mensagem do ramo de e-mail por 'Este e-mail já está cadastrado' deixa os dois
-//        verdes e transforma /register em oráculo de e-mail para qualquer um.
+//   79 — `register()` não pode ser oráculo de existência.
+//
+//        MUDOU EM 2026-07-25. A versão anterior deste bloco afirmava que as duas
+//        colisões devolviam a MESMA mensagem 409, e tratava isso como a propriedade
+//        anti-oráculo. Era caracterização de um bug: a mensagem era uniforme, o STATUS
+//        não — 409 para conta existente contra 201 para conta nova enumera qualquer
+//        e-mail, uma requisição por vez, sem precisar ler mensagem nenhuma. O comentário
+//        do serviço afirmava a propriedade ("o atacante não sabe se um e-mail está
+//        cadastrado") que o código nunca teve.
+//
+//        Agora o contrato é: **201 sempre, com corpo idêntico**, nada é criado quando
+//        username ou e-mail já existem, e a colisão é contada por e-mail ao dono da
+//        caixa (`sendAccountExistsEmail`). O 409 foi embora, e com ele o corpo com o
+//        usuário criado — devolver a conta num ramo e nada no outro seria o mesmo
+//        oráculo vestido de 201.
+//
+//        A parte que status nenhum resolve, e que este arquivo passa a prender, é o
+//        TEMPO: criar conta custa `bcrypt.hash` custo 12 (centenas de ms) e o ramo "já
+//        existe" custaria duas queries. É a classe de oráculo já registrada aqui (item 8
+//        do relatório de testes, 2,2 ms contra 250 ms no login). O serviço hasheia ANTES
+//        de saber se vai usar o hash; o teste de tempo abaixo mede, e traz seu próprio
+//        controle (um 422, que não hasheia) para provar que a medição sabe distinguir.
 //
 //   80 — `resendVerification()` só reemite para conta REAL e NÃO verificada
 //        (auth.service.js:386). O teste existente cobre e-mail desconhecido e conta não
@@ -33,9 +49,39 @@ import { randomUUID } from 'node:crypto';
 import supertest from 'supertest';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
 import config from '../../src/config.js';
+import logger from '../../src/utils/logger.js';
 
 const SFX = randomUUID().slice(0, 8);
-const MENSAGEM_409 = 'Usuário ou e-mail já cadastrado.';
+const CORPO_201 = { data: { success: true } };
+
+/** Captures everything pino is asked to write, at any level. */
+function captureLogs() {
+  const entries = [];
+  const levels = ['info', 'warn', 'error', 'debug'];
+  const originals = {};
+  for (const lvl of levels) {
+    originals[lvl] = logger[lvl];
+    logger[lvl] = (obj, msg) => { entries.push({ lvl, obj, msg }); };
+  }
+  return {
+    entries,
+    restore: () => { for (const lvl of levels) logger[lvl] = originals[lvl]; },
+    text: () => JSON.stringify(entries),
+  };
+}
+
+/** Median of a sample, in ms. */
+function mediana(valores) {
+  const ord = [...valores].sort((a, b) => a - b);
+  return ord[Math.floor(ord.length / 2)];
+}
+
+/** Wall time of one awaited call, in ms. */
+async function medir(fn) {
+  const t0 = performance.now();
+  await fn();
+  return performance.now() - t0;
+}
 
 describe('register / resend — existence oracle and best-effort verification (79, 80, 81)', () => {
   let app, db;
@@ -78,7 +124,7 @@ describe('register / resend — existence oracle and best-effort verification (7
   });
 
   // ==========================================================================
-  // 79 — a mesma mensagem para as duas colisões
+  // 79 — 201 sempre, corpo idêntico, e o mesmo custo de tempo nos dois ramos
   // ==========================================================================
   describe('79 — /register is not an existence oracle', () => {
     let base;
@@ -88,50 +134,133 @@ describe('register / resend — existence oracle and best-effort verification (7
       await register(base).expect(201);
     });
 
-    it('colisão de USERNAME e colisão de E-MAIL devolvem mensagem IDÊNTICA', async () => {
-      const porUsername = await register(payload({ username: base.username })).expect(409);
-      const porEmail = await register(payload({ email: base.email })).expect(409);
+    it('conta nova, colisão de USERNAME e colisão de E-MAIL: mesmo status e MESMO corpo', async () => {
+      const nova = await register(payload({ email: `rg_dist_${SFX}@example.mil` })).expect(201);
+      const porUsername = await register(payload({ username: base.username })).expect(201);
+      const porEmail = await register(payload({ email: base.email })).expect(201);
 
-      assert.equal(porUsername.body.error.message, MENSAGEM_409);
-      assert.equal(porEmail.body.error.message, MENSAGEM_409);
-      assert.strictEqual(porUsername.body.error.message, porEmail.body.error.message);
-      assert.equal(porUsername.body.error.code, porEmail.body.error.code);
-      assert.deepEqual(porUsername.body, porEmail.body, 'as respostas têm de ser indistinguíveis');
+      assert.deepEqual(nova.body, CORPO_201, 'o corpo não pode carregar a conta criada');
+      assert.deepEqual(porUsername.body, nova.body, 'as respostas têm de ser indistinguíveis');
+      assert.deepEqual(porEmail.body, nova.body, 'as respostas têm de ser indistinguíveis');
     });
 
-    it('o 409 não carrega error.details com `field` (o 422 do Joi carrega; este não pode)', async () => {
-      const res = await register(payload({ username: base.username })).expect(409);
-      assert.equal(res.body.error.details, undefined);
-      assert.ok(!JSON.stringify(res.body).includes('"field"'));
-      // Controle: o 422 de validação REALMENTE traz details, senão o assert acima
-      // passaria mesmo num errorHandler que nunca emite details.
+    it('nenhum 201 vaza id, username ou e-mail (nem o do caminho feliz)', async () => {
+      const res = await register(payload({ email: `rg_leak_${SFX}@example.mil` })).expect(201);
+      const texto = JSON.stringify(res.body);
+      assert.ok(!texto.includes('"id"'), texto);
+      assert.ok(!texto.includes('email'), texto);
+      assert.ok(!texto.includes('username'), texto);
+      // Controle: o 422 de validação REALMENTE detalha, senão os asserts acima
+      // passariam mesmo num errorHandler mudo.
       const inval = await register({ username: 'x', password: '1', nome: '' }).expect(422);
       assert.ok(inval.body.error.details, 'o 422 do Joi precisa detalhar — é o contraste');
     });
 
-    it('E-MAIL em caixa diferente colide com a MESMA mensagem (prende o LOWER() de CHECK_EMAIL_EXISTS)', async () => {
-      // Sem o LOWER(), a colisão só seria pega pelo índice único idx_users_email_lower
-      // e o errorHandler devolveria 'Resource already exists' — mensagem distinguível,
-      // ou seja, oráculo de e-mail de volta.
-      const res = await register(payload({ email: base.email.toUpperCase() })).expect(409);
-      assert.equal(res.body.error.message, MENSAGEM_409);
-    });
-
-    it('USERNAME em caixa diferente colide com a MESMA mensagem (prende o LOWER() de CHECK_USERNAME_EXISTS)', async () => {
-      const res = await register(payload({ username: base.username.toUpperCase() })).expect(409);
-      assert.equal(res.body.error.message, MENSAGEM_409);
-    });
-
-    it('controle: um par realmente inédito cria a conta (o 409 não é a resposta padrão)', async () => {
-      const res = await register(payload({ email: `rg_novo_${SFX}@example.mil` })).expect(201);
-      assert.ok(res.body.data.id);
-    });
-
-    it('a colisão não deixa linha nova em users (o 409 aborta antes do INSERT)', async () => {
+    it('E-MAIL em caixa diferente colide e nada é criado (prende o LOWER() de CHECK_EMAIL_EXISTS)', async () => {
+      // Sem o LOWER(), a colisão escaparia até o índice único idx_users_email_lower e o
+      // errorHandler devolveria 409 'Resource already exists' — o oráculo de volta, e por
+      // um caminho que nenhum comentário do serviço menciona.
       const { rows: antes } = await db.query('SELECT COUNT(*)::int AS n FROM users');
-      await register(payload({ username: base.username })).expect(409);
+      const res = await register(payload({ email: base.email.toUpperCase() })).expect(201);
+      assert.deepEqual(res.body, CORPO_201);
+      const { rows: depois } = await db.query('SELECT COUNT(*)::int AS n FROM users');
+      assert.equal(depois[0].n, antes[0].n, 'e-mail em caixa alta não pode criar uma segunda conta');
+    });
+
+    it('USERNAME em caixa diferente colide e nada é criado (prende o LOWER() de CHECK_USERNAME_EXISTS)', async () => {
+      const { rows: antes } = await db.query('SELECT COUNT(*)::int AS n FROM users');
+      const res = await register(payload({ username: base.username.toUpperCase() })).expect(201);
+      assert.deepEqual(res.body, CORPO_201);
       const { rows: depois } = await db.query('SELECT COUNT(*)::int AS n FROM users');
       assert.equal(depois[0].n, antes[0].n);
+    });
+
+    it('controle: um par realmente inédito CRIA a conta (o 201 não é resposta vazia para tudo)', async () => {
+      const novo = payload({ username: `rg_novo_${SFX}`, email: `rg_novo_${SFX}@example.mil` });
+      await register(novo).expect(201);
+      const u = await userByEmail(novo.email);
+      assert.ok(u?.id, 'sem o id no corpo, a prova de criação é a linha em users');
+      assert.equal(u.email_verified, false, 'e ela nasce pendente');
+    });
+
+    it('a colisão não deixa linha nova em users (o ramo "já existe" aborta antes do INSERT)', async () => {
+      const { rows: antes } = await db.query('SELECT COUNT(*)::int AS n FROM users');
+      await register(payload({ username: base.username })).expect(201);
+      const { rows: depois } = await db.query('SELECT COUNT(*)::int AS n FROM users');
+      assert.equal(depois[0].n, antes[0].n);
+    });
+
+    it('a colisão NÃO reescreve a conta existente (nem senha, nem nome, nem token)', async () => {
+      // O jeito errado de "sempre 201" é fazer upsert: aí o atacante toma a conta alheia
+      // trocando a senha. E emitir token novo aqui faria de /register um mail bomb.
+      const dono = await userByEmail(base.email);
+      const tokensAntes = await tokenCount(dono.id);
+
+      await register(payload({
+        email: base.email, nome: 'Invasor', password: 'Invasor@9999',
+      })).expect(201);
+
+      const depois = await userByEmail(base.email);
+      assert.equal(depois.password_hash, dono.password_hash, 'a senha do dono não pode mudar');
+      assert.equal(depois.nome, dono.nome);
+      assert.equal(depois.username, dono.username);
+      assert.equal(await tokenCount(dono.id), tokensAntes, 'nem token novo (mail bomb)');
+    });
+
+    it('a colisão de E-MAIL dispara o aviso PARA A CAIXA, e só para ela', async () => {
+      // É aqui que a informação vai parar agora: não na resposta HTTP, no e-mail do dono.
+      // Sem SMTP o mailer loga o evento, que é o canal de entrega em dev.
+      const cap = captureLogs();
+      try {
+        await register(payload({ email: base.email })).expect(201);
+      } finally {
+        cap.restore();
+      }
+      const aviso = cap.entries.find((e) => String(e.msg).includes('account-exists notice'));
+      assert.ok(aviso, `o aviso não foi emitido: ${cap.text()}`);
+      assert.equal(aviso.obj.to, base.email, 'endereçado ao dono do e-mail');
+    });
+
+    it('TIMING: os dois ramos custam o mesmo (o bcrypt roda antes de saber se será usado)', async () => {
+      // Fechar o oráculo pelo status não basta se o relógio ainda distingue. O ramo de
+      // criação paga bcrypt custo 12; o ramo "já existe" pagaria duas queries. A
+      // diferença é medível de fora — é literalmente o item 8 do relatório de testes
+      // (2,2 ms contra 250 ms no login).
+      const AMOSTRAS = 5;
+      const novos = [];
+      const colisoes = [];
+      const invalidos = [];
+
+      for (let i = 0; i < AMOSTRAS; i++) {
+        // Alterna os três para diluir ruído de máquina (GC, cache do Postgres) igualmente.
+        novos.push(await medir(() => register(payload({ email: `rg_t${i}_${SFX}@example.mil` })).expect(201)));
+        colisoes.push(await medir(() => register(payload({ email: base.email })).expect(201)));
+        // CONTROLE NEGATIVO DA MEDIÇÃO: o 422 do Joi não hasheia nada. Se ele medir o
+        // mesmo que os outros dois, a medição não sabe distinguir e o verde acima não
+        // estaria provando coisa alguma.
+        invalidos.push(await medir(() => register({ username: 'x', password: '1', nome: '' }).expect(422)));
+      }
+
+      const mNovo = mediana(novos);
+      const mColisao = mediana(colisoes);
+      const mInvalido = mediana(invalidos);
+      const contexto = `novo=${mNovo.toFixed(1)}ms colisao=${mColisao.toFixed(1)}ms invalido=${mInvalido.toFixed(1)}ms`;
+
+      // A propriedade em si vem primeiro, para que a mensagem de falha nomeie o defeito
+      // real (medido com o hash movido para depois da checagem: colisão caiu de 163 ms
+      // para 2,4 ms).
+      assert.ok(
+        mColisao > 50,
+        `o ramo "já existe" precisa pagar o bcrypt (senão o tempo denuncia a conta): ${contexto}`
+      );
+      const razao = Math.max(mNovo, mColisao) / Math.min(mNovo, mColisao);
+      assert.ok(razao < 1.5, `os dois ramos precisam custar o mesmo (razão ${razao.toFixed(2)}): ${contexto}`);
+      // E por último o controle da própria medição: se um caminho sem bcrypt medir o
+      // mesmo que os dois de cima, os asserts anteriores não estavam provando nada.
+      assert.ok(
+        mInvalido < 0.5 * Math.min(mNovo, mColisao),
+        `a medição precisa distinguir um caminho sem bcrypt: ${contexto}`
+      );
     });
   });
 
@@ -239,7 +368,8 @@ describe('register / resend — existence oracle and best-effort verification (7
     it('register com e-mail responde 201 mesmo com a emissão do token falhando', async () => {
       const res = await register(payload({ username, email }));
       assert.equal(res.status, 201, `esperado 201, obtive ${res.status}: ${JSON.stringify(res.body)}`);
-      assert.ok(res.body.data.id);
+      assert.deepEqual(res.body, CORPO_201);
+      assert.ok(await userByEmail(email), 'e a conta foi mesmo criada (o corpo não diz mais)');
     });
 
     it('a conta EXISTE, pendente, e sem nenhum token (nada foi orfanado do outro lado)', async () => {
@@ -289,8 +419,9 @@ describe('register / resend — existence oracle and best-effort verification (7
 
     it('controle negativo: sem o trigger, register com e-mail cria EXATAMENTE 1 token', async () => {
       const novo = payload({ username: `rg_ok_${SFX}`, email: `rg_ok_${SFX}@example.mil` });
-      const res = await register(novo).expect(201);
-      assert.equal(await tokenCount(res.body.data.id), 1, 'o caminho feliz não regrediu');
+      await register(novo).expect(201);
+      const u = await userByEmail(novo.email);
+      assert.equal(await tokenCount(u.id), 1, 'o caminho feliz não regrediu');
     });
   });
 });

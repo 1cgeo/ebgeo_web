@@ -45,11 +45,24 @@ import { applyAtlasSettings, revertAtlasSettings } from './atlas-settings.servic
 import { getEventBus } from '../services.js';
 import { EventTypes } from '../../events/event_types.js';
 import { record } from './diag/trace-core.js';
-import { TraceStage, TraceOutcome } from './diag/trace-stages.js';
+import { TraceStage, TraceOutcome, DropReason } from './diag/trace-stages.js';
 import { showWarning } from '../../utilities/toast_service.js';
 
 /** Max operations pushed per HTTP batch when flushing the queue. */
 const FLUSH_BATCH_SIZE = 100;
+
+/**
+ * HTTP statuses that mean "these exact bytes will be refused forever".
+ *
+ * 400 (violação de dado/formato) e 422 (envelope inválido) são função determinística
+ * do payload: reenviar é garantia de receber o mesmo erro. Deliberadamente FORA da
+ * lista: 401 (token expirado — o retry acontece depois do refresh), 403 (permissão
+ * perdida; a op ainda pode valer quando ela voltar), 409/429/5xx (transitórios). Numa
+ * dúvida a fila espera, porque descartar op boa é perda de dado irreversível e a fila
+ * travada não é.
+ * @type {ReadonlySet<number>}
+ */
+const PERMANENT_PUSH_REJECTIONS = new Set([400, 422]);
 
 /**
  * Entity types of MARKER operations: a structural change made over REST that moved
@@ -176,7 +189,8 @@ class SyncEngine {
      * optional military attributes (and, once enabled, the e-mail) reach the backend untouched.
      * @param {{ username: string, password: string, nome: string, posto_graduacao?: string,
      *   organizacao_militar?: string, email?: string }} payload
-     * @returns {Promise<Object>} The created user.
+     * @returns {Promise<{ success: true }>} Never account data: the endpoint answers identically
+     *   whether it created an account or found one, so it cannot be used to enumerate accounts.
      */
     async register(payload) {
         return apiClient.register(payload);
@@ -298,10 +312,19 @@ class SyncEngine {
     /**
      * Drains the local operation queue to the server over HTTP, dequeuing each
      * batch only after the server accepts it.
+     *
+     * Uma op nunca sai da fila sem que o servidor tenha se pronunciado sobre ELA: ou
+     * ele a aceitou (2xx), ou a recusou por operação (`rejected` no ack), ou a recusou
+     * de forma permanente quando ela era a única do lote (modo de isolamento abaixo).
      * @returns {Promise<{ pushed: number }>}
      */
     async flush() {
         let pushed = 0;
+        // MODO DE ISOLAMENTO: uma vez ligado, o lote vira de tamanho 1 e assim fica até
+        // que a op ofensora seja encontrada e descartada. Voltar ao lote cheio no
+        // primeiro push aceito faria o lote grande falhar de novo a cada op boa que
+        // precede a ofensora (um round-trip perdido por op, em vez de um por op).
+        let isolating = false;
         let ops = await operationQueue.peek(FLUSH_BATCH_SIZE);
         while (ops && ops.length > 0) {
             const opIds = ops.map(op => op.id);
@@ -319,13 +342,62 @@ class SyncEngine {
                     atlasId: this._atlasId, opIds, outcome: TraceOutcome.FAILED,
                     error: error?.message || String(error),
                 });
+
+                // ── Rede de segurança: op envenenada ────────────────────────────────
+                // O servidor recusa violação de integridade POR OPERAÇÃO (200 +
+                // `rejected`), então este ramo só existe para o que a classificação de
+                // lá não cobre (um 422 do Joi, um erro não previsto). Sem ele o lote
+                // volta para a fila idêntico e é reenviado a cada 1,5 s para sempre: o
+                // sync do usuário para, em silêncio.
+                //
+                // A op ofensora é identificada POR CONSTRUÇÃO, nunca por um id que o
+                // servidor mande: reduzimos o lote a UMA op e reenviamos. Se o erro
+                // permanente se repete com lote de tamanho 1, a ofensora é aquela — e
+                // nenhuma op irmã pode ter sido descartada por engano, porque irmã só
+                // sai da fila quando o servidor a aceita.
+                if (PERMANENT_PUSH_REJECTIONS.has(error?.status)) {
+                    if (ops.length > 1) {
+                        isolating = true;
+                        ops = await operationQueue.peek(1);
+                        continue;
+                    }
+                    const poison = ops[0];
+                    const removed = await operationQueue.dequeue(opIds);
+                    if (removed === 0) {
+                        // A fila não avançou: repetir o mesmo peek é laço infinito. Deixa
+                        // o erro subir, que é o comportamento antigo (fila parada), nunca
+                        // um giro em vazio.
+                        await this._reconcileConvergenceGuard();
+                        throw error;
+                    }
+                    record(TraceStage.PREFLUSH_DROP, {
+                        atlasId: this._atlasId, opId: poison.id, traceId: poison.traceId,
+                        entityType: poison.entityType, entityId: poison.entityId,
+                        outcome: TraceOutcome.DROPPED, reason: DropReason.SERVER_REJECTED,
+                        error: error?.message || String(error),
+                    });
+                    // Descarte silencioso é o outro defeito: a entidade já mudou local-
+                    // mente, o servidor nunca a viu, e o próximo snapshot desfaz a ação
+                    // do usuário sem explicação.
+                    try {
+                        showWarning(
+                            'Uma alteração não pôde ser sincronizada e foi descartada.'
+                        );
+                    } catch {
+                        // Headless (tests, worker): no UI to tell.
+                    }
+                    isolating = false;
+                    ops = await operationQueue.peek(FLUSH_BATCH_SIZE);
+                    continue;
+                }
+
                 await this._reconcileConvergenceGuard();
                 throw error;
             }
             recordPushAcks(resp, ops);
             await operationQueue.dequeue(opIds);
             pushed += ops.length;
-            ops = await operationQueue.peek(FLUSH_BATCH_SIZE);
+            ops = await operationQueue.peek(isolating ? 1 : FLUSH_BATCH_SIZE);
         }
         await this._reconcileConvergenceGuard();
         return { pushed };

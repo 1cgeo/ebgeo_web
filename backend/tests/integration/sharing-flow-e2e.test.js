@@ -40,7 +40,7 @@ describe('E2E: sharing + sync authorization lifecycle', () => {
   // --- helpers -------------------------------------------------------------
 
   async function register(actor) {
-    const res = await supertest(app)
+    await supertest(app)
       .post(`${API}/auth/register`)
       .send({
         username: actor.username,
@@ -50,7 +50,10 @@ describe('E2E: sharing + sync authorization lifecycle', () => {
         organizacao_militar: 'OM Teste',
       })
       .expect(201);
-    actor.id = res.body.data.id;
+    // /auth/register answers an account-free body (it must be identical whether the
+    // account was created or already existed), so the id comes from the table.
+    const { rows } = await db.query('SELECT id FROM users WHERE username = $1', [actor.username]);
+    actor.id = rows[0].id;
     return actor;
   }
 

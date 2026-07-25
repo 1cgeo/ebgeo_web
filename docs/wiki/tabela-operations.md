@@ -43,17 +43,22 @@ Como `entity_id` é `UUID NOT NULL`, ops de nível de atlas (settings, que chega
 
 O contrato canônico é `data` no create e `changes` no update. O frontend deste repo **sempre usa `data`**, inclusive em update (`frontend/src/js/store/sync/operation-factory.js:151-163`), então na base real `changes` fica quase sempre NULL e o backend trata `data` como `changes` quando falta. `previousData`, que o factory emite, não tem coluna e é descartado. Ao consumir op vinda do pull, leia os dois campos (ver [[envelope-operacao]] e [[aplicacao-operacoes-remotas]]).
 
-## O campo id do pull não é o op_id
+## O id da operação é o mesmo nos dois caminhos
 
-`toFrontendOperation` (`backend/src/modules/sync/sync.service.js`) devolve `id: op.id`, o **PK da linha no servidor**, enquanto o broadcast WebSocket reenvia a op crua do cliente apenas carimbada com `serverVersion` (`backend/src/modules/collab/collab.handlers.js:198`). O mesmo evento chega com `id` diferente conforme o caminho. Não use esse campo como chave de deduplicação entre os dois; a deduplicação de eco é por `clientId`, ver [[canal-collab-websocket]] e [[client-id-estavel]].
+`toFrontendOperation` (`backend/src/modules/sync/sync.service.js`) devolve `id: op.op_id ?? op.id`, ou seja, o **`op_id` do cliente**, exatamente o mesmo que o broadcast WebSocket reenvia carimbado com `serverVersion` (`backend/src/modules/collab/collab.handlers.js:198`). A identidade da operação não depende do caminho de entrega. O `op.id` (PK da linha) só aparece como reserva para linha gravada sem `op_id`, que a coluna nullable permite ([[idempotencia-e-convergence-guard]]).
 
-> **Nota histórica.** O guia *05-sync-crdt* (absorvido) §6 mostra o pull incremental com `"id": "op-uuid"`, sugerindo o id da op do cliente; `toFrontendOperation` (`backend/src/modules/sync/sync.service.js`) devolve o PK da linha, e o `op_id` do cliente não é exposto nessa resposta.
+Ainda assim, **a deduplicação de eco é por `clientId`, não por esse id** ([[canal-collab-websocket]], [[client-id-estavel]]): o que o id unificado garante é que os dois caminhos falem da mesma operação, inclusive para o ledger, que junta spans por `op.id` ([[syncledger]]).
 
 ## Uma linha aqui prova recebimento, não efeito
 
-Todo o batch roda numa transação só, dentro de `pushOperations` (`backend/src/modules/sync/sync.service.js`): **falhou** uma op, o lote inteiro reverte, log e entidades juntos. Mas o log é escrito **antes** do apply. Um update que casou zero linhas (mapId de outro atlas, guarda `EXISTS`) é acked com sucesso e mesmo assim não escreveu nada. Essa cegueira é exatamente o que o span `SERVER_APPLIED` com `rowsAffected` existe para expor (ver [[syncledger]]). Lote acima de `MAX_OPS_PER_PUSH = 500` dá 422, ver [[erros-api]].
+Todo o batch roda numa transação só, dentro de `pushOperations` (`backend/src/modules/sync/sync.service.js`), mas **cada op corre num SAVEPOINT próprio**: uma violação de dado reverte só ela, log e entidade juntos. Mas o log é escrito **antes** do apply. Um update que casou zero linhas (mapId de outro atlas, guarda `EXISTS`) é acked com sucesso e mesmo assim não escreveu nada. Essa cegueira é exatamente o que o span `SERVER_APPLIED` com `rowsAffected` existe para expor (ver [[syncledger]]). Lote acima de `MAX_OPS_PER_PUSH = 500` dá 422, ver [[erros-api]].
 
-**Falha não é o mesmo que recusa, e essa distinção é recente.** Uma violação de *nível* (principal `read` ou `comment` empurrando escrita) segue lançando de `assertOperationAllowed` e derrubando o lote inteiro com 403, porque um lote assim é inteiramente suspeito. Já uma recusa de *política* sobre uma op só (excluir mapa sem `manage`, travar/destravar sem ser dono, escrever em mapa bloqueado) **não** aborta nada: `operationDenialReason` e `lockedMapDenialReason` devolvem um motivo, a op é acked com `rejected: true` e o restante do lote é gravado normalmente. O comentário de projeto no próprio arquivo explica por quê, e vale reter: enquanto isso lançava, uma única recusa congelava a fila outbound daquele usuário **para sempre**, porque o cliente não faz dequeue de lote que o servidor rejeitou. Ver [[ack-idempotencia]], [[permissoes-atlas]] e [[sintese-contrato-erros-http]].
+**Falha não é o mesmo que recusa, e essa distinção é recente.** Uma violação de *nível* (principal `read` ou `comment` empurrando escrita) segue lançando de `assertOperationAllowed` e derrubando o lote inteiro com 403, porque um lote assim é inteiramente suspeito. Já a recusa **por operação** não aborta nada e hoje tem duas famílias, com a mesma forma de ack (`rejected: true` + `reason`, 200 no lote):
+
+- *política* — excluir mapa sem `manage`, travar/destravar sem ser dono, escrever em mapa bloqueado (`operationDenialReason`, `lockedMapDenialReason`);
+- *violação de dado* — SQLSTATE classe 22/23 (CHECK, FK, `22P02`, NOT NULL), classificada por `integrityRejectionReason` e traduzida num motivo genérico em pt-BR, porque o texto do driver carrega nome de constraint e depende do locale.
+
+As duas compartilham o motivo de existir, e vale reter: enquanto isso lançava, uma única recusa congelava a fila outbound daquele usuário **para sempre**, porque o cliente não faz dequeue de lote que o servidor rejeitou. O que **continua** abortando o lote é o que pode dar certo na retentativa (403 de nível, `40001`, `55P03`, queda de conexão) — descartar op boa é irreversível, fila travada não é. Ver [[ack-idempotencia]], [[permissoes-atlas]] e [[sintese-contrato-erros-http]].
 
 ## Não é arquivo histórico permanente
 
@@ -66,6 +71,8 @@ Não é um CRDT. O Lamport clock é persistido só para ecoar no pull e deixar o
 ## Histórico
 
 - 2026-07-25: a seção "Uma linha aqui prova recebimento, não efeito" dizia que qualquer op recusada revertia o lote inteiro. Isso valeu até `1d23ac9` (2026-07-19) e `aec63f8` (2026-07-24), que converteram as recusas de política (delete de mapa, lock/unlock, mapa bloqueado) em ack por op sem abortar a transação. A violação de nível continua abortando.
+- 2026-07-25: fechada a última porta do poison batch. A violação de **dado** (classe 22/23) também abortava o lote e devolvia um 400 genérico que não dizia QUAL op ofendeu, então o cliente reenviava o mesmo lote indefinidamente. Cada op passou a rodar num SAVEPOINT e a recusa virou por operação, com motivo genérico. Medido em `backend/tests/integration/sync-check-constraint-poison.test.js`, que até este dia pinava o defeito como comportamento aceito.
+- 2026-07-25: a seção "O campo id do pull não é o op_id" descrevia uma assimetria real (o pull identificava a op pelo PK da linha, o broadcast pelo `op_id` do cliente) que foi eliminada no mesmo dia. `toFrontendOperation` passou a devolver `op.op_id ?? op.id`. O gap estava pinado com `assert.notEqual` em `backend/tests/ws/collab-broadcast-stamping.test.js`, hoje invertido para igualdade.
 
 ## Fontes
 

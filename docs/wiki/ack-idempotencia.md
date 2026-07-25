@@ -10,9 +10,12 @@ O cenário que motivou o campo: o servidor grava e commita, a resposta se perde 
 
 ## Armadilha: `success: false` existe, mas significa "recusado", nunca "tente de novo"
 
-Esta seção já disse o oposto, e a inversão importa (ver `## Histórico`). `success` hoje é `a.rejected !== true` em `pushOperations` (`backend/src/modules/sync/sync.service.js`): existe **um** caso de item com `success: false`, a recusa de política sobre uma op só (excluir mapa sem `manage`, travar/destravar sem ser dono, escrever em mapa bloqueado). Ele vem acompanhado de `rejected: true` e de uma `reason` em pt-BR destinada ao usuário, e o lote **sobrevive**: as demais ops foram gravadas.
+Esta seção já disse o oposto, e a inversão importa (ver `## Histórico`). `success` hoje é `a.rejected !== true` em `pushOperations` (`backend/src/modules/sync/sync.service.js`), e há **duas** famílias de item com `success: false`, ambas acompanhadas de `rejected: true` e de uma `reason` em pt-BR destinada ao usuário, ambas deixando o lote **sobreviver**:
 
-Tudo o mais continua sendo tudo-ou-nada. Uma violação de nível (`assertOperationAllowed`, mesmo arquivo) e qualquer erro real (FK, UUID inválido, 22P02) abortam a transação e viram erro HTTP ou `{type:'error'}`, sem `results[]` nenhum.
+- **recusa de política** sobre uma op só: excluir mapa sem `manage`, travar/destravar sem ser dono, escrever em mapa bloqueado;
+- **violação de dado**: SQLSTATE classe 22/23 (CHECK, FK, `22P02`, NOT NULL, texto acima do `VARCHAR`). Cada op corre num SAVEPOINT, então o rollback alcança só ela — log e efeito juntos. A `reason` é **genérica por segurança**: o texto do driver carrega nome de constraint e de índice e depende do locale, e vai só para o log do servidor.
+
+O que continua sendo tudo-ou-nada é o que pode dar certo na retentativa: violação de nível (`assertOperationAllowed`, mesmo arquivo), `40001`, `55P03`, queda de conexão. Esses abortam a transação e viram erro HTTP ou `{type:'error'}`, sem `results[]` nenhum — e é assim de propósito, porque descartar op boa é perda de dado irreversível e fila travada não é.
 
 A armadilha, então, não é mais a ausência de `false`; é o que fazer com ele:
 
@@ -46,6 +49,7 @@ O outbound do frontend é só REST. `frontend/src/js/store/sync/ws-client.js:292
 
 ## Histórico
 
+- 2026-07-25: a mesma seção dizia que "qualquer erro real (FK, UUID inválido, 22P02) aborta a transação". Deixou de valer no mesmo dia: cada op passou a rodar num SAVEPOINT e a violação de dado virou a segunda família de `rejected`. O que motivou é o de sempre — 400 genérico que não nomeia a op ofensora + cliente que não faz dequeue de não-2xx = fila parada em silêncio. Como rede de segurança para o que a classificação não cobrir, `flush` (`frontend/src/js/store/sync/sync-engine.js`) encolhe o lote para uma op ao receber 400/422 e descarta a ofensora identificada **por construção**, nunca por um id que o servidor mande.
 - 2026-07-25: a seção de armadilha dizia "`success` nunca é `false`" e "não existe falha parcial dentro de um push". Deixou de valer em duas etapas, ambas depois da auditoria de 2026-07-19: `1d23ac9` (2026-07-19) trocou o literal por `a.rejected !== true` e passou a recusar por op o delete de mapa e o lock/unlock; `aec63f8` (2026-07-24) tirou o `ConflictError('Map is locked')` de dentro da transação e o converteu na mesma recusa por op. O motivo dos dois é o mesmo e está no código: lançar de dentro do lote congelava a fila outbound do usuário indefinidamente.
 
 ## Fontes

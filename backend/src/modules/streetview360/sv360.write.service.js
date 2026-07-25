@@ -131,7 +131,11 @@ export async function updateCalibration(uuid, fields, user) {
 }
 
 /**
- * Sets (number) or clears (null) the per-link overrides of a directed link.
+ * PATCHES the per-link overrides of a directed link: a number SETS, an explicit
+ * null CLEARS, an ABSENT key is LEFT UNTOUCHED. The three are distinguished by a
+ * per-column "provided" flag (`!== undefined`), exactly like updateAtlas /
+ * updateOrganization / updateRank — `??`/`||`/COALESCE all collapse two of the
+ * three, and `||` would additionally eat a legitimate 0.
  * @param {string} uuid - source photo id
  * @param {string} targetId - destination photo id
  * @param {Object} overrides - { override_bearing?, override_distance?, override_height? } (number|null)
@@ -152,9 +156,15 @@ export async function updateTargetOverride(uuid, targetId, overrides, user) {
     await exec(WQ.UPDATE_TARGET_OVERRIDE, [
       uuid,
       targetId,
+      // [value, provided?] per column: an explicit null CLEARS, an omitted field
+      // leaves the column alone. `?? null` alone could not tell those apart and
+      // wiped every field the caller did not send.
       overrides.override_bearing ?? null,
       overrides.override_distance ?? null,
       overrides.override_height ?? null,
+      overrides.override_bearing !== undefined,
+      overrides.override_distance !== undefined,
+      overrides.override_height !== undefined,
     ]);
     return rebuildPhotoShape(uuid, exec);
   });

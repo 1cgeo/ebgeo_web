@@ -5,9 +5,14 @@ import crypto from 'crypto';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
 import { query, tx } from '../../database/index.js';
-import { AppError, UnauthorizedError, ConflictError, ForbiddenError, BadRequestError } from '../../utils/errors.js';
+import { AppError, UnauthorizedError, ForbiddenError, BadRequestError } from '../../utils/errors.js';
 import { orgIsActive } from '../../utils/org-status.js';
-import { sendVerificationEmail, buildVerificationLink } from '../../utils/mailer.js';
+import {
+  sendVerificationEmail,
+  sendAccountExistsEmail,
+  buildVerificationLink,
+  buildAppLink,
+} from '../../utils/mailer.js';
 import { parseDuration } from '../../utils/duration.js';
 import * as Q from './auth.queries.js';
 
@@ -234,11 +239,26 @@ export async function refresh(refreshToken) {
 }
 
 /**
- * Revokes a refresh token (logout).
+ * Revokes ONE refresh token (logout), scoped to its owner and idempotent.
+ *
+ * `userId` is REQUIRED and must come from the verified access token (`req.user.id`),
+ * never from the request body: it is what stops a caller from ending a session that
+ * is not theirs merely by knowing its refresh token. Omit it and the query matches
+ * `user_id = NULL`, i.e. nothing — failing closed rather than revoking blindly.
+ *
+ * Nothing matching is a legitimate, common outcome (a second logout, a token from
+ * another account, a token never issued) and is reported by the return value, not by
+ * an exception: see the note on the 204 in auth.controller.js.
+ *
+ * @param {string} refreshToken - The raw refresh token presented by the client.
+ * @param {string} userId - The authenticated caller's id (JWT `sub`).
+ * @returns {Promise<boolean>} True when a live token of this user was revoked by
+ *   THIS call; false when the statement matched no row.
  */
-export async function logout(refreshToken) {
+export async function logout(refreshToken, userId) {
   const hash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-  await query(Q.REVOKE_REFRESH_TOKEN, [hash]);
+  const { rows } = await query(Q.REVOKE_REFRESH_TOKEN, [hash, userId]);
+  return rows.length > 0;
 }
 
 /**
@@ -255,29 +275,42 @@ export async function getMe(userId) {
 }
 
 /**
- * Registers a new user (self-registration). When an e-mail is provided the account is created
- * PENDING (email_verified=false) and a verification token is issued + e-mailed; without an e-mail
- * the account is immediately active (username-only).
+ * Registers a new user (self-registration), WITHOUT telling the caller whether the account already
+ * existed. When an e-mail is provided the account is created PENDING (email_verified=false) and a
+ * verification token is issued + e-mailed; without an e-mail the account is immediately active
+ * (username-only).
+ *
+ * ORACLE, and how it is closed. This route used to answer 409 for a taken username or e-mail and
+ * 201 otherwise, while the comment sitting here claimed the single generic 409 message meant "an
+ * attacker can't tell whether a specific e-mail is already registered". That was false from the
+ * first day it was written: the message was uniform, the STATUS CODE was not, so anyone could
+ * enumerate accounts one request at a time. The message never mattered.
+ *
+ * Now every outcome is the same 201 with the same body, and the collision is reported to the only
+ * party entitled to know: the owner of the mailbox, by e-mail (`sendAccountExistsEmail`). Three
+ * things have to hold together for that to be worth anything, and each is pinned by a test in
+ * tests/integration/auth-register-verification-oracle.test.js:
+ *
+ *  1. STATUS + BODY are identical. The created user is no longer returned — an account payload on
+ *     one branch and nothing on the other is the same oracle wearing a 201.
+ *  2. TIMING is comparable. Creating an account costs a bcrypt hash at cost 12 (hundreds of ms);
+ *     the "already exists" branch would otherwise cost a couple of queries. That difference is
+ *     readable over the network, exactly like the login oracle DUMMY_HASH exists to kill, so the
+ *     hash is computed BEFORE the branch and simply discarded when nothing is created.
+ *  3. FAILURES stay contained. The notice is best-effort like the verification e-mail: a send that
+ *     throws only on the "exists" branch would restore the oracle as a 500.
+ *
+ * What is NOT hidden, deliberately: an invalid/inactive `organization_id` still answers 400. The
+ * org list is served publicly by GET /api/config, so it reveals nothing about accounts.
+ *
  * @param {Object} data - Validated register payload.
  * @param {string} [origin] - Request origin, used to build the verification link when APP_BASE_URL
  *   is unset.
+ * @returns {Promise<Object|null>} The created user, or null when nothing was created because the
+ *   username/e-mail was taken. The CONTROLLER must not let that difference reach the response.
  */
 export async function register(data, origin = '') {
-  // Uniqueness checks use a SINGLE generic message for both username and e-mail collisions so the
-  // public register endpoint is not an existence oracle (an attacker can't tell which field — or
-  // whether a specific e-mail — is already registered).
-  const { rows: existing } = await query(Q.CHECK_USERNAME_EXISTS, [data.username]);
-  if (existing.length > 0) {
-    throw new ConflictError('Usuário ou e-mail já cadastrado.');
-  }
-
   const email = data.email ? data.email.trim() : null;
-  if (email) {
-    const { rows: emailRows } = await query(Q.CHECK_EMAIL_EXISTS, [email]);
-    if (emailRows.length > 0) {
-      throw new ConflictError('Usuário ou e-mail já cadastrado.');
-    }
-  }
 
   // The client picks its own organization here (the OM dropdown), and the value went
   // straight into the INSERT unchecked, so a caller could name any UUID — including a
@@ -299,8 +332,42 @@ export async function register(data, origin = '') {
     }
   }
 
-  // Hash password
+  // Hash the password BEFORE knowing whether it will be used. This is the timing half of the
+  // anti-oracle: bcrypt at cost 12 dominates the request (hundreds of ms against a couple of ms of
+  // queries), so hashing only on the create branch would let a caller read "account exists" off the
+  // clock even with the status and body made identical. Same trick, same reason, as DUMMY_HASH in
+  // login() above. Pinned by the timing test in auth-register-verification-oracle.test.js.
   const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
+
+  const { rows: existing } = await query(Q.CHECK_USERNAME_EXISTS, [data.username]);
+  const usernameTaken = existing.length > 0;
+
+  let emailTaken = false;
+  if (email) {
+    const { rows: emailRows } = await query(Q.CHECK_EMAIL_EXISTS, [email]);
+    emailTaken = emailRows.length > 0;
+  }
+
+  if (usernameTaken || emailTaken) {
+    // Nothing is created and nothing is said back. The notice goes to the mailbox instead, which
+    // is the whole point: only its owner learns that the address is registered.
+    //
+    // Best-effort, exactly like the verification e-mail below and for a sharper reason: a throw
+    // that escapes ONLY here would answer 500 for an existing account and 201 for a new one,
+    // re-opening by exception the oracle the status code just closed.
+    if (email) {
+      try {
+        await sendAccountExistsEmail({ to: email, appLink: buildAppLink(origin) });
+      } catch (err) {
+        logger.error({ err }, 'Account-exists notice failed (nothing was created)');
+      }
+    }
+    // KNOWN, DELIBERATE GAP: an e-mail-less caller (possible via the API, never via the UI form,
+    // where e-mail is required) gets a 201 and no message at all. Their signup silently did
+    // nothing. Telling them would be the username oracle again, over HTTP.
+    logger.info({ usernameTaken, emailTaken }, 'Register attempt on an existing account — nothing created');
+    return null;
+  }
 
   // Create user (role is always 'user' for self-registration; org defaults). email_verified starts
   // false; login only gates when email IS NOT NULL, so a null-email account is active immediately.

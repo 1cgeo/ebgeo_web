@@ -1,6 +1,6 @@
 # Calibração e grafo de navegação 360
 
-Escritas REST que ajustam a câmera plana e os links dirigidos entre fotos: as armadilhas ficam na coerção do Joi, na substituição total dos overrides e no fato de a ingestão de bundle apagar tudo.
+Escritas REST que ajustam a câmera plana e os links dirigidos entre fotos: as armadilhas ficam na coerção do Joi, nos três estados do override de link (definir, limpar, manter) e no fato de a ingestão de bundle apagar tudo.
 
 Superfície de rotas, schemas e shapes: `backend/src/modules/streetview360/sv360.routes.js`, `backend/src/modules/streetview360/sv360.write.schemas.js`. O lado de leitura está em [[streetview-360]].
 
@@ -22,13 +22,19 @@ Detalhe oposto ao esperado: `stripUnknown: true` é global, mas o `.unknown(fals
 
 > **Nota histórica.** guia *16-streetview-360* (absorvido) diz que a validação numérica "rejeita `NaN`/`Infinity`/string" e que `calibration_reviewed` é "booleano estrito"; `backend/src/modules/streetview360/sv360.write.schemas.js:25,31` usa `Joi.number()`/`Joi.boolean()` com `convert` no padrão, então `"45"` e `"true"` são coeridos e aceitos.
 
-## Armadilha: override é substituição total, não merge
+## Override de link tem TRÊS estados, não dois
 
-`UPDATE_TARGET_OVERRIDE` grava as três colunas em toda chamada, com `overrides.override_X ?? null` (`backend/src/modules/streetview360/sv360.write.service.js:152-158`). Um `PUT` com apenas `{"override_bearing": 90}` **zera** `override_distance` e `override_height`. O `.min(1)` do schema (`backend/src/modules/streetview360/sv360.write.schemas.js:94-100`) sugere patch parcial e é justamente o convite ao erro: envie sempre os três.
+O `PUT .../targets/:targetId/override` é patch por coluna, e cada uma das três decide sozinha:
 
-O estrago é assimétrico porque no cliente `override_bearing` é o **gatilho** de todo o caminho manual: `frontend/src/js/street_view_tool/navigation/navigator.js:391` só projeta por override se ele for não-nulo, e aí usa `override_distance ?? 5` e `override_height ?? 0` (`:394-396`). Logo, limpar só o bearing desativa em silêncio distância e altura ajustadas; limpar só a distância derruba a projeção para 5 metros default.
+- número enviado: **define**;
+- `null` explícito: **limpa**;
+- chave **ausente** do corpo: **mantém** o valor que já estava lá.
 
-> **Nota histórica.** guia *16-streetview-360* (absorvido) descreve o override como "define (número) ou limpa (`null`) ... (≥1 campo)", sugerindo que campo omitido é preservado; `backend/src/modules/streetview360/sv360.write.service.js:152-158` grava as três colunas sempre, então campo omitido vira `NULL`.
+Quem separa "ausente" de "null" é uma flag de presença por coluna (`campo !== undefined` no service, `CASE WHEN $N THEN $M ELSE coluna END` no SQL, `backend/src/modules/streetview360/sv360.write.queries.js`). É a mesma forma de `UPDATE_ATLAS`, `UPDATE_ORGANIZATION` e `UPDATE_RANK`, e ela existe porque `??`, `||` e `COALESCE` colapsam dois dos três estados (e `||` ainda comeria um `0` legítimo, que é override válido: `override_height` 0 é o solo). Provas em `backend/tests/integration/sv360-target-override-patch.repro.test.js`.
+
+Por que a distinção importa no cliente: `override_bearing` é o **gatilho** de todo o caminho manual de projeção (`frontend/src/js/street_view_tool/navigation/navigator.js`), que só projeta por override se ele for não-nulo, e então usa `override_distance ?? 5` e `override_height ?? 0`. Um `null` mandado por engano onde se queria "não mexer" desativa em silêncio distância e altura ajustadas, ou derruba a projeção para os 5 metros default.
+
+> **Nota histórica.** Até 2026-07-25 o service gravava as três colunas em toda chamada com `overrides.override_X ?? null`, e um `PUT` com apenas `{"override_bearing": 90}` **zerava** `override_distance` e `override_height`; a orientação aqui era "envie sempre os três". O `.min(1)` do schema (`backend/src/modules/streetview360/sv360.write.schemas.js`) sempre prometeu patch parcial, e agora o código cumpre a promessa, alinhando-se também ao guia *16-streetview-360* (absorvido), que já descrevia o override como "define (número) ou limpa (`null`)". Cliente que mandava os três campos por precaução continua correto (corpo completo segue valendo como substituição completa), só ficou redundante.
 
 ## Armadilha: `mesh_rotation_y` tem dois defaults incompatíveis
 

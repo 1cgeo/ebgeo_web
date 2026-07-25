@@ -556,10 +556,12 @@ describe('Users Admin API', () => {
   describe('Approval + self-guard (review fixes)', () => {
     it('admin approves a pending e-mail account via email_verified → login unblocks', async () => {
       const username = `pending_${Date.now()}`;
-      const reg = await supertest(app)
+      await supertest(app)
         .post('/api/v1/auth/register')
         .send({ username, password: 'Sup3r-Secret-Pw!', nome: 'Pending', email: `${username}@x.mil` })
         .expect(201);
+      // The register body is account-free (anti-enumeration), so read the id back.
+      const { rows: novo } = await db.query('SELECT id FROM users WHERE username = $1', [username]);
       // Pending: login blocked until verified.
       await supertest(app)
         .post('/api/v1/auth/login')
@@ -567,7 +569,7 @@ describe('Users Admin API', () => {
         .expect(401);
       // Admin approves via email_verified.
       await supertest(app)
-        .put(`/api/v1/users/${reg.body.data.id}`)
+        .put(`/api/v1/users/${novo[0].id}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ email_verified: true })
         .expect(200);

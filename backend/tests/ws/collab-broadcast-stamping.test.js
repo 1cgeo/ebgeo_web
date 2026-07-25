@@ -163,18 +163,20 @@ describe('carimbo de serverVersion / entityId na op DIFUNDIDA', () => {
       assert.equal(pull.status, 200);
       assert.equal(pull.body.data.isSnapshot, false, 'este pull é incremental, não snapshot');
 
-      // KNOWN GAP (medido aqui, 2026-07-25): o pull incremental identifica a operação
-      // pelo PK da linha em `operations` (`toFrontendOperation` devolve `id: op.id`),
-      // enquanto o broadcast ecoa o `op.id` DO CLIENTE. A mesma operação chega com dois
-      // `id` diferentes conforme o caminho — a assimetria que o fix L3 já eliminou para
-      // `entityId` e que segue de pé para `id`. Por isso o casamento abaixo é por
-      // entidade, não por id. Se alguém unificar os dois, esta asserção QUEBRA e a
-      // decisão volta à mesa (que é o ponto).
-      const doPull = pull.body.data.operations.find(
-        (o) => o.entityType === 'setting' && o.operationType === 'update'
-      );
-      assert.ok(doPull, 'a op de setting aparece no pull incremental');
-      assert.notEqual(doPull.id, settingOp.id, 'KNOWN GAP: o `id` do pull NÃO é o op.id do cliente');
+      // GAP FECHADO em 2026-07-25 (era `assert.notEqual`, deliberadamente pinado aqui
+      // para que fechá-lo quebrasse este teste): o pull incremental identificava a
+      // operação pelo PK da linha em `operations` (`toFrontendOperation` devolvia
+      // `id: op.id`) enquanto o broadcast ecoa o `op.id` DO CLIENTE, então a MESMA
+      // operação chegava ao par com dois `id` conforme o caminho — a última sobrevivente
+      // da assimetria que o fix L3 já havia eliminado para `entityId`. `toFrontendOperation`
+      // passou a devolver `op.op_id ?? op.id`, e a identidade da operação é agora ÚNICA
+      // nos dois caminhos, que é o que os dois juntadores por op.id (deduplicação inbound
+      // e o `apply.persist` do SyncLedger) precisam para casar.
+      const doPull = pull.body.data.operations.find((o) => o.id === settingOp.id);
+      assert.ok(doPull, 'a op de setting aparece no pull incremental SOB O op.id DO CLIENTE');
+      assert.equal(doPull.entityType, 'setting');
+      assert.equal(doPull.operationType, 'update');
+      assert.equal(doPull.id, msg.ops[0].id, 'broadcast e pull têm o MESMO id de operação');
       assert.equal(doPull.entityId, msg.ops[0].entityId, 'broadcast e pull têm o MESMO entityId');
       assert.equal(doPull.entityId, atlas.id);
 

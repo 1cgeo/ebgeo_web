@@ -10,14 +10,37 @@
 // 204 sozinho nao distingue "revoguei" de "nao revoguei nada".
 //
 // Aqui a assercao e contra a AUTORIDADE: a linha de refresh_tokens identificada
-// pelo sha256 do token apresentado. As tres invariantes fixadas:
+// pelo sha256 do token apresentado. As invariantes fixadas:
 //   1. logout normal marca revoked_at na linha DAQUELE token, e so nela;
 //   2. token nunca emitido e um no-op silencioso (204, zero linhas mudadas);
-//   3. o token de OUTRO usuario e revogado sem checagem de dono (caracterizacao
-//      do comportamento atual: auth.service.js:239-242 nao recebe req.user.id).
+//   3. o token de OUTRO usuario NAO e revogado (o dono vem do JWT, nao do corpo);
+//   4. logout repetido nao mexe no carimbo (revogacao idempotente);
+//   5. e a consequencia do (4): o alarme de reuso continua armado depois de
+//      quantos logouts o usuario apertar.
 //
-// Caracterizacao extra (4): logout repetido sobre um token JA revogado re-carimba
-// revoked_at, porque REVOKE_REFRESH_TOKEN nao tem `WHERE revoked_at IS NULL`.
+// ATUALIZADO em 2026-07-25. Os casos 3 e 4 nasceram como CARACTERIZACAO de dois
+// defeitos e agora afirmam o comportamento corrigido; um caso 5 novo foi somado.
+// O que mudou em REVOKE_REFRESH_TOKEN (auth.queries.js) e por que:
+//
+//   (a) `AND user_id = $2`, com o $2 vindo de req.user.id (JWT verificado), nunca
+//       do corpo. Antes a query casava so por token_hash e o service nem recebia o
+//       id do chamador: conhecer o refresh token de alguem ERA a credencial
+//       suficiente para derrubar a sessao dele. O caso 3 invertei: A apresenta o
+//       token de B, recebe 204, e a sessao de B segue viva e utilizavel.
+//
+//   (b) `AND revoked_at IS NULL`. Sem isso o segundo logout reescrevia revoked_at
+//       com NOW(). Como refresh() separa "duplicata concorrente" de "roubo" pela
+//       IDADE do carimbo (REFRESH_RACE_GRACE_MS = 10s, auth.service.js), re-carimbar
+//       mantinha o token gasto para sempre DENTRO da janela de graca, onde um replay
+//       e lido como duplicata e a deteccao de reuso nunca dispara. O caso 4 agora
+//       exige carimbo IDENTICO no segundo logout, e o caso 5 prova a consequencia
+//       que da sentido ao caso 4: apos logout repetido, um replay tardio ainda
+//       revoga a familia inteira.
+//
+// A resposta continua 204 nos tres tipos de erro (token de outro, ja revogado,
+// inexistente) — de proposito, e a justificativa esta no comentario do
+// auth.controller.js. Por isso NENHUM caso aqui distingue os casos pelo status:
+// todos distinguem pelo ESTADO DO BANCO, que e onde a diferenca existe.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -62,6 +85,22 @@ describe('Auth — logout revoga (item 156)', () => {
       [hashOf(refreshToken)]
     );
     return rows[0];
+  }
+
+  /**
+   * revoked_at COMO TEXTO (microssegundos), nao como Date.
+   *
+   * Um `new Date(...).getTime()` trunca para milissegundos, e dois logouts
+   * separados por menos de 1ms colidiriam no mesmo valor — o teste de
+   * idempotencia passaria com a query defeituosa. `::text` preserva a resolucao
+   * de microssegundo do timestamptz, que nenhum par de round-trips empata.
+   */
+  async function revokedAtText(refreshToken) {
+    const { rows } = await db.query(
+      'SELECT revoked_at::text AS ts FROM refresh_tokens WHERE token_hash = $1',
+      [hashOf(refreshToken)]
+    );
+    return rows[0]?.ts ?? null;
   }
 
   /** Quantas linhas do usuario estao revogadas agora. */
@@ -141,11 +180,12 @@ describe('Auth — logout revoga (item 156)', () => {
     );
   });
 
-  it('CARACTERIZACAO: A apresenta o refreshToken de B — o token de B e revogado, sem checagem de dono', async () => {
+  it('A apresenta o refreshToken de B: 204, mas a sessao de B NAO e tocada (dono vem do JWT)', async () => {
     const sessaoA = await login(userA);
     const sessaoB = await login(userB);
 
     const revogadasA_antes = await revokedCount(userA.id);
+    const revogadasB_antes = await revokedCount(userB.id);
 
     await supertest(app)
       .post('/api/v1/auth/logout')
@@ -153,27 +193,27 @@ describe('Auth — logout revoga (item 156)', () => {
       .send({ refreshToken: sessaoB.refreshToken })
       .expect(204);
 
-    // Comportamento ATUAL (auth.service.js:239-242 nao recebe o req.user.id):
-    // qualquer autenticado desloga a sessao de qualquer outro cujo refresh token
-    // ele conheca. Se um dia o servico passar a amarrar o token ao dono, esta
-    // assercao inverte e o comentario acima muda com ela.
+    // O 204 aqui e deliberado (nao vaza se o token existe / e de quem); a diferenca
+    // entre "revoguei" e "nao revoguei" tem que ser lida no banco, e e o que segue.
     const rB = await tokenRow(sessaoB.refreshToken);
-    assert.notEqual(rB.revoked_at, null, 'hoje o token de B e revogado por A');
-    assert.equal(rB.user_id, userB.id, 'a linha revogada e mesmo de B');
+    assert.equal(rB.revoked_at, null, 'o token de B nao pode ser revogado por A');
+    assert.equal(rB.user_id, userB.id, 'a linha inspecionada e mesmo de B');
+    assert.equal(await revokedCount(userB.id), revogadasB_antes, 'nenhuma linha de B mudou');
 
-    // E o proprio token de A segue vivo: o logout nao mexeu na sessao do chamador.
+    // E o proprio token de A segue vivo: apresentar o token de outro nao derruba
+    // a sessao de ninguem, nem a do chamador.
     const rA = await tokenRow(sessaoA.refreshToken);
     assert.equal(rA.revoked_at, null, 'a sessao de A continua viva');
     assert.equal(await revokedCount(userA.id), revogadasA_antes, 'nenhuma linha de A mudou');
 
-    // Efeito para B: perdeu a sessao sem ter pedido.
+    // Prova de ponta a ponta para B: a sessao dele continua utilizavel.
     await supertest(app)
       .post('/api/v1/auth/refresh')
       .send({ refreshToken: sessaoB.refreshToken })
-      .expect(401);
+      .expect(200);
   });
 
-  it('CARACTERIZACAO: logout repetido re-carimba revoked_at (query sem `revoked_at IS NULL`)', async () => {
+  it('logout repetido e idempotente: o segundo NAO mexe no carimbo de revoked_at', async () => {
     const { accessToken, refreshToken } = await login(userA);
 
     await supertest(app)
@@ -181,7 +221,7 @@ describe('Auth — logout revoga (item 156)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ refreshToken })
       .expect(204);
-    const primeiro = (await tokenRow(refreshToken)).revoked_at;
+    const primeiro = await revokedAtText(refreshToken);
     assert.notEqual(primeiro, null, 'primeiro logout carimbou');
 
     await supertest(app)
@@ -189,16 +229,74 @@ describe('Auth — logout revoga (item 156)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ refreshToken })
       .expect(204);
-    const segundo = (await tokenRow(refreshToken)).revoked_at;
+    const segundo = await revokedAtText(refreshToken);
 
-    // REVOKE_REFRESH_TOKEN (auth.queries.js:48-50) nao filtra por revoked_at IS
-    // NULL, entao o segundo logout move o carimbo para frente. Isso mantem o
-    // token dentro da janela de graca de rotacao (auth.service.js:175-178)
-    // indefinidamente, o que suprime a deteccao de reuso da familia.
-    assert.ok(
-      new Date(segundo).getTime() > new Date(primeiro).getTime(),
-      `revoked_at foi re-carimbado: ${primeiro} -> ${segundo}`
+    // `AND revoked_at IS NULL` na REVOKE_REFRESH_TOKEN: a linha ja revogada nao
+    // casa mais, entao o segundo logout e um no-op de banco. Igualdade EXATA, nao
+    // `>=`: um `>=` passaria tambem com a query antiga, que e precisamente o que
+    // este caso existe para reprovar.
+    assert.equal(
+      segundo,
+      primeiro,
+      `o segundo logout re-carimbou revoked_at: ${primeiro} -> ${segundo}`
     );
+  });
+
+  it('depois de logout repetido, o alarme de reuso da familia continua armado', async () => {
+    // A razao de ser da idempotencia, medida no efeito e nao na coluna. Usuario
+    // proprio para que "familia" aqui seja so estes dois tokens.
+    const dono = await createUser(db, { username: uname('fam') });
+    const sessao1 = await login(dono); // sera deslogada
+    const sessao2 = await login(dono); // fica viva: e a familia a proteger
+
+    await supertest(app)
+      .post('/api/v1/auth/logout')
+      .set('Authorization', `Bearer ${sessao1.accessToken}`)
+      .send({ refreshToken: sessao1.refreshToken })
+      .expect(204);
+
+    // Envelhece o carimbo para fora da janela de graca (10s) sem dormir 10s: a
+    // decisao de refresh() le `revoked_at`, entao recuar a coluna e a mesma entrada
+    // que o relogio daria. Mesmo recurso de auth-refresh-race.repro.test.js:137.
+    await db.query(
+      "UPDATE refresh_tokens SET revoked_at = NOW() - INTERVAL '1 hour' WHERE token_hash = $1",
+      [hashOf(sessao1.refreshToken)]
+    );
+    const envelhecido = await revokedAtText(sessao1.refreshToken);
+
+    // O gesto que desarmava o alarme: apertar "sair" de novo. Com a query antiga
+    // isto reescrevia revoked_at para NOW() e devolvia o token para dentro da
+    // janela de graca, onde o replay abaixo seria lido como duplicata concorrente.
+    await supertest(app)
+      .post('/api/v1/auth/logout')
+      .set('Authorization', `Bearer ${sessao1.accessToken}`)
+      .send({ refreshToken: sessao1.refreshToken })
+      .expect(204);
+    assert.equal(
+      await revokedAtText(sessao1.refreshToken),
+      envelhecido,
+      'o segundo logout nao pode ter rejuvenescido o carimbo'
+    );
+
+    // Replay tardio do token deslogado = evidencia de comprometimento.
+    await supertest(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: sessao1.refreshToken })
+      .expect(401);
+
+    // E o alarme e isto: a familia INTEIRA cai, inclusive a sessao viva.
+    const r2 = await tokenRow(sessao2.refreshToken);
+    assert.notEqual(r2.revoked_at, null, 'a deteccao de reuso revogou a familia toda');
+    const { rows } = await db.query(
+      'SELECT count(*)::int AS n FROM refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL',
+      [dono.id]
+    );
+    assert.equal(rows[0].n, 0, 'nenhum token vivo sobra apos a deteccao de reuso');
+
+    await supertest(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: sessao2.refreshToken })
+      .expect(401);
   });
 
   it('POST /auth/logout sem Authorization: 401 (middleware `auth` estrito da rota)', async () => {

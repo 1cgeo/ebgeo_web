@@ -129,6 +129,16 @@ describe('Auth API', () => {
   });
 
   describe('POST /auth/register — Self-registration', () => {
+    // The response body carries NO account data (same 201, same body, whether the
+    // account was created or already existed — see auth-register-verification-oracle),
+    // so what registration produced is asserted against the users table.
+    async function userByUsername(username) {
+      const { rows } = await db.query(
+        'SELECT id, username, nome, role FROM users WHERE LOWER(username) = LOWER($1)', [username]
+      );
+      return rows[0];
+    }
+
     it('registers a new user with valid data', async () => {
       const res = await supertest(app)
         .post('/api/v1/auth/register')
@@ -141,13 +151,15 @@ describe('Auth API', () => {
         })
         .expect(201);
 
-      assert.ok(res.body.data.id);
-      assert.equal(res.body.data.username, 'new_register_user');
-      assert.equal(res.body.data.nome, 'Novo Usuario Registrado');
-      assert.equal(res.body.data.role, 'user');
-      // Password should not be returned
-      assert.ok(!res.body.data.password);
-      assert.ok(!res.body.data.password_hash);
+      assert.deepEqual(res.body, { data: { success: true } });
+
+      const row = await userByUsername('new_register_user');
+      assert.ok(row.id);
+      assert.equal(row.username, 'new_register_user');
+      assert.equal(row.nome, 'Novo Usuario Registrado');
+      assert.equal(row.role, 'user');
+      // No credential material leaves the endpoint.
+      assert.ok(!JSON.stringify(res.body).includes('password'));
 
       // Verify user can login
       const loginRes = await supertest(app)
@@ -159,7 +171,7 @@ describe('Auth API', () => {
     });
 
     it('registers a user with minimal required fields', async () => {
-      const res = await supertest(app)
+      await supertest(app)
         .post('/api/v1/auth/register')
         .send({
           username: 'minimal_user',
@@ -168,12 +180,15 @@ describe('Auth API', () => {
         })
         .expect(201);
 
-      assert.ok(res.body.data.id);
-      assert.equal(res.body.data.username, 'minimal_user');
+      const row = await userByUsername('minimal_user');
+      assert.ok(row.id);
+      assert.equal(row.username, 'minimal_user');
     });
 
-    it('rejects duplicate username', async () => {
-      // First registration
+    it('a duplicate username answers the SAME 201 and creates nothing', async () => {
+      // This used to expect 409, which made /register an account-existence oracle for
+      // anyone. The refusal is real (nothing is written); it is just no longer told to
+      // the caller. Full contract in auth-register-verification-oracle.test.js.
       await supertest(app)
         .post('/api/v1/auth/register')
         .send({
@@ -183,7 +198,6 @@ describe('Auth API', () => {
         })
         .expect(201);
 
-      // Second registration with same username
       const res = await supertest(app)
         .post('/api/v1/auth/register')
         .send({
@@ -191,9 +205,21 @@ describe('Auth API', () => {
           password: 'Pass456',
           nome: 'Second User',
         })
-        .expect(409);
+        .expect(201);
 
-      assert.ok(res.body.error);
+      assert.deepEqual(res.body, { data: { success: true } });
+
+      const { rows } = await db.query(
+        'SELECT nome FROM users WHERE LOWER(username) = LOWER($1)', ['duplicate_user']
+      );
+      assert.equal(rows.length, 1, 'no second row');
+      assert.equal(rows[0].nome, 'First User', 'and the first account is untouched');
+
+      // The original password still works — the second attempt did not overwrite it.
+      await supertest(app)
+        .post('/api/v1/auth/login')
+        .send({ username: 'duplicate_user', password: 'Pass123' })
+        .expect(200);
     });
 
     it('rejects password shorter than 6 characters', async () => {
@@ -259,7 +285,7 @@ describe('Auth API', () => {
     });
 
     it('always creates user with role "user" regardless of input', async () => {
-      const res = await supertest(app)
+      await supertest(app)
         .post('/api/v1/auth/register')
         .send({
           username: 'try_admin_user',
@@ -269,7 +295,7 @@ describe('Auth API', () => {
         })
         .expect(201);
 
-      assert.equal(res.body.data.role, 'user');
+      assert.equal((await userByUsername('try_admin_user')).role, 'user');
     });
   });
 });

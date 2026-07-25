@@ -720,17 +720,25 @@ export class AccountControl {
     }
 
     /**
-     * Opens the self-registration modal. On success (the account is active immediately while the
-     * e-mail-confirmation flow is not yet enabled), returns the user to the login modal to sign in.
+     * Opens the self-registration modal.
+     *
+     * The backend answers the SAME 201 with the same body whether it created the account or found
+     * the username/e-mail already taken — POST /auth/register used to answer 409 for an existing
+     * account, which let anyone enumerate who has an account here. So this client CANNOT say "conta
+     * criada": it does not know, and must not imply it. Both outcomes end in an e-mail, and the
+     * message says exactly that. (The "Reenviar e-mail" affordance keeps working either way:
+     * /auth/resend-verification is non-leaking by the same rule.)
      * @private
      */
     _handleRegister() {
         showSignupModal({
             onSubmit: async (data) => {
                 await syncEngine.register(data);
-                // The account is created PENDING: it must confirm the e-mail before logging in.
+                // An account created here is PENDING: the e-mail must be confirmed before login.
                 const resend = await showConfirm(
-                    `Conta criada! Enviamos um link de confirmação para ${data.email}. Confirme o e-mail para poder entrar.`,
+                    `Enviamos um e-mail para ${data.email}. Se ainda não houver conta com esse endereço, ` +
+                    'ele traz o link de confirmação do cadastro; se já houver, traz as instruções para ' +
+                    'recuperar o acesso. Confira sua caixa de entrada.',
                     { confirmText: 'Reenviar e-mail', cancelText: 'Entendi' }
                 );
                 if (resend) {

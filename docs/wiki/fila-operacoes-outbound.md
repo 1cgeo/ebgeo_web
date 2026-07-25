@@ -73,7 +73,7 @@ Nenhum destes é uma operação em lote: cada item vira N ops independentes, cad
 | Reagendar (shift temporal em massa) | 1 `feature` update por feição do mapa | não desfazível; ver [[modulo-temporal]] |
 | Algoritmo de processamento (Buffer, Voronoi, Convex Hull) | 1 `layer` + 1 `feature` por resultado | |
 
-Três consequências: a compaction **não** salva lote de create (agrupa por `entityType:entityId`, e N feições novas são N entidades distintas); fan-out alto multiplica a chance de o gesto inteiro travar num lote envenenado; e a atomicidade é só local, pois o `runTransaction` garante um persist no IndexedDB, mas os pares recebem ops independentes, possivelmente entremeadas com edições de terceiros.
+Três consequências: a compaction **não** salva lote de create (agrupa por `entityType:entityId`, e N feições novas são N entidades distintas); fan-out alto multiplica a chance de o gesto encontrar uma recusa por operação (que antes travava o lote inteiro); e a atomicidade é só local, pois o `runTransaction` garante um persist no IndexedDB, mas os pares recebem ops independentes, possivelmente entremeadas com edições de terceiros.
 
 Ao desenhar uma ação de lote nova, se a operação for estrutural e rara, prefira que o resultado seja alcançável por snapshot (escrita REST estrutural com broadcast de `serverResync`, [[sintese-rest-vs-sync]]) em vez de milhares de ops.
 

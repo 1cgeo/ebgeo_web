@@ -26,6 +26,17 @@ describe('Auth — e-mail verification (F2)', () => {
     await teardownTestEnv(db);
   });
 
+  /**
+   * Reads the id of a just-registered account. POST /auth/register answers a body with
+   * no account data in it — identical whether it created the account or found one
+   * already there — so the id is fetched from the table instead of the response
+   * (see auth-register-verification-oracle.test.js).
+   */
+  async function userIdByUsername(username) {
+    const { rows } = await db.query('SELECT id FROM users WHERE LOWER(username) = LOWER($1)', [username]);
+    return rows[0]?.id;
+  }
+
   /** Reads the latest unconsumed verification token for a user id. */
   async function latestToken(userId) {
     const { rows } = await db.query(
@@ -41,12 +52,14 @@ describe('Auth — e-mail verification (F2)', () => {
     const username = `verif_${uniq()}`;
     const email = `${username}@example.mil`;
 
-    const reg = await supertest(app)
+    await supertest(app)
       .post('/api/v1/auth/register')
       .send({ username, password: PW, nome: 'Verif Tester', email })
       .expect(201);
-    const userId = reg.body.data.id;
-    assert.equal(reg.body.data.email_verified, false);
+    const userId = await userIdByUsername(username);
+    assert.ok(userId, 'the account row must exist');
+    const { rows: novo } = await db.query('SELECT email_verified FROM users WHERE id = $1', [userId]);
+    assert.equal(novo[0].email_verified, false);
 
     // Login is blocked with the specific EMAIL_NOT_VERIFIED code.
     const blocked = await supertest(app)
@@ -93,29 +106,40 @@ describe('Auth — e-mail verification (F2)', () => {
   it('verify-email rejects an EXPIRED token (400)', async () => {
     const username = `expired_${uniq()}`;
     const email = `${username}@example.mil`;
-    const reg = await supertest(app)
+    await supertest(app)
       .post('/api/v1/auth/register')
       .send({ username, password: PW, nome: 'Expired', email })
       .expect(201);
+    const userId = await userIdByUsername(username);
     // Force the token into the past.
     await db.query(
       `UPDATE email_verification_tokens SET expires_at = NOW() - INTERVAL '1 hour' WHERE user_id = $1`,
-      [reg.body.data.id]
+      [userId]
     );
-    const token = await latestToken(reg.body.data.id);
+    const token = await latestToken(userId);
     await supertest(app).post('/api/v1/auth/verify-email').send({ token }).expect(400);
   });
 
-  it('duplicate e-mail registration is rejected (409)', async () => {
+  it('duplicate e-mail registration creates nothing, and says so only by e-mail (201)', async () => {
+    // Was `.expect(409)`. A 409 here answered the question "does this address have an
+    // account?" to anyone who asked, which is the enumeration oracle the register path
+    // was rewritten to close on 2026-07-25. The refusal still happens; it is reported to
+    // the mailbox, not to the caller. Contract: auth-register-verification-oracle.test.js.
     const email = `dup_${uniq()}@example.mil`;
+    const usernameB = `dupb_${uniq()}`;
     await supertest(app)
       .post('/api/v1/auth/register')
       .send({ username: `dupa_${uniq()}`, password: PW, nome: 'Dup A', email })
       .expect(201);
-    await supertest(app)
+    const res = await supertest(app)
       .post('/api/v1/auth/register')
-      .send({ username: `dupb_${uniq()}`, password: PW, nome: 'Dup B', email })
-      .expect(409);
+      .send({ username: usernameB, password: PW, nome: 'Dup B', email })
+      .expect(201);
+
+    assert.deepEqual(res.body, { data: { success: true } });
+    assert.equal(await userIdByUsername(usernameB), undefined, 'the second account is NOT created');
+    const { rows } = await db.query('SELECT COUNT(*)::int AS n FROM users WHERE LOWER(email) = LOWER($1)', [email]);
+    assert.equal(rows[0].n, 1, 'the address still belongs to exactly one account');
   });
 
   it('resend-verification always succeeds and never leaks account existence', async () => {
@@ -128,15 +152,16 @@ describe('Auth — e-mail verification (F2)', () => {
     // Real, unverified account → 200 and a fresh token is issued.
     const username = `resend_${uniq()}`;
     const email = `${username}@example.mil`;
-    const reg = await supertest(app)
+    await supertest(app)
       .post('/api/v1/auth/register')
       .send({ username, password: PW, nome: 'Resend', email })
       .expect(201);
-    const before = await latestToken(reg.body.data.id);
+    const userId = await userIdByUsername(username);
+    const before = await latestToken(userId);
     await supertest(app).post('/api/v1/auth/resend-verification').send({ email }).expect(200);
     const { rows } = await db.query(
       'SELECT COUNT(*)::int AS n FROM email_verification_tokens WHERE user_id = $1',
-      [reg.body.data.id]
+      [userId]
     );
     assert.ok(rows[0].n >= 2, 'resend issues an additional token');
     assert.ok(before, 'the original token existed');

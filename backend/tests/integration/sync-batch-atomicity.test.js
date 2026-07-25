@@ -2,7 +2,16 @@
 // One push = one transaction. The frontend sends destructive BATCH operations as a
 // single operations[] push: mass reschedule (§29.12), delete-all-features-of-a-
 // tileset/photo (§2.19/§2.23) and delete-attribute-column (§18.6) are thus atomic —
-// if any op in the batch fails, the ENTIRE batch rolls back (all-or-nothing).
+// if an op in the batch FAILS, the ENTIRE batch rolls back (all-or-nothing).
+//
+// UM RECORTE, desde 2026-07-25: cada op corre num SAVEPOINT próprio, e uma violação de
+// DADO (SQLSTATE classe 22/23 — CHECK, FK, 22P02) reverte só a op ofensora, que volta
+// recusada por operação (`rejected` + `reason`, 200 no lote). O motivo é vivacidade: o
+// mesmo payload falha para sempre, o cliente não faz dequeue de não-2xx, e o lote
+// inteiro voltava a cada 1,5 s — sync parado em silêncio (sync-check-constraint-poison).
+// Tudo o mais — o 403 de política deste arquivo, 40001, 55P03, queda de conexão, bug de
+// JS — continua abortando o push inteiro, porque pode dar certo na retentativa e
+// descartar op boa é perda de dado irreversível.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';

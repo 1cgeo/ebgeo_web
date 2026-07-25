@@ -38,9 +38,15 @@ const SO_UM_PACOTE_DE_PROPOSITO = new Map([
     ['build', 'só o frontend compila; o backend roda do fonte'],
     ['deploy', 'publica o dist do frontend (symlink swap)'],
     ['test:watch', 'watch é do Vitest; o runner do backend não tem modo watch'],
-    ['test:e2e', 'Playwright vive no frontend, e ele sobe o backend REAL por conta própria'],
-    ['test:e2e:ui', 'idem'],
-    ['test:e2e:mega', 'idem'],
+    // `test:e2e` mora no frontend mas exercita o BACKEND real (vitest full-chain, ~35 s,
+    // sem browser). Está no encadeamento do `test` da raiz de propósito, desde 2026-07-25:
+    // a constituição chama o E2E de "o guarda da fronteira entre os dois pacotes", e ele
+    // ficou VERMELHO por um dia sem ninguém notar, porque não era rodado por comando nenhum
+    // do Definition of Done. Guarda fora do comando que se manda rodar é guarda desligado.
+    ['test:e2e', 'vive no frontend e sobe o backend REAL; entra no encadeamento do `test` da raiz'],
+    // Estes dois SÃO Playwright (browser), caros demais para o loop; ficam manuais.
+    ['test:e2e:ui', 'Playwright com browser, caro demais para o encadeamento do DoD'],
+    ['test:e2e:mega', 'idem, e roda headed'],
     ['knip', 'dead-code do frontend; o backend não tem configuração de knip'],
     ['clean', 'limpa artefatos de build, que só o frontend produz'],
 ]);

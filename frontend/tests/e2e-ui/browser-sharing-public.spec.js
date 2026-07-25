@@ -47,8 +47,11 @@ describeOrSkip('Sharing + public link access control (real Chromium + real backe
                 const newClient = async (nome) => {
                     const api = new ApiClient({ baseUrl: apiBase });
                     const username = mkUser();
-                    const user = await api.register({ username, password, nome });
-                    await api.login(username, password);
+                    // register() returns no account data on purpose (anti-enumeration:
+                    // same answer whether it created the account or found one), so the
+                    // user record comes from the login.
+                    await api.register({ username, password, nome });
+                    const user = await api.login(username, password);
                     return { api, user };
                 };
 

@@ -97,7 +97,7 @@ describe('Auth Edge Cases', () => {
 
   describe('Register with is_active:false in payload', () => {
     it('user is still created active even if is_active:false is sent', async () => {
-      const res = await supertest(app)
+      await supertest(app)
         .post('/api/v1/auth/register')
         .send({
           username: 'force_active_user',
@@ -107,7 +107,12 @@ describe('Auth Edge Cases', () => {
         })
         .expect(201);
 
-      assert.ok(res.body.data.id);
+      // The 201 body carries no account data (anti-enumeration: it is byte-identical
+      // whether the account was created or already existed), so the row is the proof.
+      const { rows } = await db.query(
+        'SELECT id FROM users WHERE username = $1', ['force_active_user']
+      );
+      assert.ok(rows[0]?.id);
 
       // Verify user can login (proving is_active is true)
       const loginRes = await supertest(app)

@@ -45,8 +45,31 @@ export const FIND_REFRESH_TOKEN_ANY = `
   WHERE token_hash = $1
 `;
 
+// Logout revokes exactly ONE session: the row whose hash matches, whose owner is the
+// authenticated caller, and only while that row is still live. Both extra predicates
+// fix a defect; neither is decoration.
+//
+// `user_id = $2` — the query used to match on `token_hash` alone and the service never
+// received a user id, so the ONLY credential needed to end someone else's session was
+// knowledge of their refresh token: any authenticated caller could replay a captured
+// token and log its owner out. The owner now comes from the verified JWT
+// (`req.user.id`), never from the request body, so the body cannot name its own owner.
+//
+// `revoked_at IS NULL` — makes revocation IDEMPOTENT, which is a security property
+// here, not tidiness. `refresh()` decides "concurrent duplicate" vs "stolen token" by
+// how long ago `revoked_at` was stamped (REFRESH_RACE_GRACE_MS, auth.service.js).
+// Without this predicate every repeated logout moved the stamp to NOW(), so a user
+// pressing "sair" again kept a spent token permanently INSIDE the grace window, where
+// a replay reads as an ordinary duplicate and reuse detection never fires. That is the
+// theft alarm being disarmed by a button the victim presses themselves.
+//
+// RETURNING so the service can distinguish "revoked a live session" from "matched
+// nothing" (someone else's token, an already-revoked one, or one never issued).
 export const REVOKE_REFRESH_TOKEN = `
-  UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1
+  UPDATE refresh_tokens
+  SET revoked_at = NOW()
+  WHERE token_hash = $1 AND user_id = $2 AND revoked_at IS NULL
+  RETURNING id
 `;
 
 // Atomic claim for rotation, same shape as CLAIM_VERIFICATION_TOKEN below and for

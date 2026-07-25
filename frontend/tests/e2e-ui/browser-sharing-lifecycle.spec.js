@@ -51,8 +51,11 @@ describeOrSkip('User-share lifecycle: read → upgrade → revoke (real Chromium
                 const newClient = async (prefix, nome) => {
                     const api = new ApiClient({ baseUrl: apiBase });
                     const username = mkUser(prefix);
-                    const user = await api.register({ username, password, nome });
-                    await api.login(username, password);
+                    // register() returns no account data on purpose (anti-enumeration:
+                    // same answer whether it created the account or found one), so the
+                    // user record comes from the login.
+                    await api.register({ username, password, nome });
+                    const user = await api.login(username, password);
                     return { api, user };
                 };
 

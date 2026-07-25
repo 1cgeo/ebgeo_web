@@ -6,13 +6,18 @@
  * An owner creates an atlas + map and grants a SECOND user `write` access via
  * `POST /atlas/:id/sharing/users`. We then drive the real backend through the
  * public ApiClient + createOperation and assert observable state:
- *  - a write-share user pushing a `map` update `{ locked: true }` is rejected
- *    with 403 (ApiError) — lock/unlock is reserved for the atlas owner;
- *  - because the push is a single atomic tx, the map stays `locked === false`
- *    in the snapshot (the forbidden op had no effect);
+ *  - a write-share user pushing a `map` update `{ locked: true }` is REFUSED —
+ *    lock/unlock stays reserved for the atlas owner (strict equality, not the
+ *    hierarchy: it is a coordination override, not a management action);
+ *  - the refusal is PER-OPERATION, not a thrown 403: since `aec63f8`
+ *    (2026-07-24) a policy denial answers HTTP 200 with
+ *    `results[i] = { success: false, rejected: true, reason }`, so one refused op
+ *    no longer discards its batch siblings nor freezes the client's outbound
+ *    queue (the client only dequeues on 2xx);
+ *  - the refused op still has NO effect: the map stays `locked === false`;
  *  - the OWNER can set `locked: true`, and the snapshot then reflects it;
  *  - negative/edge control: the write-share user CAN still push a non-lock map
- *    update (e.g. `name`), proving the 403 is specific to the lock field and
+ *    update (e.g. `name`), proving the refusal is specific to the lock field and
  *    not a blanket write denial.
  *
  * No direct DB access — all assertions read the backend snapshot via pullSync.
@@ -27,7 +32,6 @@ import {
     createMap,
     E2E_SKIP,
 } from './helpers/harness.js';
-import { ApiError } from '../../src/js/store/sync/api-client.js';
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
 
 /**
@@ -80,30 +84,38 @@ describe.skipIf(E2E_SKIP)('e2e: authz — map lock is owner-only (§1.5)', () =>
         expect(map.locked).toBe(false);
     }, 30000);
 
-    it('rejects a write-share user setting locked:true with 403 (ApiError)', async () => {
-        const op = createOperation('map', 'update', mapId, null, { locked: true });
+    it('refuses a write-share user setting locked:true per-op (200 + rejected), sibling op still applies', async () => {
+        const lockOp = createOperation('map', 'update', mapId, null, { locked: true });
+        // Sibling in the SAME batch: an ordinary field a writer may change. It is
+        // the control for "one refused op does not poison the batch".
+        const siblingOp = createOperation('map', 'update', mapId, null, { name: 'Sibling Applied' });
 
-        let thrown;
-        try {
-            await writerApi.pushOperations(atlas.id, [op]);
-        } catch (err) {
-            thrown = err;
-        }
+        // No throw: a policy refusal resolves 200 so the client can dequeue it.
+        const res = await writerApi.pushOperations(atlas.id, [lockOp, siblingOp]);
 
-        expect(thrown).toBeInstanceOf(ApiError);
-        expect(thrown.status).toBe(403);
+        expect(res.results).toHaveLength(2);
+        expect(res.results[0].success).toBe(false);
+        expect(res.results[0].rejected).toBe(true);
+        expect(res.results[0].reason).toMatch(/dono do atlas/i);
+        expect(res.results[1].success).toBe(true);
+        expect(res.results[1].rejected).toBeUndefined();
+
+        // The sibling landed; the refused lock did not.
+        const map = await fetchMap(writerApi, atlas.id, mapId);
+        expect(map.name).toBe('Sibling Applied');
+        expect(map.locked).toBe(false);
     });
 
-    it('leaves the map unlocked in the snapshot after the forbidden push', async () => {
-        // The rejected op ran in a single atomic tx, so it had no effect.
+    it('leaves the map unlocked in the snapshot after the refused push', async () => {
+        // The refused op ran in its own savepoint and touched nothing.
         const map = await fetchMap(writerApi, atlas.id, mapId);
         expect(map).toBeTruthy();
         expect(map.locked).toBe(false);
     });
 
     it('still lets the write-share user push a non-lock map update (name)', async () => {
-        // Edge control: the 403 is specific to the `locked` field, not a blanket
-        // write denial — a sibling field like `name` is accepted for a writer.
+        // Edge control: the refusal is specific to the `locked` field, not a
+        // blanket write denial — a field like `name` is accepted for a writer.
         const newName = 'Renamed By Writer';
         const op = createOperation('map', 'update', mapId, null, { name: newName });
 

@@ -48,7 +48,10 @@ describeOrSkip('Map lock authorization (two real browser clients + real backend)
             const { ApiClient } = await import('/src/js/store/sync/api-client.js');
             const api = new ApiClient({ baseUrl: `${baseUrl}/api/v1` });
             const username = `lz_user2_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
-            const created = await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Lock User2' });
+            // register() answers no account data (identical response whether it created
+            // the account or found one), so the id comes from the login that follows.
+            await api.register({ username, password: 'Sup3r-Secret-Pw!', nome: 'Lock User2' });
+            const created = await api.login(username, 'Sup3r-Secret-Pw!');
             return { username, userId: created.id };
         }, state.baseUrl);
         expect(typeof user2.userId).toBe('string');

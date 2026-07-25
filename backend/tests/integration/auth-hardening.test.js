@@ -116,10 +116,14 @@ describe('Auth hardening', () => {
   });
 
   it('keeps self-registration enabled in the test environment', async () => {
-    const res = await supertest(app)
+    const username = `selfreg_${user.id.slice(0, 8)}`;
+    await supertest(app)
       .post('/api/v1/auth/register')
-      .send({ username: `selfreg_${user.id.slice(0, 8)}`, password: 'Test@1234', nome: 'Self Reg' })
+      .send({ username, password: 'Test@1234', nome: 'Self Reg' })
       .expect(201);
-    assert.ok(res.body.data.id);
+    // The 201 body is account-free by design (it must not distinguish "created" from
+    // "already existed"), so the row is what proves the route is mounted and working.
+    const { rows } = await db.query('SELECT id FROM users WHERE username = $1', [username]);
+    assert.ok(rows[0]?.id);
   });
 });

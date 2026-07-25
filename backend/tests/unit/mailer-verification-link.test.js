@@ -36,8 +36,8 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  resolveVerificationBase, buildVerificationLink, sendVerificationEmail,
-  _resetTransportForTests,
+  resolveVerificationBase, buildVerificationLink, buildAppLink, sendVerificationEmail,
+  sendAccountExistsEmail, _resetTransportForTests,
 } from '../../src/utils/mailer.js';
 import logger from '../../src/utils/logger.js';
 
@@ -104,6 +104,96 @@ describe('buildVerificationLink', () => {
   it('never points at a host supplied by the caller', () => {
     const link = buildVerificationLink('tok-123', EVIL);
     assert.ok(!link.includes('evil.example'), `client header steered the link: ${link}`);
+  });
+});
+
+// ============================================================================
+// The account-exists notice — where the enumeration answer went (2026-07-25)
+// ============================================================================
+// POST /auth/register answered 409 for a taken e-mail and 201 otherwise, so anyone
+// could enumerate accounts one request at a time. It now answers 201 either way and
+// tells the MAILBOX instead. That only holds if this message behaves like the other
+// one in every observable respect: same containment of failures (a throw only on the
+// "exists" branch would be a 500-shaped oracle) and no credential in it.
+
+describe('buildAppLink — the token-free link in the account-exists notice', () => {
+  it('follows the same trust rules as the verification link', () => {
+    assert.equal(buildAppLink(EVIL), '', 'a client header must not steer the link');
+  });
+
+  it('returns empty rather than a bare relative slash when no base is trustworthy', () => {
+    // '/' alone in an e-mail body is noise, not a link — the caller drops the sentence.
+    assert.equal(buildAppLink(''), '');
+  });
+});
+
+describe('account-exists notice', () => {
+  let cap;
+
+  beforeEach(() => { cap = captureLogs(); _resetTransportForTests(); });
+  afterEach(() => { cap.restore(); _resetTransportForTests(); });
+
+  it('does not name the registrant, whose name is attacker-controlled here', async () => {
+    // On this branch the payload was typed by whoever attempted the signup, and the
+    // message goes to SOMEBODY ELSE'S mailbox. Echoing their `nome` would let anyone
+    // mail arbitrary text to any address from the real MAIL_FROM.
+    const { default: nodemailer } = await import('nodemailer');
+    const transport = nodemailer.createTransport({ jsonTransport: true });
+
+    const result = await sendAccountExistsEmail(
+      { to: 'dono@exemplo.mil.br', appLink: `${APP_BASE}/` },
+      { exposeLink: false, transport }
+    );
+
+    const msg = JSON.parse(result.info.message);
+    assert.equal(msg.to[0].address, 'dono@exemplo.mil.br');
+    assert.ok(msg.subject && msg.subject.length > 0, 'has a subject');
+    assert.ok(msg.text.includes(`${APP_BASE}/`), 'carries the app link');
+    assert.ok(!msg.text.includes('verify='), 'and carries no verification token');
+  });
+
+  it('says the same thing whether the e-mail or the username was the collision', async () => {
+    // Two wordings would hand the oracle back through the mail channel: authLimiter
+    // keys on `${ip}:${username}`, so a fresh username per probe is never throttled and
+    // an attacker mailing their own address could enumerate usernames for free.
+    const { default: nodemailer } = await import('nodemailer');
+    const transport = nodemailer.createTransport({ jsonTransport: true });
+    const enviar = (to) => sendAccountExistsEmail({ to, appLink: `${APP_BASE}/` }, { transport });
+
+    const a = JSON.parse((await enviar('um@exemplo.mil.br')).info.message);
+    const b = JSON.parse((await enviar('outro@exemplo.mil.br')).info.message);
+
+    assert.equal(a.subject, b.subject);
+    assert.equal(a.text, b.text, 'the body carries no case-specific detail at all');
+  });
+
+  it('a delivery failure is contained, never thrown', async () => {
+    // register() sends this INSIDE the "already exists" branch. An escaping throw would
+    // answer 500 for an existing account and 201 for a new one — the sharpest form of
+    // the oracle the 201 was introduced to close.
+    const { default: nodemailer } = await import('nodemailer');
+    const transport = nodemailer.createTransport({
+      host: '127.0.0.1', port: 1,
+      connectionTimeout: 200, greetingTimeout: 200, socketTimeout: 200,
+    });
+
+    let threw = null;
+    let result;
+    try {
+      result = await sendAccountExistsEmail({ to: 'dono@exemplo.mil.br' }, { transport });
+    } catch (err) {
+      threw = err;
+    }
+
+    assert.equal(threw, null, 'a broken SMTP server must not surface as an exception');
+    assert.equal(result.sent, false);
+    assert.ok(cap.entries.some((e) => e.lvl === 'error'), 'and it is reported, not swallowed');
+  });
+
+  it('with no SMTP it degrades to a log line, like every other message here', async () => {
+    const res = await sendAccountExistsEmail({ to: 'dev@exemplo.mil.br' }, { exposeLink: true });
+    assert.equal(res.sent, false);
+    assert.ok(cap.text().includes('dev@exemplo.mil.br'), 'the event is auditable');
   });
 });
 

@@ -73,6 +73,21 @@ export function buildVerificationLink(token, origin = '') {
   return `${base}/?verify=${encodeURIComponent(token)}`;
 }
 
+/**
+ * Builds a link to the app root for messages that carry no token.
+ * Same trust rules as `buildVerificationLink`; returns '' when no base is trustworthy,
+ * because a relative '/' in an e-mail body is noise, not a link.
+ * @param {string} [origin] - Client-supplied origin; honoured only if trusted.
+ * @returns {string}
+ */
+export function buildAppLink(origin = '') {
+  const base = resolveVerificationBase(origin, {
+    appBaseUrl: config.mail.appBaseUrl,
+    allowedOrigin: config.cors.origin,
+  });
+  return base ? `${base}/` : '';
+}
+
 // Memoized so a burst of signups reuses one connection pool instead of building a
 // transport per message. Reset by `_resetTransportForTests`.
 let transportPromise = null;
@@ -106,6 +121,64 @@ async function getTransport() {
 /** Test seam: drops the memoized transport. */
 export function _resetTransportForTests() {
   transportPromise = null;
+}
+
+/**
+ * Sends (or logs) one transactional message, containing every failure mode in one place.
+ *
+ * Shared by the two account e-mails because they must be indistinguishable in EVERY
+ * respect that a caller can observe: `register` answers 201 whether it created an
+ * account or found one, so a difference in throw/timing/return shape between the two
+ * messages would put the enumeration oracle back on the wire behind the status code.
+ *
+ * @param {{ to: string, subject: string, text: string, detail: Object, label: string,
+ *   devChannel: boolean }} message - `detail` is what may be logged (see the note on
+ *   credentials in `sendVerificationEmail`); `devChannel` says whether a no-send is an
+ *   informational dev event or a production misconfiguration.
+ * @param {Object|null} injectedTransport - Test seam (see `sendVerificationEmail`).
+ * @returns {Promise<{ sent: boolean, info?: Object, error?: Error }>}
+ */
+async function deliver({ to, subject, text, detail, label, devChannel }, injectedTransport = null) {
+  if (!injectedTransport && !isSmtpConfigured()) {
+    if (devChannel) {
+      logger.info(detail, `[mailer] SMTP not configured — ${label} (no e-mail sent)`);
+    } else {
+      // In production this is a misconfiguration, not an informational event: nobody
+      // can activate an account and there is now no link in the log to fall back on.
+      logger.error(detail, `[mailer] SMTP not configured — ${label} NOT sent`);
+    }
+    return { sent: false };
+  }
+
+  const transport = injectedTransport || await getTransport();
+  if (!transport) {
+    logger.error(detail, `[mailer] SMTP configured but no transport available — ${label} NOT sent`);
+    return { sent: false };
+  }
+
+  // A send failure must NOT propagate. Three callers depend on that:
+  //
+  //  - `register` already wraps this in try/catch, but relying on every future caller
+  //    to remember is how the next gap gets made.
+  //  - `resendVerification` does NOT wrap it, and a throw there would turn the
+  //    endpoint into an existence oracle: an unknown address always answers 200 (no
+  //    send is attempted), while a KNOWN address whose send fails would answer 500.
+  //  - the account-exists notice below is sent ONLY on the "already registered" branch
+  //    of register. A throw escaping there would be the sharpest oracle of the lot:
+  //    500 for an existing account, 201 for a new one.
+  //
+  // This could not happen while the dependency was missing, because sendMail was
+  // never reached. Enabling a dormant path is what put weight on it.
+  let info;
+  try {
+    info = await transport.sendMail({ from: config.mail.from, to, subject, text });
+  } catch (err) {
+    logger.error({ err, to }, `[mailer] SMTP delivery failed (${label}) — user can request a resend`);
+    return { sent: false, error: err };
+  }
+
+  logger.info({ to }, `[mailer] ${label} sent`);
+  return { sent: true, info };
 }
 
 /**
@@ -145,43 +218,58 @@ export async function sendVerificationEmail(
   // config cannot be swapped in a test.
   const detail = exposeLink ? { to, link } : { to };
 
-  if (!injectedTransport && !isSmtpConfigured()) {
-    if (exposeLink) {
-      logger.info(detail, '[mailer] SMTP not configured — verification link (no e-mail sent)');
-    } else {
-      // In production this is a misconfiguration, not an informational event: nobody
-      // can activate an account and there is now no link in the log to fall back on.
-      logger.error(detail, '[mailer] SMTP not configured — verification e-mail NOT sent');
-    }
-    return { sent: false };
-  }
+  return deliver(
+    { to, subject, text, detail, label: 'verification e-mail', devChannel: exposeLink },
+    injectedTransport
+  );
+}
 
-  const transport = injectedTransport || await getTransport();
-  if (!transport) {
-    logger.error(detail, '[mailer] SMTP configured but no transport available — e-mail NOT sent');
-    return { sent: false };
-  }
+/**
+ * Sends (or logs) the notice that answers a signup attempt on an address (or username)
+ * that is already taken. It replaces the 409 that `register` used to answer, which was
+ * a plain e-mail-enumeration oracle: the fact that the account exists now travels ONLY
+ * to the mailbox that owns the address, never back over HTTP.
+ *
+ * ONE message covers both collisions (e-mail already registered, username already
+ * taken) on purpose. Two wordings would hand the oracle straight back through the mail
+ * channel: `authLimiter` keys on `${ip}:${username}`, so probing a fresh username per
+ * request never touches the same bucket, and an attacker mailing their OWN address
+ * could enumerate usernames unthrottled. The wording is true in both cases and says
+ * what to do in both.
+ *
+ * The registrant's `nome` is deliberately NOT used: on this branch it is
+ * attacker-controlled text addressed to somebody else's mailbox. The account's real
+ * name is not read either, because it is not needed to act on the message.
+ *
+ * @param {{ to: string, appLink?: string }} params - `appLink` is the trusted app base
+ *   (see `resolveVerificationBase`); omitted when no base is trustworthy.
+ * @param {{ exposeLink?: boolean, transport?: Object|null }} [options]
+ * @returns {Promise<{ sent: boolean }>} sent=false when it was logged instead of mailed.
+ */
+export async function sendAccountExistsEmail(
+  { to, appLink = '' },
+  { exposeLink = !config.isProd, transport: injectedTransport = null } = {}
+) {
+  const subject = 'EBGeo — cadastro não concluído';
+  const acesso = appLink ? ` Acesse o EBGeo em ${appLink}` : ' Acesse o EBGeo';
+  const text =
+    'Olá,\n\n' +
+    'Recebemos um pedido de cadastro no EBGeo com este endereço de e-mail, mas ele não foi ' +
+    'concluído: já existe uma conta com este e-mail, ou o nome de usuário escolhido já está em uso. ' +
+    'Nenhuma conta nova foi criada.\n\n' +
+    'O que fazer:\n' +
+    `- Se a conta já é sua, não faça um novo cadastro.${acesso} e entre com o seu usuário.\n` +
+    '- Se você ainda não confirmou o e-mail, use a opção de reenviar a confirmação na tela de cadastro.\n' +
+    '- Se esqueceu a senha, peça a redefinição ao administrador do EBGeo. Não há redefinição ' +
+    'automática por e-mail.\n' +
+    '- Se o problema for o nome de usuário, repita o cadastro escolhendo outro nome.\n\n' +
+    'Se não foi você quem pediu, ignore esta mensagem. Nada mudou na sua conta.';
 
-  // A send failure must NOT propagate. Two callers depend on that:
-  //
-  //  - `register` already wraps this in try/catch, but relying on every future caller
-  //    to remember is how the next gap gets made.
-  //  - `resendVerification` does NOT wrap it, and a throw there would turn the
-  //    endpoint into an existence oracle: an unknown address always answers 200 (no
-  //    send is attempted), while a KNOWN address whose send fails would answer 500.
-  //    The whole route is written to avoid exactly that leak — `register` uses one
-  //    generic conflict message so it cannot be used to probe for accounts.
-  //
-  // This could not happen while the dependency was missing, because sendMail was
-  // never reached. Enabling a dormant path is what put weight on it.
-  let info;
-  try {
-    info = await transport.sendMail({ from: config.mail.from, to, subject, text });
-  } catch (err) {
-    logger.error({ err, to }, '[mailer] SMTP delivery failed — user can request a resend');
-    return { sent: false, error: err };
-  }
-
-  logger.info({ to }, '[mailer] verification e-mail sent');
-  return { sent: true, info };
+  // No credential in this message (the app link is public), so `detail` is the same in
+  // every environment — the `exposeLink` asymmetry only governs the log LEVEL of a
+  // no-send, which in production is still a misconfiguration worth shouting about.
+  return deliver(
+    { to, subject, text, detail: { to }, label: 'account-exists notice', devChannel: exposeLink },
+    injectedTransport
+  );
 }

@@ -18,7 +18,7 @@ Não invente um terceiro vocabulário nem traduza um no outro fora de `toFronten
 
 Quatro camadas independentes, nenhuma substitui a outra:
 
-1. **Rota / handshake** (`backend/src/middleware/permissions.js:57-132`, `backend/src/modules/collab/collab.gateway.js:52-107`). Cascata dono → share → público → 403.
+1. **Rota / handshake** (`backend/src/middleware/permissions.js:57-132`, `backend/src/modules/collab/collab.gateway.js:52-107`). Cascata dono → share → público → **404** (nada resolveu, ou seja, nenhuma relação com o atlas). O **403** fica um degrau adiante, para quem resolveu algum nível e ele é insuficiente. Detalhe da escada em [[sintese-contrato-erros-http]].
 2. **Handler grosso** (`backend/src/modules/collab/collab.handlers.js:83-85`, `:115-121`). `read` não escreve; `read` **e** `comment` não emitem seleção.
 3. **Checagem fina por op** (`assertOperationAllowed` e `operationDenialReason`, `backend/src/modules/sync/sync.service.js`), dentro do loop de push, valendo igual para WS e REST. As duas não falham igual, e a separação é deliberada: violação de tier lança e derruba o lote (o principal inteiro é suspeito), enquanto negativa de política devolve motivo e deixa o lote seguir, porque lançar ali rolava a transação inteira e um único delete recusado congelava o sync daquele cliente para sempre.
 4. **Guard de papel no cliente** (`frontend/src/js/store/sync/permission-guard.js`). Puramente UX.

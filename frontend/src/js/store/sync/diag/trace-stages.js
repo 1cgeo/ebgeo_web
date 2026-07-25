@@ -56,6 +56,8 @@ export const DropReason = Object.freeze({
     NON_UUID_MAPID: 'non_uuid_mapId',
     NON_UUID_SETTING_ID: 'non_uuid_setting_id',
     BATCH_FILTERED: 'batch_filtered',
+    /** Op descartada da fila porque o servidor a recusou de forma permanente (4xx determinístico). */
+    SERVER_REJECTED: 'server_rejected',
     ECHO_SELF: 'echo_self',
     OFFLINE: 'offline',
     PARSE_ERROR: 'parse_error',

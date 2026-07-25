@@ -320,8 +320,13 @@ export class ApiClient {
 
     /**
      * Registers a new user (self-registration; gated server-side).
+     *
+     * Resolving does NOT mean an account was created: the endpoint answers the same 201 and the
+     * same `{ success: true }` whether it created one or found the username/e-mail already taken,
+     * so that it cannot be used to enumerate accounts. Whichever happened is told by e-mail. Do not
+     * reintroduce a caller that reports "conta criada" on resolve.
      * @param {{ username: string, password: string, nome: string, [k: string]: * }} payload
-     * @returns {Promise<Object>} The created user.
+     * @returns {Promise<{ success: true }>} No account data, by design.
      */
     async register(payload) {
         return this._request('POST', '/auth/register', { body: payload, auth: false });

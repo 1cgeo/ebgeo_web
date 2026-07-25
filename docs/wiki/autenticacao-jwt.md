@@ -48,7 +48,7 @@ Vários caminhos parecem descuidados e são deliberados. Não os "conserte" adic
 
 - bcrypt **sempre** executa no login, contra o hash real ou contra `DUMMY_HASH` (`backend/src/modules/auth/auth.service.js`), removendo o oráculo de timing;
 - usuário inexistente e senha errada devolvem `401` com a **mesma** mensagem;
-- conflito de username e conflito de e-mail no registro devolvem a **mesma** mensagem genérica (`register`, `backend/src/modules/auth/auth.service.js`). Cuidado com o alcance dessa: ela esconde **qual** campo colidiu, não **se** o e-mail existe, porque o status separa os casos (`409` contra `201`). O comentário do código promete mais do que entrega; ver [[gestao-usuarios]];
+- `POST /auth/register` responde **201 com o mesmo corpo** (`{ success: true }`) tenha criado a conta ou encontrado username/e-mail já em uso (`register`, `backend/src/modules/auth/auth.service.js`). Três peças sustentam isso e caem juntas: o status, o corpo (a conta criada **não** é devolvida) e o **tempo** (o `bcrypt` de custo 12 roda antes de saber se será usado, como o `DUMMY_HASH` do login). Quem precisa saber que a conta já existe é avisado **por e-mail** (`sendAccountExistsEmail`), nunca pela resposta. Até 2026-07-25 a rota respondia `409` para conta existente, e o comentário do código afirmava a propriedade que o status desmentia; ver [[gestao-usuarios]];
 - `resend-verification` sempre resolve com sucesso, exista o e-mail ou não;
 - `POST /auth/register` só é **montada** quando `ALLOW_SELF_REGISTRATION` está ligada (`backend/src/modules/auth/auth.routes.js`); desligada, cai no `404` genérico, sem vazar que o endpoint existe. Não assuma que a rota existe.
 
@@ -71,6 +71,10 @@ O token do link é **credencial de fator único**: `verifyEmail` o consome e mar
 ## Logout não faz o que o nome sugere
 
 `POST /auth/logout` revoga **apenas aquele** refresh token e devolve `204`. Não encerra o socket de colaboração e não invalida o access token: fechar o socket e desmontar a presença é responsabilidade do cliente ([[presenca-colaborativa]]).
+
+**O `204` é a resposta de todos os desfechos, inclusive os que não revogaram nada**, e isso é decisão, não descuido. Os três erros possíveis (token de outro usuário, token já revogado, token que nunca existiu) são exatamente os fatos que um atacante quer descobrir, e `/auth/logout` não tem limitador nem consome o token que recebe, então um `403`/`404` seria um oráculo ilimitado e não destrutivo de "este refresh token está vivo, e é meu?". A diferença existe no banco e é lá que os testes a afirmam (`backend/tests/integration/auth-logout-revocation.test.js`), nunca pelo status.
+
+Duas condições que a query carrega e o nome não denuncia (`REVOKE_REFRESH_TOKEN`, `backend/src/modules/auth/auth.queries.js`): o dono sai do JWT verificado, **não** do corpo, porque até 2026-07-25 casava só pelo hash e conhecer o refresh token de alguém era credencial suficiente para derrubar a sessão dele; e a revogação é **idempotente**, porque re-carimbar `revoked_at` mantinha o token gasto para sempre dentro da janela de graça de 10s da rotação, onde replay é lido como duplicata e o alarme de reuso nunca dispara ([[refresh-token-rotacao]]). O segundo é o mais traiçoeiro: o alarme de roubo desarmado por um botão que a própria vítima aperta.
 
 Revogação em massa dos refresh tokens acontece só em: detecção de reuso, troca da própria senha, reset por admin e desativação do usuário ([[gestao-usuarios]]).
 

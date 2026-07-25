@@ -145,15 +145,27 @@ describe.skipIf(E2E_SKIP)('e2e: feature-types-all', () => {
             }
         }
 
-        // An unknown/unsupported feature type is rejected by the server's CHECK
-        // constraint (HTTP 400) — the row is never inserted, so it can never leak
-        // into any bucket. The contract is a hard reject, not a silent bucket-drop.
+        // An unknown/unsupported feature type still violates the server's CHECK
+        // constraint, and the row is never inserted, so it can never leak into any
+        // bucket. What changed (2026-07-24) is the refusal SHAPE: a data violation
+        // (SQLSTATE class 22/23) is now per-operation — HTTP 200 with
+        // `rejected: true` and a generic pt-BR reason that never echoes the driver
+        // text — instead of aborting the whole batch with 400. The contract is
+        // still a hard reject, not a silent bucket-drop.
+        // This op travels ALONE, so what it pins is only "the invalid op writes
+        // nothing"; the sibling-survives half is pinned in
+        // military-and-analysis.e2e.test.js.
         const unknownId = crypto.randomUUID();
-        await expect(
-            api.pushOperations(atlasId, [
-                createOperation('feature', 'create', unknownId, mapId, makeFeatureData('not_a_real_type', 'mk_bogus')),
-            ]),
-        ).rejects.toThrow();
+        const rejectRes = await api.pushOperations(atlasId, [
+            createOperation('feature', 'create', unknownId, mapId, makeFeatureData('not_a_real_type', 'mk_bogus')),
+        ]);
+        expect(rejectRes.results).toHaveLength(1);
+        expect(rejectRes.results[0].success).toBe(false);
+        expect(rejectRes.results[0].rejected).toBe(true);
+        expect(rejectRes.results[0].reason).toMatch(/^Alteração descartada:/);
+        // The reason must stay a user-facing message: no constraint/index names.
+        expect(rejectRes.results[0].reason).not.toMatch(/constraint|features_|check/i);
+
         const after = await api.pullSync(atlasId, 0);
         const afterMap = after.snapshot.maps.find((m) => m.id === mapId);
         const leaked = Object.values(afterMap.features)

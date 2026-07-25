@@ -6,7 +6,7 @@ O código do módulo (`frontend/src/js/store/sync/diag/`) é fortemente comentad
 
 ## Por que a chave de junção é `op.id` e não `traceId`
 
-O `traceId` nasce no gesto (`frontend/src/js/store/store-transaction.js:116`) e é enriquecimento best-effort: liga um gesto às N ops que ele produziu. O `op.id` é a chave primária de merge porque sobrevive a todo hop sem depender de ninguém propagar campo extra. Se algum salto perder o `traceId`, o merge degrada para junção por `op.id` e nada quebra. Não inverta essa prioridade ao mexer no merger.
+O `traceId` nasce no gesto (`frontend/src/js/store/store-transaction.js:116`) e é enriquecimento best-effort: liga um gesto às N ops que ele produziu. O `op.id` é a chave primária de merge porque sobrevive a todo hop sem depender de ninguém propagar campo extra — inclusive o pull incremental, que até 2026-07-25 devolvia o PK da linha em `operations` e por isso gerava um grupo órfão para toda op recuperada por replay ([[tabela-operations]]). Se algum salto perder o `traceId`, o merge degrada para junção por `op.id` e nada quebra. Não inverta essa prioridade ao mexer no merger.
 
 Ele sobrevive ao backend porque o Joi do [[envelope-operacao]] é `.unknown(true)` **e** o `traceId` é explícito no schema, então volta no broadcast do [[canal-collab-websocket]]. Perder qualquer uma das duas condições degrada o ledger em silêncio: nenhum teste falha, só a correlação por gesto some.
 

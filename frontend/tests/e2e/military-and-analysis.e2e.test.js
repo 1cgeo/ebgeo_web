@@ -175,24 +175,47 @@ describe.skipIf(E2E_SKIP)('e2e: military-and-analysis', () => {
         }
     });
 
-    it('rejects an unsupported feature type and never inserts the row (edge)', async () => {
-        // The backend CHECK constraint hard-rejects unknown feature types (HTTP 400);
-        // the row must never be persisted, so it can never surface in any bucket.
+    it('refuses an unsupported feature type per-op, inserting nothing while its batch sibling applies', async () => {
+        // The backend CHECK constraint still hard-rejects unknown feature types, and
+        // the bogus row must never be persisted. What changed (2026-07-24) is the
+        // blast radius: a data violation (SQLSTATE class 22/23) is now refused
+        // PER-OPERATION — HTTP 200, `rejected: true`, generic pt-BR reason — and each
+        // op runs inside its own savepoint, so the VALID sibling in the same batch is
+        // committed. Before, the whole batch aborted with 400 and the sibling was
+        // lost. Both halves are asserted below: nothing for the invalid op,
+        // everything for its neighbour.
         const bogusId = generateUUID();
-        await expect(
-            api.pushOperations(atlasId, [
-                createOperation(
-                    'feature',
-                    'create',
-                    bogusId,
-                    mapId,
-                    makeFeatureData(
-                        { type: 'enemy_los', geometry: { type: 'Point', coordinates: [0, 0] }, props: {} },
-                        'mk_bogus',
-                    ),
+        const siblingCase = {
+            type: 'military_symbol',
+            geometry: { type: 'Point', coordinates: [-43.19, -22.93] },
+            props: { sidc: 'SFGPUCI-----', label: 'Sibling do lote' },
+        };
+        const siblingId = generateUUID();
+        const siblingMarker = `mk_sibling_${generateUUID().slice(0, 8)}`;
+
+        const res = await api.pushOperations(atlasId, [
+            createOperation(
+                'feature',
+                'create',
+                bogusId,
+                mapId,
+                makeFeatureData(
+                    { type: 'enemy_los', geometry: { type: 'Point', coordinates: [0, 0] }, props: {} },
+                    'mk_bogus',
                 ),
-            ]),
-        ).rejects.toThrow();
+            ),
+            createOperation('feature', 'create', siblingId, mapId, makeFeatureData(siblingCase, siblingMarker)),
+        ]);
+
+        expect(res.results).toHaveLength(2);
+        expect(res.results[0].success).toBe(false);
+        expect(res.results[0].rejected).toBe(true);
+        // Generic, user-facing pt-BR reason: the driver text (constraint name,
+        // err.detail) must never reach the client.
+        expect(res.results[0].reason).toMatch(/^Alteração descartada:/);
+        expect(res.results[0].reason).not.toMatch(/constraint|features_|enemy_los/i);
+        expect(res.results[1].success).toBe(true);
+        expect(res.results[1].rejected).toBeUndefined();
 
         const after = await api.pullSync(atlasId, 0);
         const afterMap = after.snapshot.maps.find((m) => m.id === mapId);
@@ -201,5 +224,10 @@ describe.skipIf(E2E_SKIP)('e2e: military-and-analysis', () => {
             .flat()
             .some((f) => f.properties && f.properties.id === bogusId);
         expect(leaked, 'unsupported feature type must not appear in any bucket').toBe(false);
+
+        // The savepoint isolated the failure: the sibling really committed.
+        const sibling = afterMap.features.military_symbols.find((f) => f.properties.id === siblingId);
+        expect(sibling, 'valid sibling of a refused op must be persisted').toBeTruthy();
+        expect(sibling.properties.marker).toBe(siblingMarker);
     });
 });

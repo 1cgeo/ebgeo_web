@@ -4,19 +4,27 @@
  * @fileoverview E2E map-lock enforcement against the live backend (spec §1.5/§2.5).
  *
  * Scenario, driven only through the public ApiClient + createOperation + harness:
- *  1. The owner creates an atlas + map and grants a SECOND user `write` access via
- *     `POST /atlas/:id/sharing/users`.
- *  2. The owner pushes a map update `{ locked: true }` (lock/unlock is owner-only).
- *  3. The write-share user's feature create on that locked map is rejected with 409
- *     (`ConflictError` -> `ApiError`), and a NEGATIVE assertion confirms the feature
- *     never reached the snapshot.
+ *  1. The owner creates an atlas + TWO maps and grants a SECOND user `write` access
+ *     via `POST /atlas/:id/sharing/users`.
+ *  2. The owner pushes a map update `{ locked: true }` on the first map (lock/unlock
+ *     is owner-only).
+ *  3. The write-share user's feature create on that locked map is REFUSED, and a
+ *     NEGATIVE assertion confirms the feature never reached the snapshot.
  *  4. As an edge control, the write-share user also CANNOT flip the lock itself
- *     (lock/unlock is owner-only -> 403), proving the gate is authorization, not luck.
+ *     (lock/unlock is owner-only), proving the gate is authorization, not luck.
  *  5. The owner unlocks `{ locked: false }`; the same user's feature write now
  *     succeeds (200) and appears in the pullSync snapshot's points bucket.
  *
- * Every assertion checks observable backend state (snapshot or the thrown ApiError);
- * no direct DB access. The test owns its api/users/atlas/map for isolation.
+ * SHAPE OF THE REFUSAL — changed in `aec63f8` (2026-07-24). Both refusals above used
+ * to throw (409 for the locked map, 403 for the lock flip). They are now
+ * PER-OPERATION: HTTP 200 with `results[i] = { success: false, rejected: true,
+ * reason }`. The 409 was an outright defect: the client only dequeues on 2xx, so a
+ * single locked map froze the whole outbound queue — INCLUDING ops addressed to
+ * other, unlocked maps. This file therefore pins the batch-isolation half too: an op
+ * for a sibling map in the same batch still applies.
+ *
+ * Every assertion checks observable backend state (snapshot or the push result);
+ * no direct DB access. The test owns its api/users/atlas/maps for isolation.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -27,7 +35,6 @@ import {
     createAtlas,
     createMap,
 } from './helpers/harness.js';
-import { ApiError } from '../../src/js/store/sync/api-client.js';
 import { createOperation } from '../../src/js/store/sync/operation-factory.js';
 import { generateUUID } from '../../src/js/utilities/uuid.js';
 
@@ -85,9 +92,13 @@ describe.skipIf(E2E_SKIP)('e2e: map-lock enforcement (write share)', () => {
     let atlasId;
     /** @type {string} */
     let mapId;
+    /** @type {string} Sibling map that is NEVER locked (batch-isolation control). */
+    let openMapId;
 
-    // Feature pushed while LOCKED (must be rejected and never land in the snapshot).
+    // Feature pushed while LOCKED (must be refused and never land in the snapshot).
     const blockedFeatureId = generateUUID();
+    // Feature pushed to the UNLOCKED sibling map in the same refused batch.
+    const siblingFeatureId = generateUUID();
     // Feature pushed AFTER unlock (must succeed and appear in the snapshot).
     const allowedFeatureId = generateUUID();
 
@@ -101,6 +112,7 @@ describe.skipIf(E2E_SKIP)('e2e: map-lock enforcement (write share)', () => {
         const atlas = await createAtlas(ownerApi, { name: 'Lock Enforcement Atlas' });
         atlasId = atlas.id;
         mapId = await createMap(ownerApi, atlasId, { name: 'Locked Map' });
+        openMapId = await createMap(ownerApi, atlasId, { name: 'Open Map' });
 
         // Owner grants the second user WRITE access.
         const share = await ownerApi._request(
@@ -132,37 +144,43 @@ describe.skipIf(E2E_SKIP)('e2e: map-lock enforcement (write share)', () => {
         expect(map.locked).toBe(true);
     });
 
-    it('rejects the write-share user creating a feature on a locked map (409 ApiError)', async () => {
-        let thrown;
-        try {
-            await writerApi.pushOperations(atlasId, [
-                pointCreateOp(blockedFeatureId, mapId, [-43.3, -22.95]),
-            ]);
-        } catch (err) {
-            thrown = err;
-        }
+    it('refuses the write-share user creating a feature on a locked map per-op, without poisoning the batch', async () => {
+        // The push RESOLVES (no throw): the locked-map denial is per-operation, so
+        // the client can dequeue the refused op and keep going. The op for the
+        // sibling, UNLOCKED map in the SAME batch must still apply — that is the
+        // exact regression the 409 caused (one locked map froze the whole queue).
+        const res = await writerApi.pushOperations(atlasId, [
+            pointCreateOp(blockedFeatureId, mapId, [-43.3, -22.95]),
+            pointCreateOp(siblingFeatureId, openMapId, [-43.31, -22.96]),
+        ]);
 
-        expect(thrown).toBeInstanceOf(ApiError);
-        expect(thrown.status).toBe(409);
+        expect(res.results).toHaveLength(2);
+        expect(res.results[0].success).toBe(false);
+        expect(res.results[0].rejected).toBe(true);
+        expect(res.results[0].reason).toMatch(/bloquead/i);
+        expect(res.results[1].success).toBe(true);
+        expect(res.results[1].rejected).toBeUndefined();
 
-        // Negative assertion: the blocked feature must NOT have leaked into the snapshot
-        // (one push = one atomic tx, so the rejected op leaves no trace).
+        // Negative assertion: the blocked feature must NOT have leaked into the
+        // snapshot — the refusal happens before any write.
         const map = await pullMap(ownerApi, atlasId, mapId);
         expect(map.features.points.some((f) => f.properties.id === blockedFeatureId)).toBe(false);
+
+        // ...while its batch sibling on the open map really landed.
+        const openMap = await pullMap(ownerApi, atlasId, openMapId);
+        expect(openMap.locked).toBe(false);
+        expect(openMap.features.points.some((f) => f.properties.id === siblingFeatureId)).toBe(true);
     });
 
-    it('also forbids the write-share user from unlocking the map (owner-only -> 403)', async () => {
-        // Edge: lock/unlock is an authorization gate, not the same 409 lock gate.
-        // A write-share user trying to clear the lock gets 403, and the map stays locked.
-        let thrown;
-        try {
-            await setMapLocked(writerApi, atlasId, mapId, false);
-        } catch (err) {
-            thrown = err;
-        }
+    it('also refuses the write-share user unlocking the map (owner-only), leaving it locked', async () => {
+        // Edge: lock/unlock is an authorization gate, distinct from the locked-map
+        // gate above, but since `aec63f8` both answer in the same per-op shape.
+        const res = await setMapLocked(writerApi, atlasId, mapId, false);
 
-        expect(thrown).toBeInstanceOf(ApiError);
-        expect(thrown.status).toBe(403);
+        expect(res.results).toHaveLength(1);
+        expect(res.results[0].success).toBe(false);
+        expect(res.results[0].rejected).toBe(true);
+        expect(res.results[0].reason).toMatch(/dono do atlas/i);
 
         const map = await pullMap(ownerApi, atlasId, mapId);
         expect(map.locked).toBe(true);

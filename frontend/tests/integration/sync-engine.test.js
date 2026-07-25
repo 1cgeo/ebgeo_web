@@ -32,7 +32,11 @@ const h = vi.hoisted(() => {
         queueState,
         apiClientMock: {
             login: vi.fn(async () => ({ id: 'user-1', org_role: 'editor' })),
-            register: vi.fn(async (payload) => ({ id: 'user-2', ...payload })),
+            // The real endpoint answers `{ success: true }` and nothing else, whether it
+            // created the account or found the username/e-mail taken (anti-enumeration).
+            // A mock echoing back a user would let a caller depend on data that never
+            // arrives in production.
+            register: vi.fn(async () => ({ success: true })),
             logout: vi.fn(async () => {}),
             pullSync: vi.fn(async () => ({ currentVersion: 0, isSnapshot: false })),
             pushOperations: vi.fn(async () => ({ results: [], acks: [], serverVersion: 1 })),
@@ -218,7 +222,7 @@ describe('register', () => {
         expect(apiClientMock.register).toHaveBeenCalledWith({
             username: 'u', password: 'p', nome: 'N',
         });
-        expect(out).toMatchObject({ username: 'u' });
+        expect(out).toEqual({ success: true });
     });
 });
 
@@ -517,6 +521,85 @@ describe('flush', () => {
         const result = await syncEngine.flush();
         expect(apiClientMock.pushOperations).not.toHaveBeenCalled();
         expect(result).toEqual({ pushed: 0 });
+    });
+});
+
+// ============================================================================
+// Rede de segurança contra lote envenenado
+// ============================================================================
+// O servidor recusa violação de integridade POR OPERAÇÃO (200 + `rejected`), então
+// este caminho só existe para a recusa permanente que a classificação de lá não cobre.
+// Sem ele, o lote volta idêntico para a fila e é reenviado a cada 1,5 s para sempre: o
+// sync do usuário para, em silêncio, e nada aparece na UI.
+//
+// A op ofensora é achada POR CONSTRUÇÃO — o lote encolhe para UMA op —, nunca por um id
+// que o servidor mande. É isso que garante que nenhuma op boa seja descartada por
+// engano: irmã só sai da fila quando o servidor a aceita.
+
+/** Erro de push com status HTTP, como o ApiError real. */
+function httpError(status) {
+    const err = new Error(`HTTP ${status}`);
+    err.status = status;
+    return err;
+}
+
+describe('lote envenenado: isolamento e descarte da op ofensora', () => {
+    beforeEach(() => {
+        // Sem `results`, `recordPushAcks` cai no fallback por índice e nada é recusado.
+        apiClientMock.pushOperations.mockResolvedValue({ results: [], serverVersion: 1 });
+    });
+
+    it('encolhe o lote, descarta SÓ a op recusada com 400 e drena o resto', async () => {
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [{ id: 'op-boa-1' }, { id: 'op-ruim' }, { id: 'op-boa-2' }];
+
+        // O 400 acompanha a op ofensora, esteja ela em lote grande ou sozinha.
+        apiClientMock.pushOperations.mockImplementation(async (_atlasId, ops) => {
+            if (ops.some((o) => o.id === 'op-ruim')) throw httpError(400);
+            return { results: [], serverVersion: 1 };
+        });
+
+        const result = await syncEngine.flush();
+
+        // As duas boas foram ACEITAS pelo servidor antes de sair da fila; a ruim saiu
+        // por ter sido recusada sozinha.
+        expect(queueState.dequeued).toEqual(['op-boa-1', 'op-ruim', 'op-boa-2']);
+        expect(queueState.ops).toHaveLength(0);
+        expect(result).toEqual({ pushed: 2 });
+
+        // Enquanto isola, o lote é de 1 — reverter para 100 a cada sucesso custaria um
+        // round-trip perdido por op boa que precede a ofensora.
+        const tamanhos = apiClientMock.pushOperations.mock.calls.map(([, ops]) => ops.length);
+        expect(tamanhos).toEqual([3, 1, 1, 1]);
+
+        // Descarte silencioso é o outro defeito: o usuário precisa saber.
+        expect(h.showWarningMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([401, 403, 409, 429, 500, 503])(
+        'NÃO descarta nada quando o servidor responde %i (pode dar certo depois)',
+        async (status) => {
+            await syncEngine.connect('atlas-1', { initialPull: false });
+            queueState.ops = [{ id: 'op-1' }, { id: 'op-2' }];
+            apiClientMock.pushOperations.mockRejectedValue(httpError(status));
+
+            await expect(syncEngine.flush()).rejects.toThrow();
+            expect(queueState.dequeued).toEqual([]);
+            expect(queueState.ops).toHaveLength(2);
+            expect(h.showWarningMock).not.toHaveBeenCalled();
+        }
+    );
+
+    it('não gira em vazio quando a fila não avança (dequeue removeu 0)', async () => {
+        // Se o descarte não remover nada, repetir o mesmo peek é laço infinito. O erro
+        // sobe — fila parada, que é recuperável, nunca um giro sem fim.
+        await syncEngine.connect('atlas-1', { initialPull: false });
+        queueState.ops = [{ id: 'op-unica' }];
+        apiClientMock.pushOperations.mockRejectedValue(httpError(400));
+        operationQueueMock.dequeue.mockResolvedValueOnce(0);
+
+        await expect(syncEngine.flush()).rejects.toThrow();
+        expect(queueState.ops).toHaveLength(1);
     });
 });
 

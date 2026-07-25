@@ -41,8 +41,11 @@ export async function seedSharedAtlas(browser, baseUrl, { mapName = 'Mapa Tátic
 
         const apiB = new ApiClient({ baseUrl: `${base}/api/v1` });
         const userB = { username: mk('bravo'), password, nome: 'Bravo' };
-        const b = await apiB.register({ ...userB });
-        const userBId = b && (b.id || b.user?.id);
+        // register() returns no account data on purpose (it answers identically whether it
+        // created the account or found one, so it cannot enumerate accounts). The id comes
+        // from logging in, which these tests do anyway.
+        await apiB.register({ ...userB });
+        const userBId = (await apiB.login(userB.username, userB.password))?.id;
 
         const atlas = await apiA.createAtlas({ name: 'Atlas Colaborativo' });
         const mapId = crypto.randomUUID();
@@ -92,8 +95,9 @@ export async function addSharedUser(page, baseUrl, ownerCreds, atlasId, { permis
         const mk = (n) => `${n}_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
         const u = { username: mk(lbl), password, nome: lbl };
         const api = new ApiClient({ baseUrl: `${base}/api/v1` });
-        const r = await api.register({ ...u });
-        const uid = r && (r.id || r.user?.id);
+        // The register response carries no id (anti-enumeration): log in to learn it.
+        await api.register({ ...u });
+        const uid = (await api.login(u.username, u.password))?.id;
         await fetch(`${base}/api/v1/atlas/${id}/sharing/users`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${owner.getAccessToken()}` },
