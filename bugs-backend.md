@@ -282,6 +282,14 @@ Por que passou verde: os dois e2e de briefing constroem a op À MÃO no formato 
 
 ### 9. Payload de presenca (temporal/cursor/selection) e retido sem validacao nem limite de tamanho no objeto ws e reserializado no snapshot de cada novo join
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO nos dois pacotes, com número medido. O backend guardava o valor CRU (`ws.cursorPosition`, `ws.temporalState`, `ws.selectedFeatures`), `getRoomUsers` devolve os três, e `onConnection` re-serializa o roster inteiro no frame `connected` de TODO novo join. Medido: um socket com blob de 2 MB fez o snapshot de join de OUTRO usuário ir a 2.098.518 bytes; uma seleção de 60 mil ids levou a 8.340.617 bytes. `cursor` e `temporal` não têm gate, então visitante de link público alcança.
+>
+> **Duas coisas da correção sugerida pelo relatório NÃO foram aplicadas, e por evidência:** `Joi.string().uuid()` recusaria ids de marcador 3D/360, que não são UUID; e clampar `lng` a ±180 recusaria cursor legítimo, porque o MapLibre não clampa longitude ao cruzar o antimeridiano (há teste pinando isso).
+>
+> Limites com base medida, não chutada (serializando o que o cliente real emite: cursor ≈128 B, temporal ≈141 B, seleção ≈115 B por feição): 5000 feições por seleção, teto de ~576 KB por socket, ABAIXO do 1 MiB que a própria sala já trata como congestionada demais para relayar presença. Escalares truncam em vez de recusar, para nunca derrubar frame legítimo. O `state` preserva chaves desconhecidas, porque o frontend documenta o blob como opaco.
+>
+> Teste: `collab-presence-payload-bound.repro.test.js` (9 casos). RED: 4/9, exatamente os três vetores de abuso mais o sinal de validação; os 5 de raio de alcance já passavam. Controle negativo: curto-circuitando a normalização, voltam a falhar os MESMOS 4 — os 5 de regressão não são o que prova o fix. Efeito colateral medido: a suíte do arquivo caiu de 3,6 s para 0,6 s, que é o custo de serialização que sumiu.
+
 - **Arquivo:** `backend/src/modules/collab/collab.handlers.js:56`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-collab` · **Classe:** `validacao`
@@ -451,6 +459,12 @@ Por que passou verde: os dois e2e de briefing constroem a op À MÃO no formato 
 
 ### 18. pg_advisory_lock da ingestao sem lock_timeout retem conexao do pool indefinidamente (recorrencia da licao C5 do livro-razao)
 
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO e corrigido. `ingestBundle` roda dentro de `task()` (conexão do pool) e tomava `pg_advisory_lock` sem teto. Confirmado que o `lock_timeout` da lição anterior do livro-razão está em OUTRO ponto (`sync.service.js`, push de sync): a ingestão 360 nunca herdou, então é recorrência real e não duplicata.
+>
+> O detalhe que a correção exigiu: como a ordem é swap-do-arquivo-primeiro, o lock tem de ser de SESSÃO. O `lock_timeout` é aplicado numa transação curta que envolve só a aquisição — `SET LOCAL` via `set_config(..., true)`, porque `SET` não aceita bind param — de modo que o GUC é revertido no COMMIT e não volta grudado na conexão do pool, enquanto o lock de sessão sobrevive e cobre PASSO 1 e PASSO 2. 55P03 vira `ServiceUnavailableError` (503 retentável), mais unlock defensivo se o COMMIT falhar depois do lock tomado, que evitaria travar o slug para sempre.
+>
+> Teste: `sv360-ingest-lock-timeout.repro.test.js` (3 casos: 503 sob contenção com nada escrito em disco, o `lock_timeout` não vazando para 8 conexões do pool, e ingestão sem contenção seguindo normal). RED: o primeiro pendurava até o deadline de 12 s.
+
 - **Arquivo:** `backend/src/modules/streetview360/sv360.ingest.js:408`
 - **Estado:** CONFIRMADO
 - **Fatia:** `be-sv360` · **Classe:** `race-pool-exhaustion`
@@ -464,6 +478,16 @@ Por que passou verde: os dois e2e de briefing constroem a op À MÃO no formato 
 > **Correção do verificador.** A ingestao 360 toma `pg_advisory_lock` (escopo de SESSAO) sobre uma conexao do pool sem `lock_timeout`, entao a contencao vira retencao ilimitada de conexao. Precisao sobre o enunciado original: (a) a contencao exige o MESMO par (orgId, slug), a chave e `sv360:${orgId}:${slug}` (ingest.js:407), e slugs distintos hasheiam para chaves distintas e seguem em paralelo; (b) o disparador precisa ser autenticado com capacidade de upload (role global `admin` ou org_role em owner/admin/editor, sv360.routes.js:265-272), nao um anonimo; (c) alem da espera, MESMO SEM contencao cada ingestao retem uma conexao do pool durante todo o copyFileSync multi-GB + fsync + merge, entao a janela de exaustao nao depende so do lock. Com poolMax=10 (config.js:45), ~10 uploads concorrentes do mesmo (org, slug) esgotam o pool e derrubam a API inteira, inclusive GET /api/config, que e fail-fast no boot do frontend. Correcao esperada: espelhar o push de sync (definir lock_timeout antes de esperar e mapear SQLSTATE 55P03 para 503 retentavel), e/ou serializar a ingestao fora da conexao do pool.
 
 ### 19. Manifesto de upload pode gravar tombstone em foto de OUTRA organizacao, escondendo dado alheio globalmente
+
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO, e é o mais grave do par: escrita cross-tenant. `mergeProject` inseria em `sv360.deleted_photos` qualquer `photo_id` do manifesto; a PK é global, sem FK, e todas as leituras filtram por `NOT EXISTS(deleted_photos)` — ou seja, um upload de uma organização escondia foto de outra, globalmente. A assimetria estava à vista: `softDeletePhoto` faz `loadWritablePhoto` antes do mesmo INSERT.
+>
+> Fix: tombstones filtrados ao conjunto `photos[]`, que já passou pelo `collisionGuard` e portanto é comprovadamente do projeto. Ids estrangeiros são descartados e logados como `warn`, não recusados com 400, porque bundle legado pode trazer tombstone de foto já fora de `photos[]` — inócuo depois do purge.
+>
+> Teste: `sv360-tombstone-cross-tenant.repro.test.js`, checando na tabela E no `GET /sv360/photos/:uuid`, com o carry-over do próprio projeto continuando a funcionar. RED: tombstone estrangeiro gravado e a foto da vítima sumindo.
+>
+> Controle negativo dos dois achados juntos: 2 de 6 casos caem, exatamente 1 por achado — cada asserção-alvo é atribuível ao seu fix.
+>
+> Fora de escopo, registrado: o `.custom()` do `manifestSchema` poderia recusar na borda, como defesa em profundidade. O guard no merge já cobre os dois caminhos de entrada (upload admin e ETL).
 
 - **Arquivo:** `backend/src/modules/streetview360/sv360.merge.js:217`
 - **Estado:** CONFIRMADO
@@ -675,6 +699,14 @@ O DEFEITO: `return createReadStream(fmeta.path).pipe(res)` (assets3d.controller.
 > Controle negativo: removendo `revoked_at IS NULL` do claim, 4 dos 5 testes caem.
 
 ### 29. getAtlasSnapshot faz N+1: seis queries por mapa e uma por briefing, no caminho quente de todo connect e de todo pull atrasado
+
+> **CORRIGIDO em 2026-07-24.** CONFIRMADO, e eram SETE queries por mapa, não seis: o relatório não contou `GET_MAP_LAYERS`, que também estava no laço. Mais uma por briefing (slides). Tudo dentro do mesmo `task()`, que retém uma conexão do pool (poolMax default 10) durante a série inteira, e no caminho quente — `pullOperations` chama o snapshot em todo connect e em todo pull atrasado.
+>
+> O padrão certo já existia NO MESMO ARQUIVO: `GET_ATLAS_COMMENTS` busca uma vez e agrupa por map_id, com o comentário dizendo que é para evitar uma query por mapa (muitas vezes vazio). As outras coleções ficaram de fora; agora todas seguem o mesmo caminho, com filtro por JOIN em `maps.atlas_id` para o planner usar o índice em vez de materializar lista de ids.
+>
+> Teste: `snapshot-n-mais-1.repro.test.js`. Ele não mede TEMPO, que em suíte é ruído: CONTA as queries pelo hook de evento do pg-promise e afirma que o número NÃO cresce com o número de mapas — 1 mapa e 6 mapas precisam custar igual. Controle negativo: devolver UMA das sete para dentro do laço já derruba o caso.
+>
+> Detalhe que custou uma execução vermelha: as opções do pg-promise vivem em `db.$config.options`, não em `pgp.options`.
 
 - **Arquivo:** `backend/src/modules/sync/sync.service.js:475`
 - **Estado:** CONFIRMADO

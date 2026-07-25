@@ -747,13 +747,36 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner') {
       }
     }
 
-    // Get features, layers, groups, cesium3d, streetview360 for each map
+    // Cada coleção é buscada UMA VEZ para o atlas inteiro e agrupada por map_id,
+    // que é o padrão que os comentários acima já usavam. Antes eram SETE
+    // round-trips POR MAPA, todos dentro deste mesmo `task()` — que retém uma
+    // conexão do pool (poolMax default 10) durante a série inteira. E isto está
+    // no caminho quente: `pullOperations` chama o snapshot em todo connect e em
+    // todo pull atrasado, não num relatório administrativo.
+    const agrupar = (linhas, chave = 'map_id') => {
+      const por = new Map();
+      for (const linha of linhas) {
+        const k = linha[chave];
+        if (!por.has(k)) por.set(k, []);
+        por.get(k).push(linha);
+      }
+      return por;
+    };
+
+    const featuresByMap = agrupar(await t.query(Q.GET_ATLAS_FEATURES, [atlasId]));
+    const cesium3dByMap = agrupar(await t.query(Q.GET_ATLAS_CESIUM3D, [atlasId]));
+    const streetview360ByMap = agrupar(await t.query(Q.GET_ATLAS_STREETVIEW360, [atlasId]));
+    const catalogLayersByMap = agrupar(await t.query(Q.GET_ATLAS_CATALOG_LAYERS, [atlasId]));
+    const layersByMap = agrupar(await t.query(Q.GET_ATLAS_LAYERS, [atlasId]));
+    const groupsByMap = agrupar(await t.query(Q.GET_ATLAS_GROUPS, [atlasId]));
+    const groupFeaturesByMap = agrupar(await t.query(Q.GET_ATLAS_GROUP_FEATURES, [atlasId]));
+
     // Transform to frontend format
     for (const map of maps) {
-      const rawFeatures = await t.query(Q.GET_MAP_FEATURES, [map.id]);
-      const rawCesium3d = await t.query(Q.GET_MAP_CESIUM3D, [map.id]);
-      const rawStreetview360 = await t.query(Q.GET_MAP_STREETVIEW360, [map.id]);
-      const rawCatalogLayers = await t.query(Q.GET_MAP_CATALOG_LAYERS, [map.id]);
+      const rawFeatures = featuresByMap.get(map.id) || [];
+      const rawCesium3d = cesium3dByMap.get(map.id) || [];
+      const rawStreetview360 = streetview360ByMap.get(map.id) || [];
+      const rawCatalogLayers = catalogLayersByMap.get(map.id) || [];
 
       // Transform to frontend structure
       map.features = transformFeaturesToFrontend(rawFeatures);
@@ -771,7 +794,7 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner') {
       map.comments = commentsByMap[map.id] || [];
 
       // Transform layers: rename sort_order -> order for frontend compatibility
-      const rawLayers = await t.query(Q.GET_MAP_LAYERS, [map.id]);
+      const rawLayers = layersByMap.get(map.id) || [];
       map.layers = rawLayers.map((layer) => ({
         id: layer.id,
         name: layer.name,
@@ -786,8 +809,8 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner') {
       }));
 
       // Get groups and group_features, then populate group.features array for frontend
-      const rawGroups = await t.query(Q.GET_MAP_GROUPS, [map.id]);
-      const groupFeatures = await t.query(Q.GET_GROUP_FEATURES, [map.id]);
+      const rawGroups = groupsByMap.get(map.id) || [];
+      const groupFeatures = groupFeaturesByMap.get(map.id) || [];
 
       // Build a map of feature_id -> feature_type for group.features population
       const featureTypeById = {};
@@ -836,8 +859,12 @@ export async function getAtlasSnapshot(atlasId, permission = 'owner') {
     const mapNameById = new Map(maps.map((m) => [m.id, m.name]));
 
     const briefings = await t.query(Q.GET_ATLAS_BRIEFINGS, [atlasId]);
+    // Slides também vêm de uma vez só, agrupados por briefing_id — era mais um
+    // round-trip por briefing na mesma conexão retida.
+    const slidesByBriefing = agrupar(await t.query(Q.GET_ATLAS_SLIDES, [atlasId]), 'briefing_id');
     for (const briefing of briefings) {
-      const rawSlides = await t.query(Q.GET_BRIEFING_SLIDES, [briefing.id]);
+      // Cópia: o `sort` abaixo muta o array, e o agrupamento é compartilhado.
+      const rawSlides = [...(slidesByBriefing.get(briefing.id) || [])];
       // slide_order (UUID[]) is the canonical ordering; surface `order` (index), the
       // camelCase aliases the frontend slide model uses, and per-slide sync metadata.
       //

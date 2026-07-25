@@ -21,6 +21,7 @@
 // photo is filled by trg_sv360_photos_geom from lon/lat — never written here.
 import * as AQ from './sv360.admin.queries.js';
 import { ConflictError } from '../../utils/errors.js';
+import logger from '../../utils/logger.js';
 
 // Deterministic default org id (012_organizations.sql). Used by the ETL backfill
 // when a project's orgSlug is absent or the legacy 'org-legacy' marker (D9.x).
@@ -214,8 +215,32 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
     ]);
   }
 
+  // Tombstones são CARRY-OVER do próprio projeto: a foto soft-deletada continua em
+  // photos[] (o INSERT dela roda acima) e o tombstone apenas repõe a deleção que o
+  // purge do passo 3 acabou de limpar. sv360.deleted_photos.photo_id é PK GLOBAL
+  // sem FK, e TODA query de leitura filtra por NOT EXISTS(deleted_photos), então
+  // aceitar um id ARBITRÁRIO do manifesto deixaria um tenant esconder a foto de
+  // outro em todas as superfícies — e o tombstone estrangeiro sobreviveria para
+  // sempre (PURGE_PROJECT_TOMBSTONES só limpa os ids do projeto re-uploadado).
+  // O caminho legítimo equivalente (softDeletePhoto) faz loadWritablePhoto antes do
+  // mesmo INSERT; aqui o guard é o conjunto photos[], que já passou pelo
+  // collisionGuard e portanto pertence comprovadamente a ESTE projeto. Ids fora
+  // dele são descartados (e não rejeitados: um bundle legado pode carregar
+  // tombstone de foto que já saiu de photos[], o que é inócuo pós-purge).
+  const ownedIds = new Set(photoIds);
+  const foreign = [];
   for (const tomb of tombstones) {
+    if (!ownedIds.has(tomb.photo_id)) {
+      foreign.push(tomb.photo_id);
+      continue;
+    }
     await t.none(AQ.INSERT_TOMBSTONE, [tomb.photo_id, tomb.deleted_at ?? null]);
+  }
+  if (foreign.length > 0) {
+    logger.warn(
+      { orgId, slug: project.slug, foreignTombstones: foreign.slice(0, 20), count: foreign.length },
+      'sv360 merge: descartando tombstone(s) de foto fora do projeto (possível tentativa cross-tenant)'
+    );
   }
 
   // 5) Hand back the handles the caller needs to drive the commit + file swap.

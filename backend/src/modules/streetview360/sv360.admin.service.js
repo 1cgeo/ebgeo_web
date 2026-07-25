@@ -223,9 +223,12 @@ export async function deleteProject(slug, user, opts = {}) {
  * Parses + validates the manifest, resolves+authorizes the target org (ownership
  * HERE), then hands off to ingestBundle. The order there is swap-THEN-commit: the
  * atomic {orgId}__{slug}.db swap is PASSO 1 and the Postgres merge tx is PASSO 2
- * (`sv360.ingest.js:394`), which is why the ingestion lock is advisory and not
- * transaction-scoped — a tx-scoped lock would be taken too late to protect the
- * file. Persists the optional thumbnail to disk (the serving route is
+ * (ver o cabeçalho de `ingestBundle` em `sv360.ingest.js`), which is why the
+ * ingestion lock is advisory and not transaction-scoped — a tx-scoped lock would
+ * be taken too late to protect the file. A espera pelo lock é limitada
+ * (`lock_timeout`), então uma ingestão concorrente do mesmo (org, slug) pode
+ * devolver 503 retentável em vez de reter a conexão do pool. Persists the
+ * optional thumbnail to disk (the serving route is
  * stage 3b). Does NOT clean the multer tmp files — the controller owns that.
  *
  * @param {Object} user - req.user

@@ -160,3 +160,32 @@ foi checado. É a **terceira** instância da mesma classe neste mesmo arquivo de
 — prefixo, sufixo e agora diretório. O que a regra não casa, ela abençoa. Fechado
 com `RE_LINK_DIR`, e com controle negativo de fiação (não só do detector): com o link
 morto de volta, o teste acusa `README.md → backend/docs/implementado/ (diretório)`.
+
+### Lote 4 — os últimos ALTO: #9, #18, #19, #29
+
+**Todos os 24 achados ALTO e os 5 CRÍTICOS estão fechados.** Restam 25 médios e
+41 baixos.
+
+Três agentes em módulos disjuntos, com banco de teste próprio por agente
+(`TEST_DB_NAME`), e a suíte cheia rodada por mim depois, com a árvore quieta:
+**1487 testes, 0 falhas**.
+
+O padrão que se repetiu e vale registrar: **em três dos quatro achados o relatório
+descrevia o mecanismo certo e subestimava a correção.**
+
+- **#9 (presença)** — a correção sugerida teria QUEBRADO o cliente em dois pontos:
+  `Joi.string().uuid()` recusaria id de marcador 3D/360 (que não é UUID), e clampar
+  `lng` a ±180 recusaria cursor legítimo, porque o MapLibre não clampa longitude ao
+  cruzar o antimeridiano — e há teste pinando isso. Os limites adotados vieram de
+  medição do que o cliente real emite, não de chute.
+- **#18** — o `lock_timeout` da lição anterior estava em outro ponto do sync; a
+  ingestão nunca herdou. Recorrência real, não duplicata.
+- **#29** — eram SETE queries por mapa, não seis: o relatório não contou
+  `GET_MAP_LAYERS`.
+
+O #19 é o mais grave dos quatro: escrita cross-tenant, um upload de uma organização
+escondendo foto de outra globalmente.
+
+Dois detalhes de método que custaram execução vermelha e ficam registrados: as
+opções do pg-promise vivem em `db.$config.options` e não em `pgp.options`; e
+`map.features` no snapshot é objeto por tipo, não array.

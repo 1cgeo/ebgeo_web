@@ -4,6 +4,12 @@
 import { broadcastToRoom, broadcastOperations } from './collab.rooms.js';
 import * as syncService from '../sync/sync.service.js';
 import { pushSchema } from '../sync/sync.schemas.js';
+import {
+  cursorPresenceSchema,
+  temporalPresenceSchema,
+  selectionPresenceSchema,
+  validatePresenceFrame,
+} from './collab.schemas.js';
 import { classifyConnectionQuality, adaptiveSettingsFor } from './collab.quality.js';
 import logger from '../../utils/logger.js';
 
@@ -26,6 +32,32 @@ function validateOps(ws, ops) {
 }
 
 /**
+ * Validates an EPHEMERAL presence frame (cursor/temporal/selection) and returns the
+ * normalized value, or null after answering with a VALIDATION_ERROR.
+ *
+ * Presence is retained on the socket and re-serialized into the `connected` snapshot of
+ * every later join (collab.rooms.js `getRoomUsers` → collab.gateway.js `onConnection`), so
+ * ONLY the normalized value may be stored or relayed — never the raw client payload. See
+ * collab.schemas.js for the bounds and how they were measured.
+ * @param {import('ws').WebSocket} ws
+ * @param {import('joi').Schema} schema
+ * @param {Object} data - Raw parsed frame.
+ * @returns {Object|null}
+ */
+function normalizePresence(ws, schema, data) {
+  const { error, value } = validatePresenceFrame(schema, data);
+  if (error) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      code: 'VALIDATION_ERROR',
+      message: error.message,
+    }));
+    return null;
+  }
+  return value;
+}
+
+/**
  * Handles ping messages (heartbeat).
  */
 export function handlePing(ws) {
@@ -34,17 +66,22 @@ export function handlePing(ws) {
 }
 
 /**
- * Handles cursor position updates.
+ * Handles cursor position updates. Ungated by design (a read-only viewer / public visitor
+ * shares its cursor), which is exactly why the payload must be normalized before it is
+ * retained on the socket.
  */
 export function handleCursor(ws, data) {
-  ws.cursorPosition = data.position;
-  ws.currentMapId = data.mapId;
+  const value = normalizePresence(ws, cursorPresenceSchema, data);
+  if (!value) return;
+
+  ws.cursorPosition = value.position;
+  ws.currentMapId = value.mapId;
 
   broadcastToRoom(ws.atlasId, {
     type: 'cursor',
     userId: ws.userId,
-    position: data.position,
-    mapId: data.mapId,
+    position: value.position,
+    mapId: value.mapId,
   }, ws);
 }
 
@@ -53,14 +90,17 @@ export function handleCursor(ws, data) {
  * kept in-memory on the ws object and broadcast to peers (sender excluded).
  */
 export function handleTemporal(ws, data) {
-  ws.temporalState = data.state;
-  if (data.mapId !== undefined) ws.currentMapId = data.mapId;
+  const value = normalizePresence(ws, temporalPresenceSchema, data);
+  if (!value) return;
+
+  ws.temporalState = value.state;
+  if (value.mapId !== undefined) ws.currentMapId = value.mapId;
 
   broadcastToRoom(ws.atlasId, {
     type: 'temporal',
     userId: ws.userId,
-    state: data.state,
-    mapId: data.mapId,
+    state: value.state,
+    mapId: value.mapId,
   }, ws);
 }
 
@@ -84,26 +124,32 @@ export function handleSelection(ws, data) {
     return;
   }
 
-  const surface = data.surface || '2d';
-  ws.selectedFeatures = data.featureIds;
+  const value = normalizePresence(ws, selectionPresenceSchema, data);
+  if (!value) return;
+
+  const { surface, featureIds } = value;
+  // `selectedFeatures` (legacy field of the join snapshot) and `selectionContext.featureIds`
+  // are the SAME array instance on purpose: the snapshot ships both, so sharing the
+  // instance keeps one copy in memory instead of two.
+  ws.selectedFeatures = featureIds;
   ws.selectionContext = {
     surface,
-    mapId: data.mapId ?? null,
-    featureIds: Array.isArray(data.featureIds) ? data.featureIds : [],
-    ...(Array.isArray(data.featureMeta) ? { featureMeta: data.featureMeta } : {}),
-    ...(data.tilesetId != null ? { tilesetId: data.tilesetId } : {}),
-    ...(data.photoName != null ? { photoName: data.photoName } : {}),
+    mapId: value.mapId ?? null,
+    featureIds,
+    ...(Array.isArray(value.featureMeta) ? { featureMeta: value.featureMeta } : {}),
+    ...(value.tilesetId != null ? { tilesetId: value.tilesetId } : {}),
+    ...(value.photoName != null ? { photoName: value.photoName } : {}),
   };
 
   broadcastToRoom(ws.atlasId, {
     type: 'selection',
     userId: ws.userId,
     surface,
-    featureIds: data.featureIds,
-    mapId: data.mapId,
-    ...(Array.isArray(data.featureMeta) ? { featureMeta: data.featureMeta } : {}),
-    ...(data.tilesetId != null ? { tilesetId: data.tilesetId } : {}),
-    ...(data.photoName != null ? { photoName: data.photoName } : {}),
+    featureIds,
+    mapId: value.mapId,
+    ...(Array.isArray(value.featureMeta) ? { featureMeta: value.featureMeta } : {}),
+    ...(value.tilesetId != null ? { tilesetId: value.tilesetId } : {}),
+    ...(value.photoName != null ? { photoName: value.photoName } : {}),
   }, ws);
 }
 

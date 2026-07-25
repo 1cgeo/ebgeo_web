@@ -47,12 +47,64 @@ import { mergeProject, deriveDbFilename } from './sv360.merge.js';
 import { manifestSchema } from './sv360.admin.schemas.js';
 import config from '../../config.js';
 import logger from '../../utils/logger.js';
-import { BadRequestError, ValidationError } from '../../utils/errors.js';
+import { BadRequestError, ValidationError, ServiceUnavailableError } from '../../utils/errors.js';
 
 // Namespace for the per-(orgId, slug) session advisory lock that serializes
 // ingestion (P3). Distinct from the sync push namespace so the two lock spaces
 // can never collide. Value is ASCII 'S360' read as int32.
 const SV360_INGEST_LOCK_NAMESPACE = 0x53333630;
+
+// Máximo que uma ingestão espera pelo lock do MESMO (org, slug) antes de desistir
+// com 503 retentável. Ver acquireIngestLock() para o porquê de existir um teto.
+const SV360_INGEST_LOCK_TIMEOUT = '5s';
+
+/**
+ * Takes the per-(orgId, slug) SESSION advisory lock with a BOUNDED wait.
+ *
+ * A espera acontece sobre uma conexão JÁ TOMADA DO POOL, então esperar sem teto
+ * converte contenção num único projeto em ESGOTAMENTO DO POOL: com poolMax=10,
+ * dez uploads concorrentes do mesmo (org, slug) travam o processo inteiro,
+ * inclusive `GET /api/config` — que é fail-fast no boot do frontend. Mesma lição
+ * já aplicada no push de sync (`sync.service.js`): limitar a espera e traduzir
+ * SQLSTATE 55P03 (lock_not_available) num 503 que o cliente pode repetir.
+ *
+ * O `lock_timeout` é setado dentro de uma transação CURTA que envolve apenas a
+ * aquisição: `SET LOCAL` é revertido no COMMIT, então o GUC nunca volta ao pool
+ * grudado na conexão, enquanto o lock — que é de SESSÃO, não de transação —
+ * sobrevive ao commit e segue valendo para os PASSOS 1 e 2.
+ *
+ * @param {Object} conn - the pooled connection the whole ingestion runs on
+ * @param {string} lockKey - `sv360:${orgId}:${slug}`
+ * @returns {Promise<void>}
+ * @throws {ServiceUnavailableError} 503 when another ingestion holds the slug
+ */
+async function acquireIngestLock(conn, lockKey) {
+  try {
+    await conn.tx(async (t) => {
+      // `SET` não aceita bind params; set_config(..., is_local=true) é o
+      // equivalente parametrizável de `SET LOCAL`.
+      await t.one('SELECT set_config($1, $2, true)', ['lock_timeout', SV360_INGEST_LOCK_TIMEOUT]);
+      await t.one('SELECT pg_advisory_lock($1, hashtext($2))', [
+        SV360_INGEST_LOCK_NAMESPACE,
+        lockKey,
+      ]);
+    });
+  } catch (err) {
+    // Se o lock chegou a ser tomado e o COMMIT falhou depois, ele é de SESSÃO e
+    // sobreviveria numa conexão devolvida ao pool — o slug ficaria travado para
+    // sempre. Soltar é barato e no-op quando nada era detido.
+    await conn
+      .any('SELECT pg_advisory_unlock($1, hashtext($2))', [SV360_INGEST_LOCK_NAMESPACE, lockKey])
+      .catch(() => {});
+    // 55P03 = lock_not_available (o lock_timeout acima disparou).
+    if (err && err.code === '55P03') {
+      throw new ServiceUnavailableError(
+        'Servidor ocupado processando outro envio deste projeto 360. Tente novamente.'
+      );
+    }
+    throw err;
+  }
+}
 
 /**
  * Validates a manifest object against the frozen ingestion schema. Rejects:
@@ -402,10 +454,12 @@ export async function ingestBundle({ manifestPath, manifest, dbTmpPath, orgId, s
   //
   // A SESSION-scoped lock on one dedicated connection spans both steps. It is
   // released in `finally`, and Postgres drops it automatically if the connection
-  // dies, so a crash mid-ingest cannot wedge the slug permanently.
+  // dies, so a crash mid-ingest cannot wedge the slug permanently. A espera é
+  // LIMITADA (acquireIngestLock): a conexão é do pool, então contenção sem teto
+  // esgotaria o pool e derrubaria a API inteira.
   return task(async (conn) => {
     const lockKey = `sv360:${orgId}:${validated.project.slug}`;
-    await conn.one('SELECT pg_advisory_lock($1, hashtext($2))', [SV360_INGEST_LOCK_NAMESPACE, lockKey]);
+    await acquireIngestLock(conn, lockKey);
 
     try {
       // PASSO 1 — install the new {slug}.db, KEEPING the .bak (reversible).
