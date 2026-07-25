@@ -13,8 +13,10 @@
  *
  * The modal is standalone — it receives an `atlasId` and talks to the backend via
  * `apiClient` (sharing/searchUsers REST routes). The caller decides whether to show
- * it (the backend also enforces owner-only on every mutation). All mutations re-read
- * the canonical sharing config so the UI never drifts from the server.
+ * it (the backend independently enforces `manage` on every mutation, NOT owner-only — this
+ * JSDoc said owner-only until 2026-07-25 and a caller trusting it would hide the button from
+ * the co-Gestor, who is exactly who sharing is for). All mutations re-read the canonical
+ * sharing config so the UI never drifts from the server.
  *
  * Exports {@link showSharingModal}.
  */
@@ -732,8 +734,9 @@ export class SharingModal extends ModalBase {
 /**
  * Shows the atlas sharing modal.
  *
- * The caller is responsible for deciding whether to offer sharing (owner-only);
- * the backend independently enforces owner-only on every mutation.
+ * The caller is responsible for deciding whether to offer sharing; the backend independently
+ * enforces `manage` (co-Gestor) on every mutation, never owner-only. Gate por hierarquia,
+ * nunca por igualdade a `owner`.
  *
  * @param {string} atlasId - Atlas to manage sharing for.
  * @param {Object} [options]

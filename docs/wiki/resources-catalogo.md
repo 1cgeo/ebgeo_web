@@ -52,7 +52,7 @@ Ao salvar: miniatura nova vence o JSON digitado, "Remover" faz `delete`, campo i
 
 > **Nota histórica.** O guia *09-admin* (absorvido) §3.2-3.6 documenta uma API genérica `GET/POST/PUT/DELETE /api/v1/resources` com filtro `?category=` e coluna `category`. Essa rota **não existe**: `grep "v1/resources"` em `src/` não retorna nada e não há coluna `category` em lugar nenhum. O cliente já traduz categoria antiga para rota nova em `frontend/src/js/store/sync/api-client.js:411-427`.
 
-> **[!CONTRADICAO]** O `@fileoverview` de `frontend/src/js/admin/catalog-tab.js:6` ainda afirma que as categorias "go through the existing `/api/v1/resources` admin CRUD". É comentário obsoleto no próprio arquivo que usa o mapeamento por tipo. O código convida ao erro aqui: confie no `_catalogEndpoint`, não no fileoverview.
+O `@fileoverview` de `frontend/src/js/admin/catalog-tab.js` afirmava que as categorias "go through the existing `/api/v1/resources` admin CRUD", rota que não existe, **no próprio arquivo que faz o mapeamento por tipo**. Corrigido em 2026-07-25; a autoridade é o `_catalogEndpoint`.
 
 > **Nota histórica.** O guia §3.2 afirma que `active` não é incluído na resposta de listagem. É incluído (`COLS` em `backend/src/modules/catalog/catalog.service.js:9`). A parte correta é que a listagem só devolve `active = true`.
 

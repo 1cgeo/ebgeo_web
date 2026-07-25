@@ -28,11 +28,11 @@ O contador de edição pendente é incrementado em `frontend/src/js/store/sync/o
 
 ## Contradições
 
-> [!CONTRADICAO] `BRIEFING` substitui em bloco e **não** está guardado.
-> O comentário de `CONVERGENCE_GUARDED` (`frontend/src/js/store/sync/remote-operation-handler.js:110-113`) justifica o conjunto como "os tipos cujo UPDATE substitui em bloco". Mas `applyRemoteBriefingOp` faz `saveBriefing(briefingId, data)` com o objeto inteiro, incluindo o array de slides, e `BRIEFING` está fora do conjunto ([[tipos-entidade-sync]]). Como o slide isolado é no-op inbound e converge pelo briefing pai, dois usuários editando slides do mesmo briefing não têm proteção LWW nenhuma: o último a chegar leva o array inteiro. Ou o racional do comentário está incompleto, ou falta `BRIEFING` no conjunto.
+**`BRIEFING` entrou no conjunto guardado em 2026-07-25**, e a ausência dele contradizia o critério que o próprio comentário do `CONVERGENCE_GUARDED` declara ("os tipos cujo UPDATE substitui em bloco"): `applyRemoteBriefingOp` faz `saveBriefing(briefingId, data)` com o objeto inteiro, array de slides incluído. Como o slide isolado é no-op inbound e converge pelo briefing pai, dois usuários editando slides do mesmo briefing não tinham proteção LWW nenhuma, e o último a chegar levava o array inteiro, apagando o trabalho do outro sem erro.
 
-> [!CONTRADICAO] A op bufferizada perde as chaves de junção do [[syncledger]].
-> `applyRemoteFeatureOp` é declarada com 5 parâmetros (`:389`) e chamada com 7 (`:68`, `:282`), passando `opId` e `traceId` que a função ignora. Pior: ela bufferiza só `{opType, featureId, data, serverVersion}` (`:397`), enquanto `drainPendingFeatureOps` lê `op.opId` e `op.traceId` (`:68`, `:72-77`). Os spans `apply.persist` do replay saem com `opId` indefinido, ou seja, o elo full-chain se rompe exatamente no caso que o buffer existe para cobrir.
+O detalhe que faz a correção ser de uma linha: **este `Set` é a fonte única das DUAS metades do guarda.** O `operation-dispatcher.js` também gateia por ele para marcar a edição local pendente, então acrescentar o tipo liga o defer e a checagem de versão juntos. Ao criar entidade nova cujo UPDATE substitui em bloco, o conjunto é o único lugar a tocar.
+
+**A op bufferizada passou a carregar as chaves de junção do [[syncledger]]**, também em 2026-07-25. `applyRemoteFeatureOp` era declarada com 5 parâmetros e chamada com 7: os dois call sites já passavam `opId` e `traceId`, e a assinatura os descartava, então o buffer nascia sem eles. O `drainPendingFeatureOps` lê `op.opId`/`op.traceId` ao emitir o span `apply.persist` do replay, que saía com a chave indefinida. O elo full-chain se rompia exatamente no caminho bufferizado, que é o mais difícil de diagnosticar sem ele.
 
 Cobertura: `frontend/tests/integration/remote-operation-handler.test.js:1160`.
 

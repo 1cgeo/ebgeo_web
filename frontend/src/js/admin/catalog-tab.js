@@ -3,9 +3,11 @@
 /**
  * @fileoverview "Catálogo" tab of the admin panel. Manages catalog METADATA only — never the files
  * themselves (3D model bytes, 360 bundles, thumbnails/videos are populated out-of-band; the metadata
- * just references their paths). Resource categories (tileset/data_layer/analysis_layer/basemap) go
- * through the existing /api/v1/resources admin CRUD; the `config` (rich, MapLibre-expression-heavy)
- * is edited as JSON. 360 projects are managed via the sv360 admin routes (list/enable/disable/delete)
+ * just references their paths). Resource categories (tileset/data_layer/analysis_layer/basemap) each
+ * have their OWN table and CRUD route, resolved by `_catalogEndpoint` — there is no single
+ * /api/v1/resources route, and this fileoverview claimed there was until 2026-07-25, in the very
+ * file that maps per type. Confie no `_catalogEndpoint`, não nesta prosa. The `config` (rich,
+ * MapLibre-expression-heavy) is edited as JSON. 360 projects are managed via the sv360 admin routes (list/enable/disable/delete)
  * — the bundle upload is out-of-band.
  *
  * Dynamic text via textContent; JSON is parsed/validated before save (never innerHTML with data).

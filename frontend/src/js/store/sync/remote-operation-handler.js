@@ -122,6 +122,17 @@ export const CONVERGENCE_GUARDED = new Set([
     EntityType.CAMERA_POSITION_3D,
     EntityType.ORIENTATION_360,
     EntityType.MARKER_360,
+    // BRIEFING entrou em 2026-07-25, e a ausência dele contradizia o critério declarado
+    // logo acima: `applyRemoteBriefingOp` faz `saveBriefing(briefingId, data)` com o objeto
+    // INTEIRO, array de slides incluído, que é a definição de "substitui em bloco". Como o
+    // slide isolado é no-op inbound e converge pelo briefing pai, dois usuários editando
+    // slides do mesmo briefing não tinham proteção LWW nenhuma: o último a chegar levava o
+    // array inteiro e o trabalho do outro sumia sem erro.
+    //
+    // Repare por que basta acrescentar aqui: este Set é a fonte única das DUAS metades do
+    // guarda. `operation-dispatcher.js:147` também gateia por ele para marcar a edição local
+    // pendente, então o defer e a checagem de versão ligam juntos.
+    EntityType.BRIEFING,
 ]);
 
 /** @returns {boolean} Whether an inbound op of `serverVersion` should apply to `entityKey`. */
@@ -385,8 +396,17 @@ function findFeatureIndex(features, featureId) {
  * @param {string} featureId - Feature UUID
  * @param {string} mapId - Map UUID
  * @param {Object} data - Feature GeoJSON data
+ * @param {number} [serverVersion] - Server arrival order, for the LWW guard
+ * @param {string} [opId] - Op id, the SyncLedger join key
+ * @param {string} [traceId] - Trace id, minted per user gesture
+ *
+ * `opId` e `traceId` são declarados aqui de propósito, ainda que a função não os use no
+ * caminho direto: os dois call sites já os passavam (`:68` e `:282`) e a assinatura os
+ * descartava, então o buffer nascia sem as chaves de junção do SyncLedger. `drainPendingFeatureOps`
+ * lê `op.opId`/`op.traceId` ao emitir o span `apply.persist` do replay, e eles saíam
+ * indefinidos: o elo full-chain se rompia exatamente no caso que o buffer existe para cobrir.
  */
-async function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersion) {
+async function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersion, opId, traceId) {
     const repo = getRepository();
     const mapData = await repo.getMap(mapId);
     if (!mapData) {
@@ -394,7 +414,10 @@ async function applyRemoteFeatureOp(opType, featureId, mapId, data, serverVersio
         // map/create op (A creates a map and immediately draws on it). Buffer instead of
         // dropping (which was silent data loss); drainPendingFeatureOps replays it once the
         // map lands (applyRemoteMapOp CREATE / applyRemoteSnapshot).
-        bufferPendingFeatureOp(mapId, { opType, featureId, data, serverVersion });
+        // `opId` e `traceId` viajam no buffer: sem eles o span `apply.persist` do replay sai
+        // com a chave de junção indefinida e o SyncLedger perde o elo justamente no caminho
+        // bufferizado, que é o mais difícil de diagnosticar sem ele.
+        bufferPendingFeatureOp(mapId, { opType, featureId, data, serverVersion, opId, traceId });
         return false;
     }
 

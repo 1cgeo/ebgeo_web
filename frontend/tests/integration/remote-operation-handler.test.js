@@ -102,6 +102,8 @@ import {
     reconcilePendingLocalEdits,
 } from '../../src/js/store/sync/remote-operation-handler.js';
 import { EntityType, OperationType } from '../../src/js/store/sync/operation-types.js';
+import { setTracing, clearTrace, getTrace } from '../../src/js/store/sync/diag/trace-core.js';
+import { TraceStage } from '../../src/js/store/sync/diag/trace-stages.js';
 import { EventTypes } from '../../src/js/events/event_types.js';
 import { memoryStore } from '../../src/js/store/memory-store.js';
 import { readFileSync } from 'node:fs';
@@ -391,6 +393,49 @@ describe('Remote Feature Operations', () => {
         expect(map.features.points.some((f) => f.properties.id === 'pending-feat')).toBe(true);
     });
 
+    // O caso acima prova que o DADO sobrevive ao buffer. Este prova que a OBSERVABILIDADE
+    // sobrevive junto, e os dois são independentes: até 2026-07-25 o dado chegava e as chaves
+    // de junção não. `applyRemoteFeatureOp` era declarada com 5 parâmetros e chamada com 7, e o
+    // buffer guardava só quatro campos, então o span `apply.persist` do replay saía com `opId`
+    // indefinido. O elo full-chain se rompia exatamente no caminho bufferizado, que é o mais
+    // difícil de diagnosticar justamente por ser o assíncrono.
+    it('o span apply.persist do replay carrega opId e traceId (elo do SyncLedger)', async () => {
+        setTracing(true);
+        clearTrace();
+        try {
+            await applyRemoteOperation({
+                id: 'op-buffered-1',
+                traceId: 'trace-buffered-1',
+                entityType: EntityType.FEATURE,
+                operationType: OperationType.CREATE,
+                entityId: 'feat-traced',
+                mapId: 'map-traced',
+                serverVersion: 7,
+                data: { ...testFeature, properties: { ...testFeature.properties, id: 'feat-traced' } },
+            });
+            // Premissa: nada foi aplicado ainda, ou seja, o caso realmente passou pelo buffer.
+            expect(mapDataStore.get('map-traced')).toBeUndefined();
+
+            await applyRemoteOperation({
+                entityType: EntityType.MAP,
+                operationType: OperationType.CREATE,
+                entityId: 'map-traced',
+                mapId: null,
+                data: { id: 'map-traced', name: 'Map Traced', features: { points: [], lines: [] } },
+            });
+
+            const spans = getTrace().filter(
+                (s) => s.stage === TraceStage.APPLY_PERSIST && s.entityId === 'feat-traced'
+            );
+            expect(spans).toHaveLength(1);
+            expect(spans[0].opId).toBe('op-buffered-1');
+            expect(spans[0].traceId).toBe('trace-buffered-1');
+        } finally {
+            clearTrace();
+            setTracing(false);
+        }
+    });
+
     // Regression — concurrent-edit divergence: an UPDATE OLDER (lower serverVersion) than the
     // last applied — a concurrent peer edit that lost the arrival-order race — must be IGNORED,
     // so both clients converge to the highest-serverVersion value (LWW by arrival order).
@@ -471,6 +516,58 @@ describe('Remote Briefing Operations', () => {
             EventTypes.BRIEFING_DELETED,
             expect.objectContaining({ briefingId: 'briefing-1' })
         );
+    });
+
+    // BRIEFING entrou em CONVERGENCE_GUARDED em 2026-07-25. Antes disso, o UPDATE de briefing
+    // substituía o objeto INTEIRO (array de slides incluído) sem nenhuma checagem de ordem,
+    // então dois usuários editando slides do mesmo briefing perdiam trabalho em silêncio: o
+    // último frame a chegar levava o array todo, mesmo que fosse o mais VELHO por ordem de
+    // chegada no servidor. O slide isolado é no-op inbound e converge pelo pai, então não
+    // havia nenhuma outra camada para segurar isso.
+    it('ignora um UPDATE de briefing com serverVersion MENOR (LWW por ordem de chegada)', async () => {
+        await applyRemoteOperation({
+            entityType: EntityType.BRIEFING,
+            operationType: OperationType.CREATE,
+            entityId: 'briefing-lww',
+            serverVersion: 20,
+            data: { id: 'briefing-lww', name: 'v20', slides: [{ id: 's1', title: 'do par A' }] },
+        });
+        expect(briefingStore.get('briefing-lww').name).toBe('v20');
+
+        // Entregue DEPOIS, porém mais velho: tem que ser descartado.
+        await applyRemoteOperation({
+            entityType: EntityType.BRIEFING,
+            operationType: OperationType.UPDATE,
+            entityId: 'briefing-lww',
+            serverVersion: 10,
+            data: { id: 'briefing-lww', name: 'v10-velho', slides: [] },
+        });
+
+        const guardado = briefingStore.get('briefing-lww');
+        expect(guardado.name).toBe('v20');
+        // O slide do par A sobreviveu, que é o dano concreto que o guarda evita.
+        expect(guardado.slides).toHaveLength(1);
+    });
+
+    it('CONTROLE: um UPDATE de briefing MAIS NOVO continua aplicando', async () => {
+        // Sem este caso, um guarda que recusasse TODO update passaria no anterior.
+        await applyRemoteOperation({
+            entityType: EntityType.BRIEFING,
+            operationType: OperationType.CREATE,
+            entityId: 'briefing-fwd',
+            serverVersion: 5,
+            data: { id: 'briefing-fwd', name: 'v5', slides: [] },
+        });
+        await applyRemoteOperation({
+            entityType: EntityType.BRIEFING,
+            operationType: OperationType.UPDATE,
+            entityId: 'briefing-fwd',
+            serverVersion: 9,
+            data: { id: 'briefing-fwd', name: 'v9', slides: [{ id: 's2', title: 'novo' }] },
+        });
+
+        expect(briefingStore.get('briefing-fwd').name).toBe('v9');
+        expect(briefingStore.get('briefing-fwd').slides).toHaveLength(1);
     });
 });
 

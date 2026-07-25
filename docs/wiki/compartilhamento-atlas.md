@@ -6,7 +6,7 @@ Concessão nominal de acesso a um atlas gravada em `atlas_shares`, gerida por qu
 
 O `CHECK` de `atlas_shares` só aceita `read|comment|write|manage`; `owner` é sintetizado de `atlas.owner_id` em `resolvePermission()` (`backend/src/middleware/permissions.js:30-48`). Essa ausência é o contrato congelado do qual quase toda armadilha abaixo deriva. Consequência imediata: **remover o dono devolve 404**, porque `DELETE ... RETURNING` não acha linha e vira `NotFoundError('Share')` (`backend/src/modules/sharing/sharing.service.js:51-57`).
 
-> [!CONTRADICAO 2026-07-25] O comentário em `backend/src/modules/sharing/sharing.routes.js:11-14` afirma que remover o dono é "a no-op on them". Não é: é 404. O comentário mente sobre o service que ele mesmo monta.
+**Remover o dono é 404, não no-op.** O comentário de `backend/src/modules/sharing/sharing.routes.js` afirmava "a no-op on them" e foi corrigido em 2026-07-25. A diferença importa para quem escreve cliente: no-op se trata como sucesso, 404 não.
 
 Enviar `permission: 'owner'` no corpo é **400 e não 403**, porque quem barra é o Joi (`backend/src/modules/sharing/sharing.schemas.js:6`), não o gate de permissão. Ver [[permissoes-atlas]], [[atlas-modelo-de-dados]] e [[erros-api]].
 
@@ -14,7 +14,7 @@ Enviar `permission: 'owner'` no corpo é **400 e não 403**, porque quem barra �
 
 Todas as rotas exigem `manage`, não `owner`. Um co-Gestor pode conceder até `manage`, ou seja, **criar outros co-Gestores e remover quem o promoveu**. Não há proteção contra auto-rebaixamento nem contra remoção mútua entre gestores; foi aceito assim porque a posse real só muda pela rota de transferência (owner-only), que é o único degrau irreversível. Ver [[atlas-modelo-de-dados]].
 
-> [!CONTRADICAO 2026-07-25] O JSDoc do modal (`frontend/src/js/modals/sharing.modal.js:15-16` e `735-736`) afirma que "the backend also enforces owner-only on every mutation". O gate real é `manage` (`backend/src/modules/sharing/sharing.routes.js:15-20`). Não use esse JSDoc para decidir quando oferecer o botão.
+O JSDoc de `frontend/src/js/modals/sharing.modal.js` afirmava, em dois lugares, que "the backend also enforces owner-only on every mutation". O gate real é `manage`, e os dois foram corrigidos em 2026-07-25. O custo do engano era concreto: um chamador que confiasse naquele JSDoc esconderia o botão justamente do co-Gestor, que é para quem o compartilhamento existe.
 
 ## Armadilhas de comportamento
 
