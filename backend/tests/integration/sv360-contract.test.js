@@ -149,6 +149,35 @@ describe('StreetView 360 — read-only contract', () => {
     assert.ok(!slugs.includes(DISABLED_SLUG));
   });
 
+  // The shape, not just the slugs. This endpoint inherits the legacy service's
+  // contract (`ebgeo_360/src/routes/projects.js` formatProject): camelCase, with
+  // the coordinates NESTED under `center`. Returning the raw snake_case row passed
+  // every assertion above while breaking all three frontend consumers at once —
+  // `streetview_markers.js` throws on `p.center.lon`, so the 2D 360 layer silently
+  // never renders. Asserting `slug`/`name` survived is not asserting the shape.
+  it('returns the FROZEN project shape: camelCase + nested center + previewThumbnail', async () => {
+    const res = await supertest(app).get('/api/v1/sv360/projects').expect(200);
+    const p = res.body.find((x) => x.slug === SLUG);
+    assert.ok(p, 'the enabled project is listed');
+
+    assert.deepEqual(p.center, { lat: -23.5, lon: -46.6 }, 'coordinates nested under center');
+    assert.equal(p.photoCount, 2, 'photoCount is camelCase');
+    assert.equal(p.previewThumbnail, `/thumbnails/${SLUG}.webp`, 'relative, without /api/v1');
+    assert.ok('entryPhotoId' in p, 'entryPhotoId is camelCase');
+    assert.ok('captureDate' in p, 'captureDate is present (null when unknown)');
+
+    // The snake_case row names must NOT leak back in: a consumer reading
+    // `p.center.lon` breaks the moment the flat pair reappears.
+    assert.equal(p.center_lat, undefined, 'no flat center_lat');
+    assert.equal(p.center_long, undefined, 'no flat center_long');
+    assert.equal(p.photo_count, undefined, 'no snake_case photo_count');
+    assert.equal(p.entry_photo_id, undefined, 'no snake_case entry_photo_id');
+
+    // Storage-layout fields stay server-side for an anonymous caller.
+    assert.equal(p.db_filename, undefined, 'the on-disk filename is not public');
+    assert.equal(p.organization_id, undefined, 'nor the owning org UUID');
+  });
+
   // (b) frozen photo metadata shape
   it('returns the FROZEN photoMetadataShape for a photo', async () => {
     const res = await supertest(app).get(`/api/v1/sv360/photos/${photoId}`).expect(200);
@@ -249,4 +278,7 @@ describe('StreetView 360 — read-only contract', () => {
     const res = await supertest(app).get(`/api/v1/sv360/photos/${missing}`).expect(404);
     assert.equal(typeof res.body.error, 'string'); // flat { error: '...' }, NOT { error: { code } }
   });
+
+  // (e) A UUID v4 photo id (the whole legacy corpus) must reach the lookup rather
+  // than the format guard — pinned in sv360-gaps.test.js §sv360-07, not duplicated here.
 });

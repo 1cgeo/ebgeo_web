@@ -15,10 +15,18 @@ import { getEventBus, registerControl } from '@store';
 import { EventTypes } from '@events/event_types.js';
 import StreetviewMarkers from './streetview_markers.js';
 import SavedPhotosMarkers from './saved_photos_markers.js';
+import { withAbsoluteTiles } from './streetview-api.service.js';
 import { STYLE_MINI_MAPA } from './street-view-mini-map-style.js';
 
-// Property name used in PMTiles to identify photos
-const PHOTO_PROPERTY = 'photo_uuid';
+// Property carrying the photo id on the 360 photo features.
+//
+// It is `id`, the name the backend's MVT tile emits (alongside `projectSlug`,
+// `img`, `sequence_number`). It was `photo_uuid` — the LEGACY PMTiles name, which
+// no longer exists on any feature the map receives. The lookup therefore never
+// matched and every click on a 360 photo fell through to "No photo found near
+// clicked point": opening the viewer from the 2D map was completely dead, and
+// silently, because a missing property is undefined rather than an error.
+const PHOTO_PROPERTY = 'id';
 
 class AddStreetViewControl {
 
@@ -174,7 +182,7 @@ class AddStreetViewControl {
                     maplibregl.addProtocol("pmtiles", protocol.tile);
                 }
 
-                this.miniMap.addSource(this.streetViewPointsLayer['source'], config.streetView360.pointsSource);
+                this.miniMap.addSource(this.streetViewPointsLayer['source'], withAbsoluteTiles(config.streetView360.pointsSource));
 
                 const pointImage = await this.miniMap.loadImage('./street_view/point.png');
                 await this.miniMap.addImage('point', pointImage.data);
@@ -245,7 +253,7 @@ class AddStreetViewControl {
     loadData = async () => {
         try {
             if (!this.map.getSource(this.streetViewPointsLayer['source'])) {
-                this.map.addSource(this.streetViewPointsLayer['source'], config.streetView360.pointsSource);
+                this.map.addSource(this.streetViewPointsLayer['source'], withAbsoluteTiles(config.streetView360.pointsSource));
                 const onPhotosSourceData = (e) => {
                     if (e.sourceId === this.streetViewPointsLayer['source'] && this.map.isSourceLoaded(this.streetViewPointsLayer['source'])) {
                         if (!this.map.getLayer(this.streetViewPointsLayer['id'])) {
@@ -261,7 +269,7 @@ class AddStreetViewControl {
             }
 
             if (!this.map.getSource(this.streetViewLinesLayer['source'])) {
-                this.map.addSource(this.streetViewLinesLayer['source'], config.streetView360.linesSource);
+                this.map.addSource(this.streetViewLinesLayer['source'], withAbsoluteTiles(config.streetView360.linesSource));
 
                 const onLinesSourceData = (e) => {
                     if (e.sourceId === this.streetViewLinesLayer['source'] && this.map.isSourceLoaded(this.streetViewLinesLayer['source'])) {

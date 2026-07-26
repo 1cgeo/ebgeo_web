@@ -15,11 +15,21 @@ export const slugParamSchema = Joi.object({
   slug: Joi.string().trim().min(1).max(255).required(),
 });
 
-// :uuid path param — photo id (TEXT uuid v5 string).
+// :uuid path param — photo id.
+//
+// v4 AND v5, deliberately. The studio mints ids as deterministic uuidv5 (D9.6),
+// so pinning the nibble to v5 read as tightening. It is not: photo ids are DATA
+// carried in from the studio's index.db, and the real legacy corpus is 100% v4
+// (98.690/98.690 in the production dump). Against a v5-only guard, every imported
+// photo answers 422 on BOTH `GET /photos/:uuid` and `/photos/:uuid/image` — the
+// whole migrated archive is unreachable while the projects list looks healthy.
+// The frontend already accepts any canonical UUID for exactly this reason
+// (`streetview-api.service.js` UUID_RE); this makes the backend agree.
+// The version nibble is not an access check — readability is enforced in SQL.
 export const uuidParamSchema = Joi.object({
   uuid: Joi.string()
     .trim()
-    .guid({ version: ['uuidv5'] })
+    .guid({ version: ['uuidv4', 'uuidv5'] })
     .required(),
 });
 
@@ -30,12 +40,19 @@ export const nomeParamSchema = Joi.object({
 
 // :slug path param for GET /thumbnails/:slug.webp — the Express route declares
 // '/thumbnails/:slug.webp', so Express strips the literal '.webp' suffix and the
-// param holds just the slug. Restrict to the project slug charset (lowercase
-// kebab) so a traversal token never reaches the service (which also basenames it).
+// param holds just the slug. Restricted to the project slug charset so a traversal
+// token never reaches the service (which also basenames it).
+//
+// The charset is the one `normalizeSlug` (sv360.merge.js) defines as
+// filesystem-safe — `[a-z0-9_-]`, UNDERSCORE INCLUDED. This pattern said kebab-only
+// and was the outlier: real project slugs carry underscores (`27o_gac`,
+// `ponta_grossa_1`, `santana_livramento` — 14 of the 28 in the production corpus),
+// so half the archive answered 422 on its thumbnail. The bound that matters here is
+// "no path separator, no traversal", which `_` does not weaken.
 export const thumbnailSlugParamSchema = Joi.object({
   slug: Joi.string()
     .trim()
-    .pattern(/^[a-z0-9-]+$/)
+    .pattern(/^[a-z0-9_-]+$/)
     .min(1)
     .max(255)
     .required(),

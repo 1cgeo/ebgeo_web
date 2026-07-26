@@ -53,12 +53,12 @@ function enforceProjectReadable(project, user, resource = 'Project') {
  * Lists visible projects for the caller. `enabled` is always public; the SQL
  * already filters disabled projects to admin / owning-org.
  * @param {Object} [user]
- * @returns {Promise<Array>} project rows
+ * @returns {Promise<Array>} projects in the frozen public shape
  */
 export async function listProjects(user) {
   const isAdmin = user?.role === 'admin';
   const { rows } = await query(Q.LIST_PROJECTS, [isAdmin, user?.organization_id ?? null]);
-  return rows;
+  return rows.map((r) => publicProjectView(r, user));
 }
 
 /**
@@ -78,26 +78,64 @@ export async function getProject(slug, user) {
 }
 
 /**
- * Strips server-internal fields from a project row before it leaves the API.
- *
- * The controller used to serialize the raw row, and the route is `flexibleAuth`, so an
- * anonymous caller reading any `enabled` project also received `db_filename` and
- * `organization_id`. Since `deriveDbFilename` builds `${orgId}__${slug}.db`, that pair
- * hands out the owning organization's internal UUID and the exact filename on disk
- * under SV360_DB_DIR — neither of which any client needs, and both of which describe
- * the server's storage layout.
- *
- * No contract test pinned this response shape, which is how the fields got out
- * unreviewed; `sv360-contract.test.js` mentions `db_filename` only in fixture INSERTs.
- * Admins keep the full row: the admin surface manages those files by name.
+ * Path segment of the static thumbnails, RELATIVE to the API base — the client
+ * concatenates it with `streetView360.serviceUrl` (which already ends in the
+ * module mount), so it must NOT carry the `/api/v1` prefix. Same rule as the
+ * photo metadata's `previewThumbnail`.
  */
-const PROJECT_INTERNAL_FIELDS = ['db_filename', 'organization_id'];
+const THUMBNAILS_SEGMENT = '/thumbnails';
 
+/**
+ * Maps a `sv360.projects` row to the FROZEN public project shape.
+ *
+ * This shape is NOT this module's invention: it is the contract of the legacy
+ * service the frontend was written against (`ebgeo_360/src/routes/projects.js`
+ * `formatProject`) — camelCase, with the coordinates NESTED under `center`. The
+ * row's own column names are snake_case and flat, and returning the row verbatim
+ * broke all three consumers at once, silently and only once real data existed:
+ * `streetview_markers.js` (TypeError on `p.center.lon`, so the 2D 360 layer never
+ * renders), `search-bar.search-providers.js` (360 results lose coordinates) and
+ * `atlas-settings.modal.js` (no 360 thumbnails in the catalog). The seed/test
+ * fixtures never caught it because no test pinned anything beyond `slug`/`name`.
+ *
+ * Reshaping (rather than deleting fields from the row) also subsumes the older
+ * leak fix: the route is `flexibleAuth`, and the raw row handed anonymous callers
+ * `db_filename` + `organization_id` — which together spell out `${orgId}__{slug}.db`,
+ * i.e. the owning org's internal UUID and the exact path under SV360_DB_DIR. An
+ * allowlist cannot leak a column it does not name.
+ *
+ * Admin extras are ADDITIVE on top of the same shape, never a different shape: an
+ * admin is also an ordinary user of the 2D map, and returning the raw row to them
+ * meant the 360 layer broke for admins ONLY — the worst kind of role-dependent bug.
+ *
+ * `description` / `captureDate` / `location` have no column in `sv360.projects`
+ * (the legacy SQLite carried them); they are emitted as null to keep the shape
+ * stable for consumers that read them.
+ * @param {Object} project - a sv360.projects row
+ * @param {Object} [user]
+ * @returns {Object} the public project view
+ */
 function publicProjectView(project, user) {
-  if (user?.role === 'admin') return project;
-  const out = { ...project };
-  for (const f of PROJECT_INTERNAL_FIELDS) delete out[f];
-  return out;
+  const view = {
+    id: project.id,
+    slug: project.slug,
+    name: project.name,
+    description: project.description ?? null,
+    captureDate: project.capture_date ?? null,
+    location: project.location ?? null,
+    center: { lat: project.center_lat, lon: project.center_long },
+    entryPhotoId: project.entry_photo_id ?? null,
+    previewThumbnail: `${THUMBNAILS_SEGMENT}/${project.slug}.webp`,
+    photoCount: project.photo_count,
+    status: project.status,
+  };
+  if (user?.role === 'admin') {
+    // The admin surface manages the on-disk stores by name. Undefined when the
+    // query did not select them (LIST_PROJECTS does not), and JSON drops those.
+    view.db_filename = project.db_filename;
+    view.organization_id = project.organization_id;
+  }
+  return view;
 }
 
 /**
@@ -354,7 +392,7 @@ export function buildPhotoMetadata(photo, targets) {
     // The URL is slug-only, but the FILE on disk is org-keyed
     // ({orgId}__{slug}.webp, derived from db_filename at ingestion); the route
     // GET /sv360/thumbnails/:slug.webp resolves one to the other.
-    previewThumbnail: `/thumbnails/${photo.project_slug}.webp`,
+    previewThumbnail: `${THUMBNAILS_SEGMENT}/${photo.project_slug}.webp`,
     targets: targets.map((t) => ({
       id: t.target_id,
       img: t.target_name,

@@ -60,13 +60,34 @@ export const MVT_TILE = `
       WHERE v.geom && b.env4326
     ) t
   ),
+  -- The project's REAL capture segments (sv360.tracks), one row per run. Only for
+  -- projects the "visible" CTE already admitted, so the access filter still lives
+  -- in one place. (No backticks in here: this SQL is a JS template literal.)
+  tracked AS (
+    SELECT tk.project_id, tk.geom AS line
+    FROM sv360.tracks tk
+    WHERE tk.project_id IN (SELECT DISTINCT v.project_id FROM visible v)
+  ),
   trajectories AS (
-    -- One LineString per project, photos joined in sequence order. A project with
-    -- a single photo yields no line (ST_MakeLine of 1 point is a degenerate
-    -- geometry — filtered by ST_NumPoints >= 2).
+    -- Prefer the imported tracks; synthesize only for a project that has none.
+    --
+    -- The synthesized form is ONE LineString per project joining its photos in
+    -- sequence order, and it is a poor stand-in whenever a project was captured in
+    -- more than one run: the line teleports between runs and the map draws a
+    -- criss-cross that matches no path anyone walked (1pef: 34 real segments
+    -- collapsed into 1). It stays as the fallback because it is what every project
+    -- ingested before sv360.tracks existed still has, and a project with a single
+    -- run renders identically either way. A project with one photo yields no line
+    -- (ST_MakeLine of 1 point is degenerate — filtered by ST_NumPoints >= 2).
+    SELECT t.project_id, v.project_slug, t.line
+    FROM tracked t
+    JOIN (SELECT DISTINCT project_id, project_slug FROM visible) v
+      ON v.project_id = t.project_id
+    UNION ALL
     SELECT v.project_id, v.project_slug,
            ST_MakeLine(v.geom ORDER BY v.sequence_number) AS line
     FROM visible v
+    WHERE NOT EXISTS (SELECT 1 FROM tracked t WHERE t.project_id = v.project_id)
     GROUP BY v.project_id, v.project_slug
   ),
   linha AS (

@@ -13,7 +13,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, statSync, writeFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { setupTestEnv, teardownTestEnv } from '../helpers/setup.js';
@@ -32,6 +32,8 @@ function uuidv5(name) {
 const SLUG = 'proj-etl';
 const SKIP_SLUG = 'proj-etl-missing-db';
 const DB_FILENAME = `${SLUG}.db`;
+// FIX-1: the dest filename is the SERVER-DERIVED org-scoped name, not the legacy one.
+const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
 
 const p1 = uuidv5('default/proj-etl/etl-foto001.jpg');
 const p2 = uuidv5('default/proj-etl/etl-foto002.jpg');
@@ -41,9 +43,10 @@ const full1 = Buffer.from('RIFFxxxxWEBPetl-full-001-payload-zzzzzz');
 const prev1 = Buffer.from('RIFFxxxxWEBPetl-prev-001');
 const full2 = Buffer.from('RIFFxxxxWEBPetl-full-002-payload-yyyyyy');
 const prev2 = Buffer.from('RIFFxxxxWEBPetl-prev-002');
+const THUMB_BYTES = Buffer.from('RIFFxxxxWEBPetl-project-thumbnail');
 
 describe('StreetView 360 — offline ETL (importIndexDb)', () => {
-  let db, tmpRoot, srcDir, destDir, indexDbPath;
+  let db, tmpRoot, srcDir, destDir, thumbDir, indexDbPath;
   const silentLogger = { info: () => {}, warn: () => {}, error: () => {} };
 
   // Build the legacy index.db (organizations/projects/photos/targets/deleted_photos).
@@ -122,12 +125,17 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
     tmpRoot = path.join(os.tmpdir(), `sv360-etl-${crypto.randomUUID().slice(0, 8)}`);
     srcDir = path.join(tmpRoot, 'src');
     destDir = path.join(tmpRoot, 'dest');
+    thumbDir = path.join(tmpRoot, 'thumbnails');
     mkdirSync(srcDir, { recursive: true });
     mkdirSync(destDir, { recursive: true });
+    mkdirSync(thumbDir, { recursive: true });
     indexDbPath = path.join(tmpRoot, 'index.db');
 
     buildIndexDb();
     buildSourceDb();
+    // Only project A gets a thumbnail; project B has none (the real corpus has
+    // 6 of 28 missing), which must NOT fail its import.
+    writeFileSync(path.join(thumbDir, `${SLUG}.webp`), THUMB_BYTES);
   });
 
   after(async () => {
@@ -183,9 +191,7 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
     assert.equal(Number(geo[0].lon), -46.6);
     assert.equal(Number(geo[0].lat), -23.5);
 
-    // {slug}.db copied to dest with both rows. FIX-1: the dest filename is the
-    // SERVER-DERIVED org-scoped name (default org), NOT the legacy index.db name.
-    const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
+    // {slug}.db copied to dest with both rows, under the server-derived name.
     const copied = path.join(destDir, `${DEFAULT_ORG_ID}__${SLUG}.db`);
     assert.ok(existsSync(copied), 'expected derived {slug}.db copied to dest');
     const cdb = new Database(copied, { readonly: true });
@@ -213,5 +219,70 @@ describe('StreetView 360 — offline ETL (importIndexDb)', () => {
       [proj[0].id]
     );
     assert.equal(photos[0].n, 2, 'still exactly 2 photos after rerun');
+  });
+
+  it('transfer:"link" hardlinks instead of copying, and a rerun keeps the source intact', async () => {
+    const linkDir = path.join(tmpRoot, 'linked');
+    mkdirSync(linkDir, { recursive: true });
+    const srcPath = path.join(srcDir, DB_FILENAME);
+    const linkPath = path.join(linkDir, `${DEFAULT_ORG_ID}__${SLUG}.db`);
+
+    const { imported } = await importIndexDb(indexDbPath, {
+      dbDirSource: srcDir,
+      dbDirDest: linkDir,
+      thumbDirSource: thumbDir,
+      transfer: 'link',
+      logger: silentLogger,
+    });
+    assert.ok(imported.some((r) => r.slug === SLUG), 'proj-etl should import in link mode');
+
+    // The distinguishing property vs. a copy: SAME inode, and the source now has
+    // ≥2 directory entries. A copy would produce a different ino and nlink 1.
+    const srcStat = statSync(srcPath);
+    const linkStat = statSync(linkPath);
+    assert.equal(linkStat.ino, srcStat.ino, 'dest must be the same inode as the source');
+    assert.ok(srcStat.nlink >= 2, `expected nlink >= 2 after linking, got ${srcStat.nlink}`);
+
+    // Rerunning over a live link must relink, not truncate-through to the source:
+    // linkSync fails EEXIST, so the dest is removed first, and removing a LINK must
+    // never touch the shared data. Reading the payload back is what proves it.
+    await importIndexDb(indexDbPath, {
+      dbDirSource: srcDir,
+      dbDirDest: linkDir,
+      transfer: 'link',
+      logger: silentLogger,
+    });
+    const ldb = new Database(linkPath, { readonly: true });
+    const row = ldb.prepare('SELECT full_webp AS f FROM images WHERE photo_id = ?').get(p1);
+    const total = ldb.prepare('SELECT COUNT(*) AS n FROM images').get().n;
+    ldb.close();
+    assert.equal(total, 2, 'both image rows survive the relink');
+    assert.deepEqual(Buffer.from(row.f), full1, 'BLOB bytes survive the relink');
+  });
+
+  it('transfers the project thumbnail under the ORG-KEYED name the serving route resolves', async () => {
+    const thumbOutDir = path.join(tmpRoot, 'thumb-dest');
+    mkdirSync(thumbOutDir, { recursive: true });
+
+    const { imported } = await importIndexDb(indexDbPath, {
+      dbDirSource: srcDir,
+      dbDirDest: thumbOutDir,
+      thumbDirSource: thumbDir,
+      logger: silentLogger,
+    });
+
+    // GET /sv360/thumbnails/:slug.webp resolves `{orgId}__{slug}.webp` inside
+    // SV360_DB_DIR — the legacy `{slug}.webp` name would 404.
+    const served = path.join(thumbOutDir, `${DEFAULT_ORG_ID}__${SLUG}.webp`);
+    assert.ok(existsSync(served), 'thumbnail must land under the org-keyed name');
+    assert.deepEqual(readFileSync(served), THUMB_BYTES, 'thumbnail bytes transferred intact');
+    assert.ok(
+      !existsSync(path.join(thumbOutDir, `${SLUG}.webp`)),
+      'and NOT under the legacy slug-only name, which the route would not find'
+    );
+
+    // A project whose thumbnail is absent still imports — reported, never fatal.
+    const projA = imported.find((r) => r.slug === SLUG);
+    assert.equal(projA.thumbnail, true, 'proj-etl reports its thumbnail transferred');
   });
 });

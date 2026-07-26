@@ -407,7 +407,10 @@ export class StreetViewNavigator {
                 ),
                 rank: placement.rank,
                 offscreen: true,
-                offscreenSide: projected.azimuthRelDeg > 0 ? 'right' : 'left'
+                offscreenSide: projected.azimuthRelDeg > 0 ? 'right' : 'left',
+                // Kept so a click on the edge arrow can TURN to the target: the
+                // arrow's whole message is "it is that many degrees away".
+                azimuthRelDeg: projected.azimuthRelDeg
             };
         }
 
@@ -663,6 +666,16 @@ export class StreetViewNavigator {
 
         if (hit) {
             if (hit.type === 'navigation') {
+                // An EDGE ARROW is not the target, it is a pointer AT the target:
+                // it only exists because the target is outside the field of view.
+                // Acting on it should bring the target into view, so the operator
+                // can see what they are about to walk into and then decide. Moving
+                // straight there teleported them somewhere they had never seen.
+                // The sphere marker (the target itself, on screen) still navigates.
+                if (hit.offscreen) {
+                    this.turnToTarget(hit);
+                    return { type: 'turn', target: hit.data };
+                }
                 // Navigation target clicked - navigate to it
                 this.navigateToTarget(hit.data);
                 return { type: 'navigation', target: hit.data };
@@ -686,6 +699,26 @@ export class StreetViewNavigator {
         }
 
         return null;
+    }
+
+    /**
+     * Turns the view until an off-screen target is in front of the operator.
+     *
+     * `azimuthRelDeg` is measured from the current view direction, positive to the
+     * right, which is exactly what `turnViewBy` consumes — so no conversion, and
+     * nothing here needs to know the photo's own heading.
+     *
+     * @param {Object} marker - The off-screen marker that was clicked
+     */
+    turnToTarget(marker) {
+        const delta = marker?.azimuthRelDeg;
+        if (!Number.isFinite(delta)) return;
+
+        import('../street_view_viewer.js')
+            .then(module => module.turnViewBy(delta))
+            .catch(error => {
+                console.error('Error turning towards target:', error);
+            });
     }
 
     /**

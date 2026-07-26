@@ -175,6 +175,23 @@ export const INSERT_TARGET = `
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `;
 
+// Drop the project's capture tracks before reinserting the manifest's (same
+// purge-then-reinsert shape as photos/targets — "último upload manda").
+//   $1 = project_id (uuid)
+export const PURGE_PROJECT_TRACKS = `
+  DELETE FROM sv360.tracks WHERE project_id = $1::uuid
+`;
+
+// Insert one capture track. The geometry arrives as a GeoJSON LineString string
+// (built from the manifest's coordinate array) rather than WKT: ST_GeomFromGeoJSON
+// takes the coordinates as DATA in a bind param, so no coordinate is ever
+// concatenated into SQL text.
+//   $1 = project_id (uuid), $2 = GeoJSON LineString (text), $3 = source (text)
+export const INSERT_TRACK = `
+  INSERT INTO sv360.tracks (project_id, geom, source)
+  VALUES ($1::uuid, ST_SetSRID(ST_GeomFromGeoJSON($2), 4326), $3)
+`;
+
 // Re-insert a carried-over photo tombstone. Idempotent on the PK.
 //   $1 = photo_id (text), $2 = deleted_at (timestamptz, nullable -> now())
 export const INSERT_TOMBSTONE = `

@@ -363,7 +363,8 @@ describe('StreetView 360 — audit gap coverage', () => {
   });
 
   // -------------------------------------------------------------------------
-  // sv360-07 — Malformed / non-uuidv5 :uuid on read+write routes → 422
+  // sv360-07 — Malformed :uuid on read+write routes → 422 (but a well-formed id
+  // of ANY canonical version reaches the lookup)
   // -------------------------------------------------------------------------
 
   it('sv360-07: GET /photos/:uuid with a non-uuid string → 422 flat error', async () => {
@@ -371,10 +372,23 @@ describe('StreetView 360 — audit gap coverage', () => {
     assert.equal(typeof res.body.error, 'string');
   });
 
-  it('sv360-07: GET /photos/:uuid with a valid uuidv4 → 422 (version constraint)', async () => {
-    const v4 = randomUUID(); // v4
-    const res = await supertest(app).get(url(`/photos/${v4}`)).expect(422);
-    assert.equal(typeof res.body.error, 'string');
+  // This case asserted 422 "(version constraint)" until the first real migration:
+  // the studio mints uuidv5, so v5-only looked like a tightening. It was not. Photo
+  // ids are DATA carried in from the studio's index.db, and the legacy corpus is
+  // 100% v4 (98.690/98.690 in the production dump) — so the guard 422'd BEFORE the
+  // lookup on every migrated photo, on both the metadata and the image route, while
+  // GET /projects still listed them happily. The whole archive was unreachable and
+  // the version nibble was never an access control (readability is enforced in SQL).
+  // 404 is the honest answer for a well-formed id that is simply absent; 422 claims
+  // the id could never exist.
+  it('sv360-07: GET /photos/:uuid with a valid uuidv4 → 404, not 422', async () => {
+    const v4 = randomUUID();
+    assert.equal(v4[14], '4', 'sanity: randomUUID is v4, so this exercises the v4 path');
+
+    for (const path of [`/photos/${v4}`, `/photos/${v4}/image`]) {
+      const res = await supertest(app).get(url(path));
+      assert.equal(res.status, 404, `${path} must reach the lookup, not the format guard`);
+    }
   });
 
   it('sv360-07: PUT /photos/:uuid/calibration with a non-uuid → 422 (validate rejects before the service)', async () => {

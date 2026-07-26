@@ -30,10 +30,12 @@ const floorLevel = Joi.number().integer();
 
 const calibrationReviewed = Joi.boolean();
 
-// Photo id (TEXT uuid v5) used in :uuid and :targetId path params and in bodies.
-const uuidV5 = Joi.string()
+// Photo id used in :uuid and :targetId path params and in bodies. v4 AND v5: the
+// studio mints v5, but an imported legacy corpus is v4, and a write route that
+// rejects v4 makes every migrated photo read-only. See sv360.schemas.js.
+const photoId = Joi.string()
   .trim()
-  .guid({ version: ['uuidv5'] });
+  .guid({ version: ['uuidv4', 'uuidv5'] });
 
 // --- aggregate calibration body --------------------------------------------
 
@@ -82,11 +84,11 @@ export const reviewedBodySchema = Joi.object({
 
 // --- target (adjacency) params + bodies ------------------------------------
 
-// :uuid + :targetId path params (both photo UUID v5). Composes with the stage-1
+// :uuid + :targetId path params (both photo ids). Composes with the stage-1
 // uuidParamSchema pattern from sv360.schemas.js.
 export const targetIdParamSchema = Joi.object({
-  uuid: uuidV5.required(),
-  targetId: uuidV5.required(),
+  uuid: photoId.required(),
+  targetId: photoId.required(),
 }).unknown(false);
 
 // PUT /photos/:uuid/targets/:targetId/override — each override is a number (SET)
@@ -108,7 +110,7 @@ export const targetVisibilityBodySchema = Joi.object({
 // (distance_m/bearing_deg), this being an admin/calibration write, not the read
 // contract.
 export const createTargetBodySchema = Joi.object({
-  target_id: uuidV5.required(),
+  target_id: photoId.required(),
   is_next: Joi.boolean().default(false),
   is_original: Joi.boolean().default(false),
   distance_m: finiteNumber,
@@ -124,7 +126,7 @@ export const createTargetBodySchema = Joi.object({
 // POST /photos/batch-calibration — array of calibration items, each with a
 // required uuid + at least one calibration field. Max 500 (mirrors sync push).
 const batchItemSchema = Joi.object({
-  uuid: uuidV5.required(),
+  uuid: photoId.required(),
   heading: finiteNumber,
   height: finiteNumber,
   mesh_rotation_x: finiteNumber,

@@ -32,8 +32,10 @@ import {
 
 // ===== CONFIGURATION =====
 
-// Property name used in PMTiles to identify photos
-const PHOTO_PROPERTY = 'photo_uuid';
+// Property carrying the photo id on the 360 photo features — the backend MVT
+// tile's `id`. Duplicated from add_street_view_control.js, where the reason it is
+// no longer the legacy PMTiles `photo_uuid` is written out; keep the two equal.
+const PHOTO_PROPERTY = 'id';
 
 // Cache limits
 const TEXTURE_CACHE_MAX_SIZE = 30;  // Max textures to keep in memory (~30-50MB depending on resolution)
@@ -152,6 +154,47 @@ function getMeshRotationZ(data) {
 }
 
 // ===== THREE.JS INITIALIZATION =====
+
+/**
+ * Resolves once `el` has a non-zero layout size, or after `timeoutMs`.
+ *
+ * Polls on animation frames rather than awaiting a fixed number of them: the
+ * number needed is not a property of the code, it is a property of how much else
+ * the browser is doing. On a warm app one frame suffices; on a cold boot (a shared
+ * link opening the viewer while the rest of the app still lays out) it can be many.
+ *
+ * Resolving on TIMEOUT rather than rejecting is deliberate — the caller can still
+ * build a viewer that is merely mis-sized, and `onWindowResize()` afterwards can
+ * repair that. Throwing here would trade a bad size for no viewer at all.
+ *
+ * @param {HTMLElement|null} el - Element to wait on
+ * @param {number} [timeoutMs=3000] - Give up after this long
+ * @returns {Promise<boolean>} true if a real size was observed, false on timeout
+ */
+function waitForElementSize(el, timeoutMs = 3000) {
+    if (!el) return Promise.resolve(false);
+    if (el.clientWidth > 0 && el.clientHeight > 0) return Promise.resolve(true);
+
+    return new Promise(resolve => {
+        const deadline = performance.now() + timeoutMs;
+        const check = () => {
+            if (el.clientWidth > 0 && el.clientHeight > 0) {
+                resolve(true);
+                return;
+            }
+            if (performance.now() >= deadline) {
+                console.warn(
+                    '[street-view-viewer] container still has no size after',
+                    timeoutMs, 'ms — initializing anyway'
+                );
+                resolve(false);
+                return;
+            }
+            requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
+    });
+}
 
 /**
  * Initializes the Three.js scene, camera, and renderer
@@ -658,7 +701,15 @@ function ensureSelectedLayer() {
  *
  * Built the same way as the 'selected' layer, and for the same reason: the
  * minimap draws every photo from the vector tiles, so highlighting one is a
- * matter of filtering a symbol layer, not of adding a marker.
+ * matter of filtering a layer, not of adding a marker.
+ *
+ * A CIRCLE, deliberately, and NOT the 'point-selected' icon this reused before.
+ * That icon is an ARROW: it means "you are here, looking that way", and it is
+ * rotated by setIconDirection to carry the heading. Borrowing it for hover put a
+ * direction arrow on a photo whose direction is irrelevant — the pointer is
+ * merely passing over it — and made the hovered photo indistinguishable from the
+ * one the operator is actually standing in. A ring states "this one" and nothing
+ * more, which is the entire meaning of hover.
  */
 function ensureHoveredLayer() {
     const miniMap = streetViewState.miniMap;
@@ -667,7 +718,6 @@ function ensureHoveredLayer() {
     const control = streetViewState.controlInstance;
     const sourceId = control?.streetViewPointsLayer?.['source'];
     if (!sourceId || !miniMap.getSource(sourceId)) return;
-    if (!miniMap.hasImage('point-selected')) return;
 
     const sourceLayer = control?.streetViewPointsLayer?.['source-layer']
         || config.streetView360?.pointsSourceLayer
@@ -675,18 +725,19 @@ function ensureHoveredLayer() {
 
     miniMap.addLayer({
         'id': 'hovered',
-        'type': 'symbol',
+        'type': 'circle',
         'source': sourceId,
         'source-layer': sourceLayer,
         'filter': ['==', PHOTO_PROPERTY, ''],
-        'layout': {
-            'icon-image': 'point-selected',
-            'icon-size': 1.6,
-            'icon-allow-overlap': true,
-            'icon-ignore-placement': true
-        },
         'paint': {
-            'icon-opacity': 0.9
+            // Hollow ring: the photo dot underneath stays visible inside it, so the
+            // highlight adds emphasis instead of covering what it points at.
+            'circle-radius': 9,
+            'circle-color': 'rgba(0, 0, 0, 0)',
+            'circle-stroke-width': 3,
+            // --color-warning (design-tokens.css): distinct from the red 'selected'
+            // pin and from the blue trajectory lines, so all three read apart.
+            'circle-stroke-color': '#f59e0b'
         }
     });
 }
@@ -729,112 +780,65 @@ export function setHoveredFromMinimap(photoId) {
  * Updates minimap position and icon
  */
 function updateMiniMap(camera) {
-    if (!streetViewState.miniMap) return;
+    const miniMap = streetViewState.miniMap;
+    if (!miniMap) return;
 
-    // Center minimap on camera position with higher zoom
-    streetViewState.miniMap.flyTo({
+    // The minimap shares the viewer's opening race (see waitForElementSize): on a
+    // deep link its container is still 0×0 when the first photo lands. A MapLibre
+    // map with no size cannot fly anywhere — the animation resolves against a
+    // zero-sized viewport and the map stays at its initial centre, which is why a
+    // shared link used to show a blank blue square: that is the ocean at 0°,0°,
+    // and the tiles it requested were literally z12/2048/2048.
+    //
+    // So: give it its size first, and JUMP rather than fly for that first framing.
+    // Flying from null island to Brazil is a 500 ms sweep across the planet that
+    // nobody asked to watch; later moves, between neighbouring photos, still fly.
+    const container = miniMap.getContainer();
+    const wasUnsized = !container || container.clientWidth === 0 || container.clientHeight === 0;
+    if (wasUnsized) {
+        miniMap.resize();
+    }
+
+    const move = wasUnsized ? miniMap.jumpTo.bind(miniMap) : miniMap.flyTo.bind(miniMap);
+    move({
         center: [camera.lon, camera.lat],
         zoom: 17,
-        duration: 500
+        ...(wasUnsized ? {} : { duration: 500 })
     });
 
     // Ensure the 'selected' layer exists (deep link scenario)
     ensureSelectedLayer();
 
-    // Update selected photo filter
+    // Update selected photo filter. Matches on the photo's UUID (`camera.id`), NOT
+    // on `currentPhotoName`: PHOTO_PROPERTY is the tile's `id`, while
+    // currentPhotoName holds the original_name the viewer navigates by — comparing
+    // the two never matches and the pin is silently never highlighted.
     if (streetViewState.miniMap.getLayer('selected')) {
-        streetViewState.miniMap.setFilter('selected', ['==', PHOTO_PROPERTY, streetViewState.currentPhotoName]);
+        streetViewState.miniMap.setFilter('selected', [
+            '==',
+            PHOTO_PROPERTY,
+            streetViewState.currentInfo?.camera?.id ?? '',
+        ]);
     }
 
     // Update icon direction
     setIconDirection(camera.heading);
-    ensureViewCone(camera);
 }
 
 /**
- * View cone on the minimap: shows WHERE THE OPERATOR IS LOOKING, not just where
- * they are.
+ * Sets the minimap icon direction.
  *
- * Same geometry as the calibration interface, deliberately: apex pinned at the
- * camera point and the cone opening towards the view, which is the only reading
- * that is unambiguous. A triangle with its base at the point reads as an arrow
- * pointing away, which is the opposite.
- *
- * Screen-space, like the calibration, so the cone keeps its size as the map
- * zooms; its WIDTH follows the field of view, so zooming into the photograph
- * narrows the beam.
- */
-let viewConeMarker = null;
-let viewConeEl = null;
-
-/**
- * Creates the cone element once, styled inline so no stylesheet has to know
- * about it.
- *
- * @returns {HTMLElement} The cone element
- */
-function createViewConeEl() {
-    const el = document.createElement('div');
-    el.style.cssText = `
-        width: 0;
-        height: 0;
-        border-left: 22px solid transparent;
-        border-right: 22px solid transparent;
-        border-top: 34px solid rgba(137, 180, 250, 0.55);
-        transform-origin: 50% 100%;
-        transform: translate(-50%, -100%) rotate(0deg);
-        pointer-events: none;
-    `;
-    return el;
-}
-
-/**
- * Places the view cone at the current camera position on the minimap.
- *
- * @param {{lon: number, lat: number}} camera - Current photo position
- */
-function ensureViewCone(camera) {
-    const miniMap = streetViewState.miniMap;
-    if (!miniMap || typeof maplibregl === 'undefined') return;
-
-    if (!viewConeEl) {
-        viewConeEl = createViewConeEl();
-    }
-    if (!viewConeMarker) {
-        viewConeMarker = new maplibregl.Marker({ element: viewConeEl, anchor: 'center' })
-            .setLngLat([camera.lon, camera.lat])
-            .addTo(miniMap);
-    } else {
-        viewConeMarker.setLngLat([camera.lon, camera.lat]);
-    }
-}
-
-/**
- * Points the cone where the camera is looking and opens it to the current FOV.
- *
- * @param {number} worldHeadingDeg - Direction of view in degrees (0 = North)
- * @param {number} [fovDeg] - Vertical field of view in degrees
- */
-function updateViewCone(worldHeadingDeg, fovDeg) {
-    if (!viewConeEl) return;
-
-    viewConeEl.style.transform = `translate(-50%, -100%) rotate(${worldHeadingDeg}deg)`;
-
-    if (typeof fovDeg === 'number' && Number.isFinite(fovDeg)) {
-        const half = Math.max(6, 30 * Math.tan(((fovDeg * Math.PI) / 180) / 2));
-        viewConeEl.style.borderLeftWidth = `${half}px`;
-        viewConeEl.style.borderRightWidth = `${half}px`;
-    }
-}
-
-/**
- * Sets the minimap icon direction
+ * The 'selected' pin is ALREADY directional — its icon is an arrow, rotated here
+ * to the current view heading. A separate translucent triangle (the "view cone")
+ * used to be drawn on top of it as a second direction indicator; it was removed
+ * because two marks for one fact read as two facts, and the cone's apex sat on
+ * the same point as the pin, so the pair looked like a rendering artifact rather
+ * than a field of view.
  */
 function setIconDirection(degrees) {
     if (streetViewState.miniMap && streetViewState.miniMap.getLayer('selected')) {
         streetViewState.miniMap.setLayoutProperty('selected', 'icon-rotate', degrees);
     }
-    updateViewCone(degrees, streetViewState.camera?.fov);
 }
 
 /**
@@ -867,12 +871,26 @@ let lon = 0;  // Horizontal rotation (yaw)
 let lat = 0;  // Vertical rotation (pitch)
 let onPointerDownLon = 0;
 let onPointerDownLat = 0;
+// rAF handle of an in-flight turnViewBy() sweep (null when not turning).
+let turnAnimationId = null;
+
+/** Stops an in-flight automatic view turn, leaving the view where it got to. */
+function cancelViewTurn() {
+    if (turnAnimationId !== null) {
+        cancelAnimationFrame(turnAnimationId);
+        turnAnimationId = null;
+    }
+}
 
 // Reusable Vector3 for lookAt target (avoids allocation in render loop)
 const _lookAtTarget = new THREE.Vector3();
 
 function onPointerDown(event) {
     if (event.isPrimary === false) return;
+
+    // A drag takes precedence over an automatic sweep: leaving the turn running
+    // would fight the pointer for `lon` and the view would drift under the hand.
+    cancelViewTurn();
 
     isUserInteracting = true;
     onPointerDownMouseX = event.clientX;
@@ -1578,12 +1596,18 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
             // (container may be narrower due to briefing panel)
             onWindowResize();
         } else if (!streetViewState.scene) {
-            // Wait one frame so the browser can reflow after setFullMap(false).
-            // Without this, container.clientWidth/clientHeight may still be 0
-            // because style changes haven't been laid out yet (microtasks from
-            // await import() don't trigger reflow). This causes the renderer
-            // and navigator canvas to initialize at 0×0 → black screen.
-            await new Promise(resolve => requestAnimationFrame(resolve));
+            // Wait for the container to actually HAVE a size before building the
+            // renderer, because initThreeJS reads clientWidth/clientHeight and a
+            // 0×0 read is unrecoverable: the WebGL canvas keeps its default
+            // 300×150 and the panorama renders black forever after.
+            //
+            // This used to await a single rAF, on the assumption that one frame
+            // is enough for the reflow from setFullMap(false). It is enough when
+            // the app is already up and the operator clicks a photo — and NOT
+            // enough on a shared deep link, where the viewer opens during boot and
+            // the container is still 0×0 a frame later. Symptom: black panorama,
+            // no error anywhere, every network request a clean 200.
+            await waitForElementSize(document.getElementById('street-view-container'));
 
             // Initialize new viewer (now container has correct dimensions)
             await initThreeJS();
@@ -1647,6 +1671,10 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
  */
 export async function closeViewer360() {
     if (!streetViewState.isVisible) return;
+
+    // An automatic turn outlives the viewer otherwise: its rAF keeps firing and
+    // keeps calling requestRender on a torn-down scene.
+    cancelViewTurn();
 
     // Deselect POI
     if (streetViewState.navigator) {
@@ -1834,6 +1862,54 @@ export function rotateCamera(direction) {
 }
 
 /**
+ * Turns the view by a RELATIVE azimuth, animating the sweep.
+ *
+ * Used by the edge arrows: an arrow says "there is a target off to that side", so
+ * acting on it should bring it INTO VIEW, not teleport the operator to it. The
+ * turn is animated because an instant snap gives no sense of which way the view
+ * swung, and losing your bearing is the one thing a panorama must not do.
+ *
+ * `lon` is the yaw offset from the photo's own heading, and increasing it turns
+ * clockwise (the same convention as `updateCurrentHeading`), so a positive
+ * `deltaDeg` (a target to the RIGHT) turns right.
+ *
+ * @param {number} deltaDeg - Relative azimuth to turn by, in degrees
+ * @param {number} [durationMs=450] - Sweep duration; 0 applies it immediately
+ */
+export function turnViewBy(deltaDeg, durationMs = 450) {
+    if (!streetViewState.camera || !Number.isFinite(deltaDeg)) return;
+
+    if (durationMs <= 0) {
+        lon += deltaDeg;
+        requestRender();
+        return;
+    }
+
+    // A new turn supersedes one still in flight; otherwise two sweeps fight over
+    // `lon` and the view stutters between them.
+    cancelViewTurn();
+
+    const startLon = lon;
+    const startedAt = performance.now();
+
+    const step = (now) => {
+        const t = Math.min(1, (now - startedAt) / durationMs);
+        // easeInOutQuad: starts and ends still, so the sweep reads as deliberate.
+        const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        lon = startLon + deltaDeg * eased;
+        requestRender();
+
+        if (t < 1) {
+            turnAnimationId = requestAnimationFrame(step);
+        } else {
+            turnAnimationId = null;
+        }
+    };
+
+    turnAnimationId = requestAnimationFrame(step);
+}
+
+/**
  * Zooms the camera in or out
  * @param {string} direction - 'in' or 'out'
  */
@@ -1920,14 +1996,6 @@ export function cleanupStreetViewFeatures() {
     if (streetViewState.sphereGeometry) {
         streetViewState.sphereGeometry.dispose();
         streetViewState.sphereGeometry = null;
-    }
-
-    // O cone de visada e um marcador do MapLibre, entao nao sai junto com a
-    // cena do Three.js: precisa ser removido explicitamente.
-    if (viewConeMarker) {
-        viewConeMarker.remove();
-        viewConeMarker = null;
-        viewConeEl = null;
     }
 
     // Clean texture cache (LRU cache calls dispose callback automatically)

@@ -26,11 +26,13 @@ import { slugParamSchema } from './sv360.schemas.js';
 // single import surface (params validation for status/delete/get).
 export { slugParamSchema };
 
-// Photo id (TEXT uuid v5) — the studio's deterministic uuidv5 (D9.6). The backend
-// validates the FORMAT and trusts the id; it does NOT recompute it.
-const uuidV5 = Joi.string()
+// Photo id — the studio's deterministic uuidv5 (D9.6), OR the v4 that the legacy
+// index.db corpus carries. The backend validates the FORMAT and trusts the id; it
+// does NOT recompute it. A v5-only guard here would 422 the ingestion of every
+// legacy bundle, i.e. block the migration itself. See sv360.schemas.js.
+const photoId = Joi.string()
   .trim()
-  .guid({ version: ['uuidv5'] });
+  .guid({ version: ['uuidv4', 'uuidv5'] });
 
 // A finite number (Joi.number() already rejects NaN/Infinity/non-numeric).
 const finiteNumber = Joi.number();
@@ -52,9 +54,13 @@ const dbFilename = Joi.string()
 // --- project ---------------------------------------------------------------
 
 const projectSchema = Joi.object({
+  // Charset matches `sanitizeSlug` (sv360.merge.js), UNDERSCORE INCLUDED: the real
+  // corpus slugs are `27o_gac`, `ponta_grossa_1`, `santana_livramento`. Kebab-only
+  // here would 422 the upload of a project the ETL can already import, so the two
+  // ingestion paths would disagree about what a valid project is.
   slug: Joi.string()
     .trim()
-    .pattern(/^[a-z0-9-]+$/)
+    .pattern(/^[a-z0-9_-]+$/)
     .min(1)
     .max(255)
     .required(),
@@ -74,7 +80,7 @@ const projectSchema = Joi.object({
 // --- photo -----------------------------------------------------------------
 
 const photoSchema = Joi.object({
-  id: uuidV5.required(),
+  id: photoId.required(),
   original_name: Joi.string().trim().min(1).max(512).required(),
   display_name: Joi.string().trim().max(512).allow(null),
   sequence_number: Joi.number().integer().required(),
@@ -101,8 +107,8 @@ const photoSchema = Joi.object({
 // --- target ----------------------------------------------------------------
 
 const targetSchema = Joi.object({
-  source_id: uuidV5.required(),
-  target_id: uuidV5.required(),
+  source_id: photoId.required(),
+  target_id: photoId.required(),
   distance_m: finiteNumber.allow(null),
   bearing_deg: finiteNumber.allow(null),
   is_next: Joi.boolean().allow(null),
@@ -116,8 +122,26 @@ const targetSchema = Joi.object({
 // --- tombstone -------------------------------------------------------------
 
 const tombstoneSchema = Joi.object({
-  photo_id: uuidV5.required(),
+  photo_id: photoId.required(),
   deleted_at: Joi.string().isoDate().allow(null),
+}).unknown(true);
+
+// --- capture track ---------------------------------------------------------
+
+// One capture-run segment: a [lon, lat] polyline. A project is MANY runs (the
+// legacy corpus averages ~115 per project), so this is source data, not something
+// derivable from the photo sequence. >= 2 points, because a 1-point LINESTRING is
+// rejected by PostGIS. Ranges match the photo lat/lon bounds.
+const trackSchema = Joi.object({
+  coords: Joi.array()
+    .items(
+      Joi.array()
+        .ordered(finiteNumber.min(-180).max(180).required(), finiteNumber.min(-90).max(90).required())
+        .length(2)
+    )
+    .min(2)
+    .required(),
+  source: Joi.string().trim().max(64).allow(null),
 }).unknown(true);
 
 // --- aggregate manifest ----------------------------------------------------
@@ -131,6 +155,9 @@ export const manifestSchema = Joi.object({
   photos: Joi.array().items(photoSchema).min(1).required(),
   targets: Joi.array().items(targetSchema).default([]),
   deleted_photos: Joi.array().items(tombstoneSchema).default([]),
+  // Optional: a bundle without tracks leaves the project with none, and the tile
+  // falls back to synthesizing the line from the photo sequence.
+  tracks: Joi.array().items(trackSchema).default([]),
 })
   .unknown(true)
   .custom((value, helpers) => {

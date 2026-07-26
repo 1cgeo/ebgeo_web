@@ -150,6 +150,56 @@ function clearHash() {
     }
 }
 
+// ===== READINESS =====
+
+/**
+ * Polls `produce()` until it returns something truthy, or gives up.
+ *
+ * Deliberately a POLL and not a subscription: what we are waiting on (a lazily
+ * constructed Cesium viewer) publishes no event, and the one-shot-event variant of
+ * this wait is what silently wedged the 360 viewer — a listener attached after the
+ * event fired waits forever. Polling cannot miss a state that is already true.
+ *
+ * Resolves with `null` on timeout rather than throwing: the caller decides whether
+ * a missing dependency is fatal, and here it is not (the model still opens).
+ *
+ * @param {() => T|null|undefined} produce - Called until it yields a truthy value
+ * @param {number} [timeoutMs=5000] - Give up after this long
+ * @param {number} [intervalMs=100] - Gap between attempts
+ * @returns {Promise<T|null>} the value, or null if it never arrived
+ * @template T
+ */
+export function waitFor(produce, timeoutMs = 5000, intervalMs = 100) {
+    // The same guard as inside the loop, and for the same reason: `produce` is
+    // typically a getter over a lazily built module, so "not ready" can surface as
+    // a throw (`Cesium is not defined`) rather than a falsy value. Letting the
+    // FIRST call throw would abort the wait before it started.
+    const attempt = () => {
+        try {
+            return produce();
+        } catch {
+            return null;
+        }
+    };
+
+    const immediate = attempt();
+    if (immediate) return Promise.resolve(immediate);
+
+    return new Promise(resolve => {
+        const deadline = Date.now() + timeoutMs;
+        const timer = setInterval(() => {
+            const value = attempt();
+            if (value) {
+                clearInterval(timer);
+                resolve(value);
+            } else if (Date.now() >= deadline) {
+                clearInterval(timer);
+                resolve(null);
+            }
+        }, intervalMs);
+    });
+}
+
 // ===== DEEP LINK HANDLER =====
 
 /**
@@ -257,10 +307,24 @@ async function openDeepLink3D(link) {
                 '@js/3d_models_viewer_tool/map_3d.js'
             );
 
-            // Small delay for tileset to finish loading before setting camera
+            // Settle delay, KEPT: opening a tileset moves the camera to frame it,
+            // and that move lands after openViewer resolves — applying the shared
+            // viewpoint any earlier just gets overwritten by it.
             await new Promise(resolve => setTimeout(resolve, 500));
 
-            const viewer = getCesiumViewer();
+            // ...but a fixed delay is a GUESS about someone else's timing, and on a
+            // cold boot (Cesium lazy-loaded, tileset over the network) 500 ms can
+            // expire with no viewer yet. The old code then took the `if (viewer)`
+            // false branch and dropped the camera position in silence: the model
+            // opened at its default view and the shared link's entire payload — the
+            // viewpoint someone meant to show — vanished with nothing logged.
+            // Same failure class as the 360 deep link, milder symptom.
+            const viewer = await waitFor(getCesiumViewer, 5000);
+            if (!viewer) {
+                console.warn(
+                    '[deep-link] 3D viewer never became available — the shared camera position was not applied'
+                );
+            }
             if (viewer) {
                 const destination = Cesium.Cartesian3.fromDegrees(
                     link.lon, link.lat, link.height

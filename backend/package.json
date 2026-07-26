@@ -11,6 +11,7 @@
     "db:setup": "node --env-file-if-exists=.env scripts/dev-db.js create",
     "db:migrate": "node --env-file-if-exists=.env src/database/migrate.js",
     "db:seed": "node --env-file-if-exists=.env src/database/seed.js",
+    "sv360:import": "node --env-file-if-exists=.env scripts/sv360-import.js",
     "db:test:create": "node scripts/test-db.js create",
     "db:test:drop": "node scripts/test-db.js drop",
     "db:test:reset": "node scripts/test-db.js reset",

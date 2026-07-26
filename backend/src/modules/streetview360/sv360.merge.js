@@ -32,9 +32,9 @@ const LEGACY_ORG_SLUGS = new Set(['', 'default', 'org-legacy']);
 /**
  * Normalize a project slug to a filesystem-safe token: lowercase, keep only
  * [a-z0-9_-], collapse any other run into a single '-', and trim leading/trailing
- * '-'. Used ONLY to DERIVE the {slug}.db filename server-side — the studio's slug
- * is already constrained to /^[a-z0-9-]+$/ by the Joi schema, so this is defense
- * in depth (the ETL backfill slug is less constrained).
+ * '-'. Used ONLY to DERIVE the {slug}.db filename server-side — the Joi schemas
+ * constrain the slug to this same charset, so this is defense in depth (the ETL
+ * backfill slug bypasses those schemas entirely).
  * @param {string} slug
  * @returns {string}
  */
@@ -122,11 +122,12 @@ function bool(v, dflt = false) {
  *   3. PURGE the project's child rows (targets -> photos -> tombstones);
  *   4. REINSERT photos[] (geom via trigger), then targets[] (FKs now satisfied),
  *      then deleted_photos[] tombstones;
- *   5. return { projectId, dbFilename, photoCount }.
+ *   5. PURGE + REINSERT tracks[] (the capture trajectory segments);
+ *   6. return { projectId, dbFilename, photoCount }.
  * Does NOT commit/rollback and does NOT touch the filesystem.
  *
  * @param {Object} t - pg-promise transaction task (REQUIRED)
- * @param {Object} manifest - { project, photos[], targets[], deleted_photos[] }
+ * @param {Object} manifest - { project, photos[], targets[], deleted_photos[], tracks[] }
  * @param {Object} opts
  * @param {string} opts.orgId - the resolved target organization_id (uuid)
  * @param {string} [opts.source] - free-form provenance tag ('upload' | 'etl'), informational
@@ -262,6 +263,39 @@ export async function mergeProject(t, manifest, { orgId, source } = {}) {
     logger.warn(
       { orgId, slug: project.slug, foreignTombstones: foreign.slice(0, 20), count: foreign.length },
       'sv360 merge: descartando tombstone(s) de foto fora do projeto (possível tentativa cross-tenant)'
+    );
+  }
+
+  // 6) Capture TRACKS — purge + reinsert, same "último upload manda" shape as the
+  // other children. Optional: a manifest without `tracks` leaves the project with
+  // none, and the MVT tile falls back to synthesizing the line from the photo
+  // sequence, which is what every project did before sv360.tracks existed.
+  //
+  // A track needs >= 2 distinct points to be a LINESTRING; PostGIS rejects a
+  // 1-point line outright, and the legacy dump does contain degenerate rows. They
+  // are dropped here rather than allowed to abort the whole project's merge.
+  await t.none(AQ.PURGE_PROJECT_TRACKS, [projectId]);
+  const tracks = manifest.tracks ?? [];
+  let skippedTracks = 0;
+  for (const tr of tracks) {
+    const coords = Array.isArray(tr?.coords) ? tr.coords : [];
+    const clean = coords.filter(
+      (c) => Array.isArray(c) && c.length >= 2 && Number.isFinite(c[0]) && Number.isFinite(c[1])
+    );
+    if (clean.length < 2) {
+      skippedTracks++;
+      continue;
+    }
+    await t.none(AQ.INSERT_TRACK, [
+      projectId,
+      JSON.stringify({ type: 'LineString', coordinates: clean.map((c) => [c[0], c[1]]) }),
+      tr.source ?? 'geojson',
+    ]);
+  }
+  if (skippedTracks > 0) {
+    logger.warn(
+      { orgId, slug: project.slug, skippedTracks },
+      'sv360 merge: descartando track(s) com menos de 2 pontos válidos'
     );
   }
 

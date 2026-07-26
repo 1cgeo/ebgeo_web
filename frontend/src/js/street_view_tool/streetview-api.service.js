@@ -16,6 +16,34 @@ function getServiceUrl() {
   return config.streetView360.serviceUrl;
 }
 
+/**
+ * Returns a MapLibre vector-source spec with ABSOLUTE tile URLs.
+ *
+ * `/api/config` serves the 360 tile template RELATIVE (`/api/v1/sv360/tiles/...`),
+ * which is right for this module's own `fetch()` calls: those run in the window
+ * context and resolve against the document base. MapLibre does NOT — it fetches
+ * tiles inside a Web Worker booted from a blob: URL, which has no usable base, so a
+ * relative template dies with "Failed to construct 'Request': Failed to parse URL"
+ * and the 360 photo layer simply never appears on the 2D map.
+ *
+ * String concatenation, NOT `new URL()`: the URL constructor percent-encodes the
+ * braces of the `{z}/{x}/{y}` placeholders, and MapLibre substitutes them by literal
+ * string replacement — `%7Bz%7D` would never be replaced, trading this bug for a
+ * subtler one. An already-absolute template (SV360_SERVICE_URL pointing at another
+ * origin) is passed through untouched.
+ * @param {Object} source - a MapLibre vector source spec from config.streetView360
+ * @returns {Object} the same spec with absolute `tiles[]`
+ */
+export function withAbsoluteTiles(source) {
+  if (!Array.isArray(source?.tiles) || source.tiles.length === 0) return source;
+  return {
+    ...source,
+    tiles: source.tiles.map((t) =>
+      typeof t === 'string' && t.startsWith('/') ? `${window.location.origin}${t}` : t
+    ),
+  };
+}
+
 // Canonical UUID shape, ANY version: the job here is to tell a photo id apart
 // from a legacy filename, not to validate a version. Pinning the version nibble
 // to 4 was wrong — the studio mints photo ids as **v5** and the backend validates
@@ -38,16 +66,39 @@ export function isUUID(str) {
 // ============================================================
 
 /**
- * Fetches metadata for a photo by UUID.
+ * Builds the metadata URL for a photo identifier, picking the route by SHAPE.
+ * Single source for that choice so the read and the existence check cannot drift
+ * apart — they took different routes once and only one of them worked.
+ * @param {string} photoIdOrName - Photo UUID or original filename
+ * @returns {string} absolute-or-relative metadata URL
+ */
+function photoMetadataUrl(photoIdOrName) {
+  const path = isUUID(photoIdOrName)
+    ? `/photos/${photoIdOrName}`
+    : `/photos/by-name/${encodeURIComponent(photoIdOrName)}`;
+  return `${getServiceUrl()}${path}`;
+}
+
+/**
+ * Fetches metadata for a photo by UUID **or** by original filename.
  * Returns the same shape as the legacy JSON files so the viewer
  * needs minimal changes.
- * @param {string} photoId - Photo UUID
+ *
+ * ROUTES BY SHAPE, and must: the viewer navigates by the target's `img`
+ * (`original_name`), not by its `id` — `navigateToTarget` → `loadPhoto` →
+ * `loadMetadataWithCache` all thread a NAME. Sending that name to
+ * `/photos/:uuid` fails the uuid param guard with a 422, so every in-viewer jump
+ * to an adjacent panorama died once the archive was real. `/photos/by-name/:nome`
+ * exists precisely for this and returns the IDENTICAL frozen metadata shape (both
+ * routes end in the backend's `buildPhotoMetadata`), so dispatching here costs one
+ * request — resolving the name to a uuid first would cost two.
+ * @param {string} photoIdOrName - Photo UUID or original filename
  * @returns {Promise<Object>} Metadata with camera and targets
  */
-export async function fetchPhotoMetadata(photoId) {
-  const response = await fetch(`${getServiceUrl()}/photos/${photoId}`);
+export async function fetchPhotoMetadata(photoIdOrName) {
+  const response = await fetch(photoMetadataUrl(photoIdOrName));
   if (!response.ok) {
-    throw new Error(`Photo not found: ${photoId} (HTTP ${response.status})`);
+    throw new Error(`Photo not found: ${photoIdOrName} (HTTP ${response.status})`);
   }
   return response.json();
 }
@@ -59,7 +110,10 @@ export async function fetchPhotoMetadata(photoId) {
  */
 export async function validatePhoto(photoId) {
   try {
-    const response = await fetch(`${getServiceUrl()}/photos/${photoId}`, { method: 'HEAD' });
+    // Same shape-based routing as fetchPhotoMetadata: a briefing slide stores
+    // whatever the viewer had as its current photo, and that is an original_name,
+    // so a uuid-only URL reported every legacy slide as a missing photo.
+    const response = await fetch(photoMetadataUrl(photoId), { method: 'HEAD' });
     return response.ok;
   } catch (error) {
     console.error(`[streetview-api] validatePhoto failed for "${photoId}":`, error);
