@@ -31,3 +31,4 @@ Nada mais. Escolha de biblioteca trivial, refatoração local e correção de bu
 |------|---------|---------|
 | 2026-07-18 | Monorepo: backend integrado por subtree em `backend/` | [decisions-2026.md](decisions-2026.md) |
 | 2026-07-18 | Documentação concentrada em `docs/` com camada de memória | [decisions-2026.md](decisions-2026.md) |
+| 2026-07-25 | Cartão de atlas sem miniatura do mapa (descopado) | [decisions-2026.md](decisions-2026.md) |

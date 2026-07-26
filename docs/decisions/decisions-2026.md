@@ -26,3 +26,15 @@ Entradas integrais. O índice está em [DECISIONS.md](DECISIONS.md).
   - *Só reference/explanation do Diátaxis* — descartada junto com a anterior; segue-se o modelo do vault.
 - **Consequências:** a documentação passa a ser verificada por teste (`frontend/tests/unit/docs-integridade.test.js`: caminhos citados existem, links resolvem, wikilinks resolvem, `MEMORY.md` cabe no que o Claude Code carrega). Documentação vira algo que o CI checa, em vez de depender de disciplina. Custo: manter a wiki podada é trabalho recorrente, e a retrospectiva é quem paga.
 - **Status:** aceita.
+
+---
+
+### 2026-07-25: Cartão de atlas sem miniatura do mapa (descopado)
+
+- **Contexto:** o redesenho do Atlas Drive previa (fase C2) uma miniatura por atlas no cartão, gerada por snapshot do mapa ou enviada pelo usuário. As fases A a D foram concluídas sem ela, e o registro dessa escolha vivia só numa nota de sessão, que é onde uma decisão negativa some.
+- **Decisão:** o cartão identifica o atlas por uma **faixa colorida com as iniciais**, com cor estável derivada do nome. Sem snapshot do mapa e sem upload de miniatura de atlas.
+- **Alternativas rejeitadas:**
+  - *Snapshot do mapa ao fechar o atlas*: obriga a renderizar fora da tela num momento em que o usuário está saindo, e produz miniatura que envelhece sem aviso: o cartão passaria a mostrar um mapa que já não é aquele.
+  - *Upload manual de miniatura*: mais infraestrutura (armazenamento, limite, invalidação) para um identificador que a faixa colorida já dá de graça e sem envelhecer.
+- **Consequências:** o Drive não tem dependência de imagem por atlas. A miniatura que EXISTE no projeto é outra coisa e continua valendo: é a do **catálogo** (basemaps, modelos 3D e camadas), embutida como data URL no `config` do recurso com teto de 256 KB. Confundir as duas leva a procurar infraestrutura que não existe. Se um dia a miniatura de atlas voltar, ela precisa resolver o envelhecimento, que é o motivo real da recusa.
+- **Status:** aceita.
