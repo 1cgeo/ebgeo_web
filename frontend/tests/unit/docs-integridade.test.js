@@ -216,6 +216,7 @@ const SIMBOLO_INEXISTENTE_DE_PROPOSITO = new Map([
     ['USE_HTTPS', 'idem'],
     ['terminationGracePeriodSeconds', 'chave de manifesto do orquestrador, externa a este repositório'],
     ['SQLITE_BUSY', 'código de erro do SQLite, externo'],
+    ['formatProject', 'formatador do serviço 360 LEGADO (1cgeo/ebgeo_360), externo a este repositório: é dele que /sv360/projects herda o shape público, e nomeá-lo é o ponto do parágrafo'],
     ['UPPER_SNAKE', 'marcador de convenção de nomenclatura, não um símbolo'],
     ['WIDGET_CREATED', 'evento ilustrativo do exemplo da skill store-op'],
     ['logXxxOperation', 'família de funções (logFeatureOperation, logMapOperation, ...), o Xxx é curinga'],

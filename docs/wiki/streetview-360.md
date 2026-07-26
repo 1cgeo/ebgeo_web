@@ -44,7 +44,9 @@ Projeto `enabled` é público; `disabled` só admin global ou membro da OM dona 
 
 Filtro e ordenação de `targets` vêm do SQL, não do JS (`backend/src/modules/streetview360/sv360.queries.js:99-110`): alvo oculto ou apontando para foto com tombstone simplesmente **não existe** para o viewer. Não replique essa filtragem no cliente.
 
-Em `/projects` o campo é `center_long`, não `center_lng`.
+**`/projects` tem contrato próprio, e ele NÃO é a linha do Postgres.** O shape público é o do serviço legado que o frontend consome (`formatProject` em `1cgeo/ebgeo_360`): camelCase, com as coordenadas **aninhadas** em `center: { lat, lon }`, mais `entryPhotoId`, `photoCount` e `previewThumbnail`. A coluna se chama `center_long`; o campo exposto é `center.lon`. Esta linha dizia só "em `/projects` o campo é `center_long`", que descrevia a coluna e dava a entender que a linha saía crua, e ela saía, até 2026-07-26. Com dado real isso quebrou os três consumidores de uma vez e em silêncio: `streetview_markers.js` lança em `p.center.lon` e a camada 360 do mapa 2D nunca aparece, a busca perde as coordenadas e o catálogo de atlas perde as miniaturas. Preso por `sv360-contract.test.js` (o shape, não só os slugs); a forma nasce em `publicProjectView` (`backend/src/modules/streetview360/sv360.service.js`).
+
+**Id de foto é UUID v4 OU v5.** O estúdio cunha v5 determinístico, mas o acervo legado importado do `index.db` é **100% v4** (98.690 de 98.690 no dump de produção). As rotas validavam só v5, então toda foto migrada respondia 422 em `/photos/:uuid` e `/photos/:uuid/image` enquanto `/projects` seguia listando tudo: o acervo inteiro inalcançável, com cara de saúde. O nibble de versão nunca foi controle de acesso: a legibilidade é imposta no SQL e no service. Ver [[ingestao-projetos-360]].
 
 ## Validação de calibração não tem faixas (de propósito)
 
@@ -52,7 +54,7 @@ Todo numérico é `Joi.number()` finito, sem `min`/`max`, e as colunas são DOUB
 
 ## Tiles e o quirk do cliente
 
-`fotos_linha` é **trajetória por `sequence_number`**, não o grafo dirigido de navegação; o grafo está por-foto em `targets`. Tile sem features é **200 com Buffer vazio** (MVT vazio é válido): não trate corpo vazio como erro. O `Cache-Control` é curto e **não** imutável, porque tiles mudam a cada ingestão, tombstone ou toggle de status (`backend/src/modules/streetview360/sv360.controller.js:97-98`).
+`fotos_linha` é a **trajetória de captura**, não o grafo dirigido de navegação; o grafo está por-foto em `targets`. A geometria vem de `sv360.tracks`, um trecho por percurso, e só cai na síntese antiga (um `ST_MakeLine` por projeto ordenado por `sequence_number`) para projeto sem track. A síntese é má substituta sempre que o projeto foi capturado em mais de uma passada: a linha salta de um percurso ao outro e o mapa desenha um emaranhado que não corresponde a caminho nenhum. No acervo real o `1pef` tem **34 trechos** para 2.249 fotos, e colapsá-los em uma polilinha era exatamente esse emaranhado. Ver [[ingestao-projetos-360]]. Tile sem features é **200 com Buffer vazio** (MVT vazio é válido): não trate corpo vazio como erro. O `Cache-Control` é curto e **não** imutável, porque tiles mudam a cada ingestão, tombstone ou toggle de status (`backend/src/modules/streetview360/sv360.controller.js:97-98`).
 
 **Custo escondido: o tile escala com o acervo, não com o que cabe nele.** Na `MVT_TILE` a CTE `visible` não tem filtro de bbox e é referenciada duas vezes (`backend/src/modules/streetview360/sv360.tiles.queries.js:39-49`), o que no Postgres a materializa: o `&&` contra a envelope só entra depois dela, nos dois ramos (`:60` e `:80`). Pior no ramo das linhas, que monta um `ST_MakeLine` por projeto sobre **todas** as fotos legíveis antes de descartar os projetos que não tocam o tile. O comentário `PERFORMANCE` do próprio arquivo (`:26-29`) promete o contrário, poda por índice GiST antes do `ST_AsMVTGeom`, e isso vale só depois da materialização. Trate como limite operacional: a latência do tile cresce com o tamanho do acervo, inclusive para tile vazio, e não há cache longo para amortizar (60 s). Um bbox dentro da `visible` é a correção óbvia, e a razão de ela não estar lá não está registrada em lugar nenhum.
 
@@ -64,7 +66,7 @@ Quirk que confunde na leitura do cliente: a camada de pontos usa o source id lit
 
 `PATCH /admin/projects/:slug/status` é o soft delete de verdade; `DELETE` é hard delete com CASCADE e remoção do `.db`. Fluxo do bundle em [[ingestao-projetos-360]]; aba cliente em `frontend/src/js/admin/catalog-tab.js:39`, ao lado de [[catalogo-3d]] e [[resources-catalogo]].
 
-Thumbnail: a **URL** é por slug, mas o **arquivo em disco é org-keyed** (`{orgId}__{slug}.webp`, `backend/src/modules/streetview360/sv360.service.js:256-258`), então duas OMs com o mesmo slug não colidem nem vazam. O `:slug` é `^[a-z0-9-]+$` e passa por `path.basename` ([[hardening-borda-api]]).
+Thumbnail: a **URL** é por slug, mas o **arquivo em disco é org-keyed** (`{orgId}__{slug}.webp`), então duas OMs com o mesmo slug não colidem nem vazam. O `:slug` é `^[a-z0-9_-]+$` e passa por `path.basename` ([[hardening-borda-api]]). O **underscore** faz parte, e a razão importa: o charset é o que `sanitizeSlug` (`backend/src/modules/streetview360/sv360.merge.js`) define como seguro em disco, e slug real tem underscore (`27o_gac`, `ponta_grossa_1`, `santana_livramento`, 14 dos 28 projetos do acervo). Enquanto o padrão aqui era kebab-only, metade do acervo respondia 422 na própria miniatura. O que o padrão precisa barrar é separador de caminho, e `_` não é.
 
 ## Não programe contra isto
 
