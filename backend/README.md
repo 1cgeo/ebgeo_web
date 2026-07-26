@@ -245,9 +245,13 @@ com `--branches 85` sai com 0.
 | 006_catalog_layer_text_id | alarga `catalog_layers.id` de UUID para TEXT e refaz a PK |
 | 007_audit_zone_actions | alarga o CHECK de `audit_trail.action` com `ZONE_CREATE`/`ZONE_UPDATE`/`ZONE_DELETE` |
 | 008_sessions_valid_from | `users.sessions_valid_from` (nullable, sem backfill): corte de sessão por usuário — todo access token com `iat` anterior ao carimbo é recusado |
+| 009_ng_tipo_peso_palavra | `ng.calcular_tipo_peso()` passa a casar **palavra** (`~ '\m…\M'`) e não substring: `LIKE '%rio%'` classificava cemité**rio**, aviá**rio** e sanitá**rio** como hidrografia (658 linhas do acervo real). Fecha com `ng.refresh_busca()` para reclassificar o que já estava gravado |
 
-> **Carga de nomes (FME):** após cada carga, rodar `SELECT ng.refresh_busca();` (DBSCAN + `tipo_peso`) —
-> sem isso `cluster_id`/`tipo_peso` ficam nulos e a busca degrada silenciosamente.
+> **Carga de nomes:** após cada carga, rodar `SELECT ng.refresh_busca();` (DBSCAN + re-fire do
+> `tipo_peso`). Sem isso `cluster_id` fica **nulo** e a busca degrada silenciosamente.
+> (`tipo_peso` não fica nulo: tem `DEFAULT 0.1` e o trigger dispara no `INSERT`, inclusive
+> por `COPY`. O que `refresh_busca()` faz por ele é REclassificar depois de a função mudar.)
+> Para absorver o banco do serviço antigo, use `dev/import-gazetteer.mjs`, que já roda o passo.
 
 ---
 

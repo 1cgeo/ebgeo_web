@@ -182,9 +182,18 @@ describe('GET /nomes/busca — teto, score, acento e desduplicação', () => {
     assert.ok(gapCom > gapSem, `esperava gap maior com zoom=18 (${gapCom} vs ${gapSem})`);
   });
 
-  it('zoom=18 neutraliza tipo_peso (zoom_factor = 1 → 0.5 para todo tipo)', async () => {
+  it('a CATEGORIA nunca é neutralizada: o gap Cidade x Cemitério não muda com o zoom', async () => {
     // Mesmo NOME e mesmo PONTO: todos os critérios exceto o de tipo são idênticos,
-    // então a diferença de score isola exatamente a contribuição de tipo_peso.
+    // então a diferença de score isola exatamente a contribuição da categoria.
+    //
+    // Este teste afirmava o CONTRÁRIO até 2026-07-26, e afirmava com razão para o
+    // algoritmo de então: a soma de 7 critérios tinha um `zoom_factor` que, em zoom 18,
+    // fazia todo tipo contribuir 0.5, zerando a diferença entre Cidade e Cemitério.
+    //
+    // A doutrina nova proíbe exatamente isso. Categoria é a segunda chave lexicográfica
+    // e vem antes da distância, então nada pode apagá-la, muito menos o nível de zoom.
+    // O `zoom` foi mantido, mas afia SÓ o espaço (platô e escala do decaimento).
+    // Ver o cabeçalho de src/modules/nomes/nomes.queries.js.
     const semZoom = await busca(`Charlie${T119B}`, P119B);
 
     const porTipo = (linhas) => {
@@ -196,9 +205,11 @@ describe('GET /nomes/busca — teto, score, acento e desduplicação', () => {
       return { cidade: Number(cidade.score), cemiterio: Number(cemiterio.score) };
     };
 
-    // Os pesos vêm do trigger ng.calcular_tipo_peso, não de um número chutado aqui:
-    // 'Cemiterio' cai no ramo '%rio%' (0.85) ANTES do ramo '%cemiterio%', o que um
-    // valor hardcoded esconderia.
+    // Os pesos vêm do trigger ng.calcular_tipo_peso, não de um número chutado aqui.
+    // Isto já pegou uma mudança real: até a migração 009 'Cemiterio' caía no ramo
+    // '%rio%' (0.85, substring) ANTES do ramo do cemitério, e hoje vale 0.15 — um
+    // valor hardcoded teria ficado vermelho na correção em vez de acompanhá-la.
+    // O que este teste prende é o GAP, não o número.
     const { rows: pesos } = await db.query(
       'SELECT DISTINCT tipo, tipo_peso FROM ng.nomes_geograficos WHERE nome = $1 ORDER BY tipo',
       [`Charlie${T119B}`]
@@ -209,15 +220,29 @@ describe('GET /nomes/busca — teto, score, acento e desduplicação', () => {
     assert.ok(delta > 0.1, `guarda: os pesos precisam diferir de verdade (${delta})`);
 
     const sem = porTipo(semZoom);
-    assert.ok(sem.cidade > sem.cemiterio, 'sem zoom, tipo_peso separa os dois');
-    // Peso 0.10 do critério de tipo, e zoom_factor = 0 sem zoom.
+    assert.ok(sem.cidade > sem.cemiterio, 'a Cidade tem de vir à frente do Cemitério');
+
+    // O degrau de categoria vale 2 numa escala cujo teto é floor(1/0.15)*4+3 = 27, então
+    // sozinho ele já separa os dois por ~0.074. Cobrar o piso do degrau (e não um valor
+    // exato) deixa a terceira chave livre para ser recalibrada sem ficar vermelho, e
+    // ainda assim reprova quem apagar a chave de categoria.
+    const DEGRAU_CATEGORIA = 2 / 27.001;
+    const gapSem = sem.cidade - sem.cemiterio;
     assert.ok(
-      Math.abs(sem.cidade - sem.cemiterio - 0.1 * delta) < 1e-6,
-      `diferença medida: ${sem.cidade - sem.cemiterio}, esperada ${0.1 * delta}`
+      gapSem >= DEGRAU_CATEGORIA - 1e-9,
+      `o gap (${gapSem}) tem de conter ao menos o degrau de categoria (${DEGRAU_CATEGORIA})`
     );
 
+    // O CORAÇÃO DO TESTE: zoom não mexe na categoria. Antes, com zoom=18 este gap ia a
+    // zero; agora ele é o MESMO, porque zoom só reescala o decaimento espacial e os dois
+    // pontos estão na mesma coordenada.
     const com = porTipo(await busca(`Charlie${T119B}`, P119B, { zoom: 18 }));
-    assert.ok(Math.abs(com.cidade - com.cemiterio) < 1e-9, 'com zoom=18 a contribuição de tipo é igual');
+    const gapCom = com.cidade - com.cemiterio;
+    assert.ok(com.cidade > com.cemiterio, 'com zoom=18 a Cidade continua à frente');
+    assert.ok(
+      Math.abs(gapCom - gapSem) < 1e-9,
+      `o gap não pode mudar com o zoom: sem=${gapSem}, com=${gapCom}`
+    );
   });
 
   it('todo score está em [0,1] e é finito, inclusive com dist=0', async () => {

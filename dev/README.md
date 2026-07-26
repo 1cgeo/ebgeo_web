@@ -4,6 +4,89 @@ Ferramentas de operação que não são nem do `frontend/` nem do `backend/`: ro
 contra um banco, e não fazem parte de nenhum build. Não têm `package.json` próprio, elas
 resolvem as dependências a partir de `backend/node_modules`.
 
+## `gerar-golden-busca.mjs` + `tune-busca.mjs`
+
+Conjunto dourado e calibrador de `GET /nomes/busca`. Exigem um acervo carregado.
+
+```bash
+node dev/gerar-golden-busca.mjs            # (re)gera dev/busca-golden.json
+node dev/tune-busca.mjs                    # avalia os pesos vigentes, por família
+node dev/tune-busca.mjs --ablacao          # zera um critério por vez e mede a queda
+node dev/tune-busca.mjs --buscar           # procura pesos melhores, com holdout 70/30
+node dev/tune-busca.mjs --pesos=exato=0,trigrama=0.37,...   # compara candidato x vigente
+node dev/tune-busca.mjs --modelo=gauss --plato=10 --escala=300 --gama=0.3
+```
+
+### Modelos de ordenação
+
+`--modelo` troca a FORMA da função, não os pesos. Existe porque o conjunto dourado
+mostrou que a forma importa mais que a calibração:
+
+| modelo | forma |
+|---|---|
+| `soma` | produto escalar dos 7 critérios. O de produção. |
+| `produto` | casamento **multiplica** o prior: casamento ruim não é resgatável. |
+| `lexico` / `lexico-contem` | faixa de casamento, depois importância, depois proximidade. A doutrina ao pé da letra. |
+| `gauss` | o padrão da indústria: `casamento × proeminência^γ × decay_gaussiano(distância)`, com **platô** (`--plato`, em km) dentro do qual a distância não penaliza nada. |
+| `google` | a tríade em três chaves lexicográficas: **relevância** (faixa) → **categoria** (`--tier`) → **combinação** (gauss com platô). O melhor medido. |
+
+O `google` é o `gauss` mais um degrau **categórico**: acima de `--tier` a feição vem
+primeiro independente da distância. É o que nenhuma fórmula contínua consegue, porque
+numa soma (ou num produto) distância suficiente sempre compra a diferença de categoria,
+já que as duas moram na mesma unidade. Medido: a família H (Cidade consultada de ~330 km,
+que tem de aparecer no topo) fica em 47,6% no `gauss` contínuo e em **100%** com o degrau.
+
+Melhor configuração medida (584 casos, acervo de 2026-07-23):
+
+```
+--modelo=google --tier=1.0 --plato=10 --escala=300 --gama=0.3      92,6% de aprovação
+```
+
+contra 81,5% da soma em produção. `--tier=1.0` significa que só `Cidade` é a categoria
+"muito importante"; baixar para 0.9 (incluindo aglomerados) mede 90,6%.
+
+O `gauss` espelha o `function_score` do Elasticsearch (decay `gauss` sobre distância +
+`field_value_factor` sobre popularidade, combinados por `score_mode: multiply`), que é
+como o Pelias faz, e a tríade *relevância x distância x proeminência* que o Google
+documenta para resultado local. `--gama` é o `modifier` do `field_value_factor`:
+γ<1 comprime a proeminência (equivalente a `sqrt`/`log1p`) e evita que multiplicar por
+`tipo_peso = 0.1` esmague em 10x quem está no piso, que é 29% do acervo.
+
+`dev/busca-golden.json` é **versionado**: é ele o ativo. O cache
+`dev/.busca-atributos.json` (~23 MB) é derivado e ignorado pelo git.
+
+### Verdade objetiva x política
+
+Caso gerado de uma linha que espera aquela linha de volta tem verdade **circular**:
+assume que a linha sorteada é a que o usuário queria. Para nome único é inofensivo;
+para homônimo é a própria pergunta em disputa. Por isso há dois tipos de expectativa:
+
+| campo | significado |
+|---|---|
+| `espera.alvo` | verdade objetiva: exatamente esta coordenada |
+| `espera.criterio` | **política declarada** (`max_dist_km`, `tipo_in`, `tipo_peso_min`) |
+| `espera.ausente` | o que não pode aparecer no top-5 (o `unexpected` do Pelias) |
+| `espera.vazio` | a busca não pode devolver nada |
+| `espera.topo` | posição máxima aceitável (o `priorityThresh` do Pelias) |
+
+Política é decisão de produto, escrita em texto no JSON para ser discutida e mudada de
+propósito. **Quem calibra, calibra a política**: `--buscar` acha o vetor de pesos ótimo
+*para as políticas declaradas*. Mudou a política, muda o ótimo.
+
+### Por que a ablação existe
+
+A primeira versão do conjunto era 300 cidades pelo nome exato: recall@1 de 100%, e
+**zerar cinco dos sete critérios mantinha os 100%**. Um conjunto assim passa verde com
+a fórmula quase toda desligada. A ablação é o meta-teste que detecta isso: critério
+cujo Δ é ~0 não está sendo exercido, e a família que deveria tensioná-lo está morta ou
+faltando.
+
+### Peso não vira assert
+
+Qualquer peso cravado num `assert` faz toda tunagem nascer vermelha. O que a suíte
+prende é **posição** (`espera.topo`); este script produz o relatório que informa a
+decisão de peso.
+
 ## `import-gazetteer.mjs`
 
 Absorve o gazetteer do banco antigo (`servico_nomes_geograficos`, schema `ng`) para o
@@ -42,14 +125,14 @@ seu e não precisamos da extensão `uuid-ossp`.
 
 ### A dedup não mexe no cluster, e isso foi medido
 
-A chave da dedup inclui `geom`, então só colapsa linhas na **mesma coordenada** — duas
+A chave da dedup inclui `geom`, então só colapsa linhas na **mesma coordenada**: duas
 ocorrências distintas do mesmo nome no mesmo município continuam duas linhas. Comparando
 a carga completa com a deduplicada, ambas com `refresh_busca()` rodado: 0 localidades
 perdidas e 0 inventadas; 44.815 grupos de `(nome, tipo, cluster_id)` nos dois; e a
 estrutura de clusters (o conjunto de grupos `{nome, tipo, pontos}`) idêntica.
 
 O que muda é a **numeração**: `ST_ClusterDBSCAN` numera por ordem de linha, então mudar o
-conjunto de linhas renumera dentro da partição `(nome, tipo)`. Não é efeito da dedup — com
+conjunto de linhas renumera dentro da partição `(nome, tipo)`. Não é efeito da dedup: com
 a tabela intacta, `refresh_busca()` rodado duas vezes não altera um único `cluster_id`.
 `cluster_id` é rótulo, não identidade: nada fora do schema `ng` o persiste.
 

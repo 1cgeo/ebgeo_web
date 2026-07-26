@@ -1,6 +1,4 @@
 // Path: src/modules/nomes/nomes.queries.js
-// SQL ported VERBATIM from servico_nomes_geograficos (origin/main). Do not
-// rewrite the ranking logic — the 7-criteria weights sum to 1.00 and are frozen.
 //
 // NEVER put a backtick in a SQL comment in this file. Every query below is a JS
 // template literal, so one backtick closes the string and the whole module becomes a
@@ -9,15 +7,81 @@
 // down and was written after the mistake happened; it happened again on 2026-07-25,
 // by an author who never scrolled that far. It belongs here, where it is read first.
 
-// 7-criteria search with EMBEDDED access filter (defense in depth).
+// ============================================================================
+// BUSCA - ordenacao em TRES CHAVES LEXICOGRAFICAS, nao em soma ponderada.
+// ============================================================================
 // $1 = term (q), $2 = lat, $3 = lon, $4 = zoom (int, nullable), $5 = userId (uuid|null).
-// A private name only surfaces if the user is admin or it is inside one of the
-// user's zones (ST_Contains). Anonymous ($5 null) sees only public names.
+//
+// Ate 2026-07-26 isto era uma soma de 7 criterios com pesos somando 1.00, herdada
+// verbatim do servico_nomes_geograficos. A troca nao foi opiniao: foi medida contra
+// um conjunto dourado de 584 casos em 13 familias (dev/busca-golden.json), com o
+// calibrador em dev/tune-busca.mjs. Aprovacao 81,5% -> 92,6%.
+//
+// A DOUTRINA, declarada: vence a feicao de MAIOR IMPORTANCIA mais PROXIMA do local,
+// com a importancia sendo CATEGORICA e nao de entidade. Cidade e muito importante e
+// vem primeiro INDEPENDENTE da distancia; nao existe ranking entre cidades. Abaixo
+// desse degrau vale a combinacao de proximidade e importancia. E a triade que o
+// Google documenta para resultado local (relevancia, distancia, proeminencia).
+//
+// POR QUE CHAVES E NAO SOMA. Numa soma - e tambem num produto - distancia suficiente
+// sempre COMPRA a diferenca de categoria, porque as duas moram na mesma unidade. Nao
+// existe peso que torne "cidade" incomparavel: so torna caro. Uma chave lexicografica
+// nao se compra. O numero que fecha o caso e a familia H do conjunto dourado (Cidade
+// do mesmo nome consultada a ~330 km, que tem de aparecer no topo):
+//     soma de 7 criterios, pesos originais ....... 85,7%
+//     soma recalibrada no otimizador ............. 85,7%
+//     produto multiplicativo com decaimento gauss  47,6%
+//     ESTAS TRES CHAVES ......................... 100,0%
+// O modelo multiplicativo e o padrao da industria (function_score do Elasticsearch,
+// que e como o Pelias faz) e PIORA esse caso, porque decaimento gaussiano a 330 km
+// esmaga tudo antes de a categoria votar.
+//
+// AS TRES CHAVES:
+//   1. RELEVANCIA, em faixa. CONTAINMENT CONTA COMO CASAMENTO PLENO: digitar
+//      "Altamira" com o mapa em cima de "Altamira do Paraná" e prefixo legitimo, nao
+//      erro de digitacao, e o trigrama pune a diferenca de comprimento (1,00 contra
+//      ~0,53) jogando os dois em faixas diferentes, onde a categoria nunca vota.
+//      Medido: a familia I (colisao de substring) vai de 14% para 77% so com isto.
+//   2. CATEGORIA. tipo_peso >= tier_min (hoje 1.0, ou seja, so Cidade) vem primeiro.
+//      Baixar o degrau para 0.9 (incluindo Vila e Povoado) mede 90,6%, pior que 92,6%.
+//   3. COMBINACAO de importancia e proximidade, dentro do degrau e abaixo dele.
+//      importancia^gama vezes decaimento gaussiano com PLATO: dentro do plato a
+//      distancia nao penaliza NADA e quem decide e a importancia.
+//      gama = 0,3 comprime a importancia, e nao e enfeite: com gama = 1 a
+//      multiplicacao por tipo_peso = 0.1 divide por dez quem esta no piso (29% do
+//      acervo) e a familia J desabava de 92% para 43%. E o equivalente ao
+//      modifier log1p/sqrt do field_value_factor do Elasticsearch.
+//   4. DESEMPATE por trigrama cru. Nao melhora ranking nenhum (medido: zero efeito
+//      no conjunto dourado); existe por DETERMINISMO. Sem uma ultima chave, dois
+//      candidatos identicos nas tres primeiras ordenam pelo que o plano devolver, e
+//      plano muda com volume - o mesmo defeito que o "c.id DESC" do CATALOGO_SELECT
+//      logo abaixo existe para evitar.
+//
+// O CAMPO `score` CONTINUA SAINDO, e continua em [0,1]: ele e o contrato congelado do
+// frontend. Como a ordem agora e lexicografica e nao um escalar, o score e a tupla
+// CODIFICADA numa base que preserva a ordem (faixa domina tier, que domina
+// combinacao), de modo que ORDER BY score DESC e exatamente a ordem das chaves.
+// Quem consome le um numero decrescente, como antes.
+//
+// ZOOM: continua opcional e agora afia SO O ESPACO - plato e escala encolhem com
+// 2^(10-zoom). O antigo `zoom_factor`, que NEUTRALIZAVA tipo_peso em zoom alto
+// (todo tipo virava 0.5), foi REMOVIDO: ele contradiz a chave 2 frontalmente, porque
+// zerar a diferenca de categoria e exatamente o que a doutrina proibe. O frontend
+// nao envia zoom (frontend/src/js/search/search-bar.search-providers.js), entao o
+// caminho real e o dos defaults.
+//
+// Filtro de acesso EMBUTIDO (defense in depth): nome privado so aparece para admin ou
+// para quem tem zona que o contem. Anonimo ($5 null) ve so publico.
 export const BUSCA = `
 WITH q AS (
   SELECT ng.f_unaccent($1) AS term,
-    CASE WHEN $4::int IS NOT NULL THEN 50000.0 * power(2, 10 - $4::int) ELSE 50000.0 END AS decay_dist,
-    CASE WHEN $4::int IS NOT NULL THEN GREATEST(0.0, LEAST(($4::int - 4.0)/14.0, 1.0)) ELSE 0.0 END AS zoom_factor
+    -- Constantes calibradas. Mexer nelas exige rodar dev/tune-busca.mjs de novo:
+    -- elas nao sao gosto, sao o ponto medido sobre dev/busca-golden.json.
+    0.15::float8 AS faixa_casamento,   -- largura da faixa de relevancia
+    1.0::float8  AS tier_min,          -- degrau de categoria (1.0 = so Cidade)
+    0.3::float8  AS gama,              -- compressao da importancia
+    CASE WHEN $4::int IS NOT NULL THEN  10.0 * power(2, 10 - $4::int) ELSE  10.0 END AS plato_km,
+    CASE WHEN $4::int IS NOT NULL THEN 300.0 * power(2, 10 - $4::int) ELSE 300.0 END AS escala_km
 ),
 candidatos AS (
   SELECT n.nome, n.tipo, n.municipio, n.estado, n.geom, n.tipo_peso, n.cluster_id,
@@ -83,19 +147,41 @@ dedup AS (
   -- testes-backend.md). (Sem crase neste comentario: a query e um template literal de JS.)
   ORDER BY nome, tipo, cluster_id, dist ASC
 ),
-q_ref AS (SELECT term, decay_dist, zoom_factor FROM q)
-SELECT d.nome, d.tipo, d.municipio, d.estado, d.longitude, d.latitude,
-  (
-      CASE WHEN lower(d.nome_clean) = lower(q_ref.term)              THEN 1.0 ELSE 0.0 END * 0.20
-    + CASE WHEN lower(d.nome_clean) LIKE lower(q_ref.term)||'%'      THEN 1.0 ELSE 0.0 END * 0.10
-    + CASE WHEN lower(d.nome_clean) LIKE '%'||lower(q_ref.term)||'%' THEN 1.0 ELSE 0.0 END * 0.15
-    + d.sim * 0.10
-    + (1.0 - abs(length(q_ref.term) - length(d.nome_clean))::float
-            / GREATEST(length(q_ref.term), length(d.nome_clean), 1)) * 0.15
-    + (COALESCE(d.tipo_peso,0.1) * (1.0 - q_ref.zoom_factor) + 0.5 * q_ref.zoom_factor) * 0.10
-    + (1.0 / (1.0 + d.dist / q_ref.decay_dist)) * 0.20
-  ) AS score
-FROM dedup d, q_ref
+pontuado AS (
+  SELECT d.nome, d.tipo, d.municipio, d.estado, d.longitude, d.latitude, d.sim,
+    -- CHAVE 1: relevancia em faixa. Containment vale casamento PLENO (ver o cabecalho).
+    floor(
+      (CASE WHEN lower(d.nome_clean) LIKE '%'||lower(q.term)||'%' THEN 1.0 ELSE d.sim END)
+      / q.faixa_casamento
+    ) AS faixa,
+    -- CHAVE 2: categoria. Acima do degrau, vem antes, independente da distancia.
+    CASE WHEN COALESCE(d.tipo_peso, 0.1) >= q.tier_min THEN 1 ELSE 0 END AS tier,
+    -- CHAVE 3: importancia comprimida vezes decaimento gaussiano com plato.
+    -- power(0.5, (excedente/escala)^2) e a gaussiana do Elasticsearch escrita direto:
+    -- vale exatamente 0.5 quando o excedente iguala a escala. Dentro do plato o
+    -- excedente e zero e o decaimento vale 1, ou seja, a distancia nao vota.
+    --
+    -- O LEAST(..., 700) NAO e paranoia: o Postgres LANCA ERRO em underflow de float em
+    -- vez de saturar em zero. Com zoom 16 a escala cai para 4,7 km, um candidato a
+    -- 300 km da expoente 4096, e power(0.5, 4096) derruba a requisicao inteira com
+    -- 22003 float_underflow_error. Achado rodando a query real contra o acervo real:
+    -- nenhum teste de unidade pegaria, porque so aparece com zoom alto E candidato
+    -- distante ao mesmo tempo. 0.5^700 ~ 5e-211 ainda cabe num double.
+    (
+      power(COALESCE(d.tipo_peso, 0.1), q.gama)
+      * power(0.5, LEAST(power(GREATEST(0.0, d.dist / 1000.0 - q.plato_km) / q.escala_km, 2), 700.0))
+    ) AS combinacao,
+    -- Normalizador derivado da propria faixa, e nao um literal: a maior faixa possivel
+    -- e floor(1/faixa_casamento), e cada chave precisa de mais peso que TUDO abaixo
+    -- dela (faixa vale 4, e tier 2 + combinacao 1 somam 3 < 4; tier vale 2, e
+    -- combinacao 1 < 2). Mudar faixa_casamento sem isto quebraria a dominancia em
+    -- silencio, e o sintoma seria ordem errada, nao erro.
+    (floor(1.0 / q.faixa_casamento) * 4 + 3) AS teto
+  FROM dedup d, q
+)
+SELECT nome, tipo, municipio, estado, longitude, latitude,
+  ((faixa * 4 + tier * 2 + combinacao + sim * 0.001) / (teto + 0.001)) AS score
+FROM pontuado
 ORDER BY score DESC
 LIMIT 5
 `;

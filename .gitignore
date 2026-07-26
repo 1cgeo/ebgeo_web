@@ -42,3 +42,9 @@ pids/
 # Permissões locais por desenvolvedor: caminho de máquina e domínios liberados
 # em pesquisas pontuais. O que vale para o time mora em .claude/settings.json.
 .claude/settings.local.json
+
+# Calibração da busca (dev/tune-busca.mjs)
+# Cache da matriz de atributos: ~23 MB, derivado do acervo carregado no banco de
+# quem rodou, e reconstruível em ~30 s. O CONJUNTO DOURADO (dev/busca-golden.json)
+# é versionado de propósito: é ele o ativo, o cache é só velocidade.
+dev/.busca-atributos.json

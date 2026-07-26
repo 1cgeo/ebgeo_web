@@ -67,7 +67,8 @@ Esta wiki é a memória semântica do EBGeo: o que cada peça do sistema faz, po
 ## Dados geográficos: gazetteer, 3D e 360
 
 - [[gazetteer-nomes-geograficos]] - o subsistema read-only de topônimos e identify sobre o schema isolado.
-- [[ranking-busca-toponimos]] - os sete critérios ponderados que ordenam a busca de nomes.
+- [[ranking-busca-toponimos]] - as três chaves lexicográficas que ordenam a busca de nomes, e por que não é uma soma.
+- [[calibracao-busca-toponimos]] - o conjunto dourado e a ablação que decidem essa ordenação com evidência.
 - [[catalogo-3d]] - a fonte única de descoberta dos modelos 3D e seu envelope próprio.
 - [[assets3d-distribuicao]] - a rota pública que serve os binários 3D com dual-mode de armazenamento.
 - [[zonas-acesso-geografico]] - autorização espacial embutida no SQL por zonas-polígono do usuário.
