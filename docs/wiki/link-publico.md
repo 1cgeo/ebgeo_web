@@ -40,7 +40,7 @@ O boot por `?atlasPublico=<link>` só dispara se ninguém estiver logado (`front
 
 - **`clearAllDataStore()` roda sem confirmação** (`frontend/src/js/index.js:231`). Abrir um link público numa aba que tinha desenho local anônimo **descarta o desenho**. Ver [[dominio-local-vs-remoto]] e [[sessao-boot-e-ciclo-de-vida]].
 - **`connectPublic` desliga o log de operações** (`frontend/src/js/store/sync/sync-engine.js:227`). Se o visitante enfileirasse ops, elas ficariam órfãs na fila e seriam empurradas para o atlas errado num login posterior ([[fila-operacoes-outbound]]).
-- **O token é efêmero em memória e zera o refresh token** (`frontend/src/js/store/sync/api-client.js:117-120`), porque a fonte de verdade num F5 é o link na URL, não o storage. Não há caminho especial de WS: o mesmo `wsUrl()` leva o token de visitante ([[client-id-estavel]]).
+- **O token é efêmero em memória e zera o refresh token** (`frontend/src/js/store/sync/api-client.js:162-165`), porque a fonte de verdade num F5 é o link na URL, não o storage. Não há caminho especial de WS: o mesmo `wsUrl()` leva o token de visitante ([[client-id-estavel]]).
 
 O overlay de configuração por atlas continua valendo para o visitante (`frontend/src/js/store/sync/sync-engine.js:235`), então restrições de 3D/360/basemaps de [[atlas-settings]] se aplicam.
 

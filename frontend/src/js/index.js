@@ -192,8 +192,14 @@ async function openAtlasFromUrl(link = parseAtlasLink()) {
         return true;
     } catch (error) {
         const status = error?.status ?? error?.statusCode;
+        // O 404 aqui cobre DOIS casos que o servidor não distingue de propósito: o atlas
+        // não existe, e o atlas existe mas quem pede não tem nenhum vínculo com ele
+        // (`resolvePermission` sem linha em `atlas_shares` responde NotFound, para não
+        // confirmar a existência a quem não deveria saber). "Projeto não encontrado" seco
+        // manda o usuário procurar um erro de digitação num link que está correto; o 403
+        // sobrou para o caso estreito de ter compartilhamento com nível insuficiente.
         if (status === 403) showToast('Você não tem acesso a este projeto.', 'error');
-        else if (status === 404) showToast('Projeto não encontrado.', 'error');
+        else if (status === 404) showToast('Projeto não encontrado ou sem acesso.', 'error');
         else showToast('Não foi possível abrir o projeto do servidor.', 'error');
         console.warn('[boot] atlas open from URL failed:', error);
         clearAtlasUrl();

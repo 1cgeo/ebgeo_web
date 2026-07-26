@@ -27,7 +27,7 @@ Esse é o preço deliberado de reusar a sessão para o visitante: em troca, o me
 
 O overlay de settings do atlas se aplica ao visitante também (`frontend/src/js/store/sync/sync-engine.js:234-235`): ele respeita disponibilidade de 3D/360/basemaps como qualquer membro, ver [[atlas-settings]].
 
-O token público é efêmero e não persiste: `setEphemeralToken` zera o refresh token (`frontend/src/js/store/sync/api-client.js:117-120`). Não há rotação; o link é re-resolvido no boot. Contrato de 1 h do backend em [[link-publico]]. Ele entra na URL do socket como qualquer outro access token (`frontend/src/js/store/sync/api-client.js:935-940`), ver [[canal-collab-websocket]].
+O token público é efêmero e não persiste: `setEphemeralToken` zera o refresh token (`frontend/src/js/store/sync/api-client.js:162-165`). Não há rotação; o link é re-resolvido no boot. Contrato de 1 h do backend em [[link-publico]]. Ele entra na URL do socket como qualquer outro access token (`frontend/src/js/store/sync/api-client.js:1046`), ver [[canal-collab-websocket]].
 
 ## Contratos de ordem que não podem inverter
 

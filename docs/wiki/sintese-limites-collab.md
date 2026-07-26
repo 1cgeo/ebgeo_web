@@ -76,7 +76,7 @@ O mesmo sweep é o mecanismo de morte por inatividade: sem pong desde o ciclo an
 
 O modo anônimo é local para **dados** (IndexedDB, [[dominio-local-vs-remoto]]), não para **boot**. O frontend é fail-fast em `GET /api/config`: sem backend alcançável ele mostra a tela "EBGeo indisponível" e não roda (`frontend/src/js/index.js:63-65`), porque o servidor é a fonte única de config e catálogo ([[config-dinamico]], [[config-runtime-urls-relativas]]). O checklist de `08-offline-import.md` registra "Funcionamento completo sem backend" explicitamente como fora de escopo.
 
-O caminho suportado continua sendo: acumular local, logar, subir o atlas via `POST /atlas/import` (`frontend/src/js/store/sync/api-client.js:617-618`), depois enviar imagens em bulk e corrigir os `imageId` por operação de update. Ver [[atlas-import-offline]], [[imagens-atlas]] e [[modos-operacao]].
+O caminho suportado continua sendo: acumular local, logar, subir o atlas via `POST /atlas/import` (`frontend/src/js/store/sync/api-client.js:714`), depois enviar imagens em bulk e corrigir os `imageId` por operação de update. Ver [[atlas-import-offline]], [[imagens-atlas]] e [[modos-operacao]].
 
 ## 9. O que usar quando algo não converge
 

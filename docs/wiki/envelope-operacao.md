@@ -8,7 +8,7 @@ Não há rota REST de escrita **incremental** para entidades colaborativas (fei�
 
 ## O envelope vai verbatim, e isso é intencional
 
-`flush()` empurra os objetos da fila sem projeção (`frontend/src/js/store/sync/sync-engine.js:272`, `frontend/src/js/store/sync/api-client.js:841`). Logo `previousData`, `batchId`, `batchIndex` e `traceId` cruzam a rede mesmo sem uso servidor-side.
+`flush()` empurra os objetos da fila sem projeção (`frontend/src/js/store/sync/sync-engine.js:272`, `frontend/src/js/store/sync/api-client.js:947`). Logo `previousData`, `batchId`, `batchIndex` e `traceId` cruzam a rede mesmo sem uso servidor-side.
 
 Isso só funciona porque o `.unknown(true)` no fim de `operationSchema` (`backend/src/modules/sync/sync.schemas.js:46`) vence o `stripUnknown: true` do middleware (`middleware/validate.js:5`). Verificado empiricamente no Joi 17.13.3 desta instalação: campos não declarados sobrevivem intactos. O comentário do próprio schema hesita nisso e declara `traceId` explicitamente "rather than relying on .unknown(true)". A hesitação é infundada, mas **remover o `.unknown(true)` apaga silenciosamente `previousData`, `batchId` e `batchIndex` sem erro de validação** e sem nenhum teste vermelho.
 

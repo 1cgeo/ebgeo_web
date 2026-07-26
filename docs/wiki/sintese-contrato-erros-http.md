@@ -9,12 +9,12 @@ O envelope e a cascata de cinco ramos estão inteiros em `backend/src/middleware
 ## Três lugares onde o envelope não existe
 
 - **Handshake do WebSocket.** Falha de token ou permissão no upgrade escreve uma linha HTTP crua e destrói o socket, sem corpo (`backend/src/modules/collab/collab.gateway.js:243`, `:253`, `:261`). Não tente parsear JSON ali, leia o status da linha de upgrade. Ver [[canal-collab-websocket]].
-- **204 do logout.** `_request` retorna `null` antes de tentar parsear (`frontend/src/js/store/sync/api-client.js:225`), então "resposta vazia" não é erro.
+- **204 do logout.** `_request` retorna `null` antes de tentar parsear (`frontend/src/js/store/sync/api-client.js:299`), então "resposta vazia" não é erro.
 - **Contratos nus.** `GET /nomes/busca` (array) e todo `/sv360/**` não têm chave `data` e passam intactos por `_unwrap`. Esta linha incluía `GET /api/config` na lista até 2026-07-25 e era falso: aquela rota responde `res.json({ data })` (`backend/src/modules/config/config.controller.js:10`), e quem lê o corpo cru sem desembrulhar recebe `undefined` em toda chave de config, com status 200. Ver [[sintese-contratos-congelados]], [[config-runtime-urls-relativas]].
 
 ## O 401 que vira um round-trip inútil
 
-O cliente trata **qualquer** 401 em rota autenticada como "access token expirou": refresh transparente e uma repetição (`frontend/src/js/store/sync/api-client.js:231-233`). Mas 401 tem outras origens, e uma delas é `Account is inactive` (`backend/src/middleware/auth.js:95`), revalidada contra o banco a cada requisição porque o JWT fica até 15 min desatualizado. Nesse caso o refresh também falha (a desativação revoga os refresh tokens), o cliente cai em `clearTokens()` + `_notifyAuthLost()` (`frontend/src/js/store/sync/api-client.js:300-307`) e o resultado final está certo, ao custo de uma ida extra ao servidor.
+O cliente trata **qualquer** 401 em rota autenticada como "access token expirou": refresh transparente e uma repetição (`frontend/src/js/store/sync/api-client.js:305-307`). Mas 401 tem outras origens, e uma delas é `Account is inactive` (`backend/src/middleware/auth.js:95`), revalidada contra o banco a cada requisição porque o JWT fica até 15 min desatualizado. Nesse caso o refresh também falha (a desativação revoga os refresh tokens), o cliente cai em `clearTokens()` + `_notifyAuthLost()` (`frontend/src/js/store/sync/api-client.js:374-381`) e o resultado final está certo, ao custo de uma ida extra ao servidor.
 
 Cuidado com a fronteira: **organização inativa é 403, não 401** (`backend/src/middleware/auth.js:98`), justamente para não disparar esse refresh. Se um dia alguém mudar esse 403 para 401, cria-se um loop de refresh inútil por requisição.
 
@@ -28,7 +28,7 @@ Nunca ramifique pela `message`: no ramo 4 do handler ela só é repassada quando
 
 O que isso corrige, e é a armadilha que sobrevive na cabeça de quem leu a doc antiga: as três rotas **degeneravam** para a chave `ip:` e drenavam um balde único. Numa rede atrás de NAT o 11º refresh honesto da janela virava 429, e o cliente transforma qualquer erro de refresh em logout definitivo. Não escreva código novo assumindo o balde compartilhado, e não "otimize" reunindo os limiters: a separação é o conserto.
 
-O agravante do lado do cliente continua de pé: `refresh()` trata qualquer falha como sessão perdida, então um 429 no refresh cai no mesmo `catch` do token expirado e derruba a sessão (`frontend/src/js/store/sync/api-client.js:300-307`). Refresh concorrente já é serializado por `this._refreshing` (`frontend/src/js/store/sync/api-client.js:290`), o que também evita disparar a detecção de reuso de [[refresh-token-rotacao]]. Bordas em [[hardening-borda-api]].
+O agravante do lado do cliente continua de pé: `refresh()` trata qualquer falha como sessão perdida, então um 429 no refresh cai no mesmo `catch` do token expirado e derruba a sessão (`frontend/src/js/store/sync/api-client.js:374-381`). Refresh concorrente já é serializado por `this._refreshing` (`frontend/src/js/store/sync/api-client.js:364`), o que também evita disparar a detecção de reuso de [[refresh-token-rotacao]]. Bordas em [[hardening-borda-api]].
 
 ## 404 pode significar "funcionalidade desligada"
 

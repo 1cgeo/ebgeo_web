@@ -105,9 +105,9 @@ Origem fora do atlas devolve **404**, não 403: guarda anti-IDOR que evita vazar
 
 ## Envelope, erro e refresh
 
-Sucesso é sempre `{ data }`; 204 vem sem corpo (o cliente precisa tolerar, `frontend/src/js/store/sync/api-client.js:225`). O desembrulho tem um passe-livre para contratos "nus" (arrays e objetos sem chave `data`, como `/nomes/busca` e `/sv360/**`) em `_unwrap` (`frontend/src/js/store/sync/api-client.js:264-282`): se um endpoint novo devolver array, ele passa direto, o que é intencional mas fácil de quebrar ao "padronizar". Esta linha listava "o objeto de config" entre os nus até 2026-07-25; `GET /api/config` responde `{ data }` como as demais ([[sintese-contratos-congelados]]).
+Sucesso é sempre `{ data }`; 204 vem sem corpo (o cliente precisa tolerar, `frontend/src/js/store/sync/api-client.js:299`). O desembrulho tem um passe-livre para contratos "nus" (arrays e objetos sem chave `data`, como `/nomes/busca` e `/sv360/**`) em `_unwrap` (`frontend/src/js/store/sync/api-client.js:338-356`): se um endpoint novo devolver array, ele passa direto, o que é intencional mas fácil de quebrar ao "padronizar". Esta linha listava "o objeto de config" entre os nus até 2026-07-25; `GET /api/config` responde `{ data }` como as demais ([[sintese-contratos-congelados]]).
 
-`_request` faz **um** refresh transparente em 401 e repete a chamada uma única vez (`_retry: false` na segunda, `frontend/src/js/store/sync/api-client.js:228-241`). Não há segunda tentativa: falha de refresh sobe como erro. Ver [[refresh-token-rotacao]] e [[autenticacao-jwt]].
+`_request` faz **um** refresh transparente em 401 e repete a chamada uma única vez (`_retry: false` na segunda, `frontend/src/js/store/sync/api-client.js:302-315`). Não há segunda tentativa: falha de refresh sobe como erro. Ver [[refresh-token-rotacao]] e [[autenticacao-jwt]].
 
 ## Acesso público
 

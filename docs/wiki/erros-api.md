@@ -12,7 +12,7 @@ Portanto **marcação campo a campo de formulário não é possível hoje**, ape
 
 ## Os dois caminhos de imagem não têm refresh automático
 
-`uploadImage` (`frontend/src/js/store/sync/api-client.js:857-873`) e `fetchImageBlob` (`frontend/src/js/store/sync/api-client.js:916-923`) montam o `fetch` à mão porque um é multipart e o outro é binário, e por isso **não passam por `_request`**. Consequências que o código não anuncia:
+`uploadImage` (`frontend/src/js/store/sync/api-client.js:963-985`) e `fetchImageBlob` (`frontend/src/js/store/sync/api-client.js:1027-1040`) montam o `fetch` à mão porque um é multipart e o outro é binário, e por isso **não passam por `_request`**. Consequências que o código não anuncia:
 
 - não há refresh transparente. Um upload longo que atravessa a expiração do access token falha com 401 puro e definitivo.
 - `fetchImageBlob` não parseia o corpo: lança `ApiError('HTTP <status>')` **sem `code`**. Qualquer lógica baseada em `error.code` no caminho de imagens é um `undefined` silencioso. Use `error.status`.
@@ -21,11 +21,11 @@ Ver [[imagens-atlas]] e [[upload-imagens-seguranca]].
 
 ## O 401 já foi tratado pelo transporte
 
-Não escreva `if (401) refresh()` na sua camada: `_request` já refresca e repete uma vez (`frontend/src/js/store/sync/api-client.js:231-233`), e o `ApiError` só sobe se o retry também falhar. Três guardas sustentam isso e quebram se alguém "simplificar":
+Não escreva `if (401) refresh()` na sua camada: `_request` já refresca e repete uma vez (`frontend/src/js/store/sync/api-client.js:305-307`), e o `ApiError` só sobe se o retry também falhar. Três guardas sustentam isso e quebram se alguém "simplificar":
 
-- `refresh()` compartilha uma promessa em voo (`frontend/src/js/store/sync/api-client.js:289-311`), senão uma rajada de requisições vira uma rajada de POSTs `/auth/refresh`, que tem limiter próprio e chaveado por endereço, grosso demais atrás de NAT (ver [[refresh-token-rotacao]] e [[sintese-contrato-erros-http]]).
-- a própria chamada de refresh vai com `_retry: false` (`frontend/src/js/store/sync/api-client.js:295-299`), senão um 401 nela recursa.
-- o handler de auth-lost é ligado **depois** do boot de propósito (`frontend/src/js/store/sync/api-client.js:78-81`): token expirado no boot deve cair em anônimo em silêncio, não abrir modal de login por cima da tela de carregamento.
+- `refresh()` compartilha uma promessa em voo (`frontend/src/js/store/sync/api-client.js:363-385`), senão uma rajada de requisições vira uma rajada de POSTs `/auth/refresh`, que tem limiter próprio e chaveado por endereço, grosso demais atrás de NAT (ver [[refresh-token-rotacao]] e [[sintese-contrato-erros-http]]).
+- a própria chamada de refresh vai com `_retry: false` (`frontend/src/js/store/sync/api-client.js:369-373`), senão um 401 nela recursa.
+- o handler de auth-lost é ligado **depois** do boot de propósito (`frontend/src/js/store/sync/api-client.js:123-126`): token expirado no boot deve cair em anônimo em silêncio, não abrir modal de login por cima da tela de carregamento.
 
 ## `atlasId` malformado não é 404
 

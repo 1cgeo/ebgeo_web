@@ -51,7 +51,7 @@ Essa ordem fecha um órfão e abre o inverso, que ninguém procura: se o `writeF
 
 ## Download: por que `<img src=URL>` nunca vai funcionar
 
-A rota é autenticada e serve `attachment`. O token vive em memória no cliente, não em cookie que uma tag `<img>` enviaria. O caminho correto é `fetchImageBlob` (`frontend/src/js/store/sync/api-client.js:923`): `GET` com `Authorization: Bearer`, `res.blob()`, e o chamador cria um `blob:` URL. `imageUrl()` (`frontend/src/js/store/sync/api-client.js:902`) existe só para montar a URL, não para colar em `src`.
+A rota é autenticada e serve `attachment`. O token vive em memória no cliente, não em cookie que uma tag `<img>` enviaria. O caminho correto é `fetchImageBlob` (`frontend/src/js/store/sync/api-client.js:1027`): `GET` com `Authorization: Bearer`, `res.blob()`, e o chamador cria um `blob:` URL. `imageUrl()` (`frontend/src/js/store/sync/api-client.js:1006`) existe só para montar a URL, não para colar em `src`.
 
 O cache é `private, max-age=31536000, immutable` (`backend/src/modules/images/images.controller.js:37`), então **não há cache-busting por query string**: imagem não muda depois de enviada e deletar é hard-delete (`backend/src/modules/images/images.service.js:107-121`). O `immutable` promete mais do que a rota entrega, e o furo está em [[imagens-atlas]]: o delete é físico, devolve a PK ao pool, e re-importar com o mesmo `localId` recria a MESMA URL com bytes novos. Ver [[sintese-cache-http-imutavel]].
 

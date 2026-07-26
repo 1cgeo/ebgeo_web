@@ -18,3 +18,4 @@
 ## A evitar
 
 - Tratar contagem de erro como métrica a zerar. Contradição pendente vale mais aberta e visível que fechada às pressas com a prosa em vez do código.
+- **Deslocar citação por número de linha em massa sem conferir o destino.** Ao inserir 79 linhas em `api-client.js` (2026-07-25), remapeei as 36 citações da wiki pelo diff posicional, que é exato. Doze delas apontavam para o lugar errado ANTES do remapeamento, e o remapeamento as manteve erradas com número novo, ou seja, lavou rot antiga como se fosse recém-conferida. O script acerta o deslocamento e não tem opinião sobre o alvo. Depois de remapear, leia o destino de cada citação e confira contra a frase que a acompanha; as que não baterem eram rot pré-existente e é a hora mais barata de corrigi-las. O guarda não pega isso: `docs-integridade` valida o CAMINHO, nunca a LINHA.

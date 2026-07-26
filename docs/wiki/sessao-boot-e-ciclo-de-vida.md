@@ -24,7 +24,7 @@ O código comenta cada decisão no ponto em que ela acontece. O que ele não com
 - Requisições de boot (config + `getMe`) têm timeout de 8 s; **pull de snapshot e push de operações são intencionalmente sem timeout** (`frontend/src/js/store/sync/api-client.js:41-49`), para não abortar transferência grande em rede ruim. Não "conserte" isso adicionando timeout.
 - A barreira `Promise.race([bootRendered, 15 s])` (`frontend/src/js/index.js:156`) é espera **só de IndexedDB**, nada de rede. O teto existe contra deadlock se o evento `load` nunca disparar.
 - O link pendente pós-login vive em escopo de módulo (`frontend/src/js/deep-link/atlas-link.js:100-112`), o que basta porque boot e login não têm reload entre si. Deixa de bastar no instante em que algum fluxo de login recarregar a página.
-- Token de link público é efêmero e não persistido (`frontend/src/js/store/sync/api-client.js:117-120`): o link é re-resolvido a cada boot. Ver [[link-publico]].
+- Token de link público é efêmero e não persistido (`frontend/src/js/store/sync/api-client.js:162-165`): o link é re-resolvido a cada boot. Ver [[link-publico]].
 
 ## Sequências onde a ordem é o contrato
 

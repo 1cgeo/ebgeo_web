@@ -49,6 +49,51 @@ const TOKEN_STORAGE_KEY = 'ebgeo_auth';
 const BOOT_TIMEOUT_MS = 8000;
 
 /**
+ * Headroom (ms) before `exp` at which the access token is renewed BEFORE being used,
+ * instead of waiting for the 401 that reactively triggers a refresh.
+ *
+ * The reactive path is not enough for two requests, and both are uploads. `uploadImage`
+ * builds its own multipart request and has no 401 retry at all. `POST /images/bulk` does
+ * retry, but never gets the chance: the backend picks the enlarged 50 MB body parser only
+ * when `flexibleAuth` has already attached a verified principal (`backend/src/app.js`), so
+ * an expired token makes a >10 MB batch fall to the global 10 MB cap and answer **413**.
+ * Nothing in this client reacts to 413, so that upload failed and every retry failed the
+ * same way, until some unrelated call happened to renew the session.
+ *
+ * Fixing it on the server does not work: answering 401 before reading the body leaves
+ * megabytes in flight and Node destroys the socket, so the client reads ECONNRESET instead
+ * of the status (measured — the anonymous small-body case answers 401 in 2 ms, every
+ * 12 MB case resets). Draining the body first would let an unauthenticated caller push the
+ * full 50 MB, which is the amplification that guard exists to prevent. Renewing here costs
+ * one request and no trade-off.
+ *
+ * 30 s covers ordinary clock skew and the flight time of a large upload.
+ */
+const TOKEN_RENEWAL_SKEW_MS = 30000;
+
+/**
+ * Reads the `exp` claim of a JWT WITHOUT verifying it. Signature validation is the
+ * server's job; the client only needs to know when to ask for a new token, and a forged
+ * `exp` can at worst make this client refresh early (or not at all, which is exactly the
+ * behaviour before this existed).
+ * @param {string} token - Access token.
+ * @returns {number|null} Expiry in epoch ms, or null when unreadable.
+ */
+function jwtExpiryMs(token) {
+    if (typeof token !== 'string') return null;
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    try {
+        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const payload = JSON.parse(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '=')));
+        return Number.isFinite(payload?.exp) ? payload.exp * 1000 : null;
+    } catch {
+        // Not a readable JWT: treat as "unknown expiry" and leave the 401 path in charge.
+        return null;
+    }
+}
+
+/**
  * HTTP client for the EBGeo backend.
  */
 export class ApiClient {
@@ -72,6 +117,8 @@ export class ApiClient {
         this._onAuthLost = null;
         /** Debounce so a burst of failing requests fires the auth-lost handler only once. */
         this._authLostFired = false;
+        /** Set once a renewal proves the local clock is unusable; see `_ensureFreshAccessToken`. */
+        this._renewalStoodDown = false;
     }
 
     /**
@@ -178,6 +225,46 @@ export class ApiClient {
     // ===== CORE REQUEST =====
 
     /**
+     * @private Renews the access token when it is expired or about to expire, so a request
+     * is never SENT with a token the server will refuse. See {@link TOKEN_RENEWAL_SKEW_MS}
+     * for why the reactive 401 path is not sufficient on its own.
+     *
+     * Never throws: a failed renewal has already cleared the tokens and notified, and the
+     * request then proceeds anonymous, which the route answers with its own 401. Turning it
+     * into a throw here would replace every caller's server error with a client-side one.
+     * Concurrency is handled by `refresh()`, which is single-flight.
+     * @returns {Promise<void>}
+     */
+    async _ensureFreshAccessToken() {
+        if (this._renewalStoodDown) return;
+        if (!this._accessToken || !this._refreshToken) return;
+        const expiresAt = jwtExpiryMs(this._accessToken);
+        // Unreadable expiry: do nothing rather than refresh on every request.
+        if (expiresAt === null) return;
+        if (expiresAt - Date.now() > TOKEN_RENEWAL_SKEW_MS) return;
+        try {
+            await this.refresh();
+        } catch {
+            // Session terminally lost; refresh() already cleared and notified.
+            return;
+        }
+
+        // A token JUST issued that still reads as expiring means this device's clock
+        // disagrees with the server's by more than a token lifetime — the comparison
+        // above is the only part of this client that trusts the local clock. Left
+        // alone it would rotate the refresh family once per REQUEST, forever, and
+        // never be throttled (`refreshLimiter` charges only failures). Standing down
+        // returns the client to the reactive 401 path, which is exactly the behaviour
+        // it had before this method existed, and the server is the one judging `exp`
+        // either way. Not re-armed: a wrong clock does not fix itself mid-session.
+        const renewed = jwtExpiryMs(this._accessToken);
+        if (renewed !== null && renewed - Date.now() <= TOKEN_RENEWAL_SKEW_MS) {
+            this._renewalStoodDown = true;
+            console.warn('[ApiClient] relógio local diverge do servidor; renovação proativa desligada');
+        }
+    }
+
+    /**
      * Performs an authenticated JSON request and unwraps the `{ data }` envelope.
      * On a 401 with a refresh token available, transparently refreshes once and retries.
      *
@@ -191,6 +278,11 @@ export class ApiClient {
      * @throws {ApiError}
      */
     async _request(method, path, { body, auth = true, _retry = true, timeoutMs } = {}) {
+        // Renew BEFORE the header is built, or the request carries the stale token.
+        // Guarded by `auth`, which is also what keeps this out of the recursion:
+        // `refresh()` issues its own request with `auth: false`.
+        if (auth) await this._ensureFreshAccessToken();
+
         const headers = {};
         if (body !== undefined) headers['Content-Type'] = 'application/json';
         if (auth && this._accessToken) headers['Authorization'] = `Bearer ${this._accessToken}`;
@@ -887,6 +979,11 @@ export class ApiClient {
      * @returns {Promise<Object>} The created image record ({ id, ... }).
      */
     async uploadImage(atlasId, blob, filename = 'image.png') {
+        // This method builds its own request and therefore has NO 401 refresh+retry:
+        // renewing up front is the only thing standing between an expired session and a
+        // lost upload.
+        await this._ensureFreshAccessToken();
+
         const form = new FormData();
         form.append('image', blob, filename);
         // No Content-Type header — fetch derives the multipart boundary from FormData.

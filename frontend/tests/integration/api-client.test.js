@@ -280,3 +280,159 @@ describe('ApiClient — images (§17.14 photos / §17.19 custom icons)', () => {
         expect(fetchImpl.mock.calls[0][1].method).toBe('DELETE');
     });
 });
+
+/**
+ * Proactive token renewal.
+ *
+ * The reactive 401 retry does not cover two upload paths: `uploadImage` builds its own
+ * request and never retries, and `POST /images/bulk` only gets the backend's enlarged
+ * 50 MB body parser when a VERIFIED principal is already attached — so an expired token
+ * makes a >10 MB batch answer 413, which nothing here reacts to. Renewing before the
+ * request is what keeps both alive.
+ *
+ * Negative control: drop the `_ensureFreshAccessToken()` call from `_request` and the
+ * first and last cases fail; drop it from `uploadImage` and the multipart case fails.
+ */
+describe('ApiClient — proactive token renewal', () => {
+    /** Builds a JWT-shaped token whose `exp` is `secondsFromNow` away. Signature is fake. */
+    function jwtExpiringIn(secondsFromNow) {
+        const b64url = (obj) => btoa(JSON.stringify(obj))
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const exp = Math.floor(Date.now() / 1000) + secondsFromNow;
+        return `${b64url({ alg: 'HS256', typ: 'JWT' })}.${b64url({ sub: 'u1', exp })}.sig`;
+    }
+
+    it('renews an about-to-expire token BEFORE sending, and sends the NEW one', async () => {
+        const fetchImpl = vi.fn(async (url) => (
+            url.endsWith('/auth/refresh')
+                ? resp(200, { data: { accessToken: jwtExpiringIn(900), refreshToken: 'refresh-2' } })
+                : resp(200, { data: [] })
+        ));
+        const api = makeClient(fetchImpl);
+        // 10s of life left, inside the 30s renewal headroom.
+        api.setTokens({ accessToken: jwtExpiringIn(10), refreshToken: 'refresh-1' });
+
+        await api.listAtlas();
+
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+        expect(fetchImpl.mock.calls[0][0]).toBe('http://api.test/api/v1/auth/refresh');
+        const [url, opts] = fetchImpl.mock.calls[1];
+        expect(url).toBe('http://api.test/api/v1/atlas');
+        // The point of renewing before the header is built: the request must not carry
+        // the stale token it was about to be refused for.
+        expect(opts.headers.Authorization).toBe(`Bearer ${api.getAccessToken()}`);
+        expect(opts.headers.Authorization).not.toBe('Bearer refresh-1');
+    });
+
+    it('leaves a token with plenty of life alone (no extra round trip)', async () => {
+        const fetchImpl = vi.fn(async () => resp(200, { data: [] }));
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: jwtExpiringIn(900), refreshToken: 'refresh-1' });
+
+        await api.listAtlas();
+
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+        expect(fetchImpl.mock.calls[0][0]).toBe('http://api.test/api/v1/atlas');
+    });
+
+    it('leaves an UNREADABLE token alone rather than refreshing on every request', async () => {
+        const fetchImpl = vi.fn(async () => resp(200, { data: [] }));
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: 'opaque-not-a-jwt', refreshToken: 'refresh-1' });
+
+        await api.listAtlas();
+
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
+    it('uploadImage renews too — it is the path with no 401 retry at all', async () => {
+        const fetchImpl = vi.fn(async (url) => (
+            url.endsWith('/auth/refresh')
+                ? resp(200, { data: { accessToken: jwtExpiringIn(900), refreshToken: 'refresh-2' } })
+                : resp(201, { data: { id: 'img-1' } })
+        ));
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: jwtExpiringIn(5), refreshToken: 'refresh-1' });
+
+        const created = await api.uploadImage('atlas-1', new Blob([new Uint8Array([1])]), 'x.png');
+
+        expect(created).toEqual({ id: 'img-1' });
+        expect(fetchImpl.mock.calls[0][0]).toBe('http://api.test/api/v1/auth/refresh');
+        expect(fetchImpl.mock.calls[1][1].headers.Authorization).toBe(`Bearer ${api.getAccessToken()}`);
+    });
+
+    it('a FAILED renewal surfaces the server 401, never a client-side throw', async () => {
+        const fetchImpl = vi.fn(async (url) => (
+            url.endsWith('/auth/refresh')
+                ? resp(401, { error: { code: 'UNAUTHORIZED', message: 'Refresh token inválido' } })
+                : resp(401, { error: { code: 'UNAUTHORIZED', message: 'Missing or invalid authorization header' } })
+        ));
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: jwtExpiringIn(1), refreshToken: 'refresh-dead' });
+
+        // The request still goes out (anonymous) and the route's own 401 is what the
+        // caller sees, with the same shape as before this renewal existed.
+        await expect(api.listAtlas()).rejects.toMatchObject({ name: 'ApiError', status: 401 });
+        expect(api.isAuthenticated()).toBe(false);
+        // Asserted because the status alone proves nothing here: the REACTIVE path
+        // (send → 401 → refresh → fail) ends in the very same ApiError, so without
+        // this the case would stay green with the renewal removed.
+        expect(fetchImpl.mock.calls[0][0]).toBe('http://api.test/api/v1/auth/refresh');
+    });
+});
+
+describe('ApiClient — renovação proativa e o relógio local', () => {
+    function jwtExpiringIn(secondsFromNow) {
+        const b64url = (obj) => btoa(JSON.stringify(obj))
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const exp = Math.floor(Date.now() / 1000) + secondsFromNow;
+        return `${b64url({ alg: 'HS256', typ: 'JWT' })}.${b64url({ sub: 'u1', exp })}.sig`;
+    }
+
+    it('stands down after ONE refresh when the renewed token still reads as expired', async () => {
+        // Relógio local adiantado: todo token emitido pelo servidor já nasce "vencido"
+        // para este cliente. Sem a rendição, seriam N refreshes para N requisições, cada
+        // um rotacionando a família — e o limiter do /auth/refresh não cobra sucesso,
+        // então nada freia. O comportamento correto é voltar ao caminho reativo de 401.
+        const fetchImpl = vi.fn(async (url) => (
+            url.endsWith('/auth/refresh')
+                // O servidor devolve um token bom; é o RELÓGIO daqui que o lê como vencido.
+                ? resp(200, { data: { accessToken: jwtExpiringIn(-3600), refreshToken: 'r-novo' } })
+                : resp(200, { data: [] })
+        ));
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: jwtExpiringIn(-3600), refreshToken: 'r-1' });
+
+        await api.listAtlas();
+        await api.listAtlas();
+        await api.listAtlas();
+
+        const refreshes = fetchImpl.mock.calls.filter(([u]) => u.endsWith('/auth/refresh'));
+        expect(refreshes).toHaveLength(1);
+        // E as três requisições saíram assim mesmo: render-se não é falhar.
+        expect(fetchImpl.mock.calls.filter(([u]) => u.endsWith('/atlas'))).toHaveLength(3);
+    });
+
+    it('does NOT stand down when the renewal actually produced a fresh token', async () => {
+        // Controle do caso acima: com relógio são, a renovação tem de continuar armada.
+        // Sem este teste, o anterior passaria igual se a renovação tivesse sido desligada
+        // de vez. O que discrimina é a SEGUNDA renovação: só acontece se a bandeira de
+        // rendição não foi levantada na primeira.
+        const fetchImpl = vi.fn(async (url) => (
+            url.endsWith('/auth/refresh')
+                ? resp(200, { data: { accessToken: jwtExpiringIn(900), refreshToken: 'r-novo' } })
+                : resp(200, { data: [] })
+        ));
+        const api = makeClient(fetchImpl);
+        api.setTokens({ accessToken: jwtExpiringIn(5), refreshToken: 'r-1' });
+
+        await api.listAtlas(); // renova (1): o token novo tem 900s, nada de rendição
+        await api.listAtlas(); // token bom, nenhuma renovação
+        // Passaram-se ~15 min de sessão: o token voltou a se aproximar do vencimento.
+        api.setTokens({ accessToken: jwtExpiringIn(5), refreshToken: 'r-novo' });
+        await api.listAtlas(); // renova (2) — prova que a rendição não foi acionada
+
+        expect(fetchImpl.mock.calls.filter(([u]) => u.endsWith('/auth/refresh'))).toHaveLength(2);
+        expect(fetchImpl.mock.calls.filter(([u]) => u.endsWith('/atlas'))).toHaveLength(3);
+    });
+});

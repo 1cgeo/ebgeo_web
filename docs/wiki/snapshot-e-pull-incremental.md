@@ -45,7 +45,7 @@ Outras consequências desse desenho:
 
 - **Snapshot não passa pelo LWW por-entidade.** Ele é o estado autoritativo do servidor e sobrescreve, inclusive edição local ainda não flushada. A fila outbound continua íntegra e reenvia (idempotente por `op_id`). Ver [[modelo-conflito-lww]], [[idempotencia-e-convergence-guard]], [[fila-operacoes-outbound]].
 - **Viewer read-only recebe snapshot podado**: comentários espaciais são omitidos e ops de comentário filtradas no incremental. O side-store local fica vazio; não é bug. Ver [[permissoes-atlas]].
-- **`pullSync` não tem timeout** (`frontend/src/js/store/sync/api-client.js:831` não passa `timeoutMs`). Deliberado (P6): transferência grande em rede ruim não deve ser abortada. Só as chamadas críticas de boot têm limite.
+- **`pullSync` não tem timeout** (`frontend/src/js/store/sync/api-client.js:937` não passa `timeoutMs`). Deliberado (P6): transferência grande em rede ruim não deve ser abortada. Só as chamadas críticas de boot têm limite.
 
 ## Redistribuição para os side-stores
 
